@@ -42,7 +42,7 @@
 
         </Grid.RenderTransform>
 
-        <Rectangle Stroke="{x:Null}" StrokeThickness="0.0001" IsHitTestVisible="False" Height="10" VerticalAlignment="Top" Margin="16,0">
+        <Rectangle IsHitTestVisible="False" Height="10" VerticalAlignment="Top" Margin="16,0">
 
             <Rectangle.Fill>
 
@@ -60,7 +60,7 @@
 
         </Rectangle>
 
-        <Rectangle Stroke="{x:Null}" StrokeThickness="0.0001" IsHitTestVisible="False" Height="10" VerticalAlignment="Bottom" Margin="16,0">
+        <Rectangle IsHitTestVisible="False" Height="10" VerticalAlignment="Bottom" Margin="16,0">
 
             <Rectangle.Fill>
 
@@ -78,7 +78,7 @@
 
         </Rectangle>
 
-        <Rectangle HorizontalAlignment="Right" Margin="0,16" IsHitTestVisible="False" Stroke="{x:Null}" StrokeThickness="0.0001" Width="10">
+        <Rectangle HorizontalAlignment="Right" Margin="0,16" IsHitTestVisible="False" Width="10">
 
             <Rectangle.Fill>
 
@@ -96,7 +96,7 @@
 
         </Rectangle>
 
-        <Rectangle HorizontalAlignment="Left" Stroke="{x:Null}" IsHitTestVisible="False" Width="10" Margin="0,16" StrokeThickness="0.0001">
+        <Rectangle HorizontalAlignment="Left" IsHitTestVisible="False" Width="10" Margin="0,16">
 
             <Rectangle.Fill>
 
@@ -114,7 +114,7 @@
 
         </Rectangle>
 
-        <Rectangle HorizontalAlignment="Left" Stroke="{x:Null}" IsHitTestVisible="False" Width="16" StrokeThickness="0.0001" VerticalAlignment="Top" Height="16">
+        <Rectangle HorizontalAlignment="Left" IsHitTestVisible="False" Width="16" VerticalAlignment="Top" Height="16">
 
             <Rectangle.Fill>
 
@@ -130,7 +130,7 @@
 
         </Rectangle>
 
-        <Rectangle HorizontalAlignment="Left" Stroke="{x:Null}" IsHitTestVisible="False" Width="16" StrokeThickness="0.0001" VerticalAlignment="Bottom" Height="16">
+        <Rectangle HorizontalAlignment="Left" IsHitTestVisible="False" Width="16" VerticalAlignment="Bottom" Height="16">
 
             <Rectangle.Fill>
 
@@ -146,7 +146,7 @@
 
         </Rectangle>
 
-        <Rectangle HorizontalAlignment="Right" Stroke="{x:Null}" IsHitTestVisible="False" Width="16" StrokeThickness="0.0001" VerticalAlignment="Bottom" Height="16">
+        <Rectangle HorizontalAlignment="Right" IsHitTestVisible="False" Width="16" VerticalAlignment="Bottom" Height="16">
 
             <Rectangle.Fill>
 
@@ -162,7 +162,7 @@
 
         </Rectangle>
 
-        <Rectangle HorizontalAlignment="Right" Stroke="{x:Null}" IsHitTestVisible="False" Width="16" StrokeThickness="0.0001" VerticalAlignment="Top" Height="16">
+        <Rectangle HorizontalAlignment="Right" IsHitTestVisible="False" Width="16" VerticalAlignment="Top" Height="16">
 
             <Rectangle.Fill>
 
@@ -236,7 +236,7 @@
                                        SvgIcon="lucide/minus" />
                     <local:MyIconButton x:Name="BtnTitleHelp" HorizontalAlignment="Right" Height="28" VerticalAlignment="Center" Width="28" Margin="0,0,108,0" Theme="White" IsVisible="False" Click="BtnTitleHelp_Click"
                                         SvgIcon="lucide/circle-help" />
-                    <Grid x:Name="PanTitleMain" HorizontalAlignment="Left">
+                    <Grid x:Name="PanTitleMain" HorizontalAlignment="Stretch">
 
                         <Grid.ColumnDefinitions>
 
@@ -248,7 +248,7 @@
 
                         </Grid.ColumnDefinitions>
 
-                        <Grid x:Name="PanTitleLeft" SizeChanged="PanTitle_SizeChanged">
+                        <Grid x:Name="PanTitleLeft" HorizontalAlignment="Left">
 
                             <Grid.ColumnDefinitions>
 
@@ -279,7 +279,7 @@
 
                     <Grid x:Name="PanTitleInner" IsVisible="False" Margin="-16,0,0,0" Opacity="0"
 
-                          HorizontalAlignment="Left">
+                          HorizontalAlignment="Stretch">
 
                         <local:MyIconButton HorizontalAlignment="Left" Theme="White" x:Name="BtnTitleInner"
 
@@ -459,21 +459,21 @@
         </Border>
 
         <!-- Borderless windows do not receive native resize hit testing. -->
-        <Border Background="#01000000" Height="4" VerticalAlignment="Top" Margin="22,10,22,0" Cursor="SizeNorthSouth"
+        <Border Background="Transparent" Height="4" VerticalAlignment="Top" Margin="22,10,22,0" Cursor="SizeNorthSouth"
                 ZIndex="1000" Tag="North" PointerPressed="ResizeGrip_PointerPressed" />
-        <Border Background="#01000000" Height="4" VerticalAlignment="Bottom" Margin="22,0,22,10" Cursor="SizeNorthSouth"
+        <Border Background="Transparent" Height="4" VerticalAlignment="Bottom" Margin="22,0,22,10" Cursor="SizeNorthSouth"
                 ZIndex="1000" Tag="South" PointerPressed="ResizeGrip_PointerPressed" />
-        <Border Background="#01000000" Width="4" HorizontalAlignment="Left" Margin="10,22,0,22" Cursor="SizeWestEast"
+        <Border Background="Transparent" Width="4" HorizontalAlignment="Left" Margin="10,22,0,22" Cursor="SizeWestEast"
                 ZIndex="1000" Tag="West" PointerPressed="ResizeGrip_PointerPressed" />
-        <Border Background="#01000000" Width="4" HorizontalAlignment="Right" Margin="0,22,10,22" Cursor="SizeWestEast"
+        <Border Background="Transparent" Width="4" HorizontalAlignment="Right" Margin="0,22,10,22" Cursor="SizeWestEast"
                 ZIndex="1000" Tag="East" PointerPressed="ResizeGrip_PointerPressed" />
-        <Border Background="#01000000" Width="14" Height="14" Margin="8,8,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" Cursor="TopLeftCorner"
+        <Border Background="Transparent" Width="14" Height="14" Margin="8,8,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" Cursor="TopLeftCorner"
                 ZIndex="1001" Tag="NorthWest" PointerPressed="ResizeGrip_PointerPressed" />
-        <Border Background="#01000000" Width="14" Height="14" Margin="0,8,8,0" HorizontalAlignment="Right" VerticalAlignment="Top" Cursor="TopRightCorner"
+        <Border Background="Transparent" Width="14" Height="14" Margin="0,8,8,0" HorizontalAlignment="Right" VerticalAlignment="Top" Cursor="TopRightCorner"
                 ZIndex="1001" Tag="NorthEast" PointerPressed="ResizeGrip_PointerPressed" />
-        <Border Background="#01000000" Width="14" Height="14" Margin="8,0,0,8" HorizontalAlignment="Left" VerticalAlignment="Bottom" Cursor="BottomLeftCorner"
+        <Border Background="Transparent" Width="14" Height="14" Margin="8,0,0,8" HorizontalAlignment="Left" VerticalAlignment="Bottom" Cursor="BottomLeftCorner"
                 ZIndex="1001" Tag="SouthWest" PointerPressed="ResizeGrip_PointerPressed" />
-        <Border Background="#01000000" Width="14" Height="14" Margin="0,0,8,8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="BottomRightCorner"
+        <Border Background="Transparent" Width="14" Height="14" Margin="0,0,8,8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="BottomRightCorner"
                 ZIndex="1001" Tag="SouthEast" PointerPressed="ResizeGrip_PointerPressed" />
 
     </Grid>

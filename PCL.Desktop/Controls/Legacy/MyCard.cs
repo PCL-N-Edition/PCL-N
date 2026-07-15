@@ -267,6 +267,7 @@ public class MyCard : AnimatedBackgroundGrid
         Height = IsSwapped ? SwapedHeight : double.NaN;
         ModAnimation.AniStop($"MyCard Height {uuid}");
         _isHeightAnimating = false;
+        ClipToBounds = false;
         if (SwapControl is not null)
             SwapControl.IsVisible = !IsSwapped;
     }
@@ -359,6 +360,7 @@ public class MyCard : AnimatedBackgroundGrid
         Height = value ? SwapedHeight : double.NaN;
         ModAnimation.AniStop($"MyCard Height {uuid}");
         _isHeightAnimating = false;
+        ClipToBounds = false;
         if (!animate)
             SwapControl.IsVisible = !value;
         ApplySwapArrow(animate);
@@ -461,11 +463,16 @@ public class MyCard : AnimatedBackgroundGrid
             if (IsSwapped && SwapControl is not null)
                 SwapControl.IsVisible = false;
             _isHeightAnimating = false;
+            ClipToBounds = false;
         }, after: true));
 
         _actualUsedHeight = IsSwapped ? SwapedHeight : Height;
         Height = previousHeight;
         _isHeightAnimating = true;
+        // Avalonia panels do not clip children by default. Keep the swap content
+        // inside the card while its outer height is animated, then restore the
+        // unclipped chrome so the drop shadow can render normally.
+        ClipToBounds = true;
         ModAnimation.AniStart(animations, $"MyCard Height {uuid}");
     }
 

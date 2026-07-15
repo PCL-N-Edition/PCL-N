@@ -60,6 +60,30 @@ public sealed class MinecraftLoaderMetadataServiceTests
     }
 
     [TestMethod]
+    public async Task GetLoaderVersionsAsync_TreatsUnsupportedFabricGameVersionAsEmpty()
+    {
+        using HttpClient client = new(new DelegateHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest)));
+        MinecraftLoaderMetadataService service = new(client);
+
+        IReadOnlyList<MinecraftLoaderVersionEntry> versions = await service.GetLoaderVersionsAsync(
+            MinecraftLoaderKind.LegacyFabric,
+            "b1.8.1");
+
+        Assert.AreEqual(0, versions.Count);
+    }
+
+    [TestMethod]
+    public async Task GetLoaderInstallMetadataAsync_PreservesHttpErrors()
+    {
+        using HttpClient client = new(new DelegateHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound)));
+        MinecraftLoaderMetadataService service = new(client);
+
+        await Assert.ThrowsExactlyAsync<HttpRequestException>(() => service.GetLoaderInstallMetadataAsync(
+            new MinecraftLoaderInstallRequest(MinecraftLoaderKind.Fabric, "0.16.14"),
+            "1.20.1"));
+    }
+
+    [TestMethod]
     public async Task GetLoaderVersionsAsync_ParsesCleanroomOptiFineAndLiteLoaderSources()
     {
         using HttpClient client = new(new DelegateHandler(request =>

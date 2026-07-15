@@ -55,6 +55,12 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
                 if (_entry is not null)
                     OpenWebRequested?.Invoke(this, _entry);
             };
+        if (this.FindControl<MyIconTextButton>("BtnIntroMcMod") is { } mcMod)
+            mcMod.Click += (_, _) =>
+            {
+                if (_entry is not null)
+                    OpenUrlRequested?.Invoke(this, CreateMcModSearchUrl(_entry.Title));
+            };
         if (this.FindControl<MyIconTextButton>("BtnIntroCopy") is { } copyName)
             copyName.Click += (_, _) => _ = CopyTextAsync(_entry?.Title ?? string.Empty);
         if (this.FindControl<MyIconTextButton>("BtnIntroLinkCopy") is { } copyLink)
@@ -71,6 +77,8 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
 #pragma warning restore CS0067
 
     public event EventHandler<CommunityResourceEntry>? OpenWebRequested;
+
+    public event EventHandler<string>? OpenUrlRequested;
 
     public event EventHandler<CommunityResourceDownloadRequest>? DownloadRequested;
 
@@ -124,7 +132,12 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
 
         if (this.FindControl<MyIconTextButton>("BtnIntroWeb") is { } web)
             web.Text = entry.Source == CommunityResourceSource.CurseForge ? "CurseForge" : "Modrinth";
+        if (this.FindControl<MyIconTextButton>("BtnIntroMcMod") is { } mcMod)
+            mcMod.IsVisible = _category == CommunityResourceCategory.Mod;
     }
+
+    internal static string CreateMcModSearchUrl(string title) =>
+        "https://www.mcmod.cn/s?key=" + Uri.EscapeDataString(title) + "&site=all&filter=0";
 
     private void ToggleFavorite()
     {

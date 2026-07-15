@@ -15,6 +15,7 @@ public sealed record MinecraftJvmArgumentRequest
     public string? CustomJvmArguments { get; init; }
     public int MemoryMegabytes { get; init; }
     public string? NativesDirectory { get; init; }
+    public int JavaMajorVersion { get; init; } = 17;
     public MinecraftJvmIpPreference PreferredIpStack { get; init; }
     public IReadOnlyList<string> PrefixArguments { get; init; } = [];
     public IReadOnlyList<string> SuffixArguments { get; init; } = [];

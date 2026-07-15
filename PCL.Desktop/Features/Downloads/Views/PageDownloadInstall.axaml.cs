@@ -257,9 +257,7 @@ public partial class PageDownloadInstall : MyPageRight
         if (!_keepSelectPageOnNextEnter)
             ExitSelectPage();
         _filter = filter;
-        if (this.FindControl<StackPanel>("PanMinecraft")?.Children.Count > 0)
-            ApplyRenderedFilters();
-        else
+        if (_versions.Count > 0)
             ReloadVersionList();
     }
 
@@ -468,6 +466,34 @@ public partial class PageDownloadInstall : MyPageRight
         StackPanel panel,
         IReadOnlyDictionary<MinecraftVersionCategory, List<DownloadVersionView>> categories)
     {
+        if (_filter != DownloadVersionFilter.All)
+        {
+            MinecraftVersionCategory category = _filter switch
+            {
+                DownloadVersionFilter.Release => MinecraftVersionCategory.Release,
+                DownloadVersionFilter.Snapshot => MinecraftVersionCategory.Snapshot,
+                DownloadVersionFilter.BeforeRelease => MinecraftVersionCategory.BeforeRelease,
+                DownloadVersionFilter.AprilFools => MinecraftVersionCategory.AprilFools,
+                _ => throw new InvalidOperationException("未知的 Minecraft 版本筛选类型。")
+            };
+            DownloadVersionView? latestInCategory = categories[category].FirstOrDefault();
+            if (latestInCategory is null)
+                return;
+
+            panel.Children.Add(CreateVersionCard(
+                ResourceText("Download.Version.Latest.Title", "最新版本"),
+                [latestInCategory with
+                {
+                    Info = ResourceText(
+                        "Download.Version.Latest.Filtered",
+                        "该分类最新版本，发布于 {0}",
+                        FormatReleaseTime(latestInCategory.ReleaseTime))
+                }],
+                filterable: false,
+                margin: new Thickness(0d, 15d, 0d, 15d)));
+            return;
+        }
+
         DownloadVersionView? latestRelease = categories[MinecraftVersionCategory.Release].FirstOrDefault();
         DownloadVersionView? latestSnapshot = categories[MinecraftVersionCategory.Snapshot].FirstOrDefault();
         List<DownloadVersionView> latest = [];
@@ -586,13 +612,11 @@ public partial class PageDownloadInstall : MyPageRight
         return item;
     }
 
-    private DownloadVersionView[] BuildVersionViews(IReadOnlyList<MinecraftVersionManifestEntry> versions)
-    {
-        DownloadVersionView[] views = new DownloadVersionView[versions.Count];
-        for (int i = 0; i < versions.Count; i++)
-            views[i] = CreateVersionView(versions[i]);
-        return views;
-    }
+    private DownloadVersionView[] BuildVersionViews(IReadOnlyList<MinecraftVersionManifestEntry> versions) =>
+        versions
+            .Select(CreateVersionView)
+            .Where(version => IsVisibleByFilter(version.Category))
+            .ToArray();
 
     private DownloadVersionView CreateVersionView(MinecraftVersionManifestEntry version)
     {

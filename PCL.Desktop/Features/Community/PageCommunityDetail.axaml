@@ -25,6 +25,11 @@
                                                      SvgIcon="lucide/globe"
                                                      ColorType="Highlight"
                                                      Margin="0,0,6,0" />
+                            <legacy:MyIconTextButton x:Name="BtnIntroMcMod"
+                                                     Text="MC百科"
+                                                     SvgIcon="lucide/book-open"
+                                                     ColorType="Highlight"
+                                                     Margin="0,0,6,0" />
                             <legacy:MyIconTextButton x:Name="BtnIntroCopy"
                                                      Text="复制名称"
                                                      SvgIcon="lucide/copy"

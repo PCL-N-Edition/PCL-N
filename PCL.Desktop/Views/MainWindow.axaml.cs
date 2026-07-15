@@ -44,6 +44,7 @@ using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Shared;
 using PCL.Desktop.Features.Tasks.Views;
+using PCL.Platform.Java;
 using PCL.Platform.Paths;
 using PCL.UI.Abstractions.Navigation;
 using PCL.UI.Abstractions.Pages;
@@ -107,6 +108,8 @@ public partial class MainWindow : Window, IDisposable
     private readonly MinecraftLaunchCoordinator _launchCoordinator;
     private readonly ThirdPartyAuthService _thirdPartyAuthService = new();
     private readonly IMicrosoftMinecraftAuthService _microsoftAuthService;
+    private readonly Action<string> _externalUrlOpener;
+    private readonly Func<string, Task>? _clipboardWriter;
     private PageSetupLeft? _setupLeft;
     private MyPageRight? _setupRight;
     private readonly List<LoginProfileInfo> _loginProfiles = [];
@@ -151,9 +154,14 @@ public partial class MainWindow : Window, IDisposable
     {
     }
 
-    public MainWindow(IMicrosoftMinecraftAuthService microsoftAuthService)
+    public MainWindow(
+        IMicrosoftMinecraftAuthService microsoftAuthService,
+        Action<string>? externalUrlOpener = null,
+        Func<string, Task>? clipboardWriter = null)
     {
         _microsoftAuthService = microsoftAuthService ?? throw new ArgumentNullException(nameof(microsoftAuthService));
+        _externalUrlOpener = externalUrlOpener ?? OpenExternalUrlCore;
+        _clipboardWriter = clipboardWriter;
         _launchCoordinator = new MinecraftLaunchCoordinator(_minecraftInstallService);
         AvaloniaXamlLoader.Load(this);
         DesktopHostUiComposition.Instance.RegisterTarget("pcl.window.main", this);
@@ -195,7 +203,6 @@ public partial class MainWindow : Window, IDisposable
         DesktopHostNotifications.Instance.Attach(OnPluginHostNotification);
         DesktopHost.Current.Navigation.Changed += NavigationRegistryChanged;
         DesktopHostNavigation.Instance.Attach(NavigateToPluginRoute);
-        SyncTitleOverlayWidth();
         _ = LoadProfilesAsync();
         SelectNavRoute(LaunchRoute, animate: false);
     }
@@ -282,7 +289,6 @@ public partial class MainWindow : Window, IDisposable
     private void FormMain_SizeChanged(object? sender, SizeChangedEventArgs e)
     {
         SyncMainSize();
-        SyncTitleOverlayWidth();
     }
 
     private void FormMain_Closing(object? sender, WindowClosingEventArgs e)
@@ -321,11 +327,6 @@ public partial class MainWindow : Window, IDisposable
         if (sender is MediaElement video)
             video.IsVisible = false;
         Debug.WriteLine($"[UI] 背景视频播放失败：{e.Exception.Message}");
-    }
-
-    private void PanTitle_SizeChanged(object? sender, SizeChangedEventArgs e)
-    {
-        SyncTitleOverlayWidth();
     }
 
     private void BtnTitleClose_Click(object? sender, EventArgs e) => Close();
@@ -532,33 +533,15 @@ public partial class MainWindow : Window, IDisposable
         }
 
         if (this.FindControl<MyIconButton>("BtnTitleMax") is { } maximizeButton)
-            maximizeButton.SvgIcon = maximized ? "lucide/copy" : "lucide/square";
+            maximizeButton.SvgIcon = maximized ? "pcl/window-restore" : "lucide/square";
 
-        // SizeChanged re-measures PanTitle after the native state transition.
-        // Keep the normal title layer visible during the immediate state update.
-        SyncTitleOverlayWidth();
+        // The title layers stretch with PanTitle in XAML, so maximizing and
+        // restoring cannot leave them at the previous window width.
         if (!_isTitleSubPageVisible && this.FindControl<Control>("PanTitleMain") is { } titleMain)
         {
             titleMain.IsVisible = true;
             titleMain.Opacity = 1d;
         }
-    }
-
-    private void SyncTitleOverlayWidth()
-    {
-        Control? panTitle = this.FindControl<Control>("PanTitle");
-        Control? panTitleMain = this.FindControl<Control>("PanTitleMain");
-        Control? panTitleInner = this.FindControl<Control>("PanTitleInner");
-        if (panTitle is null)
-            return;
-
-        double width = panTitle.Bounds.Width;
-        if (width <= 0)
-            width = Width;
-        if (panTitleMain is not null)
-            panTitleMain.Width = width;
-        if (panTitleInner is not null)
-            panTitleInner.Width = width;
     }
 
     private void EnterTitleSubPage(string title)
@@ -1419,6 +1402,7 @@ public partial class MainWindow : Window, IDisposable
         PageCommunityDetail page = new(new CompositeCommunityResourceCatalog(), ownsCatalog: true, _communityFavorites);
         page.BackRequested += (_, _) => CloseCommunityDetail();
         page.OpenWebRequested += (_, entry) => OpenExternalUrl(entry.WebsiteUrl);
+        page.OpenUrlRequested += (_, url) => OpenExternalUrl(url);
         page.DownloadRequested += (_, request) => _ = DownloadCommunityResourceAsync(request);
         return page;
     }
@@ -3704,26 +3688,40 @@ public partial class MainWindow : Window, IDisposable
 
     private void OpenAuthServerProfilePage(LoginProfileInfo profile, string action)
     {
-        // WPF: strip /api/yggdrasil/authserver and open /user/profile (or server root).
-        string? server = profile.AuthServer?.Trim();
-        if (string.IsNullOrWhiteSpace(server))
+        string? url = ResolveAuthServerProfileUrl(profile.AuthServer);
+        if (string.IsNullOrWhiteSpace(url))
         {
             ShowTextDialog(action, "第三方账户的资料由认证服务器管理，但当前档案没有记录可打开的服务器地址。请到对应认证服务器的网站中修改。", "知道了");
             return;
         }
 
-        string url = server;
-        int authIdx = url.IndexOf("api/yggdrasil/authserver", StringComparison.OrdinalIgnoreCase);
-        if (authIdx >= 0)
-            url = url[..authIdx].TrimEnd('/') + "/user/profile";
-        else
-            url = NormalizeAuthServerUrl(server) ?? server;
-
-        if (!url.Contains("://", StringComparison.Ordinal))
-            url = "https://" + url.TrimStart('/');
-
         OpenExternalUrl(url);
         ShowTextDialog(action, "已打开此第三方账户所属的认证服务器页面。请在服务器网页中完成账户资料修改。", "知道了");
+    }
+
+    private static string? ResolveAuthServerProfileUrl(string? authServer)
+    {
+        string? normalized = NormalizeAuthServerUrl(authServer ?? string.Empty);
+        if (normalized is null || !Uri.TryCreate(normalized, UriKind.Absolute, out Uri? uri))
+            return null;
+
+        string path = uri.AbsolutePath.TrimEnd('/');
+        foreach (string suffix in new[] { "/api/yggdrasil/authserver", "/api/yggdrasil" })
+        {
+            if (!path.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            string rootPath = path[..^suffix.Length].TrimEnd('/');
+            UriBuilder builder = new(uri)
+            {
+                Path = rootPath + "/user/profile",
+                Query = string.Empty,
+                Fragment = string.Empty
+            };
+            return builder.Uri.ToString();
+        }
+
+        return uri.ToString();
     }
 
     private async Task SaveProfileSkinAsync(LoginProfileInfo? profile)
@@ -4035,15 +4033,7 @@ public partial class MainWindow : Window, IDisposable
         };
         dialog.CopyCodeRequested += async (_, _) =>
         {
-            try
-            {
-                if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
-                    await clipboard.SetTextAsync(dialog.UserCode).ConfigureAwait(true);
-            }
-            catch (Exception ex)
-            {
-                _launchRight?.AppendLog("复制登录代码失败：" + ex.Message);
-            }
+            await CopyLoginCodeAsync(dialog.UserCode).ConfigureAwait(true);
         };
         dialog.CancelRequested += (_, _) => closed();
         dialog.DragRequested += (_, e) => BeginMoveDrag(e);
@@ -4059,6 +4049,37 @@ public partial class MainWindow : Window, IDisposable
             }
         };
         host.Children.Add(dialog);
+    }
+
+    private async Task CopyLoginCodeAsync(string userCode)
+    {
+        if (string.IsNullOrWhiteSpace(userCode))
+            return;
+
+        try
+        {
+            if (_clipboardWriter is not null)
+            {
+                await _clipboardWriter(userCode).ConfigureAwait(true);
+                return;
+            }
+
+            if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
+                await clipboard.SetTextAsync(userCode).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _launchRight?.AppendLog("复制登录代码失败：" + ex.Message);
+        }
+    }
+
+    private async Task PrepareLoginDialogAsync(MyMsgLogin dialog)
+    {
+        // Device codes are short-lived. Repeat both convenience actions for every
+        // newly issued code instead of relying on the first login attempt only.
+        await CopyLoginCodeAsync(dialog.UserCode).ConfigureAwait(true);
+        if (!string.IsNullOrWhiteSpace(dialog.Website))
+            OpenExternalUrl(dialog.Website);
     }
 
     private async Task StartInstallAsync(DownloadInstallRequest request)
@@ -4717,6 +4738,8 @@ public partial class MainWindow : Window, IDisposable
         (int width, int height) = GetWindowSize(settings);
         (string? authlibPath, string? authlibServer, string? authlibMetadata) =
             await ResolveAuthlibLaunchOptionsAsync(profile, cancellationToken).ConfigureAwait(false);
+        int javaMajorVersion = await ResolveJavaMajorVersionAsync(javaExecutablePath, cancellationToken)
+            .ConfigureAwait(false);
 
         return await MinecraftProcessLaunchService.CreatePlanAsync(
             new MinecraftProcessLaunchRequest
@@ -4729,6 +4752,7 @@ public partial class MainWindow : Window, IDisposable
                 PlayerUuid = string.IsNullOrWhiteSpace(profile.Uuid) ? Guid.NewGuid().ToString("N") : profile.Uuid,
                 AccessToken = string.IsNullOrWhiteSpace(profile.AccessToken) ? "0" : profile.AccessToken,
                 JavaExecutablePath = javaExecutablePath,
+                JavaMajorVersion = javaMajorVersion,
                 MemoryMegabytes = ResolveLaunchMemoryMegabytes(instance, metadata, settings),
                 Width = width,
                 Height = height,
@@ -4753,6 +4777,16 @@ public partial class MainWindow : Window, IDisposable
                     settings.GetTextOption("LaunchArgumentInfo", LauncherSettingDefaults.GetText("LaunchArgumentInfo"))) ?? "PCL-N"
             },
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<int> ResolveJavaMajorVersionAsync(
+        string javaExecutablePath,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<PCL.Domain.Minecraft.Java.JavaRuntimeCandidate> candidates =
+            await new FileSystemJavaLocator([javaExecutablePath]).FindAllAsync(cancellationToken)
+                .ConfigureAwait(false);
+        return candidates.Count > 0 ? candidates[0].Installation.MajorVersion : 17;
     }
 
     private static async Task<(string? Path, string? Server, string? Metadata)> ResolveAuthlibLaunchOptionsAsync(
@@ -5896,11 +5930,12 @@ public partial class MainWindow : Window, IDisposable
             dialog = new MyMsgLogin
             {
                 Title = "Microsoft 正版档案登录",
-                Caption = deviceCode.Message + $"\n\n授权码：{deviceCode.UserCode}",
+                Caption = FormatMicrosoftDeviceCodeCaption(deviceCode),
                 UserCode = deviceCode.UserCode,
                 Website = FirstNonEmpty(deviceCode.VerificationUriComplete, deviceCode.VerificationUri)
             };
             ShowLoginDialog(dialog, () => _microsoftLoginCancellation?.Cancel());
+            await PrepareLoginDialogAsync(dialog).ConfigureAwait(true);
 
             Progress<double> progress = new(value => page.UpdateProgress(value));
             MicrosoftMinecraftLoginResult result = await _microsoftAuthService
@@ -5953,6 +5988,14 @@ public partial class MainWindow : Window, IDisposable
         }
 
         return string.Empty;
+    }
+
+    private static string FormatMicrosoftDeviceCodeCaption(MicrosoftDeviceCodeInfo deviceCode)
+    {
+        string website = FirstNonEmpty(deviceCode.VerificationUri, deviceCode.VerificationUriComplete);
+        return string.IsNullOrWhiteSpace(website)
+            ? $"请按浏览器页面提示登录 Microsoft 账户。\n\n授权码：{deviceCode.UserCode}"
+            : $"请在浏览器中打开 {website}，并按页面提示登录 Microsoft 账户。\n\n授权码：{deviceCode.UserCode}";
     }
 
     private PageLoginAuth CreateAuthLoginPage(PageLaunchLeft launchPage)
@@ -6294,13 +6337,16 @@ public partial class MainWindow : Window, IDisposable
     {
         try
         {
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            _externalUrlOpener(url);
         }
         catch (Exception ex)
         {
             _launchRight?.AppendLog("无法打开浏览器：" + ex.Message);
         }
     }
+
+    private static void OpenExternalUrlCore(string url) =>
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
     private DesktopMainPage CreatePlaceholderMainPage(string pageTitle) =>
         new(null, CreateLoadingPlaceholder(pageTitle));
@@ -6506,6 +6552,7 @@ public partial class MainWindow : Window, IDisposable
         MyImage? customLogo = this.FindControl<MyImage>("ImageTitleLogo");
         TextBlock? customText = this.FindControl<TextBlock>("LabTitleLogo");
         Grid? titleMain = this.FindControl<Grid>("PanTitleMain");
+        Grid? titleLeft = this.FindControl<Grid>("PanTitleLeft");
         if (defaultLogo is null || customLogo is null || customText is null)
             return;
 
@@ -6549,12 +6596,14 @@ public partial class MainWindow : Window, IDisposable
         }
 
         if (titleMain is not null)
+            titleMain.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+        if (titleLeft is not null)
         {
-            titleMain.HorizontalAlignment = settings.GetBooleanOption(
+            bool alignLeft = settings.GetBooleanOption(
                 "UiLogoLeft",
-                LauncherSettingDefaults.GetBoolean("UiLogoLeft"))
-                ? Avalonia.Layout.HorizontalAlignment.Left
-                : Avalonia.Layout.HorizontalAlignment.Center;
+                LauncherSettingDefaults.GetBoolean("UiLogoLeft"));
+            titleLeft.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+            Grid.SetColumn(titleLeft, alignLeft ? 0 : 1);
         }
     }
 

@@ -117,17 +117,32 @@ public sealed class AvaloniaHeadlessTests
                 Assert.IsNotNull(window.FindControl<MyIconButton>("BtnTitleClose"));
                 Assert.IsNotNull(window.FindControl<MyIconButton>("BtnTitleMin"));
                 Assert.IsNotNull(window.FindControl<MyIconButton>("BtnTitleMax"));
+                Border[] resizeGrips = window.GetVisualDescendants().OfType<Border>()
+                    .Where(border => border.Tag is string tag && Enum.TryParse<WindowEdge>(tag, out _))
+                    .ToArray();
                 CollectionAssert.AreEquivalent(
                     new[] { "North", "South", "West", "East", "NorthWest", "NorthEast", "SouthWest", "SouthEast" },
-                    window.GetVisualDescendants().OfType<Border>()
-                        .Select(border => border.Tag as string)
-                        .Where(tag => tag is not null && Enum.TryParse<WindowEdge>(tag, out _))
-                        .Cast<string>()
+                    resizeGrips
+                        .Select(border => (string)border.Tag!)
                         .ToArray());
+                foreach (Border resizeGrip in resizeGrips)
+                {
+                    Assert.AreEqual(
+                        0,
+                        ((SolidColorBrush)(resizeGrip.Background
+                            ?? throw new InvalidOperationException("Resize grip must keep a transparent hit-test brush."))).Color.A);
+                }
+                Assert.IsFalse(window.GetVisualDescendants().OfType<Rectangle>()
+                    .Any(shape => shape.StrokeThickness is > 0d and < 0.001d));
                 Assert.IsNotNull(window.FindControl<MyListItem>("BtnTitleSelect0"));
                 Assert.IsNotNull(window.FindControl<MyListItem>("BtnTitleSelect3"));
                 Assert.IsNull(window.FindControl<MyListItem>("BtnTitleSelect4"));
-                Assert.IsNotNull(window.FindControl<AnimatedBackgroundGrid>("PanTitle"));
+                Grid panTitleMain = window.FindControl<Grid>("PanTitleMain")!;
+                Grid panTitleInner = window.FindControl<Grid>("PanTitleInner")!;
+                Assert.AreEqual(HorizontalAlignment.Stretch, panTitleMain.HorizontalAlignment);
+                Assert.AreEqual(HorizontalAlignment.Stretch, panTitleInner.HorizontalAlignment);
+                Assert.IsTrue(double.IsNaN(panTitleMain.Width));
+                Assert.IsTrue(double.IsNaN(panTitleInner.Width));
                 Assert.IsNotNull(window.FindControl<Grid>("PanForm")!.Background);
                 typeof(MainWindow).GetMethod(
                         "ShowHint",
@@ -156,6 +171,38 @@ public sealed class AvaloniaHeadlessTests
                 Assert.IsNotNull(FindVisual<StackPanel>(window, "PanCustom"));
                 Assert.IsNotNull(FindVisual<MyCard>(window, "PanLog"));
                 Assert.IsNotNull(window.CaptureRenderedFrame());
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
+    public void MainWindow_TitleLayoutStretchesAndChromeTracksWindowState()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            MainWindow window = new();
+            try
+            {
+                Grid titleMain = window.FindControl<Grid>("PanTitleMain")!;
+                Grid titleInner = window.FindControl<Grid>("PanTitleInner")!;
+                Assert.AreEqual(HorizontalAlignment.Stretch, titleMain.HorizontalAlignment);
+                Assert.AreEqual(HorizontalAlignment.Stretch, titleInner.HorizontalAlignment);
+                Assert.IsTrue(double.IsNaN(titleMain.Width));
+                Assert.IsTrue(double.IsNaN(titleInner.Width));
+
+                window.WindowState = WindowState.Maximized;
+                Assert.AreEqual("pcl/window-restore", window.FindControl<MyIconButton>("BtnTitleMax")!.SvgIcon);
+                Assert.AreEqual(new Thickness(0d), window.FindControl<Border>("PanBack")!.Margin);
+
+                window.WindowState = WindowState.Normal;
+                Assert.AreEqual("lucide/square", window.FindControl<MyIconButton>("BtnTitleMax")!.SvgIcon);
+                Assert.AreEqual(new Thickness(10d), window.FindControl<Border>("PanBack")!.Margin);
             }
             finally
             {
@@ -1227,13 +1274,12 @@ public sealed class AvaloniaHeadlessTests
         session.Dispatch(() =>
         {
             Grid host = new();
-            MyMsgLogin dialog = new()
-            {
-                Title = "Microsoft 正版档案登录",
-                Caption = "请在网页中输入授权码 ABCD-EFGH",
-                UserCode = "ABCD-EFGH",
-                Website = "https://www.microsoft.com/link"
-            };
+            MyMsgLogin dialog = new();
+            Assert.AreEqual("Microsoft 正版档案登录", dialog.Title);
+            dialog.Title = "Microsoft 正版档案登录";
+            dialog.Caption = "请在网页中输入授权码 ABCD-EFGH";
+            dialog.UserCode = "ABCD-EFGH";
+            dialog.Website = "https://www.microsoft.com/link";
             host.Children.Add(dialog);
             Window window = new()
             {
@@ -2656,6 +2702,8 @@ public sealed class AvaloniaHeadlessTests
                 ]
             };
             PageCommunityDetail detail = new(catalog);
+            string? openedUrl = null;
+            detail.OpenUrlRequested += (_, url) => openedUrl = url;
             Window window = new() { Width = 720, Height = 560, Content = detail };
             try
             {
@@ -2671,6 +2719,10 @@ public sealed class AvaloniaHeadlessTests
                     .OfType<MyListItem>()
                     .Single(item => item.Title == "Root 1.0");
                 StringAssert.Contains(rendered.Info, "必需前置：Fabric API");
+                MyIconTextButton mcMod = detail.FindControl<MyIconTextButton>("BtnIntroMcMod")!;
+                Assert.IsTrue(mcMod.IsVisible);
+                Click(window, mcMod);
+                Assert.AreEqual("https://www.mcmod.cn/s?key=Root%20Mod&site=all&filter=0", openedUrl);
             }
             finally
             {
@@ -2877,7 +2929,21 @@ public sealed class AvaloniaHeadlessTests
                 Assert.AreEqual("最新版本", cards[0].Title);
                 Assert.AreEqual("其他版本", cards[1].Title);
                 Assert.AreEqual(2, page.GetVisualDescendants().OfType<MyListItem>().Count(listItem => listItem.Title == "1.20.1" && listItem.IsVisible));
-                Assert.AreEqual(1, page.GetVisualDescendants().OfType<MyListItem>().Count(listItem => listItem.Title == "24w14a" && listItem.IsVisible));
+                Assert.AreEqual(0, page.GetVisualDescendants().OfType<MyListItem>().Count(listItem => listItem.Title == "24w14a" && listItem.IsVisible));
+
+                page.ApplyVersionFilter(DownloadVersionFilter.AprilFools);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                cards = page.FindControl<StackPanel>("PanMinecraft")!.Children.OfType<MyCard>().ToArray();
+                Assert.AreEqual(2, cards.Length);
+                Assert.AreEqual("最新版本", cards[0].Title);
+                Assert.AreEqual(2, page.GetVisualDescendants().OfType<MyListItem>()
+                    .Count(listItem => listItem.Title == "20w14∞" && listItem.IsVisible));
+                Assert.AreEqual(0, page.GetVisualDescendants().OfType<MyListItem>()
+                    .Count(listItem => listItem.Title == "1.20.1" && listItem.IsVisible));
+
+                page.ApplyVersionFilter(DownloadVersionFilter.Release);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
                 MyListItem item = page.GetVisualDescendants().OfType<MyListItem>().First(listItem => listItem.Title == "1.20.1" && listItem.IsVisible);
 
@@ -3027,6 +3093,11 @@ public sealed class AvaloniaHeadlessTests
                 AssertLoaderHidden(page, "LegacyFabric");
                 AssertLoaderHidden(page, "FabricApi");
                 AssertLoaderHidden(page, "OptiFabric");
+                MyCard forgeCard = page.FindControl<MyCard>("CardForge")!;
+                MyCard neoForgeCard = page.FindControl<MyCard>("CardNeoForge")!;
+                double loaderGap = neoForgeCard.Bounds.Y - forgeCard.Bounds.Bottom;
+                Assert.IsTrue(loaderGap <= 20d,
+                    $"隐藏的 Cleanroom 卡片不应留下空位：Forge={forgeCard.Bounds}, NeoForge={neoForgeCard.Bounds}");
 
                 page.FocusVersionAsync("1.12.2").GetAwaiter().GetResult();
                 ModAnimation.AdvanceUntilIdleForTesting();
@@ -7659,6 +7730,70 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageLoginProfileSkin_ActionMenusRenderNativeMenuItems()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            PageLoginProfileSkin page = new();
+            page.SetProfile(new LoginProfileInfo(
+                "Alex",
+                "Authlib-Injector · LittleSkin",
+                LaunchLoginProfileKind.ThirdParty,
+                Uuid: "0123456789abcdef0123456789abcdef",
+                AuthServer: "https://littleskin.cn/api/yggdrasil"));
+            Window window = new()
+            {
+                Width = 360,
+                Height = 420,
+                Content = page
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                MyIconButton skinButton = page.FindControl<MyIconButton>("BtnSkin")!;
+                Click(window, skinButton);
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                ContextMenu skinMenu = skinButton.ContextMenu!;
+                MenuItem[] skinItems = skinMenu.Items.Cast<MenuItem>().ToArray();
+                CollectionAssert.AreEqual(
+                    new[] { "更换皮肤", "保存皮肤", "刷新皮肤", "更换披风" },
+                    skinItems.Select(static item => item.Header?.ToString()).ToArray());
+                Assert.IsTrue(skinItems.All(static item => item.GetType() == typeof(MenuItem)));
+                Assert.IsTrue(skinMenu.GetVisualDescendants()
+                    .OfType<ContentPresenter>()
+                    .Any(static presenter => string.Equals(
+                        presenter.Content?.ToString(),
+                        "更换皮肤",
+                        StringComparison.Ordinal)));
+                skinMenu.Close();
+
+                MyIconButton editButton = page.FindControl<MyIconButton>("BtnEdit")!;
+                Click(window, editButton);
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                ContextMenu editMenu = editButton.ContextMenu!;
+                CollectionAssert.AreEqual(
+                    new[] { "修改密码", "修改用户名" },
+                    editMenu.Items.Cast<MenuItem>()
+                        .Select(static item => item.Header?.ToString())
+                        .ToArray());
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
     public void MainWindow_WiresLaunchLoginPagesInsteadOfPlaceholders()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -7800,7 +7935,16 @@ public sealed class AvaloniaHeadlessTests
         {
             session.Dispatch(async () =>
             {
-                MainWindow window = new(authService);
+                List<string> openedUrls = [];
+                List<string> copiedCodes = [];
+                MainWindow window = new(
+                    authService,
+                    openedUrls.Add,
+                    code =>
+                    {
+                        copiedCodes.Add(code);
+                        return Task.CompletedTask;
+                    });
                 try
                 {
                     window.Show();
@@ -7819,8 +7963,15 @@ public sealed class AvaloniaHeadlessTests
                     loginPage.RequestLogin();
                     await WaitForConditionAsync(() => FindVisual<MyMsgLogin>(window) is not null);
                     MyMsgLogin dialog = FindVisual<MyMsgLogin>(window)!;
+                    await WaitForConditionAsync(() => openedUrls.Count == 1 && copiedCodes.Count == 1);
                     Assert.AreEqual("ABCD-EFGH", dialog.UserCode);
                     Assert.AreEqual("https://microsoft.com/link?otc=ABCD-EFGH", dialog.Website);
+                    StringAssert.Contains(dialog.Caption, "请在浏览器中打开 https://microsoft.com/link");
+                    Assert.IsFalse(dialog.Caption.Contains("To sign in", StringComparison.Ordinal));
+                    CollectionAssert.AreEqual(new[] { "ABCD-EFGH" }, copiedCodes);
+                    CollectionAssert.AreEqual(
+                        new[] { "https://microsoft.com/link?otc=ABCD-EFGH" },
+                        openedUrls);
                     Assert.IsTrue(loginPage.IsLoggingIn);
                     Assert.AreEqual("test-client-id", authService.RequestedClientId);
 
@@ -8871,15 +9022,34 @@ public sealed class AvaloniaHeadlessTests
                 Assert.IsTrue(((Avalonia.Media.RotateTransform)card.MainSwap.RenderTransform!).Angle is > 0d and < 180d);
                 ModAnimation.AdvanceUntilIdleForTesting();
                 Assert.IsTrue(double.IsNaN(card.Height));
+                Assert.IsFalse(card.ClipToBounds);
                 Assert.AreEqual(180d, ((Avalonia.Media.RotateTransform)card.MainSwap.RenderTransform!).Angle, 0.01d);
                 Assert.AreEqual(1, swapCount);
+
+                ClickAt(window, card, new Point(20d, 20d));
+
+                Assert.IsTrue(card.IsSwapped);
+                Assert.IsTrue(lazyContent.IsVisible);
+                Assert.IsTrue(card.ClipToBounds);
+                ModAnimation.AdvanceForTesting(16, 3);
+                Assert.IsTrue(card.Height > MyCard.SwapedHeight);
+                ModAnimation.AdvanceUntilIdleForTesting();
+                Assert.AreEqual(MyCard.SwapedHeight, card.Height);
+                Assert.IsFalse(lazyContent.IsVisible);
+                Assert.IsFalse(card.ClipToBounds);
+                Assert.AreEqual(2, swapCount);
+
+                ClickAt(window, card, new Point(20d, 20d));
+                ModAnimation.AdvanceUntilIdleForTesting();
+                Assert.IsFalse(card.IsSwapped);
+                Assert.AreEqual(3, swapCount);
 
                 card.PreviewSwap += (_, e) => e.handled = true;
                 ClickAt(window, card, new Point(20d, 20d));
 
                 Assert.IsFalse(card.IsSwapped);
                 Assert.IsTrue(lazyContent.IsVisible);
-                Assert.AreEqual(1, swapCount);
+                Assert.AreEqual(3, swapCount);
             }
             finally
             {
@@ -10722,7 +10892,7 @@ public sealed class AvaloniaHeadlessTests
                 "ABCD-EFGH",
                 "https://microsoft.com/link",
                 "https://microsoft.com/link?otc=ABCD-EFGH",
-                "请登录 Microsoft 账户。",
+                "To sign in, use a web browser and enter the code.",
                 TimeSpan.FromMinutes(15),
                 TimeSpan.FromSeconds(5)));
         }

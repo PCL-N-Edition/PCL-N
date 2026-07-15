@@ -205,12 +205,51 @@ public sealed class CommunityFeatureTests
         StringAssert.Contains(query, "modLoaderType=4");
         StringAssert.Contains(query, "gameVersion=1.20.1");
         StringAssert.Contains(query, "sortField=6");
+        StringAssert.Contains(query, "pageSize=50");
+    }
+
+    [TestMethod]
+    public async Task CurseForgeCatalog_ShouldUseWorldClassAndWorldWebsiteFallback()
+    {
+        HttpRequestMessage? captured = null;
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            captured = request;
+            return JsonResponse(
+                """
+                {
+                  "data": [{
+                    "id": 123,
+                    "name": "Sky World",
+                    "slug": "sky-world",
+                    "summary": "A world",
+                    "downloadCount": 10,
+                    "dateModified": "2026-06-01T00:00:00Z"
+                  }]
+                }
+                """);
+        }));
+        using CurseForgeCommunityResourceCatalog catalog = new(client, "test-key");
+
+        CommunityResourceEntry entry = (await catalog.SearchAsync(
+            CommunityResourceCategory.World,
+            string.Empty,
+            new CommunitySearchOptions(Source: CommunityResourceSource.CurseForge))).Single();
+
+        StringAssert.Contains(captured!.RequestUri!.Query, "classId=17");
+        StringAssert.Contains(captured.RequestUri.Query, "pageSize=50");
+        Assert.AreEqual("world", entry.ProjectType);
+        Assert.AreEqual("https://www.curseforge.com/minecraft/worlds/sky-world", entry.WebsiteUrl);
     }
 
     [TestMethod]
     public async Task CurseForgeCatalog_ShouldBuildCdnUrlWhenDownloadUrlIsMissing()
     {
-        using HttpClient client = new(new DelegateHandler(_ => JsonResponse(
+        HttpRequestMessage? captured = null;
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            captured = request;
+            return JsonResponse(
             """
             {
               "data": [{
@@ -224,7 +263,8 @@ public sealed class CommunityFeatureTests
                 "dependencies": [{ "modId": 306612, "relationType": 3 }]
               }]
             }
-            """)));
+            """);
+        }));
         using CurseForgeCommunityResourceCatalog catalog = new(client, "test-key");
         CommunityResourceEntry entry = new("42", "example", "Example", string.Empty, "mod", null, 0L, null)
         {
@@ -234,11 +274,49 @@ public sealed class CommunityFeatureTests
         IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(entry);
 
         CommunityResourceVersion version = versions.Single();
+        // Both CurseForge search and file-list endpoints reject page sizes above 50.
+        StringAssert.Contains(captured!.RequestUri!.Query, "pageSize=50");
         Assert.AreEqual("https://edge.forgecdn.net/files/5678/123/Example%20Mod.jar", version.Files.Single().Url);
         CollectionAssert.Contains(version.GameVersions.ToArray(), "1.20.1");
         CollectionAssert.Contains(version.Loaders.ToArray(), "fabric");
         Assert.AreEqual(CommunityResourceDependencyType.Required, version.Dependencies.Single().Type);
         Assert.AreEqual("306612", version.Dependencies.Single().ProjectId);
+    }
+
+    [TestMethod]
+    public async Task CurseForgeCatalog_ShouldFollowFilePaginationWithoutExceedingPageLimit()
+    {
+        List<int> requestedIndexes = [];
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            string query = request.RequestUri!.Query;
+            int index = query.Contains("index=1", StringComparison.Ordinal) ? 1 : 0;
+            requestedIndexes.Add(index);
+            int id = 5678000 + index;
+            return JsonResponse($$"""
+                {
+                  "data": [{
+                    "id": {{id}},
+                    "displayName": "Version {{index}}",
+                    "fileName": "version-{{index}}.jar",
+                    "downloadUrl": "https://example.test/version-{{index}}.jar",
+                    "fileDate": "2026-06-02T00:00:00Z",
+                    "gameVersions": ["1.20.1", "Fabric"]
+                  }],
+                  "pagination": { "index": {{index}}, "pageSize": 50, "resultCount": 1, "totalCount": 2 }
+                }
+                """);
+        }));
+        using CurseForgeCommunityResourceCatalog catalog = new(client, "test-key");
+        CommunityResourceEntry entry = new("42", "example", "Example", string.Empty, "mod", null, 0L, null)
+        {
+            Source = CommunityResourceSource.CurseForge
+        };
+
+        IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(entry);
+
+        Assert.AreEqual(2, versions.Count);
+        CollectionAssert.AreEqual(new[] { 0, 1 }, requestedIndexes);
     }
 
     [TestMethod]

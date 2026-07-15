@@ -107,4 +107,83 @@ public sealed class MinecraftLaunchPlanServiceTests
         StringAssert.Contains(result.Arguments, "-cp ${classpath}");
         StringAssert.EndsWith(result.Arguments, "-Dproxy=true net.minecraft.client.Minecraft");
     }
+
+    [TestMethod]
+    public void BuildModernJvmArguments_ShouldGateJdk23OnlyUnsafeOptionBySelectedRuntime()
+    {
+        JsonObject versionJson = JsonNode.Parse(
+            """
+            {
+              "arguments": {
+                "jvm": [
+                  " --sun-misc-unsafe-memory-access=allow ",
+                  "-cp",
+                  "${classpath}"
+                ]
+              }
+            }
+            """)!.AsObject();
+        MinecraftJvmArgumentRequest request = new()
+        {
+            VersionJson = versionJson,
+            RuleContext = new MinecraftArgumentRuleContext
+            {
+                OperatingSystem = MinecraftArgumentOperatingSystem.Win32,
+                OperatingSystemVersion = "10.0",
+                Is32BitArchitecture = false
+            },
+            MainClass = "net.minecraft.client.main.Main",
+            MemoryMegabytes = 2048,
+            UseModernArguments = true,
+            JavaMajorVersion = 21
+        };
+
+        MinecraftJvmArgumentResult java21 = MinecraftJvmArgumentService.Build(request);
+        MinecraftJvmArgumentResult java23 = MinecraftJvmArgumentService.Build(request with { JavaMajorVersion = 23 });
+
+        Assert.IsFalse(java21.Arguments.Contains("--sun-misc-unsafe-memory-access=allow", StringComparison.Ordinal));
+        StringAssert.Contains(java23.Arguments, "--sun-misc-unsafe-memory-access=allow");
+    }
+
+    [TestMethod]
+    public void CreatePlan_ShouldUseOuterJavaVersionForJvmAndFinalArguments()
+    {
+        JsonObject versionJson = JsonNode.Parse(
+            """
+            {
+              "arguments": {
+                "jvm": ["--sun-misc-unsafe-memory-access=allow", "-cp", "${classpath}"]
+              }
+            }
+            """)!.AsObject();
+        MinecraftJvmArgumentRequest jvm = new()
+        {
+            VersionJson = versionJson,
+            RuleContext = new MinecraftArgumentRuleContext
+            {
+                OperatingSystem = MinecraftArgumentOperatingSystem.Win32,
+                OperatingSystemVersion = "10.0",
+                Is32BitArchitecture = false
+            },
+            MainClass = "net.minecraft.client.main.Main",
+            MemoryMegabytes = 2048,
+            UseModernArguments = true,
+            JavaMajorVersion = 23
+        };
+
+        MinecraftLaunchPlanResult result = MinecraftLaunchPlanService.CreatePlan(
+            new MinecraftLaunchPlanRequest
+            {
+                Jvm = jvm,
+                Replacements = new Dictionary<string, string>
+                {
+                    ["${classpath}"] = "client.jar"
+                },
+                JavaMajorVersion = 21
+            });
+
+        Assert.IsFalse(result.Arguments.Contains(
+            "--sun-misc-unsafe-memory-access=allow",
+            StringComparison.Ordinal));
+    }
 }

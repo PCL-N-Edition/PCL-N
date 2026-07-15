@@ -21,6 +21,7 @@ public sealed record MinecraftProcessLaunchRequest
     public required string PlayerUuid { get; init; }
     public string AccessToken { get; init; } = "0";
     public string JavaExecutablePath { get; init; } = "java";
+    public int JavaMajorVersion { get; init; } = 17;
     public int MemoryMegabytes { get; init; } = 2048;
     public int Width { get; init; } = 854;
     public int Height { get; init; } = 480;
@@ -125,6 +126,7 @@ public static class MinecraftProcessLaunchService
                     CustomJvmArguments = request.CustomJvmArguments,
                     MemoryMegabytes = request.MemoryMegabytes,
                     NativesDirectory = nativesDirectory,
+                    JavaMajorVersion = request.JavaMajorVersion,
                     PreferredIpStack = request.PreferredIpStack,
                     PrefixArguments = CreateJvmPrefixArguments(request),
                     UseModernArguments = HasArguments(versionJson, inheritedVersionJsons, "jvm")
@@ -144,7 +146,7 @@ public static class MinecraftProcessLaunchService
                     }
                     : null,
                 Replacements = CreateReplacements(request, minecraftRoot, gameDirectory, nativesDirectory, classpathText, assetIndexName),
-                JavaMajorVersion = 17,
+                JavaMajorVersion = request.JavaMajorVersion,
                 Fullscreen = request.Fullscreen,
                 CustomGameArguments = request.CustomGameArguments,
                 WorldName = request.WorldName,

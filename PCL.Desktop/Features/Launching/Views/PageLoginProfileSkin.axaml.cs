@@ -77,9 +77,6 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
 
     private void BtnEditClick(object? sender, EventArgs e) => OpenEditMenu();
 
-    /// <summary>
-    /// WPF-style ContextMenu + MyMenuItem (fixed min width so text is not zero-width).
-    /// </summary>
     private void OpenSkinMenu()
     {
         if (this.FindControl<MyIconButton>("BtnSkin") is not { } button)
@@ -96,6 +93,7 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
         if (Profile?.Kind != LaunchLoginProfileKind.Offline)
             menu.Items.Add(CreateMenuItem("更换披风", () => ChangeCapeRequested?.Invoke(this, EventArgs.Empty)));
 
+        button.ContextMenu = menu;
         ShowContextMenu(button, menu);
     }
 
@@ -111,12 +109,17 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
         };
         menu.Items.Add(CreateMenuItem("修改密码", () => EditPasswordRequested?.Invoke(this, EventArgs.Empty)));
         menu.Items.Add(CreateMenuItem("修改用户名", () => EditNameRequested?.Invoke(this, EventArgs.Empty)));
+        button.ContextMenu = menu;
         ShowContextMenu(button, menu);
     }
 
-    private static MyMenuItem CreateMenuItem(string header, Action action)
+    private static MenuItem CreateMenuItem(string header, Action action)
     {
-        MyMenuItem item = new()
+        // Programmatically created MyMenuItem instances do not receive Avalonia's
+        // MenuItem control theme inside a popup on every platform, leaving only an
+        // empty context-menu background. A native MenuItem keeps the popup themed
+        // and still provides the same command behavior.
+        MenuItem item = new()
         {
             Header = header,
             MinWidth = 150,

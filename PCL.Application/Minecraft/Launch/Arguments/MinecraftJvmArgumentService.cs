@@ -27,9 +27,9 @@ public static class MinecraftJvmArgumentService
     private static MinecraftJvmArgumentResult BuildModern(MinecraftJvmArgumentRequest request)
     {
         List<string> arguments = [];
-        AddModernJvmArguments(arguments, request.VersionJson, request.RuleContext);
+        AddModernJvmArguments(arguments, request.VersionJson, request.RuleContext, request.JavaMajorVersion);
         foreach (JsonObject inheritedVersionJson in request.InheritedVersionJsons)
-            AddModernJvmArguments(arguments, inheritedVersionJson, request.RuleContext);
+            AddModernJvmArguments(arguments, inheritedVersionJson, request.RuleContext, request.JavaMajorVersion);
 
         if (!string.IsNullOrWhiteSpace(request.CustomJvmArguments))
             arguments.Insert(0, request.CustomJvmArguments);
@@ -78,7 +78,8 @@ public static class MinecraftJvmArgumentService
     private static void AddModernJvmArguments(
         List<string> arguments,
         JsonObject versionJson,
-        MinecraftArgumentRuleContext context)
+        MinecraftArgumentRuleContext context,
+        int javaMajorVersion)
     {
         JsonArray? jvmArguments = versionJson["arguments"]?["jvm"]?.AsArray();
         if (jvmArguments is null)
@@ -90,31 +91,46 @@ public static class MinecraftJvmArgumentService
                 continue;
             if (node.GetValueKind() == JsonValueKind.String)
             {
-                arguments.Add(node.ToString());
+                AddVersionJvmArgument(arguments, node.ToString(), javaMajorVersion);
             }
             else if (node.GetValueKind() == JsonValueKind.Object &&
                      MinecraftLaunchArgumentService.IsRuleAllowed(node["rules"], context))
             {
-                AddArgumentValue(arguments, node["value"]);
+                AddArgumentValue(arguments, node["value"], javaMajorVersion);
             }
         }
     }
 
-    private static void AddArgumentValue(List<string> arguments, JsonNode? valueNode)
+    private static void AddArgumentValue(List<string> arguments, JsonNode? valueNode, int javaMajorVersion)
     {
         if (valueNode is null)
             return;
         if (valueNode.GetValueKind() == JsonValueKind.String)
         {
-            arguments.Add(valueNode.ToString());
+            AddVersionJvmArgument(arguments, valueNode.ToString(), javaMajorVersion);
             return;
         }
 
         foreach (JsonNode? value in valueNode.AsArray())
         {
             if (value is not null)
-                arguments.Add(value.ToString());
+                AddVersionJvmArgument(arguments, value.ToString(), javaMajorVersion);
         }
+    }
+
+    private static void AddVersionJvmArgument(List<string> arguments, string argument, int javaMajorVersion)
+    {
+        string normalized = argument.Trim();
+        // Mojang version metadata may include this JDK 23+ option even when the
+        // selected runtime is Java 21. Older launchers reject it before the game
+        // can start, so keep the metadata argument only for supporting runtimes.
+        if (javaMajorVersion < 23 &&
+            normalized.StartsWith("--sun-misc-unsafe-memory-access=", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        arguments.Add(normalized);
     }
 
     private static void AddPreferredIpArguments(

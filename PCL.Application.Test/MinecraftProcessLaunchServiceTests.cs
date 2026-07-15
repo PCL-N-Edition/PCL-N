@@ -176,4 +176,61 @@ public sealed class MinecraftProcessLaunchServiceTests
                 Directory.Delete(root, recursive: true);
         }
     }
+
+    [TestMethod]
+    public async Task CreatePlanAsync_FiltersJdk23OnlyArgumentsUsingSelectedJavaVersion()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-launch-java-version-" + Guid.NewGuid().ToString("N"));
+        string instanceDirectory = Path.Combine(root, "versions", "JavaVersionTest");
+        string versionJsonPath = Path.Combine(instanceDirectory, "JavaVersionTest.json");
+        string versionJarPath = Path.Combine(instanceDirectory, "JavaVersionTest.jar");
+
+        try
+        {
+            Directory.CreateDirectory(instanceDirectory);
+            await File.WriteAllTextAsync(
+                versionJsonPath,
+                """
+                {
+                  "mainClass": "net.minecraft.client.main.Main",
+                  "arguments": {
+                    "jvm": [
+                      {
+                        "rules": [{ "action": "allow" }],
+                        "value": [" --sun-misc-unsafe-memory-access=allow ", "-cp", "${classpath}"]
+                      }
+                    ],
+                    "game": []
+                  }
+                }
+                """);
+            await File.WriteAllTextAsync(versionJarPath, string.Empty);
+
+            MinecraftProcessLaunchRequest request = new()
+            {
+                VersionId = "JavaVersionTest",
+                VersionJsonPath = versionJsonPath,
+                InstanceDirectory = instanceDirectory,
+                MinecraftRootDirectory = root,
+                PlayerName = "Steve",
+                PlayerUuid = "00000000000000000000000000000000",
+                JavaExecutablePath = "java",
+                JavaMajorVersion = 21
+            };
+
+            MinecraftProcessLaunchPlan java21 = await MinecraftProcessLaunchService.CreatePlanAsync(request);
+            MinecraftProcessLaunchPlan java23 = await MinecraftProcessLaunchService.CreatePlanAsync(
+                request with { JavaMajorVersion = 23 });
+
+            Assert.IsFalse(java21.StartInfo.Arguments.Contains(
+                "--sun-misc-unsafe-memory-access=allow",
+                StringComparison.Ordinal));
+            StringAssert.Contains(java23.StartInfo.Arguments, "--sun-misc-unsafe-memory-access=allow");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
 }

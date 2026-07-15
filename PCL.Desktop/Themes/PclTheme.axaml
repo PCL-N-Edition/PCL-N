@@ -72,7 +72,7 @@
     <x:String x:Key="Launch.Skin.SaveAs">另存为</x:String>
     <x:String x:Key="Launch.Skin.ChangeCape">更换披风</x:String>
     <x:String x:Key="Launch.Skin.Change.ToolTip">点击更换皮肤（右键查看更多选项）</x:String>
-    <x:String x:Key="Launch.Account.LoginDialog.Title">测试标题文本</x:String>
+    <x:String x:Key="Launch.Account.LoginDialog.Title">Microsoft 正版档案登录</x:String>
     <x:String x:Key="Launch.Account.LoginDialog.ReopenWebpage">重新打开网页</x:String>
     <x:String x:Key="Launch.Account.LoginDialog.CopyCode">复制代码</x:String>
     <x:String x:Key="Launch.Account.LoginDialog.MinecraftLogin">Microsoft 正版档案登录</x:String>

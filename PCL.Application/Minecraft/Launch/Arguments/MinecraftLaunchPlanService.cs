@@ -10,10 +10,15 @@ public static class MinecraftLaunchPlanService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        int javaMajorVersion = request.JavaMajorVersion > 0
+            ? request.JavaMajorVersion
+            : request.Jvm?.JavaMajorVersion is > 0 and var nestedMajorVersion
+                ? nestedMajorVersion
+                : 17;
         string jvmArguments = !string.IsNullOrWhiteSpace(request.PrebuiltJvmArguments)
             ? request.PrebuiltJvmArguments
             : request.Jvm is not null
-                ? MinecraftJvmArgumentService.Build(request.Jvm).Arguments
+                ? MinecraftJvmArgumentService.Build(request.Jvm with { JavaMajorVersion = javaMajorVersion }).Arguments
                 : throw new ArgumentException("Either Jvm or PrebuiltJvmArguments must be provided.", nameof(request));
         List<string> gameArguments = [];
         OptiFineTweakerAdjustment adjustment = OptiFineTweakerAdjustment.None;
@@ -46,7 +51,7 @@ public static class MinecraftLaunchPlanService
             {
                 Arguments = baseArguments,
                 Replacements = request.Replacements,
-                JavaMajorVersion = request.JavaMajorVersion,
+                JavaMajorVersion = javaMajorVersion,
                 Fullscreen = request.Fullscreen,
                 ExtraArguments = request.ExtraArguments,
                 CustomGameArguments = request.CustomGameArguments,

@@ -38,7 +38,8 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
         [
             "gameId=432",
             "sortOrder=desc",
-            "pageSize=80",
+            // CurseForge rejects values above 50 with HTTP 400.
+            "pageSize=50",
             "classId=" + GetClassId(category).ToString(CultureInfo.InvariantCulture),
             "sortField=" + GetSortField(options.Sort).ToString(CultureInfo.InvariantCulture)
         ];
@@ -114,73 +115,99 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
         if (string.IsNullOrWhiteSpace(entry.ProjectId))
             return [];
 
-        List<string> parameters = ["pageSize=10000"];
+        List<string> parameters = ["pageSize=50"];
         if (!string.IsNullOrWhiteSpace(options.GameVersion))
             parameters.Add("gameVersion=" + Uri.EscapeDataString(options.GameVersion.Trim()));
         if (TryGetLoaderType(options.Loader, out int loaderType))
             parameters.Add("modLoaderType=" + loaderType.ToString(CultureInfo.InvariantCulture));
 
-        string url = ApiRoot + "/mods/" + Uri.EscapeDataString(entry.ProjectId) + "/files?" + string.Join('&', parameters);
-        using HttpResponseMessage response = await SendAsync(HttpMethod.Get, url, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
-        if (!TryGetProperty(document.RootElement, "data", out JsonElement data) || data.ValueKind != JsonValueKind.Array)
-            return [];
-
         List<CommunityResourceVersion> versions = [];
-        foreach (JsonElement file in data.EnumerateArray())
+        int index = 0;
+        while (index < 10_000)
         {
-            string id = ReadNumberOrString(file, "id");
-            string fileName = ReadString(file, "fileName");
-            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(fileName))
-                continue;
-
-            string urlValue = ReadString(file, "downloadUrl");
-            if (string.IsNullOrWhiteSpace(urlValue))
-                urlValue = CreateForgeCdnUrl(id, fileName);
-            urlValue = NormalizeDownloadUrl(urlValue);
-
-            string displayName = NullIfWhiteSpace(ReadString(file, "displayName")) ?? fileName;
-            List<string> gameVersions = ReadStringArray(file, "gameVersions");
-            List<string> loaders = gameVersions
-                .Where(static value => value.Equals("Forge", StringComparison.OrdinalIgnoreCase) ||
-                                       value.Equals("NeoForge", StringComparison.OrdinalIgnoreCase) ||
-                                       value.Equals("Fabric", StringComparison.OrdinalIgnoreCase) ||
-                                       value.Equals("Quilt", StringComparison.OrdinalIgnoreCase) ||
-                                       value.Equals("LiteLoader", StringComparison.OrdinalIgnoreCase))
-                .Select(static value => value.ToLowerInvariant())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            List<string> minecraftVersions = gameVersions
-                .Where(static value => char.IsDigit(value.FirstOrDefault()))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            CommunityResourceDownloadFile download = new(
-                fileName,
-                urlValue,
-                ReadInt64(file, "fileLength"),
-                id,
-                displayName);
-            CommunityResourceVersion parsed = new(
-                id,
-                displayName,
-                displayName,
-                NullIfWhiteSpace(ReadString(file, "changelog")),
-                ReadDateTimeOffset(file, "fileDate"),
-                minecraftVersions,
-                loaders,
-                [download])
+            string url = ApiRoot + "/mods/" + Uri.EscapeDataString(entry.ProjectId) + "/files?" +
+                         string.Join('&', parameters) + "&index=" + index.ToString(CultureInfo.InvariantCulture);
+            using HttpResponseMessage response = await SendAsync(HttpMethod.Get, url, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (!TryGetProperty(document.RootElement, "data", out JsonElement data) ||
+                data.ValueKind != JsonValueKind.Array)
             {
-                Dependencies = ReadCurseForgeDependencies(file)
-            };
-            versions.Add(parsed);
+                break;
+            }
+
+            foreach (JsonElement file in data.EnumerateArray())
+            {
+                CommunityResourceVersion? parsed = ParseVersion(file);
+                if (parsed is not null)
+                    versions.Add(parsed);
+            }
+
+            int pageCount = data.GetArrayLength();
+            if (pageCount == 0)
+                break;
+
+            int nextIndex = index + pageCount;
+            long totalCount = TryGetProperty(document.RootElement, "pagination", out JsonElement pagination)
+                ? ReadInt64(pagination, "totalCount")
+                : 0L;
+            if (totalCount > 0 ? nextIndex >= totalCount : pageCount < 50)
+                break;
+            index = nextIndex;
         }
 
         return versions
             .OrderByDescending(static version => version.PublishedAt ?? DateTimeOffset.MinValue)
             .ToArray();
+    }
+
+    private static CommunityResourceVersion? ParseVersion(JsonElement file)
+    {
+        string id = ReadNumberOrString(file, "id");
+        string fileName = ReadString(file, "fileName");
+        if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(fileName))
+            return null;
+
+        string urlValue = ReadString(file, "downloadUrl");
+        if (string.IsNullOrWhiteSpace(urlValue))
+            urlValue = CreateForgeCdnUrl(id, fileName);
+        urlValue = NormalizeDownloadUrl(urlValue);
+
+        string displayName = NullIfWhiteSpace(ReadString(file, "displayName")) ?? fileName;
+        List<string> gameVersions = ReadStringArray(file, "gameVersions");
+        List<string> loaders = gameVersions
+            .Where(static value => value.Equals("Forge", StringComparison.OrdinalIgnoreCase) ||
+                                   value.Equals("NeoForge", StringComparison.OrdinalIgnoreCase) ||
+                                   value.Equals("Fabric", StringComparison.OrdinalIgnoreCase) ||
+                                   value.Equals("Quilt", StringComparison.OrdinalIgnoreCase) ||
+                                   value.Equals("LiteLoader", StringComparison.OrdinalIgnoreCase))
+            .Select(static value => value.ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        List<string> minecraftVersions = gameVersions
+            .Where(static value => char.IsDigit(value.FirstOrDefault()))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        CommunityResourceDownloadFile download = new(
+            fileName,
+            urlValue,
+            ReadInt64(file, "fileLength"),
+            id,
+            displayName);
+        return new CommunityResourceVersion(
+            id,
+            displayName,
+            displayName,
+            NullIfWhiteSpace(ReadString(file, "changelog")),
+            ReadDateTimeOffset(file, "fileDate"),
+            minecraftVersions,
+            loaders,
+            [download])
+        {
+            Dependencies = ReadCurseForgeDependencies(file)
+        };
     }
 
     public async Task<CommunityResourceEntry?> GetProjectAsync(

@@ -108,7 +108,12 @@ public sealed class MinecraftLoaderMetadataService : IMinecraftLoaderMetadataSer
         if (kind is not (MinecraftLoaderKind.Fabric or MinecraftLoaderKind.LegacyFabric or MinecraftLoaderKind.Quilt))
             return await GetSpecialLoaderVersionsAsync(kind, gameVersion, cancellationToken).ConfigureAwait(false);
 
-        JsonArray versions = await GetLoaderMetadataArrayAsync(kind, gameVersion, cancellationToken).ConfigureAwait(false);
+        JsonArray versions = await GetLoaderMetadataArrayAsync(
+                kind,
+                gameVersion,
+                returnEmptyWhenUnsupported: true,
+                cancellationToken)
+            .ConfigureAwait(false);
         List<MinecraftLoaderVersionEntry> result = new(versions.Count);
         foreach (JsonNode? node in versions)
         {
@@ -137,7 +142,12 @@ public sealed class MinecraftLoaderMetadataService : IMinecraftLoaderMetadataSer
         if (request.Kind is not (MinecraftLoaderKind.Fabric or MinecraftLoaderKind.LegacyFabric or MinecraftLoaderKind.Quilt))
             throw new NotSupportedException($"{request.Kind} 需要安装器流程，不能按 Fabric/Quilt 元数据安装。");
 
-        JsonArray versions = await GetLoaderMetadataArrayAsync(request.Kind, gameVersion, cancellationToken).ConfigureAwait(false);
+        JsonArray versions = await GetLoaderMetadataArrayAsync(
+                request.Kind,
+                gameVersion,
+                returnEmptyWhenUnsupported: false,
+                cancellationToken)
+            .ConfigureAwait(false);
         foreach (JsonNode? node in versions)
         {
             if (node is not JsonObject entry)
@@ -172,6 +182,7 @@ public sealed class MinecraftLoaderMetadataService : IMinecraftLoaderMetadataSer
     private async Task<JsonArray> GetLoaderMetadataArrayAsync(
         MinecraftLoaderKind kind,
         string gameVersion,
+        bool returnEmptyWhenUnsupported,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(gameVersion);
@@ -184,6 +195,9 @@ public sealed class MinecraftLoaderMetadataService : IMinecraftLoaderMetadataSer
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken)
             .ConfigureAwait(false);
+        if (returnEmptyWhenUnsupported &&
+            response.StatusCode is System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.NotFound)
+            return [];
         response.EnsureSuccessStatusCode();
 
         string json = await PortableHttp.ReadStringAsync(response, cancellationToken).ConfigureAwait(false);

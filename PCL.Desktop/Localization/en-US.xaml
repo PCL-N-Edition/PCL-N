@@ -817,6 +817,7 @@
     <sys:String x:Key="Download.Version.Latest.Title">Latest version</sys:String>
     <sys:String x:Key="Download.Version.Latest.Release">Latest release, released on {0}</sys:String>
     <sys:String x:Key="Download.Version.Latest.Development">Latest development, released on {0}</sys:String>
+    <sys:String x:Key="Download.Version.Latest.Filtered">Latest version in this category, released on {0}</sys:String>
     <sys:String x:Key="Download.Version.Other.Title">Other Versions</sys:String>
     <sys:String x:Key="Download.Version.Type.Release">Release</sys:String>
     <sys:String x:Key="Download.Version.Type.Development">Development</sys:String>
