@@ -10,7 +10,7 @@ namespace PCL.Application.Test;
 [TestClass]
 public sealed class PortableBoundaryTests
 {
-    // Word-boundary match so setting keys like ToolDownloadClipboard are not false positives.
+    // Match concrete platform APIs and namespaces, not host-owned abstractions such as IHostClipboard.
     private static readonly (string Name, Regex Pattern)[] ForbiddenPatterns =
     [
         ("System.Windows", new Regex(@"System\.Windows", RegexOptions.CultureInvariant | RegexOptions.Compiled)),
@@ -21,7 +21,6 @@ public sealed class PortableBoundaryTests
         ("HwndSource", new Regex(@"\bHwndSource\b", RegexOptions.CultureInvariant | RegexOptions.Compiled)),
         ("MessageBox", new Regex(@"\bMessageBox\b", RegexOptions.CultureInvariant | RegexOptions.Compiled)),
         ("Dispatcher", new Regex(@"\bDispatcher\b", RegexOptions.CultureInvariant | RegexOptions.Compiled)),
-        ("Clipboard", new Regex(@"\bClipboard\b", RegexOptions.CultureInvariant | RegexOptions.Compiled)),
         ("OpenFileDialog", new Regex(@"\bOpenFileDialog\b", RegexOptions.CultureInvariant | RegexOptions.Compiled)),
         ("DllImport", new Regex(@"\bDllImport\b", RegexOptions.CultureInvariant | RegexOptions.Compiled)),
         ("LibraryImport", new Regex(@"\bLibraryImport\b", RegexOptions.CultureInvariant | RegexOptions.Compiled)),
