@@ -105,9 +105,9 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     {
         if (this.FindControl<MyComboBox>("ComboSystemUpdateChannel") is { } channel)
         {
-            ApplyItemLabel(channel, 0, "Setup.Update.Channel.Release", "正式版 / Release");
-            ApplyItemLabel(channel, 1, "Setup.Update.Channel.Beta", "测试版 / Beta");
-            ApplyItemLabel(channel, 2, "Setup.Update.Channel.CI", "CI 通道 / CI");
+            ApplyItemLabel(channel, 0, "Setup.Update.Channel.Release", "正式版");
+            ApplyItemLabel(channel, 1, "Setup.Update.Channel.Beta", "测试版");
+            ApplyItemLabel(channel, 2, "Setup.Update.Channel.CI", "CI 通道");
             if (channel.SelectedIndex < 0 && channel.ItemCount > 0)
                 channel.SelectedIndex = LauncherSettingDefaults.GetInteger("SystemUpdateChannel", 0);
             channel.RefreshSelectionDisplay();
@@ -115,10 +115,10 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
         if (this.FindControl<MyComboBox>("ComboSystemUpdateMode") is { } mode)
         {
-            ApplyItemLabel(mode, 0, "Setup.Update.Auto.DownloadAndInstall", "自动下载并安装更新");
-            ApplyItemLabel(mode, 1, "Setup.Update.Auto.DownloadAndNotify", "自动下载并提示更新");
-            ApplyItemLabel(mode, 2, "Setup.Update.Auto.NotifyOnly", "提示更新");
-            ApplyItemLabel(mode, 3, "Setup.Update.Auto.Disabled", "不自动检查更新（不推荐）");
+            ApplyItemLabel(mode, 0, "Setup.Update.Auto.DownloadAndInstall", "自动下载并安装");
+            ApplyItemLabel(mode, 1, "Setup.Update.Auto.DownloadAndNotify", "自动下载并通知");
+            ApplyItemLabel(mode, 2, "Setup.Update.Auto.NotifyOnly", "仅通知");
+            ApplyItemLabel(mode, 3, "Setup.Update.Auto.Disabled", "关闭");
             if (mode.SelectedIndex < 0 && mode.ItemCount > 0)
                 mode.SelectedIndex = LauncherSettingDefaults.GetInteger("SystemUpdateMode", 1);
             mode.RefreshSelectionDisplay();
@@ -205,7 +205,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         if (mode == 3)
         {
             if (this.FindControl<TextBlock>("TextCurrentDesc") is { } desc)
-                desc.Text = "已关闭自动检查 · 可点击「再次检查」手动查询";
+                desc.Text = "自动检查已关闭。你可以手动再次检查。";
             return;
         }
 
@@ -297,15 +297,21 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             }
         }
 
-        string channel = selectedIndex == 1 ? "测试版" : "CI 通道";
-        string extra = selectedIndex == 2
-            ? "\n\nCI 通道从 dev 分支每次 CI 构建拉取全量包，不提供版本间 Patch。"
-            : string.Empty;
+        string channel = selectedIndex == 1
+            ? AvaloniaLocalizationManager.GetText("Setup.Update.Channel.Beta", "测试版")
+            : AvaloniaLocalizationManager.GetText("Setup.Update.Channel.CI", "CI 通道");
+        string body = selectedIndex == 1
+            ? AvaloniaLocalizationManager.GetText(
+                "Setup.Update.Channel.Beta.Warning.Message",
+                "即将切换到测试版。\n\n测试版可能包含未完成的功能，稳定性可能较低。更新后如需返回正式版，可能需要等待下一正式版或手动安装。")
+            : AvaloniaLocalizationManager.GetText(
+                "Setup.Update.Channel.Dev.Warning.Message",
+                "即将切换到 CI 通道。\n\n这些构建可能非常不稳定。更新后如需返回正式版或测试版，可能需要手动安装。");
         SettingsConfirmRequestedEventArgs args = new(
-            "切换更新通道",
-            $"{channel}可能包含尚未充分验证的功能和兼容性问题。确定切换到{channel}吗？{extra}",
+            AvaloniaLocalizationManager.GetText("Setup.Update.Channel.Common.Warning.Title", "继续之前"),
+            body,
             Complete,
-            primaryButton: "仍然切换",
+            primaryButton: AvaloniaLocalizationManager.GetText("Setup.Update.Channel.Common.Warning.Confirm", "继续"),
             isWarn: true);
         if (ConfirmRequested is { } confirmRequested)
             confirmRequested.Invoke(this, args);
@@ -340,7 +346,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         if (this.FindControl<MyButton>("BtnCheckAgain") is { } checkAgain)
             checkAgain.IsEnabled = false;
         if (this.FindControl<TextBlock>("TextCurrentDesc") is { } desc)
-            desc.Text = "正在检查更新…";
+            desc.Text = AvaloniaLocalizationManager.GetText("Setup.Update.Checking", "正在检查更新…");
 
         CancelInFlightCheck();
         _checkCts?.Dispose();
@@ -387,12 +393,12 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                 MessageRequested?.Invoke(
                     this,
                     new SettingsMessageRequestedEventArgs(
-                        "检查更新失败",
-                        result.ErrorMessage ?? "未知错误",
-                        "知道了"));
+                        AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新"),
+                        result.ErrorMessage ?? AvaloniaLocalizationManager.GetText("Setup.Update.Error.NetworkFailed", "请检查网络连接后重试。"),
+                        AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
                 ShowCurrentVersionUi();
                 if (this.FindControl<TextBlock>("TextCurrentDesc") is { } failedDesc)
-                    failedDesc.Text = "检查更新失败，可前往 GitHub Releases 手动查看";
+                    failedDesc.Text = AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新");
                 return;
             }
 
@@ -405,20 +411,19 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                     updateName.Text = "PCL N " + (result.LatestVersion ?? "");
                 if (this.FindControl<TextBlock>("TextUpdateDesc") is { } updateDesc)
                 {
-                    string tip = result.Channel is UpdateChannel.CI
-                        ? (result.ReleaseName ?? "CI 滚动构建") + " · 仅全量包"
-                        : (result.ReleaseName ?? "发现新版本");
-                    updateDesc.Text = tip + " · 可立即更新";
+                    updateDesc.Text = result.Channel is UpdateChannel.CI
+                        ? (result.ReleaseName ?? "CI") + " · " + AvaloniaLocalizationManager.GetText("Setup.Update.Available", "有可用更新")
+                        : AvaloniaLocalizationManager.GetText("Setup.Update.Available", "有可用更新");
                 }
 
-                // Fixed, plain copy (iOS-style); details live on GitHub.
+                // Fixed, plain copy; details live on GitHub.
                 if (this.FindControl<TextBlock>("TextChangelog") is { } changelog)
                 {
                     string guide = AvaloniaLocalizationManager.GetText(
                         "Setup.Update.Changelog.Placeholder",
                         "此更新包含问题修复与改进。\n\n部分内容可能因设备、系统版本或使用方式而略有不同。建议在网络状况良好时完成下载与安装。\n\n有关此更新的完整说明与变更列表，可在 GitHub 上查看。");
                     if (result.Channel is UpdateChannel.CI || !result.SupportsPatches)
-                        guide += "\n\n此版本仅提供完整下载，不支持增量更新。";
+                        guide += "\n\n此版本仅提供完整下载。";
                     changelog.Text = guide;
                 }
 
@@ -429,7 +434,12 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                 _preferredAssetUrl = null;
                 ShowCurrentVersionUi();
                 if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDesc)
-                    currentDesc.Text = $"已是最新版本（{result.CurrentVersion}）";
+                {
+                    string latest = AvaloniaLocalizationManager.GetText("Setup.Update.Latest", "已是最新版本");
+                    currentDesc.Text = string.IsNullOrWhiteSpace(result.CurrentVersion)
+                        ? latest
+                        : $"{latest}（{result.CurrentVersion}）";
+                }
             }
         }
         catch (OperationCanceledException)
@@ -442,12 +452,12 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             MessageRequested?.Invoke(
                 this,
                 new SettingsMessageRequestedEventArgs(
-                    "检查更新失败",
-                    "更新服务已重置，请再点一次「再次检查」。",
-                    "知道了"));
+                    AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新"),
+                    "请再试一次。",
+                    AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
             ShowCurrentVersionUi();
             if (this.FindControl<TextBlock>("TextCurrentDesc") is { } disposedDesc)
-                disposedDesc.Text = "检查更新失败，请再试一次";
+                disposedDesc.Text = AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新");
         }
         catch (Exception ex)
         {
@@ -455,10 +465,13 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                 return;
             MessageRequested?.Invoke(
                 this,
-                new SettingsMessageRequestedEventArgs("检查更新失败", ex.Message, "知道了"));
+                new SettingsMessageRequestedEventArgs(
+                    AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新"),
+                    ex.Message,
+                    AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
             ShowCurrentVersionUi();
             if (this.FindControl<TextBlock>("TextCurrentDesc") is { } errorDesc)
-                errorDesc.Text = "检查更新失败，可前往 GitHub Releases 手动查看";
+                errorDesc.Text = AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新");
         }
         finally
         {
@@ -477,7 +490,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         if (this.FindControl<TextBlock>("TextCurrentVersion") is { } currentVersion)
             currentVersion.Text = version;
         if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDescription && !_isChecking && !_updateAvailableUi)
-            currentDescription.Text = "当前版本 · 进入页面将自动检查更新";
+            currentDescription.Text = AvaloniaLocalizationManager.GetText("Setup.Update.Latest", "已是最新版本");
     }
 
 }
