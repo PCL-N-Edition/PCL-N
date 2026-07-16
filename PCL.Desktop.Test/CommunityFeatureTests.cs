@@ -206,6 +206,47 @@ public sealed class CommunityFeatureTests
         StringAssert.Contains(query, "gameVersion=1.20.1");
         StringAssert.Contains(query, "sortField=6");
         StringAssert.Contains(query, "pageSize=50");
+        Assert.IsFalse(query.Contains("categoryId=", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task CurseForgeCatalog_ShouldPassCategoryIdFromDualTag()
+    {
+        HttpRequestMessage? captured = null;
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            captured = request;
+            return JsonResponse("""{ "data": [] }""");
+        }));
+        using CurseForgeCommunityResourceCatalog catalog = new(client, "test-key");
+
+        await catalog.SearchAsync(
+            CommunityResourceCategory.Mod,
+            "jei",
+            new CommunitySearchOptions(Tag: "412/technology", Source: CommunityResourceSource.CurseForge));
+
+        string query = Uri.UnescapeDataString(captured!.RequestUri!.Query);
+        StringAssert.Contains(query, "categoryId=412");
+    }
+
+    [TestMethod]
+    public async Task CurseForgeCatalog_ShouldOmitCategoryIdWhenTagHasNoCurseHalf()
+    {
+        HttpRequestMessage? captured = null;
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            captured = request;
+            return JsonResponse("""{ "data": [] }""");
+        }));
+        using CurseForgeCommunityResourceCatalog catalog = new(client, "test-key");
+
+        await catalog.SearchAsync(
+            CommunityResourceCategory.Mod,
+            "jei",
+            new CommunitySearchOptions(Tag: "/technology", Source: CommunityResourceSource.CurseForge));
+
+        string query = Uri.UnescapeDataString(captured!.RequestUri!.Query);
+        Assert.IsFalse(query.Contains("categoryId=", StringComparison.Ordinal));
     }
 
     [TestMethod]

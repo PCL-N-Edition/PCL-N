@@ -3,10 +3,12 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Diagnostics;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using PCL.Desktop.Diagnostics;
 
 namespace PCL.Desktop.Views;
@@ -36,6 +38,11 @@ public sealed partial class CrashReportWindow : Window
         _issuesUrl = issuesUrl;
         _issuesNewUrl = issuesNewUrl;
         AvaloniaXamlLoader.Load(this);
+
+        // Force opaque chrome even if global theme/transparency is broken mid-crash.
+        TransparencyLevelHint = [WindowTransparencyLevel.None];
+        Background = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x30));
+        Opacity = 1d;
 
         if (this.FindControl<TextBox>("TxtReport") is { } box)
             box.Text = _report;

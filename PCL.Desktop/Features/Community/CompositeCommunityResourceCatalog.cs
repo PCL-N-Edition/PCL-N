@@ -35,18 +35,30 @@ public sealed class CompositeCommunityResourceCatalog : ICommunityResourceCatalo
         if (options.Source == CommunityResourceSource.Modrinth)
             return await _modrinth.SearchAsync(category, query, options, cancellationToken).ConfigureAwait(false);
         if (options.Source == CommunityResourceSource.CurseForge)
+        {
+            // Do not swallow CurseForge-only failures (missing API key, 400, etc.).
             return await _curseForge.SearchAsync(category, query, options, cancellationToken).ConfigureAwait(false);
+        }
 
-        Task<IReadOnlyList<CommunityResourceEntry>> modrinthTask =
-            TrySearchAsync(_modrinth, category, query, options, cancellationToken);
-        Task<IReadOnlyList<CommunityResourceEntry>> curseForgeTask =
-            TrySearchAsync(_curseForge, category, query, options, cancellationToken);
+        Task<(IReadOnlyList<CommunityResourceEntry> Entries, Exception? Error)> modrinthTask =
+            TrySearchWithErrorAsync(_modrinth, category, query, options, cancellationToken);
+        Task<(IReadOnlyList<CommunityResourceEntry> Entries, Exception? Error)> curseForgeTask =
+            TrySearchWithErrorAsync(_curseForge, category, query, options, cancellationToken);
         await Task.WhenAll(modrinthTask, curseForgeTask).ConfigureAwait(false);
-        IReadOnlyList<CommunityResourceEntry> modrinth = await modrinthTask.ConfigureAwait(false);
-        IReadOnlyList<CommunityResourceEntry> curseForge = await curseForgeTask.ConfigureAwait(false);
+        (IReadOnlyList<CommunityResourceEntry> modrinth, Exception? modrinthError) =
+            await modrinthTask.ConfigureAwait(false);
+        (IReadOnlyList<CommunityResourceEntry> curseForge, Exception? curseError) =
+            await curseForgeTask.ConfigureAwait(false);
         if (modrinth.Count == 0 && curseForge.Count == 0)
         {
-            // Re-run the preferred source to surface a useful network/configuration error.
+            // Prefer surfacing CurseForge config/network errors when both sources fail,
+            // otherwise re-run Modrinth so the user still sees a concrete message.
+            if (curseError is not null && modrinthError is not null)
+                throw new AggregateException("社区资源搜索失败。", curseError, modrinthError);
+            if (curseError is not null)
+                throw curseError;
+            if (modrinthError is not null)
+                throw modrinthError;
             return await _modrinth.SearchAsync(category, query, options, cancellationToken).ConfigureAwait(false);
         }
 
@@ -102,7 +114,7 @@ public sealed class CompositeCommunityResourceCatalog : ICommunityResourceCatalo
     private ICommunityResourceCatalog Select(CommunityResourceEntry entry) =>
         entry.Source == CommunityResourceSource.CurseForge ? _curseForge : _modrinth;
 
-    private static async Task<IReadOnlyList<CommunityResourceEntry>> TrySearchAsync(
+    private static async Task<(IReadOnlyList<CommunityResourceEntry> Entries, Exception? Error)> TrySearchWithErrorAsync(
         ICommunityResourceCatalog catalog,
         CommunityResourceCategory category,
         string query,
@@ -111,15 +123,17 @@ public sealed class CompositeCommunityResourceCatalog : ICommunityResourceCatalo
     {
         try
         {
-            return await catalog.SearchAsync(category, query, options, cancellationToken).ConfigureAwait(false);
+            IReadOnlyList<CommunityResourceEntry> entries =
+                await catalog.SearchAsync(category, query, options, cancellationToken).ConfigureAwait(false);
+            return (entries, null);
         }
         catch (OperationCanceledException)
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
-            return [];
+            return ([], ex);
         }
     }
 }

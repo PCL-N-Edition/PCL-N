@@ -268,45 +268,51 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
 
     private void PopulateTagItems()
     {
+        // Dual IDs: "{curseForgeCategoryId}/{modrinthSlug}" (WPF PageDownloadMod tags).
         List<FilterOption> tags = _category switch
         {
             CommunityResourceCategory.Mod =>
             [
                 new("", "全部"),
-                new("technology", "科技"),
-                new("magic", "魔法"),
-                new("adventure", "冒险"),
-                new("decoration", "装饰"),
-                new("utility", "实用"),
-                new("library", "支持库"),
-                new("optimization", "优化"),
-                new("food", "食物"),
-                new("storage", "存储"),
-                new("equipment", "装备"),
-                new("worldgen", "世界生成")
+                new("406/worldgen", "世界生成"),
+                new("412/technology", "科技"),
+                new("419/magic", "魔法"),
+                new("422/adventure", "冒险"),
+                new("424/decoration", "装饰"),
+                new("5191/utility", "实用"),
+                new("421/library", "支持库"),
+                new("6814/optimization", "优化"),
+                new("436/food", "食物"),
+                new("420/storage", "存储"),
+                new("434/equipment", "装备"),
+                new("411/mobs", "生物"),
+                new("414/transportation", "运输")
             ],
             CommunityResourceCategory.Modpack =>
             [
                 new("", "全部"),
-                new("multiplayer", "多人"),
-                new("challenging", "挑战"),
-                new("quests", "任务"),
-                new("lightweight", "轻量")
+                new("4484/", "多人"),
+                new("4479/challenging", "挑战"),
+                new("4478/quests", "任务"),
+                new("4481/lightweight", "轻量"),
+                new("4472/technology", "科技"),
+                new("4473/magic", "魔法"),
+                new("4475/adventure", "冒险")
             ],
             CommunityResourceCategory.ResourcePack =>
             [
                 new("", "全部"),
-                new("realistic", "写实"),
-                new("simplistic", "简洁"),
-                new("fantasy", "奇幻"),
-                new("combat", "战斗")
+                new("/realistic", "写实"),
+                new("/simplistic", "简洁"),
+                new("/fantasy", "奇幻"),
+                new("4483/combat", "战斗")
             ],
             CommunityResourceCategory.Shader =>
             [
                 new("", "全部"),
-                new("cartoon", "卡通"),
-                new("realistic", "写实"),
-                new("semi-realistic", "半写实")
+                new("/cartoon", "卡通"),
+                new("/realistic", "写实"),
+                new("/semi-realistic", "半写实")
             ],
             _ => [new FilterOption("", "全部")]
         };

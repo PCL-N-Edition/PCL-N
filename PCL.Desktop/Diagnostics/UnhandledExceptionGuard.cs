@@ -23,6 +23,9 @@ internal static class UnhandledExceptionGuard
     private static int _handling;
     private static int _dialogShown;
     private static bool _dispatcherAttached;
+    private static string? _lastFingerprint;
+    private static long _lastReportTicks;
+    private static int _suppressedCascade;
 
     public static void Install()
     {
@@ -102,6 +105,34 @@ internal static class UnhandledExceptionGuard
 
         try
         {
+            // Layout/render cascades (e.g. Font weight must be > 0 on every frame) would otherwise
+            // spam crash dumps and leave a stuck transparent dialog.
+            string fingerprint = exception.GetType().FullName + "|" + exception.Message;
+            long now = Environment.TickCount64;
+            if (string.Equals(fingerprint, _lastFingerprint, StringComparison.Ordinal) &&
+                now - _lastReportTicks < 5000)
+            {
+                int suppressed = Interlocked.Increment(ref _suppressedCascade);
+                if (suppressed is 1 or 10 or 50)
+                {
+                    try
+                    {
+                        DesktopFileLog.Write(
+                            $"[Crash] 抑制重复异常 ×{suppressed}：{source} → {exception.Message}");
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+
+                return;
+            }
+
+            _lastFingerprint = fingerprint;
+            _lastReportTicks = now;
+            Interlocked.Exchange(ref _suppressedCascade, 0);
+
             string report = BuildReport(exception, source);
             try
             {

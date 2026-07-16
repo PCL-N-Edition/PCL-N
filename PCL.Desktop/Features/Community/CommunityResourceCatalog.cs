@@ -565,10 +565,25 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
             groups.Add("[\"categories:" + EscapeFacetValue(options.Loader.Trim().ToLowerInvariant()) + "\"]");
         }
 
-        if (!string.IsNullOrWhiteSpace(options.Tag))
-            groups.Add("[\"categories:" + EscapeFacetValue(options.Tag.Trim().ToLowerInvariant()) + "\"]");
+        // Dual tags "{curseId}/{modrinthSlug}" — Modrinth only consumes the slug after '/'.
+        string? modrinthTag = ExtractModrinthTag(options.Tag);
+        if (!string.IsNullOrWhiteSpace(modrinthTag))
+            groups.Add("[\"categories:" + EscapeFacetValue(modrinthTag) + "\"]");
 
         return "[" + string.Join(',', groups) + "]";
+    }
+
+    /// <summary>Parses dual tags like <c>412/technology</c> into the Modrinth slug half.</summary>
+    internal static string? ExtractModrinthTag(string? tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag))
+            return null;
+
+        string raw = tag.Trim();
+        int slash = raw.IndexOf('/');
+        string slug = slash >= 0 ? raw[(slash + 1)..] : raw;
+        slug = slug.Trim().ToLowerInvariant();
+        return string.IsNullOrWhiteSpace(slug) ? null : slug;
     }
 
     private static string EscapeFacetValue(string value) =>

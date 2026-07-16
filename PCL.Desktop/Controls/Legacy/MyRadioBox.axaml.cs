@@ -238,6 +238,14 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
         if (_border is null || _dot is null)
             return;
 
+        // Indicator host centers both ellipses; keep margins zero so scale animations stay concentric.
+        _border.Margin = default;
+        _dot.Margin = default;
+        _border.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
+        _border.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+        _dot.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
+        _dot.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+
         if (!animate)
         {
             _border.Width = BorderUncheckedSize;
@@ -246,7 +254,6 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
             {
                 _dot.Width = DotCheckedSize;
                 _dot.Height = DotCheckedSize;
-                _dot.Margin = new Thickness(6d, 0d, 0d, 0d);
                 _dot.Opacity = 1d;
                 _border.Stroke = ResolveBrush(IsEnabled ? "ColorBrush2" : "ColorBrushGray4", IsEnabled ? "#0b5bcb" : "#a6a6a6");
                 SyncDotBrush();
@@ -255,7 +262,6 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
             {
                 _dot.Width = 0d;
                 _dot.Height = 0d;
-                _dot.Margin = new Thickness(10d, 0d, 0d, 0d);
                 _dot.Opacity = 0d;
                 _border.Stroke = ResolveBrush(IsEnabled ? "ColorBrush1" : "ColorBrushGray4", IsEnabled ? "#343d4a" : "#a6a6a6");
                 SyncDotBrush();
@@ -266,7 +272,6 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
 
         if (Checked)
         {
-            _dot.Margin = new Thickness(10d - GetWidth(_dot) / 2d, 0d, 0d, 0d);
             if (_dot.Opacity < 0.01d)
                 _dot.Opacity = 1d;
             ModAnimation.AniStart(

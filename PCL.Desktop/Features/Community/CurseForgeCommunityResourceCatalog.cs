@@ -45,6 +45,10 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
         ];
         if (!string.IsNullOrWhiteSpace(query))
             parameters.Add("searchFilter=" + Uri.EscapeDataString(query.Trim()));
+        // Dual tag format from UI: "{curseForgeCategoryId}/{modrinthSlug}". Only pass categoryId when set.
+        // Never send categoryId=0 — that broke CurseForge search (WPF #2221).
+        if (TryGetCurseForgeCategoryId(options.Tag, out int categoryId))
+            parameters.Add("categoryId=" + categoryId.ToString(CultureInfo.InvariantCulture));
         if (!string.IsNullOrWhiteSpace(options.GameVersion))
             parameters.Add("gameVersion=" + Uri.EscapeDataString(options.GameVersion.Trim()));
         if (TryGetLoaderType(options.Loader, out int loaderType))
@@ -320,8 +324,34 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
     {
         CommunityResourceSort.Downloads => 6,
         CommunityResourceSort.Updated => 3,
+        // Featured / relevance (WPF CompSortType.Relevance → sortField=4).
         _ => 4
     };
+
+    /// <summary>
+    /// Parses dual tags like <c>412/technology</c> or CurseForge-only <c>412/</c>.
+    /// Returns false when the CurseForge half is empty so we omit categoryId entirely.
+    /// </summary>
+    internal static bool TryGetCurseForgeCategoryId(string? tag, out int categoryId)
+    {
+        categoryId = 0;
+        if (string.IsNullOrWhiteSpace(tag))
+            return false;
+
+        string raw = tag.Trim();
+        int slash = raw.IndexOf('/');
+        string cursePart = slash >= 0 ? raw[..slash] : raw;
+        if (string.IsNullOrWhiteSpace(cursePart))
+            return false;
+        if (!int.TryParse(cursePart, NumberStyles.None, CultureInfo.InvariantCulture, out categoryId) ||
+            categoryId <= 0)
+        {
+            categoryId = 0;
+            return false;
+        }
+
+        return true;
+    }
 
     private static bool TryGetLoaderType(string? loader, out int type)
     {
