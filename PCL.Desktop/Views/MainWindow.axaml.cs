@@ -3451,12 +3451,43 @@ public partial class MainWindow : Window, IDisposable
             SaveProfilesInBackground("保存账户档案选择");
             _launchRight?.AppendLog($"已选择账户档案 {profile.Username}。");
         };
+        page.ProfileDeleteRequested += (_, profile) =>
+        {
+            ShowConfirmDialog(
+                "删除账户档案",
+                $"确定要删除账户档案“{profile.Username}”吗？\n\n删除后需要重新登录才能再次使用此账户。",
+                confirmed =>
+                {
+                    if (confirmed)
+                        RemoveLoginProfile(page, launchPage, profile);
+                },
+                "删除",
+                "取消",
+                isWarn: true);
+        };
         page.CreateProfileRequested += (_, _) =>
         {
             ShowProfileTypeSelector(launchPage);
         };
         page.ImportExportRequested += (_, _) => ShowProfileImportExportSelector(page, launchPage);
         return page;
+    }
+
+    private void RemoveLoginProfile(
+        PageLoginProfile page,
+        PageLaunchLeft launchPage,
+        LoginProfileInfo profile)
+    {
+        int removed = _loginProfiles.RemoveAll(existing => IsSameProfile(existing, profile));
+        if (removed == 0)
+            return;
+
+        LoginProfileInfo? selected = _loginProfiles.FirstOrDefault();
+        page.SetProfiles(_loginProfiles, selected);
+        launchPage.SetSelectedProfilePresent(selected is not null);
+        launchPage.RefreshPage(anim: true, PageLaunchLeft.LaunchLoginPageType.Profile);
+        SaveProfilesInBackground("删除账户档案");
+        _launchRight?.AppendLog($"已删除账户档案 {profile.Username}。");
     }
 
     private PageLoginProfileSkin CreateProfileSkinPage(PageLaunchLeft launchPage)

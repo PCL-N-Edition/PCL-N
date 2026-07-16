@@ -29,6 +29,8 @@ public partial class PageLoginProfile : Grid, PageLaunchLeft.ILoginPage
 
     public event EventHandler<LoginProfileInfo>? ProfileSelected;
 
+    public event EventHandler<LoginProfileInfo>? ProfileDeleteRequested;
+
     public event EventHandler? CreateProfileRequested;
 
     public event EventHandler? ImportExportRequested;
@@ -57,6 +59,14 @@ public partial class PageLoginProfile : Grid, PageLaunchLeft.ILoginPage
 
         SelectedProfile = profile;
         ProfileSelected?.Invoke(this, profile);
+    }
+
+    private void DeleteProfile(object? sender, EventArgs e)
+    {
+        if (sender is not Control control || control.DataContext is not LoginProfileInfo profile)
+            return;
+
+        ProfileDeleteRequested?.Invoke(this, profile);
     }
 
     private void RefreshHints()

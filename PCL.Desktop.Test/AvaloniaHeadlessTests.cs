@@ -8142,6 +8142,50 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageLoginProfile_RequestsDeletionForClickedProfile()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            LoginProfileInfo profile = new(
+                "Steve",
+                "离线登录",
+                LaunchLoginProfileKind.Offline);
+            PageLoginProfile page = new();
+            Window window = new()
+            {
+                Width = 320,
+                Height = 260,
+                Content = page
+            };
+            LoginProfileInfo? deleted = null;
+            LoginProfileInfo? selected = null;
+            page.ProfileDeleteRequested += (_, value) => deleted = value;
+            page.ProfileSelected += (_, value) => selected = value;
+
+            try
+            {
+                page.SetProfiles([profile]);
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                MyIconButton deleteButton = page.GetVisualDescendants()
+                    .OfType<MyIconButton>()
+                    .Single(button => ToolTip.GetTip(button)?.ToString() == "删除账户档案");
+                Click(window, deleteButton);
+
+                Assert.AreEqual(profile, deleted);
+                Assert.IsNull(selected);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MessageDialogs_KeepActionsVisibleAndScrollTallContent()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
