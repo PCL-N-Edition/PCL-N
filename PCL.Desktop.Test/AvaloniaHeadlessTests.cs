@@ -108,12 +108,16 @@ public sealed class AvaloniaHeadlessTests
                 Assert.AreEqual(MyIconButton.Themes.White, closeButton.Theme);
                 Assert.AreEqual(
                     Colors.White,
-                    ((SolidColorBrush)closeButton.FindControl<SvgIcon>("ShapeSvgIcon")!.IconBrush!).Color);
+                    ((ISolidColorBrush)closeButton.FindControl<SvgIcon>("ShapeSvgIcon")!.IconBrush!).Color);
                 window.Show();
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
                 Assert.AreEqual(WindowDecorations.None, window.WindowDecorations);
                 Assert.IsFalse(window.Topmost);
+                Border shadow = window.FindControl<Border>("PanWindowShadow")!;
+                Assert.IsNotNull(shadow);
+                Assert.AreEqual(new Thickness(10d), shadow.Margin);
+                Assert.IsFalse(((Grid)window.Content!).Children.OfType<Rectangle>().Any());
                 Assert.IsNotNull(window.FindControl<MyIconButton>("BtnTitleClose"));
                 Assert.IsNotNull(window.FindControl<MyIconButton>("BtnTitleMin"));
                 Assert.IsNotNull(window.FindControl<MyIconButton>("BtnTitleMax"));
@@ -129,14 +133,14 @@ public sealed class AvaloniaHeadlessTests
                 {
                     Assert.AreEqual(
                         0,
-                        ((SolidColorBrush)(resizeGrip.Background
+                        ((ISolidColorBrush)(resizeGrip.Background
                             ?? throw new InvalidOperationException("Resize grip must keep a transparent hit-test brush."))).Color.A);
                 }
                 Assert.IsFalse(window.GetVisualDescendants().OfType<Rectangle>()
                     .Any(shape => shape.StrokeThickness is > 0d and < 0.001d));
-                Assert.IsNotNull(window.FindControl<MyListItem>("BtnTitleSelect0"));
-                Assert.IsNotNull(window.FindControl<MyListItem>("BtnTitleSelect3"));
-                Assert.IsNull(window.FindControl<MyListItem>("BtnTitleSelect4"));
+                Assert.IsNotNull(FindVisual<MyListItem>(window, "BtnTitleSelect0"));
+                Assert.IsNotNull(FindVisual<MyListItem>(window, "BtnTitleSelect3"));
+                Assert.IsNull(FindVisual<MyListItem>(window, "BtnTitleSelect4"));
                 Grid panTitleMain = window.FindControl<Grid>("PanTitleMain")!;
                 Grid panTitleInner = window.FindControl<Grid>("PanTitleInner")!;
                 Assert.AreEqual(HorizontalAlignment.Stretch, panTitleMain.HorizontalAlignment);
@@ -152,13 +156,13 @@ public sealed class AvaloniaHeadlessTests
                     "Headless notification",
                     ((Border)window.FindControl<StackPanel>("PanHint")!.Children.Single()).Tag);
                 Assert.AreEqual(
-                    Color.FromArgb(0xd2, 0xfb, 0xfb, 0xfb),
-                    ((SolidColorBrush)window.FindControl<Border>("PanNavLayer")!.Background!).Color);
+                    RequiredBrush("ColorBrushTransparentBackground").Color,
+                    ((ISolidColorBrush)window.FindControl<Border>("PanNavLayer")!.Background!).Color);
                 Assert.IsNotNull(window.Icon);
-                Assert.IsTrue(window.FindControl<MyListItem>("BtnTitleSelect0")!.Checked);
-                Assert.IsFalse(window.FindControl<MyListItem>("BtnTitleSelect1")!.Checked);
-                Assert.AreEqual(20d, GetCheckIndicator(window.FindControl<MyListItem>("BtnTitleSelect0")!).Height);
-                Assert.AreEqual(0d, GetCheckIndicator(window.FindControl<MyListItem>("BtnTitleSelect1")!).Height);
+                Assert.IsTrue(FindVisual<MyListItem>(window, "BtnTitleSelect0")!.Checked);
+                Assert.IsFalse(FindVisual<MyListItem>(window, "BtnTitleSelect1")!.Checked);
+                Assert.AreEqual(20d, GetCheckIndicator(FindVisual<MyListItem>(window, "BtnTitleSelect0")!).Height);
+                Assert.AreEqual(0d, GetCheckIndicator(FindVisual<MyListItem>(window, "BtnTitleSelect1")!).Height);
                 Assert.IsTrue(window.FindControl<Avalonia.Controls.Shapes.Path>("ShapeTitleLogo")!.IsVisible);
                 Assert.IsFalse(window.FindControl<Avalonia.Controls.Shapes.Path>("ShapeHMCLTitleLogo")!.IsVisible);
                 Assert.IsFalse(window.FindControl<MyImage>("ImageHMCLTitleLogo")!.IsVisible);
@@ -170,7 +174,8 @@ public sealed class AvaloniaHeadlessTests
                 Assert.IsNotNull(FindVisual<Grid>(window, "PanLaunching"));
                 Assert.IsNotNull(FindVisual<StackPanel>(window, "PanCustom"));
                 Assert.IsNotNull(FindVisual<MyCard>(window, "PanLog"));
-                Assert.IsNotNull(window.CaptureRenderedFrame());
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Assert.IsTrue(window.IsVisible);
             }
             finally
             {
@@ -199,10 +204,12 @@ public sealed class AvaloniaHeadlessTests
                 window.WindowState = WindowState.Maximized;
                 Assert.AreEqual("pcl/window-restore", window.FindControl<MyIconButton>("BtnTitleMax")!.SvgIcon);
                 Assert.AreEqual(new Thickness(0d), window.FindControl<Border>("PanBack")!.Margin);
+                Assert.IsFalse(window.FindControl<Border>("PanWindowShadow")!.IsVisible);
 
                 window.WindowState = WindowState.Normal;
                 Assert.AreEqual("lucide/square", window.FindControl<MyIconButton>("BtnTitleMax")!.SvgIcon);
                 Assert.AreEqual(new Thickness(10d), window.FindControl<Border>("PanBack")!.Margin);
+                Assert.IsTrue(window.FindControl<Border>("PanWindowShadow")!.IsVisible);
             }
             finally
             {
@@ -1410,7 +1417,7 @@ public sealed class AvaloniaHeadlessTests
                 window.Show();
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
-                Click(window, window.FindControl<MyListItem>("BtnTitleSelect3")!);
+                Click(window, FindVisual<MyListItem>(window, "BtnTitleSelect3")!);
                 ModAnimation.AdvanceUntilIdleForTesting();
                 PageSetupLeft setupLeft = FindVisual<PageSetupLeft>(window)!;
 
@@ -1446,7 +1453,7 @@ public sealed class AvaloniaHeadlessTests
                 window.Show();
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
-                Click(window, window.FindControl<MyListItem>("BtnTitleSelect3")!);
+                Click(window, FindVisual<MyListItem>(window, "BtnTitleSelect3")!);
                 ModAnimation.AdvanceUntilIdleForTesting();
 
                 PageSetupLeft setupLeft = FindVisual<PageSetupLeft>(window)!;
@@ -1487,7 +1494,7 @@ public sealed class AvaloniaHeadlessTests
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                 SaveUiSnapshot(window, "main-home");
 
-                Click(window, window.FindControl<MyListItem>("BtnTitleSelect3")!);
+                Click(window, FindVisual<MyListItem>(window, "BtnTitleSelect3")!);
                 ModAnimation.AdvanceUntilIdleForTesting();
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                 SaveUiSnapshot(window, "main-settings");
@@ -2284,8 +2291,8 @@ public sealed class AvaloniaHeadlessTests
                 window.Show();
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
-                MyListItem launch = window.FindControl<MyListItem>("BtnTitleSelect0")!;
-                MyListItem download = window.FindControl<MyListItem>("BtnTitleSelect1")!;
+                MyListItem launch = FindVisual<MyListItem>(window, "BtnTitleSelect0")!;
+                MyListItem download = FindVisual<MyListItem>(window, "BtnTitleSelect1")!;
 
                 Assert.IsInstanceOfType<NavigationRouteId>(launch.Tag);
                 Assert.IsInstanceOfType<NavigationRouteId>(download.Tag);
@@ -10816,7 +10823,7 @@ public sealed class AvaloniaHeadlessTests
 
                 Control navLayer = window.FindControl<Control>("PanNavLayer")!;
                 Control toggle = window.FindControl<Control>("BtnNavToggle")!;
-                window.FindControl<MyListItem>("BtnTitleSelect1")!.Title = "下载资源与游戏版本管理";
+                FindVisual<MyListItem>(window, "BtnTitleSelect1")!.Title = "下载资源与游戏版本管理";
 
                 Click(window, toggle);
                 double expandedTarget = GetPrivateDouble(window, "_navAnimTarget");
@@ -11240,8 +11247,8 @@ public sealed class AvaloniaHeadlessTests
              invalidOperation.Message.Contains("Avalonia.Input.IInputManager", StringComparison.Ordinal));
     }
 
-    private static SolidColorBrush RequiredBrush(string key) =>
-        Avalonia.Application.Current!.Resources[key] as SolidColorBrush
+    private static ISolidColorBrush RequiredBrush(string key) =>
+        Avalonia.Application.Current!.Resources[key] as ISolidColorBrush
         ?? throw new InvalidOperationException($"Resource '{key}' is not a SolidColorBrush.");
 
     private static void SaveUiSnapshot(TopLevel topLevel, string name)

@@ -42,141 +42,14 @@
 
         </Grid.RenderTransform>
 
-        <Rectangle IsHitTestVisible="False" Height="10" VerticalAlignment="Top" Margin="16,0">
-
-            <Rectangle.Fill>
-
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-
-                    <GradientStop Color="#21000000" Offset="1" />
-
-                    <GradientStop Color="#11000000" Offset="0.7" />
-
-                    <GradientStop Color="#00000000" Offset="0" />
-
-                </LinearGradientBrush>
-
-            </Rectangle.Fill>
-
-        </Rectangle>
-
-        <Rectangle IsHitTestVisible="False" Height="10" VerticalAlignment="Bottom" Margin="16,0">
-
-            <Rectangle.Fill>
-
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-
-                    <GradientStop Color="#21000000" Offset="0" />
-
-                    <GradientStop Color="#11000000" Offset="0.3" />
-
-                    <GradientStop Color="#00000000" Offset="1" />
-
-                </LinearGradientBrush>
-
-            </Rectangle.Fill>
-
-        </Rectangle>
-
-        <Rectangle HorizontalAlignment="Right" Margin="0,16" IsHitTestVisible="False" Width="10">
-
-            <Rectangle.Fill>
-
-                <LinearGradientBrush EndPoint="1,0.5" StartPoint="0,0.5">
-
-                    <GradientStop Color="#21000000" Offset="0" />
-
-                    <GradientStop Color="#11000000" Offset="0.3" />
-
-                    <GradientStop Color="#00000000" Offset="1" />
-
-                </LinearGradientBrush>
-
-            </Rectangle.Fill>
-
-        </Rectangle>
-
-        <Rectangle HorizontalAlignment="Left" IsHitTestVisible="False" Width="10" Margin="0,16">
-
-            <Rectangle.Fill>
-
-                <LinearGradientBrush EndPoint="1,0.5" StartPoint="0,0.5">
-
-                    <GradientStop Color="#21000000" Offset="1" />
-
-                    <GradientStop Color="#11000000" Offset="0.7" />
-
-                    <GradientStop Color="#00000000" Offset="0" />
-
-                </LinearGradientBrush>
-
-            </Rectangle.Fill>
-
-        </Rectangle>
-
-        <Rectangle HorizontalAlignment="Left" IsHitTestVisible="False" Width="16" VerticalAlignment="Top" Height="16">
-
-            <Rectangle.Fill>
-
-                <RadialGradientBrush Center="1,1" GradientOrigin="1,1" RadiusX="1" RadiusY="1">
-
-                    <GradientStop Color="#21000000" Offset="0.2" />
-
-                    <GradientStop Color="#00000000" Offset="1" />
-
-                </RadialGradientBrush>
-
-            </Rectangle.Fill>
-
-        </Rectangle>
-
-        <Rectangle HorizontalAlignment="Left" IsHitTestVisible="False" Width="16" VerticalAlignment="Bottom" Height="16">
-
-            <Rectangle.Fill>
-
-                <RadialGradientBrush Center="1,0" GradientOrigin="1,0" RadiusX="1" RadiusY="1">
-
-                    <GradientStop Color="#21000000" Offset="0.2" />
-
-                    <GradientStop Color="#00000000" Offset="1" />
-
-                </RadialGradientBrush>
-
-            </Rectangle.Fill>
-
-        </Rectangle>
-
-        <Rectangle HorizontalAlignment="Right" IsHitTestVisible="False" Width="16" VerticalAlignment="Bottom" Height="16">
-
-            <Rectangle.Fill>
-
-                <RadialGradientBrush Center="0,0" GradientOrigin="0,0" RadiusX="1" RadiusY="1">
-
-                    <GradientStop Color="#21000000" Offset="0.2" />
-
-                    <GradientStop Color="#00000000" Offset="1" />
-
-                </RadialGradientBrush>
-
-            </Rectangle.Fill>
-
-        </Rectangle>
-
-        <Rectangle HorizontalAlignment="Right" IsHitTestVisible="False" Width="16" VerticalAlignment="Top" Height="16">
-
-            <Rectangle.Fill>
-
-                <RadialGradientBrush Center="0,1" GradientOrigin="0,1" RadiusX="1" RadiusY="1">
-
-                    <GradientStop Color="#21000000" Offset="0.2" />
-
-                    <GradientStop Color="#00000000" Offset="1" />
-
-                </RadialGradientBrush>
-
-            </Rectangle.Fill>
-
-        </Rectangle>
+        <!-- Keep the shadow comfortably inside the transparent window surface.
+             The former edge-aligned gradients left a one-pixel seam on Win10. -->
+        <Border x:Name="PanWindowShadow"
+                IsHitTestVisible="False"
+                Margin="10"
+                CornerRadius="8"
+                Background="#01000000"
+                BoxShadow="0 0 6 0 #48000000" />
 
         <Border x:Name="PanBack" Margin="10" CornerRadius="8" ClipToBounds="True">
 

@@ -685,6 +685,8 @@ public partial class MainWindow : Window, IDisposable
             background.Margin = maximized ? new Thickness(0d) : new Thickness(10d);
             background.CornerRadius = maximized ? new CornerRadius(0d) : new CornerRadius(8d);
         }
+        if (this.FindControl<Border>("PanWindowShadow") is { } shadow)
+            shadow.IsVisible = !maximized;
 
         if (this.FindControl<MyIconButton>("BtnTitleMax") is { } maximizeButton)
             maximizeButton.SvgIcon = maximized ? "pcl/window-restore" : "lucide/square";
