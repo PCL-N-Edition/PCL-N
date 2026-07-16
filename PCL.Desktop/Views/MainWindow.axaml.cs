@@ -447,6 +447,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void FormMain_Closing(object? sender, WindowClosingEventArgs e)
     {
+        DesktopFileLog.Write("[Window] 主窗口正在关闭。");
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
         CancelAllTrackedTasks();
@@ -996,6 +997,8 @@ public partial class MainWindow : Window, IDisposable
         if (selected is null)
             return;
 
+        DesktopFileLog.Write($"[Navigation] 打开 {descriptor.Title}（{route.Value}）。");
+
         selected.Checked = true;
         foreach (MyListItem item in GetNavItems())
         {
@@ -1210,6 +1213,8 @@ public partial class MainWindow : Window, IDisposable
     private void OnMainWindowOpened(object? sender, EventArgs e)
     {
         _isMainWindowOpened = true;
+        DesktopFileLog.Write(
+            $"[Window] 主窗口已显示；客户区={ClientSize.Width:0}x{ClientSize.Height:0}；缩放={RenderScaling:0.##}。");
 
         // Headless/automation: skip show animation + first-run dialogs so Window.Show() can finish.
         if (ShouldSuppressStartupDialogs())
@@ -3367,6 +3372,8 @@ public partial class MainWindow : Window, IDisposable
             rightHost.Opacity = 1d;
             return;
         }
+
+        DesktopFileLog.Write($"[Settings] 打开设置页 {target.GetType().Name}。");
 
         MyPageRight? oldRight = rightHost.Child as MyPageRight;
         _setupRight = target;

@@ -34,9 +34,12 @@ public sealed partial class App : Avalonia.Application
         {
             LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
             DesktopFileLog.Initialize();
+            DesktopFileLog.Write("[Startup] 启动器设置读取完成。");
             AvaloniaThemeManager.Apply(settings);
             AvaloniaLocalizationManager.InitializeFromSettings(settings);
+            DesktopFileLog.Write($"[Startup] 主题与语言初始化完成；语言={AvaloniaLocalizationManager.CurrentLanguageCode}。");
             DesktopHost.Initialize();
+            DesktopFileLog.Write($"[Startup] 插件宿主初始化完成；模块数={DesktopHost.Current.ModuleIds.Count}。");
 
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
@@ -54,6 +57,7 @@ public sealed partial class App : Avalonia.Application
                     }
 
                     MainWindow mainWindow = new();
+                    DesktopFileLog.Write("[Startup] 主窗口创建完成。");
                     mainWindow.Opened += (_, _) => _splashWindow?.CloseWithFade(TimeSpan.FromMilliseconds(400));
                     SingleInstanceCoordinator?.ActivationRequested += (_, _) =>
                         Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);

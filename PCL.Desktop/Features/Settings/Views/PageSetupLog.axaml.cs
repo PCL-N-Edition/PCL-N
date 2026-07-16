@@ -9,6 +9,7 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Diagnostics;
 
 #pragma warning disable CA1822, CS0067
 
@@ -130,6 +131,8 @@ public partial class PageSetupLog : MyPageRight, IRefreshableSettingsPage, ISett
             return;
         }
 
+        DesktopFileLog.Write($"[LogExport] 准备导出 {files.Length} 个日志文件。");
+
         IStorageProvider? storage = TopLevel.GetTopLevel(this)?.StorageProvider;
         if (storage is null)
         {
@@ -173,9 +176,11 @@ public partial class PageSetupLog : MyPageRight, IRefreshableSettingsPage, ISett
                 new SettingsMessageRequestedEventArgs(
                     "导出完成",
                     BuildExportCompletedMessage(targetPath)));
+            DesktopFileLog.Write($"[LogExport] 导出完成：{Path.GetFileName(targetPath)}。");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            DesktopFileLog.Write("[LogExport] 导出失败：" + ex.Message);
             MessageRequested?.Invoke(this, new SettingsMessageRequestedEventArgs("导出失败", "未能导出日志。\n\n详细信息：" + ex.Message));
         }
     }

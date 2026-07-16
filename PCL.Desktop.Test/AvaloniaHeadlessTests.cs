@@ -4163,6 +4163,37 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void DesktopFileLog_InitializeWritesDiagnosticSessionHeader()
+    {
+        string? previousSettingsPath = Environment.GetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH");
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-log-header-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "PCLN_LAUNCHER_SETTINGS_PATH",
+                System.IO.Path.Combine(root, "launcher-settings.json"));
+
+            DesktopFileLog.Initialize();
+
+            string[] lines = File.ReadAllLines(DesktopFileLog.CurrentLogPath);
+            Assert.IsTrue(lines.Length >= 6, $"启动日志至少应包含 6 行诊断信息，实际为 {lines.Length} 行。");
+            Assert.IsTrue(lines.Any(line => line.Contains("[Startup]", StringComparison.Ordinal)));
+            Assert.IsTrue(lines.Any(line => line.Contains("[System]", StringComparison.Ordinal)));
+            Assert.IsTrue(lines.Any(line => line.Contains("[Runtime]", StringComparison.Ordinal)));
+            Assert.IsTrue(lines.Any(line => line.Contains("[Locale]", StringComparison.Ordinal)));
+            Assert.IsTrue(lines.Any(line => line.Contains("[Display]", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH", previousSettingsPath);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void PageSetupLog_ExportCompletionMessageIncludesFullPathOnVisibleLine()
     {
         string targetPath = System.IO.Path.Combine(

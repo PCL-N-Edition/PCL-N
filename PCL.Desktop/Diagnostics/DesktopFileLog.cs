@@ -3,6 +3,9 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Reflection;
+using System.Globalization;
+using System.Runtime;
+using System.Runtime.InteropServices;
 using System.Text;
 using PCL.Desktop.Features.Settings.Views;
 
@@ -29,7 +32,18 @@ public static class DesktopFileLog
 
             string version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion ?? "unknown";
-            WriteCore(path, $"PCL N {version} 启动；{Environment.OSVersion.VersionString}；{Environment.ProcessPath}");
+            WriteCore(path, $"========== PCL N 会话开始（PID {Environment.ProcessId}） ==========");
+            WriteCore(path, $"[Startup] PCL N {version}；进程：{Environment.ProcessPath ?? "unknown"}");
+            WriteCore(
+                path,
+                $"[System] {RuntimeInformation.OSDescription}；系统架构：{RuntimeInformation.OSArchitecture}；进程架构：{RuntimeInformation.ProcessArchitecture}");
+            WriteCore(
+                path,
+                $"[Runtime] {RuntimeInformation.FrameworkDescription}；CPU：{Environment.ProcessorCount}；GC：{(GCSettings.IsServerGC ? "Server" : "Workstation")}");
+            WriteCore(
+                path,
+                $"[Locale] UI={CultureInfo.CurrentUICulture.Name}；区域={CultureInfo.CurrentCulture.Name}；时区={TimeZoneInfo.Local.Id}");
+            WriteCore(path, "[Display] " + DescribeDesktopSession());
         }
     }
 
@@ -67,5 +81,18 @@ public static class DesktopFileLog
         {
             System.Diagnostics.Debug.WriteLine("[Log] 写入日志失败：" + ex.Message);
         }
+    }
+
+    private static string DescribeDesktopSession()
+    {
+        if (OperatingSystem.IsWindows())
+            return "Windows 桌面会话";
+        if (OperatingSystem.IsMacOS())
+            return "macOS 桌面会话";
+
+        string sessionType = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE") ?? "unknown";
+        bool hasWayland = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
+        bool hasX11 = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DISPLAY"));
+        return $"Linux；会话类型={sessionType}；Wayland={(hasWayland ? "是" : "否")}；X11={(hasX11 ? "是" : "否")}";
     }
 }
