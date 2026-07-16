@@ -313,8 +313,13 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "PclPluginBouncyCastleAssembly");
         StringAssert.Contains(reusable, "PclPluginJsonCanonicalizerAssembly");
         StringAssert.Contains(reusable, "PclPluginEs6NumberSerializerAssembly");
-        StringAssert.Contains(stable, "include_plugin: true");
-        StringAssert.Contains(beta, "include_plugin: true");
+        // Dual matrix: WithPlugin + NoPlugin per RID/runtime variant (not a single hard-coded true).
+        StringAssert.Contains(stable, "include_plugin: ${{ matrix.plugin.include }}");
+        StringAssert.Contains(beta, "include_plugin: ${{ matrix.plugin.include }}");
+        StringAssert.Contains(stable, "WithPlugin");
+        StringAssert.Contains(stable, "NoPlugin");
+        StringAssert.Contains(beta, "WithPlugin");
+        StringAssert.Contains(beta, "NoPlugin");
         Assert.IsFalse(reusable.Contains("Plain Craft Launcher 2", StringComparison.Ordinal));
     }
 
