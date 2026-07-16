@@ -54,21 +54,30 @@ internal static class LauncherSettingsPageBinder
         Window? ownerWindow = null;
         page.AttachedToVisualTree += (_, _) =>
         {
-            state.IsApplying = false;
+            // Re-apply after attach so DynamicResource item text resolves and defaults stick.
+            state.IsApplying = true;
+            try
+            {
+                LauncherSettings attachedSettings = LoadSettings();
+                ApplySettings(page, attachedSettings);
+                state.SettingsApplied?.Invoke(attachedSettings);
+            }
+            finally
+            {
+                state.IsApplying = false;
+            }
+
             if (TopLevel.GetTopLevel(page) is not Window window || ReferenceEquals(ownerWindow, window))
                 return;
 
             if (ownerWindow is not null)
-            {
                 UnwireOwnerWindow(ownerWindow);
-            }
 
             ownerWindow = window;
-            ownerWindow.Activated += OwnerWindow_Activated;
-            ownerWindow.Deactivated += OwnerWindow_Deactivated;
             ownerWindow.Closing += OwnerWindow_Closing;
             ownerWindow.Closed += OwnerWindow_Closed;
         };
+        // While detached, ignore control change storms; re-enable on attach (above).
         page.DetachedFromVisualTree += (_, _) => state.IsApplying = true;
         page.DetachedFromLogicalTree += (_, _) => state.IsApplying = true;
 
@@ -81,10 +90,6 @@ internal static class LauncherSettingsPageBinder
             }
             ownerWindow = null;
         }
-
-        void OwnerWindow_Activated(object? sender, EventArgs e) => state.IsApplying = false;
-
-        void OwnerWindow_Deactivated(object? sender, EventArgs e) => state.IsApplying = true;
 
         void OwnerWindow_Closed(object? sender, EventArgs e)
         {
@@ -99,8 +104,6 @@ internal static class LauncherSettingsPageBinder
 
         void UnwireOwnerWindow(Window window)
         {
-            window.Activated -= OwnerWindow_Activated;
-            window.Deactivated -= OwnerWindow_Deactivated;
             window.Closing -= OwnerWindow_Closing;
             window.Closed -= OwnerWindow_Closed;
         }
@@ -130,7 +133,11 @@ internal static class LauncherSettingsPageBinder
         {
             void PersistComboBox()
             {
-                if (state.IsApplying || !IsInteractive(page) || comboBox.SelectedIndex < 0)
+                // Do not gate on window activation: ComboBox popups / dialogs can deactivate
+                // the owner and would otherwise drop user selections (e.g. update channel/mode).
+                if (state.IsApplying || comboBox.SelectedIndex < 0)
+                    return;
+                if (!page.IsAttachedToVisualTree())
                     return;
 
                 string? tag = GetTag(comboBox);
@@ -357,6 +364,13 @@ internal static class LauncherSettingsPageBinder
                     tag,
                     comboBox.SelectedIndex >= 0 ? comboBox.SelectedIndex : 0);
                 SetComboValue(comboBox, defaultIndex);
+            }
+
+            // Guarantee a visible selection even if ItemCount was briefly 0 or value was out of range.
+            if (comboBox.ItemCount > 0 && comboBox.SelectedIndex < 0)
+            {
+                int fallback = LauncherSettingDefaults.GetInteger(tag, 0);
+                SetComboIndex(comboBox, fallback);
             }
 
             if (comboBox.IsEditable && settings.TryGetTextOption(tag, out string? text))

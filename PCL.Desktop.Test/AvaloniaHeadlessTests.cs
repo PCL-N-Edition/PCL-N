@@ -5720,6 +5720,89 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageSetupUpdate_DefaultsAndPersistsChannelAndAutoMode()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pcl-update-settings-" + Guid.NewGuid().ToString("N"));
+        string settingsPath = System.IO.Path.Combine(root, "launcher-settings.json");
+        string? previousOverride = Environment.GetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH");
+
+        try
+        {
+            Directory.CreateDirectory(root);
+            Environment.SetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH", settingsPath);
+            // Empty settings file → defaults must apply (channel Release=0, auto mode DownloadAndNotify=1).
+            File.WriteAllText(settingsPath, """{"schemaVersion":1}""");
+
+            session.Dispatch(() =>
+            {
+                PageSetupUpdate page = new();
+                Window window = new() { Width = 800, Height = 600, Content = page };
+                try
+                {
+                    window.Show();
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    MyComboBox channel = page.FindControl<MyComboBox>("ComboSystemUpdateChannel")!;
+                    MyComboBox mode = page.FindControl<MyComboBox>("ComboSystemUpdateMode")!;
+                    Assert.AreEqual(0, channel.SelectedIndex, "默认更新通道应为正式版");
+                    Assert.AreEqual(1, mode.SelectedIndex, "默认自动更新应为“自动下载并提示”");
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(channel.SelectionText));
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(mode.SelectionText));
+
+                    // Auto-update mode has no confirmation dialog — must persist immediately.
+                    mode.SelectedIndex = 2;
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    using (LauncherSettingsStore store = new(settingsPath))
+                    {
+                        LauncherSettings saved = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
+                        Assert.AreEqual(2, saved.GetIntegerOption("SystemUpdateMode", -1));
+                    }
+
+                    // Confirm channel switch and ensure it is written.
+                    page.ConfirmRequested += (_, args) => args.Complete(true);
+                    channel.SelectedIndex = 1;
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    Assert.AreEqual(1, channel.SelectedIndex);
+
+                    using (LauncherSettingsStore store = new(settingsPath))
+                    {
+                        LauncherSettings saved = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
+                        Assert.AreEqual(1, saved.GetIntegerOption("SystemUpdateChannel", -1));
+                        Assert.AreEqual(2, saved.GetIntegerOption("SystemUpdateMode", -1));
+                    }
+
+                    // Reload page instance and verify restored values.
+                    PageSetupUpdate reopened = new();
+                    Window window2 = new() { Width = 800, Height = 600, Content = reopened };
+                    try
+                    {
+                        window2.Show();
+                        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                        Assert.AreEqual(1, reopened.FindControl<MyComboBox>("ComboSystemUpdateChannel")!.SelectedIndex);
+                        Assert.AreEqual(2, reopened.FindControl<MyComboBox>("ComboSystemUpdateMode")!.SelectedIndex);
+                    }
+                    finally
+                    {
+                        window2.Close();
+                    }
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH", previousOverride);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void PageSetupLauncherLanguage_PersistsAndResetsSelections()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

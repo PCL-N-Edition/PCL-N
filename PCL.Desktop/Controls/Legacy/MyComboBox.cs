@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
@@ -37,6 +38,7 @@ public class MyComboBox : ComboBox
     private TextBox? _editableTextBox;
     private Grid? _panPopup;
     private Border? _dropDownBorder;
+    private IDisposable? _selectedContentSubscription;
 
     public MyComboBox()
     {
@@ -328,12 +330,36 @@ public class MyComboBox : ComboBox
 
     private void RefreshSelectionText()
     {
+        _selectedContentSubscription?.Dispose();
+        _selectedContentSubscription = null;
+
+        if (SelectedItem is MyComboBoxItem item)
+        {
+            SelectionText = FormatItemContent(item.Content);
+            // DynamicResource content often resolves only after attach; keep caption in sync.
+            _selectedContentSubscription = item.GetObservable(ContentControl.ContentProperty)
+                .Subscribe(content => SelectionText = FormatItemContent(content));
+            return;
+        }
+
         SelectionText = SelectedItem switch
         {
-            MyComboBoxItem item => item.Content?.ToString() ?? string.Empty,
             null => string.Empty,
             _ => SelectedItem.ToString() ?? string.Empty
         };
+    }
+
+    private static string FormatItemContent(object? content)
+    {
+        if (content is null)
+            return string.Empty;
+        if (content is string text)
+            return text;
+        string? rendered = content.ToString();
+        if (string.IsNullOrWhiteSpace(rendered) ||
+            string.Equals(rendered, content.GetType().FullName, StringComparison.Ordinal))
+            return string.Empty;
+        return rendered;
     }
 
     private void OnTextPropertyChanged(string? text)

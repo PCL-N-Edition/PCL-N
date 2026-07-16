@@ -23,6 +23,7 @@
                                    Margin="0,0,25,0" />
                         <legacy:MyComboBox x:Name="ComboSystemUpdateChannel" Tag="SystemUpdateChannel" Grid.Column="1"
                                           Grid.ColumnSpan="3" Grid.Row="0"
+                                          SelectedIndex="0"
                                           SelectionChanged="ComboSystemUpdateBranch_SelectionChanged">
                             <legacy:MyComboBoxItem Content="{DynamicResource Setup.Update.Channel.Release}"
                                                   ToolTip.Tip="{DynamicResource Setup.Update.Channel.Release.ToolTip}" />
@@ -35,6 +36,7 @@
                                    Margin="0,0,25,0" />
                         <legacy:MyComboBox x:Name="ComboSystemUpdateMode" Tag="SystemUpdateMode" Grid.Column="1"
                                           Grid.ColumnSpan="3" Grid.Row="2"
+                                          SelectedIndex="1"
                                           SelectionChanged="ComboSystemUpdateMode_SelectionChanged">
                             <legacy:MyComboBoxItem Content="{DynamicResource Setup.Update.Auto.DownloadAndInstall}" ToolTip.Tip="{DynamicResource Setup.Update.Auto.DownloadAndInstall.ToolTip}" />
                             <legacy:MyComboBoxItem Content="{DynamicResource Setup.Update.Auto.DownloadAndNotify}" ToolTip.Tip="{DynamicResource Setup.Update.Auto.DownloadAndNotify.ToolTip}" />

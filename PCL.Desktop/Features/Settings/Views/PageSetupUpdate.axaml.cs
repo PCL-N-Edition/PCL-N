@@ -79,7 +79,9 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
     private void ComboSystemUpdateBranch_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        MyComboBox combo = UpdateChannelCombo;
+        // Use sender — FindControl is unavailable while XAML is still populating SelectedIndex.
+        if (sender is not MyComboBox combo)
+            return;
         if (_isInitializing || _isRevertingChannel || combo.SelectedIndex < 0)
             return;
 
@@ -104,7 +106,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             _isRevertingChannel = true;
             try
             {
-                combo.SelectedIndex = Math.Clamp(previousIndex, 0, combo.ItemCount - 1);
+                combo.SelectedIndex = Math.Clamp(previousIndex, 0, Math.Max(0, combo.ItemCount - 1));
             }
             finally
             {
@@ -130,6 +132,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
     private void ComboSystemUpdateMode_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        // Persistence is handled by LauncherSettingsPageBinder (Tag=SystemUpdateMode).
     }
 
     private async Task CheckForUpdatesAsync()
