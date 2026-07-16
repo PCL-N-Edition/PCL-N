@@ -1,5 +1,9 @@
 name: Build (CI)
 
+# Builds on every push/PR. On push to dev (not PR), publishes a rolling
+# "ci-latest" GitHub Release for the launcher CI update channel.
+# Intentionally does NOT generate version patches.
+
 permissions:
   contents: read
 
@@ -50,3 +54,92 @@ jobs:
       # PRs from forks cannot read secrets; only require CLIENT_ID on non-PR runs.
       require_ms_client_id: ${{ github.event_name != 'pull_request' }}
     secrets: inherit
+
+  # Rolling CI package for the "CI" update channel. Full binaries only — never patches.
+  publish-ci-rolling:
+    name: Publish ci-latest (no patches)
+    needs: [build]
+    if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/dev' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all CI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: PCL_N_CI_*
+          path: artifacts
+          merge-multiple: false
+
+      - name: Package CI assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # artifacts/<artifact-name>/<binary>
+          for dir in artifacts/PCL_N_CI_*; do
+            [[ -d "$dir" ]] || continue
+            name="$(basename "$dir")"
+            # Prefer .exe then bare PCL.Desktop
+            bin=""
+            if [[ -f "$dir/PCL.Desktop.exe" ]]; then
+              bin="PCL.Desktop.exe"
+            elif [[ -f "$dir/PCL.Desktop" ]]; then
+              bin="PCL.Desktop"
+            else
+              echo "No binary in $dir"; continue
+            fi
+            chmod +x "$dir/$bin" || true
+            (cd "$dir" && zip -9 "../../dist/${name}.zip" "$bin")
+            cat > "dist/${name}.ci.json" <<EOF
+          {
+            "channel": "CI",
+            "commit": "${{ github.sha }}",
+            "ref": "${{ github.ref }}",
+            "runId": "${{ github.run_id }}",
+            "artifact": "${name}",
+            "supportsPatches": false
+          }
+          EOF
+          done
+          ls -la dist
+          test -n "$(ls -A dist/*.zip 2>/dev/null)" || { echo "No CI zips produced"; exit 1; }
+
+      - name: Publish / replace rolling ci-latest release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="ci-latest"
+          TITLE="CI ${{ github.sha }}"
+          NOTES="$(cat <<'EOF'
+          Rolling CI build from the **dev** branch workflow.
+
+          ```
+          commit: ${{ github.sha }}
+          ref: ${{ github.ref }}
+          run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ```
+
+          - **Channel:** CI (full package only)
+          - **Patches:** not generated for CI builds
+          EOF
+          )"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "$TITLE" \
+              --prerelease \
+              --target "${{ github.sha }}" \
+              --notes "$NOTES"
+          else
+            gh release create "$TAG" \
+              --title "$TITLE" \
+              --prerelease \
+              --target "${{ github.sha }}" \
+              --notes "$NOTES"
+          fi
+
+          # Full package only — never attach .hdiff patches here.
+          gh release upload "$TAG" dist/* --clobber

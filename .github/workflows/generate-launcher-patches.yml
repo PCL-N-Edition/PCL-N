@@ -1,0 +1,164 @@
+name: Generate launcher patches
+
+# Called after full launcher assets are on a GitHub Release.
+# Builds HDiffPatch from every prior version → target tag (per RID/variant).
+
+on:
+  workflow_call:
+    inputs:
+      target_tag:
+        description: Release tag that was just published (e.g. v1.2.3)
+        required: true
+        type: string
+      configuration:
+        description: Release or Beta (asset name prefix PCL_N_<configuration>_…)
+        required: true
+        type: string
+      max_from_versions:
+        required: false
+        type: number
+        default: 50
+      include_prerelease_history:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      # Optional: mirror patch release to a dedicated patches repository
+      PATCHES_REPO_TOKEN:
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  generate-patches:
+    name: All-history patches → ${{ inputs.target_tag }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TARGET_TAG: ${{ inputs.target_tag }}
+      SOURCE_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Checkout launcher (includes tools/pcl-n-patches)
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Wait for release assets to settle
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Waiting for release ${TARGET_TAG} assets on ${SOURCE_REPO}…"
+          for i in $(seq 1 30); do
+            count=$(gh api "repos/${SOURCE_REPO}/releases/tags/${TARGET_TAG}" --jq '.assets | length' 2>/dev/null || echo 0)
+            echo "  attempt ${i}: assets=${count}"
+            if [[ "${count}" -ge 1 ]]; then
+              # Extra settle time so all matrix uploads finish
+              sleep 20
+              count2=$(gh api "repos/${SOURCE_REPO}/releases/tags/${TARGET_TAG}" --jq '.assets | length')
+              echo "  settled assets=${count2}"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Timed out waiting for release assets"
+          exit 1
+
+      - name: Bootstrap HDiffPatch
+        working-directory: tools/pcl-n-patches
+        run: python scripts/bootstrap_hdiffpatch.py
+
+      - name: Generate patches (every prior version → target)
+        working-directory: tools/pcl-n-patches
+        run: |
+          set -euo pipefail
+          EXTRA=()
+          if [[ "${{ inputs.include_prerelease_history }}" == "true" ]]; then
+            EXTRA+=(--include-prerelease-history)
+          fi
+          python scripts/generate_patches.py \
+            --source-repo "${SOURCE_REPO}" \
+            --target-tag "${TARGET_TAG}" \
+            --out-dir "${{ github.workspace }}/patch-artifacts/${TARGET_TAG}" \
+            --max-from-versions "${{ inputs.max_from_versions }}" \
+            --tools-dir "${{ github.workspace }}/tools/pcl-n-patches/tools/hdiffpatch" \
+            "${EXTRA[@]}"
+
+      - name: Summarize
+        shell: bash
+        run: |
+          set -euo pipefail
+          INDEX="${{ github.workspace }}/patch-artifacts/${TARGET_TAG}/index.json"
+          if [[ ! -f "$INDEX" ]]; then
+            echo "index.json missing"
+            exit 1
+          fi
+          python - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "patch-artifacts" / os.environ["TARGET_TAG"] / "index.json"
+          data = json.loads(p.read_text(encoding="utf-8"))
+          stats = data.get("stats") or {}
+          print(f"target={data.get('targetTag')} patches={stats.get('patchesGenerated')} history={stats.get('historyVersions')}")
+          variants = data.get("variants") or []
+          print(f"variants_with_target={len(variants)}")
+          for v in variants[:12]:
+              print(f"  {v.get('runtimeId')}/{v.get('runtimeVariant')}: {len(v.get('patches') or [])} patches")
+          if len(variants) > 12:
+              print(f"  … {len(variants)-12} more variants")
+          PY
+
+      - name: Upload patches as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-patches-${{ inputs.target_tag }}
+          path: patch-artifacts/${{ inputs.target_tag }}
+          if-no-files-found: error
+          retention-days: 30
+
+      # Attach index + patches to the same launcher release (clients can discover them next to full builds).
+      - name: Attach patches to launcher release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.target_tag }}
+          files: |
+            patch-artifacts/${{ inputs.target_tag }}/index.json
+            patch-artifacts/${{ inputs.target_tag }}/manifests/**
+            patch-artifacts/${{ inputs.target_tag }}/patches/**
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Optional mirror to dedicated patches repo when PATCHES_REPO_TOKEN is configured.
+      - name: Mirror to PCL-N-Patches repository
+        continue-on-error: true
+        env:
+          MIRROR_TOKEN: ${{ secrets.PATCHES_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${MIRROR_TOKEN:-}" ]]; then
+            echo "PATCHES_REPO_TOKEN not set; skip mirror to dedicated patch repo."
+            exit 0
+          fi
+          REPO="${{ vars.PATCHES_REPO || 'MuXue1230-owo/PCL-N-Patches' }}"
+          TAG="patches-${TARGET_TAG}"
+          ROOT="${{ github.workspace }}/patch-artifacts/${TARGET_TAG}"
+          # Create release if missing, then upload assets with gh.
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$REPO" \
+              --title "Patches to ${TARGET_TAG}" \
+              --notes "Auto-generated by PCL-N release GA for **${TARGET_TAG}** (source: ${SOURCE_REPO})."
+          fi
+          # Upload index + all patch files (ignore empty globs)
+          mapfile -t FILES < <(find "$ROOT" -type f \( -name 'index.json' -o -name '*.json' -o -name '*.hdiff' -o -name '*.sha256' \) | head -n 5000)
+          if [[ "${#FILES[@]}" -eq 0 ]]; then
+            echo "No patch files to mirror"
+            exit 0
+          fi
+          GH_TOKEN="$MIRROR_TOKEN" gh release upload "$TAG" "${FILES[@]}" --repo "$REPO" --clobber

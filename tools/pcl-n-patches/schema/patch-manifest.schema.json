@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pcln.top/schemas/patch-manifest.schema.json",
+  "title": "PCL N Patch Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "targetVersion", "targetTag", "generatedAt", "sourceRepo", "variants"],
+  "properties": {
+    "formatVersion": { "type": "integer", "const": 1 },
+    "targetVersion": { "type": "string", "minLength": 1 },
+    "targetTag": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "sourceRepo": { "type": "string", "minLength": 1 },
+    "patchRepo": { "type": "string" },
+    "algorithmDefault": { "type": "string", "enum": ["hdiffpatch"] },
+    "variants": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/variant" }
+    }
+  },
+  "$defs": {
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtimeId",
+        "runtimeVariant",
+        "configuration",
+        "targetAssetName",
+        "targetBinaryName",
+        "targetSha256",
+        "targetSize",
+        "patches"
+      ],
+      "properties": {
+        "runtimeId": { "type": "string" },
+        "runtimeVariant": { "type": "string" },
+        "configuration": { "type": "string", "enum": ["Release", "Beta"] },
+        "targetAssetName": { "type": "string" },
+        "targetBinaryName": { "type": "string" },
+        "targetSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "targetSize": { "type": "integer", "minimum": 1 },
+        "patches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/patch" }
+        }
+      }
+    },
+    "patch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromVersion",
+        "fromTag",
+        "algorithm",
+        "fileName",
+        "sha256",
+        "size",
+        "fromSha256",
+        "fromSize"
+      ],
+      "properties": {
+        "fromVersion": { "type": "string" },
+        "fromTag": { "type": "string" },
+        "algorithm": { "type": "string", "enum": ["hdiffpatch"] },
+        "fileName": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "size": { "type": "integer", "minimum": 1 },
+        "fromSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "fromSize": { "type": "integer", "minimum": 1 },
+        "compressionRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "downloadUrl": { "type": "string", "format": "uri" }
+      }
+    }
+  }
+}
