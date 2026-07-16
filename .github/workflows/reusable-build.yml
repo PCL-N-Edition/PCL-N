@@ -187,7 +187,9 @@ jobs:
           PCL_PLUGIN_JSON_CANONICALIZER_ASSEMBLY: ${{ github.workspace }}/plugin/jsoncanonicalizer.dll
           PCL_PLUGIN_ES6_NUMBER_SERIALIZER_ASSEMBLY: ${{ github.workspace }}/plugin/es6numberserializer.dll
         run: |
-          set -euo pipefail
+          # Avoid `set -u` + empty array expansion: macOS bash treats unbound
+          # "${plugin_args[@]}" as an error when include_plugin is false (NoPlugin).
+          set -eo pipefail
           plugin_args=()
           if [[ "${{ inputs.include_plugin }}" == "true" ]]; then
             plugin_args=(
@@ -204,6 +206,7 @@ jobs:
 
           # Single-node publish reduces MSB4166 child-node crashes under memory pressure.
           # NETSDK1176: EnableCompressionInSingleFile is only valid for self-contained.
+          # ${plugin_args[@]+...} is empty-safe on older bash (macOS runners).
           dotnet publish PCL.Desktop/PCL.Desktop.csproj \
             -c "${{ inputs.configuration }}" \
             -r "${{ inputs.runtime_id }}" \
@@ -221,7 +224,7 @@ jobs:
             -p:DebugType=None \
             -p:DebugSymbols=false \
             -p:DeleteExistingFiles=true \
-            "${plugin_args[@]}" \
+            ${plugin_args[@]+"${plugin_args[@]}"} \
             -warnaserror:CA1416 \
             -o "$PUBLISH_DIR"
 
