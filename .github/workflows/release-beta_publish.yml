@@ -20,7 +20,10 @@ on:
 
 jobs:
   build:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease }}
+    # ci-latest is a rolling full-package release owned by build-test.yml. A newly
+    # created CI release also emits release.published, but must never enter the
+    # Beta build or all-history patch pipeline.
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag_name != 'ci-latest') || (github.event_name == 'release' && github.event.release.prerelease && github.event.release.tag_name != 'ci-latest') }}
     strategy:
       fail-fast: false
       matrix:
@@ -59,7 +62,7 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     continue-on-error: true
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag_name != 'ci-latest') || (github.event_name == 'release' && github.event.release.prerelease && github.event.release.tag_name != 'ci-latest') }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -142,7 +145,7 @@ jobs:
   generate-patches:
     name: Generate version patches
     needs: [publish-assets]
-    if: ${{ always() && needs.publish-assets.result == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.skip_patches) }}
+    if: ${{ always() && needs.publish-assets.result == 'success' && (github.event.release.tag_name || inputs.tag_name) != 'ci-latest' && !(github.event_name == 'workflow_dispatch' && inputs.skip_patches) }}
     uses: ./.github/workflows/generate-launcher-patches.yml
     with:
       target_tag: ${{ github.event.release.tag_name || inputs.tag_name }}

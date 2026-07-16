@@ -369,6 +369,11 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "PclPluginBouncyCastleAssembly");
         StringAssert.Contains(reusable, "PclPluginJsonCanonicalizerAssembly");
         StringAssert.Contains(reusable, "PclPluginEs6NumberSerializerAssembly");
+        string ci = File.ReadAllText(Path.Combine(workflowRoot, "build-test.yml"));
+        Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
+        StringAssert.Contains(ci, "supportsPatches\": false");
+        StringAssert.Contains(beta, "github.event.release.tag_name != 'ci-latest'");
+        StringAssert.Contains(beta, "inputs.tag_name != 'ci-latest'");
         // Dual matrix: WithPlugin + NoPlugin per RID/runtime variant (not a single hard-coded true).
         StringAssert.Contains(stable, "include_plugin: ${{ matrix.plugin.include }}");
         StringAssert.Contains(beta, "include_plugin: ${{ matrix.plugin.include }}");
