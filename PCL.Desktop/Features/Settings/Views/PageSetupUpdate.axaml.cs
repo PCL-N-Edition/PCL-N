@@ -416,9 +416,9 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                 {
                     string guide = AvaloniaLocalizationManager.GetText(
                         "Setup.Update.Changelog.Placeholder",
-                        "此更新包含问题修复与改进。\n\n有关此更新的更多信息，可在 GitHub 上查看。");
+                        "此更新包含问题修复与改进。\n\n部分内容可能因设备、系统版本或使用方式而略有不同。建议在网络状况良好时完成下载与安装。\n\n有关此更新的完整说明与变更列表，可在 GitHub 上查看。");
                     if (result.Channel is UpdateChannel.CI || !result.SupportsPatches)
-                        guide += "\n\n此版本仅提供完整下载。";
+                        guide += "\n\n此版本仅提供完整下载，不支持增量更新。";
                     changelog.Text = guide;
                 }
 

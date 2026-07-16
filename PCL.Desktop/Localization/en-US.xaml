@@ -1803,7 +1803,7 @@
     <sys:String x:Key="Setup.Update.Changelog.MoreInfo">Learn more about this update…</sys:String>
     <sys:String x:Key="Setup.Update.Changelog.Empty">This update includes bug fixes and improvements.</sys:String>
     <sys:String x:Key="Setup.Update.Changelog.Unavailable">This update includes bug fixes and improvements.</sys:String>
-    <sys:String x:Key="Setup.Update.Changelog.Placeholder">This update includes bug fixes and improvements.&#x0a;&#x0a;For more information about this update, you can view it on GitHub.</sys:String>
+    <sys:String x:Key="Setup.Update.Changelog.Placeholder">This update includes bug fixes and improvements.&#x0a;&#x0a;Some changes may vary slightly depending on your device, system version, or how you use the app. For the best experience, download and install when your network connection is stable.&#x0a;&#x0a;For full details and a complete list of changes, you can view this update on GitHub.</sys:String>
     <sys:String x:Key="Setup.Update.DotNetMissing.Title">Launcher update - missing runtime</sys:String>
     <sys:String x:Key="Setup.Update.DotNetMissing.Message">A launcher update (version {0}) was found, but the new version requires .NET 8 to be installed on your computer.&#x0a;You need to install .NET 8 before continuing the update.&#x0a;&#x0a;Click the button below to open the webpage, then select {1} under &quot;.NET Desktop Runtime&quot; to download.</sys:String>
     <sys:String x:Key="Setup.Update.DotNetMissing.DownloadRuntime">Download .NET 8 Runtime</sys:String>
