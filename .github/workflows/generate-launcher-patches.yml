@@ -26,6 +26,27 @@ on:
       # Optional: mirror patch release to a dedicated patches repository
       PATCHES_REPO_TOKEN:
         required: false
+  # Re-run only the patch stage against an existing release (no full rebuild).
+  workflow_dispatch:
+    inputs:
+      target_tag:
+        description: Existing release tag to patch TO (e.g. v1.1.6-release)
+        required: true
+        type: string
+      configuration:
+        description: Release or Beta
+        required: false
+        default: Release
+        type: choice
+        options: [Release, Beta]
+      max_from_versions:
+        required: false
+        default: "50"
+        type: string
+      include_prerelease_history:
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -39,10 +60,16 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TARGET_TAG: ${{ inputs.target_tag }}
       SOURCE_REPO: ${{ github.repository }}
+      MAX_FROM: ${{ inputs.max_from_versions }}
+      INCLUDE_PRE: ${{ inputs.include_prerelease_history }}
 
     steps:
       - name: Checkout launcher (includes tools/pcl-n-patches)
         uses: actions/checkout@v4
+        with:
+          # Prefer the branch that carries the latest patch tooling (dev), not the
+          # release tag commit, so workflow_dispatch re-runs pick up fixes.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || github.sha }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -58,7 +85,11 @@ jobs:
             count=$(gh api "repos/${SOURCE_REPO}/releases/tags/${TARGET_TAG}" --jq '.assets | length' 2>/dev/null || echo 0)
             echo "  attempt ${i}: assets=${count}"
             if [[ "${count}" -ge 1 ]]; then
-              # Extra settle time so all matrix uploads finish
+              # Extra settle time so all matrix uploads finish (skipped if already settled)
+              if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+                echo "workflow_dispatch: assets already present (${count})"
+                exit 0
+              fi
               sleep 20
               count2=$(gh api "repos/${SOURCE_REPO}/releases/tags/${TARGET_TAG}" --jq '.assets | length')
               echo "  settled assets=${count2}"
@@ -76,18 +107,18 @@ jobs:
       - name: Generate patches (every prior version → target)
         working-directory: tools/pcl-n-patches
         run: |
-          set -euo pipefail
+          set -eo pipefail
           EXTRA=()
-          if [[ "${{ inputs.include_prerelease_history }}" == "true" ]]; then
+          if [[ "${INCLUDE_PRE}" == "true" ]]; then
             EXTRA+=(--include-prerelease-history)
           fi
           python scripts/generate_patches.py \
             --source-repo "${SOURCE_REPO}" \
             --target-tag "${TARGET_TAG}" \
             --out-dir "${{ github.workspace }}/patch-artifacts/${TARGET_TAG}" \
-            --max-from-versions "${{ inputs.max_from_versions }}" \
+            --max-from-versions "${MAX_FROM}" \
             --tools-dir "${{ github.workspace }}/tools/pcl-n-patches/tools/hdiffpatch" \
-            "${EXTRA[@]}"
+            ${EXTRA[@]+"${EXTRA[@]}"}
 
       - name: Summarize
         shell: bash

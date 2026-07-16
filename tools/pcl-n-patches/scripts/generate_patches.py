@@ -69,15 +69,31 @@ def normalize_version(tag: str) -> str:
 
 
 def version_key(tag: str) -> tuple:
-    """Best-effort sort key for semver-like tags."""
-    v = normalize_version(tag)
+    """
+    Sort key that is always totally ordered (no mixed str/int compares).
+
+    Semver-like: (0, major, minor, patch, is_prerelease, prerelease_text)
+    Non-semver (e.g. ci-latest): (1, 0, 0, 0, 1, raw) so they sort after releases
+    but never raise TypeError during sort.
+    """
+    raw = tag.strip()
+    v = normalize_version(raw)
+    if v.lower() in {"ci-latest", "latest"} or not v:
+        return (1, 0, 0, 0, 1, v.lower())
+
     core, _, pre = v.partition("-")
-    parts: list[object] = []
+    nums: list[int] = []
     for p in core.split("."):
-        parts.append(int(p) if p.isdigit() else p)
-    parts.append(0 if not pre else 1)  # release before prerelease of same core? keep stable order
-    parts.append(pre)
-    return tuple(parts)
+        if p.isdigit():
+            nums.append(int(p))
+        else:
+            return (1, 0, 0, 0, 1, v.lower())
+    while len(nums) < 3:
+        nums.append(0)
+    # is_prerelease: 0 = stable suffix empty or "release", 1 = beta/rc/other
+    pre_l = pre.lower()
+    is_pre = 0 if pre_l in ("", "release") else 1
+    return (0, nums[0], nums[1], nums[2], is_pre, pre_l)
 
 
 def sha256_file(path: Path) -> str:
@@ -278,12 +294,20 @@ def main() -> int:
     target = next((r for r in releases if r.tag == args.target_tag or r.tag.lstrip("v") == args.target_tag.lstrip("v")), None)
     if target is None:
         log(f"Target tag not found: {args.target_tag}")
-        log("Available:", ", ".join(r.tag for r in releases[-20:]))
+        log("Available: " + ", ".join(r.tag for r in releases[-20:]))
         return 1
 
-    history = [r for r in releases if version_key(r.tag) < version_key(target.tag)]
+    # Skip rolling CI tags and other non-semver markers from patch history.
+    def is_patchable(rel: ReleaseInfo) -> bool:
+        key = version_key(rel.tag)
+        return key[0] == 0  # semver-like only
+
+    history = [
+        r for r in releases
+        if is_patchable(r) and version_key(r.tag) < version_key(target.tag)
+    ]
     if not args.include_prerelease_history and not target.prerelease:
-        history = [r for r in history if not r.prerelease]
+        history = [r for r in history if not r.prerelease and version_key(r.tag)[4] == 0]
     history = history[-args.max_from_versions :]
     log(f"Target: {target.tag}  |  history versions: {len(history)}")
 
