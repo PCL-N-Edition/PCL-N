@@ -27,6 +27,8 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <PclRuntimeVariant Condition="'$(PclRuntimeVariant)' == ''">SelfContained</PclRuntimeVariant>
+    <PclIncludesPlugin Condition="'$(PclIncludesPlugin)' == '' and '$(PclPluginAssembly)' != ''">true</PclIncludesPlugin>
+    <PclIncludesPlugin Condition="'$(PclIncludesPlugin)' == ''">false</PclIncludesPlugin>
     <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
     <PclPluginAssembly Condition="'$(PclPluginAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginAssembly)'))</PclPluginAssembly>
     <PclPluginAbstractionsAssembly Condition="'$(PclPluginAbstractionsAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginAbstractionsAssembly)'))</PclPluginAbstractionsAssembly>
@@ -37,6 +39,7 @@
     <PclPluginJsonCanonicalizerAssembly Condition="'$(PclPluginJsonCanonicalizerAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginJsonCanonicalizerAssembly)'))</PclPluginJsonCanonicalizerAssembly>
     <PclPluginEs6NumberSerializerAssembly Condition="'$(PclPluginEs6NumberSerializerAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginEs6NumberSerializerAssembly)'))</PclPluginEs6NumberSerializerAssembly>
     <PclPluginProtectedDataAssembly Condition="'$(PclPluginProtectedDataAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginProtectedDataAssembly)'))</PclPluginProtectedDataAssembly>
+    <PclHpatchzPath Condition="'$(PclHpatchzPath)' != ''">$([System.IO.Path]::GetFullPath('$(PclHpatchzPath)'))</PclHpatchzPath>
 
     <!-- CI secret pre-write (PCL_WRITE_SECRET=1 embeds values into PclEmbeddedSecrets). -->
     <PclWriteSecret Condition="'$(PclWriteSecret)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_WRITE_SECRET'))</PclWriteSecret>
@@ -64,6 +67,8 @@
     <CompilerVisibleProperty Include="InformationalVersion" />
     <CompilerVisibleProperty Include="Version" />
     <CompilerVisibleProperty Include="SourceRevisionId" />
+    <CompilerVisibleProperty Include="PclRuntimeVariant" />
+    <CompilerVisibleProperty Include="PclIncludesPlugin" />
     <CompilerVisibleProperty Include="PclWriteSecret" />
     <CompilerVisibleProperty Include="PclMsClientId" />
     <CompilerVisibleProperty Include="PclCurseForgeApiKey" />
@@ -101,6 +106,10 @@
     </EmbeddedResource>
     <EmbeddedResource Include="metadata.json">
       <LogicalName>PCL.Desktop.metadata.json</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(PclHpatchzPath)"
+                      Condition="'$(PclHpatchzPath)' != '' and Exists('$(PclHpatchzPath)')">
+      <LogicalName>PCL.Desktop.Embedded.hpatchz</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="$(PclPluginAssembly)"
                       Condition="'$(PclPluginAssembly)' != '' and Exists('$(PclPluginAssembly)')">

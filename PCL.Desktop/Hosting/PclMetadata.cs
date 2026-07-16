@@ -24,6 +24,13 @@ internal sealed record PclMetadata(
         ? Version.Base
         : Version.Base + " " + Version.Suffix;
 
+    public string UpdateConfiguration => Version.Suffix.Trim().ToLowerInvariant() switch
+    {
+        "release" or "stable" or "final" => "Release",
+        "beta" or "preview" or "rc" => "Beta",
+        _ => "CI"
+    };
+
     private static PclMetadata Load()
     {
         try

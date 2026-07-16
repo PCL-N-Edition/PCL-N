@@ -78,6 +78,12 @@ jobs:
           path: artifacts
           merge-multiple: false
 
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
       - name: Package CI assets
         shell: bash
         run: |
@@ -98,6 +104,8 @@ jobs:
             fi
             chmod +x "$dir/$bin" || true
             (cd "$dir" && zip -9 "../../dist/${name}.zip" "$bin")
+            gpg --detach-sign --armor "dist/${name}.zip"
+            gpg --detach-sign --armor --output "dist/${name}.zip.binary.asc" "$dir/$bin"
             cat > "dist/${name}.ci.json" <<EOF
           {
             "channel": "CI",

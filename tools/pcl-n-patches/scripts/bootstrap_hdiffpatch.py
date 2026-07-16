@@ -92,23 +92,31 @@ def main() -> int:
         return 1
 
     assets = release.get("assets") or []
-    # Prefer asset names containing os + arch hints.
+    # Prefer the exact upstream binary archive. Names use windows64/linux64
+    # rather than x64; a loose score used to choose windows_arm64 on x64.
     candidates = []
     for asset in assets:
         name = (asset.get("name") or "").lower()
         url = asset.get("browser_download_url")
-        if not url:
+        if not url or "_bin_" not in name or not name.endswith((".zip", ".tar.gz", ".tgz")):
             continue
         score = 0
-        if os_name in name or (os_name == "windows" and "win" in name):
-            score += 2
-        if arch in name or (arch == "x64" and ("x64" in name or "x86_64" in name or "amd64" in name)):
-            score += 2
-        if name.endswith((".zip", ".tar.gz", ".tgz")):
-            score += 1
-        if score:
+        if os_name == "windows":
+            if arch == "x64" and "windows64" in name and "arm" not in name:
+                score = 100
+            elif arch == "arm64" and "windows_arm64" in name:
+                score = 100
+        elif os_name == "linux":
+            if arch == "x64" and "linux64" in name and not any(cpu in name for cpu in ("arm", "loong", "riscv")):
+                score = 100
+            elif arch == "arm64" and "linux_arm64" in name:
+                score = 100
+        elif os_name == "macos" and "bin_macos" in name:
+            # Upstream ships a single macOS binary archive.
+            score = 100
+        if score > 0:
             candidates.append((score, name, url))
-    candidates.sort(reverse=True)
+    candidates.sort(key=lambda item: (-item[0], item[1]))
 
     if not candidates:
         print("No suitable HDiffPatch asset found; listing:", file=sys.stderr)

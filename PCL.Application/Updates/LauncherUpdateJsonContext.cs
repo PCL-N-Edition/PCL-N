@@ -9,6 +9,7 @@ namespace PCL.Application.Updates;
 [JsonSerializable(typeof(GitHubReleaseDto))]
 [JsonSerializable(typeof(List<GitHubReleaseDto>))]
 [JsonSerializable(typeof(GitHubAssetDto))]
+[JsonSerializable(typeof(LauncherPatchIndexDto))]
 internal sealed partial class LauncherUpdateJsonContext : JsonSerializerContext;
 
 internal sealed class GitHubReleaseDto
@@ -48,4 +49,70 @@ internal sealed class GitHubAssetDto
 
     [JsonPropertyName("browser_download_url")]
     public string? BrowserDownloadUrl { get; set; }
+}
+
+internal sealed class LauncherPatchIndexDto
+{
+    public int FormatVersion { get; set; }
+
+    public string? TargetVersion { get; set; }
+
+    public string? TargetTag { get; set; }
+
+    public string? SourceRepo { get; set; }
+
+    public LauncherPatchStrategyDto? Strategy { get; set; }
+
+    public List<LauncherPatchVariantDto>? Variants { get; set; }
+}
+
+internal sealed class LauncherPatchStrategyDto
+{
+    public int MaxDirectFromVersions { get; set; }
+
+    public int HopInterval { get; set; }
+
+    public string? UpgradeMode { get; set; }
+
+    public List<string>? SelectedFromTags { get; set; }
+}
+
+internal sealed class LauncherPatchVariantDto
+{
+    public string? RuntimeId { get; set; }
+
+    public string? RuntimeVariant { get; set; }
+
+    public string? Configuration { get; set; }
+
+    public string? TargetAssetName { get; set; }
+
+    public string? TargetBinaryName { get; set; }
+
+    public string? TargetSha256 { get; set; }
+
+    public long TargetSize { get; set; }
+
+    public List<LauncherPatchDto>? Patches { get; set; }
+}
+
+internal sealed class LauncherPatchDto
+{
+    public string? FromVersion { get; set; }
+
+    public string? FromTag { get; set; }
+
+    public string? Algorithm { get; set; }
+
+    public string? FileName { get; set; }
+
+    public string? DownloadUrl { get; set; }
+
+    public string? Sha256 { get; set; }
+
+    public long Size { get; set; }
+
+    public string? FromSha256 { get; set; }
+
+    public long FromSize { get; set; }
 }

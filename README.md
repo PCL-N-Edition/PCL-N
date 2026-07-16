@@ -33,7 +33,7 @@
 - **账号体系**：微软正版、离线、第三方 / Authlib-Injector 等登录流程
 - **下载与资源**：Minecraft 客户端 / 资源 / 库文件下载规划与任务管理
 - **插件宿主**：内置 HostModule 桥接与第三方 `.pnp` 插件运行时（签名校验、隔离加载）
-- **发布形态**：自包含（SelfContained）与依赖运行时（NoRuntime）两种产物，发布包附带 GPG 签名
+- **发布形态**：自包含（SelfContained）与依赖运行时（NoRuntime）两种产物，发布包与最终可执行文件均附带 GPG 签名
 
 ## 🏗 仓库结构
 

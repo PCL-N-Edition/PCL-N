@@ -32,6 +32,8 @@ public sealed class BuildInfoGenerator : IIncrementalGenerator
         string informationalVersion = GetProperty(provider.GlobalOptions, "InformationalVersion");
         string version = GetProperty(provider.GlobalOptions, "Version");
         string sourceRevisionId = GetProperty(provider.GlobalOptions, "SourceRevisionId");
+        string runtimeVariant = GetProperty(provider.GlobalOptions, "PclRuntimeVariant");
+        string includesPlugin = GetProperty(provider.GlobalOptions, "PclIncludesPlugin");
 
         if (string.IsNullOrWhiteSpace(informationalVersion))
             informationalVersion = string.IsNullOrWhiteSpace(version) ? "dev" : version;
@@ -44,7 +46,9 @@ public sealed class BuildInfoGenerator : IIncrementalGenerator
             informationalVersion,
             version,
             sourceRevisionId,
-            displayVersion);
+            displayVersion,
+            string.IsNullOrWhiteSpace(runtimeVariant) ? "SelfContained" : runtimeVariant,
+            string.Equals(includesPlugin, "true", StringComparison.OrdinalIgnoreCase));
     }
 
     private static void GenerateBuildInfo(SourceProductionContext context, BuildInfoModel info)
@@ -63,6 +67,10 @@ public sealed class BuildInfoGenerator : IIncrementalGenerator
         AppendConstant(sb, "Version", info.Version);
         AppendConstant(sb, "SourceRevisionId", info.SourceRevisionId);
         AppendConstant(sb, "DisplayVersion", info.DisplayVersion);
+        AppendConstant(sb, "RuntimeVariant", info.RuntimeVariant);
+        sb.Append("    public const bool IncludesPlugin = ")
+            .Append(info.IncludesPlugin ? "true" : "false")
+            .AppendLine(";");
         sb.AppendLine("}");
 
         context.AddSource(
@@ -94,12 +102,16 @@ public sealed class BuildInfoGenerator : IIncrementalGenerator
             string informationalVersion,
             string version,
             string sourceRevisionId,
-            string displayVersion)
+            string displayVersion,
+            string runtimeVariant,
+            bool includesPlugin)
         {
             InformationalVersion = informationalVersion;
             Version = version;
             SourceRevisionId = sourceRevisionId;
             DisplayVersion = displayVersion;
+            RuntimeVariant = runtimeVariant;
+            IncludesPlugin = includesPlugin;
         }
 
         public string InformationalVersion { get; }
@@ -109,5 +121,9 @@ public sealed class BuildInfoGenerator : IIncrementalGenerator
         public string SourceRevisionId { get; }
 
         public string DisplayVersion { get; }
+
+        public string RuntimeVariant { get; }
+
+        public bool IncludesPlugin { get; }
     }
 }

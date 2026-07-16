@@ -4,6 +4,7 @@
 
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
@@ -32,7 +33,11 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     private bool _autoCheckScheduled;
     private int _lastUpdateChannel;
     private LauncherUpdateService _updateService = new();
+    private readonly LauncherUpdateInstaller _updateInstaller = new();
     private CancellationTokenSource? _checkCts;
+    private LauncherUpdateCheckResult? _availableUpdate;
+    private PreparedLauncherUpdate? _preparedUpdate;
+    private bool _isPreparingUpdate;
 
     public PageSetupUpdate()
     {
@@ -41,6 +46,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         LauncherSettingsPageBinder.Attach(this, OnSettingsApplied);
         AttachedToVisualTree += OnAttachedToVisualTree;
         DetachedFromVisualTree += OnDetachedFromVisualTree;
+        _updateInstaller.ProgressChanged += OnUpdateProgressChanged;
         RefreshPage();
     }
 
@@ -87,6 +93,17 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     private void OnSettingsApplied(LauncherSettings settings)
     {
         EnsureComboLabels();
+        if (!settings.TryGetIntegerOption("SystemUpdateChannel", out _) &&
+            this.FindControl<MyComboBox>("ComboSystemUpdateChannel") is { } channel)
+        {
+            channel.SelectedIndex = PclLauncherBuildIdentity.Current.Configuration switch
+            {
+                "Beta" => 1,
+                "CI" => 2,
+                _ => 0
+            };
+            channel.RefreshSelectionDisplay();
+        }
         SyncChannelBaselineFromUi();
         _channelUserArmed = false;
         _isInitializing = false;
@@ -227,16 +244,14 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         await CheckForUpdatesAsync().ConfigureAwait(true);
     }
 
-    private void BtnDownloadNow_Click(object? sender, EventArgs e)
+    private async void BtnDownloadNow_Click(object? sender, EventArgs e)
     {
-        string target = _preferredAssetUrl ?? _latestReleaseUrl;
-        OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(target));
+        await PrepareAvailableUpdateAsync(installAfterDownload: false).ConfigureAwait(true);
     }
 
-    private void BtnDownloadAndInstall_Click(object? sender, EventArgs e)
+    private async void BtnDownloadAndInstall_Click(object? sender, EventArgs e)
     {
-        string target = _preferredAssetUrl ?? _latestReleaseUrl;
-        OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(target));
+        await PrepareAvailableUpdateAsync(installAfterDownload: true).ConfigureAwait(true);
     }
 
     private void ComboSystemUpdateChannel_DropDownOpened(object? sender, EventArgs e)
@@ -366,21 +381,15 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                 _ => UpdateChannel.Release
             };
 
-            bool preferPlugin = DesktopHost.Current.SettingsPages.Pages.Count > 0;
             string commit = !string.IsNullOrWhiteSpace(PclBuildInfo.SourceRevisionId)
                 ? PclBuildInfo.SourceRevisionId
                 : PclMetadata.Current.Commit;
-
-            // Prefer base+suffix from metadata; CompareVersions normalizes "1.1.8 release" vs "1.1.8-release".
-            string currentVersion = PclMetadata.Current.DisplayVersion;
-            if (string.IsNullOrWhiteSpace(currentVersion))
-                currentVersion = PclMetadata.Current.Version.Base;
+            LauncherBuildIdentity identity = PclLauncherBuildIdentity.Current;
 
             LauncherUpdateCheckResult result = await _updateService
                 .CheckAsync(
                     channel,
-                    currentVersion,
-                    preferPlugin,
+                    identity,
                     currentCommitSha: commit,
                     cancellationToken: token)
                 .ConfigureAwait(true);
@@ -402,6 +411,9 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                 return;
             }
 
+            _availableUpdate = result.IsUpdateAvailable ? result : null;
+            if (_preparedUpdate?.Package.TargetTag != result.Package?.TargetTag)
+                _preparedUpdate = null;
             _latestReleaseUrl = result.ReleaseUrl ?? ReleasesUrl;
             _preferredAssetUrl = result.PreferredAssetUrl;
 
@@ -428,17 +440,30 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                 }
 
                 ShowUpdateAvailableUi();
+
+                int updateMode = this.FindControl<MyComboBox>("ComboSystemUpdateMode") is { SelectedIndex: >= 0 } modeCombo
+                    ? modeCombo.SelectedIndex
+                    : LauncherSettingDefaults.GetInteger("SystemUpdateMode", 1);
+                if (updateMode is 0 or 1)
+                {
+                    await PrepareAvailableUpdateAsync(
+                            installAfterDownload: updateMode == 0,
+                            showReadyMessage: updateMode == 1,
+                            cancellationToken: token)
+                        .ConfigureAwait(true);
+                }
             }
             else
             {
+                _availableUpdate = null;
                 _preferredAssetUrl = null;
                 ShowCurrentVersionUi();
                 if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDesc)
                 {
                     string latest = AvaloniaLocalizationManager.GetText("Setup.Update.Latest", "已是最新版本");
                     currentDesc.Text = string.IsNullOrWhiteSpace(result.CurrentVersion)
-                        ? latest
-                        : $"{latest}（{result.CurrentVersion}）";
+                        ? latest + " · " + DescribeCurrentBuild()
+                        : $"{latest}（{result.CurrentVersion}） · {DescribeCurrentBuild()}";
                 }
             }
         }
@@ -490,7 +515,116 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         if (this.FindControl<TextBlock>("TextCurrentVersion") is { } currentVersion)
             currentVersion.Text = version;
         if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDescription && !_isChecking && !_updateAvailableUi)
-            currentDescription.Text = AvaloniaLocalizationManager.GetText("Setup.Update.Latest", "已是最新版本");
+            currentDescription.Text = AvaloniaLocalizationManager.GetText("Setup.Update.Latest", "已是最新版本") +
+                                      " · " + DescribeCurrentBuild();
+    }
+
+    private async Task PrepareAvailableUpdateAsync(
+        bool installAfterDownload,
+        bool showReadyMessage = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (_isPreparingUpdate)
+            return;
+        if (_availableUpdate?.Package is not { } package)
+        {
+            OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(_preferredAssetUrl ?? _latestReleaseUrl));
+            return;
+        }
+
+        _isPreparingUpdate = true;
+        SetUpdateButtonsEnabled(false);
+        try
+        {
+            if (_preparedUpdate is null ||
+                !string.Equals(_preparedUpdate.Package.TargetTag, package.TargetTag, StringComparison.OrdinalIgnoreCase) ||
+                !File.Exists(_preparedUpdate.StagedExecutablePath))
+            {
+                string currentExecutable = Environment.ProcessPath
+                    ?? throw new InvalidOperationException("无法确定当前启动器文件位置。");
+                string? hpatchz = await PclEmbeddedUpdateTool.GetHpatchzPathAsync(cancellationToken).ConfigureAwait(true);
+                _preparedUpdate = await _updateInstaller.PrepareAsync(
+                        package,
+                        currentExecutable,
+                        hpatchz,
+                        cancellationToken)
+                    .ConfigureAwait(true);
+            }
+
+            if (!installAfterDownload)
+            {
+                if (showReadyMessage)
+                {
+                    string method = _preparedUpdate.UsedPatch ? "Patch" : "完整包";
+                    MessageRequested?.Invoke(
+                        this,
+                        new SettingsMessageRequestedEventArgs(
+                            "更新已下载",
+                            $"PCL N {package.TargetVersion} 已通过校验（{method}）。\n\n点击“下载并安装”即可自动覆盖并重启。",
+                            AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
+                }
+                return;
+            }
+
+            _updateInstaller.ScheduleInstallAndRestart(_preparedUpdate, Environment.ProcessId);
+            if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                desktop.Shutdown();
+            else
+                Environment.Exit(0);
+        }
+        catch (OperationCanceledException)
+        {
+            // Page navigation or a newer update check cancelled the transfer.
+        }
+        catch (Exception ex)
+        {
+            MessageRequested?.Invoke(
+                this,
+                new SettingsMessageRequestedEventArgs(
+                    "自动更新失败",
+                    ex.Message + "\n\n你仍可在发布页手动下载。",
+                    AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
+        }
+        finally
+        {
+            _isPreparingUpdate = false;
+            SetUpdateButtonsEnabled(true);
+        }
+    }
+
+    private void OnUpdateProgressChanged(object? sender, LauncherUpdateProgress progress)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (this.FindControl<TextBlock>("TextUpdateDesc") is { } description)
+                description.Text = progress.Message;
+        });
+    }
+
+    private void SetUpdateButtonsEnabled(bool enabled)
+    {
+        if (this.FindControl<MyButton>("BtnDownloadNow") is { } download)
+            download.IsEnabled = enabled;
+        if (this.FindControl<MyButton>("BtnDownloadAndInstall") is { } install)
+            install.IsEnabled = enabled;
+    }
+
+    private static string DescribeCurrentBuild()
+    {
+        LauncherBuildIdentity identity = PclLauncherBuildIdentity.Current;
+        string channel = identity.Configuration switch
+        {
+            "Release" => "正式版",
+            "Beta" => "测试版",
+            _ => "CI 版"
+        };
+        string runtime = identity.NormalizedRuntimeVariant.StartsWith("NoRuntime", StringComparison.Ordinal)
+            ? "依赖 .NET 运行时"
+            : "自包含";
+        string plugin = identity.NormalizedRuntimeVariant.EndsWith("NoPlugin", StringComparison.Ordinal)
+            ? "不含插件平台"
+            : "含插件平台";
+        return $"{channel} / {runtime} / {plugin} / {identity.RuntimeId}";
     }
 
 }

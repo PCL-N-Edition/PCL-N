@@ -3,6 +3,7 @@
 
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using PCL.Core.App;
@@ -82,15 +83,33 @@ public sealed class LauncherUpdateService : IDisposable
         string? currentCommitSha = null,
         CancellationToken cancellationToken = default)
     {
+        string variant = preferPluginBuild
+            ? "SelfContained_WithPlugin"
+            : "SelfContained_NoPlugin";
+        LauncherBuildIdentity identity = new(
+            currentVersion,
+            ResolveRuntimeId(),
+            variant,
+            channel == UpdateChannel.Beta ? "Beta" : channel == UpdateChannel.Release ? "Release" : "CI");
+        return await CheckAsync(channel, identity, currentCommitSha, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<LauncherUpdateCheckResult> CheckAsync(
+        UpdateChannel channel,
+        LauncherBuildIdentity identity,
+        string? currentCommitSha = null,
+        CancellationToken cancellationToken = default)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentException.ThrowIfNullOrWhiteSpace(currentVersion);
-        PortableLog.Info("Update", $"开始检查启动器更新；通道={channel}；当前版本={currentVersion}。");
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(identity.Version);
+        PortableLog.Info("Update", $"开始检查启动器更新；目标通道={channel}；当前版本={identity.Version}。");
         PortableLog.Debug(
             "Update",
-            $"更新参数：Repository={_owner}/{_repo}；PreferPlugin={preferPluginBuild}；RuntimeId={ResolveRuntimeId()}；CurrentCommit={currentCommitSha ?? "(无)"}。");
+            $"更新身份：Repository={_owner}/{_repo}；RuntimeId={identity.RuntimeId}；RuntimeVariant={identity.NormalizedRuntimeVariant}；BuildConfiguration={identity.Configuration}；CurrentCommit={currentCommitSha ?? "(无)"}。");
 
         if (channel is UpdateChannel.CI or UpdateChannel.Dev)
-            return await CheckCiAsync(currentVersion, currentCommitSha, preferPluginBuild, cancellationToken)
+            return await CheckCiAsync(identity, currentCommitSha, cancellationToken)
                 .ConfigureAwait(false);
 
         IReadOnlyList<AtomReleaseEntry> feed = await FetchReleaseFeedAsync(cancellationToken).ConfigureAwait(false);
@@ -106,9 +125,14 @@ public sealed class LauncherUpdateService : IDisposable
             return LauncherUpdateCheckResult.Failed("当前通道没有可用的版本化发布。");
 
         string remoteVersion = NormalizeVersion(release.Tag);
-        string localVersion = NormalizeVersion(currentVersion);
+        string localVersion = NormalizeVersion(identity.Version);
         bool isNewer = CompareVersions(remoteVersion, localVersion) > 0;
-        string? assetUrl = BuildPreferredAssetUrl(release.Tag, channel, preferPluginBuild);
+        LauncherUpdatePackage package = await ResolveUpdatePackageAsync(
+                release.Tag,
+                channel,
+                identity,
+                cancellationToken)
+            .ConfigureAwait(false);
         string htmlUrl = release.HtmlUrl
             ?? $"https://github.com/{_owner}/{_repo}/releases/tag/{Uri.EscapeDataString(release.Tag)}";
 
@@ -120,20 +144,20 @@ public sealed class LauncherUpdateService : IDisposable
             ReleaseName: release.Title ?? release.Tag,
             ReleaseNotes: release.Notes,
             ReleaseUrl: htmlUrl,
-            PreferredAssetUrl: assetUrl,
+            PreferredAssetUrl: package.FullPackageUrl,
             ErrorMessage: null,
             Channel: channel,
-            SupportsPatches: true,
+            SupportsPatches: package.UsesPatch,
             RemoteCommitSha: ExtractCommitSha(release.Notes, release.Title),
-            PublishedAt: release.Updated);
+            PublishedAt: release.Updated,
+            Package: package);
         PortableLog.Info("Update", $"更新检查完成；通道={channel}；最新版本={remoteVersion}；有更新={isNewer}。");
         return result;
     }
 
     private async Task<LauncherUpdateCheckResult> CheckCiAsync(
-        string currentVersion,
+        LauncherBuildIdentity identity,
         string? currentCommitSha,
-        bool preferPluginBuild,
         CancellationToken cancellationToken)
     {
         // Prefer atom entry for ci-latest (notes/commit); fall back to known tag existence via HTML page.
@@ -164,7 +188,8 @@ public sealed class LauncherUpdateService : IDisposable
         string? remoteCommit = ExtractCommitSha(release.Notes, release.Title);
         string localCommit = NormalizeCommit(currentCommitSha);
         string remoteCommitNorm = NormalizeCommit(remoteCommit);
-        string? assetUrl = BuildPreferredAssetUrl(CiRollingTag, UpdateChannel.CI, preferPluginBuild);
+        LauncherUpdatePackage package = BuildFullPackage(CiRollingTag, UpdateChannel.CI, identity);
+        string assetUrl = package.FullPackageUrl;
         bool hasAsset = assetUrl is not null;
 
         bool isNewer;
@@ -184,7 +209,7 @@ public sealed class LauncherUpdateService : IDisposable
         LauncherUpdateCheckResult result = new(
             Success: true,
             IsUpdateAvailable: isNewer && hasAsset,
-            CurrentVersion: NormalizeVersion(currentVersion),
+            CurrentVersion: NormalizeVersion(identity.Version),
             LatestVersion: latestLabel,
             ReleaseName: release.Title ?? "CI rolling build",
             ReleaseNotes: release.Notes,
@@ -194,7 +219,8 @@ public sealed class LauncherUpdateService : IDisposable
             Channel: UpdateChannel.CI,
             SupportsPatches: false,
             RemoteCommitSha: remoteCommitNorm,
-            PublishedAt: release.Updated);
+            PublishedAt: release.Updated,
+            Package: package);
         PortableLog.Info("Update", $"CI 更新检查完成；最新={latestLabel}；有更新={result.IsUpdateAvailable}；远端提交={remoteCommitNorm}。");
         return result;
     }
@@ -319,28 +345,292 @@ public sealed class LauncherUpdateService : IDisposable
         return list;
     }
 
-    private string? BuildPreferredAssetUrl(string tag, UpdateChannel channel, bool preferPluginBuild)
+    private async Task<LauncherUpdatePackage> ResolveUpdatePackageAsync(
+        string targetTag,
+        UpdateChannel channel,
+        LauncherBuildIdentity identity,
+        CancellationToken cancellationToken)
     {
-        string rid = ResolveRuntimeId();
+        LauncherUpdatePackage fallback = BuildFullPackage(targetTag, channel, identity);
+        LoadedPatchIndex? targetIndex = await TryLoadPatchIndexAsync(targetTag, cancellationToken).ConfigureAwait(false);
+        if (targetIndex is null)
+        {
+            PortableLog.Warn("Update", $"发布 {targetTag} 没有可读的补丁索引，将使用完整包。");
+            return fallback;
+        }
+
+        LauncherPatchVariantDto? targetVariant = FindVariant(targetIndex.Index, identity);
+        if (targetVariant is null || string.IsNullOrWhiteSpace(targetVariant.TargetAssetName))
+        {
+            PortableLog.Warn(
+                "Update",
+                $"补丁索引没有匹配变体：{identity.RuntimeId}/{identity.NormalizedRuntimeVariant}，将使用完整包。");
+            return fallback;
+        }
+
+        string normalizedCurrent = NormalizeVersion(identity.Version);
+        string normalizedTarget = NormalizeVersion(targetIndex.Index.TargetVersion ?? targetTag);
+        List<LoadedPatchIndex> indexes = [targetIndex];
+        List<LauncherUpdatePatchStep> path = FindPatchPath(indexes, identity, normalizedCurrent, normalizedTarget);
+
+        // Format 2 keeps only a direct window. Walk backwards through each index's oldest
+        // selected tag until a route is found; this implements the documented 1→11→21 plan.
+        HashSet<string> loadedTags = new(StringComparer.OrdinalIgnoreCase) { targetTag };
+        for (int hop = 0; path.Count == 0 && hop < 12; hop++)
+        {
+            string? previousTag = indexes[^1].Index.Strategy?.SelectedFromTags?
+                .FirstOrDefault(static tag => !string.IsNullOrWhiteSpace(tag));
+            if (string.IsNullOrWhiteSpace(previousTag) || !loadedTags.Add(previousTag))
+                break;
+
+            LoadedPatchIndex? previous = await TryLoadPatchIndexAsync(previousTag, cancellationToken).ConfigureAwait(false);
+            if (previous is null)
+                break;
+            indexes.Add(previous);
+            path = FindPatchPath(indexes, identity, normalizedCurrent, normalizedTarget);
+
+            string previousTarget = NormalizeVersion(previous.Index.TargetVersion ?? previousTag);
+            if (CompareVersions(previousTarget, normalizedCurrent) <= 0 && path.Count == 0)
+                break;
+        }
+
+        string assetName = targetVariant.TargetAssetName!;
+        string fullUrl = BuildReleaseAssetUrl(targetTag, assetName);
+        long patchBytes = path.Sum(static step => step.Size);
+        long? fullPackageBytes = path.Count > 0
+            ? await TryGetContentLengthAsync(fullUrl, cancellationToken).ConfigureAwait(false)
+            : null;
+        bool patchNotWorthwhile = path.Count > 0 &&
+            ((fullPackageBytes is > 0 && patchBytes >= fullPackageBytes.Value) ||
+             (fullPackageBytes is null && targetVariant.TargetSize > 0 && patchBytes >= targetVariant.TargetSize * 0.9));
+        if (patchNotWorthwhile)
+        {
+            PortableLog.Info(
+                "Update",
+                fullPackageBytes is > 0
+                    ? $"补丁链大小 {patchBytes} 不小于完整包 {fullPackageBytes.Value}，改用完整包。"
+                    : $"补丁链大小 {patchBytes} 不小于目标文件的 90%，改用完整包。");
+            path = [];
+        }
+
+        if (path.Count > 0)
+        {
+            PortableLog.Info(
+                "Update",
+                $"已规划 {path.Count} 段补丁：{normalizedCurrent} → {normalizedTarget}；总大小={patchBytes}。");
+        }
+
+        return new LauncherUpdatePackage(
+            normalizedTarget,
+            targetTag,
+            fullUrl,
+            assetName,
+            string.IsNullOrWhiteSpace(targetVariant.TargetBinaryName)
+                ? DefaultBinaryName(identity.RuntimeId)
+                : targetVariant.TargetBinaryName!,
+            targetVariant.TargetSha256,
+            targetVariant.TargetSize > 0 ? targetVariant.TargetSize : null,
+            path,
+            identity.RuntimeId,
+            identity.NormalizedRuntimeVariant,
+            LauncherBuildIdentity.NormalizeConfiguration(targetVariant.Configuration),
+            fullUrl + ".asc",
+            fullUrl + ".binary.asc");
+    }
+
+    private async Task<LoadedPatchIndex?> TryLoadPatchIndexAsync(
+        string tag,
+        CancellationToken cancellationToken)
+    {
+        foreach (string asset in new[] { "patch-index.json", "index.json" })
+        {
+            string url = BuildReleaseAssetUrl(tag, asset);
+            using HttpResponseMessage response = await GetFollowingRedirectsAsync(url, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                continue;
+            if (!response.IsSuccessStatusCode)
+            {
+                PortableLog.Debug("Update", $"补丁索引不可用：{url}；HTTP={(int)response.StatusCode}。");
+                continue;
+            }
+
+            try
+            {
+                await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                LauncherPatchIndexDto? index = await JsonSerializer.DeserializeAsync(
+                        stream,
+                        LauncherUpdateJsonContext.Default.LauncherPatchIndexDto,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (index is not null && index.FormatVersion is 1 or 2 && index.Variants is { Count: > 0 })
+                    return new LoadedPatchIndex(tag, index);
+            }
+            catch (JsonException ex)
+            {
+                PortableLog.Warn(ex, "Update", $"补丁索引格式无效：{url}。");
+            }
+        }
+
+        return null;
+    }
+
+    private List<LauncherUpdatePatchStep> FindPatchPath(
+        IReadOnlyList<LoadedPatchIndex> indexes,
+        LauncherBuildIdentity identity,
+        string currentVersion,
+        string targetVersion)
+    {
+        Dictionary<string, List<PatchEdge>> edges = new(StringComparer.OrdinalIgnoreCase);
+        foreach (LoadedPatchIndex loaded in indexes)
+        {
+            LauncherPatchVariantDto? variant = FindVariant(loaded.Index, identity);
+            if (variant?.Patches is null || string.IsNullOrWhiteSpace(loaded.Index.TargetVersion) ||
+                string.IsNullOrWhiteSpace(variant.TargetSha256))
+            {
+                continue;
+            }
+
+            string edgeTarget = NormalizeVersion(loaded.Index.TargetVersion!);
+            foreach (LauncherPatchDto patch in variant.Patches)
+            {
+                if (!string.Equals(patch.Algorithm, "hdiffpatch", StringComparison.OrdinalIgnoreCase) ||
+                    string.IsNullOrWhiteSpace(patch.FromVersion) ||
+                    string.IsNullOrWhiteSpace(patch.FileName) ||
+                    string.IsNullOrWhiteSpace(patch.Sha256) ||
+                    string.IsNullOrWhiteSpace(patch.FromSha256) ||
+                    patch.Size <= 0)
+                {
+                    continue;
+                }
+
+                string from = NormalizeVersion(patch.FromVersion!);
+                string patchAsset = Path.GetFileName(patch.FileName!.Replace('\\', '/'));
+                string downloadUrl = string.IsNullOrWhiteSpace(patch.DownloadUrl)
+                    ? BuildReleaseAssetUrl(loaded.ReleaseTag, patchAsset)
+                    : patch.DownloadUrl!;
+                PatchEdge edge = new(
+                    from,
+                    edgeTarget,
+                    new LauncherUpdatePatchStep(
+                        from,
+                        edgeTarget,
+                        downloadUrl,
+                        patch.Sha256!,
+                        patch.Size,
+                        patch.FromSha256!,
+                        patch.FromSize,
+                        variant.TargetSha256!,
+                        variant.TargetSize));
+                if (!edges.TryGetValue(from, out List<PatchEdge>? list))
+                {
+                    list = [];
+                    edges.Add(from, list);
+                }
+                list.Add(edge);
+            }
+        }
+
+        Queue<(string Version, List<LauncherUpdatePatchStep> Steps)> queue = new();
+        HashSet<string> visited = new(StringComparer.OrdinalIgnoreCase) { currentVersion };
+        queue.Enqueue((currentVersion, []));
+        while (queue.Count > 0)
+        {
+            (string version, List<LauncherUpdatePatchStep> steps) = queue.Dequeue();
+            if (string.Equals(version, targetVersion, StringComparison.OrdinalIgnoreCase))
+                return steps;
+            if (!edges.TryGetValue(version, out List<PatchEdge>? next))
+                continue;
+            foreach (PatchEdge edge in next.OrderBy(static edge => edge.Step.Size))
+            {
+                if (!visited.Add(edge.ToVersion))
+                    continue;
+                List<LauncherUpdatePatchStep> branch = [.. steps, edge.Step];
+                queue.Enqueue((edge.ToVersion, branch));
+            }
+        }
+
+        return [];
+    }
+
+    private static LauncherPatchVariantDto? FindVariant(
+        LauncherPatchIndexDto index,
+        LauncherBuildIdentity identity) => index.Variants?.FirstOrDefault(variant =>
+            string.Equals(variant.RuntimeId, identity.RuntimeId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(
+                LauncherBuildIdentity.NormalizeRuntimeVariant(variant.RuntimeVariant),
+                identity.NormalizedRuntimeVariant,
+                StringComparison.OrdinalIgnoreCase));
+
+    private LauncherUpdatePackage BuildFullPackage(
+        string tag,
+        UpdateChannel channel,
+        LauncherBuildIdentity identity)
+    {
         string config = channel switch
         {
             UpdateChannel.Beta => "Beta",
             UpdateChannel.CI or UpdateChannel.Dev => "CI",
             _ => "Release"
         };
-        string plugin = preferPluginBuild ? "WithPlugin" : "NoPlugin";
-        string ext = rid.StartsWith("win-", StringComparison.OrdinalIgnoreCase) ? "zip" : "tar.gz";
+        string ext = identity.RuntimeId.StartsWith("win-", StringComparison.OrdinalIgnoreCase) ? "zip" : "tar.gz";
+        string variant = channel is UpdateChannel.CI or UpdateChannel.Dev
+            ? identity.NormalizedRuntimeVariant.Split('_')[0]
+            : identity.NormalizedRuntimeVariant;
+        string assetName = $"PCL_N_{config}_{identity.RuntimeId}_{variant}.{ext}";
+        return new LauncherUpdatePackage(
+            NormalizeVersion(tag),
+            tag,
+            BuildReleaseAssetUrl(tag, assetName),
+            assetName,
+            DefaultBinaryName(identity.RuntimeId),
+            null,
+            null,
+            [],
+            identity.RuntimeId,
+            identity.NormalizedRuntimeVariant,
+            config,
+            BuildReleaseAssetUrl(tag, assetName + ".asc"),
+            BuildReleaseAssetUrl(tag, assetName + ".binary.asc"));
+    }
 
-        // Prefer SelfContained; fall back to NoRuntime if naming ever differs.
-        string[] variants = ["SelfContained", "NoRuntime"];
-        string[] plugins = preferPluginBuild
-            ? ["WithPlugin", "NoPlugin"]
-            : ["NoPlugin", "WithPlugin"];
+    private string BuildReleaseAssetUrl(string tag, string assetName) =>
+        $"https://github.com/{_owner}/{_repo}/releases/download/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(assetName)}";
 
-        // Return the primary candidate URL (GitHub download URLs are stable by convention).
-        string primary = $"https://github.com/{_owner}/{_repo}/releases/download/{Uri.EscapeDataString(tag)}/" +
-                         $"PCL_N_{config}_{rid}_{variants[0]}_{plugins[0]}.{ext}";
-        return primary;
+    private static string DefaultBinaryName(string runtimeId) =>
+        runtimeId.StartsWith("win-", StringComparison.OrdinalIgnoreCase) ? "PCL.Desktop.exe" : "PCL.Desktop";
+
+    private async Task<HttpResponseMessage> GetFollowingRedirectsAsync(
+        string url,
+        CancellationToken cancellationToken)
+    {
+        string current = url;
+        for (int redirect = 0; redirect < 6; redirect++)
+        {
+            HttpResponseMessage response = await GetAsyncSafe(current, cancellationToken).ConfigureAwait(false);
+            if (!IsRedirect(response.StatusCode) || response.Headers.Location is null)
+                return response;
+            Uri next = response.Headers.Location.IsAbsoluteUri
+                ? response.Headers.Location
+                : new Uri(new Uri(current), response.Headers.Location);
+            response.Dispose();
+            current = next.AbsoluteUri;
+        }
+
+        throw new InvalidOperationException("补丁下载地址重定向次数过多。");
+    }
+
+    private async Task<long?> TryGetContentLengthAsync(string url, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using HttpResponseMessage response = await GetFollowingRedirectsAsync(url, cancellationToken).ConfigureAwait(false);
+            return response.IsSuccessStatusCode ? response.Content.Headers.ContentLength : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            PortableLog.Debug("Update", $"无法读取完整包大小，将使用补丁协议阈值：{ex.Message}");
+            return null;
+        }
     }
 
     private async Task<HttpResponseMessage> GetAsyncSafe(string url, CancellationToken cancellationToken)
@@ -396,6 +686,9 @@ public sealed class LauncherUpdateService : IDisposable
 
     private static bool IsSuccessOrRedirect(HttpStatusCode code) =>
         ((int)code is >= 200 and < 300) ||
+        IsRedirect(code);
+
+    private static bool IsRedirect(HttpStatusCode code) =>
         code is HttpStatusCode.Moved or HttpStatusCode.Redirect or HttpStatusCode.RedirectMethod
             or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect
             or HttpStatusCode.Found or HttpStatusCode.SeeOther;
@@ -552,6 +845,10 @@ public sealed class LauncherUpdateService : IDisposable
         string? HtmlUrl,
         string? Notes,
         DateTimeOffset? Updated);
+
+    private sealed record LoadedPatchIndex(string ReleaseTag, LauncherPatchIndexDto Index);
+
+    private sealed record PatchEdge(string FromVersion, string ToVersion, LauncherUpdatePatchStep Step);
 }
 
 public sealed record LauncherUpdateCheckResult(
@@ -567,7 +864,8 @@ public sealed record LauncherUpdateCheckResult(
     UpdateChannel Channel = UpdateChannel.Release,
     bool SupportsPatches = true,
     string? RemoteCommitSha = null,
-    DateTimeOffset? PublishedAt = null)
+    DateTimeOffset? PublishedAt = null,
+    LauncherUpdatePackage? Package = null)
 {
     public static LauncherUpdateCheckResult Failed(string message) =>
         new(false, false, null, null, null, null, null, null, message);

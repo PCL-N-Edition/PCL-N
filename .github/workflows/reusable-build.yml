@@ -213,6 +213,23 @@ jobs:
           echo "Stamped metadata:"
           cat PCL.Desktop/metadata.json
 
+      - name: Bootstrap launcher patch client
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          "$PY" tools/pcl-n-patches/scripts/bootstrap_hdiffpatch.py \
+            --tools-dir "${{ github.workspace }}/update-tools"
+          if [[ -f "${{ github.workspace }}/update-tools/hpatchz.exe" ]]; then
+            tool="${{ github.workspace }}/update-tools/hpatchz.exe"
+          else
+            tool="${{ github.workspace }}/update-tools/hpatchz"
+          fi
+          test -s "$tool"
+          echo "PCL_HPATCHZ_PATH=$tool" >> "$GITHUB_ENV"
+
       - name: Publish Avalonia desktop
         shell: bash
         env:
@@ -277,6 +294,7 @@ jobs:
             -p:EnableCompressionInSingleFile="${{ inputs.self_contained }}" \
             -p:IncludeNativeLibrariesForSelfExtract=true \
             -p:PclRuntimeVariant="${{ inputs.runtime_variant }}" \
+            -p:PclHpatchzPath="$PCL_HPATCHZ_PATH" \
             -p:PclWriteSecret=1 \
             -p:DebugType=None \
             -p:DebugSymbols=false \
