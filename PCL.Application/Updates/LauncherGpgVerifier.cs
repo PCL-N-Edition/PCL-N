@@ -26,7 +26,13 @@ internal sealed class LauncherGpgVerifier : ILauncherGpgVerifier
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(detachedSignature);
 
-        PgpSignature signature = ReadSignature(detachedSignature);
+        // HttpContent streams are normally forward-only. BouncyCastle's armored
+        // OpenPGP decoder probes and rewinds the input, so give it a small seekable
+        // buffer instead of passing the network stream through directly.
+        using MemoryStream signatureBuffer = new();
+        await detachedSignature.CopyToAsync(signatureBuffer, cancellationToken).ConfigureAwait(false);
+        signatureBuffer.Position = 0;
+        PgpSignature signature = ReadSignature(signatureBuffer);
         PgpPublicKey publicKey = LoadPinnedPublicKey(signature.KeyId);
         string fingerprint = Convert.ToHexString(publicKey.GetFingerprint());
         if (!string.Equals(fingerprint, ExpectedFingerprint, StringComparison.OrdinalIgnoreCase))

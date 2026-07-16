@@ -270,6 +270,34 @@ public sealed class LauncherUpdateServiceTests
         await LauncherGpgVerifier.Instance.VerifyAsync(content, signature, CancellationToken.None);
     }
 
+    [TestMethod]
+    public async Task GpgVerifier_AcceptsForwardOnlyHttpStyleStreams()
+    {
+        const string signatureText = """
+            -----BEGIN PGP SIGNATURE-----
+
+            iJEEABYKADkWIQRXASGNabUx4aftNbtuMfWXSic67gUCaljqzRsUgAAAAAAEAA5t
+            YW51MiwyLjUrMS4xMiwyLDEACgkQbjH1l0onOu75xQEAp/sh1N1prODi/PTektMy
+            F83vBveFCkLxqw2pdM7NNugBAMOx4NTqDsy/EBjTTBUUzvcXCp+wdjb7fO6jOAsn
+            JKsB
+            =4FMC
+            -----END PGP SIGNATURE-----
+            """;
+        await using Stream resource = typeof(LauncherGpgVerifier).Assembly.GetManifestResourceStream(
+                "PCL.Application.Updates.PclNReleasePublicKey.asc")
+            ?? throw new AssertFailedException("Pinned public key resource is missing.");
+        using StreamReader reader = new(resource, Encoding.ASCII);
+        byte[] contentBytes = Encoding.ASCII.GetBytes(
+            (await reader.ReadToEndAsync()).Replace("\r\n", "\n", StringComparison.Ordinal));
+        byte[] signatureBytes = Encoding.ASCII.GetBytes(signatureText);
+        await using NonSeekableReadStream content = new(new MemoryStream(contentBytes));
+        await using NonSeekableReadStream signature = new(new MemoryStream(signatureBytes));
+
+        Assert.IsFalse(content.CanSeek);
+        Assert.IsFalse(signature.CanSeek);
+        await LauncherGpgVerifier.Instance.VerifyAsync(content, signature, CancellationToken.None);
+    }
+
     private static string ReleaseFeed(string tag) => $$"""
         <?xml version="1.0" encoding="UTF-8"?>
         <feed xmlns="http://www.w3.org/2005/Atom">
@@ -355,6 +383,51 @@ public sealed class LauncherUpdateServiceTests
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken) => Task.FromResult(route(request));
+    }
+
+    private sealed class NonSeekableReadStream(Stream inner) : Stream
+    {
+        public override bool CanRead => inner.CanRead;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(buffer, cancellationToken);
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                inner.Dispose();
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            await inner.DisposeAsync().ConfigureAwait(false);
+            GC.SuppressFinalize(this);
+        }
     }
 
     private sealed class AcceptAllGpgVerifier : ILauncherGpgVerifier
