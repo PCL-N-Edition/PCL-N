@@ -442,7 +442,11 @@ public sealed class LauncherUpdateService : IDisposable
         return string.Equals(a, b, StringComparison.Ordinal);
     }
 
-    private static string NormalizeVersion(string value)
+    /// <summary>
+    /// Normalize display versions and tags to a comparable form.
+    /// e.g. "v1.1.8-release", "1.1.8 release", "1.1.8" → stable core "1.1.8" (+ pre if any).
+    /// </summary>
+    internal static string NormalizeVersion(string value)
     {
         string trimmed = value.Trim();
         if (trimmed.StartsWith('v') || trimmed.StartsWith('V'))
@@ -450,21 +454,61 @@ public sealed class LauncherUpdateService : IDisposable
         int plus = trimmed.IndexOf('+');
         if (plus >= 0)
             trimmed = trimmed[..plus];
+
+        // DisplayVersion uses space: "1.1.8 release" → "1.1.8-release"
+        trimmed = trimmed.Replace('_', '-');
+        int space = trimmed.IndexOf(' ');
+        if (space > 0)
+            trimmed = trimmed[..space] + "-" + trimmed[(space + 1)..].Replace(' ', '-');
+
         return trimmed;
     }
 
-    private static int CompareVersions(string left, string right)
+    /// <summary>Returns &gt;0 if <paramref name="left"/> is newer than <paramref name="right"/>.</summary>
+    internal static int CompareVersions(string left, string right)
     {
-        if (Version.TryParse(StripPrerelease(left), out Version? l) &&
-            Version.TryParse(StripPrerelease(right), out Version? r))
-            return l.CompareTo(r);
-        return string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+        string ln = NormalizeVersion(left);
+        string rn = NormalizeVersion(right);
+        string lc = GetVersionCore(ln);
+        string rc = GetVersionCore(rn);
+
+        if (Version.TryParse(lc, out Version? lv) && Version.TryParse(rc, out Version? rv))
+        {
+            int core = lv.CompareTo(rv);
+            if (core != 0)
+                return core;
+
+            // Same numeric core: stable (empty / release) ranks above beta/rc/ci.
+            string lp = GetVersionPre(ln);
+            string rp = GetVersionPre(rn);
+            if (lp.Length == 0 && rp.Length == 0)
+                return 0;
+            if (lp.Length == 0)
+                return 1;
+            if (rp.Length == 0)
+                return -1;
+            return string.Compare(lp, rp, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return string.Compare(ln, rn, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string StripPrerelease(string version)
+    private static string GetVersionCore(string normalized)
     {
-        int dash = version.IndexOf('-');
-        return dash > 0 ? version[..dash] : version;
+        int dash = normalized.IndexOf('-');
+        return dash > 0 ? normalized[..dash] : normalized;
+    }
+
+    private static string GetVersionPre(string normalized)
+    {
+        int dash = normalized.IndexOf('-');
+        if (dash <= 0 || dash >= normalized.Length - 1)
+            return string.Empty;
+        string pre = normalized[(dash + 1)..].Trim().ToLowerInvariant();
+        // Treat these as the stable channel (same rank as no suffix).
+        if (pre is "release" or "stable" or "final" or "ga")
+            return string.Empty;
+        return pre;
     }
 
     private static string? HtmlToPlainText(string? html)

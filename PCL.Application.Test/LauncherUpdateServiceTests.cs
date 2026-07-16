@@ -50,4 +50,24 @@ public sealed class LauncherUpdateServiceTests
     {
         Assert.IsFalse(string.IsNullOrWhiteSpace(LauncherUpdateService.ResolveRuntimeId()));
     }
+
+    [TestMethod]
+    public void CompareVersions_TreatsDisplayAndTagReleaseAsEqual()
+    {
+        // Local DisplayVersion is "1.1.8 release"; remote tag normalizes to "1.1.8-release".
+        Assert.AreEqual(0, LauncherUpdateService.CompareVersions("1.1.8 release", "v1.1.8-release"));
+        Assert.AreEqual(0, LauncherUpdateService.CompareVersions("1.1.8-release", "1.1.8"));
+        Assert.AreEqual(0, LauncherUpdateService.CompareVersions("v1.1.8", "1.1.8 release"));
+        Assert.IsTrue(LauncherUpdateService.CompareVersions("1.1.9-release", "1.1.8 release") > 0);
+        Assert.IsTrue(LauncherUpdateService.CompareVersions("1.1.8-beta", "1.1.8 release") < 0);
+        Assert.IsTrue(LauncherUpdateService.CompareVersions("1.1.8 release", "1.1.8-beta") > 0);
+    }
+
+    [TestMethod]
+    public void NormalizeVersion_UnifiesSpaceAndDashSuffix()
+    {
+        Assert.AreEqual("1.1.8-release", LauncherUpdateService.NormalizeVersion("1.1.8 release"));
+        Assert.AreEqual("1.1.8-release", LauncherUpdateService.NormalizeVersion("v1.1.8-release"));
+        Assert.AreEqual("1.1.8", LauncherUpdateService.NormalizeVersion("v1.1.8"));
+    }
 }
