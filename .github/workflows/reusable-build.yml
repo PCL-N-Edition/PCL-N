@@ -40,6 +40,17 @@ on:
         required: false
         default: true
         type: boolean
+      # Channel stamped into embedded metadata.json (release | beta | ci).
+      # Empty = derive from configuration (Release→release, Beta→beta, CI→ci).
+      channel:
+        required: false
+        default: ""
+        type: string
+      # Optional release tag (e.g. v1.1.6-release) to fill version.base / consistency checks.
+      version_tag:
+        required: false
+        default: ""
+        type: string
     secrets:
       # Prefer CLIENT_ID (legacy name). MS_CLIENT_ID / PCL_MS_CLIENT_ID are accepted aliases.
       CLIENT_ID:
@@ -165,6 +176,43 @@ jobs:
             }
           }
 
+      - name: Stamp build metadata (channel / version / commit)
+        id: stamp
+        shell: bash
+        env:
+          PCL_GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -eo pipefail
+          cfg="${{ inputs.configuration }}"
+          channel="${{ inputs.channel }}"
+          if [[ -z "${channel}" ]]; then
+            case "${cfg,,}" in
+              release|stable) channel=release ;;
+              beta) channel=beta ;;
+              ci|dev) channel=ci ;;
+              *) channel=ci ;;
+            esac
+          fi
+          tag="${{ inputs.version_tag }}"
+          extra=()
+          if [[ -n "${tag}" ]]; then
+            extra+=(--tag "${tag}")
+          fi
+          # Windows runners often only expose `python`, not `python3`.
+          if command -v python3 >/dev/null 2>&1; then
+            PY=python3
+          else
+            PY=python
+          fi
+          "$PY" scripts/stamp_build_metadata.py \
+            --metadata PCL.Desktop/metadata.json \
+            --channel "${channel}" \
+            --sha "${PCL_GITHUB_SHA}" \
+            --github-output \
+            ${extra[@]+"${extra[@]}"}
+          echo "Stamped metadata:"
+          cat PCL.Desktop/metadata.json
+
       - name: Publish Avalonia desktop
         shell: bash
         env:
@@ -204,9 +252,18 @@ jobs:
             )
           fi
 
+          version_args=()
+          if [[ -n "${PCL_STAMPED_ASSEMBLY_VERSION:-}" ]]; then
+            version_args+=(-p:Version="${PCL_STAMPED_ASSEMBLY_VERSION}")
+          fi
+          if [[ -n "${PCL_STAMPED_INFORMATIONAL_VERSION:-}" ]]; then
+            version_args+=(-p:InformationalVersion="${PCL_STAMPED_INFORMATIONAL_VERSION}")
+          fi
+
           # Single-node publish reduces MSB4166 child-node crashes under memory pressure.
           # NETSDK1176: EnableCompressionInSingleFile is only valid for self-contained.
           # ${plugin_args[@]+...} is empty-safe on older bash (macOS runners).
+          # Metadata channel/version stamped in previous step into embedded metadata.json.
           dotnet publish PCL.Desktop/PCL.Desktop.csproj \
             -c "${{ inputs.configuration }}" \
             -r "${{ inputs.runtime_id }}" \
@@ -224,6 +281,7 @@ jobs:
             -p:DebugType=None \
             -p:DebugSymbols=false \
             -p:DeleteExistingFiles=true \
+            ${version_args[@]+"${version_args[@]}"} \
             ${plugin_args[@]+"${plugin_args[@]}"} \
             -warnaserror:CA1416 \
             -o "$PUBLISH_DIR"

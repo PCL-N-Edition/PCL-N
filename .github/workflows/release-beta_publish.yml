@@ -49,6 +49,8 @@ jobs:
       runtime_variant: ${{ matrix.runtime.variant }}_${{ matrix.plugin.suffix }}
       include_plugin: ${{ matrix.plugin.include }}
       plugin_tag: ${{ vars.PCL_PLUGIN_TAG || 'v0.12.2' }}
+      channel: beta
+      version_tag: ${{ github.event.release.tag_name || inputs.tag_name }}
     secrets: inherit
 
   # Early stub notes (commits only). Full inventory is written after assets/patches.

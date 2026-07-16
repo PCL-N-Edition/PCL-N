@@ -53,6 +53,7 @@ jobs:
       plugin_tag: ${{ vars.PCL_PLUGIN_TAG || 'latest' }}
       # PRs from forks cannot read secrets; only require CLIENT_ID on non-PR runs.
       require_ms_client_id: ${{ github.event_name != 'pull_request' }}
+      channel: ci
     secrets: inherit
 
   # Rolling CI package for the "CI" update channel. Full binaries only — never patches.
