@@ -4,6 +4,7 @@
       xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
       RenderTransformOrigin="0%,50%"
       MinWidth="400"
+      MaxHeight="560"
       HorizontalAlignment="Center"
       VerticalAlignment="Center"
       Margin="25">
@@ -41,7 +42,7 @@
                        Height="2"
                        Fill="{DynamicResource ColorBrush2}" />
             <legacy:MyScrollViewer Grid.Row="3"
-                                   VerticalAlignment="Top"
+                                   VerticalAlignment="Stretch"
                                    x:Name="PanCaption"
                                    Margin="0,0,0,17"
                                    Padding="7,0,15,0"

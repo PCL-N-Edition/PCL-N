@@ -8120,6 +8120,52 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void MessageDialogs_KeepActionsVisibleAndScrollTallContent()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            MyMsgText dialog = new();
+            dialog.Configure(
+                "很长的提示",
+                string.Join(Environment.NewLine, Enumerable.Repeat("这是一行需要滚动显示的弹窗内容。", 40)),
+                secondaryButton: "取消");
+            Grid host = new();
+            host.Children.Add(dialog);
+            Window window = new()
+            {
+                Width = 620,
+                Height = 280,
+                Content = host
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                MyScrollViewer caption = dialog.FindControl<MyScrollViewer>("PanCaption")!;
+                StackPanel actions = dialog.FindControl<StackPanel>("PanBtn")!;
+                Point? actionsBottom = actions.TranslatePoint(
+                    new Point(actions.Bounds.Width, actions.Bounds.Height),
+                    dialog);
+
+                Assert.IsTrue(dialog.Bounds.Height <= host.Bounds.Height - 49d);
+                Assert.IsTrue(caption.Bounds.Height > 0d);
+                Assert.IsTrue(caption.Extent.Height > caption.Viewport.Height);
+                Assert.IsNotNull(actionsBottom);
+                Assert.IsTrue(actionsBottom.Value.Y <= dialog.Bounds.Height);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MyMsgText_UsesWpfThreeButtonWarningAndActionContract()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

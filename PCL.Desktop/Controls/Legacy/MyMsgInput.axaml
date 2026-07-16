@@ -4,6 +4,7 @@
       xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
       RenderTransformOrigin="0%,50%"
       MinWidth="400"
+      MaxHeight="560"
       HorizontalAlignment="Center"
       VerticalAlignment="Center"
       Margin="25">
@@ -24,7 +25,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="2" />
                 <RowDefinition Height="13" />
-                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
@@ -43,7 +44,7 @@
                        Fill="{DynamicResource ColorBrush2}" />
             <legacy:MyScrollViewer Grid.Row="3"
                                    x:Name="PanText"
-                                   VerticalAlignment="Top"
+                                   VerticalAlignment="Stretch"
                                    Margin="0,0,0,8"
                                    Padding="7,0,8,4"
                                    MaxHeight="260"

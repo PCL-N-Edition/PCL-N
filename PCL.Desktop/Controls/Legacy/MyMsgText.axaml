@@ -20,11 +20,11 @@
             Background="{DynamicResource ColorBrushBackground}"
             BoxShadow="0 4 28 0 #663c3c3c"
             ClipToBounds="False">
-        <!-- Auto rows only: never starve caption with * height under Center alignment -->
+        <!-- Keep the caption in the flexible row so buttons remain visible in short windows. -->
         <Grid x:Name="PanMain"
               VerticalAlignment="Top"
               Margin="22,22,22,20"
-              RowDefinitions="Auto,2,12,Auto,16,Auto">
+              RowDefinitions="Auto,2,12,*,16,Auto">
             <TextBlock Grid.Row="0"
                        x:Name="LabTitle"
                        FontSize="23"
@@ -40,7 +40,8 @@
                        Height="2"
                        Fill="{DynamicResource ColorBrush2}" />
             <legacy:MyScrollViewer Grid.Row="3"
-                                   VerticalAlignment="Top"
+                                   x:Name="PanCaption"
+                                   VerticalAlignment="Stretch"
                                    Margin="0,0,0,0"
                                    Padding="7,0,8,4"
                                    MaxHeight="320"
