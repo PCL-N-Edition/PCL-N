@@ -58,7 +58,8 @@ internal static class DesktopHost
             clipboard: DesktopHostClipboard.Instance,
             accounts: _current.Accounts,
             downloads: _current.Downloads,
-            launching: _current.Launching));
+            launching: _current.Launching,
+            backgroundTasks: DesktopHostBackgroundTasks.Instance));
         _runtimeExtensions = EmbeddedRuntimeExtensionLoader.LoadRuntimeExtensions();
         RuntimeExtensionContext extensionContext = new(
             platformPaths.ApplicationDataDirectory,

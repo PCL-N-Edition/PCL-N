@@ -21,6 +21,8 @@ internal interface IRuntimeExtensionHost
     IAccountProviderRegistry Accounts { get; }
     IDownloadSourceRegistry Downloads { get; }
     ILaunchPipelineBuilder Launching { get; }
+    /// <summary>Optional host task-manager bridge (MC install-style progress UI).</summary>
+    IHostBackgroundTasks BackgroundTasks { get; }
     string ApplicationDataDirectory { get; }
     string CacheDirectory { get; }
     IHostInstanceQuery? Instances { get; }
@@ -28,6 +30,45 @@ internal interface IRuntimeExtensionHost
     IHostUiComposition? UiComposition { get; }
     IHostDynamicNavigation? Navigation { get; }
     IHostRawUiAccess? RawUiAccess { get; }
+}
+
+/// <summary>Host-owned download/install progress surface (task manager).</summary>
+internal interface IHostBackgroundTasks
+{
+    /// <param name="title">Task card title.</param>
+    /// <param name="openTaskManager">When true, navigates to the task manager page like MC install.</param>
+    IHostBackgroundTask Begin(string title, bool openTaskManager = true);
+}
+
+internal interface IHostBackgroundTask : IDisposable
+{
+    CancellationToken Token { get; }
+    void Report(HostBackgroundTaskProgress progress);
+    void Complete(string stage);
+    void Fail(string message, bool canceled = false);
+}
+
+internal sealed record HostBackgroundTaskProgress(
+    string Stage,
+    string Detail = "",
+    double Progress = 0d,
+    int CompletedFiles = 0,
+    int TotalFiles = 0,
+    long SpeedBytesPerSecond = 0,
+    IReadOnlyList<HostBackgroundTaskStep>? Steps = null);
+
+internal sealed record HostBackgroundTaskStep(
+    string Name,
+    string Detail,
+    double Progress,
+    HostBackgroundTaskStepState State);
+
+internal enum HostBackgroundTaskStepState
+{
+    Waiting = 0,
+    Running = 1,
+    Finished = 2,
+    Failed = 3
 }
 
 internal interface IHostUiComposition
@@ -119,6 +160,15 @@ internal interface IHostNotifications
 {
     void ShowInformation(string message);
     void ShowWarning(string message);
+
+    /// <summary>Host modal confirm (primary = true). Defaults to false when no UI is attached.</summary>
+    Task<bool> ConfirmAsync(
+        string title,
+        string message,
+        string primaryButton = "允许",
+        string secondaryButton = "拒绝",
+        bool isWarn = true,
+        CancellationToken cancellationToken = default);
 }
 
 internal interface IHostDeveloperDiagnostics

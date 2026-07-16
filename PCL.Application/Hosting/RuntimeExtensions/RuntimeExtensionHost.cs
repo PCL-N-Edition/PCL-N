@@ -30,7 +30,8 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
         IHostClipboard? clipboard = null,
         IAccountProviderRegistry? accounts = null,
         IDownloadSourceRegistry? downloads = null,
-        ILaunchPipelineBuilder? launching = null)
+        ILaunchPipelineBuilder? launching = null,
+        IHostBackgroundTasks? backgroundTasks = null)
     {
         SettingsPageGroups = settingsPageGroups ?? throw new ArgumentNullException(nameof(settingsPageGroups));
         SettingsPages = settingsPages ?? throw new ArgumentNullException(nameof(settingsPages));
@@ -44,6 +45,7 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
         Accounts = accounts ?? new AccountProviderRegistry();
         Downloads = downloads ?? new DownloadSourceRegistry();
         Launching = launching ?? new LaunchPipelineBuilder();
+        BackgroundTasks = backgroundTasks ?? NullHostBackgroundTasks.Instance;
         ApplicationDataDirectory = applicationDataDirectory ?? Path.GetTempPath();
         CacheDirectory = cacheDirectory ?? Path.GetTempPath();
         Instances = instances;
@@ -65,6 +67,7 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
     public IAccountProviderRegistry Accounts { get; }
     public IDownloadSourceRegistry Downloads { get; }
     public ILaunchPipelineBuilder Launching { get; }
+    public IHostBackgroundTasks BackgroundTasks { get; }
     public string ApplicationDataDirectory { get; }
     public string CacheDirectory { get; }
     public IHostInstanceQuery? Instances { get; }
@@ -72,6 +75,22 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
     public IHostUiComposition? UiComposition { get; }
     public IHostDynamicNavigation? Navigation { get; }
     public IHostRawUiAccess? RawUiAccess { get; }
+}
+
+internal sealed class NullHostBackgroundTasks : IHostBackgroundTasks
+{
+    public static NullHostBackgroundTasks Instance { get; } = new();
+    public IHostBackgroundTask Begin(string title, bool openTaskManager = true) => NullHostBackgroundTask.Instance;
+}
+
+internal sealed class NullHostBackgroundTask : IHostBackgroundTask
+{
+    public static NullHostBackgroundTask Instance { get; } = new();
+    public CancellationToken Token => CancellationToken.None;
+    public void Report(HostBackgroundTaskProgress progress) { }
+    public void Complete(string stage) { }
+    public void Fail(string message, bool canceled = false) { }
+    public void Dispose() { }
 }
 
 internal sealed class InMemoryHostDeveloperDiagnostics : IHostDeveloperDiagnostics
@@ -158,4 +177,15 @@ internal sealed class CapturingHostNotifications : IHostNotifications
     public IReadOnlyCollection<string> Messages => _messages.ToArray();
     public void ShowInformation(string message) => _messages.Enqueue("[info] " + (message ?? string.Empty));
     public void ShowWarning(string message) => _messages.Enqueue("[warn] " + (message ?? string.Empty));
+    public Task<bool> ConfirmAsync(
+        string title,
+        string message,
+        string primaryButton = "允许",
+        string secondaryButton = "拒绝",
+        bool isWarn = true,
+        CancellationToken cancellationToken = default)
+    {
+        _messages.Enqueue($"[confirm] {title}: {message}");
+        return Task.FromResult(false);
+    }
 }

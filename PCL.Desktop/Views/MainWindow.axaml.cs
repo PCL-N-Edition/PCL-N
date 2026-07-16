@@ -25,6 +25,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PCL.Application.Accounts;
 using PCL.Application.Downloads;
+using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Application.Instances;
 using PCL.Application.Launching;
 using PCL.Application.Minecraft.Launch.Arguments;
@@ -201,6 +202,8 @@ public partial class MainWindow : Window, IDisposable
         CaptureShowAnimationTransforms();
         Opened += OnMainWindowOpened;
         DesktopHostNotifications.Instance.Attach(OnPluginHostNotification);
+        DesktopHostNotifications.Instance.AttachConfirm(OnPluginHostConfirmAsync);
+        DesktopHostBackgroundTasks.Instance.Attach(BeginHostBackgroundTask);
         DesktopHost.Current.Navigation.Changed += NavigationRegistryChanged;
         DesktopHostNavigation.Instance.Attach(NavigateToPluginRoute);
         _ = LoadProfilesAsync();
@@ -209,6 +212,157 @@ public partial class MainWindow : Window, IDisposable
 
     private void OnPluginHostNotification(string message, bool critical) =>
         ShowHint(message, critical);
+
+    private Task<bool> OnPluginHostConfirmAsync(
+        string title,
+        string message,
+        string primaryButton,
+        string secondaryButton,
+        bool isWarn)
+    {
+        TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Show()
+        {
+            ShowConfirmDialog(
+                title,
+                message,
+                confirmed => completion.TrySetResult(confirmed),
+                primaryButton,
+                secondaryButton,
+                isWarn);
+        }
+
+        if (Dispatcher.UIThread.CheckAccess())
+            Show();
+        else
+            Dispatcher.UIThread.Post(Show);
+        return completion.Task;
+    }
+
+    /// <summary>MC install-style task manager bridge used by plugin market downloads.</summary>
+    private IHostBackgroundTask BeginHostBackgroundTask(string title, bool openTaskManager)
+    {
+        string taskId = CreateTaskId("plugin", Guid.NewGuid().ToString("N")[..8]);
+        CancellationTokenSource cancellation = RegisterTrackedTask(taskId);
+        if (openTaskManager)
+            ActivateTaskManagerPage(animate: true);
+        TrackTaskBegin(taskId, title, "准备任务");
+        return new HostBackgroundTaskProxy(this, taskId, title, cancellation);
+    }
+
+    private sealed class HostBackgroundTaskProxy : IHostBackgroundTask
+    {
+        private readonly MainWindow _window;
+        private readonly string _taskId;
+        private string _title;
+        private readonly CancellationTokenSource _cancellation;
+        private bool _disposed;
+
+        public HostBackgroundTaskProxy(
+            MainWindow window,
+            string taskId,
+            string title,
+            CancellationTokenSource cancellation)
+        {
+            _window = window;
+            _taskId = taskId;
+            _title = title;
+            _cancellation = cancellation;
+        }
+
+        public CancellationToken Token => _cancellation.Token;
+
+        public void Report(HostBackgroundTaskProgress progress)
+        {
+            if (_disposed)
+                return;
+            void Apply()
+            {
+                _title = string.IsNullOrWhiteSpace(progress.Stage) ? _title : _title;
+                TaskManagerSubTaskSnapshot[]? steps = progress.Steps is { Count: > 0 }
+                    ? progress.Steps.Select(static step => new TaskManagerSubTaskSnapshot(
+                        step.Name,
+                        step.Detail,
+                        step.Progress,
+                        step.State switch
+                        {
+                            HostBackgroundTaskStepState.Waiting => TaskManagerTaskState.Waiting,
+                            HostBackgroundTaskStepState.Finished => TaskManagerTaskState.Finished,
+                            HostBackgroundTaskStepState.Failed => TaskManagerTaskState.Failed,
+                            _ => TaskManagerTaskState.Running
+                        })).ToArray()
+                    : null;
+                _window._taskSnapshots[_taskId] = new TaskManagerEntrySnapshot(
+                    _taskId,
+                    _title,
+                    string.IsNullOrWhiteSpace(progress.Stage) ? "正在下载" : progress.Stage,
+                    progress.Detail,
+                    Math.Clamp(progress.Progress, 0d, 1d),
+                    progress.CompletedFiles,
+                    progress.TotalFiles,
+                    progress.SpeedBytesPerSecond,
+                    TaskManagerTaskState.Running,
+                    Steps: steps);
+                _window.UpdateTaskManagerViews();
+                _window.RefreshTaskManagerButton();
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+                Apply();
+            else
+                Dispatcher.UIThread.Post(Apply);
+        }
+
+        public void Complete(string stage)
+        {
+            if (_disposed)
+                return;
+            void Apply()
+            {
+                _window.TrackTaskFinished(_taskId, _title, stage);
+                _window.ShowHint(stage);
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+                Apply();
+            else
+                Dispatcher.UIThread.Post(Apply);
+        }
+
+        public void Fail(string message, bool canceled = false)
+        {
+            if (_disposed)
+                return;
+            void Apply()
+            {
+                _window.TrackTaskFailed(_taskId, _title, message, canceled);
+                _window.ShowHint(
+                    (canceled ? "任务已取消：" : "任务失败：") + TruncateHint(message),
+                    critical: !canceled);
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+                Apply();
+            else
+                Dispatcher.UIThread.Post(Apply);
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            _window.UnregisterTrackedTask(_taskId, _cancellation);
+            try
+            {
+                _cancellation.Dispose();
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+    }
 
     private void NavigationRegistryChanged(object? sender, EventArgs e)
     {
@@ -5839,6 +5993,8 @@ public partial class MainWindow : Window, IDisposable
         DesktopHostUiComposition.Instance.UnregisterTarget("pcl.navigation.main");
         DesktopHostUiComposition.Instance.UnregisterTarget("pcl.window.main");
         DesktopHostNotifications.Instance.Detach(OnPluginHostNotification);
+        DesktopHostNotifications.Instance.DetachConfirm(OnPluginHostConfirmAsync);
+        DesktopHostBackgroundTasks.Instance.Detach();
         DesktopHost.Current.Navigation.Changed -= NavigationRegistryChanged;
         DesktopHostNavigation.Instance.Detach(NavigateToPluginRoute);
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
@@ -6596,14 +6752,31 @@ public partial class MainWindow : Window, IDisposable
         }
 
         if (titleMain is not null)
-            titleMain.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
-        if (titleLeft is not null)
         {
+            titleMain.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+            // WPF UiLogoLeft collapses the left star when logo type is None + left-align.
+            // For any visible logo/text/image, keep content on the left (column 0) so the
+            // title is not optically centered under the chrome buttons.
             bool alignLeft = settings.GetBooleanOption(
                 "UiLogoLeft",
                 LauncherSettingDefaults.GetBoolean("UiLogoLeft"));
+            bool collapseLeadingStar = alignLeft && titleType == 0;
+            if (titleMain.ColumnDefinitions.Count >= 3)
+            {
+                titleMain.ColumnDefinitions[0].Width = collapseLeadingStar
+                    ? new GridLength(0d)
+                    : new GridLength(1d, GridUnitType.Star);
+                titleMain.ColumnDefinitions[1].Width = GridLength.Auto;
+                titleMain.ColumnDefinitions[2].Width = new GridLength(1d, GridUnitType.Star);
+            }
+        }
+
+        if (titleLeft is not null)
+        {
             titleLeft.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
-            Grid.SetColumn(titleLeft, alignLeft ? 0 : 1);
+            // Visible titles (default logo / text / image) always sit on the left.
+            // Only logo type None uses the centered Auto column when left-align is off.
+            Grid.SetColumn(titleLeft, titleType == 0 ? 1 : 0);
         }
     }
 
