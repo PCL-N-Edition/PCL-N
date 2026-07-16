@@ -213,7 +213,9 @@ jobs:
             -p:PublishAot=false \
             -p:PublishTrimmed=false \
             -p:PublishSingleFile=true \
-            -p:EnableCompressionInSingleFile="${{ inputs.self_contained }}" \
+            # Compress both SelfContained and NoRuntime single-file payloads so
+            # extracted on-disk size stays comparable (NoRuntime still excludes the runtime).
+            -p:EnableCompressionInSingleFile=true \
             -p:IncludeNativeLibrariesForSelfExtract=true \
             -p:PclRuntimeVariant="${{ inputs.runtime_variant }}" \
             -p:PclWriteSecret=1 \

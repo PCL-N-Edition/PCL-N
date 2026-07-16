@@ -3,7 +3,6 @@
 
 using System.Net.Http.Headers;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using PCL.Core.App;
 
@@ -14,17 +13,12 @@ namespace PCL.Application.Updates;
 /// Release/Beta: versioned GitHub Releases (patches optional via separate index).
 /// CI: rolling <c>ci-latest</c> release published by the Build (CI) workflow — full packages only, never patches.
 /// </summary>
-public sealed class LauncherUpdateService
+public sealed class LauncherUpdateService : IDisposable
 {
     public const string DefaultOwner = "MuXue1230-owo";
     public const string DefaultRepo = "PCL-N";
     /// <summary>Rolling tag rewritten on every successful non-PR CI build. No patches are generated for this tag.</summary>
     public const string CiRollingTag = "ci-latest";
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
 
     private static readonly Regex CommitLineRegex = new(
         @"^\s*commit\s*[:=]\s*([0-9a-f]{7,40})\s*$",
@@ -34,6 +28,7 @@ public sealed class LauncherUpdateService
     private readonly bool _ownsClient;
     private readonly string _owner;
     private readonly string _repo;
+    private bool _disposed;
 
     public LauncherUpdateService(HttpClient? httpClient = null, string? owner = null, string? repo = null)
     {
@@ -51,9 +46,9 @@ public sealed class LauncherUpdateService
         _owner = string.IsNullOrWhiteSpace(owner) ? DefaultOwner : owner.Trim();
         _repo = string.IsNullOrWhiteSpace(repo) ? DefaultRepo : repo.Trim();
 
-        if (!_httpClient.DefaultRequestHeaders.UserAgent.Any())
+        if (_httpClient.DefaultRequestHeaders.UserAgent.Count == 0)
             _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PCL-N", "1.0"));
-        if (!_httpClient.DefaultRequestHeaders.Accept.Any())
+        if (_httpClient.DefaultRequestHeaders.Accept.Count == 0)
             _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
     }
 
@@ -64,6 +59,7 @@ public sealed class LauncherUpdateService
         string? currentCommitSha = null,
         CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(currentVersion);
 
         if (channel is UpdateChannel.CI or UpdateChannel.Dev)
@@ -83,9 +79,11 @@ public sealed class LauncherUpdateService
         }
 
         string json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        GitHubRelease? release = channel == UpdateChannel.Release
-            ? JsonSerializer.Deserialize<GitHubRelease>(json, JsonOptions)
-            : SelectChannelRelease(JsonSerializer.Deserialize<List<GitHubRelease>>(json, JsonOptions), channel);
+        GitHubReleaseDto? release = channel == UpdateChannel.Release
+            ? JsonSerializer.Deserialize(json, LauncherUpdateJsonContext.Default.GitHubReleaseDto)
+            : SelectChannelRelease(
+                JsonSerializer.Deserialize(json, LauncherUpdateJsonContext.Default.ListGitHubReleaseDto),
+                channel);
 
         if (release is null || string.IsNullOrWhiteSpace(release.TagName))
             return LauncherUpdateCheckResult.Failed("未找到可用的发布版本。");
@@ -97,7 +95,7 @@ public sealed class LauncherUpdateService
         string remoteVersion = NormalizeVersion(release.TagName);
         string localVersion = NormalizeVersion(currentVersion);
         bool isNewer = CompareVersions(remoteVersion, localVersion) > 0;
-        string? assetUrl = SelectAssetUrl(release.Assets, preferPluginBuild, configurationHint: null);
+        string? assetUrl = SelectAssetUrl(release.Assets, preferPluginBuild);
         string htmlUrl = release.HtmlUrl
             ?? $"https://github.com/{_owner}/{_repo}/releases/tag/{Uri.EscapeDataString(release.TagName)}";
 
@@ -139,7 +137,7 @@ public sealed class LauncherUpdateService
         }
 
         string json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        GitHubRelease? release = JsonSerializer.Deserialize<GitHubRelease>(json, JsonOptions);
+        GitHubReleaseDto? release = JsonSerializer.Deserialize(json, LauncherUpdateJsonContext.Default.GitHubReleaseDto);
         if (release is null)
             return LauncherUpdateCheckResult.Failed("无法解析 CI 滚动发布。");
 
@@ -147,20 +145,19 @@ public sealed class LauncherUpdateService
         string localCommit = NormalizeCommit(currentCommitSha);
         string remoteCommitNorm = NormalizeCommit(remoteCommit);
 
-        // CI: update when remote commit differs (or when we cannot compare, if an asset exists and published).
         bool hasAsset = SelectCiAssetUrl(release.Assets, preferPluginBuild) is not null;
         bool isNewer;
-        if (!string.IsNullOrEmpty(remoteCommitNorm) && !string.IsNullOrEmpty(localCommit))
+        if (remoteCommitNorm.Length > 0 && localCommit.Length > 0)
             isNewer = !CommitsMatch(localCommit, remoteCommitNorm);
-        else if (!string.IsNullOrEmpty(remoteCommitNorm) && string.IsNullOrEmpty(localCommit))
-            isNewer = hasAsset; // local unknown → offer if CI package exists
+        else if (remoteCommitNorm.Length > 0 && localCommit.Length == 0)
+            isNewer = hasAsset;
         else
             isNewer = hasAsset;
 
         string? assetUrl = SelectCiAssetUrl(release.Assets, preferPluginBuild);
         string htmlUrl = release.HtmlUrl
             ?? $"https://github.com/{_owner}/{_repo}/releases/tag/{CiRollingTag}";
-        string latestLabel = !string.IsNullOrEmpty(remoteCommitNorm)
+        string latestLabel = remoteCommitNorm.Length > 0
             ? $"ci-{remoteCommitNorm[..Math.Min(7, remoteCommitNorm.Length)]}"
             : (release.Name ?? CiRollingTag);
 
@@ -180,44 +177,46 @@ public sealed class LauncherUpdateService
             PublishedAt: release.PublishedAt);
     }
 
-    public void DisposeHttp()
+    public void Dispose()
     {
+        if (_disposed)
+            return;
+        _disposed = true;
         if (_ownsClient)
             _httpClient.Dispose();
     }
 
-    private static GitHubRelease? SelectChannelRelease(List<GitHubRelease>? releases, UpdateChannel channel)
+    /// <summary>Legacy alias used by older call sites.</summary>
+    public void DisposeHttp() => Dispose();
+
+    private static GitHubReleaseDto? SelectChannelRelease(List<GitHubReleaseDto>? releases, UpdateChannel channel)
     {
         if (releases is null || releases.Count == 0)
             return null;
 
-        IEnumerable<GitHubRelease> filtered = releases.Where(static r =>
+        IEnumerable<GitHubReleaseDto> filtered = releases.Where(static r =>
             !r.Draft &&
             !string.Equals(r.TagName, CiRollingTag, StringComparison.OrdinalIgnoreCase));
         filtered = channel switch
         {
             UpdateChannel.Beta => filtered.Where(static r => r.Prerelease),
-            UpdateChannel.CI or UpdateChannel.Dev => filtered, // unused path; CI uses dedicated API
+            UpdateChannel.CI or UpdateChannel.Dev => filtered,
             _ => filtered.Where(static r => !r.Prerelease)
         };
         return filtered.FirstOrDefault();
     }
 
-    private static string? SelectAssetUrl(
-        IReadOnlyList<GitHubAsset>? assets,
-        bool preferPluginBuild,
-        string? configurationHint)
+    private static string? SelectAssetUrl(List<GitHubAssetDto>? assets, bool preferPluginBuild)
     {
         if (assets is null || assets.Count == 0)
             return null;
 
         string rid = ResolveRuntimeId();
         string pluginToken = preferPluginBuild ? "WithPlugin" : "NoPlugin";
-        string selfContainedToken = "SelfContained";
+        const string selfContainedToken = "SelfContained";
 
-        GitHubAsset? match = assets.FirstOrDefault(a =>
+        GitHubAssetDto? match = assets.FirstOrDefault(a =>
             a.Name is not null &&
-            (configurationHint is null || a.Name.Contains(configurationHint, StringComparison.OrdinalIgnoreCase)) &&
             a.Name.Contains(rid, StringComparison.OrdinalIgnoreCase) &&
             a.Name.Contains(selfContainedToken, StringComparison.OrdinalIgnoreCase) &&
             a.Name.Contains(pluginToken, StringComparison.OrdinalIgnoreCase) &&
@@ -236,10 +235,7 @@ public sealed class LauncherUpdateService
         return match?.BrowserDownloadUrl;
     }
 
-    /// <summary>
-    /// CI artifacts are named like PCL_N_CI_win-x64_SelfContained.zip (plugin suffix optional).
-    /// </summary>
-    private static string? SelectCiAssetUrl(IReadOnlyList<GitHubAsset>? assets, bool preferPluginBuild)
+    private static string? SelectCiAssetUrl(List<GitHubAssetDto>? assets, bool preferPluginBuild)
     {
         if (assets is null || assets.Count == 0)
             return null;
@@ -247,8 +243,7 @@ public sealed class LauncherUpdateService
         string rid = ResolveRuntimeId();
         string pluginToken = preferPluginBuild ? "WithPlugin" : "NoPlugin";
 
-        // Prefer explicit plugin token when present in CI naming.
-        GitHubAsset? match = assets.FirstOrDefault(a =>
+        GitHubAssetDto? match = assets.FirstOrDefault(a =>
             a.Name is not null &&
             a.Name.Contains("CI", StringComparison.OrdinalIgnoreCase) &&
             a.Name.Contains(rid, StringComparison.OrdinalIgnoreCase) &&
@@ -286,7 +281,7 @@ public sealed class LauncherUpdateService
         return "win-x64";
     }
 
-    private static string? ExtractCommitSha(GitHubRelease release)
+    private static string? ExtractCommitSha(GitHubReleaseDto release)
     {
         if (!string.IsNullOrWhiteSpace(release.TargetCommitish) &&
             Regex.IsMatch(release.TargetCommitish, "^[0-9a-f]{7,40}$", RegexOptions.IgnoreCase))
@@ -316,8 +311,6 @@ public sealed class LauncherUpdateService
     {
         if (a.Length >= 7 && b.Length >= 7)
         {
-            int n = Math.Min(a.Length, b.Length);
-            // prefix match either way (short vs full)
             return a.StartsWith(b[..Math.Min(7, b.Length)], StringComparison.Ordinal) ||
                    b.StartsWith(a[..Math.Min(7, a.Length)], StringComparison.Ordinal) ||
                    string.Equals(a, b, StringComparison.Ordinal);
@@ -353,45 +346,6 @@ public sealed class LauncherUpdateService
 
     private static string Truncate(string text, int max) =>
         text.Length <= max ? text : text[..max] + "…";
-
-    private sealed class GitHubRelease
-    {
-        [JsonPropertyName("tag_name")]
-        public string? TagName { get; set; }
-
-        [JsonPropertyName("name")]
-        public string? Name { get; set; }
-
-        [JsonPropertyName("body")]
-        public string? Body { get; set; }
-
-        [JsonPropertyName("html_url")]
-        public string? HtmlUrl { get; set; }
-
-        [JsonPropertyName("prerelease")]
-        public bool Prerelease { get; set; }
-
-        [JsonPropertyName("draft")]
-        public bool Draft { get; set; }
-
-        [JsonPropertyName("target_commitish")]
-        public string? TargetCommitish { get; set; }
-
-        [JsonPropertyName("published_at")]
-        public DateTimeOffset? PublishedAt { get; set; }
-
-        [JsonPropertyName("assets")]
-        public List<GitHubAsset>? Assets { get; set; }
-    }
-
-    private sealed class GitHubAsset
-    {
-        [JsonPropertyName("name")]
-        public string? Name { get; set; }
-
-        [JsonPropertyName("browser_download_url")]
-        public string? BrowserDownloadUrl { get; set; }
-    }
 }
 
 public sealed record LauncherUpdateCheckResult(

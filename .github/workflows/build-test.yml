@@ -64,6 +64,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      # gh release needs a git context / GH_REPO; checkout the repo at the built SHA.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download all CI artifacts
         uses: actions/download-artifact@v4
         with:
