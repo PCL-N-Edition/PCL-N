@@ -14,7 +14,7 @@ namespace PCL.Application.Test;
 public sealed class MinecraftServerStatusServiceTests
 {
     [TestMethod]
-    public async Task QueryAsync_UsesStatusProtocolAndParsesResponse()
+    public async Task QueryAsync_ParsesStatusWithoutRequiringPongResponse()
     {
         using TcpListener listener = new(IPAddress.Loopback, 0);
         listener.Start();
@@ -65,10 +65,8 @@ public sealed class MinecraftServerStatusServiceTests
         statusPacket.Write(jsonBytes);
         await WritePacketAsync(stream, statusPacket.ToArray(), cancellationToken);
 
-        byte[] ping = await ReadPacketAsync(stream, cancellationToken);
-        Assert.AreEqual(9, ping.Length);
-        Assert.AreEqual(1, ping[0]);
-        await WritePacketAsync(stream, ping, cancellationToken);
+        // Some proxies close the connection immediately after the status packet.
+        // A successful status response must not be discarded just because no pong follows.
     }
 
     private static async Task<byte[]> ReadPacketAsync(Stream stream, CancellationToken cancellationToken)

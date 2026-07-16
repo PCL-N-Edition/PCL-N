@@ -43,13 +43,10 @@ public sealed class MinecraftServerStatusService : IMinecraftServerStatusService
         await client.ConnectAsync(host, port, timeout.Token).ConfigureAwait(false);
         await using NetworkStream stream = client.GetStream();
 
+        Stopwatch latencyTimer = Stopwatch.StartNew();
         await WriteHandshakeAsync(stream, host, port, timeout.Token).ConfigureAwait(false);
         await stream.WriteAsync(new byte[] { 1, 0 }, timeout.Token).ConfigureAwait(false);
-
         string json = await ReadStatusJsonAsync(stream, timeout.Token).ConfigureAwait(false);
-        Stopwatch latencyTimer = Stopwatch.StartNew();
-        await WritePingAsync(stream, timeout.Token).ConfigureAwait(false);
-        await ReadPingResponseAsync(stream, timeout.Token).ConfigureAwait(false);
         latencyTimer.Stop();
 
         return ParseStatus(json, latencyTimer.Elapsed);
@@ -130,28 +127,6 @@ public sealed class MinecraftServerStatusService : IMinecraftServerStatusService
         byte[] json = new byte[stringLength];
         content.ReadExactly(json);
         return Encoding.UTF8.GetString(json);
-    }
-
-    private static async Task WritePingAsync(Stream stream, CancellationToken cancellationToken)
-    {
-        using MemoryStream packet = new();
-        WriteVarInt(packet, 1);
-        Span<byte> payload = stackalloc byte[8];
-        BinaryPrimitives.WriteInt64BigEndian(payload, Stopwatch.GetTimestamp());
-        packet.Write(payload);
-        await WritePacketAsync(stream, packet.ToArray(), cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task ReadPingResponseAsync(Stream stream, CancellationToken cancellationToken)
-    {
-        int packetLength = await ReadVarIntAsync(stream, cancellationToken).ConfigureAwait(false);
-        if (packetLength != 9)
-            throw new InvalidDataException("服务器返回了无效的延迟响应。");
-        byte[] packet = new byte[packetLength];
-        await ReadExactlyAsync(stream, packet, cancellationToken).ConfigureAwait(false);
-        using MemoryStream content = new(packet, writable: false);
-        if (ReadVarInt(content) != 1)
-            throw new InvalidDataException("服务器返回了无效的延迟响应。");
     }
 
     private static async Task WritePacketAsync(
