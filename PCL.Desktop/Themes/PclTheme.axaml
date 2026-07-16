@@ -781,9 +781,12 @@ IPv6 优先：-Djava.net.preferIPv6Stack=true</x:String>
     <x:String x:Key="Setup.Update.Changelog.View">查看更新日志</x:String>
     <x:String x:Key="Setup.Update.Channel.Beta">测试版 / Beta</x:String>
     <x:String x:Key="Setup.Update.Channel.Beta.ToolTip">可能不稳定的测试版本，将会进行功能的早期测试，适合希望帮助测试且有一定技术能力的用户使用。</x:String>
-    <x:String x:Key="Setup.Update.Channel.Dev">开发版 / Dev</x:String>
-    <x:String x:Key="Setup.Update.Channel.Dev.ToolTip">可能极不稳定的开发版本，直接从最新源代码构建，适合高度技术性用户。
-可能需要具备较好的互联网连接质量才能顺利获取此通道更新。</x:String>
+    <x:String x:Key="Setup.Update.Channel.Dev">CI 通道 / CI</x:String>
+    <x:String x:Key="Setup.Update.Channel.Dev.ToolTip">直接从 dev 分支每次 CI 构建拉取的滚动包，可能极不稳定，适合高度技术性用户。
+此通道仅提供全量包，不生成/不使用版本间 Patch。</x:String>
+    <x:String x:Key="Setup.Update.Channel.CI">CI 通道 / CI</x:String>
+    <x:String x:Key="Setup.Update.Channel.CI.ToolTip">直接从 dev 分支每次 CI 构建拉取的滚动包，可能极不稳定，适合高度技术性用户。
+此通道仅提供全量包，不生成/不使用版本间 Patch。</x:String>
     <x:String x:Key="Setup.Update.Channel.Release">正式版 / Release</x:String>
     <x:String x:Key="Setup.Update.Channel.Release.ToolTip">较为稳定的版本，仅推送修复性更新与部分内置资源更新，适合大多数用户使用。</x:String>
     <x:String x:Key="Setup.Update.Channel.Title">更新通道</x:String>

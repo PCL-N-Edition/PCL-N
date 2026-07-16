@@ -3,9 +3,10 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using PCL.Application.Updates;
+using PCL.Core.App;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Hosting;
 
@@ -16,11 +17,13 @@ namespace PCL.Desktop.Features.Settings.Views;
 public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, ISettingsPageInteractionSource
 {
     private const string ReleasesUrl = "https://github.com/MuXue1230-owo/PCL-N/releases";
-    private const string UnsupportedMessage = "Avalonia 版本暂不支持在线检查与自动安装更新，请前往 GitHub Releases 手动查看新版本。";
     private string _latestReleaseUrl = ReleasesUrl;
+    private string? _preferredAssetUrl;
     private bool _isInitializing = true;
     private bool _isRevertingChannel;
+    private bool _isChecking;
     private int _lastUpdateChannel;
+    private readonly LauncherUpdateService _updateService = new();
 
     public PageSetupUpdate()
     {
@@ -30,6 +33,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             _lastUpdateChannel = Math.Max(0, UpdateChannelCombo.SelectedIndex));
         _isInitializing = false;
         AttachedToVisualTree += (_, _) => RefreshPage();
+        DetachedFromVisualTree += (_, _) => _updateService.DisposeHttp();
         RefreshPage();
     }
 
@@ -44,7 +48,12 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     public void RefreshPage()
     {
         SetCurrentVersionText();
-        SetUnsupportedState();
+        if (this.FindControl<MyCard>("CardUpdate") is { } updateCard)
+            updateCard.IsVisible = false;
+        if (this.FindControl<MyCard>("CardCheck") is { } checkCard)
+            checkCard.IsVisible = true;
+        if (this.FindControl<MyButton>("BtnCheckAgain") is { } checkAgain)
+            checkAgain.IsEnabled = !_isChecking;
     }
 
     private void BtnChangelogDetail_Click(object? sender, RoutedEventArgs e)
@@ -57,14 +66,15 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(_latestReleaseUrl));
     }
 
-    private void BtnCheckAgain_OnClick(object? sender, EventArgs e)
+    private async void BtnCheckAgain_OnClick(object? sender, EventArgs e)
     {
-        ShowUnsupportedMessage();
+        await CheckForUpdatesAsync().ConfigureAwait(true);
     }
 
     private void BtnUpdate_Click(object? sender, EventArgs e)
     {
-        ShowUnsupportedMessage();
+        string target = _preferredAssetUrl ?? _latestReleaseUrl;
+        OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(target));
     }
 
     private void ComboSystemUpdateBranch_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -102,10 +112,13 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             }
         }
 
-        string channel = selectedIndex == 1 ? "测试版" : "开发版";
+        string channel = selectedIndex == 1 ? "测试版" : "CI 通道";
+        string extra = selectedIndex == 2
+            ? "\n\nCI 通道从 dev 分支每次 CI 构建拉取全量包，不提供版本间 Patch。"
+            : string.Empty;
         SettingsConfirmRequestedEventArgs args = new(
             "切换更新通道",
-            $"{channel}可能包含尚未充分验证的功能和兼容性问题。确定切换到{channel}吗？",
+            $"{channel}可能包含尚未充分验证的功能和兼容性问题。确定切换到{channel}吗？{extra}",
             Complete,
             primaryButton: "仍然切换",
             isWarn: true);
@@ -119,6 +132,106 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     {
     }
 
+    private async Task CheckForUpdatesAsync()
+    {
+        if (_isChecking)
+            return;
+        _isChecking = true;
+        if (this.FindControl<MyButton>("BtnCheckAgain") is { } checkAgain)
+            checkAgain.IsEnabled = false;
+        if (this.FindControl<TextBlock>("TextCurrentDesc") is { } desc)
+            desc.Text = "正在检查更新…";
+
+        try
+        {
+            UpdateChannel channel = UpdateChannelCombo.SelectedIndex switch
+            {
+                1 => UpdateChannel.Beta,
+                2 => UpdateChannel.CI,
+                _ => UpdateChannel.Release
+            };
+
+            // Prefer WithPlugin assets when any HostModule settings pages were injected.
+            bool preferPlugin = DesktopHost.Current.SettingsPages.Pages.Count > 0;
+            string commit = !string.IsNullOrWhiteSpace(PclBuildInfo.SourceRevisionId)
+                ? PclBuildInfo.SourceRevisionId
+                : PclMetadata.Current.Commit;
+            LauncherUpdateCheckResult result = await _updateService
+                .CheckAsync(
+                    channel,
+                    PclMetadata.Current.DisplayVersion,
+                    preferPlugin,
+                    currentCommitSha: commit)
+                .ConfigureAwait(true);
+
+            if (!result.Success)
+            {
+                MessageRequested?.Invoke(
+                    this,
+                    new SettingsMessageRequestedEventArgs(
+                        "检查更新失败",
+                        result.ErrorMessage ?? "未知错误",
+                        "知道了"));
+                if (this.FindControl<TextBlock>("TextCurrentDesc") is { } failedDesc)
+                    failedDesc.Text = "检查更新失败，可前往 GitHub Releases 手动查看";
+                return;
+            }
+
+            _latestReleaseUrl = result.ReleaseUrl ?? ReleasesUrl;
+            _preferredAssetUrl = result.PreferredAssetUrl;
+
+            if (result.IsUpdateAvailable)
+            {
+                if (this.FindControl<MyCard>("CardUpdate") is { } updateCard)
+                    updateCard.IsVisible = true;
+                if (this.FindControl<MyCard>("CardCheck") is { } checkCard)
+                    checkCard.IsVisible = true;
+                if (this.FindControl<TextBlock>("TextUpdateName") is { } updateName)
+                    updateName.Text = "PCL N " + (result.LatestVersion ?? "");
+                if (this.FindControl<TextBlock>("TextUpdateDesc") is { } updateDesc)
+                {
+                    updateDesc.Text = result.Channel is UpdateChannel.CI
+                        ? (result.ReleaseName ?? "CI 滚动构建") + " · 仅全量包"
+                        : result.ReleaseName ?? "发现新版本";
+                }
+                if (this.FindControl<TextBlock>("TextChangelog") is { } changelog)
+                {
+                    string notes = string.IsNullOrWhiteSpace(result.ReleaseNotes)
+                        ? "前往发布页查看完整更新说明。"
+                        : Truncate(result.ReleaseNotes, 1200);
+                    if (result.Channel is UpdateChannel.CI || !result.SupportsPatches)
+                        notes = "【CI 通道：不使用 Patch，仅全量下载】\n\n" + notes;
+                    changelog.Text = notes;
+                }
+                if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDesc)
+                    currentDesc.Text = $"发现新版本 {result.LatestVersion}（当前 {result.CurrentVersion}）";
+                if (this.FindControl<MyButton>("BtnUpdate") is { } updateButton)
+                    updateButton.Text = "打开下载";
+            }
+            else
+            {
+                if (this.FindControl<MyCard>("CardUpdate") is { } updateCard)
+                    updateCard.IsVisible = false;
+                if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDesc)
+                    currentDesc.Text = $"已是最新版本（{result.CurrentVersion}）";
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageRequested?.Invoke(
+                this,
+                new SettingsMessageRequestedEventArgs("检查更新失败", ex.Message, "知道了"));
+            if (this.FindControl<TextBlock>("TextCurrentDesc") is { } errorDesc)
+                errorDesc.Text = "检查更新失败，可前往 GitHub Releases 手动查看";
+        }
+        finally
+        {
+            _isChecking = false;
+            if (this.FindControl<MyButton>("BtnCheckAgain") is { } button)
+                button.IsEnabled = true;
+        }
+    }
+
     private void SetCurrentVersionText()
     {
         string version = "PCL N " + PclMetadata.Current.DisplayVersion;
@@ -127,27 +240,12 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         if (this.FindControl<TextBlock>("TextUpdateName") is { } updateName)
             updateName.Text = version;
         if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDescription)
-            currentDescription.Text = "当前版本 · 暂不支持在线检查更新";
+            currentDescription.Text = "当前版本 · 点击「重新检查」查询 GitHub 发布";
     }
 
-    private void SetUnsupportedState()
-    {
-        if (this.FindControl<MyCard>("CardUpdate") is { } updateCard)
-            updateCard.IsVisible = false;
-        if (this.FindControl<MyCard>("CardCheck") is { } checkCard)
-            checkCard.IsVisible = true;
-        if (this.FindControl<MyButton>("BtnCheckAgain") is { } checkAgain)
-            checkAgain.IsEnabled = true;
-    }
-
-    private void ShowUnsupportedMessage()
-    {
-        MessageRequested?.Invoke(
-            this,
-            new SettingsMessageRequestedEventArgs("暂不支持检查更新", UnsupportedMessage, "知道了"));
-    }
+    private static string Truncate(string text, int max) =>
+        text.Length <= max ? text : text[..max] + "…";
 
     private MyComboBox UpdateChannelCombo => this.FindControl<MyComboBox>("ComboSystemUpdateChannel")
         ?? throw new InvalidOperationException("PageSetupUpdate 缺少 ComboSystemUpdateChannel。");
-
 }

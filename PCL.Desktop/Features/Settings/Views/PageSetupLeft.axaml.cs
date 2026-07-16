@@ -83,7 +83,25 @@ public partial class PageSetupLeft : MyPageLeft
                 return;
 
             _isLoadedOnce = true;
-            Required<MyListItem>("ItemLaunch").SetChecked(true, user: false);
+            // Prefer the first page of the highest-priority host group (e.g. Online → Account)
+            // without hardcoding Plugin page ids. Fall back to built-in 启动.
+            HostSettingsPageDescriptor? defaultHostPage = BuildHostSettingsGroups()
+                .SelectMany(static group => group.Pages)
+                .FirstOrDefault();
+            if (defaultHostPage is not null)
+            {
+                PageChangeHost(defaultHostPage.Id);
+                if (GetItems().FirstOrDefault(item =>
+                        TryReadHostPage(item.Tag, out string? hostPageId) &&
+                        string.Equals(hostPageId, defaultHostPage.Id, StringComparison.OrdinalIgnoreCase)) is { } hostItem)
+                {
+                    hostItem.SetChecked(true, user: false);
+                }
+            }
+            else
+            {
+                Required<MyListItem>("ItemLaunch").SetChecked(true, user: false);
+            }
         };
         DetachedFromVisualTree += (_, _) =>
             DesktopHostUiComposition.Instance.UnregisterSlot("pcl.page.settings", "sidebar.after-plugin");
@@ -271,29 +289,51 @@ public partial class PageSetupLeft : MyPageLeft
         if (_hostSettingsPages.Count == 0 || this.FindControl<Panel>("PanItem") is not { } panel)
             return;
 
-        int insertIndex = panel.Children
+        int aboutIndex = panel.Children
             .Select((child, index) => (child, index))
             .FirstOrDefault(pair => pair.child is Control { Name: "TextAboutCategory" })
             .index;
-        if (insertIndex <= 0)
-            insertIndex = panel.Children.Count;
+        if (aboutIndex <= 0)
+            aboutIndex = panel.Children.Count;
+
+        int gameIndex = panel.Children
+            .Select((child, index) => (child, index))
+            .FirstOrDefault(pair => pair.child is Control { Name: "TextGameCategory" })
+            .index;
+        if (gameIndex < 0)
+            gameIndex = 0;
 
         HostSettingsGroupView[] groups = BuildHostSettingsGroups();
         HostSettingsGroupView? launcherGroup = groups.FirstOrDefault(group =>
             string.Equals(group.Descriptor.Id, LauncherHostSettingsGroupId, StringComparison.OrdinalIgnoreCase));
+
+        // Order policy (no Plugin type coupling):
+        // - Order < 0  → before 游戏 (e.g. 在线)
+        // - launcher group → into 启动器 section (before 关于)
+        // - others → between 启动器 and 关于
+        int beforeGameIndex = gameIndex;
+        foreach (HostSettingsGroupView group in groups.Where(static g => g.Descriptor.Order < 0))
+        {
+            panel.Children.Insert(beforeGameIndex++, CreateHostGroupLabel(group.Descriptor));
+            foreach (HostSettingsPageDescriptor page in group.Pages)
+                panel.Children.Insert(beforeGameIndex++, CreateHostPageItem(page));
+            aboutIndex += 1 + group.Pages.Count;
+        }
+
+        int afterLauncherIndex = aboutIndex;
         if (launcherGroup is not null)
         {
             foreach (HostSettingsPageDescriptor page in launcherGroup.Pages)
-                panel.Children.Insert(insertIndex++, CreateHostPageItem(page));
+                panel.Children.Insert(afterLauncherIndex++, CreateHostPageItem(page));
         }
 
         foreach (HostSettingsGroupView group in groups)
         {
-            if (ReferenceEquals(group, launcherGroup))
+            if (ReferenceEquals(group, launcherGroup) || group.Descriptor.Order < 0)
                 continue;
-            panel.Children.Insert(insertIndex++, CreateHostGroupLabel(group.Descriptor));
+            panel.Children.Insert(afterLauncherIndex++, CreateHostGroupLabel(group.Descriptor));
             foreach (HostSettingsPageDescriptor page in group.Pages)
-                panel.Children.Insert(insertIndex++, CreateHostPageItem(page));
+                panel.Children.Insert(afterLauncherIndex++, CreateHostPageItem(page));
         }
     }
 

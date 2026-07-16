@@ -24,7 +24,13 @@ public enum UpdateChannel
 {
     Release = 0,
     Beta = 1,
-    Dev = 2
+    /// <summary>
+    /// Rolling CI builds from the <c>dev</c> branch workflow (no binary patches).
+    /// Value kept as 2 for settings compatibility with the former Dev channel.
+    /// </summary>
+    CI = 2,
+    /// <summary>Obsolete alias of <see cref="CI"/>.</summary>
+    Dev = CI
 }
 
 public enum GameWindowSizeMode
