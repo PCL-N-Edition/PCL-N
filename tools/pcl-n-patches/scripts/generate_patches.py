@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-Generate binary patches from ALL previous PCL-N release versions to a target tag.
+Generate binary patches from selected prior PCL-N release versions to a target tag.
 
-For target V_n and history V_0..V_{n-1}, emits V_i → V_n HDiffPatch files per
-runtime variant (RID × SelfContained|NoRuntime × WithPlugin|NoPlugin).
+Strategy (default):
+  • Direct: only the last ``max_from_versions`` (default **10**) predecessors → target
+  • Multi-hop for older builds: clients chain patches across releases, e.g. 1→4→7
+    (each hop is a “last-3” edge published when that intermediate release was built)
+
+Per runtime variant (RID × SelfContained|NoRuntime × WithPlugin|NoPlugin).
 """
 
 from __future__ import annotations
@@ -94,6 +98,50 @@ def version_key(tag: str) -> tuple:
     pre_l = pre.lower()
     is_pre = 0 if pre_l in ("", "release") else 1
     return (0, nums[0], nums[1], nums[2], is_pre, pre_l)
+
+
+def select_from_versions(
+    history_asc: list[ReleaseInfo],
+    *,
+    max_direct: int = 10,
+    hop_interval: int = 3,
+) -> tuple[list[ReleaseInfo], dict]:
+    """
+    Choose which prior versions get a direct patch *to the target*.
+
+    Only the last ``max_direct`` predecessors (default 10) receive a patch to
+    this target. Older clients upgrade by multi-hop across intermediate
+    releases, e.g. 1→4→7 (each edge was published when that intermediate
+    release was built with its own last-N window).
+
+    ``hop_interval`` is recorded for clients as the recommended planning
+    stride (does not add extra from→target edges beyond the window).
+
+    Returns (selected ascending, strategy metadata for index.json).
+    """
+    if max_direct < 1:
+        max_direct = 1
+    if hop_interval < 1:
+        hop_interval = 1
+
+    n = len(history_asc)
+    # Sliding window only — keeps asset count bounded (≤ max_direct per variant).
+    selected = history_asc[max(0, n - max_direct) :]
+    hop_tags = [history_asc[i].tag for i in range(0, n, hop_interval)]
+    strategy = {
+        "maxDirectFromVersions": max_direct,
+        "hopInterval": hop_interval,
+        "upgradeMode": "multi-hop",
+        "description": (
+            f"Only the last {max_direct} versions get a direct patch to this "
+            f"release. Older builds should chain patches (e.g. 1→4→7 with "
+            f"hopInterval={hop_interval}) using indexes from intermediate releases, "
+            f"or fall back to a full download."
+        ),
+        "selectedFromTags": [r.tag for r in selected],
+        "hopAnchorTags": hop_tags,
+    }
+    return selected, strategy
 
 
 def sha256_file(path: Path) -> str:
@@ -252,13 +300,32 @@ def configuration_for_tag(tag: str, prerelease: bool) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate all-from-history patches to a target PCL-N version")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate HDiff patches to a target PCL-N version "
+            "(default: last 10 versions; older clients multi-hop e.g. 1→4→7)"
+        )
+    )
     parser.add_argument("--source-repo", default="MuXue1230-owo/PCL-N")
     parser.add_argument("--target-tag", required=True, help="e.g. v1.0.0")
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--cache-dir", type=Path, default=None)
     parser.add_argument("--tools-dir", type=Path, default=None)
-    parser.add_argument("--max-from-versions", type=int, default=100)
+    parser.add_argument(
+        "--max-from-versions",
+        type=int,
+        default=10,
+        help="Max recent versions with a direct patch to target (default: 10)",
+    )
+    parser.add_argument(
+        "--hop-interval",
+        type=int,
+        default=3,
+        help=(
+            "Also emit direct patches from hop anchors every N versions "
+            "(1-based 1,4,7… when N=3) so old clients can multi-hop (default: 3)"
+        ),
+    )
     parser.add_argument("--rids", nargs="*", default=RUNTIME_IDS)
     parser.add_argument("--variants", nargs="*", default=RUNTIME_VARIANTS)
     parser.add_argument("--include-prerelease-history", action="store_true")
@@ -302,14 +369,24 @@ def main() -> int:
         key = version_key(rel.tag)
         return key[0] == 0  # semver-like only
 
-    history = [
+    history_all = [
         r for r in releases
         if is_patchable(r) and version_key(r.tag) < version_key(target.tag)
     ]
     if not args.include_prerelease_history and not target.prerelease:
-        history = [r for r in history if not r.prerelease and version_key(r.tag)[4] == 0]
-    history = history[-args.max_from_versions :]
-    log(f"Target: {target.tag}  |  history versions: {len(history)}")
+        history_all = [r for r in history_all if not r.prerelease and version_key(r.tag)[4] == 0]
+
+    history, strategy = select_from_versions(
+        history_all,
+        max_direct=args.max_from_versions,
+        hop_interval=args.hop_interval,
+    )
+    log(
+        f"Target: {target.tag}  |  patchable history: {len(history_all)}  |  "
+        f"selected from: {len(history)}  "
+        f"(max_direct={args.max_from_versions}, hop_interval={args.hop_interval})"
+    )
+    log(f"  from tags: {', '.join(r.tag for r in history) or '(none)'}")
 
     target_cfg = configuration_for_tag(target.tag, target.prerelease)
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -430,15 +507,17 @@ def main() -> int:
             man_path.write_text(json.dumps(variant_manifest, indent=2) + "\n", encoding="utf-8")
 
     index = {
-        "formatVersion": 1,
+        "formatVersion": 2,
         "targetVersion": normalize_version(target.tag),
         "targetTag": target.tag,
         "generatedAt": generated_at,
         "sourceRepo": args.source_repo,
         "algorithmDefault": "hdiffpatch",
+        "strategy": strategy,
         "variants": all_variants_manifest,
         "stats": {
-            "historyVersions": len(history),
+            "historyVersionsAvailable": len(history_all),
+            "historyVersionsSelected": len(history),
             "patchesGenerated": patch_count,
             "variantsSkipped": skip_count,
         },

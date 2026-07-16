@@ -1,7 +1,7 @@
 name: Generate launcher patches
 
 # Called after full launcher assets are on a GitHub Release.
-# Builds HDiffPatch from every prior version → target tag (per RID/variant).
+# Builds HDiffPatch for the last N predecessors (+ hop anchors) → target tag.
 
 on:
   workflow_call:
@@ -15,9 +15,15 @@ on:
         required: true
         type: string
       max_from_versions:
+        description: Direct patches from the last N versions (default 10)
         required: false
         type: number
-        default: 50
+        default: 10
+      hop_interval:
+        description: Multi-hop planning stride for clients (e.g. 1→4→7 when 3)
+        required: false
+        type: number
+        default: 3
       include_prerelease_history:
         required: false
         type: boolean
@@ -40,8 +46,14 @@ on:
         type: choice
         options: [Release, Beta]
       max_from_versions:
+        description: Direct patches from the last N versions
         required: false
-        default: "50"
+        default: "10"
+        type: string
+      hop_interval:
+        description: Hop interval for multi-hop upgrades (1→4→7)
+        required: false
+        default: "3"
         type: string
       include_prerelease_history:
         required: false
@@ -61,6 +73,7 @@ jobs:
       TARGET_TAG: ${{ inputs.target_tag }}
       SOURCE_REPO: ${{ github.repository }}
       MAX_FROM: ${{ inputs.max_from_versions }}
+      HOP_INTERVAL: ${{ inputs.hop_interval }}
       INCLUDE_PRE: ${{ inputs.include_prerelease_history }}
 
     steps:
@@ -116,7 +129,8 @@ jobs:
             --source-repo "${SOURCE_REPO}" \
             --target-tag "${TARGET_TAG}" \
             --out-dir "${{ github.workspace }}/patch-artifacts/${TARGET_TAG}" \
-            --max-from-versions "${MAX_FROM}" \
+            --max-from-versions "${MAX_FROM:-10}" \
+            --hop-interval "${HOP_INTERVAL:-3}" \
             --tools-dir "${{ github.workspace }}/tools/pcl-n-patches/tools/hdiffpatch" \
             ${EXTRA[@]+"${EXTRA[@]}"}
 
