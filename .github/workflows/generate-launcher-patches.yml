@@ -151,18 +151,37 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Attach index + patches to the same launcher release (clients can discover them next to full builds).
+      # Attach index + uniquely-named patches to the same launcher release.
+      # Use `gh release upload` (not softprops) to avoid path-flattening name clashes.
       - name: Attach patches to launcher release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.target_tag }}
-          files: |
-            patch-artifacts/${{ inputs.target_tag }}/index.json
-            patch-artifacts/${{ inputs.target_tag }}/manifests/**
-            patch-artifacts/${{ inputs.target_tag }}/patches/**
-          fail_on_unmatched_files: false
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eo pipefail
+          ROOT="${{ github.workspace }}/patch-artifacts/${TARGET_TAG}"
+          STAGE="${{ github.workspace }}/patch-upload-flat"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+
+          cp -f "$ROOT/index.json" "$STAGE/patch-index.json"
+          if [[ -d "$ROOT/manifests" ]]; then
+            while IFS= read -r -d '' f; do
+              base="$(basename "$f")"
+              cp -f "$f" "$STAGE/patch-manifest-${base}"
+            done < <(find "$ROOT/manifests" -type f -name '*.json' -print0)
+          fi
+          if [[ -d "$ROOT/patches" ]]; then
+            # Filenames already include rid__variant__from-to.hdiff
+            while IFS= read -r -d '' f; do
+              cp -f "$f" "$STAGE/$(basename "$f")"
+            done < <(find "$ROOT/patches" -type f \( -name '*.hdiff' -o -name '*.sha256' \) -print0)
+          fi
+
+          count="$(find "$STAGE" -type f | wc -l)"
+          echo "Uploading ${count} patch artifacts to ${TARGET_TAG}"
+          test "$count" -ge 1
+          gh release upload "${TARGET_TAG}" "$STAGE"/* --clobber --repo "${SOURCE_REPO}"
 
       # Optional mirror to dedicated patches repo when PATCHES_REPO_TOKEN is configured.
       - name: Mirror to PCL-N-Patches repository

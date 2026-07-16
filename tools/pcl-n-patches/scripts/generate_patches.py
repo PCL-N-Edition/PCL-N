@@ -372,7 +372,12 @@ def main() -> int:
                     log(f"  skip {from_rel.tag}: identical binary")
                     continue
 
-                patch_name = f"{normalize_version(from_rel.tag)}-to-{normalize_version(target.tag)}.hdiff"
+                # Include rid + variant in the basename so softprops/action-gh-release
+                # (which flattens paths) does not collide across matrix dimensions.
+                patch_name = (
+                    f"{rid}__{variant}__"
+                    f"{normalize_version(from_rel.tag)}-to-{normalize_version(target.tag)}.hdiff"
+                )
                 patch_rel = Path("patches") / rid / variant / patch_name
                 patch_path = args.out_dir / patch_rel
                 try:
