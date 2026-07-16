@@ -4163,6 +4163,22 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageSetupLog_ExportCompletionMessageIncludesFullPathOnVisibleLine()
+    {
+        string targetPath = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "PCLN-CurrentLog-20260716-181746.zip");
+        string message = (string)typeof(PageSetupLog)
+            .GetMethod(
+                "BuildExportCompletedMessage",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(null, [targetPath])!;
+
+        Assert.AreEqual("日志已导出到：" + System.IO.Path.GetFullPath(targetPath), message);
+        Assert.IsFalse(message.EndsWith("：", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void MainWindow_RepeatedMainNavigationRequestDoesNotReenterPage()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

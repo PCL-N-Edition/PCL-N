@@ -168,7 +168,11 @@ public partial class PageSetupLog : MyPageRight, IRefreshableSettingsPage, ISett
                 await source.CopyToAsync(entryStream).ConfigureAwait(true);
             }
 
-            MessageRequested?.Invoke(this, new SettingsMessageRequestedEventArgs("导出完成", "日志已导出到：\n" + targetPath));
+            MessageRequested?.Invoke(
+                this,
+                new SettingsMessageRequestedEventArgs(
+                    "导出完成",
+                    BuildExportCompletedMessage(targetPath)));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -187,6 +191,14 @@ public partial class PageSetupLog : MyPageRight, IRefreshableSettingsPage, ISett
                                   file.Extension.Equals(".txt", StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(static file => file.LastWriteTimeUtc)
             .ToArray();
+    }
+
+    private static string BuildExportCompletedMessage(string targetPath)
+    {
+        string displayPath = Path.GetFullPath(targetPath);
+        // Keep the path on the first visible line. Some compact modal layouts
+        // could previously measure only the label before the explicit newline.
+        return "日志已导出到：" + displayPath;
     }
 
     private static string GetLogDirectory() =>
