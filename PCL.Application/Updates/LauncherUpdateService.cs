@@ -160,12 +160,26 @@ public sealed class LauncherUpdateService : IDisposable
         string? currentCommitSha,
         CancellationToken cancellationToken)
     {
-        // Prefer atom entry for ci-latest (notes/commit); fall back to known tag existence via HTML page.
-        IReadOnlyList<AtomReleaseEntry> feed = await FetchReleaseFeedAsync(cancellationToken).ConfigureAwait(false);
+        LauncherUpdatePackage package = BuildFullPackage(CiRollingTag, UpdateChannel.CI, identity);
+        LauncherCiMetadataDto? metadata = await TryLoadCiMetadataAsync(package, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Release Atom is useful for display text, but it can lag behind a rolling release edit.
+        // CI identity therefore comes from the per-artifact .ci.json uploaded in the same job.
+        IReadOnlyList<AtomReleaseEntry> feed;
+        try
+        {
+            feed = await FetchReleaseFeedAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            PortableLog.Warn(ex, "Update", "CI 发布订阅不可用，将使用 CI 构建元数据继续检查更新。");
+            feed = [];
+        }
         AtomReleaseEntry? release = feed.FirstOrDefault(static e =>
             string.Equals(e.Tag, CiRollingTag, StringComparison.OrdinalIgnoreCase));
 
-        if (release is null)
+        if (release is null && metadata is null)
         {
             // Lightweight existence probe (HTML, not REST API).
             string pageUrl = $"https://github.com/{_owner}/{_repo}/releases/tag/{CiRollingTag}";
@@ -185,12 +199,11 @@ public sealed class LauncherUpdateService : IDisposable
             release = new AtomReleaseEntry(CiRollingTag, "CI rolling build", pageUrl, null, null);
         }
 
-        string? remoteCommit = ExtractCommitSha(release.Notes, release.Title);
+        string? remoteCommit = metadata?.Commit ?? ExtractCommitSha(release?.Notes, release?.Title);
         string localCommit = NormalizeCommit(currentCommitSha);
         string remoteCommitNorm = NormalizeCommit(remoteCommit);
-        LauncherUpdatePackage package = BuildFullPackage(CiRollingTag, UpdateChannel.CI, identity);
         string assetUrl = package.FullPackageUrl;
-        bool hasAsset = assetUrl is not null;
+        bool hasAsset = !string.IsNullOrWhiteSpace(assetUrl);
 
         bool isNewer;
         if (remoteCommitNorm.Length > 0 && localCommit.Length > 0)
@@ -200,29 +213,75 @@ public sealed class LauncherUpdateService : IDisposable
         else
             isNewer = hasAsset;
 
-        string htmlUrl = release.HtmlUrl
+        string htmlUrl = release?.HtmlUrl
             ?? $"https://github.com/{_owner}/{_repo}/releases/tag/{CiRollingTag}";
         string latestLabel = remoteCommitNorm.Length > 0
             ? $"ci-{remoteCommitNorm[..Math.Min(7, remoteCommitNorm.Length)]}"
-            : (release.Title ?? CiRollingTag);
+            : (release?.Title ?? CiRollingTag);
 
         LauncherUpdateCheckResult result = new(
             Success: true,
             IsUpdateAvailable: isNewer && hasAsset,
             CurrentVersion: NormalizeVersion(identity.Version),
             LatestVersion: latestLabel,
-            ReleaseName: release.Title ?? "CI rolling build",
-            ReleaseNotes: release.Notes,
+            ReleaseName: release?.Title ?? "CI rolling build",
+            ReleaseNotes: release?.Notes,
             ReleaseUrl: htmlUrl,
             PreferredAssetUrl: assetUrl,
             ErrorMessage: null,
             Channel: UpdateChannel.CI,
             SupportsPatches: false,
             RemoteCommitSha: remoteCommitNorm,
-            PublishedAt: release.Updated,
+            PublishedAt: metadata?.BuiltAt ?? release?.Updated,
             Package: package);
         PortableLog.Info("Update", $"CI 更新检查完成；最新={latestLabel}；有更新={result.IsUpdateAvailable}；远端提交={remoteCommitNorm}。");
         return result;
+    }
+
+    private async Task<LauncherCiMetadataDto?> TryLoadCiMetadataAsync(
+        LauncherUpdatePackage package,
+        CancellationToken cancellationToken)
+    {
+        string artifact = GetPackageStem(package.TargetAssetName);
+        string metadataAsset = artifact + ".ci.json";
+        string url = BuildReleaseAssetUrl(CiRollingTag, metadataAsset) +
+                     $"?check={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+        try
+        {
+            using HttpResponseMessage response = await GetFollowingRedirectsAsync(url, cancellationToken)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                PortableLog.Debug("Update", $"CI 构建元数据不可用：{metadataAsset}；HTTP={(int)response.StatusCode}。");
+                return null;
+            }
+
+            await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            LauncherCiMetadataDto? metadata = await JsonSerializer.DeserializeAsync(
+                    stream,
+                    LauncherUpdateJsonContext.Default.LauncherCiMetadataDto,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            string commit = NormalizeCommit(metadata?.Commit);
+            if (metadata is null ||
+                !string.Equals(metadata.Channel, "CI", StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(metadata.Artifact, artifact, StringComparison.Ordinal) ||
+                metadata.SupportsPatches ||
+                commit.Length is < 7 or > 40 ||
+                !commit.All(Uri.IsHexDigit))
+            {
+                PortableLog.Warn("Update", $"CI 构建元数据无效或与当前平台不匹配：{metadataAsset}。");
+                return null;
+            }
+
+            metadata.Commit = commit;
+            return metadata;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            PortableLog.Warn(ex, "Update", $"读取 CI 构建元数据失败：{metadataAsset}。");
+            return null;
+        }
     }
 
     private async Task<AtomReleaseEntry?> ResolveStableReleaseAsync(
@@ -574,7 +633,10 @@ public sealed class LauncherUpdateService : IDisposable
         };
         string ext = identity.RuntimeId.StartsWith("win-", StringComparison.OrdinalIgnoreCase) ? "zip" : "tar.gz";
         string variant = channel is UpdateChannel.CI or UpdateChannel.Dev
-            ? identity.NormalizedRuntimeVariant.Split('_')[0]
+            ? "SelfContained"
+            : identity.NormalizedRuntimeVariant;
+        string resolvedRuntimeVariant = channel is UpdateChannel.CI or UpdateChannel.Dev
+            ? "SelfContained_WithPlugin"
             : identity.NormalizedRuntimeVariant;
         string assetName = $"PCL_N_{config}_{identity.RuntimeId}_{variant}.{ext}";
         return new LauncherUpdatePackage(
@@ -587,11 +649,16 @@ public sealed class LauncherUpdateService : IDisposable
             null,
             [],
             identity.RuntimeId,
-            identity.NormalizedRuntimeVariant,
+            resolvedRuntimeVariant,
             config,
             BuildReleaseAssetUrl(tag, assetName + ".asc"),
             BuildReleaseAssetUrl(tag, assetName + ".binary.asc"));
     }
+
+    private static string GetPackageStem(string assetName) =>
+        assetName.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
+            ? assetName[..^7]
+            : Path.GetFileNameWithoutExtension(assetName);
 
     private string BuildReleaseAssetUrl(string tag, string assetName) =>
         $"https://github.com/{_owner}/{_repo}/releases/download/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(assetName)}";

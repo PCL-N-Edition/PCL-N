@@ -9,8 +9,26 @@ namespace PCL.Application.Updates;
 [JsonSerializable(typeof(GitHubReleaseDto))]
 [JsonSerializable(typeof(List<GitHubReleaseDto>))]
 [JsonSerializable(typeof(GitHubAssetDto))]
+[JsonSerializable(typeof(LauncherCiMetadataDto))]
 [JsonSerializable(typeof(LauncherPatchIndexDto))]
 internal sealed partial class LauncherUpdateJsonContext : JsonSerializerContext;
+
+internal sealed class LauncherCiMetadataDto
+{
+    public string? Channel { get; set; }
+
+    public string? Commit { get; set; }
+
+    public string? Ref { get; set; }
+
+    public string? RunId { get; set; }
+
+    public string? Artifact { get; set; }
+
+    public bool SupportsPatches { get; set; }
+
+    public DateTimeOffset? BuiltAt { get; set; }
+}
 
 internal sealed class GitHubReleaseDto
 {

@@ -38,6 +38,26 @@ jobs:
             runtime_id: win-arm64
             architecture: ARM64
             binary_name: PCL.Desktop.exe
+          - configuration: CI
+            runner: ubuntu-latest
+            runtime_id: linux-x64
+            architecture: x64
+            binary_name: PCL.Desktop
+          - configuration: CI
+            runner: ubuntu-latest
+            runtime_id: linux-arm64
+            architecture: ARM64
+            binary_name: PCL.Desktop
+          - configuration: CI
+            runner: macos-latest
+            runtime_id: osx-x64
+            architecture: x64
+            binary_name: PCL.Desktop
+          - configuration: CI
+            runner: macos-latest
+            runtime_id: osx-arm64
+            architecture: ARM64
+            binary_name: PCL.Desktop
       fail-fast: false
 
     uses: ./.github/workflows/reusable-build.yml
@@ -103,9 +123,15 @@ jobs:
               echo "No binary in $dir"; continue
             fi
             chmod +x "$dir/$bin" || true
-            (cd "$dir" && zip -9 "../../dist/${name}.zip" "$bin")
-            gpg --detach-sign --armor "dist/${name}.zip"
-            gpg --detach-sign --armor --output "dist/${name}.zip.binary.asc" "$dir/$bin"
+            if [[ "$name" == *"_win-"* ]]; then
+              package="dist/${name}.zip"
+              (cd "$dir" && zip -9 "../../${package}" "$bin")
+            else
+              package="dist/${name}.tar.gz"
+              tar -C "$dir" -czf "$package" "$bin"
+            fi
+            gpg --detach-sign --armor "$package"
+            gpg --detach-sign --armor --output "$package.binary.asc" "$dir/$bin"
             cat > "dist/${name}.ci.json" <<EOF
           {
             "channel": "CI",
@@ -113,7 +139,8 @@ jobs:
             "ref": "${{ github.ref }}",
             "runId": "${{ github.run_id }}",
             "artifact": "${name}",
-            "supportsPatches": false
+            "supportsPatches": false,
+            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
           done

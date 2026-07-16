@@ -89,6 +89,53 @@ public sealed class LauncherUpdateServiceTests
     }
 
     [TestMethod]
+    public async Task CheckCiAsync_UsesArtifactMetadataForEverySuccessfulCommit()
+    {
+        const string remoteCommit = "1234567890abcdef1234567890abcdef12345678";
+        RoutingHandler handler = new(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/releases.atom", StringComparison.Ordinal))
+                return XmlResponse(ReleaseFeed("ci-latest"));
+            if (path.EndsWith("PCL_N_CI_win-x64_SelfContained.ci.json", StringComparison.Ordinal))
+            {
+                return JsonResponse($$"""
+                    {
+                      "channel": "CI",
+                      "commit": "{{remoteCommit}}",
+                      "ref": "refs/heads/dev",
+                      "runId": "42",
+                      "artifact": "PCL_N_CI_win-x64_SelfContained",
+                      "supportsPatches": false,
+                      "builtAt": "2026-07-16T15:00:00Z"
+                    }
+                    """);
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using LauncherUpdateService service = new(new HttpClient(handler), "owner", "repo");
+        LauncherBuildIdentity identity = new("1.2.1 beta", "win-x64", "NoRuntime_NoPlugin", "Beta");
+
+        LauncherUpdateCheckResult oldBuild = await service.CheckAsync(
+            UpdateChannel.CI,
+            identity,
+            currentCommitSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        LauncherUpdateCheckResult currentBuild = await service.CheckAsync(
+            UpdateChannel.CI,
+            identity,
+            currentCommitSha: remoteCommit);
+
+        Assert.IsTrue(oldBuild.Success);
+        Assert.IsTrue(oldBuild.IsUpdateAvailable);
+        Assert.AreEqual(remoteCommit, oldBuild.RemoteCommitSha);
+        Assert.IsFalse(oldBuild.SupportsPatches);
+        Assert.AreEqual("PCL_N_CI_win-x64_SelfContained.zip", oldBuild.Package?.TargetAssetName);
+        Assert.AreEqual("SelfContained_WithPlugin", oldBuild.Package?.RuntimeVariant);
+        Assert.IsTrue(currentBuild.Success);
+        Assert.IsFalse(currentBuild.IsUpdateAvailable);
+    }
+
+    [TestMethod]
     public async Task CheckAsync_SelectsExactVariantAndBuildsMultiHopPatchPlan()
     {
         RoutingHandler handler = new(request =>

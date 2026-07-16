@@ -372,6 +372,8 @@ public sealed class DesktopArchitectureTests
         string ci = File.ReadAllText(Path.Combine(workflowRoot, "build-test.yml"));
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");
+        foreach (string runtime in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" })
+            StringAssert.Contains(ci, runtime);
         StringAssert.Contains(beta, "github.event.release.tag_name != 'ci-latest'");
         StringAssert.Contains(beta, "inputs.tag_name != 'ci-latest'");
         // Dual matrix: WithPlugin + NoPlugin per RID/runtime variant (not a single hard-coded true).
