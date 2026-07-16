@@ -62,6 +62,8 @@ public class LegacyMcPingService : IMcPingService
         using var timeoutCts = new CancellationTokenSource(_timeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
         using var socket = new Socket(_endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        PortableLog.Info(ModuleName, $"开始旧版服务器连接测试：{_host}:{_endpoint.Port}");
+        PortableLog.Debug(ModuleName, $"连接参数：Endpoint={_endpoint}；AddressFamily={_endpoint.AddressFamily}；Timeout={_timeout}ms。");
 
         try
         {
@@ -78,6 +80,7 @@ public class LegacyMcPingService : IMcPingService
                     var read = await stream.ReadAsync(rented.AsMemory(), linkedCts.Token).ConfigureAwait(false);
                     if (read == 0)
                         break;
+                    PortableLog.RealTime(ModuleName, $"读取旧版服务器响应；本次={read}B；累计={response.WrittenCount + read}B。");
                     response.Write(rented.AsSpan(0, read));
                 }
             }
@@ -86,7 +89,9 @@ public class LegacyMcPingService : IMcPingService
                 ArrayPool<byte>.Shared.Return(rented);
             }
 
-            return ParseResponse(response.WrittenSpan);
+            McPingResult result = ParseResponse(response.WrittenSpan);
+            PortableLog.Info(ModuleName, $"旧版服务器连接测试完成：{_host}:{_endpoint.Port}；在线={result.Players.Online}/{result.Players.Max}；版本={result.Version.Name}。");
+            return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

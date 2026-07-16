@@ -10,6 +10,7 @@ using PCL.Platform.Processes;
 using PCL.Platform.Security;
 using PCL.UI.Abstractions.Navigation;
 using PCL.UI.Abstractions.Pages;
+using PCL.Core.Logging;
 
 namespace PCL.Desktop.Hosting;
 
@@ -32,11 +33,18 @@ internal static class DesktopHost
         if (_current is not null)
             return;
 
+        PortableLog.Info("PluginHost", "开始初始化桌面宿主与插件运行时。");
         PclHostBuilder builder = new();
         DesktopNavigationRegistry.RegisterGeneratedHostModules(builder);
-        foreach (IPclHostModule module in EmbeddedRuntimeExtensionLoader.LoadHostModules())
+        IReadOnlyList<IPclHostModule> embeddedModules = EmbeddedRuntimeExtensionLoader.LoadHostModules();
+        PortableLog.Debug("PluginHost", $"发现嵌入式宿主模块：{embeddedModules.Count} 个。");
+        foreach (IPclHostModule module in embeddedModules)
+        {
+            PortableLog.Debug("PluginHost", $"注册宿主模块：{module.GetType().FullName}");
             builder.AddModule(module);
+        }
         _current = builder.Build();
+        PortableLog.Info("PluginHost", $"桌面宿主构建完成；模块数={_current.ModuleIds.Count}；设置页数={_current.SettingsPages.Pages.Count}。");
         DesktopHostNavigation.Instance.Initialize(_current.Navigation);
         DefaultPlatformPathProvider platformPaths = new();
         RuntimeExtensionHostAccess.Initialize(new RuntimeExtensionHost(
@@ -61,11 +69,24 @@ internal static class DesktopHost
             launching: _current.Launching,
             backgroundTasks: DesktopHostBackgroundTasks.Instance));
         _runtimeExtensions = EmbeddedRuntimeExtensionLoader.LoadRuntimeExtensions();
+        PortableLog.Info("PluginHost", $"发现运行时扩展：{_runtimeExtensions.Count} 个。");
         RuntimeExtensionContext extensionContext = new(
             platformPaths.ApplicationDataDirectory,
             platformPaths.CacheDirectory);
         foreach (IRuntimeExtension extension in _runtimeExtensions)
-            extension.Initialize(_current, extensionContext);
+        {
+            try
+            {
+                PortableLog.Debug("PluginHost", $"初始化运行时扩展：{extension.GetType().FullName}");
+                extension.Initialize(_current, extensionContext);
+                PortableLog.Info("PluginHost", $"运行时扩展初始化完成：{extension.GetType().Name}");
+            }
+            catch (Exception ex)
+            {
+                PortableLog.Error(ex, "PluginHost", $"运行时扩展初始化失败：{extension.GetType().FullName}");
+                throw;
+            }
+        }
     }
 }
 

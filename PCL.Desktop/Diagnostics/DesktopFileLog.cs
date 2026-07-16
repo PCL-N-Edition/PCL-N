@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Text;
+using PCL.Core.Logging;
 using PCL.Desktop.Features.Settings.Views;
 
 namespace PCL.Desktop.Diagnostics;
@@ -16,52 +17,140 @@ public static class DesktopFileLog
     private static readonly object WriteLock = new();
     private static readonly HashSet<string> InitializedFiles = new(
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    private static bool _subscribed;
 
     public static string CurrentLogPath => Path.Combine(
         LauncherSettingsPageBinder.CreateDataDirectory(),
         "Logs",
         $"PCLN-{DateTime.Now:yyyyMMdd}.log");
 
-    public static void Initialize()
+    public static PortableLogLevel Level => PortableLog.MaximumLevel;
+
+    public static PortableLogLevel LevelFromSetting(int value) =>
+        Enum.IsDefined((PortableLogLevel)value)
+            ? (PortableLogLevel)value
+            : PortableLogLevel.Info;
+
+    public static void Initialize(PortableLogLevel level = PortableLogLevel.Info)
     {
+        ConfigureLevel(level);
         string path = CurrentLogPath;
         lock (WriteLock)
         {
+            if (!_subscribed)
+            {
+                PortableLog.Written += OnLogWritten;
+                _subscribed = true;
+            }
+
             if (!InitializedFiles.Add(path))
+                return;
+
+            if (!PortableLog.IsEnabled(PortableLogLevel.Info))
                 return;
 
             string version = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion ?? "unknown";
-            WriteCore(path, $"========== PCL N 会话开始（PID {Environment.ProcessId}） ==========");
-            WriteCore(path, $"[Startup] PCL N {version}；进程：{Environment.ProcessPath ?? "unknown"}");
+            WriteCore(path, PortableLogLevel.Info, "Session", $"========== PCL N 会话开始（PID {Environment.ProcessId}） ==========");
+            WriteCore(path, PortableLogLevel.Info, "Startup", $"PCL N {version}；进程：{Environment.ProcessPath ?? "unknown"}");
             WriteCore(
                 path,
-                $"[System] {RuntimeInformation.OSDescription}；系统架构：{RuntimeInformation.OSArchitecture}；进程架构：{RuntimeInformation.ProcessArchitecture}");
+                PortableLogLevel.Info,
+                "System",
+                $"{RuntimeInformation.OSDescription}；系统架构：{RuntimeInformation.OSArchitecture}；进程架构：{RuntimeInformation.ProcessArchitecture}");
             WriteCore(
                 path,
-                $"[Runtime] {RuntimeInformation.FrameworkDescription}；CPU：{Environment.ProcessorCount}；GC：{(GCSettings.IsServerGC ? "Server" : "Workstation")}");
+                PortableLogLevel.Info,
+                "Runtime",
+                $"{RuntimeInformation.FrameworkDescription}；CPU：{Environment.ProcessorCount}；GC：{(GCSettings.IsServerGC ? "Server" : "Workstation")}");
             WriteCore(
                 path,
-                $"[Locale] UI={CultureInfo.CurrentUICulture.Name}；区域={CultureInfo.CurrentCulture.Name}；时区={TimeZoneInfo.Local.Id}");
-            WriteCore(path, "[Display] " + DescribeDesktopSession());
+                PortableLogLevel.Info,
+                "Locale",
+                $"UI={CultureInfo.CurrentUICulture.Name}；区域={CultureInfo.CurrentCulture.Name}；时区={TimeZoneInfo.Local.Id}");
+            WriteCore(path, PortableLogLevel.Info, "Display", DescribeDesktopSession());
         }
+    }
+
+    public static void ConfigureLevel(PortableLogLevel level)
+    {
+        PortableLogLevel next = Enum.IsDefined(level) ? level : PortableLogLevel.Info;
+        PortableLogLevel previous = PortableLog.MaximumLevel;
+        PortableLog.MaximumLevel = next;
+        if (_subscribed && previous != next)
+            PortableLog.Info("Logging", $"日志级别已从 {previous} 切换为 {next}。");
     }
 
     public static void Write(string message)
     {
-        if (string.IsNullOrWhiteSpace(message))
-            return;
+        EnsureSink();
+        PortableLog.Info("Desktop", message);
+    }
 
+    public static void Error(string module, string message, Exception? exception = null)
+    {
+        EnsureSink();
+        if (exception is null)
+            PortableLog.Error(module, message);
+        else
+            PortableLog.Error(exception, module, message);
+    }
+
+    public static void Warn(string module, string message, Exception? exception = null)
+    {
+        EnsureSink();
+        if (exception is null)
+            PortableLog.Warn(module, message);
+        else
+            PortableLog.Warn(exception, module, message);
+    }
+
+    public static void Info(string module, string message)
+    {
+        EnsureSink();
+        PortableLog.Info(module, message);
+    }
+
+    public static void Debug(string module, string message, Exception? exception = null)
+    {
+        EnsureSink();
+        if (exception is null)
+            PortableLog.Debug(module, message);
+        else
+            PortableLog.Debug(exception, module, message);
+    }
+
+    public static void RealTime(string module, string message)
+    {
+        EnsureSink();
+        PortableLog.RealTime(module, message);
+    }
+
+    private static void EnsureSink()
+    {
+        if (_subscribed)
+            return;
+        Initialize(PortableLog.MaximumLevel);
+    }
+
+    private static void OnLogWritten(PortableLogEntry entry)
+    {
         string path = CurrentLogPath;
         lock (WriteLock)
         {
-            if (InitializedFiles.Add(path))
-                WriteCore(path, "PCL N 日志会话已开始。");
-            WriteCore(path, message);
+            if (InitializedFiles.Add(path) && PortableLog.IsEnabled(PortableLogLevel.Info))
+                WriteCore(path, PortableLogLevel.Info, "Session", "PCL N 日志会话已开始。");
+            WriteCore(path, entry.Level, entry.Module, entry.Message, entry.Exception, entry.Timestamp);
         }
     }
 
-    private static void WriteCore(string path, string message)
+    private static void WriteCore(
+        string path,
+        PortableLogLevel level,
+        string module,
+        string message,
+        Exception? exception = null,
+        DateTimeOffset timestamp = default)
     {
         try
         {
@@ -73,9 +162,25 @@ public static class DesktopFileLog
                 FileShare.ReadWrite | FileShare.Delete);
             using StreamWriter writer = new(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             writer.Write('[');
-            writer.Write(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture));
+            DateTimeOffset localTimestamp = timestamp == default ? DateTimeOffset.Now : timestamp.ToLocalTime();
+            writer.Write(localTimestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
+            writer.Write("] [");
+            writer.Write(level);
+            writer.Write("] [");
+            writer.Write(module);
             writer.Write("] ");
-            writer.WriteLine(message.ReplaceLineEndings(" "));
+            writer.WriteLine(PortableLog.Redact(message).ReplaceLineEndings(" | "));
+            if (exception is not null)
+            {
+                writer.Write('[');
+                writer.Write(localTimestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
+                writer.Write("] [");
+                writer.Write(level);
+                writer.Write("] [");
+                writer.Write(module);
+                writer.Write("] Exception: ");
+                writer.WriteLine(PortableLog.Redact(exception.ToString()).ReplaceLineEndings(" | "));
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {

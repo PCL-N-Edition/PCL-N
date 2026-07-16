@@ -13,6 +13,7 @@ using PCL.Application.Minecraft.Launch.Libraries;
 using PCL.Core.IO.Download;
 using PCL.Core.IO.Net;
 using PCL.Core.Utils.Hash;
+using PCL.Core.Logging;
 
 namespace PCL.Application.Downloads;
 
@@ -95,6 +96,7 @@ public sealed class MinecraftVanillaInstallService
         bool preferOfficialSource = true,
         CancellationToken cancellationToken = default)
     {
+        PortableLog.Info("MinecraftMetadata", $"开始获取版本清单；优先官方源={preferOfficialSource}。");
         string manifestJson = await GetStringWithFailoverAsync(
                 MinecraftDownloadSourcePlanner.GetLauncherOrMetaSources(VersionManifestUrl, preferOfficialSource),
                 cancellationToken)
@@ -123,6 +125,7 @@ public sealed class MinecraftVanillaInstallService
                 TryReadDate(version, "releaseTime")));
         }
 
+        PortableLog.Info("MinecraftMetadata", $"版本清单获取完成；有效版本数={result.Count}。");
         return result;
     }
 
@@ -153,6 +156,13 @@ public sealed class MinecraftVanillaInstallService
             ? VersionCoreBackup.Create(minecraftRoot, request.VersionId)
             : null;
         bool installCompleted = false;
+        PortableLog.Info(
+            "MinecraftInstall",
+            $"开始安装版本 {request.VersionId}；基础版本={baseVersionId}；加载器={request.Loader?.Kind.ToString() ?? "无"}；附加组件={request.Addons.Count}。");
+        PortableLog.Debug(
+            "MinecraftInstall",
+            $"安装参数：Root={minecraftRoot}；目标实例={vanillaInstanceDirectory}；线程={request.DownloadThreadLimit}；" +
+            $"优先官方源={request.PreferOfficialSource}；替换现有版本={request.ReplaceExistingVersion}。");
         try
         {
             Directory.CreateDirectory(vanillaInstanceDirectory);
@@ -214,7 +224,18 @@ public sealed class MinecraftVanillaInstallService
 
             progress?.Report(CreateProgress("安装完成", request.VersionId, 1d, 1, 1, 0, downloadThreadLimit));
             installCompleted = true;
+            PortableLog.Info("MinecraftInstall", $"版本 {request.VersionId} 安装完成；目录={result.InstanceDirectory}。");
             return result;
+        }
+        catch (OperationCanceledException)
+        {
+            PortableLog.Warn("MinecraftInstall", $"版本 {request.VersionId} 的安装已取消，将回滚未完成的核心文件。");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "MinecraftInstall", $"版本 {request.VersionId} 安装失败，将回滚未完成的核心文件。");
+            throw;
         }
         finally
         {
@@ -286,6 +307,7 @@ public sealed class MinecraftVanillaInstallService
 
         string minecraftRoot = Path.GetFullPath(request.MinecraftRootDirectory);
         string instanceDirectory = Path.GetFullPath(request.InstanceDirectory);
+        PortableLog.Info("MinecraftRepair", $"开始检查并补全版本 {request.VersionId}；目录={instanceDirectory}。");
         JsonObject versionJson = await ReadJsonObjectAsync(request.VersionJsonPath, cancellationToken).ConfigureAwait(false);
         int downloadThreadLimit = DefaultDownloadThreadLimit;
         progress?.Report(CreateProgress("准备修复", request.VersionId, 0d, 0, 1, 0, downloadThreadLimit));
@@ -301,6 +323,7 @@ public sealed class MinecraftVanillaInstallService
             .ConfigureAwait(false);
 
         progress?.Report(CreateProgress("修复完成", request.VersionId, 1d, 1, 1, 0, downloadThreadLimit));
+        PortableLog.Info("MinecraftRepair", $"版本 {request.VersionId} 文件检查与补全完成。");
         return new MinecraftInstallResult(request.VersionId, minecraftRoot, instanceDirectory, request.VersionJsonPath);
     }
 
@@ -329,6 +352,9 @@ public sealed class MinecraftVanillaInstallService
             .ConfigureAwait(false);
 
         int total = Math.Max(files.Count, 1);
+        PortableLog.Debug(
+            "MinecraftDownload",
+            $"版本 {versionId} 文件计划生成完成；待处理={files.Count}；线程上限={downloadThreadLimit}；实例={instanceDirectory}。");
         progress?.Report(CreateProgress("准备下载文件", $"{files.Count} 个文件", 0.02d, 0, total, 0, downloadThreadLimit));
         if (files.Count == 0)
         {
@@ -723,7 +749,10 @@ public sealed class MinecraftVanillaInstallService
         CancellationToken cancellationToken)
     {
         if (await IsExistingFileUsableAsync(localPath, expectedSize, expectedSha1, cancellationToken).ConfigureAwait(false))
+        {
+            PortableLog.Debug("MinecraftDownload", $"复用已通过校验的文件：{localPath}");
             return;
+        }
 
         ProgressThrottle progressThrottle = new();
         List<Exception> failures = [];
@@ -732,6 +761,7 @@ public sealed class MinecraftVanillaInstallService
             if (string.IsNullOrWhiteSpace(source))
                 continue;
 
+            PortableLog.Debug("MinecraftDownload", $"开始下载：{source} -> {localPath}");
             DownloadTransferResult result = await _downloadService.DownloadAsync(
                 new DownloadRequest
                 {
@@ -747,6 +777,11 @@ public sealed class MinecraftVanillaInstallService
                         DownloadStage.Failed;
                     if (!progressThrottle.ShouldReport(force))
                         return;
+
+                    PortableLog.RealTime(
+                        "MinecraftDownload",
+                        $"文件进度：{Path.GetFileName(localPath)}；阶段={downloadProgress.Stage}；" +
+                        $"字节={downloadProgress.DownloadedBytes}/{downloadProgress.TotalBytes}；速度={downloadProgress.BytesPerSecond}B/s。");
 
                     double fileRatio = downloadProgress.TotalBytes <= 0
                         ? 0d
@@ -781,15 +816,22 @@ public sealed class MinecraftVanillaInstallService
 
             if (!result.Success)
             {
+                PortableLog.Warn(
+                    "MinecraftDownload",
+                    $"下载源失败，将尝试下一来源：{source}；文件={Path.GetFileName(localPath)}；错误数={result.Errors.Count}。");
                 failures.AddRange(result.Errors.Select(static error =>
                     error.Exception ?? new IOException(error.Message)));
                 continue;
             }
 
             if (await IsExistingFileUsableAsync(localPath, expectedSize, expectedSha1, cancellationToken).ConfigureAwait(false))
+            {
+                PortableLog.Debug("MinecraftDownload", $"下载并校验完成：{localPath}");
                 return;
+            }
 
             DeleteInvalidDownload(localPath);
+            PortableLog.Warn("MinecraftDownload", $"下载完成但校验失败，已删除无效文件：{localPath}");
             failures.Add(new IOException("文件校验失败：" + localPath));
         }
 
@@ -948,6 +990,7 @@ public sealed class MinecraftVanillaInstallService
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
             {
+                PortableLog.Warn(ex, "MinecraftMetadata", $"元数据来源不可用，将尝试下一来源：{url}");
                 errors.Add(ex);
             }
         }
@@ -1396,6 +1439,10 @@ public sealed class MinecraftVanillaInstallService
                 bytesReceived,
                 totalBytes,
                 CreateStepsLocked()));
+            PortableLog.RealTime(
+                "MinecraftDownload",
+                $"聚合进度：阶段={stage}；详情={detail}；文件={_completedFiles}/{_fileProgress.Length}；" +
+                $"活动线程={_activeThreads}/{_threadLimit}；速度={_speedSum}B/s；字节={bytesReceived}/{totalBytes}。");
         }
 
         private DownloadStageAggregate StageFor(int fileIndex) =>

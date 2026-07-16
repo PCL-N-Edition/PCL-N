@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using PCL.Core.App;
+using PCL.Core.Logging;
 
 namespace PCL.Application.Updates;
 
@@ -83,6 +84,10 @@ public sealed class LauncherUpdateService : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(currentVersion);
+        PortableLog.Info("Update", $"开始检查启动器更新；通道={channel}；当前版本={currentVersion}。");
+        PortableLog.Debug(
+            "Update",
+            $"更新参数：Repository={_owner}/{_repo}；PreferPlugin={preferPluginBuild}；RuntimeId={ResolveRuntimeId()}；CurrentCommit={currentCommitSha ?? "(无)"}。");
 
         if (channel is UpdateChannel.CI or UpdateChannel.Dev)
             return await CheckCiAsync(currentVersion, currentCommitSha, preferPluginBuild, cancellationToken)
@@ -107,7 +112,7 @@ public sealed class LauncherUpdateService : IDisposable
         string htmlUrl = release.HtmlUrl
             ?? $"https://github.com/{_owner}/{_repo}/releases/tag/{Uri.EscapeDataString(release.Tag)}";
 
-        return new LauncherUpdateCheckResult(
+        LauncherUpdateCheckResult result = new(
             Success: true,
             IsUpdateAvailable: isNewer,
             CurrentVersion: localVersion,
@@ -121,6 +126,8 @@ public sealed class LauncherUpdateService : IDisposable
             SupportsPatches: true,
             RemoteCommitSha: ExtractCommitSha(release.Notes, release.Title),
             PublishedAt: release.Updated);
+        PortableLog.Info("Update", $"更新检查完成；通道={channel}；最新版本={remoteVersion}；有更新={isNewer}。");
+        return result;
     }
 
     private async Task<LauncherUpdateCheckResult> CheckCiAsync(
@@ -174,7 +181,7 @@ public sealed class LauncherUpdateService : IDisposable
             ? $"ci-{remoteCommitNorm[..Math.Min(7, remoteCommitNorm.Length)]}"
             : (release.Title ?? CiRollingTag);
 
-        return new LauncherUpdateCheckResult(
+        LauncherUpdateCheckResult result = new(
             Success: true,
             IsUpdateAvailable: isNewer && hasAsset,
             CurrentVersion: NormalizeVersion(currentVersion),
@@ -188,6 +195,8 @@ public sealed class LauncherUpdateService : IDisposable
             SupportsPatches: false,
             RemoteCommitSha: remoteCommitNorm,
             PublishedAt: release.Updated);
+        PortableLog.Info("Update", $"CI 更新检查完成；最新={latestLabel}；有更新={result.IsUpdateAvailable}；远端提交={remoteCommitNorm}。");
+        return result;
     }
 
     private async Task<AtomReleaseEntry?> ResolveStableReleaseAsync(
@@ -246,8 +255,9 @@ public sealed class LauncherUpdateService : IDisposable
         if (!response.IsSuccessStatusCode)
         {
             string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            throw new InvalidOperationException(
-                $"无法读取发布订阅 ({(int)response.StatusCode}): {Truncate(body, 160)}");
+            string message = $"无法读取发布订阅 ({(int)response.StatusCode}): {Truncate(body, 160)}";
+            PortableLog.Error("Update", message);
+            throw new InvalidOperationException(message);
         }
 
         string xml = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -338,15 +348,19 @@ public sealed class LauncherUpdateService : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         try
         {
+            PortableLog.Debug("Update", $"请求更新元数据：{url}");
             using HttpRequestMessage request = new(HttpMethod.Get, url);
-            return await _httpClient.SendAsync(
+            HttpResponseMessage response = await _httpClient.SendAsync(
                     request,
                     HttpCompletionOption.ResponseHeadersRead,
                     cancellationToken)
                 .ConfigureAwait(false);
+            PortableLog.Debug("Update", $"更新元数据响应：{url}；HTTP={(int)response.StatusCode}。");
+            return response;
         }
-        catch (ObjectDisposedException)
+        catch (ObjectDisposedException ex)
         {
+            PortableLog.Error(ex, "Update", "更新检查服务已关闭。");
             throw new InvalidOperationException("更新检查服务已关闭，请重新打开软件更新页后再试。");
         }
     }

@@ -60,7 +60,7 @@ public static partial class OnlineFriendService
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "Online", "搜索 Minecraft 档案失败");
+            PortableLog.Error(ex, "Online", "搜索 Minecraft 档案失败");
             return null;
         }
     }
@@ -84,7 +84,7 @@ public static partial class OnlineFriendService
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "Online", "发送好友申请失败");
+            PortableLog.Error(ex, "Online", "发送好友申请失败");
             return false;
         }
     }
@@ -127,7 +127,7 @@ public static partial class OnlineFriendService
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "Online", "获取 PCL N 在线状态失败");
+            PortableLog.Warn(ex, "Online", "获取 PCL N 在线状态失败");
             return new Dictionary<string, OnlineFriendPresence>(StringComparer.Ordinal);
         }
     }
@@ -156,7 +156,7 @@ public static partial class OnlineFriendService
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "Online", $"获取好友{segment}失败");
+            PortableLog.Warn(ex, "Online", $"获取好友{segment}失败");
             return [];
         }
     }

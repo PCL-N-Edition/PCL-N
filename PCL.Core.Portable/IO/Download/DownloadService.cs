@@ -5,6 +5,7 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using PCL.Core.Logging;
 
 namespace PCL.Core.IO.Download;
 
@@ -33,6 +34,7 @@ public sealed class DownloadService
     {
         ValidateRequest(request);
         var destinationPath = Path.GetFullPath(request.DestinationPath);
+        PortableLog.Info("Download", $"提交下载任务；目标={destinationPath}；来源数={request.Sources.Count}。");
         var lazyOperation = _active.GetOrAdd(
             destinationPath,
             path => new Lazy<DownloadOperation>(
@@ -99,6 +101,7 @@ public sealed class DownloadService
             long requestedOffset = 0;
             try
             {
+                PortableLog.Debug("Download", $"尝试下载来源；Source={DescribeSource(source)}；Destination={request.DestinationPath}。");
                 report(new DownloadProgress(
                     DownloadStage.Connecting,
                     source,
@@ -109,6 +112,7 @@ public sealed class DownloadService
                          ?? throw new InvalidOperationException(
                              $"No download writer was created for {request.DestinationPath}.");
                 requestedOffset = Math.Max(0, writer.ExistingLength);
+                PortableLog.Debug("Download", $"下载续传检查；Destination={request.DestinationPath}；ExistingBytes={requestedOffset}。");
                 connection = request.ConnectionFactory(source)
                              ?? throw new InvalidOperationException(
                                  $"No download connection was created for {source}.");
@@ -152,6 +156,13 @@ public sealed class DownloadService
                             .ConfigureAwait(false);
                         totalRead += read;
                         sessionRead += read;
+                        if (PortableLog.IsEnabled(PortableLogLevel.RealTime))
+                        {
+                            PortableLog.RealTime(
+                                "Download",
+                                $"读取下载数据；Destination={request.DestinationPath}；Chunk={read}B；" +
+                                $"Total={totalRead}/{Math.Max(connectionInfo.Length, totalRead)}；Speed={CalculateSpeed(sessionRead, readStartedAt)}B/s。");
+                        }
                         report(new DownloadProgress(
                             DownloadStage.Downloading,
                             source,
@@ -178,13 +189,18 @@ public sealed class DownloadService
                         totalRead,
                         totalRead,
                         0));
-                    return new DownloadTransferResult(
+                    DownloadTransferResult result = new(
                         true,
                         request.DestinationPath,
                         source,
                         totalRead,
                         Stopwatch.GetElapsedTime(startedAt),
                         errors.ToArray());
+                    PortableLog.Info(
+                        "Download",
+                        $"下载完成；目标={request.DestinationPath}；来源={DescribeSource(source)}；字节={totalRead}；" +
+                        $"耗时={result.Duration.TotalSeconds:0.###}s；失败来源={errors.Count}。");
+                    return result;
                 }
                 finally
                 {
@@ -193,10 +209,12 @@ public sealed class DownloadService
             }
             catch (OperationCanceledException)
             {
+                PortableLog.Warn("Download", $"下载已取消；目标={request.DestinationPath}；来源={DescribeSource(source)}。");
                 throw;
             }
             catch (Exception exception)
             {
+                PortableLog.Warn(exception, "Download", $"下载来源失败，将尝试下一来源；目标={request.DestinationPath}；来源={DescribeSource(source)}。");
                 if (ShouldDiscardPartialDownload(exception, requestedOffset))
                     await ResetPartialDownloadAsync(writer, cancellationToken).ConfigureAwait(false);
 
@@ -224,13 +242,17 @@ public sealed class DownloadService
             0,
             -1,
             0));
-        return new DownloadTransferResult(
+        DownloadTransferResult failed = new(
             false,
             request.DestinationPath,
             null,
             0,
             Stopwatch.GetElapsedTime(startedAt),
             errors.ToArray());
+        PortableLog.Error(
+            "Download",
+            $"所有下载来源均失败；目标={request.DestinationPath}；来源数={request.Sources.Count}；错误数={errors.Count}；耗时={failed.Duration.TotalSeconds:0.###}s。");
+        return failed;
     }
 
     private static long CalculateSpeed(long bytes, long startedAt)
@@ -272,9 +294,10 @@ public sealed class DownloadService
         {
             await writer.StopAsync(CancellationToken.None).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
             // Cleanup must not hide the original transfer outcome.
+            PortableLog.Warn(ex, "Download", "停止下载写入器失败，已忽略清理异常。");
         }
     }
 
@@ -286,9 +309,10 @@ public sealed class DownloadService
         {
             await connection.StopAsync(CancellationToken.None).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
             // Cleanup must not hide the original transfer outcome.
+            PortableLog.Warn(ex, "Download", "停止下载连接失败，已忽略清理异常。");
         }
     }
 
@@ -309,6 +333,13 @@ public sealed class DownloadService
         OperatingSystem.IsWindows()
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
+
+    private static string DescribeSource(string source)
+    {
+        if (Uri.TryCreate(source, UriKind.Absolute, out Uri? uri))
+            return uri.GetLeftPart(UriPartial.Path);
+        return "(non-uri source)";
+    }
 
     private sealed class DownloadOperation(
         Func<DownloadOperation, Task> start) : IDisposable
@@ -359,9 +390,10 @@ public sealed class DownloadService
                     {
                         subscriber(progress);
                     }
-                    catch
+                    catch (Exception ex)
                     {
                         // UI progress handlers must not terminate the transfer.
+                        PortableLog.Warn(ex, "Download", "下载进度订阅者抛出异常，传输将继续。");
                     }
                 }
             }

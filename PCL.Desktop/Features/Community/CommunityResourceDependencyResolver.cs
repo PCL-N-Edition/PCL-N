@@ -2,6 +2,8 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using PCL.Core.Logging;
+
 namespace PCL.Desktop.Features.Community;
 
 public sealed record CommunityResourceDownloadPlanItem(
@@ -72,10 +74,16 @@ public static class CommunityResourceDependencyResolver
         ArgumentNullException.ThrowIfNull(rootVersion);
         ArgumentNullException.ThrowIfNull(rootFile);
         ArgumentNullException.ThrowIfNull(options);
+        PortableLog.Info(
+            "CommunityDependency",
+            $"开始解析 {rootEntry.Title} 的必需前置；版本={rootVersion.Name}；声明依赖={rootVersion.Dependencies.Count}。");
 
         List<CommunityResourceDownloadPlanItem> result = [];
         HashSet<(CommunityResourceSource Source, string ProjectId)> visited = [];
         await ResolveAsync(rootEntry, rootVersion, rootFile, isDependency: false).ConfigureAwait(false);
+        PortableLog.Info(
+            "CommunityDependency",
+            $"必需前置解析完成；根资源={rootEntry.Title}；下载项={result.Count}；前置={result.Count(static item => item.IsDependency)}。");
         return result;
 
         async Task ResolveAsync(
@@ -87,7 +95,14 @@ public static class CommunityResourceDependencyResolver
             cancellationToken.ThrowIfCancellationRequested();
             (CommunityResourceSource Source, string ProjectId) key = (entry.Source, entry.ProjectId);
             if (!visited.Add(key))
+            {
+                PortableLog.Debug("CommunityDependency", $"跳过已解析依赖：{entry.Source}/{entry.ProjectId}");
                 return;
+            }
+
+            PortableLog.Debug(
+                "CommunityDependency",
+                $"解析节点：{entry.Title}；来源={entry.Source}；ProjectId={entry.ProjectId}；Version={version.VersionId}；依赖数={version.Dependencies.Count}。");
 
             foreach (CommunityResourceDependency dependency in version.Dependencies
                          .Where(static dependency => dependency.Type == CommunityResourceDependencyType.Required))
@@ -104,6 +119,9 @@ public static class CommunityResourceDependencyResolver
                         dependency.ProjectId,
                         cancellationToken)
                     .ConfigureAwait(false);
+                PortableLog.Debug(
+                    "CommunityDependency",
+                    $"解析必需前置：{dependency.DisplayName}；来源={dependency.Source}；ProjectId={dependency.ProjectId}；指定版本={dependency.VersionId ?? "(自动)"}。");
                 dependencyEntry ??= new CommunityResourceEntry(
                     dependency.ProjectId,
                     dependency.ProjectId,
@@ -186,6 +204,7 @@ public static class CommunityResourceDependencyResolver
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or IOException)
         {
+            PortableLog.Warn(ex, "CommunityDependency", $"获取前置项目详情失败，将使用依赖声明继续：{source}/{projectId}");
             return null;
         }
     }

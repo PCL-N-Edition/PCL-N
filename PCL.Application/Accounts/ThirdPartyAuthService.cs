@@ -5,6 +5,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
+using PCL.Core.Logging;
 
 namespace PCL.Application.Accounts;
 
@@ -35,6 +36,8 @@ public sealed class ThirdPartyAuthService(HttpClient? httpClient = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         string authServer = NormalizeYggdrasilServer(request.Server);
+        PortableLog.Info("ThirdPartyAuth", $"开始第三方认证；服务器={GetServerDisplayName(authServer)}。");
+        PortableLog.Debug("ThirdPartyAuth", $"认证参数：Endpoint={authServer}/authserver/authenticate；Username={request.Username}。");
         if (string.IsNullOrWhiteSpace(request.Username) ||
             string.IsNullOrWhiteSpace(request.Password))
         {
@@ -64,7 +67,11 @@ public sealed class ThirdPartyAuthService(HttpClient? httpClient = null)
             .ConfigureAwait(false);
         JsonObject? json = TryParseObject(responseBody);
         if (!response.IsSuccessStatusCode || json?["error"] is not null)
-            throw CreateAuthException(response.StatusCode, json, responseBody);
+        {
+            InvalidOperationException exception = CreateAuthException(response.StatusCode, json, responseBody);
+            PortableLog.Error(exception, "ThirdPartyAuth", $"第三方认证失败；服务器={GetServerDisplayName(authServer)}；HTTP={(int)response.StatusCode}。");
+            throw exception;
+        }
 
         string accessToken = json?["accessToken"]?.ToString() ?? "";
         JsonObject? profile = json?["selectedProfile"] as JsonObject ??
@@ -75,9 +82,11 @@ public sealed class ThirdPartyAuthService(HttpClient? httpClient = null)
             string.IsNullOrWhiteSpace(uuid) ||
             string.IsNullOrWhiteSpace(username))
         {
+            PortableLog.Error("ThirdPartyAuth", $"第三方认证响应缺少可用档案；服务器={GetServerDisplayName(authServer)}。");
             throw new InvalidOperationException("认证成功，但服务器没有返回可用的 Minecraft 档案。");
         }
 
+        PortableLog.Info("ThirdPartyAuth", $"第三方认证完成；服务器={GetServerDisplayName(authServer)}；玩家={username}。");
         return new ThirdPartyAuthLoginResult(
             username,
             uuid,
@@ -115,8 +124,9 @@ public sealed class ThirdPartyAuthService(HttpClient? httpClient = null)
         {
             return JsonNode.Parse(responseBody) as JsonObject;
         }
-        catch
+        catch (Exception ex)
         {
+            PortableLog.Debug(ex, "ThirdPartyAuth", "认证服务器返回的正文不是有效 JSON。");
             return null;
         }
     }

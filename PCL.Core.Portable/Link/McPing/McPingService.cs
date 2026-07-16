@@ -65,10 +65,13 @@ public class McPingService : IMcPingService
         using var timeoutCts = new CancellationTokenSource(_timeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
         using var socket = new Socket(_endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        PortableLog.Info(ModuleName, $"开始测试服务器连接：{_host}:{_endpoint.Port}");
+        PortableLog.Debug(ModuleName, $"连接参数：Endpoint={_endpoint}；AddressFamily={_endpoint.AddressFamily}；Timeout={_timeout}ms；Protocol={ProtocolVersion}。");
 
         try
         {
             await socket.ConnectAsync(_endpoint, linkedCts.Token).ConfigureAwait(false);
+            PortableLog.Debug(ModuleName, $"TCP 连接成功：{_endpoint}");
             await using var stream = new NetworkStream(socket, ownsSocket: false);
 
             await stream.WriteAsync(BuildHandshakePacket(_host, _endpoint.Port), linkedCts.Token)
@@ -76,14 +79,17 @@ public class McPingService : IMcPingService
             await stream.WriteAsync(_StatusRequestPacket, linkedCts.Token).ConfigureAwait(false);
 
             var statusPacket = await ReadPacketAsync(stream, linkedCts.Token).ConfigureAwait(false);
+            PortableLog.RealTime(ModuleName, $"收到状态响应包；字节={statusPacket.Length}；Endpoint={_endpoint}。");
             var result = ParseStatusPacket(statusPacket);
 
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             await stream.WriteAsync(BuildPingPacket(timestamp), linkedCts.Token).ConfigureAwait(false);
             var pongPacket = await ReadPacketAsync(stream, linkedCts.Token).ConfigureAwait(false);
+            PortableLog.RealTime(ModuleName, $"收到 Pong 响应包；字节={pongPacket.Length}；Endpoint={_endpoint}。");
             var echoedTimestamp = ParsePongPacket(pongPacket);
             var latency = Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - echoedTimestamp);
 
+            PortableLog.Info(ModuleName, $"服务器连接测试完成：{_host}:{_endpoint.Port}；延迟={latency}ms；在线={result.Players.Online}/{result.Players.Max}；版本={result.Version.Name}。");
             return result with { Latency = latency };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

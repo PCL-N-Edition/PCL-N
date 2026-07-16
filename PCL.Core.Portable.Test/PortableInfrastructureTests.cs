@@ -57,6 +57,66 @@ public sealed class PortableInfrastructureTests
     }
 
     [TestMethod]
+    public void PortableLog_InfoFiltersDebugAndRealTime()
+    {
+        PortableLogLevel previous = PortableLog.MaximumLevel;
+        List<PortableLogEntry> entries = [];
+        void Capture(PortableLogEntry entry) => entries.Add(entry);
+
+        PortableLog.Written += Capture;
+        try
+        {
+            PortableLog.MaximumLevel = PortableLogLevel.Info;
+            PortableLog.Error("Levels", "error");
+            PortableLog.Warn("Levels", "warn");
+            PortableLog.Info("Levels", "info");
+            PortableLog.Debug("Levels", "debug");
+            PortableLog.RealTime("Levels", "realtime");
+        }
+        finally
+        {
+            PortableLog.Written -= Capture;
+            PortableLog.MaximumLevel = previous;
+        }
+
+        CollectionAssert.AreEqual(
+            new[] { PortableLogLevel.Error, PortableLogLevel.Warn, PortableLogLevel.Info },
+            entries.Select(static entry => entry.Level).ToArray());
+    }
+
+    [TestMethod]
+    public void PortableLog_RealTimeEnablesHighFrequencyEntriesAndRedactsSecrets()
+    {
+        PortableLogLevel previous = PortableLog.MaximumLevel;
+        List<PortableLogEntry> entries = [];
+        void Capture(PortableLogEntry entry) => entries.Add(entry);
+
+        PortableLog.Written += Capture;
+        try
+        {
+            PortableLog.MaximumLevel = PortableLogLevel.RealTime;
+            PortableLog.RealTime(
+                "Loop",
+                "tick access_token=abc123 Authorization: Bearer top-secret https://example.test/?code=login-code exit code: 1");
+        }
+        finally
+        {
+            PortableLog.Written -= Capture;
+            PortableLog.MaximumLevel = previous;
+        }
+
+        Assert.HasCount(1, entries);
+        Assert.AreEqual(PortableLogLevel.RealTime, entries[0].Level);
+        StringAssert.Contains(entries[0].Message, "access_token=<redacted>");
+        StringAssert.Contains(entries[0].Message, "Authorization: <redacted>");
+        StringAssert.Contains(entries[0].Message, "?code=<redacted>");
+        StringAssert.Contains(entries[0].Message, "exit code: 1");
+        Assert.DoesNotContain("abc123", entries[0].Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("top-secret", entries[0].Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("login-code", entries[0].Message, StringComparison.Ordinal);
+    }
+
+    [TestMethod]
     public async Task PortableHttp_ReadStringAsync_UsesResponseCancellationAwareApi()
     {
         using var response = new HttpResponseMessage(HttpStatusCode.OK)

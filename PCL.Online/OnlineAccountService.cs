@@ -179,7 +179,7 @@ public static class OnlineAccountService
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "Online", "登录失败");
+            PortableLog.Error(ex, "Online", "在线账户登录失败");
             return new OnlineLoginResult { Success = false, Message = ex.Message };
         }
     }
@@ -360,7 +360,7 @@ public static class OnlineAccountService
         }
         catch (Exception e)
         {
-            PortableLog.Debug(e, "Online", "Graph API 调用失败");
+            PortableLog.Warn(e, "Online", "Graph API 调用失败");
             return (null, null, null);
         }
     }
@@ -434,7 +434,7 @@ public static class OnlineAccountService
             r.EnsureSuccessStatusCode();
             return PortableJson.ParseObject(r.Content.ReadAsStringAsync().GetAwaiter().GetResult())["Token"]?.ToString();
         }
-        catch (Exception e) { PortableLog.Debug(e, "Online", "XBL"); return null; }
+        catch (Exception e) { PortableLog.Warn(e, "Online", "XBL 授权失败"); return null; }
     }
 
     private static JsonObject? AuthXsts(string xblToken, string relyingParty)
@@ -457,7 +457,7 @@ public static class OnlineAccountService
             r.EnsureSuccessStatusCode();
             return PortableJson.ParseObject(r.Content.ReadAsStringAsync().GetAwaiter().GetResult());
         }
-        catch (Exception e) { PortableLog.Debug(e, "Online", "XSTS"); return null; }
+        catch (Exception e) { PortableLog.Warn(e, "Online", "XSTS 授权失败"); return null; }
     }
 
     private static string? AuthMc(string xstsToken, string uhs)
@@ -473,7 +473,7 @@ public static class OnlineAccountService
             r.EnsureSuccessStatusCode();
             return PortableJson.ParseObject(r.Content.ReadAsStringAsync().GetAwaiter().GetResult())["access_token"]?.ToString();
         }
-        catch (Exception e) { PortableLog.Debug(e, "Online", "MC Auth"); return null; }
+        catch (Exception e) { PortableLog.Warn(e, "Online", "Minecraft Services 授权失败"); return null; }
     }
 
     private static MinecraftProfileResult GetProfile(string mcToken)
@@ -496,7 +496,7 @@ public static class OnlineAccountService
         }
         catch (Exception e)
         {
-            PortableLog.Debug(e, "Online", "Profile");
+            PortableLog.Warn(e, "Online", "获取 Minecraft 档案失败");
             return new MinecraftProfileResult(null, false, Text("Online.Login.MinecraftProfileFailed"));
         }
     }

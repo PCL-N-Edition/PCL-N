@@ -8,6 +8,7 @@ using PCL.Application.Minecraft.Assets;
 using PCL.Application.Minecraft.Launch.Arguments;
 using PCL.Application.Minecraft.Launch.Libraries;
 using PCL.Application.Minecraft.Launch.Natives;
+using PCL.Core.Logging;
 
 namespace PCL.Application.Launching;
 
@@ -62,6 +63,16 @@ public static class MinecraftProcessLaunchService
         ArgumentException.ThrowIfNullOrWhiteSpace(request.PlayerName);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.PlayerUuid);
 
+        PortableLog.Info("LaunchPlan", $"开始生成 {request.VersionId} 的进程启动计划。");
+        PortableLog.Debug(
+            "LaunchPlan",
+            $"计划参数：VersionJson={request.VersionJsonPath}；Instance={request.InstanceDirectory}；Root={request.MinecraftRootDirectory}；" +
+            $"Java={request.JavaExecutablePath}；JavaMajor={request.JavaMajorVersion}；MemoryMiB={request.MemoryMegabytes}；" +
+            $"Window={request.Width}x{request.Height}；Fullscreen={request.Fullscreen}；Isolated={request.IsolatedGameDirectory}。");
+
+        try
+        {
+
         JsonObject versionJson = await ReadJsonObjectAsync(request.VersionJsonPath, cancellationToken).ConfigureAwait(false);
         string minecraftRoot = Path.GetFullPath(request.MinecraftRootDirectory);
         string instanceDirectory = Path.GetFullPath(request.InstanceDirectory);
@@ -80,7 +91,10 @@ public static class MinecraftProcessLaunchService
         string versionJar = Path.Combine(instanceDirectory, request.VersionId + ".jar");
 
         MinecraftArgumentRuleContext ruleContext = CreateRuleContext();
-        IReadOnlyList<MinecraftLibraryToken> libraries = ResolveLibraries(versionJson, inheritedVersionJsons, minecraftRoot, instanceDirectory);
+        List<MinecraftLibraryToken> libraries = ResolveLibraries(versionJson, inheritedVersionJsons, minecraftRoot, instanceDirectory);
+        PortableLog.Debug(
+            "LaunchPlan",
+            $"版本图解析完成：MainClass={mainClass}；继承层数={inheritedVersions.Count}；库数量={libraries.Count}；游戏目录={gameDirectory}。");
 
         // Extract both legacy IsNatives classifiers and modern artifact natives (name ends with :natives-os).
         // Modern natives stay on the classpath; we still pre-extract DLLs so -Djava.library.path is usable.
@@ -162,7 +176,24 @@ public static class MinecraftProcessLaunchService
             WorkingDirectory = gameDirectory,
             UseShellExecute = false
         };
-        return new MinecraftProcessLaunchPlan(startInfo, nativesDirectory, classpath.Entries, nativeExtraction);
+            PortableLog.Info(
+                "LaunchPlan",
+                $"进程启动计划已生成；版本={request.VersionId}；Classpath={classpath.Entries.Count}；Natives={nativeArchives.Length}；主类={mainClass}。");
+            PortableLog.Debug(
+                "LaunchPlan",
+                $"进程参数：FileName={startInfo.FileName}；WorkingDirectory={startInfo.WorkingDirectory}；Arguments={startInfo.Arguments}");
+            return new MinecraftProcessLaunchPlan(startInfo, nativesDirectory, classpath.Entries, nativeExtraction);
+        }
+        catch (OperationCanceledException)
+        {
+            PortableLog.Warn("LaunchPlan", $"生成 {request.VersionId} 的进程启动计划时被取消。");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "LaunchPlan", $"生成 {request.VersionId} 的进程启动计划失败。");
+            throw;
+        }
     }
 
     private static Dictionary<string, string> CreateReplacements(

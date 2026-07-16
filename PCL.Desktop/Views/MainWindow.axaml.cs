@@ -447,7 +447,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void FormMain_Closing(object? sender, WindowClosingEventArgs e)
     {
-        DesktopFileLog.Write("[Window] 主窗口正在关闭。");
+        DesktopFileLog.Info("Window", "主窗口正在关闭。");
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
         CancelAllTrackedTasks();
@@ -997,7 +997,7 @@ public partial class MainWindow : Window, IDisposable
         if (selected is null)
             return;
 
-        DesktopFileLog.Write($"[Navigation] 打开 {descriptor.Title}（{route.Value}）。");
+        DesktopFileLog.Info("Navigation", $"打开 {descriptor.Title}（{route.Value}）。");
 
         selected.Checked = true;
         foreach (MyListItem item in GetNavItems())
@@ -1213,8 +1213,9 @@ public partial class MainWindow : Window, IDisposable
     private void OnMainWindowOpened(object? sender, EventArgs e)
     {
         _isMainWindowOpened = true;
-        DesktopFileLog.Write(
-            $"[Window] 主窗口已显示；客户区={ClientSize.Width:0}x{ClientSize.Height:0}；缩放={RenderScaling:0.##}。");
+        DesktopFileLog.Info(
+            "Window",
+            $"主窗口已显示；客户区={ClientSize.Width:0}x{ClientSize.Height:0}；缩放={RenderScaling:0.##}。");
 
         // Headless/automation: skip show animation + first-run dialogs so Window.Show() can finish.
         if (ShouldSuppressStartupDialogs())
@@ -1243,7 +1244,7 @@ public partial class MainWindow : Window, IDisposable
         }
         catch (Exception ex)
         {
-            DesktopFileLog.Write("[FirstRun] " + ex.Message);
+            DesktopFileLog.Warn("FirstRun", "首次运行引导加载失败，将继续显示特殊版本提示。", ex);
             MaybeShowSpecialVersionNotice();
         }
     }
@@ -1672,6 +1673,12 @@ public partial class MainWindow : Window, IDisposable
         string taskId = CreateTaskId("community", request.Entry.ProjectId);
         using CancellationTokenSource cancellation = RegisterTrackedTask(taskId);
         string taskTitle = "下载 " + request.Entry.Title;
+        DesktopFileLog.Info(
+            "CommunityDownload",
+            $"开始下载社区资源 {request.Entry.Title}；分类={request.Category}；来源={request.Entry.Source}；实例={instance?.Name ?? "(桌面下载)"}。");
+        DesktopFileLog.Debug(
+            "CommunityDownload",
+            $"下载请求：ProjectId={request.Entry.ProjectId}；PreferredVersion={request.PreferredVersion?.VersionId ?? "(自动)"}；PreferredFile={request.PreferredFile?.FileName ?? "(自动)"}。");
 
         // WPF: stay on community list (or return from detail) — do not jump to task manager.
         if (this.FindControl<Border>("PanMainRight")?.Child is PageCommunityDetail)
@@ -1706,6 +1713,7 @@ public partial class MainWindow : Window, IDisposable
 
             if (file is null)
             {
+                DesktopFileLog.Warn("CommunityDownload", $"未找到符合筛选条件的文件：{request.Entry.Title}");
                 TrackTaskFailed(taskId, taskTitle, "未找到匹配当前筛选条件的版本文件。", canceled: false);
                 ShowHint("下载失败：未找到可下载的文件", critical: true);
                 return;
@@ -1749,6 +1757,9 @@ public partial class MainWindow : Window, IDisposable
             client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
             string completedPath = string.Empty;
             int dependencyCount = plan.Count(static item => item.IsDependency);
+            DesktopFileLog.Info(
+                "CommunityDownload",
+                $"下载计划已生成；资源={request.Entry.Title}；项目数={plan.Count}；必需前置={dependencyCount}；目标={baseDirectory}。");
             if (dependencyCount > 0)
             {
                 _launchRight?.AppendLog(
@@ -1776,6 +1787,7 @@ public partial class MainWindow : Window, IDisposable
             }
 
             TrackTaskFinished(taskId, taskTitle, "已保存到 " + completedPath);
+            DesktopFileLog.Info("CommunityDownload", $"社区资源下载完成：{request.Entry.Title} -> {completedPath}");
             _launchRight?.AppendLog($"社区资源已下载：{request.Entry.Title} → {completedPath}");
             ShowHint(request.Category == CommunityResourceCategory.World
                 ? "世界安装完成：" + Path.GetFileName(completedPath)
@@ -1783,11 +1795,13 @@ public partial class MainWindow : Window, IDisposable
         }
         catch (OperationCanceledException)
         {
+            DesktopFileLog.Warn("CommunityDownload", $"社区资源下载已取消：{request.Entry.Title}");
             TrackTaskFailed(taskId, taskTitle, "下载已取消。", canceled: true);
             ShowHint("下载已取消");
         }
         catch (Exception ex)
         {
+            DesktopFileLog.Error("CommunityDownload", $"社区资源下载失败：{request.Entry.Title}", ex);
             TrackTaskFailed(taskId, taskTitle, ex.Message, canceled: false);
             ShowHint("下载失败：" + TruncateHint(ex.Message), critical: true);
         }
@@ -1842,6 +1856,9 @@ public partial class MainWindow : Window, IDisposable
                     await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(true);
                     written += read;
                     double progress = total is > 0 ? written / (double)total.Value : 0d;
+                    DesktopFileLog.RealTime(
+                        "CommunityDownload",
+                        $"下载进度：{item.File.FileName}；字节={written}/{total?.ToString(CultureInfo.InvariantCulture) ?? "?"}；进度={progress:P1}。");
                     TrackTaskProgress(
                         taskId,
                         taskTitle,
@@ -1883,6 +1900,7 @@ public partial class MainWindow : Window, IDisposable
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     // A failed cleanup must not mask the original download result.
+                    DesktopFileLog.Warn("CommunityDownload", $"清理临时下载文件失败：{temporaryPath}", ex);
                 }
             }
         }
@@ -2671,6 +2689,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void TrackTaskBegin(string taskId, string title, string stage)
     {
+        DesktopFileLog.Info("Task", $"任务开始/进入阶段；Id={taskId}；Title={title}；Stage={stage}。");
         _taskSnapshots[taskId] = new TaskManagerEntrySnapshot(
             taskId,
             title,
@@ -2687,6 +2706,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void TrackTaskProgress(string taskId, string title, double progress, string detail)
     {
+        DesktopFileLog.RealTime("Task", $"任务进度；Id={taskId}；Title={title}；Progress={Math.Clamp(progress, 0d, 1d):P1}；Detail={detail}。");
         TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, title);
         _taskSnapshots[taskId] = previous with
         {
@@ -2704,6 +2724,10 @@ public partial class MainWindow : Window, IDisposable
     private void TrackInstallProgress(string taskId, string title, MinecraftInstallProgress progress)
     {
         string stage = string.IsNullOrWhiteSpace(progress.Stage) ? "正在处理下载任务" : progress.Stage;
+        DesktopFileLog.RealTime(
+            "Task",
+            $"安装任务进度；Id={taskId}；Title={title}；Stage={stage}；Progress={progress.Progress:P1}；" +
+            $"Files={progress.CompletedFiles}/{progress.TotalFiles}；Threads={progress.ActiveThreads}/{progress.ThreadLimit}；Speed={progress.SpeedBytesPerSecond}B/s。");
         _taskSnapshots[taskId] = new TaskManagerEntrySnapshot(
             taskId,
             title,
@@ -2763,6 +2787,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void TrackTaskFinished(string taskId, string title, string stage)
     {
+        DesktopFileLog.Info("Task", $"任务完成；Id={taskId}；Title={title}；Stage={stage}。");
         TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, title);
         _taskSnapshots[taskId] = previous with
         {
@@ -2781,6 +2806,10 @@ public partial class MainWindow : Window, IDisposable
 
     private void TrackTaskFailed(string taskId, string title, string message, bool canceled)
     {
+        if (canceled)
+            DesktopFileLog.Warn("Task", $"任务已取消；Id={taskId}；Title={title}；Message={message}。");
+        else
+            DesktopFileLog.Error("Task", $"任务失败；Id={taskId}；Title={title}；Message={message}。");
         TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, title);
         _taskSnapshots[taskId] = previous with
         {
@@ -3373,7 +3402,7 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        DesktopFileLog.Write($"[Settings] 打开设置页 {target.GetType().Name}。");
+        DesktopFileLog.Info("Settings", $"打开设置页 {target.GetType().Name}。");
 
         MyPageRight? oldRight = rightHost.Child as MyPageRight;
         _setupRight = target;
@@ -4470,6 +4499,7 @@ public partial class MainWindow : Window, IDisposable
             }
             catch (Exception postEx)
             {
+                DesktopFileLog.Warn("LaunchUI", "游戏已启动，但启动后界面处理发生异常。", postEx);
                 _launchRight?.AppendLog("启动后界面处理异常（游戏已启动）：" + postEx.Message);
             }
 
@@ -4479,11 +4509,13 @@ public partial class MainWindow : Window, IDisposable
             }
             catch (Exception countEx)
             {
+                DesktopFileLog.Warn("LaunchHistory", $"记录实例 {instance.Name} 的启动次数失败。", countEx);
                 _launchRight?.AppendLog("记录启动次数失败：" + countEx.Message);
             }
         }
         catch (OperationCanceledException)
         {
+            DesktopFileLog.Warn("LaunchUI", $"实例 {instance.Name} 的启动操作已取消。");
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (launchPage.IsLaunchInProgress)
@@ -4492,6 +4524,7 @@ public partial class MainWindow : Window, IDisposable
         }
         catch (Exception ex)
         {
+            DesktopFileLog.Error("LaunchUI", $"实例 {instance.Name} 启动失败。", ex);
             if (runtimeSettingsForRepair is { AutomaticallyRepairGameIssues: true } repairSettings &&
                 ex.Message.Contains("游戏进程在启动后立即退出", StringComparison.Ordinal))
             {
@@ -6656,6 +6689,9 @@ public partial class MainWindow : Window, IDisposable
 
     private void ApplyRuntimeSettings(LauncherSettings settings)
     {
+        DesktopFileLog.ConfigureLevel(DesktopFileLog.LevelFromSetting(settings.GetIntegerOption(
+            "SystemLogLevel",
+            LauncherSettingDefaults.GetInteger("SystemLogLevel"))));
         _targetWindowOpacity = Math.Clamp(
             0.4d + settings.GetIntegerOption(
                 "UiLauncherTransparent",

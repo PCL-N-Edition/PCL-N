@@ -2,6 +2,8 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using PCL.Core.Logging;
+
 namespace PCL.Desktop.Features.Launching.Views;
 
 public sealed record LaunchInstanceInfo(string Name, string VersionJsonPath, string InstanceDirectory);
@@ -47,11 +49,14 @@ public static class LaunchInstanceDiscovery
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        PortableLog.Info("InstanceDiscovery", $"开始扫描 Minecraft 实例；候选根目录={roots.Length}。");
+        PortableLog.Debug("InstanceDiscovery", "扫描根目录：" + string.Join(" | ", roots));
         List<(LaunchInstanceInfo Instance, DateTime LastWriteTimeUtc)> result = [];
         for (int rootIndex = 0; rootIndex < roots.Length; rootIndex++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             string root = roots[rootIndex];
+            PortableLog.RealTime("InstanceDiscovery", $"扫描根目录；Index={rootIndex + 1}/{roots.Length}；Root={root}；Found={result.Count}。");
             progress?.Report(new LaunchInstanceDiscoveryProgress(
                 "正在扫描游戏文件夹",
                 rootIndex,
@@ -67,12 +72,14 @@ public static class LaunchInstanceDiscovery
             {
                 versionDirectories = new DirectoryInfo(versionsRoot).GetDirectories();
             }
-            catch (IOException)
+            catch (IOException ex)
             {
+                PortableLog.Warn(ex, "InstanceDiscovery", $"无法读取版本目录，将跳过：{versionsRoot}");
                 continue;
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
+                PortableLog.Warn(ex, "InstanceDiscovery", $"无权读取版本目录，将跳过：{versionsRoot}");
                 continue;
             }
 
@@ -86,6 +93,9 @@ public static class LaunchInstanceDiscovery
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 DirectoryInfo versionDirectory = versionDirectories[versionIndex];
+                PortableLog.RealTime(
+                    "InstanceDiscovery",
+                    $"检查版本目录；Root={root}；Index={versionIndex + 1}/{versionDirectories.Length}；Directory={versionDirectory.FullName}。");
                 string name = versionDirectory.Name;
                 if (!string.IsNullOrWhiteSpace(name))
                 {
@@ -112,11 +122,13 @@ public static class LaunchInstanceDiscovery
             roots.Length,
             roots.Length,
             result.Count));
-        return result
+        LaunchInstanceInfo[] instances = result
             .OrderByDescending(entry => entry.LastWriteTimeUtc)
             .ThenBy(entry => entry.Instance.Name, StringComparer.OrdinalIgnoreCase)
             .Select(entry => entry.Instance)
             .ToArray();
+        PortableLog.Info("InstanceDiscovery", $"Minecraft 实例扫描完成；根目录={roots.Length}；实例={instances.Length}。");
+        return instances;
     }
 
     public static IReadOnlyList<string> GetCandidateRoots()
@@ -195,6 +207,7 @@ public static class LaunchInstanceDiscovery
         }
         catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
         {
+            PortableLog.Warn(ex, "InstanceDiscovery", $"无法规范化路径，将忽略：{path}");
             return null;
         }
     }

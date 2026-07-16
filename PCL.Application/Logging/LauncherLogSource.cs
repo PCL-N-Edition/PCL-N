@@ -81,7 +81,7 @@ public sealed class PortableLauncherLogSource : ILauncherLogSource
             entry.Level,
             entry.Module,
             entry.Message,
-            entry.Exception?.ToString());
+            PortableLog.Redact(entry.Exception?.ToString()));
 
         lock (_syncRoot)
         {

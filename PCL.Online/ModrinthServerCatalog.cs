@@ -104,7 +104,7 @@ public static class ModrinthServerCatalog
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "Online", "获取 Modrinth 服务器列表失败");
+            PortableLog.Warn(ex, "Online", "获取 Modrinth 服务器列表失败");
             return new ModrinthServerSearchResult([], 0, Math.Max(0, options.Offset), Math.Clamp(options.Limit, 1, MaxPageSize));
         }
     }
@@ -170,7 +170,7 @@ public static class ModrinthServerCatalog
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "Online", $"获取 Modrinth 服务器详情失败：{projectId}");
+            PortableLog.Warn(ex, "Online", $"获取 Modrinth 服务器详情失败：{projectId}");
             return null;
         }
     }

@@ -13,6 +13,7 @@ using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Localization;
+using PCL.Core.Logging;
 
 namespace PCL.Desktop.Features.Launching.Views;
 
@@ -136,7 +137,8 @@ public partial class PageLaunchRight : MyPageRight, IRefreshable, IDisposable
 
     public void AppendLog(string message)
     {
-        DesktopFileLog.Write(message);
+        message = PortableLog.Redact(message);
+        DesktopFileLog.Info("LaunchUI", message);
         if (this.FindControl<TextBlock>("LabLog") is not { } log)
             return;
 

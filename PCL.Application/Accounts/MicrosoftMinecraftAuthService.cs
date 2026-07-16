@@ -6,6 +6,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using PCL.Core.IO.Net;
+using PCL.Core.Logging;
 
 namespace PCL.Application.Accounts;
 
@@ -78,6 +79,7 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
+        PortableLog.Info("MicrosoftAuth", "正在请求 Microsoft 设备登录代码。");
         using HttpResponseMessage response = await PostFormAsync(
                 DeviceCodeEndpoint,
                 new Dictionary<string, string>(StringComparer.Ordinal)
@@ -96,7 +98,7 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
         string verificationUri = RequiredString(root, "verification_uri");
         int expiresIn = ReadInteger(root, "expires_in", 900);
         int interval = ReadInteger(root, "interval", 5);
-        return new MicrosoftDeviceCodeInfo(
+        MicrosoftDeviceCodeInfo result = new(
             deviceCode,
             userCode,
             verificationUri,
@@ -104,6 +106,8 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
             ReadOptionalString(root, "message") ?? $"请打开 {verificationUri} 并输入代码 {userCode}。",
             TimeSpan.FromSeconds(Math.Max(1, expiresIn)),
             TimeSpan.FromSeconds(Math.Max(1, interval)));
+        PortableLog.Info("MicrosoftAuth", $"设备登录代码已创建；验证站点={verificationUri}；有效期={expiresIn}s；轮询间隔={interval}s。");
+        return result;
     }
 
     public async Task<MicrosoftMinecraftLoginResult> CompleteDeviceLoginAsync(
@@ -116,6 +120,7 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
         ArgumentNullException.ThrowIfNull(deviceCode);
         DateTimeOffset expiresAt = DateTimeOffset.UtcNow + deviceCode.ExpiresIn;
         TimeSpan interval = deviceCode.PollInterval;
+        PortableLog.Info("MicrosoftAuth", $"开始等待用户完成设备登录；有效期={deviceCode.ExpiresIn.TotalSeconds:0}s。");
         OAuthTokenResult tokens;
         while (true)
         {
@@ -134,6 +139,9 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
                     },
                     cancellationToken)
                 .ConfigureAwait(false);
+            PortableLog.RealTime(
+                "MicrosoftAuth",
+                $"设备登录轮询完成一次；状态={(response.Tokens is not null ? "authorized" : response.Error ?? "unknown")}；间隔={interval.TotalSeconds:0}s。");
             if (response.Tokens is { } completed)
             {
                 tokens = completed;
@@ -146,6 +154,7 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
                     break;
                 case "slow_down":
                     interval += TimeSpan.FromSeconds(5);
+                    PortableLog.Warn("MicrosoftAuth", $"Microsoft 要求降低轮询频率；新间隔={interval.TotalSeconds:0}s。");
                     break;
                 case "authorization_declined":
                     throw new InvalidOperationException("Microsoft 登录已被拒绝。");
@@ -171,6 +180,7 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
         ArgumentException.ThrowIfNullOrWhiteSpace(refreshToken);
+        PortableLog.Info("MicrosoftAuth", "正在刷新 Microsoft 登录状态。");
         OAuthTokenResponse response = await RequestTokenAsync(
                 new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -182,8 +192,13 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
                 cancellationToken)
             .ConfigureAwait(false);
         if (response.Tokens is not { } tokens)
+        {
+            PortableLog.Error("MicrosoftAuth", $"刷新 Microsoft 登录失败：{response.ErrorDescription ?? response.Error ?? "未知错误"}");
             throw new InvalidOperationException(response.ErrorDescription ?? response.Error ?? "刷新 Microsoft 登录失败。");
-        return await CompleteMinecraftLoginAsync(tokens, null, cancellationToken).ConfigureAwait(false);
+        }
+        MicrosoftMinecraftLoginResult result = await CompleteMinecraftLoginAsync(tokens, null, cancellationToken).ConfigureAwait(false);
+        PortableLog.Info("MicrosoftAuth", $"Microsoft 登录刷新完成；玩家={result.Username}；拥有游戏={result.OwnsMinecraft}。");
+        return result;
     }
 
     private async Task<MicrosoftMinecraftLoginResult> CompleteMinecraftLoginAsync(
@@ -191,13 +206,16 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
+        PortableLog.Debug("MicrosoftAuth", "Microsoft OAuth 完成，开始 Xbox Live 授权。");
         XboxLiveToken xboxLive = await AuthenticateXboxLiveAsync(
                 microsoftTokens.AccessToken,
                 cancellationToken)
             .ConfigureAwait(false);
         progress?.Report(0.58d);
+        PortableLog.Debug("MicrosoftAuth", "Xbox Live 授权完成，开始 XSTS 授权。");
         XboxLiveToken xsts = await AuthorizeXstsAsync(xboxLive.Token, cancellationToken).ConfigureAwait(false);
         progress?.Report(0.7d);
+        PortableLog.Debug("MicrosoftAuth", "XSTS 授权完成，开始 Minecraft Services 授权。");
         string minecraftAccessToken = await AuthenticateMinecraftAsync(
                 xsts.UserHash,
                 xsts.Token,
@@ -210,6 +228,7 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
             .ConfigureAwait(false);
         bool ownsMinecraft = await CheckOwnershipAsync(minecraftAccessToken, cancellationToken).ConfigureAwait(false);
         progress?.Report(1d);
+        PortableLog.Info("MicrosoftAuth", $"Minecraft 档案获取完成；玩家={username}；拥有游戏={ownsMinecraft}。");
         return new MicrosoftMinecraftLoginResult(
             username,
             uuid,
@@ -273,7 +292,10 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
             .ConfigureAwait(false);
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
+        {
+            PortableLog.Error("MicrosoftAuth", $"XSTS 授权失败；HTTP={(int)response.StatusCode}。");
             throw CreateXstsException(response.StatusCode, body);
+        }
         return ReadXboxToken(body, "XSTS 响应缺少令牌或用户标识。");
     }
 
@@ -331,7 +353,10 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
         using HttpResponseMessage response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
+        {
+            PortableLog.Warn("MicrosoftAuth", $"无法确认 Minecraft 所有权；HTTP={(int)response.StatusCode}。");
             return false;
+        }
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         using JsonDocument document = JsonDocument.Parse(body);
         if (!document.RootElement.TryGetProperty("items", out JsonElement items) || items.ValueKind != JsonValueKind.Array)
@@ -413,9 +438,11 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
         catch (JsonException)
         {
         }
-        throw new HttpRequestException(string.IsNullOrWhiteSpace(detail)
+        string message = string.IsNullOrWhiteSpace(detail)
             ? $"{operation}（HTTP {(int)response.StatusCode}）。"
-            : $"{operation}：{detail}");
+            : $"{operation}：{detail}";
+        PortableLog.Error("MicrosoftAuth", message);
+        throw new HttpRequestException(message);
     }
 
     private static string RequiredString(JsonElement element, string propertyName) =>

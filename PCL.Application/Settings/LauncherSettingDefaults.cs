@@ -46,6 +46,7 @@ public static class LauncherSettingDefaults
 
     private static readonly Dictionary<string, int> IntegerDefaults = new(StringComparer.OrdinalIgnoreCase)
     {
+        ["SystemLogLevel"] = 2,
         ["SystemMaxLog"] = 13,
         ["UiAniFPS"] = 59,
         ["SystemHttpProxyType"] = 1,

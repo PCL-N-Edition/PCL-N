@@ -82,7 +82,7 @@ public static class CloudSyncService
                     catch (Exception ex) when (retry < MaxRetryCount)
                     {
                         var retryNumber = retry + 1;
-                        PortableLog.Debug(ex, "CloudSync",
+                        PortableLog.Warn(ex, "CloudSync",
                             $"云同步失败（{reason}），准备第 {retryNumber}/{MaxRetryCount} 次重试。");
                         Notice?.Invoke(NoticeType.Retry, retryNumber);
                         await Task.Delay(TimeSpan.FromSeconds(retryNumber)).ConfigureAwait(false);
@@ -91,7 +91,7 @@ public static class CloudSyncService
             }
             catch (Exception ex)
             {
-                PortableLog.Debug(ex, "CloudSync", $"云同步失败（{reason}）");
+                PortableLog.Warn(ex, "CloudSync", $"云同步失败（{reason}）");
                 Interlocked.Exchange(ref _isAvailable, 0);
                 Notice?.Invoke(NoticeType.Failed, 0);
             }
@@ -302,7 +302,7 @@ public static class CloudSyncService
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "CloudSync", "读取本地同步元数据失败，将使用空状态继续。");
+            PortableLog.Warn(ex, "CloudSync", "读取本地同步元数据失败，将使用空状态继续。");
             return new CloudSyncMetadataFile();
         }
     }
@@ -316,7 +316,7 @@ public static class CloudSyncService
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "CloudSync", "写入本地同步元数据失败。");
+            PortableLog.Warn(ex, "CloudSync", "写入本地同步元数据失败。");
         }
     }
 
@@ -329,7 +329,7 @@ public static class CloudSyncService
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "CloudSync", "删除本地同步元数据失败。");
+            PortableLog.Warn(ex, "CloudSync", "删除本地同步元数据失败。");
         }
     }
 

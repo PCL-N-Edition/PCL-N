@@ -43,7 +43,7 @@ public static class RegionalPolicyClient
             }
             catch (Exception ex)
             {
-                PortableLog.Debug(ex, "RegionalPolicy", "刷新区域策略失败");
+                PortableLog.Warn(ex, "RegionalPolicy", "刷新区域策略失败");
             }
             finally
             {

@@ -6,6 +6,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.Loader;
 using PCL.Application.Hosting;
+using PCL.Core.Logging;
 
 namespace PCL.Desktop.Hosting;
 
@@ -36,8 +37,12 @@ internal static class EmbeddedRuntimeExtensionLoader
             if (_loadedAssembly is not null)
                 return _loadedAssembly;
             if (!HasResource(ResourceName))
+            {
+                PortableLog.Info("PluginLoader", "当前构建未嵌入 PCL.Plugin，跳过平台插件加载。");
                 return null;
+            }
 
+            PortableLog.Info("PluginLoader", "开始从桌面程序资源加载 PCL.Plugin 及其依赖。");
             _loadedAbstractionsAssembly ??= LoadResourceAssembly(AbstractionsResourceName);
             if (LoadedDependencyAssemblies.Count == 0)
             {
@@ -50,6 +55,7 @@ internal static class EmbeddedRuntimeExtensionLoader
             }
 
             _loadedAssembly = LoadResourceAssembly(ResourceName);
+            PortableLog.Info("PluginLoader", $"PCL.Plugin 程序集加载完成：{_loadedAssembly?.GetName().Name ?? "(null)"}。");
             return _loadedAssembly;
         }
     }
@@ -70,6 +76,7 @@ internal static class EmbeddedRuntimeExtensionLoader
 
         using MemoryStream buffer = new();
         resource.CopyTo(buffer);
+        PortableLog.Debug("PluginLoader", $"加载嵌入程序集：{resourceName}；字节={buffer.Length}。");
         buffer.Position = 0;
         return AssemblyLoadContext.Default.LoadFromStream(buffer);
     }

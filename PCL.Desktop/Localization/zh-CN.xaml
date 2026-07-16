@@ -639,6 +639,9 @@
     <sys:String x:Key="Setup.Misc.Log.ExportAll">导出全部日志</sys:String>
     <sys:String x:Key="Setup.Misc.Log.OpenDirectory">打开日志文件夹</sys:String>
     <sys:String x:Key="Setup.Misc.Log.Operations">日志操作</sys:String>
+    <sys:String x:Key="Setup.Misc.Log.Level.Title">日志详细程度</sys:String>
+    <sys:String x:Key="Setup.Misc.Log.Level.Label">日志级别</sys:String>
+    <sys:String x:Key="Setup.Misc.Log.Level.Hint">Error 记录失败位置；Warn 补充潜在问题；Info 记录关键流程与无报错异常线索（默认）；Debug 记录各节点的重要参数；RealTime 额外记录循环、进度、进程输出等高频运行细节，文件可能快速增大。</sys:String>
     <sys:String x:Key="Setup.Misc.Network.DoH">使用 DNS over HTTPS</sys:String>
     <sys:String x:Key="Setup.Misc.Network.DoH.ToolTip">使用 DNS over HTTPS 改善地址解析与网络可靠性。若本机已有其他 DNS 解析服务，可关闭此项。</sys:String>
     <sys:String x:Key="Setup.Misc.Network.HttpProxy">HTTP 代理</sys:String>

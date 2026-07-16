@@ -94,7 +94,7 @@ public sealed partial class CrashReportWindow : Window
         }
         catch (Exception ex)
         {
-            DesktopFileLog.Write("[Crash] 打开 Issue 页面失败：" + ex.Message);
+            DesktopFileLog.Error("Crash", "打开 Issue 页面失败。", ex);
             try
             {
                 Process.Start(new ProcessStartInfo

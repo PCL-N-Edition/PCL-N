@@ -79,7 +79,7 @@ public static class XboxSocialService
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "Online", "获取 Xbox 好友失败");
+            PortableLog.Warn(ex, "Online", "获取 Xbox 好友失败");
             LastFailureReason = Text("Online.Friend.List.LoadFailed");
             return [];
         }
@@ -119,7 +119,7 @@ public static class XboxSocialService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                PortableLog.Debug(ex, "Online", $"获取 Xbox 好友接口失败（Contract {contractVersion}）");
+                PortableLog.Warn(ex, "Online", $"获取 Xbox 好友接口失败（Contract {contractVersion}）");
             }
         }
 

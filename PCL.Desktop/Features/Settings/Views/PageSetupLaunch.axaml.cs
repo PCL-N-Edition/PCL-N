@@ -15,6 +15,7 @@ using PCL.Application.Settings;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Platform.System;
 using PCL.Platform.Abstractions.System;
+using PCL.Core.Logging;
 
 #pragma warning disable CA1822, CS0067
 
@@ -239,6 +240,13 @@ public partial class PageSetupLaunch : MyPageRight, ISettingsPageInteractionSour
         double ramGameActual = Math.Round(Math.Min(ramGame, ramAvailable), 5);
         double ramUsed = Math.Round(Math.Max(0d, ramTotal - ramAvailable), 5);
         double ramEmpty = Math.Round(Math.Clamp(ramTotal - ramUsed - ramGame, 0d, 1000d), 1);
+        if (PortableLog.IsEnabled(PortableLogLevel.RealTime))
+        {
+            PortableLog.RealTime(
+                "MemoryUI",
+                $"内存面板刷新；Total={ramTotal:0.###}GiB；Available={ramAvailable:0.###}GiB；" +
+                $"Selected={ramGame:0.###}GiB；Actual={ramGameActual:0.###}GiB；Mode={memoryMode}；Animated={showAnim}。");
+        }
 
         sliderRamCustom.MaxValue = GetRamSliderMaxValue(ramTotal);
         labRamGame.Text = Math.Abs(ramGame - ramGameActual) > 0.001d

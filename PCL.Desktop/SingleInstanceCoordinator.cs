@@ -6,6 +6,7 @@ using System.IO.Pipes;
 using System.Security.Cryptography;
 using System.Text;
 using PCL.Desktop.Platform;
+using PCL.Core.Logging;
 
 namespace PCL.Desktop;
 
@@ -42,16 +43,19 @@ internal sealed class SingleInstanceCoordinator : IDisposable
             Mutex mutex = new(initiallyOwned: true, mutexName, out bool createdNew);
             return new SingleInstanceCoordinator(pipeName, mutex, createdNew);
         }
-        catch (IOException)
+        catch (IOException ex)
         {
+            PortableLog.Warn(ex, "SingleInstance", "无法创建命名互斥量，将以主实例模式继续。");
             return new SingleInstanceCoordinator(pipeName, mutex: null, ownsMutex: true);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            PortableLog.Warn(ex, "SingleInstance", "无权创建命名互斥量，将以主实例模式继续。");
             return new SingleInstanceCoordinator(pipeName, mutex: null, ownsMutex: true);
         }
-        catch (PlatformNotSupportedException)
+        catch (PlatformNotSupportedException ex)
         {
+            PortableLog.Warn(ex, "SingleInstance", "当前平台不支持命名互斥量，将以主实例模式继续。");
             return new SingleInstanceCoordinator(pipeName, mutex: null, ownsMutex: true);
         }
     }
@@ -63,6 +67,7 @@ internal sealed class SingleInstanceCoordinator : IDisposable
 
         _listenCancellation = new CancellationTokenSource();
         _listenTask = Task.Run(() => ListenAsync(_listenCancellation.Token));
+        PortableLog.Info("SingleInstance", "主实例激活管道监听已启动。");
     }
 
     public int SignalExistingInstance()
@@ -74,14 +79,17 @@ internal sealed class SingleInstanceCoordinator : IDisposable
             pipe.WriteByte(1);
             pipe.Flush();
         }
-        catch (IOException)
+        catch (IOException ex)
         {
+            PortableLog.Warn(ex, "SingleInstance", "连接主实例激活管道失败。");
         }
-        catch (TimeoutException)
+        catch (TimeoutException ex)
         {
+            PortableLog.Warn(ex, "SingleInstance", "连接主实例激活管道超时。");
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            PortableLog.Warn(ex, "SingleInstance", "无权连接主实例激活管道。");
         }
 
         return 0;
@@ -94,6 +102,7 @@ internal sealed class SingleInstanceCoordinator : IDisposable
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            PortableLog.RealTime("SingleInstance", "等待其他启动器进程发出激活请求。");
             try
             {
                 using NamedPipeServerStream pipe = new(
@@ -105,17 +114,20 @@ internal sealed class SingleInstanceCoordinator : IDisposable
                 await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
                 byte[] buffer = new byte[1];
                 _ = await pipe.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                PortableLog.Info("SingleInstance", "收到其他启动器进程的窗口激活请求。");
                 RequestActivation();
             }
             catch (OperationCanceledException)
             {
                 return;
             }
-            catch (IOException)
+            catch (IOException ex)
             {
+                PortableLog.Warn(ex, "SingleInstance", "激活管道发生 IO 异常，将重新监听。");
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
+                PortableLog.Error(ex, "SingleInstance", "激活管道权限不足，监听已停止。");
                 return;
             }
         }

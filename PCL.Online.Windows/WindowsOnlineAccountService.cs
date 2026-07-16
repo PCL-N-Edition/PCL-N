@@ -61,7 +61,7 @@ public static class WindowsOnlineAccountService
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "Online", "WAM 登录失败");
+            PortableLog.Error(ex, "Online", "WAM 登录失败");
             return new OnlineLoginResult
             {
                 Success = false,
@@ -106,7 +106,7 @@ public static class WindowsOnlineAccountService
         }
         catch (Exception ex)
         {
-            PortableLog.Debug(ex, "Online", "WAM 静默获取 Xbox 令牌失败");
+            PortableLog.Warn(ex, "Online", "WAM 静默获取 Xbox 令牌失败");
             return null;
         }
     }

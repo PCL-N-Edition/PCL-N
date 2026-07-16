@@ -12,6 +12,7 @@ using PCL.Core.App;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Theme;
 using PCL.Platform.Paths;
+using PCL.Core.Logging;
 
 namespace PCL.Desktop.Features.Settings.Views;
 
@@ -445,19 +446,42 @@ internal static class LauncherSettingsPageBinder
 
     internal static LauncherSettings LoadSettings()
     {
-        using LauncherSettingsStore store = new(CreateSettingsPath());
-        LauncherSettings settings = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
-        return settings.NormalizeOptionDictionaries();
+        string path = CreateSettingsPath();
+        try
+        {
+            using LauncherSettingsStore store = new(path);
+            LauncherSettings settings = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
+            PortableLog.Debug(
+                "Settings",
+                $"设置读取完成；Path={path}；Bool={settings.BooleanOptions.Count}；Int={settings.IntegerOptions.Count}；Text={settings.TextOptions.Count}。");
+            return settings.NormalizeOptionDictionaries();
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "Settings", $"读取启动器设置失败：{path}");
+            throw;
+        }
     }
 
     internal static void SaveSettings(LauncherSettings settings)
     {
         string settingsPath = CreateSettingsPath();
-        using LauncherSettingsStore store = new(settingsPath);
-        store.SaveAsync(settings).AsTask().GetAwaiter().GetResult();
-        lock (LatestSavedSettingsLock)
-            _latestSavedSettings = new LatestSavedSettings(settingsPath, settings);
-        SettingsChanged?.Invoke(settings);
+        try
+        {
+            using LauncherSettingsStore store = new(settingsPath);
+            store.SaveAsync(settings).AsTask().GetAwaiter().GetResult();
+            lock (LatestSavedSettingsLock)
+                _latestSavedSettings = new LatestSavedSettings(settingsPath, settings);
+            PortableLog.Debug(
+                "Settings",
+                $"设置保存完成；Path={settingsPath}；Bool={settings.BooleanOptions.Count}；Int={settings.IntegerOptions.Count}；Text={settings.TextOptions.Count}。");
+            SettingsChanged?.Invoke(settings);
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "Settings", $"保存启动器设置失败：{settingsPath}");
+            throw;
+        }
     }
 
     internal static void NotifySettingsChanged() => SettingsChanged?.Invoke(LoadSettings());

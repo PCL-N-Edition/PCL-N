@@ -46,7 +46,7 @@ internal static class UnhandledExceptionGuard
         }
         catch (Exception ex)
         {
-            DesktopFileLog.Write("[Crash] 无法挂接 UI 线程异常处理：" + ex.Message);
+            DesktopFileLog.Error("Crash", "无法挂接 UI 线程异常处理。", ex);
         }
     }
 
@@ -93,7 +93,7 @@ internal static class UnhandledExceptionGuard
         {
             try
             {
-                DesktopFileLog.Write("[Crash] 二次未处理异常：" + Flatten(exception).ReplaceLineEndings(" | "));
+                DesktopFileLog.Error("Crash", "处理崩溃时发生二次未处理异常。", exception);
             }
             catch
             {
@@ -117,8 +117,9 @@ internal static class UnhandledExceptionGuard
                 {
                     try
                     {
-                        DesktopFileLog.Write(
-                            $"[Crash] 抑制重复异常 ×{suppressed}：{source} → {exception.Message}");
+                        DesktopFileLog.Warn(
+                            "Crash",
+                            $"抑制重复异常 ×{suppressed}；来源={source}；消息={exception.Message}");
                     }
                     catch
                     {
@@ -136,8 +137,8 @@ internal static class UnhandledExceptionGuard
             string report = BuildReport(exception, source);
             try
             {
-                DesktopFileLog.Initialize();
-                DesktopFileLog.Write("[Crash] " + source + " → " + Flatten(exception).ReplaceLineEndings(" | "));
+                DesktopFileLog.Initialize(DesktopFileLog.Level);
+                DesktopFileLog.Error("Crash", $"未处理异常来源：{source}。", exception);
                 WriteCrashDump(report);
             }
             catch
@@ -200,7 +201,7 @@ internal static class UnhandledExceptionGuard
             catch (Exception showEx)
             {
                 Interlocked.Exchange(ref _dialogShown, 0);
-                DesktopFileLog.Write("[Crash] 无法显示崩溃窗口：" + showEx.Message);
+                DesktopFileLog.Error("Crash", "无法显示崩溃窗口。", showEx);
                 FallbackConsole(exception, report);
             }
         }
@@ -257,11 +258,11 @@ internal static class UnhandledExceptionGuard
             Directory.CreateDirectory(dir);
             string path = Path.Combine(dir, $"crash-{DateTime.Now:yyyyMMdd-HHmmss}.md");
             File.WriteAllText(path, report, Encoding.UTF8);
-            DesktopFileLog.Write("[Crash] 崩溃报告已写入 " + path);
+            DesktopFileLog.Info("Crash", "崩溃报告已写入 " + path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
-            DesktopFileLog.Write("[Crash] 写入崩溃报告失败：" + ex.Message);
+            DesktopFileLog.Error("Crash", "写入崩溃报告失败。", ex);
         }
     }
 

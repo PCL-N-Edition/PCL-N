@@ -10,6 +10,7 @@ using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Threading;
+using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
 
 namespace PCL.Desktop.Features.Community;
@@ -90,6 +91,7 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
         CommunitySearchOptions? options = null)
     {
         _entry = entry ?? throw new ArgumentNullException(nameof(entry));
+        PortableLog.Info("CommunityUI", $"打开资源详情：{entry.Title}；来源={entry.Source}；分类={category}。");
         _category = category;
         _baseOptions = options ?? new CommunitySearchOptions();
         _instanceFilter = null;
@@ -197,9 +199,11 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
         }
         catch (OperationCanceledException)
         {
+            PortableLog.Debug("CommunityUI", $"资源版本加载已取消：{_entry.Title}");
         }
         catch (Exception ex)
         {
+            PortableLog.Error(ex, "CommunityUI", $"加载资源版本失败：{_entry.Title}；来源={_entry.Source}。");
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 SetError(ex.Message);

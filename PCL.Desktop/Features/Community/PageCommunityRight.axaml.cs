@@ -9,6 +9,7 @@ using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Threading;
+using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
 
 namespace PCL.Desktop.Features.Community;
@@ -123,6 +124,7 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
         {
             string query = this.FindControl<MySearchBar>("PanSearchBox")?.Text?.Trim() ?? string.Empty;
             CommunitySearchOptions options = BuildSearchOptions();
+            PortableLog.Debug("CommunityUI", $"刷新资源列表；分类={_category}；页={_page + 1}；查询={query}；来源={options.Source}。");
             IReadOnlyList<CommunityResourceEntry> entries =
                 await _catalog.SearchAsync(_category, query, options, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
@@ -143,9 +145,11 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
         }
         catch (OperationCanceledException)
         {
+            PortableLog.Debug("CommunityUI", $"资源列表刷新已取消；分类={_category}。");
         }
         catch (Exception ex)
         {
+            PortableLog.Error(ex, "CommunityUI", $"资源列表刷新失败；分类={_category}。");
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 SetError(ex.Message);

@@ -12,6 +12,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using PCL.Core.Logging;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -1079,6 +1080,8 @@ public static partial class ModAnimation
             double now = AniClock.Elapsed.TotalMilliseconds;
             double delta = now - _aniLastTick;
             _aniLastTick = now;
+            if (PortableLog.IsEnabled(PortableLogLevel.RealTime))
+                PortableLog.RealTime("Animation", $"动画帧；Delta={delta:0.###}ms；活动组={AniGroups.Count}；目标间隔={_frameInterval.TotalMilliseconds:0.###}ms。");
             AniTimer((int)Math.Round(delta));
         };
         _aniTimer.Start();

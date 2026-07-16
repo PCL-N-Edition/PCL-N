@@ -639,6 +639,9 @@
     <sys:String x:Key="Setup.Misc.Log.ExportAll">Export All Logs</sys:String>
     <sys:String x:Key="Setup.Misc.Log.OpenDirectory">Open Logs Folder</sys:String>
     <sys:String x:Key="Setup.Misc.Log.Operations">Log Actions</sys:String>
+    <sys:String x:Key="Setup.Misc.Log.Level.Title">Log verbosity</sys:String>
+    <sys:String x:Key="Setup.Misc.Log.Level.Label">Log level</sys:String>
+    <sys:String x:Key="Setup.Misc.Log.Level.Hint">Error records failure locations; Warn adds potential problems; Info records key flows and clues for silent anomalies (default); Debug records important parameters at each node; RealTime also records high-frequency loops, progress, and process output and may grow files quickly.</sys:String>
     <sys:String x:Key="Setup.Misc.Network.DoH">Use DNS over HTTPS</sys:String>
     <sys:String x:Key="Setup.Misc.Network.DoH.ToolTip">Uses DNS over HTTPS to improve address resolution and network reliability. Turn it off if DNS is already handled by another local service.</sys:String>
     <sys:String x:Key="Setup.Misc.Network.HttpProxy">HTTP proxy</sys:String>

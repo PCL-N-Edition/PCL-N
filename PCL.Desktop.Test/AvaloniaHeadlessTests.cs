@@ -22,6 +22,7 @@ using PCL.Application.Instances;
 using PCL.Application.Launching;
 using PCL.Application.Settings;
 using PCL.Core.App;
+using PCL.Core.Logging;
 using PCL.Desktop;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
@@ -4154,6 +4155,9 @@ public sealed class AvaloniaHeadlessTests
                 Assert.IsTrue(page.FindControl<StackPanel>("PanList")!.Children
                     .OfType<MyListItem>()
                     .Any(item => item.Title.EndsWith(".log", StringComparison.OrdinalIgnoreCase)));
+                MyComboBox level = page.FindControl<MyComboBox>("ComboLogLevel")!;
+                Assert.AreEqual(5, level.ItemCount);
+                Assert.AreEqual("SystemLogLevel", level.Tag);
             }
             finally
             {
@@ -4187,6 +4191,41 @@ public sealed class AvaloniaHeadlessTests
         }
         finally
         {
+            Environment.SetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH", previousSettingsPath);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void DesktopFileLog_RespectsSelectedLevelAndFormatsStructuredEntries()
+    {
+        string? previousSettingsPath = Environment.GetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH");
+        PortableLogLevel previousLevel = DesktopFileLog.Level;
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-log-level-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "PCLN_LAUNCHER_SETTINGS_PATH",
+                System.IO.Path.Combine(root, "launcher-settings.json"));
+
+            DesktopFileLog.Initialize(PortableLogLevel.Warn);
+            DesktopFileLog.Info("LevelTest", "info-hidden");
+            DesktopFileLog.Warn("LevelTest", "warn-visible");
+            DesktopFileLog.Error("LevelTest", "error-visible", new InvalidOperationException("failure-location"));
+
+            string text = File.ReadAllText(DesktopFileLog.CurrentLogPath);
+            Assert.DoesNotContain("info-hidden", text, StringComparison.Ordinal);
+            StringAssert.Contains(text, "[Warn] [LevelTest] warn-visible");
+            StringAssert.Contains(text, "[Error] [LevelTest] error-visible");
+            StringAssert.Contains(text, "InvalidOperationException");
+            StringAssert.Contains(text, "failure-location");
+        }
+        finally
+        {
+            DesktopFileLog.ConfigureLevel(previousLevel);
             Environment.SetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH", previousSettingsPath);
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);

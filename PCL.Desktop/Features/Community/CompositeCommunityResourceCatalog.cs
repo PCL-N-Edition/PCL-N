@@ -2,6 +2,8 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using PCL.Core.Logging;
+
 namespace PCL.Desktop.Features.Community;
 
 public sealed class CompositeCommunityResourceCatalog : ICommunityResourceCatalog, IDisposable
@@ -32,6 +34,10 @@ public sealed class CompositeCommunityResourceCatalog : ICommunityResourceCatalo
         CancellationToken cancellationToken = default)
     {
         options ??= new CommunitySearchOptions();
+        PortableLog.Info("Community", $"开始搜索社区资源；分类={category}；来源={options.Source}；关键词={query}。");
+        PortableLog.Debug(
+            "Community",
+            $"搜索参数：Sort={options.Sort}；GameVersion={options.GameVersion ?? "(全部)"}；Loader={options.Loader ?? "(全部)"}；Tag={options.Tag ?? "(无)"}。");
         if (options.Source == CommunityResourceSource.Modrinth)
             return await _modrinth.SearchAsync(category, query, options, cancellationToken).ConfigureAwait(false);
         if (options.Source == CommunityResourceSource.CurseForge)
@@ -70,6 +76,7 @@ public sealed class CompositeCommunityResourceCatalog : ICommunityResourceCatalo
             if (seen.Add(key))
                 combined.Add(entry);
         }
+        PortableLog.Info("Community", $"社区资源搜索完成；Modrinth={modrinth.Count}；CurseForge={curseForge.Count}；合并后={combined.Count}。");
         return combined;
     }
 
@@ -133,6 +140,7 @@ public sealed class CompositeCommunityResourceCatalog : ICommunityResourceCatalo
         }
         catch (Exception ex)
         {
+            PortableLog.Warn(ex, "Community", $"社区资源来源 {catalog.GetType().Name} 搜索失败，将保留其他来源结果。");
             return ([], ex);
         }
     }

@@ -17,6 +17,7 @@ using PCL.Desktop.Features.Shared;
 using PCL.Desktop.Localization;
 using PCL.Domain.Minecraft.Java;
 using PCL.Domain.Minecraft.Launch;
+using PCL.Core.Logging;
 using PCL.Platform.Java;
 using PCL.Platform.Paths;
 
@@ -80,6 +81,14 @@ internal sealed class MinecraftLaunchCoordinator
         ArgumentNullException.ThrowIfNull(request);
         double completed = 0d;
         string method = FormatLoginMethod(request.Profile);
+        PortableLog.Info("Launch", $"开始启动实例 {request.Instance.Name}；登录方式={method}。");
+        PortableLog.Debug(
+            "Launch",
+            $"启动请求：实例目录={request.Instance.InstanceDirectory}；MinecraftRoot={request.MinecraftRootDirectory}；" +
+            $"服务器={request.ServerAddress ?? "(无)"}；世界={request.WorldName ?? "(无)"}；优先官方源={request.PreferOfficialSource}。");
+
+        try
+        {
 
         string javaExecutable = await RunStageWithHeartbeatAsync(
                 request,
@@ -208,7 +217,19 @@ internal sealed class MinecraftLaunchCoordinator
             isLaunched: true,
             method: processMethod);
 
-        return new MinecraftLaunchCoordinatorResult(process, plan, javaExecutable, profile, session.SessionId);
+            PortableLog.Info("Launch", $"实例 {request.Instance.Name} 启动成功；PID={process.Id}；会话={session.SessionId}。");
+            return new MinecraftLaunchCoordinatorResult(process, plan, javaExecutable, profile, session.SessionId);
+        }
+        catch (OperationCanceledException)
+        {
+            PortableLog.Warn("Launch", $"实例 {request.Instance.Name} 的启动已取消；最后进度={MinecraftLaunchStages.ProgressAt(completed):P0}。");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "Launch", $"实例 {request.Instance.Name} 启动失败；最后进度={MinecraftLaunchStages.ProgressAt(completed):P0}。");
+            throw;
+        }
     }
 
     private static async Task<T> RunStageWithHeartbeatAsync<T>(
@@ -221,12 +242,29 @@ internal sealed class MinecraftLaunchCoordinator
         CancellationToken cancellationToken,
         bool isLaunched = false)
     {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        PortableLog.Info("Launch", $"进入启动阶段：{stage}。");
+        PortableLog.Debug(
+            "Launch",
+            $"阶段参数：名称={stage}；起始权重={completedBefore:0.##}；阶段权重={stageWeight:0.##}；方式={method}；已启动={isLaunched}。");
         Report(request, stage, completedBefore, isLaunched, method);
-        Task<T> workTask = work(cancellationToken);
+        Task<T> workTask;
+        try
+        {
+            workTask = work(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "Launch", $"启动阶段 {stage} 在创建任务时失败。");
+            throw;
+        }
         double softFraction = 0d;
         while (!workTask.IsCompleted)
         {
             softFraction = Math.Min(0.92d, softFraction + 0.05d);
+            PortableLog.RealTime(
+                "Launch",
+                $"阶段运行中：{stage}；阶段软进度={softFraction:P0}；总权重={completedBefore + (stageWeight * softFraction):0.##}/{MinecraftLaunchStages.Total:0.##}。");
             Report(
                 request,
                 stage,
@@ -243,8 +281,23 @@ internal sealed class MinecraftLaunchCoordinator
             }
         }
 
-        T result = await workTask.ConfigureAwait(false);
+        T result;
+        try
+        {
+            result = await workTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            PortableLog.Warn("Launch", $"启动阶段 {stage} 已取消；耗时={stopwatch.Elapsed.TotalSeconds:0.###}s。");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "Launch", $"启动阶段 {stage} 失败；耗时={stopwatch.Elapsed.TotalSeconds:0.###}s。");
+            throw;
+        }
         Report(request, stage, completedBefore + stageWeight, isLaunched, method);
+        PortableLog.Info("Launch", $"完成启动阶段：{stage}；耗时={stopwatch.Elapsed.TotalSeconds:0.###}s。");
         return result;
     }
 
@@ -473,6 +526,7 @@ internal sealed class MinecraftLaunchCoordinator
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            PortableLog.RealTime("GameProcess", $"等待游戏稳定运行；PID={process.Id}；HasExited={process.HasExited}。");
 
             if (process.HasExited)
             {
@@ -503,10 +557,12 @@ internal sealed class MinecraftLaunchCoordinator
         {
             await process.WaitForExitAsync().ConfigureAwait(false);
             GameSessionRegistry.Shared.Complete(sessionId, process.ExitCode);
+            PortableLog.Info("GameProcess", $"游戏进程已退出；PID={process.Id}；ExitCode={process.ExitCode}；会话={sessionId}。");
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
             GameSessionRegistry.Shared.Complete(sessionId, -1);
+            PortableLog.Warn(exception, "GameProcess", $"无法读取游戏进程退出状态；会话={sessionId}。");
         }
     }
 
@@ -682,9 +738,10 @@ internal sealed class MinecraftLaunchCoordinator
                 "echo.\r\necho Exit code: %ERRORLEVEL%\r\npause\r\n";
             File.WriteAllText(batPath, content, Encoding.UTF8);
         }
-        catch
+        catch (Exception ex)
         {
             // Best-effort debug aid only.
+            PortableLog.Warn(ex, "Launch", "写入 LatestLaunch-PCLN.bat 失败，游戏启动不受影响。");
         }
     }
 
@@ -703,9 +760,13 @@ internal sealed class MinecraftLaunchCoordinator
         bool isLaunched = false,
         string? method = null)
     {
+        double progress = MinecraftLaunchStages.ProgressAt(completedWeight);
+        PortableLog.RealTime(
+            "Launch",
+            $"阶段报告：{stage}；进度={progress:P1}；已启动={isLaunched}；方式={method ?? "(无)"}。");
         request.Report(new MinecraftLaunchStageReport(
             stage,
-            MinecraftLaunchStages.ProgressAt(completedWeight),
+            progress,
             isLaunched,
             method));
     }
@@ -849,6 +910,7 @@ internal sealed class MinecraftLaunchCoordinator
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
+            PortableLog.Warn(ex, "LaunchInspect", $"读取版本发布时间失败，将改用其他规则：{instance.VersionJsonPath}");
         }
 
         return null;
@@ -873,6 +935,7 @@ internal sealed class MinecraftLaunchCoordinator
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
+            PortableLog.Warn(ex, "LaunchInspect", $"读取版本 Java 主版本失败，将自动推断：{instance.VersionJsonPath}");
         }
 
         return null;
@@ -897,6 +960,7 @@ internal sealed class MinecraftLaunchCoordinator
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
+            PortableLog.Warn(ex, "LaunchInspect", $"读取版本 Java 组件失败，将自动推断：{instance.VersionJsonPath}");
         }
 
         return null;
