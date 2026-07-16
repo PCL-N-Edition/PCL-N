@@ -1,0 +1,80 @@
+name: Update release notes
+
+# Standalone: regenerate changelog + Release inventory for an existing tag.
+# Also callable from publish workflows after assets/patches land.
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        description: Release tag to update
+        required: true
+        type: string
+      cleanup_legacy:
+        description: Delete ambiguous legacy patch/manifest assets
+        required: false
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing release tag (e.g. v1.1.6-release)
+        required: true
+        type: string
+      cleanup_legacy:
+        description: Delete ambiguous legacy patch/manifest assets
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    name: Changelog + Release inventory → ${{ inputs.tag_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Prefer branch that carries latest note tooling on dispatch.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || github.sha }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@git-cliff
+
+      - name: Generate and publish release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -eo pipefail
+          EXTRA=()
+          if [[ "${{ inputs.cleanup_legacy }}" == "true" ]]; then
+            EXTRA+=(--cleanup-legacy)
+          fi
+          python scripts/generate_release_notes.py \
+            --repo "${{ github.repository }}" \
+            --tag "${{ inputs.tag_name }}" \
+            --repo-root "${{ github.workspace }}" \
+            -o RELEASE_NOTES.md \
+            --publish \
+            ${EXTRA[@]+"${EXTRA[@]}"}
+          echo "---- RELEASE_NOTES.md (preview) ----"
+          head -n 120 RELEASE_NOTES.md
+
+      - name: Upload notes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-${{ inputs.tag_name }}
+          path: RELEASE_NOTES.md
+          if-no-files-found: error
+          retention-days: 14

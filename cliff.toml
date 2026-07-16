@@ -21,12 +21,6 @@ body = """
             {% if commit.remote.pr_number %} in #{{ commit.remote.pr_number }}{%- endif %}
     {% endfor %}
 {% endfor %}
-
----
-
-[GPG 签名公钥](https://github.com/MuXue1230-owo/PCL-N/blob/dev/GPG-PUBLIC-KEY.asc)
-公钥指纹 `81D9430A309B84272D518584EDF4453F0BBB862E`
-
 """
 # Remove leading and trailing whitespaces from the changelog's body.
 trim = true

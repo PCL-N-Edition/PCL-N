@@ -51,6 +51,7 @@ jobs:
       plugin_tag: ${{ vars.PCL_PLUGIN_TAG || 'latest' }}
     secrets: inherit
 
+  # Early stub notes (commits only). Full inventory is written after assets/patches.
   changelog:
     permissions:
       contents: write
@@ -62,20 +63,26 @@ jobs:
         with:
           fetch-depth: 0
       - uses: taiki-e/install-action@git-cliff
-      - name: Generate changelog
-        run: git-cliff --latest -o CHANGELOG.md
-      - name: Add changelog to release
-        uses: softprops/action-gh-release@v2.5.0
+      - uses: actions/setup-python@v5
         with:
-          tag_name: ${{ github.event.release.tag_name || inputs.tag_name }}
-          body_path: CHANGELOG.md
+          python-version: "3.12"
+      - name: Generate provisional release notes
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/generate_release_notes.py \
+            --repo "${{ github.repository }}" \
+            --tag "${{ github.event.release.tag_name || inputs.tag_name }}" \
+            --repo-root "${{ github.workspace }}" \
+            -o RELEASE_NOTES.md \
+            --publish \
+            --skip-inventory
 
   publish-assets:
     permissions:
       contents: write
-    needs: [build, changelog]
+    needs: [build]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -141,3 +148,13 @@ jobs:
       include_prerelease_history: false
     secrets:
       PATCHES_REPO_TOKEN: ${{ secrets.PATCHES_REPO_TOKEN }}
+
+  # Final notes: changelog + structured Release inventory (after packages ± patches).
+  finalize-release-notes:
+    name: Finalize release notes
+    needs: [publish-assets, generate-patches]
+    if: ${{ always() && needs.publish-assets.result == 'success' }}
+    uses: ./.github/workflows/update-release-notes.yml
+    with:
+      tag_name: ${{ github.event.release.tag_name || inputs.tag_name }}
+      cleanup_legacy: true
