@@ -684,13 +684,19 @@ public partial class PageInstanceInstallRight : MyPageRight
             foreach (string file in Directory.EnumerateFiles(mods, "*", SearchOption.TopDirectoryOnly))
             {
                 string name = Path.GetFileName(file);
-                if (needles.Any(needle => name.Contains(needle, StringComparison.OrdinalIgnoreCase)))
+                string artifactName = Path.GetFileNameWithoutExtension(name);
+                if (needles.Any(needle => IsModArtifactName(artifactName, needle)))
                     return SimplifyVersionName(name);
             }
         }
 
         return null;
     }
+
+    private static bool IsModArtifactName(string artifactName, string expectedName) =>
+        artifactName.Equals(expectedName, StringComparison.OrdinalIgnoreCase) ||
+        artifactName.StartsWith(expectedName + "-", StringComparison.OrdinalIgnoreCase) ||
+        artifactName.StartsWith(expectedName + "_", StringComparison.OrdinalIgnoreCase);
 
     private static string SimplifyVersionName(string fileName)
     {

@@ -6670,6 +6670,79 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageInstanceInstallRight_ResolvesInheritedNeoForgeWithoutFalseFabricApi()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-inherited-neoforge-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "custom-pack");
+            string neoForgeDirectory = System.IO.Path.Combine(root, "versions", "neoforge-21.1.204");
+            string modsDirectory = System.IO.Path.Combine(versionDirectory, "mods");
+            Directory.CreateDirectory(versionDirectory);
+            Directory.CreateDirectory(neoForgeDirectory);
+            Directory.CreateDirectory(modsDirectory);
+            File.WriteAllText(
+                System.IO.Path.Combine(versionDirectory, "custom-pack.json"),
+                """
+                {
+                  "id": "custom-pack",
+                  "inheritsFrom": "neoforge-21.1.204",
+                  "libraries": []
+                }
+                """);
+            File.WriteAllText(
+                System.IO.Path.Combine(neoForgeDirectory, "neoforge-21.1.204.json"),
+                """
+                {
+                  "id": "neoforge-21.1.204",
+                  "inheritsFrom": "1.21.1",
+                  "libraries": [
+                    { "name": "net.neoforged:neoforge:21.1.204:client" }
+                  ]
+                }
+                """);
+            File.WriteAllText(
+                System.IO.Path.Combine(modsDirectory, "xinya-fabric-api-1.0.0.jar"),
+                "not Fabric API");
+            LaunchInstanceInfo instance = new(
+                "custom-pack",
+                System.IO.Path.Combine(versionDirectory, "custom-pack.json"),
+                versionDirectory);
+
+            session.Dispatch(() =>
+            {
+                PageInstanceInstallRight page = new();
+                Window window = new() { Width = 720, Height = 480, Content = page };
+                try
+                {
+                    window.Show();
+                    page.SetInstance(instance);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    Assert.AreEqual("1.21.1", page.FindControl<TextBlock>("LabMinecraft")!.Text);
+                    Assert.AreEqual("21.1.204", page.FindControl<TextBlock>("LabNeoForge")!.Text);
+                    StringAssert.Contains(page.FindControl<MyListItem>("ItemSelect")!.Info, "NeoForge 21.1.204");
+                    Assert.AreEqual("可添加", page.FindControl<TextBlock>("LabFabricApi")!.Text);
+                    Assert.IsFalse(page.FindControl<Control>("BtnFabricApiClear")!.IsVisible);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void PageInstanceInstallRight_SelectsMinecraftVersionInCopiedWpfList()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
