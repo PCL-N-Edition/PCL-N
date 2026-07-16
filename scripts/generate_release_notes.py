@@ -48,9 +48,11 @@ LEGACY_PATCH_RE = re.compile(
     r"^(?P<from>\d[\w.\-]*)-to-(?P<to>\d[\w.\-]*)\.hdiff(?:\.sha256)?$"
 )
 
-# Flat manifests from early softprops uploads
+# Flat manifests from early softprops uploads (exact RID only — not patch-manifest-*).
 LEGACY_MANIFEST_RE = re.compile(
-    r"^(?P<rid>[\w-]+)_(?P<runtime>SelfContained|NoRuntime)_(?P<plugin>WithPlugin|NoPlugin)\.json$"
+    r"^(?P<rid>win-x64|win-arm64|linux-x64|linux-arm64|osx-x64|osx-arm64)_"
+    r"(?P<runtime>SelfContained|NoRuntime)_"
+    r"(?P<plugin>WithPlugin|NoPlugin)\.json$"
 )
 
 RID_ORDER = [
@@ -187,20 +189,30 @@ def strip_gpg_footer(text: str) -> str:
     return "\n".join(lines[:cut]).rstrip() + "\n"
 
 
+def md_link(label: str, url: str | None) -> str:
+    """Markdown link; falls back to code span when URL is missing."""
+    if url:
+        # Escape pipes so table cells stay intact
+        safe_label = label.replace("|", "\\|")
+        return f"[{safe_label}]({url})"
+    return f"`{label}`"
+
+
 def build_inventory(assets: list[Asset], tag: str) -> str:
     by_name = {a.name: a for a in assets}
 
     packages: list[tuple[re.Match[str], Asset]] = []
     unique_patches: list[tuple[re.Match[str], Asset]] = []
     legacy_patches: list[Asset] = []
-    sigs: set[str] = set()
+    # package basename (without .asc) -> signature asset
+    sig_by_package: dict[str, Asset] = {}
     indexes: list[Asset] = []
     manifests: list[Asset] = []
     other: list[Asset] = []
 
     for a in assets:
         if a.name.endswith(".asc"):
-            sigs.add(a.name[: -len(".asc")])
+            sig_by_package[a.name[: -len(".asc")]] = a
             continue
         m = PACKAGE_RE.match(a.name)
         if m:
@@ -235,7 +247,7 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
     lines.append("### 完整安装包")
     lines.append("")
     lines.append(
-        "| 平台 | 运行时 | 插件 | 大小 | 文件 | GPG |"
+        "| 平台 | 运行时 | 插件 | 大小 | 文件 | 校验 |"
     )
     lines.append("| --- | --- | --- | ---: | --- | :---: |")
 
@@ -261,15 +273,21 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
             rid = m.group("rid")
             runtime = m.group("runtime")
             plugin = m.group("plugin")
-            signed = "✅" if a.name in sigs else "—"
-            # Prefer linking via release asset name (GitHub renders as asset link in UI when plain code)
+            file_cell = md_link(a.name, a.browser_url or None)
+            sig = sig_by_package.get(a.name)
+            if sig and sig.browser_url:
+                verify_cell = md_link("GPG", sig.browser_url)
+            elif sig:
+                verify_cell = md_link("GPG", None)
+            else:
+                verify_cell = "—"
             lines.append(
                 f"| {RID_LABEL.get(rid, rid)} "
                 f"| {RUNTIME_LABEL.get(runtime, runtime)} "
                 f"| {PLUGIN_LABEL.get(plugin, plugin)} "
                 f"| {human_size(a.size)} "
-                f"| `{a.name}` "
-                f"| {signed} |"
+                f"| {file_cell} "
+                f"| {verify_cell} |"
             )
 
     lines.append("")
@@ -280,7 +298,7 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
     lines.append("- **NoRuntime / 需本机 .NET**：体积较小，需已安装匹配的 .NET 运行时。")
     lines.append("- **WithPlugin / 内嵌插件**：发布时嵌入的 PCL.Plugin 构建。")
     lines.append("- **NoPlugin / 不含插件**：纯启动器，可自行安装插件。")
-    lines.append("- 每个安装包旁有对应的 **`.asc`** OpenPGP 分离签名（上表 GPG 列为 ✅）。")
+    lines.append("- **文件**列可直接下载安装包；**校验**列为对应的 OpenPGP 分离签名（`.asc`）。")
     lines.append("")
     lines.append("</details>")
     lines.append("")
@@ -308,12 +326,14 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
         if index_name:
             idx = by_name[index_name]
             lines.append(
-                f"- 总索引：`{index_name}`（{human_size(idx.size)}）"
+                f"- 总索引：{md_link(index_name, idx.browser_url or None)}"
+                f"（{human_size(idx.size)}）"
             )
         if manifests:
             lines.append(
                 f"- 分平台清单：`patch-manifest-*.json`（{len(manifests)} 个）"
             )
+
         lines.append(
             "- 命名规则：`{runtimeId}__{variant}__{fromVersion}-to-{toVersion}.hdiff`"
         )
@@ -373,7 +393,7 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
 
     # Quick stats
     pkg_count = len(packages)
-    sig_count = sum(1 for a in assets if a.name.endswith(".asc"))
+    sig_count = len(sig_by_package)
     lines.append("### 资源统计")
     lines.append("")
     lines.append(
