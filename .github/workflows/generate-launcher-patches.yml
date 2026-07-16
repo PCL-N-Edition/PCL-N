@@ -20,10 +20,10 @@ on:
         type: number
         default: 10
       hop_interval:
-        description: Multi-hop planning stride for clients (e.g. 1→4→7 when 3)
+        description: Multi-hop planning stride for clients (e.g. 1→11→21 when 10)
         required: false
         type: number
-        default: 3
+        default: 10
       include_prerelease_history:
         required: false
         type: boolean
@@ -51,9 +51,9 @@ on:
         default: "10"
         type: string
       hop_interval:
-        description: Hop interval for multi-hop upgrades (1→4→7)
+        description: Hop interval for multi-hop upgrades (1→11→21)
         required: false
-        default: "3"
+        default: "10"
         type: string
       include_prerelease_history:
         required: false
@@ -130,7 +130,7 @@ jobs:
             --target-tag "${TARGET_TAG}" \
             --out-dir "${{ github.workspace }}/patch-artifacts/${TARGET_TAG}" \
             --max-from-versions "${MAX_FROM:-10}" \
-            --hop-interval "${HOP_INTERVAL:-3}" \
+            --hop-interval "${HOP_INTERVAL:-10}" \
             --tools-dir "${{ github.workspace }}/tools/pcl-n-patches/tools/hdiffpatch" \
             ${EXTRA[@]+"${EXTRA[@]}"}
 

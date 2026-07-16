@@ -4,8 +4,8 @@ Generate binary patches from selected prior PCL-N release versions to a target t
 
 Strategy (default):
   • Direct: only the last ``max_from_versions`` (default **10**) predecessors → target
-  • Multi-hop for older builds: clients chain patches across releases, e.g. 1→4→7
-    (each hop is a “last-3” edge published when that intermediate release was built)
+  • Multi-hop for older builds: clients chain patches across releases, e.g. 1→11→21
+    (each hop is a “last-10” edge published when that intermediate release was built)
 
 Per runtime variant (RID × SelfContained|NoRuntime × WithPlugin|NoPlugin).
 """
@@ -104,14 +104,14 @@ def select_from_versions(
     history_asc: list[ReleaseInfo],
     *,
     max_direct: int = 10,
-    hop_interval: int = 3,
+    hop_interval: int = 10,
 ) -> tuple[list[ReleaseInfo], dict]:
     """
     Choose which prior versions get a direct patch *to the target*.
 
     Only the last ``max_direct`` predecessors (default 10) receive a patch to
     this target. Older clients upgrade by multi-hop across intermediate
-    releases, e.g. 1→4→7 (each edge was published when that intermediate
+    releases, e.g. 1→11→21 (each edge was published when that intermediate
     release was built with its own last-N window).
 
     ``hop_interval`` is recorded for clients as the recommended planning
@@ -134,7 +134,7 @@ def select_from_versions(
         "upgradeMode": "multi-hop",
         "description": (
             f"Only the last {max_direct} versions get a direct patch to this "
-            f"release. Older builds should chain patches (e.g. 1→4→7 with "
+            f"release. Older builds should chain patches (e.g. 1→11→21 with "
             f"hopInterval={hop_interval}) using indexes from intermediate releases, "
             f"or fall back to a full download."
         ),
@@ -303,7 +303,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Generate HDiff patches to a target PCL-N version "
-            "(default: last 10 versions; older clients multi-hop e.g. 1→4→7)"
+            "(default: last 10 versions; older clients multi-hop e.g. 1→11→21)"
         )
     )
     parser.add_argument("--source-repo", default="MuXue1230-owo/PCL-N")
@@ -320,10 +320,10 @@ def main() -> int:
     parser.add_argument(
         "--hop-interval",
         type=int,
-        default=3,
+        default=10,
         help=(
-            "Also emit direct patches from hop anchors every N versions "
-            "(1-based 1,4,7… when N=3) so old clients can multi-hop (default: 3)"
+            "Client multi-hop planning stride (e.g. 1→11→21 when N=10). "
+            "Recorded in index strategy metadata (default: 10)"
         ),
     )
     parser.add_argument("--rids", nargs="*", default=RUNTIME_IDS)

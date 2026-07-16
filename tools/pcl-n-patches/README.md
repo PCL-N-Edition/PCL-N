@@ -9,7 +9,7 @@ Canonical standalone repo (optional mirror): `PCL-N-Patches`.
 
 1. `release-stable_publish.yml` / `release-beta_publish.yml` builds and uploads full assets  
 2. Job **`generate-patches`** (workflow call → `generate-launcher-patches.yml`) runs after `publish-assets`  
-   - Default strategy: **last 10 versions** get a direct patch to the new tag; older clients multi-hop (e.g. `1→4→7`).  
+   - Default strategy: **last 10 versions** get a direct patch; older clients multi-hop with stride 10 (e.g. `1→11→21`).  
 3. Downloads historical + target assets from this repo’s Releases  
 4. For each RID × variant, generates `from → to` `.hdiff`  
 5. Uploads `index.json` + patches onto **the same release tag**  
