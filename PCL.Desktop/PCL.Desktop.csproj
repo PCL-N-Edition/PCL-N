@@ -92,6 +92,9 @@
     <Content Include="Assets/UiSurfaces/PCL.Desktop.UiSurface.json"
              CopyToOutputDirectory="PreserveNewest"
              TargetPath="PCL.Desktop.UiSurface.json" />
+    <EmbeddedResource Include="Localization/zh-CN.xaml">
+      <LogicalName>PCL.Desktop.Localization.zh-CN.xaml</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="Localization/en-US.xaml">
       <LogicalName>PCL.Desktop.Localization.en-US.xaml</LogicalName>
     </EmbeddedResource>

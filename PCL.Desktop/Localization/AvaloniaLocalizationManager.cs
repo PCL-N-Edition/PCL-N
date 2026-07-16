@@ -11,17 +11,33 @@ using PCL.Application.Settings;
 
 namespace PCL.Desktop.Localization;
 
+/// <summary>
+/// UI language resources:
+/// <list type="number">
+/// <item><c>zh-CN.xaml</c> — base Chinese catalog (always loaded as fallback)</item>
+/// <item><c>en-US.xaml</c> — English overlay when UI language is English</item>
+/// </list>
+/// Lookup order for <see cref="GetText"/>: current language → Chinese → key name.
+/// </summary>
 public static class AvaloniaLocalizationManager
 {
     public const string Auto = "auto";
     public const string FollowLanguage = "follow-language";
-    private const string DefaultLanguage = "zh-CN";
+    public const string ChineseLanguage = "zh-CN";
+    public const string EnglishLanguage = "en-US";
+
+    private const string ChineseResourceName = "PCL.Desktop.Localization.zh-CN.xaml";
     private const string EnglishResourceName = "PCL.Desktop.Localization.en-US.xaml";
+
     private static readonly CultureInfo SystemCulture = CultureInfo.CurrentCulture;
     private static readonly CultureInfo SystemUiCulture = CultureInfo.CurrentUICulture;
-    private static ResourceDictionary? _languageResources;
 
-    public static string CurrentLanguageCode { get; private set; } = DefaultLanguage;
+    private static readonly object Gate = new();
+    private static Dictionary<string, string>? _zhCnMap;
+    private static Dictionary<string, string>? _enUsMap;
+    private static ResourceDictionary? _mergedLanguageResources;
+
+    public static string CurrentLanguageCode { get; private set; } = ChineseLanguage;
 
     public static CultureInfo CurrentFormatCulture { get; private set; } = CultureInfo.CurrentCulture;
 
@@ -59,11 +75,45 @@ public static class AvaloniaLocalizationManager
             LanguageChanged?.Invoke(null, EventArgs.Empty);
     }
 
-    public static string GetText(string key, string fallback)
+    /// <summary>
+    /// Resolve UI text: current language → Chinese → <paramref name="key"/>.
+    /// The <paramref name="fallback"/> parameter is ignored (kept for call-site compatibility).
+    /// </summary>
+    public static string GetText(string key, string fallback = "")
     {
-        if (Avalonia.Application.Current?.TryGetResource(key, null, out object? value) == true && value is string text)
-            return text;
-        return fallback;
+        if (string.IsNullOrWhiteSpace(key))
+            return string.Empty;
+
+        EnsureMapsLoaded();
+
+        // 1) Current language (en-US when English)
+        if (string.Equals(CurrentLanguageCode, EnglishLanguage, StringComparison.OrdinalIgnoreCase) &&
+            _enUsMap is not null &&
+            _enUsMap.TryGetValue(key, out string? en) &&
+            !string.IsNullOrEmpty(en))
+        {
+            return en;
+        }
+
+        // 2) Chinese fallback
+        if (_zhCnMap is not null &&
+            _zhCnMap.TryGetValue(key, out string? zh) &&
+            !string.IsNullOrEmpty(zh))
+        {
+            return zh;
+        }
+
+        // 3) Application resources (DynamicResource already merged) as last live lookup
+        if (Avalonia.Application.Current?.TryGetResource(key, null, out object? value) == true &&
+            value is string live &&
+            !string.IsNullOrEmpty(live))
+        {
+            return live;
+        }
+
+        // 4) Missing Chinese (and English) → show the key
+        _ = fallback;
+        return key;
     }
 
     private static string ResolveLanguage(string? languageCode)
@@ -71,12 +121,14 @@ public static class AvaloniaLocalizationManager
         if (!string.IsNullOrWhiteSpace(languageCode) &&
             !string.Equals(languageCode, Auto, StringComparison.OrdinalIgnoreCase))
         {
-            return languageCode.StartsWith("en", StringComparison.OrdinalIgnoreCase) ? "en-US" : DefaultLanguage;
+            return languageCode.StartsWith("en", StringComparison.OrdinalIgnoreCase)
+                ? EnglishLanguage
+                : ChineseLanguage;
         }
 
         return SystemUiCulture.TwoLetterISOLanguageName.Equals("en", StringComparison.OrdinalIgnoreCase)
-            ? "en-US"
-            : DefaultLanguage;
+            ? EnglishLanguage
+            : ChineseLanguage;
     }
 
     private static CultureInfo ResolveFormatCulture(string? formatCultureCode, CultureInfo uiCulture)
@@ -105,33 +157,64 @@ public static class AvaloniaLocalizationManager
 
     private static void ApplyResources(Avalonia.Application application, string languageCode)
     {
-        if (_languageResources is not null)
+        EnsureMapsLoaded();
+
+        if (_mergedLanguageResources is not null)
         {
-            application.Resources.MergedDictionaries.Remove(_languageResources);
-            _languageResources = null;
+            application.Resources.MergedDictionaries.Remove(_mergedLanguageResources);
+            _mergedLanguageResources = null;
         }
 
-        if (!string.Equals(languageCode, "en-US", StringComparison.OrdinalIgnoreCase))
-            return;
+        // Always start from Chinese so DynamicResource has zh-CN defaults.
+        ResourceDictionary merged = new();
+        if (_zhCnMap is not null)
+        {
+            foreach ((string key, string value) in _zhCnMap)
+                merged[key] = value;
+        }
 
-        _languageResources = LoadEnglishResources();
-        application.Resources.MergedDictionaries.Add(_languageResources);
+        // English overlays Chinese when selected.
+        if (string.Equals(languageCode, EnglishLanguage, StringComparison.OrdinalIgnoreCase) &&
+            _enUsMap is not null)
+        {
+            foreach ((string key, string value) in _enUsMap)
+                merged[key] = value;
+        }
+
+        _mergedLanguageResources = merged;
+        application.Resources.MergedDictionaries.Add(merged);
     }
 
-    private static ResourceDictionary LoadEnglishResources()
+    private static void EnsureMapsLoaded()
+    {
+        if (_zhCnMap is not null && _enUsMap is not null)
+            return;
+
+        lock (Gate)
+        {
+            _zhCnMap ??= LoadStringMap(ChineseResourceName);
+            _enUsMap ??= LoadStringMap(EnglishResourceName);
+        }
+    }
+
+    private static Dictionary<string, string> LoadStringMap(string resourceName)
     {
         Assembly assembly = typeof(AvaloniaLocalizationManager).Assembly;
-        using Stream stream = assembly.GetManifestResourceStream(EnglishResourceName)
-            ?? throw new InvalidOperationException("English localization resource is missing.");
+        using Stream? stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null)
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+
         XDocument document = XDocument.Load(stream, LoadOptions.PreserveWhitespace);
         XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
-        ResourceDictionary resources = new();
+        Dictionary<string, string> map = new(StringComparer.Ordinal);
         foreach (XElement element in document.Root?.Elements() ?? [])
         {
             XAttribute? key = element.Attribute(xaml + "Key");
-            if (key is not null)
-                resources[key.Value] = element.Value;
+            if (key is null || string.IsNullOrWhiteSpace(key.Value))
+                continue;
+            map[key.Value] = element.Value;
         }
-        return resources;
+
+        return map;
     }
 }
