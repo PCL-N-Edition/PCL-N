@@ -70,7 +70,7 @@ public sealed class LauncherUpdateService : IDisposable
             ? $"https://api.github.com/repos/{_owner}/{_repo}/releases/latest"
             : $"https://api.github.com/repos/{_owner}/{_repo}/releases?per_page=20";
 
-        using HttpResponseMessage response = await _httpClient.GetAsync(api, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await GetAsyncSafe(api, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -122,7 +122,7 @@ public sealed class LauncherUpdateService : IDisposable
         CancellationToken cancellationToken)
     {
         string api = $"https://api.github.com/repos/{_owner}/{_repo}/releases/tags/{CiRollingTag}";
-        using HttpResponseMessage response = await _httpClient.GetAsync(api, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await GetAsyncSafe(api, cancellationToken).ConfigureAwait(false);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return LauncherUpdateCheckResult.Failed(
@@ -175,6 +175,20 @@ public sealed class LauncherUpdateService : IDisposable
             SupportsPatches: false,
             RemoteCommitSha: remoteCommitNorm,
             PublishedAt: release.PublishedAt);
+    }
+
+    private async Task<HttpResponseMessage> GetAsyncSafe(string api, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        try
+        {
+            return await _httpClient.GetAsync(api, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Surface as a failed check instead of crashing the UI thread.
+            throw new InvalidOperationException("更新检查服务已关闭，请重新打开软件更新页后再试。");
+        }
     }
 
     public void Dispose()

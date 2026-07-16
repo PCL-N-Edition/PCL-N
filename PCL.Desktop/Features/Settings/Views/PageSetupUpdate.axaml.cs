@@ -5,6 +5,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.VisualTree;
 using PCL.Application.Updates;
 using PCL.Core.App;
 using PCL.Desktop.Controls.Legacy;
@@ -23,7 +24,8 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     private bool _isRevertingChannel;
     private bool _isChecking;
     private int _lastUpdateChannel;
-    private readonly LauncherUpdateService _updateService = new();
+    private LauncherUpdateService _updateService = new();
+    private CancellationTokenSource? _checkCts;
 
     public PageSetupUpdate()
     {
@@ -33,7 +35,9 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             _lastUpdateChannel = Math.Max(0, UpdateChannelCombo.SelectedIndex));
         _isInitializing = false;
         AttachedToVisualTree += (_, _) => RefreshPage();
-        DetachedFromVisualTree += (_, _) => _updateService.DisposeHttp();
+        // Page instances are cached by Setup navigation — do NOT dispose the
+        // HttpClient on detach, or the next "检查更新" hits ObjectDisposedException.
+        DetachedFromVisualTree += (_, _) => CancelInFlightCheck();
         RefreshPage();
     }
 
@@ -135,6 +139,18 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         // Persistence is handled by LauncherSettingsPageBinder (Tag=SystemUpdateMode).
     }
 
+    private void CancelInFlightCheck()
+    {
+        try
+        {
+            _checkCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // already disposed
+        }
+    }
+
     private async Task CheckForUpdatesAsync()
     {
         if (_isChecking)
@@ -144,6 +160,11 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             checkAgain.IsEnabled = false;
         if (this.FindControl<TextBlock>("TextCurrentDesc") is { } desc)
             desc.Text = "正在检查更新…";
+
+        CancelInFlightCheck();
+        _checkCts?.Dispose();
+        _checkCts = new CancellationTokenSource();
+        CancellationToken token = _checkCts.Token;
 
         try
         {
@@ -164,8 +185,12 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                     channel,
                     PclMetadata.Current.DisplayVersion,
                     preferPlugin,
-                    currentCommitSha: commit)
+                    currentCommitSha: commit,
+                    cancellationToken: token)
                 .ConfigureAwait(true);
+
+            if (token.IsCancellationRequested || !this.IsAttachedToVisualTree())
+                return;
 
             if (!result.Success)
             {
@@ -219,8 +244,27 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                     currentDesc.Text = $"已是最新版本（{result.CurrentVersion}）";
             }
         }
+        catch (OperationCanceledException)
+        {
+            // Navigated away or a newer check started.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Recreate service if a previous path disposed the client; retry once next click.
+            _updateService = new LauncherUpdateService();
+            MessageRequested?.Invoke(
+                this,
+                new SettingsMessageRequestedEventArgs(
+                    "检查更新失败",
+                    "更新服务已重置，请再点一次「重新检查」。",
+                    "知道了"));
+            if (this.FindControl<TextBlock>("TextCurrentDesc") is { } disposedDesc)
+                disposedDesc.Text = "检查更新失败，请再试一次";
+        }
         catch (Exception ex)
         {
+            if (token.IsCancellationRequested || !this.IsAttachedToVisualTree())
+                return;
             MessageRequested?.Invoke(
                 this,
                 new SettingsMessageRequestedEventArgs("检查更新失败", ex.Message, "知道了"));
@@ -230,8 +274,11 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         finally
         {
             _isChecking = false;
-            if (this.FindControl<MyButton>("BtnCheckAgain") is { } button)
+            if (this.IsAttachedToVisualTree() &&
+                this.FindControl<MyButton>("BtnCheckAgain") is { } button)
+            {
                 button.IsEnabled = true;
+            }
         }
     }
 
