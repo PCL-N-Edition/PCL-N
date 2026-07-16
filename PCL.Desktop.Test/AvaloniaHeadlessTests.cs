@@ -5708,6 +5708,8 @@ public sealed class AvaloniaHeadlessTests
                     messageTitle.Contains("检查更新", StringComparison.Ordinal) ||
                     messageTitle.Contains("更新", StringComparison.Ordinal));
 
+                // Only user-driven dropdown selection should confirm (not settings re-bind).
+                channel.IsDropDownOpen = true;
                 channel.SelectedIndex = 1;
                 Assert.IsTrue(confirmationRequested);
                 Assert.AreEqual(0, channel.SelectedIndex);
@@ -5762,6 +5764,7 @@ public sealed class AvaloniaHeadlessTests
 
                     // Confirm channel switch and ensure it is written.
                     page.ConfirmRequested += (_, args) => args.Complete(true);
+                    channel.IsDropDownOpen = true;
                     channel.SelectedIndex = 1;
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                     Assert.AreEqual(1, channel.SelectedIndex);

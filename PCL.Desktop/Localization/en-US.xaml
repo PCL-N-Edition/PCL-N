@@ -1790,6 +1790,9 @@
     <sys:String x:Key="Setup.Update.Auto.Disabled">Do not automatically check for updates (not recommended)</sys:String>
     <sys:String x:Key="Setup.Update.Auto.Disabled.ToolTip">Disable automatic update checking. This may prevent you from receiving updates in a timely manner.</sys:String>
     <sys:String x:Key="Setup.Update.Install">Download and install</sys:String>
+    <sys:String x:Key="Setup.Update.DownloadNow">Download now</sys:String>
+    <sys:String x:Key="Setup.Update.DownloadAndInstall">Download and install</sys:String>
+    <sys:String x:Key="Setup.Update.Available">Update available</sys:String>
     <sys:String x:Key="Setup.Update.RestartInstall">Restart to install</sys:String>
     <sys:String x:Key="Setup.Update.Checking">Checking for updates...</sys:String>
     <sys:String x:Key="Setup.Update.Latest">Already up to date</sys:String>

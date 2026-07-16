@@ -2,10 +2,13 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.VisualTree;
+using PCL.Application.Settings;
 using PCL.Application.Updates;
 using PCL.Core.App;
 using PCL.Desktop.Controls.Legacy;
@@ -22,7 +25,9 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     private string? _preferredAssetUrl;
     private bool _isInitializing = true;
     private bool _isRevertingChannel;
+    private bool _channelUserArmed;
     private bool _isChecking;
+    private bool _updateAvailableUi;
     private int _lastUpdateChannel;
     private LauncherUpdateService _updateService = new();
     private CancellationTokenSource? _checkCts;
@@ -31,13 +36,23 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     {
         AvaloniaXamlLoader.Load(this);
         PanScroll = PanBack;
-        LauncherSettingsPageBinder.Attach(this, _ =>
-            _lastUpdateChannel = Math.Max(0, UpdateChannelCombo.SelectedIndex));
-        _isInitializing = false;
-        AttachedToVisualTree += (_, _) => RefreshPage();
-        // Page instances are cached by Setup navigation — do NOT dispose the
-        // HttpClient on detach, or the next "检查更新" hits ObjectDisposedException.
-        DetachedFromVisualTree += (_, _) => CancelInFlightCheck();
+        // Stay "initializing" until settings have been applied at least once so
+        // programmatic SelectedIndex changes do not show the channel warning.
+        LauncherSettingsPageBinder.Attach(this, OnSettingsApplied);
+        AttachedToVisualTree += (_, _) =>
+        {
+            // Settings re-apply on attach; treat as non-user until applied callback.
+            _isInitializing = true;
+            _channelUserArmed = false;
+            RefreshPage();
+        };
+        // Page instances are cached — do not dispose HttpClient on detach.
+        DetachedFromVisualTree += (_, _) =>
+        {
+            CancelInFlightCheck();
+            _channelUserArmed = false;
+        };
+        // Constructor Attach already applied settings and invoked OnSettingsApplied.
         RefreshPage();
     }
 
@@ -49,15 +64,73 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
     public event EventHandler<SettingsConfirmRequestedEventArgs>? ConfirmRequested;
 
+    private void OnSettingsApplied(LauncherSettings _)
+    {
+        int index = 0;
+        if (this.FindControl<MyComboBox>("ComboSystemUpdateChannel") is { } channel)
+            index = Math.Max(0, channel.SelectedIndex);
+        _lastUpdateChannel = index;
+        _channelUserArmed = false;
+        _isInitializing = false;
+    }
+
     public void RefreshPage()
     {
         SetCurrentVersionText();
+        // Default / re-enter: show current-version card only (unless an update result is still active).
+        if (_updateAvailableUi && !string.IsNullOrWhiteSpace(_preferredAssetUrl))
+            ShowUpdateAvailableUi();
+        else
+            ShowCurrentVersionUi();
+    }
+
+    private void ShowCurrentVersionUi()
+    {
+        _updateAvailableUi = false;
         if (this.FindControl<MyCard>("CardUpdate") is { } updateCard)
+        {
             updateCard.IsVisible = false;
+        }
+
         if (this.FindControl<MyCard>("CardCheck") is { } checkCard)
+        {
+            ForceOpaqueVisible(checkCard);
             checkCard.IsVisible = true;
+        }
+
         if (this.FindControl<MyButton>("BtnCheckAgain") is { } checkAgain)
             checkAgain.IsEnabled = !_isChecking;
+    }
+
+    private void ShowUpdateAvailableUi()
+    {
+        _updateAvailableUi = true;
+        if (this.FindControl<MyCard>("CardCheck") is { } checkCard)
+            checkCard.IsVisible = false;
+
+        if (this.FindControl<MyCard>("CardUpdate") is { } updateCard)
+        {
+            ForceOpaqueVisible(updateCard);
+            updateCard.IsVisible = true;
+        }
+    }
+
+    /// <summary>
+    /// Page enter animations may leave child Opacity at 0 while IsVisible is toggled later.
+    /// </summary>
+    private static void ForceOpaqueVisible(Control root)
+    {
+        root.Opacity = 1d;
+        root.RenderTransform = null;
+        root.IsHitTestVisible = true;
+        foreach (Visual visual in root.GetVisualDescendants())
+        {
+            if (visual is not Control control)
+                continue;
+            control.Opacity = 1d;
+            control.RenderTransform = null;
+            control.IsHitTestVisible = true;
+        }
     }
 
     private void BtnChangelogDetail_Click(object? sender, RoutedEventArgs e)
@@ -75,25 +148,51 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         await CheckForUpdatesAsync().ConfigureAwait(true);
     }
 
-    private void BtnUpdate_Click(object? sender, EventArgs e)
+    private void BtnDownloadNow_Click(object? sender, EventArgs e)
     {
+        // Open the package download (or release page) — user installs manually.
         string target = _preferredAssetUrl ?? _latestReleaseUrl;
         OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(target));
     }
 
+    private void BtnDownloadAndInstall_Click(object? sender, EventArgs e)
+    {
+        // Until in-app install pipeline is wired, open the same asset; keep a distinct action for UX.
+        string target = _preferredAssetUrl ?? _latestReleaseUrl;
+        OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(target));
+    }
+
+    private void ComboSystemUpdateChannel_DropDownOpened(object? sender, EventArgs e)
+    {
+        _channelUserArmed = true;
+    }
+
     private void ComboSystemUpdateBranch_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        // Use sender — FindControl is unavailable while XAML is still populating SelectedIndex.
         if (sender is not MyComboBox combo)
             return;
         if (_isInitializing || _isRevertingChannel || combo.SelectedIndex < 0)
             return;
 
         int selectedIndex = combo.SelectedIndex;
+
+        // Settings binder re-applies SelectedIndex on re-entry — not a user action.
+        if (!_channelUserArmed)
+        {
+            _lastUpdateChannel = selectedIndex;
+            return;
+        }
+
+        _channelUserArmed = false;
+
+        if (selectedIndex == _lastUpdateChannel)
+            return;
+
         if (selectedIndex == 0)
         {
             _lastUpdateChannel = 0;
-            RefreshPage();
+            _updateAvailableUi = false;
+            ShowCurrentVersionUi();
             return;
         }
 
@@ -103,7 +202,8 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             if (confirmed)
             {
                 _lastUpdateChannel = selectedIndex;
-                RefreshPage();
+                _updateAvailableUi = false;
+                ShowCurrentVersionUi();
                 return;
             }
 
@@ -111,6 +211,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             try
             {
                 combo.SelectedIndex = Math.Clamp(previousIndex, 0, Math.Max(0, combo.ItemCount - 1));
+                _lastUpdateChannel = combo.SelectedIndex;
             }
             finally
             {
@@ -156,6 +257,9 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         if (_isChecking)
             return;
         _isChecking = true;
+
+        // Always show the current-version card while checking so the middle is not blank.
+        ShowCurrentVersionUi();
         if (this.FindControl<MyButton>("BtnCheckAgain") is { } checkAgain)
             checkAgain.IsEnabled = false;
         if (this.FindControl<TextBlock>("TextCurrentDesc") is { } desc)
@@ -168,14 +272,17 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
         try
         {
-            UpdateChannel channel = UpdateChannelCombo.SelectedIndex switch
+            int channelIndex = 0;
+            if (this.FindControl<MyComboBox>("ComboSystemUpdateChannel") is { } channelCombo)
+                channelIndex = Math.Max(0, channelCombo.SelectedIndex);
+
+            UpdateChannel channel = channelIndex switch
             {
                 1 => UpdateChannel.Beta,
                 2 => UpdateChannel.CI,
                 _ => UpdateChannel.Release
             };
 
-            // Prefer WithPlugin assets when any HostModule settings pages were injected.
             bool preferPlugin = DesktopHost.Current.SettingsPages.Pages.Count > 0;
             string commit = !string.IsNullOrWhiteSpace(PclBuildInfo.SourceRevisionId)
                 ? PclBuildInfo.SourceRevisionId
@@ -200,6 +307,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                         "检查更新失败",
                         result.ErrorMessage ?? "未知错误",
                         "知道了"));
+                ShowCurrentVersionUi();
                 if (this.FindControl<TextBlock>("TextCurrentDesc") is { } failedDesc)
                     failedDesc.Text = "检查更新失败，可前往 GitHub Releases 手动查看";
                 return;
@@ -210,18 +318,16 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
             if (result.IsUpdateAvailable)
             {
-                if (this.FindControl<MyCard>("CardUpdate") is { } updateCard)
-                    updateCard.IsVisible = true;
-                if (this.FindControl<MyCard>("CardCheck") is { } checkCard)
-                    checkCard.IsVisible = true;
                 if (this.FindControl<TextBlock>("TextUpdateName") is { } updateName)
                     updateName.Text = "PCL N " + (result.LatestVersion ?? "");
                 if (this.FindControl<TextBlock>("TextUpdateDesc") is { } updateDesc)
                 {
-                    updateDesc.Text = result.Channel is UpdateChannel.CI
+                    string tip = result.Channel is UpdateChannel.CI
                         ? (result.ReleaseName ?? "CI 滚动构建") + " · 仅全量包"
-                        : result.ReleaseName ?? "发现新版本";
+                        : (result.ReleaseName ?? "发现新版本");
+                    updateDesc.Text = tip + " · 可立即更新";
                 }
+
                 if (this.FindControl<TextBlock>("TextChangelog") is { } changelog)
                 {
                     string notes = string.IsNullOrWhiteSpace(result.ReleaseNotes)
@@ -231,15 +337,13 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                         notes = "【CI 通道：不使用 Patch，仅全量下载】\n\n" + notes;
                     changelog.Text = notes;
                 }
-                if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDesc)
-                    currentDesc.Text = $"发现新版本 {result.LatestVersion}（当前 {result.CurrentVersion}）";
-                if (this.FindControl<MyButton>("BtnUpdate") is { } updateButton)
-                    updateButton.Text = "打开下载";
+
+                ShowUpdateAvailableUi();
             }
             else
             {
-                if (this.FindControl<MyCard>("CardUpdate") is { } updateCard)
-                    updateCard.IsVisible = false;
+                _preferredAssetUrl = null;
+                ShowCurrentVersionUi();
                 if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDesc)
                     currentDesc.Text = $"已是最新版本（{result.CurrentVersion}）";
             }
@@ -250,14 +354,14 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         }
         catch (ObjectDisposedException)
         {
-            // Recreate service if a previous path disposed the client; retry once next click.
             _updateService = new LauncherUpdateService();
             MessageRequested?.Invoke(
                 this,
                 new SettingsMessageRequestedEventArgs(
                     "检查更新失败",
-                    "更新服务已重置，请再点一次「重新检查」。",
+                    "更新服务已重置，请再点一次「再次检查」。",
                     "知道了"));
+            ShowCurrentVersionUi();
             if (this.FindControl<TextBlock>("TextCurrentDesc") is { } disposedDesc)
                 disposedDesc.Text = "检查更新失败，请再试一次";
         }
@@ -268,6 +372,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             MessageRequested?.Invoke(
                 this,
                 new SettingsMessageRequestedEventArgs("检查更新失败", ex.Message, "知道了"));
+            ShowCurrentVersionUi();
             if (this.FindControl<TextBlock>("TextCurrentDesc") is { } errorDesc)
                 errorDesc.Text = "检查更新失败，可前往 GitHub Releases 手动查看";
         }
@@ -287,15 +392,10 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         string version = "PCL N " + PclMetadata.Current.DisplayVersion;
         if (this.FindControl<TextBlock>("TextCurrentVersion") is { } currentVersion)
             currentVersion.Text = version;
-        if (this.FindControl<TextBlock>("TextUpdateName") is { } updateName)
-            updateName.Text = version;
-        if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDescription)
-            currentDescription.Text = "当前版本 · 点击「重新检查」查询 GitHub 发布";
+        if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDescription && !_isChecking && !_updateAvailableUi)
+            currentDescription.Text = "当前版本 · 点击「再次检查」查询 GitHub 发布";
     }
 
     private static string Truncate(string text, int max) =>
         text.Length <= max ? text : text[..max] + "…";
-
-    private MyComboBox UpdateChannelCombo => this.FindControl<MyComboBox>("ComboSystemUpdateChannel")
-        ?? throw new InvalidOperationException("PageSetupUpdate 缺少 ComboSystemUpdateChannel。");
 }

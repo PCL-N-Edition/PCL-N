@@ -24,6 +24,7 @@
                         <legacy:MyComboBox x:Name="ComboSystemUpdateChannel" Tag="SystemUpdateChannel" Grid.Column="1"
                                           Grid.ColumnSpan="3" Grid.Row="0"
                                           SelectedIndex="0"
+                                          DropDownOpened="ComboSystemUpdateChannel_DropDownOpened"
                                           SelectionChanged="ComboSystemUpdateBranch_SelectionChanged">
                             <legacy:MyComboBoxItem Content="{DynamicResource Setup.Update.Channel.Release}"
                                                   ToolTip.Tip="{DynamicResource Setup.Update.Channel.Release.ToolTip}" />
@@ -46,53 +47,16 @@
                     </Grid>
                 </StackPanel>
             </legacy:MyCard>
-            <legacy:MyCard x:Name="CardUpdate" Margin="0,15">
+
+            <!-- Current version / check status (hidden when a newer build is available) -->
+            <legacy:MyCard x:Name="CardCheck" Margin="0,15">
                 <StackPanel Margin="20,20,20,20">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="50" />
                             <ColumnDefinition Width="10" />
                             <ColumnDefinition Width="1*" />
-                            <ColumnDefinition Width="85" />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="29" />
-                            <RowDefinition Height="1" />
-                            <RowDefinition Height="20" />
-                            <RowDefinition Height="8" />
-                            <RowDefinition />
-                            <RowDefinition Height="10" />
-                            <RowDefinition />
-                        </Grid.RowDefinitions>
-                        
-                        <legacy:MyImage x:Name="ImgUpdateIcon" Source="avares://PCL.Desktop/Assets/icon.png"
-                                       Grid.Column="0" Grid.Row="0" Grid.RowSpan="3" Height="50" Width="50"
-                                       HorizontalAlignment="Left" VerticalAlignment="Center" />
-                        <TextBlock x:Name="TextUpdateName" Text="PCL N" FontWeight="Bold" FontSize="20"
-                                   Grid.Row="0" Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Bottom" />
-                        <TextBlock x:Name="TextUpdateDesc" Text="by MUXUE1230" FontSize="14" Grid.Row="2"
-                                   Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Top" />
-                        <legacy:MyButton x:Name="BtnUpdate" Text="{DynamicResource Setup.Update.Install}" ColorType="Highlight" Grid.Row="0"
-                                        Grid.RowSpan="2" Grid.Column="3" HorizontalAlignment="Center"
-                                        VerticalAlignment="Center" Width="85" Height="30"
-                                        Click="BtnUpdate_Click" />
-                        <TextBlock x:Name="TextChangelog"
-                                    Text="{DynamicResource Setup.Update.Changelog.Placeholder}"
-                                   Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="4" TextWrapping="Wrap" />
-                        <legacy:MyTextButton x:Name="BtnChangelogDetail" Text="{DynamicResource Setup.Update.Changelog.MoreInfo}" FontWeight="Thin"
-                                            Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="4" HorizontalAlignment="Left"
-                                            VerticalAlignment="Center" Click="BtnChangelogDetail_Click" />
-                    </Grid>
-                </StackPanel>
-            </legacy:MyCard>
-            <legacy:MyCard x:Name="CardCheck" Margin="0,15" IsVisible="False">
-                <StackPanel Margin="20,20,20,20">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="50" />
-                            <ColumnDefinition Width="10" />
-                            <ColumnDefinition Width="1*" />
-                            <ColumnDefinition Width="80" />
+                            <ColumnDefinition Width="100" />
                             <ColumnDefinition Width="10" />
                             <ColumnDefinition Width="100" />
                         </Grid.ColumnDefinitions>
@@ -101,10 +65,9 @@
                             <RowDefinition Height="1" />
                             <RowDefinition Height="20" />
                         </Grid.RowDefinitions>
-                        <Image Source="avares://PCL.Desktop/Assets/Legacy/icon.png" Grid.Column="0" Grid.Row="0"
-                               Grid.RowSpan="3" Height="50" Width="50" HorizontalAlignment="Left"
-                               VerticalAlignment="Center" />
-                        
+                        <legacy:MyImage Source="avares://PCL.Desktop/Assets/icon.png" Grid.Column="0" Grid.Row="0"
+                                       Grid.RowSpan="3" Height="50" Width="50" HorizontalAlignment="Left"
+                                       VerticalAlignment="Center" />
                         <TextBlock x:Name="TextCurrentVersion" Text="PCL N" FontWeight="Bold" FontSize="20"
                                    Grid.Row="0" Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Bottom" />
                         <TextBlock x:Name="TextCurrentDesc" Text="{DynamicResource Setup.Update.Latest}" FontSize="14" Grid.Row="2" Grid.Column="2"
@@ -118,14 +81,18 @@
                     </Grid>
                 </StackPanel>
             </legacy:MyCard>
-            <legacy:MyCard x:Name="CardOtherOption" Title="{DynamicResource Setup.Update.OtherOptions.Title}" CanSwap="True" IsSwapped="True" IsVisible="False">
-                <StackPanel Margin="20,40,20,20">
+
+            <!-- New version card (only when update available) -->
+            <legacy:MyCard x:Name="CardUpdate" Margin="0,15" IsVisible="False">
+                <StackPanel Margin="20,20,20,20">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="50" />
                             <ColumnDefinition Width="10" />
                             <ColumnDefinition Width="1*" />
-                            <ColumnDefinition Width="85" />
+                            <ColumnDefinition Width="100" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="110" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="29" />
@@ -136,22 +103,27 @@
                             <RowDefinition Height="10" />
                             <RowDefinition />
                         </Grid.RowDefinitions>
-                        <Image Source="avares://PCL.Desktop/Assets/Legacy/icon.png" Grid.Column="0" Grid.Row="0" Grid.RowSpan="3"
-                               Height="50" Width="50" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                        
-                        <TextBlock x:Name="TextOptionalUpdateName" Text="AquaCL 3.0.0" FontWeight="Bold" FontSize="20"
+                        <legacy:MyImage x:Name="ImgUpdateIcon" Source="avares://PCL.Desktop/Assets/icon.png"
+                                       Grid.Column="0" Grid.Row="0" Grid.RowSpan="3" Height="50" Width="50"
+                                       HorizontalAlignment="Left" VerticalAlignment="Center" />
+                        <TextBlock x:Name="TextUpdateName" Text="PCL N" FontWeight="Bold" FontSize="20"
                                    Grid.Row="0" Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Bottom" />
-                        <TextBlock x:Name="TextOptionalUpdateDesc" Text="20.0 MB" FontSize="14" Grid.Row="2"
+                        <TextBlock x:Name="TextUpdateDesc" Text="{DynamicResource Setup.Update.Available}" FontSize="14" Grid.Row="2"
                                    Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Top" />
-                        <legacy:MyButton x:Name="BtnOptionalUpdate" Text="{DynamicResource Setup.Update.Install}" ColorType="Highlight" Grid.Row="0"
-                                        Grid.RowSpan="2" Grid.Column="3" HorizontalAlignment="Stretch"
-                                        VerticalAlignment="Stretch" />
-                        <TextBlock x:Name="TextOptionalChangelog"
-                                    Text="{DynamicResource Setup.Update.OtherOptions.Placeholder}"
-                                   Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="4" TextWrapping="Wrap" />
-                        <legacy:MyTextButton x:Name="BtnOptionalChangelogDetail" Text="{DynamicResource Setup.Update.Changelog.MoreInfo}" FontWeight="Thin"
-                                            Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="4" HorizontalAlignment="Left"
-                                            VerticalAlignment="Center" />
+                        <legacy:MyButton x:Name="BtnDownloadNow" Text="{DynamicResource Setup.Update.DownloadNow}" ColorType="Normal"
+                                        Grid.Row="0" Grid.RowSpan="2" Grid.Column="3"
+                                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                        Click="BtnDownloadNow_Click" />
+                        <legacy:MyButton x:Name="BtnDownloadAndInstall" Text="{DynamicResource Setup.Update.DownloadAndInstall}" ColorType="Highlight"
+                                        Grid.Row="0" Grid.RowSpan="2" Grid.Column="5"
+                                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                        Click="BtnDownloadAndInstall_Click" />
+                        <TextBlock x:Name="TextChangelog"
+                                    Text="{DynamicResource Setup.Update.Changelog.Placeholder}"
+                                   Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="6" TextWrapping="Wrap" />
+                        <legacy:MyTextButton x:Name="BtnChangelogDetail" Text="{DynamicResource Setup.Update.Changelog.MoreInfo}" FontWeight="Thin"
+                                            Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="6" HorizontalAlignment="Left"
+                                            VerticalAlignment="Center" Click="BtnChangelogDetail_Click" />
                     </Grid>
                 </StackPanel>
             </legacy:MyCard>
