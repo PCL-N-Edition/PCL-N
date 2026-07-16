@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using PCL.Desktop;
+using System.Xml.Linq;
 
 namespace PCL.Desktop.Test;
 
@@ -79,6 +80,44 @@ public sealed class DesktopArchitectureTests
             "PCL.Desktop Avalonia sources must not use WPF or legacy UI APIs:" +
             Environment.NewLine +
             string.Join(Environment.NewLine, violations));
+    }
+
+    [TestMethod]
+    public void LocalizationCatalogs_AreSynchronizedUniqueAndReferenced()
+    {
+        string desktopRoot = FindDesktopProjectRoot();
+        IReadOnlyDictionary<string, string> english = ReadLocalizationCatalog(
+            Path.Combine(desktopRoot, "Localization", "en-US.xaml"));
+        IReadOnlyDictionary<string, string> chinese = ReadLocalizationCatalog(
+            Path.Combine(desktopRoot, "Localization", "zh-CN.xaml"));
+
+        CollectionAssert.AreEquivalent(english.Keys.ToArray(), chinese.Keys.ToArray());
+
+        string[] sourceTexts = Directory
+            .EnumerateFiles(desktopRoot, "*.*", SearchOption.AllDirectories)
+            .Where(IsScannedSourceFile)
+            .Where(file => !ShouldSkipSourceScan(Path.GetRelativePath(desktopRoot, file)))
+            .Select(File.ReadAllText)
+            .ToArray();
+        string[] unreferenced = english.Keys
+            .Where(key => !key.StartsWith("Localization.Meta.", StringComparison.Ordinal))
+            .Where(key => !sourceTexts.Any(source => source.Contains(key, StringComparison.Ordinal)))
+            .ToArray();
+
+        Assert.AreEqual(
+            0,
+            unreferenced.Length,
+            "Localization catalogs contain keys that are not referenced by PCL.Desktop:" +
+            Environment.NewLine +
+            string.Join(Environment.NewLine, unreferenced));
+
+        foreach (string key in english.Keys)
+        {
+            CollectionAssert.AreEquivalent(
+                ExtractPlaceholderNames(english[key]),
+                ExtractPlaceholderNames(chinese[key]),
+                $"Placeholder mismatch for localization key {key}.");
+        }
     }
 
     [TestMethod]
@@ -444,6 +483,47 @@ public sealed class DesktopArchitectureTests
         return normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase) ||
                normalized.StartsWith("obj/", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static IReadOnlyDictionary<string, string> ReadLocalizationCatalog(string path)
+    {
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        (string Key, string Value)[] entries = XDocument
+            .Load(path)
+            .Root?
+            .Elements()
+            .Select(element => (
+                Key: element.Attribute(xaml + "Key")?.Value ?? string.Empty,
+                Value: element.Value))
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Key))
+            .ToArray() ?? [];
+        string[] duplicateKeys = entries
+            .GroupBy(entry => entry.Key, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+        string[] emptyKeys = entries
+            .Where(entry => string.IsNullOrEmpty(entry.Value))
+            .Select(entry => entry.Key)
+            .ToArray();
+
+        Assert.AreEqual(
+            0,
+            duplicateKeys.Length,
+            $"Duplicate localization keys in {path}: {string.Join(", ", duplicateKeys)}");
+        Assert.AreEqual(
+            0,
+            emptyKeys.Length,
+            $"Empty localization values in {path}: {string.Join(", ", emptyKeys)}");
+        return entries.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
+    }
+
+    private static string[] ExtractPlaceholderNames(string value) =>
+        System.Text.RegularExpressions.Regex
+            .Matches(value, @"(?<!\{)\{([A-Za-z0-9_]+)(?:[^}]*)\}(?!\})")
+            .Select(match => match.Groups[1].Value)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
 
     private static int CountOccurrences(string text, string value)
     {
