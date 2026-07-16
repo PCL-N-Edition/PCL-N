@@ -23,7 +23,8 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(desktopProject, "Avalonia.Desktop\" Version=\"12.1.0\"");
         StringAssert.Contains(desktopProject, "Avalonia.Wayland\" Version=\"12.1.0\"");
         StringAssert.Contains(testProject, "Avalonia.Headless\" Version=\"12.1.0\"");
-        StringAssert.Contains(program, ".UseWayland()");
+        StringAssert.Contains(program, "DesktopDisplayBackendSelector.ShouldUseWaylandForCurrentProcess()");
+        StringAssert.Contains(program, "builder = builder.UseWayland()");
     }
 
     private static readonly string[] ForbiddenAssemblyNames =

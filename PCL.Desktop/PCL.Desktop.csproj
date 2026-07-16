@@ -58,6 +58,9 @@
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="PCL.Desktop.Test" />
+  </ItemGroup>
+  <ItemGroup>
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
       <_Parameter1>PclRuntimeVariant</_Parameter1>
       <_Parameter2>$(PclRuntimeVariant)</_Parameter2>

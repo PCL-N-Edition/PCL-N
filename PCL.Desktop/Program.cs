@@ -66,11 +66,23 @@ internal static class Program
         }
     }
 
-    public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<App>()
-            .UsePlatformDetect()
-            .UseWayland()
-            .LogToTrace();
+    public static AppBuilder BuildAvaloniaApp()
+    {
+        AppBuilder builder = AppBuilder.Configure<App>()
+            .UsePlatformDetect();
+
+        if (DesktopDisplayBackendSelector.ShouldUseWaylandForCurrentProcess())
+        {
+            DesktopFileLog.Info("Startup", "检测到原生 Linux Wayland 会话，将使用 Wayland 显示后端。");
+            builder = builder.UseWayland();
+        }
+        else
+        {
+            DesktopFileLog.Info("Startup", "未启用 Wayland 显示后端，将使用当前平台的默认显示后端。");
+        }
+
+        return builder.LogToTrace();
+    }
 
     private static int ValidateEnvironment()
     {
