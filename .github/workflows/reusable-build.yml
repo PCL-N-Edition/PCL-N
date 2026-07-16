@@ -203,6 +203,8 @@ jobs:
           fi
 
           # Single-node publish reduces MSB4166 child-node crashes under memory pressure.
+          # EnableCompressionInSingleFile=true for both SelfContained and NoRuntime so
+          # extracted on-disk size stays comparable (NoRuntime still excludes the runtime).
           dotnet publish PCL.Desktop/PCL.Desktop.csproj \
             -c "${{ inputs.configuration }}" \
             -r "${{ inputs.runtime_id }}" \
@@ -213,8 +215,6 @@ jobs:
             -p:PublishAot=false \
             -p:PublishTrimmed=false \
             -p:PublishSingleFile=true \
-            # Compress both SelfContained and NoRuntime single-file payloads so
-            # extracted on-disk size stays comparable (NoRuntime still excludes the runtime).
             -p:EnableCompressionInSingleFile=true \
             -p:IncludeNativeLibrariesForSelfExtract=true \
             -p:PclRuntimeVariant="${{ inputs.runtime_variant }}" \
