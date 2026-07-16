@@ -11419,7 +11419,7 @@ public sealed class AvaloniaHeadlessTests
         directory = System.IO.Path.GetFullPath(directory);
         Directory.CreateDirectory(directory);
         string path = System.IO.Path.Combine(directory, $"{name}.png");
-        bitmap.Save(path);
+        bitmap.Save(path, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
         Console.WriteLine($"Saved UI snapshot: {path}");
     }
 
