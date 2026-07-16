@@ -58,6 +58,7 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            .UseWayland()
             .LogToTrace();
 
     private static int ValidateEnvironment()

@@ -10,6 +10,22 @@ namespace PCL.Desktop.Test;
 [TestClass]
 public sealed class DesktopArchitectureTests
 {
+    [TestMethod]
+    public void DesktopEnablesNativeWaylandBackend()
+    {
+        string desktopRoot = FindDesktopProjectRoot();
+        string repositoryRoot = Directory.GetParent(desktopRoot)?.FullName
+            ?? throw new DirectoryNotFoundException("Could not locate repository root.");
+        string desktopProject = File.ReadAllText(Path.Combine(desktopRoot, "PCL.Desktop.csproj"));
+        string testProject = File.ReadAllText(Path.Combine(repositoryRoot, "PCL.Desktop.Test", "PCL.Desktop.Test.csproj"));
+        string program = File.ReadAllText(Path.Combine(desktopRoot, "Program.cs"));
+
+        StringAssert.Contains(desktopProject, "Avalonia.Desktop\" Version=\"12.1.0\"");
+        StringAssert.Contains(desktopProject, "Avalonia.Wayland\" Version=\"12.1.0\"");
+        StringAssert.Contains(testProject, "Avalonia.Headless\" Version=\"12.1.0\"");
+        StringAssert.Contains(program, ".UseWayland()");
+    }
+
     private static readonly string[] ForbiddenAssemblyNames =
     [
         "PresentationCore",
