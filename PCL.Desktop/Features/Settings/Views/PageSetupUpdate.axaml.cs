@@ -411,15 +411,14 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                     updateDesc.Text = tip + " · 可立即更新";
                 }
 
-                // Changelog body stays a fixed guide text (XAML DynamicResource);
-                // users open GitHub Releases via the link buttons below.
+                // Fixed, plain copy (iOS-style); details live on GitHub.
                 if (this.FindControl<TextBlock>("TextChangelog") is { } changelog)
                 {
                     string guide = AvaloniaLocalizationManager.GetText(
                         "Setup.Update.Changelog.Placeholder",
-                        "更新说明请前往 GitHub Releases 页面查看完整 Changelog。");
+                        "此更新包含问题修复与改进。\n\n有关此更新的更多信息，可在 GitHub 上查看。");
                     if (result.Channel is UpdateChannel.CI || !result.SupportsPatches)
-                        guide = "【CI 通道：不使用 Patch，仅全量下载】\n\n" + guide;
+                        guide += "\n\n此版本仅提供完整下载。";
                     changelog.Text = guide;
                 }
 
