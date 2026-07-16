@@ -411,14 +411,16 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                     updateDesc.Text = tip + " · 可立即更新";
                 }
 
+                // Changelog body stays a fixed guide text (XAML DynamicResource);
+                // users open GitHub Releases via the link buttons below.
                 if (this.FindControl<TextBlock>("TextChangelog") is { } changelog)
                 {
-                    string notes = string.IsNullOrWhiteSpace(result.ReleaseNotes)
-                        ? "前往发布页查看完整更新说明。"
-                        : Truncate(result.ReleaseNotes, 1200);
+                    string guide = AvaloniaLocalizationManager.GetText(
+                        "Setup.Update.Changelog.Placeholder",
+                        "更新说明请前往 GitHub Releases 页面查看完整 Changelog。");
                     if (result.Channel is UpdateChannel.CI || !result.SupportsPatches)
-                        notes = "【CI 通道：不使用 Patch，仅全量下载】\n\n" + notes;
-                    changelog.Text = notes;
+                        guide = "【CI 通道：不使用 Patch，仅全量下载】\n\n" + guide;
+                    changelog.Text = guide;
                 }
 
                 ShowUpdateAvailableUi();
@@ -479,6 +481,4 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             currentDescription.Text = "当前版本 · 进入页面将自动检查更新";
     }
 
-    private static string Truncate(string text, int max) =>
-        text.Length <= max ? text : text[..max] + "…";
 }

@@ -1799,11 +1799,11 @@
     <sys:String x:Key="Setup.Update.CheckFailed">Failed to check for updates</sys:String>
     <sys:String x:Key="Setup.Update.CheckAgain">Check again</sys:String>
     <sys:String x:Key="Setup.Update.Changelog.Title">About this update</sys:String>
-    <sys:String x:Key="Setup.Update.Changelog.View">Full changelog</sys:String>
-    <sys:String x:Key="Setup.Update.Changelog.MoreInfo">More information about this update...</sys:String>
-    <sys:String x:Key="Setup.Update.Changelog.Empty">The developers seem to have forgotten to provide an update summary... Maybe click below to view the full changelog?</sys:String>
-    <sys:String x:Key="Setup.Update.Changelog.Unavailable">No changelog available...</sys:String>
-    <sys:String x:Key="Setup.Update.Changelog.Placeholder">PCL N 2.14.0 brings a refreshing new design, several Pigeon smart features, and a delightful cross-instance workflow to boost your productivity.</sys:String>
+    <sys:String x:Key="Setup.Update.Changelog.View">GitHub changelog</sys:String>
+    <sys:String x:Key="Setup.Update.Changelog.MoreInfo">View the full changelog on GitHub…</sys:String>
+    <sys:String x:Key="Setup.Update.Changelog.Empty">See the full changelog on the GitHub Releases page.</sys:String>
+    <sys:String x:Key="Setup.Update.Changelog.Unavailable">See the full changelog on the GitHub Releases page.</sys:String>
+    <sys:String x:Key="Setup.Update.Changelog.Placeholder">Please open the GitHub Releases page for the full changelog. Use the link below or open the release from the download actions.</sys:String>
     <sys:String x:Key="Setup.Update.DotNetMissing.Title">Launcher update - missing runtime</sys:String>
     <sys:String x:Key="Setup.Update.DotNetMissing.Message">A launcher update (version {0}) was found, but the new version requires .NET 8 to be installed on your computer.&#x0a;You need to install .NET 8 before continuing the update.&#x0a;&#x0a;Click the button below to open the webpage, then select {1} under &quot;.NET Desktop Runtime&quot; to download.</sys:String>
     <sys:String x:Key="Setup.Update.DotNetMissing.DownloadRuntime">Download .NET 8 Runtime</sys:String>
