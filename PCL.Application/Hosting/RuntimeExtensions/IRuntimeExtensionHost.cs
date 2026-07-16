@@ -23,6 +23,11 @@ internal interface IRuntimeExtensionHost
     ILaunchPipelineBuilder Launching { get; }
     /// <summary>Optional host task-manager bridge (MC install-style progress UI).</summary>
     IHostBackgroundTasks BackgroundTasks { get; }
+    /// <summary>
+    /// Host-owned local artifact dispatch. PCL N handles core artifacts while privileged
+    /// runtime extensions can register narrowly scoped installers (for example, .pnp).
+    /// </summary>
+    IHostFileArtifactRegistry FileArtifacts { get; }
     string ApplicationDataDirectory { get; }
     string CacheDirectory { get; }
     IHostInstanceQuery? Instances { get; }
@@ -69,6 +74,41 @@ internal enum HostBackgroundTaskStepState
     Running = 1,
     Finished = 2,
     Failed = 3
+}
+
+internal sealed record HostFileArtifactContext(string MinecraftRootDirectory);
+
+internal sealed record HostFileArtifactResult(
+    string HandlerId,
+    string ArtifactKind,
+    string DisplayName,
+    string Message,
+    bool Installed,
+    bool RefreshInstances = false);
+
+internal interface IHostFileArtifactHandler
+{
+    string Id { get; }
+    int Priority { get; }
+
+    ValueTask<bool> CanHandleAsync(
+        string filePath,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<HostFileArtifactResult> InstallAsync(
+        string filePath,
+        HostFileArtifactContext context,
+        CancellationToken cancellationToken = default);
+}
+
+internal interface IHostFileArtifactRegistry
+{
+    IDisposable Register(IHostFileArtifactHandler handler);
+
+    ValueTask<HostFileArtifactResult> InstallAsync(
+        string filePath,
+        HostFileArtifactContext context,
+        CancellationToken cancellationToken = default);
 }
 
 internal interface IHostUiComposition

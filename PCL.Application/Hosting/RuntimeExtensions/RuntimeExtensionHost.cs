@@ -31,7 +31,8 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
         IAccountProviderRegistry? accounts = null,
         IDownloadSourceRegistry? downloads = null,
         ILaunchPipelineBuilder? launching = null,
-        IHostBackgroundTasks? backgroundTasks = null)
+        IHostBackgroundTasks? backgroundTasks = null,
+        IHostFileArtifactRegistry? fileArtifacts = null)
     {
         SettingsPageGroups = settingsPageGroups ?? throw new ArgumentNullException(nameof(settingsPageGroups));
         SettingsPages = settingsPages ?? throw new ArgumentNullException(nameof(settingsPages));
@@ -46,6 +47,7 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
         Downloads = downloads ?? new DownloadSourceRegistry();
         Launching = launching ?? new LaunchPipelineBuilder();
         BackgroundTasks = backgroundTasks ?? NullHostBackgroundTasks.Instance;
+        FileArtifacts = fileArtifacts ?? NullHostFileArtifactRegistry.Instance;
         ApplicationDataDirectory = applicationDataDirectory ?? Path.GetTempPath();
         CacheDirectory = cacheDirectory ?? Path.GetTempPath();
         Instances = instances;
@@ -68,6 +70,7 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
     public IDownloadSourceRegistry Downloads { get; }
     public ILaunchPipelineBuilder Launching { get; }
     public IHostBackgroundTasks BackgroundTasks { get; }
+    public IHostFileArtifactRegistry FileArtifacts { get; }
     public string ApplicationDataDirectory { get; }
     public string CacheDirectory { get; }
     public IHostInstanceQuery? Instances { get; }
@@ -75,6 +78,32 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
     public IHostUiComposition? UiComposition { get; }
     public IHostDynamicNavigation? Navigation { get; }
     public IHostRawUiAccess? RawUiAccess { get; }
+}
+
+internal sealed class NullHostFileArtifactRegistry : IHostFileArtifactRegistry
+{
+    public static NullHostFileArtifactRegistry Instance { get; } = new();
+
+    public IDisposable Register(IHostFileArtifactHandler handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return NullRegistration.Instance;
+    }
+
+    public ValueTask<HostFileArtifactResult> InstallAsync(
+        string filePath,
+        HostFileArtifactContext context,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new NotSupportedException($"当前 Host 无法处理文件：{Path.GetFileName(filePath)}");
+    }
+
+    private sealed class NullRegistration : IDisposable
+    {
+        public static NullRegistration Instance { get; } = new();
+        public void Dispose() { }
+    }
 }
 
 internal sealed class NullHostBackgroundTasks : IHostBackgroundTasks

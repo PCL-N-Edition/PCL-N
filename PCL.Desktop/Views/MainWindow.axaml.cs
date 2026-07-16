@@ -460,8 +460,40 @@ public partial class MainWindow : Window, IDisposable
         UpdateBackgroundVideoPlayback();
     }
 
-    private void FrmMain_Drop(object? sender, DragEventArgs e)
+    private void FrmMain_DragOver(object? sender, DragEventArgs e)
     {
+        e.DragEffects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
+    private async void FrmMain_Drop(object? sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        try
+        {
+            IReadOnlyList<IStorageItem>? files = e.DataTransfer.TryGetFiles();
+            string[] localPaths = files?
+                .Select(static file => file.TryGetLocalPath())
+                .Where(static path => !string.IsNullOrWhiteSpace(path))
+                .Select(static path => path!)
+                .ToArray() ?? [];
+            if (localPaths.Length == 0)
+            {
+                ShowTextDialog("无法读取拖入文件", "拖入内容没有可访问的本地文件路径。");
+                return;
+            }
+
+            await InstallLocalArtifactsAsync(localPaths).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            _launchRight?.AppendLog("拖入文件安装已取消。");
+        }
+        catch (Exception ex)
+        {
+            DesktopFileLog.Error("FileArtifact", "处理拖入文件失败。", ex);
+            ShowTextDialog("安装失败", "未能处理拖入文件。\n\n详细信息：" + ex.Message);
+        }
     }
 
     private void FormMain_MouseMove(object? sender, PointerEventArgs e)
@@ -2174,7 +2206,46 @@ public partial class MainWindow : Window, IDisposable
                 new FilePickerFileType("整合包压缩文件") { Patterns = ["*.zip", "*.mrpack"] })
             .ConfigureAwait(true);
         if (!string.IsNullOrWhiteSpace(sourcePath))
-            _launchRight?.AppendLog("已选择整合包：" + sourcePath);
+            await InstallLocalArtifactsAsync([sourcePath]).ConfigureAwait(true);
+    }
+
+    private async Task InstallLocalArtifactsAsync(IReadOnlyList<string> localPaths)
+    {
+        ArgumentNullException.ThrowIfNull(localPaths);
+        foreach (string path in localPaths)
+        {
+            _launchRight?.AppendLog("正在识别本地文件：" + path);
+            HostFileArtifactResult result;
+            try
+            {
+                result = await DesktopFileArtifactHost.Instance.InstallAsync(
+                        path,
+                        new HostFileArtifactContext(GetDefaultMinecraftRoot()))
+                    .ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                _launchRight?.AppendLog("已取消安装：" + Path.GetFileName(path));
+                continue;
+            }
+            catch (Exception ex)
+            {
+                DesktopFileLog.Error("FileArtifact", $"本地文件安装失败：{path}", ex);
+                ShowTextDialog("安装失败", $"{Path.GetFileName(path)}\n\n{ex.Message}");
+                continue;
+            }
+
+            _launchRight?.AppendLog(result.Message.Replace('\n', ' '));
+            if (result.RefreshInstances && result.Installed && _launchLeft is not null)
+            {
+                await _launchLeft.RefreshInstancesAsync().ConfigureAwait(true);
+                _instanceSelectPage?.SetInstances(_launchLeft.Instances, _launchLeft.SelectedInstance);
+            }
+
+            ShowTextDialog(
+                result.Installed ? "安装完成" : "未安装",
+                result.Message);
+        }
     }
 
     private MinecraftFolderInfo AddOrGetMinecraftFolder(string rootDirectory, string name)
