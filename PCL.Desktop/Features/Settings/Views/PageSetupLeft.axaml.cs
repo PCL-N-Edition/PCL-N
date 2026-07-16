@@ -74,7 +74,10 @@ public partial class PageSetupLeft : MyPageLeft
         RegisterHostSettingsPages();
         AnimatedControl = Required<Control>("PanItem");
         InitializeRegisteredPageTags();
-        PageId = SetupPageSubType.Launch;
+        // Select default page before first GetOrCreateCurrentPage so CreateSettingsMainPage
+        // mounts the correct right pane. Avoid firing PageChanged on first attach (that race
+        // stopped the main nav fade and left PanMainRight.Opacity at 0 / gray).
+        SelectDefaultPageCore(raiseChanged: false);
         AttachedToVisualTree += (_, _) =>
         {
             if (this.FindControl<StackPanel>("PanItem") is { } panel)
@@ -83,28 +86,57 @@ public partial class PageSetupLeft : MyPageLeft
                 return;
 
             _isLoadedOnce = true;
-            // Prefer the first page of the highest-priority host group (e.g. Online → Account)
-            // without hardcoding Plugin page ids. Fall back to built-in 启动.
-            HostSettingsPageDescriptor? defaultHostPage = BuildHostSettingsGroups()
-                .SelectMany(static group => group.Pages)
-                .FirstOrDefault();
-            if (defaultHostPage is not null)
-            {
-                PageChangeHost(defaultHostPage.Id);
-                if (GetItems().FirstOrDefault(item =>
-                        TryReadHostPage(item.Tag, out string? hostPageId) &&
-                        string.Equals(hostPageId, defaultHostPage.Id, StringComparison.OrdinalIgnoreCase)) is { } hostItem)
-                {
-                    hostItem.SetChecked(true, user: false);
-                }
-            }
-            else
-            {
-                Required<MyListItem>("ItemLaunch").SetChecked(true, user: false);
-            }
+            SyncDefaultPageCheckmarks();
         };
         DetachedFromVisualTree += (_, _) =>
             DesktopHostUiComposition.Instance.UnregisterSlot("pcl.page.settings", "sidebar.after-plugin");
+    }
+
+    /// <summary>
+    /// Picks the first host settings page (by group order) or built-in Launch.
+    /// </summary>
+    private void SelectDefaultPageCore(bool raiseChanged)
+    {
+        HostSettingsPageDescriptor? defaultHostPage = BuildHostSettingsGroups()
+            .SelectMany(static group => group.Pages)
+            .FirstOrDefault();
+        if (defaultHostPage is not null)
+        {
+            if (raiseChanged)
+                PageChangeHost(defaultHostPage.Id);
+            else
+            {
+                _hostPageId = defaultHostPage.Id;
+                PageId = SetupPageSubType.Plugin;
+            }
+
+            return;
+        }
+
+        if (raiseChanged)
+            PageChange(SetupPageSubType.Launch);
+        else
+        {
+            _hostPageId = null;
+            PageId = SetupPageSubType.Launch;
+        }
+    }
+
+    private void SyncDefaultPageCheckmarks()
+    {
+        if (_hostPageId is not null)
+        {
+            if (GetItems().FirstOrDefault(item =>
+                    TryReadHostPage(item.Tag, out string? hostPageId) &&
+                    string.Equals(hostPageId, _hostPageId, StringComparison.OrdinalIgnoreCase)) is { } hostItem)
+            {
+                hostItem.SetChecked(true, user: false);
+            }
+
+            return;
+        }
+
+        Required<MyListItem>("ItemLaunch").SetChecked(true, user: false);
     }
 
     public event EventHandler<SetupPageChangedEventArgs>? PageChanged;

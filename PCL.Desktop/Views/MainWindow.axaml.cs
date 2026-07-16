@@ -3302,8 +3302,15 @@ public partial class MainWindow : Window, IDisposable
             rightPage,
             Activated: () =>
             {
+                // Defensive: host fade/sub-page swap races can leave the right pane at 0.
+                if (this.FindControl<Border>("PanMainRight") is { } rightHost)
+                    rightHost.Opacity = 1d;
                 _setupLeft.TriggerShowAnimation();
-                rightPage.PageOnEnter();
+                // Prefer the live child (may already have swapped to host default page).
+                if (this.FindControl<Border>("PanMainRight")?.Child is MyPageRight liveRight)
+                    liveRight.PageOnEnter();
+                else
+                    rightPage.PageOnEnter();
             });
     }
 
@@ -3371,12 +3378,21 @@ public partial class MainWindow : Window, IDisposable
             return;
 
         if (ReferenceEquals(_setupRight, target) && ReferenceEquals(rightHost.Child, target))
+        {
+            // Parent nav animation may have been interrupted while host opacity was 0.
+            rightHost.Opacity = 1d;
             return;
+        }
 
         MyPageRight? oldRight = rightHost.Child as MyPageRight;
         _setupRight = target;
-        ModAnimation.AniStop("FrmMain PageChangeRight");
+        // Do not AniStop("FrmMain PageChangeRight") here: interrupting the main
+        // settings enter fade can leave PanMainRight.Opacity at 0 (gray right pane)
+        // when the user opens 设置 immediately after launch.
+        ModAnimation.AniStop("PageSetupLeft PageChange");
         oldRight?.PageOnExit();
+        // Ensure host is visible even if a parent page-change fade was still running.
+        rightHost.Opacity = 1d;
         ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
@@ -3384,10 +3400,12 @@ public partial class MainWindow : Window, IDisposable
                 {
                     oldRight?.PageOnForceExit();
                     rightHost.Child = target;
+                    rightHost.Opacity = 1d;
                     target.Opacity = 0d;
                 }, 130),
                 ModAnimation.AaCode(() =>
                 {
+                    rightHost.Opacity = 1d;
                     target.Opacity = 1d;
                     RefreshBackToTopBinding();
                     target.PageOnEnter();
@@ -7075,7 +7093,10 @@ public partial class MainWindow : Window, IDisposable
                     ApplyPagePlaceholder(route);
                     right.Opacity = 0d;
                 }, after: true),
-                ModAnimation.AaOpacity(right, 1d, 170)
+                ModAnimation.AaOpacity(right, 1d, 170),
+                // Always force full opacity when the sequence finishes — guards against
+                // mid-animation AniStop / nested page swaps leaving the right pane gray.
+                ModAnimation.AaCode(() => right.Opacity = 1d, after: true)
             },
             "FrmMain PageChangeRight");
     }
