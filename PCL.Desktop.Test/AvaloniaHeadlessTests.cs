@@ -2812,6 +2812,28 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void LaunchInstanceDiscovery_DistinguishesCurrentAndOfficialFolders()
+    {
+        string current = LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
+        string? official = LaunchInstanceDiscovery.GetOfficialMinecraftRoot();
+
+        Assert.AreEqual("当前文件夹", LaunchInstanceDiscovery.GetMinecraftRootDisplayName(current));
+        Assert.IsTrue(LaunchInstanceDiscovery.GetCandidateRoots().Any(root =>
+            string.Equals(
+                System.IO.Path.GetFullPath(root),
+                System.IO.Path.GetFullPath(current),
+                StringComparison.OrdinalIgnoreCase)));
+
+        Assert.IsFalse(string.IsNullOrWhiteSpace(official));
+        Assert.AreEqual("官方启动器文件夹", LaunchInstanceDiscovery.GetMinecraftRootDisplayName(official!));
+        Assert.IsTrue(LaunchInstanceDiscovery.GetCandidateRoots().Any(root =>
+            string.Equals(
+                System.IO.Path.GetFullPath(root),
+                System.IO.Path.GetFullPath(official!),
+                StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
     public void PageLaunchLeft_FallsBackToDownloadWhenNoVersions()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

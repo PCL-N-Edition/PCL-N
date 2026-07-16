@@ -2053,7 +2053,7 @@ public partial class MainWindow : Window, IDisposable
                 continue;
             }
 
-            _minecraftFolders.Add(new MinecraftFolderInfo(GetAutomaticMinecraftFolderName(normalized), normalized));
+            _minecraftFolders.Add(new MinecraftFolderInfo(LaunchInstanceDiscovery.GetMinecraftRootDisplayName(normalized), normalized));
         }
 
         try
@@ -2073,7 +2073,7 @@ public partial class MainWindow : Window, IDisposable
                     }
 
                     string name = string.IsNullOrWhiteSpace(custom.Name)
-                        ? GetAutomaticMinecraftFolderName(normalized)
+                        ? LaunchInstanceDiscovery.GetMinecraftRootDisplayName(normalized)
                         : custom.Name.Trim();
                     _minecraftFolders.Add(new MinecraftFolderInfo(name, normalized, IsCustom: true));
                 }
@@ -2089,7 +2089,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (_minecraftFolders.Count == 0)
         {
-            string fallback = Path.Combine(AppContext.BaseDirectory, ".minecraft");
+            string fallback = LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
             _minecraftFolders.Add(new MinecraftFolderInfo("当前文件夹", NormalizeDirectoryPath(fallback) ?? fallback));
         }
 
@@ -2130,13 +2130,13 @@ public partial class MainWindow : Window, IDisposable
             return;
 
         string root = NormalizeSelectedMinecraftRoot(selected);
-        MinecraftFolderInfo folder = AddOrGetMinecraftFolder(root, GetAutomaticMinecraftFolderName(root));
+        MinecraftFolderInfo folder = AddOrGetMinecraftFolder(root, LaunchInstanceDiscovery.GetMinecraftRootDisplayName(root));
         await SelectMinecraftFolderAsync(folder, forceRefresh: true).ConfigureAwait(true);
     }
 
     private async Task CreateDefaultMinecraftFolderAsync()
     {
-        string root = Path.Combine(AppContext.BaseDirectory, ".minecraft");
+        string root = LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
         Directory.CreateDirectory(Path.Combine(root, "versions"));
         MinecraftFolderInfo folder = AddOrGetMinecraftFolder(root, "当前文件夹");
         await SelectMinecraftFolderAsync(folder, forceRefresh: true).ConfigureAwait(true);
@@ -2189,8 +2189,8 @@ public partial class MainWindow : Window, IDisposable
 
         if (_minecraftFolders.Count == 0)
         {
-            string fallback = NormalizeDirectoryPath(Path.Combine(AppContext.BaseDirectory, ".minecraft"))
-                              ?? Path.Combine(AppContext.BaseDirectory, ".minecraft");
+            string fallback = NormalizeDirectoryPath(LaunchInstanceDiscovery.GetCurrentMinecraftRoot())
+                              ?? LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
             _minecraftFolders.Add(new MinecraftFolderInfo("当前文件夹", fallback));
         }
 
@@ -2278,24 +2278,6 @@ public partial class MainWindow : Window, IDisposable
                !Directory.Exists(Path.Combine(root, "versions"))
             ? nestedMinecraft
             : root;
-    }
-
-    private static string GetAutomaticMinecraftFolderName(string rootDirectory)
-    {
-        string normalizedBase = NormalizeDirectoryPath(Path.Combine(AppContext.BaseDirectory, ".minecraft")) ?? string.Empty;
-        if (string.Equals(rootDirectory, normalizedBase, StringComparison.OrdinalIgnoreCase))
-            return "当前文件夹";
-
-        string trimmed = rootDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        string leaf = Path.GetFileName(trimmed);
-        if (string.Equals(leaf, ".minecraft", StringComparison.OrdinalIgnoreCase))
-        {
-            string? parent = Path.GetDirectoryName(trimmed);
-            string parentName = string.IsNullOrWhiteSpace(parent) ? string.Empty : Path.GetFileName(parent);
-            return string.IsNullOrWhiteSpace(parentName) ? "Minecraft" : parentName;
-        }
-
-        return string.IsNullOrWhiteSpace(leaf) ? rootDirectory : leaf;
     }
 
     private static string? TryGetMinecraftRootFromInstanceDirectory(string? instanceDirectory)
@@ -5858,7 +5840,7 @@ public partial class MainWindow : Window, IDisposable
                 return root;
         }
 
-        return roots.Count > 0 ? roots[0] : Path.Combine(AppContext.BaseDirectory, ".minecraft");
+        return roots.Count > 0 ? roots[0] : LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
     }
 
     private static string GetMinecraftRootFromInstance(LaunchInstanceInfo instance)

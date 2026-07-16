@@ -129,23 +129,77 @@ public static class LaunchInstanceDiscovery
                 AddIfUsable(roots, root);
         }
 
-        AddIfUsable(roots, Path.Combine(AppContext.BaseDirectory, ".minecraft"));
+        AddIfUsable(roots, GetCurrentMinecraftRoot());
+        AddIfUsable(roots, GetOfficialMinecraftRoot());
 
+        // Keep the legacy per-user candidate for third-party installations on
+        // Windows and macOS. It is deliberately not called the official root.
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (!string.IsNullOrWhiteSpace(userProfile))
-        {
             AddIfUsable(roots, Path.Combine(userProfile, ".minecraft"));
-            AddIfUsable(roots, Path.Combine(userProfile, "Library", "Application Support", "minecraft"));
-        }
 
-        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        if (!string.IsNullOrWhiteSpace(appData))
-            AddIfUsable(roots, Path.Combine(appData, ".minecraft"));
-
-        return roots;
+        return roots.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    private static void AddIfUsable(List<string> roots, string path)
+    public static string GetCurrentMinecraftRoot() =>
+        Path.Combine(AppContext.BaseDirectory, ".minecraft");
+
+    public static string? GetOfficialMinecraftRoot()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            return string.IsNullOrWhiteSpace(appData) ? null : Path.Combine(appData, ".minecraft");
+        }
+
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrWhiteSpace(userProfile))
+            return null;
+
+        return OperatingSystem.IsMacOS()
+            ? Path.Combine(userProfile, "Library", "Application Support", "minecraft")
+            : Path.Combine(userProfile, ".minecraft");
+    }
+
+    public static string GetMinecraftRootDisplayName(string rootDirectory)
+    {
+        string normalized = NormalizePath(rootDirectory) ?? rootDirectory;
+        string? official = NormalizePath(GetOfficialMinecraftRoot());
+        if (official is not null && string.Equals(normalized, official, StringComparison.OrdinalIgnoreCase))
+            return "官方启动器文件夹";
+
+        string? current = NormalizePath(GetCurrentMinecraftRoot());
+        if (current is not null && string.Equals(normalized, current, StringComparison.OrdinalIgnoreCase))
+            return "当前文件夹";
+
+        string trimmed = normalized.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string leaf = Path.GetFileName(trimmed);
+        if (string.Equals(leaf, ".minecraft", StringComparison.OrdinalIgnoreCase))
+        {
+            string? parent = Path.GetDirectoryName(trimmed);
+            string parentName = string.IsNullOrWhiteSpace(parent) ? string.Empty : Path.GetFileName(parent);
+            return string.IsNullOrWhiteSpace(parentName) ? "Minecraft" : parentName;
+        }
+
+        return string.IsNullOrWhiteSpace(leaf) ? rootDirectory : leaf;
+    }
+
+    private static string? NormalizePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        try
+        {
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private static void AddIfUsable(List<string> roots, string? path)
     {
         if (!string.IsNullOrWhiteSpace(path))
             roots.Add(path);
