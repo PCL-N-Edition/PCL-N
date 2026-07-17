@@ -57,6 +57,21 @@
     <PublishAot>false</PublishAot>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
+  <!--
+    VideoLAN.LibVLC.Windows enables x64, x86, and ARM64 for AnyCPU projects by
+    default. RID-specific publishes only need the matching native distribution;
+    including all three adds hundreds of megabytes before single-file compression.
+  -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <VlcWindowsX64Enabled>true</VlcWindowsX64Enabled>
+    <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
+    <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-arm64'">
+    <VlcWindowsX64Enabled>false</VlcWindowsX64Enabled>
+    <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
+    <VlcWindowsArm64Enabled>true</VlcWindowsArm64Enabled>
+  </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="PCL.Desktop.Test" />
   </ItemGroup>
