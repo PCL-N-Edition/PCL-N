@@ -336,6 +336,57 @@ public sealed class DesktopArchitectureTests
     }
 
     [TestMethod]
+    public void LauncherAutomaticUpdatesAreOwnedByProcessCoordinator()
+    {
+        string desktopRoot = FindDesktopProjectRoot();
+        string mainWindow = File.ReadAllText(Path.Combine(desktopRoot, "Views", "MainWindow.axaml.cs"));
+        string updatePage = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Features",
+            "Settings",
+            "Views",
+            "PageSetupUpdate.axaml.cs"));
+        string coordinator = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Hosting",
+            "LauncherUpdateCoordinator.cs"));
+        string notifications = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Hosting",
+            "DesktopHostNotifications.cs"));
+        string installer = File.ReadAllText(Path.Combine(
+            Directory.GetParent(desktopRoot)!.FullName,
+            "PCL.Application",
+            "Updates",
+            "LauncherUpdateInstaller.cs"));
+
+        StringAssert.Contains(mainWindow, "LauncherUpdateCoordinator.Current.StartAutomaticUpdateOnceAsync()");
+        StringAssert.Contains(
+            mainWindow,
+            "TransparencyLevelHint = [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None]");
+        Assert.IsFalse(mainWindow.Contains(
+            "TransparencyLevelHint = [WindowTransparencyLevel.None]",
+            StringComparison.Ordinal));
+        StringAssert.Contains(coordinator, "_automaticTask ??= RunAutomaticUpdateAsync()");
+        StringAssert.Contains(coordinator, "PreparedLauncherUpdate? PreparedUpdate");
+        StringAssert.Contains(coordinator, "PromptAvailableUpdateAsync");
+        StringAssert.Contains(coordinator, "PromptDownloadedUpdateAsync");
+        StringAssert.Contains(coordinator, "SystemUpdateSkippedTarget");
+        StringAssert.Contains(coordinator, "_installOnExit = prepared");
+        StringAssert.Contains(installer, "ScheduleInstallOnExit");
+        StringAssert.Contains(installer, "restartAfterInstall: false");
+        StringAssert.Contains(mainWindow, "ShowMarkdownDialog");
+        StringAssert.Contains(mainWindow, "MyMsgMarkdown dialog = new()");
+        StringAssert.Contains(notifications, "int result = await ChoiceAsync(");
+        StringAssert.Contains(notifications, "return result == 1");
+        StringAssert.Contains(updatePage, "_updateCoordinator.StartAutomaticUpdateOnceAsync()");
+        StringAssert.Contains(updatePage, "HandleAvailableUpdateAsync");
+        StringAssert.Contains(updatePage, "_updateCoordinator.ProgressChanged -= OnUpdateProgressChanged");
+        Assert.IsFalse(updatePage.Contains("new LauncherUpdateService", StringComparison.Ordinal));
+        Assert.IsFalse(updatePage.Contains("CancelInFlightCheck", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void ReleaseWorkflowsPublishAvaloniaForEveryDesktopRuntime()
     {
         string desktopRoot = FindDesktopProjectRoot();

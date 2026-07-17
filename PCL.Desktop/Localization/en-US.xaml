@@ -752,10 +752,10 @@
     <sys:String x:Key="Setup.Update.Auto.Disabled.ToolTip">Updates are checked only when you choose Check Again.</sys:String>
     <sys:String x:Key="Setup.Update.Auto.DownloadAndInstall">Download and install automatically</sys:String>
     <sys:String x:Key="Setup.Update.Auto.DownloadAndInstall.ToolTip">Checks for updates, downloads them automatically, and installs them after PCL quits.</sys:String>
-    <sys:String x:Key="Setup.Update.Auto.DownloadAndNotify">Download automatically</sys:String>
-    <sys:String x:Key="Setup.Update.Auto.DownloadAndNotify.ToolTip">Downloads available updates automatically and notifies you when they’re ready.</sys:String>
-    <sys:String x:Key="Setup.Update.Auto.NotifyOnly">Notify only</sys:String>
-    <sys:String x:Key="Setup.Update.Auto.NotifyOnly.ToolTip">Checks for updates automatically and notifies you when one is available.</sys:String>
+    <sys:String x:Key="Setup.Update.Auto.DownloadAndNotify">Download only</sys:String>
+    <sys:String x:Key="Setup.Update.Auto.DownloadAndNotify.ToolTip">Downloads and verifies updates, then asks whether to install, install later, or skip the version.</sys:String>
+    <sys:String x:Key="Setup.Update.Auto.NotifyOnly">Prompt only</sys:String>
+    <sys:String x:Key="Setup.Update.Auto.NotifyOnly.ToolTip">Asks whether to download only, download and install, or skip an available version.</sys:String>
     <sys:String x:Key="Setup.Update.Auto.Title">Automatic updates</sys:String>
     <sys:String x:Key="Setup.Update.Available">Update Available</sys:String>
     <sys:String x:Key="Setup.Update.Changelog.MoreInfo">More about this update…</sys:String>
@@ -778,7 +778,17 @@
     <sys:String x:Key="Setup.Update.DownloadAndInstall">Download and install</sys:String>
     <sys:String x:Key="Setup.Update.DownloadNow">Download</sys:String>
     <sys:String x:Key="Setup.Update.Error.NetworkFailed">Couldn’t get the latest version information. Check your connection and try again.</sys:String>
+    <sys:String x:Key="Setup.Update.FullOnly.CI">The CI channel does not generate incremental patches. The full package will be downloaded.</sys:String>
+    <sys:String x:Key="Setup.Update.FullOnly.NoApplicablePatch">No incremental patch applies to the installed build. The full package will be downloaded.</sys:String>
     <sys:String x:Key="Setup.Update.Latest">PCL N Is Up to Date</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Available.DownloadAndInstall">Download and install</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Available.DownloadOnly">Download only</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Available.Title">Update available</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Downloaded.InstallNow">Install and restart</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Downloaded.Later">Later</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Downloaded.Title">Update downloaded</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.NoChangelog">No changelog was provided for this version.</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.SkipVersion">Skip version</sys:String>
 
     <!-- Speed -->
 

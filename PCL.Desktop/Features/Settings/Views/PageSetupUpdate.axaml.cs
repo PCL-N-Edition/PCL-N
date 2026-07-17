@@ -4,7 +4,6 @@
 
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
@@ -32,9 +31,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     private bool _updateAvailableUi;
     private bool _autoCheckScheduled;
     private int _lastUpdateChannel;
-    private LauncherUpdateService _updateService = new();
-    private readonly LauncherUpdateInstaller _updateInstaller = new();
-    private CancellationTokenSource? _checkCts;
+    private readonly LauncherUpdateCoordinator _updateCoordinator = LauncherUpdateCoordinator.Current;
     private LauncherUpdateCheckResult? _availableUpdate;
     private PreparedLauncherUpdate? _preparedUpdate;
     private bool _isPreparingUpdate;
@@ -46,7 +43,6 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         LauncherSettingsPageBinder.Attach(this, OnSettingsApplied);
         AttachedToVisualTree += OnAttachedToVisualTree;
         DetachedFromVisualTree += OnDetachedFromVisualTree;
-        _updateInstaller.ProgressChanged += OnUpdateProgressChanged;
         RefreshPage();
     }
 
@@ -60,6 +56,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
     private void OnAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
     {
+        _updateCoordinator.ProgressChanged += OnUpdateProgressChanged;
         _channelUserArmed = false;
         _autoCheckScheduled = false;
         // Defer until styles/DynamicResource + settings re-bind settle, then paint combos and auto-check.
@@ -68,7 +65,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
     private void OnDetachedFromVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
     {
-        CancelInFlightCheck();
+        _updateCoordinator.ProgressChanged -= OnUpdateProgressChanged;
         _channelUserArmed = false;
         _autoCheckScheduled = false;
     }
@@ -133,8 +130,8 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         if (this.FindControl<MyComboBox>("ComboSystemUpdateMode") is { } mode)
         {
             ApplyItemLabel(mode, 0, "Setup.Update.Auto.DownloadAndInstall", "自动下载并安装");
-            ApplyItemLabel(mode, 1, "Setup.Update.Auto.DownloadAndNotify", "自动下载并通知");
-            ApplyItemLabel(mode, 2, "Setup.Update.Auto.NotifyOnly", "仅通知");
+            ApplyItemLabel(mode, 1, "Setup.Update.Auto.DownloadAndNotify", "仅下载");
+            ApplyItemLabel(mode, 2, "Setup.Update.Auto.NotifyOnly", "仅提示");
             ApplyItemLabel(mode, 3, "Setup.Update.Auto.Disabled", "关闭");
             if (mode.SelectedIndex < 0 && mode.ItemCount > 0)
                 mode.SelectedIndex = LauncherSettingDefaults.GetInteger("SystemUpdateMode", 1);
@@ -226,7 +223,28 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             return;
         }
 
-        await CheckForUpdatesAsync().ConfigureAwait(true);
+        _isChecking = true;
+        if (this.FindControl<MyButton>("BtnCheckAgain") is { } checkAgain)
+            checkAgain.IsEnabled = false;
+        if (this.FindControl<TextBlock>("TextCurrentDesc") is { } checking)
+            checking.Text = AvaloniaLocalizationManager.GetText("Setup.Update.Checking", "正在检查更新…");
+        try
+        {
+            LauncherUpdateCheckResult? result = await _updateCoordinator.StartAutomaticUpdateOnceAsync()
+                .ConfigureAwait(true);
+            _preparedUpdate = _updateCoordinator.PreparedUpdate;
+            if (result is not null && this.IsAttachedToVisualTree())
+                await ApplyCheckResultAsync(result, automaticallyPrepare: false).ConfigureAwait(true);
+        }
+        finally
+        {
+            _isChecking = false;
+            if (this.IsAttachedToVisualTree() &&
+                this.FindControl<MyButton>("BtnCheckAgain") is { } button)
+            {
+                button.IsEnabled = true;
+            }
+        }
     }
 
     private void BtnChangelogDetail_Click(object? sender, RoutedEventArgs e)
@@ -246,12 +264,12 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
     private async void BtnDownloadNow_Click(object? sender, EventArgs e)
     {
-        await PrepareAvailableUpdateAsync(installAfterDownload: false).ConfigureAwait(true);
+        await ProcessAvailableUpdateAsync(mode: 1).ConfigureAwait(true);
     }
 
     private async void BtnDownloadAndInstall_Click(object? sender, EventArgs e)
     {
-        await PrepareAvailableUpdateAsync(installAfterDownload: true).ConfigureAwait(true);
+        await ProcessAvailableUpdateAsync(mode: 0).ConfigureAwait(true);
     }
 
     private void ComboSystemUpdateChannel_DropDownOpened(object? sender, EventArgs e)
@@ -339,18 +357,6 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         // Persistence is handled by LauncherSettingsPageBinder (Tag=SystemUpdateMode).
     }
 
-    private void CancelInFlightCheck()
-    {
-        try
-        {
-            _checkCts?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // already disposed
-        }
-    }
-
     private async Task CheckForUpdatesAsync()
     {
         if (_isChecking)
@@ -362,11 +368,6 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             checkAgain.IsEnabled = false;
         if (this.FindControl<TextBlock>("TextCurrentDesc") is { } desc)
             desc.Text = AvaloniaLocalizationManager.GetText("Setup.Update.Checking", "正在检查更新…");
-
-        CancelInFlightCheck();
-        _checkCts?.Dispose();
-        _checkCts = new CancellationTokenSource();
-        CancellationToken token = _checkCts.Token;
 
         try
         {
@@ -381,112 +382,19 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                 _ => UpdateChannel.Release
             };
 
-            string commit = !string.IsNullOrWhiteSpace(PclBuildInfo.SourceRevisionId)
-                ? PclBuildInfo.SourceRevisionId
-                : PclMetadata.Current.Commit;
-            LauncherBuildIdentity identity = PclLauncherBuildIdentity.Current;
-
-            LauncherUpdateCheckResult result = await _updateService
-                .CheckAsync(
-                    channel,
-                    identity,
-                    currentCommitSha: commit,
-                    cancellationToken: token)
+            LauncherUpdateCheckResult result = await _updateCoordinator
+                .CheckAsync(channel)
                 .ConfigureAwait(true);
-
-            if (token.IsCancellationRequested || !this.IsAttachedToVisualTree())
-                return;
-
-            if (!result.Success)
-            {
-                MessageRequested?.Invoke(
-                    this,
-                    new SettingsMessageRequestedEventArgs(
-                        AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新"),
-                        result.ErrorMessage ?? AvaloniaLocalizationManager.GetText("Setup.Update.Error.NetworkFailed", "请检查网络连接后重试。"),
-                        AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
-                ShowCurrentVersionUi();
-                if (this.FindControl<TextBlock>("TextCurrentDesc") is { } failedDesc)
-                    failedDesc.Text = AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新");
-                return;
-            }
-
-            _availableUpdate = result.IsUpdateAvailable ? result : null;
-            if (_preparedUpdate?.Package.TargetTag != result.Package?.TargetTag)
-                _preparedUpdate = null;
-            _latestReleaseUrl = result.ReleaseUrl ?? ReleasesUrl;
-            _preferredAssetUrl = result.PreferredAssetUrl;
-
-            if (result.IsUpdateAvailable)
-            {
-                if (this.FindControl<TextBlock>("TextUpdateName") is { } updateName)
-                    updateName.Text = "PCL N " + (result.LatestVersion ?? "");
-                if (this.FindControl<TextBlock>("TextUpdateDesc") is { } updateDesc)
-                {
-                    updateDesc.Text = result.Channel is UpdateChannel.CI
-                        ? (result.ReleaseName ?? "CI") + " · " + AvaloniaLocalizationManager.GetText("Setup.Update.Available", "有可用更新")
-                        : AvaloniaLocalizationManager.GetText("Setup.Update.Available", "有可用更新");
-                }
-
-                // Fixed, plain copy; details live on GitHub.
-                if (this.FindControl<TextBlock>("TextChangelog") is { } changelog)
-                {
-                    string guide = AvaloniaLocalizationManager.GetText(
-                        "Setup.Update.Changelog.Placeholder",
-                        "此更新包含问题修复与改进。\n\n部分内容可能因设备、系统版本或使用方式而略有不同。建议在网络状况良好时完成下载与安装。\n\n有关此更新的完整说明与变更列表，可在 GitHub 上查看。");
-                    if (result.Channel is UpdateChannel.CI || !result.SupportsPatches)
-                        guide += "\n\n此版本仅提供完整下载。";
-                    changelog.Text = guide;
-                }
-
-                ShowUpdateAvailableUi();
-
-                int updateMode = this.FindControl<MyComboBox>("ComboSystemUpdateMode") is { SelectedIndex: >= 0 } modeCombo
-                    ? modeCombo.SelectedIndex
-                    : LauncherSettingDefaults.GetInteger("SystemUpdateMode", 1);
-                if (updateMode is 0 or 1)
-                {
-                    await PrepareAvailableUpdateAsync(
-                            installAfterDownload: updateMode == 0,
-                            showReadyMessage: updateMode == 1,
-                            cancellationToken: token)
-                        .ConfigureAwait(true);
-                }
-            }
-            else
-            {
-                _availableUpdate = null;
-                _preferredAssetUrl = null;
-                ShowCurrentVersionUi();
-                if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDesc)
-                {
-                    string latest = AvaloniaLocalizationManager.GetText("Setup.Update.Latest", "已是最新版本");
-                    currentDesc.Text = string.IsNullOrWhiteSpace(result.CurrentVersion)
-                        ? latest + " · " + DescribeCurrentBuild()
-                        : $"{latest}（{result.CurrentVersion}） · {DescribeCurrentBuild()}";
-                }
-            }
+            if (this.IsAttachedToVisualTree())
+                await ApplyCheckResultAsync(result, automaticallyPrepare: true).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
-            // Navigated away or a newer check started.
-        }
-        catch (ObjectDisposedException)
-        {
-            _updateService = new LauncherUpdateService();
-            MessageRequested?.Invoke(
-                this,
-                new SettingsMessageRequestedEventArgs(
-                    AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新"),
-                    "请再试一次。",
-                    AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
-            ShowCurrentVersionUi();
-            if (this.FindControl<TextBlock>("TextCurrentDesc") is { } disposedDesc)
-                disposedDesc.Text = AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新");
+            // Application shutdown.
         }
         catch (Exception ex)
         {
-            if (token.IsCancellationRequested || !this.IsAttachedToVisualTree())
+            if (!this.IsAttachedToVisualTree())
                 return;
             MessageRequested?.Invoke(
                 this,
@@ -509,6 +417,88 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         }
     }
 
+    private async Task ApplyCheckResultAsync(LauncherUpdateCheckResult result, bool automaticallyPrepare)
+    {
+        if (!result.Success)
+        {
+            MessageRequested?.Invoke(
+                this,
+                new SettingsMessageRequestedEventArgs(
+                    AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新"),
+                    result.ErrorMessage ?? AvaloniaLocalizationManager.GetText("Setup.Update.Error.NetworkFailed", "请检查网络连接后重试。"),
+                    AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
+            ShowCurrentVersionUi();
+            if (this.FindControl<TextBlock>("TextCurrentDesc") is { } failedDesc)
+                failedDesc.Text = AvaloniaLocalizationManager.GetText("Setup.Update.CheckFailed", "无法检查更新");
+            return;
+        }
+
+        _availableUpdate = result.IsUpdateAvailable ? result : null;
+        _preparedUpdate = _updateCoordinator.PreparedUpdate;
+        if (_preparedUpdate?.Package.TargetTag != result.Package?.TargetTag)
+            _preparedUpdate = null;
+        _latestReleaseUrl = result.ReleaseUrl ?? ReleasesUrl;
+        _preferredAssetUrl = result.PreferredAssetUrl;
+
+        if (!result.IsUpdateAvailable)
+        {
+            _availableUpdate = null;
+            _preferredAssetUrl = null;
+            ShowCurrentVersionUi();
+            if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDesc)
+            {
+                string latest = AvaloniaLocalizationManager.GetText("Setup.Update.Latest", "已是最新版本");
+                currentDesc.Text = string.IsNullOrWhiteSpace(result.CurrentVersion)
+                    ? latest + " · " + DescribeCurrentBuild()
+                    : $"{latest}（{result.CurrentVersion}） · {DescribeCurrentBuild()}";
+            }
+            return;
+        }
+
+        if (this.FindControl<TextBlock>("TextUpdateName") is { } updateName)
+            updateName.Text = "PCL N " + (result.LatestVersion ?? "");
+        if (this.FindControl<TextBlock>("TextUpdateDesc") is { } updateDesc)
+        {
+            updateDesc.Text = _preparedUpdate is not null
+                ? "更新已下载并通过校验"
+                : result.Channel is UpdateChannel.CI
+                    ? (result.ReleaseName ?? "CI") + " · " + AvaloniaLocalizationManager.GetText("Setup.Update.Available", "有可用更新")
+                    : AvaloniaLocalizationManager.GetText("Setup.Update.Available", "有可用更新");
+        }
+
+        if (this.FindControl<MyMarkdownViewer>("TextChangelog") is { } changelog)
+        {
+            string guide = !string.IsNullOrWhiteSpace(result.ReleaseNotes)
+                ? result.ReleaseNotes
+                : AvaloniaLocalizationManager.GetText(
+                    "Setup.Update.Changelog.Placeholder",
+                    "此更新包含问题修复与改进。\n\n部分内容可能因设备、系统版本或使用方式而略有不同。建议在网络状况良好时完成下载与安装。\n\n有关此更新的完整说明与变更列表，可在 GitHub 上查看。");
+            if (result.Channel is UpdateChannel.CI)
+            {
+                guide += "\n\n" + AvaloniaLocalizationManager.GetText(
+                    "Setup.Update.FullOnly.CI",
+                    "CI 通道不生成增量补丁，将下载完整包。");
+            }
+            else if (!result.SupportsPatches)
+            {
+                guide += "\n\n" + AvaloniaLocalizationManager.GetText(
+                    "Setup.Update.FullOnly.NoApplicablePatch",
+                    "当前安装版本没有适用的增量补丁，将下载完整包。");
+            }
+            changelog.Markdown = guide;
+        }
+
+        ShowUpdateAvailableUi();
+        if (!automaticallyPrepare)
+            return;
+
+        int updateMode = this.FindControl<MyComboBox>("ComboSystemUpdateMode") is { SelectedIndex: >= 0 } modeCombo
+            ? modeCombo.SelectedIndex
+            : LauncherSettingDefaults.GetInteger("SystemUpdateMode", 1);
+        if (updateMode is 0 or 1 or 2)
+            await ProcessAvailableUpdateAsync(updateMode).ConfigureAwait(true);
+    }
+
     private void SetCurrentVersionText()
     {
         string version = "PCL N " + PclMetadata.Current.DisplayVersion;
@@ -519,14 +509,13 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                                       " · " + DescribeCurrentBuild();
     }
 
-    private async Task PrepareAvailableUpdateAsync(
-        bool installAfterDownload,
-        bool showReadyMessage = true,
+    private async Task ProcessAvailableUpdateAsync(
+        int mode,
         CancellationToken cancellationToken = default)
     {
         if (_isPreparingUpdate)
             return;
-        if (_availableUpdate?.Package is not { } package)
+        if (_availableUpdate?.Package is null)
         {
             OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(_preferredAssetUrl ?? _latestReleaseUrl));
             return;
@@ -536,41 +525,9 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         SetUpdateButtonsEnabled(false);
         try
         {
-            if (_preparedUpdate is null ||
-                !string.Equals(_preparedUpdate.Package.TargetTag, package.TargetTag, StringComparison.OrdinalIgnoreCase) ||
-                !File.Exists(_preparedUpdate.StagedExecutablePath))
-            {
-                string currentExecutable = Environment.ProcessPath
-                    ?? throw new InvalidOperationException("无法确定当前启动器文件位置。");
-                string? hpatchz = await PclEmbeddedUpdateTool.GetHpatchzPathAsync(cancellationToken).ConfigureAwait(true);
-                _preparedUpdate = await _updateInstaller.PrepareAsync(
-                        package,
-                        currentExecutable,
-                        hpatchz,
-                        cancellationToken)
-                    .ConfigureAwait(true);
-            }
-
-            if (!installAfterDownload)
-            {
-                if (showReadyMessage)
-                {
-                    string method = _preparedUpdate.UsedPatch ? "Patch" : "完整包";
-                    MessageRequested?.Invoke(
-                        this,
-                        new SettingsMessageRequestedEventArgs(
-                            "更新已下载",
-                            $"PCL N {package.TargetVersion} 已通过校验（{method}）。\n\n点击“下载并安装”即可自动覆盖并重启。",
-                            AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
-                }
-                return;
-            }
-
-            _updateInstaller.ScheduleInstallAndRestart(_preparedUpdate, Environment.ProcessId);
-            if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-                desktop.Shutdown();
-            else
-                Environment.Exit(0);
+            await _updateCoordinator.HandleAvailableUpdateAsync(_availableUpdate, mode, cancellationToken)
+                .ConfigureAwait(true);
+            _preparedUpdate = _updateCoordinator.PreparedUpdate;
         }
         catch (OperationCanceledException)
         {

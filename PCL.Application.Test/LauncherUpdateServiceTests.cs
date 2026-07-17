@@ -145,6 +145,8 @@ public sealed class LauncherUpdateServiceTests
                 return XmlResponse(ReleaseFeed("v1.2.0-release"));
             if (path.EndsWith("/releases/latest", StringComparison.Ordinal))
                 return Redirect("https://github.test/owner/repo/releases/tag/v1.2.0-release");
+            if (path.EndsWith("/releases/tags/v1.2.0-release", StringComparison.Ordinal))
+                return JsonResponse("""{"body":"## Complete changelog\n\n- First fix\n- Second fix"}""");
             if (path.Contains("/v1.2.0-release/patch-index.json", StringComparison.Ordinal))
                 return JsonResponse(PatchIndex("1.2.0-release", "v1.2.0-release", "v1.1.0-release", "v1.1.0-release", 40, "target-sha", "from-11", ["v1.1.0-release"]));
             if (path.Contains("/v1.1.0-release/patch-index.json", StringComparison.Ordinal))
@@ -164,6 +166,7 @@ public sealed class LauncherUpdateServiceTests
         Assert.IsTrue(result.IsUpdateAvailable);
         Assert.IsNotNull(result.Package);
         Assert.AreEqual("NoRuntime_NoPlugin", result.Package.RuntimeVariant);
+        Assert.AreEqual("## Complete changelog\n\n- First fix\n- Second fix", result.ReleaseNotes);
         Assert.AreEqual("PCL_N_Release_win-x64_NoRuntime_NoPlugin.zip", result.Package.TargetAssetName);
         Assert.AreEqual(2, result.Package.PatchSteps.Count);
         Assert.AreEqual("1.1.0-release", result.Package.PatchSteps[0].TargetVersion);

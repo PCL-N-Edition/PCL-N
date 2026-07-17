@@ -5647,6 +5647,7 @@ public sealed class AvaloniaHeadlessTests
             window.Show();
             AvaloniaHeadlessPlatform.ForceRenderTimerTick();
             Assert.IsFalse(window.CanResize);
+            Assert.AreEqual(WindowTransparencyLevel.Transparent, window.TransparencyLevelHint.First());
             CollectionAssert.Contains(window.TransparencyLevelHint.ToArray(), WindowTransparencyLevel.None);
             Assert.IsFalse(window.TransparencyLevelHint.Contains(WindowTransparencyLevel.AcrylicBlur));
             Assert.IsNotNull(window.FindControl<Grid>("PanForm")!.Background);
@@ -8567,7 +8568,9 @@ public sealed class AvaloniaHeadlessTests
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
                 Assert.AreEqual("更新日志", dialog.FindControl<TextBlock>("LabTitle")!.Text);
-                Assert.AreEqual("## PCL N\n- 修复输入框", dialog.FindControl<MyMarkdownViewer>("LabCaption")!.Markdown);
+                MyMarkdownViewer viewer = dialog.FindControl<MyMarkdownViewer>("LabCaption")!;
+                Assert.AreEqual("## PCL N\n- 修复输入框", viewer.Markdown);
+                Assert.IsTrue(viewer.Inlines!.Count >= 3, "Markdown should be rendered into formatted inlines.");
                 Assert.IsTrue(dialog.FindControl<MyButton>("Btn2")!.IsVisible);
                 Assert.IsTrue(dialog.FindControl<MyButton>("Btn3")!.IsVisible);
 

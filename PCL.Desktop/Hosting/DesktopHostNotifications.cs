@@ -17,7 +17,7 @@ internal sealed class DesktopHostNotifications : IHostNotifications
 
     private readonly ConcurrentQueue<string> _captured = new();
     private Action<string, bool>? _handler;
-    private Func<string, string, string, string, bool, Task<bool>>? _confirmHandler;
+    private Func<string, string, string, string, string, bool, Task<int>>? _choiceHandler;
 
     public IReadOnlyCollection<string> CapturedMessages => _captured.ToArray();
 
@@ -27,10 +27,10 @@ internal sealed class DesktopHostNotifications : IHostNotifications
         _handler = handler;
     }
 
-    public void AttachConfirm(Func<string, string, string, string, bool, Task<bool>> handler)
+    public void AttachChoice(Func<string, string, string, string, string, bool, Task<int>> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        _confirmHandler = handler;
+        _choiceHandler = handler;
     }
 
     public void Detach(Action<string, bool> handler)
@@ -39,17 +39,17 @@ internal sealed class DesktopHostNotifications : IHostNotifications
             _handler = null;
     }
 
-    public void DetachConfirm(Func<string, string, string, string, bool, Task<bool>> handler)
+    public void DetachChoice(Func<string, string, string, string, string, bool, Task<int>> handler)
     {
-        if (ReferenceEquals(_confirmHandler, handler))
-            _confirmHandler = null;
+        if (ReferenceEquals(_choiceHandler, handler))
+            _choiceHandler = null;
     }
 
     public void ShowInformation(string message) => Dispatch(message, critical: false);
 
     public void ShowWarning(string message) => Dispatch(message, critical: true);
 
-    public Task<bool> ConfirmAsync(
+    public async Task<bool> ConfirmAsync(
         string title,
         string message,
         string primaryButton = "允许",
@@ -57,14 +57,36 @@ internal sealed class DesktopHostNotifications : IHostNotifications
         bool isWarn = true,
         CancellationToken cancellationToken = default)
     {
-        Func<string, string, string, string, bool, Task<bool>>? handler = _confirmHandler;
+        int result = await ChoiceAsync(
+                title,
+                message,
+                primaryButton,
+                secondaryButton,
+                thirdButton: string.Empty,
+                isWarn,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return result == 1;
+    }
+
+    public Task<int> ChoiceAsync(
+        string title,
+        string markdown,
+        string primaryButton,
+        string secondaryButton = "",
+        string thirdButton = "",
+        bool isWarn = false,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Func<string, string, string, string, string, bool, Task<int>>? handler = _choiceHandler;
         if (handler is null)
         {
-            _captured.Enqueue($"[confirm-unhandled] {title}: {message}");
-            return Task.FromResult(false);
+            _captured.Enqueue($"[choice-unhandled] {title}: {markdown}");
+            return Task.FromResult(0);
         }
 
-        return handler(title, message, primaryButton, secondaryButton, isWarn);
+        return handler(title, markdown, primaryButton, secondaryButton, thirdButton, isWarn);
     }
 
     private void Dispatch(string message, bool critical)

@@ -202,7 +202,7 @@ public partial class MainWindow : Window, IDisposable
         CaptureShowAnimationTransforms();
         Opened += OnMainWindowOpened;
         DesktopHostNotifications.Instance.Attach(OnPluginHostNotification);
-        DesktopHostNotifications.Instance.AttachConfirm(OnPluginHostConfirmAsync);
+        DesktopHostNotifications.Instance.AttachChoice(OnPluginHostChoiceAsync);
         DesktopHostBackgroundTasks.Instance.Attach(BeginHostBackgroundTask);
         DesktopHost.Current.Navigation.Changed += NavigationRegistryChanged;
         DesktopHostNavigation.Instance.Attach(NavigateToPluginRoute);
@@ -213,22 +213,24 @@ public partial class MainWindow : Window, IDisposable
     private void OnPluginHostNotification(string message, bool critical) =>
         ShowHint(message, critical);
 
-    private Task<bool> OnPluginHostConfirmAsync(
+    private Task<int> OnPluginHostChoiceAsync(
         string title,
-        string message,
+        string markdown,
         string primaryButton,
         string secondaryButton,
+        string thirdButton,
         bool isWarn)
     {
-        TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<int> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         void Show()
         {
-            ShowConfirmDialog(
+            ShowMarkdownDialog(
                 title,
-                message,
-                confirmed => completion.TrySetResult(confirmed),
+                markdown,
+                result => completion.TrySetResult(result),
                 primaryButton,
                 secondaryButton,
+                thirdButton,
                 isWarn);
         }
 
@@ -1258,6 +1260,7 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
+        _ = LauncherUpdateCoordinator.Current.StartAutomaticUpdateOnceAsync();
         StartShowAnimation();
         // First-run chain: community welcome → special build notice (no EULA gate).
         Dispatcher.UIThread.Post(MaybeShowFirstRunDialogs, DispatcherPriority.Background);
@@ -4241,15 +4244,34 @@ public partial class MainWindow : Window, IDisposable
         string secondaryButton = "取消",
         bool isWarn = false)
     {
+        ShowMarkdownDialog(
+            title,
+            caption,
+            result => closed(result == 1),
+            primaryButton,
+            secondaryButton,
+            thirdButton: string.Empty,
+            isWarn);
+    }
+
+    private void ShowMarkdownDialog(
+        string title,
+        string markdown,
+        Action<int> closed,
+        string primaryButton,
+        string secondaryButton = "",
+        string thirdButton = "",
+        bool isWarn = false)
+    {
         if (this.FindControl<BlurBorder>("PanMsgBackground") is not { } background ||
             this.FindControl<Grid>("PanMsg") is not { } host)
         {
-            closed(false);
+            closed(0);
             return;
         }
 
-        MyMsgText dialog = new();
-        dialog.Configure(title, caption, primaryButton, secondaryButton, isWarn: isWarn);
+        MyMsgMarkdown dialog = new();
+        dialog.Configure(title, markdown, primaryButton, secondaryButton, thirdButton, isWarn);
         host.Children.Clear();
         background.IsVisible = true;
         AnimateMsgBackground(background, 90);
@@ -4264,7 +4286,7 @@ public partial class MainWindow : Window, IDisposable
                     background.IsVisible = false;
                 });
             }
-            closed(args.IsPrimary);
+            closed(args.Result);
         };
         host.Children.Add(dialog);
         dialog.BeginShowAnimation();
@@ -6137,7 +6159,7 @@ public partial class MainWindow : Window, IDisposable
         DesktopHostUiComposition.Instance.UnregisterTarget("pcl.navigation.main");
         DesktopHostUiComposition.Instance.UnregisterTarget("pcl.window.main");
         DesktopHostNotifications.Instance.Detach(OnPluginHostNotification);
-        DesktopHostNotifications.Instance.DetachConfirm(OnPluginHostConfirmAsync);
+        DesktopHostNotifications.Instance.DetachChoice(OnPluginHostChoiceAsync);
         DesktopHostBackgroundTasks.Instance.Detach();
         DesktopHost.Current.Navigation.Changed -= NavigationRegistryChanged;
         DesktopHostNavigation.Instance.Detach(NavigateToPluginRoute);
@@ -6778,10 +6800,10 @@ public partial class MainWindow : Window, IDisposable
         ModAnimation.Configure(
             settings.GetIntegerOption("UiAniFPS", LauncherSettingDefaults.GetInteger("UiAniFPS")) + 1,
             settings.GetIntegerOption("SystemDebugAnim", LauncherSettingDefaults.GetInteger("SystemDebugAnim")));
-        // WPF only applies the optional advanced material to the modal overlay.
-        // Applying native acrylic to this borderless window also tints its transparent
-        // shadow margin, which leaves a visible rectangular frame around PanBack.
-        TransparencyLevelHint = [WindowTransparencyLevel.None];
+        // Keep per-pixel alpha for the rounded transparent margin and shadow. Native
+        // acrylic is intentionally not requested because it tints the whole borderless
+        // surface; None remains a fallback for compositors without alpha support.
+        TransparencyLevelHint = [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None];
         ApplyFormBackground(settings);
         ApplyTitleAppearance(settings);
         ApplyBackgroundAppearance(settings);

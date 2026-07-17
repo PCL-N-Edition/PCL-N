@@ -12,13 +12,15 @@ using PCL.Core.Logging;
 namespace PCL.Application.Updates;
 
 /// <summary>
-/// Checks GitHub for a newer PCL N desktop build without using the REST API
-/// (avoids unauthenticated 60 req/hr rate limits).
+/// Checks GitHub for a newer PCL N desktop build. Lightweight discovery uses
+/// HTML and Atom; the REST release endpoint is queried only when a newer build
+/// exists so the dialog can show the complete Markdown changelog.
 ///
 /// Sources:
 /// <list type="bullet">
 /// <item>Atom feed: https://github.com/{owner}/{repo}/releases.atom</item>
 /// <item>Latest redirect: https://github.com/{owner}/{repo}/releases/latest</item>
+/// <item>Release Markdown: https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}</item>
 /// <item>Download URLs built by convention (no assets listing API)</item>
 /// </list>
 /// </summary>
@@ -71,7 +73,7 @@ public sealed class LauncherUpdateService : IDisposable
 
         if (_httpClient.DefaultRequestHeaders.UserAgent.Count == 0)
             _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PCL-N", "1.0"));
-        // Prefer HTML/Atom over GitHub REST media types (we no longer call api.github.com).
+        // Most requests are HTML or Atom. The one REST request sets its own Accept header.
         if (_httpClient.DefaultRequestHeaders.Accept.Count == 0)
             _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/atom+xml"));
     }
@@ -135,6 +137,9 @@ public sealed class LauncherUpdateService : IDisposable
             .ConfigureAwait(false);
         string htmlUrl = release.HtmlUrl
             ?? $"https://github.com/{_owner}/{_repo}/releases/tag/{Uri.EscapeDataString(release.Tag)}";
+        string? releaseNotes = isNewer
+            ? await TryFetchReleaseMarkdownAsync(release.Tag, cancellationToken).ConfigureAwait(false) ?? release.Notes
+            : release.Notes;
 
         LauncherUpdateCheckResult result = new(
             Success: true,
@@ -142,7 +147,7 @@ public sealed class LauncherUpdateService : IDisposable
             CurrentVersion: localVersion,
             LatestVersion: remoteVersion,
             ReleaseName: release.Title ?? release.Tag,
-            ReleaseNotes: release.Notes,
+            ReleaseNotes: releaseNotes,
             ReleaseUrl: htmlUrl,
             PreferredAssetUrl: package.FullPackageUrl,
             ErrorMessage: null,
@@ -218,6 +223,9 @@ public sealed class LauncherUpdateService : IDisposable
         string latestLabel = remoteCommitNorm.Length > 0
             ? $"ci-{remoteCommitNorm[..Math.Min(7, remoteCommitNorm.Length)]}"
             : (release?.Title ?? CiRollingTag);
+        string? releaseNotes = isNewer && hasAsset
+            ? await TryFetchReleaseMarkdownAsync(CiRollingTag, cancellationToken).ConfigureAwait(false) ?? release?.Notes
+            : release?.Notes;
 
         LauncherUpdateCheckResult result = new(
             Success: true,
@@ -225,7 +233,7 @@ public sealed class LauncherUpdateService : IDisposable
             CurrentVersion: NormalizeVersion(identity.Version),
             LatestVersion: latestLabel,
             ReleaseName: release?.Title ?? "CI rolling build",
-            ReleaseNotes: release?.Notes,
+            ReleaseNotes: releaseNotes,
             ReleaseUrl: htmlUrl,
             PreferredAssetUrl: assetUrl,
             ErrorMessage: null,
@@ -347,6 +355,53 @@ public sealed class LauncherUpdateService : IDisposable
 
         string xml = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         return ParseAtomFeed(xml);
+    }
+
+    private async Task<string?> TryFetchReleaseMarkdownAsync(
+        string tag,
+        CancellationToken cancellationToken)
+    {
+        string url = $"https://api.github.com/repos/{_owner}/{_repo}/releases/tags/{Uri.EscapeDataString(tag)}";
+        try
+        {
+            using HttpRequestMessage request = new(HttpMethod.Get, url);
+            request.Headers.Accept.Clear();
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+            using HttpResponseMessage response = await _httpClient.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                PortableLog.Debug(
+                    "Update",
+                    $"完整 Markdown 更新日志不可用；Tag={tag}；HTTP={(int)response.StatusCode}。");
+                return null;
+            }
+
+            await using Stream content = await response.Content.ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            using JsonDocument document = await JsonDocument.ParseAsync(content, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (!document.RootElement.TryGetProperty("body", out JsonElement body) ||
+                body.ValueKind is not JsonValueKind.String)
+            {
+                return null;
+            }
+
+            string? markdown = body.GetString();
+            return string.IsNullOrWhiteSpace(markdown) ? null : markdown;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Warn(ex, "Update", $"读取完整 Markdown 更新日志失败；Tag={tag}。");
+            return null;
+        }
     }
 
     internal static IReadOnlyList<AtomReleaseEntry> ParseAtomFeed(string xml)

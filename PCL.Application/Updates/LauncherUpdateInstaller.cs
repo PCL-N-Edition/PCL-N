@@ -140,6 +140,16 @@ public sealed class LauncherUpdateInstaller : IDisposable
 
     public void ScheduleInstallAndRestart(PreparedLauncherUpdate update, int processId)
     {
+        ScheduleInstall(update, processId, restartAfterInstall: true);
+    }
+
+    public void ScheduleInstallOnExit(PreparedLauncherUpdate update, int processId)
+    {
+        ScheduleInstall(update, processId, restartAfterInstall: false);
+    }
+
+    private void ScheduleInstall(PreparedLauncherUpdate update, int processId, bool restartAfterInstall)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(update);
         if (!File.Exists(update.StagedExecutablePath))
@@ -147,13 +157,15 @@ public sealed class LauncherUpdateInstaller : IDisposable
 
         Directory.CreateDirectory(update.WorkDirectory);
         ProcessStartInfo startInfo = OperatingSystem.IsWindows()
-            ? CreateWindowsReplacementProcess(update, processId)
-            : CreateUnixReplacementProcess(update, processId);
+            ? CreateWindowsReplacementProcess(update, processId, restartAfterInstall)
+            : CreateUnixReplacementProcess(update, processId, restartAfterInstall);
         Process? process = Process.Start(startInfo);
         if (process is null)
             throw new InvalidOperationException("无法启动更新替换进程。");
         process.Dispose();
-        PortableLog.Info("Update", $"更新替换进程已启动；等待 PID={processId} 退出后覆盖并重启。");
+        PortableLog.Info(
+            "Update",
+            $"更新替换进程已启动；等待 PID={processId} 退出后覆盖；重新启动={restartAfterInstall}。");
     }
 
     private async Task<string> ApplyPatchChainAsync(
@@ -395,7 +407,10 @@ public sealed class LauncherUpdateInstaller : IDisposable
         return Convert.ToHexStringLower(hash);
     }
 
-    private static ProcessStartInfo CreateWindowsReplacementProcess(PreparedLauncherUpdate update, int processId)
+    private static ProcessStartInfo CreateWindowsReplacementProcess(
+        PreparedLauncherUpdate update,
+        int processId,
+        bool restartAfterInstall)
     {
         string script = Path.Combine(update.WorkDirectory, "install-update.ps1");
         File.WriteAllText(script, WindowsReplacementScript);
@@ -414,10 +429,14 @@ public sealed class LauncherUpdateInstaller : IDisposable
         startInfo.ArgumentList.Add(processId.ToString(System.Globalization.CultureInfo.InvariantCulture));
         startInfo.ArgumentList.Add(update.CurrentExecutablePath);
         startInfo.ArgumentList.Add(update.StagedExecutablePath);
+        startInfo.ArgumentList.Add(restartAfterInstall ? "1" : "0");
         return startInfo;
     }
 
-    private static ProcessStartInfo CreateUnixReplacementProcess(PreparedLauncherUpdate update, int processId)
+    private static ProcessStartInfo CreateUnixReplacementProcess(
+        PreparedLauncherUpdate update,
+        int processId,
+        bool restartAfterInstall)
     {
         if (OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("Unix 更新替换器不能在 Windows 上运行。");
@@ -438,6 +457,7 @@ public sealed class LauncherUpdateInstaller : IDisposable
         startInfo.ArgumentList.Add(processId.ToString(System.Globalization.CultureInfo.InvariantCulture));
         startInfo.ArgumentList.Add(update.CurrentExecutablePath);
         startInfo.ArgumentList.Add(update.StagedExecutablePath);
+        startInfo.ArgumentList.Add(restartAfterInstall ? "1" : "0");
         return startInfo;
     }
 
@@ -500,7 +520,7 @@ public sealed class LauncherUpdateInstaller : IDisposable
     }
 
     private const string WindowsReplacementScript = """
-        param([int]$ProcessIdToWait, [string]$Current, [string]$Staged)
+        param([int]$ProcessIdToWait, [string]$Current, [string]$Staged, [int]$RestartAfterInstall)
         $ErrorActionPreference = 'Stop'
         Wait-Process -Id $ProcessIdToWait -ErrorAction SilentlyContinue
         $Backup = "$Current.pcln-old"
@@ -509,8 +529,10 @@ public sealed class LauncherUpdateInstaller : IDisposable
                 if (Test-Path -LiteralPath $Backup) { Remove-Item -LiteralPath $Backup -Force }
                 Move-Item -LiteralPath $Current -Destination $Backup -Force
                 Move-Item -LiteralPath $Staged -Destination $Current -Force
-                Start-Process -FilePath $Current -WorkingDirectory (Split-Path -Parent $Current)
-                Start-Sleep -Seconds 2
+                if ($RestartAfterInstall -eq 1) {
+                    Start-Process -FilePath $Current -WorkingDirectory (Split-Path -Parent $Current)
+                    Start-Sleep -Seconds 2
+                }
                 Remove-Item -LiteralPath $Backup -Force -ErrorAction SilentlyContinue
                 Remove-Item -LiteralPath $PSScriptRoot -Recurse -Force -ErrorAction SilentlyContinue
                 exit 0
@@ -528,13 +550,16 @@ public sealed class LauncherUpdateInstaller : IDisposable
         pid="$1"
         current="$2"
         staged="$3"
+        restart_after_install="$4"
         while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
         backup="${current}.pcln-old"
         rm -f "$backup"
         if mv "$current" "$backup" && mv "$staged" "$current"; then
           chmod +x "$current"
-          (cd "$(dirname "$current")" && "$current" >/dev/null 2>&1 &)
-          sleep 2
+          if [ "$restart_after_install" = "1" ]; then
+            (cd "$(dirname "$current")" && "$current" >/dev/null 2>&1 &)
+            sleep 2
+          fi
           rm -f "$backup"
           rm -rf "$(dirname "$0")"
           exit 0

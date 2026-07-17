@@ -752,10 +752,10 @@
     <sys:String x:Key="Setup.Update.Auto.Disabled.ToolTip">仅在手动选择“再次检查”时检查更新。</sys:String>
     <sys:String x:Key="Setup.Update.Auto.DownloadAndInstall">自动下载并安装</sys:String>
     <sys:String x:Key="Setup.Update.Auto.DownloadAndInstall.ToolTip">自动检查并下载更新，在 PCL 退出后完成安装。</sys:String>
-    <sys:String x:Key="Setup.Update.Auto.DownloadAndNotify">自动下载</sys:String>
-    <sys:String x:Key="Setup.Update.Auto.DownloadAndNotify.ToolTip">自动下载可用更新，并在准备完成后通知。</sys:String>
-    <sys:String x:Key="Setup.Update.Auto.NotifyOnly">仅通知</sys:String>
-    <sys:String x:Key="Setup.Update.Auto.NotifyOnly.ToolTip">自动检查更新，并在有新版本时通知。</sys:String>
+    <sys:String x:Key="Setup.Update.Auto.DownloadAndNotify">仅下载</sys:String>
+    <sys:String x:Key="Setup.Update.Auto.DownloadAndNotify.ToolTip">自动下载并校验更新，完成后询问安装、稍后安装或跳过该版本。</sys:String>
+    <sys:String x:Key="Setup.Update.Auto.NotifyOnly">仅提示</sys:String>
+    <sys:String x:Key="Setup.Update.Auto.NotifyOnly.ToolTip">发现新版本后询问仅下载、下载并安装或跳过该版本。</sys:String>
     <sys:String x:Key="Setup.Update.Auto.Title">自动更新</sys:String>
     <sys:String x:Key="Setup.Update.Available">有可用更新</sys:String>
     <sys:String x:Key="Setup.Update.Changelog.MoreInfo">关于此更新的更多信息…</sys:String>
@@ -778,7 +778,17 @@
     <sys:String x:Key="Setup.Update.DownloadAndInstall">下载并安装</sys:String>
     <sys:String x:Key="Setup.Update.DownloadNow">下载</sys:String>
     <sys:String x:Key="Setup.Update.Error.NetworkFailed">无法获取最新版本信息。请检查网络连接后重试。</sys:String>
+    <sys:String x:Key="Setup.Update.FullOnly.CI">CI 通道不生成增量补丁，将下载完整包。</sys:String>
+    <sys:String x:Key="Setup.Update.FullOnly.NoApplicablePatch">当前安装版本没有适用的增量补丁，将下载完整包。</sys:String>
     <sys:String x:Key="Setup.Update.Latest">PCL N 已是最新版本</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Available.DownloadAndInstall">下载并安装</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Available.DownloadOnly">仅下载</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Available.Title">发现可用更新</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Downloaded.InstallNow">安装并重启</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Downloaded.Later">稍后</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.Downloaded.Title">更新已下载</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.NoChangelog">此版本没有提供更新日志。</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.SkipVersion">跳过版本</sys:String>
 
     <!-- Speed -->
 
