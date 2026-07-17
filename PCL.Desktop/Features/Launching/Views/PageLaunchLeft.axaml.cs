@@ -65,11 +65,10 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
             Margin = new Thickness(20, 6, 20, 0),
             Orientation = Orientation.Vertical
         };
-        // Place after launch row (row 2): reuse row 3 area above instance buttons by inserting at end of grid.
-        Grid.SetRow(_pluginInjectPanel, 3);
+        // The slot has its own auto-sized row above the launch button.
+        Grid.SetRow(_pluginInjectPanel, 2);
         Grid.SetColumn(_pluginInjectPanel, 0);
         Grid.SetColumnSpan(_pluginInjectPanel, 5);
-        // Push inject host above instance buttons with negative margin if needed — keep simple append.
         input.Children.Add(_pluginInjectPanel);
         DesktopHostUiComposition.Instance.RegisterSlot(
             "pcl.page.launch",

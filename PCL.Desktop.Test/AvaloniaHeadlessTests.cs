@@ -302,6 +302,31 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void LaunchPage_PluginActionsUseDedicatedRowAboveNativeActions()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            PageLaunchLeft page = new();
+            Grid input = page.FindControl<Grid>("PanInput")!;
+            StackPanel pluginActions = page.FindControl<StackPanel>("PanPluginPrimaryActionsAfter")!;
+            MyButton launch = page.FindControl<MyButton>("BtnLaunch")!;
+            Grid launchHost = (Grid)launch.Parent!;
+            MyButton instance = page.FindControl<MyButton>("BtnInstance")!;
+            MyButton settings = page.FindControl<MyButton>("BtnMore")!;
+
+            Assert.HasCount(6, input.RowDefinitions);
+            Assert.AreEqual(2, Grid.GetRow(pluginActions));
+            Assert.AreEqual(3, Grid.GetRow(launchHost));
+            Assert.AreEqual(4, Grid.GetRow(instance));
+            Assert.AreEqual(4, Grid.GetRow(settings));
+            Assert.IsTrue(Grid.GetRow(pluginActions) < Grid.GetRow(launchHost));
+            Assert.IsTrue(Grid.GetRow(launchHost) < Grid.GetRow(instance));
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MainWindow_InstanceSubPageUsesWpfTitleBackButton()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
