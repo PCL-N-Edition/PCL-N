@@ -432,6 +432,10 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "contents=\"$app/Contents\"");
         StringAssert.Contains(reusable, "CFBundlePackageType");
         StringAssert.Contains(reusable, "codesign --verify --deep --strict");
+        StringAssert.Contains(stable, "binary=\"artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}\"");
+        StringAssert.Contains(beta, "binary=\"artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}\"");
+        StringAssert.Contains(stable, "chmod +x \"$binary\"");
+        StringAssert.Contains(beta, "chmod +x \"$binary\"");
         StringAssert.Contains(stable, "tar -C artifact -czf \"dist/${base}.tar.gz\" \"PCL N.app\"");
         StringAssert.Contains(beta, "tar -C artifact -czf \"dist/${base}.tar.gz\" \"PCL N.app\"");
         StringAssert.Contains(reusable, "PclPluginAssembly");

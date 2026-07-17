@@ -113,13 +113,16 @@ jobs:
         run: |
           base="PCL_N_Beta_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}_${{ matrix.plugin_suffix }}"
           mkdir -p dist
-          chmod +x "artifact/${{ matrix.target.binary_name }}" || true
-          if [[ "${{ matrix.target.package }}" == "zip" ]]; then
-            (cd artifact && zip -9 "../dist/${base}.zip" "${{ matrix.target.binary_name }}")
-          elif [[ "${{ matrix.target.runtime_id }}" == osx-* ]]; then
-            test -x "artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"
+          if [[ "${{ matrix.target.runtime_id }}" == osx-* ]]; then
+            binary="artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"
+            chmod +x "$binary"
+            test -x "$binary"
             tar -C artifact -czf "dist/${base}.tar.gz" "PCL N.app"
+          elif [[ "${{ matrix.target.package }}" == "zip" ]]; then
+            chmod +x "artifact/${{ matrix.target.binary_name }}" || true
+            (cd artifact && zip -9 "../dist/${base}.zip" "${{ matrix.target.binary_name }}")
           else
+            chmod +x "artifact/${{ matrix.target.binary_name }}"
             tar -C artifact -czf "dist/${base}.tar.gz" "${{ matrix.target.binary_name }}"
           fi
 
