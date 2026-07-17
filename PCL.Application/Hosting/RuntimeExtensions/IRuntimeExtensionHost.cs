@@ -116,6 +116,7 @@ internal interface IHostUiComposition
     IHostUiMutationTransaction BeginTransaction(IReadOnlyCollection<string> surfaceIds) => NoopHostUiMutationTransaction.Instance;
     void ClearSlot(string surfaceId, string slotId);
     bool Inject(string surfaceId, string slotId, HostUiInjectionRequest request);
+    bool RemoveInjection(string surfaceId, string slotId, string ownerId, string contributionId) => false;
     bool TrySetProperty(string surfaceId, string? slotId, string propertyPath, string? value);
     bool TrySetVisible(string surfaceId, bool isVisible);
     bool IsTargetRegistered(string surfaceId);
@@ -177,7 +178,8 @@ internal sealed record HostUiInjectionRequest(
     string ContributionId,
     string Title,
     int Order,
-    Func<object>? CreateContent = null);
+    Func<object>? CreateContent = null,
+    bool PersistWhenUnavailable = false);
 
 internal sealed record HostUiWrapRequest(string OwnerId, string OperationId, string? Label, int Order);
 internal sealed record HostUiReplaceRequest(string OwnerId, string OperationId, string? Title);

@@ -29,6 +29,7 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
     private readonly ConcurrentDictionary<string, ReplaceRecord> _replaces = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, long> _generations = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, InputInterceptor> _inputInterceptors = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, HostUiInjectionRequest> _injections = new(StringComparer.OrdinalIgnoreCase);
 
     public IHostUiMutationTransaction BeginTransaction(IReadOnlyCollection<string> surfaceIds)
     {
@@ -50,6 +51,13 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
         ArgumentException.ThrowIfNullOrWhiteSpace(slotId);
         ArgumentNullException.ThrowIfNull(panel);
         _slots[SlotKey(surfaceId, slotId)] = new WeakReference(panel);
+        foreach (HostUiInjectionRequest request in _injections
+                     .Where(pair => pair.Key.StartsWith(InjectionKeyPrefix(surfaceId, slotId), StringComparison.OrdinalIgnoreCase))
+                     .Select(static pair => pair.Value)
+                     .OrderBy(static request => request.Order))
+        {
+            AddInjection(panel, request);
+        }
     }
 
     public void UnregisterTarget(string surfaceId)
@@ -87,62 +95,39 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
         }
 
         RunOnUi(Clear);
+        foreach (HostUiInjectionRequest request in _injections
+                     .Where(pair => pair.Key.StartsWith(InjectionKeyPrefix(surfaceId, slotId), StringComparison.OrdinalIgnoreCase))
+                     .Select(static pair => pair.Value)
+                     .OrderBy(static request => request.Order))
+        {
+            AddInjection(panel, request);
+        }
     }
 
     public bool Inject(string surfaceId, string slotId, HostUiInjectionRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (request.PersistWhenUnavailable)
+            _injections[InjectionKey(surfaceId, slotId, request.OwnerId, request.ContributionId)] = request;
         if (!TryGetSlot(surfaceId, slotId, out Panel? panel) || panel is null)
-            return false;
+            return request.PersistWhenUnavailable;
+        AddInjection(panel, request);
+        return true;
+    }
 
-        void Add()
+    public bool RemoveInjection(string surfaceId, string slotId, string ownerId, string contributionId)
+    {
+        bool removed = _injections.TryRemove(InjectionKey(surfaceId, slotId, ownerId, contributionId), out _);
+        if (!TryGetSlot(surfaceId, slotId, out Panel? panel) || panel is null)
+            return removed;
+        RunOnUi(() =>
         {
-            string tag = "pcl.plugin.inject:" + request.OwnerId + ":" + request.ContributionId;
-            Control? existing = panel.Children.OfType<Control>()
-                .FirstOrDefault(c => string.Equals(c.Tag as string, tag, StringComparison.Ordinal));
-            if (existing is not null)
-                panel.Children.Remove(existing);
-
-            Control content;
-            if (request.CreateContent?.Invoke() is Control pluginContent)
-            {
-                content = new Border
-                {
-                    Child = pluginContent,
-                    Margin = new Thickness(0, 2, 0, 2),
-                    Tag = tag
-                };
-            }
-            else
-            {
-                content = new MyButton
-                {
-                    Text = string.IsNullOrWhiteSpace(request.Title) ? request.ContributionId : request.Title,
-                    Height = 32,
-                    Margin = new Thickness(0, 2, 0, 2),
-                    Tag = tag
-                };
-            }
-            ToolTip.SetTip(content, $"{request.OwnerId} · {request.ContributionId}");
-            int insertAt = panel.Children.Count;
-            for (int i = 0; i < panel.Children.Count; i++)
-            {
-                if (panel.Children[i] is Control c &&
-                    c.Tag is string existingTag &&
-                    existingTag.StartsWith("pcl.plugin.inject:", StringComparison.Ordinal) &&
-                    TryReadOrder(c, out int existingOrder) &&
-                    request.Order < existingOrder)
-                {
-                    insertAt = i;
-                    break;
-                }
-            }
-
-            content.SetValue(InjectOrderProperty, request.Order);
-            panel.Children.Insert(insertAt, content);
-        }
-
-        RunOnUi(Add);
+            string tag = InjectionTag(ownerId, contributionId);
+            Control? content = panel.Children.OfType<Control>()
+                .FirstOrDefault(control => string.Equals(control.Tag as string, tag, StringComparison.Ordinal));
+            if (content is not null)
+                panel.Children.Remove(content);
+        });
         return true;
     }
 
@@ -421,6 +406,59 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
     }
 
     private static string SlotKey(string surfaceId, string slotId) => surfaceId + "\0" + slotId;
+
+    private static string InjectionKeyPrefix(string surfaceId, string slotId) => SlotKey(surfaceId, slotId) + "\0";
+
+    private static string InjectionKey(string surfaceId, string slotId, string ownerId, string contributionId) =>
+        InjectionKeyPrefix(surfaceId, slotId) + ownerId + "\0" + contributionId;
+
+    private static string InjectionTag(string ownerId, string contributionId) =>
+        "pcl.plugin.inject:" + ownerId + ":" + contributionId;
+
+    private static void AddInjection(Panel panel, HostUiInjectionRequest request)
+    {
+        void Add()
+        {
+            string tag = InjectionTag(request.OwnerId, request.ContributionId);
+            Control? existing = panel.Children.OfType<Control>()
+                .FirstOrDefault(control => string.Equals(control.Tag as string, tag, StringComparison.Ordinal));
+            if (existing is not null)
+                panel.Children.Remove(existing);
+
+            Control content = request.CreateContent?.Invoke() is Control pluginContent
+                ? new Border
+                {
+                    Child = pluginContent,
+                    Margin = new Thickness(0, 2, 0, 2),
+                    Tag = tag
+                }
+                : new MyButton
+                {
+                    Text = string.IsNullOrWhiteSpace(request.Title) ? request.ContributionId : request.Title,
+                    Height = 32,
+                    Margin = new Thickness(0, 2, 0, 2),
+                    Tag = tag
+                };
+            ToolTip.SetTip(content, $"{request.OwnerId} · {request.ContributionId}");
+            int insertAt = panel.Children.Count;
+            for (int i = 0; i < panel.Children.Count; i++)
+            {
+                if (panel.Children[i] is Control control &&
+                    control.Tag is string existingTag &&
+                    existingTag.StartsWith("pcl.plugin.inject:", StringComparison.Ordinal) &&
+                    TryReadOrder(control, out int existingOrder) &&
+                    request.Order < existingOrder)
+                {
+                    insertAt = i;
+                    break;
+                }
+            }
+            content.SetValue(InjectOrderProperty, request.Order);
+            panel.Children.Insert(insertAt, content);
+        }
+
+        RunOnUi(Add);
+    }
 
     private static readonly AttachedProperty<int> InjectOrderProperty =
         AvaloniaProperty.RegisterAttached<Control, int>("PluginInjectOrder", typeof(DesktopHostUiComposition));
