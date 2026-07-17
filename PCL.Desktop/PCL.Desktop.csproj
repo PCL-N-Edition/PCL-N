@@ -75,6 +75,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="PCL.Desktop.Test" />
   </ItemGroup>
+  <Import Project="LibVlcPlaybackModules.props" />
   <ItemGroup>
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
       <_Parameter1>PclRuntimeVariant</_Parameter1>

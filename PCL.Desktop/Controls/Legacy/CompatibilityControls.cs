@@ -148,7 +148,7 @@ public class MediaElement : Image, IDisposable
             LibVLCSharp.Shared.Core.Initialize();
         else
             LibVLCSharp.Shared.Core.Initialize(libVlcDirectory);
-        _libVlc = new LibVLC("--no-video-title-show", "--quiet");
+        _libVlc = new LibVLC("--no-video-title-show", "--quiet", "--no-audio");
         _player = new LibVLCSharp.Shared.MediaPlayer(_libVlc);
         _player.SetVideoFormatCallbacks(ConfigureVideoFormat, CleanupVideoFormat);
         _player.SetVideoCallbacks(LockVideoFrame, null, DisplayVideoFrame);
