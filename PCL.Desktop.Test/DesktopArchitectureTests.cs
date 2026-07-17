@@ -426,7 +426,14 @@ public sealed class DesktopArchitectureTests
 
         StringAssert.Contains(reusable, "PCL.Desktop/PCL.Desktop.csproj");
         StringAssert.Contains(reusable, "PublishSingleFile=true");
-        StringAssert.Contains(reusable, "gh release download --repo MuXue1230-owo/PCL.Plugin");
+        StringAssert.Contains(reusable, "gh release download --repo PCL-N-Edition/PCL.Plugin");
+        StringAssert.Contains(reusable, "default: v0.13.0");
+        StringAssert.Contains(reusable, "app=\"$PUBLISH_DIR/PCL N.app\"");
+        StringAssert.Contains(reusable, "contents=\"$app/Contents\"");
+        StringAssert.Contains(reusable, "CFBundlePackageType");
+        StringAssert.Contains(reusable, "codesign --verify --deep --strict");
+        StringAssert.Contains(stable, "tar -C artifact -czf \"dist/${base}.tar.gz\" \"PCL N.app\"");
+        StringAssert.Contains(beta, "tar -C artifact -czf \"dist/${base}.tar.gz\" \"PCL N.app\"");
         StringAssert.Contains(reusable, "PclPluginAssembly");
         StringAssert.Contains(reusable, "PclPluginSdkAssembly");
         StringAssert.Contains(reusable, "PclPluginUiAssembly");
