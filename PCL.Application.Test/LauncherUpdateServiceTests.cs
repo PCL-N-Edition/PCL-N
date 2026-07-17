@@ -90,6 +90,51 @@ public sealed class LauncherUpdateServiceTests
     }
 
     [TestMethod]
+    public async Task CheckAsync_FollowsPermanentRedirectForReleaseFeed()
+    {
+        int feedRequests = 0;
+        RoutingHandler handler = new(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            if (path.Equals("/owner/repo/releases.atom", StringComparison.Ordinal))
+            {
+                feedRequests++;
+                return Redirect("https://github.test/owner/canonical-repo/releases.atom");
+            }
+            if (path.EndsWith("/canonical-repo/releases.atom", StringComparison.Ordinal))
+                return XmlResponse(ReleaseFeed("v1.2.0-beta"));
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using LauncherUpdateService service = new(new HttpClient(handler), "owner", "repo");
+
+        LauncherUpdateCheckResult result = await service.CheckAsync(
+            UpdateChannel.Beta,
+            new LauncherBuildIdentity("1.1.0 beta", "win-x64", "NoRuntime_NoPlugin", "Beta"));
+
+        Assert.IsTrue(result.Success, result.ErrorMessage);
+        Assert.IsTrue(result.IsUpdateAvailable);
+        Assert.AreEqual("1.2.0-beta", result.LatestVersion);
+        Assert.AreEqual(1, feedRequests);
+    }
+
+    [TestMethod]
+    public async Task CheckAsync_RejectsInsecureReleaseFeedRedirect()
+    {
+        RoutingHandler handler = new(request => request.RequestUri!.AbsolutePath.EndsWith(
+            "/releases.atom", StringComparison.Ordinal)
+            ? Redirect("http://github.test/owner/repo/releases.atom")
+            : new HttpResponseMessage(HttpStatusCode.NotFound));
+        using LauncherUpdateService service = new(new HttpClient(handler), "owner", "repo");
+
+        InvalidOperationException error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            service.CheckAsync(
+                UpdateChannel.Beta,
+                new LauncherBuildIdentity("1.1.0 beta", "win-x64", "NoRuntime_NoPlugin", "Beta")));
+
+        StringAssert.Contains(error.Message, "不安全");
+    }
+
+    [TestMethod]
     public async Task CheckCiAsync_UsesArtifactMetadataForEverySuccessfulCommit()
     {
         const string remoteCommit = "1234567890abcdef1234567890abcdef12345678";

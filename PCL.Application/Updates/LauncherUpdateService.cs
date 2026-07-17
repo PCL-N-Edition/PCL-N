@@ -335,7 +335,7 @@ public sealed class LauncherUpdateService : IDisposable
     private async Task<IReadOnlyList<AtomReleaseEntry>> FetchReleaseFeedAsync(CancellationToken cancellationToken)
     {
         string url = $"https://github.com/{_owner}/{_repo}/releases.atom";
-        using HttpResponseMessage response = await GetAsyncSafe(url, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await GetFollowingRedirectsAsync(url, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -678,6 +678,12 @@ public sealed class LauncherUpdateService : IDisposable
             Uri next = response.Headers.Location.IsAbsoluteUri
                 ? response.Headers.Location
                 : new Uri(new Uri(current), response.Headers.Location);
+            if (!string.Equals(next.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                !string.IsNullOrEmpty(next.UserInfo))
+            {
+                response.Dispose();
+                throw new InvalidOperationException("更新元数据重定向到了不安全的地址。");
+            }
             response.Dispose();
             current = next.AbsoluteUri;
         }
