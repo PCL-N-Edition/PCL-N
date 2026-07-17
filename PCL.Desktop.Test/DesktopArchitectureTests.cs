@@ -346,6 +346,12 @@ public sealed class DesktopArchitectureTests
             "Settings",
             "Views",
             "PageSetupUpdate.axaml.cs"));
+        string updatePageXaml = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Features",
+            "Settings",
+            "Views",
+            "PageSetupUpdate.axaml"));
         string coordinator = File.ReadAllText(Path.Combine(
             desktopRoot,
             "Hosting",
@@ -373,6 +379,9 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(coordinator, "PromptDownloadedUpdateAsync");
         StringAssert.Contains(coordinator, "SystemUpdateSkippedTarget");
         StringAssert.Contains(coordinator, "_installOnExit = prepared");
+        StringAssert.Contains(coordinator, "WaitForAutomaticCheckResultAsync");
+        StringAssert.Contains(coordinator, "PreparedUpdateChanged?.Invoke(prepared)");
+        StringAssert.Contains(coordinator, "IsUpdateTransferActive");
         StringAssert.Contains(installer, "ScheduleInstallOnExit");
         StringAssert.Contains(installer, "restartAfterInstall: false");
         StringAssert.Contains(mainWindow, "ShowMarkdownDialog");
@@ -381,6 +390,11 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(notifications, "return result == 1");
         StringAssert.Contains(updatePage, "_updateCoordinator.StartAutomaticUpdateOnceAsync()");
         StringAssert.Contains(updatePage, "HandleAvailableUpdateAsync");
+        StringAssert.Contains(updatePage, "SetUpdateActionButtons(_preparedUpdate is not null)");
+        StringAssert.Contains(updatePage, "Setup.Update.RestartAndInstall");
+        StringAssert.Contains(updatePage, "SetUpdateButtonsVisible(progress.Stage is LauncherUpdateStage.Ready)");
+        StringAssert.Contains(updatePageXaml, "<TextBlock x:Name=\"TextChangelog\"");
+        Assert.IsFalse(updatePageXaml.Contains("<legacy:MyMarkdownViewer x:Name=\"TextChangelog\"", StringComparison.Ordinal));
         StringAssert.Contains(updatePage, "_updateCoordinator.ProgressChanged -= OnUpdateProgressChanged");
         Assert.IsFalse(updatePage.Contains("new LauncherUpdateService", StringComparison.Ordinal));
         Assert.IsFalse(updatePage.Contains("CancelInFlightCheck", StringComparison.Ordinal));

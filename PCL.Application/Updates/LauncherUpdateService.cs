@@ -12,15 +12,14 @@ using PCL.Core.Logging;
 namespace PCL.Application.Updates;
 
 /// <summary>
-/// Checks GitHub for a newer PCL N desktop build. Lightweight discovery uses
-/// HTML and Atom; the REST release endpoint is queried only when a newer build
-/// exists so the dialog can show the complete Markdown changelog.
+/// Checks GitHub for a newer PCL N desktop build without using the rate-limited
+/// REST API. The complete release body comes from the Atom feed and is converted
+/// locally from GitHub's rendered HTML to Markdown.
 ///
 /// Sources:
 /// <list type="bullet">
 /// <item>Atom feed: https://github.com/{owner}/{repo}/releases.atom</item>
 /// <item>Latest redirect: https://github.com/{owner}/{repo}/releases/latest</item>
-/// <item>Release Markdown: https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}</item>
 /// <item>Download URLs built by convention (no assets listing API)</item>
 /// </list>
 /// </summary>
@@ -73,7 +72,7 @@ public sealed class LauncherUpdateService : IDisposable
 
         if (_httpClient.DefaultRequestHeaders.UserAgent.Count == 0)
             _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PCL-N", "1.0"));
-        // Most requests are HTML or Atom. The one REST request sets its own Accept header.
+        // All discovery requests use HTML or Atom and do not consume REST API quota.
         if (_httpClient.DefaultRequestHeaders.Accept.Count == 0)
             _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/atom+xml"));
     }
@@ -137,17 +136,13 @@ public sealed class LauncherUpdateService : IDisposable
             .ConfigureAwait(false);
         string htmlUrl = release.HtmlUrl
             ?? $"https://github.com/{_owner}/{_repo}/releases/tag/{Uri.EscapeDataString(release.Tag)}";
-        string? releaseNotes = isNewer
-            ? await TryFetchReleaseMarkdownAsync(release.Tag, cancellationToken).ConfigureAwait(false) ?? release.Notes
-            : release.Notes;
-
         LauncherUpdateCheckResult result = new(
             Success: true,
             IsUpdateAvailable: isNewer,
             CurrentVersion: localVersion,
             LatestVersion: remoteVersion,
             ReleaseName: release.Title ?? release.Tag,
-            ReleaseNotes: releaseNotes,
+            ReleaseNotes: release.Notes,
             ReleaseUrl: htmlUrl,
             PreferredAssetUrl: package.FullPackageUrl,
             ErrorMessage: null,
@@ -223,17 +218,13 @@ public sealed class LauncherUpdateService : IDisposable
         string latestLabel = remoteCommitNorm.Length > 0
             ? $"ci-{remoteCommitNorm[..Math.Min(7, remoteCommitNorm.Length)]}"
             : (release?.Title ?? CiRollingTag);
-        string? releaseNotes = isNewer && hasAsset
-            ? await TryFetchReleaseMarkdownAsync(CiRollingTag, cancellationToken).ConfigureAwait(false) ?? release?.Notes
-            : release?.Notes;
-
         LauncherUpdateCheckResult result = new(
             Success: true,
             IsUpdateAvailable: isNewer && hasAsset,
             CurrentVersion: NormalizeVersion(identity.Version),
             LatestVersion: latestLabel,
             ReleaseName: release?.Title ?? "CI rolling build",
-            ReleaseNotes: releaseNotes,
+            ReleaseNotes: release?.Notes,
             ReleaseUrl: htmlUrl,
             PreferredAssetUrl: assetUrl,
             ErrorMessage: null,
@@ -357,53 +348,6 @@ public sealed class LauncherUpdateService : IDisposable
         return ParseAtomFeed(xml);
     }
 
-    private async Task<string?> TryFetchReleaseMarkdownAsync(
-        string tag,
-        CancellationToken cancellationToken)
-    {
-        string url = $"https://api.github.com/repos/{_owner}/{_repo}/releases/tags/{Uri.EscapeDataString(tag)}";
-        try
-        {
-            using HttpRequestMessage request = new(HttpMethod.Get, url);
-            request.Headers.Accept.Clear();
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-            using HttpResponseMessage response = await _httpClient.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                PortableLog.Debug(
-                    "Update",
-                    $"完整 Markdown 更新日志不可用；Tag={tag}；HTTP={(int)response.StatusCode}。");
-                return null;
-            }
-
-            await using Stream content = await response.Content.ReadAsStreamAsync(cancellationToken)
-                .ConfigureAwait(false);
-            using JsonDocument document = await JsonDocument.ParseAsync(content, cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-            if (!document.RootElement.TryGetProperty("body", out JsonElement body) ||
-                body.ValueKind is not JsonValueKind.String)
-            {
-                return null;
-            }
-
-            string? markdown = body.GetString();
-            return string.IsNullOrWhiteSpace(markdown) ? null : markdown;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            PortableLog.Warn(ex, "Update", $"读取完整 Markdown 更新日志失败；Tag={tag}。");
-            return null;
-        }
-    }
-
     internal static IReadOnlyList<AtomReleaseEntry> ParseAtomFeed(string xml)
     {
         if (string.IsNullOrWhiteSpace(xml))
@@ -452,7 +396,7 @@ public sealed class LauncherUpdateService : IDisposable
                 tag!,
                 title,
                 href,
-                HtmlToPlainText(content),
+                HtmlToMarkdown(content),
                 updated));
         }
 
@@ -940,23 +884,68 @@ public sealed class LauncherUpdateService : IDisposable
         return pre;
     }
 
-    private static string? HtmlToPlainText(string? html)
+    internal static string? HtmlToMarkdown(string? html)
     {
         if (string.IsNullOrWhiteSpace(html))
             return null;
-        string text = WebUtility.HtmlDecode(html);
-        text = text.Replace("<br>", "\n", StringComparison.OrdinalIgnoreCase)
-            .Replace("<br/>", "\n", StringComparison.OrdinalIgnoreCase)
-            .Replace("<br />", "\n", StringComparison.OrdinalIgnoreCase)
-            .Replace("</p>", "\n", StringComparison.OrdinalIgnoreCase)
-            .Replace("</li>", "\n", StringComparison.OrdinalIgnoreCase)
-            .Replace("</h2>", "\n", StringComparison.OrdinalIgnoreCase)
-            .Replace("</h3>", "\n", StringComparison.OrdinalIgnoreCase);
+
+        string text = Regex.Replace(
+            html,
+            @"<pre\b[^>]*>\s*(?:<code\b[^>]*>)?(?<code>.*?)(?:</code>)?\s*</pre>",
+            static match => "\n```\n" + match.Groups["code"].Value.Trim('\r', '\n') + "\n```\n",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        text = Regex.Replace(
+            text,
+            @"<img\b[^>]*?src\s*=\s*[""'](?<url>[^""']+)[""'][^>]*?(?:alt\s*=\s*[""'](?<alt>[^""']*)[""'])?[^>]*>",
+            static match => $"![{WebUtility.HtmlDecode(match.Groups["alt"].Value)}]({WebUtility.HtmlDecode(match.Groups["url"].Value)})",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        text = Regex.Replace(
+            text,
+            @"<a\b[^>]*?href\s*=\s*[""'](?<url>[^""']+)[""'][^>]*>(?<label>.*?)</a>",
+            static match =>
+                $"[{DecodeInlineHtml(match.Groups["label"].Value)}]({WebUtility.HtmlDecode(match.Groups["url"].Value)})",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        text = Regex.Replace(
+            text,
+            @"<code\b[^>]*>(?<code>.*?)</code>",
+            static match => "`" + match.Groups["code"].Value.Trim() + "`",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        for (int level = 6; level >= 1; level--)
+        {
+            text = Regex.Replace(text, $@"<h{level}\b[^>]*>", "\n" + new string('#', level) + " ", RegexOptions.IgnoreCase);
+            text = Regex.Replace(text, $@"</h{level}\s*>", "\n", RegexOptions.IgnoreCase);
+        }
+
+        text = Regex.Replace(text, @"<(?:strong|b)\b[^>]*>", "**", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</(?:strong|b)\s*>", "**", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"<(?:em|i)\b[^>]*>", "*", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</(?:em|i)\s*>", "*", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"<(?:del|s|strike)\b[^>]*>", "~~", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</(?:del|s|strike)\s*>", "~~", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"<blockquote\b[^>]*>", "\n> ", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</blockquote\s*>", "\n", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"<li\b[^>]*>", "\n- ", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</li\s*>", string.Empty, RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"<hr\b[^>]*>", "\n---\n", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"<br\s*/?>", "\n", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"<(?:p|div|section|article|ul|ol|details)\b[^>]*>", "\n", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</(?:p|div|section|article|ul|ol|details)\s*>", "\n", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"<summary\b[^>]*>", "\n**", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</summary\s*>", "**\n", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"<tr\b[^>]*>", "\n| ", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</tr\s*>", "|\n", RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"<(?:th|td)\b[^>]*>", string.Empty, RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"</(?:th|td)\s*>", " | ", RegexOptions.IgnoreCase);
         text = HtmlTagRegex.Replace(text, string.Empty);
+        text = WebUtility.HtmlDecode(text);
         text = Regex.Replace(text, @"[ \t]+\n", "\n");
         text = Regex.Replace(text, @"\n{3,}", "\n\n");
         return text.Trim();
     }
+
+    private static string DecodeInlineHtml(string html) =>
+        WebUtility.HtmlDecode(HtmlTagRegex.Replace(html, string.Empty)).Trim();
 
     private static string Truncate(string text, int max) =>
         text.Length <= max ? text : text[..max] + "…";

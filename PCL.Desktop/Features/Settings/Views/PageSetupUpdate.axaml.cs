@@ -57,6 +57,8 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     private void OnAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
     {
         _updateCoordinator.ProgressChanged += OnUpdateProgressChanged;
+        _updateCoordinator.PreparedUpdateChanged += OnPreparedUpdateChanged;
+        _updateCoordinator.UpdateOperationActiveChanged += OnUpdateOperationActiveChanged;
         _channelUserArmed = false;
         _autoCheckScheduled = false;
         // Defer until styles/DynamicResource + settings re-bind settle, then paint combos and auto-check.
@@ -66,6 +68,8 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     private void OnDetachedFromVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
     {
         _updateCoordinator.ProgressChanged -= OnUpdateProgressChanged;
+        _updateCoordinator.PreparedUpdateChanged -= OnPreparedUpdateChanged;
+        _updateCoordinator.UpdateOperationActiveChanged -= OnUpdateOperationActiveChanged;
         _channelUserArmed = false;
         _autoCheckScheduled = false;
     }
@@ -230,7 +234,8 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             checking.Text = AvaloniaLocalizationManager.GetText("Setup.Update.Checking", "正在检查更新…");
         try
         {
-            LauncherUpdateCheckResult? result = await _updateCoordinator.StartAutomaticUpdateOnceAsync()
+            _ = _updateCoordinator.StartAutomaticUpdateOnceAsync();
+            LauncherUpdateCheckResult? result = await _updateCoordinator.WaitForAutomaticCheckResultAsync()
                 .ConfigureAwait(true);
             _preparedUpdate = _updateCoordinator.PreparedUpdate;
             if (result is not null && this.IsAttachedToVisualTree())
@@ -264,11 +269,33 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
     private async void BtnDownloadNow_Click(object? sender, EventArgs e)
     {
+        if (_preparedUpdate is not null && _availableUpdate is not null)
+        {
+            _updateCoordinator.SkipAvailableVersion(_availableUpdate);
+            _preparedUpdate = null;
+            _availableUpdate = null;
+            _preferredAssetUrl = null;
+            ShowCurrentVersionUi();
+            if (this.FindControl<TextBlock>("TextCurrentDesc") is { } description)
+            {
+                description.Text = AvaloniaLocalizationManager.GetText(
+                    "Setup.Update.Skipped",
+                    "已跳过此版本更新。");
+            }
+            return;
+        }
+
         await ProcessAvailableUpdateAsync(mode: 1).ConfigureAwait(true);
     }
 
     private async void BtnDownloadAndInstall_Click(object? sender, EventArgs e)
     {
+        if (_preparedUpdate is { } prepared && File.Exists(prepared.StagedExecutablePath))
+        {
+            _updateCoordinator.InstallAndRestart(prepared);
+            return;
+        }
+
         await ProcessAvailableUpdateAsync(mode: 0).ConfigureAwait(true);
     }
 
@@ -437,6 +464,9 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         _preparedUpdate = _updateCoordinator.PreparedUpdate;
         if (_preparedUpdate?.Package.TargetTag != result.Package?.TargetTag)
             _preparedUpdate = null;
+        SetUpdateActionButtons(_preparedUpdate is not null);
+        SetUpdateButtonsEnabled(!_updateCoordinator.IsUpdateOperationActive);
+        SetUpdateButtonsVisible(!_updateCoordinator.IsUpdateTransferActive);
         _latestReleaseUrl = result.ReleaseUrl ?? ReleasesUrl;
         _preferredAssetUrl = result.PreferredAssetUrl;
 
@@ -466,13 +496,11 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                     : AvaloniaLocalizationManager.GetText("Setup.Update.Available", "有可用更新");
         }
 
-        if (this.FindControl<MyMarkdownViewer>("TextChangelog") is { } changelog)
+        if (this.FindControl<TextBlock>("TextChangelog") is { } changelog)
         {
-            string guide = !string.IsNullOrWhiteSpace(result.ReleaseNotes)
-                ? result.ReleaseNotes
-                : AvaloniaLocalizationManager.GetText(
-                    "Setup.Update.Changelog.Placeholder",
-                    "此更新包含问题修复与改进。\n\n部分内容可能因设备、系统版本或使用方式而略有不同。建议在网络状况良好时完成下载与安装。\n\n有关此更新的完整说明与变更列表，可在 GitHub 上查看。");
+            string guide = AvaloniaLocalizationManager.GetText(
+                "Setup.Update.Changelog.Placeholder",
+                "此更新包含问题修复与改进。\n\n部分内容可能因设备、系统版本或使用方式而略有不同。建议在网络状况良好时完成下载与安装。\n\n有关此更新的完整说明与变更列表，可在 GitHub 上查看。");
             if (result.Channel is UpdateChannel.CI)
             {
                 guide += "\n\n" + AvaloniaLocalizationManager.GetText(
@@ -485,7 +513,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                     "Setup.Update.FullOnly.NoApplicablePatch",
                     "当前安装版本没有适用的增量补丁，将下载完整包。");
             }
-            changelog.Markdown = guide;
+            changelog.Text = guide;
         }
 
         ShowUpdateAvailableUi();
@@ -553,9 +581,63 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     {
         Dispatcher.UIThread.Post(() =>
         {
+            SetUpdateButtonsVisible(progress.Stage is LauncherUpdateStage.Ready);
             if (this.FindControl<TextBlock>("TextUpdateDesc") is { } description)
                 description.Text = progress.Message;
         });
+    }
+
+    private void OnPreparedUpdateChanged(PreparedLauncherUpdate? prepared)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!this.IsAttachedToVisualTree())
+                return;
+            if (prepared is not null &&
+                !string.Equals(
+                    prepared.Package.TargetTag,
+                    _availableUpdate?.Package?.TargetTag,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _preparedUpdate = prepared;
+            SetUpdateActionButtons(prepared is not null);
+            SetUpdateButtonsEnabled(!_updateCoordinator.IsUpdateOperationActive);
+            SetUpdateButtonsVisible(true);
+            if (prepared is not null && this.FindControl<TextBlock>("TextUpdateDesc") is { } description)
+                description.Text = "更新已下载并通过校验";
+        });
+    }
+
+    private void OnUpdateOperationActiveChanged(bool active)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (this.IsAttachedToVisualTree())
+            {
+                SetUpdateButtonsEnabled(!active);
+                if (!active)
+                    SetUpdateButtonsVisible(true);
+            }
+        });
+    }
+
+    private void SetUpdateActionButtons(bool prepared)
+    {
+        if (this.FindControl<MyButton>("BtnDownloadNow") is { } download)
+        {
+            download.Text = prepared
+                ? AvaloniaLocalizationManager.GetText("Setup.Update.Prompt.SkipVersion", "跳过版本")
+                : AvaloniaLocalizationManager.GetText("Setup.Update.DownloadNow", "下载");
+        }
+        if (this.FindControl<MyButton>("BtnDownloadAndInstall") is { } install)
+        {
+            install.Text = prepared
+                ? AvaloniaLocalizationManager.GetText("Setup.Update.RestartAndInstall", "重启并安装")
+                : AvaloniaLocalizationManager.GetText("Setup.Update.DownloadAndInstall", "下载并安装");
+        }
     }
 
     private void SetUpdateButtonsEnabled(bool enabled)
@@ -564,6 +646,14 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             download.IsEnabled = enabled;
         if (this.FindControl<MyButton>("BtnDownloadAndInstall") is { } install)
             install.IsEnabled = enabled;
+    }
+
+    private void SetUpdateButtonsVisible(bool visible)
+    {
+        if (this.FindControl<MyButton>("BtnDownloadNow") is { } download)
+            download.IsVisible = visible;
+        if (this.FindControl<MyButton>("BtnDownloadAndInstall") is { } install)
+            install.IsVisible = visible;
     }
 
     private static string DescribeCurrentBuild()

@@ -46,6 +46,7 @@ public sealed class LauncherUpdateServiceTests
         Assert.AreEqual("v1.1.6-release", entries[0].Tag);
         Assert.AreEqual("PCL N v1.1.6", entries[0].Title);
         Assert.IsTrue(entries[0].Notes?.Contains("hello", StringComparison.Ordinal) == true);
+        Assert.IsTrue(entries[0].Notes?.Contains("*world*", StringComparison.Ordinal) == true);
         Assert.AreEqual("v1.1.6-beta", entries[1].Tag);
         Assert.AreEqual("ci-latest", entries[2].Tag);
     }
@@ -94,6 +95,10 @@ public sealed class LauncherUpdateServiceTests
         const string remoteCommit = "1234567890abcdef1234567890abcdef12345678";
         RoutingHandler handler = new(request =>
         {
+            Assert.AreNotEqual(
+                "api.github.com",
+                request.RequestUri!.Host,
+                "Launcher updates must not consume GitHub REST API quota.");
             string path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("/releases.atom", StringComparison.Ordinal))
                 return XmlResponse(ReleaseFeed("ci-latest"));
@@ -140,13 +145,19 @@ public sealed class LauncherUpdateServiceTests
     {
         RoutingHandler handler = new(request =>
         {
+            Assert.AreNotEqual(
+                "api.github.com",
+                request.RequestUri!.Host,
+                "Launcher updates must not consume GitHub REST API quota.");
             string path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("/releases.atom", StringComparison.Ordinal))
-                return XmlResponse(ReleaseFeed("v1.2.0-release"));
+            {
+                return XmlResponse(ReleaseFeed(
+                    "v1.2.0-release",
+                    "<h2>Complete changelog</h2><ul><li>First fix</li><li>Second fix</li></ul>"));
+            }
             if (path.EndsWith("/releases/latest", StringComparison.Ordinal))
                 return Redirect("https://github.test/owner/repo/releases/tag/v1.2.0-release");
-            if (path.EndsWith("/releases/tags/v1.2.0-release", StringComparison.Ordinal))
-                return JsonResponse("""{"body":"## Complete changelog\n\n- First fix\n- Second fix"}""");
             if (path.Contains("/v1.2.0-release/patch-index.json", StringComparison.Ordinal))
                 return JsonResponse(PatchIndex("1.2.0-release", "v1.2.0-release", "v1.1.0-release", "v1.1.0-release", 40, "target-sha", "from-11", ["v1.1.0-release"]));
             if (path.Contains("/v1.1.0-release/patch-index.json", StringComparison.Ordinal))
@@ -301,16 +312,23 @@ public sealed class LauncherUpdateServiceTests
         await LauncherGpgVerifier.Instance.VerifyAsync(content, signature, CancellationToken.None);
     }
 
-    private static string ReleaseFeed(string tag) => $$"""
-        <?xml version="1.0" encoding="UTF-8"?>
-        <feed xmlns="http://www.w3.org/2005/Atom">
-          <entry>
-            <id>tag:github.com,2008:Repository/1/{{tag}}</id>
-            <link href="https://github.test/owner/repo/releases/tag/{{tag}}"/>
-            <title>{{tag}}</title>
-          </entry>
-        </feed>
-        """;
+    private static string ReleaseFeed(string tag, string? contentHtml = null)
+    {
+        string content = string.IsNullOrEmpty(contentHtml)
+            ? string.Empty
+            : $"<content type=\"html\"><![CDATA[{contentHtml}]]></content>";
+        return $$"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <feed xmlns="http://www.w3.org/2005/Atom">
+              <entry>
+                <id>tag:github.com,2008:Repository/1/{{tag}}</id>
+                <link href="https://github.test/owner/repo/releases/tag/{{tag}}"/>
+                <title>{{tag}}</title>
+                {{content}}
+              </entry>
+            </feed>
+            """;
+    }
 
     private static string PatchIndex(
         string targetVersion,

@@ -20,21 +20,30 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
 {
     private readonly object _sync = new();
     private readonly SemaphoreSlim _operationGate = new(1, 1);
+    private readonly SemaphoreSlim _updateFlowGate = new(1, 1);
     private readonly LauncherUpdateService _service = new();
     private readonly LauncherUpdateInstaller _installer = new();
+    private readonly TaskCompletionSource<LauncherUpdateCheckResult?> _automaticCheckResult =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task<LauncherUpdateCheckResult?>? _automaticTask;
     private PreparedLauncherUpdate? _preparedUpdate;
     private PreparedLauncherUpdate? _installOnExit;
+    private LauncherUpdateProgress? _latestProgress;
+    private bool _updateOperationActive;
     private bool _disposed;
 
     private LauncherUpdateCoordinator()
     {
-        _installer.ProgressChanged += (_, progress) => ProgressChanged?.Invoke(this, progress);
+        _installer.ProgressChanged += OnInstallerProgressChanged;
     }
 
     public static LauncherUpdateCoordinator Current { get; } = new();
 
     public event EventHandler<LauncherUpdateProgress>? ProgressChanged;
+
+    public event Action<PreparedLauncherUpdate?>? PreparedUpdateChanged;
+
+    public event Action<bool>? UpdateOperationActiveChanged;
 
     public PreparedLauncherUpdate? PreparedUpdate
     {
@@ -45,10 +54,37 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
         }
     }
 
+    public bool IsUpdateOperationActive
+    {
+        get
+        {
+            lock (_sync)
+                return _updateOperationActive;
+        }
+    }
+
+    public bool IsUpdateTransferActive
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _updateOperationActive &&
+                       _latestProgress is { Stage: not LauncherUpdateStage.Ready };
+            }
+        }
+    }
+
     public Task<LauncherUpdateCheckResult?> StartAutomaticUpdateOnceAsync()
     {
         lock (_sync)
             return _automaticTask ??= RunAutomaticUpdateAsync();
+    }
+
+    public Task<LauncherUpdateCheckResult?> WaitForAutomaticCheckResultAsync()
+    {
+        _ = StartAutomaticUpdateOnceAsync();
+        return _automaticCheckResult.Task;
     }
 
     public async Task<LauncherUpdateCheckResult> CheckAsync(
@@ -100,6 +136,7 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
                 .ConfigureAwait(false);
             lock (_sync)
                 _preparedUpdate = prepared;
+            PreparedUpdateChanged?.Invoke(prepared);
             return prepared;
         }
         finally
@@ -131,40 +168,56 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
         if (!result.IsUpdateAvailable || result.Package is not { } package)
             return;
 
-        switch (mode)
+        await _updateFlowGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            case 0:
-                ClearSkippedVersion(result);
-                InstallAndRestart(await PrepareAsync(package, cancellationToken).ConfigureAwait(false));
-                return;
-            case 1:
+            SetUpdateOperationActive(true);
+            switch (mode)
             {
-                ClearSkippedVersion(result);
-                PreparedLauncherUpdate prepared = await PrepareAsync(package, cancellationToken).ConfigureAwait(false);
-                await PromptDownloadedUpdateAsync(result, prepared, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-            case 2:
-            {
-                int choice = await PromptAvailableUpdateAsync(result, cancellationToken).ConfigureAwait(false);
-                PortableLog.Info("Update", $"更新提示选择={choice}；目标={UpdateIdentity(result)}。");
-                if (choice == 3)
+                case 0:
+                    ClearSkippedVersion(result);
+                    InstallAndRestart(await PrepareAsync(package, cancellationToken).ConfigureAwait(false));
+                    return;
+                case 1:
                 {
-                    SkipVersion(result);
+                    ClearSkippedVersion(result);
+                    PreparedLauncherUpdate prepared = await PrepareAsync(package, cancellationToken).ConfigureAwait(false);
+                    await PromptDownloadedUpdateAsync(result, prepared, cancellationToken).ConfigureAwait(false);
                     return;
                 }
-                if (choice is not (1 or 2))
-                    return;
+                case 2:
+                {
+                    int choice = await PromptAvailableUpdateAsync(result, cancellationToken).ConfigureAwait(false);
+                    PortableLog.Info("Update", $"更新提示选择={choice}；目标={UpdateIdentity(result)}。");
+                    if (choice == 3)
+                    {
+                        SkipVersion(result);
+                        return;
+                    }
+                    if (choice is not (1 or 2))
+                        return;
 
-                ClearSkippedVersion(result);
-                PreparedLauncherUpdate prepared = await PrepareAsync(package, cancellationToken).ConfigureAwait(false);
-                if (choice == 2)
-                    InstallAndRestart(prepared);
-                else
-                    await PromptDownloadedUpdateAsync(result, prepared, cancellationToken).ConfigureAwait(false);
-                return;
+                    ClearSkippedVersion(result);
+                    PreparedLauncherUpdate prepared = await PrepareAsync(package, cancellationToken).ConfigureAwait(false);
+                    if (choice == 2)
+                        InstallAndRestart(prepared);
+                    else
+                        await PromptDownloadedUpdateAsync(result, prepared, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
             }
         }
+        finally
+        {
+            SetUpdateOperationActive(false);
+            _updateFlowGate.Release();
+        }
+    }
+
+    public void SkipAvailableVersion(LauncherUpdateCheckResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        SkipVersion(result);
     }
 
     public void Dispose()
@@ -195,6 +248,7 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
         _installer.Dispose();
         _service.Dispose();
         _operationGate.Dispose();
+        _updateFlowGate.Dispose();
     }
 
     private async Task<LauncherUpdateCheckResult?> RunAutomaticUpdateAsync()
@@ -205,7 +259,7 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
                 !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PCL_DISABLE_DEBUG_HINT")))
             {
                 PortableLog.Debug("Update", "自动化环境已跳过启动时更新检查。");
-                return null;
+                return PublishAutomaticCheckResult(null);
             }
 
             LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
@@ -215,7 +269,7 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
             if (mode == 3)
             {
                 PortableLog.Info("Update", "启动时自动更新检查已关闭。");
-                return null;
+                return PublishAutomaticCheckResult(null);
             }
 
             int channelIndex = settings.TryGetIntegerOption("SystemUpdateChannel", out int configuredChannel)
@@ -234,6 +288,7 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
             };
             PortableLog.Info("Update", $"启动时自动检查更新；通道={channel}；模式={mode}。");
             LauncherUpdateCheckResult result = await CheckAsync(channel).ConfigureAwait(false);
+            PublishAutomaticCheckResult(result);
             if (!result.Success || !result.IsUpdateAvailable || result.Package is null)
                 return result;
 
@@ -249,8 +304,34 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
         catch (Exception ex)
         {
             PortableLog.Warn(ex, "Update", "启动时自动更新失败；可在设置页中重试。");
-            return LauncherUpdateCheckResult.Failed(ex.Message);
+            LauncherUpdateCheckResult failed = LauncherUpdateCheckResult.Failed(ex.Message);
+            PublishAutomaticCheckResult(failed);
+            return failed;
         }
+    }
+
+    private LauncherUpdateCheckResult? PublishAutomaticCheckResult(LauncherUpdateCheckResult? result)
+    {
+        _automaticCheckResult.TrySetResult(result);
+        return result;
+    }
+
+    private void SetUpdateOperationActive(bool active)
+    {
+        lock (_sync)
+        {
+            _updateOperationActive = active;
+            if (active)
+                _latestProgress = null;
+        }
+        UpdateOperationActiveChanged?.Invoke(active);
+    }
+
+    private void OnInstallerProgressChanged(object? sender, LauncherUpdateProgress progress)
+    {
+        lock (_sync)
+            _latestProgress = progress;
+        ProgressChanged?.Invoke(this, progress);
     }
 
     private static string CurrentCommit => !string.IsNullOrWhiteSpace(PclBuildInfo.SourceRevisionId)
@@ -355,13 +436,17 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
 
     private void DiscardPreparedUpdate(PreparedLauncherUpdate prepared)
     {
+        bool changed;
         lock (_sync)
         {
+            changed = ReferenceEquals(_preparedUpdate, prepared);
             if (ReferenceEquals(_preparedUpdate, prepared))
                 _preparedUpdate = null;
             if (ReferenceEquals(_installOnExit, prepared))
                 _installOnExit = null;
         }
+        if (changed)
+            PreparedUpdateChanged?.Invoke(null);
 
         try
         {

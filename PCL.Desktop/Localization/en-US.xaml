@@ -789,6 +789,8 @@
     <sys:String x:Key="Setup.Update.Prompt.Downloaded.Title">Update downloaded</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.NoChangelog">No changelog was provided for this version.</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.SkipVersion">Skip version</sys:String>
+    <sys:String x:Key="Setup.Update.RestartAndInstall">Restart and install</sys:String>
+    <sys:String x:Key="Setup.Update.Skipped">This version has been skipped.</sys:String>
 
     <!-- Speed -->
 
