@@ -48,7 +48,7 @@ jobs:
       self_contained: ${{ matrix.runtime.self_contained }}
       runtime_variant: ${{ matrix.runtime.variant }}_${{ matrix.plugin.suffix }}
       include_plugin: ${{ matrix.plugin.include }}
-      plugin_tag: ${{ vars.PCL_PLUGIN_TAG || 'latest' }}
+      plugin_tag: ${{ vars.PCL_PLUGIN_TAG || 'v0.13.0' }}
       channel: release
       version_tag: ${{ github.event.release.tag_name || inputs.tag_name }}
     secrets: inherit
@@ -113,6 +113,9 @@ jobs:
           chmod +x "artifact/${{ matrix.target.binary_name }}" || true
           if [[ "${{ matrix.target.package }}" == "zip" ]]; then
             (cd artifact && zip -9 "../dist/${base}.zip" "${{ matrix.target.binary_name }}")
+          elif [[ "${{ matrix.target.runtime_id }}" == osx-* ]]; then
+            test -x "artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"
+            tar -C artifact -czf "dist/${base}.tar.gz" "PCL N.app"
           else
             tar -C artifact -czf "dist/${base}.tar.gz" "${{ matrix.target.binary_name }}"
           fi
@@ -128,7 +131,11 @@ jobs:
         run: |
           asset=$(find dist -maxdepth 1 -type f | head -n 1)
           gpg --detach-sign --armor "$asset"
-          gpg --detach-sign --armor --output "$asset.binary.asc" "artifact/${{ matrix.target.binary_name }}"
+          binary="artifact/${{ matrix.target.binary_name }}"
+          if [[ "${{ matrix.target.runtime_id }}" == osx-* ]]; then
+            binary="artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"
+          fi
+          gpg --detach-sign --armor --output "$asset.binary.asc" "$binary"
 
       - name: Upload Avalonia assets to release
         uses: softprops/action-gh-release@v2.5.0

@@ -33,7 +33,7 @@ on:
         type: boolean
       plugin_tag:
         required: false
-        default: latest
+        default: v0.13.0
         type: string
       require_ms_client_id:
         description: Fail the build when Microsoft OAuth CLIENT_ID secret is missing
@@ -144,9 +144,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path plugin | Out-Null
           $tag = '${{ inputs.plugin_tag }}'
           if ([string]::IsNullOrWhiteSpace($tag) -or $tag -eq 'latest') {
-            gh release download --repo MuXue1230-owo/PCL.Plugin --dir plugin --pattern '*.dll*'
+            gh release download --repo PCL-N-Edition/PCL.Plugin --dir plugin --pattern '*.dll*'
           } else {
-            gh release download $tag --repo MuXue1230-owo/PCL.Plugin --dir plugin --pattern '*.dll*'
+            gh release download $tag --repo PCL-N-Edition/PCL.Plugin --dir plugin --pattern '*.dll*'
           }
           if ($LASTEXITCODE -ne 0) {
             throw "Unable to download PCL.Plugin release '$tag'."
@@ -358,9 +358,57 @@ jobs:
             fi
           fi
 
+      - name: Create macOS application bundle
+        if: ${{ startsWith(inputs.runtime_id, 'osx-') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$PUBLISH_DIR/PCL N.app"
+          contents="$app/Contents"
+          executable="$contents/MacOS/${{ inputs.binary_name }}"
+          resources="$contents/Resources"
+          iconset="$RUNNER_TEMP/PCL-N.iconset"
+          plist="$contents/Info.plist"
+
+          mkdir -p "$contents/MacOS" "$resources" "$iconset"
+          mv "$PUBLISH_DIR/${{ inputs.binary_name }}" "$executable"
+          chmod +x "$executable"
+
+          for size in 16 32 128 256 512; do
+            double=$((size * 2))
+            sips -z "$size" "$size" PCL.Desktop/Assets/icon.png \
+              --out "$iconset/icon_${size}x${size}.png" >/dev/null
+            sips -z "$double" "$double" PCL.Desktop/Assets/icon.png \
+              --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$iconset" -o "$resources/PCL-N.icns"
+
+          version="${PCL_STAMPED_ASSEMBLY_VERSION:-1.0.0}"
+          short_version="${version%%-*}"
+          bundle_version="$(printf '%s' "$version" | sed -E 's/[^0-9.].*$//; s/\.$//')"
+          bundle_version="${bundle_version:-1.0.0}"
+          plutil -create xml1 "$plist"
+          plutil -insert CFBundleDevelopmentRegion -string en "$plist"
+          plutil -insert CFBundleDisplayName -string 'PCL N' "$plist"
+          plutil -insert CFBundleExecutable -string '${{ inputs.binary_name }}' "$plist"
+          plutil -insert CFBundleIconFile -string PCL-N "$plist"
+          plutil -insert CFBundleIdentifier -string io.github.pcl-n-edition.pcl-n "$plist"
+          plutil -insert CFBundleInfoDictionaryVersion -string '6.0' "$plist"
+          plutil -insert CFBundleName -string 'PCL N' "$plist"
+          plutil -insert CFBundlePackageType -string APPL "$plist"
+          plutil -insert CFBundleShortVersionString -string "$short_version" "$plist"
+          plutil -insert CFBundleVersion -string "$bundle_version" "$plist"
+          plutil -insert LSMinimumSystemVersion -string '12.0' "$plist"
+          plutil -insert NSHighResolutionCapable -bool true "$plist"
+
+          codesign --force --deep --sign - "$app"
+          plutil -lint "$plist"
+          codesign --verify --deep --strict "$app"
+          test -x "$executable"
+
       - name: Upload Avalonia build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: artifact/${{ inputs.binary_name }}
+          path: artifact
           if-no-files-found: error

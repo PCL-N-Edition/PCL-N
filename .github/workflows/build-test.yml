@@ -70,7 +70,7 @@ jobs:
       self_contained: true
       runtime_variant: SelfContained
       include_plugin: ${{ github.event_name != 'pull_request' }}
-      plugin_tag: ${{ vars.PCL_PLUGIN_TAG || 'latest' }}
+      plugin_tag: ${{ vars.PCL_PLUGIN_TAG || 'v0.13.0' }}
       # PRs from forks cannot read secrets; only require CLIENT_ID on non-PR runs.
       require_ms_client_id: ${{ github.event_name != 'pull_request' }}
       channel: ci
@@ -113,25 +113,31 @@ jobs:
           for dir in artifacts/PCL_N_CI_*; do
             [[ -d "$dir" ]] || continue
             name="$(basename "$dir")"
-            # Prefer .exe then bare PCL.Desktop
+            # Prefer Windows executable, then macOS bundle, then bare Unix binary.
             bin=""
+            package_source=""
             if [[ -f "$dir/PCL.Desktop.exe" ]]; then
-              bin="PCL.Desktop.exe"
+              bin="$dir/PCL.Desktop.exe"
+              package_source="PCL.Desktop.exe"
+            elif [[ -f "$dir/PCL N.app/Contents/MacOS/PCL.Desktop" ]]; then
+              bin="$dir/PCL N.app/Contents/MacOS/PCL.Desktop"
+              package_source="PCL N.app"
             elif [[ -f "$dir/PCL.Desktop" ]]; then
-              bin="PCL.Desktop"
+              bin="$dir/PCL.Desktop"
+              package_source="PCL.Desktop"
             else
               echo "No binary in $dir"; continue
             fi
-            chmod +x "$dir/$bin" || true
+            chmod +x "$bin" || true
             if [[ "$name" == *"_win-"* ]]; then
               package="dist/${name}.zip"
-              (cd "$dir" && zip -9 "../../${package}" "$bin")
+              (cd "$dir" && zip -9 "../../${package}" "$package_source")
             else
               package="dist/${name}.tar.gz"
-              tar -C "$dir" -czf "$package" "$bin"
+              tar -C "$dir" -czf "$package" "$package_source"
             fi
             gpg --detach-sign --armor "$package"
-            gpg --detach-sign --armor --output "$package.binary.asc" "$dir/$bin"
+            gpg --detach-sign --armor --output "$package.binary.asc" "$bin"
             cat > "dist/${name}.ci.json" <<EOF
           {
             "channel": "CI",
