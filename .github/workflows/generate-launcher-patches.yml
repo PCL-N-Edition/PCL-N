@@ -209,7 +209,7 @@ jobs:
             echo "PATCHES_REPO_TOKEN not set; skip mirror to dedicated patch repo."
             exit 0
           fi
-          REPO="${{ vars.PATCHES_REPO || 'MuXue1230-owo/PCL-N-Patches' }}"
+          REPO="${{ vars.PATCHES_REPO || 'PCL-N-Edition/PCL-N-Patches' }}"
           TAG="patches-${TARGET_TAG}"
           ROOT="${{ github.workspace }}/patch-artifacts/${TARGET_TAG}"
           # Create release if missing, then upload assets with gh.
