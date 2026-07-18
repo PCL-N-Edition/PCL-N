@@ -14,6 +14,7 @@ internal static class EmbeddedRuntimeExtensionLoader
 {
     internal const string ResourceName = "PCL.Desktop.Embedded.PCL.Plugin.dll";
     internal const string AbstractionsResourceName = "PCL.Desktop.Embedded.PCL.N.Plugin.Abstractions.dll";
+    internal const string I18nResourceName = "PCL.Desktop.Embedded.PCL.N.Plugin.i18n.dll";
     internal const string SdkResourceName = "PCL.Desktop.Embedded.PCL.N.Plugin.Sdk.dll";
     internal const string UiResourceName = "PCL.Desktop.Embedded.PCL.N.Plugin.UI.dll";
     internal const string UiAvaloniaResourceName = "PCL.Desktop.Embedded.PCL.N.Plugin.UI.Avalonia.dll";
@@ -46,6 +47,7 @@ internal static class EmbeddedRuntimeExtensionLoader
             _loadedAbstractionsAssembly ??= LoadResourceAssembly(AbstractionsResourceName);
             if (LoadedDependencyAssemblies.Count == 0)
             {
+                LoadRequiredDependency(I18nResourceName);
                 LoadRequiredDependency(UiResourceName);
                 LoadRequiredDependency(UiAvaloniaResourceName);
                 LoadRequiredDependency(SdkResourceName);

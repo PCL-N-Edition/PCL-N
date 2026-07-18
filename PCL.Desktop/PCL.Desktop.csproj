@@ -135,6 +135,10 @@
                       Condition="'$(PclPluginAbstractionsAssembly)' != '' and Exists('$(PclPluginAbstractionsAssembly)')">
       <LogicalName>PCL.Desktop.Embedded.PCL.N.Plugin.Abstractions.dll</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="$(PclPluginI18nAssembly)"
+                      Condition="'$(PclPluginI18nAssembly)' != '' and Exists('$(PclPluginI18nAssembly)')">
+      <LogicalName>PCL.Desktop.Embedded.PCL.N.Plugin.i18n.dll</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="$(PclPluginSdkAssembly)"
                       Condition="'$(PclPluginSdkAssembly)' != '' and Exists('$(PclPluginSdkAssembly)')">
       <LogicalName>PCL.Desktop.Embedded.PCL.N.Plugin.Sdk.dll</LogicalName>
@@ -165,6 +169,10 @@
            Text="PCL.Plugin assembly was requested but not found: $(PclPluginAssembly)" />
     <Error Condition="'$(PclPluginAbstractionsAssembly)' == '' or !Exists('$(PclPluginAbstractionsAssembly)')"
            Text="PCL.Plugin requires PCL.N.Plugin.Abstractions in the default load context: $(PclPluginAbstractionsAssembly)" />
+    <Error Condition="'$(PclPluginI18nAssembly)' == '' or !Exists('$(PclPluginI18nAssembly)')"
+           Text="PCL.Plugin requires PCL.N.Plugin.i18n in the default load context: $(PclPluginI18nAssembly)" />
+    <Error Condition="'$(PclPluginI18nAssembly)' == '' or !Exists('$(PclPluginI18nAssembly)')"
+           Text="PCL.Plugin requires PCL.N.Plugin.i18n in the default load context: $(PclPluginI18nAssembly)" />
     <Error Condition="'$(PclPluginSdkAssembly)' == '' or !Exists('$(PclPluginSdkAssembly)')"
            Text="PCL.Plugin requires PCL.N.Plugin.Sdk in the default load context: $(PclPluginSdkAssembly)" />
     <Error Condition="'$(PclPluginUiAssembly)' == '' or !Exists('$(PclPluginUiAssembly)')"

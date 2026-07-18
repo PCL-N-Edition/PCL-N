@@ -634,6 +634,7 @@ public sealed class DesktopArchitectureTests
 
         StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.Plugin.dll");
         StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.N.Plugin.Abstractions.dll");
+        StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.N.Plugin.i18n.dll");
         StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.N.Plugin.Sdk.dll");
         StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.N.Plugin.UI.dll");
         StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.N.Plugin.UI.Avalonia.dll");
@@ -644,6 +645,7 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(loaderSource, "AssemblyLoadContext.Default.LoadFromStream(buffer)");
         StringAssert.Contains(loaderSource, "if (!HasResource(ResourceName))");
         StringAssert.Contains(loaderSource, "LoadResourceAssembly(AbstractionsResourceName)");
+        StringAssert.Contains(loaderSource, "LoadRequiredDependency(I18nResourceName)");
         StringAssert.Contains(loaderSource, "LoadRequiredDependency(SdkResourceName)");
         StringAssert.Contains(loaderSource, "LoadRequiredDependency(BouncyCastleResourceName)");
         StringAssert.Contains(loaderSource, "LoadRequiredDependency(JsonCanonicalizerResourceName)");

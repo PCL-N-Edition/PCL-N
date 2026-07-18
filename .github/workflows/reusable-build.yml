@@ -155,6 +155,7 @@ jobs:
           $assemblies = @(
             'PCL.Plugin.dll',
             'PCL.N.Plugin.Abstractions.dll',
+            'PCL.N.Plugin.i18n.dll',
             'PCL.N.Plugin.Sdk.dll',
             'PCL.N.Plugin.UI.dll',
             'PCL.N.Plugin.UI.Avalonia.dll',
@@ -245,6 +246,7 @@ jobs:
           PCL_GITHUB_SHA: ${{ github.sha }}
           PCL_PLUGIN_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.Plugin.dll
           PCL_PLUGIN_ABSTRACTIONS_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.N.Plugin.Abstractions.dll
+          PCL_PLUGIN_I18N_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.N.Plugin.i18n.dll
           PCL_PLUGIN_SDK_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.N.Plugin.Sdk.dll
           PCL_PLUGIN_UI_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.N.Plugin.UI.dll
           PCL_PLUGIN_UI_AVALONIA_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.N.Plugin.UI.Avalonia.dll
@@ -260,6 +262,7 @@ jobs:
             plugin_args=(
               -p:PclPluginAssembly="$PCL_PLUGIN_ASSEMBLY"
               -p:PclPluginAbstractionsAssembly="$PCL_PLUGIN_ABSTRACTIONS_ASSEMBLY"
+              -p:PclPluginI18nAssembly="$PCL_PLUGIN_I18N_ASSEMBLY"
               -p:PclPluginSdkAssembly="$PCL_PLUGIN_SDK_ASSEMBLY"
               -p:PclPluginUiAssembly="$PCL_PLUGIN_UI_ASSEMBLY"
               -p:PclPluginUiAvaloniaAssembly="$PCL_PLUGIN_UI_AVALONIA_ASSEMBLY"
