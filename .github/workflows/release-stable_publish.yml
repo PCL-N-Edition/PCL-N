@@ -48,7 +48,7 @@ jobs:
       self_contained: ${{ matrix.runtime.self_contained }}
       runtime_variant: ${{ matrix.runtime.variant }}_${{ matrix.plugin.suffix }}
       include_plugin: ${{ matrix.plugin.include }}
-      plugin_tag: ${{ vars.PCL_PLUGIN_TAG || 'v0.13.0' }}
+      plugin_tag: ${{ vars.PCL_PLUGIN_TAG || 'v0.13.1' }}
       channel: release
       version_tag: ${{ github.event.release.tag_name || inputs.tag_name }}
     secrets: inherit
