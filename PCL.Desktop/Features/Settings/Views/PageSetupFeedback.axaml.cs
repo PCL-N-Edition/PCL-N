@@ -10,6 +10,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Instances.Views;
+using PCL.Desktop.Localization;
 
 #pragma warning disable CA1822, CS0067
 
@@ -68,6 +69,8 @@ public partial class PageSetupFeedback : MyPageRight, IRefreshableSettingsPage, 
             _client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PCL-N", "1.0"));
         if (_client.DefaultRequestHeaders.Accept.Count == 0)
             _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        if (!_client.DefaultRequestHeaders.Contains("X-GitHub-Api-Version"))
+            _client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
 
         _feedbackItems.Clear();
         HashSet<int> issueNumbers = [];
@@ -217,12 +220,12 @@ public partial class PageSetupFeedback : MyPageRight, IRefreshableSettingsPage, 
 
     private static FeedbackItem ParseIssue(JsonElement issue)
     {
-        string type = "未分类";
+        string? rawType = null;
         if (issue.TryGetProperty("type", out JsonElement typeElement) &&
             typeElement.ValueKind == JsonValueKind.Object &&
             typeElement.TryGetProperty("name", out JsonElement typeName))
         {
-            type = typeName.GetString() ?? type;
+            rawType = typeName.GetString();
         }
 
         List<string> labelIds = [];
@@ -238,6 +241,7 @@ public partial class PageSetupFeedback : MyPageRight, IRefreshableSettingsPage, 
                     labelNames.Add(labelName);
             }
         }
+        string type = ResolveIssueType(rawType, labelNames);
 
         return new FeedbackItem(
             Number: issue.GetProperty("number").GetInt32(),
@@ -249,6 +253,31 @@ public partial class PageSetupFeedback : MyPageRight, IRefreshableSettingsPage, 
             Type: type,
             LabelIds: labelIds,
             LabelNames: labelNames);
+    }
+
+    internal static string ResolveIssueType(string? rawType, IReadOnlyList<string> labelNames)
+    {
+        string candidate = rawType?.Trim() ?? string.Empty;
+        if (candidate.Length == 0)
+        {
+            candidate = labelNames.FirstOrDefault(static label => label.Equals("bug", StringComparison.OrdinalIgnoreCase) || label.Contains("错误", StringComparison.Ordinal))
+                ?? labelNames.FirstOrDefault(static label => label.Contains("功能", StringComparison.Ordinal) || label.Contains("feature", StringComparison.OrdinalIgnoreCase))
+                ?? labelNames.FirstOrDefault(static label => label.Contains("改进", StringComparison.Ordinal) || label.Contains("improvement", StringComparison.OrdinalIgnoreCase))
+                ?? labelNames.FirstOrDefault(static label => label.Contains("反馈", StringComparison.Ordinal) || label.Contains("feedback", StringComparison.OrdinalIgnoreCase))
+                ?? string.Empty;
+        }
+
+        if (candidate.Equals("bug", StringComparison.OrdinalIgnoreCase) || candidate.Contains("错误", StringComparison.Ordinal))
+            return AvaloniaLocalizationManager.GetText("Setup.Feedback.Type.Bug", "Bug");
+        if (candidate.Equals("feature", StringComparison.OrdinalIgnoreCase) || candidate.Contains("功能", StringComparison.Ordinal))
+            return AvaloniaLocalizationManager.GetText("Setup.Feedback.Type.Feature", "功能建议");
+        if (candidate.Equals("improvement", StringComparison.OrdinalIgnoreCase) || candidate.Contains("改进", StringComparison.Ordinal))
+            return AvaloniaLocalizationManager.GetText("Setup.Feedback.Type.Improvement", "改进建议");
+        if (candidate.Equals("feedback", StringComparison.OrdinalIgnoreCase) || candidate.Contains("反馈", StringComparison.Ordinal))
+            return AvaloniaLocalizationManager.GetText("Setup.Feedback.Type.Feedback", "反馈");
+        return candidate.Length == 0
+            ? AvaloniaLocalizationManager.GetText("Setup.Feedback.Type.Unclassified", "未分类")
+            : candidate;
     }
 
     public override void Dispose()

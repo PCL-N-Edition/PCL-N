@@ -481,6 +481,11 @@
     <sys:String x:Key="Setup.Feedback.Submit.Description">Search existing feedback before creating a new report to avoid duplicates.&#x0a;Only a selection appears here. Visit GitHub to view everything.</sys:String>
     <sys:String x:Key="Setup.Feedback.Submit.Open">Create Feedback</sys:String>
     <sys:String x:Key="Setup.Feedback.Submit.Title">Submit feedback</sys:String>
+    <sys:String x:Key="Setup.Feedback.Type.Bug">Bug</sys:String>
+    <sys:String x:Key="Setup.Feedback.Type.Feature">Feature</sys:String>
+    <sys:String x:Key="Setup.Feedback.Type.Improvement">Improvement</sys:String>
+    <sys:String x:Key="Setup.Feedback.Type.Feedback">Feedback</sys:String>
+    <sys:String x:Key="Setup.Feedback.Type.Unclassified">Unclassified</sys:String>
     <sys:String x:Key="Setup.GameManage.Accessibility.AutoLauncherLanguage">Match launcher language</sys:String>
     <sys:String x:Key="Setup.GameManage.Accessibility.GameLanguage">Game language</sys:String>
     <sys:String x:Key="Setup.GameManage.Accessibility.GameUpdateNotice">Minecraft update notifications</sys:String>

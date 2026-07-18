@@ -481,6 +481,11 @@
     <sys:String x:Key="Setup.Feedback.Submit.Description">提交前請先搜尋已有反饋，避免重複。&#x0a;此處僅顯示部分內容；完整列表請前往 GitHub 檢視。</sys:String>
     <sys:String x:Key="Setup.Feedback.Submit.Open">新建反饋</sys:String>
     <sys:String x:Key="Setup.Feedback.Submit.Title">提交反饋</sys:String>
+    <sys:String x:Key="Setup.Feedback.Type.Bug">Bug</sys:String>
+    <sys:String x:Key="Setup.Feedback.Type.Feature">功能建議</sys:String>
+    <sys:String x:Key="Setup.Feedback.Type.Improvement">改進建議</sys:String>
+    <sys:String x:Key="Setup.Feedback.Type.Feedback">反饋</sys:String>
+    <sys:String x:Key="Setup.Feedback.Type.Unclassified">未分類</sys:String>
     <sys:String x:Key="Setup.GameManage.Accessibility.AutoLauncherLanguage">與啟動器語言一致</sys:String>
     <sys:String x:Key="Setup.GameManage.Accessibility.GameLanguage">遊戲語言</sys:String>
     <sys:String x:Key="Setup.GameManage.Accessibility.GameUpdateNotice">Minecraft 更新通知</sys:String>
