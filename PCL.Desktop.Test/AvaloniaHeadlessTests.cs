@@ -4244,6 +4244,14 @@ public sealed class AvaloniaHeadlessTests
 
             DesktopFileLog.Initialize();
 
+            string firstPath = DesktopFileLog.CurrentLogPath;
+            string secondPath = DesktopFileLog.CurrentLogPath;
+            Assert.AreEqual(firstPath, secondPath, "同一次启动必须始终写入同一个会话日志。");
+            StringAssert.Matches(
+                System.IO.Path.GetFileName(firstPath),
+                new System.Text.RegularExpressions.Regex(
+                    $"^PCLN-\\d{{8}}-\\d{{6}}-\\d{{3}}-p{Environment.ProcessId}-[0-9a-f]{{8}}\\.log$",
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant));
             string[] lines = File.ReadAllLines(DesktopFileLog.CurrentLogPath);
             Assert.IsTrue(lines.Length >= 6, $"启动日志至少应包含 6 行诊断信息，实际为 {lines.Length} 行。");
             Assert.IsTrue(lines.Any(line => line.Contains("[Startup]", StringComparison.Ordinal)));

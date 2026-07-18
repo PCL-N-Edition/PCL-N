@@ -93,8 +93,11 @@ public partial class PageSetupLog : MyPageRight, IRefreshableSettingsPage, ISett
 
                     try
                     {
-                        FileInfo? latest = EnumerateLogs().FirstOrDefault();
-                        foreach (FileInfo log in EnumerateLogs().Where(log => !string.Equals(log.FullName, latest?.FullName, StringComparison.OrdinalIgnoreCase)))
+                        string currentPath = Path.GetFullPath(DesktopFileLog.CurrentLogPath);
+                        FileInfo? fallback = File.Exists(currentPath) ? null : EnumerateLogs().FirstOrDefault();
+                        foreach (FileInfo log in EnumerateLogs().Where(log =>
+                                     !string.Equals(log.FullName, currentPath, StringComparison.OrdinalIgnoreCase) &&
+                                     !string.Equals(log.FullName, fallback?.FullName, StringComparison.OrdinalIgnoreCase)))
                             log.Delete();
 
                         RefreshPage();
@@ -116,8 +119,8 @@ public partial class PageSetupLog : MyPageRight, IRefreshableSettingsPage, ISett
 
     private async void ButtonExport_OnClick(object? sender, EventArgs e)
     {
-        FileInfo? latest = EnumerateLogs().FirstOrDefault();
-        await ExportLogsAsync(latest is null ? [] : [latest], "PCLN-CurrentLog").ConfigureAwait(true);
+        FileInfo current = new(DesktopFileLog.CurrentLogPath);
+        await ExportLogsAsync(current.Exists ? [current] : [], "PCLN-CurrentLog").ConfigureAwait(true);
     }
 
     private void ButtonOpenDir_OnClick(object? sender, EventArgs e)
@@ -196,10 +199,15 @@ public partial class PageSetupLog : MyPageRight, IRefreshableSettingsPage, ISett
         if (!directory.Exists)
             return [];
 
+        string currentPath = Path.GetFullPath(DesktopFileLog.CurrentLogPath);
         return directory.EnumerateFiles("*", SearchOption.TopDirectoryOnly)
             .Where(static file => file.Extension.Equals(".log", StringComparison.OrdinalIgnoreCase) ||
                                   file.Extension.Equals(".txt", StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(static file => file.LastWriteTimeUtc)
+            .OrderByDescending(file => string.Equals(
+                file.FullName,
+                currentPath,
+                StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(static file => file.LastWriteTimeUtc)
             .ToArray();
     }
 

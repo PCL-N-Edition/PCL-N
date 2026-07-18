@@ -15,6 +15,7 @@ namespace PCL.Desktop.Diagnostics;
 public static class DesktopFileLog
 {
     private static readonly object WriteLock = new();
+    private static readonly string SessionFileName = CreateSessionFileName();
     private static readonly HashSet<string> InitializedFiles = new(
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private static bool _subscribed;
@@ -22,7 +23,7 @@ public static class DesktopFileLog
     public static string CurrentLogPath => Path.Combine(
         LauncherSettingsPageBinder.CreateDataDirectory(),
         "Logs",
-        $"PCLN-{DateTime.Now:yyyyMMdd}.log");
+        SessionFileName);
 
     public static PortableLogLevel Level => PortableLog.MaximumLevel;
 
@@ -199,5 +200,12 @@ public static class DesktopFileLog
         bool hasWayland = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
         bool hasX11 = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DISPLAY"));
         return $"Linux；会话类型={sessionType}；Wayland={(hasWayland ? "是" : "否")}；X11={(hasX11 ? "是" : "否")}";
+    }
+
+    private static string CreateSessionFileName()
+    {
+        string timestamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
+        string nonce = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture)[..8];
+        return $"PCLN-{timestamp}-p{Environment.ProcessId}-{nonce}.log";
     }
 }
