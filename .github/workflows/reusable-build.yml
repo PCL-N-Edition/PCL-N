@@ -33,7 +33,7 @@ on:
         type: boolean
       plugin_tag:
         required: false
-        default: v0.13.0
+        default: v0.13.2
         type: string
       require_ms_client_id:
         description: Fail the build when Microsoft OAuth CLIENT_ID secret is missing
