@@ -69,7 +69,8 @@ internal static class DesktopHost
             launching: _current.Launching,
             backgroundTasks: DesktopHostBackgroundTasks.Instance,
             fileArtifacts: DesktopFileArtifactHost.Instance,
-            localization: DesktopHostLocalization.Instance));
+            localization: DesktopHostLocalization.Instance,
+            windowActivation: DesktopHostWindowActivation.Instance));
         _runtimeExtensions = EmbeddedRuntimeExtensionLoader.LoadRuntimeExtensions();
         PortableLog.Info("PluginHost", $"发现运行时扩展：{_runtimeExtensions.Count} 个。");
         RuntimeExtensionContext extensionContext = new(

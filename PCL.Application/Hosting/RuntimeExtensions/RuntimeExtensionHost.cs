@@ -33,7 +33,8 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
         ILaunchPipelineBuilder? launching = null,
         IHostBackgroundTasks? backgroundTasks = null,
         IHostFileArtifactRegistry? fileArtifacts = null,
-        IHostLocalization? localization = null)
+        IHostLocalization? localization = null,
+        IHostWindowActivation? windowActivation = null)
     {
         SettingsPageGroups = settingsPageGroups ?? throw new ArgumentNullException(nameof(settingsPageGroups));
         SettingsPages = settingsPages ?? throw new ArgumentNullException(nameof(settingsPages));
@@ -43,6 +44,7 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
         DeveloperDiagnostics = developerDiagnostics ?? new InMemoryHostDeveloperDiagnostics();
         SecureStorage = secureStorage ?? InMemoryHostSecureStorage.Instance;
         UriLauncher = uriLauncher ?? UnavailableHostUriLauncher.Instance;
+        WindowActivation = windowActivation ?? NullHostWindowActivation.Instance;
         Processes = processes;
         Clipboard = clipboard;
         Accounts = accounts ?? new AccountProviderRegistry();
@@ -67,6 +69,7 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
     public IHostDeveloperDiagnostics DeveloperDiagnostics { get; }
     public IHostSecureStorage SecureStorage { get; }
     public IHostUriLauncher UriLauncher { get; }
+    public IHostWindowActivation WindowActivation { get; }
     public IProcessService? Processes { get; }
     public IHostClipboard? Clipboard { get; }
     public IAccountProviderRegistry Accounts { get; }
@@ -188,6 +191,17 @@ internal sealed class UnavailableHostUriLauncher : IHostUriLauncher
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(false);
+    }
+}
+
+internal sealed class NullHostWindowActivation : IHostWindowActivation
+{
+    public static NullHostWindowActivation Instance { get; } = new();
+
+    public ValueTask ActivateAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.CompletedTask;
     }
 }
 

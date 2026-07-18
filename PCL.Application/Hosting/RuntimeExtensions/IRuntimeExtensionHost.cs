@@ -17,6 +17,7 @@ internal interface IRuntimeExtensionHost
     IHostDeveloperDiagnostics DeveloperDiagnostics { get; }
     IHostSecureStorage SecureStorage { get; }
     IHostUriLauncher UriLauncher { get; }
+    IHostWindowActivation WindowActivation { get; }
     IProcessService? Processes { get; }
     IHostClipboard? Clipboard { get; }
     IAccountProviderRegistry Accounts { get; }
@@ -247,6 +248,11 @@ internal interface IHostClipboard
 internal interface IHostUriLauncher
 {
     ValueTask<bool> OpenAsync(Uri uri, CancellationToken cancellationToken = default);
+}
+
+internal interface IHostWindowActivation
+{
+    ValueTask ActivateAsync(CancellationToken cancellationToken = default);
 }
 
 internal static class RuntimeExtensionHostAccess

@@ -575,6 +575,30 @@ public sealed class DesktopArchitectureTests
     }
 
     [TestMethod]
+    public void RuntimeExtensionHostProvidesWindowActivationBridge()
+    {
+        string repoRoot = Directory.GetParent(FindDesktopProjectRoot())!.FullName;
+        string contract = File.ReadAllText(Path.Combine(
+            repoRoot,
+            "PCL.Application",
+            "Hosting",
+            "RuntimeExtensions",
+            "IRuntimeExtensionHost.cs"));
+        string desktopHost = File.ReadAllText(Path.Combine(
+            FindDesktopProjectRoot(),
+            "Hosting",
+            "DesktopHost.cs"));
+        string activation = File.ReadAllText(Path.Combine(
+            FindDesktopProjectRoot(),
+            "Hosting",
+            "DesktopHostWindowActivation.cs"));
+
+        StringAssert.Contains(contract, "IHostWindowActivation WindowActivation");
+        StringAssert.Contains(desktopHost, "windowActivation: DesktopHostWindowActivation.Instance");
+        StringAssert.Contains(activation, "mainWindow.ActivateExistingInstance()");
+    }
+
+    [TestMethod]
     public void ReleaseWorkflowsPublishAvaloniaForEveryDesktopRuntime()
     {
         string desktopRoot = FindDesktopProjectRoot();
