@@ -27,7 +27,7 @@ on:
       include_prerelease_history:
         required: false
         type: boolean
-        default: false
+        default: true
     secrets:
       # Optional: mirror patch release to a dedicated patches repository
       PATCHES_REPO_TOKEN:
@@ -57,7 +57,7 @@ on:
         type: string
       include_prerelease_history:
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:

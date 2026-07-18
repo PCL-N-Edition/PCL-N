@@ -571,12 +571,22 @@ public sealed class DesktopArchitectureTests
         string ci = File.ReadAllText(Path.Combine(workflowRoot, "build-test.yml"));
         string stable = File.ReadAllText(Path.Combine(workflowRoot, "release-stable_publish.yml"));
         string beta = File.ReadAllText(Path.Combine(workflowRoot, "release-beta_publish.yml"));
+        string patches = File.ReadAllText(Path.Combine(workflowRoot, "generate-launcher-patches.yml"));
 
         foreach (string runtime in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" })
         {
             StringAssert.Contains(stable, runtime);
             StringAssert.Contains(beta, runtime);
         }
+
+        StringAssert.Contains(stable, "include_prerelease_history: true");
+        StringAssert.Contains(beta, "include_prerelease_history: true");
+        Assert.AreEqual(
+            2,
+            System.Text.RegularExpressions.Regex.Matches(
+                patches,
+                "include_prerelease_history:[\\s\\S]*?default: true").Count,
+            "Reusable and manual patch generation must include beta/RC predecessors by default.");
 
         foreach (string workflow in new[] { stable, beta })
         {

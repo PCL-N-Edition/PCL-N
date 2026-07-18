@@ -182,7 +182,7 @@ jobs:
       configuration: Release
       max_from_versions: 10
       hop_interval: 10
-      include_prerelease_history: false
+      include_prerelease_history: true
     secrets:
       PATCHES_REPO_TOKEN: ${{ secrets.PATCHES_REPO_TOKEN }}
 
