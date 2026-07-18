@@ -611,7 +611,6 @@
     <sys:String x:Key="Setup.LauncherLanguage.FormatCulture">区域格式</sys:String>
     <sys:String x:Key="Setup.LauncherLanguage.FormatCulture.Auto">使用系统区域格式</sys:String>
     <sys:String x:Key="Setup.LauncherLanguage.FormatCulture.FollowLanguage">与界面语言一致</sys:String>
-    <sys:String x:Key="Setup.LauncherLanguage.Hint">目前只有较新的界面支持多语言，其他区域会随迁移逐步更新。&#x0a;&#x0a;迁移期间仅维护 English (US) 与简体中文。迁移完成后，将开放社区翻译。</sys:String>
     <sys:String x:Key="Setup.LauncherLanguage.Title">语言</sys:String>
     <sys:String x:Key="Setup.LauncherLanguage.UiLanguage">显示语言</sys:String>
     <sys:String x:Key="Setup.LauncherLanguage.UiLanguage.Auto">跟随系统（{0}）</sys:String>
@@ -669,6 +668,14 @@
     <sys:String x:Key="Setup.Misc.System.MaxLogLines.ToolTip">实时日志保留的最大行数。超出后会自动移除较早内容。</sys:String>
     <sys:String x:Key="Setup.Misc.System.Proxy.Hint">示例：http://127.0.0.1:1080/</sys:String>
     <sys:String x:Key="Setup.Misc.System.Title">系统</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.SystemAccent">跟随系统</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.SkyBlue">天空蓝</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.CatBlue">龙猫蓝</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.CrashBlue">死亡蓝</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.Hmcl">HMCL 蓝</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.Custom">调色盘</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.SystemAccent.Unsupported.Title">此功能在 Windows 上不可用</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.SystemAccent.Unsupported">“跟随系统主题色”仅在 Linux 和 macOS 上受支持。根据 PCL 上游使用指南第 5 条，Windows 版本不能提供与赞助解锁主题类似的表现，因此配色将切回“龙猫蓝”。</sys:String>
     <sys:String x:Key="Setup.Ui.Background.Blur">背景模糊</sys:String>
     <sys:String x:Key="Setup.Ui.Background.Blur.ToolTip">更强的模糊效果可能降低启动器性能。</sys:String>
     <sys:String x:Key="Setup.Ui.Background.Clear">清除背景</sys:String>
@@ -792,7 +799,21 @@
     <sys:String x:Key="Setup.Update.RestartAndInstall">重启并安装</sys:String>
     <sys:String x:Key="Setup.Update.Skipped">已跳过此版本更新。</sys:String>
 
-    <!-- Speed -->
+    <!-- Host plugin navigation -->
+    <sys:String x:Key="Plugin.Group.Online">在线</sys:String>
+    <sys:String x:Key="Plugin.Group.Main">插件</sys:String>
+    <sys:String x:Key="Plugin.Account.Title">账户</sys:String>
+    <sys:String x:Key="Plugin.Account.Heading">PCL N 在线服务账户</sys:String>
+    <sys:String x:Key="Plugin.Account.Description">登录 GitHub 或 Microsoft，管理身份绑定、Minecraft 档案和桌面设备会话。</sys:String>
+    <sys:String x:Key="Plugin.Installed.Title">已安装</sys:String>
+    <sys:String x:Key="Plugin.Market.Title">市场</sys:String>
+    <sys:String x:Key="Plugin.OnlineData.Title">数据与授权</sys:String>
+    <sys:String x:Key="Plugin.Developer.Title">开发者模式</sys:String>
+    <sys:String x:Key="Plugin.Safety.Title">安全</sys:String>
+    <sys:String x:Key="Plugin.UiPatches.Title">UI Patch</sys:String>
+    <sys:String x:Key="Plugin.Compatibility.Title">兼容性</sys:String>
+
+
 
     <sys:String x:Key="Speed.Progress.RemainingFiles">剩余文件</sys:String>
     <sys:String x:Key="Speed.Progress.RemainingThreads">剩余线程</sys:String>

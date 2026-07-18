@@ -17,7 +17,8 @@ public enum ColorTheme
     CatBlue = 1,
     DeathBlue = 2,
     HmclBlue = 3,
-    SystemAccent = 4
+    SystemAccent = 4,
+    Custom = 5
 }
 
 public enum UpdateChannel

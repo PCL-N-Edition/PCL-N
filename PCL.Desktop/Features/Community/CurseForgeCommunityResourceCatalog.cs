@@ -96,7 +96,34 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
             });
         }
 
-        return entries;
+        return string.IsNullOrWhiteSpace(query)
+            ? entries
+            : RankSearchResults(entries, query);
+    }
+
+    internal static IReadOnlyList<CommunityResourceEntry> RankSearchResults(
+        IEnumerable<CommunityResourceEntry> entries,
+        string query)
+    {
+        string term = query.Trim();
+        return entries
+            .OrderBy(entry => GetSearchRank(entry, term))
+            .ThenByDescending(static entry => entry.Downloads)
+            .ThenByDescending(static entry => entry.UpdatedAt ?? DateTimeOffset.MinValue)
+            .ToArray();
+    }
+
+    internal static int GetSearchRank(CommunityResourceEntry entry, string query)
+    {
+        string title = entry.Title.Trim();
+        string slug = entry.Slug.Trim();
+        if (title.Equals(query, StringComparison.OrdinalIgnoreCase)) return 0;
+        if (slug.Equals(query, StringComparison.OrdinalIgnoreCase)) return 1;
+        if (title.StartsWith(query, StringComparison.OrdinalIgnoreCase)) return 2;
+        if (slug.StartsWith(query, StringComparison.OrdinalIgnoreCase)) return 3;
+        if (title.Contains(query, StringComparison.OrdinalIgnoreCase)) return 4;
+        if (slug.Contains(query, StringComparison.OrdinalIgnoreCase)) return 5;
+        return 6;
     }
 
     public async Task<CommunityResourceDownloadFile?> ResolveDownloadAsync(
@@ -199,7 +226,13 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
             urlValue,
             ReadInt64(file, "fileLength"),
             id,
-            displayName);
+            displayName)
+        {
+            CandidateUrls = McimMirrorPolicy.DownloadCandidates(
+                urlValue,
+                CommunityResourceSource.CurseForge,
+                McimMirrorPolicy.CurrentPreference)
+        };
         return new CommunityResourceVersion(
             id,
             displayName,
@@ -292,10 +325,36 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
         if (string.IsNullOrWhiteSpace(_apiKey))
             throw new InvalidOperationException("CurseForge API 密钥未配置，请设置 PCL_CURSEFORGE_API_KEY。");
 
-        using HttpRequestMessage request = new(method, url);
-        request.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
-        return await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-            .ConfigureAwait(false);
+        Exception? lastError = null;
+        foreach (string candidate in McimMirrorPolicy.ApiCandidates(
+                     url,
+                     CommunityResourceSource.CurseForge,
+                     McimMirrorPolicy.CurrentPreference))
+        {
+            try
+            {
+                using HttpRequestMessage request = new(method, candidate);
+                request.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
+                HttpResponseMessage response = await _client.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    return response;
+                lastError = new HttpRequestException($"CurseForge API returned {(int)response.StatusCode}.");
+                response.Dispose();
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                lastError = new TimeoutException("CurseForge API request timed out.");
+            }
+            catch (HttpRequestException ex)
+            {
+                lastError = ex;
+            }
+        }
+        throw lastError ?? new HttpRequestException("CurseForge API request failed.");
     }
 
     private static HttpClient CreateDefaultClient()
@@ -324,8 +383,7 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
     {
         CommunityResourceSort.Downloads => 6,
         CommunityResourceSort.Updated => 3,
-        // Featured / relevance (WPF CompSortType.Relevance → sortField=4).
-        _ => 4
+        _ => 2
     };
 
     /// <summary>

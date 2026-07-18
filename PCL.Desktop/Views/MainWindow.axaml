@@ -176,7 +176,7 @@
 
                         VerticalAlignment="Stretch"
 
-                        Background="{DynamicResource ColorBrushTransparentBackground}" ZIndex="1">
+                        Background="{DynamicResource ColorBrushSemiTransparent}" ZIndex="1">
 
                     <Grid>
 

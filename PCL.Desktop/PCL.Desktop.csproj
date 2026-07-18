@@ -27,18 +27,7 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <PclRuntimeVariant Condition="'$(PclRuntimeVariant)' == ''">SelfContained</PclRuntimeVariant>
-    <PclIncludesPlugin Condition="'$(PclIncludesPlugin)' == '' and '$(PclPluginAssembly)' != ''">true</PclIncludesPlugin>
-    <PclIncludesPlugin Condition="'$(PclIncludesPlugin)' == ''">false</PclIncludesPlugin>
     <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
-    <PclPluginAssembly Condition="'$(PclPluginAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginAssembly)'))</PclPluginAssembly>
-    <PclPluginAbstractionsAssembly Condition="'$(PclPluginAbstractionsAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginAbstractionsAssembly)'))</PclPluginAbstractionsAssembly>
-    <PclPluginSdkAssembly Condition="'$(PclPluginSdkAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginSdkAssembly)'))</PclPluginSdkAssembly>
-    <PclPluginUiAssembly Condition="'$(PclPluginUiAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginUiAssembly)'))</PclPluginUiAssembly>
-    <PclPluginUiAvaloniaAssembly Condition="'$(PclPluginUiAvaloniaAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginUiAvaloniaAssembly)'))</PclPluginUiAvaloniaAssembly>
-    <PclPluginBouncyCastleAssembly Condition="'$(PclPluginBouncyCastleAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginBouncyCastleAssembly)'))</PclPluginBouncyCastleAssembly>
-    <PclPluginJsonCanonicalizerAssembly Condition="'$(PclPluginJsonCanonicalizerAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginJsonCanonicalizerAssembly)'))</PclPluginJsonCanonicalizerAssembly>
-    <PclPluginEs6NumberSerializerAssembly Condition="'$(PclPluginEs6NumberSerializerAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginEs6NumberSerializerAssembly)'))</PclPluginEs6NumberSerializerAssembly>
-    <PclPluginProtectedDataAssembly Condition="'$(PclPluginProtectedDataAssembly)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginProtectedDataAssembly)'))</PclPluginProtectedDataAssembly>
     <PclHpatchzPath Condition="'$(PclHpatchzPath)' != ''">$([System.IO.Path]::GetFullPath('$(PclHpatchzPath)'))</PclHpatchzPath>
 
     <!-- CI secret pre-write (PCL_WRITE_SECRET=1 embeds values into PclEmbeddedSecrets). -->
@@ -99,6 +88,7 @@
     <CompilerVisibleProperty Include="PclGithubSha" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="12.1.0" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
     <PackageReference Include="Avalonia.Markup.Xaml.Loader" Version="12.1.0" />
@@ -121,8 +111,14 @@
     <EmbeddedResource Include="Localization/zh-CN.xaml">
       <LogicalName>PCL.Desktop.Localization.zh-CN.xaml</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Localization/zh-TW.xaml">
+      <LogicalName>PCL.Desktop.Localization.zh-TW.xaml</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="Localization/en-US.xaml">
       <LogicalName>PCL.Desktop.Localization.en-US.xaml</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets/mcmod.buf">
+      <LogicalName>PCL.Desktop.Assets.mcmod.buf</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="metadata.json">
       <LogicalName>PCL.Desktop.metadata.json</LogicalName>

@@ -32,10 +32,12 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
         IDownloadSourceRegistry? downloads = null,
         ILaunchPipelineBuilder? launching = null,
         IHostBackgroundTasks? backgroundTasks = null,
-        IHostFileArtifactRegistry? fileArtifacts = null)
+        IHostFileArtifactRegistry? fileArtifacts = null,
+        IHostLocalization? localization = null)
     {
         SettingsPageGroups = settingsPageGroups ?? throw new ArgumentNullException(nameof(settingsPageGroups));
         SettingsPages = settingsPages ?? throw new ArgumentNullException(nameof(settingsPages));
+        Localization = localization ?? SystemHostLocalization.Instance;
         WorkQueue = workQueue ?? ImmediateHostWorkQueue.Instance;
         Notifications = notifications ?? CapturingHostNotifications.Instance;
         DeveloperDiagnostics = developerDiagnostics ?? new InMemoryHostDeveloperDiagnostics();
@@ -59,6 +61,7 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
 
     public IHostSettingsPageGroupRegistry SettingsPageGroups { get; }
     public IHostSettingsPageRegistry SettingsPages { get; }
+    public IHostLocalization Localization { get; }
     public IHostWorkQueue WorkQueue { get; }
     public IHostNotifications Notifications { get; }
     public IHostDeveloperDiagnostics DeveloperDiagnostics { get; }
@@ -78,6 +81,14 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
     public IHostUiComposition? UiComposition { get; }
     public IHostDynamicNavigation? Navigation { get; }
     public IHostRawUiAccess? RawUiAccess { get; }
+}
+
+internal sealed class SystemHostLocalization : IHostLocalization
+{
+    public static SystemHostLocalization Instance { get; } = new();
+    public string CurrentCulture => System.Globalization.CultureInfo.CurrentUICulture.Name;
+    public string CurrentFormatCulture => System.Globalization.CultureInfo.CurrentCulture.Name;
+    public event EventHandler? LanguageChanged { add { } remove { } }
 }
 
 internal sealed class NullHostFileArtifactRegistry : IHostFileArtifactRegistry

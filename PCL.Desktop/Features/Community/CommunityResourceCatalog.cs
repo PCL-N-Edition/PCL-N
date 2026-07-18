@@ -6,6 +6,8 @@ using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
+using PCL.Desktop.Localization;
+
 namespace PCL.Desktop.Features.Community;
 
 public enum CommunityResourceCategory
@@ -53,6 +55,24 @@ public sealed record CommunityResourceEntry(
 
     public string? ProjectUrl { get; init; }
 
+    public int? WikiId { get; init; }
+
+    public string? ChineseName { get; init; }
+
+    public string? OriginalTitle { get; init; }
+
+    public string DisplayTitle => AvaloniaLocalizationManager.CurrentLanguageCode == AvaloniaLocalizationManager.ChineseLanguage &&
+                                  !string.IsNullOrWhiteSpace(ChineseName)
+        ? ChineseName
+        : Title;
+
+    public string DisplayDescription => !string.IsNullOrWhiteSpace(OriginalTitle) &&
+                                        !string.Equals(DisplayTitle, OriginalTitle, StringComparison.Ordinal)
+        ? OriginalTitle + " · " + Description
+        : Description;
+
+    public string? McModUrl => WikiId is > 0 ? $"https://www.mcmod.cn/class/{WikiId.Value}.html" : null;
+
     public string WebsiteUrl => ProjectUrl ?? (Source == CommunityResourceSource.CurseForge
         ? "https://www.curseforge.com/minecraft/" + CurseForgeProjectPath(ProjectType) + "/" +
           (string.IsNullOrWhiteSpace(Slug) ? ProjectId : Slug)
@@ -74,7 +94,10 @@ public sealed record CommunityResourceDownloadFile(
     string Url,
     long Size,
     string VersionId,
-    string VersionName);
+    string VersionName)
+{
+    public IReadOnlyList<string> CandidateUrls { get; init; } = [Url];
+}
 
 public enum CommunityResourceDependencyType
 {
@@ -197,7 +220,7 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
         string requestUrl = "https://api.modrinth.com/v2/search?limit=80&index=" + index +
                             "&query=" + Uri.EscapeDataString(query?.Trim() ?? string.Empty) +
                             "&facets=" + Uri.EscapeDataString(facets);
-        using HttpResponseMessage response = await _client.GetAsync(requestUrl, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await GetWithFallbackAsync(requestUrl, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -254,7 +277,7 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
 
         string requestUrl = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(id) +
                             "/version?" + string.Join('&', query);
-        using HttpResponseMessage response = await _client.GetAsync(requestUrl, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await GetWithFallbackAsync(requestUrl, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -295,7 +318,7 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
             if (TryGetProperty(chosen, "size", out JsonElement sizeElement))
                 sizeElement.TryGetInt64(out size);
 
-            return new CommunityResourceDownloadFile(
+            return CreateDownloadFile(
                 fileName,
                 url,
                 size,
@@ -329,7 +352,7 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
 
         string requestUrl = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(id) +
                             "/version?" + string.Join('&', query);
-        using HttpResponseMessage response = await _client.GetAsync(requestUrl, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await GetWithFallbackAsync(requestUrl, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
@@ -357,7 +380,7 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
                     long size = 0;
                     if (TryGetProperty(file, "size", out JsonElement sizeEl))
                         sizeEl.TryGetInt64(out size);
-                    files.Add(new CommunityResourceDownloadFile(
+                    files.Add(CreateDownloadFile(
                         fileName,
                         url,
                         size,
@@ -396,7 +419,7 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
             return null;
 
         string requestUrl = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(projectId.Trim());
-        using HttpResponseMessage response = await _client.GetAsync(requestUrl, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await GetWithFallbackAsync(requestUrl, cancellationToken).ConfigureAwait(false);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             return null;
         response.EnsureSuccessStatusCode();
@@ -436,7 +459,7 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
                      "?algorithm=" + algorithm;
         try
         {
-            using HttpResponseMessage response = await _client.GetAsync(url, cancellationToken).ConfigureAwait(false);
+            using HttpResponseMessage response = await GetWithFallbackAsync(url, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
                 return null;
 
@@ -460,7 +483,7 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
             try
             {
                 string projectUrl = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(projectId);
-                using HttpResponseMessage projectResponse = await _client.GetAsync(projectUrl, cancellationToken)
+                using HttpResponseMessage projectResponse = await GetWithFallbackAsync(projectUrl, cancellationToken)
                     .ConfigureAwait(false);
                 if (projectResponse.IsSuccessStatusCode)
                 {
@@ -529,6 +552,50 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
         if (_ownsClient)
             _client.Dispose();
     }
+
+    private async Task<HttpResponseMessage> GetWithFallbackAsync(
+        string url,
+        CancellationToken cancellationToken)
+    {
+        Exception? lastError = null;
+        foreach (string candidate in McimMirrorPolicy.ApiCandidates(
+                     url,
+                     CommunityResourceSource.Modrinth,
+                     McimMirrorPolicy.CurrentPreference))
+        {
+            try
+            {
+                HttpResponseMessage response = await _client.GetAsync(candidate, cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    return response;
+                lastError = new HttpRequestException($"Modrinth API returned {(int)response.StatusCode}.");
+                response.Dispose();
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                lastError = new TimeoutException("Modrinth API request timed out.");
+            }
+            catch (HttpRequestException ex)
+            {
+                lastError = ex;
+            }
+        }
+        throw lastError ?? new HttpRequestException("Modrinth API request failed.");
+    }
+
+    private static CommunityResourceDownloadFile CreateDownloadFile(
+        string fileName,
+        string url,
+        long size,
+        string versionId,
+        string versionName) =>
+        new(fileName, url, size, versionId, versionName)
+        {
+            CandidateUrls = McimMirrorPolicy.DownloadCandidates(
+                url,
+                CommunityResourceSource.Modrinth,
+                McimMirrorPolicy.CurrentPreference)
+        };
 
     private static HttpClient CreateDefaultClient()
     {

@@ -30,6 +30,12 @@
                                                      SvgIcon="lucide/book-open"
                                                      ColorType="Highlight"
                                                      Margin="0,0,6,0" />
+                            <legacy:MyIconTextButton x:Name="BtnIntroTranslation"
+                                                     Text="中文描述"
+                                                     SvgIcon="lucide/languages"
+                                                     ColorType="Highlight"
+                                                     IsVisible="False"
+                                                     Margin="0,0,6,0" />
                             <legacy:MyIconTextButton x:Name="BtnIntroCopy"
                                                      Text="复制名称"
                                                      SvgIcon="lucide/copy"

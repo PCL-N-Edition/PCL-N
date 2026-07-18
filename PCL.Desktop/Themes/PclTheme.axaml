@@ -163,7 +163,8 @@
                   BorderBrush="{TemplateBinding Foreground}"
                   BorderThickness="1"
                   CornerRadius="4" />
-          <ToggleButton Margin="0,0,1.5,0"
+          <ToggleButton x:Name="PART_DropDownButton"
+                        Margin="0,0,1.5,0"
                         Foreground="{TemplateBinding Foreground}"
                         IsTabStop="False"
                         Focusable="False"
@@ -186,16 +187,17 @@
                             Background="{DynamicResource ColorBrushTransparent}"
                             IsVisible="False" />
           <Path x:Name="PART_DropDownArrow"
-                Width="15"
-                Height="15"
+                Width="9"
+                Height="6"
+                Stretch="Uniform"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Center"
-                Margin="0,0,1.5,0"
+                Margin="0,0,5,0"
                 IsHitTestVisible="False"
                 Data="M1,1L4.5,4.5L8,1"
                 Stroke="{TemplateBinding Foreground}"
                 StrokeThickness="1.5"
-                RenderTransformOrigin="30%,50%">
+                RenderTransformOrigin="50%,50%">
             <Path.RenderTransform>
               <RotateTransform />
             </Path.RenderTransform>

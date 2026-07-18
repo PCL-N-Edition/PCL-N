@@ -10,6 +10,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using PCL.Application.Settings;
 using PCL.Core.App;
+using PCL.Core.Platform;
 using PCL.Platform.Paths;
 
 namespace PCL.Desktop.Theme;
@@ -23,6 +24,8 @@ public static class AvaloniaThemeManager
     private static bool _platformThemeHooked;
 
     public static LauncherSettings CurrentSettings { get; private set; } = new();
+
+    public static ColorTheme CurrentTheme { get; private set; } = ColorTheme.CatBlue;
 
     public static bool IsDarkMode { get; private set; }
 
@@ -39,7 +42,7 @@ public static class AvaloniaThemeManager
     {
         CurrentSettings = LauncherSettingsPolicy.Normalize(
             settings,
-            supportsSystemAccentTheme: false,
+            supportsSystemAccentTheme: PlatformFeaturePolicy.IsSystemAccentThemeSupported,
             allowsDomesticMirror: true);
 
         if (Avalonia.Application.Current is { } application)
@@ -47,12 +50,19 @@ public static class AvaloniaThemeManager
             EnsurePlatformThemeHook(application);
             ApplyRequestedVariant(application, CurrentSettings.ColorMode);
             IsDarkMode = ResolveDarkMode(CurrentSettings.ColorMode, application);
-            ApplyResources(application.Resources, ThemeColorPalette.Create(IsDarkMode, ResolveTheme(IsDarkMode)));
+            CurrentTheme = ResolveTheme(IsDarkMode);
+            string customColor = CurrentSettings.GetTextOption(
+                IsDarkMode ? "UiCustomDarkColor" : "UiCustomLightColor",
+                IsDarkMode ? "#6F8CFF" : "#3D7DFF");
+            ApplyResources(
+                application.Resources,
+                ThemeColorPalette.Create(IsDarkMode, CurrentTheme, ResolveAccentColor(application), customColor));
             application.Resources["LaunchFontFamily"] = ResolveLaunchFontFamily(CurrentSettings);
         }
         else
         {
             IsDarkMode = CurrentSettings.ColorMode == ColorMode.Dark;
+            CurrentTheme = ResolveTheme(IsDarkMode);
         }
 
         ThemeChanged?.Invoke();
@@ -81,10 +91,9 @@ public static class AvaloniaThemeManager
         _platformThemeHooked = true;
         platformSettings.ColorValuesChanged += (_, _) =>
         {
-            if (CurrentSettings.ColorMode != ColorMode.System)
+            if (CurrentSettings.ColorMode != ColorMode.System && CurrentTheme != ColorTheme.SystemAccent)
                 return;
 
-            // Re-resolve dark/light + palette when OS appearance changes.
             Dispatcher.UIThread.Post(
                 () => Apply(CurrentSettings),
                 DispatcherPriority.Background);
@@ -140,10 +149,24 @@ public static class AvaloniaThemeManager
         return application.ActualThemeVariant == ThemeVariant.Dark;
     }
 
+    private static Color? ResolveAccentColor(Avalonia.Application application)
+    {
+        if (CurrentTheme != ColorTheme.SystemAccent)
+            return null;
+        try
+        {
+            return application.PlatformSettings?.GetColorValues().AccentColor1;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static ColorTheme ResolveTheme(bool isDarkMode)
     {
         ColorTheme theme = isDarkMode ? CurrentSettings.DarkColor : CurrentSettings.LightColor;
-        return ThemeColorPalette.NormalizeTheme(theme);
+        return ThemeAvailabilityPolicy.ResolveRuntimeTheme(ThemeColorPalette.NormalizeTheme(theme));
     }
 
     private static void ApplyResources(IResourceDictionary resources, IReadOnlyDictionary<string, Color> palette)

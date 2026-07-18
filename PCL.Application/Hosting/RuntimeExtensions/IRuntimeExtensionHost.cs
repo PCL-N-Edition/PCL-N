@@ -11,6 +11,7 @@ internal interface IRuntimeExtensionHost
 {
     IHostSettingsPageGroupRegistry SettingsPageGroups { get; }
     IHostSettingsPageRegistry SettingsPages { get; }
+    IHostLocalization Localization { get; }
     IHostWorkQueue WorkQueue { get; }
     IHostNotifications Notifications { get; }
     IHostDeveloperDiagnostics DeveloperDiagnostics { get; }
@@ -190,6 +191,13 @@ internal interface IHostInstanceQuery
 }
 
 internal sealed record HostInstanceInfo(string Id, string Name, string InstanceDirectory, string? VersionJsonPath);
+
+internal interface IHostLocalization
+{
+    string CurrentCulture { get; }
+    string CurrentFormatCulture { get; }
+    event EventHandler? LanguageChanged;
+}
 
 internal interface IHostWorkQueue
 {

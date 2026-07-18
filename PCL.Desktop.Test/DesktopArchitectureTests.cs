@@ -3,6 +3,13 @@
 // Licensed under the Apache License, Version 2.0.
 
 using PCL.Desktop;
+using PCL.Desktop.Localization;
+using PCL.Desktop.Theme;
+using PCL.Core.App;
+using Avalonia.Media;
+using PCL.Application.Settings;
+using PCL.Desktop.Features.Community;
+using System.Globalization;
 using System.Xml.Linq;
 
 namespace PCL.Desktop.Test;
@@ -10,6 +17,154 @@ namespace PCL.Desktop.Test;
 [TestClass]
 public sealed class DesktopArchitectureTests
 {
+    [TestMethod]
+    public void HostLocalizationKeepsLegacyFallbacksResolvable()
+    {
+        string originalLanguage = AvaloniaLocalizationManager.CurrentLanguageCode;
+        try
+        {
+            AvaloniaLocalizationManager.Apply(AvaloniaLocalizationManager.EnglishLanguage, AvaloniaLocalizationManager.FollowLanguage);
+            Assert.AreEqual("Account", AvaloniaLocalizationManager.GetTextOrFallback("账户"));
+            Assert.AreEqual("Third-party Custom Page", AvaloniaLocalizationManager.GetTextOrFallback("Third-party Custom Page"));
+        }
+        finally
+        {
+            AvaloniaLocalizationManager.Apply(originalLanguage, AvaloniaLocalizationManager.FollowLanguage);
+        }
+    }
+    [TestMethod]
+    public void McimMirrorPolicyOrdersApiAndDownloadCandidates()
+    {
+        IReadOnlyList<string> api = McimMirrorPolicy.ApiCandidates(
+            "https://api.modrinth.com/v2/search",
+            CommunityResourceSource.Modrinth,
+            DownloadSourcePreference.MirrorOnly);
+        Assert.AreEqual("https://mod.mcimirror.top/modrinth/v2/search", api[0]);
+        Assert.AreEqual("https://api.modrinth.com/v2/search", api[1]);
+
+        IReadOnlyList<string> downloads = McimMirrorPolicy.DownloadCandidates(
+            "https://cdn.modrinth.com/data/a/file.jar",
+            CommunityResourceSource.Modrinth,
+            DownloadSourcePreference.PreferOfficialWithMirrorFallback);
+        Assert.AreEqual("https://cdn.modrinth.com/data/a/file.jar", downloads[0]);
+        Assert.AreEqual("https://mod.mcimirror.top/data/a/file.jar", downloads[1]);
+    }
+
+    [TestMethod]
+    public async Task McimTranslationCachesBySourceProjectAndDescriptionHash()
+    {
+        int requests = 0;
+        using HttpClient client = new(new DelegateHttpHandler(_ =>
+        {
+            requests++;
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"data\":{\"description\":\"中文说明\"}}")
+            };
+        }));
+        string cache = Path.Combine(Path.GetTempPath(), "pcl-mcim-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            McimTranslationService service = new(client, cache);
+            CommunityResourceEntry entry = new("abc", "slug", "Title", "English", "mod", null, 0, null);
+            McimTranslationResult first = await service.GetAsync(entry);
+            McimTranslationResult second = await service.GetAsync(entry);
+            Assert.AreEqual("中文说明", first.Text);
+            Assert.IsTrue(second.FromCache);
+            Assert.AreEqual(1, requests);
+        }
+        finally
+        {
+            if (Directory.Exists(cache))
+                Directory.Delete(cache, recursive: true);
+        }
+    }
+
+    private sealed class DelegateHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> handler) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(handler(request));
+    }
+
+    [TestMethod]
+    public void SystemAccentAndCustomColorsProduceDistinctPalettes()
+    {
+        Color accent = Color.Parse("#E04080");
+        IReadOnlyDictionary<string, Color> accentPalette =
+            ThemeColorPalette.Create(false, ColorTheme.SystemAccent, accent);
+        IReadOnlyDictionary<string, Color> fallbackPalette =
+            ThemeColorPalette.Create(false, ColorTheme.CatBlue);
+        IReadOnlyDictionary<string, Color> customPalette =
+            ThemeColorPalette.Create(false, ColorTheme.Custom, customColor: "#2BA84A");
+
+        Assert.AreNotEqual(fallbackPalette["ColorObject2"], accentPalette["ColorObject2"]);
+        Assert.AreNotEqual(fallbackPalette["ColorObject2"], customPalette["ColorObject2"]);
+        Assert.IsTrue(ThemeColorPalette.TryParseColor("#FF2BA84A", out Color parsed));
+        Assert.AreEqual(Color.Parse("#FF2BA84A"), parsed);
+    }
+
+    [TestMethod]
+    public void AprilThemePolicyControlsVisibilityAndTemporaryDefault()
+    {
+        try
+        {
+            ThemeAvailabilityPolicy.Clock = static () => new DateTimeOffset(2026, 3, 31, 12, 0, 0, TimeSpan.Zero);
+            Assert.IsFalse(ThemeAvailabilityPolicy.GetAvailableThemes().Contains(ColorTheme.HmclBlue));
+            Assert.AreEqual(ColorTheme.CatBlue, ThemeAvailabilityPolicy.ResolveRuntimeTheme(ColorTheme.HmclBlue));
+
+            ThemeAvailabilityPolicy.Clock = static () => new DateTimeOffset(2026, 4, 1, 12, 0, 0, TimeSpan.Zero);
+            Assert.IsTrue(ThemeAvailabilityPolicy.GetAvailableThemes().Contains(ColorTheme.HmclBlue));
+            Assert.AreEqual(ColorTheme.HmclBlue, ThemeAvailabilityPolicy.ResolveRuntimeTheme(ColorTheme.CatBlue));
+            ThemeAvailabilityPolicy.MarkManualThemeSelection();
+            Assert.AreEqual(ColorTheme.SkyBlue, ThemeAvailabilityPolicy.ResolveRuntimeTheme(ColorTheme.SkyBlue));
+
+            ThemeAvailabilityPolicy.Clock = static () => new DateTimeOffset(2026, 4, 2, 12, 0, 0, TimeSpan.Zero);
+            Assert.IsFalse(ThemeAvailabilityPolicy.GetAvailableThemes().Contains(ColorTheme.HmclBlue));
+            Assert.AreEqual(ColorTheme.CatBlue, ThemeAvailabilityPolicy.ResolveRuntimeTheme(ColorTheme.HmclBlue));
+        }
+        finally
+        {
+            ThemeAvailabilityPolicy.ResetSessionForTests();
+        }
+    }
+
+    [TestMethod]
+    [DataRow("zh-TW", "zh-TW")]
+    [DataRow("zh-HK", "zh-TW")]
+    [DataRow("zh-MO", "zh-TW")]
+    [DataRow("zh-Hant", "zh-TW")]
+    [DataRow("zh-CN", "zh-CN")]
+    [DataRow("en-GB", "en-US")]
+    public void LocalizationResolvesSupportedLanguageFamilies(string cultureName, string expected)
+    {
+        CultureInfo culture = CultureInfo.GetCultureInfo(cultureName);
+        Assert.AreEqual(expected, AvaloniaLocalizationManager.ResolveLanguageForCulture("auto", culture));
+    }
+
+    [TestMethod]
+    public void LocalizationCatalogsHaveMatchingKeysWithoutMigrationHint()
+    {
+        string localizationRoot = Path.Combine(FindDesktopProjectRoot(), "Localization");
+        HashSet<string> simplified = ReadLocalizationKeys(Path.Combine(localizationRoot, "zh-CN.xaml"));
+        HashSet<string> traditional = ReadLocalizationKeys(Path.Combine(localizationRoot, "zh-TW.xaml"));
+        HashSet<string> english = ReadLocalizationKeys(Path.Combine(localizationRoot, "en-US.xaml"));
+
+        CollectionAssert.AreEquivalent(simplified.ToArray(), traditional.ToArray());
+        CollectionAssert.AreEquivalent(simplified.ToArray(), english.ToArray());
+        Assert.IsFalse(simplified.Contains("Setup.LauncherLanguage.Hint"));
+    }
+
+    private static HashSet<string> ReadLocalizationKeys(string path)
+    {
+        XDocument document = XDocument.Load(path);
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        return document.Root!.Elements()
+            .Select(element => element.Attribute(xaml + "Key")?.Value)
+            .Where(static key => !string.IsNullOrWhiteSpace(key))
+            .Select(static key => key!)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
     [TestMethod]
     public void DesktopEnablesNativeWaylandBackend()
     {

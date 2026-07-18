@@ -11,6 +11,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Community;
 
@@ -125,8 +126,18 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
             string query = this.FindControl<MySearchBar>("PanSearchBox")?.Text?.Trim() ?? string.Empty;
             CommunitySearchOptions options = BuildSearchOptions();
             PortableLog.Debug("CommunityUI", $"刷新资源列表；分类={_category}；页={_page + 1}；查询={query}；来源={options.Source}。");
+            bool useChineseIndex = AvaloniaLocalizationManager.CurrentLanguageCode == AvaloniaLocalizationManager.ChineseLanguage &&
+                                   query.Any(static value => value is >= '\u3400' and <= '\u9fff');
             IReadOnlyList<CommunityResourceEntry> entries =
-                await _catalog.SearchAsync(_category, query, options, cancellationToken).ConfigureAwait(false);
+                await McModCommunitySearch.SearchAsync(
+                        _catalog,
+                        McModIndex.Current,
+                        _category,
+                        query,
+                        options,
+                        useChineseIndex,
+                        cancellationToken)
+                    .ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
 
             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -538,8 +549,8 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
         // Height 64 → logo column ~50px (WPF MyCompItem). LogoScale 1 keeps icon filling the cell.
         MyListItem item = new()
         {
-            Title = entry.Title,
-            Info = info + "  ·  ↓" + downloadsText + "  ·  " + timeText + "  ·  " +
+            Title = entry.DisplayTitle,
+            Info = entry.DisplayDescription + "  ·  ↓" + downloadsText + "  ·  " + timeText + "  ·  " +
                    (entry.Source == CommunityResourceSource.CurseForge ? "CurseForge" : "Modrinth"),
             Height = 64d,
             Type = MyListItem.CheckType.Clickable,

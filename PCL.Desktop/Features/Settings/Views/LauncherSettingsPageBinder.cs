@@ -5,14 +5,17 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 using System.Runtime.CompilerServices;
 using PCL.Application.Settings;
 using PCL.Core.App;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Localization;
 using PCL.Desktop.Theme;
 using PCL.Platform.Paths;
 using PCL.Core.Logging;
+using PCL.Core.Platform;
 
 namespace PCL.Desktop.Features.Settings.Views;
 
@@ -23,21 +26,18 @@ internal static class LauncherSettingsPageBinder
     private static readonly ConditionalWeakTable<MyPageRight, BindingState> BindingStates = new();
     private static LatestSavedSettings? _latestSavedSettings;
 
-    private static readonly ColorTheme[] ThemeOrder =
-    [
-        ColorTheme.SkyBlue,
-        ColorTheme.CatBlue,
-        ColorTheme.DeathBlue,
-        ColorTheme.HmclBlue
-    ];
+    internal static IReadOnlyList<ColorTheme> ThemeOrder => ThemeAvailabilityPolicy.GetAvailableThemes();
 
-    public static readonly string[] ThemeColorNames =
-    [
-        "天空蓝",
-        "龙猫蓝",
-        "死亡蓝",
-        "HMCL 蓝"
-    ];
+    internal static string GetThemeName(ColorTheme theme) => theme switch
+    {
+        ColorTheme.SystemAccent => AvaloniaLocalizationManager.GetText("Setup.Ui.ThemeColor.SystemAccent", "跟随系统"),
+        ColorTheme.SkyBlue => AvaloniaLocalizationManager.GetText("Setup.Ui.ThemeColor.SkyBlue", "天空蓝"),
+        ColorTheme.CatBlue => AvaloniaLocalizationManager.GetText("Setup.Ui.ThemeColor.CatBlue", "龙猫蓝"),
+        ColorTheme.DeathBlue => AvaloniaLocalizationManager.GetText("Setup.Ui.ThemeColor.CrashBlue", "死亡蓝"),
+        ColorTheme.Custom => AvaloniaLocalizationManager.GetText("Setup.Ui.ThemeColor.Custom", "调色盘"),
+        ColorTheme.HmclBlue => AvaloniaLocalizationManager.GetText("Setup.Ui.ThemeColor.Hmcl", "HMCL 蓝"),
+        _ => theme.ToString()
+    };
 
     internal static event Action<LauncherSettings>? SettingsChanged;
 
@@ -146,6 +146,77 @@ internal static class LauncherSettingsPageBinder
                     return;
 
                 settings = LoadSettings();
+                ColorTheme? selectedTheme = tag is "UiLightColor" or "UiDarkColor"
+                    ? GetTheme(comboBox.SelectedIndex)
+                    : null;
+                if (selectedTheme == ColorTheme.SystemAccent && !PlatformFeaturePolicy.IsSystemAccentThemeSupported)
+                {
+                    state.IsApplying = true;
+                    try
+                    {
+                        selectedTheme = ColorTheme.CatBlue;
+                        SetComboIndex(comboBox, GetThemeIndex(selectedTheme.Value));
+                    }
+                    finally
+                    {
+                        state.IsApplying = false;
+                    }
+                    if (page is PageSetupUI uiPage)
+                    {
+                        uiPage.RequestThemeMessage(
+                            AvaloniaLocalizationManager.GetText("Setup.Ui.ThemeColor.SystemAccent.Unsupported.Title", "此功能在 Windows 上不可用"),
+                            AvaloniaLocalizationManager.GetText(
+                                "Setup.Ui.ThemeColor.SystemAccent.Unsupported",
+                                "“跟随系统主题色”仅在 Linux 和 macOS 上受支持。根据 PCL 上游使用指南第 5 条，Windows 版本不能提供与赞助解锁主题类似的表现，因此配色将切回“龙猫蓝”。"));
+                    }
+                }
+                else if (selectedTheme == ColorTheme.Custom && page is PageSetupUI colorPage)
+                {
+                    LauncherSettings original = settings;
+                    bool dark = tag == "UiDarkColor";
+                    string colorKey = dark ? "UiCustomDarkColor" : "UiCustomLightColor";
+                    string initialText = settings.GetTextOption(colorKey, dark ? "#6F8CFF" : "#3D7DFF");
+                    Color initial = ThemeColorPalette.TryParseColor(initialText, out Color parsed) ? parsed : Color.Parse("#3D7DFF");
+                    colorPage.RequestThemeColor(
+                        AvaloniaLocalizationManager.GetText("Setup.Ui.ThemeColor.Custom", "调色盘"),
+                        initial,
+                        preview =>
+                        {
+                            LauncherSettings previewSettings = dark
+                                ? settings with { DarkColor = ColorTheme.Custom }
+                                : settings with { LightColor = ColorTheme.Custom };
+                            previewSettings.SetTextOption(colorKey, preview.ToString());
+                            AvaloniaThemeManager.Apply(previewSettings);
+                        },
+                        chosen =>
+                        {
+                            if (chosen is null)
+                            {
+                                AvaloniaThemeManager.Apply(original);
+                                state.IsApplying = true;
+                                try
+                                {
+                                    SetComboIndex(comboBox, GetThemeIndex(dark ? original.DarkColor : original.LightColor));
+                                }
+                                finally
+                                {
+                                    state.IsApplying = false;
+                                }
+                                return;
+                            }
+
+                            LauncherSettings confirmed = dark
+                                ? settings with { DarkColor = ColorTheme.Custom }
+                                : settings with { LightColor = ColorTheme.Custom };
+                            confirmed.SetTextOption(colorKey, chosen.Value.ToString());
+                            confirmed.SetIntegerOption(tag, comboBox.SelectedIndex);
+                            ThemeAvailabilityPolicy.MarkManualThemeSelection();
+                            AvaloniaThemeManager.Apply(confirmed);
+                            SaveSettings(confirmed);
+                        });
+                    return;
+                }
+
                 int comboValue = GetComboValue(comboBox);
                 settings.SetIntegerOption(tag, comboValue);
                 bool shouldApplyTheme = false;
@@ -170,6 +241,8 @@ internal static class LauncherSettingsPageBinder
                     _ => settings
                 };
                 shouldApplyTheme = tag is "UiDarkMode" or "UiLightColor" or "UiDarkColor";
+                if (tag is "UiLightColor" or "UiDarkColor")
+                    ThemeAvailabilityPolicy.MarkManualThemeSelection();
 
                 if (comboBox.IsEditable)
                     settings.SetTextOption(tag, comboBox.Text ?? string.Empty);
@@ -559,10 +632,12 @@ internal static class LauncherSettingsPageBinder
     /// </summary>
     private static void EnsureThemeColorItems(MyComboBox comboBox)
     {
-        bool needsRebuild = comboBox.ItemCount != ThemeColorNames.Length;
+        IReadOnlyList<ColorTheme> themes = ThemeOrder;
+        string[] names = themes.Select(GetThemeName).ToArray();
+        bool needsRebuild = comboBox.ItemCount != names.Length;
         if (!needsRebuild)
         {
-            for (int i = 0; i < ThemeColorNames.Length; i++)
+            for (int i = 0; i < names.Length; i++)
             {
                 string shown = comboBox.Items[i] switch
                 {
@@ -570,7 +645,7 @@ internal static class LauncherSettingsPageBinder
                     string s => s,
                     _ => comboBox.Items[i]?.ToString() ?? string.Empty
                 };
-                if (!string.Equals(shown, ThemeColorNames[i], StringComparison.Ordinal))
+                if (!string.Equals(shown, names[i], StringComparison.Ordinal))
                 {
                     needsRebuild = true;
                     break;
@@ -584,19 +659,30 @@ internal static class LauncherSettingsPageBinder
         int preserve = comboBox.SelectedIndex;
         comboBox.ItemsSource = null;
         comboBox.Items.Clear();
-        foreach (string name in ThemeColorNames)
+        foreach (string name in names)
             comboBox.Items.Add(new MyComboBoxItem { Content = name });
         if (preserve >= 0)
-            comboBox.SelectedIndex = Math.Clamp(preserve, 0, ThemeColorNames.Length - 1);
+            comboBox.SelectedIndex = Math.Clamp(preserve, 0, names.Length - 1);
     }
 
-    private static ColorTheme GetTheme(int index) =>
-        ThemeOrder[Math.Clamp(index, 0, ThemeOrder.Length - 1)];
+    private static ColorTheme GetTheme(int index)
+    {
+        IReadOnlyList<ColorTheme> themes = ThemeOrder;
+        return themes[Math.Clamp(index, 0, themes.Count - 1)];
+    }
 
     private static int GetThemeIndex(ColorTheme theme)
     {
-        int index = Array.IndexOf(ThemeOrder, ThemeColorPalette.NormalizeTheme(theme));
-        return index < 0 ? Array.IndexOf(ThemeOrder, ColorTheme.CatBlue) : index;
+        IReadOnlyList<ColorTheme> themes = ThemeOrder;
+        int index = themes.Select(static (item, index) => (item, index))
+            .Where(pair => pair.item == theme)
+            .Select(pair => pair.index)
+            .DefaultIfEmpty(-1)
+            .First();
+        if (index >= 0)
+            return index;
+        return themes.Select(static (item, index) => (item, index))
+            .First(pair => pair.item == ColorTheme.CatBlue).index;
     }
 
     private sealed record LatestSavedSettings(string SettingsPath, LauncherSettings Settings);

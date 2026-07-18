@@ -18,6 +18,12 @@ public interface ISettingsPageInteractionSource
     event EventHandler<SettingsMessageRequestedEventArgs>? MessageRequested;
 
     event EventHandler<SettingsConfirmRequestedEventArgs>? ConfirmRequested;
+
+    event EventHandler<SettingsColorRequestedEventArgs>? ColorRequested
+    {
+        add { }
+        remove { }
+    }
 }
 
 public sealed class SettingsPathRequestedEventArgs(string path) : EventArgs
@@ -40,6 +46,21 @@ public sealed class SettingsMessageRequestedEventArgs(
     public string Message { get; } = message;
 
     public string PrimaryButton { get; } = primaryButton;
+}
+
+public sealed class SettingsColorRequestedEventArgs(
+    string title,
+    Avalonia.Media.Color initialColor,
+    Action<Avalonia.Media.Color> preview,
+    Action<Avalonia.Media.Color?> complete) : EventArgs
+{
+    public string Title { get; } = title;
+
+    public Avalonia.Media.Color InitialColor { get; } = initialColor;
+
+    public Action<Avalonia.Media.Color> Preview { get; } = preview;
+
+    public Action<Avalonia.Media.Color?> Complete { get; } = complete;
 }
 
 public sealed class SettingsConfirmRequestedEventArgs(

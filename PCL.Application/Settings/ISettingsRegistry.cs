@@ -9,6 +9,19 @@ public static class HostSettingsPageGroupIds
     public const string Launcher = "pcl.settings.launcher";
 }
 
+public sealed record HostLocalizedText(string Fallback, string? ResourceKey = null)
+{
+    public Func<string>? Resolver { get; init; }
+
+    public static HostLocalizedText FromResource(string resourceKey, string fallback) => new(fallback, resourceKey);
+
+    public static HostLocalizedText FromResolver(string fallback, Func<string> resolver) =>
+        new(fallback) { Resolver = resolver ?? throw new ArgumentNullException(nameof(resolver)) };
+
+    public string Resolve(Func<string, string> resolver) =>
+        Resolver?.Invoke() ?? (string.IsNullOrWhiteSpace(ResourceKey) ? Fallback : resolver(ResourceKey));
+}
+
 public sealed record SettingDescriptor(
     SettingKey Key,
     string Title,
@@ -31,7 +44,12 @@ public sealed record HostSettingsPageGroupDescriptor(
     string Title,
     string? Icon = null,
     int Order = 500,
-    string? Description = null);
+    string? Description = null)
+{
+    public HostLocalizedText? LocalizedTitle { get; init; }
+
+    public HostLocalizedText? LocalizedDescription { get; init; }
+}
 
 public sealed record HostSettingsPageDescriptor(
     string Id,
@@ -41,28 +59,27 @@ public sealed record HostSettingsPageDescriptor(
     string Description,
     IReadOnlyList<HostSettingsHintDescriptor> Hints)
 {
+    public HostLocalizedText? LocalizedTitle { get; init; }
+
+    public HostLocalizedText? LocalizedHeading { get; init; }
+
+    public HostLocalizedText? LocalizedDescription { get; init; }
+
     public string? GroupId { get; init; }
 
     public int Order { get; init; } = 500;
 
     public bool RequiresDeveloperMode { get; init; }
 
-    /// <summary>
-    /// Optional page implementation supplied by the registering HostModule.
-    /// The host only validates the returned object against its page base type and never fabricates page content.
-    /// </summary>
     public Func<object>? PageFactory { get; init; }
 
-    /// <summary>Optional visibility decision owned by the registering HostModule.</summary>
     public Func<bool>? VisibilityPredicate { get; init; }
 }
 
 public interface ISettingsRegistry
 {
     IReadOnlyList<SettingDescriptor> Settings { get; }
-
     void AddSetting(SettingDescriptor descriptor);
-
     bool RemoveSetting(SettingKey key);
 }
 
@@ -71,7 +88,6 @@ public sealed class SettingsRegistry : ISettingsRegistry
     private readonly List<SettingDescriptor> _settings = [];
     private readonly Dictionary<string, SettingDescriptor> _settingMap = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<SettingDescriptor> _snapshot = Array.Empty<SettingDescriptor>();
-
     public IReadOnlyList<SettingDescriptor> Settings => _snapshot;
 
     public void AddSetting(SettingDescriptor descriptor)
@@ -83,7 +99,6 @@ public sealed class SettingsRegistry : ISettingsRegistry
             throw new ArgumentException("设置标题不能为空。", nameof(descriptor));
         if (!_settingMap.TryAdd(descriptor.Key.Value, descriptor))
             throw new InvalidOperationException($"设置项已注册：{descriptor.Key}");
-
         _settings.Add(descriptor);
         RefreshSnapshot();
     }
@@ -92,26 +107,21 @@ public sealed class SettingsRegistry : ISettingsRegistry
     {
         if (string.IsNullOrWhiteSpace(key.Value) || !_settingMap.Remove(key.Value))
             return false;
-
         int index = _settings.FindIndex(setting => setting.Key.Equals(key.Value));
         if (index < 0)
             return false;
-
         _settings.RemoveAt(index);
         RefreshSnapshot();
         return true;
     }
 
-    private void RefreshSnapshot() =>
-        _snapshot = _settings.ToArray();
+    private void RefreshSnapshot() => _snapshot = _settings.ToArray();
 }
 
 public interface IHostSettingsPageGroupRegistry
 {
     IReadOnlyList<HostSettingsPageGroupDescriptor> Groups { get; }
-
     void AddGroup(HostSettingsPageGroupDescriptor descriptor);
-
     bool RemoveGroup(string id);
 }
 
@@ -120,7 +130,6 @@ public sealed class HostSettingsPageGroupRegistry : IHostSettingsPageGroupRegist
     private readonly List<HostSettingsPageGroupDescriptor> _groups = [];
     private readonly Dictionary<string, HostSettingsPageGroupDescriptor> _groupMap = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<HostSettingsPageGroupDescriptor> _snapshot = Array.Empty<HostSettingsPageGroupDescriptor>();
-
     public IReadOnlyList<HostSettingsPageGroupDescriptor> Groups => _snapshot;
 
     public void AddGroup(HostSettingsPageGroupDescriptor descriptor)
@@ -130,7 +139,6 @@ public sealed class HostSettingsPageGroupRegistry : IHostSettingsPageGroupRegist
         ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.Title);
         if (!_groupMap.TryAdd(descriptor.Id, descriptor))
             throw new InvalidOperationException($"Host 设置页分组已注册：{descriptor.Id}");
-
         _groups.Add(descriptor);
         _snapshot = _groups.ToArray();
     }
@@ -139,7 +147,6 @@ public sealed class HostSettingsPageGroupRegistry : IHostSettingsPageGroupRegist
     {
         if (string.IsNullOrWhiteSpace(id) || !_groupMap.Remove(id))
             return false;
-
         _groups.RemoveAll(group => string.Equals(group.Id, id, StringComparison.OrdinalIgnoreCase));
         _snapshot = _groups.ToArray();
         return true;
@@ -149,9 +156,7 @@ public sealed class HostSettingsPageGroupRegistry : IHostSettingsPageGroupRegist
 public interface IHostSettingsPageRegistry
 {
     IReadOnlyList<HostSettingsPageDescriptor> Pages { get; }
-
     void AddPage(HostSettingsPageDescriptor descriptor);
-
     bool RemovePage(string id);
 }
 
@@ -160,7 +165,6 @@ public sealed class HostSettingsPageRegistry : IHostSettingsPageRegistry
     private readonly List<HostSettingsPageDescriptor> _pages = [];
     private readonly Dictionary<string, HostSettingsPageDescriptor> _pageMap = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<HostSettingsPageDescriptor> _snapshot = Array.Empty<HostSettingsPageDescriptor>();
-
     public IReadOnlyList<HostSettingsPageDescriptor> Pages => _snapshot;
 
     public void AddPage(HostSettingsPageDescriptor descriptor)
@@ -171,7 +175,6 @@ public sealed class HostSettingsPageRegistry : IHostSettingsPageRegistry
         ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.Icon);
         if (!_pageMap.TryAdd(descriptor.Id, descriptor))
             throw new InvalidOperationException($"Host 设置页已注册：{descriptor.Id}");
-
         _pages.Add(descriptor);
         _snapshot = _pages.ToArray();
     }
@@ -180,7 +183,6 @@ public sealed class HostSettingsPageRegistry : IHostSettingsPageRegistry
     {
         if (string.IsNullOrWhiteSpace(id) || !_pageMap.Remove(id))
             return false;
-
         _pages.RemoveAll(page => string.Equals(page.Id, id, StringComparison.OrdinalIgnoreCase));
         _snapshot = _pages.ToArray();
         return true;

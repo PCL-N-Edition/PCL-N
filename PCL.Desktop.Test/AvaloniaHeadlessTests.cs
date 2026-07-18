@@ -45,6 +45,44 @@ namespace PCL.Desktop.Test;
 public sealed class AvaloniaHeadlessTests
 {
     [TestMethod]
+    public void MyMsgColor_LoadsColorPickerTemplateAndRendersContent()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            MyMsgColor dialog = new();
+            dialog.Configure("选择颜色", Colors.CornflowerBlue);
+            Window window = new()
+            {
+                Width = 620,
+                Height = 520,
+                Content = new Border
+                {
+                    Padding = new Thickness(20),
+                    Child = dialog
+                }
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                ColorPicker picker = dialog.FindControl<ColorPicker>("Picker")!;
+                Assert.IsTrue(picker.IsEffectivelyVisible);
+                Assert.IsTrue(picker.Bounds.Height > 100d);
+                Assert.IsTrue(picker.GetVisualDescendants().Any(), "ColorPicker should render its template instead of a blank region.");
+                Assert.IsTrue(picker.GetVisualDescendants().OfType<Control>().Any(control => control.Bounds.Width > 10d));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MediaElement_VideoFramesStayInsideAvaloniaComposition()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -5958,6 +5996,12 @@ public sealed class AvaloniaHeadlessTests
             page.Reload();
             MyComboBox language = page.FindControl<MyComboBox>("ComboUiLanguage")!;
             MyComboBox format = page.FindControl<MyComboBox>("ComboUiFormatCulture")!;
+            Assert.IsTrue(language.Items.OfType<MyComboBoxItem>()
+                .Any(item => string.Equals(item.Tag?.ToString(), "zh-TW", StringComparison.OrdinalIgnoreCase)));
+            language.SelectedItem = language.Items.OfType<MyComboBoxItem>()
+                .Single(item => string.Equals(item.Tag?.ToString(), "zh-TW", StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual("個性化", AvaloniaLocalizationManager.GetText("Setup.Left.Item.Ui"));
+
             language.SelectedItem = language.Items.OfType<MyComboBoxItem>()
                 .Single(item => string.Equals(item.Tag?.ToString(), "en-US", StringComparison.OrdinalIgnoreCase));
             format.SelectedItem = format.Items.OfType<MyComboBoxItem>()
@@ -8378,6 +8422,43 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void MessageDialog_ShortWrappedContentUsesNaturalHeight()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            MyMsgText dialog = new();
+            dialog.Configure(
+                "提示",
+                "这是一段需要根据弹窗宽度自动换行的提示文本，用于确认短内容不会被星号行拉伸成大片空白区域。");
+            Window window = new()
+            {
+                Width = 480,
+                Height = 600,
+                Content = dialog
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                MyScrollViewer caption = dialog.FindControl<MyScrollViewer>("PanCaption")!;
+                TextBlock text = dialog.FindControl<TextBlock>("LabCaption")!;
+                Assert.IsTrue(dialog.Bounds.Height < 260d, $"Short dialog should use natural height, actual: {dialog.Bounds.Height}.");
+                Assert.IsTrue(text.Bounds.Height > text.LineHeight, "Caption should wrap to multiple lines at the available width.");
+                Assert.IsTrue(caption.Extent.Height <= caption.Viewport.Height + 1d);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MessageDialogs_KeepActionsVisibleAndScrollTallContent()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -10191,6 +10272,56 @@ public sealed class AvaloniaHeadlessTests
                 Assert.AreEqual(25, slider.Value);
                 Assert.AreEqual(0, changeCount);
                 Assert.AreEqual(new Thickness(47.5d, 0d, 0d, 0d), slider.FindControl<Ellipse>("ShapeDot")!.Margin);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void MyComboBox_FirstClickKeepsSelectionAndSelectionClosesDropDown()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            MyComboBox comboBox = new()
+            {
+                Width = 180,
+                ItemsSource = new[] { "默认", "自定义" },
+                SelectedIndex = 0
+            };
+            Window window = new() { Width = 320, Height = 180, Content = comboBox };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                Click(window, comboBox);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Assert.IsTrue(comboBox.IsDropDownOpen);
+                Assert.AreEqual(0, comboBox.SelectedIndex);
+                Assert.AreEqual("默认", comboBox.SelectionText);
+
+                comboBox.SelectedIndex = 1;
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                Assert.IsFalse(comboBox.IsDropDownOpen);
+                Assert.AreEqual("自定义", comboBox.SelectionText);
+
+                Click(window, comboBox);
+                Assert.IsTrue(comboBox.IsDropDownOpen);
+                Assert.AreEqual(1, comboBox.SelectedIndex);
+
+                Avalonia.Controls.Shapes.Path arrow = comboBox.GetVisualDescendants()
+                    .OfType<Avalonia.Controls.Shapes.Path>()
+                    .Single(path => path.Name == "PART_DropDownArrow");
+                Point center = arrow.TranslatePoint(new Point(arrow.Bounds.Width / 2d, arrow.Bounds.Height / 2d), comboBox)
+                    ?? throw new InvalidOperationException("ComboBox arrow is not attached.");
+                Assert.IsTrue(center.X >= comboBox.Bounds.Width - 14d && center.X <= comboBox.Bounds.Width - 5d);
+                Assert.AreEqual(comboBox.Bounds.Height / 2d, center.Y, 1.5d);
             }
             finally
             {

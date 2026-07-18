@@ -19,11 +19,15 @@ public static class ThemeColorPalette
         LBackground: 0.3d, LForeground: 1d, LWhite: 0.275d,
         LSidebar: 0.28d, CSidebar: 0.02d, ASidebar: 0.92d);
 
-    public static IReadOnlyDictionary<string, Color> Create(bool isDarkMode, ColorTheme theme)
+    public static IReadOnlyDictionary<string, Color> Create(
+        bool isDarkMode,
+        ColorTheme theme,
+        Color? accentColor = null,
+        string? customColor = null)
     {
         Dictionary<string, Color> resources = [];
         ToneProfile tone = isDarkMode ? DarkTone : LightTone;
-        ThemeArgs args = GetThemeArgs(NormalizeTheme(theme));
+        ThemeArgs args = GetThemeArgs(NormalizeTheme(theme), accentColor, customColor);
 
         AddGray(resources, "Gray1", FromLch(tone.L1), applyObject: true);
         AddGray(resources, "Gray2", FromLch(tone.L2), applyObject: true);
@@ -78,8 +82,7 @@ public static class ThemeColorPalette
         return resources;
     }
 
-    public static ColorTheme NormalizeTheme(ColorTheme theme) =>
-        theme == ColorTheme.SystemAccent ? WindowsSystemAccentFallback : theme;
+    public static ColorTheme NormalizeTheme(ColorTheme theme) => theme;
 
     private static void AddGray(Dictionary<string, Color> resources, string suffix, Color color, bool applyObject)
     {
@@ -116,15 +119,28 @@ public static class ThemeColorPalette
             ToByte(LinearToSrgb(blue)));
     }
 
-    private static ThemeArgs GetThemeArgs(ColorTheme theme) =>
+    internal static ThemeArgs GetThemeArgs(ColorTheme theme, Color? accentColor = null, string? customColor = null) =>
         theme switch
         {
             ColorTheme.SkyBlue => new(235d, 0.36d, 0.2d),
             ColorTheme.CatBlue => new(255d, 0d, -0.2d),
             ColorTheme.DeathBlue => new(268d, -0.05d, -0.1d),
             ColorTheme.HmclBlue => new(275d, -0.03d, -0.35d),
+            ColorTheme.SystemAccent => FromRgb(accentColor ?? Color.Parse("#0078D4")),
+            ColorTheme.Custom => FromRgb(TryParseColor(customColor, out Color color) ? color : Color.Parse("#3D7DFF")),
             _ => new(255d, 0d, -0.2d)
         };
+
+    internal static bool TryParseColor(string? value, out Color color) => Color.TryParse(value, out color);
+
+    private static ThemeArgs FromRgb(Color color)
+    {
+        Unicolour converted = new(ColourSpace.Rgb255, color.R, color.G, color.B);
+        double hue = double.IsNaN(converted.Oklch.H) ? 255d : converted.Oklch.H;
+        double lightAdjust = Math.Clamp((converted.Oklch.L - 0.62d) * 0.8d, -0.35d, 0.35d);
+        double chromaAdjust = Math.Clamp((converted.Oklch.C - 0.16d) * 1.5d, -0.35d, 0.35d);
+        return new ThemeArgs(hue, lightAdjust, chromaAdjust);
+    }
 
     private static double Adjust(double value, double adjustment)
     {
@@ -146,7 +162,7 @@ public static class ThemeColorPalette
     private static byte ToByte(double value) =>
         (byte)Math.Round(Math.Clamp(value, 0d, 1d) * 255d);
 
-    private sealed record ThemeArgs(double Hue, double LightAdjust, double ChromaAdjust);
+    internal sealed record ThemeArgs(double Hue, double LightAdjust, double ChromaAdjust);
 
     private sealed record ToneProfile(
         double L1 = 0.35d,

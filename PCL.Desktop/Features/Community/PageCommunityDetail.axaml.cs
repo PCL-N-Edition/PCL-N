@@ -12,6 +12,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Community;
 
@@ -60,8 +61,10 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
             mcMod.Click += (_, _) =>
             {
                 if (_entry is not null)
-                    OpenUrlRequested?.Invoke(this, CreateMcModSearchUrl(_entry.Title));
+                    OpenUrlRequested?.Invoke(this, _entry.McModUrl ?? CreateMcModSearchUrl(_entry.Title));
             };
+        if (this.FindControl<MyIconTextButton>("BtnIntroTranslation") is { } translation)
+            translation.Click += async (_, _) => await ShowTranslationAsync().ConfigureAwait(true);
         if (this.FindControl<MyIconTextButton>("BtnIntroCopy") is { } copyName)
             copyName.Click += (_, _) => _ = CopyTextAsync(_entry?.Title ?? string.Empty);
         if (this.FindControl<MyIconTextButton>("BtnIntroLinkCopy") is { } copyLink)
@@ -80,6 +83,8 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
     public event EventHandler<CommunityResourceEntry>? OpenWebRequested;
 
     public event EventHandler<string>? OpenUrlRequested;
+
+    public event EventHandler<(string Title, string Message)>? MessageRequested;
 
     public event EventHandler<CommunityResourceDownloadRequest>? DownloadRequested;
 
@@ -119,13 +124,13 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
     {
         if (this.FindControl<MyListItem>("ItemProject") is { } item)
         {
-            item.Title = entry.Title;
+            item.Title = entry.DisplayTitle;
             string downloads = entry.Downloads > 0
                 ? entry.Downloads.ToString("N0", CultureInfo.CurrentCulture) + " 次下载"
                 : string.Empty;
-            item.Info = string.IsNullOrWhiteSpace(entry.Description)
+            item.Info = string.IsNullOrWhiteSpace(entry.DisplayDescription)
                 ? downloads
-                : entry.Description + (string.IsNullOrEmpty(downloads) ? string.Empty : " · " + downloads);
+                : entry.DisplayDescription + (string.IsNullOrEmpty(downloads) ? string.Empty : " · " + downloads);
             item.Logo = entry.IconUrl ?? string.Empty;
             item.SvgIcon = string.IsNullOrWhiteSpace(entry.IconUrl) ? "lucide/package" : string.Empty;
             item.LogoScale = 1.08d;
@@ -135,7 +140,38 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
         if (this.FindControl<MyIconTextButton>("BtnIntroWeb") is { } web)
             web.Text = entry.Source == CommunityResourceSource.CurseForge ? "CurseForge" : "Modrinth";
         if (this.FindControl<MyIconTextButton>("BtnIntroMcMod") is { } mcMod)
-            mcMod.IsVisible = _category == CommunityResourceCategory.Mod;
+            mcMod.IsVisible = _entry?.McModUrl is not null &&
+                              _category is CommunityResourceCategory.Mod or CommunityResourceCategory.DataPack;
+        if (this.FindControl<MyIconTextButton>("BtnIntroTranslation") is { } translation)
+            translation.IsVisible = AvaloniaLocalizationManager.CurrentLanguageCode == AvaloniaLocalizationManager.ChineseLanguage &&
+                                    _category is CommunityResourceCategory.Mod or CommunityResourceCategory.DataPack;
+    }
+
+    private async Task ShowTranslationAsync()
+    {
+        if (_entry is null)
+            return;
+        try
+        {
+            using HttpClient client = new() { Timeout = TimeSpan.FromSeconds(35) };
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
+            McimTranslationResult result = await new McimTranslationService(client)
+                .GetAsync(_entry, _loadCancellation?.Token ?? CancellationToken.None)
+                .ConfigureAwait(true);
+            string message = result.NotFound || string.IsNullOrWhiteSpace(result.Text)
+                ? "MCIM 暂无此项目的中文描述。"
+                : result.Text;
+            MessageRequested?.Invoke(this, ("中文描述", message));
+        }
+        catch (OperationCanceledException)
+        {
+            MessageRequested?.Invoke(this, ("中文描述", "中文描述请求已取消或超时。"));
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Warn(ex, "MCIM", $"中文描述请求失败；项目={_entry.ProjectId}。");
+            MessageRequested?.Invoke(this, ("中文描述", "暂时无法获取中文描述，请稍后重试。"));
+        }
     }
 
     internal static string CreateMcModSearchUrl(string title) =>

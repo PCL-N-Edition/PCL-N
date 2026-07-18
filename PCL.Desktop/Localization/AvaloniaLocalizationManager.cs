@@ -12,21 +12,19 @@ using PCL.Application.Settings;
 namespace PCL.Desktop.Localization;
 
 /// <summary>
-/// UI language resources:
-/// <list type="number">
-/// <item><c>zh-CN.xaml</c> — base Chinese catalog (always loaded as fallback)</item>
-/// <item><c>en-US.xaml</c> — English overlay when UI language is English</item>
-/// </list>
-/// Lookup order for <see cref="GetText"/>: current language → Chinese → key name.
+/// UI language resources. Simplified Chinese is the fallback catalog; Traditional Chinese and English
+/// overlay it when selected. Lookup order is current language → Simplified Chinese → key name.
 /// </summary>
 public static class AvaloniaLocalizationManager
 {
     public const string Auto = "auto";
     public const string FollowLanguage = "follow-language";
     public const string ChineseLanguage = "zh-CN";
+    public const string TraditionalChineseLanguage = "zh-TW";
     public const string EnglishLanguage = "en-US";
 
     private const string ChineseResourceName = "PCL.Desktop.Localization.zh-CN.xaml";
+    private const string TraditionalChineseResourceName = "PCL.Desktop.Localization.zh-TW.xaml";
     private const string EnglishResourceName = "PCL.Desktop.Localization.en-US.xaml";
 
     private static readonly CultureInfo SystemCulture = CultureInfo.CurrentCulture;
@@ -34,6 +32,7 @@ public static class AvaloniaLocalizationManager
 
     private static readonly object Gate = new();
     private static Dictionary<string, string>? _zhCnMap;
+    private static Dictionary<string, string>? _zhTwMap;
     private static Dictionary<string, string>? _enUsMap;
     private static ResourceDictionary? _mergedLanguageResources;
 
@@ -86,7 +85,14 @@ public static class AvaloniaLocalizationManager
 
         EnsureMapsLoaded();
 
-        // 1) Current language (en-US when English)
+        if (string.Equals(CurrentLanguageCode, TraditionalChineseLanguage, StringComparison.OrdinalIgnoreCase) &&
+            _zhTwMap is not null &&
+            _zhTwMap.TryGetValue(key, out string? zhTw) &&
+            !string.IsNullOrEmpty(zhTw))
+        {
+            return zhTw;
+        }
+
         if (string.Equals(CurrentLanguageCode, EnglishLanguage, StringComparison.OrdinalIgnoreCase) &&
             _enUsMap is not null &&
             _enUsMap.TryGetValue(key, out string? en) &&
@@ -116,20 +122,49 @@ public static class AvaloniaLocalizationManager
         return key;
     }
 
-    private static string ResolveLanguage(string? languageCode)
+    public static string GetTextOrFallback(string keyOrFallback)
+    {
+        if (string.IsNullOrWhiteSpace(keyOrFallback))
+            return string.Empty;
+
+        EnsureMapsLoaded();
+        if (ContainsResourceKey(keyOrFallback))
+            return GetText(keyOrFallback);
+
+        string? resourceKey = _zhCnMap?
+            .FirstOrDefault(pair => string.Equals(pair.Value, keyOrFallback, StringComparison.Ordinal))
+            .Key;
+        return string.IsNullOrWhiteSpace(resourceKey) ? keyOrFallback : GetText(resourceKey);
+    }
+
+    private static bool ContainsResourceKey(string key) =>
+        _zhCnMap?.ContainsKey(key) == true || _zhTwMap?.ContainsKey(key) == true || _enUsMap?.ContainsKey(key) == true;
+    internal static string ResolveLanguageForCulture(string? languageCode, CultureInfo systemUiCulture)
     {
         if (!string.IsNullOrWhiteSpace(languageCode) &&
             !string.Equals(languageCode, Auto, StringComparison.OrdinalIgnoreCase))
         {
-            return languageCode.StartsWith("en", StringComparison.OrdinalIgnoreCase)
-                ? EnglishLanguage
-                : ChineseLanguage;
+            if (languageCode.StartsWith("en", StringComparison.OrdinalIgnoreCase))
+                return EnglishLanguage;
+            return IsTraditionalChinese(languageCode) ? TraditionalChineseLanguage : ChineseLanguage;
         }
 
-        return SystemUiCulture.TwoLetterISOLanguageName.Equals("en", StringComparison.OrdinalIgnoreCase)
-            ? EnglishLanguage
+        if (systemUiCulture.TwoLetterISOLanguageName.Equals("en", StringComparison.OrdinalIgnoreCase))
+            return EnglishLanguage;
+        return IsTraditionalChinese(systemUiCulture.Name) ||
+               systemUiCulture.IetfLanguageTag.Contains("Hant", StringComparison.OrdinalIgnoreCase)
+            ? TraditionalChineseLanguage
             : ChineseLanguage;
     }
+
+    private static string ResolveLanguage(string? languageCode) =>
+        ResolveLanguageForCulture(languageCode, SystemUiCulture);
+
+    private static bool IsTraditionalChinese(string languageCode) =>
+        languageCode.StartsWith("zh-TW", StringComparison.OrdinalIgnoreCase) ||
+        languageCode.StartsWith("zh-HK", StringComparison.OrdinalIgnoreCase) ||
+        languageCode.StartsWith("zh-MO", StringComparison.OrdinalIgnoreCase) ||
+        languageCode.Contains("Hant", StringComparison.OrdinalIgnoreCase);
 
     private static CultureInfo ResolveFormatCulture(string? formatCultureCode, CultureInfo uiCulture)
     {
@@ -173,9 +208,14 @@ public static class AvaloniaLocalizationManager
                 merged[key] = value;
         }
 
-        // English overlays Chinese when selected.
-        if (string.Equals(languageCode, EnglishLanguage, StringComparison.OrdinalIgnoreCase) &&
-            _enUsMap is not null)
+        if (string.Equals(languageCode, TraditionalChineseLanguage, StringComparison.OrdinalIgnoreCase) &&
+            _zhTwMap is not null)
+        {
+            foreach ((string key, string value) in _zhTwMap)
+                merged[key] = value;
+        }
+        else if (string.Equals(languageCode, EnglishLanguage, StringComparison.OrdinalIgnoreCase) &&
+                 _enUsMap is not null)
         {
             foreach ((string key, string value) in _enUsMap)
                 merged[key] = value;
@@ -187,12 +227,13 @@ public static class AvaloniaLocalizationManager
 
     private static void EnsureMapsLoaded()
     {
-        if (_zhCnMap is not null && _enUsMap is not null)
+        if (_zhCnMap is not null && _zhTwMap is not null && _enUsMap is not null)
             return;
 
         lock (Gate)
         {
             _zhCnMap ??= LoadStringMap(ChineseResourceName);
+            _zhTwMap ??= LoadStringMap(TraditionalChineseResourceName);
             _enUsMap ??= LoadStringMap(EnglishResourceName);
         }
     }

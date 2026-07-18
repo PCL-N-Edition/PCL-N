@@ -103,12 +103,16 @@ public partial class PageSetupLauncherLanguage : MyPageRight
         FormatCultureCombo.Items.Clear();
         FormatCultureCombo.Items.Add(new MyComboBoxItem
         {
-            Content = FindString("Setup.LauncherLanguage.FormatCulture.Auto", "跟随系统区域格式"),
+            Content = AvaloniaLocalizationManager.GetText(
+                "Setup.LauncherLanguage.FormatCulture.Auto",
+                "跟随系统区域格式"),
             Tag = Auto
         });
         FormatCultureCombo.Items.Add(new MyComboBoxItem
         {
-            Content = FindString("Setup.LauncherLanguage.FormatCulture.FollowLanguage", "同步界面语言"),
+            Content = AvaloniaLocalizationManager.GetText(
+                "Setup.LauncherLanguage.FormatCulture.FollowLanguage",
+                "同步界面语言"),
             Tag = FormatCultureFollowLanguage
         });
 
@@ -290,6 +294,7 @@ public partial class PageSetupLauncherLanguage : MyPageRight
     private static readonly SupportedLanguage[] SupportedLanguages =
     [
         new("zh-CN", "zh-CN", "简体中文（中国大陆）", "Microsoft YaHei UI, PingFang SC, Noto Sans CJK SC, Segoe UI"),
+        new("zh-TW", "zh-TW", "繁體中文（台灣）", "Microsoft JhengHei UI, PingFang TC, Noto Sans CJK TC, Segoe UI"),
         new("en-US", "en-US", "English (US)", "Segoe UI, Arial")
     ];
 

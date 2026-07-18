@@ -62,6 +62,18 @@ public partial class PageSetupUI : MyPageRight, IRefreshableSettingsPage, ISetti
 
     public event EventHandler<SettingsConfirmRequestedEventArgs>? ConfirmRequested;
 
+    public event EventHandler<SettingsColorRequestedEventArgs>? ColorRequested;
+
+    internal void RequestThemeMessage(string title, string message) =>
+        MessageRequested?.Invoke(this, new SettingsMessageRequestedEventArgs(title, message));
+
+    internal void RequestThemeColor(
+        string title,
+        Avalonia.Media.Color initial,
+        Action<Avalonia.Media.Color> preview,
+        Action<Avalonia.Media.Color?> complete) =>
+        ColorRequested?.Invoke(this, new SettingsColorRequestedEventArgs(title, initial, preview, complete));
+
     public void RefreshPage()
     {
         RefreshBackgroundUi(showMessage: false);

@@ -10,6 +10,7 @@ using Avalonia.Threading;
 using PCL.Application.Settings;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Hosting;
+using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Settings.Views;
 
@@ -62,6 +63,7 @@ public partial class PageSetupLeft : MyPageLeft
     private readonly IReadOnlyList<HostSettingsPageDescriptor> _hostSettingsPages;
     private readonly IReadOnlyList<HostSettingsPageGroupDescriptor> _hostSettingsGroups;
     private bool _isLoadedOnce;
+    private EventHandler? _languageChangedHandler;
     private string? _hostPageId;
 
     public PageSetupLeft()
@@ -71,6 +73,8 @@ public partial class PageSetupLeft : MyPageLeft
         _hostSettingsPages = DesktopHost.Current.SettingsPages.Pages;
         foreach (HostSettingsPageDescriptor page in _hostSettingsPages)
             _hostPageMap[page.Id] = page;
+        _languageChangedHandler = (_, _) => Dispatcher.UIThread.Post(RefreshHostSettingsPages);
+        AvaloniaLocalizationManager.LanguageChanged += _languageChangedHandler;
         RegisterHostSettingsPages();
         AnimatedControl = Required<Control>("PanItem");
         InitializeRegisteredPageTags();
@@ -89,7 +93,14 @@ public partial class PageSetupLeft : MyPageLeft
             SyncDefaultPageCheckmarks();
         };
         DetachedFromVisualTree += (_, _) =>
+        {
             DesktopHostUiComposition.Instance.UnregisterSlot("pcl.page.settings", "sidebar.after-plugin");
+            if (_languageChangedHandler is not null)
+            {
+                AvaloniaLocalizationManager.LanguageChanged -= _languageChangedHandler;
+                _languageChangedHandler = null;
+            }
+        };
     }
 
     /// <summary>
@@ -385,6 +396,9 @@ public partial class PageSetupLeft : MyPageLeft
         }
 
         RegisterHostSettingsPages();
+        if (_hostPageId is not null && GetItems().FirstOrDefault(item =>
+                TryReadHostPage(item.Tag, out string? id) && string.Equals(id, _hostPageId, StringComparison.OrdinalIgnoreCase)) is { } selected)
+            selected.SetChecked(true, user: false);
     }
 
     private HostSettingsGroupView[] BuildHostSettingsGroups()
@@ -437,23 +451,31 @@ public partial class PageSetupLeft : MyPageLeft
             groups.Add(new HostSettingsGroupView(
                 descriptor,
                 pages.OrderBy(static page => page.Order)
-                    .ThenBy(static page => page.Title, StringComparer.CurrentCultureIgnoreCase)
+                    .ThenBy(page => ResolveTitle(page), StringComparer.CurrentCultureIgnoreCase)
                     .ThenBy(static page => page.Id, StringComparer.OrdinalIgnoreCase)
                     .ToArray()));
         }
 
         return groups
             .OrderBy(static group => group.Descriptor.Order)
-            .ThenBy(static group => group.Descriptor.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(group => ResolveTitle(group.Descriptor), StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(static group => group.Descriptor.Id, StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
 
+    private static string Resolve(HostLocalizedText? localized, string fallback) =>
+        localized is null
+            ? AvaloniaLocalizationManager.GetTextOrFallback(fallback)
+            : localized.Resolve(static key => AvaloniaLocalizationManager.GetText(key));
+
+    private static string ResolveTitle(HostSettingsPageDescriptor page) => Resolve(page.LocalizedTitle, page.Title);
+
+    private static string ResolveTitle(HostSettingsPageGroupDescriptor group) => Resolve(group.LocalizedTitle, group.Title);
     private static TextBlock CreateHostGroupLabel(HostSettingsPageGroupDescriptor group) =>
         new()
         {
             Name = "TextHostSettingsGroup_" + SanitizeName(group.Id),
-            Text = group.Title,
+            Text = ResolveTitle(group),
             Margin = new Thickness(13, 5, 5, 3),
             Opacity = 0.6,
             FontSize = 12
@@ -469,7 +491,7 @@ public partial class PageSetupLeft : MyPageLeft
             MinPaddingRight = 35d,
             Height = 36d,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
-            Title = page.Title,
+            Title = ResolveTitle(page),
             Type = MyListItem.CheckType.RadioBox,
             LogoScale = 0.95d,
             SvgIcon = page.Icon

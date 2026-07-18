@@ -13,6 +13,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PathShape = Avalonia.Controls.Shapes.Path;
+using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -53,6 +54,8 @@ public class MyComboBox : ComboBox
         DropDownOpened += MyComboBox_DropDownOpened;
         DropDownClosed += MyComboBox_DropDownClosed;
         SelectionChanged += MyComboBox_SelectionChanged;
+        AvaloniaThemeManager.ThemeChanged += OnThemeChanged;
+        DetachedFromVisualTree += (_, _) => AvaloniaThemeManager.ThemeChanged -= OnThemeChanged;
         this.GetObservable(IsEnabledProperty).Subscribe(_ => RefreshColor());
         this.GetObservable(IsDropDownOpenProperty).Subscribe(_ =>
         {
@@ -72,6 +75,11 @@ public class MyComboBox : ComboBox
                 RefreshSelectionText();
             }, DispatcherPriority.Loaded);
         };
+        RefreshColor();
+    }
+
+    private void OnThemeChanged()
+    {
         RefreshColor();
     }
 
@@ -126,7 +134,7 @@ public class MyComboBox : ComboBox
         _dropDownBorder = e.NameScope.Find<Border>("dropDownBorder");
         if (_dropDownArrow is not null)
         {
-            _dropDownArrow.RenderTransformOrigin = new RelativePoint(0.3d, 0.5d, RelativeUnit.Relative);
+            _dropDownArrow.RenderTransformOrigin = new RelativePoint(0.5d, 0.5d, RelativeUnit.Relative);
             if (_dropDownArrow.RenderTransform is not RotateTransform)
                 _dropDownArrow.RenderTransform = new RotateTransform();
         }
@@ -305,7 +313,7 @@ public class MyComboBox : ComboBox
         _text = SelectedItem?.ToString() ?? string.Empty;
         RefreshSelectionText();
         if (IsDropDownOpen)
-            Dispatcher.UIThread.Post(() => IsDropDownOpen = false, DispatcherPriority.Input);
+            IsDropDownOpen = false;
     }
 
     private void EnsureWpfMarkedSelection()

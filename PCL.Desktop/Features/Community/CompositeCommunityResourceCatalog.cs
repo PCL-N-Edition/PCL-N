@@ -76,6 +76,13 @@ public sealed class CompositeCommunityResourceCatalog : ICommunityResourceCatalo
             if (seen.Add(key))
                 combined.Add(entry);
         }
+        if (!string.IsNullOrWhiteSpace(query) && options.Sort == CommunityResourceSort.Relevance)
+        {
+            combined = combined
+                .OrderBy(entry => CurseForgeCommunityResourceCatalog.GetSearchRank(entry, query.Trim()))
+                .ThenByDescending(static entry => entry.Downloads)
+                .ToList();
+        }
         PortableLog.Info("Community", $"社区资源搜索完成；Modrinth={modrinth.Count}；CurseForge={curseForge.Count}；合并后={combined.Count}。");
         return combined;
     }

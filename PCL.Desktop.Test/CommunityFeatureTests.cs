@@ -13,6 +13,63 @@ namespace PCL.Desktop.Test;
 public sealed class CommunityFeatureTests
 {
     [TestMethod]
+    public void McModIndex_ShouldParseEmbeddedDatabaseAndResolveKnownSlug()
+    {
+        McModIndex index = McModIndex.Current;
+        Assert.IsTrue(index.Count > 1000, $"Unexpected MC百科 index size: {index.Count}");
+
+        McModIndexEntry? entry = index.FindBySlug(CommunityResourceSource.CurseForge, "advanced-solar-panels");
+        Assert.IsNotNull(entry);
+        Assert.IsTrue(entry.WikiId > 0);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(entry.ChineseName));
+        Assert.IsTrue(index.SearchChinese(entry.ChineseName[..Math.Min(2, entry.ChineseName.Length)]).Count > 0);
+    }
+
+    [TestMethod]
+    public void McModDecoration_ShouldExposeChineseTitleAndExactWikiUrl()
+    {
+        McModIndexEntry mapping = new(42, "测试模组", "test-mod", "test-modrinth");
+        McModIndex index = new([mapping]);
+        CommunityResourceEntry original = new("id", "test-mod", "Test Mod", "Description", "mod", null, 0, null)
+        {
+            Source = CommunityResourceSource.CurseForge
+        };
+
+        CommunityResourceEntry decorated = index.Decorate(original);
+        Assert.AreEqual("测试模组", decorated.ChineseName);
+        Assert.AreEqual("Test Mod", decorated.OriginalTitle);
+        Assert.AreEqual("https://www.mcmod.cn/class/42.html", decorated.McModUrl);
+    }
+
+    [TestMethod]
+    public async Task CurseForgeCatalog_ShouldUsePopularityAndRankExactMatchesFirst()
+    {
+        HttpRequestMessage? captured = null;
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            captured = request;
+            return JsonResponse(
+                """
+                { "data": [
+                  { "id": 1, "name": "JEI Addons", "slug": "jei-addons", "downloadCount": 9000 },
+                  { "id": 2, "name": "Just Enough Items", "slug": "jei", "downloadCount": 8000 },
+                  { "id": 3, "name": "JEI", "slug": "other", "downloadCount": 10 }
+                ] }
+                """);
+        }));
+        using CurseForgeCommunityResourceCatalog catalog = new(client, "test-key");
+
+        IReadOnlyList<CommunityResourceEntry> entries = await catalog.SearchAsync(
+            CommunityResourceCategory.Mod,
+            "jei",
+            new CommunitySearchOptions(CommunityResourceSort.Relevance, Source: CommunityResourceSource.CurseForge));
+
+        Assert.AreEqual("JEI", entries[0].Title);
+        Assert.AreEqual("jei", entries[1].Slug);
+        StringAssert.Contains(Uri.UnescapeDataString(captured!.RequestUri!.Query), "sortField=2");
+    }
+
+    [TestMethod]
     public async Task ModrinthDependencies_ShouldDisplayNamesAndResolveBeforeRootDownload()
     {
         using HttpClient client = new(new DelegateHandler(request =>

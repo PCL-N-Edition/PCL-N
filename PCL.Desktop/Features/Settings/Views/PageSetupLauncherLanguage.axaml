@@ -29,7 +29,6 @@
                         <legacy:MyComboBox x:Name="ComboUiFormatCulture" Grid.Row="2" Grid.Column="1"
                                           Grid.ColumnSpan="2" SelectionChanged="ComboUiFormatCulture_SelectionChanged" />
                     </Grid>
-                    <legacy:MyHint Text="{DynamicResource Setup.LauncherLanguage.Hint}" Margin="0,10,0,0" />
                 </StackPanel>
             </legacy:MyCard>
         </StackPanel>

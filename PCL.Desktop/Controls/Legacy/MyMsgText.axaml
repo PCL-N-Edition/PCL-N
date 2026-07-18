@@ -24,7 +24,7 @@
         <Grid x:Name="PanMain"
               VerticalAlignment="Top"
               Margin="22,22,22,20"
-              RowDefinitions="Auto,2,12,*,16,Auto">
+              RowDefinitions="Auto,2,12,Auto,16,Auto">
             <TextBlock Grid.Row="0"
                        x:Name="LabTitle"
                        FontSize="23"
@@ -41,10 +41,9 @@
                        Fill="{DynamicResource ColorBrush2}" />
             <legacy:MyScrollViewer Grid.Row="3"
                                    x:Name="PanCaption"
-                                   VerticalAlignment="Stretch"
+                                   VerticalAlignment="Top"
                                    Margin="0,0,0,0"
                                    Padding="7,0,8,4"
-                                   MaxHeight="320"
                                    VerticalScrollBarVisibility="Auto"
                                    HorizontalScrollBarVisibility="Disabled">
                 <TextBlock x:Name="LabCaption"

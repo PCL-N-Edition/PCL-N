@@ -9,7 +9,9 @@ using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Threading;
 using FluentValidation;
+using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -61,7 +63,12 @@ public class MyTextBox : TextBox
             _isAttached = true;
             Validate();
         };
-        DetachedFromVisualTree += (_, _) => _isAttached = false;
+        DetachedFromVisualTree += (_, _) =>
+        {
+            _isAttached = false;
+            AvaloniaThemeManager.ThemeChanged -= OnThemeChanged;
+        };
+        AvaloniaThemeManager.ThemeChanged += OnThemeChanged;
         this.GetObservable(IsEnabledProperty).Subscribe(_ =>
         {
             RefreshValidationVisual(ControlVisualHelpers.ShouldAnimate(this));
@@ -259,6 +266,18 @@ public class MyTextBox : TextBox
         ModAnimation.AniStop("MyTextBox Color " + Uuid);
         BorderBrush = FindBrush(foreColorName, "#96c0f9");
         Background = HasBackground ? FindBrush(backColorName, "#55ffffff") : Brushes.Transparent;
+    }
+
+    private void OnThemeChanged()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(OnThemeChanged, DispatcherPriority.Background);
+            return;
+        }
+
+        RefreshVisual();
+        RefreshTextColor();
     }
 
     private void RefreshHintText()

@@ -611,7 +611,6 @@
     <sys:String x:Key="Setup.LauncherLanguage.FormatCulture">Region Format</sys:String>
     <sys:String x:Key="Setup.LauncherLanguage.FormatCulture.Auto">Use system region format</sys:String>
     <sys:String x:Key="Setup.LauncherLanguage.FormatCulture.FollowLanguage">Match display language</sys:String>
-    <sys:String x:Key="Setup.LauncherLanguage.Hint">Multilingual support is currently available only in newer interfaces. Other areas will be updated as migration continues.&#x0a;&#x0a;During this transition, only English (US) and Simplified Chinese are maintained. Community translation will open after the migration is complete.</sys:String>
     <sys:String x:Key="Setup.LauncherLanguage.Title">Language</sys:String>
     <sys:String x:Key="Setup.LauncherLanguage.UiLanguage">Display Language</sys:String>
     <sys:String x:Key="Setup.LauncherLanguage.UiLanguage.Auto">Follow system ({0})</sys:String>
@@ -669,6 +668,14 @@
     <sys:String x:Key="Setup.Misc.System.MaxLogLines.ToolTip">Maximum lines kept in the live log. Older lines are removed automatically.</sys:String>
     <sys:String x:Key="Setup.Misc.System.Proxy.Hint">Example: http://127.0.0.1:1080/</sys:String>
     <sys:String x:Key="Setup.Misc.System.Title">System</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.SystemAccent">Follow system</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.SkyBlue">Sky Blue</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.CatBlue">LTCat Blue</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.CrashBlue">Crash Blue</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.Hmcl">HMCL Blue</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.Custom">Palette</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.SystemAccent.Unsupported.Title">Unavailable on Windows</sys:String>
+    <sys:String x:Key="Setup.Ui.ThemeColor.SystemAccent.Unsupported">Following the system accent color is supported only on Linux and macOS. Clause 5 of the upstream PCL usage guide prohibits equivalent theme behavior on Windows, so the color will return to LTCat Blue.</sys:String>
     <sys:String x:Key="Setup.Ui.Background.Blur">Background blur</sys:String>
     <sys:String x:Key="Setup.Ui.Background.Blur.ToolTip">Stronger blur can reduce launcher performance.</sys:String>
     <sys:String x:Key="Setup.Ui.Background.Clear">Clear Backgrounds</sys:String>
@@ -792,7 +799,21 @@
     <sys:String x:Key="Setup.Update.RestartAndInstall">Restart and install</sys:String>
     <sys:String x:Key="Setup.Update.Skipped">This version has been skipped.</sys:String>
 
-    <!-- Speed -->
+    <!-- Host plugin navigation -->
+    <sys:String x:Key="Plugin.Group.Online">Online</sys:String>
+    <sys:String x:Key="Plugin.Group.Main">Plugins</sys:String>
+    <sys:String x:Key="Plugin.Account.Title">Account</sys:String>
+    <sys:String x:Key="Plugin.Account.Heading">PCL N Online Account</sys:String>
+    <sys:String x:Key="Plugin.Account.Description">Sign in with GitHub or Microsoft and manage identity links, Minecraft profiles, and desktop device sessions.</sys:String>
+    <sys:String x:Key="Plugin.Installed.Title">Installed</sys:String>
+    <sys:String x:Key="Plugin.Market.Title">Market</sys:String>
+    <sys:String x:Key="Plugin.OnlineData.Title">Data &amp; Permissions</sys:String>
+    <sys:String x:Key="Plugin.Developer.Title">Developer Mode</sys:String>
+    <sys:String x:Key="Plugin.Safety.Title">Safety</sys:String>
+    <sys:String x:Key="Plugin.UiPatches.Title">UI Patches</sys:String>
+    <sys:String x:Key="Plugin.Compatibility.Title">Compatibility</sys:String>
+
+
 
     <sys:String x:Key="Speed.Progress.RemainingFiles">Remaining files</sys:String>
     <sys:String x:Key="Speed.Progress.RemainingThreads">Remaining threads</sys:String>

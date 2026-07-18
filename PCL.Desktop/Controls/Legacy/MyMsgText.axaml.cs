@@ -4,6 +4,7 @@
 
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
+using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 
@@ -31,6 +32,8 @@ public partial class MyMsgText : Grid
     {
         AvaloniaXamlLoader.Load(this);
         CaptureTransforms();
+        AttachedToVisualTree += (_, _) => UpdateCaptionMaxHeight();
+        EffectiveViewportChanged += (_, _) => UpdateCaptionMaxHeight();
         Opacity = 0d;
     }
 
@@ -217,6 +220,19 @@ public partial class MyMsgText : Grid
     {
         if (_transformRotate is not null)
             _transformRotate.Angle += value;
+    }
+
+    private void UpdateCaptionMaxHeight()
+    {
+        if (this.FindControl<MyScrollViewer>("PanCaption") is not { } caption)
+            return;
+
+        double availableHeight = TopLevel.GetTopLevel(this)?.ClientSize.Height ?? Bounds.Height;
+        if (availableHeight <= 0d)
+            return;
+
+        const double nonCaptionHeight = 142d;
+        caption.MaxHeight = Math.Max(72d, availableHeight - Margin.Top - Margin.Bottom - nonCaptionHeight);
     }
 
     private IBrush FindBrush(string resourceKey, string fallback)

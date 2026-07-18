@@ -195,6 +195,7 @@ public partial class MainWindow : Window, IDisposable
         WindowDecorations = Avalonia.Controls.WindowDecorations.None;
         SetWindowIcon();
         LauncherSettingsPageBinder.SettingsChanged += LauncherSettingsChanged;
+        AvaloniaThemeManager.ThemeChanged += ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged += LocalizationChanged;
         ApplyRuntimeSettings(LauncherSettingsPageBinder.LoadSettings());
         RefreshTitleButtonsBeforeFirstFrame();
@@ -451,6 +452,7 @@ public partial class MainWindow : Window, IDisposable
     {
         DesktopFileLog.Info("Window", "主窗口正在关闭。");
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
+        AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
         CancelAllTrackedTasks();
         _launchCancellation?.Cancel();
@@ -1600,6 +1602,7 @@ public partial class MainWindow : Window, IDisposable
         page.BackRequested += (_, _) => CloseCommunityDetail();
         page.OpenWebRequested += (_, entry) => OpenExternalUrl(entry.WebsiteUrl);
         page.OpenUrlRequested += (_, url) => OpenExternalUrl(url);
+        page.MessageRequested += (_, message) => ShowTextDialog(message.Title, message.Message, "知道了");
         page.DownloadRequested += (_, request) => _ = DownloadCommunityResourceAsync(request);
         return page;
     }
@@ -1866,41 +1869,61 @@ public partial class MainWindow : Window, IDisposable
 
         try
         {
-            using HttpResponseMessage response = await client.GetAsync(
-                    item.File.Url,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    cancellationToken)
-                .ConfigureAwait(true);
-            response.EnsureSuccessStatusCode();
-            long? total = response.Content.Headers.ContentLength;
-            await using Stream network = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(true);
-            await using (FileStream output = new(
-                             temporaryPath,
-                             FileMode.CreateNew,
-                             FileAccess.Write,
-                             FileShare.None,
-                             64 * 1024,
-                             useAsync: true))
+            Exception? lastDownloadError = null;
+            foreach (string candidateUrl in item.File.CandidateUrls.Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                byte[] buffer = new byte[64 * 1024];
-                long written = 0;
-                int read;
-                while ((read = await network.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
-                           .ConfigureAwait(true)) > 0)
+                try
                 {
-                    await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(true);
-                    written += read;
-                    double progress = total is > 0 ? written / (double)total.Value : 0d;
-                    DesktopFileLog.RealTime(
-                        "CommunityDownload",
-                        $"下载进度：{item.File.FileName}；字节={written}/{total?.ToString(CultureInfo.InvariantCulture) ?? "?"}；进度={progress:P1}。");
-                    TrackTaskProgress(
-                        taskId,
-                        taskTitle,
-                        Math.Clamp(progress, 0d, 1d),
-                        $"{written.ToString(CultureInfo.InvariantCulture)} / {(total?.ToString(CultureInfo.InvariantCulture) ?? "?")} 字节");
+                    if (File.Exists(temporaryPath))
+                        File.Delete(temporaryPath);
+                    using HttpResponseMessage response = await client.GetAsync(
+                            candidateUrl,
+                            HttpCompletionOption.ResponseHeadersRead,
+                            cancellationToken)
+                        .ConfigureAwait(true);
+                    response.EnsureSuccessStatusCode();
+                    long? total = response.Content.Headers.ContentLength;
+                    await using Stream network = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(true);
+                    await using FileStream output = new(
+                        temporaryPath,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        64 * 1024,
+                        useAsync: true);
+                    byte[] buffer = new byte[64 * 1024];
+                    long written = 0;
+                    int read;
+                    while ((read = await network.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
+                               .ConfigureAwait(true)) > 0)
+                    {
+                        await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(true);
+                        written += read;
+                        double progress = total is > 0 ? written / (double)total.Value : 0d;
+                        DesktopFileLog.RealTime(
+                            "CommunityDownload",
+                            $"下载进度：{item.File.FileName}；字节={written}/{total?.ToString(CultureInfo.InvariantCulture) ?? "?"}；进度={progress:P1}。");
+                        TrackTaskProgress(
+                            taskId,
+                            taskTitle,
+                            Math.Clamp(progress, 0d, 1d),
+                            $"{written.ToString(CultureInfo.InvariantCulture)} / {(total?.ToString(CultureInfo.InvariantCulture) ?? "?")} 字节");
+                    }
+                    lastDownloadError = null;
+                    break;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or IOException)
+                {
+                    lastDownloadError = ex;
+                    DesktopFileLog.Warn("CommunityDownload", $"下载候选失败，将尝试下一来源：{new Uri(candidateUrl).Host}。", ex);
                 }
             }
+            if (lastDownloadError is not null || !File.Exists(temporaryPath))
+                throw lastDownloadError ?? new HttpRequestException("所有下载候选均失败。");
 
             if (category == CommunityResourceCategory.Mod)
             {
@@ -3443,6 +3466,7 @@ public partial class MainWindow : Window, IDisposable
                 args.PrimaryButton,
                 args.SecondaryButton,
                 args.IsWarn);
+        source.ColorRequested += (_, args) => ShowColorDialog(args);
     }
 
     private async Task SwitchToSelectedInstanceSetupAsync()
@@ -4201,6 +4225,38 @@ public partial class MainWindow : Window, IDisposable
                 });
             }
             closed(args.SelectedIndex);
+        };
+        host.Children.Add(dialog);
+        dialog.BeginShowAnimation();
+    }
+
+    private void ShowColorDialog(SettingsColorRequestedEventArgs request)
+    {
+        if (this.FindControl<BlurBorder>("PanMsgBackground") is not { } background ||
+            this.FindControl<Grid>("PanMsg") is not { } host)
+        {
+            request.Complete(null);
+            return;
+        }
+
+        MyMsgColor dialog = new();
+        dialog.Configure(request.Title, request.InitialColor);
+        dialog.PreviewChanged += (_, color) => request.Preview(color);
+        host.Children.Clear();
+        background.IsVisible = true;
+        AnimateMsgBackground(background, 90);
+        dialog.Closed += (_, args) =>
+        {
+            host.Children.Remove(dialog);
+            if (host.Children.Count == 0)
+            {
+                AnimateMsgBackground(background, 0, () =>
+                {
+                    background.Background = Brushes.Transparent;
+                    background.IsVisible = false;
+                });
+            }
+            request.Complete(args.Color);
         };
         host.Children.Add(dialog);
         dialog.BeginShowAnimation();
@@ -6164,6 +6220,7 @@ public partial class MainWindow : Window, IDisposable
         DesktopHost.Current.Navigation.Changed -= NavigationRegistryChanged;
         DesktopHostNavigation.Instance.Detach(NavigateToPluginRoute);
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
+        AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
         _backgroundBitmap?.Dispose();
         _backgroundBitmap = null;
@@ -6769,6 +6826,17 @@ public partial class MainWindow : Window, IDisposable
         ApplyRuntimeSettings(settings);
     }
 
+    private void ThemeChanged()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(ThemeChanged, DispatcherPriority.Background);
+            return;
+        }
+
+        ApplyFormBackground(AvaloniaThemeManager.CurrentSettings);
+    }
+
     private void LocalizationChanged(object? sender, EventArgs e)
     {
         if (!Dispatcher.UIThread.CheckAccess())
@@ -6824,7 +6892,17 @@ public partial class MainWindow : Window, IDisposable
         // Prefer live theme manager state so ColorMode.System tracks OS preference.
         bool isDarkMode = AvaloniaThemeManager.IsDarkMode;
         ColorTheme theme = isDarkMode ? settings.DarkColor : settings.LightColor;
-        IReadOnlyDictionary<string, Color> palette = ThemeColorPalette.Create(isDarkMode, theme);
+        string customColor = settings.GetTextOption(
+            isDarkMode ? "UiCustomDarkColor" : "UiCustomLightColor",
+            isDarkMode ? "#6F8CFF" : "#3D7DFF");
+        Color? accentColor = AvaloniaThemeManager.CurrentTheme == ColorTheme.SystemAccent
+            ? Avalonia.Application.Current?.PlatformSettings?.GetColorValues().AccentColor1
+            : null;
+        IReadOnlyDictionary<string, Color> palette = ThemeColorPalette.Create(
+            isDarkMode,
+            theme,
+            accentColor,
+            customColor);
         if (!colorful)
         {
             form.Background = new SolidColorBrush(palette["ColorBrushBackground"]);
@@ -6874,6 +6952,8 @@ public partial class MainWindow : Window, IDisposable
     private void ApplyTitleAppearance(LauncherSettings settings)
     {
         Avalonia.Controls.Shapes.Path? defaultLogo = this.FindControl<Avalonia.Controls.Shapes.Path>("ShapeTitleLogo");
+        Avalonia.Controls.Shapes.Path? hmclWordmark = this.FindControl<Avalonia.Controls.Shapes.Path>("ShapeHMCLTitleLogo");
+        MyImage? hmclLogo = this.FindControl<MyImage>("ImageHMCLTitleLogo");
         MyImage? customLogo = this.FindControl<MyImage>("ImageTitleLogo");
         TextBlock? customText = this.FindControl<TextBlock>("LabTitleLogo");
         Grid? titleMain = this.FindControl<Grid>("PanTitleMain");
@@ -6881,14 +6961,19 @@ public partial class MainWindow : Window, IDisposable
         if (defaultLogo is null || customLogo is null || customText is null)
             return;
 
+        bool useHmclBranding = AvaloniaThemeManager.CurrentTheme == ColorTheme.HmclBlue;
         int titleType = settings.GetIntegerOption("UiLogoType", LauncherSettingDefaults.GetInteger("UiLogoType"));
         string logoPath = settings.GetTextOption(
             LauncherSettingKeys.UiCustomLogoPath,
             Path.Combine(LauncherSettingsPageBinder.CreateDataDirectory(), "Logo.png"));
         bool hasCustomImage = titleType == 3 && File.Exists(logoPath);
-        defaultLogo.IsVisible = titleType == 1 || titleType == 3 && !hasCustomImage;
-        customText.IsVisible = titleType == 2;
-        customLogo.IsVisible = hasCustomImage;
+        defaultLogo.IsVisible = !useHmclBranding && (titleType == 1 || titleType == 3 && !hasCustomImage);
+        if (hmclWordmark is not null)
+            hmclWordmark.IsVisible = useHmclBranding;
+        if (hmclLogo is not null)
+            hmclLogo.IsVisible = useHmclBranding;
+        customText.IsVisible = !useHmclBranding && titleType == 2;
+        customLogo.IsVisible = !useHmclBranding && hasCustomImage;
         customText.Text = settings.GetTextOption("UiLogoText", LauncherSettingDefaults.GetText("UiLogoText"));
         if (string.IsNullOrWhiteSpace(customText.Text))
             customText.Text = "PCL N";
