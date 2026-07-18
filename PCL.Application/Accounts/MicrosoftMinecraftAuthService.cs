@@ -47,6 +47,7 @@ public interface IMicrosoftMinecraftAuthService
 
 public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthService
 {
+    private const int MinecraftProfileAttemptCount = 4;
     private const string Scope = "XboxLive.signin offline_access";
     private const string DeviceCodeEndpoint = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
     private const string TokenEndpoint = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
@@ -319,32 +320,73 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
         string accessToken,
         CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = new(HttpMethod.Get, "https://api.minecraftservices.com/minecraft/profile");
-        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-        using HttpResponseMessage response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode == HttpStatusCode.NotFound)
-            throw new InvalidOperationException("此 Microsoft 账户尚未创建 Minecraft Java 版档案。");
-        EnsureSuccess(response, body, "获取 Minecraft 档案失败");
-        using JsonDocument document = JsonDocument.Parse(body);
-        JsonElement root = document.RootElement;
-        string? skin = null;
-        if (root.TryGetProperty("skins", out JsonElement skins) && skins.ValueKind == JsonValueKind.Array)
+        for (int attempt = 1; attempt <= MinecraftProfileAttemptCount; attempt++)
         {
-            foreach (JsonElement entry in skins.EnumerateArray())
+            using HttpRequestMessage request = new(
+                HttpMethod.Get,
+                "https://api.minecraftservices.com/minecraft/profile");
+            request.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+            using HttpResponseMessage response = await _client.SendAsync(request, cancellationToken)
+                .ConfigureAwait(false);
+            string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                throw new InvalidOperationException("此 Microsoft 账户尚未创建 Minecraft Java 版档案。");
+
+            if (IsTransientMinecraftServiceFailure(response.StatusCode) &&
+                attempt < MinecraftProfileAttemptCount)
             {
-                if (entry.ValueKind != JsonValueKind.Object)
-                    continue;
-                string? url = ReadOptionalString(entry, "url");
-                if (!string.IsNullOrWhiteSpace(url))
+                TimeSpan retryDelay = ResolveRetryDelay(response, attempt);
+                PortableLog.Warn(
+                    "MicrosoftAuth",
+                    $"Minecraft 档案服务暂时不可用；HTTP={(int)response.StatusCode}；将在 {retryDelay.TotalMilliseconds:0}ms 后重试（{attempt}/{MinecraftProfileAttemptCount}）。");
+                await _delay(retryDelay, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            EnsureSuccess(response, body, "获取 Minecraft 档案失败");
+            using JsonDocument document = JsonDocument.Parse(body);
+            JsonElement root = document.RootElement;
+            string? skin = null;
+            if (root.TryGetProperty("skins", out JsonElement skins) && skins.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement entry in skins.EnumerateArray())
                 {
-                    skin = url;
-                    if (string.Equals(ReadOptionalString(entry, "state"), "ACTIVE", StringComparison.OrdinalIgnoreCase))
-                        break;
+                    if (entry.ValueKind != JsonValueKind.Object)
+                        continue;
+                    string? url = ReadOptionalString(entry, "url");
+                    if (!string.IsNullOrWhiteSpace(url))
+                    {
+                        skin = url;
+                        if (string.Equals(ReadOptionalString(entry, "state"), "ACTIVE", StringComparison.OrdinalIgnoreCase))
+                            break;
+                    }
                 }
             }
+
+            return (RequiredString(root, "name"), RequiredString(root, "id"), skin);
         }
-        return (RequiredString(root, "name"), RequiredString(root, "id"), skin);
+
+        throw new InvalidOperationException("获取 Minecraft 档案失败：重试次数已用尽。");
+    }
+
+    private static bool IsTransientMinecraftServiceFailure(HttpStatusCode statusCode) => statusCode is
+        HttpStatusCode.RequestTimeout or
+        HttpStatusCode.TooManyRequests or
+        HttpStatusCode.InternalServerError or
+        HttpStatusCode.BadGateway or
+        HttpStatusCode.ServiceUnavailable or
+        HttpStatusCode.GatewayTimeout;
+
+    private static TimeSpan ResolveRetryDelay(HttpResponseMessage response, int attempt)
+    {
+        TimeSpan? retryAfter = response.Headers.RetryAfter?.Delta;
+        if (retryAfter is null && response.Headers.RetryAfter?.Date is { } retryDate)
+            retryAfter = retryDate - DateTimeOffset.UtcNow;
+        if (retryAfter is { } serverDelay && serverDelay > TimeSpan.Zero)
+            return TimeSpan.FromMilliseconds(Math.Min(serverDelay.TotalMilliseconds, 10_000));
+
+        return TimeSpan.FromMilliseconds(300 * attempt * attempt);
     }
 
     private async Task<bool> CheckOwnershipAsync(string accessToken, CancellationToken cancellationToken)

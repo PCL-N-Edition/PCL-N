@@ -109,6 +109,49 @@ public sealed class MicrosoftMinecraftAuthServiceTests
         Assert.AreEqual("refresh-new", result.RefreshToken);
     }
 
+    [TestMethod]
+    public async Task RefreshAsync_RetriesTransientMinecraftProfileFailures()
+    {
+        int profileAttempts = 0;
+        List<TimeSpan> delays = [];
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            string path = request.RequestUri!.AbsoluteUri;
+            return path switch
+            {
+                var value when value.EndsWith("/token", StringComparison.Ordinal) =>
+                    Json("""{"access_token":"ms-new","refresh_token":"refresh-new"}"""),
+                var value when value.Contains("user.auth.xboxlive.com", StringComparison.Ordinal) =>
+                    Json("""{"Token":"xbl","DisplayClaims":{"xui":[{"uhs":"uhs"}]}}"""),
+                var value when value.Contains("xsts.auth.xboxlive.com", StringComparison.Ordinal) =>
+                    Json("""{"Token":"xsts","DisplayClaims":{"xui":[{"uhs":"uhs"}]}}"""),
+                var value when value.EndsWith("/authentication/login_with_xbox", StringComparison.Ordinal) =>
+                    Json("""{"access_token":"mc-new"}"""),
+                var value when value.EndsWith("/minecraft/profile", StringComparison.Ordinal) =>
+                    ++profileAttempts < 3
+                        ? Json("""{"error":"temporarily unavailable"}""", HttpStatusCode.ServiceUnavailable)
+                        : Json("""{"id":"uuid","name":"Alex","skins":[]}"""),
+                var value when value.EndsWith("/entitlements/mcstore", StringComparison.Ordinal) =>
+                    Json("""{"items":[]}"""),
+                _ => throw new AssertFailedException("Unexpected request: " + path)
+            };
+        }));
+        MicrosoftMinecraftAuthService service = new(
+            client,
+            (delay, _) =>
+            {
+                delays.Add(delay);
+                return Task.CompletedTask;
+            });
+
+        MicrosoftMinecraftLoginResult result = await service.RefreshAsync("client-id", "refresh-old");
+
+        Assert.AreEqual("Alex", result.Username);
+        Assert.AreEqual(3, profileAttempts);
+        Assert.HasCount(2, delays);
+        Assert.IsTrue(delays.All(static delay => delay > TimeSpan.Zero));
+    }
+
     private static HttpResponseMessage Json(string value, HttpStatusCode statusCode = HttpStatusCode.OK) =>
         new(statusCode)
         {
