@@ -50,6 +50,39 @@ public sealed class LauncherSettingsStoreTests
     }
 
     [TestMethod]
+    public async Task SeparateStoreInstances_SerializeConcurrentReadsAndWrites()
+    {
+        using TestDirectory directory = new();
+        string settingsPath = Path.Combine(directory.Path, "settings.json");
+        using LauncherSettingsStore initialStore = new(settingsPath);
+        await initialStore.SaveAsync(new LauncherSettings());
+
+        Task[] workers = Enumerable.Range(0, 12)
+            .Select(async worker =>
+            {
+                for (int iteration = 0; iteration < 20; iteration++)
+                {
+                    using LauncherSettingsStore store = new(settingsPath);
+                    LauncherSettings settings = new();
+                    settings.SetIntegerOption("Worker", worker);
+                    settings.SetIntegerOption("Iteration", iteration);
+                    await store.SaveAsync(settings);
+                    LauncherSettingsLoadResult loaded = await store.LoadAsync();
+                    Assert.AreEqual(LauncherSettings.CurrentSchemaVersion, loaded.Settings.SchemaVersion);
+                }
+            })
+            .ToArray();
+
+        await Task.WhenAll(workers);
+
+        using LauncherSettingsStore finalStore = new(settingsPath);
+        LauncherSettingsLoadResult result = await finalStore.LoadAsync();
+        Assert.IsFalse(result.RecoveredFromInvalidFile);
+        Assert.AreEqual(LauncherSettings.CurrentSchemaVersion, result.Settings.SchemaVersion);
+        Assert.AreEqual(0, Directory.EnumerateFiles(directory.Path, "*.tmp").Count());
+    }
+
+    [TestMethod]
     public void Normalize_DisablesUnsupportedAccentAndMirrorChoices()
     {
         LauncherSettings settings = new()

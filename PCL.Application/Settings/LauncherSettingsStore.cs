@@ -2,18 +2,23 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace PCL.Application.Settings;
 
 public sealed class LauncherSettingsStore : IDisposable
 {
-    private readonly SemaphoreSlim _accessLock = new(1, 1);
+    private const int ReplaceAttemptCount = 5;
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> AccessLocks =
+        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    private readonly SemaphoreSlim _accessLock;
 
     public LauncherSettingsStore(string settingsPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(settingsPath);
         SettingsPath = Path.GetFullPath(settingsPath);
+        _accessLock = AccessLocks.GetOrAdd(SettingsPath, static _ => new SemaphoreSlim(1, 1));
     }
 
     public string SettingsPath { get; }
@@ -33,7 +38,7 @@ public sealed class LauncherSettingsStore : IDisposable
                     SettingsPath,
                     FileMode.Open,
                     FileAccess.Read,
-                    FileShare.Read,
+                    FileShare.ReadWrite | FileShare.Delete,
                     bufferSize: 16 * 1024,
                     FileOptions.Asynchronous | FileOptions.SequentialScan);
                 LauncherSettings? settings = await JsonSerializer.DeserializeAsync(
@@ -108,16 +113,58 @@ public sealed class LauncherSettingsStore : IDisposable
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            File.Move(temporaryPath, SettingsPath, overwrite: true);
+            await ReplaceWithRetryAsync(temporaryPath, cancellationToken).ConfigureAwait(false);
             temporaryPath = null;
         }
         finally
         {
             if (temporaryPath is not null)
-                File.Delete(temporaryPath);
+            {
+                try
+                {
+                    File.Delete(temporaryPath);
+                }
+                catch (IOException)
+                {
+                    // Preserve the original save exception. A later save or OS cleanup can
+                    // remove an externally locked temporary file.
+                }
+            }
             _accessLock.Release();
         }
     }
 
-    public void Dispose() => _accessLock.Dispose();
+    private async Task ReplaceWithRetryAsync(string temporaryPath, CancellationToken cancellationToken)
+    {
+        IOException? lastException = null;
+        for (int attempt = 1; attempt <= ReplaceAttemptCount; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                File.Move(temporaryPath, SettingsPath, overwrite: true);
+                return;
+            }
+            catch (IOException exception) when (attempt < ReplaceAttemptCount)
+            {
+                lastException = exception;
+                await Task.Delay(TimeSpan.FromMilliseconds(25 * attempt * attempt), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (IOException exception)
+            {
+                lastException = exception;
+            }
+        }
+
+        throw new IOException(
+            $"Unable to replace launcher settings file '{SettingsPath}' after {ReplaceAttemptCount} attempts.",
+            lastException);
+    }
+
+    // Locks are shared by every store instance for the same normalized path and live for
+    // the process lifetime. Disposing one short-lived store must not dispose the shared lock.
+    public void Dispose()
+    {
+    }
 }
