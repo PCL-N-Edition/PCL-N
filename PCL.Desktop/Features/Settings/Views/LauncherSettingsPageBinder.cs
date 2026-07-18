@@ -172,6 +172,19 @@ internal static class LauncherSettingsPageBinder
                                 "“跟随系统主题色”仅在 Linux 和 macOS 上受支持。根据 PCL 上游使用指南第 5 条，Windows 版本不能提供与赞助解锁主题类似的表现，因此配色将切回“龙猫蓝”。"));
                     }
                 }
+                else if (selectedTheme == ColorTheme.Custom && !PlatformFeaturePolicy.IsCustomColorPaletteSupported)
+                {
+                    state.IsApplying = true;
+                    try
+                    {
+                        selectedTheme = ColorTheme.CatBlue;
+                        SetComboIndex(comboBox, GetThemeIndex(selectedTheme.Value));
+                    }
+                    finally
+                    {
+                        state.IsApplying = false;
+                    }
+                }
                 else if (selectedTheme == ColorTheme.Custom && page is PageSetupUI colorPage)
                 {
                     LauncherSettings original = settings;

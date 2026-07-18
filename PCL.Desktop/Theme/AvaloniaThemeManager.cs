@@ -43,7 +43,8 @@ public static class AvaloniaThemeManager
         CurrentSettings = LauncherSettingsPolicy.Normalize(
             settings,
             supportsSystemAccentTheme: PlatformFeaturePolicy.IsSystemAccentThemeSupported,
-            allowsDomesticMirror: true);
+            allowsDomesticMirror: true,
+            supportsCustomColorPalette: PlatformFeaturePolicy.IsCustomColorPaletteSupported);
 
         if (Avalonia.Application.Current is { } application)
         {

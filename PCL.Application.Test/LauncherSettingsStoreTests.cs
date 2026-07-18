@@ -106,6 +106,25 @@ public sealed class LauncherSettingsStoreTests
     }
 
     [TestMethod]
+    public void Normalize_DisablesUnsupportedCustomPalette()
+    {
+        LauncherSettings settings = new()
+        {
+            LightColor = ColorTheme.Custom,
+            DarkColor = ColorTheme.Custom
+        };
+
+        LauncherSettings normalized = LauncherSettingsPolicy.Normalize(
+            settings,
+            supportsSystemAccentTheme: false,
+            allowsDomesticMirror: true,
+            supportsCustomColorPalette: false);
+
+        Assert.AreEqual(ColorTheme.CatBlue, normalized.LightColor);
+        Assert.AreEqual(ColorTheme.CatBlue, normalized.DarkColor);
+    }
+
+    [TestMethod]
     public void OptionAccessors_UseStrongCaseInsensitiveSettingKeys()
     {
         LauncherSettings settings = new()

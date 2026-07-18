@@ -21,4 +21,17 @@ public static class PlatformFeaturePolicy
     /// </summary>
     public static bool IsSystemAccentThemeSupportedOn(RuntimePlatform platform) =>
         platform is RuntimePlatform.Linux or RuntimePlatform.MacOS;
+
+    /// <summary>
+    /// Gets whether users may create an arbitrary launcher color palette.
+    /// </summary>
+    public static bool IsCustomColorPaletteSupported =>
+        IsCustomColorPaletteSupportedOn(RuntimePlatformInfo.Current);
+
+    /// <summary>
+    /// Determines whether an arbitrary launcher color palette is available on a platform.
+    /// Windows and unknown platforms fail closed for product-policy compliance.
+    /// </summary>
+    public static bool IsCustomColorPaletteSupportedOn(RuntimePlatform platform) =>
+        platform is RuntimePlatform.Linux or RuntimePlatform.MacOS;
 }

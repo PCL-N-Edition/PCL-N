@@ -11,16 +11,19 @@ public static class LauncherSettingsPolicy
     public static LauncherSettings Normalize(
         LauncherSettings settings,
         bool supportsSystemAccentTheme,
-        bool allowsDomesticMirror)
+        bool allowsDomesticMirror,
+        bool supportsCustomColorPalette = true)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
         ColorTheme lightColor = NormalizeColor(
             settings.LightColor,
-            supportsSystemAccentTheme);
+            supportsSystemAccentTheme,
+            supportsCustomColorPalette);
         ColorTheme darkColor = NormalizeColor(
             settings.DarkColor,
-            supportsSystemAccentTheme);
+            supportsSystemAccentTheme,
+            supportsCustomColorPalette);
         DownloadSourcePreference downloadSource =
             !allowsDomesticMirror &&
             settings.DownloadSource != DownloadSourcePreference.OfficialOnly
@@ -38,8 +41,13 @@ public static class LauncherSettingsPolicy
 
     private static ColorTheme NormalizeColor(
         ColorTheme color,
-        bool supportsSystemAccentTheme) =>
-        !supportsSystemAccentTheme && color == ColorTheme.SystemAccent
-            ? ColorTheme.CatBlue
-            : color;
+        bool supportsSystemAccentTheme,
+        bool supportsCustomColorPalette)
+    {
+        if (!supportsSystemAccentTheme && color == ColorTheme.SystemAccent)
+            return ColorTheme.CatBlue;
+        if (!supportsCustomColorPalette && color == ColorTheme.Custom)
+            return ColorTheme.CatBlue;
+        return color;
+    }
 }

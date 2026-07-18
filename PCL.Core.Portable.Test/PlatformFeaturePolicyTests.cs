@@ -26,4 +26,13 @@ public sealed class PlatformFeaturePolicyTests
 
         Assert.AreEqual(expected, PlatformFeaturePolicy.IsSystemAccentThemeSupported);
     }
+
+    [TestMethod]
+    public void CustomColorPaletteIsUnavailableOnWindows()
+    {
+        Assert.IsFalse(PlatformFeaturePolicy.IsCustomColorPaletteSupportedOn(RuntimePlatform.Windows));
+        Assert.IsTrue(PlatformFeaturePolicy.IsCustomColorPaletteSupportedOn(RuntimePlatform.Linux));
+        Assert.IsTrue(PlatformFeaturePolicy.IsCustomColorPaletteSupportedOn(RuntimePlatform.MacOS));
+        Assert.IsFalse(PlatformFeaturePolicy.IsCustomColorPaletteSupportedOn(RuntimePlatform.Other));
+    }
 }

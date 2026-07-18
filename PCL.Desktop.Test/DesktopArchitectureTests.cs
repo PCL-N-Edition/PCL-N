@@ -6,6 +6,7 @@ using PCL.Desktop;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Theme;
 using PCL.Core.App;
+using PCL.Core.Platform;
 using Avalonia.Media;
 using PCL.Application.Settings;
 using PCL.Desktop.Features.Community;
@@ -126,6 +127,19 @@ public sealed class DesktopArchitectureTests
         {
             ThemeAvailabilityPolicy.ResetSessionForTests();
         }
+    }
+
+    [TestMethod]
+    public void ThemeAvailabilityHonorsPlatformColorPolicy()
+    {
+        IReadOnlyList<ColorTheme> themes = ThemeAvailabilityPolicy.GetAvailableThemes();
+
+        Assert.AreEqual(
+            PlatformFeaturePolicy.IsSystemAccentThemeSupported,
+            themes.Contains(ColorTheme.SystemAccent));
+        Assert.AreEqual(
+            PlatformFeaturePolicy.IsCustomColorPaletteSupported,
+            themes.Contains(ColorTheme.Custom));
     }
 
     [TestMethod]
