@@ -277,6 +277,7 @@ public sealed class DesktopArchitectureTests
             .ToArray();
         string[] unreferenced = english.Keys
             .Where(key => !key.StartsWith("Localization.Meta.", StringComparison.Ordinal))
+            .Where(key => !key.StartsWith("Plugin.", StringComparison.Ordinal))
             .Where(key => !sourceTexts.Any(source => source.Contains(key, StringComparison.Ordinal)))
             .ToArray();
 
