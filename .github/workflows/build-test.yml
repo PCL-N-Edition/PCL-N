@@ -24,7 +24,35 @@ on:
   workflow_dispatch:
 
 jobs:
+  resolve-plugin-version:
+    name: Resolve plugin release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag || steps.skipped.outputs.tag }}
+    steps:
+      - name: Resolve latest PCL.Plugin release
+        if: ${{ github.event_name != 'pull_request' }}
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.PCL_PLUGIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(gh api repos/PCL-N-Edition/PCL.Plugin/releases/latest --jq .tag_name)"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]] || {
+            echo "::error::Invalid PCL.Plugin release tag: $tag"
+            exit 1
+          }
+          echo "Resolved PCL.Plugin release: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Skip plugin resolution for pull requests
+        if: ${{ github.event_name == 'pull_request' }}
+        id: skipped
+        shell: bash
+        run: echo "tag=latest" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: [resolve-plugin-version]
     strategy:
       matrix:
         include:
@@ -70,7 +98,7 @@ jobs:
       self_contained: true
       runtime_variant: SelfContained
       include_plugin: ${{ github.event_name != 'pull_request' }}
-      plugin_tag: ${{ vars.PCL_PLUGIN_TAG || 'v0.13.0' }}
+      plugin_tag: ${{ needs.resolve-plugin-version.outputs.tag }}
       # PRs from forks cannot read secrets; only require CLIENT_ID on non-PR runs.
       require_ms_client_id: ${{ github.event_name != 'pull_request' }}
       channel: ci

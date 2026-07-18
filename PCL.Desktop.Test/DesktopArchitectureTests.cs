@@ -568,6 +568,7 @@ public sealed class DesktopArchitectureTests
             ?? throw new DirectoryNotFoundException("Could not locate repository root.");
         string workflowRoot = Path.Combine(repoRoot, ".github", "workflows");
         string reusable = File.ReadAllText(Path.Combine(workflowRoot, "reusable-build.yml"));
+        string ci = File.ReadAllText(Path.Combine(workflowRoot, "build-test.yml"));
         string stable = File.ReadAllText(Path.Combine(workflowRoot, "release-stable_publish.yml"));
         string beta = File.ReadAllText(Path.Combine(workflowRoot, "release-beta_publish.yml"));
 
@@ -587,7 +588,14 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "PCL.Desktop/PCL.Desktop.csproj");
         StringAssert.Contains(reusable, "PublishSingleFile=true");
         StringAssert.Contains(reusable, "gh release download --repo PCL-N-Edition/PCL.Plugin");
-        StringAssert.Contains(reusable, "default: v0.13.0");
+        StringAssert.Contains(reusable, "plugin_tag:");
+        StringAssert.Contains(reusable, "required: true");
+        foreach (string workflow in new[] { ci, stable, beta })
+        {
+            StringAssert.Contains(workflow, "resolve-plugin-version:");
+            StringAssert.Contains(workflow, "repos/PCL-N-Edition/PCL.Plugin/releases/latest");
+            StringAssert.Contains(workflow, "plugin_tag: ${{ needs.resolve-plugin-version.outputs.tag }}");
+        }
         StringAssert.Contains(reusable, "app=\"$PUBLISH_DIR/PCL N.app\"");
         StringAssert.Contains(reusable, "contents=\"$app/Contents\"");
         StringAssert.Contains(reusable, "CFBundlePackageType");
@@ -605,7 +613,6 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "PclPluginBouncyCastleAssembly");
         StringAssert.Contains(reusable, "PclPluginJsonCanonicalizerAssembly");
         StringAssert.Contains(reusable, "PclPluginEs6NumberSerializerAssembly");
-        string ci = File.ReadAllText(Path.Combine(workflowRoot, "build-test.yml"));
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");
         foreach (string runtime in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" })

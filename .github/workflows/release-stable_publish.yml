@@ -19,7 +19,30 @@ on:
         default: false
 
 jobs:
+  resolve-plugin-version:
+    name: Resolve plugin release
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Resolve latest PCL.Plugin release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.PCL_PLUGIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(gh api repos/PCL-N-Edition/PCL.Plugin/releases/latest --jq .tag_name)"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]] || {
+            echo "::error::Invalid PCL.Plugin release tag: $tag"
+            exit 1
+          }
+          echo "Resolved PCL.Plugin release: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: [resolve-plugin-version]
     if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
     strategy:
       fail-fast: false
@@ -48,7 +71,7 @@ jobs:
       self_contained: ${{ matrix.runtime.self_contained }}
       runtime_variant: ${{ matrix.runtime.variant }}_${{ matrix.plugin.suffix }}
       include_plugin: ${{ matrix.plugin.include }}
-      plugin_tag: ${{ vars.PCL_PLUGIN_TAG || 'v0.13.2' }}
+      plugin_tag: ${{ needs.resolve-plugin-version.outputs.tag }}
       channel: release
       version_tag: ${{ github.event.release.tag_name || inputs.tag_name }}
     secrets: inherit
