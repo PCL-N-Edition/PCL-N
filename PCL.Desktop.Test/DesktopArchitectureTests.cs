@@ -265,10 +265,14 @@ public sealed class DesktopArchitectureTests
 
         CollectionAssert.AreEquivalent(english.Keys.ToArray(), chinese.Keys.ToArray());
 
-        string[] sourceTexts = Directory
-            .EnumerateFiles(desktopRoot, "*.*", SearchOption.AllDirectories)
-            .Where(IsScannedSourceFile)
-            .Where(file => !ShouldSkipSourceScan(Path.GetRelativePath(desktopRoot, file)))
+        string repoRoot = Directory.GetParent(desktopRoot)?.FullName
+            ?? throw new DirectoryNotFoundException("Could not locate repository root.");
+        string[] sourceTexts = new[] { desktopRoot, Path.Combine(repoRoot, "PCL.Plugin") }
+            .Where(Directory.Exists)
+            .SelectMany(root => Directory
+                .EnumerateFiles(root, "*.*", SearchOption.AllDirectories)
+                .Where(IsScannedSourceFile)
+                .Where(file => !ShouldSkipSourceScan(Path.GetRelativePath(root, file))))
             .Select(File.ReadAllText)
             .ToArray();
         string[] unreferenced = english.Keys
