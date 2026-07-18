@@ -144,6 +144,8 @@ internal static class LauncherSettingsPageBinder
                 string? tag = GetTag(comboBox);
                 if (string.IsNullOrWhiteSpace(tag))
                     return;
+                if (page is IDeferredSettingsPersistence deferred && deferred.IsPersistenceDeferred(tag))
+                    return;
 
                 settings = LoadSettings();
                 ColorTheme? selectedTheme = tag is "UiLightColor" or "UiDarkColor"
@@ -559,6 +561,14 @@ internal static class LauncherSettingsPageBinder
 
     internal static void NotifySettingsChanged() => SettingsChanged?.Invoke(LoadSettings());
 
+    internal static void SaveIntegerOption(string key, int value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        LauncherSettings settings = LoadSettings();
+        settings.SetIntegerOption(key, value);
+        SaveSettings(settings);
+    }
+
     private static void FlushLatestSettings()
     {
         LatestSavedSettings? latest;
@@ -766,4 +776,9 @@ internal static class LauncherSettingsPageBinder
 
         SetComboIndex(comboBox, value);
     }
+}
+
+internal interface IDeferredSettingsPersistence
+{
+    bool IsPersistenceDeferred(string settingKey);
 }

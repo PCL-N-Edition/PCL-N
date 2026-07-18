@@ -19,7 +19,8 @@ using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Settings.Views;
 
-public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, ISettingsPageInteractionSource
+public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, ISettingsPageInteractionSource,
+    IDeferredSettingsPersistence
 {
     private const string ReleasesUrl = "https://github.com/MuXue1230-owo/PCL-N/releases";
     private string _latestReleaseUrl = ReleasesUrl;
@@ -328,6 +329,9 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         if (selectedIndex == 0)
         {
             _lastUpdateChannel = 0;
+            LauncherSettingsPageBinder.SaveIntegerOption(
+                LauncherUpdatePolicy.ChannelSettingKey,
+                selectedIndex);
             _updateAvailableUi = false;
             ShowCurrentVersionUi();
             return;
@@ -339,6 +343,9 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             if (confirmed)
             {
                 _lastUpdateChannel = selectedIndex;
+                LauncherSettingsPageBinder.SaveIntegerOption(
+                    LauncherUpdatePolicy.ChannelSettingKey,
+                    selectedIndex);
                 _updateAvailableUi = false;
                 ShowCurrentVersionUi();
                 _ = CheckForUpdatesAsync();
@@ -383,6 +390,12 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     {
         // Persistence is handled by LauncherSettingsPageBinder (Tag=SystemUpdateMode).
     }
+
+    bool IDeferredSettingsPersistence.IsPersistenceDeferred(string settingKey) =>
+        string.Equals(
+            settingKey,
+            LauncherUpdatePolicy.ChannelSettingKey,
+            StringComparison.OrdinalIgnoreCase);
 
     private async Task CheckForUpdatesAsync()
     {

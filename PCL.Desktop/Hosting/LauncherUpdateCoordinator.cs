@@ -263,31 +263,19 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
             }
 
             LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            int mode = settings.GetIntegerOption(
-                "SystemUpdateMode",
-                LauncherSettingDefaults.GetInteger("SystemUpdateMode", 1));
-            if (mode == 3)
+            LauncherUpdatePolicy policy = LauncherUpdatePolicy.Resolve(
+                settings,
+                PclLauncherBuildIdentity.Current.Configuration);
+            if (policy.Mode == 3)
             {
                 PortableLog.Info("Update", "启动时自动更新检查已关闭。");
                 return PublishAutomaticCheckResult(null);
             }
 
-            int channelIndex = settings.TryGetIntegerOption("SystemUpdateChannel", out int configuredChannel)
-                ? configuredChannel
-                : PclLauncherBuildIdentity.Current.Configuration switch
-                {
-                    "Beta" => 1,
-                    "CI" => 2,
-                    _ => 0
-                };
-            UpdateChannel channel = channelIndex switch
-            {
-                1 => UpdateChannel.Beta,
-                2 => UpdateChannel.CI,
-                _ => UpdateChannel.Release
-            };
-            PortableLog.Info("Update", $"启动时自动检查更新；通道={channel}；模式={mode}。");
-            LauncherUpdateCheckResult result = await CheckAsync(channel).ConfigureAwait(false);
+            PortableLog.Info(
+                "Update",
+                $"启动时自动检查更新；通道={policy.Channel}；模式={policy.Mode}；设置文件={LauncherSettingsPageBinder.CreateSettingsPath()}。");
+            LauncherUpdateCheckResult result = await CheckAsync(policy.Channel).ConfigureAwait(false);
             PublishAutomaticCheckResult(result);
             if (!result.Success || !result.IsUpdateAvailable || result.Package is null)
                 return result;
@@ -298,7 +286,7 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
                 return result;
             }
 
-            await HandleAvailableUpdateAsync(result, mode).ConfigureAwait(false);
+            await HandleAvailableUpdateAsync(result, policy.Mode).ConfigureAwait(false);
             return result;
         }
         catch (Exception ex)
