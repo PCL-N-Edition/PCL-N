@@ -12,6 +12,8 @@ public sealed record DownloadRequest
 
     public required Func<string, IDlConnection?> ConnectionFactory { get; init; }
 
+    public int MaxParallelSegments { get; init; } = 1;
+
     public Func<string, IDlWriter?> WriterFactory { get; init; } =
         static path => new FileDlWriter(path);
 }

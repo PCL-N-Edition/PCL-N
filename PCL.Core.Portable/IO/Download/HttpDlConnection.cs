@@ -10,7 +10,7 @@ namespace PCL.Core.IO.Download;
 /// <summary>
 /// HTTP 下载连接。响应正文按调用方提供的缓冲区读取，不为每个分块分配数组。
 /// </summary>
-public sealed class HttpDlConnection : IDlConnection, IDisposable, IAsyncDisposable
+public sealed class HttpDlConnection : ISegmentedDlConnection, IDisposable, IAsyncDisposable
 {
     private readonly HttpClient _client;
     private readonly string _url;
@@ -31,9 +31,24 @@ public sealed class HttpDlConnection : IDlConnection, IDisposable, IAsyncDisposa
         _configureRequest = configureRequest;
     }
 
-    public async ValueTask<NDlConnectionInfo> StartAsync(
+    public ValueTask<NDlConnectionInfo> StartAsync(
         long beginOffset,
+        CancellationToken cancellationToken = default) =>
+        StartCoreAsync(beginOffset, null, cancellationToken);
+
+    public ValueTask<NDlConnectionInfo> StartSegmentAsync(
+        long beginOffset,
+        long endOffset,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(endOffset, beginOffset);
+        return StartCoreAsync(beginOffset, endOffset, cancellationToken);
+    }
+
+    private async ValueTask<NDlConnectionInfo> StartCoreAsync(
+        long beginOffset,
+        long? endOffset,
+        CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_stopped, this);
         if (_started)
@@ -43,8 +58,8 @@ public sealed class HttpDlConnection : IDlConnection, IDisposable, IAsyncDisposa
         using var request = new HttpRequestMessage(HttpMethod.Get, _url);
         _configureRequest?.Invoke(request);
 
-        if (beginOffset > 0)
-            request.Headers.Range = new RangeHeaderValue(beginOffset, null);
+        if (beginOffset > 0 || endOffset is not null)
+            request.Headers.Range = new RangeHeaderValue(beginOffset, endOffset);
 
         _response = await _client.SendAsync(
                 request,
@@ -67,9 +82,9 @@ public sealed class HttpDlConnection : IDlConnection, IDisposable, IAsyncDisposa
         long totalLength = isPartial
             ? contentRange?.Length ?? (contentLength >= 0 ? effectiveBeginOffset + contentLength : -1)
             : contentLength;
-        long endOffset = contentLength >= 0 ? effectiveBeginOffset + contentLength - 1 : -1;
+        long responseEndOffset = contentLength >= 0 ? effectiveBeginOffset + contentLength - 1 : -1;
         bool supportsSegments = _response.Headers.AcceptRanges.Contains("bytes") || _response.Content.Headers.ContentRange is not null;
-        return new NDlConnectionInfo(totalLength, effectiveBeginOffset, endOffset, supportsSegments);
+        return new NDlConnectionInfo(totalLength, effectiveBeginOffset, responseEndOffset, supportsSegments);
     }
 
     public ValueTask<int> ReadAsync(

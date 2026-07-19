@@ -7,6 +7,14 @@ namespace PCL.Core.IO.Download;
 /// <summary>
 /// 下载连接，负责与服务器进行通信。
 /// </summary>
+public interface ISegmentedDlConnection : IDlConnection
+{
+    ValueTask<NDlConnectionInfo> StartSegmentAsync(
+        long beginOffset,
+        long endOffset,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IDlConnection
 {
     /// <summary>

@@ -223,6 +223,37 @@ public sealed class DownloadTests
     }
 
     [TestMethod]
+    public async Task DownloadServiceDownloadsLargeFileWithParallelSegments()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"pcl-segment-download-{Guid.NewGuid():N}");
+        string destination = Path.Combine(directory, "model.gguf");
+        byte[] expected = new byte[17 * 1024 * 1024];
+        for (int index = 0; index < expected.Length; index++)
+            expected[index] = (byte)(index % 251);
+        var requestedRanges = new System.Collections.Concurrent.ConcurrentBag<(long Begin, long End)>();
+
+        try
+        {
+            DownloadTransferResult result = await new DownloadService().DownloadAsync(
+                new DownloadRequest
+                {
+                    Sources = ["https://pcl.invalid/model"],
+                    DestinationPath = destination,
+                    MaxParallelSegments = 4,
+                    ConnectionFactory = _ => new SegmentedMemoryConnection(expected, requestedRanges)
+                });
+
+            Assert.IsTrue(result.Success);
+            Assert.IsTrue(requestedRanges.Count >= 4);
+            CollectionAssert.AreEqual(expected, await File.ReadAllBytesAsync(destination));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+    [TestMethod]
     public async Task SharedDownloadKeepsRunningWhenOneWaiterCancels()
     {
         var directory = Path.Combine(
@@ -380,6 +411,50 @@ public sealed class DownloadTests
                 content.Length);
             response.Headers.AcceptRanges.Add("bytes");
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class SegmentedMemoryConnection(
+        byte[] content,
+        System.Collections.Concurrent.ConcurrentBag<(long Begin, long End)> requestedRanges)
+        : ISegmentedDlConnection
+    {
+        private int _position;
+        private int _end;
+
+        public ValueTask<NDlConnectionInfo> StartAsync(
+            long beginOffset,
+            CancellationToken cancellationToken = default) =>
+            StartSegmentAsync(beginOffset, content.Length - 1, cancellationToken);
+
+        public ValueTask<NDlConnectionInfo> StartSegmentAsync(
+            long beginOffset,
+            long endOffset,
+            CancellationToken cancellationToken = default)
+        {
+            requestedRanges.Add((beginOffset, endOffset));
+            _position = checked((int)beginOffset);
+            _end = checked((int)endOffset);
+            return ValueTask.FromResult(new NDlConnectionInfo(
+                content.Length,
+                beginOffset,
+                endOffset,
+                true));
+        }
+
+        public ValueTask StopAsync(CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_position > _end)
+                return ValueTask.FromResult(0);
+            int length = Math.Min(buffer.Length, _end - _position + 1);
+            content.AsMemory(_position, length).CopyTo(buffer);
+            _position += length;
+            return ValueTask.FromResult(length);
         }
     }
 

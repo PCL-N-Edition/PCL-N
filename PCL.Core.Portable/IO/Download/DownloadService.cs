@@ -108,6 +108,19 @@ public sealed class DownloadService
                     0,
                     -1,
                     0));
+                if (request.MaxParallelSegments > 1)
+                {
+                    DownloadTransferResult? segmented = await TryDownloadSegmentedAsync(
+                            request,
+                            source,
+                            errors,
+                            startedAt,
+                            report,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    if (segmented is not null)
+                        return segmented;
+                }
                 writer = request.WriterFactory(request.DestinationPath)
                          ?? throw new InvalidOperationException(
                              $"No download writer was created for {request.DestinationPath}.");
@@ -255,6 +268,183 @@ public sealed class DownloadService
         return failed;
     }
 
+    private async Task<DownloadTransferResult?> TryDownloadSegmentedAsync(
+        DownloadRequest request,
+        string source,
+        IReadOnlyList<DownloadAttemptError> errors,
+        long startedAt,
+        Action<DownloadProgress> report,
+        CancellationToken cancellationToken)
+    {
+        IDlConnection? probeConnection = request.ConnectionFactory(source);
+        if (probeConnection is not ISegmentedDlConnection probe)
+        {
+            await StopConnectionAsync(probeConnection).ConfigureAwait(false);
+            return null;
+        }
+
+        long totalLength;
+        try
+        {
+            NDlConnectionInfo probeInfo = await probe.StartSegmentAsync(0, 0, cancellationToken).ConfigureAwait(false);
+            if (!probeInfo.IsSupportSegment || probeInfo.BeginOffset != 0 || probeInfo.EndOffset != 0 || probeInfo.Length <= 0)
+                return null;
+            totalLength = probeInfo.Length;
+        }
+        finally
+        {
+            await StopConnectionAsync(probeConnection).ConfigureAwait(false);
+        }
+
+        const long minimumSegmentBytes = 8L * 1024 * 1024;
+        int segmentCount = Math.Min(
+            request.MaxParallelSegments,
+            Math.Max(1, (int)Math.Ceiling(totalLength / (double)minimumSegmentBytes)));
+        if (segmentCount <= 1)
+            return null;
+
+        string partPrefix = request.DestinationPath + ".PCLSegment." + Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(Path.GetDirectoryName(request.DestinationPath)!);
+        long[] segmentBytes = new long[segmentCount];
+        Stopwatch speedWatch = Stopwatch.StartNew();
+        long lastReportedBytes = 0;
+        object progressLock = new();
+        try
+        {
+            Task[] transfers = new Task[segmentCount];
+            for (int index = 0; index < segmentCount; index++)
+            {
+                int segmentIndex = index;
+                long begin = totalLength * segmentIndex / segmentCount;
+                long end = totalLength * (segmentIndex + 1) / segmentCount - 1;
+                string partPath = partPrefix + segmentIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                transfers[segmentIndex] = DownloadSegmentAsync(
+                    request,
+                    source,
+                    partPath,
+                    segmentIndex,
+                    begin,
+                    end,
+                    totalLength,
+                    segmentBytes,
+                    speedWatch,
+                    report,
+                    progressLock,
+                    () => lastReportedBytes,
+                    value => lastReportedBytes = value,
+                    cancellationToken);
+            }
+            await Task.WhenAll(transfers).ConfigureAwait(false);
+
+            IDlWriter writer = request.WriterFactory(request.DestinationPath)
+                               ?? throw new InvalidOperationException("No download writer was created.");
+            try
+            {
+                Stream output = await writer.CreateStreamAsync(0, cancellationToken).ConfigureAwait(false);
+                for (int index = 0; index < segmentCount; index++)
+                {
+                    await using FileStream input = File.OpenRead(
+                        partPrefix + index.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+                }
+                await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+                report(new DownloadProgress(DownloadStage.Committing, source, totalLength, totalLength, 0));
+                await writer.FinishAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                await StopWriterAsync(writer).ConfigureAwait(false);
+            }
+
+            report(new DownloadProgress(DownloadStage.Completed, source, totalLength, totalLength, 0));
+            return new DownloadTransferResult(
+                true,
+                request.DestinationPath,
+                source,
+                totalLength,
+                Stopwatch.GetElapsedTime(startedAt),
+                errors.ToArray());
+        }
+        finally
+        {
+            for (int index = 0; index < segmentCount; index++)
+                File.Delete(partPrefix + index.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+    }
+
+    private async Task DownloadSegmentAsync(
+        DownloadRequest request,
+        string source,
+        string partPath,
+        int segmentIndex,
+        long begin,
+        long end,
+        long totalLength,
+        long[] segmentBytes,
+        Stopwatch speedWatch,
+        Action<DownloadProgress> report,
+        object progressLock,
+        Func<long> getLastReportedBytes,
+        Action<long> setLastReportedBytes,
+        CancellationToken cancellationToken)
+    {
+        IDlConnection? connection = request.ConnectionFactory(source);
+        if (connection is not ISegmentedDlConnection segmented)
+            throw new InvalidOperationException("下载连接不支持分段请求。");
+        try
+        {
+            NDlConnectionInfo info = await segmented.StartSegmentAsync(begin, end, cancellationToken).ConfigureAwait(false);
+            if (info.BeginOffset != begin || info.EndOffset != end)
+                throw new IOException($"服务器返回了错误的下载分段：{info.BeginOffset}-{info.EndOffset}。");
+            await using FileStream target = new(
+                partPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                _bufferSize,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(_bufferSize);
+            try
+            {
+                long expected = end - begin + 1;
+                while (segmentBytes[segmentIndex] < expected)
+                {
+                    int requested = (int)Math.Min(_bufferSize, expected - segmentBytes[segmentIndex]);
+                    int read = await connection.ReadAsync(buffer.AsMemory(0, requested), cancellationToken).ConfigureAwait(false);
+                    if (read == 0)
+                        break;
+                    await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                    Interlocked.Add(ref segmentBytes[segmentIndex], read);
+                    lock (progressLock)
+                    {
+                        long downloaded = 0;
+                        for (int part = 0; part < segmentBytes.Length; part++)
+                            downloaded += Interlocked.Read(ref segmentBytes[part]);
+                        if (downloaded - getLastReportedBytes() >= 1024 * 1024 || downloaded == totalLength)
+                        {
+                            setLastReportedBytes(downloaded);
+                            long speed = speedWatch.Elapsed.TotalSeconds < 0.1
+                                ? 0
+                                : (long)(downloaded / speedWatch.Elapsed.TotalSeconds);
+                            report(new DownloadProgress(DownloadStage.Downloading, source, downloaded, totalLength, speed));
+                        }
+                    }
+                }
+                if (segmentBytes[segmentIndex] != expected)
+                    throw new EndOfStreamException($"下载分段不完整：{segmentBytes[segmentIndex]}/{expected}。");
+                await target.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+        finally
+        {
+            await StopConnectionAsync(connection).ConfigureAwait(false);
+        }
+    }
+
     private static long CalculateSpeed(long bytes, long startedAt)
     {
         var elapsed = Stopwatch.GetElapsedTime(startedAt).TotalSeconds;
@@ -323,6 +513,8 @@ public sealed class DownloadService
         ArgumentNullException.ThrowIfNull(request.Sources);
         ArgumentNullException.ThrowIfNull(request.ConnectionFactory);
         ArgumentNullException.ThrowIfNull(request.WriterFactory);
+        if (request.MaxParallelSegments <= 0)
+            throw new ArgumentException("MaxParallelSegments must be positive.", nameof(request));
         if (request.Sources.Count == 0)
             throw new ArgumentException(
                 "At least one download source is required.",
