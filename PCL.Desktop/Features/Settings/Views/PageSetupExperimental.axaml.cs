@@ -2,9 +2,14 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using PCL.Application.Settings;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Localization;
+using PCL.Platform.Abstractions.Security;
 
 #pragma warning disable CS0067
 
@@ -71,12 +76,12 @@ public partial class PageSetupExperimental : MyPageRight, ISettingsPageInteracti
 
         string title = AvaloniaLocalizationManager.GetText(
             "Setup.Experimental.AiRepair.Confirm.Title",
-            "启用 0.5B 本地错误修复模型");
+            "启用 Minecraft AI 错误修复");
         string message = AvaloniaLocalizationManager.GetText(
             "Setup.Experimental.AiRepair.Confirm.Message",
-            "优势：游戏崩溃后会先由常规分析器定位；分析结果由本地小模型整理为更易读的说明。当常规分析器无法决定安全修复时，模型可从错误处理器提供的白名单动作中选择建议。所有推理均在本机完成，不会上传日志。\n\n" +
-            "危害：首次分析会下载约 491 MB 的 Qwen2.5-Coder 0.5B Q4_K_M 模型和约 10–17 MB 的运行时；推理通常额外占用约 0.8–1.5 GB 内存并消耗 CPU，低配置设备可能明显变慢；模型可能判断错误。它不能执行命令，也不能越过常规错误处理器的修复白名单。Windows、Linux 与 macOS 的 x64/arm64 均可自动安装经过 SHA-256 校验的运行时，并优先使用大陆可用镜像。\n\n" +
-            "可在此页指定自定义 GGUF、可选 SHA-256 和 llama.cpp 路径。模型文件会保存到 PCL N 的应用数据目录。是否理解下载、性能和误判风险并继续？");
+            "优势：游戏崩溃后仍由常规分析器先定位。模型可生成易读说明，并在错误处理器的白名单内给出最多四步的链式修复计划；本地模式会优先使用 GPU，也可连接用户配置的 OpenAI 兼容 API。\n\n" +
+            "危害：内置模型首次使用需下载约 491 MB 模型和约 10–37 MB 运行时，通常额外占用约 0.8–1.5 GB 内存；模型可能误判。在线模式会把模型明确请求的、经过脱敏和限长的运行环境、实例 metadata、崩溃报告、运行日志、启动方式或登录方式发送给配置的服务商。账户名、UUID、令牌、密码、API Key、完整本地路径和服务器地址不会发送。\n\n" +
+            "模型不能执行命令、任意读取文件或越过修复白名单。thinking 内容不会写入日志或展示；仅保留阶段、进度和可审计依据。是否理解下载、性能、隐私和误判风险并继续？");
 
         void Complete(bool confirmed)
         {
@@ -95,5 +100,49 @@ public partial class PageSetupExperimental : MyPageRight, ISettingsPageInteracti
             isWarn: true);
         if (ConfirmRequested is { } requested)
             requested.Invoke(this, args);
+    }
+
+    private async void ApiKey_OnLostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBox { Text: { } value } textBox || string.IsNullOrWhiteSpace(value))
+            return;
+        SecureStorageOperationResult result = await MinecraftAiApiCredentialStore.WriteAsync(value.Trim());
+        textBox.Text = string.Empty;
+        if (this.FindControl<TextBlock>("AiApiKeyStatus") is { } status)
+        {
+            status.Text = result.IsSuccess
+                ? AvaloniaLocalizationManager.GetText(
+                    "Setup.Experimental.AiRepair.Api.Key.Saved",
+                    "API Key 已保存到系统安全存储，不会在页面中回显。")
+                : AvaloniaLocalizationManager.GetText(
+                    "Setup.Experimental.AiRepair.Api.Key.SaveFailed",
+                    "API Key 保存失败：") + (result.Message ?? result.Status.ToString());
+        }
+    }
+
+    private void PersistAiApiTextOption(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MyTextBox { Tag: { } tag } textBox)
+            return;
+        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+        settings.SetTextOption(tag.ToString()!, textBox.Text ?? string.Empty);
+        LauncherSettingsPageBinder.SaveSettings(settings);
+    }
+
+    private async void ClearApiKey_OnClick(object? sender, EventArgs e)
+    {
+        SecureStorageOperationResult result = await MinecraftAiApiCredentialStore.DeleteAsync();
+        if (this.FindControl<TextBox>("TextAiApiKey") is { } apiKey)
+            apiKey.Text = string.Empty;
+        if (this.FindControl<TextBlock>("AiApiKeyStatus") is { } status)
+        {
+            status.Text = result.IsSuccess
+                ? AvaloniaLocalizationManager.GetText(
+                    "Setup.Experimental.AiRepair.Api.Key.Cleared",
+                    "已清除保存的 API Key。")
+                : AvaloniaLocalizationManager.GetText(
+                    "Setup.Experimental.AiRepair.Api.Key.ClearFailed",
+                    "API Key 清除失败：") + (result.Message ?? result.Status.ToString());
+        }
     }
 }

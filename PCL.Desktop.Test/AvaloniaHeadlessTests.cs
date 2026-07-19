@@ -5918,6 +5918,32 @@ public sealed class AvaloniaHeadlessTests
                 Assert.IsTrue(aiCheck.Checked);
                 saved = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
                 Assert.IsTrue(saved.GetBooleanOption(LauncherSettingKeys.ExperimentalMinecraftAiRepair));
+                MyComboBox provider = confirmedPage.FindControl<MyComboBox>("ComboMinecraftAiProvider")!;
+                MyComboBox reasoning = confirmedPage.FindControl<MyComboBox>("ComboMinecraftAiReasoningEffort")!;
+                MyTextBox baseUrl = confirmedPage.FindControl<MyTextBox>("TextMinecraftAiApiBaseUrl")!;
+                MyTextBox model = confirmedPage.FindControl<MyTextBox>("TextMinecraftAiApiModel")!;
+                Assert.AreEqual(0, provider.SelectedIndex);
+                Assert.AreEqual(0, reasoning.SelectedIndex);
+                provider.SelectedIndex = 1;
+                reasoning.SelectedIndex = 3;
+                baseUrl.Focus();
+                baseUrl.Text = "https://example.test/v1";
+                model.Focus();
+                model.Text = "reasoning-model";
+                provider.Focus();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                saved = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
+                Assert.AreEqual(1, saved.GetIntegerOption(LauncherSettingKeys.ExperimentalMinecraftAiProvider));
+                Assert.AreEqual(3, saved.GetIntegerOption(LauncherSettingKeys.ExperimentalMinecraftAiReasoningEffort));
+                Assert.AreEqual(
+                    "https://example.test/v1",
+                    saved.GetTextOption(LauncherSettingKeys.ExperimentalMinecraftAiApiBaseUrl),
+                    $"Tag={baseUrl.Tag}; Text={baseUrl.Text}; Keys={string.Join(',', saved.TextOptions.Keys)}");
+                Assert.AreEqual(
+                    "reasoning-model",
+                    saved.GetTextOption(LauncherSettingKeys.ExperimentalMinecraftAiApiModel));
+                provider.SelectedIndex = 0;
+                reasoning.SelectedIndex = 0;
                 aiCheck.SetChecked(false, user: true);
                 check.SetChecked(false, user: true);
             }

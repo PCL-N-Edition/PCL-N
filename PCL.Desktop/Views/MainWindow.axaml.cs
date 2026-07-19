@@ -8,6 +8,7 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Net;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -4755,7 +4756,25 @@ public partial class MainWindow : Window, IDisposable
                             result.FaultReport,
                             result.Plan.NativesDirectory,
                             worldName,
-                            serverAddress));
+                            serverAddress,
+                            JavaMajorVersion: result.Plan.JvmHostRequest?.JavaMajorVersion,
+                            MemoryMegabytes: TryReadMaximumHeapMegabytes(result.Plan.JvmHostRequest is { } hostRequest
+                                ? hostRequest.VmArguments
+                                : result.Plan.StartInfo.ArgumentList),
+                            LoginMethod: MinecraftLaunchCoordinator.FormatLoginMethod(result.Profile),
+                            LoginServerHost: ResolveLoginServerHost(result.Profile.AuthServer),
+                            ProfileUsername: result.Profile.Username,
+                            ProfileUuid: result.Profile.Uuid,
+                            UsedExperimentalJvmHost: result.Plan.JvmHostRequest is not null,
+                            JavaExecutableName: Path.GetFileName(result.Plan.JvmHostRequest?.JavaExecutablePath ??
+                                                                 result.Plan.StartInfo.FileName),
+                            JavaExecutablePathForRedaction: result.Plan.JvmHostRequest?.JavaExecutablePath ??
+                                                            result.Plan.StartInfo.FileName,
+                            ClasspathEntryCount: result.Plan.ClasspathEntries.Count,
+                            VmArgumentCount: result.Plan.JvmHostRequest?.VmArguments.Length ??
+                                             result.Plan.StartInfo.ArgumentList.Count(argument =>
+                                                 argument.StartsWith('-')),
+                            GameArgumentCount: result.Plan.JvmHostRequest?.GameArguments.Length));
                     UpdateBackgroundVideoPlayback(runtimeSettings);
                     _launchRight?.AppendLog(!string.IsNullOrWhiteSpace(worldName)
                         ? $"{instance.Name} 已启动，正在进入存档 {worldName}。"
@@ -4821,7 +4840,15 @@ public partial class MainWindow : Window, IDisposable
                             Task.FromResult<MinecraftLaunchFaultReport?>(failureReport),
                             WorldName: worldName,
                             ServerAddress: serverAddress,
-                            RepairSession: repairSession))
+                            RepairSession: repairSession,
+                            LoginMethod: MinecraftLaunchCoordinator.FormatLoginMethod(profile),
+                            LoginServerHost: ResolveLoginServerHost(profile.AuthServer),
+                            ProfileUsername: profile.Username,
+                            ProfileUuid: profile.Uuid,
+                            UsedExperimentalJvmHost: repairSettings.GetBooleanOption(
+                                LauncherSettingKeys.ExperimentalJvmLifecycleHost,
+                                LauncherSettingDefaults.GetBoolean(
+                                    LauncherSettingKeys.ExperimentalJvmLifecycleHost.Value))))
                     .ConfigureAwait(false);
             }
             else
@@ -5005,7 +5032,7 @@ public partial class MainWindow : Window, IDisposable
                             true);
                         DesktopFileLog.Warn(
                             "MinecraftRepair",
-                            "常规修复执行失败，将尝试本地模型。",
+                            "常规修复执行失败，将尝试 AI 修复模型。",
                             conventionalException);
                         await Dispatcher.UIThread.InvokeAsync(() => _launchRight?.AppendLog(repair.Message));
                     }
@@ -5020,9 +5047,9 @@ public partial class MainWindow : Window, IDisposable
                     {
                         DesktopFileLog.Info(
                             "MinecraftRepair",
-                            "常规修复检查完成但没有产生任何改动，将直接调用本地模型。");
+                            "常规修复检查完成但没有产生任何改动，将直接调用 AI 修复模型。");
                         await Dispatcher.UIThread.InvokeAsync(() => _launchRight?.AppendLog(
-                            "常规修复没有产生改动，跳过无意义的重启并直接调用本地模型。"));
+                            "常规修复没有产生改动，跳过无意义的重启并直接调用 AI 修复模型。"));
                     }
                 }
             }
@@ -5034,7 +5061,7 @@ public partial class MainWindow : Window, IDisposable
             {
                 await Dispatcher.UIThread.InvokeAsync(() => context.LaunchPage.ShowRepairWorkflow(
                     AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型"),
-                    AvaloniaLocalizationManager.GetText("Crash.Model.Stage.Prepare", "准备本地模型"),
+                    AvaloniaLocalizationManager.GetText("Crash.Model.Stage.Prepare", "准备 AI 修复模型"),
                     0.01d,
                     MinecraftAiRepairAdvisor.ModelName,
                     context.Instance));
@@ -5042,6 +5069,17 @@ public partial class MainWindow : Window, IDisposable
                         () => MinecraftModMetadataReader.ReadDirectory(Path.Combine(gameDirectory, "mods")),
                         cancellationToken)
                     .ConfigureAwait(false);
+                MinecraftVersionJsonInfo currentVersion = MinecraftVersionJsonInspector.Read(context.Instance);
+                string currentLoader = ResolveCommunityLoader(context.Instance, installedMods);
+                MinecraftAiRepairContext modelContext = new(
+                    currentVersion.MinecraftVersionId,
+                    currentLoader,
+                    context.JavaMajorVersion,
+                    context.MemoryMegabytes,
+                    RuntimeInformation.OSDescription,
+                    RuntimeInformation.ProcessArchitecture.ToString(),
+                    installedMods.Count,
+                    crashLines.Count);
                 MinecraftRepairActionKind[] candidateActions = fault.AllowedActions
                     .Where(action => action != MinecraftRepairActionKind.ReextractNatives ||
                                      !string.IsNullOrWhiteSpace(context.NativesDirectory))
@@ -5051,9 +5089,37 @@ public partial class MainWindow : Window, IDisposable
                     .ToArray();
                 if (candidateActions.Length == 0)
                     candidateActions = [MinecraftRepairActionKind.InspectOnly];
-                MinecraftLaunchFaultReport modelFault = fault with { AllowedActions = candidateActions };
+                string[] modelCrashLines = crashLines
+                    .Select(line => RedactMinecraftAiContext(line, context, gameDirectory))
+                    .ToArray();
+                MinecraftLaunchFaultReport modelFault = fault with
+                {
+                    AllowedActions = candidateActions,
+                    Message = RedactMinecraftAiContext(fault.Message, context, gameDirectory),
+                    StackTrace = RedactMinecraftAiContext(fault.StackTrace, context, gameDirectory),
+                    Evidence = fault.Evidence
+                        .Select(line => RedactMinecraftAiContext(line, context, gameDirectory))
+                        .ToArray()
+                };
                 try
                 {
+                    int providerValue = context.Settings.GetIntegerOption(
+                        LauncherSettingKeys.ExperimentalMinecraftAiProvider,
+                        LauncherSettingDefaults.GetInteger(LauncherSettingKeys.ExperimentalMinecraftAiProvider.Value));
+                    MinecraftAiProvider provider = Enum.IsDefined(typeof(MinecraftAiProvider), providerValue)
+                        ? (MinecraftAiProvider)providerValue
+                        : MinecraftAiProvider.Local;
+                    int reasoningValue = context.Settings.GetIntegerOption(
+                        LauncherSettingKeys.ExperimentalMinecraftAiReasoningEffort,
+                        LauncherSettingDefaults.GetInteger(
+                            LauncherSettingKeys.ExperimentalMinecraftAiReasoningEffort.Value));
+                    MinecraftAiReasoningEffort reasoningEffort =
+                        Enum.IsDefined(typeof(MinecraftAiReasoningEffort), reasoningValue)
+                            ? (MinecraftAiReasoningEffort)reasoningValue
+                            : MinecraftAiReasoningEffort.None;
+                    string? apiKey = provider == MinecraftAiProvider.OpenAiCompatible
+                        ? await MinecraftAiApiCredentialStore.ReadAsync(cancellationToken).ConfigureAwait(false)
+                        : null;
                     MinecraftAiModelOptions modelOptions = new(
                         context.Settings.GetTextOption(
                             LauncherSettingKeys.ExperimentalMinecraftAiModelPath,
@@ -5063,11 +5129,30 @@ public partial class MainWindow : Window, IDisposable
                             LauncherSettingDefaults.GetText(LauncherSettingKeys.ExperimentalMinecraftAiModelSha256.Value)),
                         context.Settings.GetTextOption(
                             LauncherSettingKeys.ExperimentalMinecraftAiRuntimePath,
-                            LauncherSettingDefaults.GetText(LauncherSettingKeys.ExperimentalMinecraftAiRuntimePath.Value)));
+                            LauncherSettingDefaults.GetText(LauncherSettingKeys.ExperimentalMinecraftAiRuntimePath.Value)),
+                        provider,
+                        context.Settings.GetTextOption(
+                            LauncherSettingKeys.ExperimentalMinecraftAiApiBaseUrl,
+                            LauncherSettingDefaults.GetText(
+                                LauncherSettingKeys.ExperimentalMinecraftAiApiBaseUrl.Value)),
+                        context.Settings.GetTextOption(
+                            LauncherSettingKeys.ExperimentalMinecraftAiApiModel,
+                            LauncherSettingDefaults.GetText(LauncherSettingKeys.ExperimentalMinecraftAiApiModel.Value)),
+                        apiKey,
+                        reasoningEffort);
                     MinecraftAiRepairSuggestion? aiSuggestion = await _minecraftAiRepairAdvisor.AdviseAsync(
                             modelFault,
-                            crashLines,
+                            modelCrashLines,
                             installedMods,
+                            modelContext,
+                            (scopes, token) => BuildMinecraftAiDetailedContextAsync(
+                                context,
+                                gameDirectory,
+                                crashLines,
+                                installedMods,
+                                scopes,
+                                modelOptions.Provider == MinecraftAiProvider.OpenAiCompatible ? 48_000 : 14_000,
+                                token),
                             AvaloniaLocalizationManager.CurrentLanguageCode,
                             modelOptions,
                             progress => Dispatcher.UIThread.Post(() =>
@@ -5079,7 +5164,7 @@ public partial class MainWindow : Window, IDisposable
                                     progress.Detail,
                                     context.Instance);
                                 _launchRight?.AppendLog(
-                                    "0.5B 本地模型：" + progress.Stage +
+                                    "Minecraft 错误修复模型：" + progress.Stage +
                                     (string.IsNullOrWhiteSpace(progress.Detail) ? string.Empty : " · " + progress.Detail));
                             }, DispatcherPriority.Background),
                             cancellationToken)
@@ -5096,25 +5181,64 @@ public partial class MainWindow : Window, IDisposable
                                 AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型"),
                                 aiSuggestion.Stage,
                                 Math.Max(0.94d, aiSuggestion.Progress),
-                                aiSuggestion.Action.ToString(),
+                                $"{aiSuggestion.RepairSteps.Count} 个修复步骤",
                                 context.Instance);
                             _launchRight?.AppendLog(
-                                $"0.5B 本地模型：建议={aiSuggestion.Action}；可信度={aiSuggestion.Confidence:P0}。");
+                                $"Minecraft 错误修复模型：生成 {aiSuggestion.RepairSteps.Count} 个链式修复步骤；" +
+                                $"可信度={aiSuggestion.Confidence:P0}。");
                         });
                         if (context.Settings.AutomaticallyRepairGameIssues &&
-                            IsAutomaticallyExecutableRepair(aiSuggestion.Action) &&
+                            aiSuggestion.RepairSteps.All(step => IsAutomaticallyExecutableRepair(step.Action)) &&
                             await ConfirmAiRepairActionAsync(aiSuggestion, cancellationToken).ConfigureAwait(false))
                         {
-                            repair = await ExecuteMinecraftRepairAsync(
-                                    context,
-                                    fault,
-                                    aiSuggestion.Action,
-                                    dependencies,
-                                    gameDirectory,
-                                    aiSuggestion,
-                                    session.Transaction,
-                                    cancellationToken)
-                                .ConfigureAwait(false);
+                            bool planMadeChanges = false;
+                            List<string> completedMessages = [];
+                            for (int stepIndex = 0; stepIndex < aiSuggestion.RepairSteps.Count; stepIndex++)
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+                                MinecraftAiRepairStep step = aiSuggestion.RepairSteps[stepIndex];
+                                double planProgress = 0.94d + (0.05d * stepIndex / aiSuggestion.RepairSteps.Count);
+                                await Dispatcher.UIThread.InvokeAsync(() =>
+                                {
+                                    context.LaunchPage.ShowRepairWorkflow(
+                                        AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型"),
+                                        $"{step.Stage} ({stepIndex + 1}/{aiSuggestion.RepairSteps.Count})",
+                                        planProgress,
+                                        step.Action.ToString(),
+                                        context.Instance);
+                                    _launchRight?.AppendLog(
+                                        $"模型链式修复 {stepIndex + 1}/{aiSuggestion.RepairSteps.Count}：{step.Action}" +
+                                        (string.IsNullOrWhiteSpace(step.Rationale) ? string.Empty : " · " + step.Rationale));
+                                });
+                                MinecraftAiRepairSuggestion stepSuggestion = new(
+                                    step.Action,
+                                    aiSuggestion.AnalysisMarkdown,
+                                    aiSuggestion.Confidence,
+                                    step.Stage,
+                                    step.Progress,
+                                    step.Parameters);
+                                repair = await ExecuteMinecraftRepairAsync(
+                                        context,
+                                        fault,
+                                        step.Action,
+                                        dependencies,
+                                        gameDirectory,
+                                        stepSuggestion,
+                                        session.Transaction,
+                                        cancellationToken)
+                                    .ConfigureAwait(false);
+                                if (repair.IsFailure)
+                                    break;
+                                planMadeChanges |= repair.MadeChanges;
+                                completedMessages.Add(repair.Message);
+                            }
+                            if (!repair.IsFailure && planMadeChanges)
+                            {
+                                repair = new MinecraftRepairExecutionResult(
+                                    string.Join(" ", completedMessages),
+                                    false,
+                                    true);
+                            }
                             if (!repair.IsFailure && repair.MadeChanges)
                             {
                                 session.Attempt = MinecraftRepairAttempt.ModelApplied;
@@ -5136,15 +5260,15 @@ public partial class MainWindow : Window, IDisposable
                 catch (Exception aiException)
                     when (aiException is not OperationCanceledException)
                 {
-                    DesktopFileLog.Warn("MinecraftRepairAI", "本地模型分析失败，将保留常规分析结果。", aiException);
+                    DesktopFileLog.Warn("MinecraftRepairAI", "AI 修复模型分析失败，将保留常规分析结果。", aiException);
                     await Dispatcher.UIThread.InvokeAsync(() =>
-                        _launchRight?.AppendLog("0.5B 本地模型分析失败，已回退常规分析器：" + aiException.Message));
+                        _launchRight?.AppendLog("AI 修复模型分析失败，已回退常规分析器：" + aiException.Message));
                 }
             }
             repair = new MinecraftRepairExecutionResult(
                 aiEnabled
-                    ? "常规分析器和本地模型都未能生成可执行的修复计划。"
-                    : "常规分析器未能解决错误，且本地模型功能未启用。",
+                    ? "常规分析器和 AI 修复模型都未能生成可执行的修复计划。"
+                    : "常规分析器未能解决错误，且 AI 修复模型功能未启用。",
                 true);
             await FinishFailedRepairAsync(
                     context,
@@ -5781,25 +5905,15 @@ public partial class MainWindow : Window, IDisposable
         CancellationTokenRegistration registration = cancellationToken.Register(
             static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(),
             completion);
-        string target = suggestion.Action switch
-        {
-            MinecraftRepairActionKind.DownloadMod =>
-                $"下载模组 {suggestion.Parameters.ModId} {suggestion.Parameters.ModVersion}",
-            MinecraftRepairActionKind.DisableMod => $"禁用模组 {suggestion.Parameters.ModId}",
-            MinecraftRepairActionKind.UpdateMod =>
-                $"将模组 {suggestion.Parameters.ModId} 更新至 {suggestion.Parameters.ModVersion}",
-            MinecraftRepairActionKind.SelectCompatibleJava => "切换至另一套已安装的兼容 Java",
-            MinecraftRepairActionKind.DownloadCompatibleJava => "下载并选择兼容 Java",
-            MinecraftRepairActionKind.ReinstallVersionAndUpdateLoader => "重新安装版本并更新模组加载器",
-            MinecraftRepairActionKind.RepairVersionFiles => "重新校验并补全 Minecraft 版本文件",
-            MinecraftRepairActionKind.ReextractNatives => "重新生成 Minecraft Natives",
-            MinecraftRepairActionKind.InstallMissingModDependencies => "下载缺失的前置模组",
-            _ => suggestion.Action.ToString()
-        };
+        string target = string.Join(
+            "\n",
+            suggestion.RepairSteps.Select((step, index) =>
+                $"{index + 1}. {DescribeAiRepairStep(step.Action, step.Parameters)}" +
+                (string.IsNullOrWhiteSpace(step.Rationale) ? string.Empty : $"\n   依据：{step.Rationale}")));
         Dispatcher.UIThread.Post(() => ShowConfirmDialog(
             AvaloniaLocalizationManager.GetText("Crash.Model.Confirm.Title", "模型请求执行修复"),
-            $"本地模型请求：{target}\n\n可信度：{suggestion.Confidence:P0}\n\n" +
-            "该操作将由启动器验证参数并记录到可回滚事务中，模型不会直接访问网络或文件。是否执行？",
+            $"AI 修复模型生成了以下链式修复计划：\n\n{target}\n\n可信度：{suggestion.Confidence:P0}\n\n" +
+            "每一步都会由启动器重新验证参数并记录到同一个可回滚事务中；模型不会直接访问网络或文件。是否执行？",
             confirmed =>
             {
                 registration.Dispose();
@@ -5810,6 +5924,24 @@ public partial class MainWindow : Window, IDisposable
             isWarn: true));
         return completion.Task;
     }
+
+    private static string DescribeAiRepairStep(
+        MinecraftRepairActionKind action,
+        MinecraftAiRepairParameters parameters) => action switch
+        {
+            MinecraftRepairActionKind.DownloadMod =>
+                $"下载模组 {parameters.ModId} {parameters.ModVersion}",
+            MinecraftRepairActionKind.DisableMod => $"禁用模组 {parameters.ModId}",
+            MinecraftRepairActionKind.UpdateMod =>
+                $"将模组 {parameters.ModId} 更新至 {parameters.ModVersion}",
+            MinecraftRepairActionKind.SelectCompatibleJava => "切换至另一套已安装的兼容 Java",
+            MinecraftRepairActionKind.DownloadCompatibleJava => "下载并选择兼容 Java",
+            MinecraftRepairActionKind.ReinstallVersionAndUpdateLoader => "重新安装版本并更新模组加载器",
+            MinecraftRepairActionKind.RepairVersionFiles => "重新校验并补全 Minecraft 版本文件",
+            MinecraftRepairActionKind.ReextractNatives => "重新生成 Minecraft Natives",
+            MinecraftRepairActionKind.InstallMissingModDependencies => "下载缺失的前置模组",
+            _ => action.ToString()
+        };
 
     private async Task RestartMinecraftAfterRepairAsync(
         RunningGameContext context,
@@ -5866,8 +5998,17 @@ public partial class MainWindow : Window, IDisposable
         string outcome = failure + " " + rollbackMessage;
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
-            if (context.LaunchPage.IsLaunchInProgress)
-                context.LaunchPage.PageChangeToLogin();
+            if (!IsVisible)
+                Show();
+            if (WindowState == WindowState.Minimized)
+                WindowState = WindowState.Normal;
+            Activate();
+            context.LaunchPage.ShowRepairWorkflow(
+                AvaloniaLocalizationManager.GetText("Crash.MinecraftErrorTitle", "Minecraft 出错"),
+                "自动修复未能解决问题，正在生成错误报告",
+                1d,
+                fault.Code.ToString(),
+                context.Instance);
             _launchRight?.AppendLog(outcome);
             ShowHint(outcome, critical: true);
             ShowMinecraftCrashDialog(
@@ -5902,15 +6043,23 @@ public partial class MainWindow : Window, IDisposable
             markdown,
             result =>
             {
-                if (result == 2)
-                    OpenExistingPath(primaryLog ?? gameDirectory);
-                else if (result == 3)
-                    _ = ExportMinecraftCrashReportAsync(
-                        context,
-                        fault,
-                        markdown,
-                        gameDirectory,
-                        crashLines);
+                try
+                {
+                    if (result == 2)
+                        OpenExistingPath(primaryLog ?? gameDirectory);
+                    else if (result == 3)
+                        _ = ExportMinecraftCrashReportAsync(
+                            context,
+                            fault,
+                            markdown,
+                            gameDirectory,
+                            crashLines);
+                }
+                finally
+                {
+                    if (context.LaunchPage.IsLaunchInProgress)
+                        context.LaunchPage.PageChangeToLogin();
+                }
             },
             AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "知道了"),
             AvaloniaLocalizationManager.GetText("Crash.Action.ViewLog", "查看日志"),
@@ -6205,6 +6354,419 @@ public partial class MainWindow : Window, IDisposable
         return paths.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
+    private static async Task<string> BuildMinecraftAiDetailedContextAsync(
+        RunningGameContext context,
+        string gameDirectory,
+        IReadOnlyList<string> crashLines,
+        IReadOnlyList<MinecraftModMetadata> installedMods,
+        IReadOnlyList<MinecraftAiContextScope> requestedScopes,
+        int maximumLength,
+        CancellationToken cancellationToken)
+    {
+        HashSet<MinecraftAiContextScope> scopes = requestedScopes.ToHashSet();
+        if (scopes.Count == 0)
+            return string.Empty;
+
+        Dictionary<MinecraftAiContextScope, double> weights = new()
+        {
+            [MinecraftAiContextScope.Environment] = 1d,
+            [MinecraftAiContextScope.Instance] = 4d,
+            [MinecraftAiContextScope.CrashReports] = 4d,
+            [MinecraftAiContextScope.RuntimeLogs] = 5d,
+            [MinecraftAiContextScope.LaunchMethod] = 1.5d,
+            [MinecraftAiContextScope.LoginMethod] = 1d
+        };
+        double totalWeight = scopes.Sum(scope => weights[scope]);
+        int SectionBudget(MinecraftAiContextScope scope) => Math.Max(
+            512,
+            (int)((maximumLength - 512L) * weights[scope] / totalWeight));
+
+        StringBuilder result = new();
+        foreach (MinecraftAiContextScope scope in Enum.GetValues<MinecraftAiContextScope>())
+        {
+            if (!scopes.Contains(scope))
+                continue;
+            cancellationToken.ThrowIfCancellationRequested();
+            int budget = SectionBudget(scope);
+            string content = scope switch
+            {
+                MinecraftAiContextScope.Environment => BuildMinecraftAiEnvironmentContext(context, gameDirectory),
+                MinecraftAiContextScope.Instance => await BuildMinecraftAiInstanceContextAsync(
+                        context,
+                        gameDirectory,
+                        installedMods,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+                MinecraftAiContextScope.CrashReports => await BuildMinecraftAiCrashReportContextAsync(
+                        context,
+                        gameDirectory,
+                        budget,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+                MinecraftAiContextScope.RuntimeLogs => await BuildMinecraftAiRuntimeLogContextAsync(
+                        context,
+                        gameDirectory,
+                        crashLines,
+                        budget,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+                MinecraftAiContextScope.LaunchMethod => BuildMinecraftAiLaunchMethodContext(context),
+                MinecraftAiContextScope.LoginMethod => BuildMinecraftAiLoginMethodContext(context),
+                _ => string.Empty
+            };
+            result.Append("\n[").Append(ToMinecraftAiScopeName(scope)).AppendLine("]")
+                .AppendLine(MinecraftAiRepairAdvisor.BoundDetailedContext(content, budget));
+        }
+
+        string bounded = MinecraftAiRepairAdvisor.BoundDetailedContext(result.ToString().Trim(), maximumLength);
+        DesktopFileLog.Info(
+            "MinecraftRepairAI",
+            $"已提供脱敏只读上下文：{string.Join(", ", scopes)}；字符数={bounded.Length}。");
+        return bounded;
+    }
+
+#pragma warning disable CA1305 // Diagnostic text is serialized with explicit invariant values where applicable.
+    private static string BuildMinecraftAiEnvironmentContext(RunningGameContext context, string gameDirectory)
+    {
+        using Process process = Process.GetCurrentProcess();
+        StringBuilder value = new();
+        value.AppendLine($"os={RuntimeInformation.OSDescription}")
+            .AppendLine($"osArchitecture={RuntimeInformation.OSArchitecture}")
+            .AppendLine($"processArchitecture={RuntimeInformation.ProcessArchitecture}")
+            .AppendLine($"framework={RuntimeInformation.FrameworkDescription}")
+            .AppendLine($"is64BitProcess={Environment.Is64BitProcess}")
+            .AppendLine($"logicalProcessors={Environment.ProcessorCount}")
+            .AppendLine($"launcherWorkingSetMiB={process.WorkingSet64 / 1024L / 1024L}")
+            .AppendLine($"managedHeapMiB={GC.GetTotalMemory(false) / 1024L / 1024L}")
+            .AppendLine($"culture={CultureInfo.CurrentCulture.Name}")
+            .AppendLine($"uiCulture={CultureInfo.CurrentUICulture.Name}")
+            .AppendLine($"timeZone={TimeZoneInfo.Local.Id}")
+            .AppendLine("environmentVariables=not exposed because they may contain credentials");
+        return RedactMinecraftAiContext(value.ToString(), context, gameDirectory);
+    }
+
+    private static async Task<string> BuildMinecraftAiInstanceContextAsync(
+        RunningGameContext context,
+        string gameDirectory,
+        IReadOnlyList<MinecraftModMetadata> installedMods,
+        CancellationToken cancellationToken)
+    {
+        InstanceMetadata metadata = await InstanceMetadataStore.LoadAsync(
+                context.Instance.InstanceDirectory,
+                cancellationToken)
+            .ConfigureAwait(false);
+        MinecraftVersionJsonInfo version = MinecraftVersionJsonInspector.Read(context.Instance);
+        StringBuilder value = new();
+        value.AppendLine($"instanceName={context.Instance.Name}")
+            .AppendLine($"minecraftVersion={version.MinecraftVersionId}")
+            .AppendLine($"inheritsFrom={version.InheritsFrom ?? "none"}")
+            .AppendLine($"loader={ResolveCommunityLoader(context.Instance, installedMods)}")
+            .AppendLine($"description={metadata.Description}")
+            .AppendLine($"customInfo={metadata.CustomInfo}")
+            .AppendLine($"launchCount={metadata.LaunchCount}")
+            .AppendLine($"modpackProjectId={metadata.ModpackProjectId}")
+            .AppendLine($"modpackVersion={metadata.ModpackVersion}")
+            .AppendLine($"instanceIsolation={metadata.InstanceIsolation}")
+            .AppendLine($"disableAssetVerification={metadata.DisableAssetVerification}")
+            .AppendLine($"ignoreJavaCompatibility={metadata.IgnoreJavaCompatibility}")
+            .AppendLine($"renderer={metadata.Renderer}")
+            .AppendLine($"javaSelectionMode={metadata.JavaSelectionMode}")
+            .AppendLine($"memorySolution={metadata.MemorySolution}")
+            .AppendLine($"customMemorySize={metadata.CustomMemorySize}")
+            .AppendLine($"customJvmArgumentsConfigured={!string.IsNullOrWhiteSpace(metadata.JvmArguments)}")
+            .AppendLine($"customGameArgumentsConfigured={!string.IsNullOrWhiteSpace(metadata.GameArguments)}")
+            .AppendLine($"preLaunchCommandConfigured={!string.IsNullOrWhiteSpace(metadata.PreLaunchCommand)}")
+            .AppendLine($"modsDirectoryFileCount={CountFilesSafely(Path.Combine(gameDirectory, "mods"))}")
+            .AppendLine($"resourcePacksFileCount={CountFilesSafely(Path.Combine(gameDirectory, "resourcepacks"))}")
+            .AppendLine($"shaderPacksFileCount={CountFilesSafely(Path.Combine(gameDirectory, "shaderpacks"))}")
+            .AppendLine($"savesDirectoryCount={CountDirectoriesSafely(Path.Combine(gameDirectory, "saves"))}")
+            .AppendLine("libraries:");
+        foreach (string library in version.Libraries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            value.Append("- ").AppendLine(library);
+        }
+        value.AppendLine("installedModMetadata:");
+        foreach (MinecraftModMetadata mod in installedMods)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            value.Append("- file=").Append(Path.GetFileName(mod.FilePath))
+                .Append("; id=").Append(mod.Id)
+                .Append("; name=").Append(mod.Name)
+                .Append("; version=").Append(mod.Version)
+                .Append("; loader=").Append(mod.Loader)
+                .Append("; dependencies=").AppendJoin(',', mod.Dependencies)
+                .AppendLine();
+        }
+        return RedactMinecraftAiContext(value.ToString(), context, gameDirectory);
+    }
+
+    private static async Task<string> BuildMinecraftAiCrashReportContextAsync(
+        RunningGameContext context,
+        string gameDirectory,
+        int budget,
+        CancellationToken cancellationToken)
+    {
+        List<string> files = [];
+        string crashDirectory = Path.Combine(gameDirectory, "crash-reports");
+        try
+        {
+            if (Directory.Exists(crashDirectory))
+            {
+                files.AddRange(Directory.EnumerateFiles(crashDirectory, "*.txt", SearchOption.TopDirectoryOnly)
+                    .OrderByDescending(File.GetLastWriteTimeUtc)
+                    .Take(3));
+            }
+            files.AddRange(Directory.EnumerateFiles(gameDirectory, "hs_err_pid*.log", SearchOption.TopDirectoryOnly)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .Take(2));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            DesktopFileLog.Warn("MinecraftRepairAI", "枚举 Minecraft 崩溃报告失败。", ex);
+        }
+        return await ReadMinecraftAiDiagnosticFilesAsync(
+                files,
+                context,
+                gameDirectory,
+                budget,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<string> BuildMinecraftAiRuntimeLogContextAsync(
+        RunningGameContext context,
+        string gameDirectory,
+        IReadOnlyList<string> crashLines,
+        int budget,
+        CancellationToken cancellationToken)
+    {
+        string[] files =
+        [
+            Path.Combine(gameDirectory, "logs", "latest.log"),
+            Path.Combine(gameDirectory, "logs", "debug.log")
+        ];
+        string fileContent = await ReadMinecraftAiDiagnosticFilesAsync(
+                files.Where(File.Exists),
+                context,
+                gameDirectory,
+                Math.Max(512, budget * 3 / 4),
+                cancellationToken)
+            .ConfigureAwait(false);
+        StringBuilder value = new(fileContent);
+        if (crashLines.Count > 0)
+        {
+            value.AppendLine().AppendLine("--- captured launcher/runtime tail ---");
+            foreach (string line in crashLines.TakeLast(160))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                value.AppendLine(RedactMinecraftAiContext(line, context, gameDirectory));
+            }
+        }
+        return value.ToString();
+    }
+
+    private static string BuildMinecraftAiLaunchMethodContext(RunningGameContext context)
+    {
+        StringBuilder value = new();
+        value.AppendLine($"launcherMode={(context.UsedExperimentalJvmHost ? "Jvm.NET lifecycle host" : "external Java process")}")
+            .AppendLine($"javaExecutable={context.JavaExecutableName ?? "unknown"}")
+            .AppendLine($"javaMajor={context.JavaMajorVersion?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}")
+            .AppendLine($"maximumHeapMiB={context.MemoryMegabytes?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}")
+            .AppendLine($"classpathEntryCount={context.ClasspathEntryCount?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}")
+            .AppendLine($"vmArgumentCount={context.VmArgumentCount?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}")
+            .AppendLine($"gameArgumentCount={context.GameArgumentCount?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}")
+            .AppendLine($"launchTarget={(context.WorldName is not null ? "saved world" : context.ServerAddress is not null ? "multiplayer server" : "main menu")}")
+            .AppendLine("rawArguments=not exposed because arguments may contain credentials");
+        return value.ToString();
+    }
+
+    private static string BuildMinecraftAiLoginMethodContext(RunningGameContext context)
+    {
+        StringBuilder value = new();
+        value.AppendLine($"loginMethod={context.LoginMethod ?? "unknown"}")
+            .AppendLine($"authenticationServer={context.LoginServerHost ?? "official/default"}")
+            .AppendLine($"identityBridge={(context.UsedExperimentalJvmHost ? "Jvm.NET local session bridge" : "traditional launcher authentication")}")
+            .AppendLine("profileName=<redacted>")
+            .AppendLine("uuid=<redacted>")
+            .AppendLine("accessToken=<redacted>")
+            .AppendLine("refreshToken=<redacted>");
+        return value.ToString();
+    }
+#pragma warning restore CA1305
+
+    private static async Task<string> ReadMinecraftAiDiagnosticFilesAsync(
+        IEnumerable<string> paths,
+        RunningGameContext context,
+        string gameDirectory,
+        int totalBudget,
+        CancellationToken cancellationToken)
+    {
+        string[] existing = paths.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (existing.Length == 0)
+            return "no matching diagnostic files";
+        int perFileBudget = Math.Max(512, totalBudget / existing.Length);
+        StringBuilder result = new();
+        foreach (string path in existing)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            FileInfo info = new(path);
+            result.Append("--- ").Append(Path.GetFileName(path))
+                .Append(" (").Append(info.Length).AppendLine(" bytes) ---");
+            if (info.Length > 16L * 1024L * 1024L)
+            {
+                result.AppendLine("[file omitted because it exceeds 16 MiB]");
+                continue;
+            }
+            try
+            {
+                await using FileStream stream = new(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete,
+                    64 * 1024,
+                    useAsync: true);
+                using StreamReader reader = new(stream, detectEncodingFromByteOrderMarks: true);
+                StringBuilder head = new();
+                Queue<string> tail = new();
+                int tailLength = 0;
+                int headBudget = perFileBudget / 3;
+                int tailBudget = perFileBudget - headBudget;
+                while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
+                {
+                    string safe = RedactMinecraftAiContext(line, context, gameDirectory);
+                    if (safe.Length > 1_200)
+                        safe = safe[..1_200] + " [line truncated]";
+                    if (head.Length < headBudget)
+                    {
+                        head.AppendLine(safe);
+                        continue;
+                    }
+                    tail.Enqueue(safe);
+                    tailLength += safe.Length + Environment.NewLine.Length;
+                    while (tailLength > tailBudget && tail.TryDequeue(out string? removed))
+                        tailLength -= removed.Length + Environment.NewLine.Length;
+                }
+                result.Append(head);
+                if (tail.Count > 0)
+                {
+                    result.AppendLine("[middle of file omitted]");
+                    foreach (string line in tail)
+                        result.AppendLine(line);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                result.Append("[unable to read: ").Append(ex.GetType().Name).AppendLine("]");
+            }
+        }
+        return MinecraftAiRepairAdvisor.BoundDetailedContext(result.ToString(), totalBudget);
+    }
+
+    private static string RedactMinecraftAiContext(
+        string? value,
+        RunningGameContext context,
+        string gameDirectory)
+    {
+        string result = PortableLog.Redact(value);
+        List<(string Sensitive, string Replacement)> replacements =
+        [
+            (context.Instance.InstanceDirectory, "<instance-directory>"),
+            (gameDirectory, "<game-directory>"),
+            (Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "<user-home>")
+        ];
+        if (!string.IsNullOrWhiteSpace(context.ProfileUsername))
+            replacements.Add((context.ProfileUsername, "<profile-name>"));
+        if (!string.IsNullOrWhiteSpace(context.ProfileUuid))
+        {
+            replacements.Add((context.ProfileUuid, "<profile-uuid>"));
+            replacements.Add((context.ProfileUuid.Replace("-", string.Empty, StringComparison.Ordinal), "<profile-uuid>"));
+        }
+        if (!string.IsNullOrWhiteSpace(context.JavaExecutablePathForRedaction))
+            replacements.Add((context.JavaExecutablePathForRedaction, "<java-path>"));
+        if (!string.IsNullOrWhiteSpace(context.WorldName))
+            replacements.Add((context.WorldName, "<world-name>"));
+        if (!string.IsNullOrWhiteSpace(context.ServerAddress))
+            replacements.Add((context.ServerAddress, "<server-address>"));
+        foreach ((string sensitive, string replacement) in replacements.DistinctBy(item => item.Sensitive,
+                     StringComparer.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(sensitive))
+                result = result.Replace(sensitive, replacement, StringComparison.OrdinalIgnoreCase);
+        }
+        result = QuotedAbsolutePathPattern().Replace(result, "<local-path>");
+        result = WindowsAbsolutePathPattern().Replace(result, "<local-path>");
+        result = UnixAbsolutePathPattern().Replace(result, "<local-path>");
+        return result;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(
+        "(?i)(?:\"[A-Z]:\\\\[^\"\\r\\n]+\"|'[A-Z]:\\\\[^'\\r\\n]+'|\"/(?:home|Users|tmp|var|opt|usr|mnt|media|run)/[^\"\\r\\n]+\"|'/(?:home|Users|tmp|var|opt|usr|mnt|media|run)/[^'\\r\\n]+')",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant |
+        System.Text.RegularExpressions.RegexOptions.NonBacktracking)]
+    private static partial System.Text.RegularExpressions.Regex QuotedAbsolutePathPattern();
+
+    [System.Text.RegularExpressions.GeneratedRegex(
+        "(?i)\\b[A-Z]:\\\\[^\\s\"',;|<>]+",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant |
+        System.Text.RegularExpressions.RegexOptions.NonBacktracking)]
+    private static partial System.Text.RegularExpressions.Regex WindowsAbsolutePathPattern();
+
+    [System.Text.RegularExpressions.GeneratedRegex(
+        "(?i)(?<![:/A-Z0-9_])/(?:home|Users|tmp|var|opt|usr|mnt|media|run)/[^\\s\"',;|<>]+",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant |
+        System.Text.RegularExpressions.RegexOptions.NonBacktracking)]
+    private static partial System.Text.RegularExpressions.Regex UnixAbsolutePathPattern();
+
+    private static int CountFilesSafely(string directory)
+    {
+        try
+        {
+            return Directory.Exists(directory)
+                ? Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly).Count()
+                : 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return -1;
+        }
+    }
+
+    private static int CountDirectoriesSafely(string directory)
+    {
+        try
+        {
+            return Directory.Exists(directory)
+                ? Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly).Count()
+                : 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return -1;
+        }
+    }
+
+    private static string ToMinecraftAiScopeName(MinecraftAiContextScope scope) => scope switch
+    {
+        MinecraftAiContextScope.Environment => "environment",
+        MinecraftAiContextScope.Instance => "instance",
+        MinecraftAiContextScope.CrashReports => "crash_reports",
+        MinecraftAiContextScope.RuntimeLogs => "runtime_logs",
+        MinecraftAiContextScope.LaunchMethod => "launch_method",
+        MinecraftAiContextScope.LoginMethod => "login_method",
+        _ => scope.ToString()
+    };
+
+    private static string? ResolveLoginServerHost(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        return Uri.TryCreate(value, UriKind.Absolute, out Uri? uri) && !string.IsNullOrWhiteSpace(uri.Host)
+            ? uri.Host
+            : "custom authentication server";
+    }
+
     private sealed record MinecraftRepairExecutionResult(
         string Message,
         bool IsFailure,
@@ -6220,7 +6782,42 @@ public partial class MainWindow : Window, IDisposable
         string? NativesDirectory = null,
         string? WorldName = null,
         string? ServerAddress = null,
-        MinecraftRepairSession? RepairSession = null);
+        MinecraftRepairSession? RepairSession = null,
+        int? JavaMajorVersion = null,
+        int? MemoryMegabytes = null,
+        string? LoginMethod = null,
+        string? LoginServerHost = null,
+        string? ProfileUsername = null,
+        string? ProfileUuid = null,
+        bool UsedExperimentalJvmHost = false,
+        string? JavaExecutableName = null,
+        string? JavaExecutablePathForRedaction = null,
+        int? ClasspathEntryCount = null,
+        int? VmArgumentCount = null,
+        int? GameArgumentCount = null);
+
+    private static int? TryReadMaximumHeapMegabytes(IEnumerable<string> arguments)
+    {
+        string? maximumHeap = arguments.FirstOrDefault(argument =>
+            argument.StartsWith("-Xmx", StringComparison.OrdinalIgnoreCase));
+        if (maximumHeap is null || maximumHeap.Length <= 4)
+            return null;
+        string value = maximumHeap[4..].Trim();
+        long multiplier = 1;
+        if (value.EndsWith('g') || value.EndsWith('G'))
+        {
+            multiplier = 1024;
+            value = value[..^1];
+        }
+        else if (value.EndsWith('m') || value.EndsWith('M'))
+        {
+            value = value[..^1];
+        }
+        return long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed) &&
+               parsed > 0 && parsed * multiplier <= int.MaxValue
+            ? (int)(parsed * multiplier)
+            : null;
+    }
 
     private enum MinecraftRepairAttempt
     {

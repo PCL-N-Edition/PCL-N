@@ -85,6 +85,8 @@ public static class LauncherSettingDefaults
         ["LaunchArgumentWindowWidth"] = 854,
         ["LaunchArgumentWindowHeight"] = 480,
         ["LaunchArgumentWindowType"] = 1,
+        ["ExperimentalMinecraftAiProvider"] = 0,
+        ["ExperimentalMinecraftAiReasoningEffort"] = 0,
         ["LoginMsAuthType"] = 1
     };
 
@@ -104,7 +106,9 @@ public static class LauncherSettingDefaults
         ["LaunchArgumentInfo"] = "PCLN",
         ["ExperimentalMinecraftAiModelPath"] = string.Empty,
         ["ExperimentalMinecraftAiModelSha256"] = string.Empty,
-        ["ExperimentalMinecraftAiRuntimePath"] = string.Empty
+        ["ExperimentalMinecraftAiRuntimePath"] = string.Empty,
+        ["ExperimentalMinecraftAiApiBaseUrl"] = string.Empty,
+        ["ExperimentalMinecraftAiApiModel"] = string.Empty
     };
 
     public static bool GetBoolean(string key, bool fallback = false) =>

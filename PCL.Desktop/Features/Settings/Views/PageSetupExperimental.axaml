@@ -56,6 +56,50 @@
                     </Grid>
                     <legacy:MyHint Theme="Blue"
                                    Text="{DynamicResource Setup.Experimental.AiRepair.Scope}" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Provider.Title}"
+                               FontWeight="SemiBold" Margin="0,6,0,0" />
+                    <legacy:MyComboBox x:Name="ComboMinecraftAiProvider"
+                                       Tag="ExperimentalMinecraftAiProvider">
+                        <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Provider.Local}"
+                                               IsSelected="True" />
+                        <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Provider.OpenAiCompatible}" />
+                    </legacy:MyComboBox>
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Api.BaseUrl}" Opacity="0.72" />
+                    <legacy:MyTextBox x:Name="TextMinecraftAiApiBaseUrl"
+                                      Tag="ExperimentalMinecraftAiApiBaseUrl"
+                                      LostFocus="PersistAiApiTextOption"
+                                      HintText="{DynamicResource Setup.Experimental.AiRepair.Api.BaseUrl.Hint}" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Api.Model}" Opacity="0.72" />
+                    <legacy:MyTextBox x:Name="TextMinecraftAiApiModel"
+                                      Tag="ExperimentalMinecraftAiApiModel"
+                                      LostFocus="PersistAiApiTextOption"
+                                      HintText="{DynamicResource Setup.Experimental.AiRepair.Api.Model.Hint}" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Api.Key}" Opacity="0.72" />
+                    <Grid ColumnDefinitions="*,12,Auto">
+                        <TextBox x:Name="TextAiApiKey"
+                                 Grid.Column="0"
+                                 PasswordChar="●"
+                                 PlaceholderText="{DynamicResource Setup.Experimental.AiRepair.Api.Key.Hint}"
+                                 LostFocus="ApiKey_OnLostFocus" />
+                        <legacy:MyButton Grid.Column="2"
+                                         MinWidth="96"
+                                         Text="{DynamicResource Setup.Experimental.AiRepair.Api.Key.Clear}"
+                                         Click="ClearApiKey_OnClick" />
+                    </Grid>
+                    <TextBlock x:Name="AiApiKeyStatus"
+                               Text="{DynamicResource Setup.Experimental.AiRepair.Api.Key.StoredHint}"
+                               TextWrapping="Wrap" Opacity="0.72" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning}" Opacity="0.72" />
+                    <legacy:MyComboBox x:Name="ComboMinecraftAiReasoningEffort"
+                                       Tag="ExperimentalMinecraftAiReasoningEffort">
+                        <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning.None}"
+                                               IsSelected="True" />
+                        <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning.Low}" />
+                        <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning.Medium}" />
+                        <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning.High}" />
+                    </legacy:MyComboBox>
+                    <legacy:MyHint Theme="Yellow"
+                                   Text="{DynamicResource Setup.Experimental.AiRepair.Api.Privacy}" />
                     <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Custom.Title}"
                                FontWeight="SemiBold" Margin="0,6,0,0" />
                     <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Custom.ModelPath}" Opacity="0.72" />

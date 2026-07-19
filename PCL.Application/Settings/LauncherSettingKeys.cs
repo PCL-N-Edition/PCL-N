@@ -50,6 +50,14 @@ public static class LauncherSettingKeys
 
     public static readonly SettingKey ExperimentalMinecraftAiRuntimePath = new("ExperimentalMinecraftAiRuntimePath");
 
+    public static readonly SettingKey ExperimentalMinecraftAiProvider = new("ExperimentalMinecraftAiProvider");
+
+    public static readonly SettingKey ExperimentalMinecraftAiApiBaseUrl = new("ExperimentalMinecraftAiApiBaseUrl");
+
+    public static readonly SettingKey ExperimentalMinecraftAiApiModel = new("ExperimentalMinecraftAiApiModel");
+
+    public static readonly SettingKey ExperimentalMinecraftAiReasoningEffort = new("ExperimentalMinecraftAiReasoningEffort");
+
     public static SettingKey JavaDisabled(string javaExecutablePath)
     {
         if (string.IsNullOrWhiteSpace(javaExecutablePath))

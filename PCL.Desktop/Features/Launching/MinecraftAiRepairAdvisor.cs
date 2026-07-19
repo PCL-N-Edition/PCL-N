@@ -4,17 +4,50 @@
 
 using System.Diagnostics;
 using System.Formats.Tar;
+using System.Globalization;
 using System.IO.Compression;
+using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using PCL.Application.Downloads;
 using PCL.Application.Launching;
 using PCL.Core.Logging;
+using PCL.Platform.Abstractions.Security;
 using PCL.Platform.Paths;
+using PCL.Platform.Security;
 
 namespace PCL.Desktop.Features.Launching;
+
+internal static class MinecraftAiApiCredentialStore
+{
+    private const string StorageKey = "minecraft-ai-repair/openai-compatible-api-key";
+
+    public static async ValueTask<string?> ReadAsync(CancellationToken cancellationToken = default)
+    {
+        SecureStorageReadResult result = await CreateStorage().ReadAsync(StorageKey, cancellationToken)
+            .ConfigureAwait(false);
+        return result is { Status: SecureStorageStatus.Success, Value: { Length: > 0 } value }
+            ? Encoding.UTF8.GetString(value)
+            : null;
+    }
+
+    public static ValueTask<SecureStorageOperationResult> WriteAsync(
+        string apiKey,
+        CancellationToken cancellationToken = default) =>
+        CreateStorage().WriteAsync(StorageKey, Encoding.UTF8.GetBytes(apiKey), cancellationToken);
+
+    public static ValueTask<SecureStorageOperationResult> DeleteAsync(CancellationToken cancellationToken = default) =>
+        CreateStorage().DeleteAsync(StorageKey, cancellationToken);
+
+    private static DefaultSecureStorage CreateStorage()
+    {
+        DefaultPlatformPathProvider paths = new();
+        return new DefaultSecureStorage(paths.ApplicationDataDirectory);
+    }
+}
 
 internal sealed record MinecraftAiRepairSuggestion(
     MinecraftRepairActionKind Action,
@@ -22,6 +55,19 @@ internal sealed record MinecraftAiRepairSuggestion(
     double Confidence,
     string Stage,
     double Progress,
+    MinecraftAiRepairParameters Parameters,
+    IReadOnlyList<MinecraftAiRepairStep>? Steps = null)
+{
+    public IReadOnlyList<MinecraftAiRepairStep> RepairSteps => Steps is { Count: > 0 }
+        ? Steps
+        : [new MinecraftAiRepairStep(Action, Stage, Progress, string.Empty, Parameters)];
+}
+
+internal sealed record MinecraftAiRepairStep(
+    MinecraftRepairActionKind Action,
+    string Stage,
+    double Progress,
+    string Rationale,
     MinecraftAiRepairParameters Parameters);
 
 internal sealed record MinecraftAiRepairParameters(
@@ -36,7 +82,51 @@ internal sealed record MinecraftAiRepairProgress(string Stage, double Progress, 
 internal sealed record MinecraftAiModelOptions(
     string? ModelPath = null,
     string? ModelSha256 = null,
-    string? RuntimePath = null);
+    string? RuntimePath = null,
+    MinecraftAiProvider Provider = MinecraftAiProvider.Local,
+    string? ApiBaseUrl = null,
+    string? ApiModel = null,
+    string? ApiKey = null,
+    MinecraftAiReasoningEffort ReasoningEffort = MinecraftAiReasoningEffort.Medium);
+
+internal enum MinecraftAiProvider
+{
+    Local,
+    OpenAiCompatible
+}
+
+internal enum MinecraftAiReasoningEffort
+{
+    None,
+    Low,
+    Medium,
+    High
+}
+
+internal sealed record MinecraftAiRepairContext(
+    string MinecraftVersion,
+    string Loader,
+    int? JavaMajorVersion,
+    int? MemoryMegabytes,
+    string OperatingSystem,
+    string Architecture,
+    int InstalledModCount,
+    int CrashLogLineCount);
+
+internal enum MinecraftAiContextScope
+{
+    Environment,
+    Instance,
+    CrashReports,
+    RuntimeLogs,
+    LaunchMethod,
+    LoginMethod
+}
+
+internal sealed record MinecraftAiContextRequest(
+    IReadOnlyList<MinecraftAiContextScope> Scopes,
+    string Stage,
+    double Progress);
 
 /// <summary>
 /// Runs a small local model as an advisor for the deterministic repair pipeline. The model never
@@ -75,6 +165,8 @@ internal sealed class MinecraftAiRepairAdvisor
         MinecraftLaunchFaultReport fault,
         IReadOnlyList<string> crashLines,
         IReadOnlyList<MinecraftModMetadata> installedMods,
+        MinecraftAiRepairContext repairContext,
+        Func<IReadOnlyList<MinecraftAiContextScope>, CancellationToken, Task<string>>? contextProvider,
         string languageCode,
         MinecraftAiModelOptions options,
         Action<MinecraftAiRepairProgress>? progress,
@@ -83,49 +175,93 @@ internal sealed class MinecraftAiRepairAdvisor
         ArgumentNullException.ThrowIfNull(fault);
         ArgumentNullException.ThrowIfNull(crashLines);
         ArgumentNullException.ThrowIfNull(installedMods);
+        ArgumentNullException.ThrowIfNull(repairContext);
         if (fault.AllowedActions.Length == 0)
             return null;
 
-        Directory.CreateDirectory(_rootDirectory);
-        string executable = await ResolveRuntimeAsync(options, progress, cancellationToken).ConfigureAwait(false);
-        string modelPath;
-        if (!string.IsNullOrWhiteSpace(options.ModelPath))
+        string contextDetail = BuildContextDetail(repairContext);
+        progress?.Invoke(new MinecraftAiRepairProgress("整理当前游戏信息", 0.7d, contextDetail));
+        string prompt = BuildPrompt(fault, crashLines, installedMods, repairContext, languageCode);
+        Func<string, CancellationToken, Task<string>> inference;
+        if (options.Provider == MinecraftAiProvider.OpenAiCompatible)
         {
-            modelPath = Path.GetFullPath(options.ModelPath.Trim());
-            if (!File.Exists(modelPath) || !modelPath.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
-                throw new FileNotFoundException("自定义 GGUF 模型不存在。", modelPath);
-            if (!string.IsNullOrWhiteSpace(options.ModelSha256))
-            {
-                string expected = NormalizeSha256(options.ModelSha256);
-                if (!await HasExpectedHashAsync(modelPath, expected, cancellationToken).ConfigureAwait(false))
-                    throw new InvalidDataException("自定义模型 SHA-256 校验失败。");
-            }
-            progress?.Invoke(new MinecraftAiRepairProgress("验证自定义模型", 0.66d, Path.GetFileName(modelPath)));
+            progress?.Invoke(new MinecraftAiRepairProgress(
+                "正在连接 OpenAI 兼容 API",
+                0.72d,
+                contextDetail));
+            inference = (input, token) => RunOpenAiCompatibleInferenceAsync(options, input, progress, token);
         }
         else
         {
-            modelPath = Path.Combine(_rootDirectory, ModelFileName);
-            await EnsureDownloadedFileAsync(
-                    ModelUrls,
-                    modelPath,
-                    ModelSha256,
-                    "0.5B 模型",
-                    0.16d,
-                    0.66d,
-                    progress,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            Directory.CreateDirectory(_rootDirectory);
+            ResolvedRuntime runtime = await ResolveRuntimeAsync(options, progress, cancellationToken).ConfigureAwait(false);
+            string modelPath;
+            if (!string.IsNullOrWhiteSpace(options.ModelPath))
+            {
+                modelPath = Path.GetFullPath(options.ModelPath.Trim());
+                if (!File.Exists(modelPath) || !modelPath.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
+                    throw new FileNotFoundException("自定义 GGUF 模型不存在。", modelPath);
+                if (!string.IsNullOrWhiteSpace(options.ModelSha256))
+                {
+                    string expected = NormalizeSha256(options.ModelSha256);
+                    if (!await HasExpectedHashAsync(modelPath, expected, cancellationToken).ConfigureAwait(false))
+                        throw new InvalidDataException("自定义模型 SHA-256 校验失败。");
+                }
+                progress?.Invoke(new MinecraftAiRepairProgress("验证自定义模型", 0.66d, Path.GetFileName(modelPath)));
+            }
+            else
+            {
+                modelPath = Path.Combine(_rootDirectory, ModelFileName);
+                await EnsureDownloadedFileAsync(
+                        ModelUrls,
+                        modelPath,
+                        ModelSha256,
+                        "0.5B 模型",
+                        0.16d,
+                        0.66d,
+                        progress,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            progress?.Invoke(new MinecraftAiRepairProgress(
+                "模型正在读取错误上下文",
+                0.74d,
+                $"{runtime.DeviceDescription} · {contextDetail}"));
+            inference = (input, token) => RunLocalInferenceWithFallbackAsync(
+                runtime,
+                modelPath,
+                options,
+                input,
+                progress,
+                token);
         }
-
-        progress?.Invoke(new MinecraftAiRepairProgress("读取模组 metadata", 0.7d, $"{installedMods.Count} 个模组"));
-        string prompt = BuildPrompt(fault, crashLines, installedMods, languageCode);
-        progress?.Invoke(new MinecraftAiRepairProgress("模型分析 Minecraft 异常", 0.74d));
-        string output = await RunInferenceAsync(executable, modelPath, prompt, cancellationToken)
-            .ConfigureAwait(false);
+        string output = await inference(prompt, cancellationToken).ConfigureAwait(false);
+        MinecraftAiContextRequest? contextRequest = ParseContextRequest(output);
+        if (contextRequest is not null)
+        {
+            if (contextProvider is null)
+                throw new InvalidOperationException("模型请求了详细上下文，但当前启动会话无法提供。");
+            progress?.Invoke(new MinecraftAiRepairProgress(
+                contextRequest.Stage,
+                0.9d,
+                "读取：" + string.Join(", ", contextRequest.Scopes)));
+            string detailedContext = await contextProvider(contextRequest.Scopes, cancellationToken)
+                .ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(detailedContext))
+                throw new InvalidDataException("模型请求的上下文为空，无法继续推理。");
+            int contextLimit = options.Provider == MinecraftAiProvider.OpenAiCompatible ? 48_000 : 14_000;
+            detailedContext = BoundDetailedContext(detailedContext, contextLimit);
+            string followUpPrompt = prompt +
+                                    "\n\n宿主根据你的白名单请求返回以下脱敏只读上下文。" +
+                                    "现在必须输出最终 progress JSON 行和 result JSON；不得再次请求上下文。\n" +
+                                    detailedContext;
+            progress?.Invoke(new MinecraftAiRepairProgress("模型正在结合详细上下文复核", 0.91d, contextDetail));
+            output = await inference(followUpPrompt, cancellationToken).ConfigureAwait(false);
+        }
         progress?.Invoke(new MinecraftAiRepairProgress("验证模型修复计划", 0.94d));
         MinecraftAiRepairSuggestion? suggestion = ParseSuggestion(output, fault.AllowedActions);
         if (suggestion is null)
-            PortableLog.Warn("MinecraftRepairAI", "本地模型没有返回有效的白名单修复方案。");
+            PortableLog.Warn("MinecraftRepairAI", "模型没有返回有效的白名单修复方案。");
         return suggestion;
     }
 
@@ -135,20 +271,43 @@ internal sealed class MinecraftAiRepairAdvisor
     {
         if (string.IsNullOrWhiteSpace(output) || allowedActions.Count == 0)
             return null;
-        int start = output.IndexOf('{');
-        int end = output.LastIndexOf('}');
+        output = RemoveThinkingBlocks(output);
+        string[] outputLines = output.Split(
+            ['\r', '\n'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        string candidate = string.Join(
+            '\n',
+            outputLines.Where(line => !TryParseProgressEvent(line, out _)));
+        if (string.IsNullOrWhiteSpace(candidate))
+            candidate = output;
+        int start = candidate.IndexOf('{');
+        int end = candidate.LastIndexOf('}');
         if (start < 0 || end <= start)
             return null;
         try
         {
-            using JsonDocument document = JsonDocument.Parse(output[start..(end + 1)]);
+            using JsonDocument document = JsonDocument.Parse(candidate[start..(end + 1)]);
             JsonElement root = document.RootElement;
-            if (!root.TryGetProperty("action", out JsonElement actionElement) ||
-                !Enum.TryParse(actionElement.GetString(), ignoreCase: true, out MinecraftRepairActionKind action) ||
-                !allowedActions.Contains(action))
+            List<MinecraftAiRepairStep> steps = [];
+            if (root.TryGetProperty("steps", out JsonElement stepsElement) &&
+                stepsElement.ValueKind == JsonValueKind.Array)
             {
-                return null;
+                if (stepsElement.GetArrayLength() is <= 0 or > 4)
+                    return null;
+                foreach (JsonElement stepElement in stepsElement.EnumerateArray())
+                {
+                    if (!TryReadRepairStep(stepElement, allowedActions, out MinecraftAiRepairStep? step) || step is null)
+                        return null;
+                    steps.Add(step);
+                }
             }
+            else if (TryReadRepairStep(root, allowedActions, out MinecraftAiRepairStep? legacyStep) &&
+                     legacyStep is not null)
+            {
+                steps.Add(legacyStep);
+            }
+            if (steps.Count == 0)
+                return null;
 
             string analysis = root.TryGetProperty("analysisMarkdown", out JsonElement analysisElement)
                 ? analysisElement.GetString() ?? string.Empty
@@ -160,29 +319,16 @@ internal sealed class MinecraftAiRepairAdvisor
                                 confidenceElement.TryGetDouble(out double parsed)
                 ? Math.Clamp(parsed, 0d, 1d)
                 : 0d;
-            MinecraftAiRepairParameters parameters = new(
-                ReadSafeToken(root, "modId", 128),
-                ReadSafeToken(root, "modVersion", 128),
-                ReadJavaMajor(root),
-                ReadLoaderKind(root),
-                ReadSafeToken(root, "loaderVersion", 128));
-            if (action is (MinecraftRepairActionKind.DownloadMod or MinecraftRepairActionKind.DisableMod or
-                MinecraftRepairActionKind.UpdateMod) && string.IsNullOrWhiteSpace(parameters.ModId))
-            {
-                return null;
-            }
-            if (action == MinecraftRepairActionKind.UpdateMod && string.IsNullOrWhiteSpace(parameters.ModVersion))
-                return null;
-            if (!root.TryGetProperty("stage", out JsonElement stageElement) ||
-                stageElement.ValueKind != JsonValueKind.String ||
-                !root.TryGetProperty("progress", out JsonElement progressElement) ||
-                !progressElement.TryGetDouble(out double progressValue))
-            {
-                return null;
-            }
-            string stage = SanitizeStage(stageElement.GetString());
-            double modelProgress = Math.Clamp(progressValue, 0d, 1d);
-            return new MinecraftAiRepairSuggestion(action, analysis, confidence, stage, modelProgress, parameters);
+            MinecraftAiRepairStep first = steps[0];
+            MinecraftAiRepairStep last = steps[^1];
+            return new MinecraftAiRepairSuggestion(
+                first.Action,
+                analysis,
+                confidence,
+                last.Stage,
+                last.Progress,
+                first.Parameters,
+                steps);
         }
         catch (JsonException)
         {
@@ -190,7 +336,102 @@ internal sealed class MinecraftAiRepairAdvisor
         }
     }
 
-    private async Task<string> ResolveRuntimeAsync(
+    internal static MinecraftAiContextRequest? ParseContextRequest(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+        output = RemoveThinkingBlocks(output);
+        foreach (string line in output.Split(
+                     ['\r', '\n'],
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Reverse())
+        {
+            int start = line.IndexOf('{');
+            int end = line.LastIndexOf('}');
+            if (start < 0 || end <= start)
+                continue;
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(line[start..(end + 1)]);
+                JsonElement root = document.RootElement;
+                if (!root.TryGetProperty("type", out JsonElement type) ||
+                    !string.Equals(type.GetString(), "context_request", StringComparison.OrdinalIgnoreCase) ||
+                    !root.TryGetProperty("scopes", out JsonElement scopesElement) ||
+                    scopesElement.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+                List<MinecraftAiContextScope> scopes = [];
+                foreach (JsonElement scopeElement in scopesElement.EnumerateArray())
+                {
+                    string normalized = (scopeElement.GetString() ?? string.Empty).Replace("_", string.Empty);
+                    if (Enum.TryParse(normalized, ignoreCase: true, out MinecraftAiContextScope scope) &&
+                        !scopes.Contains(scope))
+                    {
+                        scopes.Add(scope);
+                    }
+                }
+                if (scopes.Count == 0)
+                    return null;
+                string stage = root.TryGetProperty("stage", out JsonElement stageElement)
+                    ? SanitizeStage(stageElement.GetString())
+                    : "正在读取模型请求的上下文";
+                double progressValue = root.TryGetProperty("progress", out JsonElement progressElement) &&
+                                       progressElement.TryGetDouble(out double parsed)
+                    ? Math.Clamp(parsed, 0d, 1d)
+                    : 0.5d;
+                return new MinecraftAiContextRequest(scopes, stage, progressValue);
+            }
+            catch (JsonException)
+            {
+            }
+        }
+        return null;
+    }
+
+    private static bool TryReadRepairStep(
+        JsonElement element,
+        IReadOnlyCollection<MinecraftRepairActionKind> allowedActions,
+        out MinecraftAiRepairStep? step)
+    {
+        step = null;
+        if (element.ValueKind != JsonValueKind.Object ||
+            !element.TryGetProperty("action", out JsonElement actionElement) ||
+            !Enum.TryParse(actionElement.GetString(), ignoreCase: true, out MinecraftRepairActionKind action) ||
+            !allowedActions.Contains(action) ||
+            !element.TryGetProperty("stage", out JsonElement stageElement) ||
+            stageElement.ValueKind != JsonValueKind.String ||
+            !element.TryGetProperty("progress", out JsonElement progressElement) ||
+            !progressElement.TryGetDouble(out double progressValue))
+        {
+            return false;
+        }
+        MinecraftAiRepairParameters parameters = new(
+            ReadSafeToken(element, "modId", 128),
+            ReadSafeToken(element, "modVersion", 128),
+            ReadJavaMajor(element),
+            ReadLoaderKind(element),
+            ReadSafeToken(element, "loaderVersion", 128));
+        if (action is (MinecraftRepairActionKind.DownloadMod or MinecraftRepairActionKind.DisableMod or
+            MinecraftRepairActionKind.UpdateMod) && string.IsNullOrWhiteSpace(parameters.ModId))
+        {
+            return false;
+        }
+        if (action == MinecraftRepairActionKind.UpdateMod && string.IsNullOrWhiteSpace(parameters.ModVersion))
+            return false;
+        string rationale = element.TryGetProperty("rationale", out JsonElement rationaleElement) &&
+                           rationaleElement.ValueKind == JsonValueKind.String
+            ? SanitizeAnalysis(rationaleElement.GetString() ?? string.Empty)
+            : string.Empty;
+        step = new MinecraftAiRepairStep(
+            action,
+            SanitizeStage(stageElement.GetString()),
+            Math.Clamp(progressValue, 0d, 1d),
+            rationale,
+            parameters);
+        return true;
+    }
+
+    private async Task<ResolvedRuntime> ResolveRuntimeAsync(
         MinecraftAiModelOptions options,
         Action<MinecraftAiRepairProgress>? progress,
         CancellationToken cancellationToken)
@@ -200,23 +441,73 @@ internal sealed class MinecraftAiRepairAdvisor
             string customRuntime = options.RuntimePath.Trim();
             if (!File.Exists(customRuntime))
                 throw new FileNotFoundException("自定义 llama.cpp 可执行文件不存在。", customRuntime);
-            return Path.GetFullPath(customRuntime);
+            string fullPath = Path.GetFullPath(customRuntime);
+            bool customGpu = await ProbeGpuAsync(fullPath, cancellationToken).ConfigureAwait(false);
+            return new ResolvedRuntime(fullPath, customGpu, customGpu ? "自定义 GPU" : "自定义 CPU");
         }
         string? configured = Environment.GetEnvironmentVariable("PCL_LLAMA_CLI");
         if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured.Trim()))
-            return Path.GetFullPath(configured.Trim());
+        {
+            string fullPath = Path.GetFullPath(configured.Trim());
+            bool configuredGpu = await ProbeGpuAsync(fullPath, cancellationToken).ConfigureAwait(false);
+            return new ResolvedRuntime(fullPath, configuredGpu, configuredGpu ? "环境变量 GPU" : "环境变量 CPU");
+        }
+        string? pathExecutable = FindExecutable("llama-cli") ?? FindExecutable("llama");
+        if (pathExecutable is not null)
+        {
+            bool pathGpu = await ProbeGpuAsync(pathExecutable, cancellationToken).ConfigureAwait(false);
+            return new ResolvedRuntime(pathExecutable, pathGpu, pathGpu ? "PATH GPU" : "PATH CPU");
+        }
+
+        RuntimePackage cpuPackage = ResolveRuntimePackage();
+        RuntimePackage? gpuPackage = ResolveGpuRuntimePackage(cpuPackage.RuntimeId);
+        if (gpuPackage is not null)
+        {
+            progress?.Invoke(new MinecraftAiRepairProgress("准备显卡加速运行时", 0.02d, gpuPackage.Backend));
+            string gpuExecutable = await EnsureRuntimePackageAsync(gpuPackage, progress, cancellationToken)
+                .ConfigureAwait(false);
+            progress?.Invoke(new MinecraftAiRepairProgress("检测可用显卡", 0.145d, gpuPackage.Backend));
+            if (await ProbeGpuAsync(gpuExecutable, cancellationToken).ConfigureAwait(false))
+            {
+                progress?.Invoke(new MinecraftAiRepairProgress("已启用显卡推理", 0.15d, gpuPackage.Backend));
+                return new ResolvedRuntime(gpuExecutable, true, gpuPackage.Backend);
+            }
+            progress?.Invoke(new MinecraftAiRepairProgress("未发现可用显卡，切换 CPU", 0.15d, gpuPackage.Backend));
+        }
+
+        return await ResolveCpuRuntimeAsync(options, progress, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<ResolvedRuntime> ResolveCpuRuntimeAsync(
+        MinecraftAiModelOptions options,
+        Action<MinecraftAiRepairProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(options.RuntimePath))
+            return new ResolvedRuntime(Path.GetFullPath(options.RuntimePath.Trim()), false, "自定义 CPU");
+        string? configured = Environment.GetEnvironmentVariable("PCL_LLAMA_CLI");
+        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured.Trim()))
+            return new ResolvedRuntime(Path.GetFullPath(configured.Trim()), false, "环境变量 CPU");
+        string? pathExecutable = FindExecutable("llama-cli") ?? FindExecutable("llama");
+        if (pathExecutable is not null)
+            return new ResolvedRuntime(pathExecutable, false, "PATH CPU");
 
         RuntimePackage package = ResolveRuntimePackage();
+        string executable = await EnsureRuntimePackageAsync(package, progress, cancellationToken).ConfigureAwait(false);
+        return new ResolvedRuntime(executable, false, package.Backend);
+    }
+
+    private async Task<string> EnsureRuntimePackageAsync(
+        RuntimePackage package,
+        Action<MinecraftAiRepairProgress>? progress,
+        CancellationToken cancellationToken)
+    {
         string runtimeDirectory = Path.Combine(_rootDirectory, "runtime", package.RuntimeId);
         string localExecutable = Path.Combine(
             runtimeDirectory,
             OperatingSystem.IsWindows() ? "llama-cli.exe" : "llama-cli");
         if (File.Exists(localExecutable))
             return localExecutable;
-
-        string? pathExecutable = FindExecutable("llama-cli") ?? FindExecutable("llama");
-        if (pathExecutable is not null)
-            return pathExecutable;
 
         progress?.Invoke(new MinecraftAiRepairProgress("下载本地模型运行时", 0.02d, package.RuntimeId));
         string archivePath = Path.Combine(_rootDirectory, package.ArchiveFileName);
@@ -363,74 +654,552 @@ internal sealed class MinecraftAiRepairAdvisor
         return string.Equals(Convert.ToHexString(hash), expectedSha256, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task<string> RunInferenceAsync(
-        string executable,
-        string modelPath,
-        string prompt,
-        CancellationToken cancellationToken)
+    private static async Task<bool> ProbeGpuAsync(string executable, CancellationToken cancellationToken)
     {
         ProcessStartInfo startInfo = new()
         {
             FileName = executable,
             UseShellExecute = false,
             CreateNoWindow = true,
-            RedirectStandardInput = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             WorkingDirectory = Path.GetDirectoryName(executable) ?? Environment.CurrentDirectory
         };
         if (string.Equals(Path.GetFileNameWithoutExtension(executable), "llama", StringComparison.OrdinalIgnoreCase))
             startInfo.ArgumentList.Add("cli");
-        startInfo.ArgumentList.Add("-m");
-        startInfo.ArgumentList.Add(modelPath);
-        startInfo.ArgumentList.Add("-p");
-        startInfo.ArgumentList.Add(prompt);
-        startInfo.ArgumentList.Add("-n");
-        startInfo.ArgumentList.Add("384");
-        startInfo.ArgumentList.Add("-c");
-        startInfo.ArgumentList.Add("8192");
-        startInfo.ArgumentList.Add("--temp");
-        startInfo.ArgumentList.Add("0.1");
-        startInfo.ArgumentList.Add("--top-k");
-        startInfo.ArgumentList.Add("20");
-        startInfo.ArgumentList.Add("--no-display-prompt");
+        startInfo.ArgumentList.Add("--list-devices");
+        try
+        {
+            using Process process = Process.Start(startInfo)
+                                    ?? throw new InvalidOperationException("无法启动 llama.cpp 设备检测。");
+            Task<string> stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            Task<string> stderr = process.StandardError.ReadToEndAsync(cancellationToken);
+            using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            try
+            {
+                await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+                await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
+                return false;
+            }
+            catch (OperationCanceledException)
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+                await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
+                throw;
+            }
+            string devices = (await stdout.ConfigureAwait(false)) + "\n" + await stderr.ConfigureAwait(false);
+            if (process.ExitCode != 0 ||
+                devices.Contains("no devices", StringComparison.OrdinalIgnoreCase) ||
+                devices.Contains("no GPU", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            string[] softwareMarkers = ["llvmpipe", "swiftshader", "software rasterizer", "microsoft basic render"];
+            if (softwareMarkers.Any(marker => devices.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+                return false;
+            return devices.Contains("Vulkan", StringComparison.OrdinalIgnoreCase) ||
+                   devices.Contains("CUDA", StringComparison.OrdinalIgnoreCase) ||
+                   devices.Contains("Metal", StringComparison.OrdinalIgnoreCase) ||
+                   devices.Contains("OpenCL", StringComparison.OrdinalIgnoreCase) ||
+                   devices.Contains("ROCm", StringComparison.OrdinalIgnoreCase) ||
+                   devices.Contains("GPU", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            PortableLog.Debug(exception, "MinecraftRepairAI", "llama.cpp 显卡设备检测失败，将使用 CPU。");
+            return false;
+        }
+    }
+
+    private async Task<string> RunLocalInferenceWithFallbackAsync(
+        ResolvedRuntime runtime,
+        string modelPath,
+        MinecraftAiModelOptions options,
+        string prompt,
+        Action<MinecraftAiRepairProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await RunInferenceAsync(runtime, modelPath, prompt, progress, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception gpuException)
+            when (runtime.UseGpu && gpuException is not OperationCanceledException)
+        {
+            PortableLog.Warn(gpuException, "MinecraftRepairAI", "显卡推理失败，将回退 CPU 运行时重试。");
+            progress?.Invoke(new MinecraftAiRepairProgress(
+                "显卡推理不可用，切换 CPU",
+                0.74d,
+                SanitizeAnalysis(gpuException.Message)));
+            ResolvedRuntime cpuRuntime = await ResolveCpuRuntimeAsync(options, progress, cancellationToken)
+                .ConfigureAwait(false);
+            return await RunInferenceAsync(cpuRuntime, modelPath, prompt, progress, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<string> RunInferenceAsync(
+        ResolvedRuntime runtime,
+        string modelPath,
+        string prompt,
+        Action<MinecraftAiRepairProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ProcessStartInfo startInfo = CreateInferenceStartInfo(
+            runtime.ExecutablePath,
+            modelPath,
+            prompt,
+            runtime.UseGpu);
 
         using Process process = Process.Start(startInfo)
-                                ?? throw new InvalidOperationException("无法启动本地 0.5B 模型运行时。");
-        Task<string> stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        Task<string> stderr = process.StandardError.ReadToEndAsync(cancellationToken);
+                                 ?? throw new InvalidOperationException("无法启动本地 0.5B 模型运行时。");
+        PortableLog.Info(
+            "MinecraftRepairAI",
+            $"本地模型推理进程已启动；PID={process.Id}；Device={runtime.DeviceDescription}；GPU={runtime.UseGpu}。");
+        StringBuilder outputBuilder = new();
+        StringBuilder errorBuilder = new();
+        int receivedCharacters = 0;
+        Task stdout = ReadProcessLinesAsync(
+            process.StandardOutput,
+            outputBuilder,
+            line =>
+            {
+                Interlocked.Add(ref receivedCharacters, line.Length);
+                if (TryParseProgressEvent(line, out MinecraftAiRepairProgress? modelProgress) &&
+                    modelProgress is not null)
+                {
+                    progress?.Invoke(modelProgress with
+                    {
+                        Progress = 0.78d + (Math.Clamp(modelProgress.Progress, 0d, 1d) * 0.14d),
+                        Detail = runtime.DeviceDescription
+                    });
+                }
+            });
+        Task stderr = ReadProcessLinesAsync(process.StandardError, errorBuilder);
+        using CancellationTokenSource heartbeatCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task heartbeat = ReportInferenceHeartbeatAsync(
+            runtime,
+            () => Volatile.Read(ref receivedCharacters),
+            progress,
+            heartbeatCancellation.Token);
         using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromMinutes(3));
+        timeout.CancelAfter(runtime.UseGpu ? TimeSpan.FromMinutes(5) : TimeSpan.FromMinutes(8));
+        bool timedOut = false;
         try
         {
             await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+            timedOut = true;
         }
         catch (OperationCanceledException)
         {
             if (!process.HasExited)
                 process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
             throw;
         }
-        string output = await stdout.ConfigureAwait(false);
-        string error = await stderr.ConfigureAwait(false);
+        finally
+        {
+            heartbeatCancellation.Cancel();
+            try
+            {
+                await heartbeat.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+        await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
+        string output = outputBuilder.ToString();
+        string error = errorBuilder.ToString();
+        if (timedOut)
+        {
+            throw new TimeoutException(
+                $"本地模型在 {(runtime.UseGpu ? 5 : 8)} 分钟内没有完成推理。" +
+                (string.IsNullOrWhiteSpace(error) ? string.Empty : " llama.cpp：" + SanitizeAnalysis(error)));
+        }
         if (process.ExitCode != 0)
             throw new InvalidOperationException("本地模型推理失败：" + SanitizeAnalysis(error));
+        progress?.Invoke(new MinecraftAiRepairProgress("模型已完成推理", 0.93d, runtime.DeviceDescription));
         return output;
+    }
+
+    private async Task<string> RunOpenAiCompatibleInferenceAsync(
+        MinecraftAiModelOptions options,
+        string prompt,
+        Action<MinecraftAiRepairProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        Uri endpoint = ResolveChatCompletionsEndpoint(options.ApiBaseUrl);
+        string model = options.ApiModel?.Trim() ?? string.Empty;
+        string apiKey = options.ApiKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(model))
+            throw new InvalidOperationException("OpenAI 兼容 API 模型名不能为空。");
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new InvalidOperationException("尚未保存 OpenAI 兼容 API Key。");
+
+        JsonArray messages = [];
+        messages.Add((JsonNode)new JsonObject
+        {
+            ["role"] = "system",
+            ["content"] = "Use private reasoning when supported, but never reveal hidden chain-of-thought. " +
+                          "Return only the requested progress JSON lines, an optional context request, " +
+                          "and the final auditable repair plan."
+        });
+        messages.Add((JsonNode)new JsonObject { ["role"] = "user", ["content"] = prompt });
+        JsonObject payload = new()
+        {
+            ["model"] = model,
+            ["stream"] = true,
+            ["temperature"] = 0.1,
+            ["max_tokens"] = 900,
+            ["messages"] = messages
+        };
+        if (options.ReasoningEffort != MinecraftAiReasoningEffort.None)
+        {
+            payload["reasoning_effort"] = options.ReasoningEffort switch
+            {
+                MinecraftAiReasoningEffort.Low => "low",
+                MinecraftAiReasoningEffort.High => "high",
+                _ => "medium"
+            };
+        }
+
+        using HttpRequestMessage request = new(HttpMethod.Post, endpoint)
+        {
+            Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json")
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        PortableLog.Info(
+            "MinecraftRepairAI",
+            $"开始调用 OpenAI 兼容 API；Endpoint={endpoint.GetLeftPart(UriPartial.Path)}；Model={model}；" +
+            $"Reasoning={options.ReasoningEffort}。");
+
+        int reasoningCharacters = 0;
+        int answerCharacters = 0;
+        using CancellationTokenSource heartbeatCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task heartbeat = ReportApiHeartbeatAsync(
+            model,
+            () => Volatile.Read(ref reasoningCharacters),
+            () => Volatile.Read(ref answerCharacters),
+            progress,
+            heartbeatCancellation.Token);
+        try
+        {
+            using HttpResponseMessage response = await _httpClient.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                string error = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                throw new HttpRequestException(
+                    $"OpenAI 兼容 API 返回 HTTP {(int)response.StatusCode}：{SanitizeAnalysis(error)}");
+            }
+
+            string? mediaType = response.Content.Headers.ContentType?.MediaType;
+            if (!string.Equals(mediaType, "text/event-stream", StringComparison.OrdinalIgnoreCase))
+            {
+                string json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                string content = ExtractChatCompletionContent(json);
+                Interlocked.Add(ref answerCharacters, content.Length);
+                return content;
+            }
+
+            await using Stream responseStream = await response.Content.ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            using StreamReader reader = new(responseStream, Encoding.UTF8);
+            StringBuilder answer = new();
+            StringBuilder pendingLine = new();
+            while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
+            {
+                if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string data = line[5..].Trim();
+                if (data.Length == 0 || string.Equals(data, "[DONE]", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                using JsonDocument chunk = JsonDocument.Parse(data);
+                JsonElement choice = chunk.RootElement.TryGetProperty("choices", out JsonElement choices) &&
+                                     choices.ValueKind == JsonValueKind.Array &&
+                                     choices.GetArrayLength() > 0
+                    ? choices[0]
+                    : default;
+                if (choice.ValueKind != JsonValueKind.Object ||
+                    !choice.TryGetProperty("delta", out JsonElement delta))
+                {
+                    continue;
+                }
+                string reasoning = ReadJsonText(delta, "reasoning_content") ??
+                                   ReadJsonText(delta, "reasoning") ?? string.Empty;
+                if (reasoning.Length > 0)
+                    Interlocked.Add(ref reasoningCharacters, reasoning.Length);
+                string content = ReadJsonText(delta, "content") ?? string.Empty;
+                if (content.Length == 0)
+                    continue;
+                answer.Append(content);
+                pendingLine.Append(content);
+                Interlocked.Add(ref answerCharacters, content.Length);
+                ReportCompletedApiLines(pendingLine, progress);
+            }
+            return answer.ToString();
+        }
+        finally
+        {
+            heartbeatCancellation.Cancel();
+            try
+            {
+                await heartbeat.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+    }
+
+    private static Uri ResolveChatCompletionsEndpoint(string? baseUrl)
+    {
+        if (!Uri.TryCreate(baseUrl?.Trim(), UriKind.Absolute, out Uri? baseUri) ||
+            baseUri.Scheme is not ("https" or "http") ||
+            baseUri.Scheme == "http" && !baseUri.IsLoopback)
+        {
+            throw new InvalidOperationException("OpenAI 兼容 API 地址必须是 HTTPS；仅本机地址可使用 HTTP。");
+        }
+        string value = baseUri.ToString().TrimEnd('/');
+        return value.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)
+            ? new Uri(value)
+            : new Uri(value + "/chat/completions");
+    }
+
+    private static string ExtractChatCompletionContent(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        if (!document.RootElement.TryGetProperty("choices", out JsonElement choices) ||
+            choices.ValueKind != JsonValueKind.Array ||
+            choices.GetArrayLength() == 0 ||
+            !choices[0].TryGetProperty("message", out JsonElement message) ||
+            ReadJsonText(message, "content") is not { } content)
+        {
+            throw new InvalidDataException("OpenAI 兼容 API 响应缺少 choices[0].message.content。");
+        }
+        return content;
+    }
+
+    private static string? ReadJsonText(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out JsonElement value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private static void ReportCompletedApiLines(
+        StringBuilder pendingLine,
+        Action<MinecraftAiRepairProgress>? progress)
+    {
+        while (true)
+        {
+            int newline = pendingLine.ToString().IndexOf('\n');
+            if (newline < 0)
+                return;
+            string line = pendingLine.ToString(0, newline).TrimEnd('\r');
+            pendingLine.Remove(0, newline + 1);
+            if (TryParseProgressEvent(line, out MinecraftAiRepairProgress? modelProgress) &&
+                modelProgress is not null)
+            {
+                progress?.Invoke(modelProgress with
+                {
+                    Progress = 0.78d + (Math.Clamp(modelProgress.Progress, 0d, 1d) * 0.14d),
+                    Detail = "OpenAI 兼容 API"
+                });
+            }
+        }
+    }
+
+    private static async Task ReportApiHeartbeatAsync(
+        string model,
+        Func<int> reasoningCharacters,
+        Func<int> answerCharacters,
+        Action<MinecraftAiRepairProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        while (true)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            int reasoning = reasoningCharacters();
+            int answer = answerCharacters();
+            string stage = reasoning > 0
+                ? "在线模型正在进行 thinking 推理"
+                : answer > 0 ? "在线模型正在生成链式修复计划" : "等待在线模型响应";
+            progress?.Invoke(new MinecraftAiRepairProgress(
+                stage,
+                Math.Min(0.92d, 0.75d + (stopwatch.Elapsed.TotalSeconds / 600d * 0.17d)),
+                $"{model} · {stopwatch.Elapsed:mm\\:ss}" +
+                (answer > 0 ? $" · 已生成 {answer} 字符" : string.Empty)));
+        }
+    }
+
+    internal static ProcessStartInfo CreateInferenceStartInfo(
+        string executablePath,
+        string modelPath,
+        string prompt,
+        bool useGpu)
+    {
+        ProcessStartInfo startInfo = new()
+        {
+            FileName = executablePath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? Environment.CurrentDirectory
+        };
+        if (string.Equals(Path.GetFileNameWithoutExtension(executablePath), "llama", StringComparison.OrdinalIgnoreCase))
+            startInfo.ArgumentList.Add("cli");
+        startInfo.ArgumentList.Add("-m");
+        startInfo.ArgumentList.Add(modelPath);
+        startInfo.ArgumentList.Add("-p");
+        startInfo.ArgumentList.Add(prompt);
+        startInfo.ArgumentList.Add("-n");
+        startInfo.ArgumentList.Add("640");
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add("4096");
+        startInfo.ArgumentList.Add("-ngl");
+        startInfo.ArgumentList.Add(useGpu ? "all" : "0");
+        startInfo.ArgumentList.Add("--temp");
+        startInfo.ArgumentList.Add("0.1");
+        startInfo.ArgumentList.Add("--top-k");
+        startInfo.ArgumentList.Add("20");
+        startInfo.ArgumentList.Add("--no-display-prompt");
+        // Newer llama.cpp releases automatically enter interactive conversation mode for models
+        // with a chat template. Explicitly disable it so a subprocess run exits after one answer.
+        startInfo.ArgumentList.Add("--no-conversation");
+        startInfo.ArgumentList.Add("--simple-io");
+        return startInfo;
+    }
+
+    private static async Task ReadProcessLinesAsync(
+        StreamReader reader,
+        StringBuilder destination,
+        Action<string>? lineReceived = null)
+    {
+        while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+        {
+            destination.AppendLine(line);
+            lineReceived?.Invoke(line);
+        }
+    }
+
+    private static async Task ReportInferenceHeartbeatAsync(
+        ResolvedRuntime runtime,
+        Func<int> receivedCharacters,
+        Action<MinecraftAiRepairProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        while (true)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            double seconds = stopwatch.Elapsed.TotalSeconds;
+            string stage = seconds switch
+            {
+                < 5d => "正在将模型载入内存",
+                < 15d => "模型正在读取错误与模组信息",
+                _ => "模型正在推理修复方案"
+            };
+            double currentProgress = Math.Min(0.92d, 0.75d + (seconds / 600d * 0.17d));
+            int received = receivedCharacters();
+            string detail = $"{runtime.DeviceDescription} · {stopwatch.Elapsed:mm\\:ss}" +
+                            (received > 0 ? $" · 已生成 {received} 字符" : string.Empty);
+            progress?.Invoke(new MinecraftAiRepairProgress(stage, currentProgress, detail));
+        }
+    }
+
+    internal static bool TryParseProgressEvent(string line, out MinecraftAiRepairProgress? progress)
+    {
+        progress = null;
+        int start = line.IndexOf('{');
+        int end = line.LastIndexOf('}');
+        if (start < 0 || end <= start)
+            return false;
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(line[start..(end + 1)]);
+            JsonElement root = document.RootElement;
+            if (!root.TryGetProperty("type", out JsonElement type) ||
+                !string.Equals(type.GetString(), "progress", StringComparison.OrdinalIgnoreCase) ||
+                !root.TryGetProperty("stage", out JsonElement stage) ||
+                stage.ValueKind != JsonValueKind.String ||
+                !root.TryGetProperty("progress", out JsonElement progressElement) ||
+                !progressElement.TryGetDouble(out double progressValue))
+            {
+                return false;
+            }
+            progress = new MinecraftAiRepairProgress(
+                SanitizeStage(stage.GetString()),
+                Math.Clamp(progressValue, 0d, 1d));
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static string BuildPrompt(
         MinecraftLaunchFaultReport fault,
         IReadOnlyList<string> crashLines,
         IReadOnlyList<MinecraftModMetadata> installedMods,
+        MinecraftAiRepairContext repairContext,
         string languageCode)
     {
         string actions = string.Join(',', fault.AllowedActions.Select(action => action.ToString()));
         StringBuilder evidence = new();
+        foreach (string line in fault.Evidence.Where(line => !string.IsNullOrWhiteSpace(line)).TakeLast(24))
+        {
+            if (evidence.Length >= 2_000)
+                break;
+            string safeLine = PortableLog.Redact(line);
+            evidence.Append("[structured] ")
+                .AppendLine(safeLine.Length > 512 ? safeLine[..512] : safeLine);
+        }
+        foreach (string line in (fault.StackTrace ?? string.Empty).Split(
+                     ['\r', '\n'],
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).TakeLast(16))
+        {
+            if (evidence.Length >= 3_500)
+                break;
+            string safeLine = PortableLog.Redact(line);
+            evidence.Append("[stack] ")
+                .AppendLine(safeLine.Length > 512 ? safeLine[..512] : safeLine);
+        }
         foreach (string line in crashLines.Where(line => !string.IsNullOrWhiteSpace(line)).TakeLast(80))
         {
             if (evidence.Length >= 6_000)
                 break;
-            evidence.AppendLine(line.Length > 512 ? line[..512] : line);
+            string safeLine = PortableLog.Redact(line);
+            evidence.AppendLine(safeLine.Length > 512 ? safeLine[..512] : safeLine);
         }
         string outputLanguage = languageCode.StartsWith("en", StringComparison.OrdinalIgnoreCase)
             ? "English"
@@ -448,18 +1217,55 @@ internal sealed class MinecraftAiRepairAdvisor
                 .Append("; depends=").AppendJoin(',', mod.Dependencies.Take(12))
                 .AppendLine();
         }
-        return "你是 PCL N 的离线 Minecraft 崩溃分析器。常规分析器已经给出结构化证据；请生成清楚、克制的分析。" +
-               "只能从允许动作中选择一个；不得生成命令或文件路径。模组操作只能使用下方 metadata 中存在的 modId，DownloadMod 除外。\n" +
+        string lastClass = PortableLog.Redact(fault.LastClassName);
+        if (string.IsNullOrWhiteSpace(lastClass))
+            lastClass = "未知";
+        return "你是 PCL N 的 Minecraft 崩溃分析器。常规分析器已经给出结构化证据；请生成清楚、克制的分析。" +
+               "你可以给出 1 到 4 个有先后依赖的修复步骤；每一步只能从允许动作中选择，不得生成命令或文件路径。" +
+               "不要输出隐藏思维过程，只输出可审计的步骤依据。模组操作只能使用下方 metadata 中存在的 modId，DownloadMod 除外。\n" +
                $"analysisMarkdown 必须使用 {outputLanguage}。\n" +
-               "严格输出一行 JSON：{\"action\":\"允许动作之一\",\"analysisMarkdown\":\"含原因、证据、处理建议的 Markdown，不超过300字\",\"confidence\":0到1," +
-               "\"stage\":\"当前修复阶段，最多32字\",\"progress\":0到1," +
-               "\"modId\":null,\"modVersion\":null,\"javaMajorVersion\":null,\"loaderKind\":null,\"loaderVersion\":null}\n" +
+               "先分别输出两行进度 JSON，每行必须立即换行：" +
+               "{\"type\":\"progress\",\"stage\":\"正在归纳异常\",\"progress\":0.25} 和 " +
+               "{\"type\":\"progress\",\"stage\":\"正在匹配安全修复动作\",\"progress\":0.7}。\n" +
+               "如果摘要不足以判断，在进度行之后可以改为只输出一行上下文请求 JSON：" +
+               "{\"type\":\"context_request\",\"scopes\":[\"environment\",\"instance\",\"crash_reports\",\"runtime_logs\",\"launch_method\",\"login_method\"]," +
+               "\"stage\":\"正在读取必要信息\",\"progress\":0.8}。scopes 只选择确实需要的类别；宿主只会返回脱敏的只读信息，且只允许请求一次。\n" +
+               "信息足够时，最后严格输出一行结果 JSON：{\"type\":\"result\",\"analysisMarkdown\":\"含原因、证据、处理建议的 Markdown，不超过300字\",\"confidence\":0到1," +
+               "\"steps\":[{\"action\":\"允许动作之一\",\"stage\":\"当前步骤，最多32字\",\"progress\":0到1," +
+               "\"rationale\":\"该步骤的简短可审计依据\",\"modId\":null,\"modVersion\":null,\"javaMajorVersion\":null," +
+               "\"loaderKind\":null,\"loaderVersion\":null}]}\n" +
                "DisableMod 必须给出已安装 modId；UpdateMod 必须给出已安装 modId 和目标 modVersion；DownloadMod 必须给出项目 modId。" +
                "Java 与加载器字段仅是建议，宿主会重新验证兼容性和可用版本。\n" +
+               $"当前环境：Minecraft={repairContext.MinecraftVersion}；Loader={repairContext.Loader}；" +
+               $"Java={repairContext.JavaMajorVersion?.ToString(CultureInfo.InvariantCulture) ?? "未知"}；" +
+               $"内存MiB={repairContext.MemoryMegabytes?.ToString(CultureInfo.InvariantCulture) ?? "未知"}；" +
+               $"系统={repairContext.OperatingSystem}/{repairContext.Architecture}；" +
+               $"模组数={repairContext.InstalledModCount}；错误日志行数={repairContext.CrashLogLineCount}\n" +
                $"允许动作：{actions}\n错误代码：{fault.Code}\n子系统：{fault.Subsystem}\n节点：{fault.Stage}\n" +
-               $"最后类：{fault.LastClassName ?? "未知"}\n异常：{fault.ExceptionType}: {fault.Message}\n" +
+               $"最后类：{lastClass}\n" +
+               $"异常：{PortableLog.Redact(fault.ExceptionType)}: {PortableLog.Redact(fault.Message)}\n" +
                $"已安装模组 metadata：\n{modMetadata}日志：\n{evidence}";
     }
+
+    internal static string BoundDetailedContext(string value, int maximumLength)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumLength);
+        if (value.Length <= maximumLength)
+            return value;
+
+        const string marker = "\n[上下文中段已由宿主截断]\n";
+        int available = maximumLength - marker.Length;
+        if (available <= 1)
+            return value[..maximumLength];
+        int headLength = available / 2;
+        int tailLength = available - headLength;
+        return value[..headLength] + marker + value[^tailLength..];
+    }
+
+    private static string BuildContextDetail(MinecraftAiRepairContext context) =>
+        $"Minecraft {context.MinecraftVersion} · {context.Loader} · " +
+        (context.JavaMajorVersion is { } java ? $"Java {java} · " : string.Empty) +
+        $"{context.InstalledModCount} 个模组 · {context.CrashLogLineCount} 行错误信息";
 
     private static string SanitizeStage(string? value)
     {
@@ -504,15 +1310,64 @@ internal sealed class MinecraftAiRepairAdvisor
             "osx-arm64" => ("llama-b9637-bin-macos-arm64.tar.gz", "72a93f3e68c31de3e438d462669aad1fcdb423b995e9c41033cc7d27a9a3ac69"),
             _ => throw new PlatformNotSupportedException("不支持的模型运行时 RID：" + runtimeId)
         };
-        return new RuntimePackage(
+        return CreateRuntimePackage(runtimeId, archive, sha256, "CPU");
+    }
+
+    internal static RuntimePackage? ResolveGpuRuntimePackage(string runtimeId)
+    {
+        (string packageId, string archive, string sha256, string backend)? package = runtimeId switch
+        {
+            "win-x64" => (
+                "win-x64-vulkan",
+                "llama-b9637-bin-win-vulkan-x64.zip",
+                "a353945604cffdac3d0d6da6392de78ca565a531a6f2ff3521f44b9b7c6e553f",
+                "Vulkan GPU"),
+            "win-arm64" => (
+                "win-arm64-opencl",
+                "llama-b9637-bin-win-opencl-adreno-arm64.zip",
+                "5aefa4f2a80630a471662539ef530f61fb4a5a14fd4e557e8edef3e6757614a6",
+                "OpenCL GPU"),
+            "linux-x64" => (
+                "linux-x64-vulkan",
+                "llama-b9637-bin-ubuntu-vulkan-x64.tar.gz",
+                "6ca268d758aae9e8518afa43042678e8b60b47f0d34df7d6efff4ca622c74313",
+                "Vulkan GPU"),
+            "linux-arm64" => (
+                "linux-arm64-vulkan",
+                "llama-b9637-bin-ubuntu-vulkan-arm64.tar.gz",
+                "65f64966d412fbf64e6d024b206dbb63615bf19eb94631c02907e3927995c74e",
+                "Vulkan GPU"),
+            "osx-x64" => (
+                "osx-x64-metal",
+                "llama-b9637-bin-macos-x64.tar.gz",
+                "71743f8db0958e7c266cceb7add7b16aa418a964667e471094aa6ae65b9c8298",
+                "Metal GPU"),
+            "osx-arm64" => (
+                "osx-arm64-metal",
+                "llama-b9637-bin-macos-arm64.tar.gz",
+                "72a93f3e68c31de3e438d462669aad1fcdb423b995e9c41033cc7d27a9a3ac69",
+                "Metal GPU"),
+            _ => null
+        };
+        return package is { } value
+            ? CreateRuntimePackage(value.packageId, value.archive, value.sha256, value.backend)
+            : null;
+    }
+
+    private static RuntimePackage CreateRuntimePackage(
+        string runtimeId,
+        string archive,
+        string sha256,
+        string backend) =>
+        new(
             runtimeId,
             archive,
             sha256,
             [
                 new Uri($"https://sourceforge.net/projects/llama-cpp.mirror/files/b9637/{archive}/download"),
                 new Uri($"https://github.com/ggml-org/llama.cpp/releases/download/b9637/{archive}")
-            ]);
-    }
+            ],
+            backend);
 
     private static void ExtractRuntimeArchive(string archivePath, string destinationDirectory)
     {
@@ -550,7 +1405,10 @@ internal sealed class MinecraftAiRepairAdvisor
         string RuntimeId,
         string ArchiveFileName,
         string Sha256,
-        IReadOnlyList<Uri> Urls);
+        IReadOnlyList<Uri> Urls,
+        string Backend);
+
+    private sealed record ResolvedRuntime(string ExecutablePath, bool UseGpu, string DeviceDescription);
 
     private static string? ReadSafeToken(JsonElement root, string propertyName, int maximumLength)
     {
@@ -600,8 +1458,25 @@ internal sealed class MinecraftAiRepairAdvisor
 
     private static string SanitizeAnalysis(string value)
     {
-        string normalized = value.Replace("\0", string.Empty, StringComparison.Ordinal).Trim();
+        string normalized = PortableLog.Redact(value)
+            .Replace("\0", string.Empty, StringComparison.Ordinal)
+            .Trim();
         return normalized.Length <= 1_500 ? normalized : normalized[..1_500];
+    }
+
+    private static string RemoveThinkingBlocks(string value)
+    {
+        string result = value;
+        while (true)
+        {
+            int start = result.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
+            if (start < 0)
+                return result;
+            int end = result.IndexOf("</think>", start + 7, StringComparison.OrdinalIgnoreCase);
+            result = end < 0
+                ? result[..start]
+                : result.Remove(start, end + 8 - start);
+        }
     }
 
     private static string FormatBytes(long bytes) => bytes switch
