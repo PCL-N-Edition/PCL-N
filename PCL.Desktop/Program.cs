@@ -4,11 +4,11 @@
 
 using Avalonia;
 using Avalonia.Platform;
+using PCL.Application.Settings;
 using PCL.Desktop.Diagnostics;
+using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Platform;
-using PCL.Desktop.Features.Settings.Views;
-using PCL.Application.Settings;
 
 namespace PCL.Desktop;
 
@@ -69,7 +69,8 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp()
     {
         AppBuilder builder = AppBuilder.Configure<App>()
-            .UsePlatformDetect();
+            .UsePlatformDetect()
+            .WithInterFont();
 
         if (DesktopDisplayBackendSelector.ShouldUseWaylandForCurrentProcess())
         {
