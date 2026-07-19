@@ -3,13 +3,14 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Avalonia;
+using Avalonia.Fonts.Inter;
 using Avalonia.Platform;
+using PCL.Application.Settings;
 using PCL.Desktop.Diagnostics;
+using PCL.Desktop.Features.Launching;
+using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Platform;
-using PCL.Desktop.Features.Settings.Views;
-using PCL.Application.Settings;
-using PCL.Desktop.Features.Launching;
 
 namespace PCL.Desktop;
 
@@ -75,7 +76,8 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp()
     {
         AppBuilder builder = AppBuilder.Configure<App>()
-            .UsePlatformDetect();
+            .UsePlatformDetect()
+            .WithInterFont();
 
         if (DesktopDisplayBackendSelector.ShouldUseWaylandForCurrentProcess())
         {
