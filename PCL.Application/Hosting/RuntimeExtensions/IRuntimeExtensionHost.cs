@@ -18,6 +18,7 @@ internal interface IRuntimeExtensionHost
     IHostSecureStorage SecureStorage { get; }
     IHostUriLauncher UriLauncher { get; }
     IHostWindowActivation WindowActivation { get; }
+    IHostFeedbackSubmissionService FeedbackSubmission { get; }
     IProcessService? Processes { get; }
     IHostClipboard? Clipboard { get; }
     IAccountProviderRegistry Accounts { get; }
@@ -254,6 +255,23 @@ internal interface IHostWindowActivation
 {
     ValueTask ActivateAsync(CancellationToken cancellationToken = default);
 }
+
+internal interface IHostFeedbackSubmissionService
+{
+    bool IsAvailable { get; }
+    IDisposable Register(IHostFeedbackSubmissionHandler handler);
+    Task<HostFeedbackSubmissionResult> SubmitAsync(CancellationToken cancellationToken = default);
+}
+
+internal interface IHostFeedbackSubmissionHandler
+{
+    Task<HostFeedbackSubmissionResult> SubmitAsync(CancellationToken cancellationToken = default);
+}
+
+internal sealed record HostFeedbackSubmissionResult(
+    bool Submitted,
+    string Message,
+    string? IssueUrl = null);
 
 internal static class RuntimeExtensionHostAccess
 {

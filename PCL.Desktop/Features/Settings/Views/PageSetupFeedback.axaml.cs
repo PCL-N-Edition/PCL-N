@@ -11,6 +11,7 @@ using System.Text.Json;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Localization;
+using PCL.Application.Hosting.RuntimeExtensions;
 
 #pragma warning disable CA1822, CS0067
 
@@ -19,8 +20,6 @@ namespace PCL.Desktop.Features.Settings.Views;
 public partial class PageSetupFeedback : MyPageRight, IRefreshableSettingsPage, ISettingsPageInteractionSource, IDisposable
 {
     private const string IssuesApiBase = "https://api.github.com/repos/MuXue1230-owo/PCL-N/issues?state=all&sort=created&direction=desc&per_page=100&page=";
-    private static readonly Uri NewIssueUri = new("https://github.com/MuXue1230-owo/PCL-N/issues/new/choose");
-
     private readonly List<FeedbackItem> _feedbackItems = [];
     private readonly HttpClient _client;
     private readonly bool _ownsClient;
@@ -142,9 +141,26 @@ public partial class PageSetupFeedback : MyPageRight, IRefreshableSettingsPage, 
         }
     }
 
-    private void Feedback_Click(object? sender, EventArgs e)
+    private async void Feedback_Click(object? sender, EventArgs e)
     {
-        OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(NewIssueUri.ToString()));
+        try
+        {
+            HostFeedbackSubmissionResult result = await RuntimeExtensionHostAccess.Current.FeedbackSubmission
+                .SubmitAsync()
+                .ConfigureAwait(true);
+            if (!result.Submitted)
+                return;
+            MessageRequested?.Invoke(
+                this,
+                new SettingsMessageRequestedEventArgs("反馈已提交", result.Message));
+            RefreshPage();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or HttpRequestException)
+        {
+            MessageRequested?.Invoke(
+                this,
+                new SettingsMessageRequestedEventArgs("无法提交反馈", ex.Message));
+        }
     }
 
     private MyListItem CreateFeedbackItem(FeedbackItem item, string icon)

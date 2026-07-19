@@ -34,7 +34,8 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
         IHostBackgroundTasks? backgroundTasks = null,
         IHostFileArtifactRegistry? fileArtifacts = null,
         IHostLocalization? localization = null,
-        IHostWindowActivation? windowActivation = null)
+        IHostWindowActivation? windowActivation = null,
+        IHostFeedbackSubmissionService? feedbackSubmission = null)
     {
         SettingsPageGroups = settingsPageGroups ?? throw new ArgumentNullException(nameof(settingsPageGroups));
         SettingsPages = settingsPages ?? throw new ArgumentNullException(nameof(settingsPages));
@@ -45,6 +46,7 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
         SecureStorage = secureStorage ?? InMemoryHostSecureStorage.Instance;
         UriLauncher = uriLauncher ?? UnavailableHostUriLauncher.Instance;
         WindowActivation = windowActivation ?? NullHostWindowActivation.Instance;
+        FeedbackSubmission = feedbackSubmission ?? new HostFeedbackSubmissionRegistry();
         Processes = processes;
         Clipboard = clipboard;
         Accounts = accounts ?? new AccountProviderRegistry();
@@ -70,6 +72,7 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
     public IHostSecureStorage SecureStorage { get; }
     public IHostUriLauncher UriLauncher { get; }
     public IHostWindowActivation WindowActivation { get; }
+    public IHostFeedbackSubmissionService FeedbackSubmission { get; }
     public IProcessService? Processes { get; }
     public IHostClipboard? Clipboard { get; }
     public IAccountProviderRegistry Accounts { get; }
@@ -202,6 +205,63 @@ internal sealed class NullHostWindowActivation : IHostWindowActivation
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.CompletedTask;
+    }
+}
+
+internal sealed class HostFeedbackSubmissionRegistry : IHostFeedbackSubmissionService
+{
+    private readonly object _sync = new();
+    private IHostFeedbackSubmissionHandler? _handler;
+
+    public bool IsAvailable
+    {
+        get
+        {
+            lock (_sync)
+                return _handler is not null;
+        }
+    }
+
+    public IDisposable Register(IHostFeedbackSubmissionHandler handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        lock (_sync)
+        {
+            if (_handler is not null)
+                throw new InvalidOperationException("A launcher feedback submission handler is already registered.");
+            _handler = handler;
+        }
+        return new Registration(this, handler);
+    }
+
+    public Task<HostFeedbackSubmissionResult> SubmitAsync(CancellationToken cancellationToken = default)
+    {
+        IHostFeedbackSubmissionHandler? handler;
+        lock (_sync)
+            handler = _handler;
+        return handler is null
+            ? Task.FromException<HostFeedbackSubmissionResult>(
+                new NotSupportedException("当前构建未加载 PCL.Plugin，无法在启动器内提交反馈。"))
+            : handler.SubmitAsync(cancellationToken);
+    }
+
+    private sealed class Registration(
+        HostFeedbackSubmissionRegistry owner,
+        IHostFeedbackSubmissionHandler handler) : IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            lock (owner._sync)
+            {
+                if (ReferenceEquals(owner._handler, handler))
+                    owner._handler = null;
+            }
+            _disposed = true;
+        }
     }
 }
 

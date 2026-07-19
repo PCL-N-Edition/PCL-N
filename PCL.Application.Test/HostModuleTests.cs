@@ -7,6 +7,7 @@ using PCL.Application.Accounts;
 using PCL.Application.Downloads;
 using PCL.Application.Extensions;
 using PCL.Application.Hosting;
+using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Application.Launching;
 using PCL.Application.Settings;
 using PCL.UI.Abstractions.Commands;
@@ -19,6 +20,20 @@ namespace PCL.Application.Test;
 [TestClass]
 public sealed class HostModuleTests
 {
+    [TestMethod]
+    public async Task RuntimeExtensionHostFeedbackRegistryOwnsSubmissionHandler()
+    {
+        HostFeedbackSubmissionRegistry registry = new();
+        Assert.IsFalse(registry.IsAvailable);
+
+        using IDisposable registration = registry.Register(new StubFeedbackSubmissionHandler());
+        Assert.IsTrue(registry.IsAvailable);
+        HostFeedbackSubmissionResult result = await registry.SubmitAsync();
+
+        Assert.IsTrue(result.Submitted);
+        Assert.AreEqual("submitted", result.Message);
+    }
+
     [TestMethod]
     public void Build_ReturnsRegistriesPopulatedByHostModule()
     {
@@ -376,5 +391,11 @@ public sealed class HostModuleTests
             LaunchPipelineNext nextMiddleware,
             CancellationToken cancellationToken) =>
             nextMiddleware(context, cancellationToken);
+    }
+
+    private sealed class StubFeedbackSubmissionHandler : IHostFeedbackSubmissionHandler
+    {
+        public Task<HostFeedbackSubmissionResult> SubmitAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new HostFeedbackSubmissionResult(true, "submitted"));
     }
 }
