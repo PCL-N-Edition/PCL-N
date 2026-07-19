@@ -19,6 +19,7 @@ internal static class EmbeddedRuntimeExtensionLoader
     internal const string UiResourceName = "PCL.Desktop.Embedded.PCL.N.Plugin.UI.dll";
     internal const string UiAvaloniaResourceName = "PCL.Desktop.Embedded.PCL.N.Plugin.UI.Avalonia.dll";
     internal const string BouncyCastleResourceName = "PCL.Desktop.Embedded.BouncyCastle.Cryptography.dll";
+    internal const string HarmonyResourceName = "PCL.Desktop.Embedded.0Harmony.dll";
     internal const string JsonCanonicalizerResourceName = "PCL.Desktop.Embedded.jsoncanonicalizer.dll";
     internal const string Es6NumberSerializerResourceName = "PCL.Desktop.Embedded.es6numberserializer.dll";
 
@@ -54,6 +55,7 @@ internal static class EmbeddedRuntimeExtensionLoader
                 LoadRequiredDependency(Es6NumberSerializerResourceName);
                 LoadRequiredDependency(JsonCanonicalizerResourceName);
                 LoadRequiredDependency(BouncyCastleResourceName);
+                LoadRequiredDependency(HarmonyResourceName);
             }
 
             _loadedAssembly = LoadResourceAssembly(ResourceName);

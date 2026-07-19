@@ -155,6 +155,10 @@
                       Condition="'$(PclPluginBouncyCastleAssembly)' != '' and Exists('$(PclPluginBouncyCastleAssembly)')">
       <LogicalName>PCL.Desktop.Embedded.BouncyCastle.Cryptography.dll</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="$(PclPluginHarmonyAssembly)"
+                      Condition="'$(PclPluginHarmonyAssembly)' != '' and Exists('$(PclPluginHarmonyAssembly)')">
+      <LogicalName>PCL.Desktop.Embedded.0Harmony.dll</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="$(PclPluginJsonCanonicalizerAssembly)"
                       Condition="'$(PclPluginJsonCanonicalizerAssembly)' != '' and Exists('$(PclPluginJsonCanonicalizerAssembly)')">
       <LogicalName>PCL.Desktop.Embedded.jsoncanonicalizer.dll</LogicalName>
@@ -181,6 +185,8 @@
            Text="PCL.Plugin requires PCL.N.Plugin.UI.Avalonia in the default load context: $(PclPluginUiAvaloniaAssembly)" />
     <Error Condition="'$(PclPluginBouncyCastleAssembly)' == '' or !Exists('$(PclPluginBouncyCastleAssembly)')"
            Text="PCL.Plugin requires BouncyCastle.Cryptography: $(PclPluginBouncyCastleAssembly)" />
+    <Error Condition="'$(PclPluginHarmonyAssembly)' == '' or !Exists('$(PclPluginHarmonyAssembly)')"
+           Text="PCL.Plugin requires 0Harmony: $(PclPluginHarmonyAssembly)" />
     <Error Condition="'$(PclPluginJsonCanonicalizerAssembly)' == '' or !Exists('$(PclPluginJsonCanonicalizerAssembly)')"
            Text="PCL.Plugin requires jsoncanonicalizer: $(PclPluginJsonCanonicalizerAssembly)" />
     <Error Condition="'$(PclPluginEs6NumberSerializerAssembly)' == '' or !Exists('$(PclPluginEs6NumberSerializerAssembly)')"

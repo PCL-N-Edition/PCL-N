@@ -659,6 +659,7 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "PclPluginUiAssembly");
         StringAssert.Contains(reusable, "PclPluginUiAvaloniaAssembly");
         StringAssert.Contains(reusable, "PclPluginBouncyCastleAssembly");
+        StringAssert.Contains(reusable, "PclPluginHarmonyAssembly");
         StringAssert.Contains(reusable, "PclPluginJsonCanonicalizerAssembly");
         StringAssert.Contains(reusable, "PclPluginEs6NumberSerializerAssembly");
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
@@ -703,6 +704,7 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(loaderSource, "LoadRequiredDependency(I18nResourceName)");
         StringAssert.Contains(loaderSource, "LoadRequiredDependency(SdkResourceName)");
         StringAssert.Contains(loaderSource, "LoadRequiredDependency(BouncyCastleResourceName)");
+        StringAssert.Contains(loaderSource, "LoadRequiredDependency(HarmonyResourceName)");
         StringAssert.Contains(loaderSource, "LoadRequiredDependency(JsonCanonicalizerResourceName)");
         StringAssert.Contains(loaderSource, "LoadRequiredDependency(Es6NumberSerializerResourceName)");
         Assert.IsFalse(solutionSource.Contains("PCL.Plugin", StringComparison.Ordinal));
