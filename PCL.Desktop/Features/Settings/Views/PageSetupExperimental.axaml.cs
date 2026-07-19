@@ -80,7 +80,7 @@ public partial class PageSetupExperimental : MyPageRight, ISettingsPageInteracti
         string message = AvaloniaLocalizationManager.GetText(
             "Setup.Experimental.AiRepair.Confirm.Message",
             "优势：游戏崩溃后仍由常规分析器先定位。模型可生成易读说明，并在错误处理器的白名单内给出最多四步的链式修复计划；本地模式会优先使用 GPU，也可连接用户配置的 OpenAI 兼容 API。\n\n" +
-            "危害：内置模型首次使用需下载约 491 MB 模型和约 10–37 MB 运行时，通常额外占用约 0.8–1.5 GB 内存；模型可能误判。在线模式会把模型明确请求的、经过脱敏和限长的运行环境、实例 metadata、崩溃报告、运行日志、启动方式或登录方式发送给配置的服务商。账户名、UUID、令牌、密码、API Key、完整本地路径和服务器地址不会发送。\n\n" +
+            "危害：默认 Gemma 4 E2B 模型首次使用需下载约 3.11 GB，Gemma 4 E4B 约 4.98 GB，另需约 10–37 MB 运行时；模型越大，占用的内存和推理时间越多；模型可能误判。在线模式会把模型明确请求的、经过脱敏和限长的运行环境、实例 metadata、崩溃报告、运行日志、启动方式或登录方式发送给配置的服务商。账户名、UUID、令牌、密码、API Key、完整本地路径和服务器地址不会发送。\n\n" +
             "模型不能执行命令、任意读取文件或越过修复白名单。thinking 内容不会写入日志或展示；仅保留阶段、进度和可审计依据。是否理解下载、性能、隐私和误判风险并继续？");
 
         void Complete(bool confirmed)
@@ -126,6 +126,18 @@ public partial class PageSetupExperimental : MyPageRight, ISettingsPageInteracti
             return;
         LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
         settings.SetTextOption(tag.ToString()!, textBox.Text ?? string.Empty);
+        LauncherSettingsPageBinder.SaveSettings(settings);
+    }
+
+    private void PersistAiTokenBudget(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MyTextBox textBox)
+            return;
+        int value = int.TryParse(textBox.Text, out int parsed) ? parsed : 4096;
+        value = MinecraftAiRepairAdvisor.NormalizeTokenBudget(value);
+        textBox.Text = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+        settings.SetIntegerOption(LauncherSettingKeys.ExperimentalMinecraftAiTokenBudget, value);
         LauncherSettingsPageBinder.SaveSettings(settings);
     }
 

@@ -27,6 +27,29 @@ public sealed class MinecraftAiRepairAdvisorTests
     }
 
     [TestMethod]
+    public void ParseSuggestion_AcceptsNoAbilityToolResult()
+    {
+        MinecraftAiRepairSuggestion? suggestion = MinecraftAiRepairAdvisor.ParseSuggestion(
+            "{\"type\":\"noability\",\"analysisMarkdown\":\"没有安全修复动作，建议检查模组兼容性。\",\"confidence\":0.64}",
+            []);
+
+        Assert.IsNotNull(suggestion);
+        Assert.IsTrue(suggestion.NoAbility);
+        Assert.AreEqual(0, suggestion.RepairSteps.Count);
+        StringAssert.Contains(suggestion.AnalysisMarkdown, "没有安全修复动作");
+    }
+
+    [TestMethod]
+    public void ParseSuggestion_RejectsNoAbilityWithoutSummary()
+    {
+        MinecraftAiRepairSuggestion? suggestion = MinecraftAiRepairAdvisor.ParseSuggestion(
+            "{\"type\":\"noability\"}",
+            []);
+
+        Assert.IsNull(suggestion);
+    }
+
+    [TestMethod]
     public void ParseSuggestion_RejectsActionOutsideRepairAllowlist()
     {
         MinecraftAiRepairSuggestion? suggestion = MinecraftAiRepairAdvisor.ParseSuggestion(
@@ -124,6 +147,21 @@ public sealed class MinecraftAiRepairAdvisorTests
     }
 
     [TestMethod]
+    public void ContainsCompleteTerminalResult_RequiresClosedFinalJson()
+    {
+        Assert.IsFalse(MinecraftAiRepairAdvisor.ContainsCompleteTerminalResult(
+            new System.Text.StringBuilder(
+                "{\"type\":\"progress\",\"stage\":\"分析\",\"progress\":0.7}\n" +
+                "{\"type\":\"result\",\"analysisMarkdown\":\"尚未完成")));
+        Assert.IsTrue(MinecraftAiRepairAdvisor.ContainsCompleteTerminalResult(
+            new System.Text.StringBuilder(
+                "{\"type\":\"result\",\"analysisMarkdown\":\"完成\",\"steps\":[" +
+                "{\"action\":\"InspectOnly\",\"stage\":\"完成\",\"progress\":1}]}")));
+        Assert.IsTrue(MinecraftAiRepairAdvisor.ContainsCompleteTerminalResult(
+            new System.Text.StringBuilder(
+                "{\"type\":\"noability\",\"analysisMarkdown\":\"无法安全修复\"}")));
+    }
+    [TestMethod]
     public void BoundDetailedContext_PreservesBeginningAndEnd()
     {
         string bounded = MinecraftAiRepairAdvisor.BoundDetailedContext(
@@ -187,6 +225,25 @@ public sealed class MinecraftAiRepairAdvisorTests
     }
 
     [TestMethod]
+    [DataRow(0, "E2B", 3_000_000_000L)]
+    [DataRow(1, "E4B", 4_000_000_000L)]
+    public void ResolveLocalModel_ProvidesPinnedGemmaPackages(
+        int modelValue,
+        string sizeName,
+        long minimumBytes)
+    {
+        MinecraftAiLocalModel model = (MinecraftAiLocalModel)modelValue;
+        MinecraftAiRepairAdvisor.LocalModelPackage package = MinecraftAiRepairAdvisor.ResolveLocalModel(model);
+
+        StringAssert.Contains(package.DisplayName, sizeName);
+        StringAssert.EndsWith(package.FileName, ".gguf");
+        Assert.AreEqual(64, package.Sha256.Length);
+        Assert.IsTrue(package.ApproximateBytes >= minimumBytes);
+        Assert.AreEqual("hf-mirror.com", package.Urls[0].Host);
+        Assert.AreEqual("huggingface.co", package.Urls[1].Host);
+    }
+
+    [TestMethod]
     [DataRow("win-x64", ".zip")]
     [DataRow("win-arm64", ".zip")]
     [DataRow("linux-x64", ".tar.gz")]
@@ -223,16 +280,29 @@ public sealed class MinecraftAiRepairAdvisorTests
     }
 
     [TestMethod]
+    [DataRow(0, 256)]
+    [DataRow(4096, 4096)]
+    [DataRow(100000, 32768)]
+    public void NormalizeTokenBudget_ClampsToSafeRange(int value, int expected)
+    {
+        Assert.AreEqual(expected, MinecraftAiRepairAdvisor.NormalizeTokenBudget(value));
+    }
+    [TestMethod]
     public void CreateInferenceStartInfo_DisablesInteractiveModeAndSelectsGpuLayers()
     {
         var startInfo = MinecraftAiRepairAdvisor.CreateInferenceStartInfo(
             "llama-cli.exe",
             "model.gguf",
             "prompt",
-            useGpu: true);
+            useGpu: true,
+            tokenBudget: 4096);
 
         CollectionAssert.Contains(startInfo.ArgumentList, "--no-conversation");
         CollectionAssert.Contains(startInfo.ArgumentList, "--simple-io");
+        int tokenArgument = startInfo.ArgumentList.IndexOf("-n");
+        Assert.AreEqual("4096", startInfo.ArgumentList[tokenArgument + 1]);
+        int contextArgument = startInfo.ArgumentList.IndexOf("-c");
+        Assert.AreEqual("8192", startInfo.ArgumentList[contextArgument + 1]);
         int gpuArgument = startInfo.ArgumentList.IndexOf("-ngl");
         Assert.IsTrue(gpuArgument >= 0);
         Assert.AreEqual("all", startInfo.ArgumentList[gpuArgument + 1]);

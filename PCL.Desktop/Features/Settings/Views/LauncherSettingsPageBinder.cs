@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.VisualTree;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using PCL.Application.Settings;
 using PCL.Core.App;
@@ -319,7 +320,17 @@ internal static class LauncherSettingsPageBinder
                     return;
 
                 settings = LoadSettings();
-                settings.SetTextOption(tag, textBox.Text ?? string.Empty);
+                if (tag == LauncherSettingKeys.ExperimentalMinecraftAiTokenBudget.Value)
+                {
+                    if (int.TryParse(textBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int integerValue))
+                        settings.SetIntegerOption(tag, integerValue);
+                    else
+                        return;
+                }
+                else
+                {
+                    settings.SetTextOption(tag, textBox.Text ?? string.Empty);
+                }
                 SaveSettings(settings);
             };
         }
@@ -506,9 +517,19 @@ internal static class LauncherSettingsPageBinder
             string? tag = GetTag(textBox);
             if (!string.IsNullOrWhiteSpace(tag))
             {
-                textBox.Text = settings.TryGetTextOption(tag, out string? value)
-                    ? value ?? string.Empty
-                    : LauncherSettingDefaults.GetText(tag, textBox.Text ?? string.Empty);
+                if (tag == LauncherSettingKeys.ExperimentalMinecraftAiTokenBudget.Value)
+                {
+                    int integerValue = settings.TryGetIntegerOption(tag, out int configuredInteger)
+                        ? configuredInteger
+                        : LauncherSettingDefaults.GetInteger(tag, 4096);
+                    textBox.Text = integerValue.ToString(CultureInfo.InvariantCulture);
+                }
+                else
+                {
+                    textBox.Text = settings.TryGetTextOption(tag, out string? value)
+                        ? value ?? string.Empty
+                        : LauncherSettingDefaults.GetText(tag, textBox.Text ?? string.Empty);
+                }
             }
         }
 

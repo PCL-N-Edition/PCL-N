@@ -693,9 +693,11 @@
     <sys:String x:Key="Setup.Experimental.AiRepair.Risks">• Local first use downloads an approximately 491 MB model and 10–37 MB runtime.&#10;• Inference commonly uses an additional 0.8–1.5 GB of memory.&#10;• Models can be wrong; generated text does not guarantee a successful repair.&#10;• Online mode sends explicitly requested, redacted diagnostics to the provider you configure.</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Scope">The model cannot run commands, read arbitrary files, or bypass the repair allowlist. Read-only context is category-scoped, redacted, and length-limited. Account names, UUIDs, tokens, passwords, API keys, full local paths, and server addresses are never provided. Raw thinking is neither displayed nor logged.</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Confirm.Title">Enable Minecraft AI error repair</sys:String>
-    <sys:String x:Key="Setup.Experimental.AiRepair.Confirm.Message">Benefits: the conventional analyzer still locates each crash first. A model can write a readable explanation and propose a chained plan of up to four operations from the error handler's allowlist. Local mode prefers the GPU, and you may instead connect an OpenAI-compatible API.&#10;&#10;Risks: the built-in model initially downloads approximately 491 MB plus a 10–37 MB runtime and commonly uses another 0.8–1.5 GB of memory. Models can be wrong. Online mode sends only the model-requested, redacted, length-limited runtime environment, instance metadata, crash reports, logs, launch method, or login method to your configured provider. Account names, UUIDs, tokens, passwords, API keys, full local paths, and server addresses are never sent.&#10;&#10;The model cannot execute commands, read arbitrary files, or bypass the repair allowlist. Raw thinking is neither shown nor logged; only stages, progress, and auditable rationale are retained. Do you understand the download, performance, privacy, and misclassification risks and want to continue?</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.Confirm.Message">Benefits: the conventional analyzer still locates each crash first. A model can write a readable explanation and propose a chained plan of up to four operations from the error handler's allowlist. Local mode prefers the GPU, and you may instead connect an OpenAI-compatible API.&#10;&#10;Risks: the default Gemma 4 E2B model initially downloads approximately 3.11 GB, Gemma 4 E4B approximately 4.98 GB, plus a 10–37 MB runtime. Larger models need more memory and inference time. Models can be wrong. Online mode sends only the model-requested, redacted, length-limited runtime environment, instance metadata, crash reports, logs, launch method, or login method to your configured provider. Account names, UUIDs, tokens, passwords, API keys, full local paths, and server addresses are never sent.&#10;&#10;The model cannot execute commands, read arbitrary files, or bypass the repair allowlist. Raw thinking is neither shown nor logged; only stages, progress, and auditable rationale are retained. Do you understand the download, performance, privacy, and misclassification risks and want to continue?</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Confirm.Enable">Understand risks and enable</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Provider.Title">Inference provider</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.LocalModel.Title">Local model</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.LocalModel.Hint">Built-in models are downloaded on first use and verified with SHA-256. E2B is the balanced default; E4B needs more disk space, memory, and inference time. Select Custom to use the GGUF path below.</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Provider.Local">Local model (default, GPU first)</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Provider.OpenAiCompatible">OpenAI-compatible API</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.BaseUrl">API base URL</sys:String>
@@ -711,6 +713,8 @@
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Key.Cleared">The saved API key was cleared.</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Key.ClearFailed">Could not clear the API key: </sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning">Thinking effort</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.TokenBudget">Maximum output tokens</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.TokenBudget.Hint">Default 4096; allowed range 256–32768. Larger values allow longer summaries but may require more time and resources.</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.None">Do not specify (default, best compatibility)</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.Low">Low</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.Medium">Medium</sys:String>
@@ -718,7 +722,7 @@
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Privacy">Online mode sends only categories the model explicitly requests, after redaction. Review your provider's privacy policy. PCL N does not retain raw thinking.</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.Title">Custom model (optional)</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.ModelPath">GGUF model path</sys:String>
-    <sys:String x:Key="Setup.Experimental.AiRepair.Custom.ModelPath.Hint">Leave empty to use the built-in 0.5B model</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.Custom.ModelPath.Hint">Leave empty to use the selected built-in Gemma model; required when Custom is selected</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.Sha256">Model SHA-256</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.Sha256.Hint">Optional; when set, the model must match before use</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.RuntimePath">llama.cpp executable path</sys:String>

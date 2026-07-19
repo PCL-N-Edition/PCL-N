@@ -4984,17 +4984,8 @@ public partial class MainWindow : Window, IDisposable
 
             if (session.Attempt == MinecraftRepairAttempt.ModelApplied)
             {
-                repair = new MinecraftRepairExecutionResult("常规分析与模型修复后的重启仍然失败。", true);
-                await FinishFailedRepairAsync(
-                        context,
-                        session,
-                        fault,
-                        analysisMarkdown,
-                        repair.Message,
-                        gameDirectory,
-                        crashLines)
-                    .ConfigureAwait(false);
-                return;
+                await Dispatcher.UIThread.InvokeAsync(() => _launchRight?.AppendLog(
+                    "模型修复后的重启再次失败，进入 AI 错误总结阶段。"));
             }
 
             if (session.Attempt == MinecraftRepairAttempt.None && context.Settings.AutomaticallyRepairGameIssues)
@@ -5120,6 +5111,23 @@ public partial class MainWindow : Window, IDisposable
                     string? apiKey = provider == MinecraftAiProvider.OpenAiCompatible
                         ? await MinecraftAiApiCredentialStore.ReadAsync(cancellationToken).ConfigureAwait(false)
                         : null;
+                    int localModelValue = context.Settings.GetIntegerOption(
+                        LauncherSettingKeys.ExperimentalMinecraftAiLocalModel,
+                        LauncherSettingDefaults.GetInteger(
+                            LauncherSettingKeys.ExperimentalMinecraftAiLocalModel.Value));
+                    MinecraftAiLocalModel localModel = Enum.IsDefined(typeof(MinecraftAiLocalModel), localModelValue)
+                        ? (MinecraftAiLocalModel)localModelValue
+                        : MinecraftAiLocalModel.Gemma4E2B;
+                    int tokenBudget = context.Settings.GetIntegerOption(
+                        LauncherSettingKeys.ExperimentalMinecraftAiTokenBudget,
+                        LauncherSettingDefaults.GetInteger(
+                            LauncherSettingKeys.ExperimentalMinecraftAiTokenBudget.Value));
+                    int downloadThreadLimit = Math.Clamp(
+                        context.Settings.GetIntegerOption(
+                            LauncherSettingKeys.ToolDownloadThread,
+                            LauncherSettingDefaults.GetInteger(LauncherSettingKeys.ToolDownloadThread.Value)) + 1,
+                        1,
+                        32);
                     MinecraftAiModelOptions modelOptions = new(
                         context.Settings.GetTextOption(
                             LauncherSettingKeys.ExperimentalMinecraftAiModelPath,
@@ -5139,7 +5147,10 @@ public partial class MainWindow : Window, IDisposable
                             LauncherSettingKeys.ExperimentalMinecraftAiApiModel,
                             LauncherSettingDefaults.GetText(LauncherSettingKeys.ExperimentalMinecraftAiApiModel.Value)),
                         apiKey,
-                        reasoningEffort);
+                        reasoningEffort,
+                        localModel,
+                        MinecraftAiRepairAdvisor.NormalizeTokenBudget(tokenBudget),
+                        downloadThreadLimit);
                     MinecraftAiRepairSuggestion? aiSuggestion = await _minecraftAiRepairAdvisor.AdviseAsync(
                             modelFault,
                             modelCrashLines,
@@ -5167,7 +5178,8 @@ public partial class MainWindow : Window, IDisposable
                                     "Minecraft 错误修复模型：" + progress.Stage +
                                     (string.IsNullOrWhiteSpace(progress.Detail) ? string.Empty : " · " + progress.Detail));
                             }, DispatcherPriority.Background),
-                            cancellationToken)
+                            cancellationToken,
+                            summaryOnly: session.Attempt == MinecraftRepairAttempt.ModelApplied)
                         .ConfigureAwait(false);
                     if (aiSuggestion is not null)
                     {
@@ -5181,15 +5193,20 @@ public partial class MainWindow : Window, IDisposable
                                 AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型"),
                                 aiSuggestion.Stage,
                                 Math.Max(0.94d, aiSuggestion.Progress),
-                                $"{aiSuggestion.RepairSteps.Count} 个修复步骤",
+                                aiSuggestion.NoAbility ? "AI 已完成错误总结" : $"{aiSuggestion.RepairSteps.Count} 个修复步骤",
                                 context.Instance);
-                            _launchRight?.AppendLog(
-                                $"Minecraft 错误修复模型：生成 {aiSuggestion.RepairSteps.Count} 个链式修复步骤；" +
-                                $"可信度={aiSuggestion.Confidence:P0}。");
+                                _launchRight?.AppendLog(
+                                    aiSuggestion.NoAbility
+                                        ? "Minecraft 错误修复模型：没有安全修复能力，已开始总结错误。"
+                                        : $"Minecraft 错误修复模型：生成 {aiSuggestion.RepairSteps.Count} 个链式修复步骤；可信度={aiSuggestion.Confidence:P0}.");
                         });
-                        if (context.Settings.AutomaticallyRepairGameIssues &&
-                            aiSuggestion.RepairSteps.All(step => IsAutomaticallyExecutableRepair(step.Action)) &&
-                            await ConfirmAiRepairActionAsync(aiSuggestion, cancellationToken).ConfigureAwait(false))
+                        if (aiSuggestion.NoAbility)
+                        {
+                            repair = new MinecraftRepairExecutionResult("AI 已完成错误总结，但没有安全可执行的修复动作。", true);
+                        }
+                        else if (context.Settings.AutomaticallyRepairGameIssues &&
+                                 aiSuggestion.RepairSteps.All(step => IsAutomaticallyExecutableRepair(step.Action)) &&
+                                 await ConfirmAiRepairActionAsync(aiSuggestion, cancellationToken).ConfigureAwait(false))
                         {
                             bool planMadeChanges = false;
                             List<string> completedMessages = [];
@@ -6715,8 +6732,7 @@ public partial class MainWindow : Window, IDisposable
 
     [System.Text.RegularExpressions.GeneratedRegex(
         "(?i)(?<![:/A-Z0-9_])/(?:home|Users|tmp|var|opt|usr|mnt|media|run)/[^\\s\"',;|<>]+",
-        System.Text.RegularExpressions.RegexOptions.CultureInvariant |
-        System.Text.RegularExpressions.RegexOptions.NonBacktracking)]
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
     private static partial System.Text.RegularExpressions.Regex UnixAbsolutePathPattern();
 
     private static int CountFilesSafely(string directory)

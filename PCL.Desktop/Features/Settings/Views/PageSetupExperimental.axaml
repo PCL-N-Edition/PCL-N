@@ -64,6 +64,17 @@
                                                IsSelected="True" />
                         <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Provider.OpenAiCompatible}" />
                     </legacy:MyComboBox>
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.LocalModel.Title}"
+                               FontWeight="SemiBold" Margin="0,6,0,0" />
+                    <legacy:MyComboBox x:Name="ComboMinecraftAiLocalModel"
+                                       Tag="ExperimentalMinecraftAiLocalModel">
+                        <legacy:MyComboBoxItem Content="Gemma 4 E2B Instruct · Q4_K_M · 约 3.11 GB（默认）"
+                                               IsSelected="True" />
+                        <legacy:MyComboBoxItem Content="Gemma 4 E4B Instruct · Q4_K_M · 约 4.98 GB（更高质量）" />
+                        <legacy:MyComboBoxItem Content="自定义 GGUF 模型" />
+                    </legacy:MyComboBox>
+                    <legacy:MyHint Theme="Blue"
+                                   Text="{DynamicResource Setup.Experimental.AiRepair.LocalModel.Hint}" />
                     <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Api.BaseUrl}" Opacity="0.72" />
                     <legacy:MyTextBox x:Name="TextMinecraftAiApiBaseUrl"
                                       Tag="ExperimentalMinecraftAiApiBaseUrl"
@@ -89,6 +100,14 @@
                     <TextBlock x:Name="AiApiKeyStatus"
                                Text="{DynamicResource Setup.Experimental.AiRepair.Api.Key.StoredHint}"
                                TextWrapping="Wrap" Opacity="0.72" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.TokenBudget}" Opacity="0.72" />
+                    <legacy:MyTextBox x:Name="TextMinecraftAiTokenBudget"
+                                      Tag="ExperimentalMinecraftAiTokenBudget"
+                                      MaxLength="5"
+                                      LostFocus="PersistAiTokenBudget"
+                                      HintText="4096" />
+                    <legacy:MyHint Theme="Blue"
+                                   Text="{DynamicResource Setup.Experimental.AiRepair.TokenBudget.Hint}" />
                     <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning}" Opacity="0.72" />
                     <legacy:MyComboBox x:Name="ComboMinecraftAiReasoningEffort"
                                        Tag="ExperimentalMinecraftAiReasoningEffort">

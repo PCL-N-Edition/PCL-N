@@ -86,6 +86,8 @@ public static class LauncherSettingDefaults
         ["LaunchArgumentWindowHeight"] = 480,
         ["LaunchArgumentWindowType"] = 1,
         ["ExperimentalMinecraftAiProvider"] = 0,
+        ["ExperimentalMinecraftAiLocalModel"] = 0,
+        ["ExperimentalMinecraftAiTokenBudget"] = 4096,
         ["ExperimentalMinecraftAiReasoningEffort"] = 0,
         ["LoginMsAuthType"] = 1
     };
@@ -108,7 +110,7 @@ public static class LauncherSettingDefaults
         ["ExperimentalMinecraftAiModelSha256"] = string.Empty,
         ["ExperimentalMinecraftAiRuntimePath"] = string.Empty,
         ["ExperimentalMinecraftAiApiBaseUrl"] = string.Empty,
-        ["ExperimentalMinecraftAiApiModel"] = string.Empty
+        ["ExperimentalMinecraftAiApiModel"] = "gemma-4-e2b"
     };
 
     public static bool GetBoolean(string key, bool fallback = false) =>

@@ -693,9 +693,11 @@
     <sys:String x:Key="Setup.Experimental.AiRepair.Risks">• 本機首次使用需下載約 491 MB 模型與約 10–37 MB 執行階段。&#10;• 推論通常額外占用約 0.8–1.5 GB 記憶體。&#10;• 模型可能誤判，產生內容不代表修復一定有效。&#10;• 線上模式會向使用者設定的服務商傳送模型明確要求的脫敏診斷內容。</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Scope">模型不能執行命令、任意讀取檔案或越過修復白名單。唯讀內容按類別授權、限長並脫敏；帳戶名稱、UUID、權杖、密碼、API Key、完整本機路徑與伺服器位址不會提供。thinking 原文不會顯示或記錄。</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Confirm.Title">啟用 Minecraft AI 錯誤修復</sys:String>
-    <sys:String x:Key="Setup.Experimental.AiRepair.Confirm.Message">優勢：遊戲當機後仍由一般分析器先定位。模型可產生易讀說明，並在錯誤處理器的白名單內提供最多四步的鏈式修復計畫；本機模式會優先使用 GPU，也可連接使用者設定的 OpenAI 相容 API。&#10;&#10;危害：內建模型首次使用需下載約 491 MB 模型與約 10–37 MB 執行階段，通常額外占用約 0.8–1.5 GB 記憶體；模型可能誤判。線上模式會把模型明確要求、經過脫敏與限長的執行環境、實例 metadata、當機報告、執行日誌、啟動方式或登入方式傳送給設定的服務商。帳戶名稱、UUID、權杖、密碼、API Key、完整本機路徑與伺服器位址不會傳送。&#10;&#10;模型不能執行命令、任意讀取檔案或越過修復白名單。thinking 內容不會寫入日誌或顯示；僅保留階段、進度與可稽核依據。是否理解下載、效能、隱私與誤判風險並繼續？</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.Confirm.Message">優勢：遊戲當機後仍由一般分析器先定位。模型可產生易讀說明，並在錯誤處理器的白名單內提供最多四步的鏈式修復計畫；本機模式會優先使用 GPU，也可連接使用者設定的 OpenAI 相容 API。&#10;&#10;危害：預設 Gemma 4 E2B 模型首次使用需下載約 3.11 GB，Gemma 4 E4B 約 4.98 GB，另需約 10–37 MB 執行階段；模型越大，占用的記憶體與推理時間越多；模型可能誤判。線上模式會把模型明確要求、經過脫敏與限長的執行環境、實例 metadata、當機報告、執行日誌、啟動方式或登入方式傳送給設定的服務商。帳戶名稱、UUID、權杖、密碼、API Key、完整本機路徑與伺服器位址不會傳送。&#10;&#10;模型不能執行命令、任意讀取檔案或越過修復白名單。thinking 內容不會寫入日誌或顯示；僅保留階段、進度與可稽核依據。是否理解下載、效能、隱私與誤判風險並繼續？</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Confirm.Enable">理解風險並啟用</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Provider.Title">推論服務</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.LocalModel.Title">本機模型</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.LocalModel.Hint">內建模型會在首次使用時自動下載並驗證 SHA-256。E2B 是預設平衡選項；E4B 需要更多磁碟、記憶體與推理時間。選擇自訂後請在下方填寫 GGUF 路徑。</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Provider.Local">本機模型（預設，優先 GPU）</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Provider.OpenAiCompatible">OpenAI 相容 API</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.BaseUrl">API 基礎位址</sys:String>
@@ -711,6 +713,8 @@
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Key.Cleared">已清除儲存的 API Key。</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Key.ClearFailed">API Key 清除失敗：</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning">thinking 推論強度</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.TokenBudget">最大生成 Token</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.TokenBudget.Hint">預設 4096；允許範圍 256–32768。較大的值允許更長總結，但模型可能需要更多時間與資源。</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.None">不指定（預設，相容性最佳）</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.Low">低</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.Medium">中</sys:String>
@@ -718,7 +722,7 @@
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Privacy">線上模式只會在模型主動要求後傳送所選類別的脫敏唯讀資訊。請確認服務商的隱私政策；thinking 原文不會由 PCL N 儲存。</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.Title">自訂模型（可選）</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.ModelPath">GGUF 模型路徑</sys:String>
-    <sys:String x:Key="Setup.Experimental.AiRepair.Custom.ModelPath.Hint">留空時使用內建 0.5B 模型</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.Custom.ModelPath.Hint">留空時使用上方選擇的內建 Gemma 模型；選擇自訂模型時必須填寫</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.Sha256">模型 SHA-256</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.Sha256.Hint">可選；填寫後使用前必須驗證一致</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.RuntimePath">llama.cpp 執行檔路徑</sys:String>

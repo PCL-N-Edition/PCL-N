@@ -44,6 +44,8 @@ public static class LauncherSettingKeys
 
     public static readonly SettingKey ExperimentalMinecraftAiRepair = new("ExperimentalMinecraftAiRepair");
 
+    public static readonly SettingKey ExperimentalMinecraftAiLocalModel = new("ExperimentalMinecraftAiLocalModel");
+
     public static readonly SettingKey ExperimentalMinecraftAiModelPath = new("ExperimentalMinecraftAiModelPath");
 
     public static readonly SettingKey ExperimentalMinecraftAiModelSha256 = new("ExperimentalMinecraftAiModelSha256");
@@ -55,6 +57,8 @@ public static class LauncherSettingKeys
     public static readonly SettingKey ExperimentalMinecraftAiApiBaseUrl = new("ExperimentalMinecraftAiApiBaseUrl");
 
     public static readonly SettingKey ExperimentalMinecraftAiApiModel = new("ExperimentalMinecraftAiApiModel");
+
+    public static readonly SettingKey ExperimentalMinecraftAiTokenBudget = new("ExperimentalMinecraftAiTokenBudget");
 
     public static readonly SettingKey ExperimentalMinecraftAiReasoningEffort = new("ExperimentalMinecraftAiReasoningEffort");
 
