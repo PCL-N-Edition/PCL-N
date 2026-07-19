@@ -4,6 +4,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using PCL.Application.Updates;
 using PCL.Core.App;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
 using System.Security.Cryptography;
@@ -14,6 +15,36 @@ namespace PCL.Application.Test;
 [TestClass]
 public sealed class LauncherUpdateServiceTests
 {
+    [TestMethod]
+    public void CreateWindowsReplacementProcess_UsesUniqueScriptForEverySchedule()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "PCL-N-update-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string current = Path.Combine(directory, "PCL.Desktop.exe");
+            string staged = Path.Combine(directory, ".PCL.Desktop.exe.update");
+            File.WriteAllText(current, "old");
+            File.WriteAllText(staged, "new");
+            LauncherUpdatePackage package = new(
+                "2.0.0", "v2.0.0", "https://example.test/update.zip", "update.zip",
+                "PCL.Desktop.exe", null, null, [], "win-x64", "SelfContained_WithPlugin", "Release");
+            PreparedLauncherUpdate prepared = new(package, current, staged, directory, false);
+
+            ProcessStartInfo first = LauncherUpdateInstaller.CreateWindowsReplacementProcess(prepared, 1, true);
+            ProcessStartInfo second = LauncherUpdateInstaller.CreateWindowsReplacementProcess(prepared, 1, true);
+            string firstScript = first.ArgumentList[first.ArgumentList.IndexOf("-File") + 1];
+            string secondScript = second.ArgumentList[second.ArgumentList.IndexOf("-File") + 1];
+
+            Assert.AreNotEqual(firstScript, secondScript);
+            Assert.IsTrue(File.Exists(firstScript));
+            Assert.IsTrue(File.Exists(secondScript));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
     [TestMethod]
     public void ParseAtomFeed_ReadsTagsTitlesAndNotes()
     {

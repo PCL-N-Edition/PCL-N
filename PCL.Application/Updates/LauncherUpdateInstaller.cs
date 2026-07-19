@@ -407,12 +407,14 @@ public sealed class LauncherUpdateInstaller : IDisposable
         return Convert.ToHexStringLower(hash);
     }
 
-    private static ProcessStartInfo CreateWindowsReplacementProcess(
+    internal static ProcessStartInfo CreateWindowsReplacementProcess(
         PreparedLauncherUpdate update,
         int processId,
         bool restartAfterInstall)
     {
-        string script = Path.Combine(update.WorkDirectory, "install-update.ps1");
+        string script = Path.Combine(
+            update.WorkDirectory,
+            "install-update-" + Guid.NewGuid().ToString("N") + ".ps1");
         File.WriteAllText(script, WindowsReplacementScript);
         ProcessStartInfo startInfo = new("powershell.exe")
         {
@@ -440,7 +442,9 @@ public sealed class LauncherUpdateInstaller : IDisposable
     {
         if (OperatingSystem.IsWindows())
             throw new PlatformNotSupportedException("Unix 更新替换器不能在 Windows 上运行。");
-        string script = Path.Combine(update.WorkDirectory, "install-update.sh");
+        string script = Path.Combine(
+            update.WorkDirectory,
+            "install-update-" + Guid.NewGuid().ToString("N") + ".sh");
         File.WriteAllText(script, UnixReplacementScript);
         File.SetUnixFileMode(
             script,

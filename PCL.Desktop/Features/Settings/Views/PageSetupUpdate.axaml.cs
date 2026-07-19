@@ -289,15 +289,38 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         await ProcessAvailableUpdateAsync(mode: 1).ConfigureAwait(true);
     }
 
-    private async void BtnDownloadAndInstall_Click(object? sender, EventArgs e)
+    private void BtnDownloadAndInstall_Click(object? sender, EventArgs e)
     {
-        if (_preparedUpdate is { } prepared && File.Exists(prepared.StagedExecutablePath))
-        {
-            _updateCoordinator.InstallAndRestart(prepared);
+        if (_isPreparingUpdate)
             return;
-        }
+        _ = InstallOrPrepareUpdateAsync();
+    }
 
-        await ProcessAvailableUpdateAsync(mode: 0).ConfigureAwait(true);
+    private async Task InstallOrPrepareUpdateAsync()
+    {
+        _isPreparingUpdate = true;
+        SetUpdateButtonsEnabled(false);
+        try
+        {
+            if (_preparedUpdate is { } prepared && File.Exists(prepared.StagedExecutablePath))
+            {
+                _updateCoordinator.InstallAndRestart(prepared);
+                return;
+            }
+
+            await ProcessAvailableUpdateCoreAsync(mode: 0).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            MessageRequested?.Invoke(
+                this,
+                new SettingsMessageRequestedEventArgs(
+                    "自动更新失败",
+                    ex.Message + "\n\n你仍可在发布页手动下载。",
+                    AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
+            _isPreparingUpdate = false;
+            SetUpdateButtonsEnabled(true);
+        }
     }
 
     private void ComboSystemUpdateChannel_DropDownOpened(object? sender, EventArgs e)
@@ -566,9 +589,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         SetUpdateButtonsEnabled(false);
         try
         {
-            await _updateCoordinator.HandleAvailableUpdateAsync(_availableUpdate, mode, cancellationToken)
-                .ConfigureAwait(true);
-            _preparedUpdate = _updateCoordinator.PreparedUpdate;
+            await ProcessAvailableUpdateCoreAsync(mode, cancellationToken).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -588,6 +609,17 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             _isPreparingUpdate = false;
             SetUpdateButtonsEnabled(true);
         }
+    }
+
+    private async Task ProcessAvailableUpdateCoreAsync(
+        int mode,
+        CancellationToken cancellationToken = default)
+    {
+        if (_availableUpdate is null)
+            return;
+        await _updateCoordinator.HandleAvailableUpdateAsync(_availableUpdate, mode, cancellationToken)
+            .ConfigureAwait(true);
+        _preparedUpdate = _updateCoordinator.PreparedUpdate;
     }
 
     private void OnUpdateProgressChanged(object? sender, LauncherUpdateProgress progress)

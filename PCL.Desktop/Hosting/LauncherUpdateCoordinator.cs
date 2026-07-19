@@ -30,6 +30,7 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
     private PreparedLauncherUpdate? _installOnExit;
     private LauncherUpdateProgress? _latestProgress;
     private bool _updateOperationActive;
+    private int _installScheduled;
     private bool _disposed;
 
     private LauncherUpdateCoordinator()
@@ -145,18 +146,34 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
         }
     }
 
-    public void InstallAndRestart(PreparedLauncherUpdate update)
+    public bool InstallAndRestart(PreparedLauncherUpdate update)
     {
-        lock (_sync)
-            _installOnExit = null;
-        _installer.ScheduleInstallAndRestart(update, Environment.ProcessId);
-        Dispatcher.UIThread.Post(() =>
+        ArgumentNullException.ThrowIfNull(update);
+        if (Interlocked.CompareExchange(ref _installScheduled, 1, 0) != 0)
         {
-            if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-                desktop.Shutdown();
-            else
-                Environment.Exit(0);
-        });
+            PortableLog.Warn("Update", "更新安装已经安排，忽略重复的立即安装请求。");
+            return false;
+        }
+
+        try
+        {
+            lock (_sync)
+                _installOnExit = null;
+            _installer.ScheduleInstallAndRestart(update, Environment.ProcessId);
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                    desktop.Shutdown();
+                else
+                    Environment.Exit(0);
+            });
+            return true;
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _installScheduled, 0);
+            throw;
+        }
     }
 
     public async Task HandleAvailableUpdateAsync(
