@@ -1277,12 +1277,14 @@ public partial class MainWindow : Window, IDisposable
         try
         {
             LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            MaybeShowCommunityWelcome(settings);
+            MaybeShowCommunityWelcome(
+                settings,
+                () => MaybeShowSpecialVersionNotice(() => _ = MaybeShowLauncherAnnouncementsAsync()));
         }
         catch (Exception ex)
         {
             DesktopFileLog.Warn("FirstRun", "首次运行引导加载失败，将继续显示特殊版本提示。", ex);
-            MaybeShowSpecialVersionNotice();
+            MaybeShowSpecialVersionNotice(() => _ = MaybeShowLauncherAnnouncementsAsync());
         }
     }
 
@@ -1294,13 +1296,13 @@ public partial class MainWindow : Window, IDisposable
         !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PCL_DISABLE_FIRST_RUN")) ||
         !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PCL_DISABLE_DEBUG_HINT"));
 
-    private void MaybeShowCommunityWelcome(LauncherSettings settings)
+    private void MaybeShowCommunityWelcome(LauncherSettings settings, Action completed)
     {
         string currentVersion = PclBuildInfo.DisplayVersion;
         string seen = settings.GetTextOption("UiCommunityNoticeVersion", string.Empty);
         if (string.Equals(seen, currentVersion, StringComparison.Ordinal))
         {
-            MaybeShowSpecialVersionNotice();
+            completed();
             return;
         }
 
@@ -1313,17 +1315,26 @@ public partial class MainWindow : Window, IDisposable
             "此提示在每次版本更新后显示一次。");
         string confirm = AvaloniaLocalizationManager.GetText("Update.CommunityNotice.Confirm", "开始使用");
 
-        ShowTextDialog(title, body, confirm);
-        settings.SetTextOption("UiCommunityNoticeVersion", currentVersion);
-        LauncherSettingsPageBinder.SaveSettings(settings);
-        MaybeShowSpecialVersionNotice();
+        ShowMarkdownDialog(
+            title,
+            body,
+            _ =>
+            {
+                settings.SetTextOption("UiCommunityNoticeVersion", currentVersion);
+                LauncherSettingsPageBinder.SaveSettings(settings);
+                completed();
+            },
+            confirm);
     }
 
-    private void MaybeShowSpecialVersionNotice()
+    private void MaybeShowSpecialVersionNotice(Action completed)
     {
         // WPF FormMain special build notice (Debug / CI).
         if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PCL_DISABLE_DEBUG_HINT")))
+        {
+            completed();
             return;
+        }
 
         bool isDebug =
 #if DEBUG
@@ -1338,7 +1349,10 @@ public partial class MainWindow : Window, IDisposable
             string.Equals(GetAssemblyConfiguration(), "CI", StringComparison.OrdinalIgnoreCase);
 
         if (!isDebug && !isCi)
+        {
+            completed();
             return;
+        }
 
         string title = AvaloniaLocalizationManager.GetText("Main.SpecialVersion.Title", "特殊版本提示");
         string body = isDebug
@@ -1358,7 +1372,10 @@ public partial class MainWindow : Window, IDisposable
             confirmed =>
             {
                 if (confirmed)
+                {
+                    completed();
                     return;
+                }
 
                 // Secondary: open download page and exit.
                 try
@@ -1379,6 +1396,88 @@ public partial class MainWindow : Window, IDisposable
             AvaloniaLocalizationManager.GetText("Main.SpecialVersion.IUnderstand", "我知道我在做什么"),
             AvaloniaLocalizationManager.GetText("Main.SpecialVersion.OpenDownloadPageAndExit", "打开最新下载页并退出"),
             isWarn: true);
+    }
+
+    private async Task MaybeShowLauncherAnnouncementsAsync()
+    {
+        try
+        {
+            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+            int activityMode = Math.Clamp(settings.GetIntegerOption(
+                "SystemSystemActivity",
+                LauncherSettingDefaults.GetInteger("SystemSystemActivity")), 0, 2);
+            if (activityMode == 2)
+                return;
+            HashSet<string> seen = settings.GetTextOption("SystemAnnouncementSeen", string.Empty)
+                .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .ToHashSet(StringComparer.Ordinal);
+            LauncherUpdatePolicy policy = LauncherUpdatePolicy.Resolve(settings, GetAssemblyConfiguration());
+            string channel = policy.Channel switch
+            {
+                UpdateChannel.Beta => "beta",
+                UpdateChannel.CI => "ci",
+                _ => "release"
+            };
+            string platform = OperatingSystem.IsWindows() ? "windows" :
+                OperatingSystem.IsMacOS() ? "macos" : "linux";
+            IReadOnlyList<LauncherAnnouncement> announcements = await new LauncherAnnouncementService()
+                .FetchEligibleAsync(
+                    PclBuildInfo.DisplayVersion,
+                    channel,
+                    platform,
+                    AvaloniaLocalizationManager.CurrentLanguageCode,
+                    activityMode,
+                    seen)
+                .ConfigureAwait(true);
+            ShowLauncherAnnouncement(announcements, 0, settings, seen);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            DesktopFileLog.Warn("Announcement", "启动器公告获取失败；不会阻塞启动。", exception);
+        }
+    }
+
+    private void ShowLauncherAnnouncement(
+        IReadOnlyList<LauncherAnnouncement> announcements,
+        int index,
+        LauncherSettings settings,
+        HashSet<string> seen)
+    {
+        if (index >= announcements.Count)
+            return;
+        LauncherAnnouncement announcement = announcements[index];
+        ShowMarkdownDialog(
+            announcement.Title,
+            announcement.Markdown,
+            result =>
+            {
+                if (announcement.Dismissible)
+                {
+                    seen.Add(announcement.SeenKey);
+                    settings.SetTextOption("SystemAnnouncementSeen", string.Join('\n', seen.TakeLast(200)));
+                    LauncherSettingsPageBinder.SaveSettings(settings);
+                }
+                if (result == 2 && announcement.ActionUri is not null)
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = announcement.ActionUri.AbsoluteUri,
+                            UseShellExecute = true
+                        });
+                    }
+                    catch (Exception exception)
+                    {
+                        DesktopFileLog.Warn("Announcement", "无法打开公告链接。", exception);
+                    }
+                }
+                ShowLauncherAnnouncement(announcements, index + 1, settings, seen);
+            },
+            announcement.PrimaryLabel,
+            announcement.ActionLabel ?? string.Empty,
+            thirdButton: string.Empty,
+            isWarn: announcement.Severity is "important" or "security");
     }
 
     private static string GetAssemblyConfiguration()
