@@ -5888,6 +5888,11 @@ public sealed class AvaloniaHeadlessTests
                 check.SetChecked(true, user: true);
                 Assert.IsTrue(confirmationRequested);
                 Assert.IsFalse(check.Checked);
+                confirmationRequested = false;
+                MyCheckBox aiCheck = page.FindControl<MyCheckBox>("CheckExperimentalAiRepair")!;
+                aiCheck.SetChecked(true, user: true);
+                Assert.IsTrue(confirmationRequested);
+                Assert.IsFalse(aiCheck.Checked);
             }
             finally
             {
@@ -5908,6 +5913,12 @@ public sealed class AvaloniaHeadlessTests
                 using LauncherSettingsStore store = new(settingsPath);
                 LauncherSettings saved = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
                 Assert.IsTrue(saved.GetBooleanOption(LauncherSettingKeys.ExperimentalJvmLifecycleHost));
+                MyCheckBox aiCheck = confirmedPage.FindControl<MyCheckBox>("CheckExperimentalAiRepair")!;
+                aiCheck.SetChecked(true, user: true);
+                Assert.IsTrue(aiCheck.Checked);
+                saved = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
+                Assert.IsTrue(saved.GetBooleanOption(LauncherSettingKeys.ExperimentalMinecraftAiRepair));
+                aiCheck.SetChecked(false, user: true);
                 check.SetChecked(false, user: true);
             }
             finally

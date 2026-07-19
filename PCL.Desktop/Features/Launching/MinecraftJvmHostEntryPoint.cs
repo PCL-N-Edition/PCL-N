@@ -85,7 +85,12 @@ internal static class MinecraftJvmHostEntryPoint
         }
         catch (Exception ex)
         {
-            lifecycle.Send("Faulted", ex.GetType().Name + ": " + ex.Message);
+            MinecraftLaunchFaultReport report = MinecraftLaunchFaultAnalyzer.Analyze(
+                ex,
+                lifecycle.LastStage,
+                lifecycle.LastClassName);
+            lifecycle.SendFault(report);
+            lifecycle.Send("Faulted", report.Code + ": " + ex.GetType().Name + ": " + ex.Message);
             Console.Error.WriteLine(ex);
             return 1;
         }
@@ -178,6 +183,7 @@ internal static class MinecraftJvmHostEntryPoint
         if (string.IsNullOrWhiteSpace(className))
             return;
         string normalized = className.Replace('/', '.');
+        lifecycle.ObserveClass(normalized);
         if (normalized.Contains("net.minecraft.client.main.Main", StringComparison.Ordinal))
             lifecycle.SendOnce("MinecraftBootstrap", normalized);
         else if (normalized.Contains("net.minecraft.client.Minecraft", StringComparison.Ordinal))
@@ -227,6 +233,12 @@ internal sealed class JvmHostLifecycleWriter : IDisposable
     private readonly HashSet<string> _sentOnce = new(StringComparer.Ordinal);
     private NamedPipeClientStream? _pipe;
     private StreamWriter? _writer;
+    private string _lastStage = "HostStarting";
+    private string? _lastClassName;
+
+    public string LastStage => Volatile.Read(ref _lastStage);
+
+    public string? LastClassName => Volatile.Read(ref _lastClassName);
 
     public JvmHostLifecycleWriter(string pipeName)
     {
@@ -251,6 +263,8 @@ internal sealed class JvmHostLifecycleWriter : IDisposable
 
     public void Send(string stage, string message)
     {
+        if (!string.Equals(stage, "FaultReport", StringComparison.Ordinal))
+            Volatile.Write(ref _lastStage, stage);
         lock (_gate)
         {
             if (_writer is null)
@@ -267,6 +281,20 @@ internal sealed class JvmHostLifecycleWriter : IDisposable
                 _writer = null;
             }
         }
+    }
+
+    public void ObserveClass(string className)
+    {
+        if (!string.IsNullOrWhiteSpace(className) && IsDiagnosticClass(className))
+            Volatile.Write(ref _lastClassName, className);
+    }
+
+    public void SendFault(MinecraftLaunchFaultReport report)
+    {
+        string json = JsonSerializer.Serialize(
+            report,
+            MinecraftJvmHostJsonContext.Default.MinecraftLaunchFaultReport);
+        Send("FaultReport", Convert.ToBase64String(Encoding.UTF8.GetBytes(json)));
     }
 
     public void SendOnce(string stage, string message)
@@ -289,4 +317,13 @@ internal sealed class JvmHostLifecycleWriter : IDisposable
             _pipe = null;
         }
     }
+
+    private static bool IsDiagnosticClass(string className) =>
+        className.StartsWith("net.minecraft.", StringComparison.Ordinal) ||
+        className.StartsWith("org.lwjgl.", StringComparison.Ordinal) ||
+        className.Contains("fabric", StringComparison.OrdinalIgnoreCase) ||
+        className.Contains("forge", StringComparison.OrdinalIgnoreCase) ||
+        className.Contains("quilt", StringComparison.OrdinalIgnoreCase) ||
+        className.Contains("mixin", StringComparison.OrdinalIgnoreCase) ||
+        className.Contains("authlib", StringComparison.OrdinalIgnoreCase);
 }

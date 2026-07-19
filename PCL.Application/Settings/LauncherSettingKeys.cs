@@ -42,6 +42,14 @@ public static class LauncherSettingKeys
 
     public static readonly SettingKey ExperimentalJvmLifecycleHost = new("ExperimentalJvmLifecycleHost");
 
+    public static readonly SettingKey ExperimentalMinecraftAiRepair = new("ExperimentalMinecraftAiRepair");
+
+    public static readonly SettingKey ExperimentalMinecraftAiModelPath = new("ExperimentalMinecraftAiModelPath");
+
+    public static readonly SettingKey ExperimentalMinecraftAiModelSha256 = new("ExperimentalMinecraftAiModelSha256");
+
+    public static readonly SettingKey ExperimentalMinecraftAiRuntimePath = new("ExperimentalMinecraftAiRuntimePath");
+
     public static SettingKey JavaDisabled(string javaExecutablePath)
     {
         if (string.IsNullOrWhiteSpace(javaExecutablePath))

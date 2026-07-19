@@ -59,7 +59,23 @@ internal sealed record MinecraftLaunchCoordinatorResult(
     MinecraftProcessLaunchPlan Plan,
     string JavaExecutablePath,
     LoginProfileInfo Profile,
-    Guid SessionId);
+    Guid SessionId,
+    Task<MinecraftLaunchFaultReport?>? FaultReport);
+
+internal sealed record MinecraftStartedProcess(
+    Process Process,
+    Task<MinecraftLaunchFaultReport?>? FaultReport = null);
+
+internal sealed class MinecraftLaunchFailureException : InvalidOperationException
+{
+    public MinecraftLaunchFailureException(string message, MinecraftLaunchFaultReport? faultReport = null)
+        : base(message)
+    {
+        FaultReport = faultReport;
+    }
+
+    public MinecraftLaunchFaultReport? FaultReport { get; }
+}
 
 internal sealed class MinecraftLaunchCoordinator
 {
@@ -170,7 +186,8 @@ internal sealed class MinecraftLaunchCoordinator
             "\n工作目录：" + plan.StartInfo.WorkingDirectory +
             "\nNatives：" + plan.NativesDirectory +
             "\n参数预览：" + Truncate(plan.StartInfo.Arguments ?? string.Empty, 240));
-        Process process = StartProcess(plan, request.Log);
+        MinecraftStartedProcess startedProcess = StartProcess(plan, request.Log);
+        Process process = startedProcess.Process;
         GameSessionSnapshot session = GameSessionRegistry.Shared.Start(request.Instance.Name, process.Id);
         GameSessionRegistry.Shared.PublishOutput(
             session.SessionId,
@@ -194,7 +211,12 @@ internal sealed class MinecraftLaunchCoordinator
             completed,
             isLaunched: true,
             method: processMethod);
-        await WaitForGameAppearanceAsync(process, cancellationToken, request.Log).ConfigureAwait(false);
+        await WaitForGameAppearanceAsync(
+                process,
+                cancellationToken,
+                request.Log,
+                startedProcess.FaultReport)
+            .ConfigureAwait(false);
         completed += MinecraftLaunchStages.WaitWindow;
         Report(
             request,
@@ -218,7 +240,13 @@ internal sealed class MinecraftLaunchCoordinator
             method: processMethod);
 
             PortableLog.Info("Launch", $"实例 {request.Instance.Name} 启动成功；PID={process.Id}；会话={session.SessionId}。");
-            return new MinecraftLaunchCoordinatorResult(process, plan, javaExecutable, profile, session.SessionId);
+            return new MinecraftLaunchCoordinatorResult(
+                process,
+                plan,
+                javaExecutable,
+                profile,
+                session.SessionId,
+                startedProcess.FaultReport);
         }
         catch (OperationCanceledException)
         {
@@ -518,7 +546,8 @@ internal sealed class MinecraftLaunchCoordinator
     public static async Task WaitForGameAppearanceAsync(
         Process process,
         CancellationToken cancellationToken,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        Task<MinecraftLaunchFaultReport?>? faultReportTask = null)
     {
         ArgumentNullException.ThrowIfNull(process);
         DateTimeOffset deadline = DateTimeOffset.UtcNow + EarlyExitGracePeriod;
@@ -529,24 +558,14 @@ internal sealed class MinecraftLaunchCoordinator
             PortableLog.RealTime("GameProcess", $"等待游戏稳定运行；PID={process.Id}；HasExited={process.HasExited}。");
 
             if (process.HasExited)
-            {
-                string code = TryGetExitCode(process);
-                throw new InvalidOperationException(
-                    "游戏进程在启动后立即退出，退出码：" + code +
-                    "。\n请检查版本目录下的 LatestLaunch-PCLN.bat，或查看游戏日志（logs/latest.log）。");
-            }
+                throw await CreateEarlyExitExceptionAsync(process, faultReportTask).ConfigureAwait(false);
 
             await Task.Delay(WindowPollInterval, cancellationToken).ConfigureAwait(false);
         }
 
         // Still alive after grace → success. Do not require MainWindowHandle (java/javaw often lag).
         if (process.HasExited)
-        {
-            string code = TryGetExitCode(process);
-            throw new InvalidOperationException(
-                "游戏进程在启动后立即退出，退出码：" + code +
-                "。\n请检查版本目录下的 LatestLaunch-PCLN.bat，或查看游戏日志（logs/latest.log）。");
-        }
+            throw await CreateEarlyExitExceptionAsync(process, faultReportTask).ConfigureAwait(false);
 
         log?.Invoke("游戏进程仍在运行（PID " + process.Id.ToString(CultureInfo.InvariantCulture) + "）。");
     }
@@ -584,6 +603,34 @@ internal sealed class MinecraftLaunchCoordinator
         {
             return "未知";
         }
+    }
+
+    private static async Task<MinecraftLaunchFailureException> CreateEarlyExitExceptionAsync(
+        Process process,
+        Task<MinecraftLaunchFaultReport?>? faultReportTask)
+    {
+        MinecraftLaunchFaultReport? fault = null;
+        if (faultReportTask is not null)
+        {
+            Task completed = await Task.WhenAny(
+                    faultReportTask,
+                    Task.Delay(TimeSpan.FromMilliseconds(750)))
+                .ConfigureAwait(false);
+            if (ReferenceEquals(completed, faultReportTask))
+                fault = await faultReportTask.ConfigureAwait(false);
+        }
+
+        string message = "游戏进程在启动后立即退出，退出码：" + TryGetExitCode(process) + "。";
+        if (fault is not null)
+        {
+            message += $"\nJvm.NET 已定位到：{fault.Subsystem}/{fault.Stage}（{fault.Code}）。" +
+                       "\n" + fault.Message;
+        }
+        else
+        {
+            message += "\n请检查版本目录下的 LatestLaunch-PCLN.bat，或查看游戏日志（logs/latest.log）。";
+        }
+        return new MinecraftLaunchFailureException(message, fault);
     }
 
     private static string Truncate(string text, int max)
@@ -672,7 +719,7 @@ internal sealed class MinecraftLaunchCoordinator
             .ConfigureAwait(false);
     }
 
-    private static Process StartProcess(MinecraftProcessLaunchPlan plan, Action<string>? log)
+    private static MinecraftStartedProcess StartProcess(MinecraftProcessLaunchPlan plan, Action<string>? log)
     {
         if (plan.JvmHostRequest is { } hostRequest)
         {
@@ -680,7 +727,8 @@ internal sealed class MinecraftLaunchCoordinator
             // the live launch is performed by the host process.
             TryWriteLatestLaunchBatch(plan.StartInfo);
             log?.Invoke("实验性 Jvm.NET Host 已启用；游戏将在隔离 Host 进程中运行。");
-            return MinecraftJvmHostProcessLauncher.Start(hostRequest, log);
+            MinecraftJvmHostProcessHandle handle = MinecraftJvmHostProcessLauncher.Start(hostRequest, log);
+            return new MinecraftStartedProcess(handle.Process, handle.FaultReport);
         }
 
         ProcessStartInfo startInfo = plan.StartInfo;
@@ -725,7 +773,7 @@ internal sealed class MinecraftLaunchCoordinator
         Process? process = Process.Start(startInfo);
         if (process is null)
             throw new InvalidOperationException("Java 进程未能启动。文件：" + startInfo.FileName);
-        return process;
+        return new MinecraftStartedProcess(process);
     }
 
     private static void TryWriteLatestLaunchBatch(ProcessStartInfo startInfo)

@@ -15,4 +15,8 @@ public sealed record MinecraftRepairRequest
     public required string InstanceDirectory { get; init; }
 
     public bool PreferOfficialSource { get; init; } = true;
+
+    public Func<string, CancellationToken, ValueTask>? BeforeFileChangeAsync { get; init; }
+
+    public Action<string>? FileChanged { get; init; }
 }

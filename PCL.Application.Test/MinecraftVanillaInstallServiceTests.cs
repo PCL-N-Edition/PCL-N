@@ -649,6 +649,144 @@ public sealed class MinecraftVanillaInstallServiceTests
         }
     }
 
+    [TestMethod]
+    public async Task RepairAsync_DoesNotReportChangesWhenEveryFileIsUsable()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-repair-no-change-" + Guid.NewGuid().ToString("N"));
+        string instance = Path.Combine(root, "versions", "1.20.1");
+        string versionJsonPath = Path.Combine(instance, "1.20.1.json");
+        string clientPath = Path.Combine(instance, "1.20.1.jar");
+        string assetIndexPath = Path.Combine(root, "assets", "indexes", "empty.json");
+        byte[] client = [0x50, 0x4B, 0x03, 0x04];
+        string sha1 = Convert.ToHexString(SHA1.HashData(client)).ToLowerInvariant();
+        int beforeChanges = 0;
+        int changedFiles = 0;
+        using HttpClient clientWithoutRequests = new(new DelegateHandler(_ =>
+            throw new AssertFailedException("文件有效时不应发起下载请求。")));
+        MinecraftVanillaInstallService service = new(clientWithoutRequests);
+
+        try
+        {
+            Directory.CreateDirectory(instance);
+            Directory.CreateDirectory(Path.GetDirectoryName(assetIndexPath)!);
+            await File.WriteAllBytesAsync(clientPath, client);
+            await File.WriteAllTextAsync(assetIndexPath, "{\"objects\":{}}");
+            await File.WriteAllTextAsync(
+                versionJsonPath,
+                $$"""
+                  {
+                    "id": "1.20.1",
+                    "assetIndex": {
+                      "id": "empty",
+                      "url": "https://example.invalid/assets/empty.json"
+                    },
+                    "downloads": {
+                      "client": {
+                        "url": "https://example.invalid/client.jar",
+                        "size": {{client.Length}},
+                        "sha1": "{{sha1}}"
+                      }
+                    }
+                  }
+                  """);
+
+            await service.RepairAsync(new MinecraftRepairRequest
+            {
+                VersionId = "1.20.1",
+                VersionJsonPath = versionJsonPath,
+                MinecraftRootDirectory = root,
+                InstanceDirectory = instance,
+                BeforeFileChangeAsync = (_, _) =>
+                {
+                    Interlocked.Increment(ref beforeChanges);
+                    return ValueTask.CompletedTask;
+                },
+                FileChanged = _ => Interlocked.Increment(ref changedFiles)
+            });
+
+            Assert.AreEqual(0, beforeChanges);
+            Assert.AreEqual(0, changedFiles);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RepairAsync_ReportsOnlySuccessfullyReplacedFiles()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-repair-change-" + Guid.NewGuid().ToString("N"));
+        string instance = Path.Combine(root, "versions", "1.20.1");
+        string versionJsonPath = Path.Combine(instance, "1.20.1.json");
+        string clientPath = Path.Combine(instance, "1.20.1.jar");
+        string assetIndexPath = Path.Combine(root, "assets", "indexes", "empty.json");
+        byte[] replacement = [0x50, 0x4B, 0x03, 0x04];
+        string sha1 = Convert.ToHexString(SHA1.HashData(replacement)).ToLowerInvariant();
+        List<string> beforeChanges = [];
+        List<string> changedFiles = [];
+        using HttpClient client = new(new DelegateHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(replacement)
+        }));
+        MinecraftVanillaInstallService service = new(client);
+
+        try
+        {
+            Directory.CreateDirectory(instance);
+            Directory.CreateDirectory(Path.GetDirectoryName(assetIndexPath)!);
+            await File.WriteAllBytesAsync(clientPath, [0x01]);
+            await File.WriteAllTextAsync(assetIndexPath, "{\"objects\":{}}");
+            await File.WriteAllTextAsync(
+                versionJsonPath,
+                $$"""
+                  {
+                    "id": "1.20.1",
+                    "assetIndex": {
+                      "id": "empty",
+                      "url": "https://example.invalid/assets/empty.json"
+                    },
+                    "downloads": {
+                      "client": {
+                        "url": "https://example.invalid/client.jar",
+                        "size": {{replacement.Length}},
+                        "sha1": "{{sha1}}"
+                      }
+                    }
+                  }
+                  """);
+
+            await service.RepairAsync(new MinecraftRepairRequest
+            {
+                VersionId = "1.20.1",
+                VersionJsonPath = versionJsonPath,
+                MinecraftRootDirectory = root,
+                InstanceDirectory = instance,
+                BeforeFileChangeAsync = (path, _) =>
+                {
+                    lock (beforeChanges)
+                        beforeChanges.Add(path);
+                    return ValueTask.CompletedTask;
+                },
+                FileChanged = path =>
+                {
+                    lock (changedFiles)
+                        changedFiles.Add(path);
+                }
+            });
+
+            CollectionAssert.AreEqual(replacement, await File.ReadAllBytesAsync(clientPath));
+            CollectionAssert.AreEquivalent(new[] { clientPath }, beforeChanges);
+            CollectionAssert.AreEquivalent(new[] { clientPath }, changedFiles);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     private sealed class CaptureProgress<T>(List<T> items) : IProgress<T>
     {
         public void Report(T value) => items.Add(value);

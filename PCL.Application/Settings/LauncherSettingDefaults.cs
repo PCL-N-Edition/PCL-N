@@ -42,7 +42,8 @@ public static class LauncherSettingDefaults
         ["LaunchAutoRepairGame"] = true,
         ["ToolDownloadClipboard"] = false,
         ["UiHideNEditionHint"] = false,
-        ["ExperimentalJvmLifecycleHost"] = false
+        ["ExperimentalJvmLifecycleHost"] = false,
+        ["ExperimentalMinecraftAiRepair"] = false
     };
 
     private static readonly Dictionary<string, int> IntegerDefaults = new(StringComparer.OrdinalIgnoreCase)
@@ -100,7 +101,10 @@ public static class LauncherSettingDefaults
         ["LaunchAdvanceGame"] = string.Empty,
         ["LaunchAdvanceRun"] = string.Empty,
         ["LaunchArgumentTitle"] = string.Empty,
-        ["LaunchArgumentInfo"] = "PCLN"
+        ["LaunchArgumentInfo"] = "PCLN",
+        ["ExperimentalMinecraftAiModelPath"] = string.Empty,
+        ["ExperimentalMinecraftAiModelSha256"] = string.Empty,
+        ["ExperimentalMinecraftAiRuntimePath"] = string.Empty
     };
 
     public static bool GetBoolean(string key, bool fallback = false) =>

@@ -8,6 +8,7 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Net;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -29,8 +30,12 @@ using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Application.Instances;
 using PCL.Application.Launching;
 using PCL.Application.Minecraft.Launch.Arguments;
+using PCL.Application.Minecraft.Java;
+using PCL.Application.Minecraft.Launch;
 using PCL.Application.Settings;
 using PCL.Core.App;
+using PCL.Core.Logging;
+using PCL.Domain.Minecraft.Launch;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Community;
@@ -107,6 +112,7 @@ public partial class MainWindow : Window, IDisposable
     private CancellationTokenSource? _microsoftLoginCancellation;
     private readonly MinecraftVanillaInstallService _minecraftInstallService = new();
     private readonly MinecraftLaunchCoordinator _launchCoordinator;
+    private readonly MinecraftAiRepairAdvisor _minecraftAiRepairAdvisor = new();
     private readonly ThirdPartyAuthService _thirdPartyAuthService = new();
     private readonly IMicrosoftMinecraftAuthService _microsoftAuthService;
     private readonly Action<string> _externalUrlOpener;
@@ -4618,7 +4624,8 @@ public partial class MainWindow : Window, IDisposable
         PageLaunchLeft launchPage,
         LaunchInstanceInfo instance,
         string? worldName = null,
-        string? serverAddress = null)
+        string? serverAddress = null,
+        MinecraftRepairSession? repairSession = null)
     {
         // Prefer the profile currently shown on the login UI (not always the first saved entry).
         LoginProfileInfo? profile =
@@ -4627,6 +4634,8 @@ public partial class MainWindow : Window, IDisposable
             _loginProfiles.FirstOrDefault();
         if (profile is null)
         {
+            if (repairSession is not null)
+                await repairSession.Transaction.RollbackAsync().ConfigureAwait(false);
             if (launchPage.IsLaunchInProgress)
                 launchPage.PageChangeToLogin();
             ShowTextDialog("请选择账户档案", "启动游戏前需要先选择或创建一个账户档案。");
@@ -4646,9 +4655,16 @@ public partial class MainWindow : Window, IDisposable
         await Task.Delay(32).ConfigureAwait(false);
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
 
-        _launchCancellation?.Cancel();
-        _launchCancellation?.Dispose();
-        _launchCancellation = new CancellationTokenSource();
+        if (repairSession is null)
+        {
+            _launchCancellation?.Cancel();
+            _launchCancellation?.Dispose();
+            _launchCancellation = new CancellationTokenSource();
+        }
+        else if (_launchCancellation is null)
+        {
+            _launchCancellation = new CancellationTokenSource();
+        }
         CancellationToken cancellationToken = _launchCancellation.Token;
         LauncherSettings? runtimeSettingsForRepair = null;
 
@@ -4710,6 +4726,10 @@ public partial class MainWindow : Window, IDisposable
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            // Surviving the coordinator's early-exit grace period means the repaired launch is
+            // healthy enough to commit. Any later crash starts a fresh diagnosis session.
+            repairSession?.Transaction.Commit();
+
             // Launch pipeline succeeded — never fold post-success UI side effects into "启动失败".
             // (e.g. Close()/Hide launcher visibility can throw ObjectDisposedException.)
             try
@@ -4726,7 +4746,16 @@ public partial class MainWindow : Window, IDisposable
                     }
 
                     Process process = result.Process;
-                    SetGameRunningExtras(process, new RunningGameContext(instance, launchPage, runtimeSettings));
+                    SetGameRunningExtras(
+                        process,
+                        new RunningGameContext(
+                            instance,
+                            launchPage,
+                            runtimeSettings,
+                            result.FaultReport,
+                            result.Plan.NativesDirectory,
+                            worldName,
+                            serverAddress));
                     UpdateBackgroundVideoPlayback(runtimeSettings);
                     _launchRight?.AppendLog(!string.IsNullOrWhiteSpace(worldName)
                         ? $"{instance.Name} 已启动，正在进入存档 {worldName}。"
@@ -4764,6 +4793,8 @@ public partial class MainWindow : Window, IDisposable
         catch (OperationCanceledException)
         {
             DesktopFileLog.Warn("LaunchUI", $"实例 {instance.Name} 的启动操作已取消。");
+            if (repairSession is not null)
+                await repairSession.Transaction.RollbackAsync().ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (launchPage.IsLaunchInProgress)
@@ -4773,13 +4804,24 @@ public partial class MainWindow : Window, IDisposable
         catch (Exception ex)
         {
             DesktopFileLog.Error("LaunchUI", $"实例 {instance.Name} 启动失败。", ex);
-            if (runtimeSettingsForRepair is { AutomaticallyRepairGameIssues: true } repairSettings &&
-                ex.Message.Contains("游戏进程在启动后立即退出", StringComparison.Ordinal))
+            LauncherSettings? repairSettings = runtimeSettingsForRepair ?? repairSession?.Settings;
+            if (repairSettings is not null)
             {
+                MinecraftLaunchFaultReport failureReport = ex is MinecraftLaunchFailureException launchFailure &&
+                                                           launchFailure.FaultReport is { } structuredFailure
+                    ? structuredFailure
+                    : MinecraftLaunchFaultAnalyzer.Analyze(ex, "LaunchCoordinator");
                 await Dispatcher.UIThread.InvokeAsync(() =>
-                    _launchRight?.AppendLog("启动失败，正在检查缺失前置：" + ex.Message));
+                    _launchRight?.AppendLog("启动失败，错误处理器正在分析：" + ex.Message));
                 await TryRepairMissingDependenciesAsync(
-                        new RunningGameContext(instance, launchPage, repairSettings))
+                        new RunningGameContext(
+                            instance,
+                            launchPage,
+                            repairSettings,
+                            Task.FromResult<MinecraftLaunchFaultReport?>(failureReport),
+                            WorldName: worldName,
+                            ServerAddress: serverAddress,
+                            RepairSession: repairSession))
                     .ConfigureAwait(false);
             }
             else
@@ -4873,99 +4915,1169 @@ public partial class MainWindow : Window, IDisposable
             }
         }, DispatcherPriority.Background);
 
-        if (exitCode != 0 && context is { Settings.AutomaticallyRepairGameIssues: true })
+        if (exitCode != 0 && context is not null)
             _ = TryRepairMissingDependenciesAsync(context);
     }
 
     private async Task TryRepairMissingDependenciesAsync(RunningGameContext context)
     {
+        _launchCancellation?.Cancel();
+        _launchCancellation?.Dispose();
+        _launchCancellation = new CancellationTokenSource();
+        CancellationToken cancellationToken = _launchCancellation.Token;
+        MinecraftRepairSession session = context.RepairSession ?? new MinecraftRepairSession(context.Settings);
+        string gameDirectory = context.Instance.InstanceDirectory;
+        MinecraftLaunchFaultReport? fault = null;
+        IReadOnlyList<string> crashLines = [];
+        string analysisMarkdown = string.Empty;
+        MinecraftRepairExecutionResult repair = new("尚未执行修复。", true);
         try
         {
-            string gameDirectory = await InstanceGameDirectory.ResolveAsync(context.Instance).ConfigureAwait(false);
-            IReadOnlyList<string> crashLines = await ReadRecentCrashLinesAsync(gameDirectory).ConfigureAwait(false);
+            gameDirectory = await InstanceGameDirectory.ResolveAsync(context.Instance, cancellationToken)
+                .ConfigureAwait(false);
+            crashLines = await ReadRecentCrashLinesAsync(gameDirectory, cancellationToken).ConfigureAwait(false);
+            fault = await AwaitFaultReportAsync(context.FaultReport, cancellationToken).ConfigureAwait(false);
+            fault ??= MinecraftLaunchFaultAnalyzer.AnalyzeText(crashLines, "GameProcess");
             IReadOnlyList<MinecraftMissingDependency> dependencies = MinecraftMissingDependencyParser.Parse(crashLines);
-            if (dependencies.Count == 0)
+            analysisMarkdown = BuildConventionalCrashAnalysis(fault, dependencies);
+            if (!string.IsNullOrWhiteSpace(session.LastModelAnalysis))
+                analysisMarkdown = session.LastModelAnalysis;
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    _launchRight?.AppendLog("自动修复：崩溃日志中未识别到缺失前置模组。");
-                    ShowHint("自动修复：未识别到缺失前置模组");
-                    if (context.LaunchPage.IsLaunchInProgress)
-                        context.LaunchPage.PageChangeToLogin();
-                });
+                context.LaunchPage.ShowRepairWorkflow(
+                    AvaloniaLocalizationManager.GetText("Crash.Repair.Title", "正在修补 Minecraft"),
+                    AvaloniaLocalizationManager.GetText("Crash.Repair.Stage.Parse", "解析 Minecraft 异常"),
+                    0.08d,
+                    fault.Code.ToString(),
+                    context.Instance);
+                _launchRight?.AppendLog(
+                    $"错误处理器：{fault.Code} · 子系统={fault.Subsystem} · 节点={fault.Stage}" +
+                    (string.IsNullOrWhiteSpace(fault.LastClassName) ? string.Empty : " · 类=" + fault.LastClassName));
+            });
+
+            if (session.Attempt == MinecraftRepairAttempt.ModelApplied)
+            {
+                repair = new MinecraftRepairExecutionResult("常规分析与模型修复后的重启仍然失败。", true);
+                await FinishFailedRepairAsync(
+                        context,
+                        session,
+                        fault,
+                        analysisMarkdown,
+                        repair.Message,
+                        gameDirectory,
+                        crashLines)
+                    .ConfigureAwait(false);
                 return;
             }
 
-            await Dispatcher.UIThread.InvokeAsync(() =>
+            if (session.Attempt == MinecraftRepairAttempt.None && context.Settings.AutomaticallyRepairGameIssues)
             {
-                context.LaunchPage.ShowRepairing();
-                _launchRight?.AppendLog($"自动修复：发现 {dependencies.Count} 个缺失前置模组。");
-            });
-
-            string modsDirectory = Path.Combine(gameDirectory, "mods");
-            Directory.CreateDirectory(modsDirectory);
-            string gameVersion = MinecraftVersionJsonInspector.Read(context.Instance).MinecraftVersionId;
-            int repaired = 0;
-            using CompositeCommunityResourceCatalog catalog = new();
-            using HttpClient downloader = new() { Timeout = TimeSpan.FromMinutes(5) };
-            downloader.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
-            for (int index = 0; index < dependencies.Count; index++)
-            {
-                MinecraftMissingDependency dependency = dependencies[index];
-                await Dispatcher.UIThread.InvokeAsync(() => context.LaunchPage.UpdateRepairStep(index + 1, dependencies.Count));
-                if (await DownloadMissingDependencyAsync(
-                        catalog,
-                        downloader,
-                        dependency,
-                        gameVersion,
-                        modsDirectory)
-                    .ConfigureAwait(false))
+                MinecraftRepairActionKind conventionalAction = SelectConventionalRepairAction(
+                    fault,
+                    dependencies,
+                    context.NativesDirectory);
+                if (IsAutomaticallyExecutableRepair(conventionalAction))
                 {
-                    repaired++;
+                    await Dispatcher.UIThread.InvokeAsync(() => context.LaunchPage.ShowRepairWorkflow(
+                        AvaloniaLocalizationManager.GetText("Crash.Repair.Title", "正在修补 Minecraft"),
+                        AvaloniaLocalizationManager.GetText("Crash.Repair.Stage.Execute", "正在执行修复"),
+                        0.28d,
+                        conventionalAction.ToString(),
+                        context.Instance));
+                    try
+                    {
+                        repair = await ExecuteMinecraftRepairAsync(
+                                context,
+                                fault,
+                                conventionalAction,
+                                dependencies,
+                                gameDirectory,
+                                suggestion: null,
+                                session.Transaction,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception conventionalException)
+                        when (conventionalException is not OperationCanceledException)
+                    {
+                        repair = new MinecraftRepairExecutionResult(
+                            "常规修复执行失败：" + conventionalException.Message,
+                            true);
+                        DesktopFileLog.Warn(
+                            "MinecraftRepair",
+                            "常规修复执行失败，将尝试本地模型。",
+                            conventionalException);
+                        await Dispatcher.UIThread.InvokeAsync(() => _launchRight?.AppendLog(repair.Message));
+                    }
+                    if (!repair.IsFailure && repair.MadeChanges)
+                    {
+                        session.Attempt = MinecraftRepairAttempt.ConventionalApplied;
+                        await RestartMinecraftAfterRepairAsync(context, session, repair.Message, cancellationToken)
+                            .ConfigureAwait(false);
+                        return;
+                    }
+                    if (!repair.IsFailure)
+                    {
+                        DesktopFileLog.Info(
+                            "MinecraftRepair",
+                            "常规修复检查完成但没有产生任何改动，将直接调用本地模型。");
+                        await Dispatcher.UIThread.InvokeAsync(() => _launchRight?.AppendLog(
+                            "常规修复没有产生改动，跳过无意义的重启并直接调用本地模型。"));
+                    }
                 }
             }
 
+            bool aiEnabled = context.Settings.GetBooleanOption(
+                LauncherSettingKeys.ExperimentalMinecraftAiRepair,
+                LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalMinecraftAiRepair.Value));
+            if (aiEnabled)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => context.LaunchPage.ShowRepairWorkflow(
+                    AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型"),
+                    AvaloniaLocalizationManager.GetText("Crash.Model.Stage.Prepare", "准备本地模型"),
+                    0.01d,
+                    MinecraftAiRepairAdvisor.ModelName,
+                    context.Instance));
+                IReadOnlyList<MinecraftModMetadata> installedMods = await Task.Run(
+                        () => MinecraftModMetadataReader.ReadDirectory(Path.Combine(gameDirectory, "mods")),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                MinecraftRepairActionKind[] candidateActions = fault.AllowedActions
+                    .Where(action => action != MinecraftRepairActionKind.ReextractNatives ||
+                                     !string.IsNullOrWhiteSpace(context.NativesDirectory))
+                    .Where(action => action != MinecraftRepairActionKind.InstallMissingModDependencies ||
+                                     dependencies.Count > 0)
+                    .Distinct()
+                    .ToArray();
+                if (candidateActions.Length == 0)
+                    candidateActions = [MinecraftRepairActionKind.InspectOnly];
+                MinecraftLaunchFaultReport modelFault = fault with { AllowedActions = candidateActions };
+                try
+                {
+                    MinecraftAiModelOptions modelOptions = new(
+                        context.Settings.GetTextOption(
+                            LauncherSettingKeys.ExperimentalMinecraftAiModelPath,
+                            LauncherSettingDefaults.GetText(LauncherSettingKeys.ExperimentalMinecraftAiModelPath.Value)),
+                        context.Settings.GetTextOption(
+                            LauncherSettingKeys.ExperimentalMinecraftAiModelSha256,
+                            LauncherSettingDefaults.GetText(LauncherSettingKeys.ExperimentalMinecraftAiModelSha256.Value)),
+                        context.Settings.GetTextOption(
+                            LauncherSettingKeys.ExperimentalMinecraftAiRuntimePath,
+                            LauncherSettingDefaults.GetText(LauncherSettingKeys.ExperimentalMinecraftAiRuntimePath.Value)));
+                    MinecraftAiRepairSuggestion? aiSuggestion = await _minecraftAiRepairAdvisor.AdviseAsync(
+                            modelFault,
+                            crashLines,
+                            installedMods,
+                            AvaloniaLocalizationManager.CurrentLanguageCode,
+                            modelOptions,
+                            progress => Dispatcher.UIThread.Post(() =>
+                            {
+                                context.LaunchPage.ShowRepairWorkflow(
+                                    AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型"),
+                                    progress.Stage,
+                                    progress.Progress,
+                                    progress.Detail,
+                                    context.Instance);
+                                _launchRight?.AppendLog(
+                                    "0.5B 本地模型：" + progress.Stage +
+                                    (string.IsNullOrWhiteSpace(progress.Detail) ? string.Empty : " · " + progress.Detail));
+                            }, DispatcherPriority.Background),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    if (aiSuggestion is not null)
+                    {
+                        analysisMarkdown = string.IsNullOrWhiteSpace(aiSuggestion.AnalysisMarkdown)
+                            ? analysisMarkdown
+                            : aiSuggestion.AnalysisMarkdown;
+                        session.LastModelAnalysis = analysisMarkdown;
+                        await Dispatcher.UIThread.InvokeAsync(() =>
+                        {
+                            context.LaunchPage.ShowRepairWorkflow(
+                                AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型"),
+                                aiSuggestion.Stage,
+                                Math.Max(0.94d, aiSuggestion.Progress),
+                                aiSuggestion.Action.ToString(),
+                                context.Instance);
+                            _launchRight?.AppendLog(
+                                $"0.5B 本地模型：建议={aiSuggestion.Action}；可信度={aiSuggestion.Confidence:P0}。");
+                        });
+                        if (context.Settings.AutomaticallyRepairGameIssues &&
+                            IsAutomaticallyExecutableRepair(aiSuggestion.Action) &&
+                            await ConfirmAiRepairActionAsync(aiSuggestion, cancellationToken).ConfigureAwait(false))
+                        {
+                            repair = await ExecuteMinecraftRepairAsync(
+                                    context,
+                                    fault,
+                                    aiSuggestion.Action,
+                                    dependencies,
+                                    gameDirectory,
+                                    aiSuggestion,
+                                    session.Transaction,
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                            if (!repair.IsFailure && repair.MadeChanges)
+                            {
+                                session.Attempt = MinecraftRepairAttempt.ModelApplied;
+                                await RestartMinecraftAfterRepairAsync(context, session, repair.Message, cancellationToken)
+                                    .ConfigureAwait(false);
+                                return;
+                            }
+                            if (!repair.IsFailure)
+                            {
+                                DesktopFileLog.Info(
+                                    "MinecraftRepairAI",
+                                    "模型修复计划执行完成但没有产生任何改动，不会重新启动 Minecraft。");
+                                await Dispatcher.UIThread.InvokeAsync(() => _launchRight?.AppendLog(
+                                    "模型修复没有产生改动，已停止自动重启。"));
+                            }
+                        }
+                    }
+                }
+                catch (Exception aiException)
+                    when (aiException is not OperationCanceledException)
+                {
+                    DesktopFileLog.Warn("MinecraftRepairAI", "本地模型分析失败，将保留常规分析结果。", aiException);
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                        _launchRight?.AppendLog("0.5B 本地模型分析失败，已回退常规分析器：" + aiException.Message));
+                }
+            }
+            repair = new MinecraftRepairExecutionResult(
+                aiEnabled
+                    ? "常规分析器和本地模型都未能生成可执行的修复计划。"
+                    : "常规分析器未能解决错误，且本地模型功能未启用。",
+                true);
+            await FinishFailedRepairAsync(
+                    context,
+                    session,
+                    fault,
+                    analysisMarkdown,
+                    repair.Message,
+                    gameDirectory,
+                    crashLines)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            await session.Transaction.RollbackAsync().ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                context.LaunchPage.HideRepairing();
                 if (context.LaunchPage.IsLaunchInProgress)
                     context.LaunchPage.PageChangeToLogin();
-                string result = repaired == dependencies.Count
-                    ? $"自动修复完成：已安装 {repaired} 个前置模组，请重新启动游戏。"
-                    : $"自动修复完成：已安装 {repaired}/{dependencies.Count} 个前置模组。";
-                _launchRight?.AppendLog(result);
-                ShowHint(result, critical: repaired != dependencies.Count);
+                _launchRight?.AppendLog("Minecraft 修复已取消，本轮更改已回滚。");
             });
         }
         catch (Exception ex)
         {
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                context.LaunchPage.HideRepairing();
-                if (context.LaunchPage.IsLaunchInProgress)
-                    context.LaunchPage.PageChangeToLogin();
-                _launchRight?.AppendLog("自动修复失败：" + ex.Message);
-                ShowHint("自动修复失败：" + TruncateHint(ex.Message), critical: true);
-            });
+            fault ??= MinecraftLaunchFaultAnalyzer.Analyze(ex, "CrashAnalyzer");
+            string failure = "崩溃分析或自动修复失败：" + ex.Message;
+            await FinishFailedRepairAsync(
+                    context,
+                    session,
+                    fault,
+                    string.IsNullOrWhiteSpace(analysisMarkdown)
+                        ? BuildConventionalCrashAnalysis(fault, [])
+                        : analysisMarkdown,
+                    failure,
+                    gameDirectory,
+                    crashLines)
+                .ConfigureAwait(false);
         }
     }
 
-    private static async Task<bool> DownloadMissingDependencyAsync(
+    private static MinecraftRepairActionKind SelectConventionalRepairAction(
+        MinecraftLaunchFaultReport fault,
+        IReadOnlyList<MinecraftMissingDependency> dependencies,
+        string? nativesDirectory)
+    {
+        if (fault.Code == MinecraftLaunchFaultCode.NativeLibraryFailed &&
+            !string.IsNullOrWhiteSpace(nativesDirectory))
+            return MinecraftRepairActionKind.ReextractNatives;
+        if (fault.Code == MinecraftLaunchFaultCode.MissingModDependency && dependencies.Count > 0)
+            return MinecraftRepairActionKind.InstallMissingModDependencies;
+        return fault.Code switch
+        {
+            MinecraftLaunchFaultCode.MainClassMissing or MinecraftLaunchFaultCode.ClasspathDependencyMissing =>
+                MinecraftRepairActionKind.RepairVersionFiles,
+            MinecraftLaunchFaultCode.JavaRuntimeMissing or MinecraftLaunchFaultCode.JavaRuntimeIncompatible or
+                MinecraftLaunchFaultCode.JvmInitializationFailed => MinecraftRepairActionKind.SelectCompatibleJava,
+            _ => MinecraftRepairActionKind.InspectOnly
+        };
+    }
+
+    private async Task<MinecraftRepairExecutionResult> ExecuteMinecraftRepairAsync(
+        RunningGameContext context,
+        MinecraftLaunchFaultReport fault,
+        MinecraftRepairActionKind action,
+        IReadOnlyList<MinecraftMissingDependency> dependencies,
+        string gameDirectory,
+        MinecraftAiRepairSuggestion? suggestion,
+        MinecraftRepairTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        return action switch
+        {
+            MinecraftRepairActionKind.RepairVersionFiles =>
+                await RepairVersionFilesAfterFaultAsync(context, fault, transaction, cancellationToken)
+                    .ConfigureAwait(false),
+            MinecraftRepairActionKind.ReextractNatives when !string.IsNullOrWhiteSpace(context.NativesDirectory) =>
+                await ReextractNativesAfterFaultAsync(context, fault, transaction, cancellationToken).ConfigureAwait(false),
+            MinecraftRepairActionKind.InstallMissingModDependencies when dependencies.Count > 0 =>
+                await RepairMissingDependenciesAfterFaultAsync(
+                        context,
+                        dependencies,
+                        gameDirectory,
+                        transaction,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            MinecraftRepairActionKind.DownloadMod when suggestion?.Parameters.ModId is { } modId =>
+                await RepairRequestedModAsync(
+                        context,
+                        gameDirectory,
+                        modId,
+                        suggestion.Parameters.ModVersion,
+                        updateExisting: false,
+                        transaction,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            MinecraftRepairActionKind.UpdateMod when suggestion?.Parameters.ModId is { } updateModId =>
+                await RepairRequestedModAsync(
+                        context,
+                        gameDirectory,
+                        updateModId,
+                        suggestion.Parameters.ModVersion,
+                        updateExisting: true,
+                        transaction,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            MinecraftRepairActionKind.DisableMod when suggestion?.Parameters.ModId is { } disableModId =>
+                await DisableRequestedModAsync(
+                        gameDirectory,
+                        disableModId,
+                        transaction,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            MinecraftRepairActionKind.SelectCompatibleJava =>
+                await SelectCompatibleJavaAfterFaultAsync(context, transaction, cancellationToken)
+                    .ConfigureAwait(false),
+            MinecraftRepairActionKind.DownloadCompatibleJava =>
+                await DownloadCompatibleJavaAfterFaultAsync(context, transaction, cancellationToken)
+                    .ConfigureAwait(false),
+            MinecraftRepairActionKind.ReinstallVersionAndUpdateLoader =>
+                await ReinstallVersionAndUpdateLoaderAsync(
+                        context,
+                        suggestion,
+                        transaction,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            _ => new MinecraftRepairExecutionResult(
+                "常规错误分析器没有找到可安全自动执行的修复；请查看分析内容和日志。",
+                true)
+        };
+    }
+
+    private async Task<MinecraftRepairExecutionResult> RepairVersionFilesAfterFaultAsync(
+        RunningGameContext context,
+        MinecraftLaunchFaultReport fault,
+        MinecraftRepairTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            context.LaunchPage.ShowRepairWorkflow(
+                AvaloniaLocalizationManager.GetText("Crash.Repair.Title", "正在修补 Minecraft"),
+                AvaloniaLocalizationManager.GetText("Crash.Repair.Stage.Execute", "正在执行修复"),
+                0.35d);
+            _launchRight?.AppendLog($"自动修复：{fault.Code}，开始校验并补全版本文件。");
+        });
+        int changedFiles = 0;
+        await _minecraftInstallService.RepairAsync(
+                new MinecraftRepairRequest
+                {
+                    VersionId = context.Instance.Name,
+                    VersionJsonPath = context.Instance.VersionJsonPath,
+                    MinecraftRootDirectory = GetMinecraftRootFromInstance(context.Instance),
+                    InstanceDirectory = context.Instance.InstanceDirectory,
+                    PreferOfficialSource = context.Settings.DownloadSource != DownloadSourcePreference.MirrorOnly,
+                    BeforeFileChangeAsync = async (path, token) =>
+                        await transaction.BackupFileAsync(path, token).ConfigureAwait(false),
+                    FileChanged = _ => Interlocked.Increment(ref changedFiles)
+                },
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        return new MinecraftRepairExecutionResult(
+            changedFiles > 0
+                ? $"自动修复完成：已补全或替换 {changedFiles} 个版本文件，请重新启动游戏。"
+                : "版本文件校验完成，没有发现需要修改的文件。",
+            false,
+            changedFiles > 0);
+    }
+
+    private async Task<MinecraftRepairExecutionResult> ReextractNativesAfterFaultAsync(
+        RunningGameContext context,
+        MinecraftLaunchFaultReport fault,
+        MinecraftRepairTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        string nativesDirectory = context.NativesDirectory!;
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            context.LaunchPage.ShowRepairWorkflow(
+                AvaloniaLocalizationManager.GetText("Crash.Repair.Title", "正在修补 Minecraft"),
+                AvaloniaLocalizationManager.GetText("Crash.Repair.Stage.Execute", "正在执行修复"),
+                0.5d);
+            _launchRight?.AppendLog($"自动修复：{fault.Code}，准备重新解压 Natives。");
+        });
+        cancellationToken.ThrowIfCancellationRequested();
+        bool existed = Directory.Exists(nativesDirectory);
+        transaction.BackupDirectoryByMove(nativesDirectory);
+        return new MinecraftRepairExecutionResult(
+            existed
+                ? "自动修复完成：旧 Natives 已清理，下次启动会重新解压。"
+                : "Natives 目录不存在，没有可重新提取的文件。",
+            false,
+            existed);
+    }
+
+    private async Task<MinecraftRepairExecutionResult> RepairMissingDependenciesAfterFaultAsync(
+        RunningGameContext context,
+        IReadOnlyList<MinecraftMissingDependency> dependencies,
+        string gameDirectory,
+        MinecraftRepairTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            context.LaunchPage.ShowRepairWorkflow(
+                AvaloniaLocalizationManager.GetText("Crash.Repair.Title", "正在修补 Minecraft"),
+                AvaloniaLocalizationManager.GetText("Crash.Repair.Stage.Execute", "正在执行修复"),
+                0.32d);
+            _launchRight?.AppendLog($"自动修复：发现 {dependencies.Count} 个缺失前置模组。");
+        });
+        string modsDirectory = Path.Combine(gameDirectory, "mods");
+        Directory.CreateDirectory(modsDirectory);
+        string gameVersion = MinecraftVersionJsonInspector.Read(context.Instance).MinecraftVersionId;
+        string loader = ResolveCommunityLoader(
+            context.Instance,
+            MinecraftModMetadataReader.ReadDirectory(modsDirectory));
+        int repaired = 0;
+        int changed = 0;
+        using CompositeCommunityResourceCatalog catalog = new();
+        using HttpClient downloader = new() { Timeout = TimeSpan.FromMinutes(5) };
+        downloader.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
+        for (int index = 0; index < dependencies.Count; index++)
+        {
+            MinecraftMissingDependency dependency = dependencies[index];
+            cancellationToken.ThrowIfCancellationRequested();
+            await Dispatcher.UIThread.InvokeAsync(() =>
+                context.LaunchPage.UpdateRepairStep(index + 1, dependencies.Count));
+            ModDownloadResult result = await DownloadMissingDependencyAsync(
+                    catalog,
+                    downloader,
+                    dependency,
+                    gameVersion,
+                    loader,
+                    modsDirectory,
+                    transaction,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (result.Success)
+                repaired++;
+            if (result.Changed)
+                changed++;
+        }
+        return new MinecraftRepairExecutionResult(
+            repaired == dependencies.Count
+                ? $"自动修复完成：已安装 {repaired} 个前置模组，请重新启动游戏。"
+                : $"自动修复完成：已安装 {repaired}/{dependencies.Count} 个前置模组。",
+            repaired != dependencies.Count,
+            changed > 0);
+    }
+
+    private static async Task<MinecraftRepairExecutionResult> RepairRequestedModAsync(
+        RunningGameContext context,
+        string gameDirectory,
+        string modId,
+        string? requestedVersion,
+        bool updateExisting,
+        MinecraftRepairTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        string modsDirectory = Path.Combine(gameDirectory, "mods");
+        Directory.CreateDirectory(modsDirectory);
+        IReadOnlyList<MinecraftModMetadata> installed = MinecraftModMetadataReader.ReadDirectory(modsDirectory);
+        MinecraftModMetadata? current = installed.FirstOrDefault(mod =>
+            string.Equals(mod.Id, modId, StringComparison.OrdinalIgnoreCase));
+        if (updateExisting && current is null)
+            return new MinecraftRepairExecutionResult($"未找到要更新的已安装模组：{modId}。", true);
+
+        string gameVersion = MinecraftVersionJsonInspector.Read(context.Instance).MinecraftVersionId;
+        string loader = ResolveCommunityLoader(context.Instance, installed);
+        CommunitySearchOptions options = new(
+            CommunityResourceSort.Relevance,
+            GameVersion: gameVersion,
+            Loader: loader,
+            Source: CommunityResourceSource.All);
+        using CompositeCommunityResourceCatalog catalog = new();
+        IReadOnlyList<CommunityResourceEntry> projects = await catalog.SearchAsync(
+                CommunityResourceCategory.Mod,
+                modId,
+                options,
+                cancellationToken)
+            .ConfigureAwait(false);
+        CommunityResourceEntry? project = projects
+            .OrderBy(entry => string.Equals(entry.ProjectId, modId, StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(entry.Slug, modId, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenByDescending(static entry => entry.Downloads)
+            .FirstOrDefault();
+        if (project is null)
+            return new MinecraftRepairExecutionResult($"社区资源中未找到模组：{modId}。", true);
+
+        IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(
+                project,
+                options,
+                cancellationToken)
+            .ConfigureAwait(false);
+        CommunityResourceVersion? version = string.IsNullOrWhiteSpace(requestedVersion)
+            ? versions.OrderByDescending(static item => item.PublishedAt).FirstOrDefault()
+            : versions.FirstOrDefault(item =>
+                string.Equals(item.VersionId, requestedVersion, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(item.VersionNumber, requestedVersion, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(item.Name, requestedVersion, StringComparison.OrdinalIgnoreCase));
+        if (version is null)
+            return new MinecraftRepairExecutionResult(
+                $"未找到 {project.DisplayTitle} 的目标版本 {requestedVersion ?? "(最新兼容版)"}。",
+                true);
+        CommunityResourceDownloadFile? file = version.Files.FirstOrDefault(candidate =>
+                                                  candidate.FileName.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
+                                              ?? (version.Files.Count > 0 ? version.Files[0] : null);
+        if (file is null)
+            return new MinecraftRepairExecutionResult("目标模组版本没有可下载文件。", true);
+
+        if (current is not null &&
+            File.Exists(current.FilePath) &&
+            string.Equals(current.Version, version.VersionNumber, StringComparison.OrdinalIgnoreCase))
+        {
+            return new MinecraftRepairExecutionResult(
+                $"{project.DisplayTitle} 已经是目标版本 {version.VersionNumber}，没有需要修改的文件。",
+                false,
+                false);
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() => context.LaunchPage.ShowRepairWorkflow(
+            AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型"),
+            updateExisting ? "正在更新模组" : "正在下载模组",
+            0.96d,
+            project.DisplayTitle,
+            context.Instance));
+        string targetPath = Path.Combine(modsDirectory, SanitizeFileName(file.FileName));
+        await transaction.BackupFileAsync(targetPath, cancellationToken).ConfigureAwait(false);
+        foreach (MinecraftModMetadata conflict in installed.Where(mod =>
+                     string.Equals(mod.Id, modId, StringComparison.OrdinalIgnoreCase) &&
+                     !mod.FilePath.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase)))
+        {
+            string disabledPath = CreateDisabledModPath(conflict.FilePath);
+            await transaction.BackupFileAsync(conflict.FilePath, cancellationToken).ConfigureAwait(false);
+            await transaction.BackupFileAsync(disabledPath, cancellationToken).ConfigureAwait(false);
+            File.Move(conflict.FilePath, disabledPath);
+        }
+
+        string temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".PCLDownloading";
+        try
+        {
+            using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(10) };
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
+            using HttpResponseMessage response = await client.GetAsync(
+                    file.Url,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            await using FileStream target = new(
+                temporaryPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                64 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
+            await target.FlushAsync(cancellationToken).ConfigureAwait(false);
+            target.Close();
+            File.Move(temporaryPath, targetPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
+        return new MinecraftRepairExecutionResult(
+            updateExisting
+                ? $"已将 {project.DisplayTitle} 更新至 {version.VersionNumber}。"
+                : $"已下载 {project.DisplayTitle} {version.VersionNumber}。",
+            false,
+            true);
+    }
+
+    private static async Task<MinecraftRepairExecutionResult> DisableRequestedModAsync(
+        string gameDirectory,
+        string modId,
+        MinecraftRepairTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        string modsDirectory = Path.Combine(gameDirectory, "mods");
+        MinecraftModMetadata? metadata = MinecraftModMetadataReader.ReadDirectory(modsDirectory)
+            .FirstOrDefault(mod => string.Equals(mod.Id, modId, StringComparison.OrdinalIgnoreCase) &&
+                                   !mod.FilePath.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase));
+        if (metadata is null)
+            return new MinecraftRepairExecutionResult($"未找到可禁用的模组：{modId}。", true);
+        string disabledPath = CreateDisabledModPath(metadata.FilePath);
+        await transaction.BackupFileAsync(metadata.FilePath, cancellationToken).ConfigureAwait(false);
+        await transaction.BackupFileAsync(disabledPath, cancellationToken).ConfigureAwait(false);
+        File.Move(metadata.FilePath, disabledPath);
+        return new MinecraftRepairExecutionResult(
+            $"已禁用模组 {metadata.Name}（{metadata.Id}），将尝试重新启动。",
+            false,
+            true);
+    }
+
+    private static string CreateDisabledModPath(string path)
+    {
+        string candidate = path + ".disabled";
+        for (int index = 2; File.Exists(candidate); index++)
+            candidate = path + "." + index.ToString(CultureInfo.InvariantCulture) + ".disabled";
+        return candidate;
+    }
+
+    private static string ResolveCommunityLoader(
+        LaunchInstanceInfo instance,
+        IReadOnlyList<MinecraftModMetadata> installedMods)
+    {
+        string? metadataLoader = installedMods.Select(static mod => mod.Loader)
+            .FirstOrDefault(loader => !string.Equals(loader, "unknown", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(metadataLoader))
+            return metadataLoader;
+        IReadOnlyList<string> libraries = MinecraftVersionJsonInspector.Read(instance).Libraries;
+        if (libraries.Any(library => library.Contains("quilt-loader", StringComparison.OrdinalIgnoreCase)))
+            return "quilt";
+        if (libraries.Any(library => library.Contains("fabric-loader", StringComparison.OrdinalIgnoreCase)))
+            return "fabric";
+        if (libraries.Any(library => library.Contains("neoforged", StringComparison.OrdinalIgnoreCase)))
+            return "neoforge";
+        return "forge";
+    }
+
+    private static async Task<MinecraftRepairExecutionResult> SelectCompatibleJavaAfterFaultAsync(
+        RunningGameContext context,
+        MinecraftRepairTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        MinecraftLaunchProfile profile = MinecraftLaunchCoordinator.BuildLaunchProfile(context.Instance);
+        JavaRequirementResolution requirement = JavaRuntimeRequirementResolver.Resolve(profile);
+        if (!requirement.Success)
+            return new MinecraftRepairExecutionResult(requirement.Detail ?? "无法解析 Java 要求。", true);
+        InstanceMetadata current = await InstanceMetadataStore.LoadAsync(
+                context.Instance.InstanceDirectory,
+                cancellationToken)
+            .ConfigureAwait(false);
+        IReadOnlyList<PCL.Domain.Minecraft.Java.JavaRuntimeCandidate> candidates =
+            await JavaRuntimeCatalog.LoadAsync(context.Settings, cancellationToken).ConfigureAwait(false);
+        PCL.Domain.Minecraft.Java.JavaRuntimeCandidate? best = JavaRuntimeCatalog.SelectBest(
+            candidates.Where(candidate => !string.Equals(
+                candidate.Installation.JavaExecutablePath,
+                current.SelectedJavaPath,
+                StringComparison.OrdinalIgnoreCase)),
+            requirement.Range);
+        if (best is null)
+            return new MinecraftRepairExecutionResult("没有找到另一套兼容且已启用的 Java。", true);
+        await transaction.BackupFileAsync(
+                InstanceMetadataStore.GetMetadataPath(context.Instance.InstanceDirectory),
+                cancellationToken)
+            .ConfigureAwait(false);
+        await InstanceMetadataStore.UpdateAsync(
+                context.Instance.InstanceDirectory,
+                metadata => metadata with
+                {
+                    JavaSelectionMode = 2,
+                    SelectedJavaPath = best.Installation.JavaExecutablePath
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+        return new MinecraftRepairExecutionResult(
+            $"已切换至 Java {best.Installation.MajorVersion}：{best.Installation.JavaExecutablePath}",
+            false,
+            true);
+    }
+
+    private static async Task<MinecraftRepairExecutionResult> DownloadCompatibleJavaAfterFaultAsync(
+        RunningGameContext context,
+        MinecraftRepairTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        MinecraftLaunchProfile profile = MinecraftLaunchCoordinator.BuildLaunchProfile(context.Instance);
+        JavaRequirementResolution requirement = JavaRuntimeRequirementResolver.Resolve(profile);
+        if (!requirement.Success)
+            return new MinecraftRepairExecutionResult(requirement.Detail ?? "无法解析 Java 要求。", true);
+        JavaRuntimeAcquisitionDecision acquisition = JavaRuntimeAcquisitionPlanner.Plan(requirement, profile.HasForge);
+        if (!acquisition.CanAutoDownload || string.IsNullOrWhiteSpace(acquisition.DownloadComponent))
+            return new MinecraftRepairExecutionResult("该版本的 Java 要求不能由启动器安全自动下载。", true);
+        DefaultPlatformPathProvider paths = new();
+        string runtimeRoot = JavaRuntimeInstaller.GetDefaultRuntimeRoot(paths);
+        HashSet<string> existingRuntimeDirectories = Directory.Exists(runtimeRoot)
+            ? Directory.EnumerateDirectories(runtimeRoot).Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using HttpJavaRuntimeMetadataProvider metadataProvider = new();
+        JavaRuntimeInstaller installer = new(metadataProvider);
+        Progress<JavaRuntimeInstallProgress> progress = new(update => Dispatcher.UIThread.Post(() =>
+            context.LaunchPage.ShowRepairWorkflow(
+                AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型"),
+                update.Stage,
+                0.94d + (update.Progress * 0.05d),
+                update.Detail,
+                context.Instance)));
+        string javaPath = await installer.InstallAsync(
+                acquisition.DownloadComponent,
+                runtimeRoot,
+                progress,
+                cancellationToken)
+            .ConfigureAwait(false);
+        string? installedRuntimeDirectory = FindTopLevelDirectory(runtimeRoot, javaPath);
+        if (installedRuntimeDirectory is not null && !existingRuntimeDirectories.Contains(installedRuntimeDirectory))
+            transaction.TrackCreatedDirectory(installedRuntimeDirectory);
+        await transaction.BackupFileAsync(
+                InstanceMetadataStore.GetMetadataPath(context.Instance.InstanceDirectory),
+                cancellationToken)
+            .ConfigureAwait(false);
+        await InstanceMetadataStore.UpdateAsync(
+                context.Instance.InstanceDirectory,
+                metadata => metadata with { JavaSelectionMode = 2, SelectedJavaPath = javaPath },
+                cancellationToken)
+            .ConfigureAwait(false);
+        return new MinecraftRepairExecutionResult(
+            $"已下载并选择兼容 Java：{javaPath}",
+            false,
+            true);
+    }
+
+    private static string? FindTopLevelDirectory(string rootDirectory, string childPath)
+    {
+        string root = Path.GetFullPath(rootDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string current = Path.GetFullPath(childPath);
+        if (!current.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return null;
+        string relative = Path.GetRelativePath(root, current);
+        string? first = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .FirstOrDefault();
+        return string.IsNullOrWhiteSpace(first) ? null : Path.Combine(root, first);
+    }
+
+    private async Task<MinecraftRepairExecutionResult> ReinstallVersionAndUpdateLoaderAsync(
+        RunningGameContext context,
+        MinecraftAiRepairSuggestion? suggestion,
+        MinecraftRepairTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        MinecraftVersionJsonInfo info = MinecraftVersionJsonInspector.Read(context.Instance);
+        (MinecraftLoaderKind Kind, string Version)? loader = DetectInstalledLoader(info.Libraries);
+        if (loader is null || string.Equals(context.Instance.Name, info.MinecraftVersionId, StringComparison.OrdinalIgnoreCase))
+            return new MinecraftRepairExecutionResult("当前版本没有可安全原位更新的模组加载器。", true);
+        MinecraftLoaderMetadataService metadataService = new();
+        IReadOnlyList<MinecraftLoaderVersionEntry> candidates = await metadataService.GetLoaderVersionsAsync(
+                loader.Value.Kind,
+                info.MinecraftVersionId,
+                cancellationToken)
+            .ConfigureAwait(false);
+        string? requested = suggestion?.Parameters.LoaderVersion;
+        MinecraftLoaderVersionEntry? target = !string.IsNullOrWhiteSpace(requested)
+            ? candidates.FirstOrDefault(candidate => string.Equals(candidate.Version, requested, StringComparison.OrdinalIgnoreCase))
+            : candidates.FirstOrDefault(static candidate => candidate.Stable) ??
+              (candidates.Count > 0 ? candidates[0] : null);
+        if (target is null)
+            return new MinecraftRepairExecutionResult("未找到兼容的加载器更新版本。", true);
+        IReadOnlyList<MinecraftVersionManifestEntry> manifest = await _minecraftInstallService.GetVersionManifestAsync(
+                context.Settings.DownloadSource != DownloadSourcePreference.MirrorOnly,
+                cancellationToken)
+            .ConfigureAwait(false);
+        MinecraftVersionManifestEntry? vanilla = manifest.FirstOrDefault(entry =>
+            string.Equals(entry.Id, info.MinecraftVersionId, StringComparison.OrdinalIgnoreCase));
+        if (vanilla is null)
+            return new MinecraftRepairExecutionResult("无法取得基础 Minecraft 版本元数据。", true);
+
+        await transaction.BackupFileAsync(context.Instance.VersionJsonPath, cancellationToken).ConfigureAwait(false);
+        await transaction.BackupFileAsync(
+                Path.Combine(context.Instance.InstanceDirectory, context.Instance.Name + ".jar"),
+                cancellationToken)
+            .ConfigureAwait(false);
+        await _minecraftInstallService.InstallAsync(
+                new MinecraftInstallRequest
+                {
+                    VersionId = context.Instance.Name,
+                    BaseVersionId = info.MinecraftVersionId,
+                    VersionJsonUrl = vanilla.Url,
+                    MinecraftRootDirectory = GetMinecraftRootFromInstance(context.Instance),
+                    PreferOfficialSource = context.Settings.DownloadSource != DownloadSourcePreference.MirrorOnly,
+                    Loader = new MinecraftLoaderInstallRequest(loader.Value.Kind, target.Version),
+                    ReplaceExistingVersion = true,
+                    JavaExecutablePath = ResolvePreferredJavaExecutablePath(forceConsole: true)
+                },
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        return new MinecraftRepairExecutionResult(
+            $"已重新安装版本，并将 {loader.Value.Kind} 从 {loader.Value.Version} 更新至 {target.Version}。",
+            false,
+            true);
+    }
+
+    private static (MinecraftLoaderKind Kind, string Version)? DetectInstalledLoader(IReadOnlyList<string> libraries)
+    {
+        (MinecraftLoaderKind Kind, string[] Needles)[] candidates =
+        [
+            (MinecraftLoaderKind.NeoForge, ["net.neoforged:neoforge", "net.neoforged:forge"]),
+            (MinecraftLoaderKind.Forge, ["net.minecraftforge:forge"]),
+            (MinecraftLoaderKind.Quilt, ["quilt-loader"]),
+            (MinecraftLoaderKind.LegacyFabric, ["legacyfabric", "legacy-fabric"]),
+            (MinecraftLoaderKind.Fabric, ["fabric-loader"]),
+            (MinecraftLoaderKind.Cleanroom, ["cleanroom"])
+        ];
+        foreach ((MinecraftLoaderKind kind, string[] needles) in candidates)
+        {
+            string? version = MinecraftLoaderLibraryDetector.DetectVersion(libraries, needles);
+            if (!string.IsNullOrWhiteSpace(version))
+                return (kind, version);
+        }
+        return null;
+    }
+
+    private static bool IsAutomaticallyExecutableRepair(MinecraftRepairActionKind action) => action is
+        MinecraftRepairActionKind.RepairVersionFiles or
+        MinecraftRepairActionKind.ReextractNatives or
+        MinecraftRepairActionKind.InstallMissingModDependencies or
+        MinecraftRepairActionKind.DownloadMod or
+        MinecraftRepairActionKind.DisableMod or
+        MinecraftRepairActionKind.UpdateMod or
+        MinecraftRepairActionKind.SelectCompatibleJava or
+        MinecraftRepairActionKind.DownloadCompatibleJava or
+        MinecraftRepairActionKind.ReinstallVersionAndUpdateLoader;
+
+    private static async Task<MinecraftLaunchFaultReport?> AwaitFaultReportAsync(
+        Task<MinecraftLaunchFaultReport?>? faultReportTask,
+        CancellationToken cancellationToken)
+    {
+        if (faultReportTask is null)
+            return null;
+        Task completed = await Task.WhenAny(
+                faultReportTask,
+                Task.Delay(TimeSpan.FromSeconds(1), cancellationToken))
+            .ConfigureAwait(false);
+        return ReferenceEquals(completed, faultReportTask)
+            ? await faultReportTask.ConfigureAwait(false)
+            : null;
+    }
+
+    private Task<bool> ConfirmAiRepairActionAsync(
+        MinecraftAiRepairSuggestion suggestion,
+        CancellationToken cancellationToken)
+    {
+        TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationTokenRegistration registration = cancellationToken.Register(
+            static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(),
+            completion);
+        string target = suggestion.Action switch
+        {
+            MinecraftRepairActionKind.DownloadMod =>
+                $"下载模组 {suggestion.Parameters.ModId} {suggestion.Parameters.ModVersion}",
+            MinecraftRepairActionKind.DisableMod => $"禁用模组 {suggestion.Parameters.ModId}",
+            MinecraftRepairActionKind.UpdateMod =>
+                $"将模组 {suggestion.Parameters.ModId} 更新至 {suggestion.Parameters.ModVersion}",
+            MinecraftRepairActionKind.SelectCompatibleJava => "切换至另一套已安装的兼容 Java",
+            MinecraftRepairActionKind.DownloadCompatibleJava => "下载并选择兼容 Java",
+            MinecraftRepairActionKind.ReinstallVersionAndUpdateLoader => "重新安装版本并更新模组加载器",
+            MinecraftRepairActionKind.RepairVersionFiles => "重新校验并补全 Minecraft 版本文件",
+            MinecraftRepairActionKind.ReextractNatives => "重新生成 Minecraft Natives",
+            MinecraftRepairActionKind.InstallMissingModDependencies => "下载缺失的前置模组",
+            _ => suggestion.Action.ToString()
+        };
+        Dispatcher.UIThread.Post(() => ShowConfirmDialog(
+            AvaloniaLocalizationManager.GetText("Crash.Model.Confirm.Title", "模型请求执行修复"),
+            $"本地模型请求：{target}\n\n可信度：{suggestion.Confidence:P0}\n\n" +
+            "该操作将由启动器验证参数并记录到可回滚事务中，模型不会直接访问网络或文件。是否执行？",
+            confirmed =>
+            {
+                registration.Dispose();
+                completion.TrySetResult(confirmed);
+            },
+            AvaloniaLocalizationManager.GetText("Crash.Model.Confirm.Execute", "执行修复"),
+            AvaloniaLocalizationManager.GetText("Crash.Model.Confirm.Decline", "不执行"),
+            isWarn: true));
+        return completion.Task;
+    }
+
+    private async Task RestartMinecraftAfterRepairAsync(
+        RunningGameContext context,
+        MinecraftRepairSession session,
+        string repairMessage,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            context.LaunchPage.ShowRepairWorkflow(
+                session.Attempt == MinecraftRepairAttempt.ModelApplied
+                    ? AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型")
+                    : AvaloniaLocalizationManager.GetText("Crash.Repair.Title", "正在修补 Minecraft"),
+                AvaloniaLocalizationManager.GetText(
+                    "Crash.Repair.Stage.Restart",
+                    "修复完成，正在重启 Minecraft"),
+                1d,
+                repairMessage,
+                context.Instance);
+            _launchRight?.AppendLog(repairMessage + " 正在自动重启 Minecraft。");
+        });
+        await StartMinecraftAsync(
+                context.LaunchPage,
+                context.Instance,
+                context.WorldName,
+                context.ServerAddress,
+                session)
+            .ConfigureAwait(false);
+    }
+
+    private async Task FinishFailedRepairAsync(
+        RunningGameContext context,
+        MinecraftRepairSession session,
+        MinecraftLaunchFaultReport fault,
+        string analysisMarkdown,
+        string failure,
+        string gameDirectory,
+        IReadOnlyList<string> crashLines)
+    {
+        string rollbackMessage;
+        try
+        {
+            await session.Transaction.RollbackAsync().ConfigureAwait(false);
+            rollbackMessage = "本轮修复更改已回滚。";
+        }
+        catch (Exception rollbackException)
+        {
+            DesktopFileLog.Error("MinecraftRepair", "回滚 Minecraft 修复更改失败。", rollbackException);
+            rollbackMessage = "回滚部分修复更改失败：" + rollbackException.Message;
+        }
+        string[] recentCrashFiles = FindRecentCrashFiles(gameDirectory);
+        string? primaryLog = recentCrashFiles.Length > 0 ? recentCrashFiles[0] : null;
+        string outcome = failure + " " + rollbackMessage;
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (context.LaunchPage.IsLaunchInProgress)
+                context.LaunchPage.PageChangeToLogin();
+            _launchRight?.AppendLog(outcome);
+            ShowHint(outcome, critical: true);
+            ShowMinecraftCrashDialog(
+                context,
+                fault,
+                analysisMarkdown,
+                outcome,
+                gameDirectory,
+                primaryLog,
+                crashLines);
+        });
+    }
+
+    private void ShowMinecraftCrashDialog(
+        RunningGameContext context,
+        MinecraftLaunchFaultReport fault,
+        string analysisMarkdown,
+        string repairOutcome,
+        string gameDirectory,
+        string? primaryLog,
+        IReadOnlyList<string> crashLines)
+    {
+        string markdown = $"{analysisMarkdown.Trim()}\n\n---\n\n" +
+                          $"**定位节点：** `{fault.Subsystem}/{fault.Stage}`  \n" +
+                          $"**错误代码：** `{fault.Code}`" +
+                          (string.IsNullOrWhiteSpace(fault.LastClassName)
+                              ? string.Empty
+                              : $"  \n**最后关键类：** `{fault.LastClassName}`") +
+                          $"\n\n### 自动处理\n\n{repairOutcome}";
+        ShowMarkdownDialog(
+            AvaloniaLocalizationManager.GetText("Crash.MinecraftErrorTitle", "Minecraft 出错"),
+            markdown,
+            result =>
+            {
+                if (result == 2)
+                    OpenExistingPath(primaryLog ?? gameDirectory);
+                else if (result == 3)
+                    _ = ExportMinecraftCrashReportAsync(
+                        context,
+                        fault,
+                        markdown,
+                        gameDirectory,
+                        crashLines);
+            },
+            AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "知道了"),
+            AvaloniaLocalizationManager.GetText("Crash.Action.ViewLog", "查看日志"),
+            AvaloniaLocalizationManager.GetText("Crash.Action.ExportReport", "导出报告"),
+            isWarn: true);
+    }
+
+    private async Task ExportMinecraftCrashReportAsync(
+        RunningGameContext context,
+        MinecraftLaunchFaultReport fault,
+        string analysisMarkdown,
+        string gameDirectory,
+        IReadOnlyList<string> crashLines)
+    {
+        string suggestedName = "Minecraft-Error-Report-" +
+                               DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) +
+                               ".zip";
+        string? targetPath = await PickSaveFilePathAsync(
+                AvaloniaLocalizationManager.GetText("Crash.Report.Export.Title", "选择错误报告保存位置"),
+                suggestedName,
+                new FilePickerFileType("ZIP") { Patterns = ["*.zip"] })
+            .ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(targetPath))
+            return;
+
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "PCL-N",
+            "CrashReport",
+            Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(temporaryDirectory);
+            string structured =
+                $"Code: {fault.Code}\nStage: {fault.Stage}\nSubsystem: {fault.Subsystem}\n" +
+                $"ExceptionType: {fault.ExceptionType}\nMessage: {fault.Message}\n" +
+                $"LastClassName: {fault.LastClassName}\nTimestamp: {fault.Timestamp:O}\n" +
+                $"AllowedActions: {string.Join(", ", fault.AllowedActions)}\n";
+            await File.WriteAllTextAsync(
+                    Path.Combine(temporaryDirectory, "分析结果.md"),
+                    PortableLog.Redact(analysisMarkdown),
+                    Encoding.UTF8)
+                .ConfigureAwait(false);
+            await File.WriteAllTextAsync(
+                    Path.Combine(temporaryDirectory, "结构化错误.txt"),
+                    PortableLog.Redact(structured),
+                    Encoding.UTF8)
+                .ConfigureAwait(false);
+            await File.WriteAllLinesAsync(
+                    Path.Combine(temporaryDirectory, "已收集日志片段.txt"),
+                    crashLines.Select(PortableLog.Redact),
+                    Encoding.UTF8)
+                .ConfigureAwait(false);
+
+            List<string> reportFiles =
+            [
+                .. FindRecentCrashFiles(gameDirectory),
+                context.Instance.VersionJsonPath,
+                Path.Combine(gameDirectory, "LatestLaunch-PCLN.bat"),
+                DesktopFileLog.CurrentLogPath
+            ];
+            HashSet<string> usedNames = new(StringComparer.OrdinalIgnoreCase);
+            foreach (string sourcePath in reportFiles
+                         .Where(File.Exists)
+                         .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                FileInfo info = new(sourcePath);
+                if (info.Length > 16L * 1024L * 1024L)
+                    continue;
+                string name = Path.GetFileName(sourcePath);
+                if (!usedNames.Add(name))
+                    name = Path.GetFileNameWithoutExtension(name) + "-" + usedNames.Count + Path.GetExtension(name);
+                await using FileStream stream = new(
+                    sourcePath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete,
+                    64 * 1024,
+                    useAsync: true);
+                using StreamReader reader = new(stream, detectEncodingFromByteOrderMarks: true);
+                string content = await reader.ReadToEndAsync().ConfigureAwait(false);
+                await File.WriteAllTextAsync(
+                        Path.Combine(temporaryDirectory, name),
+                        PortableLog.Redact(content),
+                        Encoding.UTF8)
+                    .ConfigureAwait(false);
+            }
+
+            if (File.Exists(targetPath))
+                File.Delete(targetPath);
+            ZipFile.CreateFromDirectory(temporaryDirectory, targetPath, CompressionLevel.SmallestSize, includeBaseDirectory: false);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                ShowHint(AvaloniaLocalizationManager.GetText("Crash.Report.Exported", "错误报告已导出"));
+                OpenExistingPath(targetPath);
+            });
+        }
+        catch (Exception ex)
+        {
+            DesktopFileLog.Error("CrashReport", "导出 Minecraft 错误报告失败。", ex);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+                ShowTextDialog(
+                    AvaloniaLocalizationManager.GetText("Crash.Report.Export.Failed.Title", "导出错误报告失败"),
+                    ex.Message));
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+                Directory.Delete(temporaryDirectory, recursive: true);
+        }
+    }
+
+    private static string BuildConventionalCrashAnalysis(
+        MinecraftLaunchFaultReport fault,
+        IReadOnlyList<MinecraftMissingDependency> dependencies)
+    {
+        string reason = fault.Code switch
+        {
+            MinecraftLaunchFaultCode.JavaRuntimeMissing => "所选 Java 缺失，或无法加载 JVM 原生库。",
+            MinecraftLaunchFaultCode.JavaRuntimeIncompatible => "当前 Java 版本与游戏或模组加载器要求不兼容。",
+            MinecraftLaunchFaultCode.JvmInitializationFailed => "JVM 在 Minecraft 主类运行前初始化失败。",
+            MinecraftLaunchFaultCode.MainClassMissing => "Minecraft 主类不存在，版本核心文件可能缺失或损坏。",
+            MinecraftLaunchFaultCode.ClasspathDependencyMissing => "类路径中的游戏库缺失或损坏。",
+            MinecraftLaunchFaultCode.AuthenticationFailed => "登录凭据或会话验证失败。",
+            MinecraftLaunchFaultCode.SessionServiceUnavailable => "账户会话服务暂时不可用。",
+            MinecraftLaunchFaultCode.NativeLibraryFailed => "LWJGL 或其他原生库加载失败。",
+            MinecraftLaunchFaultCode.GraphicsInitializationFailed => "图形驱动、OpenGL/Vulkan 或游戏窗口初始化失败。",
+            MinecraftLaunchFaultCode.ModLoaderBootstrapFailed => "模组加载器在引导阶段失败。",
+            MinecraftLaunchFaultCode.ModConflict => "一个或多个模组、Mixin 或加载器组件发生冲突。",
+            MinecraftLaunchFaultCode.MissingModDependency => "模组缺少必需前置或前置版本不正确。",
+            MinecraftLaunchFaultCode.OutOfMemory => "Minecraft 可用内存不足，或 JVM 无法保留所需内存。",
+            MinecraftLaunchFaultCode.FileLocked => "游戏文件正被其他进程占用。",
+            MinecraftLaunchFaultCode.AccessDenied => "启动器或 Java 没有访问相关文件的权限。",
+            _ => "常规错误分析器尚未识别出唯一原因。"
+        };
+        string dependencyText = dependencies.Count == 0
+            ? string.Empty
+            : "\n\n### 缺失前置\n\n" + string.Join(
+                "\n",
+                dependencies.Select(dependency =>
+                    $"- `{dependency.ModId}`" +
+                    (string.IsNullOrWhiteSpace(dependency.RequiredVersion)
+                        ? string.Empty
+                        : "，需要 " + dependency.RequiredVersion)));
+        return $"### 常规错误分析\n\n{reason}\n\n**原始信息：** {fault.Message}{dependencyText}";
+    }
+
+    private static async Task<ModDownloadResult> DownloadMissingDependencyAsync(
         CompositeCommunityResourceCatalog catalog,
         HttpClient downloader,
         MinecraftMissingDependency dependency,
         string gameVersion,
-        string modsDirectory)
+        string loader,
+        string modsDirectory,
+        MinecraftRepairTransaction transaction,
+        CancellationToken cancellationToken)
     {
         CommunitySearchOptions options = new(
             CommunityResourceSort.Relevance,
             GameVersion: gameVersion,
-            Loader: "fabric",
+            Loader: loader,
             Source: CommunityResourceSource.All);
         IReadOnlyList<CommunityResourceEntry> entries = await catalog.SearchAsync(
                 CommunityResourceCategory.Mod,
                 dependency.ModId,
-                options)
+                options,
+                cancellationToken)
             .ConfigureAwait(false);
         CommunityResourceEntry? entry = entries
             .OrderBy(candidate => GetDependencyMatchScore(candidate, dependency))
@@ -4975,30 +6087,34 @@ public partial class MainWindow : Window, IDisposable
             entries = await catalog.SearchAsync(
                     CommunityResourceCategory.Mod,
                     dependency.Name,
-                    options)
+                    options,
+                    cancellationToken)
                 .ConfigureAwait(false);
             entry = entries.OrderBy(candidate => GetDependencyMatchScore(candidate, dependency)).FirstOrDefault();
         }
         if (entry is null)
-            return false;
+            return new ModDownloadResult(false, false);
 
-        CommunityResourceDownloadFile? file = await catalog.ResolveDownloadAsync(entry, options).ConfigureAwait(false);
+        CommunityResourceDownloadFile? file = await catalog.ResolveDownloadAsync(entry, options, cancellationToken)
+            .ConfigureAwait(false);
         if (file is null)
-            return false;
+            return new ModDownloadResult(false, false);
         string targetPath = Path.Combine(modsDirectory, SanitizeFileName(file.FileName));
         if (File.Exists(targetPath))
-        {
-            MinecraftModArchiveInstaller.DisableConflicts(targetPath, modsDirectory);
-            return true;
-        }
+            return new ModDownloadResult(true, false);
+
+        await transaction.BackupFileAsync(targetPath, cancellationToken).ConfigureAwait(false);
 
         string temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".PCLDownloading";
         try
         {
-            using HttpResponseMessage response = await downloader.GetAsync(file.Url, HttpCompletionOption.ResponseHeadersRead)
+            using HttpResponseMessage response = await downloader.GetAsync(
+                    file.Url,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken)
                 .ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            await using Stream source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             await using (FileStream target = new(
                              temporaryPath,
                              FileMode.CreateNew,
@@ -5007,11 +6123,23 @@ public partial class MainWindow : Window, IDisposable
                              64 * 1024,
                              useAsync: true))
             {
-                await source.CopyToAsync(target).ConfigureAwait(false);
+                await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
             }
 
-            MinecraftModArchiveInstaller.Install(temporaryPath, modsDirectory, Path.GetFileName(targetPath));
-            return true;
+            if (MinecraftModMetadataReader.TryRead(temporaryPath, out MinecraftModMetadata? incoming) && incoming is not null)
+            {
+                foreach (MinecraftModMetadata conflict in MinecraftModMetadataReader.ReadDirectory(modsDirectory)
+                             .Where(mod => string.Equals(mod.Id, incoming.Id, StringComparison.OrdinalIgnoreCase) &&
+                                           !mod.FilePath.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase)))
+                {
+                    string disabled = CreateDisabledModPath(conflict.FilePath);
+                    await transaction.BackupFileAsync(conflict.FilePath, cancellationToken).ConfigureAwait(false);
+                    await transaction.BackupFileAsync(disabled, cancellationToken).ConfigureAwait(false);
+                    File.Move(conflict.FilePath, disabled);
+                }
+            }
+            File.Move(temporaryPath, targetPath, overwrite: true);
+            return new ModDownloadResult(true, true);
         }
         finally
         {
@@ -5031,12 +6159,40 @@ public partial class MainWindow : Window, IDisposable
         return 2;
     }
 
-    private static async Task<IReadOnlyList<string>> ReadRecentCrashLinesAsync(string gameDirectory)
+    private static async Task<IReadOnlyList<string>> ReadRecentCrashLinesAsync(
+        string gameDirectory,
+        CancellationToken cancellationToken)
+    {
+        List<string> lines = [];
+        foreach (string path in FindRecentCrashFiles(gameDirectory))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            FileInfo file = new(path);
+            if (file.Length > 8L * 1024L * 1024L)
+                continue;
+            await using FileStream stream = new(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                64 * 1024,
+                useAsync: true);
+            using StreamReader reader = new(stream, detectEncodingFromByteOrderMarks: true);
+            while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
+                lines.Add(line);
+        }
+        return lines;
+    }
+
+    private static string[] FindRecentCrashFiles(string gameDirectory)
     {
         List<string> paths = [];
         string latestLog = Path.Combine(gameDirectory, "logs", "latest.log");
         if (File.Exists(latestLog))
             paths.Add(latestLog);
+        string debugLog = Path.Combine(gameDirectory, "logs", "debug.log");
+        if (File.Exists(debugLog))
+            paths.Add(debugLog);
         string crashDirectory = Path.Combine(gameDirectory, "crash-reports");
         if (Directory.Exists(crashDirectory))
         {
@@ -5044,24 +6200,45 @@ public partial class MainWindow : Window, IDisposable
                 .OrderByDescending(File.GetLastWriteTimeUtc)
                 .FirstOrDefault();
             if (latestCrash is not null)
-                paths.Add(latestCrash);
+                paths.Insert(0, latestCrash);
         }
-
-        List<string> lines = [];
-        foreach (string path in paths.Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            FileInfo file = new(path);
-            if (file.Length > 8L * 1024L * 1024L)
-                continue;
-            lines.AddRange(await File.ReadAllLinesAsync(path).ConfigureAwait(false));
-        }
-        return lines;
+        return paths.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
+
+    private sealed record MinecraftRepairExecutionResult(
+        string Message,
+        bool IsFailure,
+        bool MadeChanges = false);
+
+    private readonly record struct ModDownloadResult(bool Success, bool Changed);
 
     private sealed record RunningGameContext(
         LaunchInstanceInfo Instance,
         PageLaunchLeft LaunchPage,
-        LauncherSettings Settings);
+        LauncherSettings Settings,
+        Task<MinecraftLaunchFaultReport?>? FaultReport = null,
+        string? NativesDirectory = null,
+        string? WorldName = null,
+        string? ServerAddress = null,
+        MinecraftRepairSession? RepairSession = null);
+
+    private enum MinecraftRepairAttempt
+    {
+        None,
+        ConventionalApplied,
+        ModelApplied
+    }
+
+    private sealed class MinecraftRepairSession(LauncherSettings settings)
+    {
+        public LauncherSettings Settings { get; } = settings;
+
+        public MinecraftRepairTransaction Transaction { get; } = new();
+
+        public MinecraftRepairAttempt Attempt { get; set; }
+
+        public string? LastModelAnalysis { get; set; }
+    }
 
     private Task<bool> ConfirmJavaDownloadAsync(string versionLabel, CancellationToken cancellationToken)
     {
@@ -5372,7 +6549,10 @@ public partial class MainWindow : Window, IDisposable
         switch (visibility)
         {
             case 0:
-                Close();
+                // Keep the window alive while the game is running so a non-zero exit can still
+                // surface the crash analyzer. A successful exit preserves the configured
+                // "close launcher" behavior in RestoreAfterGameExitAsync.
+                Hide();
                 break;
             case 2:
                 Hide();
@@ -5393,11 +6573,22 @@ public partial class MainWindow : Window, IDisposable
         try
         {
             await process.WaitForExitAsync().ConfigureAwait(false);
+            bool gameCrashed = process.ExitCode != 0;
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 SetGameRunningExtras(null);
                 UpdateBackgroundVideoPlayback();
-                if (visibility == 2)
+                if (gameCrashed)
+                {
+                    if (!IsVisible)
+                        Show();
+                    if (WindowState == WindowState.Minimized)
+                        WindowState = WindowState.Normal;
+                    Activate();
+                    return;
+                }
+
+                if (visibility is 0 or 2)
                 {
                     Close();
                     return;

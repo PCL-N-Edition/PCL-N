@@ -12,11 +12,15 @@ using PCL.Core.Logging;
 
 namespace PCL.Desktop.Features.Launching;
 
+internal sealed record MinecraftJvmHostProcessHandle(
+    Process Process,
+    Task<MinecraftLaunchFaultReport?> FaultReport);
+
 internal static class MinecraftJvmHostProcessLauncher
 {
     private const string HostArgument = "--jvm-host";
 
-    public static Process Start(MinecraftJvmHostRequest request, Action<string>? log)
+    public static MinecraftJvmHostProcessHandle Start(MinecraftJvmHostRequest request, Action<string>? log)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -37,9 +41,11 @@ internal static class MinecraftJvmHostProcessLauncher
             if (process is null)
                 throw new InvalidOperationException("Jvm.NET Host 进程未能启动。");
 
-            _ = ObserveLifecycleAsync(pipe, process, log);
+            TaskCompletionSource<MinecraftLaunchFaultReport?> faultSource =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = ObserveLifecycleAsync(pipe, process, log, faultSource);
             PortableLog.Info("JvmHost", $"Jvm.NET Host 已启动；PID={process.Id}；Pipe={pipeName}。");
-            return process;
+            return new MinecraftJvmHostProcessHandle(process, faultSource.Task);
         }
         catch
         {
@@ -135,7 +141,8 @@ internal static class MinecraftJvmHostProcessLauncher
     private static async Task ObserveLifecycleAsync(
         NamedPipeServerStream pipe,
         Process process,
-        Action<string>? log)
+        Action<string>? log,
+        TaskCompletionSource<MinecraftLaunchFaultReport?> faultSource)
     {
         await using (pipe.ConfigureAwait(false))
         {
@@ -146,11 +153,26 @@ internal static class MinecraftJvmHostProcessLauncher
                 using StreamReader reader = new(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
                 while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
                 {
-                    if (line.Length > 16_384)
-                        line = line[..16_384] + "…";
+                    if (line.Length > 65_536)
+                        line = line[..65_536];
                     int separator = line.IndexOf('\t');
                     string stage = separator < 0 ? "Event" : line[..separator];
                     string message = separator < 0 ? line : line[(separator + 1)..];
+                    if (string.Equals(stage, "FaultReport", StringComparison.Ordinal))
+                    {
+                        if (TryParseFaultReport(message, out MinecraftLaunchFaultReport? report) && report is not null)
+                        {
+                            faultSource.TrySetResult(report);
+                            string summary = $"Jvm Host [FaultReport] {report.Code} · {report.Stage} · {report.Subsystem}";
+                            log?.Invoke(summary);
+                            PortableLog.Warn("JvmHost", summary + " · " + report.Message);
+                        }
+                        else
+                        {
+                            PortableLog.Warn("JvmHost", "Jvm.NET Host 返回了无法解析的结构化故障报告。");
+                        }
+                        continue;
+                    }
                     string formatted = $"Jvm Host [{stage}] {message}";
                     log?.Invoke(formatted);
                     PortableLog.Info("JvmHost", formatted);
@@ -168,6 +190,27 @@ internal static class MinecraftJvmHostProcessLauncher
             {
                 // The game process ended while the listener was being torn down.
             }
+            finally
+            {
+                faultSource.TrySetResult(null);
+            }
+        }
+    }
+
+    private static bool TryParseFaultReport(string payload, out MinecraftLaunchFaultReport? report)
+    {
+        report = null;
+        try
+        {
+            byte[] json = Convert.FromBase64String(payload);
+            report = JsonSerializer.Deserialize(
+                json,
+                MinecraftJvmHostJsonContext.Default.MinecraftLaunchFaultReport);
+            return report is not null;
+        }
+        catch (Exception exception) when (exception is FormatException or JsonException or NotSupportedException)
+        {
+            return false;
         }
     }
 
@@ -188,4 +231,5 @@ internal static class MinecraftJvmHostProcessLauncher
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(MinecraftJvmHostRequest))]
+[JsonSerializable(typeof(MinecraftLaunchFaultReport))]
 internal sealed partial class MinecraftJvmHostJsonContext : JsonSerializerContext;

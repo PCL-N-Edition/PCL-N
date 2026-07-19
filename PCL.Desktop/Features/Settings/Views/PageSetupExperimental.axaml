@@ -33,6 +33,43 @@
                                    Text="{DynamicResource Setup.Experimental.JvmHost.Scope}" />
                 </StackPanel>
             </legacy:MyCard>
+
+            <legacy:MyCard Margin="0,0,0,15" Title="{DynamicResource Setup.Experimental.AiRepair.Title}">
+                <StackPanel Margin="25,40,25,18" Spacing="12">
+                    <legacy:MyCheckBox x:Name="CheckExperimentalAiRepair"
+                                       Tag="ExperimentalMinecraftAiRepair"
+                                       Text="{DynamicResource Setup.Experimental.AiRepair.Enable}"
+                                       PreviewChange="ExperimentalAiRepair_OnPreviewChange" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Summary}"
+                               TextWrapping="Wrap" Opacity="0.82" />
+                    <Grid ColumnDefinitions="1*,18,1*">
+                        <StackPanel Grid.Column="0" Spacing="7">
+                            <TextBlock Text="{DynamicResource Setup.Experimental.Benefits.Title}" FontWeight="SemiBold" />
+                            <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Benefits}"
+                                       TextWrapping="Wrap" Opacity="0.78" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="7">
+                            <TextBlock Text="{DynamicResource Setup.Experimental.Risks.Title}" FontWeight="SemiBold" />
+                            <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Risks}"
+                                       TextWrapping="Wrap" Opacity="0.78" />
+                        </StackPanel>
+                    </Grid>
+                    <legacy:MyHint Theme="Blue"
+                                   Text="{DynamicResource Setup.Experimental.AiRepair.Scope}" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Custom.Title}"
+                               FontWeight="SemiBold" Margin="0,6,0,0" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Custom.ModelPath}" Opacity="0.72" />
+                    <legacy:MyTextBox Tag="ExperimentalMinecraftAiModelPath"
+                                      HintText="{DynamicResource Setup.Experimental.AiRepair.Custom.ModelPath.Hint}" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Custom.Sha256}" Opacity="0.72" />
+                    <legacy:MyTextBox Tag="ExperimentalMinecraftAiModelSha256"
+                                      MaxLength="64"
+                                      HintText="{DynamicResource Setup.Experimental.AiRepair.Custom.Sha256.Hint}" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Custom.RuntimePath}" Opacity="0.72" />
+                    <legacy:MyTextBox Tag="ExperimentalMinecraftAiRuntimePath"
+                                      HintText="{DynamicResource Setup.Experimental.AiRepair.Custom.RuntimePath.Hint}" />
+                </StackPanel>
+            </legacy:MyCard>
         </StackPanel>
     </legacy:MyScrollViewer>
 </legacy:MyPageRight>

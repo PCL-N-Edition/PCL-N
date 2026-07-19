@@ -319,7 +319,9 @@ public sealed class MinecraftVanillaInstallService
                 request.PreferOfficialSource,
                 downloadThreadLimit,
                 progress,
-                cancellationToken)
+                cancellationToken,
+                request.BeforeFileChangeAsync,
+                request.FileChanged)
             .ConfigureAwait(false);
 
         progress?.Report(CreateProgress("修复完成", request.VersionId, 1d, 1, 1, 0, downloadThreadLimit));
@@ -335,7 +337,9 @@ public sealed class MinecraftVanillaInstallService
         bool preferOfficialSource,
         int downloadThreadLimit,
         IProgress<MinecraftInstallProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, CancellationToken, ValueTask>? beforeFileChangeAsync = null,
+        Action<string>? fileChanged = null)
     {
         List<PlannedDownload> files = [];
         AddClientJarDownload(files, versionId, versionJson, instanceDirectory, preferOfficialSource);
@@ -348,7 +352,9 @@ public sealed class MinecraftVanillaInstallService
                 preferOfficialSource,
                 downloadThreadLimit,
                 progress,
-                cancellationToken)
+                cancellationToken,
+                beforeFileChangeAsync,
+                fileChanged)
             .ConfigureAwait(false);
 
         int total = Math.Max(files.Count, 1);
@@ -401,7 +407,9 @@ public sealed class MinecraftVanillaInstallService
                                     update => reporter.ReportFileProgress(item.Index, update)),
                                 activeThreads: 1,
                                 threadLimit: 1,
-                                cancellationToken: token)
+                                cancellationToken: token,
+                                beforeFileChangeAsync: beforeFileChangeAsync,
+                                fileChanged: fileChanged)
                             .ConfigureAwait(false);
                         reporter.MarkComplete(item.Index, fileName);
                     }
@@ -746,13 +754,18 @@ public sealed class MinecraftVanillaInstallService
         IProgress<MinecraftInstallProgress>? progress,
         int activeThreads,
         int threadLimit,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, CancellationToken, ValueTask>? beforeFileChangeAsync = null,
+        Action<string>? fileChanged = null)
     {
         if (await IsExistingFileUsableAsync(localPath, expectedSize, expectedSha1, cancellationToken).ConfigureAwait(false))
         {
             PortableLog.Debug("MinecraftDownload", $"复用已通过校验的文件：{localPath}");
             return;
         }
+
+        if (beforeFileChangeAsync is not null)
+            await beforeFileChangeAsync(localPath, cancellationToken).ConfigureAwait(false);
 
         ProgressThrottle progressThrottle = new();
         List<Exception> failures = [];
@@ -827,6 +840,7 @@ public sealed class MinecraftVanillaInstallService
             if (await IsExistingFileUsableAsync(localPath, expectedSize, expectedSha1, cancellationToken).ConfigureAwait(false))
             {
                 PortableLog.Debug("MinecraftDownload", $"下载并校验完成：{localPath}");
+                fileChanged?.Invoke(localPath);
                 return;
             }
 
@@ -904,7 +918,9 @@ public sealed class MinecraftVanillaInstallService
         bool preferOfficialSource,
         int downloadThreadLimit,
         IProgress<MinecraftInstallProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, CancellationToken, ValueTask>? beforeFileChangeAsync = null,
+        Action<string>? fileChanged = null)
     {
         MinecraftAssetIndexDownloadPlan indexPlan = MinecraftClientDownloadPlanner.CreateAssetIndexPlan(
             new MinecraftAssetIndexDownloadPlanRequest
@@ -926,7 +942,9 @@ public sealed class MinecraftVanillaInstallService
                 progress,
                 activeThreads: 1,
                 threadLimit: downloadThreadLimit,
-                cancellationToken: cancellationToken)
+                cancellationToken: cancellationToken,
+                beforeFileChangeAsync: beforeFileChangeAsync,
+                fileChanged: fileChanged)
             .ConfigureAwait(false);
 
         progress?.Report(CreateProgress(

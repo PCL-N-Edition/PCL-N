@@ -466,11 +466,10 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
 
     public void ShowRepairing()
     {
-        SetText("LabLaunchingTitle", "正在自动修复");
-        SetText("LabLaunchingStage", "正在下载缺失文件");
-        _targetProgress = 0d;
-        _showProgress = 0d;
-        ApplyLaunchProgressVisual(0d, animate: false);
+        ShowRepairWorkflow(
+            AvaloniaLocalizationManager.GetText("Crash.Repair.Title", "正在修补 Minecraft"),
+            AvaloniaLocalizationManager.GetText("Crash.Repair.Stage.Parse", "解析 Minecraft 异常"),
+            0d);
     }
 
     public void UpdateRepairStep(int current, int total)
@@ -479,10 +478,30 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
             return;
 
         double ratio = Math.Clamp(current / (double)total, 0d, 1d);
-        SetText("LabLaunchingStage", $"正在下载缺失文件 ({current}/{total})");
-        _targetProgress = ratio;
-        _showProgress = ratio;
-        ApplyLaunchProgressVisual(ratio, animate: true);
+        ShowRepairWorkflow(
+            AvaloniaLocalizationManager.GetText("Crash.Repair.Title", "正在修补 Minecraft"),
+            AvaloniaLocalizationManager.GetText("Crash.Repair.Stage.Execute", "正在执行修复") +
+            $" ({current}/{total})",
+            ratio);
+    }
+
+    public void ShowRepairWorkflow(
+        string title,
+        string stage,
+        double progress,
+        string? method = null,
+        LaunchInstanceInfo? instance = null)
+    {
+        if (!IsLaunchInProgress)
+            ShowLaunching(instance ?? SelectedInstance);
+        SetText("LabLaunchingTitle", title);
+        SetText("LabLaunchingStage", stage);
+        if (!string.IsNullOrWhiteSpace(method))
+            SetText("LabLaunchingMethod", method);
+        double normalized = Math.Clamp(progress, 0d, 1d);
+        _targetProgress = normalized;
+        _showProgress = normalized;
+        ApplyLaunchProgressVisual(normalized, animate: true);
     }
 
     public void HideRepairing()

@@ -62,4 +62,38 @@ public partial class PageSetupExperimental : MyPageRight, ISettingsPageInteracti
         if (ConfirmRequested is { } requested)
             requested.Invoke(this, args);
     }
+
+    private void ExperimentalAiRepair_OnPreviewChange(object sender, RouteEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not MyCheckBox checkBox)
+            return;
+
+        string title = AvaloniaLocalizationManager.GetText(
+            "Setup.Experimental.AiRepair.Confirm.Title",
+            "启用 0.5B 本地错误修复模型");
+        string message = AvaloniaLocalizationManager.GetText(
+            "Setup.Experimental.AiRepair.Confirm.Message",
+            "优势：游戏崩溃后会先由常规分析器定位；分析结果由本地小模型整理为更易读的说明。当常规分析器无法决定安全修复时，模型可从错误处理器提供的白名单动作中选择建议。所有推理均在本机完成，不会上传日志。\n\n" +
+            "危害：首次分析会下载约 491 MB 的 Qwen2.5-Coder 0.5B Q4_K_M 模型和约 10–17 MB 的运行时；推理通常额外占用约 0.8–1.5 GB 内存并消耗 CPU，低配置设备可能明显变慢；模型可能判断错误。它不能执行命令，也不能越过常规错误处理器的修复白名单。Windows、Linux 与 macOS 的 x64/arm64 均可自动安装经过 SHA-256 校验的运行时，并优先使用大陆可用镜像。\n\n" +
+            "可在此页指定自定义 GGUF、可选 SHA-256 和 llama.cpp 路径。模型文件会保存到 PCL N 的应用数据目录。是否理解下载、性能和误判风险并继续？");
+
+        void Complete(bool confirmed)
+        {
+            if (confirmed)
+                checkBox.SetChecked(true, user: false);
+        }
+
+        SettingsConfirmRequestedEventArgs args = new(
+            title,
+            message,
+            Complete,
+            primaryButton: AvaloniaLocalizationManager.GetText(
+                "Setup.Experimental.AiRepair.Confirm.Enable",
+                "理解风险并启用"),
+            secondaryButton: AvaloniaLocalizationManager.GetText("Common.Action.Cancel", "取消"),
+            isWarn: true);
+        if (ConfirmRequested is { } requested)
+            requested.Invoke(this, args);
+    }
 }
