@@ -29,6 +29,8 @@ internal static class Program
             if (MinecraftJvmHostProcessLauncher.TryGetRequestPath(args, out string jvmHostRequestPath))
                 return MinecraftJvmHostEntryPoint.Run(jvmHostRequestPath);
 
+            SetLauncherWorkingDirectory();
+
             // Apply CI-embedded secrets (MS client id, etc.) before any auth/UI code runs.
             PclEmbeddedSecrets.ApplyToEnvironment();
             LauncherSettings startupSettings = LauncherSettingsPageBinder.LoadSettings();
@@ -36,7 +38,9 @@ internal static class Program
                 "SystemLogLevel",
                 LauncherSettingDefaults.GetInteger("SystemLogLevel"))));
             DesktopTraceLogBridge.Install();
-            DesktopFileLog.Info("Startup", $"进程入口已执行；参数数量={args.Length}；日志级别={DesktopFileLog.Level}。");
+            DesktopFileLog.Info(
+                "Startup",
+                $"进程入口已执行；参数数量={args.Length}；日志级别={DesktopFileLog.Level}；启动器目录={GetLauncherDirectory()}；工作目录={Environment.CurrentDirectory}。");
             DesktopFileLog.Debug("Startup", "命令行参数：" + string.Join(' ', args));
 
             if (args.Contains("--validate-environment", StringComparer.OrdinalIgnoreCase))
@@ -90,6 +94,29 @@ internal static class Program
         }
 
         return builder.LogToTrace();
+    }
+
+    internal static string GetLauncherDirectory()
+    {
+        string? executablePath = Environment.ProcessPath;
+        if (!string.IsNullOrWhiteSpace(executablePath) &&
+            !string.Equals(
+                Path.GetFileNameWithoutExtension(executablePath),
+                "dotnet",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            string? executableDirectory = Path.GetDirectoryName(Path.GetFullPath(executablePath));
+            if (!string.IsNullOrWhiteSpace(executableDirectory))
+                return executableDirectory;
+        }
+
+        return Path.GetFullPath(AppContext.BaseDirectory);
+    }
+
+    private static void SetLauncherWorkingDirectory()
+    {
+        string launcherDirectory = GetLauncherDirectory();
+        Environment.CurrentDirectory = launcherDirectory;
     }
 
     private static int ValidateEnvironment()

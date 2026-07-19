@@ -312,8 +312,6 @@ public class MyComboBox : ComboBox
     {
         _text = SelectedItem?.ToString() ?? string.Empty;
         RefreshSelectionText();
-        if (IsDropDownOpen)
-            IsDropDownOpen = false;
     }
 
     private void EnsureWpfMarkedSelection()

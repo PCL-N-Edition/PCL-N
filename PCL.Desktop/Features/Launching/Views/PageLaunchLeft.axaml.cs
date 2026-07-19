@@ -23,6 +23,7 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
     private Task? _refreshInstancesTask;
     private bool _isLoadedOnce;
     private bool _isInstanceLoadFinished;
+    private long _refreshGeneration;
     private string? _minecraftRootDirectory;
     private string? _preferredInstanceDirectory;
     private double _showProgress;
@@ -167,6 +168,7 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
 
     public async Task RefreshInstancesAsync()
     {
+        long refreshGeneration = Interlocked.Increment(ref _refreshGeneration);
         string? selectedDirectory = NormalizeInstanceDirectory(SelectedInstance?.InstanceDirectory)
                                     ?? _preferredInstanceDirectory;
         IReadOnlyList<LaunchInstanceInfo> previousInstances = Instances;
@@ -188,7 +190,11 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
 
         try
         {
-            Progress<LaunchInstanceDiscoveryProgress> progress = new(UpdateInstanceDiscoveryProgress);
+            Progress<LaunchInstanceDiscoveryProgress> progress = new(value =>
+            {
+                if (refreshGeneration == Volatile.Read(ref _refreshGeneration))
+                    UpdateInstanceDiscoveryProgress(value);
+            });
             // Prefer the selected Minecraft root to avoid multi-folder full scans.
             IReadOnlyList<string> roots = !string.IsNullOrWhiteSpace(_minecraftRootDirectory)
                 ? [_minecraftRootDirectory]
@@ -198,6 +204,9 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
                     progress,
                     cancellationToken)
                 .ConfigureAwait(false);
+
+            if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
+                return;
 
             if (cancellationToken.IsCancellationRequested && instances.Count == 0 && hadInstances)
             {
@@ -222,6 +231,9 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
         }
         catch (OperationCanceledException)
         {
+            if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
+                return;
+
             // Never leave the button stuck on “正在检查游戏版本”.
             await RunOnUiThreadAsync(() =>
             {
@@ -239,6 +251,9 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
         }
         catch (Exception ex)
         {
+            if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
+                return;
+
             await RunOnUiThreadAsync(() =>
             {
                 if (hadInstances)
@@ -296,9 +311,8 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
             return;
 
         _minecraftRootDirectory = normalized;
-        // Root changed: allow a fresh scan, but keep prior instances visible until the new scan finishes.
+        // Root changed: the caller or the next attached-page load starts one scoped scan.
         _isInstanceLoadFinished = false;
-        _ = RefreshInstancesAsync();
     }
 
     public void SetInstanceLoading(bool isLoading)

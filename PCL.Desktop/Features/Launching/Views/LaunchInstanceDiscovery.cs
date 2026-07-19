@@ -154,7 +154,7 @@ public static class LaunchInstanceDiscovery
     }
 
     public static string GetCurrentMinecraftRoot() =>
-        Path.Combine(AppContext.BaseDirectory, ".minecraft");
+        Path.Combine(Program.GetLauncherDirectory(), ".minecraft");
 
     public static string? GetOfficialMinecraftRoot()
     {

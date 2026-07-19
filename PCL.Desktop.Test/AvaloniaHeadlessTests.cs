@@ -340,6 +340,58 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void LaunchInstanceDiscovery_CurrentFolderUsesExecutableDirectory()
+    {
+        string executableDirectory = string.Equals(
+            System.IO.Path.GetFileNameWithoutExtension(Environment.ProcessPath),
+            "dotnet",
+            StringComparison.OrdinalIgnoreCase)
+            ? System.IO.Path.GetFullPath(AppContext.BaseDirectory)
+            : System.IO.Path.GetDirectoryName(
+                System.IO.Path.GetFullPath(Environment.ProcessPath!))!;
+
+        Assert.AreEqual(
+            System.IO.Path.Combine(executableDirectory, ".minecraft"),
+            LaunchInstanceDiscovery.GetCurrentMinecraftRoot());
+    }
+
+    [TestMethod]
+    public void MyComboBox_SelectionSyncDoesNotCloseOpenDropDownOrLoseCaption()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            MyComboBox comboBox = new()
+            {
+                Width = 180,
+                Items =
+                {
+                    new MyComboBoxItem { Content = "第一项" },
+                    new MyComboBoxItem { Content = "第二项" }
+                },
+                SelectedIndex = 0
+            };
+            Window window = new() { Content = comboBox };
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                comboBox.IsDropDownOpen = true;
+                comboBox.SelectedIndex = 1;
+
+                Assert.IsTrue(comboBox.IsDropDownOpen);
+                Assert.AreEqual("第二项", comboBox.SelectionText);
+                Assert.AreEqual(1, comboBox.SelectedIndex);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void LaunchPage_PluginActionsUseDedicatedRowAboveNativeActions()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -362,6 +414,38 @@ public sealed class AvaloniaHeadlessTests
             Assert.IsTrue(Grid.GetRow(pluginActions) < Grid.GetRow(launchHost));
             Assert.IsTrue(Grid.GetRow(launchHost) < Grid.GetRow(instance));
         }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void LaunchPage_RootChangeWaitsForOneExplicitRefreshAndLeavesLoadingState()
+    {
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-launch-root-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CreateDiscoveredInstance(root, "RootVersion");
+            using SafeHeadlessUnitTestSession session = CreateSession();
+            session.Dispatch(async () =>
+            {
+                PageLaunchLeft page = new();
+                page.SetMinecraftRootDirectory(root);
+
+                Assert.IsNull(page.SelectedInstance);
+                await page.RefreshInstancesAsync().ConfigureAwait(true);
+
+                Assert.IsNotNull(page.SelectedInstance);
+                Assert.AreEqual("RootVersion", page.SelectedInstance.Name);
+                Assert.AreNotEqual(
+                    PageLaunchLeft.LaunchButtonAction.Loading,
+                    GetPrivateField<PageLaunchLeft.LaunchButtonAction>(page, "_launchButtonAction"));
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     [TestMethod]
