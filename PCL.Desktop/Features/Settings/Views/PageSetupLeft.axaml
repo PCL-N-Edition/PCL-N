@@ -83,6 +83,19 @@
                                             LogoScale="0.9" />
 </legacy:MyListItem.Buttons>
             </legacy:MyListItem>
+
+            <legacy:MyListItem x:Name="ItemExperimental" IsScaleAnimationEnabled="False" Tag="13" MinPaddingRight="35"
+                               Check="PageCheck"
+                               Height="36" VerticalAlignment="Top" Title="{DynamicResource Setup.Left.Item.Experimental}" Type="RadioBox"
+                               LogoScale="0.95"
+                               SvgIcon="lucide/flask-conical">
+                <legacy:MyListItem.Buttons>
+                    <legacy:MyIconButton Tag="13" ToolTip.Tip="{DynamicResource Common.Action.Initialize}"
+                                         Click="Reset"
+                                         SvgIcon="lucide/rotate-ccw"
+                                         LogoScale="0.9" />
+                </legacy:MyListItem.Buttons>
+            </legacy:MyListItem>
             <TextBlock Text="{DynamicResource Setup.Left.Category.About}" Margin="13,5,5,3" Opacity="0.6" FontSize="12" x:Name="TextAboutCategory" />
 
             <legacy:MyListItem x:Name="ItemAbout" IsScaleAnimationEnabled="False" Tag="4" MinPaddingRight="35"

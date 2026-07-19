@@ -5864,6 +5864,60 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageSetupExperimental_RequiresRiskConfirmationBeforeEnablingJvmHost()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string settingsPath = Environment.GetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH")!;
+
+        session.Dispatch(() =>
+        {
+            PageSetupExperimental page = new();
+            Window window = new() { Width = 900, Height = 640, Content = page };
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                MyCheckBox check = page.FindControl<MyCheckBox>("CheckExperimentalJvmHost")!;
+
+                bool confirmationRequested = false;
+                page.ConfirmRequested += (_, args) =>
+                {
+                    confirmationRequested = true;
+                    args.Complete(false);
+                };
+                check.SetChecked(true, user: true);
+                Assert.IsTrue(confirmationRequested);
+                Assert.IsFalse(check.Checked);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            PageSetupExperimental confirmedPage = new();
+            Window confirmedWindow = new() { Width = 900, Height = 640, Content = confirmedPage };
+            try
+            {
+                confirmedWindow.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                MyCheckBox check = confirmedPage.FindControl<MyCheckBox>("CheckExperimentalJvmHost")!;
+                confirmedPage.ConfirmRequested += (_, args) => args.Complete(true);
+                check.SetChecked(true, user: true);
+                Assert.IsTrue(check.Checked);
+
+                using LauncherSettingsStore store = new(settingsPath);
+                LauncherSettings saved = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
+                Assert.IsTrue(saved.GetBooleanOption(LauncherSettingKeys.ExperimentalJvmLifecycleHost));
+                check.SetChecked(false, user: true);
+            }
+            finally
+            {
+                confirmedWindow.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
     public void PageSetupUpdate_RequiresConfirmationForPreviewChannels()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

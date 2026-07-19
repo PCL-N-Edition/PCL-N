@@ -359,7 +359,7 @@ public sealed class DesktopArchitectureTests
 
         StringAssert.Contains(setupLeftSource, "SetupPageRegistry.CreatePage(page)");
         Assert.IsFalse(setupLeftSource.Contains("page switch", StringComparison.Ordinal));
-        Assert.AreEqual(10, CountOccurrences(registrySource, "[SetupPage("));
+        Assert.AreEqual(11, CountOccurrences(registrySource, "[SetupPage("));
         Assert.IsFalse(registrySource.Contains("SetupPageSubType.Plugin", StringComparison.Ordinal));
         StringAssert.Contains(setupLeftSource, "HostSettingsPageFactory.Create(descriptor)");
         StringAssert.Contains(setupLeftSource, "ItemHostSettings_");

@@ -629,6 +629,7 @@
     <sys:String x:Key="Setup.Left.Item.Launch">启动</sys:String>
     <sys:String x:Key="Setup.Left.Item.Log">日志</sys:String>
     <sys:String x:Key="Setup.Left.Item.Misc">通用</sys:String>
+    <sys:String x:Key="Setup.Left.Item.Experimental">实验性功能</sys:String>
     <sys:String x:Key="Setup.Left.Item.Ui">个性化</sys:String>
     <sys:String x:Key="Setup.Left.Item.Update">更新</sys:String>
     <sys:String x:Key="Setup.Misc.Debug.AnimationSpeed">动画速度</sys:String>
@@ -673,6 +674,18 @@
     <sys:String x:Key="Setup.Misc.System.MaxLogLines.ToolTip">实时日志保留的最大行数。超出后会自动移除较早内容。</sys:String>
     <sys:String x:Key="Setup.Misc.System.Proxy.Hint">示例：http://127.0.0.1:1080/</sys:String>
     <sys:String x:Key="Setup.Misc.System.Title">系统</sys:String>
+    <sys:String x:Key="Setup.Experimental.Warning">实验性功能可能导致游戏无法启动、认证异常或模组不兼容。除非你愿意提供完整日志并能自行关闭回退，否则请保持默认关闭。</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Title">Jvm.NET 生命周期 Host</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Enable">使用 Jvm.NET Host 接管 Minecraft 生命周期</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Summary">启用后，Minecraft 会运行在独立的 PCL N Host 进程内。第三方认证不再加载 authlib-injector，离线档案的自定义皮肤也会通过同一套会话桥接进入游戏。</sys:String>
+    <sys:String x:Key="Setup.Experimental.Benefits.Title">优势</sys:String>
+    <sys:String x:Key="Setup.Experimental.Risks.Title">危害与限制</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Benefits">• 可记录 JVM 初始化、主类调用、Minecraft 启动与窗口组件等生命周期节点。&#10;• 第三方认证无需向游戏加载额外的 authlib-injector JAR。&#10;• 离线档案可在游戏内使用本地或借用的皮肤。&#10;• JVM 崩溃被隔离在 Host 进程，不会直接拖垮启动器。</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Risks">• 需要内嵌 JVM 与受控的 authlib 字节码转换，可能与部分 Java、模组或认证服务器不兼容。&#10;• 会增加少量启动耗时与内存占用。&#10;• 第三方纹理签名由 PCL N 验证后转换，行为不与 authlib-injector 完全相同。&#10;• Host 或本地桥接异常会直接导致本次游戏启动失败。</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Scope">认证与皮肤桥接仅监听 127.0.0.1，并随游戏 Host 退出；设置关闭后立即回到传统 Java 进程与 authlib-injector 链路。</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Title">启用 Jvm.NET 生命周期 Host</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Message">优势：可获得更完整的 JVM 与 Minecraft 生命周期日志；第三方认证不再加载 authlib-injector；离线档案可在游戏内使用本地皮肤；Host 崩溃不会拖垮启动器。&#10;&#10;危害：该功能会在独立进程内嵌 JVM 并修改 authlib 字节码，可能与部分 Java、模组或认证服务器不兼容；会增加少量启动耗时与内存；认证和皮肤在本次游戏会话中经过 127.0.0.1 本地桥接；第三方纹理签名由 PCL N 验证后再转换，行为与 authlib-injector 并不完全相同。遇到问题请关闭此选项回到传统启动链路。&#10;&#10;每个 Host 只运行一个 JVM，退出游戏后会一并结束。是否理解风险并继续？</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Enable">理解风险并启用</sys:String>
     <sys:String x:Key="Setup.Ui.ThemeColor.SystemAccent">跟随系统</sys:String>
     <sys:String x:Key="Setup.Ui.ThemeColor.SkyBlue">天空蓝</sys:String>
     <sys:String x:Key="Setup.Ui.ThemeColor.CatBlue">龙猫蓝</sys:String>

@@ -11,6 +11,88 @@ namespace PCL.Application.Test;
 public sealed class MinecraftProcessLaunchServiceTests
 {
     [TestMethod]
+    public void ParseCommandLine_PreservesQuotedAndEmptyArguments()
+    {
+        IReadOnlyList<string> parsed = MinecraftProcessLaunchService.ParseCommandLine(
+            "-Dpath=\"C:\\Game Files\\data\" -cp \"C:\\Game Files\\client.jar\" Main --name \"Offline User\" \"\"");
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "-Dpath=C:\\Game Files\\data",
+                "-cp",
+                "C:\\Game Files\\client.jar",
+                "Main",
+                "--name",
+                "Offline User",
+                string.Empty
+            },
+            parsed.ToArray());
+    }
+
+    [TestMethod]
+    public async Task CreatePlanAsync_ProducesStructuredJvmHostRequest()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-jvm-host-plan-" + Guid.NewGuid().ToString("N"));
+        string instanceDirectory = Path.Combine(root, "versions", "Host Test");
+        string versionJsonPath = Path.Combine(instanceDirectory, "Host Test.json");
+        string versionJarPath = Path.Combine(instanceDirectory, "Host Test.jar");
+        string classpathHead = Path.Combine(root, "custom libraries", "head.jar");
+
+        try
+        {
+            Directory.CreateDirectory(instanceDirectory);
+            await File.WriteAllTextAsync(
+                versionJsonPath,
+                """
+                {
+                  "mainClass": "net.minecraft.client.main.Main",
+                  "arguments": {
+                    "jvm": ["-Dhost.test=true", "-cp", "${classpath}"],
+                    "game": ["--username", "${auth_player_name}", "--gameDir", "${game_directory}"]
+                  }
+                }
+                """);
+            await File.WriteAllTextAsync(versionJarPath, string.Empty);
+
+            MinecraftProcessLaunchPlan plan = await MinecraftProcessLaunchService.CreatePlanAsync(
+                new MinecraftProcessLaunchRequest
+                {
+                    VersionId = "Host Test",
+                    VersionJsonPath = versionJsonPath,
+                    InstanceDirectory = instanceDirectory,
+                    MinecraftRootDirectory = root,
+                    PlayerName = "Offline User",
+                    PlayerUuid = "01234567-89ab-cdef-0123-456789abcdef",
+                    JavaExecutablePath = Path.Combine(root, "runtime", "bin", "java"),
+                    JavaMajorVersion = 17,
+                    ClasspathHeadEntries = [classpathHead],
+                    UseExperimentalJvmHost = true,
+                    JvmHostIdentityMode = MinecraftJvmHostIdentityMode.Offline,
+                    OfflineSkinSource = Path.Combine(root, "skin.png"),
+                    OfflineSkinSlim = true
+                });
+
+            Assert.IsNotNull(plan.JvmHostRequest);
+            MinecraftJvmHostRequest host = plan.JvmHostRequest;
+            Assert.AreEqual("net.minecraft.client.main.Main", host.MainClass);
+            Assert.AreEqual(MinecraftJvmHostIdentityMode.Offline, host.IdentityMode);
+            Assert.AreEqual("0123456789abcdef0123456789abcdef", host.PlayerUuid);
+            Assert.IsTrue(host.OfflineSkinSlim);
+            CollectionAssert.Contains(host.VmArguments, "-Dhost.test=true");
+            CollectionAssert.DoesNotContain(host.VmArguments, "-cp");
+            CollectionAssert.AreEqual(new[] { classpathHead, versionJarPath }, host.ClasspathEntries);
+            CollectionAssert.Contains(host.GameArguments, "Offline User");
+            Assert.IsFalse(plan.StartInfo.Arguments.Contains("-javaagent:", StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task CreatePlanAsync_AppliesInstanceLaunchOverrides()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcl-launch-plan-" + Guid.NewGuid().ToString("N"));

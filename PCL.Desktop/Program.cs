@@ -9,6 +9,7 @@ using PCL.Desktop.Hosting;
 using PCL.Desktop.Platform;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Application.Settings;
+using PCL.Desktop.Features.Launching;
 
 namespace PCL.Desktop;
 
@@ -22,6 +23,11 @@ internal static class Program
 
         try
         {
+            // The experimental JVM host is deliberately handled before settings, single-instance,
+            // plugins, or Avalonia are initialized. It is a game process, not another launcher UI.
+            if (MinecraftJvmHostProcessLauncher.TryGetRequestPath(args, out string jvmHostRequestPath))
+                return MinecraftJvmHostEntryPoint.Run(jvmHostRequestPath);
+
             // Apply CI-embedded secrets (MS client id, etc.) before any auth/UI code runs.
             PclEmbeddedSecrets.ApplyToEnvironment();
             LauncherSettings startupSettings = LauncherSettingsPageBinder.LoadSettings();

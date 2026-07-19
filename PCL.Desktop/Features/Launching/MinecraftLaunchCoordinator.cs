@@ -170,7 +170,7 @@ internal sealed class MinecraftLaunchCoordinator
             "\n工作目录：" + plan.StartInfo.WorkingDirectory +
             "\nNatives：" + plan.NativesDirectory +
             "\n参数预览：" + Truncate(plan.StartInfo.Arguments ?? string.Empty, 240));
-        Process process = StartProcess(plan);
+        Process process = StartProcess(plan, request.Log);
         GameSessionSnapshot session = GameSessionRegistry.Shared.Start(request.Instance.Name, process.Id);
         GameSessionRegistry.Shared.PublishOutput(
             session.SessionId,
@@ -672,8 +672,17 @@ internal sealed class MinecraftLaunchCoordinator
             .ConfigureAwait(false);
     }
 
-    private static Process StartProcess(MinecraftProcessLaunchPlan plan)
+    private static Process StartProcess(MinecraftProcessLaunchPlan plan, Action<string>? log)
     {
+        if (plan.JvmHostRequest is { } hostRequest)
+        {
+            // Keep the traditional command line as a diagnostic/fallback artifact even though
+            // the live launch is performed by the host process.
+            TryWriteLatestLaunchBatch(plan.StartInfo);
+            log?.Invoke("实验性 Jvm.NET Host 已启用；游戏将在隔离 Host 进程中运行。");
+            return MinecraftJvmHostProcessLauncher.Start(hostRequest, log);
+        }
+
         ProcessStartInfo startInfo = plan.StartInfo;
 
         // Prefer java.exe (matches WPF LatestLaunch.bat). Do NOT permanently redirect stdio —

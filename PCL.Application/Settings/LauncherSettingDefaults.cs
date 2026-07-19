@@ -41,7 +41,8 @@ public static class LauncherSettingDefaults
         ["LaunchAdvanceDisableLwjglUnsafeAgent"] = false,
         ["LaunchAutoRepairGame"] = true,
         ["ToolDownloadClipboard"] = false,
-        ["UiHideNEditionHint"] = false
+        ["UiHideNEditionHint"] = false,
+        ["ExperimentalJvmLifecycleHost"] = false
     };
 
     private static readonly Dictionary<string, int> IntegerDefaults = new(StringComparer.OrdinalIgnoreCase)

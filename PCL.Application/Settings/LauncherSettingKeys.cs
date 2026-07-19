@@ -40,6 +40,8 @@ public static class LauncherSettingKeys
 
     public static readonly SettingKey SystemUpdateSkippedTarget = new("SystemUpdateSkippedTarget");
 
+    public static readonly SettingKey ExperimentalJvmLifecycleHost = new("ExperimentalJvmLifecycleHost");
+
     public static SettingKey JavaDisabled(string javaExecutablePath)
     {
         if (string.IsNullOrWhiteSpace(javaExecutablePath))

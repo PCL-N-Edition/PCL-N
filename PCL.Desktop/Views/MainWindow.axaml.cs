@@ -5209,10 +5209,13 @@ public partial class MainWindow : Window, IDisposable
                 LauncherSettingsPageBinder.LoadSettings,
                 cancellationToken)
             .ConfigureAwait(false);
+        bool useJvmHost = settings.GetBooleanOption(
+            LauncherSettingKeys.ExperimentalJvmLifecycleHost,
+            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalJvmLifecycleHost.Value));
         int windowType = GetIntegerOption(settings, LauncherSettingKeys.LaunchArgumentWindowType, 1);
         (int width, int height) = GetWindowSize(settings);
         (string? authlibPath, string? authlibServer, string? authlibMetadata) =
-            await ResolveAuthlibLaunchOptionsAsync(profile, cancellationToken).ConfigureAwait(false);
+            await ResolveAuthlibLaunchOptionsAsync(profile, useJvmHost, cancellationToken).ConfigureAwait(false);
         int javaMajorVersion = await ResolveJavaMajorVersionAsync(javaExecutablePath, cancellationToken)
             .ConfigureAwait(false);
 
@@ -5239,6 +5242,19 @@ public partial class MainWindow : Window, IDisposable
                 AuthlibInjectorPath = authlibPath,
                 AuthlibServer = authlibServer,
                 AuthlibPrefetchedMetadata = authlibMetadata,
+                UseExperimentalJvmHost = useJvmHost,
+                JvmHostIdentityMode = profile.Kind switch
+                {
+                    LaunchLoginProfileKind.ThirdParty => MinecraftJvmHostIdentityMode.ThirdParty,
+                    LaunchLoginProfileKind.Offline => MinecraftJvmHostIdentityMode.Offline,
+                    _ => MinecraftJvmHostIdentityMode.Official
+                },
+                OfflineSkinSource = profile.Kind == LaunchLoginProfileKind.Offline ? profile.SkinAddress : null,
+                OfflineSkinSlim = profile.Kind == LaunchLoginProfileKind.Offline &&
+                                  string.Equals(
+                                      LoginProfileInfo.ResolveOfflineDefaultModel(profile.Uuid),
+                                      "Alex",
+                                      StringComparison.Ordinal),
                 PreferredIpStack = GetPreferredIpStack(settings),
                 Server = string.IsNullOrWhiteSpace(worldName)
                     ? FirstNonEmpty(serverAddress, metadata.ServerToEnter)
@@ -5266,6 +5282,7 @@ public partial class MainWindow : Window, IDisposable
 
     private static async Task<(string? Path, string? Server, string? Metadata)> ResolveAuthlibLaunchOptionsAsync(
         LoginProfileInfo profile,
+        bool useJvmHost,
         CancellationToken cancellationToken)
     {
         if (profile.Kind != LaunchLoginProfileKind.ThirdParty || string.IsNullOrWhiteSpace(profile.AuthServer))
@@ -5273,9 +5290,12 @@ public partial class MainWindow : Window, IDisposable
 
         AuthlibInjectorService service = new();
         string authServer = AuthlibInjectorService.NormalizeAuthServer(profile.AuthServer);
-        string authlibPath = await service.EnsureAsync(GetAuthlibInjectorCachePath(), cancellationToken)
-            .ConfigureAwait(false);
         string metadata = await service.GetServerMetadataAsync(authServer, cancellationToken)
+            .ConfigureAwait(false);
+        if (useJvmHost)
+            return (null, authServer, metadata);
+
+        string authlibPath = await service.EnsureAsync(GetAuthlibInjectorCachePath(), cancellationToken)
             .ConfigureAwait(false);
         return (authlibPath, authServer, metadata);
     }

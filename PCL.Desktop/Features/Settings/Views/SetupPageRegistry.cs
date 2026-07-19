@@ -44,4 +44,7 @@ internal static partial class SetupPageRegistry
     [SetupPage(SetupPageSubType.LauncherLanguage, "语言")]
     private static PageSetupLauncherLanguage CreateLauncherLanguagePage() => new();
 
+    [SetupPage(SetupPageSubType.Experimental, "实验性功能")]
+    private static PageSetupExperimental CreateExperimentalPage() => new();
+
 }

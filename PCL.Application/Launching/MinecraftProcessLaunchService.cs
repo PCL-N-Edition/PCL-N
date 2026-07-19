@@ -34,6 +34,10 @@ public sealed record MinecraftProcessLaunchRequest
     public string? AuthlibInjectorPath { get; init; }
     public string? AuthlibServer { get; init; }
     public string? AuthlibPrefetchedMetadata { get; init; }
+    public bool UseExperimentalJvmHost { get; init; }
+    public MinecraftJvmHostIdentityMode JvmHostIdentityMode { get; init; }
+    public string? OfflineSkinSource { get; init; }
+    public bool OfflineSkinSlim { get; init; }
     public MinecraftJvmIpPreference PreferredIpStack { get; init; }
     public string? Server { get; init; }
     public DateTimeOffset? ReleaseTime { get; init; }
@@ -47,7 +51,10 @@ public sealed record MinecraftProcessLaunchPlan(
     ProcessStartInfo StartInfo,
     string NativesDirectory,
     IReadOnlyList<string> ClasspathEntries,
-    MinecraftNativeExtractionResult NativeExtraction);
+    MinecraftNativeExtractionResult NativeExtraction)
+{
+    public MinecraftJvmHostRequest? JvmHostRequest { get; init; }
+}
 
 public static class MinecraftProcessLaunchService
 {
@@ -182,7 +189,13 @@ public static class MinecraftProcessLaunchService
             PortableLog.Debug(
                 "LaunchPlan",
                 $"进程参数：FileName={startInfo.FileName}；WorkingDirectory={startInfo.WorkingDirectory}；Arguments={startInfo.Arguments}");
-            return new MinecraftProcessLaunchPlan(startInfo, nativesDirectory, classpath.Entries, nativeExtraction);
+            MinecraftJvmHostRequest? jvmHostRequest = request.UseExperimentalJvmHost
+                ? CreateJvmHostRequest(request, launchPlan.Arguments, mainClass, gameDirectory, classpath.Entries)
+                : null;
+            return new MinecraftProcessLaunchPlan(startInfo, nativesDirectory, classpath.Entries, nativeExtraction)
+            {
+                JvmHostRequest = jvmHostRequest
+            };
         }
         catch (OperationCanceledException)
         {
@@ -475,6 +488,143 @@ public static class MinecraftProcessLaunchService
         }
 
         return [javaAgent];
+    }
+
+    private static MinecraftJvmHostRequest CreateJvmHostRequest(
+        MinecraftProcessLaunchRequest request,
+        string arguments,
+        string mainClass,
+        string gameDirectory,
+        IReadOnlyList<string> classpathEntries)
+    {
+        IReadOnlyList<string> tokens = ParseCommandLine(arguments);
+        int mainClassIndex = -1;
+        for (int i = 0; i < tokens.Count; i++)
+        {
+            if (string.Equals(tokens[i], mainClass, StringComparison.Ordinal))
+            {
+                mainClassIndex = i;
+                break;
+            }
+        }
+
+        if (mainClassIndex < 0)
+            throw new FormatException("启动参数中未找到 Minecraft 主类：" + mainClass);
+
+        List<string> vmArguments = [];
+        for (int i = 0; i < mainClassIndex; i++)
+        {
+            string token = tokens[i];
+            if (token is "-cp" or "-classpath" or "--class-path")
+            {
+                // Jvm.NET receives the structured classpath separately.
+                i++;
+                continue;
+            }
+
+            if (token.StartsWith("-Djava.class.path=", StringComparison.Ordinal))
+                continue;
+
+            vmArguments.Add(token);
+        }
+
+        string[] gameArguments = tokens.Skip(mainClassIndex + 1).ToArray();
+        return new MinecraftJvmHostRequest
+        {
+            JavaExecutablePath = request.JavaExecutablePath,
+            JavaMajorVersion = request.JavaMajorVersion,
+            WorkingDirectory = gameDirectory,
+            MainClass = mainClass,
+            PlayerName = request.PlayerName,
+            PlayerUuid = request.PlayerUuid.Replace("-", string.Empty, StringComparison.Ordinal),
+            VmArguments = vmArguments.ToArray(),
+            ClasspathEntries = classpathEntries.ToArray(),
+            GameArguments = gameArguments,
+            IdentityMode = request.JvmHostIdentityMode,
+            AuthServer = request.AuthlibServer,
+            AuthServerMetadata = request.AuthlibPrefetchedMetadata,
+            OfflineSkinSource = request.OfflineSkinSource,
+            OfflineSkinSlim = request.OfflineSkinSlim
+        };
+    }
+
+    /// <summary>
+    /// Parses the quoting shape accepted by ProcessStartInfo. It follows the CRT
+    /// backslash-before-quote rules and also accepts single quotes for custom Unix arguments.
+    /// </summary>
+    internal static IReadOnlyList<string> ParseCommandLine(string commandLine)
+    {
+        List<string> result = [];
+        int index = 0;
+        while (index < commandLine.Length)
+        {
+            while (index < commandLine.Length && char.IsWhiteSpace(commandLine[index]))
+                index++;
+            if (index >= commandLine.Length)
+                break;
+
+            System.Text.StringBuilder token = new();
+            bool quoted = false;
+            bool tokenStarted = false;
+            char quote = '\0';
+            while (index < commandLine.Length)
+            {
+                char current = commandLine[index];
+                if (!quoted && char.IsWhiteSpace(current))
+                    break;
+
+                if (current == '\\' && quote != '\'')
+                {
+                    int slashStart = index;
+                    while (index < commandLine.Length && commandLine[index] == '\\')
+                        index++;
+                    int slashCount = index - slashStart;
+                    if (index < commandLine.Length && commandLine[index] == '"')
+                    {
+                        token.Append('\\', slashCount / 2);
+                        if ((slashCount & 1) != 0)
+                        {
+                            token.Append('"');
+                            index++;
+                        }
+                        else
+                        {
+                            quoted = !quoted;
+                            quote = quoted ? '"' : '\0';
+                            index++;
+                        }
+                    }
+                    else
+                    {
+                        token.Append('\\', slashCount);
+                    }
+                    tokenStarted = true;
+                    continue;
+                }
+
+                if ((current == '"' || current == '\'') && (!quoted || quote == current))
+                {
+                    quoted = !quoted;
+                    quote = quoted ? current : '\0';
+                    tokenStarted = true;
+                    index++;
+                    continue;
+                }
+
+                token.Append(current);
+                tokenStarted = true;
+                index++;
+            }
+
+            if (quoted)
+                throw new FormatException("启动参数包含未闭合的引号。");
+            if (tokenStarted)
+                result.Add(token.ToString());
+            while (index < commandLine.Length && char.IsWhiteSpace(commandLine[index]))
+                index++;
+        }
+
+        return result;
     }
 
     private sealed record InheritedVersionJson(string VersionId, JsonObject Json);

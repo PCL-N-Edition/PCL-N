@@ -629,6 +629,7 @@
     <sys:String x:Key="Setup.Left.Item.Launch">Launch</sys:String>
     <sys:String x:Key="Setup.Left.Item.Log">Logs</sys:String>
     <sys:String x:Key="Setup.Left.Item.Misc">General</sys:String>
+    <sys:String x:Key="Setup.Left.Item.Experimental">Experimental</sys:String>
     <sys:String x:Key="Setup.Left.Item.Ui">Personalization</sys:String>
     <sys:String x:Key="Setup.Left.Item.Update">Updates</sys:String>
     <sys:String x:Key="Setup.Misc.Debug.AnimationSpeed">Animation speed</sys:String>
@@ -673,6 +674,18 @@
     <sys:String x:Key="Setup.Misc.System.MaxLogLines.ToolTip">Maximum lines kept in the live log. Older lines are removed automatically.</sys:String>
     <sys:String x:Key="Setup.Misc.System.Proxy.Hint">Example: http://127.0.0.1:1080/</sys:String>
     <sys:String x:Key="Setup.Misc.System.Title">System</sys:String>
+    <sys:String x:Key="Setup.Experimental.Warning">Experimental features may prevent the game from starting, break authentication, or conflict with mods. Keep them disabled unless you can provide full logs and revert the option yourself.</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Title">Jvm.NET lifecycle host</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Enable">Use the Jvm.NET host to control the Minecraft lifecycle</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Summary">Minecraft runs inside an isolated PCL N host process. Third-party authentication no longer loads authlib-injector, and custom offline skins use the same session bridge to reach the game.</sys:String>
+    <sys:String x:Key="Setup.Experimental.Benefits.Title">Benefits</sys:String>
+    <sys:String x:Key="Setup.Experimental.Risks.Title">Risks and limitations</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Benefits">• Records JVM initialization, main-class invocation, Minecraft bootstrap, and window subsystem lifecycle nodes.&#10;• Third-party authentication does not load an extra authlib-injector JAR into the game.&#10;• Offline profiles can use local or borrowed skins in-game.&#10;• JVM crashes stay isolated in the host process instead of taking down the launcher.</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Risks">• Embedding the JVM and transforming authlib bytecode can conflict with some Java builds, mods, or authentication servers.&#10;• Adds a small amount of startup time and memory usage.&#10;• PCL N verifies and transforms third-party texture signatures, so behavior is not identical to authlib-injector.&#10;• A host or loopback-bridge failure aborts that game launch.</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Scope">The authentication and skin bridge listens only on 127.0.0.1 and ends with the game host. Disabling this option immediately restores the normal Java process and authlib-injector path.</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Title">Enable the Jvm.NET lifecycle host</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Message">Benefits: richer JVM and Minecraft lifecycle logs; no authlib-injector for third-party authentication; local offline skins work in-game; a host crash does not take down the launcher.&#10;&#10;Risks: this feature embeds a JVM in an isolated process and transforms authlib bytecode. It can conflict with some Java builds, mods, or authentication servers; it adds some startup time and memory; authentication and skins pass through a 127.0.0.1 bridge for this game session; PCL N verifies and then transforms third-party texture signatures, which is not identical to authlib-injector. Disable the option to restore the traditional launch path if anything fails.&#10;&#10;Each host runs one JVM and exits with the game. Do you understand the risks and want to continue?</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Enable">Understand risks and enable</sys:String>
     <sys:String x:Key="Setup.Ui.ThemeColor.SystemAccent">Follow system</sys:String>
     <sys:String x:Key="Setup.Ui.ThemeColor.SkyBlue">Sky Blue</sys:String>
     <sys:String x:Key="Setup.Ui.ThemeColor.CatBlue">LTCat Blue</sys:String>

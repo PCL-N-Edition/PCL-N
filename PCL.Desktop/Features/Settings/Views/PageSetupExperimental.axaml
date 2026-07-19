@@ -1,0 +1,38 @@
+<legacy:MyPageRight
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
+    x:Class="PCL.Desktop.Features.Settings.Views.PageSetupExperimental">
+    <legacy:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
+        <StackPanel Margin="25,10">
+            <legacy:MyHint Margin="0,15,0,0"
+                           Theme="Yellow"
+                           Text="{DynamicResource Setup.Experimental.Warning}" />
+
+            <legacy:MyCard Margin="0,15" Title="{DynamicResource Setup.Experimental.JvmHost.Title}">
+                <StackPanel Margin="25,40,25,18" Spacing="12">
+                    <legacy:MyCheckBox x:Name="CheckExperimentalJvmHost"
+                                       Tag="ExperimentalJvmLifecycleHost"
+                                       Text="{DynamicResource Setup.Experimental.JvmHost.Enable}"
+                                       PreviewChange="ExperimentalJvmHost_OnPreviewChange" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.JvmHost.Summary}"
+                               TextWrapping="Wrap" Opacity="0.82" />
+                    <Grid ColumnDefinitions="1*,18,1*">
+                        <StackPanel Grid.Column="0" Spacing="7">
+                            <TextBlock Text="{DynamicResource Setup.Experimental.Benefits.Title}" FontWeight="SemiBold" />
+                            <TextBlock Text="{DynamicResource Setup.Experimental.JvmHost.Benefits}"
+                                       TextWrapping="Wrap" Opacity="0.78" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="7">
+                            <TextBlock Text="{DynamicResource Setup.Experimental.Risks.Title}" FontWeight="SemiBold" />
+                            <TextBlock Text="{DynamicResource Setup.Experimental.JvmHost.Risks}"
+                                       TextWrapping="Wrap" Opacity="0.78" />
+                        </StackPanel>
+                    </Grid>
+                    <legacy:MyHint Theme="Blue"
+                                   Text="{DynamicResource Setup.Experimental.JvmHost.Scope}" />
+                </StackPanel>
+            </legacy:MyCard>
+        </StackPanel>
+    </legacy:MyScrollViewer>
+</legacy:MyPageRight>

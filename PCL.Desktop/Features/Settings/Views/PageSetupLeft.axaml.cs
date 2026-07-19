@@ -26,7 +26,8 @@ public enum SetupPageSubType
     Java = 9,
     LauncherMisc = 10,
     LauncherLanguage = 11,
-    Plugin = 12
+    Plugin = 12,
+    Experimental = 13
 }
 
 public sealed class SetupPageChangedEventArgs(SetupPageSubType pageId, MyPageRight page, string? hostPageId = null) : EventArgs

@@ -94,6 +94,7 @@
     <PackageReference Include="Avalonia.Markup.Xaml.Loader" Version="12.1.0" />
     <PackageReference Include="Avalonia.Wayland" Version="12.1.0" />
     <PackageReference Include="FluentValidation" Version="12.1.1" />
+    <PackageReference Include="Jvm.NET" Version="2.2.0" />
     <PackageReference Include="LibVLCSharp" Version="3.10.0" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23.1"
                       Condition="('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('Windows'))) OR $([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-'))" />
