@@ -444,6 +444,9 @@
     <sys:String x:Key="Select.Instance.Search.NoHiddenResult">No hidden instances match “{0}”.</sys:String>
     <sys:String x:Key="Select.Instance.Search.NoResult">No instances match “{0}”.</sys:String>
     <sys:String x:Key="Select.Instance.Search.ToolTip">Search installed instances</sys:String>
+    <sys:String x:Key="Select.Instance.Hero.Eyebrow">Library</sys:String>
+    <sys:String x:Key="Select.Instance.Hero.Title">Choose a version to play</sys:String>
+    <sys:String x:Key="Select.Instance.CurrentSelection">Selected</sys:String>
 
     <!-- Setup -->
 

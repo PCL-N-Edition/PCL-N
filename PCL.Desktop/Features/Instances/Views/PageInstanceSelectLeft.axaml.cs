@@ -142,9 +142,9 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
         {
             Title = folder.Name,
             Info = folder.RootDirectory,
-            Height = 40d,
+            Height = 44d,
             Type = MyListItem.CheckType.RadioBox,
-            MinPaddingRight = 30d,
+            MinPaddingRight = 32d,
             IsScaleAnimationEnabled = false,
             Tag = folder,
             Buttons = buttons.ToArray()
@@ -161,9 +161,11 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
         new()
         {
             Text = text,
-            Margin = new Thickness(13d, 18d, 5d, 4d),
-            Opacity = 0.6d,
-            FontSize = 12d
+            Margin = new Thickness(13d, 16d, 5d, 6d),
+            Opacity = 0.55d,
+            FontSize = 11d,
+            FontWeight = Avalonia.Media.FontWeight.SemiBold,
+            LetterSpacing = 0.35d
         };
 
     private static MyListItem CreateActionItem(string title, string toolTip, string icon, Action clicked)
@@ -171,10 +173,11 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
         MyListItem item = new()
         {
             Title = title,
-            Height = 34d,
+            Height = 36d,
             Type = MyListItem.CheckType.Clickable,
             IsScaleAnimationEnabled = false,
-            SvgIcon = icon
+            SvgIcon = icon,
+            LogoScale = 0.95d
         };
         ToolTip.SetTip(item, toolTip);
         item.Click += (_, _) => clicked();

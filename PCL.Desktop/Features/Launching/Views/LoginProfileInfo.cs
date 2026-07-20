@@ -2,6 +2,9 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using PCL.Application.Settings;
+using PCL.Desktop.Features.Settings.Views;
+
 namespace PCL.Desktop.Features.Launching.Views;
 
 public sealed record LoginProfileInfo(
@@ -16,6 +19,48 @@ public sealed record LoginProfileInfo(
     string AccessToken = "",
     string RefreshToken = "")
 {
+    private const string AuthlibInjectorPrefix = "Authlib-Injector · ";
+
+    /// <summary>
+    /// Profile subtitle for UI. When experimental Jvm.NET host is on, third-party auth
+    /// no longer loads authlib-injector, so hide that badge from the account chrome.
+    /// </summary>
+    public string DisplayInfo => FormatDisplayInfo(Info, Kind);
+
+    public static string FormatDisplayInfo(string info, LaunchLoginProfileKind kind)
+    {
+        if (kind != LaunchLoginProfileKind.ThirdParty || string.IsNullOrWhiteSpace(info))
+            return info;
+
+        if (!IsJvmHostExperimentalEnabled())
+            return info;
+
+        if (info.StartsWith(AuthlibInjectorPrefix, StringComparison.OrdinalIgnoreCase))
+            return info[AuthlibInjectorPrefix.Length..].Trim();
+        if (info.StartsWith("Authlib-Injector", StringComparison.OrdinalIgnoreCase))
+        {
+            string rest = info["Authlib-Injector".Length..].TrimStart(' ', '·', '-', ':');
+            return string.IsNullOrWhiteSpace(rest) ? info : rest;
+        }
+
+        return info;
+    }
+
+    private static bool IsJvmHostExperimentalEnabled()
+    {
+        try
+        {
+            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+            return settings.GetBooleanOption(
+                LauncherSettingKeys.ExperimentalJvmLifecycleHost,
+                LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalJvmLifecycleHost.Value));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>True when a skin texture can be shown (remote, local, or offline default).</summary>
     public bool HasSkin =>
         !string.IsNullOrWhiteSpace(SkinAddress) ||

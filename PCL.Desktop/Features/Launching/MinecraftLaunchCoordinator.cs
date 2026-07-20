@@ -834,9 +834,10 @@ internal sealed class MinecraftLaunchCoordinator
     private static string FormatThirdPartyMethod(LoginProfileInfo profile)
     {
         string baseName = AvaloniaLocalizationManager.GetText("Launch.Account.Type.ThirdParty", "第三方");
+        // Prefer server host; fall back to DisplayInfo so experimental JVM host hides Authlib-Injector badge.
         string serverLabel = !string.IsNullOrWhiteSpace(profile.AuthServer)
             ? profile.AuthServer
-            : profile.Info;
+            : profile.DisplayInfo;
         return string.IsNullOrWhiteSpace(serverLabel) ||
                string.Equals(serverLabel, baseName, StringComparison.OrdinalIgnoreCase)
             ? baseName

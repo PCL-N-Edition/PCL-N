@@ -5,6 +5,6 @@
     <legacy:MyScrollViewer HorizontalScrollBarVisibility="Disabled"
                            VerticalScrollBarVisibility="Auto"
                            MaxWidth="300" MinWidth="250">
-        <StackPanel x:Name="PanList" />
+        <StackPanel x:Name="PanList" Margin="4,8,4,12" />
     </legacy:MyScrollViewer>
 </legacy:MyPageLeft>

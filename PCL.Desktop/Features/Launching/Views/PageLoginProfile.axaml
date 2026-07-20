@@ -36,7 +36,7 @@
                     <Grid>
                         <legacy:MyListItem Margin="8,2,44,2"
                                            Title="{CompiledBinding Username}"
-                                           Info="{CompiledBinding Info}"
+                                           Info="{CompiledBinding DisplayInfo}"
                                            Type="Clickable"
                                            Logo="{CompiledBinding DisplayHeadAddress}"
                                            SvgIcon="{CompiledBinding ListSvgIcon}"

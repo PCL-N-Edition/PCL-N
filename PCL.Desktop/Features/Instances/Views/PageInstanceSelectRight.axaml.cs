@@ -348,7 +348,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
     {
         StackPanel stack = new()
         {
-            Margin = new Thickness(20d, MyCard.SwapedHeight, 18d, 0d),
+            Margin = new Thickness(16d, MyCard.SwapedHeight, 14d, 6d),
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
             RenderTransform = new TranslateTransform(),
             Tag = instances
@@ -359,7 +359,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         MyCard card = new()
         {
             Title = InstanceDisplayHelper.GetCardTitle(cardType, isStarredCard, instances.Length),
-            Margin = new Thickness(0d, 0d, 0d, 15d),
+            Margin = new Thickness(0d, 0d, 0d, 12d),
             SwapControl = stack
         };
         card.Children.Add(stack);
@@ -433,24 +433,25 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
                 InstanceOpenFolderRequested?.Invoke(this, instance);
         };
 
+        bool isSelected = _selectedInstance is not null &&
+            string.Equals(_selectedInstance.InstanceDirectory, instance.InstanceDirectory, StringComparison.OrdinalIgnoreCase);
+        string detail = string.IsNullOrWhiteSpace(entry.Metadata.Description)
+            ? instance.InstanceDirectory
+            : entry.Metadata.Description;
         MyListItem item = new()
         {
             Title = instance.Name,
-            Info = string.IsNullOrWhiteSpace(entry.Metadata.Description)
-                ? instance.InstanceDirectory
-                : entry.Metadata.Description,
-            Height = 42d,
+            Info = isSelected
+                ? ResourceText("Select.Instance.CurrentSelection", "当前选择") + " · " + detail
+                : detail,
+            Height = 48d,
             Tag = instance,
             Type = MyListItem.CheckType.Clickable,
             Logo = InstanceDisplayHelper.ResolveLogo(instance, entry.Metadata),
-            LogoScale = 0.85d,
+            LogoScale = 0.92d,
+            MinPaddingRight = 8d,
             Buttons = [btnOpenFolder, btnDelete, btnSettings]
         };
-        if (_selectedInstance is not null &&
-            string.Equals(_selectedInstance.InstanceDirectory, instance.InstanceDirectory, StringComparison.OrdinalIgnoreCase))
-        {
-            item.Info = "当前选择 · " + instance.InstanceDirectory;
-        }
 
         item.Click += (_, _) => TrySelectInstance(instance);
         return item;

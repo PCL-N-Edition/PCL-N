@@ -50,7 +50,7 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
         if (this.FindControl<TextBlock>("TextName") is { } name)
             name.Text = Profile.Username;
         if (this.FindControl<TextBlock>("TextType") is { } type)
-            type.Text = Profile.Info;
+            type.Text = Profile.DisplayInfo;
         if (this.FindControl<MySkin>("Skin") is { } skin)
         {
             skin.HasCape = Profile.Kind != LaunchLoginProfileKind.Offline;
