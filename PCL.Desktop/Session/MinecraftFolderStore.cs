@@ -224,7 +224,7 @@ public sealed class MinecraftFolderStore
             settings.SetTextOption(
                 LauncherSettingKeys.LaunchSelectedMinecraftRoot,
                 _selectedRoot ?? string.Empty);
-            LauncherSettingsPageBinder.SaveSettings(settings);
+            LauncherSettingsPageBinder.SaveSettings(settings, notify: false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {

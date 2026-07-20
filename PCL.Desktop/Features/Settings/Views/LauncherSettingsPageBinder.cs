@@ -572,7 +572,7 @@ internal static class LauncherSettingsPageBinder
         }
     }
 
-    internal static void SaveSettings(LauncherSettings settings)
+    internal static void SaveSettings(LauncherSettings settings, bool notify = true)
     {
         string settingsPath = CreateSettingsPath();
         try
@@ -584,7 +584,9 @@ internal static class LauncherSettingsPageBinder
             PortableLog.Debug(
                 "Settings",
                 $"设置保存完成；Path={settingsPath}；Bool={settings.BooleanOptions.Count}；Int={settings.IntegerOptions.Count}；Text={settings.TextOptions.Count}。");
-            SettingsChanged?.Invoke(settings);
+            // Session stores (folders/instances) persist without re-entering UI chrome updates.
+            if (notify)
+                SettingsChanged?.Invoke(settings);
         }
         catch (Exception ex)
         {

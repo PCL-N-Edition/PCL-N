@@ -50,8 +50,8 @@ Copy-Item "$env:USERPROFILE\.codex\skills\architecture" `
 | 0 | ✅ `CommunityToolkit.Mvvm` + composition root + messages + feature module interface |
 | 1 | ✅ Shell MVVM（TitleBar / ExtraDock / Experimental profile） |
 | 2 | ✅ Session Stores 单例（Folder / Instance / Task / Game） |
-| 3 | ✅ Launch + Instances Feature 模块（Select Surface；Launch 主页仍部分在 MainWindow） |
-| 4 | Downloads / Tasks / Settings / Community |
+| 3 | ✅ Launch + Instances Feature（Select/Launch surface + StartMinecraft 门面） |
+| 4 | ✅ Download / Settings Feature（Tasks/Community 待续） |
 | 5 | 瘦 MainWindow、拆 Headless 测试、可选 DynamicData |
 
 详见 multi-skill 文档 §7。

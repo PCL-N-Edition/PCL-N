@@ -5,8 +5,10 @@
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using PCL.Desktop.Features;
+using PCL.Desktop.Features.Downloads;
 using PCL.Desktop.Features.Instances;
 using PCL.Desktop.Features.Launching;
+using PCL.Desktop.Features.Settings;
 using PCL.Desktop.Session;
 using PCL.Desktop.Shell;
 
@@ -63,11 +65,13 @@ public static class DesktopCompositionRoot
         services.AddSingleton<TitleBarViewModel>();
         services.AddSingleton<ExtraDockViewModel>();
 
-        // Feature modules (Phase 3+)
+        // Feature modules (Phase 3–4)
         IDesktopFeatureModule[] modules =
         [
             new LaunchFeatureModule(),
-            new InstancesFeatureModule()
+            new InstancesFeatureModule(),
+            new DownloadFeatureModule(),
+            new SettingsFeatureModule()
         ];
         foreach (IDesktopFeatureModule module in modules)
             module.Register(services);

@@ -40,7 +40,7 @@ public sealed class InstanceSelectionStore
         {
             LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
             settings.SetTextOption(LauncherSettingKeys.LaunchSelectedInstanceDirectory, instanceDirectory);
-            LauncherSettingsPageBinder.SaveSettings(settings);
+            LauncherSettingsPageBinder.SaveSettings(settings, notify: false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {

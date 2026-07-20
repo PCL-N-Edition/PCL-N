@@ -21,9 +21,9 @@ public sealed class InstancesSelectSurface
 
     private readonly MinecraftFolderStore _folderStore;
     private readonly ExperimentalUiProfileSource _profileSource;
+    private object? _hostToken;
     private PageInstanceSelectLeft? _left;
     private PageInstanceSelectRight? _right;
-    private bool _wired;
 
     public InstancesSelectSurface(
         MinecraftFolderStore folderStore,
@@ -40,15 +40,26 @@ public sealed class InstancesSelectSurface
     public bool IsFullPageLayout =>
         _profileSource.RefreshFromSettings().Select == InstanceSelectLayout.FullPageSidebar;
 
-    public void WireOnce(InstancesSelectBindings bindings)
+    /// <summary>
+    /// Wire host callbacks. Page cache is dropped when <paramref name="hostToken"/> changes
+    /// so controls are not re-parented across MainWindow instances (headless tests).
+    /// </summary>
+    public void WireOnce(object hostToken, InstancesSelectBindings bindings)
     {
+        ArgumentNullException.ThrowIfNull(hostToken);
         ArgumentNullException.ThrowIfNull(bindings);
-        if (_wired)
-            return;
+        if (!ReferenceEquals(_hostToken, hostToken))
+        {
+            _hostToken = hostToken;
+            _left = null;
+            _right = null;
+        }
 
-        _right = CreateRightPage(bindings);
-        _left = CreateLeftPage(bindings);
-        _wired = true;
+        if (_right is null || _left is null)
+        {
+            _right = CreateRightPage(bindings);
+            _left = CreateLeftPage(bindings);
+        }
     }
 
     public void Apply(
@@ -57,7 +68,7 @@ public sealed class InstancesSelectSurface
         IReadOnlyList<LaunchInstanceInfo> instances,
         LaunchInstanceInfo? selectedInstance)
     {
-        if (!_wired || _right is null)
+        if (_right is null)
             throw new InvalidOperationException("InstancesSelectSurface 尚未 WireOnce。");
 
         bool fullPage = IsFullPageLayout;

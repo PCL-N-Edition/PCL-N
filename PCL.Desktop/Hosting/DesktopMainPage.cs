@@ -6,7 +6,7 @@ using Avalonia.Controls;
 
 namespace PCL.Desktop.Hosting;
 
-internal sealed record DesktopMainPage(
+public sealed record DesktopMainPage(
     Control? Left,
     Control Right,
     string? Title = null,

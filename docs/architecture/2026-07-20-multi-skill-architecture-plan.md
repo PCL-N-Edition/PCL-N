@@ -337,11 +337,16 @@ public sealed record ExperimentalUiProfile(
 1. [x] `InstancesSelectSurface` + `InstancesSelectBindings`：经典/整页布局由 Profile 驱动  
 2. [x] `InstancesFeatureModule` / `LaunchFeatureModule` 注册进组合根  
 3. [x] MainWindow `ApplyInstanceSelectPage` 委托 Surface；Launch 使用 `LaunchHomeProfileResolver`  
-4. [ ] 启动主页完全迁出 MainWindow（仍需 host 回调抽取）  
-5. [ ] `StartMinecraft` UseCase 门面  
+4. [x] `LaunchHomeSurface` + `LaunchHomeBindings` 创建启动主页  
+5. [x] `StartMinecraftUseCase` 门面（Bind → MainWindow 重实现）  
 6. [ ] 列表 Refreshable 薄模式（不必 DynamicData）  
 
-### Phase 4 — Downloads / Tasks / Settings / Community  
+### Phase 4 — Downloads / Tasks / Settings / Community
+
+1. [x] `DownloadFeatureModule` + `DownloadFeatureSurface`  
+2. [x] `SettingsFeatureModule` + `SettingsFeatureSurface`  
+3. [ ] Tasks / Community Feature 模块  
+4. [ ] 进一步从 MainWindow 删除遗留 Create* 私有页工厂
 
 ### Phase 5 — 瘦 MainWindow、拆 Headless、可选 DynamicData  
 

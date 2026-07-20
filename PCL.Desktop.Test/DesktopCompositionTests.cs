@@ -9,7 +9,9 @@ using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Messaging;
 using PCL.Desktop.Features;
 using PCL.Desktop.Features.Instances;
+using PCL.Desktop.Features.Downloads;
 using PCL.Desktop.Features.Launching;
+using PCL.Desktop.Features.Settings;
 using PCL.Desktop.Session;
 using PCL.Desktop.Shell;
 
@@ -51,13 +53,45 @@ public sealed class DesktopCompositionTests
             DesktopCompositionRoot.GetRequiredService<IReadOnlyList<IDesktopFeatureModule>>();
         Assert.IsTrue(modules.Any(m => m.Id == "launch"));
         Assert.IsTrue(modules.Any(m => m.Id == "instances"));
+        Assert.IsTrue(modules.Any(m => m.Id == "download"));
+        Assert.IsTrue(modules.Any(m => m.Id == "settings"));
 
         InstancesSelectSurface select = DesktopCompositionRoot.GetRequiredService<InstancesSelectSurface>();
         LaunchHomeProfileResolver launchProfile =
             DesktopCompositionRoot.GetRequiredService<LaunchHomeProfileResolver>();
+        LaunchHomeSurface launchHome = DesktopCompositionRoot.GetRequiredService<LaunchHomeSurface>();
+        StartMinecraftUseCase startMinecraft = DesktopCompositionRoot.GetRequiredService<StartMinecraftUseCase>();
+        DownloadFeatureSurface download = DesktopCompositionRoot.GetRequiredService<DownloadFeatureSurface>();
+        SettingsFeatureSurface settings = DesktopCompositionRoot.GetRequiredService<SettingsFeatureSurface>();
         Assert.IsNotNull(select);
         Assert.IsNotNull(launchProfile);
+        Assert.IsNotNull(launchHome);
+        Assert.IsNotNull(startMinecraft);
+        Assert.IsNotNull(download);
+        Assert.IsNotNull(settings);
         Assert.AreEqual("instances.select", InstancesSelectSurface.SubPageId);
+    }
+
+    [TestMethod]
+    public void StartMinecraftUseCase_RequiresBindBeforeExecute()
+    {
+        // Fresh instance — do not bind the process-wide singleton used by other tests.
+        StartMinecraftUseCase useCase = new();
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
+            useCase.ExecuteAsync(new StartMinecraftRequest(
+                Home: null!,
+                Instance: null!)).GetAwaiter().GetResult());
+
+        int calls = 0;
+        useCase.Bind((_, _) =>
+        {
+            calls++;
+            return Task.CompletedTask;
+        });
+
+        Assert.ThrowsExactly<ArgumentNullException>(() =>
+            useCase.ExecuteAsync(null!).GetAwaiter().GetResult());
+        Assert.AreEqual(0, calls);
     }
 
     [TestMethod]

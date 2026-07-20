@@ -49,10 +49,12 @@ using PCL.Desktop.Shell;
 using PCL.Desktop.Theme;
 using PCL.Desktop.Platform;
 using PCL.Desktop.Features.Downloads.Views;
+using PCL.Desktop.Features.Downloads;
 using PCL.Desktop.Features.Instances;
 using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Launching.Views;
+using PCL.Desktop.Features.Settings;
 using CommunityToolkit.Mvvm.Messaging;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Shared;
@@ -94,6 +96,10 @@ public partial class MainWindow : Window, IDisposable
     private readonly GameSessionStore _gameSessionStore;
     private readonly InstancesSelectSurface _instancesSelect;
     private readonly LaunchHomeProfileResolver _launchHomeProfile;
+    private readonly LaunchHomeSurface _launchHomeSurface;
+    private readonly StartMinecraftUseCase _startMinecraft;
+    private readonly DownloadFeatureSurface _downloadSurface;
+    private readonly SettingsFeatureSurface _settingsSurface;
     private bool _isDisposed;
     private PageLoginProfile? _loginProfilePage;
     private PageLoginProfileSkin? _loginProfileSkinPage;
@@ -192,6 +198,16 @@ public partial class MainWindow : Window, IDisposable
         _gameSessionStore = DesktopCompositionRoot.GetRequiredService<GameSessionStore>();
         _instancesSelect = DesktopCompositionRoot.GetRequiredService<InstancesSelectSurface>();
         _launchHomeProfile = DesktopCompositionRoot.GetRequiredService<LaunchHomeProfileResolver>();
+        _launchHomeSurface = DesktopCompositionRoot.GetRequiredService<LaunchHomeSurface>();
+        _startMinecraft = DesktopCompositionRoot.GetRequiredService<StartMinecraftUseCase>();
+        _downloadSurface = DesktopCompositionRoot.GetRequiredService<DownloadFeatureSurface>();
+        _settingsSurface = DesktopCompositionRoot.GetRequiredService<SettingsFeatureSurface>();
+        _startMinecraft.Bind(async (request, _) =>
+            await StartMinecraftAsync(
+                request.Home,
+                request.Instance,
+                worldName: request.WorldName,
+                serverAddress: request.ServerAddress).ConfigureAwait(true));
         _extraDockViewModel.PropertyChanged += ExtraDockViewModel_PropertyChanged;
         AvaloniaXamlLoader.Load(this);
         DesktopHostUiComposition.Instance.RegisterTarget("pcl.window.main", this);
@@ -1279,110 +1295,79 @@ public partial class MainWindow : Window, IDisposable
     private DesktopMainPage CreateLaunchMainPage()
     {
         LauncherSettings launchSettings = LauncherSettingsPageBinder.LoadSettings();
-        // Prefer feature profile resolver (Phase 3); keep settings fallback for parity.
         bool experimental = _launchHomeProfile.UseExperimentalFullPageHome() ||
                             IsExperimentalHomepageUiEnabled(launchSettings);
         ApplyExperimentalChrome(experimental);
 
-        if (experimental)
-        {
-            EnsureExperimentalLaunchHome(launchSettings);
-            _useExperimentalLaunchHome = true;
-            return new DesktopMainPage(
-                null,
-                _launchHomeExperimental!,
-                Activated: () =>
-                {
-                    // Restore chrome after version-select remount (may leave stale loading text).
-                    _launchLeft!.RefreshButtonsUI();
-                    _ = _launchLeft.EnsureInstancesLoadedAsync();
-                    _launchLeft.TriggerEnterAnimation();
-                    _launchHomeExperimental?.RefreshShortcutDock();
-                });
-        }
-
-        // Leaving experimental mode: keep classic left/right pair.
-        if (_useExperimentalLaunchHome)
-        {
-            _launchHomeExperimental = null;
-            _launchLeft = null;
-            _launchRight = null;
-            _useExperimentalLaunchHome = false;
-        }
-
-        _launchLeft ??= CreateLaunchLeftPage();
-        if (_launchRight is null)
-        {
-            _launchRight = new PageLaunchRight();
-            _launchRight.CommunityHintHideRequested += (_, _) => PromptHideCommunityHint();
-        }
-
-        _launchRight.SetMaximumLogLines(ResolveMaximumLogLines(launchSettings));
-        ApplyLaunchPageSettings(launchSettings);
-        ApplyHomepageSettings(launchSettings);
-        ILaunchHomeSurface launchHome = _launchLeft;
-        PageLaunchRight launchRight = _launchRight;
-        return new DesktopMainPage(
-            (Control)launchHome,
-            launchRight,
-            Activated: () =>
-            {
-                _ = launchHome.EnsureInstancesLoadedAsync();
-                launchHome.TriggerEnterAnimation();
-                launchRight.PageOnEnter();
-            });
+        _launchHomeSurface.WireOnce(this, CreateLaunchHomeBindings(launchSettings));
+        DesktopMainPage page = _launchHomeSurface.CreateMainPage(launchSettings, experimental);
+        SyncLaunchFieldsFromSurface();
+        return page;
     }
+
+    private void SyncLaunchFieldsFromSurface()
+    {
+        _launchLeft = _launchHomeSurface.Home;
+        _launchRight = _launchHomeSurface.ClassicRight;
+        _launchHomeExperimental = _launchHomeSurface.ExperimentalHome;
+        _useExperimentalLaunchHome = _launchHomeSurface.UseExperimental;
+    }
+
+    private LaunchHomeBindings CreateLaunchHomeBindings(LauncherSettings launchSettings) =>
+        new()
+        {
+            NavigateDownload = () => SelectNavRoute(DownloadRoute, animate: true),
+            NavigateInstanceSelect = ApplyInstanceSelectPage,
+            ManageInstance = instance => ApplyInstanceManagePage(instance),
+            CancelLaunch = () =>
+            {
+                _launchCancellation?.Cancel();
+                HandleStatusMessage("已取消启动。");
+            },
+            StatusMessage = HandleStatusMessage,
+            OpenLoginPage = ApplyLaunchLoginPage,
+            StartMinecraft = request => _startMinecraft.ExecuteAsync(request),
+            ActivateShortcut = ActivateLaunchShortcutAsync,
+            HideCommunityHint = PromptHideCommunityHint,
+            ApplyLaunchPageSettings = () => ApplyLaunchPageSettings(launchSettings),
+            ApplyHomepageSettings = () => ApplyHomepageSettings(launchSettings),
+            ResolveMaximumLogLines = () => ResolveMaximumLogLines(launchSettings),
+            EnsureFoldersLoaded = EnsureMinecraftFoldersLoaded,
+            SelectedMinecraftRoot = _folderStore.SelectedRoot,
+            PreferredInstanceDirectory = LoadPreferredInstanceDirectory(),
+            ShowLaunchingHint = launchSettings.GetBooleanOption(
+                "UiShowLaunchingHint",
+                LauncherSettingDefaults.GetBoolean("UiShowLaunchingHint"))
+        };
 
     private void EnsureExperimentalLaunchHome(LauncherSettings launchSettings)
     {
-        // Must load folders before first discovery, otherwise root is null and the
-        // homepage reports “未找到版本” until the user switches folders once.
-        EnsureMinecraftFoldersLoaded();
-
-        if (_launchHomeExperimental is not null && _launchLeft is PageLaunchHomeExperimental)
-        {
-            _launchHomeExperimental.SetMaximumLogLines(ResolveMaximumLogLines(launchSettings));
-            // Re-apply root if folders finished loading after first construction.
-            _launchHomeExperimental.SetMinecraftRootDirectory(_folderStore.SelectedRoot);
-            _launchHomeExperimental.SetPreferredInstanceDirectory(LoadPreferredInstanceDirectory());
-            ApplyLaunchPageSettings(launchSettings);
-            return;
-        }
-
-        PageLaunchHomeExperimental page = new();
-        WireLaunchHomeSurface(page);
-        page.CommunityHintHideRequested += (_, _) => PromptHideCommunityHint();
-        page.SetMaximumLogLines(ResolveMaximumLogLines(launchSettings));
-        page.SetPreferredInstanceDirectory(LoadPreferredInstanceDirectory());
-        page.SetMinecraftRootDirectory(_folderStore.SelectedRoot);
-        page.ConfigureLaunchingHint(launchSettings.GetBooleanOption(
-            "UiShowLaunchingHint",
-            LauncherSettingDefaults.GetBoolean("UiShowLaunchingHint")));
-        _launchHomeExperimental = page;
-        _launchLeft = page;
-        _launchRight = null;
-        ApplyLaunchPageSettings(launchSettings);
+        // Keep for call sites that pre-warm experimental home before navigation.
+        bool experimental = _launchHomeProfile.UseExperimentalFullPageHome() ||
+                            IsExperimentalHomepageUiEnabled(launchSettings);
+        _launchHomeSurface.WireOnce(this, CreateLaunchHomeBindings(launchSettings));
+        _ = _launchHomeSurface.CreateMainPage(launchSettings, experimental);
+        SyncLaunchFieldsFromSurface();
     }
 
     private void WireLaunchHomeSurface(ILaunchHomeSurface page)
     {
-        page.DownloadRequested += (_, _) => SelectNavRoute(DownloadRoute, animate: true);
-        page.InstanceSelectRequested += (_, _) => ApplyInstanceSelectPage();
+        // Legacy entry points (e.g. CreateLaunchLeftPage) still wire through surface bindings.
+        LaunchHomeBindings bindings = CreateLaunchHomeBindings(LauncherSettingsPageBinder.LoadSettings());
+        page.DownloadRequested += (_, _) => bindings.NavigateDownload();
+        page.InstanceSelectRequested += (_, _) => bindings.NavigateInstanceSelect();
         page.InstanceSettingsRequested += (_, _) =>
         {
             if (page.SelectedInstance is not null)
-                ApplyInstanceManagePage(page.SelectedInstance);
+                bindings.ManageInstance(page.SelectedInstance);
         };
-        page.CancelLaunchRequested += (_, _) =>
-        {
-            _launchCancellation?.Cancel();
-            HandleStatusMessage("已取消启动。");
-        };
-        page.StatusMessage += (_, message) => HandleStatusMessage(message);
-        page.LoginPageRequested += (_, type) => ApplyLaunchLoginPage(page, type);
-        page.LaunchRequested += (_, instance) => _ = StartMinecraftAsync(page, instance);
+        page.CancelLaunchRequested += (_, _) => bindings.CancelLaunch();
+        page.StatusMessage += (_, message) => bindings.StatusMessage(message);
+        page.LoginPageRequested += (_, type) => bindings.OpenLoginPage(page, type);
+        page.LaunchRequested += (_, instance) =>
+            _ = bindings.StartMinecraft(new StartMinecraftRequest(page, instance));
         if (page is PageLaunchHomeExperimental experimental)
-            experimental.ShortcutActivated += (_, pin) => _ = ActivateLaunchShortcutAsync(pin);
+            experimental.ShortcutActivated += (_, pin) => _ = bindings.ActivateShortcut(pin);
     }
 
     private async Task ActivateLaunchShortcutAsync(LaunchShortcutPin pin)
@@ -1403,10 +1388,10 @@ public partial class MainWindow : Window, IDisposable
         if (launchHome is null)
             return;
 
-        if (pin.Kind == LaunchShortcutKind.Server)
-            await StartMinecraftAsync(launchHome, instance, serverAddress: pin.Target).ConfigureAwait(true);
-        else
-            await StartMinecraftAsync(launchHome, instance, worldName: pin.Target).ConfigureAwait(true);
+        StartMinecraftRequest request = pin.Kind == LaunchShortcutKind.Server
+            ? new StartMinecraftRequest(launchHome, instance, ServerAddress: pin.Target)
+            : new StartMinecraftRequest(launchHome, instance, WorldName: pin.Target);
+        await _startMinecraft.ExecuteAsync(request).ConfigureAwait(true);
     }
 
     private void PromptHideCommunityHint()
@@ -1820,25 +1805,13 @@ public partial class MainWindow : Window, IDisposable
 
     private DesktopMainPage CreateDownloadMainPage()
     {
-        _downloadLeft ??= CreateDownloadLeftPage();
-        MyPageRight rightPage = _downloadLeft.GetOrCreateCurrentPage();
-        return new DesktopMainPage(
-            _downloadLeft,
-            rightPage,
-            Activated: () =>
-            {
-                _downloadLeft.TriggerShowAnimation();
-                if (rightPage is PageDownloadInstall installPage)
-                {
-                    if (!installPage.HasPendingFocusedNavigation)
-                        installPage.ClearInstallTargetOverride();
-                    installPage.PageOnEnter();
-                }
-                else
-                {
-                    rightPage.PageOnEnter();
-                }
-            });
+        _downloadSurface.Configure(
+            this,
+            CreateDownloadInstallPage,
+            (_, args) => ApplyDownloadRightPage(args.Page));
+        DesktopMainPage page = _downloadSurface.CreateMainPage();
+        _downloadLeft = _downloadSurface.Left;
+        return page;
     }
 
     private DesktopMainPage CreateCommunityMainPage()
@@ -2523,7 +2496,7 @@ public partial class MainWindow : Window, IDisposable
                 _folderStore.SetSelectedRootWithoutPersist(normalizedLive);
         }
 
-        _instancesSelect.WireOnce(CreateInstancesSelectBindings());
+        _instancesSelect.WireOnce(this, CreateInstancesSelectBindings());
         _instancesSelect.Apply(
             leftHost,
             rightHost,
@@ -3709,40 +3682,37 @@ public partial class MainWindow : Window, IDisposable
 
     private DesktopMainPage CreateSettingsMainPage()
     {
-        _setupLeft ??= CreateSetupLeftPage();
-        MyPageRight rightPage = _setupLeft.GetOrCreateCurrentPage();
-        _setupRight = rightPage;
-        return new DesktopMainPage(
-            _setupLeft,
-            rightPage,
-            Activated: () =>
+        _settingsSurface.WireOnce(this, new SettingsFeatureBindings
+        {
+            EnsureRightHostOpaque = () =>
             {
-                // Defensive: host fade/sub-page swap races can leave the right pane at 0.
                 if (this.FindControl<Border>("PanMainRight") is { } rightHost)
                     rightHost.Opacity = 1d;
-                _setupLeft.TriggerShowAnimation();
-                // Prefer the live child (may already have swapped to host default page).
-                if (this.FindControl<Border>("PanMainRight")?.Child is MyPageRight liveRight)
-                    liveRight.PageOnEnter();
-                else
-                    rightPage.PageOnEnter();
-            });
+            },
+            TryGetLiveRightPage = () =>
+                this.FindControl<Border>("PanMainRight")?.Child as MyPageRight,
+            WirePage = WireSetupPage,
+            ApplyRightPage = ApplySetupRightPage,
+            Confirm = (title, message, complete, primary, secondary, isWarn) =>
+                ShowConfirmDialog(
+                    title,
+                    message,
+                    complete,
+                    primary ?? "确定",
+                    secondary ?? "取消",
+                    isWarn)
+        });
+        DesktopMainPage page = _settingsSurface.CreateMainPage();
+        _setupLeft = _settingsSurface.Left;
+        _setupRight = _settingsSurface.Right;
+        return page;
     }
 
     private PageSetupLeft CreateSetupLeftPage()
     {
-        PageSetupLeft page = new();
-        page.PageCreated += (_, created) => WireSetupPage(created);
-        page.PageChanged += (_, args) => ApplySetupRightPage(args.Page);
-        page.ResetRequested += (_, args) =>
-            ShowConfirmDialog(
-                args.Title,
-                args.Message,
-                args.Complete,
-                args.PrimaryButton,
-                args.SecondaryButton,
-                args.IsWarn);
-        return page;
+        // Legacy path: ensure surface is wired then return its left page.
+        _ = CreateSettingsMainPage();
+        return _setupLeft!;
     }
 
     private void WireSetupPage(MyPageRight page)

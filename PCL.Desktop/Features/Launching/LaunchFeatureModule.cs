@@ -26,11 +26,13 @@ internal sealed class LaunchFeatureModule : IDesktopFeatureModule
     public void Register(IServiceCollection services)
     {
         services.AddSingleton<LaunchHomeProfileResolver>();
+        services.AddSingleton<LaunchHomeSurface>();
+        services.AddSingleton<StartMinecraftUseCase>();
     }
 
     public DesktopMainPage CreateMainPage(IServiceProvider services) =>
         throw new NotSupportedException(
-            "Launch main page is still created by MainWindow until host callbacks are fully extracted.");
+            "Launch main page requires host bindings; use LaunchHomeSurface via MainWindow.");
 
     public bool TryCreateSubPage(string subPageId, object? argument, IServiceProvider services, out Control? page)
     {
