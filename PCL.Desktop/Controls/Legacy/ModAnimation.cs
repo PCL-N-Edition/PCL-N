@@ -39,7 +39,12 @@ public static partial class ModAnimation
         EnsureTimer();
     }
 
-    public static void AniStart(IList aniGroup, string name = "", bool refreshTime = false)
+    /// <param name="finishPrevious">
+    /// When true (default for short property tweens), snap the previous named group to its end
+    /// including after-chained code. When false, drop the previous group immediately — use for
+    /// multi-step host scripts (page nav) so rapid retargets stay interruptible and snappy.
+    /// </param>
+    public static void AniStart(IList aniGroup, string name = "", bool refreshTime = false, bool finishPrevious = true)
     {
         List<AniData> data = aniGroup.OfType<AniData>().ToList();
         if (data.Count == 0)
@@ -48,9 +53,7 @@ public static partial class ModAnimation
         if (string.IsNullOrEmpty(name))
             name = Guid.NewGuid().ToString("N");
         else
-            // Interruptible retarget: finish the previous run to its end state so
-            // opacity/translate never stick mid-flight (Apple: continuous presentation).
-            AniStop(name, finish: true);
+            AniStop(name, finish: finishPrevious);
 
         AniGroups[name] = new AniGroupEntry(data);
         if (refreshTime)
@@ -58,8 +61,8 @@ public static partial class ModAnimation
         EnsureTimer();
     }
 
-    public static void AniStart(AniData aniGroup, string name = "", bool refreshTime = false) =>
-        AniStart(new List<AniData> { aniGroup }, name, refreshTime);
+    public static void AniStart(AniData aniGroup, string name = "", bool refreshTime = false, bool finishPrevious = true) =>
+        AniStart(new List<AniData> { aniGroup }, name, refreshTime, finishPrevious);
 
     /// <summary>
     /// Stops a named animation group. When <paramref name="finish"/> is true (default),

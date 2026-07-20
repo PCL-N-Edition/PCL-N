@@ -8,16 +8,16 @@ using PCL.Desktop.Theme;
 namespace PCL.Desktop.Controls.Legacy;
 
 /// <summary>
-/// Shared host-level page swaps with Apple-style fade + slight rise.
-/// Keeps motion when feature surfaces swap right-pane content without going through main nav.
+/// Host-level page swaps: short cross-fade only (no long script drain on interrupt).
 /// </summary>
 internal static class PageHostTransitions
 {
     public const string RightHostAnimationKey = "FrmMain PageChangeRight";
 
     /// <summary>
-    /// Swaps <paramref name="rightHost"/>.Child to <paramref name="target"/> with optional crossfade.
-    /// Always ends with <see cref="MyPageRight.PageOnEnter"/> so content stagger is not skipped.
+    /// Swaps <paramref name="rightHost"/>.Child to <paramref name="target"/>.
+    /// Rapid retargets cancel the previous host tween without replaying its after-chain
+    /// (avoids empty-pane flash and multi-second catch-up).
     /// </summary>
     public static void TransitionRightPage(
         Border rightHost,
@@ -31,19 +31,20 @@ internal static class PageHostTransitions
         MyPageRight? oldRight = rightHost.Child as MyPageRight;
         if (ReferenceEquals(oldRight, target))
         {
-            rightHost.Opacity = 1d;
-            ResetHostTranslate(rightHost);
+            SnapHostVisible(rightHost);
             onHostUpdated?.Invoke();
             target.PageOnEnter();
             return;
         }
 
+        // Drop any in-flight host script immediately — do not finish after-chains.
+        ModAnimation.AniStop(RightHostAnimationKey, finish: false);
+
         if (!animate)
         {
             oldRight?.PageOnExit();
             rightHost.Child = target;
-            rightHost.Opacity = 1d;
-            ResetHostTranslate(rightHost);
+            SnapHostVisible(rightHost);
             onHostUpdated?.Invoke();
             target.PageOnEnter();
             return;
@@ -55,26 +56,24 @@ internal static class PageHostTransitions
             rightHost.RenderTransform = navTranslate;
         }
 
+        // Swap first (content present), then short fade-in from current opacity.
+        // Avoid fade-to-zero-then-swap scripts that leave the pane empty on interrupt/close.
         oldRight?.PageOnExit();
+        rightHost.Child = target;
+        onHostUpdated?.Invoke();
+
+        double fromOpacity = rightHost.Opacity;
+        if (fromOpacity >= 0.98d)
+            fromOpacity = 0d;
+        rightHost.Opacity = fromOpacity;
+        navTranslate.Y = MotionTokens.NavEnterOffsetY;
+
         ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
                 ModAnimation.AaOpacity(
                     rightHost,
-                    -rightHost.Opacity,
-                    MotionTokens.NavCrossfadeOutMs,
-                    ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
-                ModAnimation.AaCode(() =>
-                {
-                    oldRight?.PageOnForceExit();
-                    rightHost.Child = target;
-                    rightHost.Opacity = 0d;
-                    navTranslate.Y = MotionTokens.NavEnterOffsetY;
-                    onHostUpdated?.Invoke();
-                }, after: true),
-                ModAnimation.AaOpacity(
-                    rightHost,
-                    1d,
+                    1d - fromOpacity,
                     MotionTokens.NavCrossfadeInMs,
                     ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
                 ModAnimation.AaTranslateY(
@@ -84,16 +83,18 @@ internal static class PageHostTransitions
                     ease: new ModAnimation.AniEaseOutFluent()),
                 ModAnimation.AaCode(() =>
                 {
-                    rightHost.Opacity = 1d;
-                    navTranslate.Y = 0d;
+                    SnapHostVisible(rightHost);
                     target.PageOnEnter();
                 }, after: true)
             },
-            RightHostAnimationKey);
+            RightHostAnimationKey,
+            refreshTime: false,
+            finishPrevious: false);
     }
 
-    private static void ResetHostTranslate(Control host)
+    public static void SnapHostVisible(Control host)
     {
+        host.Opacity = 1d;
         if (host.RenderTransform is TranslateTransform t)
             t.Y = 0d;
     }

@@ -76,7 +76,8 @@ public sealed class LaunchHomeSurface
                 {
                     _home!.RefreshButtonsUI();
                     _ = _home.EnsureInstancesLoadedAsync();
-                    _home.TriggerEnterAnimation();
+                    // PageOnEnter respects ContentStay — do not re-zero the whole home (empty flash).
+                    experimentalHome.PageOnEnter();
                     experimentalHome.RefreshShortcutDock();
                 });
         }

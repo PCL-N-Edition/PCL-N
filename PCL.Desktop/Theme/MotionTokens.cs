@@ -24,22 +24,22 @@ internal static class MotionTokens
     public const int PressOutMs = 220;
 
     /// <summary>Main content cross-fade when switching top-level pages (out).</summary>
-    public const int NavCrossfadeOutMs = 100;
+    public const int NavCrossfadeOutMs = 70;
 
     /// <summary>Main content cross-fade when switching top-level pages (in).</summary>
-    public const int NavCrossfadeInMs = 180;
+    public const int NavCrossfadeInMs = 140;
 
     /// <summary>Subtle vertical settle on page host during nav enter (px).</summary>
-    public const double NavEnterOffsetY = 6d;
+    public const double NavEnterOffsetY = 4d;
 
-    /// <summary>Page content enter opacity duration (~response 0.22s).</summary>
-    public const int PageEnterOpacityMs = 160;
+    /// <summary>Page content enter opacity duration (snappy response).</summary>
+    public const int PageEnterOpacityMs = 120;
 
-    /// <summary>Page content enter vertical travel duration (~response 0.32s, no overshoot).</summary>
-    public const int PageEnterSlideMs = 280;
+    /// <summary>Page content enter vertical travel duration (no overshoot).</summary>
+    public const int PageEnterSlideMs = 200;
 
-    /// <summary>Stagger between animated children on page enter (readable cascade, not a long wait).</summary>
-    public const int PageStaggerMs = 18;
+    /// <summary>Stagger between animated children on page enter.</summary>
+    public const int PageStaggerMs = 12;
 
     /// <summary>
     /// Initial translate offset (px) before page enter settles.
@@ -62,8 +62,8 @@ internal static class MotionTokens
     /// <summary>Reduced-motion cross-fade only (no slide / scale).</summary>
     public const int ReducedMotionFadeMs = 180;
 
-    /// <summary>Soft cap for staggered page enter (safety only; keep high to preserve motion).</summary>
-    public const int PageEnterMaxChildren = 48;
+    /// <summary>Max children that stagger on page enter; rest appear settled (keeps motion + snappiness).</summary>
+    public const int PageEnterMaxChildren = 12;
 
     /// <summary>List rows that receive entrance stagger.</summary>
     public const int ListEnterMaxChildren = 30;

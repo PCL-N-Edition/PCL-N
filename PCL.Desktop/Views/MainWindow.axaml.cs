@@ -543,6 +543,15 @@ public partial class MainWindow : Window, IDisposable
     private void FormMain_Closing(object? sender, WindowClosingEventArgs e)
     {
         DesktopFileLog.Info("Window", "主窗口正在关闭。");
+        // Drop host/page tweens without replaying after-chains (prevents empty flash on close).
+        ModAnimation.AniStop(PageHostTransitions.RightHostAnimationKey, finish: false);
+        if (this.FindControl<Border>("PanMainRight") is { } rightHost)
+        {
+            PageHostTransitions.SnapHostVisible(rightHost);
+            if (rightHost.Child is MyPageRight pageRight)
+                pageRight.EnsureContentPresentationVisible();
+        }
+
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
@@ -1256,7 +1265,9 @@ public partial class MainWindow : Window, IDisposable
 
         RefreshBackToTopBinding();
         page.Activated?.Invoke();
-        rightHost.Opacity = 1d;
+        PageHostTransitions.SnapHostVisible(rightHost);
+        if (page.Right is MyPageRight settled)
+            settled.EnsureContentPresentationVisible();
     }
 
     private void RegisterCurrentPluginPageSurface(Control page)
@@ -2604,63 +2615,17 @@ public partial class MainWindow : Window, IDisposable
             leftHost.Child = leftPage;
         }
 
-        MyPageRight? oldRight = rightHost.Child as MyPageRight;
-        if (!ReferenceEquals(oldRight, rightPage))
+        if (!ReferenceEquals(rightHost.Child, rightPage))
         {
-            oldRight?.PageOnExit();
-            if (animate && _isMainWindowOpened)
-            {
-                if (rightHost.RenderTransform is not TranslateTransform taskNavTranslate)
-                {
-                    taskNavTranslate = new TranslateTransform();
-                    rightHost.RenderTransform = taskNavTranslate;
-                }
-
-                ModAnimation.AniStart(
-                    new List<ModAnimation.AniData>
-                    {
-                        ModAnimation.AaOpacity(
-                            rightHost,
-                            -rightHost.Opacity,
-                            MotionTokens.NavCrossfadeOutMs,
-                            ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
-                        ModAnimation.AaCode(() =>
-                        {
-                            rightHost.Child = rightPage;
-                            rightHost.Opacity = 0d;
-                            taskNavTranslate.Y = MotionTokens.NavEnterOffsetY;
-                            RefreshBackToTopBinding();
-                        }, after: true),
-                        ModAnimation.AaOpacity(
-                            rightHost,
-                            1d,
-                            MotionTokens.NavCrossfadeInMs,
-                            ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
-                        ModAnimation.AaTranslateY(
-                            rightHost,
-                            -MotionTokens.NavEnterOffsetY,
-                            MotionTokens.NavCrossfadeInMs,
-                            ease: new ModAnimation.AniEaseOutFluent()),
-                        ModAnimation.AaCode(() =>
-                        {
-                            rightHost.Opacity = 1d;
-                            taskNavTranslate.Y = 0d;
-                            rightPage.PageOnEnter();
-                        }, after: true)
-                    },
-                    "FrmMain PageChangeRight");
-            }
-            else
-            {
-                rightHost.Child = rightPage;
-                rightHost.Opacity = 1d;
-                RefreshBackToTopBinding();
-                rightPage.PageOnEnter();
-            }
+            PageHostTransitions.TransitionRightPage(
+                rightHost,
+                rightPage,
+                animate: animate && _isMainWindowOpened,
+                onHostUpdated: RefreshBackToTopBinding);
         }
         else
         {
-            rightHost.Opacity = 1d;
+            PageHostTransitions.SnapHostVisible(rightHost);
             RefreshBackToTopBinding();
             rightPage.PageOnEnter();
         }
@@ -5169,31 +5134,30 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        // Apple nav: short fade-out → swap → materialize (opacity + slight rise).
-        // AniStop(finish) ensures interrupt never leaves the host at opacity 0.
+        // Snappy nav: swap content first, then short fade-in. Never finishPrevious —
+        // draining a multi-step after-chain on rapid tab switches felt unresponsive
+        // and could flash an empty pane.
+        ModAnimation.AniStop(PageHostTransitions.RightHostAnimationKey, finish: false);
+
         if (right.RenderTransform is not TranslateTransform navTranslate)
         {
             navTranslate = new TranslateTransform();
             right.RenderTransform = navTranslate;
         }
 
+        ApplyPagePlaceholder(route);
+        double fromOpacity = right.Opacity;
+        if (fromOpacity >= 0.98d)
+            fromOpacity = 0d;
+        right.Opacity = fromOpacity;
+        navTranslate.Y = MotionTokens.NavEnterOffsetY;
+
         ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
                 ModAnimation.AaOpacity(
                     right,
-                    -right.Opacity,
-                    MotionTokens.NavCrossfadeOutMs,
-                    ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
-                ModAnimation.AaCode(() =>
-                {
-                    ApplyPagePlaceholder(route);
-                    right.Opacity = 0d;
-                    navTranslate.Y = MotionTokens.NavEnterOffsetY;
-                }, after: true),
-                ModAnimation.AaOpacity(
-                    right,
-                    1d,
+                    1d - fromOpacity,
                     MotionTokens.NavCrossfadeInMs,
                     ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
                 ModAnimation.AaTranslateY(
@@ -5201,14 +5165,11 @@ public partial class MainWindow : Window, IDisposable
                     -MotionTokens.NavEnterOffsetY,
                     MotionTokens.NavCrossfadeInMs,
                     ease: new ModAnimation.AniEaseOutFluent()),
-                // Always force full opacity / settled transform when the sequence finishes.
-                ModAnimation.AaCode(() =>
-                {
-                    right.Opacity = 1d;
-                    navTranslate.Y = 0d;
-                }, after: true)
+                ModAnimation.AaCode(() => PageHostTransitions.SnapHostVisible(right), after: true)
             },
-            "FrmMain PageChangeRight");
+            PageHostTransitions.RightHostAnimationKey,
+            refreshTime: false,
+            finishPrevious: false);
     }
 
     private IEnumerable<MyListItem> GetNavItems()
