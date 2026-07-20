@@ -55,6 +55,7 @@ using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings;
+using PCL.Desktop.Features.Tasks;
 using CommunityToolkit.Mvvm.Messaging;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Shared;
@@ -100,6 +101,8 @@ public partial class MainWindow : Window, IDisposable
     private readonly StartMinecraftUseCase _startMinecraft;
     private readonly DownloadFeatureSurface _downloadSurface;
     private readonly SettingsFeatureSurface _settingsSurface;
+    private readonly CommunityFeatureSurface _communitySurface;
+    private readonly TaskManagerSurface _taskManagerSurface;
     private bool _isDisposed;
     private PageLoginProfile? _loginProfilePage;
     private PageLoginProfileSkin? _loginProfileSkinPage;
@@ -202,6 +205,8 @@ public partial class MainWindow : Window, IDisposable
         _startMinecraft = DesktopCompositionRoot.GetRequiredService<StartMinecraftUseCase>();
         _downloadSurface = DesktopCompositionRoot.GetRequiredService<DownloadFeatureSurface>();
         _settingsSurface = DesktopCompositionRoot.GetRequiredService<SettingsFeatureSurface>();
+        _communitySurface = DesktopCompositionRoot.GetRequiredService<CommunityFeatureSurface>();
+        _taskManagerSurface = DesktopCompositionRoot.GetRequiredService<TaskManagerSurface>();
         _startMinecraft.Bind(async (request, _) =>
             await StartMinecraftAsync(
                 request.Home,
@@ -1816,71 +1821,70 @@ public partial class MainWindow : Window, IDisposable
 
     private DesktopMainPage CreateCommunityMainPage()
     {
-        _communityRight ??= CreateCommunityRightPage();
-        _communityLeft ??= CreateCommunityLeftPage(_communityRight);
-        return new DesktopMainPage(
-            _communityLeft,
-            _communityRight,
-            Activated: () =>
+        WireCommunitySurface();
+        DesktopMainPage page = _communitySurface.CreateMainPage();
+        SyncCommunityFieldsFromSurface();
+        return page;
+    }
+
+    private void WireCommunitySurface()
+    {
+        _communitySurface.WireOnce(this, new CommunityFeatureBindings
+        {
+            Favorites = _communityFavorites,
+            ApplyRightPage = ApplyCommunityRightPage,
+            OpenDetailAsync = OpenCommunityDetailAsync,
+            DownloadAsync = DownloadCommunityResourceAsync,
+            CloseDetail = CloseCommunityDetail,
+            OpenUrl = url =>
             {
-                _communityLeft.TriggerShowAnimation();
-                _communityRight.PageOnEnter();
-            });
+                if (!string.IsNullOrWhiteSpace(url))
+                    OpenExternalUrl(url);
+            },
+            ShowMessage = (title, message) => ShowTextDialog(title, message, "知道了")
+        });
+    }
+
+    private void SyncCommunityFieldsFromSurface()
+    {
+        _communityLeft = _communitySurface.Left;
+        _communityRight = _communitySurface.Right;
+        _communityDetail = _communitySurface.Detail;
+        _communityFavoritesRight = _communitySurface.FavoritesRight;
     }
 
     private PageCommunityLeft CreateCommunityLeftPage(PageCommunityRight rightPage)
     {
-        PageCommunityLeft page = new();
-        page.CategoryChanged += (_, category) =>
-        {
-            ApplyCommunityRightPage(rightPage);
-            _ = rightPage.SetCategoryAsync(category);
-        };
-        page.RefreshRequested += (_, category) =>
-        {
-            if (rightPage.Category == category)
-                _ = rightPage.RefreshAsync();
-            else
-                _ = rightPage.SetCategoryAsync(category);
-        };
-        page.FavoritesRequested += (_, _) =>
-        {
-            _communityFavoritesRight ??= CreateCommunityFavoritesRightPage();
-            _communityFavoritesRight.Refresh();
-            ApplyCommunityRightPage(_communityFavoritesRight);
-        };
-        return page;
+        // Legacy path: ensure surface pages, ignore pre-created right (surface owns pairing).
+        _ = rightPage;
+        WireCommunitySurface();
+        PageCommunityLeft left = _communitySurface.EnsureLeft();
+        SyncCommunityFieldsFromSurface();
+        return left;
     }
 
     private PageCommunityRight CreateCommunityRightPage()
     {
-        PageCommunityRight page = new(new CompositeCommunityResourceCatalog(), ownsCatalog: true, _communityFavorites);
-        page.OpenProjectRequested += (_, entry) => _ = OpenCommunityDetailAsync(entry, page.Category, page.CurrentSearchOptions);
-        page.DownloadRequested += (_, request) => _ = DownloadCommunityResourceAsync(request);
-        return page;
+        WireCommunitySurface();
+        PageCommunityRight right = _communitySurface.EnsureRight();
+        SyncCommunityFieldsFromSurface();
+        return right;
     }
 
     private PageCommunityDetail CreateCommunityDetailPage()
     {
-        PageCommunityDetail page = new(new CompositeCommunityResourceCatalog(), ownsCatalog: true, _communityFavorites);
-        page.BackRequested += (_, _) => CloseCommunityDetail();
-        page.OpenWebRequested += (_, entry) => OpenExternalUrl(entry.WebsiteUrl);
-        page.OpenUrlRequested += (_, url) => OpenExternalUrl(url);
-        page.MessageRequested += (_, message) => ShowTextDialog(message.Title, message.Message, "知道了");
-        page.DownloadRequested += (_, request) => _ = DownloadCommunityResourceAsync(request);
-        return page;
+        WireCommunitySurface();
+        PageCommunityDetail detail = _communitySurface.EnsureDetail();
+        SyncCommunityFieldsFromSurface();
+        return detail;
     }
 
     private PageCommunityFavoritesRight CreateCommunityFavoritesRightPage()
     {
-        PageCommunityFavoritesRight page = new(_communityFavorites);
-        page.OpenProjectRequested += (_, favorite) =>
-            _ = OpenCommunityDetailAsync(
-                favorite.Entry,
-                favorite.Category,
-                new CommunitySearchOptions(Source: favorite.Entry.Source));
-        page.DownloadRequested += (_, request) => _ = DownloadCommunityResourceAsync(request);
-        return page;
+        WireCommunitySurface();
+        PageCommunityFavoritesRight favorites = _communitySurface.EnsureFavorites();
+        SyncCommunityFieldsFromSurface();
+        return favorites;
     }
 
     private void ApplyCommunityRightPage(MyPageRight target)
@@ -1907,9 +1911,11 @@ public partial class MainWindow : Window, IDisposable
         CommunityResourceCategory category,
         CommunitySearchOptions options)
     {
-        _communityDetail ??= CreateCommunityDetailPage();
-        _communityRight ??= CreateCommunityRightPage();
-        _communityLeft ??= CreateCommunityLeftPage(_communityRight);
+        WireCommunitySurface();
+        PageCommunityDetail detail = _communitySurface.EnsureDetail();
+        _ = _communitySurface.EnsureRight();
+        _ = _communitySurface.EnsureLeft();
+        SyncCommunityFieldsFromSurface();
 
         if (this.FindControl<Border>("PanMainLeft") is not { } leftHost ||
             this.FindControl<Border>("PanMainRight") is not { } rightHost)
@@ -1923,40 +1929,39 @@ public partial class MainWindow : Window, IDisposable
         leftHost.Child = null;
 
         MyPageRight? oldRight = rightHost.Child as MyPageRight;
-        if (!ReferenceEquals(oldRight, _communityDetail))
+        if (!ReferenceEquals(oldRight, detail))
         {
             oldRight?.PageOnExit();
-            rightHost.Child = _communityDetail;
+            rightHost.Child = detail;
             RefreshBackToTopBinding();
-            _communityDetail.PageOnEnter();
+            detail.PageOnEnter();
         }
 
         EnterTitleSubPage(entry.Title);
         _titleInnerBackAction = CloseCommunityDetail;
-        await _communityDetail.ShowAsync(entry, category, options).ConfigureAwait(true);
+        await detail.ShowAsync(entry, category, options).ConfigureAwait(true);
     }
 
     private void CloseCommunityDetail()
     {
         _titleInnerBackAction = null;
-        _communityRight ??= CreateCommunityRightPage();
-        _communityLeft ??= CreateCommunityLeftPage(_communityRight);
+        WireCommunitySurface();
+        PageCommunityLeft left = _communitySurface.EnsureLeft();
+        MyPageRight target = _communitySurface.ResolveListRight();
+        SyncCommunityFieldsFromSurface();
 
         if (this.FindControl<Border>("PanMainLeft") is { } leftHost)
         {
-            if (!ReferenceEquals(leftHost.Child, _communityLeft))
+            if (!ReferenceEquals(leftHost.Child, left))
             {
-                leftHost.Child = _communityLeft;
-                _communityLeft.TriggerShowAnimation();
+                leftHost.Child = left;
+                left.TriggerShowAnimation();
             }
         }
 
         if (this.FindControl<Border>("PanMainRight") is { } rightHost)
         {
             MyPageRight? oldRight = rightHost.Child as MyPageRight;
-            MyPageRight target = _communityLeft.IsFavoritesSelected
-                ? _communityFavoritesRight ??= CreateCommunityFavoritesRightPage()
-                : _communityRight;
             if (!ReferenceEquals(oldRight, target))
             {
                 oldRight?.PageOnExit();
@@ -2326,16 +2331,22 @@ public partial class MainWindow : Window, IDisposable
         return _downloadInstallPage;
     }
 
+    private void WireTaskManagerSurface()
+    {
+        _taskManagerSurface.WireOnce(this, new TaskManagerBindings
+        {
+            CancelTask = CancelTrackedTask,
+            DismissTask = RemoveTask
+        });
+    }
+
     private PageSpeedRight CreateTaskManagerRightPage()
     {
-        if (_speedRight is not null)
-            return _speedRight;
-
-        PageSpeedRight page = new();
-        page.CancelRequested += (_, args) => CancelTrackedTask(args.TaskId);
-        page.DismissRequested += (_, args) => RemoveTask(args.TaskId);
+        WireTaskManagerSurface();
+        PageSpeedRight page = _taskManagerSurface.EnsureRight();
         _speedRight = page;
-        return _speedRight;
+        _speedLeft = _taskManagerSurface.EnsureLeft();
+        return page;
     }
 
     private void ApplyDownloadRightPage(MyPageRight target)
@@ -2957,15 +2968,15 @@ public partial class MainWindow : Window, IDisposable
         _taskSessionStore.IsTaskManagerVisible = true;
         _titleInnerBackAction = ReturnFromTaskManager;
 
-        _speedLeft ??= new PageSpeedLeft();
         PageSpeedRight rightPage = CreateTaskManagerRightPage();
+        PageSpeedLeft leftPage = _speedLeft!;
         UpdateTaskManagerViews();
 
-        if (!ReferenceEquals(leftHost.Child, _speedLeft))
+        if (!ReferenceEquals(leftHost.Child, leftPage))
         {
             if (leftHost.Child is MyPageLeft oldLeft)
                 oldLeft.TriggerHideAnimation();
-            leftHost.Child = _speedLeft;
+            leftHost.Child = leftPage;
         }
 
         MyPageRight? oldRight = rightHost.Child as MyPageRight;
@@ -3005,7 +3016,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         EnterTitleSubPage(GetResourceText("Main.Title.TaskManager", "任务管理"));
-        _speedLeft.TriggerShowAnimation();
+        leftPage.TriggerShowAnimation();
         RefreshTaskManagerButton();
     }
 

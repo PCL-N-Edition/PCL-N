@@ -9,9 +9,11 @@ using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Messaging;
 using PCL.Desktop.Features;
 using PCL.Desktop.Features.Instances;
+using PCL.Desktop.Features.Community;
 using PCL.Desktop.Features.Downloads;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Settings;
+using PCL.Desktop.Features.Tasks;
 using PCL.Desktop.Session;
 using PCL.Desktop.Shell;
 
@@ -55,6 +57,8 @@ public sealed class DesktopCompositionTests
         Assert.IsTrue(modules.Any(m => m.Id == "instances"));
         Assert.IsTrue(modules.Any(m => m.Id == "download"));
         Assert.IsTrue(modules.Any(m => m.Id == "settings"));
+        Assert.IsTrue(modules.Any(m => m.Id == "community"));
+        Assert.IsTrue(modules.Any(m => m.Id == "tasks"));
 
         InstancesSelectSurface select = DesktopCompositionRoot.GetRequiredService<InstancesSelectSurface>();
         LaunchHomeProfileResolver launchProfile =
@@ -63,12 +67,16 @@ public sealed class DesktopCompositionTests
         StartMinecraftUseCase startMinecraft = DesktopCompositionRoot.GetRequiredService<StartMinecraftUseCase>();
         DownloadFeatureSurface download = DesktopCompositionRoot.GetRequiredService<DownloadFeatureSurface>();
         SettingsFeatureSurface settings = DesktopCompositionRoot.GetRequiredService<SettingsFeatureSurface>();
+        CommunityFeatureSurface community = DesktopCompositionRoot.GetRequiredService<CommunityFeatureSurface>();
+        TaskManagerSurface tasks = DesktopCompositionRoot.GetRequiredService<TaskManagerSurface>();
         Assert.IsNotNull(select);
         Assert.IsNotNull(launchProfile);
         Assert.IsNotNull(launchHome);
         Assert.IsNotNull(startMinecraft);
         Assert.IsNotNull(download);
         Assert.IsNotNull(settings);
+        Assert.IsNotNull(community);
+        Assert.IsNotNull(tasks);
         Assert.AreEqual("instances.select", InstancesSelectSurface.SubPageId);
     }
 

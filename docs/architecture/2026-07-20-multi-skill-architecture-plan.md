@@ -345,8 +345,9 @@ public sealed record ExperimentalUiProfile(
 
 1. [x] `DownloadFeatureModule` + `DownloadFeatureSurface`  
 2. [x] `SettingsFeatureModule` + `SettingsFeatureSurface`  
-3. [ ] Tasks / Community Feature 模块  
-4. [ ] 进一步从 MainWindow 删除遗留 Create* 私有页工厂
+3. [x] `CommunityFeatureModule` + `CommunityFeatureSurface`（detail/favorites 仍经 host 回调）  
+4. [x] `TasksFeatureModule` + `TaskManagerSurface`（任务管理为 host overlay，无主导航路由）  
+5. [ ] 进一步从 MainWindow 删除遗留 Create* 私有页工厂 / 下载编排迁入 Application
 
 ### Phase 5 — 瘦 MainWindow、拆 Headless、可选 DynamicData  
 

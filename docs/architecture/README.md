@@ -51,7 +51,7 @@ Copy-Item "$env:USERPROFILE\.codex\skills\architecture" `
 | 1 | ✅ Shell MVVM（TitleBar / ExtraDock / Experimental profile） |
 | 2 | ✅ Session Stores 单例（Folder / Instance / Task / Game） |
 | 3 | ✅ Launch + Instances Feature（Select/Launch surface + StartMinecraft 门面） |
-| 4 | ✅ Download / Settings Feature（Tasks/Community 待续） |
+| 4 | ✅ Download / Settings / Community / Tasks Feature |
 | 5 | 瘦 MainWindow、拆 Headless 测试、可选 DynamicData |
 
 详见 multi-skill 文档 §7。

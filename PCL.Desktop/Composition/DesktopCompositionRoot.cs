@@ -5,10 +5,12 @@
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using PCL.Desktop.Features;
+using PCL.Desktop.Features.Community;
 using PCL.Desktop.Features.Downloads;
 using PCL.Desktop.Features.Instances;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Settings;
+using PCL.Desktop.Features.Tasks;
 using PCL.Desktop.Session;
 using PCL.Desktop.Shell;
 
@@ -71,7 +73,9 @@ public static class DesktopCompositionRoot
             new LaunchFeatureModule(),
             new InstancesFeatureModule(),
             new DownloadFeatureModule(),
-            new SettingsFeatureModule()
+            new SettingsFeatureModule(),
+            new CommunityFeatureModule(),
+            new TasksFeatureModule()
         ];
         foreach (IDesktopFeatureModule module in modules)
             module.Register(services);
