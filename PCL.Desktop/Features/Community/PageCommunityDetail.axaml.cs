@@ -5,6 +5,7 @@
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
@@ -529,7 +530,7 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
             {
                 SvgIcon = "lucide/download",
                 LogoScale = 0.85d,
-                ToolTip = "下载 " + primary.FileName,
+                ToolTip = "下载 " + primary.FileName + "（右键另存为）",
                 Width = 25,
                 Height = 25
             };
@@ -538,6 +539,16 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
             download.Click += (_, _) => DownloadRequested?.Invoke(
                 this,
                 new CommunityResourceDownloadRequest(entry, _category, options, file, version));
+            download.PointerPressed += (_, e) =>
+            {
+                if (e.GetCurrentPoint(download).Properties.IsRightButtonPressed)
+                {
+                    e.Handled = true;
+                    DownloadRequested?.Invoke(
+                        this,
+                        new CommunityResourceDownloadRequest(entry, _category, options, file, version, SaveAs: true));
+                }
+            };
 
             MyListItem item = new()
             {

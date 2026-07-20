@@ -5,6 +5,7 @@
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
@@ -526,13 +527,23 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
         {
             SvgIcon = "lucide/download",
             LogoScale = 0.9d,
-            ToolTip = "下载到当前实例",
+            ToolTip = "下载到当前实例（右键另存为）",
             Width = 25,
             Height = 25
         };
         download.Click += (_, _) => DownloadRequested?.Invoke(
             this,
             new CommunityResourceDownloadRequest(entry, _category, options));
+        download.PointerPressed += (_, e) =>
+        {
+            if (e.GetCurrentPoint(download).Properties.IsRightButtonPressed)
+            {
+                e.Handled = true;
+                DownloadRequested?.Invoke(
+                    this,
+                    new CommunityResourceDownloadRequest(entry, _category, options, SaveAs: true));
+            }
+        };
 
         string downloadsText = entry.Downloads > 0
             ? FormatCount(entry.Downloads)
@@ -626,4 +637,6 @@ public sealed record CommunityResourceDownloadRequest(
     CommunityResourceCategory Category,
     CommunitySearchOptions Options,
     CommunityResourceDownloadFile? PreferredFile = null,
-    CommunityResourceVersion? PreferredVersion = null);
+    CommunityResourceVersion? PreferredVersion = null,
+    /// <summary>When true, prompt for a save path (另存为) instead of installing into the instance.</summary>
+    bool SaveAs = false);

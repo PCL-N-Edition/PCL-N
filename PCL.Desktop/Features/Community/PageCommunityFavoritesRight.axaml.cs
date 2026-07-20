@@ -74,16 +74,31 @@ public partial class PageCommunityFavoritesRight : MyPageRight
         MyIconButton download = new()
         {
             SvgIcon = "lucide/download",
-            ToolTip = "下载到当前实例",
+            ToolTip = "下载到当前实例（右键另存为）",
             Width = 25,
             Height = 25
         };
+        CommunitySearchOptions favoriteOptions = new(Source: favorite.Entry.Source);
         download.Click += (_, _) => DownloadRequested?.Invoke(
             this,
             new CommunityResourceDownloadRequest(
                 favorite.Entry,
                 favorite.Category,
-                new CommunitySearchOptions(Source: favorite.Entry.Source)));
+                favoriteOptions));
+        download.PointerPressed += (_, e) =>
+        {
+            if (e.GetCurrentPoint(download).Properties.IsRightButtonPressed)
+            {
+                e.Handled = true;
+                DownloadRequested?.Invoke(
+                    this,
+                    new CommunityResourceDownloadRequest(
+                        favorite.Entry,
+                        favorite.Category,
+                        favoriteOptions,
+                        SaveAs: true));
+            }
+        };
 
         MyListItem item = new()
         {
