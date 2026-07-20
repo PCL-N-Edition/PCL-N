@@ -19,8 +19,6 @@ public static class DesktopFileLog
     private static readonly HashSet<string> InitializedFiles = new(
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private static bool _subscribed;
-    private static StreamWriter? _writer;
-    private static string? _writerPath;
 
     public static string CurrentLogPath => Path.Combine(
         LauncherSettingsPageBinder.CreateDataDirectory(),
@@ -157,9 +155,15 @@ public static class DesktopFileLog
     {
         try
         {
-            StreamWriter writer = EnsureWriter(path);
-            DateTimeOffset localTimestamp = timestamp == default ? DateTimeOffset.Now : timestamp.ToLocalTime();
+            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? AppContext.BaseDirectory);
+            using FileStream stream = new(
+                path,
+                FileMode.Append,
+                FileAccess.Write,
+                FileShare.ReadWrite | FileShare.Delete);
+            using StreamWriter writer = new(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             writer.Write('[');
+            DateTimeOffset localTimestamp = timestamp == default ? DateTimeOffset.Now : timestamp.ToLocalTime();
             writer.Write(localTimestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
             writer.Write("] [");
             writer.Write(level);
@@ -178,59 +182,11 @@ public static class DesktopFileLog
                 writer.Write("] Exception: ");
                 writer.WriteLine(PortableLog.Redact(exception.ToString()).ReplaceLineEndings(" | "));
             }
-
-            // Keep the file handle open; flush so tails stay readable without open/close thrash.
-            writer.Flush();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
             System.Diagnostics.Debug.WriteLine("[Log] 写入日志失败：" + ex.Message);
-            CloseWriterUnlocked();
         }
-    }
-
-    private static StreamWriter EnsureWriter(string path)
-    {
-        if (_writer is not null &&
-            _writerPath is not null &&
-            string.Equals(
-                _writerPath,
-                path,
-                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-        {
-            return _writer;
-        }
-
-        CloseWriterUnlocked();
-        Directory.CreateDirectory(Path.GetDirectoryName(path) ?? AppContext.BaseDirectory);
-        FileStream stream = new(
-            path,
-            FileMode.Append,
-            FileAccess.Write,
-            FileShare.ReadWrite | FileShare.Delete,
-            bufferSize: 16 * 1024,
-            FileOptions.SequentialScan);
-        _writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
-        {
-            AutoFlush = false
-        };
-        _writerPath = path;
-        return _writer;
-    }
-
-    private static void CloseWriterUnlocked()
-    {
-        try
-        {
-            _writer?.Dispose();
-        }
-        catch
-        {
-            // ignore dispose failures on shutdown paths
-        }
-
-        _writer = null;
-        _writerPath = null;
     }
 
     private static string DescribeDesktopSession()

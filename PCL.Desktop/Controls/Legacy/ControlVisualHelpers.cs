@@ -9,7 +9,6 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using Avalonia.Threading;
-using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -17,29 +16,10 @@ internal static class ControlVisualHelpers
 {
     internal static void AnimateListEntrance(Panel panel, string animationKey)
     {
-        if (panel.Children.Count == 0)
+        if (!ShouldAnimate(panel) || panel.Children.Count == 0)
             return;
 
-        // Defer until attached so entrance is not silently skipped (common "missing animation" cause).
-        if (!panel.IsAttachedToVisualTree())
-        {
-            EventHandler<VisualTreeAttachmentEventArgs>? attached = null;
-            attached = (_, _) =>
-            {
-                panel.AttachedToVisualTree -= attached;
-                AnimateListEntrance(panel, animationKey);
-            };
-            panel.AttachedToVisualTree += attached;
-            return;
-        }
-
-        if (!ShouldAnimate(panel))
-        {
-            SnapListEntranceFinal(panel);
-            return;
-        }
-
-        Control[] children = panel.Children.Take(MotionTokens.ListEnterMaxChildren).ToArray();
+        Control[] children = panel.Children.Take(30).ToArray();
         foreach (Control child in children)
         {
             child.Opacity = 0d;
@@ -48,61 +28,29 @@ internal static class ControlVisualHelpers
                 translate = new TranslateTransform();
                 child.RenderTransform = translate;
             }
-            translate.Y = MotionTokens.ListEnterOffsetY;
+            translate.Y = 8d;
         }
 
         Dispatcher.UIThread.Post(() =>
         {
-            if (!panel.IsAttachedToVisualTree() || !panel.IsVisible)
-            {
-                SnapListEntranceFinal(panel);
-                return;
-            }
-
-            if (ReduceMotionPreferred() || ModAnimation.AniControlEnabled != 0)
-            {
-                SnapListEntranceFinal(panel);
-                return;
-            }
-
             List<ModAnimation.AniData> animations = [];
             int index = 0;
             foreach (Control child in children.Where(panel.Children.Contains))
             {
-                int delay = Math.Min(index * MotionTokens.ListStaggerMs, 200);
-                // Critically damped rise + fade (opacity + transform only).
-                animations.Add(ModAnimation.AaOpacity(
-                    child,
-                    1d,
-                    MotionTokens.ListEnterOpacityMs,
-                    delay,
-                    new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)));
+                int delay = Math.Min(index * 18, 180);
+                animations.Add(ModAnimation.AaOpacity(child, 1d, 160, delay));
                 animations.Add(ModAnimation.AaTranslateY(
                     child,
-                    -MotionTokens.ListEnterOffsetY,
-                    MotionTokens.ListEnterSlideMs,
+                    -8d,
+                    220,
                     delay,
                     new ModAnimation.AniEaseOutFluent()));
                 index++;
             }
 
-            // Guarantee final presentation even if the named group is interrupted later.
-            animations.Add(ModAnimation.AaCode(() => SnapListEntranceFinal(panel), after: true));
-
             if (animations.Count > 0)
                 ModAnimation.AniStart(animations, animationKey);
         }, DispatcherPriority.Loaded);
-    }
-
-    private static void SnapListEntranceFinal(Panel panel)
-    {
-        // Safety net only for stuck invisibles — absolute tweens already end at the target;
-        // forcing Y=0 here caused a visible end-frame 拉回 when residual was non-zero.
-        foreach (Control child in panel.Children)
-        {
-            if (child.Opacity < 0.02d)
-                child.Opacity = 1d;
-        }
     }
 
     internal static bool ShouldAnimate(Control control, object? animationOverride = null) =>
@@ -112,29 +60,11 @@ internal static class ControlVisualHelpers
         !ReduceMotionPreferred() &&
         !false.Equals(animationOverride);
 
-    // SPI_GETCLIENTAREAANIMATION is a kernel round-trip; cache briefly (measured in UI samples).
-    private static bool? _reduceMotionCached;
-    private static long _reduceMotionCachedAtMs;
-    private const int ReduceMotionCacheMs = 2000;
-
     /// <summary>
     /// Prefer reduced motion when the OS asks for it, or when debug animation speed is effectively instant.
     /// </summary>
     internal static bool ReduceMotionPreferred()
     {
-        // Debug speed can change at runtime without an OS SPI change — always honor it.
-        if (ModAnimation.aniSpeed >= 100d)
-            return true;
-
-        long now = Environment.TickCount64;
-        if (_reduceMotionCached is bool cached &&
-            now - _reduceMotionCachedAtMs >= 0 &&
-            now - _reduceMotionCachedAtMs < ReduceMotionCacheMs)
-        {
-            return cached;
-        }
-
-        bool preferred = false;
         try
         {
             if (OperatingSystem.IsWindows())
@@ -143,18 +73,17 @@ internal static class ControlVisualHelpers
                 if (NativeMethods.SystemParametersInfo(0x1042, 0, out bool clientAreaAnimation, 0) &&
                     !clientAreaAnimation)
                 {
-                    preferred = true;
+                    return true;
                 }
             }
         }
         catch
         {
-            // Ignore platform probe failures.
+            // Ignore platform probe failures; fall through to debug speed.
         }
 
-        _reduceMotionCached = preferred;
-        _reduceMotionCachedAtMs = now;
-        return preferred;
+        // SystemDebugAnim > 29 forces near-instant animation in ModAnimation; treat as reduced.
+        return ModAnimation.aniSpeed >= 100d;
     }
 
     private static class NativeMethods

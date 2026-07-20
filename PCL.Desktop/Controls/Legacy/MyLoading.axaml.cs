@@ -314,8 +314,7 @@ public partial class MyLoading : Grid
     private void StopLoopAnimation()
     {
         _isLooping = false;
-        // Never finish: the after-callback restarts the loop.
-        ModAnimation.AniStop($"MyLoader Loop {_uuid}", finish: false);
+        ModAnimation.AniStop($"MyLoader Loop {_uuid}");
     }
 
     private void ErrorAnimation(bool isError)

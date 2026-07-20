@@ -118,11 +118,6 @@ public partial class MainWindow : Window, IDisposable
     private LaunchInstanceInfo? _managedInstance;
     private bool _isTitleSubPageVisible;
     private Action? _titleInnerBackAction;
-    private DispatcherTimer? _taskUiThrottleTimer;
-    private bool _taskUiDirty;
-    private bool? _lastExtraDockChromeShown;
-    // Coalesce multi-updates within a single display frame only — no visible progress lag.
-    private const int TaskUiRefreshIntervalMs = 16;
     private MyScrollViewer? _backButtonScrollViewer;
     private CancellationTokenSource? _launchCancellation;
     private CancellationTokenSource? _microsoftLoginCancellation;
@@ -201,7 +196,6 @@ public partial class MainWindow : Window, IDisposable
         BindStartMinecraftUseCase();
         _extraDockViewModel.PropertyChanged += ExtraDockViewModel_PropertyChanged;
         AvaloniaXamlLoader.Load(this);
-        // Compositor hints so opacity/transform motion stays on the GPU path.
         DesktopRenderBootstrap.ApplyCompositorHints(this);
         if (this.FindControl<Control>("PanBack") is { } panBack)
             DesktopRenderBootstrap.ApplyCompositorHints(panBack);
@@ -547,15 +541,6 @@ public partial class MainWindow : Window, IDisposable
     private void FormMain_Closing(object? sender, WindowClosingEventArgs e)
     {
         DesktopFileLog.Info("Window", "主窗口正在关闭。");
-        // Drop host/page tweens without replaying after-chains (prevents empty flash on close).
-        ModAnimation.AniStop(PageHostTransitions.RightHostAnimationKey, finish: false);
-        if (this.FindControl<Border>("PanMainRight") is { } rightHost)
-        {
-            PageHostTransitions.SnapHostVisible(rightHost);
-            if (rightHost.Child is MyPageRight pageRight)
-                pageRight.EnsureContentPresentationVisible();
-        }
-
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
@@ -1268,10 +1253,8 @@ public partial class MainWindow : Window, IDisposable
             ExitTitleSubPage();
 
         RefreshBackToTopBinding();
-        // Do not EnsureContentPresentationVisible here — it forces Opacity=1 and kills enter tweens,
-        // which also produced an end-frame "拉回" when host fade finished later.
         page.Activated?.Invoke();
-        PageHostTransitions.SnapHostVisible(rightHost);
+        rightHost.Opacity = 1d;
     }
 
     private void RegisterCurrentPluginPageSurface(Control page)
@@ -1895,11 +1878,14 @@ public partial class MainWindow : Window, IDisposable
         if (this.FindControl<Border>("PanMainRight") is not { } rightHost)
             return;
 
-        PageHostTransitions.TransitionRightPage(
-            rightHost,
-            target,
-            animate: _isMainWindowOpened,
-            onHostUpdated: RefreshBackToTopBinding);
+        MyPageRight? oldRight = rightHost.Child as MyPageRight;
+        if (ReferenceEquals(oldRight, target))
+            return;
+
+        oldRight?.PageOnExit();
+        rightHost.Child = target;
+        RefreshBackToTopBinding();
+        target.PageOnEnter();
     }
 
     /// <summary>
@@ -1928,13 +1914,13 @@ public partial class MainWindow : Window, IDisposable
             oldLeft.TriggerHideAnimation();
         leftHost.Child = null;
 
-        if (!ReferenceEquals(rightHost.Child, detail))
+        MyPageRight? oldRight = rightHost.Child as MyPageRight;
+        if (!ReferenceEquals(oldRight, detail))
         {
-            PageHostTransitions.TransitionRightPage(
-                rightHost,
-                detail,
-                animate: _isMainWindowOpened,
-                onHostUpdated: RefreshBackToTopBinding);
+            oldRight?.PageOnExit();
+            rightHost.Child = detail;
+            RefreshBackToTopBinding();
+            detail.PageOnEnter();
         }
 
         EnterTitleSubPage(entry.Title);
@@ -1959,14 +1945,16 @@ public partial class MainWindow : Window, IDisposable
             }
         }
 
-        if (this.FindControl<Border>("PanMainRight") is { } rightHost &&
-            !ReferenceEquals(rightHost.Child, target))
+        if (this.FindControl<Border>("PanMainRight") is { } rightHost)
         {
-            PageHostTransitions.TransitionRightPage(
-                rightHost,
-                target,
-                animate: _isMainWindowOpened,
-                onHostUpdated: RefreshBackToTopBinding);
+            MyPageRight? oldRight = rightHost.Child as MyPageRight;
+            if (!ReferenceEquals(oldRight, target))
+            {
+                oldRight?.PageOnExit();
+                rightHost.Child = target;
+                RefreshBackToTopBinding();
+                target.PageOnEnter();
+            }
         }
 
         ExitTitleSubPage();
@@ -2064,11 +2052,14 @@ public partial class MainWindow : Window, IDisposable
         if (this.FindControl<Border>("PanMainRight") is not { } rightHost)
             return;
 
-        PageHostTransitions.TransitionRightPage(
-            rightHost,
-            target,
-            animate: _isMainWindowOpened,
-            onHostUpdated: RefreshBackToTopBinding);
+        MyPageRight? oldRight = rightHost.Child as MyPageRight;
+        if (ReferenceEquals(oldRight, target))
+            return;
+
+        oldRight?.PageOnExit();
+        rightHost.Child = target;
+        RefreshBackToTopBinding();
+        target.PageOnEnter();
     }
 
     private static bool IsExperimentalHomepageUiEnabled(LauncherSettings? settings = null)
@@ -2096,7 +2087,6 @@ public partial class MainWindow : Window, IDisposable
         _shellViewModel.UseExperimentalChrome = experimental;
         _extraDockViewModel.UseGlassChrome = experimental;
         _titleBarViewModel.ApplyChrome(experimental);
-        _lastExtraDockChromeShown = null;
 
         if (this.FindControl<Control>("PanTitle") is { } title)
             title.Height = _titleBarViewModel.TitleHeight;
@@ -2130,7 +2120,7 @@ public partial class MainWindow : Window, IDisposable
                 extra.UseGlassChrome = experimental;
         }
 
-        RefreshExtraDockChrome(force: true);
+        RefreshExtraDockChrome();
     }
 
     private static readonly string[] ExtraButtonNames =
@@ -2156,7 +2146,7 @@ public partial class MainWindow : Window, IDisposable
     /// <summary>
     /// Frosted dock chrome only when experimental UI is on <em>and</em> ExtraDock reports a visible FAB.
     /// </summary>
-    private void RefreshExtraDockChrome(bool force = false)
+    private void RefreshExtraDockChrome()
     {
         if (this.FindControl<Border>("PanExtraDock") is not { } dock)
             return;
@@ -2165,11 +2155,6 @@ public partial class MainWindow : Window, IDisposable
         // Prefer VM state; also honor any FAB still toggled only on controls (migration hybrid).
         bool showChrome = experimental &&
                           (_extraDockViewModel.HasAnyVisibleButton || HasVisibleExtraButtonOnControls());
-
-        // Skip redundant property churn (called from every task progress tick path historically).
-        if (!force && _lastExtraDockChromeShown == showChrome)
-            return;
-        _lastExtraDockChromeShown = showChrome;
 
         if (showChrome)
         {
@@ -2446,15 +2431,14 @@ public partial class MainWindow : Window, IDisposable
 
         EnterTitleSubPage($"版本设置 - {instance.Name}");
 
-        if (!ReferenceEquals(rightHost.Child, rightPage))
-        {
-            PageHostTransitions.TransitionRightPage(
-                rightHost,
-                rightPage,
-                animate: _isMainWindowOpened,
-                onHostUpdated: RefreshBackToTopBinding);
-        }
+        MyPageRight? oldRight = rightHost.Child as MyPageRight;
+        if (ReferenceEquals(oldRight, rightPage))
+            return;
 
+        oldRight?.PageOnExit();
+        rightHost.Child = rightPage;
+        RefreshBackToTopBinding();
+        rightPage.PageOnEnter();
         _ = normalized;
     }
 
@@ -2617,17 +2601,38 @@ public partial class MainWindow : Window, IDisposable
             leftHost.Child = leftPage;
         }
 
-        if (!ReferenceEquals(rightHost.Child, rightPage))
+        MyPageRight? oldRight = rightHost.Child as MyPageRight;
+        if (!ReferenceEquals(oldRight, rightPage))
         {
-            PageHostTransitions.TransitionRightPage(
-                rightHost,
-                rightPage,
-                animate: animate && _isMainWindowOpened,
-                onHostUpdated: RefreshBackToTopBinding);
+            oldRight?.PageOnExit();
+            if (animate && _isMainWindowOpened)
+            {
+                ModAnimation.AniStart(
+                    new List<ModAnimation.AniData>
+                    {
+                        ModAnimation.AaOpacity(rightHost, -rightHost.Opacity, MotionTokens.NavCrossfadeOutMs),
+                        ModAnimation.AaCode(() =>
+                        {
+                            rightHost.Child = rightPage;
+                            rightHost.Opacity = 0d;
+                            RefreshBackToTopBinding();
+                        }, after: true),
+                        ModAnimation.AaOpacity(rightHost, 1d, MotionTokens.NavCrossfadeInMs),
+                        ModAnimation.AaCode(rightPage.PageOnEnter, after: true)
+                    },
+                    "FrmMain PageChangeRight");
+            }
+            else
+            {
+                rightHost.Child = rightPage;
+                rightHost.Opacity = 1d;
+                RefreshBackToTopBinding();
+                rightPage.PageOnEnter();
+            }
         }
         else
         {
-            PageHostTransitions.SnapHostVisible(rightHost);
+            rightHost.Opacity = 1d;
             RefreshBackToTopBinding();
             rightPage.PageOnEnter();
         }
@@ -2694,15 +2699,13 @@ public partial class MainWindow : Window, IDisposable
             0,
             0,
             TaskManagerTaskState.Waiting));
-        FlushTaskManagerUiRefresh();
+        UpdateTaskManagerViews();
         NotifyTaskManagerButton(ribble: true);
     }
 
     private void TrackTaskProgress(string taskId, string title, double progress, string detail)
     {
-        // High-frequency path: only emit when RealTime logging is enabled (already gated in PortableLog).
-        if (PortableLog.IsEnabled(PortableLogLevel.RealTime))
-            DesktopFileLog.RealTime("Task", $"任务进度；Id={taskId}；Title={title}；Progress={Math.Clamp(progress, 0d, 1d):P1}；Detail={detail}。");
+        DesktopFileLog.RealTime("Task", $"任务进度；Id={taskId}；Title={title}；Progress={Math.Clamp(progress, 0d, 1d):P1}；Detail={detail}。");
         TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, title);
         _taskSessionStore.Upsert(taskId, previous with
         {
@@ -2713,19 +2716,17 @@ public partial class MainWindow : Window, IDisposable
             State = TaskManagerTaskState.Running,
             ErrorMessage = null
         });
-        RequestTaskManagerUiRefresh();
+        UpdateTaskManagerViews();
+        RefreshTaskManagerButton();
     }
 
     private void TrackInstallProgress(string taskId, string title, MinecraftInstallProgress progress)
     {
         string stage = string.IsNullOrWhiteSpace(progress.Stage) ? "正在处理下载任务" : progress.Stage;
-        if (PortableLog.IsEnabled(PortableLogLevel.RealTime))
-        {
-            DesktopFileLog.RealTime(
-                "Task",
-                $"安装任务进度；Id={taskId}；Title={title}；Stage={stage}；Progress={progress.Progress:P1}；" +
-                $"Files={progress.CompletedFiles}/{progress.TotalFiles}；Threads={progress.ActiveThreads}/{progress.ThreadLimit}；Speed={progress.SpeedBytesPerSecond}B/s。");
-        }
+        DesktopFileLog.RealTime(
+            "Task",
+            $"安装任务进度；Id={taskId}；Title={title}；Stage={stage}；Progress={progress.Progress:P1}；" +
+            $"Files={progress.CompletedFiles}/{progress.TotalFiles}；Threads={progress.ActiveThreads}/{progress.ThreadLimit}；Speed={progress.SpeedBytesPerSecond}B/s。");
         _taskSessionStore.Upsert(taskId, new TaskManagerEntrySnapshot(
             taskId,
             title,
@@ -2739,44 +2740,6 @@ public partial class MainWindow : Window, IDisposable
             ActiveThreads: progress.ActiveThreads,
             ThreadLimit: progress.ThreadLimit,
             Steps: CreateInstallTaskSteps(progress)));
-        RequestTaskManagerUiRefresh();
-    }
-
-    /// <summary>
-    /// Coalesce multi-tick download progress into at most one UI pass per display frame.
-    /// Does not reduce perceived progress smoothness (16ms).
-    /// </summary>
-    private void RequestTaskManagerUiRefresh()
-    {
-        _taskUiDirty = true;
-        if (_taskUiThrottleTimer is null)
-        {
-            _taskUiThrottleTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(TaskUiRefreshIntervalMs)
-            };
-            _taskUiThrottleTimer.Tick += (_, _) =>
-            {
-                if (!_taskUiDirty)
-                {
-                    _taskUiThrottleTimer.Stop();
-                    return;
-                }
-
-                _taskUiDirty = false;
-                UpdateTaskManagerViews();
-                RefreshTaskManagerButton();
-            };
-        }
-
-        if (!_taskUiThrottleTimer.IsEnabled)
-            _taskUiThrottleTimer.Start();
-    }
-
-    private void FlushTaskManagerUiRefresh()
-    {
-        _taskUiDirty = false;
-        _taskUiThrottleTimer?.Stop();
         UpdateTaskManagerViews();
         RefreshTaskManagerButton();
     }
@@ -2835,7 +2798,8 @@ public partial class MainWindow : Window, IDisposable
             ErrorMessage = null,
             Steps = UpdateTaskStepStates(previous.Steps, TaskManagerTaskState.Finished, 1d)
         });
-        FlushTaskManagerUiRefresh();
+        UpdateTaskManagerViews();
+        RefreshTaskManagerButton();
         _ = RemoveTaskAfterDelayAsync(taskId, TimeSpan.FromMilliseconds(900));
     }
 
@@ -2858,7 +2822,8 @@ public partial class MainWindow : Window, IDisposable
                 canceled ? TaskManagerTaskState.Canceled : TaskManagerTaskState.Failed,
                 previous.Progress)
         });
-        FlushTaskManagerUiRefresh();
+        UpdateTaskManagerViews();
+        RefreshTaskManagerButton();
         if (canceled)
             _ = RemoveTaskAfterDelayAsync(taskId, TimeSpan.FromMilliseconds(700));
     }
@@ -3035,20 +3000,15 @@ public partial class MainWindow : Window, IDisposable
         };
         EnterTitleSubPage("存档详情 - " + Path.GetFileName(saveFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
 
-        if (!ReferenceEquals(rightHost.Child, page))
+        MyPageRight? oldRight = rightHost.Child as MyPageRight;
+        if (!ReferenceEquals(oldRight, page))
         {
-            PageHostTransitions.TransitionRightPage(
-                rightHost,
-                page,
-                animate: _isMainWindowOpened,
-                onHostUpdated: RefreshBackToTopBinding);
-        }
-        else
-        {
-            RefreshBackToTopBinding();
-            page.PageOnEnter();
+            oldRight?.PageOnExit();
+            rightHost.Child = page;
         }
 
+        RefreshBackToTopBinding();
+        page.PageOnEnter();
         await page.SetSaveFolderAsync(saveFolder).ConfigureAwait(true);
     }
 
@@ -3062,20 +3022,16 @@ public partial class MainWindow : Window, IDisposable
         _titleInnerBackAction = () => _ = ShowInstanceSaveDetailsAsync(saveFolder);
         EnterTitleSubPage("数据包 - " + Path.GetFileName(saveFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
 
+        MyPageRight? oldRight = rightHost.Child as MyPageRight;
+        if (!ReferenceEquals(oldRight, page))
+        {
+            oldRight?.PageOnExit();
+            rightHost.Child = page;
+        }
+
         page.SetDataPackFolder(saveFolder);
-        if (!ReferenceEquals(rightHost.Child, page))
-        {
-            PageHostTransitions.TransitionRightPage(
-                rightHost,
-                page,
-                animate: _isMainWindowOpened,
-                onHostUpdated: RefreshBackToTopBinding);
-        }
-        else
-        {
-            RefreshBackToTopBinding();
-            page.PageOnEnter();
-        }
+        RefreshBackToTopBinding();
+        page.PageOnEnter();
     }
 
     private void OpenCommunityForResourcePage(InstancePageSubType subPage)
@@ -3346,15 +3302,13 @@ public partial class MainWindow : Window, IDisposable
 
         MyPageRight? oldRight = rightHost.Child as MyPageRight;
         _setupRight = target;
-        // Drop any in-flight nav host fade without running its after-chain (we own the swap).
-        // Previously leaving it running could pull Opacity back toward 0 (gray right pane).
-        ModAnimation.AniStop("FrmMain PageChangeRight", finish: false);
+        // Do not AniStop("FrmMain PageChangeRight") here: interrupting the main
+        // settings enter fade can leave PanMainRight.Opacity at 0 (gray right pane)
+        // when the user opens 设置 immediately after launch.
         ModAnimation.AniStop("PageSetupLeft PageChange");
         oldRight?.PageOnExit();
-        // Ensure host is fully settled for the settings enter sequence.
+        // Ensure host is visible even if a parent page-change fade was still running.
         rightHost.Opacity = 1d;
-        if (rightHost.RenderTransform is TranslateTransform hostTranslate)
-            hostTranslate.Y = 0d;
         ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
@@ -4477,9 +4431,6 @@ public partial class MainWindow : Window, IDisposable
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
-        _taskUiThrottleTimer?.Stop();
-        _taskUiThrottleTimer = null;
-        _taskUiDirty = false;
         _backgroundBitmap?.Dispose();
         _backgroundBitmap = null;
         _windowStateSubscription.Dispose();
@@ -5136,42 +5087,21 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        // Snappy nav: swap content first, then short fade-in. Never finishPrevious —
-        // draining a multi-step after-chain on rapid tab switches felt unresponsive
-        // and could flash an empty pane.
-        ModAnimation.AniStop(PageHostTransitions.RightHostAnimationKey, finish: false);
-
-        if (right.RenderTransform is not TranslateTransform navTranslate)
-        {
-            navTranslate = new TranslateTransform();
-            right.RenderTransform = navTranslate;
-        }
-
-        ApplyPagePlaceholder(route);
-        double fromOpacity = right.Opacity;
-        if (fromOpacity >= 0.98d)
-            fromOpacity = 0d;
-        right.Opacity = fromOpacity;
-        navTranslate.Y = MotionTokens.NavEnterOffsetY;
-
         ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
-                ModAnimation.AaOpacity(
-                    right,
-                    1d - fromOpacity,
-                    MotionTokens.NavCrossfadeInMs,
-                    ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
-                ModAnimation.AaTranslateY(
-                    right,
-                    -MotionTokens.NavEnterOffsetY,
-                    MotionTokens.NavCrossfadeInMs,
-                    ease: new ModAnimation.AniEaseOutFluent()),
-                ModAnimation.AaCode(() => PageHostTransitions.SnapHostVisible(right), after: true)
+                ModAnimation.AaOpacity(right, -right.Opacity, MotionTokens.NavCrossfadeOutMs),
+                ModAnimation.AaCode(() =>
+                {
+                    ApplyPagePlaceholder(route);
+                    right.Opacity = 0d;
+                }, after: true),
+                ModAnimation.AaOpacity(right, 1d, MotionTokens.NavCrossfadeInMs),
+                // Always force full opacity when the sequence finishes — guards against
+                // mid-animation AniStop / nested page swaps leaving the right pane gray.
+                ModAnimation.AaCode(() => right.Opacity = 1d, after: true)
             },
-            PageHostTransitions.RightHostAnimationKey,
-            refreshTime: false,
-            finishPrevious: false);
+            "FrmMain PageChangeRight");
     }
 
     private IEnumerable<MyListItem> GetNavItems()
@@ -5225,16 +5155,10 @@ public partial class MainWindow : Window, IDisposable
             return;
 
         _showAnimationStarted = true;
-        // Critically damped window settle (no bounce) — Apple default for non-momentum motion.
         ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
-                ModAnimation.AaOpacity(
-                    this,
-                    _targetWindowOpacity - Opacity,
-                    MotionTokens.WindowShowOpacityMs,
-                    40,
-                    new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
+                ModAnimation.AaOpacity(this, _targetWindowOpacity - Opacity, 250, 100),
                 ModAnimation.AaDouble(
                     value =>
                     {
@@ -5242,9 +5166,9 @@ public partial class MainWindow : Window, IDisposable
                             _showAnimationTranslate.Y += value;
                     },
                     -(_showAnimationTranslate?.Y ?? 0d),
-                    MotionTokens.WindowShowSlideMs,
-                    40,
-                    new ModAnimation.AniEaseOutFluent()),
+                    600,
+                    100,
+                    new ModAnimation.AniEaseOutBack(ModAnimation.AniEasePower.Weak)),
                 ModAnimation.AaDouble(
                     value =>
                     {
@@ -5252,14 +5176,13 @@ public partial class MainWindow : Window, IDisposable
                             _showAnimationRotate.Angle += value;
                     },
                     -(_showAnimationRotate?.Angle ?? 0d),
-                    MotionTokens.WindowShowSlideMs,
-                    40,
-                    new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
+                    500,
+                    100,
+                    new ModAnimation.AniEaseOutBack(ModAnimation.AniEasePower.Weak)),
                 ModAnimation.AaCode(() =>
                 {
                     if (_showAnimationRoot is not null)
                         _showAnimationRoot.RenderTransform = null;
-                    Opacity = _targetWindowOpacity;
                 }, after: true)
             },
             "FrmMain Load");

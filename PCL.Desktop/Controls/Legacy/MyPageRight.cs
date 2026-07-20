@@ -165,61 +165,8 @@ public class MyPageRight : ContentControl, IDisposable
             case PageStates.ContentExit:
                 EnterFromEmpty(includeAlways: false);
                 break;
-            case PageStates.PageExit:
-            case PageStates.LoaderExit:
-                // Interrupted exit: cancel exit tween and enter fresh (do not leave opacity 0).
-                ModAnimation.AniStop("PageRight PageChange " + PageUuid, finish: false);
-                EnsureContentPresentationVisible();
-                EnterFromEmpty(includeAlways: true);
-                break;
-            case PageStates.ContentStay:
             case PageStates.ContentEnter:
-                // Cached / already-visible page: never re-zero opacities (empty flash + lag).
-                ModAnimation.AniStop("PageRight PageChange " + PageUuid, finish: false);
-                EnsureContentPresentationVisible();
-                PageState = PageStates.ContentStay;
                 break;
-            case PageStates.LoaderWait:
-            case PageStates.LoaderEnter:
-            case PageStates.LoaderStay:
-            case PageStates.LoaderStayForce:
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Force content to a settled, visible presentation (used after interrupt / re-show).
-    /// </summary>
-    public void EnsureContentPresentationVisible()
-    {
-        if (_pageAlwaysPanel is not null)
-        {
-            _pageAlwaysPanel.IsVisible = true;
-            _pageAlwaysPanel.Opacity = 1d;
-        }
-
-        Control? content = GetContentTarget();
-        if (content is not null)
-        {
-            content.IsVisible = true;
-            content.Opacity = 1d;
-            foreach (Control control in GetAllAnimControls(content, ignoreInvisibility: true))
-            {
-                control.IsVisible = true;
-                control.Opacity = control is TextBlock ? Math.Max(control.Opacity, 0.55d) : 1d;
-                control.IsHitTestVisible = true;
-                if (control.RenderTransform is TranslateTransform t)
-                {
-                    t.X = 0d;
-                    t.Y = 0d;
-                }
-            }
-        }
-
-        if (_pageLoaderPanel is not null && PageState is PageStates.LoaderEnter or PageStates.LoaderStay or PageStates.LoaderStayForce)
-        {
-            _pageLoaderPanel.IsVisible = true;
-            _pageLoaderPanel.Opacity = 1d;
         }
     }
 
@@ -256,8 +203,7 @@ public class MyPageRight : ContentControl, IDisposable
     {
         _pageLoaderCancellation?.Cancel();
         PageState = PageStates.Empty;
-        // Drop mid-flight enter/exit without running finish callbacks (force-hide follows).
-        ModAnimation.AniStop("PageRight PageChange " + PageUuid, finish: false);
+        ModAnimation.AniStop("PageRight PageChange " + PageUuid);
         if (_pageContentPanel is not null)
             _pageContentPanel.IsVisible = false;
         if (_pageLoaderPanel is not null)
@@ -317,7 +263,6 @@ public class MyPageRight : ContentControl, IDisposable
 
         List<ModAnimation.AniData> animations = [];
         int delay = 0;
-        int animatedCount = 0;
         foreach (Control element in realElements)
         {
             foreach (Control control in GetAllAnimControls(element))
@@ -330,20 +275,7 @@ public class MyPageRight : ContentControl, IDisposable
                     continue;
                 }
 
-                // Apple-style materialize: fade + rise. Cap stagger so pages stay snappy;
-                // excess children appear settled (still "have motion" via the host fade).
-                if (ControlVisualHelpers.ReduceMotionPreferred() ||
-                    animatedCount >= MotionTokens.PageEnterMaxChildren)
-                {
-                    control.Opacity = 1d;
-                    if (control.RenderTransform is TranslateTransform settle)
-                    {
-                        settle.X = 0d;
-                        settle.Y = 0d;
-                    }
-                    continue;
-                }
-
+                // Critically damped enter: short fade + single settle, no OutBack bounce.
                 control.Opacity = 0d;
                 control.RenderTransform = new TranslateTransform(0d, MotionTokens.PageEnterOffsetY);
                 animations.Add(ModAnimation.AaOpacity(
@@ -359,48 +291,24 @@ public class MyPageRight : ContentControl, IDisposable
                     delay,
                     new ModAnimation.AniEaseOutFluent()));
                 delay += MotionTokens.PageStaggerMs;
-                animatedCount++;
             }
         }
 
         Control? scrollBar = GetFirstScrollBar(realElements);
-        if (scrollBar is not null && !ControlVisualHelpers.ReduceMotionPreferred())
+        if (scrollBar is not null)
         {
             if (scrollBar.RenderTransform is not TranslateTransform)
                 scrollBar.RenderTransform = new TranslateTransform(10d, 0d);
             animations.Add(ModAnimation.AaTranslateX(
                 scrollBar,
                 -((TranslateTransform)scrollBar.RenderTransform).X,
-                MotionTokens.PageEnterSlideMs,
+                350,
                 0,
                 new ModAnimation.AniEaseOutFluent()));
         }
 
-        // Only fix truly stuck invisibles — do not zero transforms (absolute tweens already land cleanly;
-        // zeroing here was a common end-frame 拉回).
-        animations.Add(ModAnimation.AaCode(() =>
-        {
-            foreach (Control element in realElements)
-            {
-                foreach (Control control in GetAllAnimControls(element, ignoreInvisibility: true))
-                {
-                    if (control.Opacity < 0.02d)
-                        control.Opacity = 1d;
-                }
-            }
-
-            PageOnEnterAnimationFinished();
-        }, after: true));
-        if (animations.Count <= 1)
-        {
-            // Nothing to tween (reduced motion or only finish callback).
-            EnsureContentPresentationVisible();
-            PageOnEnterAnimationFinished();
-            return;
-        }
-
-        // finishPrevious:false — rapid page re-entry must not drain a long after-chain.
-        ModAnimation.AniStart(animations, "PageRight PageChange " + PageUuid, refreshTime: true, finishPrevious: false);
+        animations.Add(ModAnimation.AaCode(PageOnEnterAnimationFinished, after: true));
+        ModAnimation.AniStart(animations, "PageRight PageChange " + PageUuid, true);
     }
 
     public void TriggerExitAnimation(params Control?[] elements)
@@ -421,20 +329,9 @@ public class MyPageRight : ContentControl, IDisposable
                 }
 
                 control.IsHitTestVisible = false;
-                // Exit mirrors enter path (down + fade) for spatial consistency.
-                animations.Add(ModAnimation.AaOpacity(
-                    control,
-                    -control.Opacity,
-                    MotionTokens.NavCrossfadeOutMs,
-                    delay,
-                    new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)));
-                animations.Add(ModAnimation.AaTranslateY(
-                    control,
-                    MotionTokens.PageEnterOffsetY * 0.75d,
-                    MotionTokens.NavCrossfadeOutMs,
-                    delay,
-                    new ModAnimation.AniEaseInFluent(ModAnimation.AniEasePower.Weak)));
-                delay += 12;
+                animations.Add(ModAnimation.AaOpacity(control, -1d, 70, delay));
+                animations.Add(ModAnimation.AaTranslateY(control, -6d, 70, delay));
+                delay += 15;
             }
         }
 
@@ -636,10 +533,7 @@ public class MyPageRight : ContentControl, IDisposable
         if (!ignoreInvisibility && !element.IsVisible)
             yield break;
 
-        // Leaf interactive / card units that should materialize on page enter.
-        if (element is MyCard or MyHint or MyExtraTextButton or TextBlock or MyTextButton
-            or MyListItem or MyButton or MyIconTextButton or MyRadioButton or MyCheckBox
-            or MyRadioBox or MyExtraButton or MyLoading or MySlider or MyComboBox)
+        if (element is MyCard or MyHint or MyExtraTextButton or TextBlock or MyTextButton)
         {
             yield return element;
             yield break;
@@ -647,37 +541,19 @@ public class MyPageRight : ContentControl, IDisposable
 
         if (element is ContentControl { Content: Control content })
         {
-            bool any = false;
             foreach (Control child in GetAllAnimControls(content, ignoreInvisibility))
-            {
-                any = true;
                 yield return child;
-            }
-
-            if (!any)
-                yield return element;
             yield break;
         }
 
         if (element is Panel panel)
         {
-            bool any = false;
             foreach (Control child in panel.Children)
             {
                 foreach (Control nested in GetAllAnimControls(child, ignoreInvisibility))
-                {
-                    any = true;
                     yield return nested;
-                }
             }
-
-            // Empty / custom-only panels still get a single fade so the page is never static.
-            if (!any)
-                yield return element;
-            yield break;
         }
-
-        yield return element;
     }
 
     private static Control? GetFirstScrollBar(IEnumerable<Control> elements)

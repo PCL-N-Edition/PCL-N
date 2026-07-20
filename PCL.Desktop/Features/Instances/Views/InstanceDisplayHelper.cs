@@ -4,7 +4,6 @@
 
 using System.Text.Json;
 using PCL.Application.Instances;
-using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Launching.Views;
 
 namespace PCL.Desktop.Features.Instances.Views;
@@ -30,11 +29,11 @@ internal static class InstanceDisplayHelper
         if (IsCustomLogoPath(logo))
         {
             string customLogo = GetCustomLogoPath(instance);
-            return PathExistenceCache.FileExists(customLogo) ? customLogo : autoLogo;
+            return File.Exists(customLogo) ? customLogo : autoLogo;
         }
 
         if (Path.IsPathRooted(logo))
-            return PathExistenceCache.FileExists(logo) ? logo : autoLogo;
+            return File.Exists(logo) ? logo : autoLogo;
 
         string normalizedLogo = NormalizeLogoPath(logo);
         if (normalizedLogo.StartsWith("avares://", StringComparison.OrdinalIgnoreCase))
@@ -51,7 +50,7 @@ internal static class InstanceDisplayHelper
 
     private static string? InferLogoFromVersionJson(string versionJsonPath)
     {
-        if (!PathExistenceCache.FileExists(versionJsonPath))
+        if (!File.Exists(versionJsonPath))
             return null;
 
         try
@@ -243,7 +242,7 @@ internal static class InstanceDisplayHelper
 
     public static bool IsModable(LaunchInstanceInfo instance)
     {
-        if (!PathExistenceCache.FileExists(instance.VersionJsonPath))
+        if (!File.Exists(instance.VersionJsonPath))
             return false;
 
         try
@@ -291,7 +290,7 @@ internal static class InstanceDisplayHelper
 
     private static bool HasLibraryNeedle(LaunchInstanceInfo instance, params string[] needles)
     {
-        if (!PathExistenceCache.FileExists(instance.VersionJsonPath))
+        if (!File.Exists(instance.VersionJsonPath))
             return false;
 
         try
@@ -313,7 +312,7 @@ internal static class InstanceDisplayHelper
         {
             try
             {
-                if (!PathExistenceCache.DirectoryExists(modsDir))
+                if (!Directory.Exists(modsDir))
                     continue;
                 foreach (string file in Directory.EnumerateFiles(modsDir, "*.jar*", SearchOption.TopDirectoryOnly))
                 {
@@ -340,7 +339,7 @@ internal static class InstanceDisplayHelper
 
     public static bool IsValid(LaunchInstanceInfo instance)
     {
-        if (!PathExistenceCache.FileExists(instance.VersionJsonPath))
+        if (!File.Exists(instance.VersionJsonPath))
             return false;
 
         try

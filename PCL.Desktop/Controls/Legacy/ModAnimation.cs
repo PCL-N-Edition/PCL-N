@@ -21,14 +21,10 @@ namespace PCL.Desktop.Controls.Legacy;
 public static partial class ModAnimation
 {
     private static readonly Dictionary<string, AniGroupEntry> AniGroups = [];
-    private static readonly List<KeyValuePair<string, AniGroupEntry>> FrameBuffer = [];
-    private static readonly HashSet<string> DrainingNames = [];
     private static readonly Stopwatch AniClock = new();
     private static DispatcherTimer? _aniTimer;
     private static double _aniLastTick;
     private static TimeSpan _frameInterval = TimeSpan.FromMilliseconds(16d);
-    /// <summary>Max ms applied per tick so hitchy UI threads don't slam the final ease step.</summary>
-    private const int MaxFrameDeltaMs = 32;
 
     public static int AniControlEnabled { get; set; }
 
@@ -41,65 +37,32 @@ public static partial class ModAnimation
         EnsureTimer();
     }
 
-    /// <param name="finishPrevious">
-    /// When true (default for short property tweens), snap the previous named group to its end
-    /// including after-chained code. When false, drop the previous group immediately — use for
-    /// multi-step host scripts (page nav) so rapid retargets stay interruptible and snappy.
-    /// </param>
-    public static void AniStart(IList aniGroup, string name = "", bool refreshTime = false, bool finishPrevious = true)
+    public static void AniStart(IList aniGroup, string name = "", bool refreshTime = false)
     {
         List<AniData> data = aniGroup.OfType<AniData>().ToList();
         if (data.Count == 0)
             return;
 
+        EnsureTimer();
         if (string.IsNullOrEmpty(name))
             name = Guid.NewGuid().ToString("N");
         else
-            AniStop(name, finish: finishPrevious);
+            AniStop(name);
 
         AniGroups[name] = new AniGroupEntry(data);
         if (refreshTime)
             _aniLastTick = AniClock.Elapsed.TotalMilliseconds;
-        EnsureTimer();
     }
 
-    public static void AniStart(AniData aniGroup, string name = "", bool refreshTime = false, bool finishPrevious = true) =>
-        AniStart(new List<AniData> { aniGroup }, name, refreshTime, finishPrevious);
+    public static void AniStart(AniData aniGroup, string name = "", bool refreshTime = false) =>
+        AniStart(new List<AniData> { aniGroup }, name, refreshTime);
 
-    /// <summary>
-    /// Stops a named animation group. When <paramref name="finish"/> is true (default),
-    /// remaining work — including after-chained code callbacks — is applied immediately
-    /// so the UI never freezes at an intermediate opacity/transform.
-    /// </summary>
-    public static void AniStop(string name, bool finish = true)
+    public static void AniStop(string name)
     {
         if (string.IsNullOrEmpty(name))
             return;
 
-        if (!AniGroups.TryGetValue(name, out AniGroupEntry? entry))
-            return;
-
-        if (finish)
-        {
-            // Nested AniStop while already draining this name: let the outer drain finish.
-            if (!DrainingNames.Add(name))
-                return;
-
-            try
-            {
-                DrainGroup(entry);
-            }
-            finally
-            {
-                DrainingNames.Remove(name);
-            }
-        }
-
-        // Only remove if this entry is still the registered one (callbacks may re-enter AniStart).
-        if (AniGroups.TryGetValue(name, out AniGroupEntry? current) && ReferenceEquals(current, entry))
-            AniGroups.Remove(name);
-
-        StopTimerIfIdle();
+        AniGroups.Remove(name);
     }
 
     public static void AdvanceForTesting(int deltaTick = 16, int count = 1)
@@ -126,7 +89,6 @@ public static partial class ModAnimation
     public static void ResetForTesting()
     {
         AniGroups.Clear();
-        FrameBuffer.Clear();
         _aniTimer?.Stop();
         _aniTimer = null;
         _aniLastTick = 0d;
@@ -138,148 +100,51 @@ public static partial class ModAnimation
     public static void AniTimer(int deltaTick)
     {
         if (AniGroups.Count == 0)
-        {
-            StopTimerIfIdle();
             return;
-        }
 
-        try
+        deltaTick = (int)Math.Round(Math.Clamp(deltaTick * aniSpeed, 0d, 100000d));
+        foreach (KeyValuePair<string, AniGroupEntry> pair in AniGroups.ToArray())
         {
-            deltaTick = (int)Math.Round(Math.Clamp(deltaTick * aniSpeed, 0d, 100000d));
-            // Cap per-frame advance so a stalled UI thread doesn't dump a huge last step
-            // (reads as a hitch right as the tween should settle).
-            if (deltaTick > MaxFrameDeltaMs)
-                deltaTick = MaxFrameDeltaMs;
-
-            // Reuse a buffer instead of Dictionary.ToArray() every frame (alloc + GC pressure).
-            FrameBuffer.Clear();
-            foreach (KeyValuePair<string, AniGroupEntry> pair in AniGroups)
-                FrameBuffer.Add(pair);
-
-            for (int groupIndex = 0; groupIndex < FrameBuffer.Count; groupIndex++)
+            AniGroupEntry entry = pair.Value;
+            bool canRemoveAfter = true;
+            int index = 0;
+            while (index < entry.Data.Count)
             {
-                KeyValuePair<string, AniGroupEntry> pair = FrameBuffer[groupIndex];
-                AniGroupEntry entry = pair.Value;
-                AdvanceGroup(entry, deltaTick);
-
-                if (entry.Data.Count == 0 && AniGroups.TryGetValue(pair.Key, out AniGroupEntry? current) && ReferenceEquals(current, entry))
-                    AniGroups.Remove(pair.Key);
-            }
-
-            FrameBuffer.Clear();
-            StopTimerIfIdle();
-        }
-        catch (Exception ex)
-        {
-            // Never let a single frame kill the timer (crash log: AdvanceGroup index OOR).
-            PortableLog.Error(ex, "Animation", "动画帧推进失败，已跳过本帧。");
-            FrameBuffer.Clear();
-        }
-    }
-
-    /// <summary>
-    /// Advances one group by <paramref name="deltaTick"/> ms. Shared by the timer and
-    /// interrupt finish so after-chains and AaCode callbacks stay consistent.
-    /// Re-entrancy safe: AniRun callbacks may AniStop/AniStart the same group.
-    /// </summary>
-    private static void AdvanceGroup(AniGroupEntry entry, int deltaTick)
-    {
-        if (entry.IsAdvancing)
-        {
-            // Nested advance (callback re-entry): request another pass after the outer loop.
-            entry.NeedsAnotherPass = true;
-            return;
-        }
-
-        entry.IsAdvancing = true;
-        try
-        {
-            do
-            {
-                entry.NeedsAnotherPass = false;
-                bool canRemoveAfter = true;
-                int index = 0;
-                while (index < entry.Data.Count)
+                AniData anim = entry.Data[index];
+                if (!anim.isAfter)
                 {
-                    AniData anim = entry.Data[index];
-                    if (!anim.isAfter)
+                    canRemoveAfter = false;
+                    anim.timeFinished += deltaTick;
+                    if (anim.timeFinished > 0)
+                        anim = AniRun(anim);
+
+                    if (anim.timeFinished >= anim.timeTotal)
                     {
-                        canRemoveAfter = false;
-                        anim.timeFinished += deltaTick;
-                        if (anim.timeFinished > 0)
-                            anim = AniRun(anim);
-
-                        // Callbacks may have cleared / reshuffled the list.
-                        if (entry.Data.Count == 0)
-                            break;
-                        if (index >= entry.Data.Count || !ReferenceEquals(entry.Data[index], anim))
-                        {
-                            int found = entry.Data.IndexOf(anim);
-                            if (found < 0)
-                            {
-                                index = 0;
-                                canRemoveAfter = true;
-                                continue;
-                            }
-
-                            index = found;
-                        }
-
-                        if (anim.timeFinished >= anim.timeTotal)
-                        {
-                            AniFinish(anim);
-                            if (index < entry.Data.Count && ReferenceEquals(entry.Data[index], anim))
-                                entry.Data.RemoveAt(index);
-                            else
-                            {
-                                int found = entry.Data.IndexOf(anim);
-                                if (found >= 0)
-                                    entry.Data.RemoveAt(found);
-                            }
-
-                            continue;
-                        }
-
-                        if (index < entry.Data.Count && ReferenceEquals(entry.Data[index], anim))
-                            entry.Data[index] = anim;
-                    }
-                    else if (canRemoveAfter)
-                    {
-                        canRemoveAfter = false;
-                        anim.isAfter = false;
-                        // Defer after-chain by ≥1 frame so the settle frame is not packed with
-                        // AaCode / layout work (common "hitch at the end of every animation").
-                        if (anim.timeFinished >= 0)
-                            anim.timeFinished = -1;
-                        if (index < entry.Data.Count && ReferenceEquals(entry.Data[index], anim))
-                            entry.Data[index] = anim;
+                        AniFinish(anim);
+                        entry.Data.RemoveAt(index);
                         continue;
                     }
-                    else
-                    {
-                        break;
-                    }
 
-                    index++;
+                    entry.Data[index] = anim;
                 }
-            }
-            while (entry.NeedsAnotherPass && entry.Data.Count > 0);
-        }
-        finally
-        {
-            entry.IsAdvancing = false;
-            entry.NeedsAnotherPass = false;
-        }
-    }
+                else if (canRemoveAfter)
+                {
+                    canRemoveAfter = false;
+                    anim.isAfter = false;
+                    entry.Data[index] = anim;
+                    continue;
+                }
+                else
+                {
+                    break;
+                }
 
-    /// <summary>
-    /// Instantly completes every item in a group (including delayed / after-chained work).
-    /// </summary>
-    private static void DrainGroup(AniGroupEntry entry)
-    {
-        int guard = 0;
-        while (entry.Data.Count > 0 && guard++ < 2000)
-            AdvanceGroup(entry, 100_000);
+                index++;
+            }
+
+            if (entry.Data.Count == 0 && AniGroups.TryGetValue(pair.Key, out AniGroupEntry? current) && ReferenceEquals(current, entry))
+                AniGroups.Remove(pair.Key);
+        }
     }
 
     public static AniData AaX(object obj, double value, int time = 400, int delay = 0, AniEase? ease = null, bool after = false) =>
@@ -666,8 +531,6 @@ public static partial class ModAnimation
         public object? obj;
         public object? value;
         public object? valueLast;
-        /// <summary>Reusable brush for color animations to avoid per-frame SolidColorBrush allocations.</summary>
-        public SolidColorBrush? workingBrush;
     }
 
     public enum AniType
@@ -713,25 +576,16 @@ public static partial class ModAnimation
 
     private static AniData AniRun(AniData ani)
     {
-        // Monotonic ease progress in [0,1]. Never reverse (progress < previous) — that reads as 拉回.
-        double previous = Math.Clamp(ani.timePercent, 0d, 1d);
-        double progress = Math.Clamp(ani.timeFinished / (double)ani.timeTotal, 0d, 1d);
-        if (ani.timeFinished >= ani.timeTotal)
-            progress = 1d;
-        if (progress < previous)
-            progress = previous;
-
-        double easeNow = ani.ease.GetValue(progress);
-        double easePrev = ani.ease.GetValue(previous);
-        double easeDelta = easeNow - easePrev;
+        double progress = ani.timeFinished / ani.timeTotal;
+        double delta = ani.ease.GetDelta(progress, ani.timePercent);
 
         switch (ani.typeMain)
         {
             case AniType.Number:
-                ApplyNumberAtProgress(ani, progress, easeNow, easeDelta);
+                ApplyNumber(ani, delta);
                 break;
             case AniType.Scale:
-                ApplyScale(ani, easeDelta);
+                ApplyScale(ani, delta);
                 break;
             case AniType.Color:
                 ApplyColor(ani, progress);
@@ -740,10 +594,10 @@ public static partial class ModAnimation
                 ApplyTextAppear(ani, progress);
                 break;
             case AniType.ScaleTransform:
-                ApplyScaleTransformAtProgress(ani, progress, easeNow);
+                ApplyScaleTransform(ani, delta);
                 break;
             case AniType.RotateTransform:
-                ApplyRotateTransform(ani, easeDelta);
+                ApplyRotateTransform(ani, delta);
                 break;
             case AniType.Code:
                 if (ani.value is Action action)
@@ -758,84 +612,27 @@ public static partial class ModAnimation
 
     private static void AniFinish(AniData ani)
     {
-        // Color with a theme resource key: paint final color onto the working brush (no brush replace thrash).
         if (ani.typeMain != AniType.Color ||
             ani.obj is not object[] colorObj ||
-            colorObj.Length < 3 ||
-            colorObj[2] is not string resourceKey ||
-            string.IsNullOrWhiteSpace(resourceKey) ||
-            colorObj[0] is not Control control ||
-            colorObj[1] is not AvaloniaProperty property)
+            colorObj.Length < 2 ||
+            ani.value is not AniColor)
         {
             return;
         }
 
-        Color finalColor = FindColor(control, resourceKey).ToColor();
-        if (ani.workingBrush is not null)
+        if (colorObj[0] is Control control &&
+            colorObj[1] is AvaloniaProperty property)
         {
-            ani.workingBrush.Color = finalColor;
-            if (!ReferenceEquals(GetBrushTarget(control, property), ani.workingBrush))
-                SetBrush(control, property, ani.workingBrush);
-            return;
-        }
-
-        SetBrush(control, property, new SolidColorBrush(finalColor));
-    }
-
-    /// <summary>
-    /// Opacity / translate use absolute start+delta*ease (no cumulative error → no end-frame snap-back).
-    /// Layout properties stay relative for compatibility.
-    /// </summary>
-    private static void ApplyNumberAtProgress(AniData ani, double progress, double easeNow, double easeDelta)
-    {
-        if (ani.obj is null || ani.value is not double total)
-            return;
-
-        switch (ani.typeSub)
-        {
-            case AniTypeSub.Opacity:
-                if (ani.obj is not Control opacityControl)
-                    return;
-                if (ani.valueLast is not double opacityStart)
-                {
-                    opacityStart = opacityControl.Opacity;
-                    ani.valueLast = opacityStart;
-                }
-
-                opacityControl.Opacity = Math.Clamp(opacityStart + total * easeNow, 0d, 1d);
-                return;
-            case AniTypeSub.TranslateX:
+            if (colorObj.Length >= 3 &&
+                colorObj[2] is string resourceKey &&
+                !string.IsNullOrWhiteSpace(resourceKey))
             {
-                TranslateTransform t = EnsureTranslate(ani.obj);
-                if (ani.valueLast is not double startX)
-                {
-                    startX = t.X;
-                    ani.valueLast = startX;
-                }
-
-                t.X = startX + total * easeNow;
-                return;
+                SetBrush(control, property, FindColor(control, resourceKey).ToBrush());
             }
-            case AniTypeSub.TranslateY:
-            {
-                TranslateTransform t = EnsureTranslate(ani.obj);
-                if (ani.valueLast is not double startY)
-                {
-                    startY = t.Y;
-                    ani.valueLast = startY;
-                }
-
-                t.Y = startY + total * easeNow;
-                return;
-            }
-            default:
-                // Relative residual path (width/height/margin/…).
-                ApplyNumberRelative(ani, easeDelta);
-                return;
         }
     }
 
-    private static void ApplyNumberRelative(AniData ani, double progressDelta)
+    private static void ApplyNumber(AniData ani, double progressDelta)
     {
         if (ani.obj is null || ani.value is not double total)
             return;
@@ -857,6 +654,10 @@ public static partial class ModAnimation
                 if (ani.obj is Control heightControl)
                     heightControl.Height = Math.Max(0d, heightControl.Height + delta);
                 break;
+            case AniTypeSub.Opacity:
+                if (ani.obj is Control opacityControl)
+                    opacityControl.Opacity = Math.Clamp(opacityControl.Opacity + delta, 0d, 1d);
+                break;
             case AniTypeSub.Value:
                 AddValue(ani.obj, delta);
                 break;
@@ -868,6 +669,12 @@ public static partial class ModAnimation
                 break;
             case AniTypeSub.StrokeThickness:
                 AddStrokeThickness(ani.obj, delta);
+                break;
+            case AniTypeSub.TranslateX:
+                EnsureTranslate(ani.obj).X += delta;
+                break;
+            case AniTypeSub.TranslateY:
+                EnsureTranslate(ani.obj).Y += delta;
                 break;
             case AniTypeSub.Double:
                 if (ani.obj is Action<double> action)
@@ -883,23 +690,6 @@ public static partial class ModAnimation
         }
     }
 
-    private static void ApplyScaleTransformAtProgress(AniData ani, double progress, double easeNow)
-    {
-        if (ani.obj is null || ani.value is not double total)
-            return;
-
-        ScaleTransform scale = EnsureScale(ani.obj);
-        if (ani.valueLast is not double start)
-        {
-            start = scale.ScaleX;
-            ani.valueLast = start;
-        }
-
-        double next = Math.Max(start + total * easeNow, 0d);
-        scale.ScaleX = next;
-        scale.ScaleY = next;
-    }
-
     private static void ApplyColor(AniData ani, double progress)
     {
         if (ani.obj is not object[] colorObj ||
@@ -913,17 +703,7 @@ public static partial class ModAnimation
 
         AniColor start = ani.valueLast is AniColor valueLast ? valueLast : GetColor(control, property);
         AniColor newColor = AniColor.Percent(start, total, ani.ease.GetValue(progress));
-        Color color = newColor.ToColor();
-        if (ani.workingBrush is null)
-        {
-            ani.workingBrush = new SolidColorBrush(color);
-            SetBrush(control, property, ani.workingBrush);
-        }
-        else
-        {
-            // Mutate in place — avoid GetValue/SetBrush every frame (end-frame cost especially).
-            ani.workingBrush.Color = color;
-        }
+        SetBrush(control, property, newColor.ToBrush());
     }
 
     private static void ApplyTextAppear(AniData ani, double progress)
@@ -962,6 +742,17 @@ public static partial class ModAnimation
         AddScaleMargin(control, delta.Left, delta.Top);
         control.Width = Math.Max(0d, GetControlWidth(control) + delta.Width);
         control.Height = Math.Max(0d, GetControlHeight(control) + delta.Height);
+    }
+
+    private static void ApplyScaleTransform(AniData ani, double progressDelta)
+    {
+        if (ani.obj is null || ani.value is not double total)
+            return;
+
+        ScaleTransform scale = EnsureScale(ani.obj);
+        double delta = Percent(total, progressDelta);
+        scale.ScaleX = Math.Max(scale.ScaleX + delta, 0d);
+        scale.ScaleY = Math.Max(scale.ScaleY + delta, 0d);
     }
 
     private static void ApplyRotateTransform(AniData ani, double progressDelta)
@@ -1275,60 +1066,30 @@ public static partial class ModAnimation
 
     private static void EnsureTimer()
     {
-        if (_aniTimer is null)
-        {
-            AniClock.Restart();
-            _aniLastTick = 0d;
-            _aniTimer = new DispatcherTimer
-            {
-                Interval = _frameInterval
-            };
-            _aniTimer.Tick += (_, _) =>
-            {
-                double now = AniClock.Elapsed.TotalMilliseconds;
-                double delta = now - _aniLastTick;
-                _aniLastTick = now;
-                // Never log per-frame: RealTime + file I/O would dominate the UI thread.
-                AniTimer((int)Math.Round(delta));
-            };
-        }
+        if (_aniTimer is not null)
+            return;
 
-        if (!_aniTimer.IsEnabled)
+        AniClock.Restart();
+        _aniLastTick = 0d;
+        _aniTimer = new DispatcherTimer
         {
-            _aniLastTick = AniClock.Elapsed.TotalMilliseconds;
-            if (!AniClock.IsRunning)
-                AniClock.Restart();
-            _aniTimer.Start();
-        }
-    }
-
-    private static void StopTimerIfIdle()
-    {
-        if (AniGroups.Count == 0 && _aniTimer is { IsEnabled: true })
-            _aniTimer.Stop();
-    }
-
-    private static object? GetBrushTarget(Control control, AvaloniaProperty property)
-    {
-        try
+            Interval = _frameInterval
+        };
+        _aniTimer.Tick += (_, _) =>
         {
-            return control.GetValue(property);
-        }
-        catch
-        {
-            return null;
-        }
+            double now = AniClock.Elapsed.TotalMilliseconds;
+            double delta = now - _aniLastTick;
+            _aniLastTick = now;
+            if (PortableLog.IsEnabled(PortableLogLevel.RealTime))
+                PortableLog.RealTime("Animation", $"动画帧；Delta={delta:0.###}ms；活动组={AniGroups.Count}；目标间隔={_frameInterval.TotalMilliseconds:0.###}ms。");
+            AniTimer((int)Math.Round(delta));
+        };
+        _aniTimer.Start();
     }
 
     private sealed class AniGroupEntry(List<AniData> data)
     {
         public List<AniData> Data { get; } = data;
-
-        /// <summary>True while <see cref="AdvanceGroup"/> is running on this entry (re-entrancy guard).</summary>
-        public bool IsAdvancing { get; set; }
-
-        /// <summary>Set when a nested advance is requested; outer loop takes another pass.</summary>
-        public bool NeedsAnotherPass { get; set; }
     }
 
     private readonly struct AniColor
@@ -1368,10 +1129,8 @@ public static partial class ModAnimation
         private double G { get; }
         private double B { get; }
 
-        public Color ToColor() =>
-            Color.FromArgb(ClampByte(A), ClampByte(R), ClampByte(G), ClampByte(B));
-
-        public SolidColorBrush ToBrush() => new SolidColorBrush(ToColor());
+        public SolidColorBrush ToBrush() =>
+            new SolidColorBrush(Color.FromArgb(ClampByte(A), ClampByte(R), ClampByte(G), ClampByte(B)));
 
         public static AniColor operator +(AniColor left, AniColor right) =>
             new(left.A + right.A, left.R + right.R, left.G + right.G, left.B + right.B);

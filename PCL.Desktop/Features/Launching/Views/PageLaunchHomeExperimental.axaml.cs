@@ -698,13 +698,6 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
 
     public void TriggerEnterAnimation()
     {
-        // Already settled: keep presentation (rapid tab-back / close must not blank the home).
-        if (PageState is PageStates.ContentStay or PageStates.ContentEnter)
-        {
-            EnsureContentPresentationVisible();
-            return;
-        }
-
         if (this.FindControl<Control>("PanBack") is { } root)
             TriggerEnterAnimation(root);
     }

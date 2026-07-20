@@ -58,9 +58,8 @@ public class MyPageLeft : Grid
                 continue;
             }
 
-            // Sidebar items slide in from the leading edge (spatial consistency with LTR chrome).
             control.Opacity = 0d;
-            control.RenderTransform = new TranslateTransform(-12d, 0d);
+            control.RenderTransform = new TranslateTransform(-14d, 0d);
             if (control is MyListItem listItem)
                 listItem.isMouseOverAnimationEnabled = false;
             animations.Add(ModAnimation.AaOpacity(
@@ -71,7 +70,7 @@ public class MyPageLeft : Grid
                 new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)));
             animations.Add(ModAnimation.AaTranslateX(
                 control,
-                12d,
+                14d,
                 MotionTokens.PageEnterSlideMs,
                 delay,
                 new ModAnimation.AniEaseOutFluent()));
@@ -88,22 +87,6 @@ public class MyPageLeft : Grid
             }
             delay += MotionTokens.PageStaggerMs;
         }
-
-        animations.Add(ModAnimation.AaCode(() =>
-        {
-            foreach (Control control in GetAllAnimControls(AnimatedControl!, ignoreInvisibility: true))
-            {
-                if (control.Opacity < 0.5d)
-                    control.Opacity = control is TextBlock ? 0.55d : 1d;
-                if (control.RenderTransform is TranslateTransform t)
-                {
-                    t.X = 0d;
-                    t.Y = 0d;
-                }
-                if (control is MyListItem item)
-                    item.isMouseOverAnimationEnabled = true;
-            }
-        }, after: true));
 
         ModAnimation.AniStart(animations, $"PageLeft PageChange {_uuid}");
     }
