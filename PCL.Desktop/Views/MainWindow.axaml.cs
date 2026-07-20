@@ -942,6 +942,7 @@ public partial class MainWindow : Window, IDisposable
         // before the extra-button host has applied scale animations on first frame).
         if (!back.IsVisible && show)
             back.IsVisible = true;
+        RefreshExtraDockChrome();
     }
 
     private MyScrollViewer? GetCurrentRightScroll() =>
@@ -2406,46 +2407,78 @@ public partial class MainWindow : Window, IDisposable
             backBtn.Margin = experimental ? new Thickness(14d, 0d, 0d, 0d) : new Thickness(12d, 0d, 0d, 0d);
         }
 
-        if (this.FindControl<Border>("PanExtraDock") is { } dock)
-        {
-            if (experimental)
-            {
-                dock.Padding = new Thickness(6d, 8d);
-                dock.CornerRadius = new CornerRadius(26d);
-                dock.Background = new SolidColorBrush(Color.Parse("#CCF5F5F7"));
-                dock.BorderBrush = new SolidColorBrush(Color.Parse("#33FFFFFF"));
-                dock.BorderThickness = new Thickness(1d);
-                dock.BoxShadow = new BoxShadows(new BoxShadow
-                {
-                    Blur = 22,
-                    OffsetY = 8,
-                    Color = Color.Parse("#2A000000")
-                });
-                dock.Margin = new Thickness(20d);
-            }
-            else
-            {
-                dock.Padding = new Thickness(0d);
-                dock.CornerRadius = new CornerRadius(0d);
-                dock.Background = Brushes.Transparent;
-                dock.BorderBrush = Brushes.Transparent;
-                dock.BorderThickness = new Thickness(0d);
-                dock.BoxShadow = default;
-                dock.Margin = new Thickness(15d);
-            }
-        }
-
         if (this.FindControl<StackPanel>("PanExtraButtons") is { } stack)
             stack.Spacing = experimental ? 2d : 0d;
 
-        foreach (string name in new[]
-                 {
-                     "BtnExtraUpdateRestart", "BtnExtraBack", "BtnExtraDownload", "BtnExtraApril",
-                     "BtnExtraShutdown", "BtnExtraLog", "BtnExtraMusic"
-                 })
+        foreach (string name in ExtraButtonNames)
         {
             if (this.FindControl<MyExtraButton>(name) is { } extra)
                 extra.UseGlassChrome = experimental;
+        }
+
+        // Glass dock only paints when at least one FAB is showing; empty padding was a stray box.
+        RefreshExtraDockChrome();
+    }
+
+    private static readonly string[] ExtraButtonNames =
+    [
+        "BtnExtraUpdateRestart", "BtnExtraBack", "BtnExtraDownload", "BtnExtraApril",
+        "BtnExtraShutdown", "BtnExtraLog", "BtnExtraMusic"
+    ];
+
+    private bool HasVisibleExtraButton()
+    {
+        foreach (string name in ExtraButtonNames)
+        {
+            if (this.FindControl<MyExtraButton>(name) is { } extra &&
+                (extra.Show || (extra.IsVisible && extra.Height > 0.5d)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Frosted dock chrome only when experimental UI is on <em>and</em> at least one FAB is visible.
+    /// Avoids a tiny empty glass rectangle in the corner.
+    /// </summary>
+    private void RefreshExtraDockChrome()
+    {
+        if (this.FindControl<Border>("PanExtraDock") is not { } dock)
+            return;
+
+        bool experimental = _experimentalChromeApplied;
+        bool showChrome = experimental && HasVisibleExtraButton();
+
+        if (showChrome)
+        {
+            dock.Padding = new Thickness(6d, 8d);
+            dock.CornerRadius = new CornerRadius(26d);
+            dock.Background = new SolidColorBrush(Color.Parse("#CCF5F5F7"));
+            dock.BorderBrush = new SolidColorBrush(Color.Parse("#33FFFFFF"));
+            dock.BorderThickness = new Thickness(1d);
+            dock.BoxShadow = new BoxShadows(new BoxShadow
+            {
+                Blur = 22,
+                OffsetY = 8,
+                Color = Color.Parse("#2A000000")
+            });
+            dock.Margin = new Thickness(20d);
+            dock.IsHitTestVisible = true;
+        }
+        else
+        {
+            dock.Padding = new Thickness(0d);
+            dock.CornerRadius = new CornerRadius(0d);
+            dock.Background = Brushes.Transparent;
+            dock.BorderBrush = Brushes.Transparent;
+            dock.BorderThickness = new Thickness(0d);
+            dock.BoxShadow = default;
+            dock.Margin = experimental ? new Thickness(20d) : new Thickness(15d);
+            // Children still receive hits when they appear; dock itself has no surface.
+            dock.IsHitTestVisible = true;
         }
     }
 
@@ -3571,6 +3604,7 @@ public partial class MainWindow : Window, IDisposable
                 TaskManagerTaskState.Failed or TaskManagerTaskState.Canceled);
         button.Progress = hasActiveTask ? CreateTaskManagerSummary().Progress : hasVisibleTask ? 1d : 0d;
         button.Show = hasVisibleTask && !_isTaskManagerVisible;
+        RefreshExtraDockChrome();
     }
 
     private string CreateTaskId(string kind, string identity)
@@ -5372,6 +5406,8 @@ public partial class MainWindow : Window, IDisposable
 
         if (this.FindControl<MyExtraButton>("BtnExtraLog") is { } logBtn)
             logBtn.Show = _isGameRunning;
+
+        RefreshExtraDockChrome();
     }
 
     private async Task ObserveRunningGameFaultAsync(RunningGameContext context)
