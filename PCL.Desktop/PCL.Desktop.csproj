@@ -26,6 +26,9 @@
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <!-- HotSpot switches native thread contexts during JNI_CreateJavaVM. Windows CET shadow stacks
+         reject those continuations and terminate the isolated host with FAST_FAIL_INVALID_CONTROL_STACK. -->
+    <CETCompat Condition="$([MSBuild]::IsOSPlatform('Windows'))">false</CETCompat>
     <PclRuntimeVariant Condition="'$(PclRuntimeVariant)' == ''">SelfContained</PclRuntimeVariant>
     <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
     <PclHpatchzPath Condition="'$(PclHpatchzPath)' != ''">$([System.IO.Path]::GetFullPath('$(PclHpatchzPath)'))</PclHpatchzPath>
@@ -95,7 +98,7 @@
     <PackageReference Include="Avalonia.Markup.Xaml.Loader" Version="12.1.0" />
     <PackageReference Include="Avalonia.Wayland" Version="12.1.0" />
     <PackageReference Include="FluentValidation" Version="12.1.1" />
-    <PackageReference Include="Jvm.NET" Version="2.2.0" />
+    <ProjectReference Include="../external/Jvm.NET/src/Jvm.NET/Jvm.NET.csproj" />
     <PackageReference Include="LibVLCSharp" Version="3.10.0" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23.1"
                       Condition="('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('Windows'))) OR $([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-'))" />
