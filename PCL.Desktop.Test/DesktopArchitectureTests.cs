@@ -635,7 +635,11 @@ public sealed class DesktopArchitectureTests
 
         StringAssert.Contains(reusable, "PCL.Desktop/PCL.Desktop.csproj");
         StringAssert.Contains(reusable, "PublishSingleFile=true");
-        StringAssert.Contains(reusable, "gh release download --repo PCL-N-Edition/PCL.Plugin");
+        // Desktop ProjectReference → external/Jvm.NET; CI must materialize the submodule.
+        StringAssert.Contains(reusable, "submodules: recursive");
+        // Download may use a $repo variable; require both the gh command and plugin repo id.
+        StringAssert.Contains(reusable, "gh release download");
+        StringAssert.Contains(reusable, "PCL-N-Edition/PCL.Plugin");
         StringAssert.Contains(reusable, "plugin_tag:");
         StringAssert.Contains(reusable, "required: true");
         foreach (string workflow in new[] { ci, stable, beta })
