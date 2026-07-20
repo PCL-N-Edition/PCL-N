@@ -340,10 +340,12 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
         if (string.IsNullOrWhiteSpace(id))
             return [];
 
-        // Paginate: Sodium alone has 100+ versions; limit=100 truncates everything at/before ~1.21
-        // for projects that also ship 26.x snapshots (user reports: cannot download Sodium ≤1.21).
+        // Paginate: Sodium alone has 200+ version files. limit=100 alone is not enough —
+        // and Modrinth's /project/{id}/version list can silently omit older IDs even after
+        // full offset pagination (Sodium: ~194 of 219; drops 1.16–1.19). Those still appear
+        // in project.versions and via game_versions filter / /versions?ids= batch.
         const int pageSize = 100;
-        const int maxPages = 20; // hard cap 2000 versions
+        const int maxPages = 20; // hard cap 2000 versions from the list endpoint
         List<CommunityResourceVersion> versions = [];
         HashSet<string> seenIds = new(StringComparer.OrdinalIgnoreCase);
 
@@ -378,59 +380,188 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
             foreach (JsonElement version in document.RootElement.EnumerateArray())
             {
                 pageCount++;
-                if (version.ValueKind != JsonValueKind.Object)
-                    continue;
-
-                string versionId = ReadString(version, "id");
-                if (!string.IsNullOrWhiteSpace(versionId) && !seenIds.Add(versionId))
-                    continue;
-
-                List<CommunityResourceDownloadFile> files = [];
-                if (TryGetProperty(version, "files", out JsonElement filesEl) && filesEl.ValueKind == JsonValueKind.Array)
+                if (TryParseModrinthVersion(version, seenIds, out CommunityResourceVersion? parsed) &&
+                    parsed is not null)
                 {
-                    foreach (JsonElement file in filesEl.EnumerateArray())
-                    {
-                        if (file.ValueKind != JsonValueKind.Object)
-                            continue;
-                        string url = ReadString(file, "url");
-                        string fileName = ReadString(file, "filename");
-                        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(fileName))
-                            continue;
-                        long size = 0;
-                        if (TryGetProperty(file, "size", out JsonElement sizeEl))
-                            sizeEl.TryGetInt64(out size);
-                        files.Add(CreateDownloadFile(
-                            fileName,
-                            url,
-                            size,
-                            versionId,
-                            ReadString(version, "name")));
-                    }
+                    versions.Add(parsed);
                 }
-
-                if (files.Count == 0)
-                    continue;
-
-                CommunityResourceVersion parsed = new(
-                    versionId,
-                    ReadString(version, "name"),
-                    ReadString(version, "version_number"),
-                    NullIfWhiteSpace(ReadString(version, "changelog")),
-                    ReadDateTimeOffset(version, "date_published"),
-                    ReadStringArray(version, "game_versions"),
-                    ReadStringArray(version, "loaders"),
-                    files)
-                {
-                    Dependencies = ReadModrinthDependencies(version)
-                };
-                versions.Add(parsed);
             }
 
             if (pageCount < pageSize)
                 break;
         }
 
+        // Filtered list-by-game-version already returns legacy files (e.g. Sodium 1.16.3).
+        // Unfiltered lists still omit them — reconcile against project.versions.
+        if (string.IsNullOrWhiteSpace(options.GameVersion))
+        {
+            await AppendOmittedProjectVersionsAsync(id, versions, seenIds, options, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         return versions;
+    }
+
+    /// <summary>
+    /// Modrinth sometimes omits older version IDs from <c>/project/.../version</c> pagination
+    /// while still listing them on the project and serving them via <c>/versions?ids=</c>.
+    /// </summary>
+    private async Task AppendOmittedProjectVersionsAsync(
+        string projectId,
+        List<CommunityResourceVersion> versions,
+        HashSet<string> seenIds,
+        CommunitySearchOptions options,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> projectVersionIds =
+            await GetProjectVersionIdsAsync(projectId, cancellationToken).ConfigureAwait(false);
+        if (projectVersionIds.Count == 0)
+            return;
+
+        List<string> missing = [];
+        foreach (string versionId in projectVersionIds)
+        {
+            if (string.IsNullOrWhiteSpace(versionId) || seenIds.Contains(versionId))
+                continue;
+            missing.Add(versionId);
+        }
+
+        if (missing.Count == 0)
+            return;
+
+        string? loaderFilter = null;
+        if (!string.IsNullOrWhiteSpace(options.Loader) &&
+            !string.Equals(options.Loader, "any", StringComparison.OrdinalIgnoreCase))
+        {
+            loaderFilter = options.Loader.Trim();
+        }
+
+        // Modrinth accepts a JSON array of version ids; keep batches modest for URL length.
+        const int batchSize = 50;
+        for (int offset = 0; offset < missing.Count; offset += batchSize)
+        {
+            int count = Math.Min(batchSize, missing.Count - offset);
+            string idsJson = "[" + string.Join(
+                ',',
+                missing.Skip(offset).Take(count).Select(static v => "\"" + v.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"")) + "]";
+            string requestUrl = "https://api.modrinth.com/v2/versions?ids=" + Uri.EscapeDataString(idsJson);
+            using HttpResponseMessage response = await GetWithFallbackAsync(requestUrl, cancellationToken)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                continue;
+
+            await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+                continue;
+
+            foreach (JsonElement version in document.RootElement.EnumerateArray())
+            {
+                if (!TryParseModrinthVersion(version, seenIds, out CommunityResourceVersion? parsed) ||
+                    parsed is null)
+                {
+                    continue;
+                }
+
+                if (loaderFilter is not null &&
+                    !parsed.Loaders.Any(l => string.Equals(l, loaderFilter, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                versions.Add(parsed);
+            }
+        }
+    }
+
+    private async Task<IReadOnlyList<string>> GetProjectVersionIdsAsync(
+        string projectId,
+        CancellationToken cancellationToken)
+    {
+        string requestUrl = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(projectId);
+        using HttpResponseMessage response = await GetWithFallbackAsync(requestUrl, cancellationToken)
+            .ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            return [];
+
+        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken)
+            .ConfigureAwait(false);
+        using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (!TryGetProperty(document.RootElement, "versions", out JsonElement versionsEl) ||
+            versionsEl.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        List<string> ids = [];
+        foreach (JsonElement item in versionsEl.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                string id = item.GetString() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(id))
+                    ids.Add(id);
+            }
+        }
+
+        return ids;
+    }
+
+    private static bool TryParseModrinthVersion(
+        JsonElement version,
+        HashSet<string> seenIds,
+        out CommunityResourceVersion? parsed)
+    {
+        parsed = null;
+        if (version.ValueKind != JsonValueKind.Object)
+            return false;
+
+        string versionId = ReadString(version, "id");
+        if (string.IsNullOrWhiteSpace(versionId) || !seenIds.Add(versionId))
+            return false;
+
+        List<CommunityResourceDownloadFile> files = [];
+        if (TryGetProperty(version, "files", out JsonElement filesEl) && filesEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement file in filesEl.EnumerateArray())
+            {
+                if (file.ValueKind != JsonValueKind.Object)
+                    continue;
+                string url = ReadString(file, "url");
+                string fileName = ReadString(file, "filename");
+                if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(fileName))
+                    continue;
+                long size = 0;
+                if (TryGetProperty(file, "size", out JsonElement sizeEl))
+                    sizeEl.TryGetInt64(out size);
+                files.Add(CreateDownloadFile(
+                    fileName,
+                    url,
+                    size,
+                    versionId,
+                    ReadString(version, "name")));
+            }
+        }
+
+        if (files.Count == 0)
+            return false;
+
+        parsed = new CommunityResourceVersion(
+            versionId,
+            ReadString(version, "name"),
+            ReadString(version, "version_number"),
+            NullIfWhiteSpace(ReadString(version, "changelog")),
+            ReadDateTimeOffset(version, "date_published"),
+            ReadStringArray(version, "game_versions"),
+            ReadStringArray(version, "loaders"),
+            files)
+        {
+            Dependencies = ReadModrinthDependencies(version)
+        };
+        return true;
     }
 
     public async Task<CommunityResourceEntry?> GetProjectAsync(

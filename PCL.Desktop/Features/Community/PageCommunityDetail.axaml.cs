@@ -304,20 +304,12 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
 
         panVersion.Children.Add(CreateFilterLabel("版本"));
         AddChip(panVersion, "全部", isVersion: true, selected: _instanceFilter is null);
-        // Cap chips for layout, but keep enough room for legacy MC lines (Sodium spans 1.16→26.x).
-        foreach (string v in orderedVersions.Take(48))
+        // Show all known game versions (Sodium alone lists ~38 from 1.16.3→26.x). Chips wrap.
+        foreach (string v in orderedVersions)
         {
             bool selected = _instanceFilter is not null &&
                             string.Equals(v, _instanceFilter, StringComparison.OrdinalIgnoreCase);
             AddChip(panVersion, v, isVersion: true, selected: selected);
-        }
-
-        // Preferred version not in the chip cap still needs a chip so the user can select it.
-        if (_instanceFilter is { Length: > 0 } preferred &&
-            !orderedVersions.Take(48).Any(v => string.Equals(v, preferred, StringComparison.OrdinalIgnoreCase)) &&
-            orderedVersions.Any(v => string.Equals(v, preferred, StringComparison.OrdinalIgnoreCase)))
-        {
-            AddChip(panVersion, preferred, isVersion: true, selected: true);
         }
 
         // Loader chips (mods / modpacks)

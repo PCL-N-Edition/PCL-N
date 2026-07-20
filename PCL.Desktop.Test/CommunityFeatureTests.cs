@@ -418,6 +418,93 @@ public sealed class CommunityFeatureTests
     }
 
     [TestMethod]
+    public async Task ModrinthCatalog_ShouldBackfillVersionsOmittedFromListPagination()
+    {
+        // Reproduces Modrinth Sodium: /project/.../version stops at recent releases while
+        // project.versions still lists legacy IDs (1.16.x) only retrievable via /versions?ids=.
+        List<string> requested = [];
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            string query = request.RequestUri!.Query;
+            requested.Add(path + query);
+            if (path.EndsWith("/version", StringComparison.Ordinal))
+            {
+                return JsonResponse(
+                    """
+                    [{
+                      "id": "new-only",
+                      "name": "Sodium 0.6",
+                      "version_number": "0.6.0",
+                      "date_published": "2026-01-01T00:00:00Z",
+                      "game_versions": ["1.21.1"],
+                      "loaders": ["fabric"],
+                      "files": [{
+                        "filename": "sodium-0.6.jar",
+                        "url": "https://cdn.modrinth.com/sodium-0.6.jar",
+                        "size": 10
+                      }]
+                    }]
+                    """);
+            }
+
+            if (path.EndsWith("/project/AANobbMI", StringComparison.Ordinal) ||
+                path.EndsWith("/project/AANobbMI/", StringComparison.Ordinal) ||
+                path == "/v2/project/AANobbMI")
+            {
+                return JsonResponse(
+                    """
+                    {
+                      "id": "AANobbMI",
+                      "slug": "sodium",
+                      "title": "Sodium",
+                      "description": "Fast",
+                      "project_type": "mod",
+                      "downloads": 1,
+                      "versions": ["new-only", "legacy-116"]
+                    }
+                    """);
+            }
+
+            if (path == "/v2/versions")
+            {
+                StringAssert.Contains(Uri.UnescapeDataString(query), "legacy-116");
+                return JsonResponse(
+                    """
+                    [{
+                      "id": "legacy-116",
+                      "name": "Sodium 0.1",
+                      "version_number": "mc1.16.3-0.1.0",
+                      "date_published": "2021-01-03T00:00:00Z",
+                      "game_versions": ["1.16.3", "1.16.4", "1.16.5"],
+                      "loaders": ["fabric"],
+                      "files": [{
+                        "filename": "sodium-0.1.jar",
+                        "url": "https://cdn.modrinth.com/sodium-0.1.jar",
+                        "size": 5
+                      }]
+                    }]
+                    """);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+
+        using ModrinthCommunityResourceCatalog catalog = new(client, ownsClient: false);
+        CommunityResourceEntry entry = new("AANobbMI", "sodium", "Sodium", "Fast", "mod", null, 1L, null);
+
+        IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(entry);
+
+        Assert.AreEqual(2, versions.Count);
+        Assert.IsTrue(versions.Any(v => v.VersionId == "new-only"));
+        Assert.IsTrue(versions.Any(v => v.VersionId == "legacy-116"));
+        CollectionAssert.Contains(
+            versions.Single(v => v.VersionId == "legacy-116").GameVersions.ToArray(),
+            "1.16.3");
+        Assert.IsTrue(requested.Any(r => r.Contains("/v2/versions", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public void FavoritesStore_ShouldPersistAndToggleBySourceAndProjectId()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcln-favorites-test-" + Guid.NewGuid().ToString("N"));
