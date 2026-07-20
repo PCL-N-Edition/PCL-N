@@ -51,7 +51,7 @@ internal static class MinecraftLaunchPlanFactory
         int javaMajorVersion = await ResolveJavaMajorVersionAsync(javaExecutablePath, cancellationToken)
             .ConfigureAwait(false);
 
-        return await MinecraftProcessLaunchService.CreatePlanAsync(
+        MinecraftProcessLaunchPlan plan = await MinecraftProcessLaunchService.CreatePlanAsync(
             new MinecraftProcessLaunchRequest
             {
                 VersionId = instance.Name,
@@ -100,6 +100,52 @@ internal static class MinecraftLaunchPlanFactory
                     settings.GetTextOption("LaunchArgumentInfo", LauncherSettingDefaults.GetText("LaunchArgumentInfo"))) ?? "PCL-N"
             },
             cancellationToken).ConfigureAwait(false);
+
+        // Traditional process launch (no JVM host): replace authlib jar on disk for third-party.
+        // JVM host patches again at Host start with the live loopback bridge URL.
+        if (!useJvmHost &&
+            profile.Kind == LaunchLoginProfileKind.ThirdParty &&
+            !string.IsNullOrWhiteSpace(authlibServer))
+        {
+            plan = ApplyAuthlibJarReplacement(plan, AuthlibPatchProfile.ForYggdrasilServer(authlibServer));
+        }
+
+        return plan;
+    }
+
+    /// <summary>
+    /// Swaps classpath authlib jars for ASM-patched copies and drops javaagent flags when successful.
+    /// </summary>
+    private static MinecraftProcessLaunchPlan ApplyAuthlibJarReplacement(
+        MinecraftProcessLaunchPlan plan,
+        AuthlibPatchProfile profile)
+    {
+        IReadOnlyList<string> original = plan.ClasspathEntries;
+        string[] patched = AuthlibJarPatcher.RewriteClasspath(original, profile);
+        if (original.SequenceEqual(patched, StringComparer.Ordinal))
+            return plan;
+
+        plan.StartInfo.Arguments = AuthlibJarPatcher.RewriteArgumentString(
+            plan.StartInfo.Arguments,
+            original,
+            patched);
+        plan.StartInfo.Arguments = AuthlibJarPatcher.StripJavaAgentArguments(plan.StartInfo.Arguments);
+
+        MinecraftJvmHostRequest? jvmHost = plan.JvmHostRequest;
+        if (jvmHost is not null)
+        {
+            jvmHost = jvmHost with
+            {
+                ClasspathEntries = patched,
+                VmArguments = AuthlibJarPatcher.StripJavaAgentVmArguments(jvmHost.VmArguments)
+            };
+        }
+
+        return plan with
+        {
+            ClasspathEntries = patched,
+            JvmHostRequest = jvmHost
+        };
     }
 
     public static async Task RunPreLaunchCommandAsync(
@@ -314,14 +360,16 @@ internal static class MinecraftLaunchPlanFactory
         if (profile.Kind != LaunchLoginProfileKind.ThirdParty || string.IsNullOrWhiteSpace(profile.AuthServer))
             return (null, null, null);
 
-        // Always attach authlib-injector for third-party profiles — including experimental
-        // JVM host. The loopback session bridge alone does not rewrite authlib endpoints
-        // the way the javaagent does, so multiplayer join / profile verify fails without it.
-        _ = useJvmHost;
         AuthlibInjectorService service = new();
         string authServer = AuthlibInjectorService.NormalizeAuthServer(profile.AuthServer);
         string metadata = await service.GetServerMetadataAsync(authServer, cancellationToken)
             .ConfigureAwait(false);
+
+        // JVM host + classic launches both prefer on-disk authlib jar ASM patch.
+        // Keep downloading the injector jar only as a classic-process fallback when patch fails.
+        if (useJvmHost)
+            return (null, authServer, metadata);
+
         string authlibPath = await service.EnsureAsync(GetAuthlibInjectorCachePath(), cancellationToken)
             .ConfigureAwait(false);
         return (authlibPath, authServer, metadata);

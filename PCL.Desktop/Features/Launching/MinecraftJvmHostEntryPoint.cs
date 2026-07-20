@@ -41,26 +41,44 @@ internal static class MinecraftJvmHostEntryPoint
             ValidateRequest(request);
             Environment.CurrentDirectory = request.WorkingDirectory;
 
-            // Offline still needs the loopback session bridge. Third-party uses authlib-injector
-            // javaagent (in VmArguments); do not also rewrite session hosts or the two fight.
+            // Prefer offline ASM patch of authlib.jar over javaagent (works with JNI-only host).
             bool hasAuthlibAgent = request.VmArguments.Any(static argument =>
                 argument.StartsWith("-javaagent:", StringComparison.OrdinalIgnoreCase) &&
                 argument.Contains("authlib", StringComparison.OrdinalIgnoreCase));
-            bool useSessionBridge = request.IdentityMode switch
-            {
-                MinecraftJvmHostIdentityMode.Offline => true,
-                MinecraftJvmHostIdentityMode.ThirdParty => !hasAuthlibAgent,
-                _ => false
-            };
+            bool useSessionBridge = request.IdentityMode is
+                MinecraftJvmHostIdentityMode.Offline or MinecraftJvmHostIdentityMode.ThirdParty;
 
             using MinecraftSessionBridge? bridge = useSessionBridge
                 ? MinecraftSessionBridge.Start(request, lifecycle)
                 : null;
             List<string> vmArguments = [.. request.VmArguments];
+            string[] classpath = request.ClasspathEntries;
+
             if (bridge is not null)
             {
                 bridge.AppendJvmProperties(vmArguments);
                 lifecycle.Send("BridgeReady", bridge.BaseUrl);
+
+                // Replace classpath authlib with a jar whose constants point at this bridge,
+                // and relax signature / texture domain checks (JVMTI is disabled in safe mode).
+                AuthlibPatchProfile patchProfile = request.IdentityMode == MinecraftJvmHostIdentityMode.ThirdParty &&
+                                                   !string.IsNullOrWhiteSpace(request.AuthServer)
+                    ? AuthlibPatchProfile.ForYggdrasilServer(request.AuthServer!)
+                    : AuthlibPatchProfile.ForLoopbackBridge(bridge.BaseUrl);
+                // For third-party: bake Yggdrasil server into authlib, then also set services host via bridge props.
+                // Re-patch with bridge URLs so session/services go through 127.0.0.1 and ygg join is proxied.
+                if (request.IdentityMode == MinecraftJvmHostIdentityMode.ThirdParty)
+                    patchProfile = AuthlibPatchProfile.ForLoopbackBridge(bridge.BaseUrl);
+
+                string[] patched = AuthlibJarPatcher.RewriteClasspath(classpath, patchProfile);
+                if (!classpath.SequenceEqual(patched, StringComparer.Ordinal))
+                {
+                    classpath = patched;
+                    // Jar patch supersedes javaagent — strip agent flags so they cannot fight rewrites.
+                    vmArguments = AuthlibJarPatcher.StripJavaAgentVmArguments(vmArguments).ToList();
+                    hasAuthlibAgent = false;
+                    lifecycle.Send("AuthlibPatched", "已用 ASM 修补并替换 classpath 中的 Authlib jar");
+                }
             }
             else if (hasAuthlibAgent)
             {
@@ -70,9 +88,9 @@ internal static class MinecraftJvmHostEntryPoint
             RegisterJdkImplementation(request.JavaMajorVersion);
             lifecycle.Send("JvmStarting", Path.GetDirectoryName(request.JavaExecutablePath) ?? request.JavaExecutablePath);
             string jdkBinPath = ResolveJdkBinPath(request.JavaExecutablePath);
-            JvmInitializationOptions options = CreateInitializationOptions(request, vmArguments, jdkBinPath);
+            JvmInitializationOptions options = CreateInitializationOptions(request, vmArguments, jdkBinPath, classpath);
             lifecycle.Send("JvmArgumentsPrepared", FormatArgumentSummary(vmArguments));
-            lifecycle.Send("ClasspathPrepared", FormatClasspathSummary(request.ClasspathEntries));
+            lifecycle.Send("ClasspathPrepared", FormatClasspathSummary(classpath));
             string? modulePath = vmArguments.FirstOrDefault(argument =>
                 argument.StartsWith("--module-path=", StringComparison.Ordinal));
             if (modulePath is not null)
@@ -112,12 +130,13 @@ internal static class MinecraftJvmHostEntryPoint
     internal static JvmInitializationOptions CreateInitializationOptions(
         MinecraftJvmHostRequest request,
         IReadOnlyList<string> vmArguments,
-        string jdkBinPath) => new()
+        string jdkBinPath,
+        IReadOnlyList<string>? classpathOverride = null) => new()
     {
         JdkBinPath = jdkBinPath,
         Version = request.JavaMajorVersion,
         VmArguments = vmArguments,
-        Classpath = request.ClasspathEntries,
+        Classpath = classpathOverride ?? request.ClasspathEntries,
         EnableBytecodeModification = false,
         EnableEventListening = false,
         RequireJvmti = false,
