@@ -104,12 +104,8 @@ public partial class MainWindow : Window, IDisposable
     private readonly CommunityFeatureSurface _communitySurface;
     private readonly TaskManagerSurface _taskManagerSurface;
     private readonly InstancesManageSurface _instancesManage;
+    private readonly LaunchLoginSurface _launchLoginSurface;
     private bool _isDisposed;
-    private PageLoginProfile? _loginProfilePage;
-    private PageLoginProfileSkin? _loginProfileSkinPage;
-    private PageLoginMs? _loginMsPage;
-    private PageLoginAuth? _loginAuthPage;
-    private PageLoginOffline? _loginOfflinePage;
     private PageDownloadLeft? _downloadLeft;
     private PageDownloadInstall? _downloadInstallPage;
     private PageCommunityLeft? _communityLeft;
@@ -196,6 +192,7 @@ public partial class MainWindow : Window, IDisposable
         _communitySurface = DesktopCompositionRoot.GetRequiredService<CommunityFeatureSurface>();
         _taskManagerSurface = DesktopCompositionRoot.GetRequiredService<TaskManagerSurface>();
         _instancesManage = DesktopCompositionRoot.GetRequiredService<InstancesManageSurface>();
+        _launchLoginSurface = DesktopCompositionRoot.GetRequiredService<LaunchLoginSurface>();
         _startMinecraft.Bind(async (request, _) =>
             await StartMinecraftAsync(
                 request.Home,
@@ -2765,7 +2762,7 @@ public partial class MainWindow : Window, IDisposable
                 SelectNavRoute(LaunchRoute, animate: true);
                 _launchLeft ??= CreateLaunchLeftPage();
                 ApplyLaunchLoginPage(_launchLeft, PageLaunchLeft.LaunchLoginPageType.Auth);
-                _loginAuthPage?.SetServer(authServer);
+                _launchLoginSurface.AuthPage?.SetServer(authServer);
             },
             ExportZipAsync = ExportInstanceZipAsync,
             ImportExportConfigAsync = ImportInstanceRulesConfigAsync,
@@ -3619,81 +3616,53 @@ public partial class MainWindow : Window, IDisposable
             "PageSetupLeft PageChange");
     }
 
-    private void ApplyLaunchLoginPage(ILaunchHomeSurface launchPage, PageLaunchLeft.LaunchLoginPageType type)
+    private void WireLaunchLoginSurface()
     {
-        switch (type)
+        _launchLoginSurface.WireOnce(this, new LaunchLoginBindings
         {
-            case PageLaunchLeft.LaunchLoginPageType.ProfileSkin:
-                if (_loginProfiles.Count == 0)
-                {
-                    launchPage.SetSelectedProfilePresent(false);
-                    ApplyLaunchLoginPage(launchPage, PageLaunchLeft.LaunchLoginPageType.Profile);
-                    return;
-                }
-
-                LoginProfileInfo selectedProfile = _loginProfiles[0];
-                _loginProfileSkinPage ??= CreateProfileSkinPage(launchPage);
-                _loginProfileSkinPage.SetProfile(selectedProfile);
-                launchPage.SetLoginPage(_loginProfileSkinPage, animate: true, PageLaunchLeft.LaunchLoginPageType.ProfileSkin);
-                break;
-            case PageLaunchLeft.LaunchLoginPageType.Profile:
-                _loginProfilePage ??= CreateProfilePage(launchPage);
-                _loginProfilePage.SetProfiles(_loginProfiles);
-                launchPage.SetLoginPage(_loginProfilePage, animate: true, PageLaunchLeft.LaunchLoginPageType.Profile);
-                break;
-            case PageLaunchLeft.LaunchLoginPageType.Ms:
-                _loginMsPage ??= CreateMicrosoftLoginPage(launchPage);
-                launchPage.SetLoginPage(_loginMsPage, animate: true, PageLaunchLeft.LaunchLoginPageType.Ms);
-                break;
-            case PageLaunchLeft.LaunchLoginPageType.Auth:
-                _loginAuthPage ??= CreateAuthLoginPage(launchPage);
-                launchPage.SetLoginPage(_loginAuthPage, animate: true, PageLaunchLeft.LaunchLoginPageType.Auth);
-                break;
-            case PageLaunchLeft.LaunchLoginPageType.Offline:
-                _loginOfflinePage ??= CreateOfflineLoginPage(launchPage);
-                _loginOfflinePage.SetSkinSources(_loginProfiles);
-                launchPage.SetLoginPage(_loginOfflinePage, animate: true, PageLaunchLeft.LaunchLoginPageType.Offline);
-                break;
-            default:
-                _loginProfilePage ??= CreateProfilePage(launchPage);
-                _loginProfilePage.SetProfiles(_loginProfiles);
-                launchPage.SetLoginPage(_loginProfilePage, animate: true, PageLaunchLeft.LaunchLoginPageType.Profile);
-                break;
-        }
+            AppendLog = message => _launchRight?.AppendLog(message),
+            OnProfileSelected = (launchPage, profile) =>
+            {
+                _loginProfiles.Remove(profile);
+                _loginProfiles.Insert(0, profile);
+                launchPage.SetSelectedProfilePresent(true);
+                launchPage.RefreshPage(anim: true);
+                SaveProfilesInBackground("保存账户档案选择");
+                _launchRight?.AppendLog($"已选择账户档案 {profile.Username}。");
+            },
+            ConfirmDeleteProfile = (page, launchPage, profile) =>
+            {
+                ShowConfirmDialog(
+                    "删除账户档案",
+                    $"确定要删除账户档案“{profile.Username}”吗？\n\n删除后需要重新登录才能再次使用此账户。",
+                    confirmed =>
+                    {
+                        if (confirmed)
+                            RemoveLoginProfile(page, launchPage, profile);
+                    },
+                    "删除",
+                    "取消",
+                    isWarn: true);
+            },
+            ShowProfileTypeSelector = ShowProfileTypeSelector,
+            ShowImportExportSelector = ShowProfileImportExportSelector,
+            OpenAppearance = OpenProfileAppearancePage,
+            SaveSkinAsync = SaveProfileSkinAsync,
+            RefreshSkinAsync = RefreshProfileSkinAsync,
+            OpenSecurity = OpenProfileSecurityPage,
+            OpenNameEditor = OpenProfileNamePage,
+            OpenUrl = OpenExternalUrl,
+            StartMicrosoftLoginAsync = StartMicrosoftLoginAsync,
+            OpenAuthAccountPage = OpenAuthAccountPage,
+            StartThirdPartyLoginAsync = StartThirdPartyAuthLoginAsync,
+            CreateOfflineProfile = CreateOfflineLoginProfile
+        });
     }
 
-    private PageLoginProfile CreateProfilePage(ILaunchHomeSurface launchPage)
+    private void ApplyLaunchLoginPage(ILaunchHomeSurface launchPage, PageLaunchLeft.LaunchLoginPageType type)
     {
-        PageLoginProfile page = new();
-        page.ProfileSelected += (_, profile) =>
-        {
-            _loginProfiles.Remove(profile);
-            _loginProfiles.Insert(0, profile);
-            launchPage.SetSelectedProfilePresent(true);
-            launchPage.RefreshPage(anim: true);
-            SaveProfilesInBackground("保存账户档案选择");
-            _launchRight?.AppendLog($"已选择账户档案 {profile.Username}。");
-        };
-        page.ProfileDeleteRequested += (_, profile) =>
-        {
-            ShowConfirmDialog(
-                "删除账户档案",
-                $"确定要删除账户档案“{profile.Username}”吗？\n\n删除后需要重新登录才能再次使用此账户。",
-                confirmed =>
-                {
-                    if (confirmed)
-                        RemoveLoginProfile(page, launchPage, profile);
-                },
-                "删除",
-                "取消",
-                isWarn: true);
-        };
-        page.CreateProfileRequested += (_, _) =>
-        {
-            ShowProfileTypeSelector(launchPage);
-        };
-        page.ImportExportRequested += (_, _) => ShowProfileImportExportSelector(page, launchPage);
-        return page;
+        WireLaunchLoginSurface();
+        _launchLoginSurface.Apply(launchPage, type, _loginProfiles);
     }
 
     private void RemoveLoginProfile(
@@ -3713,21 +3682,27 @@ public partial class MainWindow : Window, IDisposable
         HandleStatusMessage($"已删除账户档案 {profile.Username}。");
     }
 
-    private PageLoginProfileSkin CreateProfileSkinPage(ILaunchHomeSurface launchPage)
+    private void CreateOfflineLoginProfile(ILaunchHomeSurface launchPage, OfflineProfileCreateRequest request)
     {
-        PageLoginProfileSkin page = new();
-        page.ChangeProfileRequested += (_, _) =>
-        {
-            launchPage.SetSelectedProfilePresent(false);
-            launchPage.RefreshPage(anim: true);
-        };
-        page.ChangeSkinRequested += (_, _) => OpenProfileAppearancePage(page.Profile, "更换皮肤");
-        page.SaveSkinRequested += (_, _) => _ = SaveProfileSkinAsync(page.Profile);
-        page.RefreshSkinRequested += (_, _) => _ = RefreshProfileSkinAsync(page);
-        page.ChangeCapeRequested += (_, _) => OpenProfileAppearancePage(page.Profile, "更换披风");
-        page.EditPasswordRequested += (_, _) => OpenProfileSecurityPage(page.Profile);
-        page.EditNameRequested += (_, _) => OpenProfileNamePage(page.Profile);
-        return page;
+        string info = string.IsNullOrWhiteSpace(request.SkinSourceUuid)
+            ? "离线登录"
+            : $"离线登录 · 借用 {request.SkinSourceName}";
+        LoginProfileInfo profile = new(
+            request.Username,
+            info,
+            LaunchLoginProfileKind.Offline,
+            Uuid: request.Uuid,
+            SvgIcon: "lucide/user");
+
+        _loginProfiles.RemoveAll(existing =>
+            existing.Kind == LaunchLoginProfileKind.Offline &&
+            string.Equals(existing.Uuid, profile.Uuid, StringComparison.OrdinalIgnoreCase));
+        _loginProfiles.Insert(0, profile);
+        _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, profile);
+        launchPage.SetSelectedProfilePresent(true);
+        launchPage.RefreshPage(anim: true);
+        SaveProfilesInBackground("保存离线账户档案");
+        _launchRight?.AppendLog($"已创建并选中离线档案 {profile.Username}。");
     }
 
     private void OpenProfileAppearancePage(LoginProfileInfo? profile, string action)
@@ -3794,8 +3769,8 @@ public partial class MainWindow : Window, IDisposable
                 source.Kind == LaunchLoginProfileKind.ThirdParty ? source.AuthServer : null);
             LoginProfileInfo updated = profile with { SkinAddress = skin };
             ReplaceLoginProfile(profile, updated);
-            _loginProfilePage?.SetProfiles(_loginProfiles, updated);
-            _loginProfileSkinPage?.SetProfile(updated);
+            _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
+            _launchLoginSurface.ProfileSkinPage?.SetProfile(updated);
             SaveProfilesInBackground("借用正版皮肤");
             HandleStatusMessage($"已为 {updated.Username} 借用 {source.Username} 的皮肤。");
         });
@@ -3812,8 +3787,8 @@ public partial class MainWindow : Window, IDisposable
 
         LoginProfileInfo updated = profile with { SkinAddress = path };
         ReplaceLoginProfile(profile, updated);
-        _loginProfilePage?.SetProfiles(_loginProfiles, updated);
-        _loginProfileSkinPage?.SetProfile(updated);
+        _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
+        _launchLoginSurface.ProfileSkinPage?.SetProfile(updated);
         SaveProfilesInBackground("更新离线皮肤");
         ShowTextDialog(action, "已使用本地皮肤文件：\n" + path, "知道了");
     }
@@ -3894,8 +3869,8 @@ public partial class MainWindow : Window, IDisposable
                 SkinAddress = skinUrl ?? path
             };
             ReplaceLoginProfile(profile, updated);
-            _loginProfilePage?.SetProfiles(_loginProfiles, updated);
-            _loginProfileSkinPage?.SetProfile(updated);
+            _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
+            _launchLoginSurface.ProfileSkinPage?.SetProfile(updated);
             SaveProfilesInBackground("更换 Microsoft 皮肤");
             ShowTextDialog(action, "皮肤已上传并更新。", "知道了");
         }
@@ -3985,8 +3960,8 @@ public partial class MainWindow : Window, IDisposable
                         : profile.Info
                 };
                 ReplaceLoginProfile(profile, updated);
-                _loginProfilePage?.SetProfiles(_loginProfiles, updated);
-                _loginProfileSkinPage?.SetProfile(updated);
+                _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
+                _launchLoginSurface.ProfileSkinPage?.SetProfile(updated);
                 SaveProfilesInBackground("修改离线档案");
                 HandleStatusMessage("已将离线档案重命名为 " + trimmed);
             });
@@ -4072,8 +4047,8 @@ public partial class MainWindow : Window, IDisposable
 
             LoginProfileInfo updated = profile with { Username = finalName };
             ReplaceLoginProfile(profile, updated);
-            _loginProfilePage?.SetProfiles(_loginProfiles, updated);
-            _loginProfileSkinPage?.SetProfile(updated);
+            _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
+            _launchLoginSurface.ProfileSkinPage?.SetProfile(updated);
             SaveProfilesInBackground("修改 Microsoft 玩家名");
             ShowTextDialog("修改玩家名", "玩家名已更新为：" + finalName, "知道了");
         }
@@ -4191,7 +4166,7 @@ public partial class MainWindow : Window, IDisposable
                 LoginProfileInfo refreshed = await RefreshLaunchProfileAsync(profile, CancellationToken.None)
                     .ConfigureAwait(true);
                 AddOrUpdateLoginProfile(refreshed);
-                _loginProfilePage?.SetProfiles(_loginProfiles, refreshed);
+                _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, refreshed);
                 page.SetProfile(refreshed);
                 SaveProfilesInBackground("刷新 Microsoft 皮肤");
                 ShowTextDialog("皮肤已刷新", "已从 Microsoft 重新获取档案与皮肤信息。", "知道了");
@@ -4611,8 +4586,8 @@ public partial class MainWindow : Window, IDisposable
     {
         // Prefer the profile currently shown on the login UI (not always the first saved entry).
         LoginProfileInfo? profile =
-            _loginProfileSkinPage?.Profile ??
-            _loginProfilePage?.SelectedProfile ??
+            _launchLoginSurface.ProfileSkinPage?.Profile ??
+            _launchLoginSurface.ProfilePage?.SelectedProfile ??
             _loginProfiles.FirstOrDefault();
         if (profile is null)
         {
@@ -4733,8 +4708,8 @@ public partial class MainWindow : Window, IDisposable
                         result.Profile.Kind == LaunchLoginProfileKind.Microsoft)
                     {
                         AddOrUpdateLoginProfile(result.Profile);
-                        _loginProfilePage?.SetProfiles(_loginProfiles, result.Profile);
-                        _loginProfileSkinPage?.SetProfile(result.Profile);
+                        _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, result.Profile);
+                        _launchLoginSurface.ProfileSkinPage?.SetProfile(result.Profile);
                         SaveProfilesInBackground("刷新 Microsoft 正版档案");
                     }
 
@@ -8383,17 +8358,6 @@ public partial class MainWindow : Window, IDisposable
         }, "MyMsg Background");
     }
 
-    private PageLoginMs CreateMicrosoftLoginPage(ILaunchHomeSurface launchPage)
-    {
-        PageLoginMs page = new();
-        page.BackRequested += (_, _) => launchPage.RefreshPage(anim: true);
-        page.PurchaseRequested += (_, _) => OpenExternalUrl(
-            "https://www.xbox.com/zh-cn/games/store/minecraft-java-bedrock-edition-for-pc/9nxp44l49shj");
-        page.WebsiteRequested += (_, _) => OpenExternalUrl("https://www.minecraft.net/zh-hans");
-        page.LoginRequested += (_, _) => _ = StartMicrosoftLoginAsync(page, launchPage);
-        return page;
-    }
-
     private async Task StartMicrosoftLoginAsync(PageLoginMs page, ILaunchHomeSurface launchPage)
     {
         string clientId = MicrosoftMinecraftAuthService.ResolveClientId();
@@ -8448,8 +8412,8 @@ public partial class MainWindow : Window, IDisposable
                 AccessToken: result.AccessToken,
                 RefreshToken: result.RefreshToken);
             AddOrUpdateLoginProfile(profile);
-            _loginProfilePage?.SetProfiles(_loginProfiles, profile);
-            _loginProfileSkinPage?.SetProfile(profile);
+            _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, profile);
+            _launchLoginSurface.ProfileSkinPage?.SetProfile(profile);
             launchPage.SetSelectedProfilePresent(true);
             launchPage.RefreshPage(anim: true);
             SaveProfilesInBackground("保存 Microsoft 正版档案");
@@ -8492,16 +8456,6 @@ public partial class MainWindow : Window, IDisposable
             : $"请在浏览器中打开 {website}，并按页面提示登录 Microsoft 账户。\n\n授权码：{deviceCode.UserCode}";
     }
 
-    private PageLoginAuth CreateAuthLoginPage(ILaunchHomeSurface launchPage)
-    {
-        PageLoginAuth page = new();
-        page.BackRequested += (_, _) => launchPage.RefreshPage(anim: true);
-        page.ValidationFailed += (_, message) => _launchRight?.AppendLog(message);
-        page.RegisterLinkRequested += (_, isRegisterMode) => OpenAuthAccountPage(page.CurrentServer, isRegisterMode);
-        page.LoginRequested += (_, request) => _ = StartThirdPartyAuthLoginAsync(page, request);
-        return page;
-    }
-
     private async Task StartThirdPartyAuthLoginAsync(PageLoginAuth page, AuthLoginRequest request)
     {
         _launchRight?.AppendLog($"正在连接第三方认证服务器：{request.Server}");
@@ -8527,8 +8481,8 @@ public partial class MainWindow : Window, IDisposable
                 AuthServer: result.AuthServer,
                 AccessToken: result.AccessToken);
             AddOrUpdateLoginProfile(profile);
-            _loginProfilePage?.SetProfiles(_loginProfiles, profile);
-            _loginProfileSkinPage?.SetProfile(profile);
+            _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, profile);
+            _launchLoginSurface.ProfileSkinPage?.SetProfile(profile);
             _launchLeft?.SetSelectedProfilePresent(true);
             _launchLeft?.RefreshPage(anim: true);
             SaveProfilesInBackground("保存第三方认证档案");
@@ -8567,36 +8521,6 @@ public partial class MainWindow : Window, IDisposable
         {
             ShowTextDialog("认证服务器地址无效", ex.Message, "知道了");
         }
-    }
-
-    private PageLoginOffline CreateOfflineLoginPage(ILaunchHomeSurface launchPage)
-    {
-        PageLoginOffline page = new();
-        page.BackRequested += (_, _) => launchPage.RefreshPage(anim: true);
-        page.ValidationFailed += (_, message) => _launchRight?.AppendLog(message);
-        page.ProfileCreateRequested += (_, request) =>
-        {
-            string info = string.IsNullOrWhiteSpace(request.SkinSourceUuid)
-                ? "离线登录"
-                : $"离线登录 · 借用 {request.SkinSourceName}";
-            LoginProfileInfo profile = new(
-                request.Username,
-                info,
-                LaunchLoginProfileKind.Offline,
-                Uuid: request.Uuid,
-                SvgIcon: "lucide/user");
-
-            _loginProfiles.RemoveAll(existing =>
-                existing.Kind == LaunchLoginProfileKind.Offline &&
-                string.Equals(existing.Uuid, profile.Uuid, StringComparison.OrdinalIgnoreCase));
-            _loginProfiles.Insert(0, profile);
-            _loginProfilePage?.SetProfiles(_loginProfiles, profile);
-            launchPage.SetSelectedProfilePresent(true);
-            launchPage.RefreshPage(anim: true);
-            SaveProfilesInBackground("保存离线账户档案");
-            _launchRight?.AppendLog($"已创建并选中离线档案 {profile.Username}。");
-        };
-        return page;
     }
 
     private void AddOrUpdateLoginProfile(LoginProfileInfo profile)
@@ -8705,7 +8629,7 @@ public partial class MainWindow : Window, IDisposable
             {
                 _loginProfiles.Clear();
                 _loginProfiles.AddRange(profiles);
-                _loginProfilePage?.SetProfiles(_loginProfiles);
+                _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles);
                 _launchLeft?.SetSelectedProfilePresent(_loginProfiles.Count > 0);
                 if (result.WasRecovered)
                     _launchRight?.AppendLog($"账户档案配置已重置，损坏文件已备份到：{result.BackupPath}");

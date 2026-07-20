@@ -27,6 +27,7 @@ internal sealed class LaunchFeatureModule : IDesktopFeatureModule
     {
         services.AddSingleton<LaunchHomeProfileResolver>();
         services.AddSingleton<LaunchHomeSurface>();
+        services.AddSingleton<LaunchLoginSurface>();
         services.AddSingleton<StartMinecraftUseCase>();
     }
 

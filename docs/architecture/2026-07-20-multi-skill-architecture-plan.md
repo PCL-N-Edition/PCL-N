@@ -353,7 +353,7 @@ public sealed record ExperimentalUiProfile(
 ### Phase 5 — 瘦 MainWindow、拆 Headless、可选 DynamicData  
 
 1. [x] Instances manage surface（Phase 4.5 延续）  
-2. [ ] Login pages surface  
+2. [x] `LaunchLoginSurface`：档案/MS/Auth/离线登录页工厂 + Apply  
 3. [ ] `StartMinecraftAsync` 重实现体下沉（保留 Dispatcher UI 适配）  
 4. [ ] 拆 Headless 会话污染；修 FolderLeft 选择页断言  
 5. [ ] 可选 DynamicData  

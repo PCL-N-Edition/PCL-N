@@ -52,6 +52,6 @@ Copy-Item "$env:USERPROFILE\.codex\skills\architecture" `
 | 2 | ✅ Session Stores 单例（Folder / Instance / Task / Game） |
 | 3 | ✅ Launch + Instances Feature（Select/Launch surface + StartMinecraft 门面） |
 | 4 | ✅ Download / Settings / Community / Tasks / InstancesManage Feature |
-| 5 | ⏳ 瘦 MainWindow（Login / StartMinecraft 下沉）、拆 Headless、可选 DynamicData |
+| 5 | ⏳ 瘦 MainWindow（Login ✅ / StartMinecraft 待下沉）、拆 Headless、可选 DynamicData |
 
 详见 multi-skill 文档 §7。
