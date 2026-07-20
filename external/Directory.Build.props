@@ -1,0 +1,6 @@
+<Project>
+  <!--
+    Vendored third-party trees under external/ (currently Jvm.NET / Asm port).
+    Settings that must win over the submodule .csproj go in Directory.Build.targets.
+  -->
+</Project>
