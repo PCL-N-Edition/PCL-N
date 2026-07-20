@@ -161,10 +161,10 @@
                     <TextBlock Text="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning}" Opacity="0.72" />
                     <legacy:MyComboBox x:Name="ComboMinecraftAiReasoningEffort"
                                        Tag="ExperimentalMinecraftAiReasoningEffort">
-                        <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning.None}"
-                                               IsSelected="True" />
+                        <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning.None}" />
                         <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning.Low}" />
-                        <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning.Medium}" />
+                        <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning.Medium}"
+                                               IsSelected="True" />
                         <legacy:MyComboBoxItem Content="{DynamicResource Setup.Experimental.AiRepair.Api.Reasoning.High}" />
                     </legacy:MyComboBox>
                     <legacy:MyHint Theme="Yellow"

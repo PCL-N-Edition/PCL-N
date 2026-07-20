@@ -90,7 +90,8 @@ public static class LauncherSettingDefaults
         ["ExperimentalMinecraftAiProvider"] = 0,
         ["ExperimentalMinecraftAiLocalModel"] = 0,
         ["ExperimentalMinecraftAiTokenBudget"] = 4096,
-        ["ExperimentalMinecraftAiReasoningEffort"] = 0,
+        // 0=None, 1=Low, 2=Medium, 3=High — default Medium so OpenAI-compatible thinking is on.
+        ["ExperimentalMinecraftAiReasoningEffort"] = 2,
         ["LoginMsAuthType"] = 1
     };
 

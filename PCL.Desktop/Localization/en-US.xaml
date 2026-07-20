@@ -776,9 +776,9 @@
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning">Thinking effort</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.TokenBudget">Maximum output tokens</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.TokenBudget.Hint">Default 4096; allowed range 256–32768. Larger values allow longer summaries but may require more time and resources.</sys:String>
-    <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.None">Do not specify (default, best compatibility)</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.None">Off (do not send reasoning_effort)</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.Low">Low</sys:String>
-    <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.Medium">Medium</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.Medium">Medium (recommended, enables thinking)</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.High">High</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Privacy">Online mode sends only categories the model explicitly requests, after redaction. Review your provider's privacy policy. PCL N does not retain raw thinking.</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.Title">Custom model (optional)</sys:String>

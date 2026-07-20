@@ -6063,7 +6063,8 @@ public sealed class AvaloniaHeadlessTests
                 MyTextBox baseUrl = confirmedPage.FindControl<MyTextBox>("TextMinecraftAiApiBaseUrl")!;
                 MyTextBox model = confirmedPage.FindControl<MyTextBox>("TextMinecraftAiApiModel")!;
                 Assert.AreEqual(0, provider.SelectedIndex);
-                Assert.AreEqual(0, reasoning.SelectedIndex);
+                // Default reasoning is Medium (index 2) so OpenAI-compatible thinking is on.
+                Assert.AreEqual(2, reasoning.SelectedIndex);
                 provider.SelectedIndex = 1;
                 reasoning.SelectedIndex = 3;
                 baseUrl.Focus();

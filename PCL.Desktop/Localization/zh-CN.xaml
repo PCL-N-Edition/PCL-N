@@ -776,9 +776,9 @@
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning">thinking 推理强度</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.TokenBudget">最大生成 Token</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.TokenBudget.Hint">默认 4096；允许范围 256–32768。较大的值允许更长总结，但模型可能需要更多时间和资源。</sys:String>
-    <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.None">不指定（默认，兼容性最佳）</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.None">关闭（不发送 reasoning_effort）</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.Low">低</sys:String>
-    <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.Medium">中</sys:String>
+    <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.Medium">中（推荐，开启 thinking）</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Reasoning.High">高</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Api.Privacy">在线模式仅在模型主动请求后发送所选类别的脱敏只读信息。请确认服务商的隐私政策；thinking 原文不会由 PCL N 保存。</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Custom.Title">自定义模型（可选）</sys:String>

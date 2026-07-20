@@ -306,7 +306,7 @@ public partial class MainWindow
                     MinecraftAiReasoningEffort reasoningEffort =
                         Enum.IsDefined(typeof(MinecraftAiReasoningEffort), reasoningValue)
                             ? (MinecraftAiReasoningEffort)reasoningValue
-                            : MinecraftAiReasoningEffort.None;
+                            : MinecraftAiReasoningEffort.Medium;
                     string? apiKey = provider == MinecraftAiProvider.OpenAiCompatible
                         ? await MinecraftAiApiCredentialStore.ReadAsync(cancellationToken).ConfigureAwait(false)
                         : null;
