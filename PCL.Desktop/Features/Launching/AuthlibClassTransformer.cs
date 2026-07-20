@@ -12,26 +12,28 @@ namespace PCL.Desktop.Features.Launching;
 /// </summary>
 internal static class AuthlibClassTransformer
 {
+    /// <summary>Bump when patch semantics change so on-disk caches invalidate.</summary>
+    public const string PatchRevision = "v2";
+
     public static byte[]? Transform(string className, byte[] originalBytes, AuthlibPatchProfile profile)
     {
         ArgumentNullException.ThrowIfNull(originalBytes);
         ArgumentNullException.ThrowIfNull(profile);
 
         string normalized = className.Replace('.', '/');
-        if (!normalized.StartsWith("com/mojang/authlib/", StringComparison.Ordinal) &&
+        if (!normalized.Contains("com/mojang/authlib/", StringComparison.OrdinalIgnoreCase) &&
             !normalized.StartsWith("com/mojang/authlib/", StringComparison.OrdinalIgnoreCase))
         {
-            // Zip entries use path separators without package dots.
-            if (!normalized.Contains("com/mojang/authlib/", StringComparison.Ordinal))
-                return null;
+            return null;
         }
 
         try
         {
             ClassReader reader = new(originalBytes);
-            ClassWriter writer = new(ClassWriter.COMPUTE_MAXS);
+            // Keep original frames; only rewrite constants / selected concrete method bodies.
+            ClassWriter writer = new(reader, 0);
             TransformVisitor visitor = new(writer, profile);
-            reader.Accept(visitor, 0);
+            reader.Accept(visitor, ClassReader.EXPAND_FRAMES);
             return visitor.Modified ? writer.ToByteArray() : null;
         }
         catch
@@ -43,7 +45,21 @@ internal static class AuthlibClassTransformer
     private sealed class TransformVisitor(ClassVisitor next, AuthlibPatchProfile profile)
         : ClassVisitor(Opcodes.ASM9, next)
     {
+        private int _classAccess;
+
         public bool Modified { get; private set; }
+
+        public override void Visit(
+            int version,
+            int access,
+            string? name,
+            string? signature,
+            string? superName,
+            string[]? interfaces)
+        {
+            _classAccess = access;
+            base.Visit(version, access, name, signature, superName, interfaces);
+        }
 
         public override FieldVisitor? VisitField(
             int access,
@@ -63,24 +79,16 @@ internal static class AuthlibClassTransformer
             string? signature,
             string[]? exceptions)
         {
-            if (profile.RelaxTextureDomains && IsTextureDomainMethod(name, descriptor))
-            {
-                MethodVisitor? generated = Cv?.VisitMethod(access, name, descriptor, signature, exceptions);
-                if (generated is not null)
-                {
-                    // Always return true — launcher / bridge already constrained sources.
-                    generated.VisitCode();
-                    generated.VisitInsn(Opcodes.ICONST_1);
-                    generated.VisitInsn(Opcodes.IRETURN);
-                    generated.VisitMaxs(1, CalculateLocals(access, descriptor));
-                    generated.VisitEnd();
-                }
+            // NEVER emit Code on abstract/native methods (interfaces include validateProperty etc.).
+            // That produced: ClassFormatError: Code attribute in native or abstract methods
+            // (com/mojang/authlib/yggdrasil/ServicesKeyInfo).
+            bool isAbstractOrNative = (access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0;
+            bool isInterface = (_classAccess & Opcodes.ACC_INTERFACE) != 0;
 
-                Modified = true;
-                return null;
-            }
-
-            if (profile.TrustSignatures && IsBooleanTrustMethod(name, descriptor))
+            if (!isAbstractOrNative &&
+                !isInterface &&
+                profile.RelaxTextureDomains &&
+                IsConcreteTextureAllowMethod(name, descriptor))
             {
                 MethodVisitor? generated = Cv?.VisitMethod(access, name, descriptor, signature, exceptions);
                 if (generated is not null)
@@ -96,7 +104,28 @@ internal static class AuthlibClassTransformer
                 return null;
             }
 
-            if (profile.TrustSignatures &&
+            if (!isAbstractOrNative &&
+                !isInterface &&
+                profile.TrustSignatures &&
+                IsConcreteSignatureTrustMethod(name, descriptor))
+            {
+                MethodVisitor? generated = Cv?.VisitMethod(access, name, descriptor, signature, exceptions);
+                if (generated is not null)
+                {
+                    generated.VisitCode();
+                    generated.VisitInsn(Opcodes.ICONST_1);
+                    generated.VisitInsn(Opcodes.IRETURN);
+                    generated.VisitMaxs(1, CalculateLocals(access, descriptor));
+                    generated.VisitEnd();
+                }
+
+                Modified = true;
+                return null;
+            }
+
+            if (!isAbstractOrNative &&
+                !isInterface &&
+                profile.TrustSignatures &&
                 string.Equals(name, "getPropertySignatureState", StringComparison.Ordinal) &&
                 descriptor?.EndsWith(")Lcom/mojang/authlib/SignatureState;", StringComparison.Ordinal) == true)
             {
@@ -119,21 +148,26 @@ internal static class AuthlibClassTransformer
             }
 
             MethodVisitor? method = base.VisitMethod(access, name, descriptor, signature, exceptions);
-            return method is null ? null : new StringVisitor(method, this);
+            // Abstract/native methods have no Code — do not wrap (avoids accidental Code attrs).
+            if (method is null || isAbstractOrNative)
+                return method;
+            return new StringVisitor(method, this);
         }
 
-        private static bool IsBooleanTrustMethod(string? name, string? descriptor)
-        {
-            if (descriptor?.EndsWith(")Z", StringComparison.Ordinal) != true)
-                return false;
-            return name is "isSignatureValid" or "verifyProperty" or "validateProperty" or "isValidSignature";
-        }
+        /// <summary>
+        /// Only concrete TextureUrlChecker-style helpers. Do not match interface methods
+        /// like ServicesKeyInfo.validateProperty.
+        /// </summary>
+        private static bool IsConcreteTextureAllowMethod(string? name, string? descriptor) =>
+            (name is "isAllowedTextureDomain" or "isWhitelistedDomain") &&
+            string.Equals(descriptor, "(Ljava/lang/String;)Z", StringComparison.Ordinal);
 
-        private static bool IsTextureDomainMethod(string? name, string? descriptor) =>
-            (name is "isAllowedTextureDomain" or "isWhitelistedDomain" or "isDomainOnList") &&
-            descriptor is not null &&
-            descriptor.Contains("Ljava/lang/String;", StringComparison.Ordinal) &&
-            descriptor.EndsWith(")Z", StringComparison.Ordinal);
+        /// <summary>
+        /// Concrete Property helpers only — never ServicesKeyInfo.validateProperty (interface).
+        /// </summary>
+        private static bool IsConcreteSignatureTrustMethod(string? name, string? descriptor) =>
+            (name is "isSignatureValid" or "isValidSignature") &&
+            descriptor?.EndsWith(")Z", StringComparison.Ordinal) == true;
 
         private static int CalculateLocals(int access, string? descriptor)
         {
@@ -215,59 +249,57 @@ internal sealed class AuthlibPatchProfile
     public static AuthlibPatchProfile ForYggdrasilServer(string authServerRoot)
     {
         string root = authServerRoot.Trim().TrimEnd('/');
-        // Strip trailing /authserver if present — we rebuild path segments.
         if (root.EndsWith("/authserver", StringComparison.OrdinalIgnoreCase))
             root = root[..^"/authserver".Length].TrimEnd('/');
 
-        Dictionary<string, string> map = new(StringComparer.Ordinal)
-        {
-            ["https://sessionserver.mojang.com"] = root + "/sessionserver",
-            ["http://sessionserver.mojang.com"] = root + "/sessionserver",
-            ["https://sessionserver-staging.mojang.com"] = root + "/sessionserver",
-            ["https://authserver.mojang.com"] = root + "/authserver",
-            ["http://authserver.mojang.com"] = root + "/authserver",
-            ["https://api.mojang.com"] = root + "/api",
-            ["http://api.mojang.com"] = root + "/api",
-            // Services / discovery often stubbed by session bridge; still map for offline third-party.
-            ["https://api.minecraftservices.com"] = root + "/minecraftservices",
-            ["https://api-staging.minecraftservices.com"] = root + "/minecraftservices",
-            ["https://discovery.minecraftservices.com/minecraft/client"] = root + "/minecraft/client",
-            ["https://discovery-staging.minecraftservices.com/minecraft/client"] = root + "/minecraft/client",
-            ["https://yggdrasil-auth-session-staging.mojang.zone"] = root + "/sessionserver"
-        };
-
+        Dictionary<string, string> map = CreateMojangUrlMap(root + "/sessionserver", root + "/authserver", root + "/api", root + "/minecraftservices", root + "/minecraft/client");
         return new AuthlibPatchProfile
         {
             UrlReplacements = map,
             TrustSignatures = true,
             RelaxTextureDomains = true,
-            CacheKey = "ygg:" + root.ToLowerInvariant()
+            CacheKey = AuthlibClassTransformer.PatchRevision + "|ygg:" + root.ToLowerInvariant()
         };
     }
 
     public static AuthlibPatchProfile ForLoopbackBridge(string bridgeBaseUrl)
     {
         string baseUrl = bridgeBaseUrl.Trim().TrimEnd('/');
-        Dictionary<string, string> map = new(StringComparer.Ordinal)
-        {
-            ["https://sessionserver.mojang.com"] = baseUrl + "/sessionserver",
-            ["http://sessionserver.mojang.com"] = baseUrl + "/sessionserver",
-            ["https://sessionserver-staging.mojang.com"] = baseUrl + "/sessionserver",
-            ["https://api.mojang.com"] = baseUrl + "/api",
-            ["https://authserver.mojang.com"] = baseUrl + "/authserver",
-            ["https://api.minecraftservices.com"] = baseUrl + "/minecraftservices",
-            ["https://api-staging.minecraftservices.com"] = baseUrl + "/minecraftservices",
-            ["https://discovery.minecraftservices.com/minecraft/client"] = baseUrl + "/minecraft/client",
-            ["https://discovery-staging.minecraftservices.com/minecraft/client"] = baseUrl + "/minecraft/client",
-            ["https://yggdrasil-auth-session-staging.mojang.zone"] = baseUrl + "/sessionserver"
-        };
+        Dictionary<string, string> map = CreateMojangUrlMap(
+            baseUrl + "/sessionserver",
+            baseUrl + "/authserver",
+            baseUrl + "/api",
+            baseUrl + "/minecraftservices",
+            baseUrl + "/minecraft/client");
 
         return new AuthlibPatchProfile
         {
             UrlReplacements = map,
             TrustSignatures = true,
             RelaxTextureDomains = true,
-            CacheKey = "bridge:" + baseUrl.ToLowerInvariant()
+            CacheKey = AuthlibClassTransformer.PatchRevision + "|bridge:" + baseUrl.ToLowerInvariant()
         };
     }
+
+    private static Dictionary<string, string> CreateMojangUrlMap(
+        string sessionserver,
+        string authserver,
+        string api,
+        string services,
+        string discovery) =>
+        new(StringComparer.Ordinal)
+        {
+            ["https://sessionserver.mojang.com"] = sessionserver,
+            ["http://sessionserver.mojang.com"] = sessionserver,
+            ["https://sessionserver-staging.mojang.com"] = sessionserver,
+            ["https://authserver.mojang.com"] = authserver,
+            ["http://authserver.mojang.com"] = authserver,
+            ["https://api.mojang.com"] = api,
+            ["http://api.mojang.com"] = api,
+            ["https://api.minecraftservices.com"] = services,
+            ["https://api-staging.minecraftservices.com"] = services,
+            ["https://discovery.minecraftservices.com/minecraft/client"] = discovery,
+            ["https://discovery-staging.minecraftservices.com/minecraft/client"] = discovery,
+            ["https://yggdrasil-auth-session-staging.mojang.zone"] = sessionserver
+        };
 }

@@ -41,6 +41,7 @@ internal static class AuthlibJarPatcher
         string cacheDir = GetCacheDirectory();
         Directory.CreateDirectory(cacheDir);
 
+        // profile.CacheKey already embeds AuthlibClassTransformer.PatchRevision.
         string keyMaterial = fullOriginal + "|" +
                              new FileInfo(fullOriginal).Length + "|" +
                              new FileInfo(fullOriginal).LastWriteTimeUtc.Ticks + "|" +
