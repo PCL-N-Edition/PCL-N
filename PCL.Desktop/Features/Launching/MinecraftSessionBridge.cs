@@ -72,9 +72,11 @@ internal sealed class MinecraftSessionBridge : IDisposable
         JvmHostLifecycleWriter lifecycle)
     {
         if (request.IdentityMode == MinecraftJvmHostIdentityMode.ThirdParty &&
-            string.IsNullOrWhiteSpace(request.AuthServer))
+            (string.IsNullOrWhiteSpace(request.AuthServer) ||
+             string.IsNullOrWhiteSpace(request.AccessToken) ||
+             request.AccessToken == "0"))
         {
-            throw new InvalidDataException("第三方档案缺少认证服务器地址。");
+            throw new InvalidDataException("第三方档案缺少认证服务器地址或访问令牌。");
         }
 
         return new MinecraftSessionBridge(request, lifecycle);
@@ -165,6 +167,12 @@ internal sealed class MinecraftSessionBridge : IDisposable
             return await ServeTextureAsync(token, cancellationToken).ConfigureAwait(false);
         }
 
+        if (_request.IdentityMode == MinecraftJvmHostIdentityMode.ThirdParty &&
+            path.StartsWith("/minecraftservices/", StringComparison.OrdinalIgnoreCase))
+        {
+            return HandleThirdPartyMinecraftServices(request, path);
+        }
+
         return _request.IdentityMode switch
         {
             MinecraftJvmHostIdentityMode.Offline => HandleOfflineRequest(request, path),
@@ -212,6 +220,55 @@ internal sealed class MinecraftSessionBridge : IDisposable
         return TextResponse(404, "Not Found", "Offline endpoint is not required by this authlib version.");
     }
 
+    private HttpResponseData HandleThirdPartyMinecraftServices(HttpRequestData request, string path)
+    {
+        if (request.Method == "GET" &&
+            string.Equals(path, "/minecraftservices/minecraft/profile", StringComparison.OrdinalIgnoreCase))
+        {
+            JsonObject profile = CreateNameAndId();
+            profile["skins"] = new JsonArray();
+            profile["capes"] = new JsonArray();
+            _lifecycle.SendOnce("ThirdPartyProfile", "第三方档案已由 PCL N 本机会话提供");
+            return JsonResponse(profile);
+        }
+
+        if (request.Method == "POST" &&
+            string.Equals(path, "/minecraftservices/player/certificates", StringComparison.OrdinalIgnoreCase))
+        {
+            return JsonResponse(new JsonObject
+            {
+                ["keyPair"] = new JsonObject
+                {
+                    ["privateKey"] = string.Empty,
+                    ["publicKey"] = string.Empty
+                },
+                ["publicKeySignature"] = string.Empty,
+                ["publicKeySignatureV2"] = string.Empty,
+                ["expiresAt"] = DateTimeOffset.UtcNow.ToString("O"),
+                ["refreshedAfter"] = DateTimeOffset.UtcNow.ToString("O")
+            });
+        }
+
+        if (request.Method == "GET" &&
+            string.Equals(path, "/minecraftservices/player/attributes", StringComparison.OrdinalIgnoreCase))
+        {
+            return JsonResponse(new JsonObject
+            {
+                ["privileges"] = new JsonObject
+                {
+                    ["onlineChat"] = new JsonObject { ["enabled"] = true },
+                    ["multiplayerServer"] = new JsonObject { ["enabled"] = true },
+                    ["multiplayerRealms"] = new JsonObject { ["enabled"] = false },
+                    ["telemetry"] = new JsonObject { ["enabled"] = false }
+                },
+                ["profanityFilterPreferences"] = new JsonObject { ["profanityFilterOn"] = false },
+                ["banStatus"] = new JsonObject { ["bannedScopes"] = new JsonObject() }
+            });
+        }
+
+        return TextResponse(404, "Not Found", "Unsupported third-party Minecraft Services endpoint.");
+    }
+
     private async Task<HttpResponseData> ProxyThirdPartyAsync(
         HttpRequestData request,
         string path,
@@ -228,17 +285,25 @@ internal sealed class MinecraftSessionBridge : IDisposable
             return TextResponse(502, "Bad Gateway", "Invalid authentication server URL.");
         }
 
+        byte[] requestBody = IsJoinRequest(request.Method, path)
+            ? CreateJoinRequestBody(request.Body)
+            : request.Body;
         using HttpRequestMessage upstream = new(new HttpMethod(request.Method), targetUri);
-        if (request.Body.Length > 0)
+        if (requestBody.Length > 0)
         {
-            upstream.Content = new ByteArrayContent(request.Body);
+            upstream.Content = new ByteArrayContent(requestBody);
             if (request.Headers.TryGetValue("Content-Type", out string? contentType) &&
                 MediaTypeHeaderValue.TryParse(contentType, out MediaTypeHeaderValue? parsed))
             {
                 upstream.Content.Headers.ContentType = parsed;
             }
         }
-        upstream.Headers.TryAddWithoutValidation("Accept", "application/json");
+        upstream.Headers.TryAddWithoutValidation("Accept", request.Headers.TryGetValue("Accept", out string? accept)
+            ? accept
+            : "application/json");
+        CopyRequestHeader(request, upstream, "Authorization");
+        CopyRequestHeader(request, upstream, "Accept-Language");
+        CopyRequestHeader(request, upstream, "User-Agent");
 
         using HttpResponseMessage response = await _httpClient.SendAsync(
                 upstream,
@@ -247,17 +312,49 @@ internal sealed class MinecraftSessionBridge : IDisposable
             .ConfigureAwait(false);
         byte[] body = await ReadLimitedAsync(response.Content, MaxResponseBytes, cancellationToken).ConfigureAwait(false);
         string contentTypeValue = response.Content.Headers.ContentType?.ToString() ?? "application/json; charset=utf-8";
-        if (response.IsSuccessStatusCode &&
-            (path.StartsWith("/sessionserver/session/minecraft/profile/", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(path, "/sessionserver/session/minecraft/hasJoined", StringComparison.OrdinalIgnoreCase)) &&
-            body.Length > 0)
+
+        PublishThirdPartyLifecycle(request.Method, path, response.StatusCode);
+        return new HttpResponseData((int)response.StatusCode, response.ReasonPhrase ?? "Upstream", contentTypeValue, body);
+    }
+
+    private byte[] CreateJoinRequestBody(byte[] originalBody)
+    {
+        JsonObject join = originalBody.Length == 0
+            ? new JsonObject()
+            : JsonNode.Parse(originalBody)?.AsObject()
+              ?? throw new InvalidDataException("第三方 join 请求不是 JSON 对象。");
+        join["accessToken"] = _request.AccessToken;
+        join["selectedProfile"] = NormalizeUuid(_request.PlayerUuid);
+        return Encoding.UTF8.GetBytes(join.ToJsonString());
+    }
+
+    private static bool IsJoinRequest(string method, string path) =>
+        method == "POST" &&
+        string.Equals(path, "/sessionserver/session/minecraft/join", StringComparison.OrdinalIgnoreCase);
+
+    private void PublishThirdPartyLifecycle(string method, string path, HttpStatusCode statusCode)
+    {
+        int status = (int)statusCode;
+        if (method == "POST" &&
+            string.Equals(path, "/sessionserver/session/minecraft/join", StringComparison.OrdinalIgnoreCase))
         {
-            body = SanitizeThirdPartyProfile(body);
-            contentTypeValue = "application/json; charset=utf-8";
+            string stage = status is >= 200 and < 300 ? "ThirdPartyJoin" : "ThirdPartyJoinFailed";
+            _lifecycle.SendOnce(stage, $"第三方服务器会话注册 HTTP {status}");
+            return;
         }
 
-        _lifecycle.SendOnce("ThirdPartySession", "第三方会话请求已通过 PCL N 本机桥接");
-        return new HttpResponseData((int)response.StatusCode, response.ReasonPhrase ?? "Upstream", contentTypeValue, body);
+        if (path.StartsWith("/sessionserver/session/minecraft/profile/", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "/sessionserver/session/minecraft/hasJoined", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+        {
+            _lifecycle.SendOnce("ThirdPartyProfile", $"第三方档案服务已通过 PCL N 本机桥接；HTTP {status}");
+        }
+    }
+
+    private static void CopyRequestHeader(HttpRequestData request, HttpRequestMessage upstream, string name)
+    {
+        if (request.Headers.TryGetValue(name, out string? value) && !string.IsNullOrWhiteSpace(value))
+            upstream.Headers.TryAddWithoutValidation(name, value);
     }
 
     private byte[] SanitizeThirdPartyProfile(byte[] body)

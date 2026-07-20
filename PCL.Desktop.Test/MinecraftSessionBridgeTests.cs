@@ -4,9 +4,13 @@
 
 using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Jvm.NET;
+using Jvm.NET.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using PCL.Application.Launching;
 using PCL.Desktop.Features.Launching;
@@ -16,6 +20,103 @@ namespace PCL.Desktop.Test;
 [TestClass]
 public sealed class MinecraftSessionBridgeTests
 {
+    [TestMethod]
+    public void JvmHostInitializationOptions_UseJniOnlySafeMode()
+    {
+        MinecraftJvmHostRequest request = new()
+        {
+            JavaExecutablePath = "java",
+            WorkingDirectory = "game",
+            MainClass = "example.Main",
+            PlayerName = "Player",
+            PlayerUuid = Guid.Empty.ToString("N"),
+            JavaMajorVersion = 21,
+            ClasspathEntries = ["client.jar"]
+        };
+
+        JvmInitializationOptions options = MinecraftJvmHostEntryPoint.CreateInitializationOptions(
+            request,
+            ["-Xmx2G"],
+            "jdk-bin");
+
+        Assert.IsFalse(options.EnableBytecodeModification);
+        Assert.IsFalse(options.EnableEventListening);
+        Assert.IsFalse(options.RequireJvmti);
+        Assert.AreEqual("jdk-bin", options.JdkBinPath);
+        CollectionAssert.AreEqual(new[] { "-Xmx2G" }, options.VmArguments.ToArray());
+    }
+
+    [TestMethod]
+    public void JvmHostEntryPoint_UsesJniOnlyOptionsWithoutJvmtiSentinel()
+    {
+        MinecraftJvmHostRequest request = new()
+        {
+            JavaExecutablePath = "C:\\jdk-21\\bin\\java.exe",
+            WorkingDirectory = "C:\\game",
+            MainClass = "example.Main",
+            PlayerName = "Player",
+            PlayerUuid = Guid.Empty.ToString("N"),
+            JavaMajorVersion = 21,
+            ClasspathEntries = ["client.jar"]
+        };
+        JvmInitializationOptions options = MinecraftJvmHostEntryPoint.CreateInitializationOptions(
+            request,
+            request.VmArguments,
+            "C:\\jdk-21\\bin");
+
+        Assert.IsFalse(options.RequireJvmti);
+        Assert.IsFalse(options.EnableBytecodeModification);
+        Assert.IsFalse(options.EnableEventListening);
+    }
+
+    [TestMethod]
+    public async Task UnexpectedHostExitReport_DoesNotReadIdFromDisposedProcess()
+    {
+        ProcessStartInfo startInfo = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo("cmd.exe", "/c exit 9") { UseShellExecute = false }
+            : new ProcessStartInfo("/bin/sh", "-c 'exit 9'") { UseShellExecute = false };
+        Process process = Process.Start(startInfo)!;
+        int processId = process.Id;
+        await process.WaitForExitAsync();
+        process.Dispose();
+
+        MinecraftLaunchFaultReport? report = await MinecraftJvmHostProcessLauncher.CreateUnexpectedHostExitReportAsync(
+            process,
+            processId,
+            "JvmMode");
+
+        Assert.IsNull(report);
+    }
+
+    [TestMethod]
+    public void NeoForgeDependencyLog_IsReportedWithoutProcessExit()
+    {
+        MinecraftLaunchFaultReport? report = MinecraftJvmHostProcessLauncher.AnalyzeNeoForgeLogLines(
+        [
+            "[main/ERROR] Missing or unsupported mandatory dependencies:",
+            "Mod farmersdelight requires version [1.2,) of bookshelf"
+        ]);
+
+        Assert.IsNotNull(report);
+        Assert.AreEqual(MinecraftLaunchFaultCode.MissingModDependency, report.Code);
+        Assert.AreEqual("NeoForgeDependencyCheck", report.Stage);
+        CollectionAssert.Contains(
+            report.AllowedActions,
+            MinecraftRepairActionKind.InstallMissingModDependencies);
+    }
+
+    [TestMethod]
+    public void NeoForgeNormalLoadingLog_DoesNotCreateFault()
+    {
+        MinecraftLaunchFaultReport? report = MinecraftJvmHostProcessLauncher.AnalyzeNeoForgeLogLines(
+        [
+            "[main/INFO] NeoForge mod loading, version 21.1.235",
+            "[Render thread/INFO] Reloading ResourceManager"
+        ]);
+
+        Assert.IsNull(report);
+    }
+
     [TestMethod]
     public void JvmHostEntryPoint_RunsSimpleMainWhenJavaIsConfigured()
     {
@@ -35,19 +136,11 @@ public sealed class MinecraftSessionBridgeTests
             string sourcePath = Path.Combine(root, "PclJvmHostSmoke.java");
             File.WriteAllText(
                 sourcePath,
-                "import com.mojang.authlib.TestAuthlib; " +
                 "public final class PclJvmHostSmoke { public static void main(String[] args) { " +
                 "if (args.length != 1 || !\"ok\".equals(args[0])) throw new IllegalArgumentException(); " +
-                "if (!TestAuthlib.endpoint().startsWith(\"http://127.0.0.1:\")) throw new IllegalStateException(TestAuthlib.endpoint()); " +
-                "if (!TestAuthlib.isSignatureValid(new Object()) || !TestAuthlib.isAllowedTextureDomain(\"http://127.0.0.1:1\")) " +
-                "throw new IllegalStateException(\"authlib transformer not active\"); } }");
-            string authlibSourcePath = Path.Combine(root, "TestAuthlib.java");
-            File.WriteAllText(
-                authlibSourcePath,
-                "package com.mojang.authlib; public final class TestAuthlib { " +
-                "public static String endpoint() { return \"https://sessionserver.mojang.com\"; } " +
-                "public static boolean isSignatureValid(Object property) { return false; } " +
-                "public static boolean isAllowedTextureDomain(String url) { return false; } }");
+                "String endpoint = System.getProperty(\"minecraft.api.session.host\", \"\"); " +
+                "if (!endpoint.startsWith(\"http://127.0.0.1:\") || !endpoint.endsWith(\"/sessionserver\")) " +
+                "throw new IllegalStateException(endpoint); } }");
             ProcessStartInfo compileInfo = new()
             {
                 FileName = javac,
@@ -58,11 +151,12 @@ public sealed class MinecraftSessionBridgeTests
             compileInfo.ArgumentList.Add("-d");
             compileInfo.ArgumentList.Add(root);
             compileInfo.ArgumentList.Add(sourcePath);
-            compileInfo.ArgumentList.Add(authlibSourcePath);
             using Process compiler = Process.Start(compileInfo)!;
             compiler.WaitForExit();
             Assert.AreEqual(0, compiler.ExitCode, "Java smoke class compilation failed.");
 
+            string modulePath = Path.Combine(root, "module-path");
+            Directory.CreateDirectory(modulePath);
             MinecraftJvmHostRequest request = new()
             {
                 JavaExecutablePath = java,
@@ -70,7 +164,13 @@ public sealed class MinecraftSessionBridgeTests
                 MainClass = "PclJvmHostSmoke",
                 PlayerName = "Smoke",
                 PlayerUuid = Guid.Empty.ToString("N"),
-                JavaMajorVersion = 26,
+                JavaMajorVersion = 21,
+                VmArguments =
+                [
+                    "--module-path=" + modulePath,
+                    "--add-modules=ALL-MODULE-PATH",
+                    "--add-opens=java.base/java.lang=ALL-UNNAMED"
+                ],
                 ClasspathEntries = [root],
                 GameArguments = ["ok"],
                 IdentityMode = MinecraftJvmHostIdentityMode.Offline
@@ -143,6 +243,116 @@ public sealed class MinecraftSessionBridgeTests
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }
+    }
+
+    [TestMethod]
+    public async Task ThirdPartyJoin_UsesStoredTokenAndSelectedProfile()
+    {
+        using TcpListener upstream = new(IPAddress.Loopback, 0);
+        upstream.Start();
+        int port = ((IPEndPoint)upstream.LocalEndpoint).Port;
+        string? receivedBody = null;
+        Task server = Task.Run(async () =>
+        {
+            using TcpClient connection = await upstream.AcceptTcpClientAsync();
+            using NetworkStream stream = connection.GetStream();
+            (string _, byte[] body) = await ReadHttpRequestAsync(stream);
+            receivedBody = Encoding.UTF8.GetString(body);
+            byte[] response = Encoding.ASCII.GetBytes(
+                "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            await stream.WriteAsync(response);
+        });
+
+        MinecraftJvmHostRequest request = new()
+        {
+            JavaExecutablePath = "java",
+            WorkingDirectory = "game",
+            MainClass = "example.Main",
+            PlayerName = "ThirdPartyUser",
+            PlayerUuid = "0123456789abcdef0123456789abcdef",
+            AccessToken = "stored-token",
+            JavaMajorVersion = 21,
+            ClasspathEntries = ["client.jar"],
+            IdentityMode = MinecraftJvmHostIdentityMode.ThirdParty,
+            AuthServer = $"http://127.0.0.1:{port}"
+        };
+        using JvmHostLifecycleWriter lifecycle = new(string.Empty);
+        using MinecraftSessionBridge bridge = MinecraftSessionBridge.Start(request, lifecycle);
+        using HttpClient client = new(new HttpClientHandler { UseProxy = false });
+        using StringContent content = new(
+            "{\"accessToken\":\"wrong\",\"selectedProfile\":\"wrong\",\"serverId\":\"hash\"}",
+            Encoding.UTF8,
+            "application/json");
+
+        using HttpResponseMessage response = await client.PostAsync(
+            bridge.BaseUrl + "/sessionserver/session/minecraft/join",
+            content);
+        await server;
+
+        Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
+        JsonObject join = JsonNode.Parse(receivedBody!)!.AsObject();
+        Assert.AreEqual("stored-token", join["accessToken"]!.GetValue<string>());
+        Assert.AreEqual(request.PlayerUuid, join["selectedProfile"]!.GetValue<string>());
+        Assert.AreEqual("hash", join["serverId"]!.GetValue<string>());
+    }
+
+    [TestMethod]
+    public async Task ThirdPartyMinecraftServicesProfile_IsServedLocally()
+    {
+        MinecraftJvmHostRequest request = new()
+        {
+            JavaExecutablePath = "java",
+            WorkingDirectory = "game",
+            MainClass = "example.Main",
+            PlayerName = "ThirdPartyUser",
+            PlayerUuid = "0123456789abcdef0123456789abcdef",
+            AccessToken = "stored-token",
+            JavaMajorVersion = 21,
+            ClasspathEntries = ["client.jar"],
+            IdentityMode = MinecraftJvmHostIdentityMode.ThirdParty,
+            AuthServer = "https://example.invalid/api/yggdrasil"
+        };
+        using JvmHostLifecycleWriter lifecycle = new(string.Empty);
+        using MinecraftSessionBridge bridge = MinecraftSessionBridge.Start(request, lifecycle);
+        using HttpClient client = new(new HttpClientHandler { UseProxy = false });
+
+        JsonObject profile = JsonNode.Parse(await client.GetStringAsync(
+            bridge.BaseUrl + "/minecraftservices/minecraft/profile"))!.AsObject();
+
+        Assert.AreEqual(request.PlayerUuid, profile["id"]!.GetValue<string>());
+        Assert.AreEqual(request.PlayerName, profile["name"]!.GetValue<string>());
+    }
+
+    private static async Task<(string Headers, byte[] Body)> ReadHttpRequestAsync(NetworkStream stream)
+    {
+        using MemoryStream bytes = new();
+        byte[] buffer = new byte[1024];
+        int headerEnd = -1;
+        while (headerEnd < 0)
+        {
+            int read = await stream.ReadAsync(buffer);
+            Assert.IsGreaterThan(0, read);
+            bytes.Write(buffer, 0, read);
+            headerEnd = Encoding.ASCII.GetString(bytes.ToArray()).IndexOf("\r\n\r\n", StringComparison.Ordinal);
+        }
+        byte[] all = bytes.ToArray();
+        string headers = Encoding.ASCII.GetString(all, 0, headerEnd);
+        int contentLength = headers.Split("\r\n")
+            .Where(line => line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
+            .Select(line => int.Parse(line[(line.IndexOf(':') + 1)..].Trim()))
+            .DefaultIfEmpty(0)
+            .Single();
+        int bodyOffset = headerEnd + 4;
+        using MemoryStream body = new();
+        if (all.Length > bodyOffset)
+            body.Write(all, bodyOffset, all.Length - bodyOffset);
+        while (body.Length < contentLength)
+        {
+            int read = await stream.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, contentLength - (int)body.Length)));
+            Assert.IsGreaterThan(0, read);
+            body.Write(buffer, 0, read);
+        }
+        return (headers, body.ToArray());
     }
 
     private static byte[] CreatePngHeader(int width, int height)
