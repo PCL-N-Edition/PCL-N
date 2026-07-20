@@ -38,13 +38,51 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="$(gh api repos/PCL-N-Edition/PCL.Plugin/releases/latest --jq .tag_name)"
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]] || {
-            echo "::error::Invalid PCL.Plugin release tag: $tag"
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::PCL_PLUGIN_TOKEN is required to resolve the private PCL.Plugin release."
             exit 1
-          }
-          echo "Resolved PCL.Plugin release: $tag"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          fi
+          required=(
+            PCL.Plugin.dll
+            PCL.N.Plugin.Abstractions.dll
+            PCL.N.Plugin.i18n.dll
+            PCL.N.Plugin.Sdk.dll
+            PCL.N.Plugin.UI.dll
+            PCL.N.Plugin.UI.Avalonia.dll
+            0Harmony.dll
+            BouncyCastle.Cryptography.dll
+            jsoncanonicalizer.dll
+            es6numberserializer.dll
+          )
+          # Fresh releases can briefly publish with zero assets while upload finishes.
+          for attempt in 1 2 3 4 5 6; do
+            tag="$(gh api repos/PCL-N-Edition/PCL.Plugin/releases/latest --jq .tag_name)"
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]] || {
+              echo "::error::Invalid PCL.Plugin release tag: $tag"
+              exit 1
+            }
+            assets_json="$(gh api "repos/PCL-N-Edition/PCL.Plugin/releases/tags/${tag}" --jq '[.assets[].name]')"
+            missing=0
+            for name in "${required[@]}"; do
+              if ! echo "$assets_json" | grep -Fq "\"${name}\""; then
+                missing=1
+                break
+              fi
+              if ! echo "$assets_json" | grep -Fq "\"${name}.sha256\""; then
+                missing=1
+                break
+              fi
+            done
+            if [[ "$missing" -eq 0 ]]; then
+              echo "Resolved PCL.Plugin release: $tag"
+              echo "tag=$tag" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "PCL.Plugin release $tag is incomplete (attempt $attempt/6); waiting for assets..."
+            sleep $((attempt * 10))
+          done
+          echo "::error::PCL.Plugin latest release has no complete asset set after retries."
+          exit 1
       - name: Skip plugin resolution for pull requests
         if: ${{ github.event_name == 'pull_request' }}
         id: skipped

@@ -19,6 +19,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
@@ -49,6 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
@@ -68,6 +72,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
@@ -212,6 +218,8 @@ jobs:
       PUBLISH_DIR: artifact/${{ matrix.rid }}-${{ matrix.runtime_label }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
