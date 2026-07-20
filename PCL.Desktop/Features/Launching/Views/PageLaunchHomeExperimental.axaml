@@ -309,66 +309,64 @@
                             </Grid>
                         </Border>
 
-                        <!-- Experimental iOS-style shortcut dock (no outer card chrome) -->
-                        <Grid x:Name="PanShortcuts"
-                              IsVisible="False"
-                              Opacity="0"
-                              Background="Transparent"
-                              Margin="4,4,28,4"
-                              HorizontalAlignment="Stretch"
-                              VerticalAlignment="Stretch"
-                              MinHeight="0"
-                              RowDefinitions="Auto,*,Auto">
-                            <TextBlock FontSize="12"
-                                       FontWeight="SemiBold"
-                                       LetterSpacing="0.3"
-                                       Foreground="{DynamicResource ColorBrushGray3}"
-                                       Text="{DynamicResource Launch.Experimental.Shortcuts.Title}" />
-                            <StackPanel x:Name="PanShortcutsEmpty"
-                                        Grid.Row="1"
-                                        VerticalAlignment="Center"
-                                        HorizontalAlignment="Center"
-                                        Spacing="8"
-                                        Margin="12,8">
-                                <legacy:SvgIcon Width="36"
-                                                Height="36"
-                                                HorizontalAlignment="Center"
-                                                Icon="lucide/pin"
-                                                IconBrush="{DynamicResource ColorBrushGray4}" />
-                                <TextBlock FontSize="15"
+                        <!-- Shortcut flip card: keep outer card chrome, pins live in content (no bottom dock strip) -->
+                        <Border x:Name="PanShortcuts"
+                                IsVisible="False"
+                                Opacity="0"
+                                Background="{DynamicResource ColorBrushWhite}"
+                                CornerRadius="18"
+                                Padding="18,14,32,14"
+                                BorderBrush="{DynamicResource ColorBrushGray6}"
+                                BorderThickness="1"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch">
+                            <Grid MinHeight="0" RowDefinitions="Auto,*">
+                                <TextBlock FontSize="12"
                                            FontWeight="SemiBold"
-                                           HorizontalAlignment="Center"
-                                           Foreground="{DynamicResource ColorBrush1}"
-                                           Text="{DynamicResource Launch.Experimental.Shortcuts.Empty}" />
-                                <TextBlock FontSize="13"
-                                           LineHeight="18"
-                                           HorizontalAlignment="Center"
-                                           TextAlignment="Center"
-                                           TextWrapping="Wrap"
-                                           MaxWidth="320"
-                                           Foreground="{DynamicResource ColorBrushGray2}"
-                                           Text="{DynamicResource Launch.Experimental.Shortcuts.Hint}" />
-                            </StackPanel>
-                            <!-- iOS-like bottom dock (frosted strip only, no outer frame) -->
-                            <Border x:Name="PanShortcutsDock"
-                                    Grid.Row="2"
-                                    Margin="0,8,0,0"
-                                    MinHeight="78"
-                                    CornerRadius="22"
-                                    Padding="14,12"
-                                    Background="{DynamicResource ColorBrushTransparentBackground}"
-                                    BorderThickness="0"
-                                    IsVisible="False">
-                                <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                                              VerticalScrollBarVisibility="Disabled"
-                                              AllowAutoHide="True">
-                                    <StackPanel x:Name="PanShortcutsDockItems"
-                                                Orientation="Horizontal"
-                                                Spacing="10"
-                                                HorizontalAlignment="Center" />
+                                           LetterSpacing="0.3"
+                                           Foreground="{DynamicResource ColorBrushGray3}"
+                                           Text="{DynamicResource Launch.Experimental.Shortcuts.Title}" />
+                                <StackPanel x:Name="PanShortcutsEmpty"
+                                            Grid.Row="1"
+                                            VerticalAlignment="Center"
+                                            HorizontalAlignment="Center"
+                                            Spacing="8"
+                                            Margin="12,8">
+                                    <legacy:SvgIcon Width="36"
+                                                    Height="36"
+                                                    HorizontalAlignment="Center"
+                                                    Icon="lucide/pin"
+                                                    IconBrush="{DynamicResource ColorBrushGray4}" />
+                                    <TextBlock FontSize="15"
+                                               FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"
+                                               Foreground="{DynamicResource ColorBrush1}"
+                                               Text="{DynamicResource Launch.Experimental.Shortcuts.Empty}" />
+                                    <TextBlock FontSize="13"
+                                               LineHeight="18"
+                                               HorizontalAlignment="Center"
+                                               TextAlignment="Center"
+                                               TextWrapping="Wrap"
+                                               MaxWidth="320"
+                                               Foreground="{DynamicResource ColorBrushGray2}"
+                                               Text="{DynamicResource Launch.Experimental.Shortcuts.Hint}" />
+                                </StackPanel>
+                                <!-- Pin grid fills the card body (no separate dock bar) -->
+                                <ScrollViewer x:Name="PanShortcutsDock"
+                                              Grid.Row="1"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              VerticalScrollBarVisibility="Auto"
+                                              AllowAutoHide="True"
+                                              IsVisible="False"
+                                              Margin="0,10,0,0">
+                                    <WrapPanel x:Name="PanShortcutsDockItems"
+                                               Orientation="Horizontal"
+                                               ItemWidth="72"
+                                               ItemHeight="78"
+                                               HorizontalAlignment="Left" />
                                 </ScrollViewer>
-                            </Border>
-                        </Grid>
+                            </Grid>
+                        </Border>
                     </Grid>
 
                     <!-- Vertical page dots -->
