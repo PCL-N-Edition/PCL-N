@@ -21,6 +21,7 @@ namespace PCL.Desktop.Controls.Legacy;
 public static partial class ModAnimation
 {
     private static readonly Dictionary<string, AniGroupEntry> AniGroups = [];
+    private static readonly List<KeyValuePair<string, AniGroupEntry>> FrameBuffer = [];
     private static readonly Stopwatch AniClock = new();
     private static DispatcherTimer? _aniTimer;
     private static double _aniLastTick;
@@ -43,7 +44,6 @@ public static partial class ModAnimation
         if (data.Count == 0)
             return;
 
-        EnsureTimer();
         if (string.IsNullOrEmpty(name))
             name = Guid.NewGuid().ToString("N");
         else
@@ -52,6 +52,7 @@ public static partial class ModAnimation
         AniGroups[name] = new AniGroupEntry(data);
         if (refreshTime)
             _aniLastTick = AniClock.Elapsed.TotalMilliseconds;
+        EnsureTimer();
     }
 
     public static void AniStart(AniData aniGroup, string name = "", bool refreshTime = false) =>
@@ -63,6 +64,7 @@ public static partial class ModAnimation
             return;
 
         AniGroups.Remove(name);
+        StopTimerIfIdle();
     }
 
     public static void AdvanceForTesting(int deltaTick = 16, int count = 1)
@@ -89,6 +91,7 @@ public static partial class ModAnimation
     public static void ResetForTesting()
     {
         AniGroups.Clear();
+        FrameBuffer.Clear();
         _aniTimer?.Stop();
         _aniTimer = null;
         _aniLastTick = 0d;
@@ -100,11 +103,20 @@ public static partial class ModAnimation
     public static void AniTimer(int deltaTick)
     {
         if (AniGroups.Count == 0)
+        {
+            StopTimerIfIdle();
             return;
+        }
 
         deltaTick = (int)Math.Round(Math.Clamp(deltaTick * aniSpeed, 0d, 100000d));
-        foreach (KeyValuePair<string, AniGroupEntry> pair in AniGroups.ToArray())
+        // Reuse a buffer instead of Dictionary.ToArray() every frame (alloc + GC pressure).
+        FrameBuffer.Clear();
+        foreach (KeyValuePair<string, AniGroupEntry> pair in AniGroups)
+            FrameBuffer.Add(pair);
+
+        for (int groupIndex = 0; groupIndex < FrameBuffer.Count; groupIndex++)
         {
+            KeyValuePair<string, AniGroupEntry> pair = FrameBuffer[groupIndex];
             AniGroupEntry entry = pair.Value;
             bool canRemoveAfter = true;
             int index = 0;
@@ -145,6 +157,9 @@ public static partial class ModAnimation
             if (entry.Data.Count == 0 && AniGroups.TryGetValue(pair.Key, out AniGroupEntry? current) && ReferenceEquals(current, entry))
                 AniGroups.Remove(pair.Key);
         }
+
+        FrameBuffer.Clear();
+        StopTimerIfIdle();
     }
 
     public static AniData AaX(object obj, double value, int time = 400, int delay = 0, AniEase? ease = null, bool after = false) =>
@@ -531,6 +546,8 @@ public static partial class ModAnimation
         public object? obj;
         public object? value;
         public object? valueLast;
+        /// <summary>Reusable brush for color animations to avoid per-frame SolidColorBrush allocations.</summary>
+        public SolidColorBrush? workingBrush;
     }
 
     public enum AniType
@@ -703,7 +720,19 @@ public static partial class ModAnimation
 
         AniColor start = ani.valueLast is AniColor valueLast ? valueLast : GetColor(control, property);
         AniColor newColor = AniColor.Percent(start, total, ani.ease.GetValue(progress));
-        SetBrush(control, property, newColor.ToBrush());
+        Color color = newColor.ToColor();
+        if (ani.workingBrush is null)
+        {
+            ani.workingBrush = new SolidColorBrush(color);
+            SetBrush(control, property, ani.workingBrush);
+        }
+        else
+        {
+            ani.workingBrush.Color = color;
+            // Ensure the property still points at our working brush (theme code may replace it).
+            if (!ReferenceEquals(GetBrushTarget(control, property), ani.workingBrush))
+                SetBrush(control, property, ani.workingBrush);
+        }
     }
 
     private static void ApplyTextAppear(AniData ani, double progress)
@@ -1066,25 +1095,49 @@ public static partial class ModAnimation
 
     private static void EnsureTimer()
     {
-        if (_aniTimer is not null)
-            return;
+        if (_aniTimer is null)
+        {
+            AniClock.Restart();
+            _aniLastTick = 0d;
+            _aniTimer = new DispatcherTimer
+            {
+                Interval = _frameInterval
+            };
+            _aniTimer.Tick += (_, _) =>
+            {
+                double now = AniClock.Elapsed.TotalMilliseconds;
+                double delta = now - _aniLastTick;
+                _aniLastTick = now;
+                // Never log per-frame: RealTime + file I/O would dominate the UI thread.
+                AniTimer((int)Math.Round(delta));
+            };
+        }
 
-        AniClock.Restart();
-        _aniLastTick = 0d;
-        _aniTimer = new DispatcherTimer
+        if (!_aniTimer.IsEnabled)
         {
-            Interval = _frameInterval
-        };
-        _aniTimer.Tick += (_, _) =>
+            _aniLastTick = AniClock.Elapsed.TotalMilliseconds;
+            if (!AniClock.IsRunning)
+                AniClock.Restart();
+            _aniTimer.Start();
+        }
+    }
+
+    private static void StopTimerIfIdle()
+    {
+        if (AniGroups.Count == 0 && _aniTimer is { IsEnabled: true })
+            _aniTimer.Stop();
+    }
+
+    private static object? GetBrushTarget(Control control, AvaloniaProperty property)
+    {
+        try
         {
-            double now = AniClock.Elapsed.TotalMilliseconds;
-            double delta = now - _aniLastTick;
-            _aniLastTick = now;
-            if (PortableLog.IsEnabled(PortableLogLevel.RealTime))
-                PortableLog.RealTime("Animation", $"动画帧；Delta={delta:0.###}ms；活动组={AniGroups.Count}；目标间隔={_frameInterval.TotalMilliseconds:0.###}ms。");
-            AniTimer((int)Math.Round(delta));
-        };
-        _aniTimer.Start();
+            return control.GetValue(property);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private sealed class AniGroupEntry(List<AniData> data)
@@ -1129,8 +1182,10 @@ public static partial class ModAnimation
         private double G { get; }
         private double B { get; }
 
-        public SolidColorBrush ToBrush() =>
-            new SolidColorBrush(Color.FromArgb(ClampByte(A), ClampByte(R), ClampByte(G), ClampByte(B)));
+        public Color ToColor() =>
+            Color.FromArgb(ClampByte(A), ClampByte(R), ClampByte(G), ClampByte(B));
+
+        public SolidColorBrush ToBrush() => new SolidColorBrush(ToColor());
 
         public static AniColor operator +(AniColor left, AniColor right) =>
             new(left.A + right.A, left.R + right.R, left.G + right.G, left.B + right.B);

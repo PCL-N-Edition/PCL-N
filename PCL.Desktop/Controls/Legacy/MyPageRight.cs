@@ -263,6 +263,7 @@ public class MyPageRight : ContentControl, IDisposable
 
         List<ModAnimation.AniData> animations = [];
         int delay = 0;
+        int animatedCount = 0;
         foreach (Control element in realElements)
         {
             foreach (Control control in GetAllAnimControls(element))
@@ -272,6 +273,15 @@ public class MyPageRight : ContentControl, IDisposable
                 if (control is MyExtraTextButton extraTextButton)
                 {
                     extraTextButton.Show = true;
+                    continue;
+                }
+
+                // Cap stagger fan-out: excess controls appear settled immediately.
+                if (animatedCount >= MotionTokens.PageEnterMaxChildren)
+                {
+                    control.Opacity = 1d;
+                    if (control.RenderTransform is TranslateTransform settle)
+                        settle.Y = 0d;
                     continue;
                 }
 
@@ -291,6 +301,7 @@ public class MyPageRight : ContentControl, IDisposable
                     delay,
                     new ModAnimation.AniEaseOutFluent()));
                 delay += MotionTokens.PageStaggerMs;
+                animatedCount++;
             }
         }
 
@@ -316,6 +327,7 @@ public class MyPageRight : ContentControl, IDisposable
         Control[] realElements = elements.OfType<Control>().ToArray();
         List<ModAnimation.AniData> animations = [];
         int delay = 0;
+        int animatedCount = 0;
         foreach (Control element in realElements)
         {
             foreach (Control control in GetAllAnimControls(element))
@@ -329,9 +341,16 @@ public class MyPageRight : ContentControl, IDisposable
                 }
 
                 control.IsHitTestVisible = false;
+                if (animatedCount >= MotionTokens.PageEnterMaxChildren)
+                {
+                    control.Opacity = 0d;
+                    continue;
+                }
+
                 animations.Add(ModAnimation.AaOpacity(control, -1d, 70, delay));
                 animations.Add(ModAnimation.AaTranslateY(control, -6d, 70, delay));
                 delay += 15;
+                animatedCount++;
             }
         }
 

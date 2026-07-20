@@ -46,5 +46,17 @@ internal static class MotionTokens
     public const int ReducedMotionFadeMs = 160;
 
     /// <summary>Maximum number of children that receive staggered page enter.</summary>
-    public const int PageEnterMaxChildren = 24;
+    public const int PageEnterMaxChildren = 16;
+
+    /// <summary>Maximum list rows that play entrance stagger (rest snap to final state).</summary>
+    public const int ListEnterMaxChildren = 12;
+
+    /// <summary>Stagger between list entrance rows (ms).</summary>
+    public const int ListStaggerMs = 12;
+
+    /// <summary>List entrance opacity duration.</summary>
+    public const int ListEnterOpacityMs = 140;
+
+    /// <summary>List entrance vertical travel duration.</summary>
+    public const int ListEnterSlideMs = 180;
 }

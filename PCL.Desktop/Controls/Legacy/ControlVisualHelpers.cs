@@ -9,6 +9,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using Avalonia.Threading;
+using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -19,30 +20,52 @@ internal static class ControlVisualHelpers
         if (!ShouldAnimate(panel) || panel.Children.Count == 0)
             return;
 
-        Control[] children = panel.Children.Take(30).ToArray();
-        foreach (Control child in children)
+        int animateCount = Math.Min(panel.Children.Count, MotionTokens.ListEnterMaxChildren);
+        Control[] children = new Control[panel.Children.Count];
+        for (int i = 0; i < panel.Children.Count; i++)
+            children[i] = panel.Children[i];
+
+        // Only stagger a bounded prefix; remaining rows appear at rest immediately.
+        for (int i = 0; i < children.Length; i++)
         {
-            child.Opacity = 0d;
-            if (child.RenderTransform is not TranslateTransform translate)
+            Control child = children[i];
+            if (i < animateCount)
             {
-                translate = new TranslateTransform();
-                child.RenderTransform = translate;
+                child.Opacity = 0d;
+                if (child.RenderTransform is not TranslateTransform translate)
+                {
+                    translate = new TranslateTransform();
+                    child.RenderTransform = translate;
+                }
+                translate.Y = 8d;
             }
-            translate.Y = 8d;
+            else
+            {
+                child.Opacity = 1d;
+                if (child.RenderTransform is TranslateTransform rest)
+                    rest.Y = 0d;
+            }
         }
+
+        if (animateCount == 0)
+            return;
 
         Dispatcher.UIThread.Post(() =>
         {
             List<ModAnimation.AniData> animations = [];
             int index = 0;
-            foreach (Control child in children.Where(panel.Children.Contains))
+            for (int i = 0; i < animateCount; i++)
             {
-                int delay = Math.Min(index * 18, 180);
-                animations.Add(ModAnimation.AaOpacity(child, 1d, 160, delay));
+                Control child = children[i];
+                if (!panel.Children.Contains(child))
+                    continue;
+
+                int delay = Math.Min(index * MotionTokens.ListStaggerMs, 120);
+                animations.Add(ModAnimation.AaOpacity(child, 1d, MotionTokens.ListEnterOpacityMs, delay));
                 animations.Add(ModAnimation.AaTranslateY(
                     child,
                     -8d,
-                    220,
+                    MotionTokens.ListEnterSlideMs,
                     delay,
                     new ModAnimation.AniEaseOutFluent()));
                 index++;
