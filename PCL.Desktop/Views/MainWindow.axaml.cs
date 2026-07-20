@@ -2164,7 +2164,7 @@ public partial class MainWindow : Window, IDisposable
         CancellationToken cancellationToken,
         string? explicitTargetPath = null)
     {
-        string targetDirectory = ResolveCommunityDownloadDirectory(category, baseDirectory);
+        string targetDirectory = CommunityDownloadPaths.ResolveDirectory(category, baseDirectory);
         string targetPath;
         if (!string.IsNullOrWhiteSpace(explicitTargetPath))
         {
@@ -2176,7 +2176,7 @@ public partial class MainWindow : Window, IDisposable
         else
         {
             Directory.CreateDirectory(targetDirectory);
-            targetPath = Path.Combine(targetDirectory, SanitizeFileName(item.File.FileName));
+            targetPath = Path.Combine(targetDirectory, DesktopPathHelpers.SanitizeFileName(item.File.FileName));
         }
 
         string temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".PCLDownloading";
@@ -2280,22 +2280,6 @@ public partial class MainWindow : Window, IDisposable
                 }
             }
         }
-    }
-
-    private static string ResolveCommunityDownloadDirectory(
-        CommunityResourceCategory category,
-        string baseDirectory)
-    {
-        return category switch
-        {
-            CommunityResourceCategory.Mod => Path.Combine(baseDirectory, "mods"),
-            CommunityResourceCategory.ResourcePack => Path.Combine(baseDirectory, "resourcepacks"),
-            CommunityResourceCategory.Shader => Path.Combine(baseDirectory, "shaderpacks"),
-            CommunityResourceCategory.DataPack => Path.Combine(baseDirectory, "datapacks"),
-            CommunityResourceCategory.Modpack => Path.Combine(baseDirectory, "modpacks"),
-            CommunityResourceCategory.World => Path.Combine(baseDirectory, "saves"),
-            _ => baseDirectory
-        };
     }
 
     private PageDownloadLeft CreateDownloadLeftPage()
@@ -2813,9 +2797,9 @@ public partial class MainWindow : Window, IDisposable
     {
         LaunchInstanceInfo instance = request.Instance;
         string versionId = string.IsNullOrWhiteSpace(request.MinecraftVersionId)
-            ? ReadMinecraftVersionId(instance)
+            ? MinecraftLaunchPlanFactory.ReadMinecraftVersionId(instance)
             : request.MinecraftVersionId;
-        string minecraftRoot = GetMinecraftRootFromInstance(instance);
+        string minecraftRoot = MinecraftLaunchPlanFactory.GetMinecraftRootFromInstance(instance);
         PageDownloadInstall installPage = ActivateDownloadInstallPage(animate: true);
         if (request.AddonKind is { } addonKind &&
             request.CurrentLoaderKind is { } currentLoaderKind &&
@@ -3951,7 +3935,7 @@ public partial class MainWindow : Window, IDisposable
                 if (string.Equals(trimmed, profile.Username, StringComparison.Ordinal))
                     return;
 
-                string uuid = CreateOfflineUuid(trimmed, legacy: false);
+                string uuid = MinecraftLaunchPlanFactory.CreateOfflineUuid(trimmed, legacy: false);
                 LoginProfileInfo updated = profile with
                 {
                     Username = trimmed,
@@ -4059,17 +4043,6 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private static string CreateOfflineUuid(string username, bool legacy)
-    {
-        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(legacy ? username : "OfflinePlayer:" + username);
-#pragma warning disable CA5351
-        byte[] hash = System.Security.Cryptography.MD5.HashData(bytes);
-#pragma warning restore CA5351
-        hash[6] = (byte)((hash[6] & 0x0f) | 0x30);
-        hash[8] = (byte)((hash[8] & 0x3f) | 0x80);
-        return new Guid(hash).ToString("N");
-    }
-
     private void OpenAuthServerProfilePage(LoginProfileInfo profile, string action)
     {
         string? url = ResolveAuthServerProfileUrl(profile.AuthServer);
@@ -4119,13 +4092,13 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        string suggestedFileName = SanitizeFileName(profile.Username) + "-skin.png";
+        string suggestedFileName = DesktopPathHelpers.SanitizeFileName(profile.Username) + "-skin.png";
         string targetPath = await PickSaveFilePathAsync(
                 "保存皮肤",
                 suggestedFileName,
                 new FilePickerFileType("PNG 图片") { Patterns = ["*.png"] })
             .ConfigureAwait(true)
-            ?? Path.Combine(GetDesktopOrBaseDirectory(), suggestedFileName);
+            ?? Path.Combine(DesktopPathHelpers.GetDesktopOrBaseDirectory(), suggestedFileName);
 
         try
         {
@@ -4530,7 +4503,10 @@ public partial class MainWindow : Window, IDisposable
             : request.MinecraftRootDirectory;
         Directory.CreateDirectory(minecraftRoot);
         LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-        int downloadThreadLimit = Math.Clamp(GetIntegerOption(settings, LauncherSettingKeys.ToolDownloadThread, 63) + 1, 1, 256);
+        int downloadThreadLimit = Math.Clamp(
+            settings.GetIntegerOption(LauncherSettingKeys.ToolDownloadThread, 63) + 1,
+            1,
+            256);
         Progress<MinecraftInstallProgress> progress = new(update => TrackInstallProgress(taskId, taskTitle, update));
         try
         {
@@ -4546,7 +4522,7 @@ public partial class MainWindow : Window, IDisposable
                         Loader = request.Loader,
                         Addons = request.Addons ?? [],
                         ReplaceExistingVersion = request.ReplaceExistingVersion,
-                        JavaExecutablePath = ResolvePreferredJavaExecutablePath(forceConsole: true)
+                        JavaExecutablePath = MinecraftLaunchPlanFactory.ResolvePreferredJavaExecutablePath(forceConsole: true)
                     },
                     progress,
                     cancellation.Token)
@@ -4602,7 +4578,7 @@ public partial class MainWindow : Window, IDisposable
 
                     return _launchCancellation.Token;
                 },
-                GetMinecraftRoot = GetMinecraftRootFromInstance,
+                GetMinecraftRoot = MinecraftLaunchPlanFactory.GetMinecraftRootFromInstance,
                 WaitForUiPaintAsync = async () =>
                 {
                     // Yield until after layout + animation frames so the launching pane is visible
@@ -4624,9 +4600,9 @@ public partial class MainWindow : Window, IDisposable
                     LauncherSettingsPageBinder.LoadSettings,
                     cancellationToken),
                 RefreshProfileAsync = RefreshLaunchProfileAsync,
-                CreatePlanAsync = CreateLaunchPlanAsync,
-                RunPreLaunchCommandAsync = RunPreLaunchCommandAsync,
-                ApplyProcessPriority = ApplyProcessPriority,
+                CreatePlanAsync = MinecraftLaunchPlanFactory.CreateAsync,
+                RunPreLaunchCommandAsync = MinecraftLaunchPlanFactory.RunPreLaunchCommandAsync,
+                ApplyProcessPriority = MinecraftLaunchPlanFactory.ApplyProcessPriority,
                 ConfirmJavaDownloadAsync = ConfirmJavaDownloadAsync,
                 StopRepairServerAsync = () => _minecraftAiRepairAdvisor.StopLocalServerAsync(),
                 OnSucceededAsync = OnStartMinecraftSucceededAsync,
@@ -5442,7 +5418,7 @@ public partial class MainWindow : Window, IDisposable
                 {
                     VersionId = context.Instance.Name,
                     VersionJsonPath = context.Instance.VersionJsonPath,
-                    MinecraftRootDirectory = GetMinecraftRootFromInstance(context.Instance),
+                    MinecraftRootDirectory = MinecraftLaunchPlanFactory.GetMinecraftRootFromInstance(context.Instance),
                     InstanceDirectory = context.Instance.InstanceDirectory,
                     PreferOfficialSource = context.Settings.DownloadSource != DownloadSourcePreference.MirrorOnly,
                     BeforeFileChangeAsync = async (path, token) =>
@@ -5616,7 +5592,7 @@ public partial class MainWindow : Window, IDisposable
             0.96d,
             project.DisplayTitle,
             context.Instance));
-        string targetPath = Path.Combine(modsDirectory, SanitizeFileName(file.FileName));
+        string targetPath = Path.Combine(modsDirectory, DesktopPathHelpers.SanitizeFileName(file.FileName));
         await transaction.BackupFileAsync(targetPath, cancellationToken).ConfigureAwait(false);
         foreach (MinecraftModMetadata conflict in installed.Where(mod =>
                      string.Equals(mod.Id, modId, StringComparison.OrdinalIgnoreCase) &&
@@ -5860,11 +5836,11 @@ public partial class MainWindow : Window, IDisposable
                     VersionId = context.Instance.Name,
                     BaseVersionId = info.MinecraftVersionId,
                     VersionJsonUrl = vanilla.Url,
-                    MinecraftRootDirectory = GetMinecraftRootFromInstance(context.Instance),
+                    MinecraftRootDirectory = MinecraftLaunchPlanFactory.GetMinecraftRootFromInstance(context.Instance),
                     PreferOfficialSource = context.Settings.DownloadSource != DownloadSourcePreference.MirrorOnly,
                     Loader = new MinecraftLoaderInstallRequest(loader.Value.Kind, target.Version),
                     ReplaceExistingVersion = true,
-                    JavaExecutablePath = ResolvePreferredJavaExecutablePath(forceConsole: true)
+                    JavaExecutablePath = MinecraftLaunchPlanFactory.ResolvePreferredJavaExecutablePath(forceConsole: true)
                 },
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
@@ -6287,7 +6263,7 @@ public partial class MainWindow : Window, IDisposable
             .ConfigureAwait(false);
         if (file is null)
             return new ModDownloadResult(false, false);
-        string targetPath = Path.Combine(modsDirectory, SanitizeFileName(file.FileName));
+        string targetPath = Path.Combine(modsDirectory, DesktopPathHelpers.SanitizeFileName(file.FileName));
         if (File.Exists(targetPath))
             return new ModDownloadResult(true, false);
 
@@ -6944,7 +6920,7 @@ public partial class MainWindow : Window, IDisposable
             // Local/debug builds may intentionally omit the OAuth client id. A
             // previously authenticated Minecraft access token remains usable
             // until its own expiry; refreshing is only mandatory afterwards.
-            if (IsAccessTokenUsable(profile.AccessToken))
+            if (MinecraftLaunchPlanFactory.IsAccessTokenUsable(profile.AccessToken))
             {
                 Dispatcher.UIThread.Post(
                     () => _launchRight?.AppendLog("未配置 Microsoft Client ID，使用档案中仍有效的访问令牌启动。"),
@@ -6968,33 +6944,6 @@ public partial class MainWindow : Window, IDisposable
             SkinAddress = refreshed.SkinAddress ?? profile.SkinAddress,
             Info = refreshed.OwnsMinecraft ? "Microsoft 正版" : profile.Info
         };
-    }
-
-    private static bool IsAccessTokenUsable(string? accessToken)
-    {
-        if (string.IsNullOrWhiteSpace(accessToken))
-            return false;
-
-        string[] parts = accessToken.Split('.');
-        if (parts.Length < 2)
-            return true;
-        try
-        {
-            string payload = parts[1].Replace('-', '+').Replace('_', '/');
-            payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
-            using JsonDocument document = JsonDocument.Parse(Convert.FromBase64String(payload));
-            if (!document.RootElement.TryGetProperty("exp", out JsonElement expiration) ||
-                !expiration.TryGetInt64(out long seconds))
-            {
-                return true;
-            }
-
-            return DateTimeOffset.FromUnixTimeSeconds(seconds) > DateTimeOffset.UtcNow.AddMinutes(2d);
-        }
-        catch (Exception ex) when (ex is FormatException or JsonException or ArgumentOutOfRangeException)
-        {
-            return true;
-        }
     }
 
     private async Task IncrementInstanceLaunchCountAsync(LaunchInstanceInfo instance)
@@ -7023,177 +6972,6 @@ public partial class MainWindow : Window, IDisposable
             Dispatcher.UIThread.Post(
                 () => _launchRight?.AppendLog("记录启动次数失败：" + ex.Message),
                 DispatcherPriority.Background);
-        }
-    }
-
-    private static async Task<MinecraftProcessLaunchPlan> CreateLaunchPlanAsync(
-        LaunchInstanceInfo instance,
-        LoginProfileInfo profile,
-        string javaExecutablePath,
-        CancellationToken cancellationToken,
-        string? worldName = null,
-        InstanceMetadata? metadataOverride = null,
-        string? serverAddress = null)
-    {
-        InstanceMetadata metadata = metadataOverride ??
-            await InstanceMetadataStore.LoadAsync(instance.InstanceDirectory, cancellationToken).ConfigureAwait(false);
-        // Never hit settings store synchronously on the launch path (disk IO hitch).
-        LauncherSettings settings = await Task.Run(
-                LauncherSettingsPageBinder.LoadSettings,
-                cancellationToken)
-            .ConfigureAwait(false);
-        bool useJvmHost = settings.GetBooleanOption(
-            LauncherSettingKeys.ExperimentalJvmLifecycleHost,
-            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalJvmLifecycleHost.Value));
-        int windowType = GetIntegerOption(settings, LauncherSettingKeys.LaunchArgumentWindowType, 1);
-        (int width, int height) = GetWindowSize(settings);
-        (string? authlibPath, string? authlibServer, string? authlibMetadata) =
-            await ResolveAuthlibLaunchOptionsAsync(profile, useJvmHost, cancellationToken).ConfigureAwait(false);
-        int javaMajorVersion = await ResolveJavaMajorVersionAsync(javaExecutablePath, cancellationToken)
-            .ConfigureAwait(false);
-
-        return await MinecraftProcessLaunchService.CreatePlanAsync(
-            new MinecraftProcessLaunchRequest
-            {
-                VersionId = instance.Name,
-                VersionJsonPath = instance.VersionJsonPath,
-                InstanceDirectory = instance.InstanceDirectory,
-                MinecraftRootDirectory = GetMinecraftRootFromInstance(instance),
-                PlayerName = profile.Username,
-                PlayerUuid = string.IsNullOrWhiteSpace(profile.Uuid) ? Guid.NewGuid().ToString("N") : profile.Uuid,
-                AccessToken = string.IsNullOrWhiteSpace(profile.AccessToken) ? "0" : profile.AccessToken,
-                JavaExecutablePath = javaExecutablePath,
-                JavaMajorVersion = javaMajorVersion,
-                MemoryMegabytes = ResolveLaunchMemoryMegabytes(instance, metadata, settings),
-                Width = width,
-                Height = height,
-                Fullscreen = windowType == 0,
-                IsolatedGameDirectory = metadata.InstanceIsolation,
-                CustomJvmArguments = BuildInstanceJvmArguments(metadata, settings),
-                CustomGameArguments = FirstNonEmpty(metadata.GameArguments, GetTextOption(settings, LauncherSettingKeys.LaunchAdvanceGame)),
-                ClasspathHeadEntries = SplitClasspathHead(metadata.ClasspathHead),
-                AuthlibInjectorPath = authlibPath,
-                AuthlibServer = authlibServer,
-                AuthlibPrefetchedMetadata = authlibMetadata,
-                UseExperimentalJvmHost = useJvmHost,
-                JvmHostIdentityMode = profile.Kind switch
-                {
-                    LaunchLoginProfileKind.ThirdParty => MinecraftJvmHostIdentityMode.ThirdParty,
-                    LaunchLoginProfileKind.Offline => MinecraftJvmHostIdentityMode.Offline,
-                    _ => MinecraftJvmHostIdentityMode.Official
-                },
-                OfflineSkinSource = profile.Kind == LaunchLoginProfileKind.Offline ? profile.SkinAddress : null,
-                OfflineSkinSlim = profile.Kind == LaunchLoginProfileKind.Offline &&
-                                  string.Equals(
-                                      LoginProfileInfo.ResolveOfflineDefaultModel(profile.Uuid),
-                                      "Alex",
-                                      StringComparison.Ordinal),
-                PreferredIpStack = GetPreferredIpStack(settings),
-                Server = string.IsNullOrWhiteSpace(worldName)
-                    ? FirstNonEmpty(serverAddress, metadata.ServerToEnter)
-                    : null,
-                ReleaseTime = TryReadReleaseTime(instance),
-                HasOptiFine = HasOptiFine(instance),
-                WorldName = worldName,
-                LauncherName = "PCL-N",
-                VersionType = FirstNonEmpty(
-                    metadata.CustomInfo,
-                    settings.GetTextOption("LaunchArgumentInfo", LauncherSettingDefaults.GetText("LaunchArgumentInfo"))) ?? "PCL-N"
-            },
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task<int> ResolveJavaMajorVersionAsync(
-        string javaExecutablePath,
-        CancellationToken cancellationToken)
-    {
-        IReadOnlyList<PCL.Domain.Minecraft.Java.JavaRuntimeCandidate> candidates =
-            await new FileSystemJavaLocator([javaExecutablePath]).FindAllAsync(cancellationToken)
-                .ConfigureAwait(false);
-        return candidates.Count > 0 ? candidates[0].Installation.MajorVersion : 17;
-    }
-
-    private static async Task<(string? Path, string? Server, string? Metadata)> ResolveAuthlibLaunchOptionsAsync(
-        LoginProfileInfo profile,
-        bool useJvmHost,
-        CancellationToken cancellationToken)
-    {
-        if (profile.Kind != LaunchLoginProfileKind.ThirdParty || string.IsNullOrWhiteSpace(profile.AuthServer))
-            return (null, null, null);
-
-        AuthlibInjectorService service = new();
-        string authServer = AuthlibInjectorService.NormalizeAuthServer(profile.AuthServer);
-        string metadata = await service.GetServerMetadataAsync(authServer, cancellationToken)
-            .ConfigureAwait(false);
-        if (useJvmHost)
-            return (null, authServer, metadata);
-
-        string authlibPath = await service.EnsureAsync(GetAuthlibInjectorCachePath(), cancellationToken)
-            .ConfigureAwait(false);
-        return (authlibPath, authServer, metadata);
-    }
-
-    private static string GetAuthlibInjectorCachePath()
-    {
-        DefaultPlatformPathProvider paths = new();
-        return Path.Combine(paths.ApplicationDataDirectory, "PCL-N", "authlib-injector.jar");
-    }
-
-    private static async Task RunPreLaunchCommandAsync(
-        string command,
-        bool waitForExit,
-        string workingDirectory,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(command))
-            return;
-
-        using Process? process = Process.Start(CreateShellStartInfo(command, workingDirectory));
-        if (process is null)
-            throw new InvalidOperationException("预启动命令未能启动。");
-
-        if (!waitForExit)
-            return;
-
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException("预启动命令执行失败，退出码：" + process.ExitCode.ToString(CultureInfo.InvariantCulture));
-    }
-
-    private static ProcessStartInfo CreateShellStartInfo(string command, string workingDirectory)
-    {
-        ProcessStartInfo startInfo = new()
-        {
-            FileName = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh",
-            WorkingDirectory = Directory.Exists(workingDirectory) ? workingDirectory : AppContext.BaseDirectory,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        if (OperatingSystem.IsWindows())
-            startInfo.ArgumentList.Add("/C");
-        else
-            startInfo.ArgumentList.Add("-lc");
-        startInfo.ArgumentList.Add(command);
-        return startInfo;
-    }
-
-    private static void ApplyProcessPriority(Process process, LauncherSettings settings)
-    {
-        try
-        {
-            process.PriorityClass = settings.GetIntegerOption(
-                "LaunchArgumentPriority",
-                LauncherSettingDefaults.GetInteger("LaunchArgumentPriority")) switch
-            {
-                0 => ProcessPriorityClass.AboveNormal,
-                2 => ProcessPriorityClass.BelowNormal,
-                3 => ProcessPriorityClass.High,
-                4 => ProcessPriorityClass.RealTime,
-                _ => ProcessPriorityClass.Normal
-            };
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
-        {
         }
     }
 
@@ -7266,155 +7044,6 @@ public partial class MainWindow : Window, IDisposable
         {
             process.Dispose();
         }
-    }
-
-    private static int ResolveLaunchMemoryMegabytes(
-        LaunchInstanceInfo instance,
-        InstanceMetadata metadata,
-        LauncherSettings settings)
-    {
-        int memorySolution = metadata.MemorySolution;
-        int customMemorySize = metadata.CustomMemorySize;
-        if (memorySolution == 2)
-        {
-            memorySolution = GetIntegerOption(settings, LauncherSettingKeys.LaunchRamType, 0);
-            customMemorySize = GetIntegerOption(settings, LauncherSettingKeys.LaunchRamCustom, 15);
-        }
-
-        return LaunchMemoryCalculator.ResolveMemoryMegabytes(
-            new LaunchMemoryRequest
-            {
-                MemorySolution = memorySolution,
-                CustomMemorySize = customMemorySize,
-                MemoryInfo = new PCL.Platform.System.DefaultSystemInfoProvider().GetMemoryInfo(),
-                Profile = GetMemoryProfile(instance, metadata),
-                ModCount = CountModFiles(instance, metadata)
-            });
-    }
-
-    private static LaunchMemoryProfile GetMemoryProfile(LaunchInstanceInfo instance, InstanceMetadata metadata)
-    {
-        if (CountModFiles(instance, metadata) > 0 || VersionJsonContains(instance, "fabric-loader", "forge", "neoforge", "quilt"))
-            return LaunchMemoryProfile.Modded;
-        return HasOptiFine(instance) ? LaunchMemoryProfile.OptiFine : LaunchMemoryProfile.Vanilla;
-    }
-
-    private static int CountModFiles(LaunchInstanceInfo instance, InstanceMetadata metadata)
-    {
-        HashSet<string> modPaths = new(StringComparer.OrdinalIgnoreCase);
-        AddModFiles(modPaths, Path.Combine(instance.InstanceDirectory, "mods"));
-        if (!metadata.InstanceIsolation)
-            AddModFiles(modPaths, Path.Combine(GetMinecraftRootFromInstance(instance), "mods"));
-        return modPaths.Count;
-    }
-
-    private static void AddModFiles(HashSet<string> modPaths, string modsDirectory)
-    {
-        if (!Directory.Exists(modsDirectory))
-            return;
-
-        foreach (string file in Directory.EnumerateFiles(modsDirectory, "*.jar", SearchOption.TopDirectoryOnly))
-            modPaths.Add(file);
-    }
-
-    private static (int Width, int Height) GetWindowSize(LauncherSettings settings)
-    {
-        int width = GetTextOptionAsInt(settings, LauncherSettingKeys.LaunchArgumentWindowWidth, 854);
-        int height = GetTextOptionAsInt(settings, LauncherSettingKeys.LaunchArgumentWindowHeight, 480);
-        return (Math.Clamp(width, 1, 9999), Math.Clamp(height, 1, 9999));
-    }
-
-    private static int GetIntegerOption(LauncherSettings settings, SettingKey key, int fallback) =>
-        settings.GetIntegerOption(key, fallback);
-
-    private static string GetTextOption(LauncherSettings settings, SettingKey key) =>
-        settings.GetTextOption(key);
-
-    private static int GetTextOptionAsInt(LauncherSettings settings, SettingKey key, int fallback) =>
-        int.TryParse(GetTextOption(settings, key), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
-            ? value
-            : fallback;
-
-    private static MinecraftJvmIpPreference GetPreferredIpStack(LauncherSettings settings) =>
-        GetIntegerOption(settings, LauncherSettingKeys.LaunchPreferredIpStack, 1) switch
-        {
-            0 => MinecraftJvmIpPreference.PreferV4,
-            2 => MinecraftJvmIpPreference.PreferV6,
-            _ => MinecraftJvmIpPreference.SystemDefault
-        };
-
-    private static string[] SplitClasspathHead(string classpathHead)
-    {
-        if (string.IsNullOrWhiteSpace(classpathHead))
-            return [];
-
-        return classpathHead.Split(
-                ["\r\n", "\n", Path.PathSeparator.ToString()],
-                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(static entry => !string.IsNullOrWhiteSpace(entry))
-            .ToArray();
-    }
-
-    private static string BuildInstanceJvmArguments(InstanceMetadata metadata, LauncherSettings settings)
-    {
-        string arguments = FirstNonEmpty(
-            metadata.JvmArguments,
-            GetTextOption(settings, LauncherSettingKeys.LaunchAdvanceJvm)) ?? string.Empty;
-        if (!metadata.UseProxy ||
-            settings.GetIntegerOption("SystemHttpProxyType", LauncherSettingDefaults.GetInteger("SystemHttpProxyType")) != 2 ||
-            !Uri.TryCreate(
-                settings.GetTextOption("SystemHttpProxy", LauncherSettingDefaults.GetText("SystemHttpProxy")),
-                UriKind.Absolute,
-                out Uri? proxy))
-        {
-            return arguments;
-        }
-
-        string proxyArguments = $"-Dhttp.proxyHost={proxy.Host} -Dhttp.proxyPort={proxy.Port} " +
-                                $"-Dhttps.proxyHost={proxy.Host} -Dhttps.proxyPort={proxy.Port}";
-        return string.IsNullOrWhiteSpace(arguments) ? proxyArguments : arguments.Trim() + " " + proxyArguments;
-    }
-
-    private static string ResolvePreferredJavaExecutablePath(bool forceConsole = false)
-    {
-        bool forceConsoleJava = forceConsole || LauncherSettingDefaults.GetBoolean("LaunchAdvanceNoJavaw");
-        try
-        {
-            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            forceConsoleJava = forceConsole || settings.GetBooleanOption(
-                "LaunchAdvanceNoJavaw",
-                LauncherSettingDefaults.GetBoolean("LaunchAdvanceNoJavaw"));
-            if (settings.TryGetTextOption(LauncherSettingKeys.LaunchSelectedJava, out string? selectedJava) &&
-                !string.IsNullOrWhiteSpace(selectedJava) &&
-                File.Exists(selectedJava))
-            {
-                if (OperatingSystem.IsWindows() && forceConsoleJava &&
-                    string.Equals(Path.GetFileName(selectedJava), "javaw.exe", StringComparison.OrdinalIgnoreCase))
-                {
-                    string java = Path.Combine(Path.GetDirectoryName(selectedJava) ?? string.Empty, "java.exe");
-                    if (File.Exists(java))
-                        return java;
-                }
-
-                if (!forceConsoleJava && OperatingSystem.IsWindows() &&
-                    string.Equals(Path.GetFileName(selectedJava), "java.exe", StringComparison.OrdinalIgnoreCase))
-                {
-                    string javaw = Path.Combine(Path.GetDirectoryName(selectedJava) ?? string.Empty, "javaw.exe");
-                    if (File.Exists(javaw))
-                        return javaw;
-                }
-
-                return selectedJava;
-            }
-        }
-        catch (Exception)
-        {
-            // 启动路径读取失败时退回系统 PATH，避免设置文件损坏阻断启动。
-        }
-
-        return OperatingSystem.IsWindows() && !forceConsoleJava
-            ? "javaw"
-            : "java";
     }
 
     private void PromptRenameInstance(LaunchInstanceInfo instance)
@@ -7528,7 +7157,7 @@ public partial class MainWindow : Window, IDisposable
         try
         {
             string defaultExtension = OperatingSystem.IsWindows() ? ".bat" : ".sh";
-            string suggestedFileName = "启动 " + SanitizeFileName(instance.Name) + defaultExtension;
+            string suggestedFileName = "启动 " + DesktopPathHelpers.SanitizeFileName(instance.Name) + defaultExtension;
             string targetPath = await PickSaveFilePathAsync(
                     "导出启动脚本",
                     suggestedFileName,
@@ -7536,7 +7165,7 @@ public partial class MainWindow : Window, IDisposable
                         ? new FilePickerFileType("Windows 批处理") { Patterns = ["*.bat", "*.cmd"] }
                         : new FilePickerFileType("Shell 脚本") { Patterns = ["*.sh"] })
                 .ConfigureAwait(true)
-                ?? Path.Combine(GetDesktopOrBaseDirectory(), suggestedFileName);
+                ?? Path.Combine(DesktopPathHelpers.GetDesktopOrBaseDirectory(), suggestedFileName);
 
             InstanceMetadata metadata = await InstanceMetadataStore.LoadAsync(instance.InstanceDirectory)
                 .ConfigureAwait(true);
@@ -7548,16 +7177,16 @@ public partial class MainWindow : Window, IDisposable
                         Profile = profile,
                         Metadata = metadata,
                         Settings = settings,
-                        MinecraftRootDirectory = GetMinecraftRootFromInstance(instance),
+                        MinecraftRootDirectory = MinecraftLaunchPlanFactory.GetMinecraftRootFromInstance(instance),
                         Report = static _ => { },
                         RefreshProfileAsync = static (current, _) => Task.FromResult(current),
-                        CreatePlanAsync = CreateLaunchPlanAsync,
-                        RunPreLaunchCommandAsync = RunPreLaunchCommandAsync,
-                        ApplyProcessPriority = ApplyProcessPriority
+                        CreatePlanAsync = MinecraftLaunchPlanFactory.CreateAsync,
+                        RunPreLaunchCommandAsync = MinecraftLaunchPlanFactory.RunPreLaunchCommandAsync,
+                        ApplyProcessPriority = MinecraftLaunchPlanFactory.ApplyProcessPriority
                     },
                     CancellationToken.None)
                 .ConfigureAwait(true);
-            MinecraftProcessLaunchPlan plan = await CreateLaunchPlanAsync(
+            MinecraftProcessLaunchPlan plan = await MinecraftLaunchPlanFactory.CreateAsync(
                     instance,
                     profile,
                     javaPath,
@@ -7606,7 +7235,7 @@ public partial class MainWindow : Window, IDisposable
                     {
                         VersionId = instance.Name,
                         VersionJsonPath = instance.VersionJsonPath,
-                        MinecraftRootDirectory = GetMinecraftRootFromInstance(instance),
+                        MinecraftRootDirectory = MinecraftLaunchPlanFactory.GetMinecraftRootFromInstance(instance),
                         InstanceDirectory = instance.InstanceDirectory,
                         PreferOfficialSource = true
                     },
@@ -7849,14 +7478,14 @@ public partial class MainWindow : Window, IDisposable
         try
         {
             LaunchInstanceInfo instance = request.Instance;
-            string fileName = $"PCLN-{SanitizeFileName(request.PackageName)}-{SanitizeFileName(request.PackageVersion)}-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
-            string targetPath = Path.Combine(GetDesktopOrBaseDirectory(), fileName);
+            string fileName = $"PCLN-{DesktopPathHelpers.SanitizeFileName(request.PackageName)}-{DesktopPathHelpers.SanitizeFileName(request.PackageVersion)}-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
+            string targetPath = Path.Combine(DesktopPathHelpers.GetDesktopOrBaseDirectory(), fileName);
             _launchRight?.AppendLog($"正在导出版本 {instance.Name}。");
             await InstanceExportService.ExportAsync(
                     new InstanceExportRequest
                     {
                         InstanceDirectory = instance.InstanceDirectory,
-                        GameDirectory = GetMinecraftRootFromInstance(instance),
+                        GameDirectory = MinecraftLaunchPlanFactory.GetMinecraftRootFromInstance(instance),
                         TargetArchivePath = targetPath,
                         Rules = request.Rules
                     })
@@ -7882,7 +7511,7 @@ public partial class MainWindow : Window, IDisposable
                         Patterns = ["*.txt"]
                     })
                 .ConfigureAwait(true)
-                ?? Path.Combine(GetDesktopOrBaseDirectory(), $"PCLN-ExportRules-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+                ?? Path.Combine(DesktopPathHelpers.GetDesktopOrBaseDirectory(), $"PCLN-ExportRules-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
 
             await File.WriteAllLinesAsync(targetPath, rules).ConfigureAwait(true);
             ShowTextDialog("导出配置完成", "规则配置已导出到：\n" + targetPath);
@@ -7957,37 +7586,6 @@ public partial class MainWindow : Window, IDisposable
         return files.Count == 0 ? null : files[0].TryGetLocalPath();
     }
 
-    private static string ResolveInstanceJavaExecutablePath(InstanceMetadata metadata, bool forceConsole = false)
-    {
-        if (metadata.JavaSelectionMode == 2 &&
-            !string.IsNullOrWhiteSpace(metadata.SelectedJavaPath) &&
-            File.Exists(metadata.SelectedJavaPath))
-        {
-            string selectedJava = metadata.SelectedJavaPath;
-            if (OperatingSystem.IsWindows())
-            {
-                string directory = Path.GetDirectoryName(selectedJava) ?? string.Empty;
-                if (forceConsole && string.Equals(Path.GetFileName(selectedJava), "javaw.exe", StringComparison.OrdinalIgnoreCase))
-                {
-                    string consoleJava = Path.Combine(directory, "java.exe");
-                    if (File.Exists(consoleJava))
-                        return consoleJava;
-                }
-                if (!forceConsole && string.Equals(Path.GetFileName(selectedJava), "java.exe", StringComparison.OrdinalIgnoreCase))
-                {
-                    string windowJava = Path.Combine(directory, "javaw.exe");
-                    if (File.Exists(windowJava))
-                        return windowJava;
-                }
-            }
-            return selectedJava;
-        }
-
-        if (metadata.JavaSelectionMode == 1)
-            return OperatingSystem.IsWindows() && !forceConsole ? "javaw" : "java";
-        return ResolvePreferredJavaExecutablePath(forceConsole);
-    }
-
     private async Task<string?> PickOpenFolderPathAsync(string title)
     {
         IStorageProvider? storage = TopLevel.GetTopLevel(this)?.StorageProvider;
@@ -8003,19 +7601,6 @@ public partial class MainWindow : Window, IDisposable
         return folders.Count == 0 ? null : folders[0].TryGetLocalPath();
     }
 
-    private static string GetDesktopOrBaseDirectory()
-    {
-        string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        return string.IsNullOrWhiteSpace(desktop) ? AppContext.BaseDirectory : desktop;
-    }
-
-    private static string SanitizeFileName(string name)
-    {
-        char[] invalidChars = Path.GetInvalidFileNameChars();
-        string sanitized = new(name.Select(ch => invalidChars.Contains(ch) ? '_' : ch).ToArray());
-        return string.IsNullOrWhiteSpace(sanitized) ? "Minecraft" : sanitized;
-    }
-
     private string GetDefaultMinecraftRoot()
     {
         if (!string.IsNullOrWhiteSpace(_launchLeft?.MinecraftRootDirectory))
@@ -8029,148 +7614,6 @@ public partial class MainWindow : Window, IDisposable
         }
 
         return roots.Count > 0 ? roots[0] : LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
-    }
-
-    private static string GetMinecraftRootFromInstance(LaunchInstanceInfo instance)
-    {
-        DirectoryInfo versionDirectory = new(instance.InstanceDirectory);
-        DirectoryInfo versionsDirectory = versionDirectory.Parent
-            ?? throw new InvalidOperationException("无法确定 versions 目录。");
-        return versionsDirectory.Parent?.FullName
-               ?? throw new InvalidOperationException("无法确定 Minecraft 根目录。");
-    }
-
-    private static string ReadMinecraftVersionId(LaunchInstanceInfo instance)
-    {
-        try
-        {
-            using FileStream stream = File.OpenRead(instance.VersionJsonPath);
-            using JsonDocument document = JsonDocument.Parse(stream);
-            JsonElement root = document.RootElement;
-            string? inheritsFrom = TryReadJsonString(root, "inheritsFrom");
-            if (!string.IsNullOrWhiteSpace(inheritsFrom))
-                return inheritsFrom;
-
-            string? id = TryReadJsonString(root, "id");
-            if (!string.IsNullOrWhiteSpace(id))
-                return id;
-        }
-        catch (Exception)
-        {
-        }
-
-        return instance.Name;
-    }
-
-    private static DateTimeOffset? TryReadReleaseTime(LaunchInstanceInfo instance)
-    {
-        try
-        {
-            using FileStream stream = File.OpenRead(instance.VersionJsonPath);
-            using JsonDocument document = JsonDocument.Parse(stream);
-            string? releaseTime = TryReadJsonString(document.RootElement, "releaseTime");
-            return DateTimeOffset.TryParse(
-                releaseTime,
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal,
-                out DateTimeOffset value)
-                ? value
-                : null;
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
-
-    private static string? TryReadJsonString(JsonElement element, string propertyName) =>
-        element.ValueKind == JsonValueKind.Object &&
-        element.TryGetProperty(propertyName, out JsonElement property) &&
-        property.ValueKind == JsonValueKind.String
-            ? property.GetString()
-            : null;
-
-    private static bool HasOptiFine(LaunchInstanceInfo instance)
-    {
-        if (VersionJsonContains(instance, "optifine"))
-            return true;
-
-        try
-        {
-            return Directory.EnumerateFiles(instance.InstanceDirectory, "*", SearchOption.TopDirectoryOnly)
-                .Any(static file => Path.GetFileName(file).Contains("optifine", StringComparison.OrdinalIgnoreCase));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
-        {
-            return false;
-        }
-    }
-
-    private static bool VersionJsonContains(LaunchInstanceInfo instance, params string[] needles)
-    {
-        bool hasNeedle = false;
-        int overlapLength = 0;
-        foreach (string needle in needles)
-        {
-            if (string.IsNullOrWhiteSpace(needle))
-                continue;
-
-            hasNeedle = true;
-            overlapLength = Math.Max(overlapLength, needle.Length - 1);
-        }
-
-        if (!hasNeedle)
-            return false;
-
-        try
-        {
-            char[] buffer = ArrayPool<char>.Shared.Rent(8 * 1024 + overlapLength);
-            try
-            {
-                using StreamReader reader = new(
-                    new FileStream(
-                        instance.VersionJsonPath,
-                        FileMode.Open,
-                        FileAccess.Read,
-                        FileShare.ReadWrite,
-                        bufferSize: 16 * 1024,
-                        useAsync: false),
-                    Encoding.UTF8,
-                    detectEncodingFromByteOrderMarks: true,
-                    bufferSize: 8 * 1024,
-                    leaveOpen: false);
-
-                int carryLength = 0;
-                while (true)
-                {
-                    int read = reader.ReadBlock(buffer, carryLength, buffer.Length - carryLength);
-                    if (read == 0)
-                        return false;
-
-                    ReadOnlySpan<char> current = buffer.AsSpan(0, carryLength + read);
-                    foreach (string needle in needles)
-                    {
-                        if (!string.IsNullOrWhiteSpace(needle) &&
-                            current.Contains(needle, StringComparison.OrdinalIgnoreCase))
-                        {
-                            return true;
-                        }
-                    }
-
-                    carryLength = Math.Min(overlapLength, current.Length);
-                    if (carryLength > 0)
-                        current[^carryLength..].CopyTo(buffer);
-                }
-            }
-            finally
-            {
-                ArrayPool<char>.Shared.Return(buffer);
-            }
-        }
-        catch (Exception)
-        {
-            return false;
-        }
     }
 
     private void ExtraDockViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -8289,7 +7732,7 @@ public partial class MainWindow : Window, IDisposable
                 Title = "Microsoft 正版档案登录",
                 Caption = FormatMicrosoftDeviceCodeCaption(deviceCode),
                 UserCode = deviceCode.UserCode,
-                Website = FirstNonEmpty(deviceCode.VerificationUriComplete, deviceCode.VerificationUri)
+                Website = MinecraftLaunchPlanFactory.FirstNonEmpty(deviceCode.VerificationUriComplete, deviceCode.VerificationUri)
             };
             ShowLoginDialog(dialog, () => _microsoftLoginCancellation?.Cancel());
             await PrepareLoginDialogAsync(dialog).ConfigureAwait(true);
@@ -8336,20 +7779,9 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private static string FirstNonEmpty(params string?[] values)
-    {
-        foreach (string? value in values)
-        {
-            if (!string.IsNullOrWhiteSpace(value))
-                return value;
-        }
-
-        return string.Empty;
-    }
-
     private static string FormatMicrosoftDeviceCodeCaption(MicrosoftDeviceCodeInfo deviceCode)
     {
-        string website = FirstNonEmpty(deviceCode.VerificationUri, deviceCode.VerificationUriComplete);
+        string website = MinecraftLaunchPlanFactory.FirstNonEmpty(deviceCode.VerificationUri, deviceCode.VerificationUriComplete);
         return string.IsNullOrWhiteSpace(website)
             ? $"请按浏览器页面提示登录 Microsoft 账户。\n\n授权码：{deviceCode.UserCode}"
             : $"请在浏览器中打开 {website}，并按页面提示登录 Microsoft 账户。\n\n授权码：{deviceCode.UserCode}";

@@ -360,7 +360,14 @@ public sealed record ExperimentalUiProfile(
 6. [x] `LaunchHomeBindings` 根路径改为 live `Func`（避免 EnsureFolders 前快照为 null）  
 7. [~] DynamicData：**有意不做**（列表薄模式足够；非阻塞项）  
 
-**Phase 5 结论：** 壳层 Feature Surface / UseCase 主线已落地；MainWindow 仍承载对话框、修复 AI、计划创建等 host 细节，后续可按需继续 Strangler，不阻塞发布。
+**Phase 5 结论：** 壳层 Feature Surface / UseCase 主线已落地；`MinecraftLaunchPlanFactory` 承接启动计划/内存/Java/Authlib 纯逻辑。MainWindow 仍承载对话框、修复 AI 等 host 细节，后续可按需继续 Strangler，不阻塞发布。
+
+### Phase 5+ 持续瘦身
+
+1. [x] `MinecraftLaunchPlanFactory`：CreatePlan / 预启动命令 / 进程优先级 / 根路径 / Java 解析  
+2. [x] `CommunityDownloadPaths` + `DesktopPathHelpers` 路径小工具  
+3. [ ] 社区下载编排整段迁出 MainWindow  
+4. [ ] 崩溃修复 AI 流水线模块化
 
 **DoD（每阶段）：** 编译 + 相关测试绿；实验开/关冒烟；不扩大业务分叉；可独立回滚。
 
