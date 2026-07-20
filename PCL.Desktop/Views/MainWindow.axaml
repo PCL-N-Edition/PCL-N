@@ -101,6 +101,14 @@
 
                     <local:MyImage x:Name="ImgTitle" IsHitTestVisible="False" Stretch="UniformToFill" IsEnabled="False" />
 
+                    <!-- Soft material strip used only by experimental title chrome -->
+                    <Border x:Name="PanTitleGlassOverlay"
+                            IsHitTestVisible="False"
+                            IsVisible="False"
+                            Background="#33FFFFFF"
+                            BorderBrush="#28FFFFFF"
+                            BorderThickness="0,0,0,1" />
+
                     <local:MyIconButton x:Name="BtnTitleClose" HorizontalAlignment="Right" Height="28" VerticalAlignment="Center" Width="28" Margin="0,0,12,0" Theme="White" Click="BtnTitleClose_Click"
                                         SvgIcon="lucide/x" />
                     <local:MyIconButton x:Name="BtnTitleMax" HorizontalAlignment="Right" Height="28" VerticalAlignment="Center" Width="28" Margin="0,0,44,0" Theme="White" Click="BtnTitleMax_Click"
@@ -254,54 +262,67 @@
                             Grid.Row="1" Grid.Column="1"
                             ZIndex="2" />
 
-                <StackPanel x:Name="PanExtraButtons" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                            Grid.Row="1" Grid.Column="1" Margin="15" ZIndex="3">
+                <!-- Classic: bare stack. Experimental: frosted dock chrome applied at runtime. -->
+                <Border x:Name="PanExtraDock"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Bottom"
+                        Grid.Row="1" Grid.Column="1"
+                        Margin="18"
+                        Padding="0"
+                        CornerRadius="24"
+                        Background="Transparent"
+                        BorderBrush="Transparent"
+                        BorderThickness="0"
+                        BoxShadow="0 0 0 0 #00000000"
+                        ZIndex="3">
+                    <StackPanel x:Name="PanExtraButtons" Spacing="0">
 
-                    <local:MyExtraButton x:Name="BtnExtraUpdateRestart" HorizontalAlignment="Right"
+                        <local:MyExtraButton x:Name="BtnExtraUpdateRestart" HorizontalAlignment="Right"
 
-                                         Click="BtnExtraUpdateRestart_Click"
+                                             Click="BtnExtraUpdateRestart_Click"
 
-                                         VerticalAlignment="Center" ToolTip="{DynamicResource Main.Extra.UpdateRestart.ToolTip}"
+                                             VerticalAlignment="Center" ToolTip="{DynamicResource Main.Extra.UpdateRestart.ToolTip}"
 
-                                         IsVisible="False"
-                                         SvgIcon="lucide/refresh-cw" />
-                    <local:MyExtraButton x:Name="BtnExtraBack" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                             IsVisible="False"
+                                             SvgIcon="lucide/refresh-cw" />
+                        <local:MyExtraButton x:Name="BtnExtraBack" HorizontalAlignment="Right" VerticalAlignment="Center"
 
-                                         Click="BtnExtraBack_Click"
+                                             Click="BtnExtraBack_Click"
 
-                                         ToolTip="{DynamicResource Main.Extra.BackToTop.ToolTip}" IsVisible="False"
-                                         SvgIcon="lucide/arrow-up-to-line" />
-                    <local:MyExtraButton x:Name="BtnExtraDownload" HorizontalAlignment="Right"
+                                             ToolTip="{DynamicResource Main.Extra.BackToTop.ToolTip}" IsVisible="False"
+                                             SvgIcon="lucide/arrow-up-to-line" />
+                        <local:MyExtraButton x:Name="BtnExtraDownload" HorizontalAlignment="Right"
 
-                                         Click="BtnExtraDownload_Click"
+                                             Click="BtnExtraDownload_Click"
 
-                                         VerticalAlignment="Center" ToolTip="{DynamicResource Main.Extra.TaskManager.ToolTip}" IsVisible="False"
-                                         SvgIcon="lucide/download" />
-                    <local:MyExtraButton x:Name="BtnExtraApril" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                             VerticalAlignment="Center" ToolTip="{DynamicResource Main.Extra.TaskManager.ToolTip}" IsVisible="False"
+                                             SvgIcon="lucide/download" />
+                        <local:MyExtraButton x:Name="BtnExtraApril" HorizontalAlignment="Right" VerticalAlignment="Center"
 
-                                         Click="BtnExtraApril_Click"
+                                             Click="BtnExtraApril_Click"
 
-                                         ToolTip="{DynamicResource Main.Extra.GiveUp.ToolTip}" IsVisible="False"
-                                         SvgIcon="lucide/flag" />
-                    <local:MyExtraButton x:Name="BtnExtraShutdown" HorizontalAlignment="Right"
+                                             ToolTip="{DynamicResource Main.Extra.GiveUp.ToolTip}" IsVisible="False"
+                                             SvgIcon="lucide/flag" />
+                        <local:MyExtraButton x:Name="BtnExtraShutdown" HorizontalAlignment="Right"
 
-                                         Click="BtnExtraShutdown_Click"
+                                             Click="BtnExtraShutdown_Click"
 
-                                         VerticalAlignment="Center" ToolTip="{DynamicResource Main.Extra.ShutdownMinecraft.ToolTip}" IsVisible="False"
-                                         SvgIcon="lucide/power" />
-                    <local:MyExtraButton x:Name="BtnExtraLog" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                             VerticalAlignment="Center" ToolTip="{DynamicResource Main.Extra.ShutdownMinecraft.ToolTip}" IsVisible="False"
+                                             SvgIcon="lucide/power" />
+                        <local:MyExtraButton x:Name="BtnExtraLog" HorizontalAlignment="Right" VerticalAlignment="Center"
 
-                                         Click="BtnExtraLog_Click"
+                                             Click="BtnExtraLog_Click"
 
-                                         ToolTip="{DynamicResource Main.Extra.GameLog.ToolTip}" IsVisible="False"
-                                         SvgIcon="lucide/scroll-text" />
-                    <local:MyExtraButton x:Name="BtnExtraMusic" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                             ToolTip="{DynamicResource Main.Extra.GameLog.ToolTip}" IsVisible="False"
+                                             SvgIcon="lucide/scroll-text" />
+                        <local:MyExtraButton x:Name="BtnExtraMusic" HorizontalAlignment="Right" VerticalAlignment="Center"
 
-                                         Click="BtnExtraMusic_Click" RightClick="BtnExtraMusic_RightClick"
+                                             Click="BtnExtraMusic_Click" RightClick="BtnExtraMusic_RightClick"
 
-                                         IsVisible="False" CanRightClick="True" />
+                                             IsVisible="False" CanRightClick="True" />
 
-                </StackPanel>
+                    </StackPanel>
+                </Border>
 
                 <controls:BlurBorder x:Name="PanMsgBackground" Grid.Row="0" Grid.RowSpan="2" Grid.ColumnSpan="2" Background="#00000000"
                                      ZIndex="99"

@@ -703,12 +703,12 @@
     <sys:String x:Key="Setup.Experimental.Warning">实验性功能可能导致游戏无法启动、认证异常或模组不兼容。除非你愿意提供完整日志并能自行关闭回退，否则请保持默认关闭。</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Title">实验性用户界面</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Enable">启用实验性用户界面</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Summary">启用后使用重构中的启动页布局。后续功能界面也会逐步迁移到新的实验性用户界面。</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Benefits">主路径更短；层次更清晰；更适合宽屏；与现代桌面视觉语言一致。</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Summary">启用后使用重构中的启动页、整页版本库、毛玻璃标题栏与右下角快捷按钮。后续功能界面也会逐步迁移到新的实验性用户界面。</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Benefits">主路径更短；层次更清晰；更适合宽屏；标题与浮动操作采用 Apple 风格材质；与现代桌面视觉语言一致。</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Risks">实验阶段；布局与插件注入位置可能随版本变化；遇到问题可随时关闭回退。</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Scope">关闭后重新进入「启动」即可恢复经典布局。其他功能界面的重构会分批开放。</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Scope">关闭后重新进入「启动」即可恢复经典布局（含经典版本选择与原浮动按钮样式）。其他功能界面的重构会分批开放。</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Title">启用实验性用户界面</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Message">将启用实验性用户界面（当前先重构启动页，后续功能界面会逐步迁移）。遇到问题可随时在实验性功能中关闭。是否继续？</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Message">将启用实验性用户界面（启动页、整页版本库、标题栏与右下角快捷按钮会切换为新样式）。遇到问题可随时在实验性功能中关闭。是否继续？</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Enable">启用</sys:String>
     <sys:String x:Key="Setup.Experimental.LaunchShortcuts.Title">启动页快捷栏</sys:String>
     <sys:String x:Key="Setup.Experimental.LaunchShortcuts.Enable">启用启动页快捷栏（固定世界/服务器）</sys:String>

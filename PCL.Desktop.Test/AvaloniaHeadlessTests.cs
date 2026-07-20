@@ -4926,11 +4926,15 @@ public sealed class AvaloniaHeadlessTests
             Assert.AreEqual(2, folders.Length);
             Assert.IsFalse(folders[0].Checked);
             Assert.IsTrue(folders[1].Checked);
+            // Presets: open + refresh + remove (no rename). Custom: + rename.
+            Assert.AreEqual(3, folders[0].Buttons.Count);
             Assert.AreEqual(4, folders[1].Buttons.Count);
 
             Assert.IsTrue(page.TrySelectFolder(first));
             Assert.AreSame(first, selected);
-            Assert.AreEqual(first.RootDirectory, page.SelectedRootDirectory);
+            Assert.AreEqual(
+                System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(first.RootDirectory)),
+                page.SelectedRootDirectory);
         }, CancellationToken.None);
     }
 

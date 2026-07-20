@@ -5,85 +5,29 @@
     x:Class="PCL.Desktop.Features.Instances.Views.PageInstanceSelectRight"
     Background="Transparent">
     <!--
-      Full-page version library (Apple-style): frosted source sidebar + large-title content.
+      Full-page version library: frosted source sidebar + instance list (no hero titles).
       Mounted as the sole child of PanMain (no separate MyPageLeft).
     -->
-    <Grid ColumnDefinitions="268,*" ClipToBounds="True">
+    <Grid x:Name="PanRoot" ColumnDefinitions="268,*" ClipToBounds="True">
 
-        <!-- Sidebar: heavier material, source list -->
-        <Border Grid.Column="0"
+        <!-- Sidebar: only when experimental full-page layout is on -->
+        <Border x:Name="PanFolderSidebar"
+                Grid.Column="0"
                 Background="{DynamicResource ColorBrushBackgroundTransparentSidebar}"
                 BorderBrush="{DynamicResource ColorBrushGray6}"
                 BorderThickness="0,0,1,0"
-                ClipToBounds="True">
-            <Grid RowDefinitions="Auto,*">
-                <StackPanel Margin="18,20,14,8" Spacing="4">
-                    <TextBlock FontSize="11"
-                               FontWeight="SemiBold"
-                               LetterSpacing="0.4"
-                               Foreground="{DynamicResource ColorBrushGray3}"
-                               Text="{DynamicResource Select.Instance.Sidebar.Eyebrow}" />
-                    <TextBlock FontSize="20"
-                               FontWeight="SemiBold"
-                               LetterSpacing="-0.35"
-                               Foreground="{DynamicResource ColorBrush1}"
-                               Text="{DynamicResource Select.Instance.Sidebar.Title}" />
-                </StackPanel>
-                <legacy:MyScrollViewer Grid.Row="1"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      VerticalScrollBarVisibility="Auto"
-                                      x:Name="PanFolderScroll">
-                    <StackPanel x:Name="PanFolders" Margin="10,4,10,18" />
-                </legacy:MyScrollViewer>
-            </Grid>
+                ClipToBounds="True"
+                IsVisible="False">
+            <legacy:MyScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto"
+                                  x:Name="PanFolderScroll">
+                <StackPanel x:Name="PanFolders" Margin="10,12,10,18" />
+            </legacy:MyScrollViewer>
         </Border>
 
-        <!-- Content: large title + search + library -->
-        <Grid Grid.Column="1" RowDefinitions="Auto,*" ClipToBounds="True">
-            <StackPanel Margin="28,18,28,0" Spacing="14">
-                <Grid ColumnDefinitions="*,Auto" VerticalAlignment="Bottom">
-                    <StackPanel Spacing="3" VerticalAlignment="Bottom">
-                        <TextBlock FontSize="11"
-                                   FontWeight="SemiBold"
-                                   LetterSpacing="0.35"
-                                   Foreground="{DynamicResource ColorBrushGray3}"
-                                   Text="{DynamicResource Select.Instance.Hero.Eyebrow}" />
-                        <TextBlock FontSize="28"
-                                   FontWeight="Bold"
-                                   LetterSpacing="-0.55"
-                                   LineHeight="32"
-                                   Foreground="{DynamicResource ColorBrush1}"
-                                   Text="{DynamicResource Select.Instance.Hero.Title}" />
-                        <TextBlock x:Name="LabLibrarySubtitle"
-                                   FontSize="13"
-                                   Margin="0,2,0,0"
-                                   Foreground="{DynamicResource ColorBrushGray2}"
-                                   TextTrimming="CharacterEllipsis"
-                                   Text="{DynamicResource Select.Instance.Hero.Subtitle}" />
-                    </StackPanel>
-                    <StackPanel Grid.Column="1"
-                                Orientation="Horizontal"
-                                Spacing="8"
-                                VerticalAlignment="Bottom"
-                                Margin="12,0,0,4">
-                        <legacy:MyButton x:Name="BtnDownloadHeader"
-                                         MinWidth="108"
-                                         Height="34"
-                                         Padding="14,0"
-                                         CornerRadius="10"
-                                         ColorType="Highlight"
-                                         Text="{DynamicResource Select.Instance.Empty.Download}"
-                                         Click="BtnDownload_Click" />
-                        <legacy:MyIconButton x:Name="BtnRefreshHeader"
-                                             Width="34"
-                                             Height="34"
-                                             SvgIcon="lucide/refresh-cw"
-                                             ToolTip="{DynamicResource Common.Action.Refresh}"
-                                             Click="BtnRefresh_Click" />
-                    </StackPanel>
-                </Grid>
-
-                <!-- Capsule search -->
+        <!-- Content: toolbar + library (no hero titles) -->
+        <Grid x:Name="PanContent" Grid.Column="1" RowDefinitions="Auto,*" ClipToBounds="True">
+            <Grid Margin="22,14,22,0" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
                 <Border Padding="2"
                         CornerRadius="12"
                         Background="{DynamicResource ColorBrushTransparentBackground}"
@@ -94,7 +38,27 @@
                                         HintText="{DynamicResource Select.Instance.Search.Hint}"
                                         ToolTip="{DynamicResource Select.Instance.Search.ToolTip}" />
                 </Border>
-            </StackPanel>
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            VerticalAlignment="Center"
+                            Margin="12,0,0,0">
+                    <legacy:MyButton x:Name="BtnDownloadHeader"
+                                     MinWidth="108"
+                                     Height="34"
+                                     Padding="14,0"
+                                     CornerRadius="10"
+                                     ColorType="Highlight"
+                                     Text="{DynamicResource Select.Instance.Empty.Download}"
+                                     Click="BtnDownload_Click" />
+                    <legacy:MyIconButton x:Name="BtnRefreshHeader"
+                                         Width="34"
+                                         Height="34"
+                                         SvgIcon="lucide/refresh-cw"
+                                         ToolTip="{DynamicResource Common.Action.Refresh}"
+                                         Click="BtnRefresh_Click" />
+                </StackPanel>
+            </Grid>
 
             <Grid Grid.Row="1" Margin="0,10,0,0">
                 <Grid x:Name="PanAllBack">

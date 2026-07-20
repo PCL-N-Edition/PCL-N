@@ -43,7 +43,7 @@ public partial class PageSetupExperimental : MyPageRight, ISettingsPageInteracti
             "启用实验性用户界面");
         string message = AvaloniaLocalizationManager.GetText(
             "Setup.Experimental.HomepageUi.Confirm.Message",
-            "将启用实验性用户界面（当前先重构启动页，后续功能界面会逐步迁移）。遇到问题可随时在实验性功能中关闭。是否继续？");
+            "将启用实验性用户界面（启动页、整页版本库、标题栏与右下角快捷按钮会切换为新样式）。遇到问题可随时在实验性功能中关闭。是否继续？");
 
         void Complete(bool confirmed)
         {

@@ -31,6 +31,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
     private bool _isRefreshing;
     private bool _isLoading;
     private bool _showHidden;
+    private bool _fullPageLayout;
 
     public PageInstanceSelectRight()
     {
@@ -44,7 +45,37 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         if (this.FindControl<MySearchBox>("PanVerSearchBox") is { } searchBox)
             searchBox.TextChanged += PanVerSearchBox_TextChanged;
         SetLoadingState(false);
+        ApplyFullPageLayoutChrome();
         ReloadFolders();
+    }
+
+    /// <summary>
+    /// Experimental full-page library embeds the folder sidebar; classic uses a separate left page.
+    /// </summary>
+    public void SetFullPageLayout(bool enabled)
+    {
+        if (_fullPageLayout == enabled)
+            return;
+        _fullPageLayout = enabled;
+        ApplyFullPageLayoutChrome();
+        if (enabled)
+            ReloadFolders();
+    }
+
+    public bool IsFullPageLayout => _fullPageLayout;
+
+    private void ApplyFullPageLayoutChrome()
+    {
+        if (this.FindControl<Border>("PanFolderSidebar") is { } sidebar)
+            sidebar.IsVisible = _fullPageLayout;
+        if (this.FindControl<Grid>("PanRoot") is { } root)
+        {
+            root.ColumnDefinitions = _fullPageLayout
+                ? new ColumnDefinitions("268,*")
+                : new ColumnDefinitions("*");
+        }
+        if (this.FindControl<Grid>("PanContent") is { } content)
+            Grid.SetColumn(content, _fullPageLayout ? 1 : 0);
     }
 
     public bool ShowHidden
@@ -91,11 +122,37 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
     public void SetFolders(IReadOnlyList<MinecraftFolderInfo> folders, string? selectedRootDirectory)
     {
         _folders = folders ?? [];
-        _selectedRootDirectory = NormalizeFolderPath(selectedRootDirectory);
-        if (_selectedRootDirectory is null && _folders.Count > 0)
-            _selectedRootDirectory = NormalizeFolderPath(_folders[0].RootDirectory);
-        ReloadFolders();
-        UpdateLibrarySubtitle();
+        _selectedRootDirectory = ResolveSelectedFolderPath(selectedRootDirectory);
+        if (_fullPageLayout)
+            ReloadFolders();
+    }
+
+    /// <summary>
+    /// Prefer an exact normalized match in the folder list; fall back to first entry.
+    /// </summary>
+    private string? ResolveSelectedFolderPath(string? preferredRoot)
+    {
+        string? preferred = NormalizeFolderPath(preferredRoot);
+        if (preferred is not null)
+        {
+            MinecraftFolderInfo? match = _folders.FirstOrDefault(folder =>
+                string.Equals(NormalizeFolderPath(folder.RootDirectory), preferred, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+                return NormalizeFolderPath(match.RootDirectory);
+        }
+
+        if (_selectedRootDirectory is not null)
+        {
+            MinecraftFolderInfo? current = _folders.FirstOrDefault(folder =>
+                string.Equals(
+                    NormalizeFolderPath(folder.RootDirectory),
+                    NormalizeFolderPath(_selectedRootDirectory),
+                    StringComparison.OrdinalIgnoreCase));
+            if (current is not null)
+                return NormalizeFolderPath(current.RootDirectory);
+        }
+
+        return _folders.Count > 0 ? NormalizeFolderPath(_folders[0].RootDirectory) : preferred;
     }
 
     public bool TrySelectInstance(LaunchInstanceInfo instance)
@@ -130,37 +187,17 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         _selectedInstance = selectedInstance;
         StartMetadataLoad(instances);
         SetLoadingState(false);
-        UpdateLibrarySubtitle();
-    }
-
-    private void UpdateLibrarySubtitle()
-    {
-        if (this.FindControl<TextBlock>("LabLibrarySubtitle") is not { } subtitle)
-            return;
-
-        MinecraftFolderInfo? selected = _folders.FirstOrDefault(folder =>
-            string.Equals(
-                NormalizeFolderPath(folder.RootDirectory),
-                _selectedRootDirectory,
-                StringComparison.OrdinalIgnoreCase));
-        if (selected is null)
-        {
-            subtitle.Text = ResourceText("Select.Instance.Hero.Subtitle", "从左侧选择游戏文件夹，然后点选要启动的版本。");
-            return;
-        }
-
-        int count = _instances.Count;
-        subtitle.Text = string.Format(
-            System.Globalization.CultureInfo.CurrentCulture,
-            ResourceText("Select.Instance.Hero.Subtitle.Folder", "{0} · {1} 个版本"),
-            selected.Name,
-            count);
     }
 
     private void ReloadFolders()
     {
+        if (!_fullPageLayout)
+            return;
         if (this.FindControl<StackPanel>("PanFolders") is not { } panel)
             return;
+
+        // Keep selection aligned with the active root every rebuild.
+        _selectedRootDirectory = ResolveSelectedFolderPath(_selectedRootDirectory);
 
         panel.Children.Clear();
         panel.Children.Add(CreateSidebarSection(
@@ -194,10 +231,10 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
 
     private Border CreateFolderRow(MinecraftFolderInfo folder)
     {
-        bool selected = string.Equals(
-            NormalizeFolderPath(folder.RootDirectory),
-            _selectedRootDirectory,
-            StringComparison.OrdinalIgnoreCase);
+        string? folderPath = NormalizeFolderPath(folder.RootDirectory);
+        bool selected = folderPath is not null &&
+                        string.Equals(folderPath, _selectedRootDirectory, StringComparison.OrdinalIgnoreCase);
+        bool missing = folderPath is null || !Directory.Exists(folderPath);
 
         Border row = new()
         {
@@ -208,6 +245,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
             Background = selected
                 ? ResolveBrush("ColorBrush7") ?? Brushes.Transparent
                 : Brushes.Transparent,
+            Opacity = missing ? 0.78 : 1d,
             Tag = folder
         };
 
@@ -215,6 +253,9 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto")
         };
+        string secondary = missing
+            ? ResourceText("Select.Instance.Sidebar.MissingPath", "路径不存在") + " · " + folder.RootDirectory
+            : folder.RootDirectory;
         StackPanel text = new()
         {
             Spacing = 2,
@@ -230,7 +271,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
                 },
                 new TextBlock
                 {
-                    Text = folder.RootDirectory,
+                    Text = secondary,
                     FontSize = 11,
                     Opacity = 0.62,
                     Foreground = ResolveBrush("ColorBrushGray2") ?? Brushes.Gray,
@@ -249,13 +290,17 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
             Children =
             {
                 CreateTinyIcon("lucide/folder-open", "打开文件夹", () => FolderOpenRequested?.Invoke(this, folder)),
-                CreateTinyIcon("lucide/refresh-cw", "刷新", () => FolderRefreshRequested?.Invoke(this, folder))
+                CreateTinyIcon("lucide/refresh-cw", "刷新", () => FolderRefreshRequested?.Invoke(this, folder)),
+                // System presets (当前/官方/用户) and custom entries can leave the list;
+                // only user-added custom folders may be renamed.
+                CreateTinyIcon("lucide/list-x", "从列表移除", () => FolderRemoveRequested?.Invoke(this, folder))
             }
         };
         if (folder.IsCustom)
         {
-            actions.Children.Add(CreateTinyIcon("lucide/pencil", "重命名", () => FolderRenameRequested?.Invoke(this, folder)));
-            actions.Children.Add(CreateTinyIcon("lucide/list-x", "从列表移除", () => FolderRemoveRequested?.Invoke(this, folder)));
+            actions.Children.Insert(
+                2,
+                CreateTinyIcon("lucide/pencil", "重命名", () => FolderRenameRequested?.Invoke(this, folder)));
         }
 
         Grid.SetColumn(actions, 1);
@@ -321,10 +366,10 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
             return null;
         try
         {
-            return Path.GetFullPath(path.Trim())
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            // Match MainWindow / LaunchInstanceDiscovery normalization so selection highlights stick.
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path.Trim()));
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or PathTooLongException)
         {
             return null;
         }

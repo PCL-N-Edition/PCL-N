@@ -43,6 +43,9 @@ public partial class MyExtraButton : Grid
     public static readonly StyledProperty<object?> ToolTipProperty =
         AvaloniaProperty.Register<MyExtraButton, object?>(nameof(ToolTip));
 
+    public static readonly StyledProperty<bool> UseGlassChromeProperty =
+        AvaloniaProperty.Register<MyExtraButton, bool>(nameof(UseGlassChrome));
+
     private readonly Border? _panClick;
     private readonly Border? _panColor;
     private readonly Border? _panProgress;
@@ -93,6 +96,7 @@ public partial class MyExtraButton : Grid
         this.GetObservable(ProgressProperty).Subscribe(_ => RefreshProgress());
         this.GetObservable(ShowProperty).Subscribe(value => ApplyShowState(value, _isLoaded));
         this.GetObservable(IsEnabledProperty).Subscribe(_ => RefreshColor());
+        this.GetObservable(UseGlassChromeProperty).Subscribe(_ => RefreshColor());
 
         RefreshIcon();
         RefreshScale();
@@ -146,6 +150,15 @@ public partial class MyExtraButton : Grid
     {
         get => GetValue(ToolTipProperty);
         set => SetValue(ToolTipProperty, value);
+    }
+
+    /// <summary>
+    /// Apple-style frosted pill (light surface + dark glyph). Used by experimental chrome.
+    /// </summary>
+    public bool UseGlassChrome
+    {
+        get => GetValue(UseGlassChromeProperty);
+        set => SetValue(UseGlassChromeProperty, value);
     }
 
     public void ShowRefresh()
@@ -372,6 +385,36 @@ public partial class MyExtraButton : Grid
         if (_panColor is null)
             return;
 
+        if (UseGlassChrome)
+        {
+            // Frosted control: pale material + dark glyph (iOS Maps / Control Center-ish).
+            IBrush surface = !IsEnabled
+                ? FindBrush("ColorBrushGray5", "#d9dde3")
+                : IsPointerOver
+                    ? new SolidColorBrush(Color.Parse("#F5FFFFFF"))
+                    : new SolidColorBrush(Color.Parse("#E8FFFFFF"));
+            _panColor.Background = surface;
+            _panColor.BoxShadow = new BoxShadows(new BoxShadow
+            {
+                Blur = 14,
+                OffsetY = 4,
+                Color = Color.Parse("#28000000")
+            });
+            IBrush glassIcon = !IsEnabled
+                ? FindBrush("ColorBrushGray3", "#8a9199")
+                : FindBrush("ColorBrush1", "#1c1c1e");
+            if (_path is not null)
+            {
+                _path.Fill = glassIcon;
+                _path.Stroke = glassIcon;
+            }
+            if (_svgIcon is not null)
+                _svgIcon.IconBrush = glassIcon;
+            if (_panClick is not null)
+                _panClick.Background = new SolidColorBrush(Color.Parse("#01FFFFFF"));
+            return;
+        }
+
         string colorKey = !IsEnabled
             ? "ColorBrushGray4"
             : IsPointerOver ? "ColorBrush4" : "ColorBrush3";
@@ -387,6 +430,12 @@ public partial class MyExtraButton : Grid
         {
             _panColor.Background = FindBrush(colorKey, "#1370f3");
         }
+
+        _panColor.BoxShadow = new BoxShadows(new BoxShadow
+        {
+            Blur = 10,
+            Color = Color.Parse("#33000000")
+        });
 
         IBrush iconBrush = FindBrush("ColorBrush8", "#eaf2fe");
         if (_path is not null)

@@ -78,6 +78,7 @@ public partial class MainWindow : Window, IDisposable
     private PageLaunchRight? _launchRight;
     private PageLaunchHomeExperimental? _launchHomeExperimental;
     private bool _useExperimentalLaunchHome;
+    private bool _experimentalChromeApplied;
     private PageLoginProfile? _loginProfilePage;
     private PageLoginProfileSkin? _loginProfileSkinPage;
     private PageLoginMs? _loginMsPage;
@@ -93,6 +94,7 @@ public partial class MainWindow : Window, IDisposable
     private PageSpeedLeft? _speedLeft;
     private PageSpeedRight? _speedRight;
     private PageInstanceLeft? _instanceLeft;
+    private PageInstanceSelectLeft? _instanceSelectLeft;
     private PageInstanceSelectRight? _instanceSelectPage;
     private PageInstanceManageRight? _instanceManagePage;
     private PageInstanceSetupRight? _instanceSetupPage;
@@ -1256,9 +1258,8 @@ public partial class MainWindow : Window, IDisposable
     private DesktopMainPage CreateLaunchMainPage()
     {
         LauncherSettings launchSettings = LauncherSettingsPageBinder.LoadSettings();
-        bool experimental = launchSettings.GetBooleanOption(
-            LauncherSettingKeys.ExperimentalHomepageUi,
-            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalHomepageUi.Value));
+        bool experimental = IsExperimentalHomepageUiEnabled(launchSettings);
+        ApplyExperimentalChrome(experimental);
 
         if (experimental)
         {
@@ -2356,6 +2357,98 @@ public partial class MainWindow : Window, IDisposable
         target.PageOnEnter();
     }
 
+    private static bool IsExperimentalHomepageUiEnabled(LauncherSettings? settings = null)
+    {
+        try
+        {
+            LauncherSettings resolved = settings ?? LauncherSettingsPageBinder.LoadSettings();
+            return resolved.GetBooleanOption(
+                LauncherSettingKeys.ExperimentalHomepageUi,
+                LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalHomepageUi.Value));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalHomepageUi.Value);
+        }
+    }
+
+    /// <summary>
+    /// Apple-style title bar + frosted FAB dock. Only active with experimental homepage UI.
+    /// </summary>
+    private void ApplyExperimentalChrome(bool experimental)
+    {
+        if (_experimentalChromeApplied == experimental && experimental)
+        {
+            // Still refresh button glass in case controls were recreated.
+        }
+
+        _experimentalChromeApplied = experimental;
+
+        if (this.FindControl<Control>("PanTitle") is { } title)
+            title.Height = experimental ? 52d : 48d;
+        if (this.FindControl<Control>("PanTitleGlassOverlay") is { } glassOverlay)
+            glassOverlay.IsVisible = experimental;
+
+        if (this.FindControl<TextBlock>("LabTitleInner") is { } titleInner)
+        {
+            titleInner.FontSize = experimental ? 17d : 15d;
+            titleInner.FontWeight = experimental ? FontWeight.SemiBold : FontWeight.Normal;
+            titleInner.LetterSpacing = experimental ? -0.35d : 0d;
+            titleInner.Margin = experimental
+                ? new Thickness(50d, 1d, 60d, 0d)
+                : new Thickness(47d, 1d, 60d, 0d);
+        }
+
+        if (this.FindControl<MyIconButton>("BtnTitleInner") is { } backBtn)
+        {
+            backBtn.Width = experimental ? 30d : 28d;
+            backBtn.Height = experimental ? 30d : 28d;
+            backBtn.Margin = experimental ? new Thickness(14d, 0d, 0d, 0d) : new Thickness(12d, 0d, 0d, 0d);
+        }
+
+        if (this.FindControl<Border>("PanExtraDock") is { } dock)
+        {
+            if (experimental)
+            {
+                dock.Padding = new Thickness(6d, 8d);
+                dock.CornerRadius = new CornerRadius(26d);
+                dock.Background = new SolidColorBrush(Color.Parse("#CCF5F5F7"));
+                dock.BorderBrush = new SolidColorBrush(Color.Parse("#33FFFFFF"));
+                dock.BorderThickness = new Thickness(1d);
+                dock.BoxShadow = new BoxShadows(new BoxShadow
+                {
+                    Blur = 22,
+                    OffsetY = 8,
+                    Color = Color.Parse("#2A000000")
+                });
+                dock.Margin = new Thickness(20d);
+            }
+            else
+            {
+                dock.Padding = new Thickness(0d);
+                dock.CornerRadius = new CornerRadius(0d);
+                dock.Background = Brushes.Transparent;
+                dock.BorderBrush = Brushes.Transparent;
+                dock.BorderThickness = new Thickness(0d);
+                dock.BoxShadow = default;
+                dock.Margin = new Thickness(15d);
+            }
+        }
+
+        if (this.FindControl<StackPanel>("PanExtraButtons") is { } stack)
+            stack.Spacing = experimental ? 2d : 0d;
+
+        foreach (string name in new[]
+                 {
+                     "BtnExtraUpdateRestart", "BtnExtraBack", "BtnExtraDownload", "BtnExtraApril",
+                     "BtnExtraShutdown", "BtnExtraLog", "BtnExtraMusic"
+                 })
+        {
+            if (this.FindControl<MyExtraButton>(name) is { } extra)
+                extra.UseGlassChrome = experimental;
+        }
+    }
+
     private void ApplyInstanceSelectPage()
     {
         if (this.FindControl<Border>("PanMainLeft") is not { } leftHost ||
@@ -2365,14 +2458,48 @@ public partial class MainWindow : Window, IDisposable
         }
 
         EnsureMinecraftFoldersLoaded();
-        // Full-page select surface: no separate left rail host (sidebar is inside the page).
-        if (leftHost.Child is MyPageLeft oldLeft)
-            oldLeft.TriggerHideAnimation();
-        leftHost.Child = null;
+        bool experimental = IsExperimentalHomepageUiEnabled();
+        ApplyExperimentalChrome(experimental);
+
+        // Prefer the live launch root so the folder list highlights the folder in use.
+        if (_launchLeft?.MinecraftRootDirectory is { Length: > 0 } liveRoot)
+        {
+            string? normalizedLive = NormalizeDirectoryPath(liveRoot);
+            if (normalizedLive is not null &&
+                _minecraftFolders.Any(folder =>
+                    string.Equals(folder.RootDirectory, normalizedLive, StringComparison.OrdinalIgnoreCase)))
+            {
+                _selectedMinecraftRoot = normalizedLive;
+            }
+        }
 
         _instanceSelectPage ??= CreateInstanceSelectPage();
-        _instanceSelectPage.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        _instanceSelectPage.SetFullPageLayout(experimental);
         _instanceSelectPage.SetInstances(_launchLeft?.Instances ?? [], _launchLeft?.SelectedInstance);
+
+        if (experimental)
+        {
+            // Full-page select: sidebar lives inside the right page.
+            if (leftHost.Child is MyPageLeft oldLeft)
+                oldLeft.TriggerHideAnimation();
+            leftHost.Child = null;
+            _instanceSelectPage.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        }
+        else
+        {
+            // Classic: dedicated left folder rail + content-only right page.
+            _instanceSelectLeft ??= CreateInstanceSelectLeftPage();
+            _instanceSelectLeft.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+            if (!ReferenceEquals(leftHost.Child, _instanceSelectLeft))
+            {
+                if (leftHost.Child is MyPageLeft previousLeft)
+                    previousLeft.TriggerHideAnimation();
+                leftHost.Child = _instanceSelectLeft;
+            }
+
+            _instanceSelectLeft.TriggerShowAnimation();
+        }
+
         if (!ReferenceEquals(rightHost.Child, _instanceSelectPage))
         {
             if (rightHost.Child is MyPageRight oldRight)
@@ -2384,6 +2511,40 @@ public partial class MainWindow : Window, IDisposable
         RefreshBackToTopBinding();
         rightHost.Opacity = 1d;
         _instanceSelectPage.PageOnEnter();
+    }
+
+    private PageInstanceSelectLeft CreateInstanceSelectLeftPage()
+    {
+        PageInstanceSelectLeft page = new();
+        page.FolderSelected += (_, folder) => _ = SelectMinecraftFolderAsync(folder);
+        page.FolderRefreshRequested += (_, folder) => _ = SelectMinecraftFolderAsync(folder, forceRefresh: true);
+        page.FolderOpenRequested += (_, folder) => OpenFolder(folder.RootDirectory);
+        page.FolderRenameRequested += (_, folder) => ShowInputDialog(
+            "重命名游戏文件夹",
+            "请输入新的显示名称。",
+            folder.Name,
+            "游戏文件夹名称",
+            result =>
+            {
+                RenameMinecraftFolder(folder, result);
+                RefreshInstanceSelectFolderLists();
+            });
+        page.FolderRemoveRequested += (_, folder) =>
+        {
+            RemoveMinecraftFolder(folder);
+            RefreshInstanceSelectFolderLists();
+        };
+        page.CreateFolderRequested += (_, _) => _ = CreateDefaultMinecraftFolderAsync();
+        page.AddFolderRequested += (_, _) => _ = AddMinecraftFolderAsync();
+        page.ImportModpackRequested += (_, _) => _ = PickModpackForImportAsync();
+        return page;
+    }
+
+    private void RefreshInstanceSelectFolderLists()
+    {
+        _instanceSelectLeft?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        if (_instanceSelectPage is { IsFullPageLayout: true })
+            _instanceSelectPage.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
     }
 
     private PageInstanceSelectRight CreateInstanceSelectPage()
@@ -2400,22 +2561,22 @@ public partial class MainWindow : Window, IDisposable
             result =>
             {
                 RenameMinecraftFolder(folder, result);
-                page.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+                RefreshInstanceSelectFolderLists();
             });
         page.FolderRemoveRequested += (_, folder) =>
         {
             RemoveMinecraftFolder(folder);
-            page.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+            RefreshInstanceSelectFolderLists();
         };
         page.CreateFolderRequested += async (_, _) =>
         {
             await CreateDefaultMinecraftFolderAsync().ConfigureAwait(true);
-            page.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+            RefreshInstanceSelectFolderLists();
         };
         page.AddFolderRequested += async (_, _) =>
         {
             await AddMinecraftFolderAsync().ConfigureAwait(true);
-            page.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+            RefreshInstanceSelectFolderLists();
         };
         page.ImportModpackRequested += (_, _) => _ = PickModpackForImportAsync();
         page.RefreshRequested += async (_, _) =>
@@ -2556,7 +2717,7 @@ public partial class MainWindow : Window, IDisposable
         bool changed = !string.Equals(_selectedMinecraftRoot, normalized, StringComparison.OrdinalIgnoreCase);
         _selectedMinecraftRoot = normalized;
         PersistMinecraftFolders();
-        _instanceSelectPage?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        RefreshInstanceSelectFolderLists();
         _launchLeft.SetMinecraftRootDirectory(normalized);
         if (changed || forceRefresh)
             await _launchLeft.RefreshInstancesAsync().ConfigureAwait(true);
@@ -2644,28 +2805,55 @@ public partial class MainWindow : Window, IDisposable
         MinecraftFolderInfo added = new(name, normalized, IsCustom: true);
         _minecraftFolders.Add(added);
         PersistMinecraftFolders();
-        _instanceSelectPage?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        RefreshInstanceSelectFolderLists();
         return added;
     }
 
     private void RenameMinecraftFolder(MinecraftFolderInfo folder, string? name)
     {
-        if (string.IsNullOrWhiteSpace(name))
+        // Presets (当前/官方/用户) keep fixed display names.
+        if (!folder.IsCustom || string.IsNullOrWhiteSpace(name))
             return;
 
         int index = _minecraftFolders.IndexOf(folder);
         if (index < 0)
-            return;
+        {
+            string? path = NormalizeDirectoryPath(folder.RootDirectory);
+            if (path is null)
+                return;
+            index = _minecraftFolders.FindIndex(candidate =>
+                string.Equals(
+                    NormalizeDirectoryPath(candidate.RootDirectory),
+                    path,
+                    StringComparison.OrdinalIgnoreCase));
+            if (index < 0 || !_minecraftFolders[index].IsCustom)
+                return;
+        }
 
-        _minecraftFolders[index] = folder with { Name = name.Trim(), IsCustom = true };
+        _minecraftFolders[index] = _minecraftFolders[index] with { Name = name.Trim(), IsCustom = true };
         PersistMinecraftFolders();
-        _instanceSelectPage?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        RefreshInstanceSelectFolderLists();
     }
 
     private void RemoveMinecraftFolder(MinecraftFolderInfo folder)
     {
-        if (!folder.IsCustom || !_minecraftFolders.Remove(folder))
+        // System presets (当前/官方/用户) and custom entries may leave the list.
+        // Only custom folders are renameable; removal is allowed for all.
+        string? removedPath = NormalizeDirectoryPath(folder.RootDirectory);
+        int index = _minecraftFolders.IndexOf(folder);
+        if (index < 0 && removedPath is not null)
+        {
+            index = _minecraftFolders.FindIndex(candidate =>
+                string.Equals(
+                    NormalizeDirectoryPath(candidate.RootDirectory),
+                    removedPath,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (index < 0)
             return;
+
+        _minecraftFolders.RemoveAt(index);
 
         if (_minecraftFolders.Count == 0)
         {
@@ -2674,7 +2862,11 @@ public partial class MainWindow : Window, IDisposable
             _minecraftFolders.Add(new MinecraftFolderInfo("当前文件夹", fallback));
         }
 
-        if (string.Equals(_selectedMinecraftRoot, folder.RootDirectory, StringComparison.OrdinalIgnoreCase))
+        if (removedPath is not null &&
+            string.Equals(
+                NormalizeDirectoryPath(_selectedMinecraftRoot),
+                removedPath,
+                StringComparison.OrdinalIgnoreCase))
         {
             _selectedMinecraftRoot = _minecraftFolders[0].RootDirectory;
             _ = SelectMinecraftFolderAsync(_minecraftFolders[0], forceRefresh: true);
@@ -2682,7 +2874,7 @@ public partial class MainWindow : Window, IDisposable
         else
         {
             PersistMinecraftFolders();
-            _instanceSelectPage?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+            RefreshInstanceSelectFolderLists();
         }
     }
 
@@ -9236,6 +9428,7 @@ public partial class MainWindow : Window, IDisposable
         ApplyTitleAppearance(settings);
         ApplyBackgroundAppearance(settings);
         ApplyNetworkProxy(settings);
+        ApplyExperimentalChrome(IsExperimentalHomepageUiEnabled(settings));
         _launchRight?.SetMaximumLogLines(ResolveMaximumLogLines(settings));
         ApplyLaunchPageSettings(settings);
         ApplyHomepageSettings(settings);

@@ -45,11 +45,34 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
 
     public void SetFolders(IReadOnlyList<MinecraftFolderInfo> folders, string? selectedRootDirectory)
     {
-        _folders = folders;
-        _selectedRootDirectory = NormalizePath(selectedRootDirectory);
-        if (_selectedRootDirectory is null && folders.Count > 0)
-            _selectedRootDirectory = NormalizePath(folders[0].RootDirectory);
+        _folders = folders ?? [];
+        _selectedRootDirectory = ResolveSelectedFolderPath(selectedRootDirectory);
         ReloadList();
+    }
+
+    private string? ResolveSelectedFolderPath(string? preferredRoot)
+    {
+        string? preferred = NormalizePath(preferredRoot);
+        if (preferred is not null)
+        {
+            MinecraftFolderInfo? match = _folders.FirstOrDefault(folder =>
+                string.Equals(NormalizePath(folder.RootDirectory), preferred, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+                return NormalizePath(match.RootDirectory);
+        }
+
+        if (_selectedRootDirectory is not null)
+        {
+            MinecraftFolderInfo? current = _folders.FirstOrDefault(folder =>
+                string.Equals(
+                    NormalizePath(folder.RootDirectory),
+                    NormalizePath(_selectedRootDirectory),
+                    StringComparison.OrdinalIgnoreCase));
+            if (current is not null)
+                return NormalizePath(current.RootDirectory);
+        }
+
+        return _folders.Count > 0 ? NormalizePath(_folders[0].RootDirectory) : preferred;
     }
 
     public void Refresh() => ReloadList();
@@ -101,6 +124,9 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
 
     private MyListItem CreateFolderItem(MinecraftFolderInfo folder)
     {
+        string? folderPath = NormalizePath(folder.RootDirectory);
+        bool missing = folderPath is null || !Directory.Exists(folderPath);
+
         MyIconButton openButton = new()
         {
             SvgIcon = "lucide/folder-open",
@@ -117,6 +143,7 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
         };
         refreshButton.Click += (_, _) => FolderRefreshRequested?.Invoke(this, folder);
 
+        // Presets and custom folders can leave the list; only custom may be renamed.
         List<MyIconButton> buttons = [openButton, refreshButton];
         if (folder.IsCustom)
         {
@@ -127,30 +154,35 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
                 ToolTip = "重命名"
             };
             renameButton.Click += (_, _) => FolderRenameRequested?.Invoke(this, folder);
-            MyIconButton removeButton = new()
-            {
-                SvgIcon = "lucide/list-x",
-                LogoScale = 0.95d,
-                ToolTip = "从列表移除"
-            };
-            removeButton.Click += (_, _) => FolderRemoveRequested?.Invoke(this, folder);
             buttons.Add(renameButton);
-            buttons.Add(removeButton);
         }
+
+        MyIconButton removeButton = new()
+        {
+            SvgIcon = "lucide/list-x",
+            LogoScale = 0.95d,
+            ToolTip = "从列表移除"
+        };
+        removeButton.Click += (_, _) => FolderRemoveRequested?.Invoke(this, folder);
+        buttons.Add(removeButton);
 
         MyListItem item = new()
         {
             Title = folder.Name,
-            Info = folder.RootDirectory,
+            Info = missing
+                ? "路径不存在 · " + folder.RootDirectory
+                : folder.RootDirectory,
             Height = 44d,
             Type = MyListItem.CheckType.RadioBox,
             MinPaddingRight = 32d,
             IsScaleAnimationEnabled = false,
+            Opacity = missing ? 0.78d : 1d,
             Tag = folder,
             Buttons = buttons.ToArray()
         };
         item.SetChecked(
-            string.Equals(NormalizePath(folder.RootDirectory), _selectedRootDirectory, StringComparison.OrdinalIgnoreCase),
+            folderPath is not null &&
+            string.Equals(folderPath, _selectedRootDirectory, StringComparison.OrdinalIgnoreCase),
             user: false,
             animate: false);
         item.Click += (_, _) => TrySelectFolder(folder);
@@ -191,10 +223,9 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
 
         try
         {
-            return Path.GetFullPath(path.Trim())
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path.Trim()));
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or PathTooLongException)
         {
             return null;
         }

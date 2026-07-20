@@ -141,14 +141,10 @@ public static class LaunchInstanceDiscovery
                 AddIfUsable(roots, root);
         }
 
+        // Always surface the three preset roots even when the path does not exist yet.
         AddIfUsable(roots, GetCurrentMinecraftRoot());
         AddIfUsable(roots, GetOfficialMinecraftRoot());
-
-        // Keep the legacy per-user candidate for third-party installations on
-        // Windows and macOS. It is deliberately not called the official root.
-        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!string.IsNullOrWhiteSpace(userProfile))
-            AddIfUsable(roots, Path.Combine(userProfile, ".minecraft"));
+        AddIfUsable(roots, GetUserMinecraftRoot());
 
         return roots.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
@@ -173,16 +169,55 @@ public static class LaunchInstanceDiscovery
             : Path.Combine(userProfile, ".minecraft");
     }
 
+    /// <summary>
+    /// Per-user home <c>.minecraft</c>. On Linux/macOS this often coincides with the official root.
+    /// </summary>
+    public static string? GetUserMinecraftRoot()
+    {
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrWhiteSpace(userProfile))
+            return null;
+
+        string candidate = Path.Combine(userProfile, ".minecraft");
+        string? official = NormalizePath(GetOfficialMinecraftRoot());
+        string? normalized = NormalizePath(candidate);
+        if (official is not null &&
+            normalized is not null &&
+            string.Equals(official, normalized, StringComparison.OrdinalIgnoreCase))
+        {
+            // Official already covers this path on non-Windows platforms.
+            return null;
+        }
+
+        return candidate;
+    }
+
     public static string GetMinecraftRootDisplayName(string rootDirectory)
     {
         string normalized = NormalizePath(rootDirectory) ?? rootDirectory;
+        string? current = NormalizePath(GetCurrentMinecraftRoot());
+        if (current is not null && string.Equals(normalized, current, StringComparison.OrdinalIgnoreCase))
+            return "当前文件夹";
+
         string? official = NormalizePath(GetOfficialMinecraftRoot());
         if (official is not null && string.Equals(normalized, official, StringComparison.OrdinalIgnoreCase))
             return "官方启动器文件夹";
 
-        string? current = NormalizePath(GetCurrentMinecraftRoot());
-        if (current is not null && string.Equals(normalized, current, StringComparison.OrdinalIgnoreCase))
-            return "当前文件夹";
+        string? user = NormalizePath(GetUserMinecraftRoot());
+        if (user is not null && string.Equals(normalized, user, StringComparison.OrdinalIgnoreCase))
+            return "用户文件夹";
+
+        // Fallback for a raw %USERPROFILE%\.minecraft that wasn't classified above.
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(userProfile))
+        {
+            string? profileMinecraft = NormalizePath(Path.Combine(userProfile, ".minecraft"));
+            if (profileMinecraft is not null &&
+                string.Equals(normalized, profileMinecraft, StringComparison.OrdinalIgnoreCase))
+            {
+                return "用户文件夹";
+            }
+        }
 
         string trimmed = normalized.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         string leaf = Path.GetFileName(trimmed);
