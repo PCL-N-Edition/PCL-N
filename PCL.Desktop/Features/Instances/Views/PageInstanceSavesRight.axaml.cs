@@ -222,7 +222,10 @@ public partial class PageInstanceSavesRight : MyPageRight
                 "Instance.Saves.CreationTime",
                 Directory.GetCreationTime(curFolder).ToString("d", CultureInfo.CurrentCulture),
                 Directory.GetLastWriteTime(curFolder).ToString("d", CultureInfo.CurrentCulture)),
-            Type = MyListItem.CheckType.Clickable
+            Type = MyListItem.CheckType.Clickable,
+            // Pin + open/delete/copy/info (+ optional quick-play) need enough hover padding
+            // so the trailing icon stack stays inside the list card.
+            MinPaddingRight = LaunchShortcutStore.IsFeatureEnabled() ? 12d : 4d
         };
         worldItem.Click += (_, _) => SaveDetailsRequested?.Invoke(this, curFolder);
 
@@ -280,6 +283,8 @@ public partial class PageInstanceSavesRight : MyPageRight
             bool pinned = LaunchShortcutStore.IsPinned(LaunchShortcutKind.World, instance.InstanceDirectory, worldName);
             MyIconButton btnPin = new()
             {
+                Width = 22,
+                Height = 22,
                 SvgIcon = pinned ? "lucide/pin-off" : "lucide/pin",
                 ToolTip = AvaloniaLocalizationManager.GetText(
                     pinned ? "Launch.Experimental.Shortcuts.Unpin" : "Launch.Experimental.Shortcuts.Pin",
@@ -290,7 +295,8 @@ public partial class PageInstanceSavesRight : MyPageRight
                 LaunchShortcutStore.Toggle(pin);
                 Reload();
             };
-            buttons.Insert(0, btnPin);
+            // Append (don't prepend) so trailing actions stay inside the hover strip.
+            buttons.Add(btnPin);
         }
 
         worldItem.Buttons = buttons.ToArray();

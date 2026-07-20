@@ -47,10 +47,12 @@ public partial class PageInstanceServerRight : MyPageRight
     public void SetInstance(LaunchInstanceInfo instance)
     {
         _instance = instance;
-        Reload();
+        Reload(autoQueryStatus: true);
     }
 
-    public void Reload()
+    public void Reload() => Reload(autoQueryStatus: false);
+
+    public void Reload(bool autoQueryStatus)
     {
         if (this.FindControl<StackPanel>("PanServers") is not { } panel)
             return;
@@ -90,6 +92,7 @@ public partial class PageInstanceServerRight : MyPageRight
         {
             Margin = new Thickness(20d, 40d, 18d, 15d)
         };
+        List<ServerCard> createdCards = [];
         foreach (MinecraftServerEntry server in servers)
         {
             ServerCard serverCard = new();
@@ -99,21 +102,27 @@ public partial class PageInstanceServerRight : MyPageRight
             serverCard.EditRequested += (_, entry) => EditServerRequested?.Invoke(this, entry);
             serverCard.RemoveRequested += (_, entry) => RemoveServerRequested?.Invoke(this, entry);
             stack.Children.Add(serverCard);
+            createdCards.Add(serverCard);
         }
         card.Children.Add(stack);
         panel.Children.Add(card);
+
+        // Auto-query status on first open / instance switch (same as the Refresh button path).
+        if (autoQueryStatus)
+        {
+            foreach (ServerCard serverCard in createdCards)
+            {
+                if (serverCard.Server is { } entry)
+                    _ = RefreshServerCardAsync(serverCard, entry);
+            }
+        }
     }
 
     private void BtnRefresh_Click(object? sender, EventArgs e)
     {
         if (_instance is not null)
             RefreshRequested?.Invoke(this, _instance);
-        Reload();
-        foreach (ServerCard card in this.GetVisualDescendants().OfType<ServerCard>())
-        {
-            if (card.Server is { } server)
-                _ = RefreshServerCardAsync(card, server);
-        }
+        Reload(autoQueryStatus: true);
     }
 
     private void BtnAddServer_Click(object? sender, EventArgs e)
