@@ -37,7 +37,10 @@ internal sealed class MinecraftSessionBridge : IDisposable
     private readonly AuthServerMetadata _metadata;
     private readonly Task _acceptLoop;
     private readonly string? _offlineTextureToken;
+    private readonly RSA _certificateIssuer;
+    private readonly string _certificateIssuerPublicKeySpkiBase64;
     private readonly JsonObject _playerCertificates;
+    private readonly JsonObject _servicesPublicKeys;
     private readonly SemaphoreSlim _thirdPartyProfileGate = new(1, 1);
     private JsonObject? _thirdPartyServicesProfile;
 
@@ -63,8 +66,14 @@ internal sealed class MinecraftSessionBridge : IDisposable
         {
             Timeout = TimeSpan.FromSeconds(15)
         };
-        // Session-scoped chat signing keys. Empty PEMs make the client report "profile public key missing".
-        _playerCertificates = CreatePlayerCertificates();
+
+        // Issuer key is published via /publickeys; player certificates are signed with it so the
+        // client can validate PROFILE_KEY signatures (empty keys → chat.disabled.missingProfileKey).
+        _certificateIssuer = RSA.Create(2048);
+        _certificateIssuerPublicKeySpkiBase64 =
+            Convert.ToBase64String(_certificateIssuer.ExportSubjectPublicKeyInfo());
+        _servicesPublicKeys = CreateServicesPublicKeysDocument(_certificateIssuerPublicKeySpkiBase64);
+        _playerCertificates = CreatePlayerCertificates(request.PlayerUuid, _certificateIssuer);
 
         if (request.IdentityMode == MinecraftJvmHostIdentityMode.Offline &&
             IsUsableSkinSource(request.OfflineSkinSource))
@@ -161,14 +170,8 @@ internal sealed class MinecraftSessionBridge : IDisposable
         string path = request.Target.Split('?', 2)[0];
         if (string.Equals(path, "/minecraft/client", StringComparison.OrdinalIgnoreCase))
             return JsonResponse(CreateDiscoveryDocument());
-        if (string.Equals(path, "/pcl/publickeys", StringComparison.OrdinalIgnoreCase))
-        {
-            return JsonResponse(new JsonObject
-            {
-                ["profilePropertyKeys"] = new JsonArray(),
-                ["playerCertificateKeys"] = new JsonArray()
-            });
-        }
+        if (IsPublicKeysPath(path))
+            return JsonResponse(CloneJsonObject(_servicesPublicKeys));
 
         const string texturePrefix = "/pcl/texture/";
         if (path.StartsWith(texturePrefix, StringComparison.Ordinal))
@@ -192,6 +195,11 @@ internal sealed class MinecraftSessionBridge : IDisposable
             _ => TextResponse(404, "Not Found", "The session bridge is disabled for this profile.")
         };
     }
+
+    private static bool IsPublicKeysPath(string path) =>
+        string.Equals(path, "/pcl/publickeys", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(path, "/minecraftservices/publickeys", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(path, "/minecraftservices/player/certificates/publickeys", StringComparison.OrdinalIgnoreCase);
 
     private HttpResponseData HandleOfflineRequest(HttpRequestData request, string path)
     {
@@ -226,7 +234,7 @@ internal sealed class MinecraftSessionBridge : IDisposable
         if (request.Method == "POST" &&
             string.Equals(path, "/minecraftservices/player/certificates", StringComparison.OrdinalIgnoreCase))
         {
-            _lifecycle.SendOnce("PlayerCertificates", "会话聊天签名密钥已由 Jvm.NET Host 生成本地密钥对");
+            _lifecycle.SendOnce("PlayerCertificates", "会话聊天签名密钥已由 Jvm.NET Host 签发（本地 issuer）");
             return JsonResponse(CloneJsonObject(_playerCertificates));
         }
 
@@ -236,6 +244,9 @@ internal sealed class MinecraftSessionBridge : IDisposable
             return JsonResponse(CreatePlayerAttributes());
         }
 
+        if (request.Method == "GET" && IsPublicKeysPath(path))
+            return JsonResponse(CloneJsonObject(_servicesPublicKeys));
+
         return TextResponse(404, "Not Found", "Offline endpoint is not required by this authlib version.");
     }
 
@@ -244,6 +255,9 @@ internal sealed class MinecraftSessionBridge : IDisposable
         string path,
         CancellationToken cancellationToken)
     {
+        if (request.Method == "GET" && IsPublicKeysPath(path))
+            return JsonResponse(CloneJsonObject(_servicesPublicKeys));
+
         if (request.Method == "GET" &&
             string.Equals(path, "/minecraftservices/minecraft/profile", StringComparison.OrdinalIgnoreCase))
         {
@@ -256,7 +270,7 @@ internal sealed class MinecraftSessionBridge : IDisposable
         if (request.Method == "POST" &&
             string.Equals(path, "/minecraftservices/player/certificates", StringComparison.OrdinalIgnoreCase))
         {
-            _lifecycle.SendOnce("PlayerCertificates", "第三方会话聊天签名密钥已由 Jvm.NET Host 生成本地密钥对");
+            _lifecycle.SendOnce("PlayerCertificates", "第三方会话聊天签名密钥已由 Jvm.NET Host 签发（本地 issuer）");
             return JsonResponse(CloneJsonObject(_playerCertificates));
         }
 
@@ -403,14 +417,35 @@ internal sealed class MinecraftSessionBridge : IDisposable
             }
 
             string? value = property["value"]?.GetValue<string>();
-            string? signature = property["signature"]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(value) || !ValidateTextureProperty(value, signature))
+            if (string.IsNullOrWhiteSpace(value))
             {
                 properties.Remove(node);
                 continue;
             }
 
-            JsonObject payload = DecodeTexturePayload(value);
+            // Host rewrites texture hosts to the loopback proxy. Prefer cryptographically trusted
+            // payloads, but still accept decodable upstream textures when metadata is missing —
+            // otherwise skins vanish for LittleSkin and similar Yggdrasil servers.
+            JsonObject payload;
+            try
+            {
+                payload = DecodeTexturePayload(value);
+            }
+            catch (Exception ex) when (ex is FormatException or JsonException or InvalidDataException or
+                                           InvalidOperationException)
+            {
+                properties.Remove(node);
+                continue;
+            }
+
+            string? signature = property["signature"]?.GetValue<string>();
+            bool trusted = ValidateTextureProperty(value, signature);
+            if (!trusted && !HasHttpTextureUrls(payload))
+            {
+                properties.Remove(node);
+                continue;
+            }
+
             if (!RewriteTextureUrls(payload))
             {
                 properties.Remove(node);
@@ -424,6 +459,23 @@ internal sealed class MinecraftSessionBridge : IDisposable
         }
 
         return Encoding.UTF8.GetBytes(profile.ToJsonString());
+    }
+
+    private static bool HasHttpTextureUrls(JsonObject payload)
+    {
+        if (payload["textures"] is not JsonObject textures)
+            return false;
+        foreach ((string _, JsonNode? value) in textures)
+        {
+            string? url = value?["url"]?.GetValue<string>();
+            if (url is not null &&
+                Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) &&
+                uri.Scheme is "http" or "https")
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private bool ValidateTextureProperty(string value, string? signature)
@@ -718,21 +770,45 @@ internal sealed class MinecraftSessionBridge : IDisposable
         ["textureKey"] = Guid.NewGuid().ToString("N")
     };
 
-    private static JsonObject CreatePlayerCertificates()
+    private static JsonObject CreateServicesPublicKeysDocument(string issuerSpkiBase64)
     {
-        using RSA rsa = RSA.Create(2048);
-        string privateKey = EnsurePemTrailingNewline(rsa.ExportRSAPrivateKeyPem());
-        string publicKey = EnsurePemTrailingNewline(rsa.ExportRSAPublicKeyPem());
+        JsonObject MakeKey() => new() { ["publicKey"] = issuerSpkiBase64 };
+        return new JsonObject
+        {
+            ["profilePropertyKeys"] = new JsonArray((JsonNode)MakeKey()),
+            ["playerCertificateKeys"] = new JsonArray((JsonNode)MakeKey())
+        };
+    }
 
-        // Mojang signs these with the services key. For Host third-party/offline we only need a
-        // parseable key pair so the client can load chat signing; signature trust is relaxed in authlib.
-        byte[] publicKeyDer = rsa.ExportSubjectPublicKeyInfo();
-        string signature = Convert.ToBase64String(
-            rsa.SignData(publicKeyDer, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1));
-        string signatureV2 = Convert.ToBase64String(
-            rsa.SignData(publicKeyDer, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
+    private static JsonObject CreatePlayerCertificates(string playerUuid, RSA issuer)
+    {
+        using RSA player = RSA.Create(2048);
+        string privateKey = EnsurePemTrailingNewline(player.ExportRSAPrivateKeyPem());
+        string publicKey = EnsurePemTrailingNewline(player.ExportRSAPublicKeyPem());
+        byte[] publicKeySpki = player.ExportSubjectPublicKeyInfo();
 
         DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset expiresAt = now.AddDays(2);
+        DateTimeOffset refreshedAfter = now.AddHours(12);
+        long expiresAtMilli = expiresAt.ToUnixTimeMilliseconds();
+
+        // 1.19 publicKeySignature: UTF-8(expiresAtMillis + Mojang-style RSA PUBLIC KEY PEM of SPKI).
+        string signature = Convert.ToBase64String(
+            issuer.SignData(
+                Encoding.UTF8.GetBytes(expiresAtMilli.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                                       FormatMojangPublicKeyPem(publicKeySpki)),
+                HashAlgorithmName.SHA1,
+                RSASignaturePadding.Pkcs1));
+
+        // 1.19.1+ publicKeySignatureV2: UUID(16 BE) + expiresAtMillis(8 BE) + SPKI DER.
+        byte[] uuidBytes = UuidToJavaBytes(playerUuid);
+        byte[] signedV2 = new byte[24 + publicKeySpki.Length];
+        uuidBytes.CopyTo(signedV2, 0);
+        BinaryPrimitives.WriteInt64BigEndian(signedV2.AsSpan(16, 8), expiresAtMilli);
+        publicKeySpki.CopyTo(signedV2, 24);
+        string signatureV2 = Convert.ToBase64String(
+            issuer.SignData(signedV2, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1));
+
         return new JsonObject
         {
             ["keyPair"] = new JsonObject
@@ -742,14 +818,43 @@ internal sealed class MinecraftSessionBridge : IDisposable
             },
             ["publicKeySignature"] = signature,
             ["publicKeySignatureV2"] = signatureV2,
-            ["expiresAt"] = now.AddDays(2).UtcDateTime.ToString(
-                "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
-                System.Globalization.CultureInfo.InvariantCulture),
-            ["refreshedAfter"] = now.AddHours(12).UtcDateTime.ToString(
-                "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
-                System.Globalization.CultureInfo.InvariantCulture)
+            ["expiresAt"] = FormatInstant(expiresAt),
+            ["refreshedAfter"] = FormatInstant(refreshedAfter)
         };
     }
+
+    /// <summary>
+    /// Minecraft builds the 1.19 signature payload with SPKI bytes labeled as RSA PUBLIC KEY and
+    /// MIME base64 wrapped at 76 columns (see PlayerPublicKey.toSerializedString).
+    /// </summary>
+    private static string FormatMojangPublicKeyPem(byte[] subjectPublicKeyInfo)
+    {
+        string base64 = Convert.ToBase64String(subjectPublicKeyInfo);
+        StringBuilder builder = new();
+        builder.Append("-----BEGIN RSA PUBLIC KEY-----\n");
+        for (int i = 0; i < base64.Length; i += 76)
+        {
+            int length = Math.Min(76, base64.Length - i);
+            builder.Append(base64, i, length);
+            builder.Append('\n');
+        }
+
+        builder.Append("-----END RSA PUBLIC KEY-----\n");
+        return builder.ToString();
+    }
+
+    private static byte[] UuidToJavaBytes(string uuid)
+    {
+        string normalized = NormalizeUuid(uuid);
+        if (normalized.Length != 32)
+            return new byte[16];
+        return Convert.FromHexString(normalized);
+    }
+
+    private static string FormatInstant(DateTimeOffset value) =>
+        value.UtcDateTime.ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+            System.Globalization.CultureInfo.InvariantCulture);
 
     private static JsonObject CreatePlayerAttributes() => new()
     {
@@ -812,7 +917,8 @@ internal sealed class MinecraftSessionBridge : IDisposable
                 ["product"] = "minecraft",
                 ["authentication"] = CreateEndpoints(new Dictionary<string, string>
                 {
-                    ["getPublicKeys"] = BaseUrl + "/pcl/publickeys"
+                    // authlib also rewrites https://api.minecraftservices.com/publickeys via services host.
+                    ["getPublicKeys"] = BaseUrl + "/minecraftservices/publickeys"
                 }),
                 ["session"] = session,
                 ["player"] = player,
@@ -1062,6 +1168,7 @@ internal sealed class MinecraftSessionBridge : IDisposable
         }
         _httpClient.Dispose();
         _metadata.Dispose();
+        _certificateIssuer.Dispose();
         _thirdPartyProfileGate.Dispose();
         _shutdown.Dispose();
     }
