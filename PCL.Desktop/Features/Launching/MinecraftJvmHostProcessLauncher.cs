@@ -41,10 +41,12 @@ internal static class MinecraftJvmHostProcessLauncher
             if (process is null)
                 throw new InvalidOperationException("Jvm.NET Host 进程未能启动。");
 
+            int processId = process.Id;
             TaskCompletionSource<MinecraftLaunchFaultReport?> faultSource =
                 new(TaskCreationOptions.RunContinuationsAsynchronously);
-            _ = ObserveLifecycleAsync(pipe, process, log, faultSource);
-            PortableLog.Info("JvmHost", $"Jvm.NET Host 已启动；PID={process.Id}；Pipe={pipeName}。");
+            _ = ObserveLifecycleAsync(pipe, process, processId, log, faultSource);
+            _ = MonitorGameLogAsync(prepared.WorkingDirectory, process, processId, log, faultSource);
+            PortableLog.Info("JvmHost", $"Jvm.NET Host 已启动；PID={processId}；Pipe={pipeName}。");
             return new MinecraftJvmHostProcessHandle(process, faultSource.Task);
         }
         catch
@@ -141,9 +143,12 @@ internal static class MinecraftJvmHostProcessLauncher
     private static async Task ObserveLifecycleAsync(
         NamedPipeServerStream pipe,
         Process process,
+        int processId,
         Action<string>? log,
         TaskCompletionSource<MinecraftLaunchFaultReport?> faultSource)
     {
+        bool receivedFaultReport = false;
+        string lastStage = "HostStarting";
         await using (pipe.ConfigureAwait(false))
         {
             try
@@ -158,10 +163,13 @@ internal static class MinecraftJvmHostProcessLauncher
                     int separator = line.IndexOf('\t');
                     string stage = separator < 0 ? "Event" : line[..separator];
                     string message = separator < 0 ? line : line[(separator + 1)..];
+                    if (!string.Equals(stage, "FaultReport", StringComparison.Ordinal))
+                        lastStage = stage;
                     if (string.Equals(stage, "FaultReport", StringComparison.Ordinal))
                     {
                         if (TryParseFaultReport(message, out MinecraftLaunchFaultReport? report) && report is not null)
                         {
+                            receivedFaultReport = true;
                             faultSource.TrySetResult(report);
                             string summary = $"Jvm Host [FaultReport] {report.Code} · {report.Stage} · {report.Subsystem}";
                             log?.Invoke(summary);
@@ -180,20 +188,184 @@ internal static class MinecraftJvmHostProcessLauncher
             }
             catch (OperationCanceledException)
             {
-                PortableLog.Warn("JvmHost", $"Jvm.NET Host 未在规定时间内连接生命周期管道；PID={process.Id}。");
+                PortableLog.Warn("JvmHost", $"Jvm.NET Host 未在规定时间内连接生命周期管道；PID={processId}。");
             }
             catch (IOException ex)
             {
-                PortableLog.Debug("JvmHost", $"Jvm.NET Host 生命周期管道已结束；PID={process.Id}；{ex.Message}");
+                PortableLog.Debug("JvmHost", $"Jvm.NET Host 生命周期管道已结束；PID={processId}；{ex.Message}");
             }
             catch (ObjectDisposedException)
             {
                 // The game process ended while the listener was being torn down.
             }
+            catch (Exception ex)
+            {
+                PortableLog.Warn(
+                    ex,
+                    "JvmHost",
+                    $"Jvm.NET Host 生命周期观察器异常；PID={processId}。");
+            }
             finally
             {
-                faultSource.TrySetResult(null);
+                if (!receivedFaultReport)
+                {
+                    MinecraftLaunchFaultReport? nativeFailure = await CreateUnexpectedHostExitReportAsync(
+                            process,
+                            processId,
+                            lastStage)
+                        .ConfigureAwait(false);
+                    if (nativeFailure is not null)
+                    {
+                        faultSource.TrySetResult(nativeFailure);
+                        PortableLog.Warn(
+                            "JvmHost",
+                            $"Jvm.NET Host 在 {lastStage} 阶段异常退出；PID={processId}；{nativeFailure.Message}");
+                    }
+                    else
+                    {
+                        faultSource.TrySetResult(null);
+                    }
+                }
             }
+        }
+    }
+
+    internal static MinecraftLaunchFaultReport? AnalyzeNeoForgeLogLines(IEnumerable<string> lines)
+    {
+        string[] evidence = lines
+            .Where(static line => !string.IsNullOrWhiteSpace(line))
+            .TakeLast(80)
+            .ToArray();
+        if (!evidence.Any(IsNeoForgeDependencyLine))
+            return null;
+
+        MinecraftLaunchFaultReport report = MinecraftLaunchFaultAnalyzer.AnalyzeText(
+            evidence,
+            "NeoForgeDependencyCheck");
+        return report with
+        {
+            Code = MinecraftLaunchFaultCode.MissingModDependency,
+            Stage = "NeoForgeDependencyCheck",
+            Subsystem = "ModLoader",
+            Message = "NeoForge 检测到缺失或不兼容的必需模组依赖。",
+            AllowedActions =
+            [
+                MinecraftRepairActionKind.InstallMissingModDependencies,
+                MinecraftRepairActionKind.DownloadMod,
+                MinecraftRepairActionKind.ReadModMetadata
+            ]
+        };
+    }
+
+    private static bool IsNeoForgeDependencyLine(string line) =>
+        line.Contains("Missing or unsupported mandatory dependencies", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("Missing mandatory dependencies", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("Missing mods", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("requires version", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("requires any version", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("Failed to load mod file", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("Mod resolution encountered", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("依赖模组", StringComparison.OrdinalIgnoreCase);
+
+    private static async Task MonitorGameLogAsync(
+        string workingDirectory,
+        Process process,
+        int processId,
+        Action<string>? log,
+        TaskCompletionSource<MinecraftLaunchFaultReport?> faultSource)
+    {
+        string logPath = Path.Combine(workingDirectory, "logs", "latest.log");
+        List<string> window = [];
+        long position = 0;
+        try
+        {
+            while (!faultSource.Task.IsCompleted && !process.HasExited)
+            {
+                if (File.Exists(logPath))
+                {
+                    await using FileStream stream = new(
+                        logPath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete,
+                        4096,
+                        FileOptions.Asynchronous | FileOptions.SequentialScan);
+                    if (stream.Length < position)
+                        position = 0;
+                    stream.Position = position;
+                    using StreamReader reader = new(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
+                    while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+                    {
+                        window.Add(line);
+                        if (window.Count > 80)
+                            window.RemoveAt(0);
+                        if (AnalyzeNeoForgeLogLines(window) is { } report)
+                        {
+                            if (faultSource.TrySetResult(report))
+                            {
+                                string summary = $"Jvm Host [FaultReport] {report.Code} · {report.Stage} · {report.Subsystem}";
+                                log?.Invoke(summary);
+                                PortableLog.Warn("JvmHost", summary + " · " + report.Message);
+                            }
+                            return;
+                        }
+                    }
+                    position = stream.Position;
+                }
+                await Task.Delay(250).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            PortableLog.Debug(exception, "JvmHost", $"游戏日志监控已结束；PID={processId}。");
+        }
+    }
+
+    internal static async Task<MinecraftLaunchFaultReport?> CreateUnexpectedHostExitReportAsync(
+        Process process,
+        int processId,
+        string lastStage)
+    {
+        try
+        {
+            if (!process.HasExited)
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            if (!process.HasExited || process.ExitCode == 0)
+                return null;
+            int exitCode = process.ExitCode;
+            uint unsigned = unchecked((uint)exitCode);
+            string message =
+                $"Jvm.NET Host 在 JVM 生命周期阶段 {lastStage} 异常退出；" +
+                $"ExitCode={exitCode} (0x{unsigned:X8})。";
+            MinecraftLaunchFaultCode code = lastStage is "JvmStarting" or "JvmMode" or "HostStarting" or "BridgeReady"
+                ? MinecraftLaunchFaultCode.JvmInitializationFailed
+                : MinecraftLaunchFaultCode.Unknown;
+            return new MinecraftLaunchFaultReport
+            {
+                Code = code,
+                Stage = lastStage,
+                Subsystem = "JvmHost",
+                ExceptionType = "NativeProcessExit",
+                Message = message,
+                Evidence =
+                [
+                    $"Jvm.NET Host PID={processId}",
+                    $"LastLifecycleStage={lastStage}",
+                    $"ExitCode={exitCode}",
+                    $"ExitCodeHex=0x{unsigned:X8}",
+                    "若未出现 JvmRunning/MainInvoking，崩溃发生在 Minecraft 主类执行之前。"
+                ],
+                AllowedActions =
+                [
+                    MinecraftRepairActionKind.DisableExperimentalJvmHost,
+                    MinecraftRepairActionKind.InspectOnly,
+                    MinecraftRepairActionKind.SelectCompatibleJava
+                ]
+            };
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
+        {
+            return null;
         }
     }
 

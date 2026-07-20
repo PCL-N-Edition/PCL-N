@@ -54,25 +54,17 @@ internal static class MinecraftJvmHostEntryPoint
             RegisterJdkImplementation(request.JavaMajorVersion);
             lifecycle.Send("JvmStarting", Path.GetDirectoryName(request.JavaExecutablePath) ?? request.JavaExecutablePath);
             string jdkBinPath = ResolveJdkBinPath(request.JavaExecutablePath);
-            JvmInitializationOptions options = new()
-            {
-                JdkBinPath = jdkBinPath,
-                Version = request.JavaMajorVersion,
-                VmArguments = vmArguments,
-                Classpath = request.ClasspathEntries,
-                EnableBytecodeModification = bridge is not null,
-                EnableEventListening = true,
-                RequireJvmti = true,
-                Interop = new JvmInteropOptions { Mode = InteropMode.NativeOnly }
-            };
+            JvmInitializationOptions options = CreateInitializationOptions(request, vmArguments, jdkBinPath);
+            lifecycle.Send("JvmArgumentsPrepared", FormatArgumentSummary(vmArguments));
+            lifecycle.Send("ClasspathPrepared", FormatClasspathSummary(request.ClasspathEntries));
+            string? modulePath = vmArguments.FirstOrDefault(argument =>
+                argument.StartsWith("--module-path=", StringComparison.Ordinal));
+            if (modulePath is not null)
+                lifecycle.Send("ModulePathPrepared", $"Characters={modulePath.Length}");
+            lifecycle.Send("JvmMode", "JNI-only 安全模式；JVMTI 环境、事件与字节码回调已禁用");
 
             using IJvmRuntime runtime = JvmInitializer.Initialize(options);
             lifecycle.Send("JvmRunning", $"JVM {runtime.Version} 已初始化");
-            using IDisposable classEvents = runtime.EventListener.SubscribeClassPrepare(data =>
-                PublishClassLifecycle(data.Class.Name, lifecycle));
-            using IDisposable? transformer = bridge is null
-                ? null
-                : runtime.BytecodeModifier.RegisterTransformer(new MinecraftAuthlibBytecodeTransformer(bridge.BaseUrl));
 
             lifecycle.Send("MainInvoking", request.MainClass);
             using JvmClass mainClass = runtime.Invoker.LoadClass(request.MainClass);
@@ -99,6 +91,44 @@ internal static class MinecraftJvmHostEntryPoint
             if (Directory.Exists(originalWorkingDirectory))
                 Environment.CurrentDirectory = originalWorkingDirectory;
         }
+    }
+
+    internal static JvmInitializationOptions CreateInitializationOptions(
+        MinecraftJvmHostRequest request,
+        IReadOnlyList<string> vmArguments,
+        string jdkBinPath) => new()
+    {
+        JdkBinPath = jdkBinPath,
+        Version = request.JavaMajorVersion,
+        VmArguments = vmArguments,
+        Classpath = request.ClasspathEntries,
+        EnableBytecodeModification = false,
+        EnableEventListening = false,
+        RequireJvmti = false,
+        Interop = new JvmInteropOptions { Mode = InteropMode.NativeOnly }
+    };
+
+    internal static string FormatArgumentSummary(IReadOnlyList<string> arguments)
+    {
+        string[] names = arguments.Select(GetArgumentName).Distinct(StringComparer.Ordinal).ToArray();
+        return $"Count={arguments.Count}；Characters={arguments.Sum(static argument => argument.Length)}；" +
+               $"MaxLength={arguments.Select(static argument => argument.Length).DefaultIfEmpty().Max()}；" +
+               $"Names={string.Join(',', names)}";
+    }
+
+    internal static string FormatClasspathSummary(IReadOnlyList<string> classpath) =>
+        $"Count={classpath.Count}；Characters={classpath.Sum(static entry => entry.Length)}；" +
+        $"MaxLength={classpath.Select(static entry => entry.Length).DefaultIfEmpty().Max()}";
+
+    private static string GetArgumentName(string argument)
+    {
+        if (argument.StartsWith("-D", StringComparison.Ordinal))
+        {
+            int separator = argument.IndexOf('=');
+            return separator > 0 ? argument[..separator] : argument;
+        }
+        int equals = argument.IndexOf('=');
+        return equals > 0 ? argument[..equals] : argument;
     }
 
     private static void ValidateRequest(MinecraftJvmHostRequest request)
@@ -223,7 +253,8 @@ internal static class MinecraftJvmHostEntryPoint
 
         public int JvmtiVersion => Version <= 8 ? 0x30010200 : 0x30000000 | (Version << 16);
 
-        public IJvmRuntime CreateRuntime(JvmInitializationOptions options) => new JdkRuntimeBase(options, this);
+        public IJvmRuntime CreateRuntime(JvmInitializationOptions options) =>
+            new JdkRuntimeBase(options, this);
     }
 }
 
