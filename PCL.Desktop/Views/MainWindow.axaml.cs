@@ -3437,7 +3437,8 @@ public partial class MainWindow : Window, IDisposable
                 LoadSettingsAsync = cancellationToken => Task.Run(
                     LauncherSettingsPageBinder.LoadSettings,
                     cancellationToken),
-                RefreshProfileAsync = RefreshLaunchProfileAsync,
+                RefreshProfileAsync = (profile, status, token) =>
+                    RefreshLaunchProfileAsync(profile, token, status),
                 CreatePlanAsync = MinecraftLaunchPlanFactory.CreateAsync,
                 RunPreLaunchCommandAsync = MinecraftLaunchPlanFactory.RunPreLaunchCommandAsync,
                 ApplyProcessPriority = MinecraftLaunchPlanFactory.ApplyProcessPriority,
@@ -3678,16 +3679,30 @@ public partial class MainWindow : Window, IDisposable
         return tcs.Task;
     }
 
+    /// <summary>
+    /// Login-stage entry: validates/refreshes the selected profile before any launch plan is built.
+    /// </summary>
     private async Task<LoginProfileInfo> RefreshLaunchProfileAsync(
         LoginProfileInfo profile,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<string>? status = null)
     {
+        void Report(string message) => status?.Invoke(message);
+
+        if (profile.Kind == LaunchLoginProfileKind.Offline)
+        {
+            Report("离线档案，跳过在线验证。");
+            return profile;
+        }
+
         if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
-            return await RefreshThirdPartyLaunchProfileAsync(profile, cancellationToken).ConfigureAwait(false);
+            return await RefreshThirdPartyLaunchProfileAsync(profile, cancellationToken, status)
+                .ConfigureAwait(false);
 
         if (profile.Kind != LaunchLoginProfileKind.Microsoft ||
             string.IsNullOrWhiteSpace(profile.RefreshToken))
         {
+            Report("Microsoft 档案无需刷新（无 refresh token 或非微软账户）。");
             return profile;
         }
 
@@ -3699,9 +3714,7 @@ public partial class MainWindow : Window, IDisposable
             // until its own expiry; refreshing is only mandatory afterwards.
             if (MinecraftLaunchPlanFactory.IsAccessTokenUsable(profile.AccessToken))
             {
-                Dispatcher.UIThread.Post(
-                    () => _launchRight?.AppendLog("未配置 Microsoft Client ID，使用档案中仍有效的访问令牌启动。"),
-                    DispatcherPriority.Background);
+                Report("未配置 Microsoft Client ID，使用档案中仍有效的访问令牌。");
                 return profile;
             }
 
@@ -3709,9 +3722,11 @@ public partial class MainWindow : Window, IDisposable
                 "缺少 Microsoft 登录配置，无法刷新正版登录状态。请提供 PCL_MS_CLIENT_ID 后重试。");
         }
 
+        Report("正在刷新 Microsoft 访问令牌…");
         MicrosoftMinecraftLoginResult refreshed = await _microsoftAuthService
             .RefreshAsync(clientId, profile.RefreshToken, cancellationToken)
             .ConfigureAwait(false);
+        Report("Microsoft 访问令牌已刷新。");
         return profile with
         {
             Username = refreshed.Username,
@@ -3724,19 +3739,23 @@ public partial class MainWindow : Window, IDisposable
     }
 
     /// <summary>
-    /// Ensures third-party (LittleSkin / Yggdrasil) access tokens are still accepted before launch.
-    /// Order: validate → refresh → re-authenticate with encrypted password → fail with re-login hint.
+    /// Login stage: validate → Yggdrasil refresh → encrypted password re-auth.
+    /// Must finish before launch arguments are generated.
     /// </summary>
     private async Task<LoginProfileInfo> RefreshThirdPartyLaunchProfileAsync(
         LoginProfileInfo profile,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<string>? status = null)
     {
+        void Report(string message) => status?.Invoke(message);
+
         if (string.IsNullOrWhiteSpace(profile.AuthServer))
         {
             throw new InvalidOperationException(
                 "第三方档案缺少认证服务器地址。请重新登录该账户。");
         }
 
+        Report("正在读取加密凭据并校验会话…");
         ThirdPartyStoredCredential? stored = await ThirdPartyCredentialStore
             .TryReadAsync(profile.AuthServer, profile.Uuid, cancellationToken)
             .ConfigureAwait(false);
@@ -3747,6 +3766,7 @@ public partial class MainWindow : Window, IDisposable
         if (!string.IsNullOrWhiteSpace(profile.AccessToken) &&
             ThirdPartyAuthService.IsJwtAccessTokenUnexpired(profile.AccessToken))
         {
+            Report("正在向认证服务器 validate 访问令牌…");
             bool stillValid = await _thirdPartyAuthService
                 .ValidateAsync(
                     profile.AuthServer,
@@ -3756,22 +3776,26 @@ public partial class MainWindow : Window, IDisposable
                 .ConfigureAwait(false);
             if (stillValid)
             {
-                Dispatcher.UIThread.Post(
-                    () => _launchRight?.AppendLog("第三方访问令牌有效。"),
-                    DispatcherPriority.Background);
+                Report("访问令牌有效，无需刷新。");
                 return profile;
             }
-        }
 
-        Dispatcher.UIThread.Post(
-            () => _launchRight?.AppendLog("第三方访问令牌失效，正在自动刷新会话…"),
-            DispatcherPriority.Background);
+            Report("validate 未通过，准备 refresh…");
+        }
+        else
+        {
+            PortableLog.Warn(
+                "ThirdPartyAuth",
+                "第三方访问令牌已过期或格式异常，尝试 refresh / 重登。");
+            Report("访问令牌已过期或无效，准备 refresh…");
+        }
 
         // 1) Yggdrasil refresh (works while accessToken is still accepted for refresh).
         if (!string.IsNullOrWhiteSpace(profile.AccessToken))
         {
             try
             {
+                Report("正在 refresh 访问令牌…");
                 ThirdPartyAuthLoginResult refreshed = await _thirdPartyAuthService
                     .RefreshAsync(
                         profile.AuthServer,
@@ -3783,12 +3807,14 @@ public partial class MainWindow : Window, IDisposable
                         profile,
                         refreshed,
                         stored,
-                        "第三方访问令牌已自动刷新。")
+                        "访问令牌已自动刷新。",
+                        status)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 PortableLog.Warn(ex, "ThirdPartyAuth", "Yggdrasil refresh 失败，尝试加密凭据重登。");
+                Report("refresh 失败，尝试加密凭据静默重登…");
             }
         }
 
@@ -3797,6 +3823,7 @@ public partial class MainWindow : Window, IDisposable
         {
             try
             {
+                Report("正在使用加密保存的密码重新认证…");
                 ThirdPartyAuthLoginResult reauthed = await _thirdPartyAuthService
                     .AuthenticateAsync(
                         new ThirdPartyAuthLoginRequest(
@@ -3807,7 +3834,6 @@ public partial class MainWindow : Window, IDisposable
                         cancellationToken)
                     .ConfigureAwait(false);
 
-                // Keep password vault in sync with any new clientToken.
                 await ThirdPartyCredentialStore.SaveAsync(
                         reauthed.AuthServer,
                         reauthed.Uuid,
@@ -3821,14 +3847,15 @@ public partial class MainWindow : Window, IDisposable
                         profile,
                         reauthed,
                         stored,
-                        "已使用加密保存的凭据重新登录第三方账户。")
+                        "已使用加密凭据重新登录。",
+                        status)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 PortableLog.Error(ex, "ThirdPartyAuth", "加密凭据重登失败。");
                 throw new InvalidOperationException(
-                    "第三方访问令牌已失效，使用本机加密凭据重新登录也失败。" +
+                    "登录阶段：第三方访问令牌已失效，使用本机加密凭据重新登录也失败。" +
                     Environment.NewLine +
                     "请打开「账户」重新登录该认证服务器（密码可能已更改）。" +
                     Environment.NewLine +
@@ -3838,16 +3865,17 @@ public partial class MainWindow : Window, IDisposable
         }
 
         throw new InvalidOperationException(
-            "第三方访问令牌已失效，且本机没有可用于自动刷新的加密凭据。" +
+            "登录阶段：第三方访问令牌已失效，且本机没有可用于自动刷新的加密凭据。" +
             Environment.NewLine +
-            "请打开「账户」重新登录该认证服务器。登录成功后密码会加密保存在本机，之后可自动刷新。");
+            "请打开「账户」重新登录该认证服务器。登录成功后密码会加密保存在本机，之后可在登录阶段自动刷新。");
     }
 
     private async Task<LoginProfileInfo> PersistRefreshedThirdPartyProfileAsync(
         LoginProfileInfo profile,
         ThirdPartyAuthLoginResult refreshed,
         ThirdPartyStoredCredential? stored,
-        string logMessage)
+        string logMessage,
+        Action<string>? status = null)
     {
         LoginProfileInfo updated = profile with
         {
@@ -3874,6 +3902,7 @@ public partial class MainWindow : Window, IDisposable
             SaveProfilesInBackground("刷新第三方访问令牌");
             _launchRight?.AppendLog(logMessage);
         });
+        status?.Invoke(logMessage);
 
         // If we re-authed under a new UUID (rare), migrate vault key.
         if (stored is not null &&
@@ -4129,7 +4158,7 @@ public partial class MainWindow : Window, IDisposable
                         Settings = settings,
                         MinecraftRootDirectory = MinecraftLaunchPlanFactory.GetMinecraftRootFromInstance(instance),
                         Report = static _ => { },
-                        RefreshProfileAsync = static (current, _) => Task.FromResult(current),
+                        RefreshProfileAsync = static (current, _, _) => Task.FromResult(current),
                         CreatePlanAsync = MinecraftLaunchPlanFactory.CreateAsync,
                         RunPreLaunchCommandAsync = MinecraftLaunchPlanFactory.RunPreLaunchCommandAsync,
                         ApplyProcessPriority = MinecraftLaunchPlanFactory.ApplyProcessPriority

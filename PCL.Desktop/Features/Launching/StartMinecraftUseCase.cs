@@ -250,7 +250,12 @@ internal sealed class StartMinecraftHost
 
     public required Func<CancellationToken, Task<LauncherSettings>> LoadSettingsAsync { get; init; }
 
-    public required Func<LoginProfileInfo, CancellationToken, Task<LoginProfileInfo>> RefreshProfileAsync { get; init; }
+    /// <summary>Login-stage validate/refresh; <c>status</c> is optional sub-step log text.</summary>
+    public required Func<
+        LoginProfileInfo,
+        Action<string>?,
+        CancellationToken,
+        Task<LoginProfileInfo>> RefreshProfileAsync { get; init; }
 
     public required Func<
         LaunchInstanceInfo,

@@ -118,13 +118,28 @@ internal sealed class MinecraftLaunchCoordinator
         completed += MinecraftLaunchStages.GetJava;
         request.Log?.Invoke("选择的 Java：" + javaExecutable);
 
+        // Login stage owns all online session work (validate / refresh / silent re-auth).
+        // Downstream stages must use the returned profile so launch args carry a fresh token.
         LoginProfileInfo profile = await RunStageWithHeartbeatAsync(
                 request,
                 StageName("Minecraft.Launch.Stage.Login", "登录"),
                 completed,
                 MinecraftLaunchStages.Login,
                 method,
-                token => request.RefreshProfileAsync(request.Profile, token),
+                async token =>
+                {
+                    request.Log?.Invoke(
+                        "登录阶段：正在验证账户「" + request.Profile.Username + "」（" + method + "）…");
+                    LoginProfileInfo verified = await request.RefreshProfileAsync(
+                            request.Profile,
+                            status => request.Log?.Invoke("登录阶段：" + status),
+                            token)
+                        .ConfigureAwait(false);
+                    request.Log?.Invoke(
+                        "登录阶段：账户验证完成 — " + verified.Username +
+                        "（" + FormatLoginMethod(verified) + "）");
+                    return verified;
+                },
                 cancellationToken)
             .ConfigureAwait(false);
         method = FormatLoginMethod(profile);
@@ -1039,7 +1054,15 @@ internal sealed class MinecraftLaunchCoordinatorRequest
     public required Action<MinecraftLaunchStageReport> Report { get; init; }
     public Action<string>? Log { get; init; }
 
-    public required Func<LoginProfileInfo, CancellationToken, Task<LoginProfileInfo>> RefreshProfileAsync { get; init; }
+    /// <summary>
+    /// Validates / refreshes the selected account during the Login stage.
+    /// <paramref name="status"/> receives human-readable sub-step messages for the launch log.
+    /// </summary>
+    public required Func<
+        LoginProfileInfo,
+        Action<string>?,
+        CancellationToken,
+        Task<LoginProfileInfo>> RefreshProfileAsync { get; init; }
 
     public required Func<
         LaunchInstanceInfo,
