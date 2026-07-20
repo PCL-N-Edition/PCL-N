@@ -11,6 +11,11 @@ internal static class DesktopPlatformApi
         OperatingSystem.IsLinux() ||
         OperatingSystem.IsMacOS();
 
+    public static bool IsMacOsDesktop => OperatingSystem.IsMacOS();
+
+    /// <summary>True when caption controls should use left traffic lights.</summary>
+    public static bool UsesMacOsTrafficLights => IsMacOsDesktop;
+
     public static string CreateSingleInstanceMutexName(string suffix) =>
         OperatingSystem.IsWindows()
             ? $@"Local\PCLN.Desktop.{suffix}"
