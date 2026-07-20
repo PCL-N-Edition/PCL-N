@@ -120,19 +120,39 @@ public sealed class FileSystemJavaLocator : IJavaLocator
             foreach (string root in EnumerateExisting(
                          Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                          Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                          @"D:\Program Files",
                          @"D:\Program Files (x86)",
                          @"C:\Program Files",
-                         @"C:\Program Files (x86)"))
+                         @"C:\Program Files (x86)",
+                         @"C:\Java",
+                         @"D:\Java"))
             {
                 yield return Path.Combine(root, "Java");
                 yield return Path.Combine(root, "Eclipse Adoptium");
+                yield return Path.Combine(root, "AdoptOpenJDK");
                 yield return Path.Combine(root, "Microsoft");
                 yield return Path.Combine(root, "Zulu");
+                yield return Path.Combine(root, "Azul");
+                yield return Path.Combine(root, "zulu");
                 yield return Path.Combine(root, "BellSoft");
                 yield return Path.Combine(root, "Amazon Corretto");
+                yield return Path.Combine(root, "GraalVM");
+                yield return Path.Combine(root, "graalvm");
+                yield return Path.Combine(root, "Liberica");
+                yield return Path.Combine(root, "Semeru");
+                yield return Path.Combine(root, "Dragonwell");
                 yield return Path.Combine(root, "Common Files", "Oracle", "Java");
+                // Scoop / portable layouts often live under user profile.
+                yield return Path.Combine(root, "scoop", "apps", "temurin-jdk", "current");
+                yield return Path.Combine(root, "scoop", "apps", "zulu-jdk", "current");
+                yield return Path.Combine(root, "scoop", "apps", "graalvm-jdk", "current");
             }
+
+            // Azul / GraalVM installers may only register under their own HKLM keys.
+            foreach (string vendorRoot in EnumerateWindowsVendorProgramRoots())
+                yield return vendorRoot;
         }
         else if (OperatingSystem.IsMacOS())
         {
@@ -140,6 +160,10 @@ public sealed class FileSystemJavaLocator : IJavaLocator
             yield return Path.Combine(GetHomeDirectory(), "Library", "Java", "JavaVirtualMachines");
             yield return "/opt/homebrew/opt/openjdk";
             yield return "/usr/local/opt/openjdk";
+            yield return "/Library/Java/JavaVirtualMachines/graalvm-ce-java17/Contents/Home";
+            yield return "/opt/homebrew/opt/openjdk@21";
+            yield return "/opt/homebrew/opt/openjdk@17";
+            yield return Path.Combine(GetHomeDirectory(), ".sdkman", "candidates", "java");
         }
         else
         {
@@ -147,7 +171,35 @@ public sealed class FileSystemJavaLocator : IJavaLocator
             yield return "/usr/java";
             yield return "/opt/java";
             yield return "/opt/jdk";
+            yield return "/opt/graalvm";
+            yield return "/usr/lib/jvm/zulu-openjdk";
             yield return Path.Combine(GetHomeDirectory(), ".sdkman", "candidates", "java");
+            yield return Path.Combine(GetHomeDirectory(), ".jdks");
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static IEnumerable<string> EnumerateWindowsVendorProgramRoots()
+    {
+        // Walk one extra level under common vendor folders so zulu-21 / graalvm-ce-java21
+        // directories dropped next to Program Files are still discovered (#3).
+        foreach (string root in EnumerateExisting(
+                     Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                     Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                     @"C:\Program Files",
+                     @"D:\Program Files"))
+        {
+            foreach (string vendor in new[]
+                     {
+                         "Zulu", "Azul", "zulu", "GraalVM", "graalvm", "Java", "Eclipse Adoptium",
+                         "Amazon Corretto", "BellSoft", "Microsoft", "Liberica"
+                     })
+            {
+                string vendorDir = Path.Combine(root, vendor);
+                if (Directory.Exists(vendorDir))
+                    yield return vendorDir;
+            }
         }
     }
 
@@ -163,6 +215,11 @@ public sealed class FileSystemJavaLocator : IJavaLocator
                 CollectRegistryJavaHomes(machine, @"SOFTWARE\JavaSoft", homes, depth: 3);
                 CollectRegistryJavaHomes(machine, @"SOFTWARE\Eclipse Adoptium", homes, depth: 5);
                 CollectRegistryJavaHomes(machine, @"SOFTWARE\Microsoft\JDK", homes, depth: 3);
+                CollectRegistryJavaHomes(machine, @"SOFTWARE\Azul Systems\Zulu", homes, depth: 5);
+                CollectRegistryJavaHomes(machine, @"SOFTWARE\Azul Systems\Zulu 64-bit", homes, depth: 5);
+                CollectRegistryJavaHomes(machine, @"SOFTWARE\GraalVM", homes, depth: 4);
+                CollectRegistryJavaHomes(machine, @"SOFTWARE\BellSoft", homes, depth: 4);
+                CollectRegistryJavaHomes(machine, @"SOFTWARE\Amazon Corretto", homes, depth: 4);
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException or global::System.Security.SecurityException or IOException)
             {
