@@ -37,17 +37,21 @@ using PCL.Application.Settings;
 using PCL.Core.App;
 using PCL.Core.Logging;
 using PCL.Domain.Minecraft.Launch;
+using PCL.Desktop.Composition;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Community;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Localization;
+using PCL.Desktop.Messaging;
+using PCL.Desktop.Shell;
 using PCL.Desktop.Theme;
 using PCL.Desktop.Platform;
 using PCL.Desktop.Features.Downloads.Views;
 using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Launching.Views;
+using CommunityToolkit.Mvvm.Messaging;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Shared;
 using PCL.Desktop.Features.Tasks.Views;
@@ -79,6 +83,9 @@ public partial class MainWindow : Window, IDisposable
     private PageLaunchHomeExperimental? _launchHomeExperimental;
     private bool _useExperimentalLaunchHome;
     private bool _experimentalChromeApplied;
+    private readonly AppShellViewModel _shellViewModel;
+    private readonly TitleBarViewModel _titleBarViewModel;
+    private readonly ExtraDockViewModel _extraDockViewModel;
     private PageLoginProfile? _loginProfilePage;
     private PageLoginProfileSkin? _loginProfileSkinPage;
     private PageLoginMs? _loginMsPage;
@@ -174,6 +181,20 @@ public partial class MainWindow : Window, IDisposable
         _externalUrlOpener = externalUrlOpener ?? OpenExternalUrlCore;
         _clipboardWriter = clipboardWriter;
         _launchCoordinator = new MinecraftLaunchCoordinator(_minecraftInstallService);
+        if (!DesktopCompositionRoot.IsInitialized)
+            DesktopCompositionRoot.Initialize();
+        _shellViewModel = DesktopCompositionRoot.GetRequiredService<AppShellViewModel>();
+        _titleBarViewModel = DesktopCompositionRoot.GetRequiredService<TitleBarViewModel>();
+        _extraDockViewModel = DesktopCompositionRoot.GetRequiredService<ExtraDockViewModel>();
+        _extraDockViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(ExtraDockViewModel.ShouldShowGlassDock)
+                or nameof(ExtraDockViewModel.UseGlassChrome)
+                or nameof(ExtraDockViewModel.HasAnyVisibleButton))
+            {
+                RefreshExtraDockChrome();
+            }
+        };
         AvaloniaXamlLoader.Load(this);
         DesktopHostUiComposition.Instance.RegisterTarget("pcl.window.main", this);
         if (this.FindControl<Panel>("PanTitleSelect") is { } navigationPanel)
@@ -937,7 +958,8 @@ public partial class MainWindow : Window, IDisposable
             ? double.MaxValue
             : Math.Max(240d, scroll.Viewport.Height * 0.55d);
         bool show = scroll is { IsVisible: true } && scroll.Offset.Y > threshold;
-        back.Show = show;
+        _extraDockViewModel.SetBackToTopVisible(show);
+        back.Show = _extraDockViewModel.ShowBackToTop;
         // Keep IsVisible in sync so the button is actually clickable (Show alone is not enough
         // before the extra-button host has applied scale animations on first frame).
         if (!back.IsVisible && show)
@@ -2374,27 +2396,26 @@ public partial class MainWindow : Window, IDisposable
     }
 
     /// <summary>
-    /// Apple-style title bar + frosted FAB dock. Only active with experimental homepage UI.
+    /// Apple-style title bar + frosted FAB dock. Driven by <see cref="AppShellViewModel"/> /
+    /// <see cref="TitleBarViewModel"/> / <see cref="ExtraDockViewModel"/> (Phase 1 shell).
     /// </summary>
     private void ApplyExperimentalChrome(bool experimental)
     {
-        if (_experimentalChromeApplied == experimental && experimental)
-        {
-            // Still refresh button glass in case controls were recreated.
-        }
-
         _experimentalChromeApplied = experimental;
+        _shellViewModel.UseExperimentalChrome = experimental;
+        _extraDockViewModel.UseGlassChrome = experimental;
+        _titleBarViewModel.ApplyChrome(experimental);
 
         if (this.FindControl<Control>("PanTitle") is { } title)
-            title.Height = experimental ? 52d : 48d;
+            title.Height = _titleBarViewModel.TitleHeight;
         if (this.FindControl<Control>("PanTitleGlassOverlay") is { } glassOverlay)
             glassOverlay.IsVisible = experimental;
 
         if (this.FindControl<TextBlock>("LabTitleInner") is { } titleInner)
         {
-            titleInner.FontSize = experimental ? 17d : 15d;
+            titleInner.FontSize = _titleBarViewModel.TitleFontSize;
             titleInner.FontWeight = experimental ? FontWeight.SemiBold : FontWeight.Normal;
-            titleInner.LetterSpacing = experimental ? -0.35d : 0d;
+            titleInner.LetterSpacing = _titleBarViewModel.TitleLetterSpacing;
             titleInner.Margin = experimental
                 ? new Thickness(50d, 1d, 60d, 0d)
                 : new Thickness(47d, 1d, 60d, 0d);
@@ -2402,8 +2423,9 @@ public partial class MainWindow : Window, IDisposable
 
         if (this.FindControl<MyIconButton>("BtnTitleInner") is { } backBtn)
         {
-            backBtn.Width = experimental ? 30d : 28d;
-            backBtn.Height = experimental ? 30d : 28d;
+            double size = _titleBarViewModel.BackButtonSize;
+            backBtn.Width = size;
+            backBtn.Height = size;
             backBtn.Margin = experimental ? new Thickness(14d, 0d, 0d, 0d) : new Thickness(12d, 0d, 0d, 0d);
         }
 
@@ -2416,7 +2438,6 @@ public partial class MainWindow : Window, IDisposable
                 extra.UseGlassChrome = experimental;
         }
 
-        // Glass dock only paints when at least one FAB is showing; empty padding was a stray box.
         RefreshExtraDockChrome();
     }
 
@@ -2426,7 +2447,7 @@ public partial class MainWindow : Window, IDisposable
         "BtnExtraShutdown", "BtnExtraLog", "BtnExtraMusic"
     ];
 
-    private bool HasVisibleExtraButton()
+    private bool HasVisibleExtraButtonOnControls()
     {
         foreach (string name in ExtraButtonNames)
         {
@@ -2441,16 +2462,17 @@ public partial class MainWindow : Window, IDisposable
     }
 
     /// <summary>
-    /// Frosted dock chrome only when experimental UI is on <em>and</em> at least one FAB is visible.
-    /// Avoids a tiny empty glass rectangle in the corner.
+    /// Frosted dock chrome only when experimental UI is on <em>and</em> ExtraDock reports a visible FAB.
     /// </summary>
     private void RefreshExtraDockChrome()
     {
         if (this.FindControl<Border>("PanExtraDock") is not { } dock)
             return;
 
-        bool experimental = _experimentalChromeApplied;
-        bool showChrome = experimental && HasVisibleExtraButton();
+        bool experimental = _extraDockViewModel.UseGlassChrome || _experimentalChromeApplied;
+        // Prefer VM state; also honor any FAB still toggled only on controls (migration hybrid).
+        bool showChrome = experimental &&
+                          (_extraDockViewModel.HasAnyVisibleButton || HasVisibleExtraButtonOnControls());
 
         if (showChrome)
         {
@@ -2477,7 +2499,6 @@ public partial class MainWindow : Window, IDisposable
             dock.BorderThickness = new Thickness(0d);
             dock.BoxShadow = default;
             dock.Margin = experimental ? new Thickness(20d) : new Thickness(15d);
-            // Children still receive hits when they appear; dock itself has no surface.
             dock.IsHitTestVisible = true;
         }
     }
@@ -3602,8 +3623,13 @@ public partial class MainWindow : Window, IDisposable
         bool hasVisibleTask = _taskSnapshots.Values.Any(static snapshot =>
             snapshot.State is TaskManagerTaskState.Waiting or TaskManagerTaskState.Running or
                 TaskManagerTaskState.Failed or TaskManagerTaskState.Canceled);
-        button.Progress = hasActiveTask ? CreateTaskManagerSummary().Progress : hasVisibleTask ? 1d : 0d;
-        button.Show = hasVisibleTask && !_isTaskManagerVisible;
+        double progress = hasActiveTask ? CreateTaskManagerSummary().Progress : hasVisibleTask ? 1d : 0d;
+        bool show = hasVisibleTask && !_isTaskManagerVisible;
+        _extraDockViewModel.SetTaskManager(show, progress);
+        button.Progress = _extraDockViewModel.TaskProgress;
+        button.Show = _extraDockViewModel.ShowTaskManager;
+        DesktopCompositionRoot.GetRequiredService<IMessenger>().Send(
+            new TaskProgressChangedMessage(hasVisibleTask, hasActiveTask, progress, _isTaskManagerVisible));
         RefreshExtraDockChrome();
     }
 
@@ -5397,15 +5423,17 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _isGameRunning = _runningGameProcess is not null;
+        _extraDockViewModel.SetGameRunning(_isGameRunning);
+        DesktopCompositionRoot.GetRequiredService<IMessenger>().Send(new GameRunningChangedMessage(_isGameRunning));
 
         if (this.FindControl<MyExtraButton>("BtnExtraShutdown") is { } shutdown)
         {
             // WPF: BtnExtraShutdown.Show = game running (bottom-right extra power button)
-            shutdown.Show = _isGameRunning;
+            shutdown.Show = _extraDockViewModel.ShowShutdown;
         }
 
         if (this.FindControl<MyExtraButton>("BtnExtraLog") is { } logBtn)
-            logBtn.Show = _isGameRunning;
+            logBtn.Show = _extraDockViewModel.ShowGameLog;
 
         RefreshExtraDockChrome();
     }

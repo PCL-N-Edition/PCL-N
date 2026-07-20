@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using PCL.Desktop.Composition;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Platform;
@@ -42,6 +43,8 @@ public sealed partial class App : Avalonia.Application
             DesktopFileLog.Info("Startup", $"主题与语言初始化完成；语言={AvaloniaLocalizationManager.CurrentLanguageCode}。");
             DesktopHost.Initialize();
             DesktopFileLog.Info("Plugin", $"插件宿主初始化完成；模块数={DesktopHost.Current.ModuleIds.Count}。");
+            DesktopCompositionRoot.Initialize();
+            DesktopFileLog.Info("Startup", "DesktopCompositionRoot 初始化完成（Shell/MVVM 组合根）。");
 
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {

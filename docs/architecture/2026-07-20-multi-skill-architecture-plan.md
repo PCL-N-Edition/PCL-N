@@ -308,19 +308,20 @@ public sealed record ExperimentalUiProfile(
 
 ### Phase 0 — 契约与依赖（0.5 周）
 
-- [ ] `PCL.Desktop` 引用 `CommunityToolkit.Mvvm`  
-- [ ] `DesktopCompositionRoot`：`ServiceCollection` + `IMessenger` 单例  
-- [ ] `Messaging/*Message.cs`  
-- [ ] `IDesktopFeatureModule` + 空实现可编译  
-- [ ] 架构测试草案：`**/ViewModels/**/*.cs` 禁止 `using Avalonia`  
-- [ ] 本文档 ADR 状态随 PR 更新  
+- [x] `PCL.Desktop` 引用 `CommunityToolkit.Mvvm` + `Microsoft.Extensions.DependencyInjection`  
+- [x] `DesktopCompositionRoot`：`ServiceCollection` + `IMessenger` 单例  
+- [x] `Messaging/ShellMessages.cs`  
+- [x] `IDesktopFeatureModule` + 空模块列表可编译  
+- [x] 测试：`DesktopCompositionTests`（Shell/Messaging/Composition 禁止 `using Avalonia`）  
+- [x] ADR-003 Accepted；App 启动调用 `DesktopCompositionRoot.Initialize()`  
 
 ### Phase 1 — Shell MVVM（1–2 周）★
 
-1. `ExtraDockViewModel` / `TitleBarViewModel` / `ExperimentalUiProfileSource`  
-2. `ObservableRecipient` + 页/壳 `IsActive`  
-3. 迁出 chrome / FAB / 空 dock 逻辑  
-4. 回归：关游戏、日志、回顶、任务 FAB、实验开关  
+1. [x] `ExtraDockViewModel` / `TitleBarViewModel` / `ExperimentalUiProfileSource` / `AppShellViewModel`  
+2. [x] `ObservableRecipient` + 构造时 `IsActive = true`（壳级常驻）  
+3. [x] MainWindow chrome / FAB 可见性经 Shell VM（控件绘制仍在 Window；继续瘦身）  
+4. [ ] 回归：关游戏、日志、回顶、任务 FAB、实验开关（手动/Headless）  
+5. [ ] 进一步：Title 子页动画仅读 TitleBarViewModel；减少 MainWindow 字段  
 
 ### Phase 2 — Session Stores
 
