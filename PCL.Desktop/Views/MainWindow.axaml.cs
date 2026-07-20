@@ -1882,14 +1882,11 @@ public partial class MainWindow : Window, IDisposable
         if (this.FindControl<Border>("PanMainRight") is not { } rightHost)
             return;
 
-        MyPageRight? oldRight = rightHost.Child as MyPageRight;
-        if (ReferenceEquals(oldRight, target))
-            return;
-
-        oldRight?.PageOnExit();
-        rightHost.Child = target;
-        RefreshBackToTopBinding();
-        target.PageOnEnter();
+        PageHostTransitions.TransitionRightPage(
+            rightHost,
+            target,
+            animate: _isMainWindowOpened,
+            onHostUpdated: RefreshBackToTopBinding);
     }
 
     /// <summary>
@@ -1918,13 +1915,13 @@ public partial class MainWindow : Window, IDisposable
             oldLeft.TriggerHideAnimation();
         leftHost.Child = null;
 
-        MyPageRight? oldRight = rightHost.Child as MyPageRight;
-        if (!ReferenceEquals(oldRight, detail))
+        if (!ReferenceEquals(rightHost.Child, detail))
         {
-            oldRight?.PageOnExit();
-            rightHost.Child = detail;
-            RefreshBackToTopBinding();
-            detail.PageOnEnter();
+            PageHostTransitions.TransitionRightPage(
+                rightHost,
+                detail,
+                animate: _isMainWindowOpened,
+                onHostUpdated: RefreshBackToTopBinding);
         }
 
         EnterTitleSubPage(entry.Title);
@@ -1949,16 +1946,14 @@ public partial class MainWindow : Window, IDisposable
             }
         }
 
-        if (this.FindControl<Border>("PanMainRight") is { } rightHost)
+        if (this.FindControl<Border>("PanMainRight") is { } rightHost &&
+            !ReferenceEquals(rightHost.Child, target))
         {
-            MyPageRight? oldRight = rightHost.Child as MyPageRight;
-            if (!ReferenceEquals(oldRight, target))
-            {
-                oldRight?.PageOnExit();
-                rightHost.Child = target;
-                RefreshBackToTopBinding();
-                target.PageOnEnter();
-            }
+            PageHostTransitions.TransitionRightPage(
+                rightHost,
+                target,
+                animate: _isMainWindowOpened,
+                onHostUpdated: RefreshBackToTopBinding);
         }
 
         ExitTitleSubPage();
@@ -2056,14 +2051,11 @@ public partial class MainWindow : Window, IDisposable
         if (this.FindControl<Border>("PanMainRight") is not { } rightHost)
             return;
 
-        MyPageRight? oldRight = rightHost.Child as MyPageRight;
-        if (ReferenceEquals(oldRight, target))
-            return;
-
-        oldRight?.PageOnExit();
-        rightHost.Child = target;
-        RefreshBackToTopBinding();
-        target.PageOnEnter();
+        PageHostTransitions.TransitionRightPage(
+            rightHost,
+            target,
+            animate: _isMainWindowOpened,
+            onHostUpdated: RefreshBackToTopBinding);
     }
 
     private static bool IsExperimentalHomepageUiEnabled(LauncherSettings? settings = null)
@@ -2441,14 +2433,15 @@ public partial class MainWindow : Window, IDisposable
 
         EnterTitleSubPage($"版本设置 - {instance.Name}");
 
-        MyPageRight? oldRight = rightHost.Child as MyPageRight;
-        if (ReferenceEquals(oldRight, rightPage))
-            return;
+        if (!ReferenceEquals(rightHost.Child, rightPage))
+        {
+            PageHostTransitions.TransitionRightPage(
+                rightHost,
+                rightPage,
+                animate: _isMainWindowOpened,
+                onHostUpdated: RefreshBackToTopBinding);
+        }
 
-        oldRight?.PageOnExit();
-        rightHost.Child = rightPage;
-        RefreshBackToTopBinding();
-        rightPage.PageOnEnter();
         _ = normalized;
     }
 
@@ -3075,15 +3068,20 @@ public partial class MainWindow : Window, IDisposable
         };
         EnterTitleSubPage("存档详情 - " + Path.GetFileName(saveFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
 
-        MyPageRight? oldRight = rightHost.Child as MyPageRight;
-        if (!ReferenceEquals(oldRight, page))
+        if (!ReferenceEquals(rightHost.Child, page))
         {
-            oldRight?.PageOnExit();
-            rightHost.Child = page;
+            PageHostTransitions.TransitionRightPage(
+                rightHost,
+                page,
+                animate: _isMainWindowOpened,
+                onHostUpdated: RefreshBackToTopBinding);
+        }
+        else
+        {
+            RefreshBackToTopBinding();
+            page.PageOnEnter();
         }
 
-        RefreshBackToTopBinding();
-        page.PageOnEnter();
         await page.SetSaveFolderAsync(saveFolder).ConfigureAwait(true);
     }
 
@@ -3097,16 +3095,20 @@ public partial class MainWindow : Window, IDisposable
         _titleInnerBackAction = () => _ = ShowInstanceSaveDetailsAsync(saveFolder);
         EnterTitleSubPage("数据包 - " + Path.GetFileName(saveFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
 
-        MyPageRight? oldRight = rightHost.Child as MyPageRight;
-        if (!ReferenceEquals(oldRight, page))
-        {
-            oldRight?.PageOnExit();
-            rightHost.Child = page;
-        }
-
         page.SetDataPackFolder(saveFolder);
-        RefreshBackToTopBinding();
-        page.PageOnEnter();
+        if (!ReferenceEquals(rightHost.Child, page))
+        {
+            PageHostTransitions.TransitionRightPage(
+                rightHost,
+                page,
+                animate: _isMainWindowOpened,
+                onHostUpdated: RefreshBackToTopBinding);
+        }
+        else
+        {
+            RefreshBackToTopBinding();
+            page.PageOnEnter();
+        }
     }
 
     private void OpenCommunityForResourcePage(InstancePageSubType subPage)

@@ -138,66 +138,123 @@ public static partial class ModAnimation
             return;
         }
 
-        deltaTick = (int)Math.Round(Math.Clamp(deltaTick * aniSpeed, 0d, 100000d));
-        // Reuse a buffer instead of Dictionary.ToArray() every frame (alloc + GC pressure).
-        FrameBuffer.Clear();
-        foreach (KeyValuePair<string, AniGroupEntry> pair in AniGroups)
-            FrameBuffer.Add(pair);
-
-        for (int groupIndex = 0; groupIndex < FrameBuffer.Count; groupIndex++)
+        try
         {
-            KeyValuePair<string, AniGroupEntry> pair = FrameBuffer[groupIndex];
-            AniGroupEntry entry = pair.Value;
-            AdvanceGroup(entry, deltaTick);
+            deltaTick = (int)Math.Round(Math.Clamp(deltaTick * aniSpeed, 0d, 100000d));
+            // Reuse a buffer instead of Dictionary.ToArray() every frame (alloc + GC pressure).
+            FrameBuffer.Clear();
+            foreach (KeyValuePair<string, AniGroupEntry> pair in AniGroups)
+                FrameBuffer.Add(pair);
 
-            if (entry.Data.Count == 0 && AniGroups.TryGetValue(pair.Key, out AniGroupEntry? current) && ReferenceEquals(current, entry))
-                AniGroups.Remove(pair.Key);
+            for (int groupIndex = 0; groupIndex < FrameBuffer.Count; groupIndex++)
+            {
+                KeyValuePair<string, AniGroupEntry> pair = FrameBuffer[groupIndex];
+                AniGroupEntry entry = pair.Value;
+                AdvanceGroup(entry, deltaTick);
+
+                if (entry.Data.Count == 0 && AniGroups.TryGetValue(pair.Key, out AniGroupEntry? current) && ReferenceEquals(current, entry))
+                    AniGroups.Remove(pair.Key);
+            }
+
+            FrameBuffer.Clear();
+            StopTimerIfIdle();
         }
-
-        FrameBuffer.Clear();
-        StopTimerIfIdle();
+        catch (Exception ex)
+        {
+            // Never let a single frame kill the timer (crash log: AdvanceGroup index OOR).
+            PortableLog.Error(ex, "Animation", "动画帧推进失败，已跳过本帧。");
+            FrameBuffer.Clear();
+        }
     }
 
     /// <summary>
     /// Advances one group by <paramref name="deltaTick"/> ms. Shared by the timer and
     /// interrupt finish so after-chains and AaCode callbacks stay consistent.
+    /// Re-entrancy safe: AniRun callbacks may AniStop/AniStart the same group.
     /// </summary>
     private static void AdvanceGroup(AniGroupEntry entry, int deltaTick)
     {
-        bool canRemoveAfter = true;
-        int index = 0;
-        while (index < entry.Data.Count)
+        if (entry.IsAdvancing)
         {
-            AniData anim = entry.Data[index];
-            if (!anim.isAfter)
-            {
-                canRemoveAfter = false;
-                anim.timeFinished += deltaTick;
-                if (anim.timeFinished > 0)
-                    anim = AniRun(anim);
+            // Nested advance (callback re-entry): request another pass after the outer loop.
+            entry.NeedsAnotherPass = true;
+            return;
+        }
 
-                if (anim.timeFinished >= anim.timeTotal)
+        entry.IsAdvancing = true;
+        try
+        {
+            do
+            {
+                entry.NeedsAnotherPass = false;
+                bool canRemoveAfter = true;
+                int index = 0;
+                while (index < entry.Data.Count)
                 {
-                    AniFinish(anim);
-                    entry.Data.RemoveAt(index);
-                    continue;
+                    AniData anim = entry.Data[index];
+                    if (!anim.isAfter)
+                    {
+                        canRemoveAfter = false;
+                        anim.timeFinished += deltaTick;
+                        if (anim.timeFinished > 0)
+                            anim = AniRun(anim);
+
+                        // Callbacks may have cleared / reshuffled the list.
+                        if (entry.Data.Count == 0)
+                            break;
+                        if (index >= entry.Data.Count || !ReferenceEquals(entry.Data[index], anim))
+                        {
+                            int found = entry.Data.IndexOf(anim);
+                            if (found < 0)
+                            {
+                                index = 0;
+                                canRemoveAfter = true;
+                                continue;
+                            }
+
+                            index = found;
+                        }
+
+                        if (anim.timeFinished >= anim.timeTotal)
+                        {
+                            AniFinish(anim);
+                            if (index < entry.Data.Count && ReferenceEquals(entry.Data[index], anim))
+                                entry.Data.RemoveAt(index);
+                            else
+                            {
+                                int found = entry.Data.IndexOf(anim);
+                                if (found >= 0)
+                                    entry.Data.RemoveAt(found);
+                            }
+
+                            continue;
+                        }
+
+                        if (index < entry.Data.Count && ReferenceEquals(entry.Data[index], anim))
+                            entry.Data[index] = anim;
+                    }
+                    else if (canRemoveAfter)
+                    {
+                        canRemoveAfter = false;
+                        anim.isAfter = false;
+                        if (index < entry.Data.Count && ReferenceEquals(entry.Data[index], anim))
+                            entry.Data[index] = anim;
+                        continue;
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                    index++;
                 }
-
-                entry.Data[index] = anim;
             }
-            else if (canRemoveAfter)
-            {
-                canRemoveAfter = false;
-                anim.isAfter = false;
-                entry.Data[index] = anim;
-                continue;
-            }
-            else
-            {
-                break;
-            }
-
-            index++;
+            while (entry.NeedsAnotherPass && entry.Data.Count > 0);
+        }
+        finally
+        {
+            entry.IsAdvancing = false;
+            entry.NeedsAnotherPass = false;
         }
     }
 
@@ -1192,6 +1249,12 @@ public static partial class ModAnimation
     private sealed class AniGroupEntry(List<AniData> data)
     {
         public List<AniData> Data { get; } = data;
+
+        /// <summary>True while <see cref="AdvanceGroup"/> is running on this entry (re-entrancy guard).</summary>
+        public bool IsAdvancing { get; set; }
+
+        /// <summary>Set when a nested advance is requested; outer loop takes another pass.</summary>
+        public bool NeedsAnotherPass { get; set; }
     }
 
     private readonly struct AniColor

@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using PCL.Desktop.Diagnostics;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -50,7 +51,7 @@ internal static class AsyncLogoLoader
 
         try
         {
-            if (File.Exists(address))
+            if (PathExistenceCache.FileExists(address))
             {
                 using Stream fs = File.OpenRead(address);
                 return MaybeCropSkinHead(new Bitmap(fs), address);
@@ -90,7 +91,7 @@ internal static class AsyncLogoLoader
             return true;
         if (address.StartsWith("avares://", StringComparison.OrdinalIgnoreCase))
             return true;
-        if (File.Exists(address))
+        if (PathExistenceCache.FileExists(address))
             return true;
 
         string path = address.Split('?', 2)[0];
@@ -201,7 +202,7 @@ internal static class AsyncLogoLoader
             System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(url)))
             .ToLowerInvariant() + ".img";
         string path = Path.Combine(root, name);
-        if (File.Exists(path) && new FileInfo(path).Length > 16)
+        if (PathExistenceCache.FileExists(path) && new FileInfo(path).Length > 16)
             return path;
 
         byte[] bytes = await DownloadBytesAsync(url).ConfigureAwait(false);
@@ -212,9 +213,10 @@ internal static class AsyncLogoLoader
 
         string temp = path + ".download";
         await File.WriteAllBytesAsync(temp, bytes).ConfigureAwait(false);
-        if (File.Exists(path))
+        if (PathExistenceCache.FileExists(path))
             File.Delete(path);
         File.Move(temp, path);
+        PathExistenceCache.Invalidate(path);
         return path;
     }
 

@@ -165,7 +165,24 @@ public class MyPageRight : ContentControl, IDisposable
             case PageStates.ContentExit:
                 EnterFromEmpty(includeAlways: false);
                 break;
+            case PageStates.PageExit:
+            case PageStates.LoaderExit:
+                // Quick re-enter while previous exit unfinished (common when host swaps children).
+                ModAnimation.AniStop("PageRight PageChange " + PageUuid, finish: false);
+                EnterFromEmpty(includeAlways: true);
+                break;
+            case PageStates.ContentStay:
+                // Cached page brought back to front — replay content enter so motion is not skipped.
+                ModAnimation.AniStop("PageRight PageChange " + PageUuid, finish: false);
+                PageState = PageStates.ContentEnter;
+                TriggerEnterAnimation(GetHiddenAlwaysPanel(), GetContentTarget());
+                break;
             case PageStates.ContentEnter:
+            case PageStates.LoaderWait:
+            case PageStates.LoaderEnter:
+            case PageStates.LoaderStay:
+            case PageStates.LoaderStayForce:
+                // Already in an enter/loader path; do not restart mid-flight.
                 break;
         }
     }
@@ -584,7 +601,10 @@ public class MyPageRight : ContentControl, IDisposable
         if (!ignoreInvisibility && !element.IsVisible)
             yield break;
 
-        if (element is MyCard or MyHint or MyExtraTextButton or TextBlock or MyTextButton)
+        // Leaf interactive / card units that should materialize on page enter.
+        if (element is MyCard or MyHint or MyExtraTextButton or TextBlock or MyTextButton
+            or MyListItem or MyButton or MyIconTextButton or MyRadioButton or MyCheckBox
+            or MyRadioBox or MyExtraButton or MyLoading or MySlider or MyComboBox)
         {
             yield return element;
             yield break;
@@ -592,19 +612,37 @@ public class MyPageRight : ContentControl, IDisposable
 
         if (element is ContentControl { Content: Control content })
         {
+            bool any = false;
             foreach (Control child in GetAllAnimControls(content, ignoreInvisibility))
+            {
+                any = true;
                 yield return child;
+            }
+
+            if (!any)
+                yield return element;
             yield break;
         }
 
         if (element is Panel panel)
         {
+            bool any = false;
             foreach (Control child in panel.Children)
             {
                 foreach (Control nested in GetAllAnimControls(child, ignoreInvisibility))
+                {
+                    any = true;
                     yield return nested;
+                }
             }
+
+            // Empty / custom-only panels still get a single fade so the page is never static.
+            if (!any)
+                yield return element;
+            yield break;
         }
+
+        yield return element;
     }
 
     private static Control? GetFirstScrollBar(IEnumerable<Control> elements)

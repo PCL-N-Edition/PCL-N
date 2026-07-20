@@ -270,8 +270,9 @@ internal static class LauncherSettingsPageBinder
                 SaveSettings(settings);
             }
 
+            // SelectionChanged alone is enough; SelectedIndex observable double-fired on Apply
+            // (measured: dozens of disk saves when opening a settings sub-page).
             comboBox.SelectionChanged += (_, _) => PersistComboBox();
-            comboBox.GetObservable(ComboBox.SelectedIndexProperty).Subscribe(_ => PersistComboBox());
 
             if (comboBox.IsEditable)
             {
