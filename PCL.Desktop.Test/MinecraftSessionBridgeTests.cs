@@ -310,7 +310,8 @@ public sealed class MinecraftSessionBridgeTests
             JavaMajorVersion = 21,
             ClasspathEntries = ["client.jar"],
             IdentityMode = MinecraftJvmHostIdentityMode.ThirdParty,
-            AuthServer = "https://example.invalid/api/yggdrasil"
+            // Closed local port: connection fails immediately (no DNS hang) when hydrating skins.
+            AuthServer = "http://127.0.0.1:1"
         };
         using JvmHostLifecycleWriter lifecycle = new(string.Empty);
         using MinecraftSessionBridge bridge = MinecraftSessionBridge.Start(request, lifecycle);
@@ -321,6 +322,153 @@ public sealed class MinecraftSessionBridgeTests
 
         Assert.AreEqual(request.PlayerUuid, profile["id"]!.GetValue<string>());
         Assert.AreEqual(request.PlayerName, profile["name"]!.GetValue<string>());
+        Assert.IsNotNull(profile["skins"]?.AsArray());
+        Assert.IsNotNull(profile["capes"]?.AsArray());
+    }
+
+    [TestMethod]
+    public async Task ThirdPartyPlayerCertificates_ReturnUsableRsaKeyPair()
+    {
+        MinecraftJvmHostRequest request = new()
+        {
+            JavaExecutablePath = "java",
+            WorkingDirectory = "game",
+            MainClass = "example.Main",
+            PlayerName = "ThirdPartyUser",
+            PlayerUuid = "0123456789abcdef0123456789abcdef",
+            AccessToken = "stored-token",
+            JavaMajorVersion = 21,
+            ClasspathEntries = ["client.jar"],
+            IdentityMode = MinecraftJvmHostIdentityMode.ThirdParty,
+            AuthServer = "http://127.0.0.1:1"
+        };
+        using JvmHostLifecycleWriter lifecycle = new(string.Empty);
+        using MinecraftSessionBridge bridge = MinecraftSessionBridge.Start(request, lifecycle);
+        using HttpClient client = new(new HttpClientHandler { UseProxy = false });
+
+        using HttpResponseMessage response = await client.PostAsync(
+            bridge.BaseUrl + "/minecraftservices/player/certificates",
+            new ByteArrayContent([]) { Headers = { ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json") } });
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+
+        JsonObject body = JsonNode.Parse(await response.Content.ReadAsStringAsync())!.AsObject();
+        string privateKey = body["keyPair"]!["privateKey"]!.GetValue<string>();
+        string publicKey = body["keyPair"]!["publicKey"]!.GetValue<string>();
+        StringAssert.Contains(privateKey, "BEGIN RSA PRIVATE KEY");
+        StringAssert.Contains(publicKey, "BEGIN RSA PUBLIC KEY");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(body["publicKeySignature"]?.GetValue<string>()));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(body["publicKeySignatureV2"]?.GetValue<string>()));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(body["expiresAt"]?.GetValue<string>()));
+    }
+
+    [TestMethod]
+    public async Task ThirdPartyMinecraftServicesProfile_HydratesSkinsFromSessionServer()
+    {
+        string uuid = "0123456789abcdef0123456789abcdef";
+        string skinUrl = "https://textures.example.test/skin.png";
+        JsonObject texturesPayload = new()
+        {
+            ["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ["profileId"] = uuid,
+            ["profileName"] = "ThirdPartyUser",
+            ["textures"] = new JsonObject
+            {
+                ["SKIN"] = new JsonObject
+                {
+                    ["url"] = skinUrl,
+                    ["metadata"] = new JsonObject { ["model"] = "slim" }
+                }
+            }
+        };
+        string texturesValue = Convert.ToBase64String(Encoding.UTF8.GetBytes(texturesPayload.ToJsonString()));
+        string profileBody = new JsonObject
+        {
+            ["id"] = uuid,
+            ["name"] = "ThirdPartyUser",
+            ["properties"] = new JsonArray(new JsonObject
+            {
+                ["name"] = "textures",
+                ["value"] = texturesValue,
+                ["signature"] = "AA=="
+            })
+        }.ToJsonString();
+
+        using TcpListener upstream = new(IPAddress.Loopback, 0);
+        upstream.Start();
+        int port = ((IPEndPoint)upstream.LocalEndpoint).Port;
+        using CancellationTokenSource serverCts = new(TimeSpan.FromSeconds(10));
+        Task server = Task.Run(async () =>
+        {
+            using TcpClient connection = await upstream.AcceptTcpClientAsync(serverCts.Token);
+            using NetworkStream stream = connection.GetStream();
+            await ReadHttpRequestAsync(stream);
+            byte[] payload = Encoding.UTF8.GetBytes(profileBody);
+            byte[] header = Encoding.ASCII.GetBytes(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
+                $"Content-Length: {payload.Length}\r\nConnection: close\r\n\r\n");
+            await stream.WriteAsync(header);
+            await stream.WriteAsync(payload);
+            await stream.FlushAsync();
+        }, serverCts.Token);
+
+        MinecraftJvmHostRequest request = new()
+        {
+            JavaExecutablePath = "java",
+            WorkingDirectory = "game",
+            MainClass = "example.Main",
+            PlayerName = "ThirdPartyUser",
+            PlayerUuid = uuid,
+            AccessToken = "stored-token",
+            JavaMajorVersion = 21,
+            ClasspathEntries = ["client.jar"],
+            IdentityMode = MinecraftJvmHostIdentityMode.ThirdParty,
+            AuthServer = $"http://127.0.0.1:{port}"
+        };
+        using JvmHostLifecycleWriter lifecycle = new(string.Empty);
+        using MinecraftSessionBridge bridge = MinecraftSessionBridge.Start(request, lifecycle);
+        using HttpClient client = new(new HttpClientHandler { UseProxy = false })
+        {
+            Timeout = TimeSpan.FromSeconds(10)
+        };
+
+        using CancellationTokenSource requestCts = new(TimeSpan.FromSeconds(10));
+        JsonObject profile = JsonNode.Parse(await client.GetStringAsync(
+            bridge.BaseUrl + "/minecraftservices/minecraft/profile",
+            requestCts.Token))!.AsObject();
+        await server.WaitAsync(TimeSpan.FromSeconds(10));
+
+        JsonArray skins = profile["skins"]!.AsArray();
+        Assert.AreEqual(1, skins.Count);
+        Assert.AreEqual("ACTIVE", skins[0]!["state"]!.GetValue<string>());
+        Assert.AreEqual("SLIM", skins[0]!["variant"]!.GetValue<string>());
+        StringAssert.StartsWith(skins[0]!["url"]!.GetValue<string>(), bridge.BaseUrl + "/pcl/texture/");
+    }
+
+    [TestMethod]
+    public async Task OfflinePlayerCertificates_ReturnUsableRsaKeyPair()
+    {
+        MinecraftJvmHostRequest request = new()
+        {
+            JavaExecutablePath = "java",
+            WorkingDirectory = "game",
+            MainClass = "example.Main",
+            PlayerName = "OfflineUser",
+            PlayerUuid = "0123456789abcdef0123456789abcdef",
+            JavaMajorVersion = 21,
+            ClasspathEntries = ["client.jar"],
+            IdentityMode = MinecraftJvmHostIdentityMode.Offline
+        };
+        using JvmHostLifecycleWriter lifecycle = new(string.Empty);
+        using MinecraftSessionBridge bridge = MinecraftSessionBridge.Start(request, lifecycle);
+        using HttpClient client = new(new HttpClientHandler { UseProxy = false });
+
+        using HttpResponseMessage response = await client.PostAsync(
+            bridge.BaseUrl + "/minecraftservices/player/certificates",
+            new ByteArrayContent([]) { Headers = { ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json") } });
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        JsonObject body = JsonNode.Parse(await response.Content.ReadAsStringAsync())!.AsObject();
+        StringAssert.Contains(body["keyPair"]!["privateKey"]!.GetValue<string>(), "BEGIN RSA PRIVATE KEY");
+        StringAssert.Contains(body["keyPair"]!["publicKey"]!.GetValue<string>(), "BEGIN RSA PUBLIC KEY");
     }
 
     private static async Task<(string Headers, byte[] Body)> ReadHttpRequestAsync(NetworkStream stream)
