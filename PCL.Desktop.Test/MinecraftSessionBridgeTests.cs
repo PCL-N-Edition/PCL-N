@@ -6,6 +6,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -329,13 +330,14 @@ public sealed class MinecraftSessionBridgeTests
     [TestMethod]
     public async Task ThirdPartyPlayerCertificates_ReturnUsableRsaKeyPair()
     {
+        string uuid = "0123456789abcdef0123456789abcdef";
         MinecraftJvmHostRequest request = new()
         {
             JavaExecutablePath = "java",
             WorkingDirectory = "game",
             MainClass = "example.Main",
             PlayerName = "ThirdPartyUser",
-            PlayerUuid = "0123456789abcdef0123456789abcdef",
+            PlayerUuid = uuid,
             AccessToken = "stored-token",
             JavaMajorVersion = 21,
             ClasspathEntries = ["client.jar"],
@@ -359,6 +361,36 @@ public sealed class MinecraftSessionBridgeTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(body["publicKeySignature"]?.GetValue<string>()));
         Assert.IsFalse(string.IsNullOrWhiteSpace(body["publicKeySignatureV2"]?.GetValue<string>()));
         Assert.IsFalse(string.IsNullOrWhiteSpace(body["expiresAt"]?.GetValue<string>()));
+
+        // Issuer must be published so the client can validate PROFILE_KEY signatures.
+        JsonObject publicKeys = JsonNode.Parse(await client.GetStringAsync(
+            bridge.BaseUrl + "/minecraftservices/publickeys"))!.AsObject();
+        JsonArray certificateKeys = publicKeys["playerCertificateKeys"]!.AsArray();
+        Assert.AreEqual(1, certificateKeys.Count);
+        string issuerSpkiBase64 = certificateKeys[0]!["publicKey"]!.GetValue<string>();
+
+        using RSA issuer = RSA.Create();
+        issuer.ImportSubjectPublicKeyInfo(Convert.FromBase64String(issuerSpkiBase64), out _);
+        using RSA player = RSA.Create();
+        player.ImportFromPem(publicKey);
+
+        DateTimeOffset expiresAt = DateTimeOffset.Parse(
+            body["expiresAt"]!.GetValue<string>(),
+            null,
+            System.Globalization.DateTimeStyles.RoundtripKind);
+        long expiresAtMilli = expiresAt.ToUnixTimeMilliseconds();
+        byte[] spki = player.ExportSubjectPublicKeyInfo();
+
+        // V2: UUID(16) + expiresAt(8 BE) + SPKI
+        byte[] signedV2 = new byte[24 + spki.Length];
+        Convert.FromHexString(uuid).CopyTo(signedV2, 0);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64BigEndian(signedV2.AsSpan(16, 8), expiresAtMilli);
+        spki.CopyTo(signedV2, 24);
+        Assert.IsTrue(issuer.VerifyData(
+            signedV2,
+            Convert.FromBase64String(body["publicKeySignatureV2"]!.GetValue<string>()),
+            HashAlgorithmName.SHA1,
+            RSASignaturePadding.Pkcs1));
     }
 
     [TestMethod]
