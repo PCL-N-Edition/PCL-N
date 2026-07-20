@@ -4,7 +4,8 @@
 > **Date:** 2026-07-20  
 > **Method:** engineering-system-designer（现有系统评估 + 模块化单体）  
 > **Scope:** 桌面启动器主线（`PCL.Desktop` / `PCL.Application` / `PCL.Domain` / Hosting），不含 `PCL.Server` 独立部署  
-> **补充：** 多 skill 落地策略见 [2026-07-20-multi-skill-architecture-plan.md](./2026-07-20-multi-skill-architecture-plan.md)（MVVM Toolkit / DI / Messenger / 插件边界 / CQRS-lite）
+> **补充：** 多 skill 落地策略见 [2026-07-20-multi-skill-architecture-plan.md](./2026-07-20-multi-skill-architecture-plan.md)（MVVM Toolkit / DI / Messenger / 插件边界 / CQRS-lite）  
+> **Skill 状态（2026-07-20）：** `architecture`、`mvvm-toolkit`、`mvvm-toolkit-di`、`mvvm-toolkit-messenger` 已安装；实现以 multi-skill 文档 ADR-003 为准。
 
 ---
 
@@ -533,11 +534,16 @@ PCL.Application/
 | 949 | `MinecraftLaunchCoordinator.cs` |
 | 10731 | `PCL.Desktop.Test/AvaloniaHeadlessTests.cs`（测试债） |
 
-## Appendix B — ADR 编号建议
+## Appendix B — ADR（与 multi-skill 文档对齐）
 
-| ID | 标题 |
-|----|------|
-| ADR-001 | 采用模块化单体，不拆微服务 |
-| ADR-002 | Experimental 仅为 Presentation Profile |
-| ADR-003 | UI 状态使用 Desktop Session Stores |
-| ADR-004 | MainWindow Strangler 迁移策略 |
+| ID | 标题 | 状态 |
+|----|------|------|
+| ADR-001 | 采用模块化单体，不拆微服务 | Accepted |
+| ADR-002 | Experimental 仅为 Presentation Profile | Accepted |
+| ADR-003 | CommunityToolkit.Mvvm + DI + WeakReferenceMessenger | Accepted（实现待 Phase 0） |
+| ADR-004 | 不强制 Zafiro 整栈 | Accepted |
+| ADR-005 | 插件边界冻结，Shell 适配 | Accepted |
+| ADR-006 | CQRS-lite 无 MediatR | Accepted |
+| ADR-007 | MainWindow Strangler + Session Stores | Accepted |
+
+细则与组合根/消息约定见 multi-skill 文档 §3、§8。

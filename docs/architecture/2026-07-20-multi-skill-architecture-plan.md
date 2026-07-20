@@ -1,9 +1,9 @@
 # PCL N 架构补充计划（多 Skill 综合）
 
-> **Status:** Proposed  
+> **Status:** Proposed（工具链 skill **已就绪**，实现未开工）  
 > **Date:** 2026-07-20  
-> **Supplements:** [2026-07-20-modular-shell-replan.md](./2026-07-20-modular-shell-replan.md)  
-> **Skill matrix:** 见 §0
+> **Updated:** 2026-07-20（安装 architecture + mvvm-toolkit* 后按 skill 正文校准）  
+> **Supplements:** [2026-07-20-modular-shell-replan.md](./2026-07-20-modular-shell-replan.md)
 
 ---
 
@@ -11,65 +11,73 @@
 
 | Skill | 本仓库适用结论 | 纳入计划的要点 |
 |-------|----------------|----------------|
-| `engineering-system-designer` | ✅ 主线（已出基线文档） | 需求/容量/故障/监控/Strangler |
-| `architecture`（通用 .NET） | ✅ 主线 | 模块化单体、DDD 轻量、CQRS 轻量、依赖边界 |
-| `avalonia-zafiro-development` | ⚠️ **原则可用，整栈不可直接落地** | Pure MVVM、绑定优先、集合管线思想；**不强制引入 Zafiro/ReactiveUI 全家桶**（现状 0 引用） |
-| `mvvm-toolkit` | ✅ 推荐采用 | `ObservableObject` / `RelayCommand` / 属性通知 |
-| `mvvm-toolkit-di` | ✅ 推荐采用 | `Microsoft.Extensions.DependencyInjection` 组合根 |
-| `mvvm-toolkit-messenger` | ✅ 推荐采用 | `WeakReferenceMessenger` 跨 Feature 通信 |
-| `engineering-backend-architect` | ⚠️ 桌面适配 | 模块化单体优先；下载/插件 bulkhead；设置持久化 expand-migrate-contract |
-| `dotnet-desktop-plugin-architect` | ✅ 对齐现有 `PCL.Plugin` | 能力门控、ALC 隔离、UI 槽位、安全模式；壳不吞噬插件 |
+| `engineering-system-designer` | ✅ 主线 | 需求/容量/故障/监控/Strangler |
+| `architecture` | ✅ 主线（**已安装**） | 默认模块化单体；DDD/CQRS **仅在规则真复杂时**；依赖向内；反过度工程 |
+| `avalonia-zafiro-development` | ⚠️ 原则可用，整栈不直接落地 | Pure MVVM、绑定优先；不强制 Zafiro/ReactiveUI/DynamicData |
+| `mvvm-toolkit` | ✅ 采用（**已安装**） | `partial` + `[ObservableProperty]` / `[RelayCommand]`；基类选型 |
+| `mvvm-toolkit-di` | ✅ 采用（**已安装**） | 单次组合根；Singleton/Transient；构造注入；禁滥用 `Ioc.Default` |
+| `mvvm-toolkit-messenger` | ✅ 采用（**已安装**） | `WeakReferenceMessenger`；`ObservableRecipient` + `IsActive`；static 注册 lambda |
+| `engineering-backend-architect` | ⚠️ 桌面适配 | bulkhead、设置 expand-migrate-contract、禁止微服务 |
+| `dotnet-desktop-plugin-architect` | ✅ 对齐 `PCL.Plugin` | Host ABI 冻结；壳适配不重写插件 |
 
-**本机 skill 可用性（2026-07-20）：**
+### 0.1 本机 skill 可用性
 
-| Skill | 本地状态 |
-|-------|----------|
-| engineering-system-designer | 已安装 |
-| engineering-backend-architect | 已安装 |
-| avalonia-zafiro-development | 已安装 |
-| architecture / mvvm-toolkit* / dotnet-desktop-plugin-architect | **未安装**；计划按上述公开惯例补全，建议后续 `npx skills add` 补齐 |
+| Skill | 状态 | 路径（示例） |
+|-------|------|----------------|
+| engineering-system-designer | 已安装 | `~\.agents\skills\engineering-system-designer` |
+| engineering-backend-architect | 已安装 | `~\.agents\skills\engineering-backend-architect` |
+| avalonia-zafiro-development | 已安装 | `~\.agents\skills\avalonia-zafiro-development` |
+| **architecture** | **已安装** | `~\.agents\skills\architecture`、`~\.codex\skills\architecture` |
+| **mvvm-toolkit** | **已安装** | `~\.agents` / `~\.codex` / `~\.grok\skills\mvvm-toolkit` |
+| **mvvm-toolkit-di** | **已安装** | 同上 `-di` |
+| **mvvm-toolkit-messenger** | **已安装** | 同上 `-messenger` |
+| dotnet-desktop-plugin-architect | 未单独包 | 以 `PCL.Plugin/README.md` + Host 契约为准 |
+
+安装方式见 [README.md](./README.md#安装记录2026-07-20)。
 
 ---
 
 ## 1. 总原则（冲突裁决）
 
-多 skill 有时会互相打架，本仓库**裁决顺序**：
+裁决顺序：
 
 1. **不破坏现有分层与插件 ABI**（`PclHostApi`、`.pnp`、架构测试禁令）  
-2. **模块化单体 + Strangler**（system-designer / backend-architect）  
-3. **ViewModel 无 Avalonia 类型**（zafiro 原则）  
-4. **渐进 MVVM**（toolkit）：先 Shell/新页，再老页  
-5. **Zafiro / DynamicData / CSharpFunctionalExtensions**：仅当某 Feature **新写或大改**且团队接受依赖时引入；**不作为 Phase 1 阻塞项**
+2. **模块化单体 + Strangler**（system-designer / architecture / backend-architect）  
+3. **ViewModel 无 Avalonia 类型**（zafiro + 可测性）  
+4. **渐进 MVVM**（toolkit 三件套）：先 Shell/新页，再老页  
+5. **Zafiro / DynamicData / CSharpFunctionalExtensions**：非 Phase 0–2 阻塞项  
 
-> 现状：`MainWindow` 为 code-behind 上帝对象，**零** `CommunityToolkit.Mvvm` / `ReactiveUI` / `DynamicData`。任何“一步到位 FRP”都会变成第二场重写。计划采用 **双速道**：壳与新 Feature 用 MVVM+DI；旧页 Strangler 迁出。
+> 现状：`MainWindow` 为 code-behind 上帝对象，**零** `CommunityToolkit.Mvvm` / `ReactiveUI` / `DynamicData`。采用 **双速道**：壳与新 Feature 用 MVVM+DI；旧页 Strangler 迁出。
+
+**`architecture` skill 额外约束（防过工程）：**
+
+- 默认 **modular monolith**；不为“干净”拆微服务  
+- DDD 聚合 / 完整 CQRS 管道 **仅**在业务规则真复杂时引入（启动/实例状态适合轻量实体 + UseCase，不是 Order 式聚合）  
+- 不新增无 ownership 的空项目；现有 `Domain` / `Application` / `Desktop` 边界优先复用  
 
 ---
 
 ## 2. 目标架构（.NET 模块化单体 + 桌面壳）
 
-### 2.1 逻辑分层（`architecture` + 现有项目）
+### 2.1 逻辑分层
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ Presentation (PCL.Desktop)                                    │
-│  Shell VM  │  Feature VMs  │  Views (AXAML)  │  ValueConverters│
-│  Messenger · ExperimentalUiProfile · NavigationHost          │
+│  Shell VMs │ Feature VMs │ Views (AXAML) │ ValueConverters    │
+│  IMessenger · ExperimentalUiProfile · NavigationHost         │
 └─────────────────────────────┬────────────────────────────────┘
-                              │ 仅依赖 Application + UI.Abstractions
+                              │ → Application + UI.Abstractions
 ┌─────────────────────────────▼────────────────────────────────┐
 │ Application (PCL.Application)                                 │
-│  UseCases (Command/Query)  │  Services  │  Hosting registries │
-│  可选: IRequestHandler 风格薄封装（CQRS-lite，不引入 MediatR） │
+│  UseCases (Command/Query 命名) │ Services │ Hosting registries│
 └───────────────┬─────────────────────────────┬────────────────┘
                 │                             │
      ┌──────────▼──────────┐       ┌──────────▼──────────┐
      │ Domain (PCL.Domain) │       │ Platform.Abstractions│
-     │ Entities / VOs      │       │ Paths / Process / … │
      └─────────────────────┘       └──────────┬──────────┘
-                                              │
                                    ┌──────────▼──────────┐
-                                   │ Platform impl       │
-                                   │ Core.Portable       │
+                                   │ Platform / Portable │
                                    └─────────────────────┘
 ```
 
@@ -78,132 +86,178 @@
 | 从 → 到 | 允许 |
 |---------|------|
 | Desktop → Application | ✅ |
-| Desktop → Domain | ⚠️ 仅展示模型；优先 Application DTO |
-| Desktop → Platform 实现 | ✅ 已有；新代码优先抽象 |
+| Desktop → Domain | ⚠️ 优先 Application DTO；Domain 仅展示值对象 |
 | Application → Avalonia | ❌ |
-| Domain → 任何 UI / IO 框架 | ❌ |
+| Domain → UI / 框架 IO | ❌ |
 | Plugin payload → Desktop 内部类型 | ❌（只经 Host 契约） |
 
-### 2.2 CQRS-lite（不强制 MediatR）
+### 2.2 CQRS-lite（不上 MediatR）
 
-按 `architecture` / backend 思路，**命令与查询分离命名**，实现可仍是普通服务：
+与 `architecture`「CRUD 不硬套 CQRS」一致：
 
-| 类型 | 例子 | 线程 |
+| 类型 | 例子 |
+|------|------|
+| Query | `ListInstances(root)`、`GetSelectedFolder` |
+| Command | `SelectFolder`、`StartMinecraft`、`RemoveFolder` |
+| Projection | Task 列表 → FAB 进度 |
+
+禁止 View code-behind 拼装多服务；统一 UseCase / Facade。
+
+### 2.3 DDD 轻量清单
+
+| 概念 | 建议 | 来源 |
 |------|------|------|
-| **Query** | `ListInstances(root)`、`GetSelectedFolder` | 可后台 |
-| **Command** | `SelectFolder`、`StartMinecraft`、`RemoveFolder` | async + 进度 |
-| **Projection** | Task 列表 → FAB 进度 | UI 调度 |
-
-禁止在 View code-behind 里拼装多服务；统一经 **UseCase / Facade**。
-
-### 2.3 DDD 轻量（Domain 填充清单）
-
-当前 Domain 过薄。按访问频率上提（**不**上完整聚合根仪式）：
-
-| 概念 | 类型建议 | 来源 |
-|------|----------|------|
-| `MinecraftRoot` | record + kind enum (Current/Official/User/Custom) | FolderStore |
-| `GameInstanceId` | 强类型 path/id | InstanceSelection |
-| `LaunchSession` | 运行中会话值对象 | GameSessionStore |
+| `MinecraftRoot` | record + Kind | FolderStore |
+| `GameInstanceId` | 强类型 | InstanceSelection |
+| `LaunchSession` | 运行会话 VO | GameSessionStore |
 | `DownloadTaskId` | 任务 id | TaskStore |
 | `ExperimentalFeatureFlags` | flags VO | Settings |
-
-Application 服务操作这些模型；Desktop VM 只绑 **只读投影**。
 
 ---
 
 ## 3. 表示层：MVVM Toolkit + DI + Messenger
 
-### 3.1 包与组合根（`mvvm-toolkit` + `mvvm-toolkit-di`）
+### 3.1 包（`mvvm-toolkit`）
 
-**新增依赖（Desktop）：**
-
-- `CommunityToolkit.Mvvm`
-- `Microsoft.Extensions.DependencyInjection`（若尚未统一；与 `IPclHost.Services` 对齐）
-
-**组合根位置：** `Program.cs` / `App.axaml.cs` / 新建 `DesktopCompositionRoot.cs`
-
-```
-BuildServiceProvider()
-  ├── Shell
-  │     AppShellViewModel
-  │     TitleBarViewModel
-  │     ExtraDockViewModel
-  ├── Session (singleton)
-  │     MinecraftFolderStore
-  │     InstanceSelectionStore
-  │     TaskSessionStore
-  │     GameSessionStore
-  │     ExperimentalUiProfile
-  ├── Features (transient page VMs / singleton facades)
-  │     LaunchFeatureModule
-  │     InstancesFeatureModule
-  │     …
-  ├── Application services (已有，注册为 singleton/scoped)
-  └── IMessenger = WeakReferenceMessenger.Default
+```xml
+<PackageReference Include="CommunityToolkit.Mvvm" Version="8.*" />
 ```
 
-**View 规则：**
+实现硬性约定（来自 skill）：
 
-- `DataContext` 由导航宿主注入 VM，禁止 View 构造业务服务  
-- View code-behind 仅：动画、焦点、极少数 Avalonia 控件互操作  
-- **VM 禁止** `using Avalonia.*`（zafiro 硬规则；架构测试可逐步加）
+| 规则 | 说明 |
+|------|------|
+| `partial` class | 使用源生成器的类型必须 `partial` |
+| 字段命名 | `[ObservableProperty] private string? name` / `_name`（**允许 `_`，与仓库一致**） |
+| 异步命令 | `[RelayCommand]` 方法返回 `Task`，禁止 `async void` |
+| 基类 | 默认 `ObservableObject`；收发消息用 `ObservableRecipient`；表单校验用 `ObservableValidator` |
 
-### 3.2 Messenger 通道（`mvvm-toolkit-messenger`）
+```csharp
+public sealed partial class ExtraDockViewModel : ObservableRecipient
+{
+    [ObservableProperty]
+    private bool showBackToTop;
 
-用 **弱引用消息** 替代 Feature 互相 `FindControl` / 事件场：
+    [ObservableProperty]
+    private bool showShutdown;
 
-| Message | 发送方 | 接收方 |
-|---------|--------|--------|
-| `NavigateRequestMessage` | 任意 Feature | NavigationHost |
-| `TitleSubPageMessage` | Feature 子页 | TitleBar VM |
-| `HintMessage` | 任意 | Shell |
-| `FolderSelectionChangedMessage` | FolderStore | Launch/Instances VM |
-| `GameRunningChangedMessage` | GameSessionStore | ExtraDock VM |
-| `TaskProgressChangedMessage` | TaskStore | ExtraDock / Tasks VM |
-| `ExperimentalProfileChangedMessage` | Settings | Shell + Features |
+    [RelayCommand]
+    private void BackToTop() { /* shell scroll */ }
+
+    [RelayCommand]
+    private async Task ShutdownGameAsync() { /* confirm + kill */ }
+}
+```
+
+### 3.2 组合根（`mvvm-toolkit-di`）
+
+**推荐：** Avalonia `App` 内构建一次 `IServiceProvider`（Generic Host 可选；Desktop 可先 `ServiceCollection` 以少依赖）。
+
+```csharp
+// DesktopCompositionRoot / App
+services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
+
+// Session — app lifetime
+services.AddSingleton<MinecraftFolderStore>();
+services.AddSingleton<InstanceSelectionStore>();
+services.AddSingleton<TaskSessionStore>();
+services.AddSingleton<GameSessionStore>();
+services.AddSingleton<ExperimentalUiProfileSource>();
+
+// Shell — singleton
+services.AddSingleton<AppShellViewModel>();
+services.AddSingleton<TitleBarViewModel>();
+services.AddSingleton<ExtraDockViewModel>();
+
+// Feature pages — transient（每导航新实例，避免串状态）
+services.AddTransient<InstanceSelectViewModel>();
+// facades / use-cases — singleton
+services.AddSingleton<IStartMinecraftUseCase, StartMinecraftUseCase>();
+```
+
+**生命周期表（skill）：**
+
+| Lifetime | 用途 |
+|----------|------|
+| Singleton | Shell VM、Stores、`IMessenger`、设置、Application 服务 |
+| Transient | 每页 / 每文档 ViewModel |
+| Scoped | 桌面少用；多窗口时可 per-window scope |
+
+**禁止：**
+
+- ViewModel 内 `Ioc.Default.GetService<T>()`（隐藏依赖）  
+- 多次 `BuildServiceProvider()`  
+- 一切皆 Singleton 导致页状态串台  
+
+**View 解析：** 导航宿主 `sp.GetRequiredService<TViewModel>()`，再设 `DataContext`；code-behind 不 `new` 业务 VM。
+
+与现有 `IPclHost.Services`：插件 Host 的 `IServiceProvider` **可并存**；Desktop 组合根可注册 Host 为单例适配器，避免双容器各建一份业务服务（实现阶段需统一「权威容器」——建议 Desktop root 为主，Host 暴露子集）。
+
+### 3.3 Messenger（`mvvm-toolkit-messenger`）
+
+默认 **`WeakReferenceMessenger`**；Shell / Feature 注入同一 `IMessenger`。
+
+**注册风格（skill 推荐）：**
+
+```csharp
+// 在 ObservableRecipient.OnActivated 或显式 Register 时：
+Messenger.Register<ExtraDockViewModel, GameRunningChangedMessage>(
+    this,
+    static (r, m) => r.ShowShutdown = m.Value);
+```
+
+- lambda 用 **`static`**，经 `recipient` 访问实例，禁止捕获 `this`  
+- 需要消息的 VM 继承 **`ObservableRecipient`**，页面 **进入 `IsActive = true` / 离开 `false`**（自动 RegisterAll / UnregisterAll）  
+- UI 线程：后台线程 `Send` 后，handler 内用 Avalonia `Dispatcher` 切回 UI（VM 层可注入 `IUiScheduler`）
+
+**消息表：**
+
+| Message | 类型建议 | 发送方 | 接收方 |
+|---------|----------|--------|--------|
+| `NavigateRequestMessage` | record | Feature | NavigationHost |
+| `TitleSubPageMessage` | record (Title, OnBack?) | Feature | TitleBar VM |
+| `HintMessage` | record | 任意 | Shell |
+| `FolderSelectionChangedMessage` | `ValueChangedMessage<string?>` 或 record | FolderStore | Launch/Instances |
+| `GameRunningChangedMessage` | `ValueChangedMessage<bool>` | GameSessionStore | ExtraDock |
+| `TaskProgressChangedMessage` | record | TaskStore | ExtraDock / Tasks |
+| `ExperimentalProfileChangedMessage` | record | Settings | Shell + Features |
+
+**可选：** `RequestMessage<T>` 做同步询问（如「当前选中实例」）；优先仍读 Store，避免隐式请求图。
 
 **约定：**
 
-- Store 变更 → 发消息 **或** `INotifyPropertyChanged`（两者择一为主：Store 用 INPC，跨模块用 Messenger）  
-- 禁止循环消息；命令类消息只单向（Feature → Shell）  
-- 单元测试可用 `WeakReferenceMessenger` 实例注入
+- Store 对内 INPC；跨模块广播用 Messenger  
+- 命令类消息单向（Feature → Shell）  
+- 测试注入独立 `WeakReferenceMessenger` 实例  
 
-### 3.3 Avalonia / Zafiro 原则的**务实映射**
+### 3.4 Avalonia / Zafiro 务实映射
 
-| Zafiro / FRP 建议 | PCL N 落地 |
-|-------------------|------------|
-| Pure ViewModel | ✅ Phase 1 起强制新代码 |
-| DynamicData `SourceCache` | 🟡 Phase 3+ 列表页可选；前期 `ObservableCollection` + diff 刷新 |
-| `RefreshableCollection` | 🟡 实例列表/社区列表可仿此模式自研薄包装 |
-| `Result` / CSharpFunctionalExtensions | 🟡 UseCase 返回 `Result` 或现有 fault 类型；不全局替换 throw |
-| 无 `_` 私有字段 / 无 Async 后缀 | ❌ **不采纳**（与现有 PCL 代码风格冲突；保持仓库惯例） |
-| 绑定优于 code-behind | ✅ 新页强制；老页迁移时改 |
+| Zafiro / FRP | PCL N |
+|--------------|-------|
+| Pure ViewModel | ✅ Phase 1 起新代码强制 |
+| DynamicData | 🟡 Phase 5 可选 |
+| Result 全局 | 🟡 UseCase 可用；不全盘替换 |
+| 禁 `_` 字段 | ❌ **不采纳**（仓库 + toolkit 均允许 `_name`） |
+| 绑定优先 | ✅ 新页强制 |
 
 ---
 
-## 4. Shell 与 Feature 模块契约（落地接口草稿）
+## 4. Shell 与 Feature 模块契约
 
 ```csharp
-// PCL.Desktop/Shell
 public interface IAppShell
 {
     void ApplyExperimentalProfile(ExperimentalUiProfile profile);
     void ShowHint(string message, bool critical = false);
 }
 
-public sealed partial class AppShellViewModel : ObservableObject
+public sealed partial class AppShellViewModel : ObservableRecipient { /* title + chrome */ }
+
+public sealed partial class ExtraDockViewModel : ObservableRecipient
 {
-    // Title layer, subpage back, window commands
+    // BackToTop / Task / Shutdown / Log — IsActive 生命周期
 }
 
-public sealed partial class ExtraDockViewModel : ObservableObject
-{
-    // BackToTop / Task / Shutdown / Log visibility
-    // Subscribes GameRunningChanged + TaskProgress + ScrollOffset
-}
-
-// PCL.Desktop/Features
 public interface IDesktopFeatureModule
 {
     string Id { get; }
@@ -212,11 +266,7 @@ public interface IDesktopFeatureModule
     DesktopMainPage CreateMainPage(IServiceProvider sp);
     bool TryCreateSubPage(string subPageId, object? arg, IServiceProvider sp, out Control? page);
 }
-```
 
-**Experimental 仅 Profile：**
-
-```csharp
 public sealed record ExperimentalUiProfile(
     bool HomepageUi,
     ChromeStyle Chrome,          // Classic | Glass
@@ -224,183 +274,131 @@ public sealed record ExperimentalUiProfile(
     InstanceSelectLayout Select  // LeftRight | FullPageSidebar);
 ```
 
-业务 Store **不**读 View 类型，只读 Profile 布尔/枚举。
+业务 Store **不**依赖 View 类型。
 
 ---
 
-## 5. 插件架构对齐（`dotnet-desktop-plugin-architect` + 现网）
+## 5. 插件架构对齐
 
-现有 `PCL.Plugin` 已是完整插件平台（签名、ALC、能力、UI patch、Safe Mode）。补充计划**不重做插件**，只规定与 Shell 的边界：
-
-### 5.1 边界
+现有 `PCL.Plugin` 已完整（签名、ALC、能力、UI patch、Safe Mode）。本计划**不重做插件**。
 
 | 层 | 插件可见 |
 |----|----------|
-| Host 契约 (`pcl.*` services, UI slots) | ✅ |
-| Session Stores 原始类型 | ❌（经 Host 查询/命令） |
-| AppShell 内部控件树 | ❌（仅 `IPluginHostUiComposition`） |
-| Application UseCases | 经 Host 暴露的 stable API |
+| Host `pcl.*` / UI slots | ✅ |
+| Session Stores 原始类型 | ❌（经 Host） |
+| AppShell 控件树 | ❌（`IPluginHostUiComposition`） |
 
-### 5.2 壳迁移时的插件不变量
-
-1. `DesktopHostUiComposition` / Navigation / Notifications 入口路径不变  
-2. Safe Mode 仍可跳过高风险 UI patch  
-3. 插件初始化 **bulkhead**：单插件失败不阻断 Shell（目标：catch + `plugin.init.fail` 计数；与 system-designer 失败表一致）  
-4. 实验 UI 槽位 ID 稳定；改槽位走版本化 Host API（`PclHostApi` 0.3 → 0.4 需文档）
-
-### 5.3 推荐演进（非阻塞）
-
-- 插件侧继续 SDK 契约；Desktop 仅 Host 适配器  
-- UI Patch 与 MVVM 并存：Patch 作用在 **已物化 Visual**；新页优先 slot 注入而非 replace 整页
+**不变量：** composition / navigation / notifications 入口稳定；Safe Mode；插件 init bulkhead；槽位 ID 变更走 `PclHostApi` 版本。
 
 ---
 
-## 6. 后端 skill 在桌面的映射（`engineering-backend-architect`）
+## 6. 后端 skill 桌面映射
 
-| 后端概念 | 桌面映射 |
-|----------|----------|
-| 模块化单体 | Feature modules + 清晰 DI 边界 |
-| Circuit breaker | 镜像源 / 下载源切换；JvmHost 失败建议关实验 |
-| Expand-migrate-contract | 设置 JSON 键迁移；文件夹列表 schema |
+| 后端概念 | 桌面 |
+|----------|------|
+| 模块化单体 | Feature modules + DI |
+| Circuit breaker | 镜像源；JvmHost 失败关实验 |
+| Expand-migrate-contract | 设置 / 文件夹列表 schema |
 | 幂等 | 任务 Id、启动防重入 |
-| Health | 启动自检：设置可读、插件目录可写、Java 探测 |
-| 不拆微服务 | **明确禁止** 为“干净”拆多进程 |
-
-`PCL.Server` 仍独立；本计划不把启动器做成客户端-服务端强耦合。
+| 禁止微服务 | 明确 |
 
 ---
 
-## 7. 修订后的迁移阶段（在基线 Phase 上加密）
+## 7. 迁移阶段
 
 ### Phase 0 — 契约与依赖（0.5 周）
 
-- [ ] 引入 `CommunityToolkit.Mvvm` + DI 组合根草图（可编译）  
-- [ ] 定义 Message 类型与 `IDesktopFeatureModule`  
-- [ ] 架构测试草案：`ViewModels` 目录禁止 `using Avalonia`  
-- [ ] 更新本目录 ADR 索引  
+- [ ] `PCL.Desktop` 引用 `CommunityToolkit.Mvvm`  
+- [ ] `DesktopCompositionRoot`：`ServiceCollection` + `IMessenger` 单例  
+- [ ] `Messaging/*Message.cs`  
+- [ ] `IDesktopFeatureModule` + 空实现可编译  
+- [ ] 架构测试草案：`**/ViewModels/**/*.cs` 禁止 `using Avalonia`  
+- [ ] 本文档 ADR 状态随 PR 更新  
 
-### Phase 1 — Shell MVVM（1–2 周）★ 最高优先级
+### Phase 1 — Shell MVVM（1–2 周）★
 
-1. `ExtraDockViewModel` + `TitleBarViewModel` + `ExperimentalUiProfile`  
-2. 从 MainWindow 迁出 chrome / FAB / 空 dock 逻辑  
-3. `GameRunningChanged` / `TaskProgress` 经 Messenger 或 Store 订阅  
-4. **行为零回归**：关游戏、日志、回顶、任务 FAB  
+1. `ExtraDockViewModel` / `TitleBarViewModel` / `ExperimentalUiProfileSource`  
+2. `ObservableRecipient` + 页/壳 `IsActive`  
+3. 迁出 chrome / FAB / 空 dock 逻辑  
+4. 回归：关游戏、日志、回顶、任务 FAB、实验开关  
 
-### Phase 2 — Session Stores + DI 单例（1 周）
+### Phase 2 — Session Stores
 
-1. `MinecraftFolderStore` / `InstanceSelectionStore` / `TaskSessionStore` / `GameSessionStore`  
-2. 设置持久化只经 Store  
-3. 选择版本页只消费 Store  
+1. Folder / Instance / Task / Game Stores 注册为 Singleton  
+2. 持久化只经 Store  
+3. 选择版本只消费 Store  
 
-### Phase 3 — Instances + Launch Feature 模块（2–3 周）
+### Phase 3 — Instances + Launch Feature
 
-1. 整页/经典 select 作为 **同一 VM + 不同 View**（Profile 切换）  
-2. Launch 主页实验/经典同理  
-3. UseCase：`SelectFolder` / `StartMinecraft` 门面  
-4. 列表刷新采用 Refreshable 薄模式（可不用 DynamicData）  
+1. 同一 VM + 经典/整页两 View（Profile）  
+2. `SelectFolder` / `StartMinecraft` UseCase  
+3. 列表 Refreshable 薄模式（不必 DynamicData）  
 
-### Phase 4 — Downloads / Tasks / Settings / Community（2–4 周）
+### Phase 4 — Downloads / Tasks / Settings / Community  
 
-- 每路由一个 FeatureModule.Register  
-- Settings binder 逐步改为 VM  
+### Phase 5 — 瘦 MainWindow、拆 Headless、可选 DynamicData  
 
-### Phase 5 — 收尾与可选 FRP
-
-- MainWindow ≤ 500 行或删除  
-- Domain 实体补齐  
-- Headless 测试按 Feature 拆分  
-- **可选：** 热点列表引入 DynamicData；评估 Zafiro 是否值得（默认 **否**，除非社区/长列表痛点实测）
+**DoD（每阶段）：** 编译 + 相关测试绿；实验开/关冒烟；不扩大业务分叉；可独立回滚。
 
 ---
 
-## 8. ADR 草稿
+## 8. ADR
 
-### ADR-001 — 模块化单体，不拆微服务  
-**状态：** Accepted（基线）  
-**原因：** 单用户桌面、小团队；微服务运维成本无收益。
+| ID | 标题 | 状态 |
+|----|------|------|
+| ADR-001 | 模块化单体，不拆微服务 | **Accepted** |
+| ADR-002 | Experimental 仅为 Presentation Profile | **Accepted** |
+| ADR-003 | CommunityToolkit.Mvvm + ME.DI + WeakReferenceMessenger | **Accepted**（skill 已装，实现待 Phase 0） |
+| ADR-004 | 不强制 Zafiro 整栈 | **Accepted** |
+| ADR-005 | 插件边界冻结，Shell 适配 | **Accepted** |
+| ADR-006 | CQRS-lite 无 MediatR | **Accepted** |
+| ADR-007 | MainWindow Strangler | **Accepted** |
 
-### ADR-002 — Experimental 仅为 Presentation Profile  
-**状态：** Accepted  
-**原因：** 双业务分叉是当前混乱主因。
+### ADR-003 细节（更新）
 
-### ADR-003 — 采用 CommunityToolkit.Mvvm + ME.DI + WeakReferenceMessenger  
-**状态：** Proposed  
-**备选：** ReactiveUI + DynamicData 全栈  
-**否决全栈原因：** 与现有 code-behind 落差过大；迁移窗口过长。
-
-### ADR-004 — 不强制 Zafiro  
-**状态：** Proposed  
-**采纳原则：** Pure VM、绑定优先；不采纳命名风格与强制 Result 全局化。
-
-### ADR-005 — 插件边界冻结，Shell 适配  
-**状态：** Accepted  
-**原因：** `PCL.Plugin` 已成熟；壳重构不得破坏 Host ABI。
-
-### ADR-006 — CQRS-lite 无 MediatR  
-**状态：** Proposed  
-**原因：** 用例数量与团队规模不够支撑消息中间件；命名分离即可。
-
-### ADR-007 — MainWindow Strangler  
-**状态：** Accepted  
-**原因：** 9.2k 上帝对象；分阶段降低风险。
+- 包：`CommunityToolkit.Mvvm` 8.x  
+- Messenger：`WeakReferenceMessenger` + 注入 `IMessenger`  
+- 收消息 VM：`ObservableRecipient` + 导航/挂载时 `IsActive`  
+- 组合根：单次 build；Shell/Store Singleton；页 VM Transient  
+- 明确拒绝：全局 `Ioc.Default` 作为主路径  
 
 ---
 
-## 9. 目录目标态（补充）
+## 9. 目录目标态
 
 ```
 PCL.Desktop/
-  Composition/
-    DesktopCompositionRoot.cs
+  Composition/DesktopCompositionRoot.cs
   Shell/
     AppShellViewModel.cs
     TitleBarViewModel.cs
     ExtraDockViewModel.cs
     ExperimentalUiProfile.cs
-    Views/   # 可选：壳控件
-  Navigation/
-    NavigationHost.cs
-  Session/
-    MinecraftFolderStore.cs
-    …
-  Messaging/
-    NavigateRequestMessage.cs
-    HintMessage.cs
-    …
-  Features/
-    Launching/
-      LaunchFeatureModule.cs
-      ViewModels/
-      Views/
-    Instances/
-      …
-  Views/          # 过渡期 MainWindow
-  Hosting/        # 插件桥（保持）
-  Controls/       # 遗留控件库
+  Navigation/NavigationHost.cs
+  Session/{MinecraftFolder,InstanceSelection,TaskSession,GameSession}Store.cs
+  Messaging/*.cs
+  Features/<Area>/{*FeatureModule.cs,ViewModels/,Views/}
+  Views/          # 过渡 MainWindow
+  Hosting/        # 插件桥
+  Controls/
 ```
 
 ```
-PCL.Application/
-  UseCases/
-    Instances/
-      SelectMinecraftFolder.cs
-      ListInstances.cs
-    Launching/
-      StartMinecraft.cs
+PCL.Application/UseCases/{Instances,Launching}/...
 ```
 
 ---
 
-## 10. 测试策略（随 MVVM）
+## 10. 测试策略
 
-| 层级 | 工具 | 内容 |
-|------|------|------|
-| Store / UseCase | MSTest | 无 Avalonia |
-| ViewModel | MSTest + Messenger | 命令、可见性、Profile |
-| View | Headless（现有） | 关键导航与选择流；逐步变薄 |
-| 架构 | DesktopArchitectureTests | VM 无 Avalonia；分层引用 |
+| 层 | 方式 |
+|----|------|
+| Store / UseCase | MSTest，无 Avalonia |
+| ViewModel | MSTest + 独立 `WeakReferenceMessenger` |
+| View | Headless 薄集成 |
+| 架构 | VM 无 Avalonia；分层引用 |
 
-目标：把 `AvaloniaHeadlessTests.cs`（~10k）按 Feature 拆文件，避免单测上帝文件。
+目标：拆分 `AvaloniaHeadlessTests.cs`（~10k）。
 
 ---
 
@@ -408,33 +406,30 @@ PCL.Application/
 
 | 风险 | 缓解 |
 |------|------|
-| 同时上 MVVM + 抽 Shell 范围爆炸 | Phase 1 只动 Shell VM，Feature 仍可先 code-behind 适配 |
-| 双轨状态（Store vs MainWindow 字段） | Phase 2 完成后删除字段；过渡期单一写入点 |
-| 插件 UI patch 与 MVVM 冲突 | 保持 composition host；新页优先 slot |
-| 引入 DynamicData 过早 | Phase 5 可选，需列表性能数据 |
-| 风格 skill（无 `_`）与仓库冲突 | 明确不采纳 |
+| MVVM + 抽 Shell 范围爆炸 | Phase 1 只动 Shell |
+| Store 与 MainWindow 双写 | Phase 2 单一写入点 |
+| 插件 patch vs MVVM | 保持 composition host |
+| Host.Services 与 Desktop 双容器 | Phase 0 定权威 root |
+| DynamicData 过早 | Phase 5 可选 |
 
 ---
 
-## 12. 建议执行顺序（给你勾选）
+## 12. 建议下一步
 
-1. **批准 ADR-003/004/006**（工具链）  
-2. **Phase 0** 组合根 + Message 类型  
-3. **Phase 1** Shell MVVM（立刻消灭空 dock / chrome 混乱源）  
-4. Phase 2 Stores  
-5. Phase 3 Launch + Instances  
+1. ~~安装 skill~~ **完成**  
+2. **Phase 0** 组合根 + Message + 包引用  
+3. **Phase 1** Shell MVVM  
 
 ---
 
 ## 13. 与基线文档关系
 
-| 基线章节 | 本补充增量 |
-|----------|------------|
-| Shell / Stores / Features | 加上 **VM + DI + Messenger** 实现策略 |
-| Experimental Profile | 不变，绑定到 Shell VM |
-| 插件 | 明确 **ABI 冻结 + bulkhead** |
-| 迁移 Phase | 插入 Phase 0 工具链；Phase 1 改为 Shell **MVVM** |
-| Domain | CQRS-lite + 实体清单 |
+| 基线 | 本补充 |
+|------|--------|
+| Shell / Stores / Features | **VM + DI + Messenger** 实现细则（对齐已装 skill） |
+| Experimental Profile | 绑 Shell VM |
+| 插件 | ABI 冻结 + bulkhead |
+| Phase | Phase 0 工具链；Phase 1 Shell **MVVM** |
 
 **一句话：**  
-系统层继续模块化单体 Strangler；表示层用 **CommunityToolkit.Mvvm + DI + Messenger** 落地；Zafiro 只借原则不借整栈；插件平台保持现设计，壳去适配而非重写。
+模块化单体 Strangler 不变；表示层按已安装的 **CommunityToolkit.Mvvm + DI + WeakReferenceMessenger** skill 落地；Zafiro 只借原则；插件平台保持现设计。
