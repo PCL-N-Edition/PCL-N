@@ -45,6 +45,22 @@ public sealed class DesktopCompositionTests
     }
 
     [TestMethod]
+    public void CompositionRoot_RegistersLaunchAndInstancesFeatureModules()
+    {
+        IReadOnlyList<IDesktopFeatureModule> modules =
+            DesktopCompositionRoot.GetRequiredService<IReadOnlyList<IDesktopFeatureModule>>();
+        Assert.IsTrue(modules.Any(m => m.Id == "launch"));
+        Assert.IsTrue(modules.Any(m => m.Id == "instances"));
+
+        InstancesSelectSurface select = DesktopCompositionRoot.GetRequiredService<InstancesSelectSurface>();
+        LaunchHomeProfileResolver launchProfile =
+            DesktopCompositionRoot.GetRequiredService<LaunchHomeProfileResolver>();
+        Assert.IsNotNull(select);
+        Assert.IsNotNull(launchProfile);
+        Assert.AreEqual("instances.select", InstancesSelectSurface.SubPageId);
+    }
+
+    [TestMethod]
     public void ExtraDockViewModel_GlassDockRequiresVisibleButton()
     {
         ExtraDockViewModel dock = DesktopCompositionRoot.GetRequiredService<ExtraDockViewModel>();
