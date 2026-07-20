@@ -463,6 +463,7 @@ public partial class MainWindow : Window, IDisposable
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
         CancelAllTrackedTasks();
         _launchCancellation?.Cancel();
+        _minecraftAiRepairAdvisor.StopLocalServer();
         this.FindControl<MediaElement>("VideoBack")?.Stop();
     }
 
@@ -4730,6 +4731,17 @@ public partial class MainWindow : Window, IDisposable
             // Surviving the coordinator's early-exit grace period means the repaired launch is
             // healthy enough to commit. Any later crash starts a fresh diagnosis session.
             repairSession?.Transaction.Commit();
+            try
+            {
+                await _minecraftAiRepairAdvisor.StopLocalServerAsync().ConfigureAwait(false);
+            }
+            catch (Exception serverStopException)
+            {
+                DesktopFileLog.Warn(
+                    "MinecraftRepairAI",
+                    "Minecraft 已成功启动，但释放本地模型服务失败。",
+                    serverStopException);
+            }
 
             // Launch pipeline succeeded — never fold post-success UI side effects into "启动失败".
             // (e.g. Close()/Hide launcher visibility can throw ObjectDisposedException.)
@@ -4811,6 +4823,7 @@ public partial class MainWindow : Window, IDisposable
         }
         catch (OperationCanceledException)
         {
+            await _minecraftAiRepairAdvisor.StopLocalServerAsync().ConfigureAwait(false);
             DesktopFileLog.Warn("LaunchUI", $"实例 {instance.Name} 的启动操作已取消。");
             if (repairSession is not null)
                 await repairSession.Transaction.RollbackAsync().ConfigureAwait(false);
@@ -4883,6 +4896,8 @@ public partial class MainWindow : Window, IDisposable
 
             _runningGameProcess = process is { HasExited: false } ? process : null;
             _runningGameContext = _runningGameProcess is null ? null : context;
+            if (_runningGameProcess is not null && _runningGameContext is { } runningContext)
+                _ = ObserveRunningGameFaultAsync(runningContext);
             if (_runningGameProcess is { } current)
             {
                 try
@@ -4916,6 +4931,28 @@ public partial class MainWindow : Window, IDisposable
             logBtn.Show = _isGameRunning;
     }
 
+    private async Task ObserveRunningGameFaultAsync(RunningGameContext context)
+    {
+        if (context.FaultReport is null)
+            return;
+        try
+        {
+            MinecraftLaunchFaultReport? report = await context.FaultReport.ConfigureAwait(false);
+            if (report?.Code != MinecraftLaunchFaultCode.MissingModDependency ||
+                !ReferenceEquals(_runningGameContext, context))
+            {
+                return;
+            }
+            await Dispatcher.UIThread.InvokeAsync(() =>
+                _launchRight?.AppendLog("已在游戏仍运行时检测到 NeoForge 缺失依赖，正在进入修复流程。"));
+            await TryRepairMissingDependenciesAsync(context).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            DesktopFileLog.Warn("GameProcess", "观察运行中结构化故障失败。", exception);
+        }
+    }
+
     private void RunningGameProcess_Exited(object? sender, EventArgs e)
     {
         RunningGameContext? context = _runningGameContext;
@@ -4943,7 +4980,7 @@ public partial class MainWindow : Window, IDisposable
         }, DispatcherPriority.Background);
 
         if (exitCode != 0 && context is not null)
-            _ = TryRepairMissingDependenciesAsync(context);
+            _ = TryRepairMissingDependenciesAsync(context with { ProcessExitCode = exitCode });
     }
 
     private async Task TryRepairMissingDependenciesAsync(RunningGameContext context)
@@ -4957,6 +4994,7 @@ public partial class MainWindow : Window, IDisposable
         MinecraftLaunchFaultReport? fault = null;
         IReadOnlyList<string> crashLines = [];
         string analysisMarkdown = string.Empty;
+        bool aiProducedDiagnosis = false;
         MinecraftRepairExecutionResult repair = new("尚未执行修复。", true);
         try
         {
@@ -4982,18 +5020,24 @@ public partial class MainWindow : Window, IDisposable
                     (string.IsNullOrWhiteSpace(fault.LastClassName) ? string.Empty : " · 类=" + fault.LastClassName));
             });
 
-            if (session.Attempt == MinecraftRepairAttempt.ModelApplied)
+            if (session.Attempt != MinecraftRepairAttempt.None)
             {
-                await Dispatcher.UIThread.InvokeAsync(() => _launchRight?.AppendLog(
-                    "模型修复后的重启再次失败，进入 AI 错误总结阶段。"));
+                string failedRepair = BuildFailedRepairFeedback(session, fault, context.ProcessExitCode);
+                await Dispatcher.UIThread.InvokeAsync(() => _launchRight?.AppendLog(failedRepair));
             }
 
-            if (session.Attempt == MinecraftRepairAttempt.None && context.Settings.AutomaticallyRepairGameIssues)
+            bool aiEnabled = context.Settings.GetBooleanOption(
+                LauncherSettingKeys.ExperimentalMinecraftAiRepair,
+                LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalMinecraftAiRepair.Value));
+            MinecraftRepairActionKind conventionalAction = SelectConventionalRepairAction(
+                fault,
+                dependencies,
+                context.NativesDirectory);
+            if (ShouldExecuteConventionalRepairDirectly(
+                    session.Attempt == MinecraftRepairAttempt.None,
+                    context.Settings.AutomaticallyRepairGameIssues,
+                    aiEnabled))
             {
-                MinecraftRepairActionKind conventionalAction = SelectConventionalRepairAction(
-                    fault,
-                    dependencies,
-                    context.NativesDirectory);
                 if (IsAutomaticallyExecutableRepair(conventionalAction))
                 {
                     await Dispatcher.UIThread.InvokeAsync(() => context.LaunchPage.ShowRepairWorkflow(
@@ -5030,6 +5074,10 @@ public partial class MainWindow : Window, IDisposable
                     if (!repair.IsFailure && repair.MadeChanges)
                     {
                         session.Attempt = MinecraftRepairAttempt.ConventionalApplied;
+                        session.LastRepairSummary = BuildRepairAttemptSummary(
+                            "常规自动修复",
+                            conventionalAction.ToString(),
+                            repair);
                         await RestartMinecraftAfterRepairAsync(context, session, repair.Message, cancellationToken)
                             .ConfigureAwait(false);
                         return;
@@ -5045,17 +5093,23 @@ public partial class MainWindow : Window, IDisposable
                 }
             }
 
-            bool aiEnabled = context.Settings.GetBooleanOption(
-                LauncherSettingKeys.ExperimentalMinecraftAiRepair,
-                LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalMinecraftAiRepair.Value));
             if (aiEnabled)
             {
-                await Dispatcher.UIThread.InvokeAsync(() => context.LaunchPage.ShowRepairWorkflow(
-                    AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型"),
-                    AvaloniaLocalizationManager.GetText("Crash.Model.Stage.Prepare", "准备 AI 修复模型"),
-                    0.01d,
-                    MinecraftAiRepairAdvisor.ModelName,
-                    context.Instance));
+                string conventionalSuggestion = IsAutomaticallyExecutableRepair(conventionalAction)
+                    ? conventionalAction.ToString()
+                    : "无可执行建议";
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    context.LaunchPage.ShowRepairWorkflow(
+                        AvaloniaLocalizationManager.GetText("Crash.Model.Title", "正在调用模型"),
+                        AvaloniaLocalizationManager.GetText("Crash.Model.Stage.Prepare", "准备 AI 修复模型"),
+                        0.01d,
+                        $"{MinecraftAiRepairAdvisor.ModelName} · 普通处理器建议：{conventionalSuggestion}",
+                        context.Instance);
+                    _launchRight?.AppendLog(
+                        "实验性 AI 修复已启用；普通错误处理器建议 " + conventionalSuggestion +
+                        "，仅转交 AI 判断，不会直接执行。");
+                });
                 IReadOnlyList<MinecraftModMetadata> installedMods = await Task.Run(
                         () => MinecraftModMetadataReader.ReadDirectory(Path.Combine(gameDirectory, "mods")),
                         cancellationToken)
@@ -5070,12 +5124,26 @@ public partial class MainWindow : Window, IDisposable
                     RuntimeInformation.OSDescription,
                     RuntimeInformation.ProcessArchitecture.ToString(),
                     installedMods.Count,
-                    crashLines.Count);
+                    crashLines.Count,
+                    dependencies.Select(dependency => dependency.ModId)
+                        .Where(modId => !string.IsNullOrWhiteSpace(modId))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray(),
+                    context.ProcessExitCode);
                 MinecraftRepairActionKind[] candidateActions = fault.AllowedActions
                     .Where(action => action != MinecraftRepairActionKind.ReextractNatives ||
                                      !string.IsNullOrWhiteSpace(context.NativesDirectory))
                     .Where(action => action != MinecraftRepairActionKind.InstallMissingModDependencies ||
                                      dependencies.Count > 0)
+                    .Concat(IsAutomaticallyExecutableRepair(conventionalAction)
+                        ? [conventionalAction]
+                        : [])
+                    .Concat(dependencies.Count > 0
+                        ? [
+                            MinecraftRepairActionKind.InstallMissingModDependencies,
+                            MinecraftRepairActionKind.DownloadMod
+                        ]
+                        : [])
                     .Distinct()
                     .ToArray();
                 if (candidateActions.Length == 0)
@@ -5083,12 +5151,36 @@ public partial class MainWindow : Window, IDisposable
                 string[] modelCrashLines = crashLines
                     .Select(line => RedactMinecraftAiContext(line, context, gameDirectory))
                     .ToArray();
+                string? failedRepairFeedback = session.Attempt == MinecraftRepairAttempt.None
+                    ? null
+                    : BuildFailedRepairFeedback(session, fault, context.ProcessExitCode);
                 MinecraftLaunchFaultReport modelFault = fault with
                 {
                     AllowedActions = candidateActions,
-                    Message = RedactMinecraftAiContext(fault.Message, context, gameDirectory),
+                    Message = RedactMinecraftAiContext(
+                        string.IsNullOrWhiteSpace(failedRepairFeedback)
+                            ? fault.Message
+                            : failedRepairFeedback + Environment.NewLine + "本次错误：" + fault.Message,
+                        context,
+                        gameDirectory),
                     StackTrace = RedactMinecraftAiContext(fault.StackTrace, context, gameDirectory),
                     Evidence = fault.Evidence
+                        .Concat(IsAutomaticallyExecutableRepair(conventionalAction)
+                            ?
+                            [
+                                "ConventionalHandlerSuggestion=" + conventionalAction,
+                                "ConventionalHandlerSuggestionStatus=AdvisoryOnlyNotExecuted",
+                                "Instruction=实验性 AI 修复已启用；普通错误处理器的动作仅作为建议，请结合完整上下文决定是否采用。"
+                            ]
+                            : [])
+                        .Concat(string.IsNullOrWhiteSpace(failedRepairFeedback)
+                            ? []
+                            :
+                            [
+                                "PreviousRepairOutcome=FailedAfterRestart",
+                                "PreviousRepair=" + session.LastRepairSummary,
+                                "Instruction=上次修复已执行但重新启动仍失败；请结合新错误重新判断，不要无依据重复同一修复。"
+                            ])
                         .Select(line => RedactMinecraftAiContext(line, context, gameDirectory))
                         .ToArray()
                 };
@@ -5187,6 +5279,7 @@ public partial class MainWindow : Window, IDisposable
                             ? analysisMarkdown
                             : aiSuggestion.AnalysisMarkdown;
                         session.LastModelAnalysis = analysisMarkdown;
+                        aiProducedDiagnosis = !string.IsNullOrWhiteSpace(aiSuggestion.AnalysisMarkdown);
                         await Dispatcher.UIThread.InvokeAsync(() =>
                         {
                             context.LaunchPage.ShowRepairWorkflow(
@@ -5210,6 +5303,7 @@ public partial class MainWindow : Window, IDisposable
                         {
                             bool planMadeChanges = false;
                             List<string> completedMessages = [];
+                            List<string> completedActions = [];
                             for (int stepIndex = 0; stepIndex < aiSuggestion.RepairSteps.Count; stepIndex++)
                             {
                                 cancellationToken.ThrowIfCancellationRequested();
@@ -5247,6 +5341,7 @@ public partial class MainWindow : Window, IDisposable
                                 if (repair.IsFailure)
                                     break;
                                 planMadeChanges |= repair.MadeChanges;
+                                completedActions.Add(step.Action.ToString());
                                 completedMessages.Add(repair.Message);
                             }
                             if (!repair.IsFailure && planMadeChanges)
@@ -5259,6 +5354,10 @@ public partial class MainWindow : Window, IDisposable
                             if (!repair.IsFailure && repair.MadeChanges)
                             {
                                 session.Attempt = MinecraftRepairAttempt.ModelApplied;
+                                session.LastRepairSummary = BuildRepairAttemptSummary(
+                                    "AI 链式修复",
+                                    string.Join(" -> ", completedActions),
+                                    repair);
                                 await RestartMinecraftAfterRepairAsync(context, session, repair.Message, cancellationToken)
                                     .ConfigureAwait(false);
                                 return;
@@ -5283,9 +5382,11 @@ public partial class MainWindow : Window, IDisposable
                 }
             }
             repair = new MinecraftRepairExecutionResult(
-                aiEnabled
-                    ? "常规分析器和 AI 修复模型都未能生成可执行的修复计划。"
-                    : "常规分析器未能解决错误，且 AI 修复模型功能未启用。",
+                aiProducedDiagnosis
+                    ? "AI 已完成错误诊断，但没有建议执行可能破坏游戏文件的自动修改。请根据上方 AI 分析检查模组、资源包和日志。"
+                    : aiEnabled
+                        ? "AI 修复模型未能返回有效诊断或安全可执行的修复计划。"
+                        : "常规分析器未能解决错误，且 AI 修复模型功能未启用。",
                 true);
             await FinishFailedRepairAsync(
                     context,
@@ -5299,12 +5400,16 @@ public partial class MainWindow : Window, IDisposable
         }
         catch (OperationCanceledException)
         {
+            await _minecraftAiRepairAdvisor.StopLocalServerAsync().ConfigureAwait(false);
             await session.Transaction.RollbackAsync().ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (context.LaunchPage.IsLaunchInProgress)
                     context.LaunchPage.PageChangeToLogin();
-                _launchRight?.AppendLog("Minecraft 修复已取消，本轮更改已回滚。");
+                _launchRight?.AppendLog(
+                    session.Transaction.HasChanges
+                        ? "Minecraft 修复已取消，本轮更改已回滚。"
+                        : "Minecraft 错误分析已取消，本轮未修改任何文件。");
             });
         }
         catch (Exception ex)
@@ -5397,6 +5502,8 @@ public partial class MainWindow : Window, IDisposable
                         transaction,
                         cancellationToken)
                     .ConfigureAwait(false),
+            MinecraftRepairActionKind.DisableExperimentalJvmHost =>
+                DisableExperimentalJvmHost(context),
             MinecraftRepairActionKind.SelectCompatibleJava =>
                 await SelectCompatibleJavaAfterFaultAsync(context, transaction, cancellationToken)
                     .ConfigureAwait(false),
@@ -5414,6 +5521,28 @@ public partial class MainWindow : Window, IDisposable
                 "常规错误分析器没有找到可安全自动执行的修复；请查看分析内容和日志。",
                 true)
         };
+    }
+
+    private static MinecraftRepairExecutionResult DisableExperimentalJvmHost(RunningGameContext context)
+    {
+        bool enabled = context.Settings.GetBooleanOption(
+            LauncherSettingKeys.ExperimentalJvmLifecycleHost,
+            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalJvmLifecycleHost.Value));
+        if (!enabled)
+        {
+            return new MinecraftRepairExecutionResult(
+                "实验性 Jvm.NET Host 已处于关闭状态，没有需要修改的设置。",
+                false,
+                false);
+        }
+        context.Settings.SetBooleanOption(LauncherSettingKeys.ExperimentalJvmLifecycleHost, false);
+        LauncherSettings persisted = LauncherSettingsPageBinder.LoadSettings();
+        persisted.SetBooleanOption(LauncherSettingKeys.ExperimentalJvmLifecycleHost, false);
+        LauncherSettingsPageBinder.SaveSettings(persisted);
+        return new MinecraftRepairExecutionResult(
+            "已关闭实验性 Jvm.NET Host；下次启动将使用传统 Java 进程。",
+            false,
+            true);
     }
 
     private async Task<MinecraftRepairExecutionResult> RepairVersionFilesAfterFaultAsync(
@@ -5888,6 +6017,12 @@ public partial class MainWindow : Window, IDisposable
         return null;
     }
 
+    internal static bool IsAutomaticallyExecutableRepairForTest(MinecraftRepairActionKind action) =>
+        IsAutomaticallyExecutableRepair(action);
+
+    internal static string DescribeAiRepairStepForTest(MinecraftRepairActionKind action) =>
+        DescribeAiRepairStep(action, new MinecraftAiRepairParameters());
+
     private static bool IsAutomaticallyExecutableRepair(MinecraftRepairActionKind action) => action is
         MinecraftRepairActionKind.RepairVersionFiles or
         MinecraftRepairActionKind.ReextractNatives or
@@ -5897,7 +6032,8 @@ public partial class MainWindow : Window, IDisposable
         MinecraftRepairActionKind.UpdateMod or
         MinecraftRepairActionKind.SelectCompatibleJava or
         MinecraftRepairActionKind.DownloadCompatibleJava or
-        MinecraftRepairActionKind.ReinstallVersionAndUpdateLoader;
+        MinecraftRepairActionKind.ReinstallVersionAndUpdateLoader or
+        MinecraftRepairActionKind.DisableExperimentalJvmHost;
 
     private static async Task<MinecraftLaunchFaultReport?> AwaitFaultReportAsync(
         Task<MinecraftLaunchFaultReport?>? faultReportTask,
@@ -5951,6 +6087,8 @@ public partial class MainWindow : Window, IDisposable
             MinecraftRepairActionKind.DisableMod => $"禁用模组 {parameters.ModId}",
             MinecraftRepairActionKind.UpdateMod =>
                 $"将模组 {parameters.ModId} 更新至 {parameters.ModVersion}",
+            MinecraftRepairActionKind.DisableExperimentalJvmHost =>
+                "关闭实验性 Jvm.NET Host，并改用传统 Java 进程启动",
             MinecraftRepairActionKind.SelectCompatibleJava => "切换至另一套已安装的兼容 Java",
             MinecraftRepairActionKind.DownloadCompatibleJava => "下载并选择兼容 Java",
             MinecraftRepairActionKind.ReinstallVersionAndUpdateLoader => "重新安装版本并更新模组加载器",
@@ -6000,15 +6138,22 @@ public partial class MainWindow : Window, IDisposable
         IReadOnlyList<string> crashLines)
     {
         string rollbackMessage;
-        try
+        if (!session.Transaction.HasChanges)
         {
-            await session.Transaction.RollbackAsync().ConfigureAwait(false);
-            rollbackMessage = "本轮修复更改已回滚。";
+            rollbackMessage = "本轮仅完成错误分析，未修改任何 Minecraft 文件。";
         }
-        catch (Exception rollbackException)
+        else
         {
-            DesktopFileLog.Error("MinecraftRepair", "回滚 Minecraft 修复更改失败。", rollbackException);
-            rollbackMessage = "回滚部分修复更改失败：" + rollbackException.Message;
+            try
+            {
+                await session.Transaction.RollbackAsync().ConfigureAwait(false);
+                rollbackMessage = "本轮修复更改已回滚。";
+            }
+            catch (Exception rollbackException)
+            {
+                DesktopFileLog.Error("MinecraftRepair", "回滚 Minecraft 修复更改失败。", rollbackException);
+                rollbackMessage = "回滚部分修复更改失败：" + rollbackException.Message;
+            }
         }
         string[] recentCrashFiles = FindRecentCrashFiles(gameDirectory);
         string? primaryLog = recentCrashFiles.Length > 0 ? recentCrashFiles[0] : null;
@@ -6783,6 +6928,44 @@ public partial class MainWindow : Window, IDisposable
             : "custom authentication server";
     }
 
+    internal static bool ShouldExecuteConventionalRepairDirectly(
+        bool isFirstAttempt,
+        bool automaticRepairEnabled,
+        bool experimentalAiRepairEnabled) =>
+        isFirstAttempt && automaticRepairEnabled && !experimentalAiRepairEnabled;
+
+    private static string BuildRepairAttemptSummary(
+        string source,
+        string actions,
+        MinecraftRepairExecutionResult result) =>
+        $"来源={source}；动作={actions}；执行结果={result.Message}；" +
+        $"实际修改文件={(result.MadeChanges ? "是" : "否")}；执行失败={(result.IsFailure ? "是" : "否")}。";
+
+    private static string BuildFailedRepairFeedback(
+        MinecraftRepairSession session,
+        MinecraftLaunchFaultReport currentFault,
+        int? processExitCode) =>
+        FormatFailedRepairFeedback(
+            session.LastRepairSummary,
+            currentFault.Code,
+            currentFault.Stage,
+            processExitCode);
+
+    internal static string FormatFailedRepairFeedback(
+        string? previousRepairSummary,
+        MinecraftLaunchFaultCode currentCode,
+        string? currentStage,
+        int? processExitCode)
+    {
+        string summary = string.IsNullOrWhiteSpace(previousRepairSummary)
+            ? "上次修复内容未记录"
+            : previousRepairSummary.Trim();
+        return $"上次修复已执行，但修复后的重新启动仍然失败。上次修复：{summary}" +
+               $" 本次失败：Code={currentCode}；Stage={currentStage ?? "Unknown"}；" +
+               $"ExitCode={processExitCode?.ToString(CultureInfo.InvariantCulture) ?? "Unknown"}。" +
+               "请结合本次新错误重新判断，并避免无依据重复上次修复。";
+    }
+
     private sealed record MinecraftRepairExecutionResult(
         string Message,
         bool IsFailure,
@@ -6810,7 +6993,8 @@ public partial class MainWindow : Window, IDisposable
         string? JavaExecutablePathForRedaction = null,
         int? ClasspathEntryCount = null,
         int? VmArgumentCount = null,
-        int? GameArgumentCount = null);
+        int? GameArgumentCount = null,
+        int? ProcessExitCode = null);
 
     private static int? TryReadMaximumHeapMegabytes(IEnumerable<string> arguments)
     {
@@ -6851,6 +7035,8 @@ public partial class MainWindow : Window, IDisposable
         public MinecraftRepairAttempt Attempt { get; set; }
 
         public string? LastModelAnalysis { get; set; }
+
+        public string? LastRepairSummary { get; set; }
     }
 
     private Task<bool> ConfirmJavaDownloadAsync(string versionLabel, CancellationToken cancellationToken)
