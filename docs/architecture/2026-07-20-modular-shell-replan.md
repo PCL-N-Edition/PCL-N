@@ -3,7 +3,8 @@
 > **Status:** Proposed  
 > **Date:** 2026-07-20  
 > **Method:** engineering-system-designer（现有系统评估 + 模块化单体）  
-> **Scope:** 桌面启动器主线（`PCL.Desktop` / `PCL.Application` / `PCL.Domain` / Hosting），不含 `PCL.Server` 独立部署
+> **Scope:** 桌面启动器主线（`PCL.Desktop` / `PCL.Application` / `PCL.Domain` / Hosting），不含 `PCL.Server` 独立部署  
+> **补充：** 多 skill 落地策略见 [2026-07-20-multi-skill-architecture-plan.md](./2026-07-20-multi-skill-architecture-plan.md)（MVVM Toolkit / DI / Messenger / 插件边界 / CQRS-lite）
 
 ---
 
