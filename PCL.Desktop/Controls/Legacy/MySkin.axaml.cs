@@ -38,6 +38,12 @@ public partial class MySkin : Grid
         _backImage = this.FindControl<Image>("ImgBack");
         _frontImage = this.FindControl<Image>("ImgFore");
         _shadow = this.FindControl<Border>("ShadowSkin");
+        // Force nearest-neighbor even if an ancestor forced HighQuality (GPU bootstrap).
+        ApplyPixelArtRenderOptions(this);
+        if (_backImage is not null)
+            ApplyPixelArtRenderOptions(_backImage);
+        if (_frontImage is not null)
+            ApplyPixelArtRenderOptions(_frontImage);
         if (this.FindControl<MyMenuItem>("BtnSkinSave") is { } save)
         {
             save.Click += BtnSkinSaveClick;
@@ -154,18 +160,27 @@ public partial class MySkin : Grid
 
                     int scale = Math.Max(1, (int)Math.Round(size.Width / 64d));
                     // WPF: face at (8,8) 8x8; hat overlay at (40,8) 8x8 — pixel-scaled layered head.
-                    Bitmap? face = CropToBitmap(fullSkin, scale * 8, scale * 8, scale * 8, scale * 8);
+                    // Upscale with nearest-neighbor so 8×8 → 48/56 does not bilinear-blur.
+                    Bitmap? face = PixelArtBitmap.CropAndUpscale(
+                        fullSkin, scale * 8, scale * 8, scale * 8, scale * 8, minDisplaySize: 48);
                     Bitmap? hat = size.Width >= 64 && size.Height >= 32
-                        ? CropToBitmap(fullSkin, scale * 40, scale * 8, scale * 8, scale * 8)
+                        ? PixelArtBitmap.CropAndUpscale(
+                            fullSkin, scale * 40, scale * 8, scale * 8, scale * 8, minDisplaySize: 56)
                         : null;
 
                     ClearImages();
                     _faceBitmap = face;
                     _hatBitmap = hat;
                     if (_backImage is not null)
+                    {
+                        ApplyPixelArtRenderOptions(_backImage);
                         _backImage.Source = face;
+                    }
                     if (_frontImage is not null)
+                    {
+                        ApplyPixelArtRenderOptions(_frontImage);
                         _frontImage.Source = hat;
+                    }
                 }
                 catch (Exception)
                 {
@@ -421,25 +436,9 @@ public partial class MySkin : Grid
         e.Handled = true;
     }
 
-    private static RenderTargetBitmap? CropToBitmap(Bitmap source, int x, int y, int width, int height)
+    private static void ApplyPixelArtRenderOptions(Visual visual)
     {
-        if (width <= 0 || height <= 0)
-            return null;
-
-        PixelSize size = source.PixelSize;
-        if (x < 0 || y < 0 || x + width > size.Width || y + height > size.Height)
-            return null;
-
-        // Draw a cropped region into a new bitmap so we do not depend on CroppedBitmap quirks.
-        RenderTargetBitmap target = new(new PixelSize(width, height), new Vector(96, 96));
-        using (DrawingContext context = target.CreateDrawingContext())
-        {
-            context.DrawImage(
-                source,
-                new Rect(x, y, width, height),
-                new Rect(0, 0, width, height));
-        }
-
-        return target;
+        RenderOptions.SetBitmapInterpolationMode(visual, BitmapInterpolationMode.None);
+        RenderOptions.SetEdgeMode(visual, EdgeMode.Aliased);
     }
 }

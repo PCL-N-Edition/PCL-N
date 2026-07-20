@@ -130,8 +130,9 @@ internal static class DesktopRenderBootstrap
     public static void ApplyCompositorHints(Visual visual)
     {
         ArgumentNullException.ThrowIfNull(visual);
-        // Edge antialias helps transform/opacity motion read cleanly on GPU surfaces.
+        // Geometry edges only — do NOT force HighQuality bitmap filtering on the whole tree.
+        // That inherits into skin heads / pixel icons and softens them (user: 头像被抗锯齿).
+        // Pixel art controls set BitmapInterpolationMode.None locally.
         RenderOptions.SetEdgeMode(visual, EdgeMode.Antialias);
-        RenderOptions.SetBitmapInterpolationMode(visual, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
     }
 }

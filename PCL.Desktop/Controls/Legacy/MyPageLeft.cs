@@ -134,7 +134,13 @@ public class MyPageLeft : Grid
         if (!ignoreInvisibility && !element.IsVisible)
             yield break;
 
-        if (element is MyTextButton or MyListItem or TextBlock)
+        if (element is MyTextButton
+            or MyListItem
+            or MyButton
+            or MyIconButton
+            or MyRadioButton
+            or MyCard
+            or TextBlock)
         {
             yield return element;
             yield break;
@@ -143,6 +149,13 @@ public class MyPageLeft : Grid
         if (element is ContentControl { Content: Control content })
         {
             foreach (Control child in GetAllAnimControls(content, ignoreInvisibility))
+                yield return child;
+            yield break;
+        }
+
+        if (element is Decorator { Child: Control decorated })
+        {
+            foreach (Control child in GetAllAnimControls(decorated, ignoreInvisibility))
                 yield return child;
             yield break;
         }

@@ -285,19 +285,25 @@ internal static class AsyncLogoLoader
             int scale = Math.Max(1, size.Width / 64);
             int w = scale * 8;
             int h = scale * 8;
-            // Face (layer 1) + hat (layer 2) composited like MySkin dual-layer head.
-            RenderTargetBitmap target = new(new PixelSize(w, h), new Vector(96, 96));
-            using (DrawingContext context = target.CreateDrawingContext())
+            // Face (layer 1) nearest-neighbor upscaled; hat composited on top if present.
+            WriteableBitmap? face = PixelArtBitmap.CropAndUpscale(
+                source, scale * 8, scale * 8, w, h, minDisplaySize: 48);
+            if (face is null)
+                return source;
+
+            if (size.Width >= scale * 48 && size.Height >= scale * 16)
             {
-                Rect dest = new(0, 0, w, h);
-                context.DrawImage(source, new Rect(scale * 8, scale * 8, w, h), dest);
-                // Hat layer only when the skin atlas has the outer layer strip.
-                if (size.Width >= scale * 48 && size.Height >= scale * 16)
-                    context.DrawImage(source, new Rect(scale * 40, scale * 8, w, h), dest);
+                WriteableBitmap? hat = PixelArtBitmap.CropAndUpscale(
+                    source, scale * 40, scale * 8, w, h, minDisplaySize: 48);
+                if (hat is not null)
+                {
+                    CompositeNearest(face, hat);
+                    hat.Dispose();
+                }
             }
 
             source.Dispose();
-            return target;
+            return face;
         }
         catch
         {
@@ -318,6 +324,51 @@ internal static class AsyncLogoLoader
                address.Contains("sessionserver", StringComparison.OrdinalIgnoreCase) ||
                address.EndsWith("Steve.png", StringComparison.OrdinalIgnoreCase) ||
                address.EndsWith("Alex.png", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Alpha-over composite of two same-size BGRA bitmaps (hat over face).</summary>
+    private static void CompositeNearest(WriteableBitmap baseLayer, WriteableBitmap overlay)
+    {
+        if (baseLayer.PixelSize != overlay.PixelSize)
+            return;
+
+        using ILockedFramebuffer dst = baseLayer.Lock();
+        using ILockedFramebuffer src = overlay.Lock();
+        int height = baseLayer.PixelSize.Height;
+        int width = baseLayer.PixelSize.Width;
+        int rowBytes = Math.Min(dst.RowBytes, src.RowBytes);
+        byte[] srcRow = new byte[rowBytes];
+        byte[] dstRow = new byte[rowBytes];
+        for (int y = 0; y < height; y++)
+        {
+            System.Runtime.InteropServices.Marshal.Copy(IntPtr.Add(src.Address, y * src.RowBytes), srcRow, 0, rowBytes);
+            System.Runtime.InteropServices.Marshal.Copy(IntPtr.Add(dst.Address, y * dst.RowBytes), dstRow, 0, rowBytes);
+            for (int x = 0; x < width; x++)
+            {
+                int i = x * 4;
+                byte sa = srcRow[i + 3];
+                if (sa == 0)
+                    continue;
+                if (sa == 255)
+                {
+                    dstRow[i] = srcRow[i];
+                    dstRow[i + 1] = srcRow[i + 1];
+                    dstRow[i + 2] = srcRow[i + 2];
+                    dstRow[i + 3] = 255;
+                    continue;
+                }
+
+                // Straight alpha blend.
+                float a = sa / 255f;
+                float inv = 1f - a;
+                dstRow[i] = (byte)(srcRow[i] * a + dstRow[i] * inv);
+                dstRow[i + 1] = (byte)(srcRow[i + 1] * a + dstRow[i + 1] * inv);
+                dstRow[i + 2] = (byte)(srcRow[i + 2] * a + dstRow[i + 2] * inv);
+                dstRow[i + 3] = (byte)Math.Clamp(sa + dstRow[i + 3] * inv, 0, 255);
+            }
+
+            System.Runtime.InteropServices.Marshal.Copy(dstRow, 0, IntPtr.Add(dst.Address, y * dst.RowBytes), rowBytes);
+        }
     }
 
     private static HttpClient CreateClient()

@@ -9,6 +9,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using Avalonia.Threading;
+using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -16,33 +17,66 @@ internal static class ControlVisualHelpers
 {
     internal static void AnimateListEntrance(Panel panel, string animationKey)
     {
-        if (!ShouldAnimate(panel) || panel.Children.Count == 0)
+        if (panel.Children.Count == 0)
             return;
 
-        Control[] children = panel.Children.Take(30).ToArray();
-        foreach (Control child in children)
+        if (!ShouldAnimate(panel))
         {
-            child.Opacity = 0d;
-            if (child.RenderTransform is not TranslateTransform translate)
+            // Reduced motion / detached: keep rows fully visible — never leave them at Opacity=0.
+            foreach (Control child in panel.Children)
             {
-                translate = new TranslateTransform();
-                child.RenderTransform = translate;
+                child.Opacity = 1d;
+                if (child.RenderTransform is TranslateTransform rest)
+                    rest.Y = 0d;
             }
-            translate.Y = 8d;
+            return;
         }
+
+        int animateCount = Math.Min(panel.Children.Count, MotionTokens.ListEnterMaxChildren);
+        Control[] children = new Control[panel.Children.Count];
+        for (int i = 0; i < panel.Children.Count; i++)
+            children[i] = panel.Children[i];
+
+        for (int i = 0; i < children.Length; i++)
+        {
+            Control child = children[i];
+            if (i < animateCount)
+            {
+                child.Opacity = 0d;
+                if (child.RenderTransform is not TranslateTransform translate)
+                {
+                    translate = new TranslateTransform();
+                    child.RenderTransform = translate;
+                }
+                translate.Y = 8d;
+            }
+            else
+            {
+                child.Opacity = 1d;
+                if (child.RenderTransform is TranslateTransform rest)
+                    rest.Y = 0d;
+            }
+        }
+
+        if (animateCount == 0)
+            return;
 
         Dispatcher.UIThread.Post(() =>
         {
             List<ModAnimation.AniData> animations = [];
             int index = 0;
-            foreach (Control child in children.Where(panel.Children.Contains))
+            for (int i = 0; i < animateCount; i++)
             {
-                int delay = Math.Min(index * 18, 180);
-                animations.Add(ModAnimation.AaOpacity(child, 1d, 160, delay));
+                Control child = children[i];
+                if (!panel.Children.Contains(child))
+                    continue;
+
+                int delay = Math.Min(index * MotionTokens.ListStaggerMs, 180);
+                animations.Add(ModAnimation.AaOpacity(child, 1d, MotionTokens.ListEnterOpacityMs, delay));
                 animations.Add(ModAnimation.AaTranslateY(
                     child,
                     -8d,
-                    220,
+                    MotionTokens.ListEnterSlideMs,
                     delay,
                     new ModAnimation.AniEaseOutFluent()));
                 index++;
@@ -50,6 +84,15 @@ internal static class ControlVisualHelpers
 
             if (animations.Count > 0)
                 ModAnimation.AniStart(animations, animationKey);
+            else
+            {
+                // Post ran after detach — restore visibility.
+                for (int i = 0; i < animateCount; i++)
+                {
+                    if (panel.Children.Contains(children[i]))
+                        children[i].Opacity = 1d;
+                }
+            }
         }, DispatcherPriority.Loaded);
     }
 
