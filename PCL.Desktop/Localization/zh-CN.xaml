@@ -444,12 +444,6 @@
     <sys:String x:Key="Select.Instance.Search.NoHiddenResult">隐藏版本中没有与“{0}”匹配的结果。</sys:String>
     <sys:String x:Key="Select.Instance.Search.NoResult">没有与“{0}”匹配的本地版本。</sys:String>
     <sys:String x:Key="Select.Instance.Search.ToolTip">搜索已安装的版本</sys:String>
-    <sys:String x:Key="Select.Instance.Hero.Eyebrow">版本库</sys:String>
-    <sys:String x:Key="Select.Instance.Hero.Title">选择要启动的版本</sys:String>
-    <sys:String x:Key="Select.Instance.Hero.Subtitle">从左侧选择游戏文件夹，然后点选要启动的版本。</sys:String>
-    <sys:String x:Key="Select.Instance.Hero.Subtitle.Folder">{0} · {1} 个版本</sys:String>
-    <sys:String x:Key="Select.Instance.Sidebar.Eyebrow">来源</sys:String>
-    <sys:String x:Key="Select.Instance.Sidebar.Title">游戏文件夹</sys:String>
     <sys:String x:Key="Select.Instance.Sidebar.Section.Folders">已添加</sys:String>
     <sys:String x:Key="Select.Instance.Sidebar.Section.Actions">添加或导入</sys:String>
     <sys:String x:Key="Select.Instance.Sidebar.CreateFolder">新建游戏文件夹</sys:String>

@@ -526,6 +526,10 @@ public sealed class DesktopArchitectureTests
             "Settings",
             "Views",
             "PageSetupUpdate.axaml"));
+        string mainWindowLogin = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Views",
+            "MainWindow.Login.cs"));
         string coordinator = File.ReadAllText(Path.Combine(
             desktopRoot,
             "Hosting",
@@ -558,8 +562,10 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(coordinator, "IsUpdateTransferActive");
         StringAssert.Contains(installer, "ScheduleInstallOnExit");
         StringAssert.Contains(installer, "restartAfterInstall: false");
+        // Markdown prompt lives on the MainWindow partial that owns dialog host controls.
         StringAssert.Contains(mainWindow, "ShowMarkdownDialog");
-        StringAssert.Contains(mainWindow, "MyMsgMarkdown dialog = new()");
+        StringAssert.Contains(mainWindowLogin, "ShowMarkdownDialog");
+        StringAssert.Contains(mainWindowLogin, "MyMsgMarkdown dialog = new()");
         StringAssert.Contains(notifications, "int result = await ChoiceAsync(");
         StringAssert.Contains(notifications, "return result == 1");
         StringAssert.Contains(updatePage, "_updateCoordinator.StartAutomaticUpdateOnceAsync()");
