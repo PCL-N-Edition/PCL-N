@@ -37,6 +37,9 @@ internal sealed class MinecraftSessionBridge : IDisposable
     private readonly AuthServerMetadata _metadata;
     private readonly Task _acceptLoop;
     private readonly string? _offlineTextureToken;
+    private readonly JsonObject _playerCertificates;
+    private readonly SemaphoreSlim _thirdPartyProfileGate = new(1, 1);
+    private JsonObject? _thirdPartyServicesProfile;
 
     private MinecraftSessionBridge(MinecraftJvmHostRequest request, JvmHostLifecycleWriter lifecycle)
     {
@@ -47,14 +50,21 @@ internal sealed class MinecraftSessionBridge : IDisposable
         _listener.Start(backlog: 16);
         int port = ((IPEndPoint)_listener.LocalEndpoint).Port;
         BaseUrl = "http://127.0.0.1:" + port.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        _httpClient = new HttpClient(new HttpClientHandler
+        // SocketsHttpHandler + ConnectTimeout prevents hung DNS when best-effort skin hydration fails.
+        // Wrap the system proxy so loopback auth mocks/unit tests never go through a corporate proxy.
+        _httpClient = new HttpClient(new SocketsHttpHandler
         {
             AutomaticDecompression = DecompressionMethods.All,
-            UseProxy = true
+            UseProxy = true,
+            Proxy = new LoopbackBypassProxy(HttpClient.DefaultProxy),
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2)
         })
         {
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = TimeSpan.FromSeconds(15)
         };
+        // Session-scoped chat signing keys. Empty PEMs make the client report "profile public key missing".
+        _playerCertificates = CreatePlayerCertificates();
 
         if (request.IdentityMode == MinecraftJvmHostIdentityMode.Offline &&
             IsUsableSkinSource(request.OfflineSkinSource))
@@ -170,7 +180,8 @@ internal sealed class MinecraftSessionBridge : IDisposable
         if (_request.IdentityMode == MinecraftJvmHostIdentityMode.ThirdParty &&
             path.StartsWith("/minecraftservices/", StringComparison.OrdinalIgnoreCase))
         {
-            return HandleThirdPartyMinecraftServices(request, path);
+            return await HandleThirdPartyMinecraftServicesAsync(request, path, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return _request.IdentityMode switch
@@ -210,60 +221,49 @@ internal sealed class MinecraftSessionBridge : IDisposable
             return JsonResponse(new JsonArray(CreateNameAndId()));
 
         if (request.Method == "GET" && string.Equals(path, "/minecraftservices/minecraft/profile", StringComparison.OrdinalIgnoreCase))
-        {
-            JsonObject response = CreateNameAndId();
-            response["skins"] = new JsonArray();
-            response["capes"] = new JsonArray();
-            return JsonResponse(response);
-        }
-
-        return TextResponse(404, "Not Found", "Offline endpoint is not required by this authlib version.");
-    }
-
-    private HttpResponseData HandleThirdPartyMinecraftServices(HttpRequestData request, string path)
-    {
-        if (request.Method == "GET" &&
-            string.Equals(path, "/minecraftservices/minecraft/profile", StringComparison.OrdinalIgnoreCase))
-        {
-            JsonObject profile = CreateNameAndId();
-            profile["skins"] = new JsonArray();
-            profile["capes"] = new JsonArray();
-            _lifecycle.SendOnce("ThirdPartyProfile", "第三方档案已由 PCL N 本机会话提供");
-            return JsonResponse(profile);
-        }
+            return JsonResponse(CreateOfflineServicesProfile());
 
         if (request.Method == "POST" &&
             string.Equals(path, "/minecraftservices/player/certificates", StringComparison.OrdinalIgnoreCase))
         {
-            return JsonResponse(new JsonObject
-            {
-                ["keyPair"] = new JsonObject
-                {
-                    ["privateKey"] = string.Empty,
-                    ["publicKey"] = string.Empty
-                },
-                ["publicKeySignature"] = string.Empty,
-                ["publicKeySignatureV2"] = string.Empty,
-                ["expiresAt"] = DateTimeOffset.UtcNow.ToString("O"),
-                ["refreshedAfter"] = DateTimeOffset.UtcNow.ToString("O")
-            });
+            _lifecycle.SendOnce("PlayerCertificates", "会话聊天签名密钥已由 Jvm.NET Host 生成本地密钥对");
+            return JsonResponse(CloneJsonObject(_playerCertificates));
         }
 
         if (request.Method == "GET" &&
             string.Equals(path, "/minecraftservices/player/attributes", StringComparison.OrdinalIgnoreCase))
         {
-            return JsonResponse(new JsonObject
-            {
-                ["privileges"] = new JsonObject
-                {
-                    ["onlineChat"] = new JsonObject { ["enabled"] = true },
-                    ["multiplayerServer"] = new JsonObject { ["enabled"] = true },
-                    ["multiplayerRealms"] = new JsonObject { ["enabled"] = false },
-                    ["telemetry"] = new JsonObject { ["enabled"] = false }
-                },
-                ["profanityFilterPreferences"] = new JsonObject { ["profanityFilterOn"] = false },
-                ["banStatus"] = new JsonObject { ["bannedScopes"] = new JsonObject() }
-            });
+            return JsonResponse(CreatePlayerAttributes());
+        }
+
+        return TextResponse(404, "Not Found", "Offline endpoint is not required by this authlib version.");
+    }
+
+    private async Task<HttpResponseData> HandleThirdPartyMinecraftServicesAsync(
+        HttpRequestData request,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        if (request.Method == "GET" &&
+            string.Equals(path, "/minecraftservices/minecraft/profile", StringComparison.OrdinalIgnoreCase))
+        {
+            JsonObject profile = await GetOrCreateThirdPartyServicesProfileAsync(cancellationToken)
+                .ConfigureAwait(false);
+            _lifecycle.SendOnce("ThirdPartyProfile", "第三方档案已由 PCL N 本机会话提供");
+            return JsonResponse(CloneJsonObject(profile));
+        }
+
+        if (request.Method == "POST" &&
+            string.Equals(path, "/minecraftservices/player/certificates", StringComparison.OrdinalIgnoreCase))
+        {
+            _lifecycle.SendOnce("PlayerCertificates", "第三方会话聊天签名密钥已由 Jvm.NET Host 生成本地密钥对");
+            return JsonResponse(CloneJsonObject(_playerCertificates));
+        }
+
+        if (request.Method == "GET" &&
+            string.Equals(path, "/minecraftservices/player/attributes", StringComparison.OrdinalIgnoreCase))
+        {
+            return JsonResponse(CreatePlayerAttributes());
         }
 
         return TextResponse(404, "Not Found", "Unsupported third-party Minecraft Services endpoint.");
@@ -313,9 +313,26 @@ internal sealed class MinecraftSessionBridge : IDisposable
         byte[] body = await ReadLimitedAsync(response.Content, MaxResponseBytes, cancellationToken).ConfigureAwait(false);
         string contentTypeValue = response.Content.Headers.ContentType?.ToString() ?? "application/json; charset=utf-8";
 
+        if (response.IsSuccessStatusCode && IsProfileTexturePath(path) && body.Length > 0)
+        {
+            try
+            {
+                body = SanitizeThirdPartyProfile(body);
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidDataException or FormatException or
+                                           InvalidOperationException or CryptographicException)
+            {
+                // Keep the upstream body if sanitization fails; authlib already trusts signatures.
+            }
+        }
+
         PublishThirdPartyLifecycle(request.Method, path, response.StatusCode, body);
         return new HttpResponseData((int)response.StatusCode, response.ReasonPhrase ?? "Upstream", contentTypeValue, body);
     }
+
+    private static bool IsProfileTexturePath(string path) =>
+        path.StartsWith("/sessionserver/session/minecraft/profile/", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(path, "/sessionserver/session/minecraft/hasJoined", StringComparison.OrdinalIgnoreCase);
 
     private byte[] CreateJoinRequestBody(byte[] originalBody)
     {
@@ -539,6 +556,220 @@ internal sealed class MinecraftSessionBridge : IDisposable
             ["properties"] = properties
         };
     }
+
+    private JsonObject CreateOfflineServicesProfile()
+    {
+        JsonObject response = CreateNameAndId();
+        JsonArray skins = new();
+        if (_offlineTextureToken is not null)
+        {
+            skins.Add((JsonNode)CreateServicesSkinEntry(
+                BaseUrl + "/pcl/texture/" + _offlineTextureToken,
+                _request.OfflineSkinSlim ? "SLIM" : "CLASSIC"));
+        }
+
+        response["skins"] = skins;
+        response["capes"] = new JsonArray();
+        return response;
+    }
+
+    private async Task<JsonObject> GetOrCreateThirdPartyServicesProfileAsync(CancellationToken cancellationToken)
+    {
+        if (_thirdPartyServicesProfile is not null)
+            return _thirdPartyServicesProfile;
+
+        await _thirdPartyProfileGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_thirdPartyServicesProfile is not null)
+                return _thirdPartyServicesProfile;
+
+            JsonObject profile = CreateNameAndId();
+            JsonArray skins = new();
+            JsonArray capes = new();
+
+            try
+            {
+                using CancellationTokenSource skinTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                skinTimeout.CancelAfter(TimeSpan.FromSeconds(5));
+                JsonObject? textures = await FetchThirdPartyTexturesPayloadAsync(skinTimeout.Token)
+                    .ConfigureAwait(false);
+                if (textures is not null)
+                    PopulateServicesTextures(textures, skins, capes);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException or
+                                           JsonException or FormatException or OperationCanceledException or
+                                           TaskCanceledException or UnauthorizedAccessException or
+                                           SocketException)
+            {
+                // Skin hydration is best-effort; chat certificates still work without it.
+            }
+
+            profile["skins"] = skins;
+            profile["capes"] = capes;
+            _thirdPartyServicesProfile = profile;
+            if (skins.Count > 0)
+                _lifecycle.SendOnce("SkinReady", "第三方皮肤已映射到本机会话桥");
+            return profile;
+        }
+        finally
+        {
+            _thirdPartyProfileGate.Release();
+        }
+    }
+
+    private async Task<JsonObject?> FetchThirdPartyTexturesPayloadAsync(CancellationToken cancellationToken)
+    {
+        string authRoot = _request.AuthServer!.Trim().TrimEnd('/');
+        string uuid = NormalizeUuid(_request.PlayerUuid);
+        string target = authRoot + "/sessionserver/session/minecraft/profile/" + uuid;
+        if (!Uri.TryCreate(target, UriKind.Absolute, out Uri? targetUri) ||
+            targetUri.Scheme is not ("http" or "https"))
+        {
+            return null;
+        }
+
+        using HttpRequestMessage upstream = new(HttpMethod.Get, targetUri);
+        upstream.Headers.TryAddWithoutValidation("Accept", "application/json");
+        if (!string.IsNullOrWhiteSpace(_request.AccessToken) && _request.AccessToken != "0")
+            upstream.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _request.AccessToken);
+
+        using HttpResponseMessage response = await _httpClient.SendAsync(
+                upstream,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            return null;
+
+        byte[] body = await ReadLimitedAsync(response.Content, MaxResponseBytes, cancellationToken).ConfigureAwait(false);
+        if (body.Length == 0)
+            return null;
+
+        JsonObject profile = JsonNode.Parse(body)?.AsObject()
+                             ?? throw new InvalidDataException("第三方档案响应不是 JSON 对象。");
+        if (profile["properties"] is not JsonArray properties)
+            return null;
+
+        foreach (JsonNode? node in properties)
+        {
+            if (node is not JsonObject property ||
+                !string.Equals(property["name"]?.GetValue<string>(), "textures", StringComparison.OrdinalIgnoreCase) ||
+                property["value"]?.GetValue<string>() is not { } value ||
+                string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            try
+            {
+                // Local services profile only needs a decodable texture payload; URLs are proxied
+                // through the bridge. Signature/domain checks still apply when rewriting for authlib.
+                JsonObject payload = DecodeTexturePayload(value);
+                if (payload["textures"] is JsonObject textures)
+                    return textures;
+            }
+            catch (Exception ex) when (ex is FormatException or JsonException or InvalidDataException or
+                                           InvalidOperationException)
+            {
+            }
+        }
+
+        return null;
+    }
+
+    private void PopulateServicesTextures(JsonObject textures, JsonArray skins, JsonArray capes)
+    {
+        if (textures["SKIN"] is JsonObject skin &&
+            skin["url"]?.GetValue<string>() is { } skinUrl &&
+            Uri.TryCreate(skinUrl, UriKind.Absolute, out Uri? skinUri) &&
+            skinUri.Scheme is "http" or "https")
+        {
+            string token = RegisterTextureSource(skinUri.AbsoluteUri);
+            string? model = skin["metadata"]?["model"]?.GetValue<string>();
+            bool slim = string.Equals(model, "slim", StringComparison.OrdinalIgnoreCase);
+            skins.Add((JsonNode)CreateServicesSkinEntry(
+                BaseUrl + "/pcl/texture/" + token,
+                slim ? "SLIM" : "CLASSIC"));
+        }
+
+        if (textures["CAPE"] is JsonObject cape &&
+            cape["url"]?.GetValue<string>() is { } capeUrl &&
+            Uri.TryCreate(capeUrl, UriKind.Absolute, out Uri? capeUri) &&
+            capeUri.Scheme is "http" or "https")
+        {
+            string token = RegisterTextureSource(capeUri.AbsoluteUri);
+            capes.Add((JsonNode)new JsonObject
+            {
+                ["id"] = Guid.NewGuid().ToString("N"),
+                ["state"] = "ACTIVE",
+                ["url"] = BaseUrl + "/pcl/texture/" + token,
+                ["alias"] = "Cape"
+            });
+        }
+    }
+
+    private static JsonObject CreateServicesSkinEntry(string url, string variant) => new()
+    {
+        ["id"] = Guid.NewGuid().ToString("N"),
+        ["state"] = "ACTIVE",
+        ["url"] = url,
+        ["variant"] = variant,
+        ["textureKey"] = Guid.NewGuid().ToString("N")
+    };
+
+    private static JsonObject CreatePlayerCertificates()
+    {
+        using RSA rsa = RSA.Create(2048);
+        string privateKey = EnsurePemTrailingNewline(rsa.ExportRSAPrivateKeyPem());
+        string publicKey = EnsurePemTrailingNewline(rsa.ExportRSAPublicKeyPem());
+
+        // Mojang signs these with the services key. For Host third-party/offline we only need a
+        // parseable key pair so the client can load chat signing; signature trust is relaxed in authlib.
+        byte[] publicKeyDer = rsa.ExportSubjectPublicKeyInfo();
+        string signature = Convert.ToBase64String(
+            rsa.SignData(publicKeyDer, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1));
+        string signatureV2 = Convert.ToBase64String(
+            rsa.SignData(publicKeyDer, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
+
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        return new JsonObject
+        {
+            ["keyPair"] = new JsonObject
+            {
+                ["privateKey"] = privateKey,
+                ["publicKey"] = publicKey
+            },
+            ["publicKeySignature"] = signature,
+            ["publicKeySignatureV2"] = signatureV2,
+            ["expiresAt"] = now.AddDays(2).UtcDateTime.ToString(
+                "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["refreshedAfter"] = now.AddHours(12).UtcDateTime.ToString(
+                "yyyy-MM-dd'T'HH:mm:ss.fff'Z'",
+                System.Globalization.CultureInfo.InvariantCulture)
+        };
+    }
+
+    private static JsonObject CreatePlayerAttributes() => new()
+    {
+        ["privileges"] = new JsonObject
+        {
+            ["onlineChat"] = new JsonObject { ["enabled"] = true },
+            ["multiplayerServer"] = new JsonObject { ["enabled"] = true },
+            ["multiplayerRealms"] = new JsonObject { ["enabled"] = false },
+            ["telemetry"] = new JsonObject { ["enabled"] = false }
+        },
+        ["profanityFilterPreferences"] = new JsonObject { ["profanityFilterOn"] = false },
+        ["banStatus"] = new JsonObject { ["bannedScopes"] = new JsonObject() }
+    };
+
+    private static string EnsurePemTrailingNewline(string pem) =>
+        pem.EndsWith('\n') ? pem : pem + "\n";
+
+    private static JsonObject CloneJsonObject(JsonObject source) =>
+        JsonNode.Parse(source.ToJsonString())?.AsObject()
+        ?? throw new InvalidOperationException("Failed to clone JSON object.");
 
     private JsonObject CreateNameAndId() => new()
     {
@@ -831,7 +1062,33 @@ internal sealed class MinecraftSessionBridge : IDisposable
         }
         _httpClient.Dispose();
         _metadata.Dispose();
+        _thirdPartyProfileGate.Dispose();
         _shutdown.Dispose();
+    }
+
+    /// <summary>
+    /// Delegates to the system/default proxy for remote hosts, but always reaches loopback directly.
+    /// </summary>
+    private sealed class LoopbackBypassProxy(IWebProxy inner) : IWebProxy
+    {
+        public ICredentials? Credentials
+        {
+            get => inner.Credentials;
+            set => inner.Credentials = value;
+        }
+
+        public Uri? GetProxy(Uri destination) =>
+            IsLoopbackHost(destination) ? destination : inner.GetProxy(destination);
+
+        public bool IsBypassed(Uri host) =>
+            IsLoopbackHost(host) || inner.IsBypassed(host);
+
+        private static bool IsLoopbackHost(Uri uri) =>
+            uri.IsLoopback ||
+            string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uri.Host, "[::1]", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uri.Host, "::1", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed record HttpRequestData(
