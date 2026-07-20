@@ -17,8 +17,27 @@ internal static class ControlVisualHelpers
 {
     internal static void AnimateListEntrance(Panel panel, string animationKey)
     {
-        if (!ShouldAnimate(panel) || panel.Children.Count == 0)
+        if (panel.Children.Count == 0)
             return;
+
+        // Defer until attached so entrance is not silently skipped (common "missing animation" cause).
+        if (!panel.IsAttachedToVisualTree())
+        {
+            EventHandler<VisualTreeAttachmentEventArgs>? attached = null;
+            attached = (_, _) =>
+            {
+                panel.AttachedToVisualTree -= attached;
+                AnimateListEntrance(panel, animationKey);
+            };
+            panel.AttachedToVisualTree += attached;
+            return;
+        }
+
+        if (!ShouldAnimate(panel))
+        {
+            SnapListEntranceFinal(panel);
+            return;
+        }
 
         Control[] children = panel.Children.Take(MotionTokens.ListEnterMaxChildren).ToArray();
         foreach (Control child in children)
@@ -29,29 +48,60 @@ internal static class ControlVisualHelpers
                 translate = new TranslateTransform();
                 child.RenderTransform = translate;
             }
-            translate.Y = 8d;
+            translate.Y = MotionTokens.ListEnterOffsetY;
         }
 
         Dispatcher.UIThread.Post(() =>
         {
+            if (!panel.IsAttachedToVisualTree() || !panel.IsVisible)
+            {
+                SnapListEntranceFinal(panel);
+                return;
+            }
+
+            if (ReduceMotionPreferred() || ModAnimation.AniControlEnabled != 0)
+            {
+                SnapListEntranceFinal(panel);
+                return;
+            }
+
             List<ModAnimation.AniData> animations = [];
             int index = 0;
             foreach (Control child in children.Where(panel.Children.Contains))
             {
-                int delay = Math.Min(index * MotionTokens.ListStaggerMs, 180);
-                animations.Add(ModAnimation.AaOpacity(child, 1d, MotionTokens.ListEnterOpacityMs, delay));
+                int delay = Math.Min(index * MotionTokens.ListStaggerMs, 200);
+                // Critically damped rise + fade (opacity + transform only).
+                animations.Add(ModAnimation.AaOpacity(
+                    child,
+                    1d,
+                    MotionTokens.ListEnterOpacityMs,
+                    delay,
+                    new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)));
                 animations.Add(ModAnimation.AaTranslateY(
                     child,
-                    -8d,
+                    -MotionTokens.ListEnterOffsetY,
                     MotionTokens.ListEnterSlideMs,
                     delay,
                     new ModAnimation.AniEaseOutFluent()));
                 index++;
             }
 
+            // Guarantee final presentation even if the named group is interrupted later.
+            animations.Add(ModAnimation.AaCode(() => SnapListEntranceFinal(panel), after: true));
+
             if (animations.Count > 0)
                 ModAnimation.AniStart(animations, animationKey);
         }, DispatcherPriority.Loaded);
+    }
+
+    private static void SnapListEntranceFinal(Panel panel)
+    {
+        foreach (Control child in panel.Children)
+        {
+            child.Opacity = 1d;
+            if (child.RenderTransform is TranslateTransform translate)
+                translate.Y = 0d;
+        }
     }
 
     internal static bool ShouldAnimate(Control control, object? animationOverride = null) =>

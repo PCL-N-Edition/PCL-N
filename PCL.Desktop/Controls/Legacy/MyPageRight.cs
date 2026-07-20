@@ -203,7 +203,8 @@ public class MyPageRight : ContentControl, IDisposable
     {
         _pageLoaderCancellation?.Cancel();
         PageState = PageStates.Empty;
-        ModAnimation.AniStop("PageRight PageChange " + PageUuid);
+        // Drop mid-flight enter/exit without running finish callbacks (force-hide follows).
+        ModAnimation.AniStop("PageRight PageChange " + PageUuid, finish: false);
         if (_pageContentPanel is not null)
             _pageContentPanel.IsVisible = false;
         if (_pageLoaderPanel is not null)
@@ -275,7 +276,15 @@ public class MyPageRight : ContentControl, IDisposable
                     continue;
                 }
 
-                // Critically damped enter: short fade + single settle, no OutBack bounce.
+                // Apple-style materialize: fade in + rise from below (opacity + transform only).
+                // Critically damped (no bounce). Interruptible via AniStop(finish).
+                if (ControlVisualHelpers.ReduceMotionPreferred())
+                {
+                    control.Opacity = 1d;
+                    control.RenderTransform = null;
+                    continue;
+                }
+
                 control.Opacity = 0d;
                 control.RenderTransform = new TranslateTransform(0d, MotionTokens.PageEnterOffsetY);
                 animations.Add(ModAnimation.AaOpacity(
@@ -295,19 +304,50 @@ public class MyPageRight : ContentControl, IDisposable
         }
 
         Control? scrollBar = GetFirstScrollBar(realElements);
-        if (scrollBar is not null)
+        if (scrollBar is not null && !ControlVisualHelpers.ReduceMotionPreferred())
         {
             if (scrollBar.RenderTransform is not TranslateTransform)
                 scrollBar.RenderTransform = new TranslateTransform(10d, 0d);
             animations.Add(ModAnimation.AaTranslateX(
                 scrollBar,
                 -((TranslateTransform)scrollBar.RenderTransform).X,
-                350,
+                MotionTokens.PageEnterSlideMs,
                 0,
                 new ModAnimation.AniEaseOutFluent()));
         }
 
-        animations.Add(ModAnimation.AaCode(PageOnEnterAnimationFinished, after: true));
+        // Always restore hit-test / state even when the group is interrupted mid-flight.
+        animations.Add(ModAnimation.AaCode(() =>
+        {
+            foreach (Control element in realElements)
+            {
+                foreach (Control control in GetAllAnimControls(element, ignoreInvisibility: true))
+                {
+                    if (control.Opacity < 1d)
+                        control.Opacity = 1d;
+                    if (control.RenderTransform is TranslateTransform t && (Math.Abs(t.X) > 0.01d || Math.Abs(t.Y) > 0.01d))
+                    {
+                        t.X = 0d;
+                        t.Y = 0d;
+                    }
+                }
+            }
+
+            PageOnEnterAnimationFinished();
+        }, after: true));
+        if (animations.Count == 1 && ControlVisualHelpers.ReduceMotionPreferred())
+        {
+            // Only the finish callback — run immediately without timer churn.
+            PageOnEnterAnimationFinished();
+            foreach (Control element in realElements)
+            {
+                element.IsVisible = true;
+                foreach (Control control in GetAllAnimControls(element, ignoreInvisibility: true))
+                    control.Opacity = 1d;
+            }
+            return;
+        }
+
         ModAnimation.AniStart(animations, "PageRight PageChange " + PageUuid, true);
     }
 
@@ -329,9 +369,20 @@ public class MyPageRight : ContentControl, IDisposable
                 }
 
                 control.IsHitTestVisible = false;
-                animations.Add(ModAnimation.AaOpacity(control, -1d, 70, delay));
-                animations.Add(ModAnimation.AaTranslateY(control, -6d, 70, delay));
-                delay += 15;
+                // Exit mirrors enter path (down + fade) for spatial consistency.
+                animations.Add(ModAnimation.AaOpacity(
+                    control,
+                    -control.Opacity,
+                    MotionTokens.NavCrossfadeOutMs,
+                    delay,
+                    new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)));
+                animations.Add(ModAnimation.AaTranslateY(
+                    control,
+                    MotionTokens.PageEnterOffsetY * 0.75d,
+                    MotionTokens.NavCrossfadeOutMs,
+                    delay,
+                    new ModAnimation.AniEaseInFluent(ModAnimation.AniEasePower.Weak)));
+                delay += 12;
             }
         }
 

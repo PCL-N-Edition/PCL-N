@@ -22,6 +22,7 @@ public static partial class ModAnimation
 {
     private static readonly Dictionary<string, AniGroupEntry> AniGroups = [];
     private static readonly List<KeyValuePair<string, AniGroupEntry>> FrameBuffer = [];
+    private static readonly HashSet<string> DrainingNames = [];
     private static readonly Stopwatch AniClock = new();
     private static DispatcherTimer? _aniTimer;
     private static double _aniLastTick;
@@ -47,7 +48,9 @@ public static partial class ModAnimation
         if (string.IsNullOrEmpty(name))
             name = Guid.NewGuid().ToString("N");
         else
-            AniStop(name);
+            // Interruptible retarget: finish the previous run to its end state so
+            // opacity/translate never stick mid-flight (Apple: continuous presentation).
+            AniStop(name, finish: true);
 
         AniGroups[name] = new AniGroupEntry(data);
         if (refreshTime)
@@ -58,12 +61,39 @@ public static partial class ModAnimation
     public static void AniStart(AniData aniGroup, string name = "", bool refreshTime = false) =>
         AniStart(new List<AniData> { aniGroup }, name, refreshTime);
 
-    public static void AniStop(string name)
+    /// <summary>
+    /// Stops a named animation group. When <paramref name="finish"/> is true (default),
+    /// remaining work — including after-chained code callbacks — is applied immediately
+    /// so the UI never freezes at an intermediate opacity/transform.
+    /// </summary>
+    public static void AniStop(string name, bool finish = true)
     {
         if (string.IsNullOrEmpty(name))
             return;
 
-        AniGroups.Remove(name);
+        if (!AniGroups.TryGetValue(name, out AniGroupEntry? entry))
+            return;
+
+        if (finish)
+        {
+            // Nested AniStop while already draining this name: let the outer drain finish.
+            if (!DrainingNames.Add(name))
+                return;
+
+            try
+            {
+                DrainGroup(entry);
+            }
+            finally
+            {
+                DrainingNames.Remove(name);
+            }
+        }
+
+        // Only remove if this entry is still the registered one (callbacks may re-enter AniStart).
+        if (AniGroups.TryGetValue(name, out AniGroupEntry? current) && ReferenceEquals(current, entry))
+            AniGroups.Remove(name);
+
         StopTimerIfIdle();
     }
 
@@ -118,41 +148,7 @@ public static partial class ModAnimation
         {
             KeyValuePair<string, AniGroupEntry> pair = FrameBuffer[groupIndex];
             AniGroupEntry entry = pair.Value;
-            bool canRemoveAfter = true;
-            int index = 0;
-            while (index < entry.Data.Count)
-            {
-                AniData anim = entry.Data[index];
-                if (!anim.isAfter)
-                {
-                    canRemoveAfter = false;
-                    anim.timeFinished += deltaTick;
-                    if (anim.timeFinished > 0)
-                        anim = AniRun(anim);
-
-                    if (anim.timeFinished >= anim.timeTotal)
-                    {
-                        AniFinish(anim);
-                        entry.Data.RemoveAt(index);
-                        continue;
-                    }
-
-                    entry.Data[index] = anim;
-                }
-                else if (canRemoveAfter)
-                {
-                    canRemoveAfter = false;
-                    anim.isAfter = false;
-                    entry.Data[index] = anim;
-                    continue;
-                }
-                else
-                {
-                    break;
-                }
-
-                index++;
-            }
+            AdvanceGroup(entry, deltaTick);
 
             if (entry.Data.Count == 0 && AniGroups.TryGetValue(pair.Key, out AniGroupEntry? current) && ReferenceEquals(current, entry))
                 AniGroups.Remove(pair.Key);
@@ -160,6 +156,59 @@ public static partial class ModAnimation
 
         FrameBuffer.Clear();
         StopTimerIfIdle();
+    }
+
+    /// <summary>
+    /// Advances one group by <paramref name="deltaTick"/> ms. Shared by the timer and
+    /// interrupt finish so after-chains and AaCode callbacks stay consistent.
+    /// </summary>
+    private static void AdvanceGroup(AniGroupEntry entry, int deltaTick)
+    {
+        bool canRemoveAfter = true;
+        int index = 0;
+        while (index < entry.Data.Count)
+        {
+            AniData anim = entry.Data[index];
+            if (!anim.isAfter)
+            {
+                canRemoveAfter = false;
+                anim.timeFinished += deltaTick;
+                if (anim.timeFinished > 0)
+                    anim = AniRun(anim);
+
+                if (anim.timeFinished >= anim.timeTotal)
+                {
+                    AniFinish(anim);
+                    entry.Data.RemoveAt(index);
+                    continue;
+                }
+
+                entry.Data[index] = anim;
+            }
+            else if (canRemoveAfter)
+            {
+                canRemoveAfter = false;
+                anim.isAfter = false;
+                entry.Data[index] = anim;
+                continue;
+            }
+            else
+            {
+                break;
+            }
+
+            index++;
+        }
+    }
+
+    /// <summary>
+    /// Instantly completes every item in a group (including delayed / after-chained work).
+    /// </summary>
+    private static void DrainGroup(AniGroupEntry entry)
+    {
+        int guard = 0;
+        while (entry.Data.Count > 0 && guard++ < 2000)
+            AdvanceGroup(entry, 100_000);
     }
 
     public static AniData AaX(object obj, double value, int time = 400, int delay = 0, AniEase? ease = null, bool after = false) =>

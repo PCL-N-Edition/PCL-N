@@ -2617,18 +2617,43 @@ public partial class MainWindow : Window, IDisposable
             oldRight?.PageOnExit();
             if (animate && _isMainWindowOpened)
             {
+                if (rightHost.RenderTransform is not TranslateTransform taskNavTranslate)
+                {
+                    taskNavTranslate = new TranslateTransform();
+                    rightHost.RenderTransform = taskNavTranslate;
+                }
+
                 ModAnimation.AniStart(
                     new List<ModAnimation.AniData>
                     {
-                        ModAnimation.AaOpacity(rightHost, -rightHost.Opacity, MotionTokens.NavCrossfadeOutMs),
+                        ModAnimation.AaOpacity(
+                            rightHost,
+                            -rightHost.Opacity,
+                            MotionTokens.NavCrossfadeOutMs,
+                            ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
                         ModAnimation.AaCode(() =>
                         {
                             rightHost.Child = rightPage;
                             rightHost.Opacity = 0d;
+                            taskNavTranslate.Y = MotionTokens.NavEnterOffsetY;
                             RefreshBackToTopBinding();
                         }, after: true),
-                        ModAnimation.AaOpacity(rightHost, 1d, MotionTokens.NavCrossfadeInMs),
-                        ModAnimation.AaCode(rightPage.PageOnEnter, after: true)
+                        ModAnimation.AaOpacity(
+                            rightHost,
+                            1d,
+                            MotionTokens.NavCrossfadeInMs,
+                            ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
+                        ModAnimation.AaTranslateY(
+                            rightHost,
+                            -MotionTokens.NavEnterOffsetY,
+                            MotionTokens.NavCrossfadeInMs,
+                            ease: new ModAnimation.AniEaseOutFluent()),
+                        ModAnimation.AaCode(() =>
+                        {
+                            rightHost.Opacity = 1d;
+                            taskNavTranslate.Y = 0d;
+                            rightPage.PageOnEnter();
+                        }, after: true)
                     },
                     "FrmMain PageChangeRight");
             }
@@ -3352,13 +3377,15 @@ public partial class MainWindow : Window, IDisposable
 
         MyPageRight? oldRight = rightHost.Child as MyPageRight;
         _setupRight = target;
-        // Do not AniStop("FrmMain PageChangeRight") here: interrupting the main
-        // settings enter fade can leave PanMainRight.Opacity at 0 (gray right pane)
-        // when the user opens 设置 immediately after launch.
+        // Drop any in-flight nav host fade without running its after-chain (we own the swap).
+        // Previously leaving it running could pull Opacity back toward 0 (gray right pane).
+        ModAnimation.AniStop("FrmMain PageChangeRight", finish: false);
         ModAnimation.AniStop("PageSetupLeft PageChange");
         oldRight?.PageOnExit();
-        // Ensure host is visible even if a parent page-change fade was still running.
+        // Ensure host is fully settled for the settings enter sequence.
         rightHost.Opacity = 1d;
+        if (rightHost.RenderTransform is TranslateTransform hostTranslate)
+            hostTranslate.Y = 0d;
         ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
@@ -5140,19 +5167,44 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
+        // Apple nav: short fade-out → swap → materialize (opacity + slight rise).
+        // AniStop(finish) ensures interrupt never leaves the host at opacity 0.
+        if (right.RenderTransform is not TranslateTransform navTranslate)
+        {
+            navTranslate = new TranslateTransform();
+            right.RenderTransform = navTranslate;
+        }
+
         ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
-                ModAnimation.AaOpacity(right, -right.Opacity, MotionTokens.NavCrossfadeOutMs),
+                ModAnimation.AaOpacity(
+                    right,
+                    -right.Opacity,
+                    MotionTokens.NavCrossfadeOutMs,
+                    ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
                 ModAnimation.AaCode(() =>
                 {
                     ApplyPagePlaceholder(route);
                     right.Opacity = 0d;
+                    navTranslate.Y = MotionTokens.NavEnterOffsetY;
                 }, after: true),
-                ModAnimation.AaOpacity(right, 1d, MotionTokens.NavCrossfadeInMs),
-                // Always force full opacity when the sequence finishes — guards against
-                // mid-animation AniStop / nested page swaps leaving the right pane gray.
-                ModAnimation.AaCode(() => right.Opacity = 1d, after: true)
+                ModAnimation.AaOpacity(
+                    right,
+                    1d,
+                    MotionTokens.NavCrossfadeInMs,
+                    ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
+                ModAnimation.AaTranslateY(
+                    right,
+                    -MotionTokens.NavEnterOffsetY,
+                    MotionTokens.NavCrossfadeInMs,
+                    ease: new ModAnimation.AniEaseOutFluent()),
+                // Always force full opacity / settled transform when the sequence finishes.
+                ModAnimation.AaCode(() =>
+                {
+                    right.Opacity = 1d;
+                    navTranslate.Y = 0d;
+                }, after: true)
             },
             "FrmMain PageChangeRight");
     }
@@ -5208,10 +5260,16 @@ public partial class MainWindow : Window, IDisposable
             return;
 
         _showAnimationStarted = true;
+        // Critically damped window settle (no bounce) — Apple default for non-momentum motion.
         ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
-                ModAnimation.AaOpacity(this, _targetWindowOpacity - Opacity, 250, 100),
+                ModAnimation.AaOpacity(
+                    this,
+                    _targetWindowOpacity - Opacity,
+                    MotionTokens.WindowShowOpacityMs,
+                    40,
+                    new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
                 ModAnimation.AaDouble(
                     value =>
                     {
@@ -5219,9 +5277,9 @@ public partial class MainWindow : Window, IDisposable
                             _showAnimationTranslate.Y += value;
                     },
                     -(_showAnimationTranslate?.Y ?? 0d),
-                    600,
-                    100,
-                    new ModAnimation.AniEaseOutBack(ModAnimation.AniEasePower.Weak)),
+                    MotionTokens.WindowShowSlideMs,
+                    40,
+                    new ModAnimation.AniEaseOutFluent()),
                 ModAnimation.AaDouble(
                     value =>
                     {
@@ -5229,13 +5287,14 @@ public partial class MainWindow : Window, IDisposable
                             _showAnimationRotate.Angle += value;
                     },
                     -(_showAnimationRotate?.Angle ?? 0d),
-                    500,
-                    100,
-                    new ModAnimation.AniEaseOutBack(ModAnimation.AniEasePower.Weak)),
+                    MotionTokens.WindowShowSlideMs,
+                    40,
+                    new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
                 ModAnimation.AaCode(() =>
                 {
                     if (_showAnimationRoot is not null)
                         _showAnimationRoot.RenderTransform = null;
+                    Opacity = _targetWindowOpacity;
                 }, after: true)
             },
             "FrmMain Load");
