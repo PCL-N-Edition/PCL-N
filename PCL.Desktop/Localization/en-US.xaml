@@ -362,6 +362,8 @@
     <sys:String x:Key="Launch.Account.Type.Microsoft">Microsoft account</sys:String>
     <sys:String x:Key="Launch.Account.Type.Offline">Offline account</sys:String>
     <sys:String x:Key="Launch.Account.Type.ThirdParty">Third-party account</sys:String>
+    <sys:String x:Key="Launch.Home.Button.Launch">Play</sys:String>
+    <sys:String x:Key="Launch.Home.Button.Download">Install game</sys:String>
     <sys:String x:Key="Launch.Home.Button.Loading">Loading…</sys:String>
     <sys:String x:Key="Launch.Home.InstanceSettings">Instance Settings</sys:String>
     <sys:String x:Key="Launch.Home.SelectInstance">Choose Instance</sys:String>

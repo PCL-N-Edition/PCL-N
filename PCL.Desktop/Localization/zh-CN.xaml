@@ -362,6 +362,8 @@
     <sys:String x:Key="Launch.Account.Type.Microsoft">Microsoft 账户</sys:String>
     <sys:String x:Key="Launch.Account.Type.Offline">离线账户</sys:String>
     <sys:String x:Key="Launch.Account.Type.ThirdParty">第三方账户</sys:String>
+    <sys:String x:Key="Launch.Home.Button.Launch">启动游戏</sys:String>
+    <sys:String x:Key="Launch.Home.Button.Download">下载游戏</sys:String>
     <sys:String x:Key="Launch.Home.Button.Loading">正在加载…</sys:String>
     <sys:String x:Key="Launch.Home.InstanceSettings">版本设置</sys:String>
     <sys:String x:Key="Launch.Home.SelectInstance">选择版本</sys:String>
