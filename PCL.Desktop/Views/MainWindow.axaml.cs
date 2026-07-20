@@ -44,6 +44,7 @@ using PCL.Desktop.Features.Community;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Messaging;
+using PCL.Desktop.Session;
 using PCL.Desktop.Shell;
 using PCL.Desktop.Theme;
 using PCL.Desktop.Platform;
@@ -86,6 +87,10 @@ public partial class MainWindow : Window, IDisposable
     private readonly AppShellViewModel _shellViewModel;
     private readonly TitleBarViewModel _titleBarViewModel;
     private readonly ExtraDockViewModel _extraDockViewModel;
+    private readonly MinecraftFolderStore _folderStore;
+    private readonly InstanceSelectionStore _instanceSelectionStore;
+    private readonly TaskSessionStore _taskSessionStore;
+    private readonly GameSessionStore _gameSessionStore;
     private bool _isDisposed;
     private PageLoginProfile? _loginProfilePage;
     private PageLoginProfileSkin? _loginProfileSkinPage;
@@ -132,20 +137,13 @@ public partial class MainWindow : Window, IDisposable
     private PageSetupLeft? _setupLeft;
     private MyPageRight? _setupRight;
     private readonly List<LoginProfileInfo> _loginProfiles = [];
-    private readonly List<MinecraftFolderInfo> _minecraftFolders = [];
     private NavigationPageDescriptor[] _navigationPages;
-    private readonly Dictionary<string, TaskManagerEntrySnapshot> _taskSnapshots = [];
     private readonly Dictionary<string, CancellationTokenSource> _taskCancellations = [];
     private readonly DesktopPageAdapter _pageAdapter = new();
     private readonly DesktopPageContext _desktopPageContext;
     private int _registeredPageRequestId;
-    private int _taskSequence;
-    private bool _isTaskManagerVisible;
     private NavigationRouteId? _taskManagerBackRoute;
     private Action? _taskManagerBackAction;
-    private string? _selectedMinecraftRoot;
-    private bool _minecraftFoldersLoaded;
-    private bool _isGameRunning;
     private Process? _runningGameProcess;
     private RunningGameContext? _runningGameContext;
     private double _targetWindowOpacity = 1d;
@@ -187,6 +185,10 @@ public partial class MainWindow : Window, IDisposable
         _shellViewModel = DesktopCompositionRoot.GetRequiredService<AppShellViewModel>();
         _titleBarViewModel = DesktopCompositionRoot.GetRequiredService<TitleBarViewModel>();
         _extraDockViewModel = DesktopCompositionRoot.GetRequiredService<ExtraDockViewModel>();
+        _folderStore = DesktopCompositionRoot.GetRequiredService<MinecraftFolderStore>();
+        _instanceSelectionStore = DesktopCompositionRoot.GetRequiredService<InstanceSelectionStore>();
+        _taskSessionStore = DesktopCompositionRoot.GetRequiredService<TaskSessionStore>();
+        _gameSessionStore = DesktopCompositionRoot.GetRequiredService<GameSessionStore>();
         _extraDockViewModel.PropertyChanged += ExtraDockViewModel_PropertyChanged;
         AvaloniaXamlLoader.Load(this);
         DesktopHostUiComposition.Instance.RegisterTarget("pcl.window.main", this);
@@ -320,7 +322,7 @@ public partial class MainWindow : Window, IDisposable
                             _ => TaskManagerTaskState.Running
                         })).ToArray()
                     : null;
-                _window._taskSnapshots[_taskId] = new TaskManagerEntrySnapshot(
+                _window._taskSessionStore.Upsert(_taskId, new TaskManagerEntrySnapshot(
                     _taskId,
                     _title,
                     string.IsNullOrWhiteSpace(progress.Stage) ? "正在下载" : progress.Stage,
@@ -330,7 +332,7 @@ public partial class MainWindow : Window, IDisposable
                     progress.TotalFiles,
                     progress.SpeedBytesPerSecond,
                     TaskManagerTaskState.Running,
-                    Steps: steps);
+                    Steps: steps));
                 _window.UpdateTaskManagerViews();
                 _window.RefreshTaskManagerButton();
             }
@@ -1102,7 +1104,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (_currentNavRoute is NavigationRouteId currentRoute && currentRoute.Equals(route.Value))
         {
-            if (_isTitleSubPageVisible || _isTaskManagerVisible)
+            if (_isTitleSubPageVisible || _taskSessionStore.IsTaskManagerVisible)
                 ApplyPagePlaceholder(route);
             return;
         }
@@ -1213,7 +1215,7 @@ public partial class MainWindow : Window, IDisposable
     private void ApplyRegisteredMainPage(DesktopMainPage page)
     {
         _titleInnerBackAction = null;
-        _isTaskManagerVisible = false;
+        _taskSessionStore.IsTaskManagerVisible = false;
         RefreshTaskManagerButton();
         if (this.FindControl<Border>("PanMainLeft") is not { } leftHost ||
             this.FindControl<Border>("PanMainRight") is not { } rightHost)
@@ -1336,7 +1338,7 @@ public partial class MainWindow : Window, IDisposable
         {
             _launchHomeExperimental.SetMaximumLogLines(ResolveMaximumLogLines(launchSettings));
             // Re-apply root if folders finished loading after first construction.
-            _launchHomeExperimental.SetMinecraftRootDirectory(_selectedMinecraftRoot);
+            _launchHomeExperimental.SetMinecraftRootDirectory(_folderStore.SelectedRoot);
             _launchHomeExperimental.SetPreferredInstanceDirectory(LoadPreferredInstanceDirectory());
             ApplyLaunchPageSettings(launchSettings);
             return;
@@ -1347,7 +1349,7 @@ public partial class MainWindow : Window, IDisposable
         page.CommunityHintHideRequested += (_, _) => PromptHideCommunityHint();
         page.SetMaximumLogLines(ResolveMaximumLogLines(launchSettings));
         page.SetPreferredInstanceDirectory(LoadPreferredInstanceDirectory());
-        page.SetMinecraftRootDirectory(_selectedMinecraftRoot);
+        page.SetMinecraftRootDirectory(_folderStore.SelectedRoot);
         page.ConfigureLaunchingHint(launchSettings.GetBooleanOption(
             "UiShowLaunchingHint",
             LauncherSettingDefaults.GetBoolean("UiShowLaunchingHint")));
@@ -1696,7 +1698,7 @@ public partial class MainWindow : Window, IDisposable
         EnsureMinecraftFoldersLoaded();
         PageLaunchLeft page = new();
         page.SetPreferredInstanceDirectory(LoadPreferredInstanceDirectory());
-        page.SetMinecraftRootDirectory(_selectedMinecraftRoot);
+        page.SetMinecraftRootDirectory(_folderStore.SelectedRoot);
         WireLaunchHomeSurface(page);
         return page;
     }
@@ -2512,12 +2514,8 @@ public partial class MainWindow : Window, IDisposable
         if (_launchLeft?.MinecraftRootDirectory is { Length: > 0 } liveRoot)
         {
             string? normalizedLive = NormalizeDirectoryPath(liveRoot);
-            if (normalizedLive is not null &&
-                _minecraftFolders.Any(folder =>
-                    string.Equals(folder.RootDirectory, normalizedLive, StringComparison.OrdinalIgnoreCase)))
-            {
-                _selectedMinecraftRoot = normalizedLive;
-            }
+            if (normalizedLive is not null && _folderStore.ContainsRoot(normalizedLive))
+                _folderStore.SetSelectedRootWithoutPersist(normalizedLive);
         }
 
         _instanceSelectPage ??= CreateInstanceSelectPage();
@@ -2530,13 +2528,13 @@ public partial class MainWindow : Window, IDisposable
             if (leftHost.Child is MyPageLeft oldLeft)
                 oldLeft.TriggerHideAnimation();
             leftHost.Child = null;
-            _instanceSelectPage.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+            _instanceSelectPage.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
         }
         else
         {
             // Classic: dedicated left folder rail + content-only right page.
             _instanceSelectLeft ??= CreateInstanceSelectLeftPage();
-            _instanceSelectLeft.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+            _instanceSelectLeft.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
             if (!ReferenceEquals(leftHost.Child, _instanceSelectLeft))
             {
                 if (leftHost.Child is MyPageLeft previousLeft)
@@ -2589,9 +2587,9 @@ public partial class MainWindow : Window, IDisposable
 
     private void RefreshInstanceSelectFolderLists()
     {
-        _instanceSelectLeft?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        _instanceSelectLeft?.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
         if (_instanceSelectPage is { IsFullPageLayout: true })
-            _instanceSelectPage.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+            _instanceSelectPage.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
     }
 
     private PageInstanceSelectRight CreateInstanceSelectPage()
@@ -2647,7 +2645,8 @@ public partial class MainWindow : Window, IDisposable
                 _launchLeft.SetInstances(snapshot, instance);
             }
 
-            PersistPreferredInstanceDirectory(_launchLeft?.PreferredInstanceDirectory ?? instance.InstanceDirectory);
+            _instanceSelectionStore.PersistPreferred(
+                _launchLeft?.PreferredInstanceDirectory ?? instance.InstanceDirectory);
             _launchRight?.AppendLog($"已选择游戏版本 {instance.Name}。");
             SelectNavRoute(LaunchRoute, animate: true);
         };
@@ -2655,105 +2654,23 @@ public partial class MainWindow : Window, IDisposable
         return page;
     }
 
-    private static string? LoadPreferredInstanceDirectory()
-    {
-        try
-        {
-            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            string directory = settings.GetTextOption(LauncherSettingKeys.LaunchSelectedInstanceDirectory);
-            return string.IsNullOrWhiteSpace(directory) ? null : directory;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        {
-            return null;
-        }
-    }
+    private string? LoadPreferredInstanceDirectory() =>
+        _instanceSelectionStore.LoadPreferred();
 
     private void PersistPreferredInstanceDirectory(string? instanceDirectory)
     {
-        if (string.IsNullOrWhiteSpace(instanceDirectory))
-            return;
-
         try
         {
-            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            settings.SetTextOption(LauncherSettingKeys.LaunchSelectedInstanceDirectory, instanceDirectory);
-            LauncherSettingsPageBinder.SaveSettings(settings);
+            _instanceSelectionStore.PersistPreferred(instanceDirectory);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        catch (Exception ex)
         {
             _launchRight?.AppendLog("未能保存所选游戏版本：" + ex.Message);
         }
     }
 
-    private void EnsureMinecraftFoldersLoaded()
-    {
-        if (_minecraftFoldersLoaded)
-            return;
-
-        _minecraftFoldersLoaded = true;
-        _minecraftFolders.Clear();
-        foreach (string root in LaunchInstanceDiscovery.GetCandidateRoots())
-        {
-            string? normalized = NormalizeDirectoryPath(root);
-            if (normalized is null || _minecraftFolders.Any(folder =>
-                    string.Equals(folder.RootDirectory, normalized, StringComparison.OrdinalIgnoreCase)))
-            {
-                continue;
-            }
-
-            _minecraftFolders.Add(new MinecraftFolderInfo(LaunchInstanceDiscovery.GetMinecraftRootDisplayName(normalized), normalized));
-        }
-
-        try
-        {
-            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            string serializedFolders = settings.GetTextOption(LauncherSettingKeys.LaunchMinecraftFolders);
-            if (!string.IsNullOrWhiteSpace(serializedFolders))
-            {
-                MinecraftFolderSetting[] customFolders = ParseMinecraftFolderSettings(serializedFolders);
-                foreach (MinecraftFolderSetting custom in customFolders)
-                {
-                    string? normalized = NormalizeDirectoryPath(custom.RootDirectory);
-                    if (normalized is null || _minecraftFolders.Any(folder =>
-                            string.Equals(folder.RootDirectory, normalized, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        continue;
-                    }
-
-                    string name = string.IsNullOrWhiteSpace(custom.Name)
-                        ? LaunchInstanceDiscovery.GetMinecraftRootDisplayName(normalized)
-                        : custom.Name.Trim();
-                    _minecraftFolders.Add(new MinecraftFolderInfo(name, normalized, IsCustom: true));
-                }
-            }
-
-            _selectedMinecraftRoot = NormalizeDirectoryPath(
-                settings.GetTextOption(LauncherSettingKeys.LaunchSelectedMinecraftRoot));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or JsonException)
-        {
-            _selectedMinecraftRoot = null;
-        }
-
-        if (_minecraftFolders.Count == 0)
-        {
-            string fallback = LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
-            _minecraftFolders.Add(new MinecraftFolderInfo("当前文件夹", NormalizeDirectoryPath(fallback) ?? fallback));
-        }
-
-        if (_selectedMinecraftRoot is null || !_minecraftFolders.Any(folder =>
-                string.Equals(folder.RootDirectory, _selectedMinecraftRoot, StringComparison.OrdinalIgnoreCase)))
-        {
-            _selectedMinecraftRoot = TryGetMinecraftRootFromInstanceDirectory(LoadPreferredInstanceDirectory())
-                                     ?? _minecraftFolders[0].RootDirectory;
-            if (!_minecraftFolders.Any(folder =>
-                    string.Equals(folder.RootDirectory, _selectedMinecraftRoot, StringComparison.OrdinalIgnoreCase)))
-            {
-                _selectedMinecraftRoot = _minecraftFolders[0].RootDirectory;
-            }
-        }
-    }
+    private void EnsureMinecraftFoldersLoaded() =>
+        _folderStore.EnsureLoaded(LoadPreferredInstanceDirectory());
 
     private async Task SelectMinecraftFolderAsync(MinecraftFolderInfo folder, bool forceRefresh = false)
     {
@@ -2761,9 +2678,10 @@ public partial class MainWindow : Window, IDisposable
         if (normalized is null || _launchLeft is null)
             return;
 
-        bool changed = !string.Equals(_selectedMinecraftRoot, normalized, StringComparison.OrdinalIgnoreCase);
-        _selectedMinecraftRoot = normalized;
-        PersistMinecraftFolders();
+        bool changed = _folderStore.TrySetSelectedRoot(normalized);
+        if (!changed)
+            _folderStore.SetSelectedRootWithoutPersist(normalized);
+
         RefreshInstanceSelectFolderLists();
         _launchLeft.SetMinecraftRootDirectory(normalized);
         if (changed || forceRefresh)
@@ -2842,187 +2760,36 @@ public partial class MainWindow : Window, IDisposable
 
     private MinecraftFolderInfo AddOrGetMinecraftFolder(string rootDirectory, string name)
     {
-        string normalized = NormalizeDirectoryPath(rootDirectory)
-                            ?? throw new ArgumentException("Minecraft 文件夹路径无效。", nameof(rootDirectory));
-        MinecraftFolderInfo? existing = _minecraftFolders.FirstOrDefault(folder =>
-            string.Equals(folder.RootDirectory, normalized, StringComparison.OrdinalIgnoreCase));
-        if (existing is not null)
-            return existing;
-
-        MinecraftFolderInfo added = new(name, normalized, IsCustom: true);
-        _minecraftFolders.Add(added);
-        PersistMinecraftFolders();
+        MinecraftFolderInfo added = _folderStore.AddOrGet(rootDirectory, name, isCustom: true);
         RefreshInstanceSelectFolderLists();
         return added;
     }
 
     private void RenameMinecraftFolder(MinecraftFolderInfo folder, string? name)
     {
-        // Presets (当前/官方/用户) keep fixed display names.
-        if (!folder.IsCustom || string.IsNullOrWhiteSpace(name))
-            return;
-
-        int index = _minecraftFolders.IndexOf(folder);
-        if (index < 0)
-        {
-            string? path = NormalizeDirectoryPath(folder.RootDirectory);
-            if (path is null)
-                return;
-            index = _minecraftFolders.FindIndex(candidate =>
-                string.Equals(
-                    NormalizeDirectoryPath(candidate.RootDirectory),
-                    path,
-                    StringComparison.OrdinalIgnoreCase));
-            if (index < 0 || !_minecraftFolders[index].IsCustom)
-                return;
-        }
-
-        _minecraftFolders[index] = _minecraftFolders[index] with { Name = name.Trim(), IsCustom = true };
-        PersistMinecraftFolders();
-        RefreshInstanceSelectFolderLists();
+        if (_folderStore.TryRename(folder, name))
+            RefreshInstanceSelectFolderLists();
     }
 
     private void RemoveMinecraftFolder(MinecraftFolderInfo folder)
     {
-        // System presets (当前/官方/用户) and custom entries may leave the list.
-        // Only custom folders are renameable; removal is allowed for all.
-        string? removedPath = NormalizeDirectoryPath(folder.RootDirectory);
-        int index = _minecraftFolders.IndexOf(folder);
-        if (index < 0 && removedPath is not null)
-        {
-            index = _minecraftFolders.FindIndex(candidate =>
-                string.Equals(
-                    NormalizeDirectoryPath(candidate.RootDirectory),
-                    removedPath,
-                    StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (index < 0)
-            return;
-
-        _minecraftFolders.RemoveAt(index);
-
-        if (_minecraftFolders.Count == 0)
-        {
-            string fallback = NormalizeDirectoryPath(LaunchInstanceDiscovery.GetCurrentMinecraftRoot())
-                              ?? LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
-            _minecraftFolders.Add(new MinecraftFolderInfo("当前文件夹", fallback));
-        }
-
-        if (removedPath is not null &&
-            string.Equals(
-                NormalizeDirectoryPath(_selectedMinecraftRoot),
-                removedPath,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            _selectedMinecraftRoot = _minecraftFolders[0].RootDirectory;
-            _ = SelectMinecraftFolderAsync(_minecraftFolders[0], forceRefresh: true);
-        }
+        MinecraftFolderInfo? nextSelected = _folderStore.Remove(folder);
+        if (nextSelected is not null)
+            _ = SelectMinecraftFolderAsync(nextSelected, forceRefresh: true);
         else
-        {
-            PersistMinecraftFolders();
             RefreshInstanceSelectFolderLists();
-        }
     }
 
-    private void PersistMinecraftFolders()
-    {
-        try
-        {
-            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            MinecraftFolderSetting[] customFolders = _minecraftFolders
-                .Where(static folder => folder.IsCustom)
-                .Select(static folder => new MinecraftFolderSetting(folder.Name, folder.RootDirectory))
-                .ToArray();
-            settings.SetTextOption(
-                LauncherSettingKeys.LaunchMinecraftFolders,
-                SerializeMinecraftFolderSettings(customFolders));
-            settings.SetTextOption(
-                LauncherSettingKeys.LaunchSelectedMinecraftRoot,
-                _selectedMinecraftRoot ?? string.Empty);
-            LauncherSettingsPageBinder.SaveSettings(settings);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        {
-            _launchRight?.AppendLog("未能保存游戏文件夹列表：" + ex.Message);
-        }
-    }
+    private void PersistMinecraftFolders() => _folderStore.Persist();
 
-    private static MinecraftFolderSetting[] ParseMinecraftFolderSettings(string json)
-    {
-        using JsonDocument document = JsonDocument.Parse(json);
-        if (document.RootElement.ValueKind != JsonValueKind.Array)
-            return [];
+    private static string NormalizeSelectedMinecraftRoot(string selectedDirectory) =>
+        SessionPath.NormalizeSelectedMinecraftRoot(selectedDirectory);
 
-        List<MinecraftFolderSetting> result = [];
-        foreach (JsonElement element in document.RootElement.EnumerateArray())
-        {
-            if (element.ValueKind != JsonValueKind.Object)
-                continue;
+    private static string? TryGetMinecraftRootFromInstanceDirectory(string? instanceDirectory) =>
+        SessionPath.TryGetMinecraftRootFromInstanceDirectory(instanceDirectory);
 
-            string? name = TryReadJsonString(element, "name") ?? TryReadJsonString(element, "Name");
-            string? rootDirectory = TryReadJsonString(element, "rootDirectory") ??
-                                    TryReadJsonString(element, "RootDirectory");
-            if (!string.IsNullOrWhiteSpace(rootDirectory))
-                result.Add(new MinecraftFolderSetting(name ?? string.Empty, rootDirectory));
-        }
-
-        return result.ToArray();
-    }
-
-    private static string SerializeMinecraftFolderSettings(IEnumerable<MinecraftFolderSetting> folders)
-    {
-        using MemoryStream stream = new();
-        using (Utf8JsonWriter writer = new(stream))
-        {
-            writer.WriteStartArray();
-            foreach (MinecraftFolderSetting folder in folders)
-            {
-                writer.WriteStartObject();
-                writer.WriteString("name", folder.Name);
-                writer.WriteString("rootDirectory", folder.RootDirectory);
-                writer.WriteEndObject();
-            }
-            writer.WriteEndArray();
-        }
-
-        return Encoding.UTF8.GetString(stream.ToArray());
-    }
-
-    private static string NormalizeSelectedMinecraftRoot(string selectedDirectory)
-    {
-        string root = NormalizeDirectoryPath(selectedDirectory) ?? selectedDirectory;
-        string nestedMinecraft = Path.Combine(root, ".minecraft");
-        return Directory.Exists(Path.Combine(nestedMinecraft, "versions")) &&
-               !Directory.Exists(Path.Combine(root, "versions"))
-            ? nestedMinecraft
-            : root;
-    }
-
-    private static string? TryGetMinecraftRootFromInstanceDirectory(string? instanceDirectory)
-    {
-        string? normalized = NormalizeDirectoryPath(instanceDirectory);
-        if (normalized is null)
-            return null;
-
-        DirectoryInfo? versions = Directory.GetParent(normalized);
-        return versions?.Parent?.FullName is { } root ? NormalizeDirectoryPath(root) : null;
-    }
-
-    private static string? NormalizeDirectoryPath(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return null;
-
-        try
-        {
-            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path.Trim()));
-        }
-        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
-        {
-            return null;
-        }
-    }
+    private static string? NormalizeDirectoryPath(string? path) =>
+        SessionPath.NormalizeDirectory(path);
 
     private void ApplyInstanceManagePage(LaunchInstanceInfo instance, InstancePageSubType subPage = InstancePageSubType.Overall)
     {
@@ -3275,14 +3042,14 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        if (!_isTaskManagerVisible)
+        if (!_taskSessionStore.IsTaskManagerVisible)
         {
             _taskManagerBackRoute = GetCurrentNavigationRoute();
             _taskManagerBackAction = CaptureTaskManagerBackAction();
         }
 
         _registeredPageRequestId++;
-        _isTaskManagerVisible = true;
+        _taskSessionStore.IsTaskManagerVisible = true;
         _titleInnerBackAction = ReturnFromTaskManager;
 
         _speedLeft ??= new PageSpeedLeft();
@@ -3367,7 +3134,7 @@ public partial class MainWindow : Window, IDisposable
         Action backAction = _taskManagerBackAction ??
                             (() => SelectNavRoute(_taskManagerBackRoute ?? LaunchRoute, animate: true));
         _taskManagerBackAction = null;
-        _isTaskManagerVisible = false;
+        _taskSessionStore.IsTaskManagerVisible = false;
         backAction();
     }
 
@@ -3384,7 +3151,7 @@ public partial class MainWindow : Window, IDisposable
     private void TrackTaskBegin(string taskId, string title, string stage)
     {
         DesktopFileLog.Info("Task", $"任务开始/进入阶段；Id={taskId}；Title={title}；Stage={stage}。");
-        _taskSnapshots[taskId] = new TaskManagerEntrySnapshot(
+        _taskSessionStore.Upsert(taskId, new TaskManagerEntrySnapshot(
             taskId,
             title,
             stage,
@@ -3393,7 +3160,7 @@ public partial class MainWindow : Window, IDisposable
             0,
             0,
             0,
-            TaskManagerTaskState.Waiting);
+            TaskManagerTaskState.Waiting));
         UpdateTaskManagerViews();
         NotifyTaskManagerButton(ribble: true);
     }
@@ -3402,7 +3169,7 @@ public partial class MainWindow : Window, IDisposable
     {
         DesktopFileLog.RealTime("Task", $"任务进度；Id={taskId}；Title={title}；Progress={Math.Clamp(progress, 0d, 1d):P1}；Detail={detail}。");
         TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, title);
-        _taskSnapshots[taskId] = previous with
+        _taskSessionStore.Upsert(taskId, previous with
         {
             Title = title,
             Stage = previous.Stage,
@@ -3410,7 +3177,7 @@ public partial class MainWindow : Window, IDisposable
             Progress = Math.Clamp(progress, 0d, 1d),
             State = TaskManagerTaskState.Running,
             ErrorMessage = null
-        };
+        });
         UpdateTaskManagerViews();
         RefreshTaskManagerButton();
     }
@@ -3422,7 +3189,7 @@ public partial class MainWindow : Window, IDisposable
             "Task",
             $"安装任务进度；Id={taskId}；Title={title}；Stage={stage}；Progress={progress.Progress:P1}；" +
             $"Files={progress.CompletedFiles}/{progress.TotalFiles}；Threads={progress.ActiveThreads}/{progress.ThreadLimit}；Speed={progress.SpeedBytesPerSecond}B/s。");
-        _taskSnapshots[taskId] = new TaskManagerEntrySnapshot(
+        _taskSessionStore.Upsert(taskId, new TaskManagerEntrySnapshot(
             taskId,
             title,
             stage,
@@ -3434,7 +3201,7 @@ public partial class MainWindow : Window, IDisposable
             TaskManagerTaskState.Running,
             ActiveThreads: progress.ActiveThreads,
             ThreadLimit: progress.ThreadLimit,
-            Steps: CreateInstallTaskSteps(progress));
+            Steps: CreateInstallTaskSteps(progress)));
         UpdateTaskManagerViews();
         RefreshTaskManagerButton();
     }
@@ -3483,7 +3250,7 @@ public partial class MainWindow : Window, IDisposable
     {
         DesktopFileLog.Info("Task", $"任务完成；Id={taskId}；Title={title}；Stage={stage}。");
         TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, title);
-        _taskSnapshots[taskId] = previous with
+        _taskSessionStore.Upsert(taskId, previous with
         {
             Title = title,
             Stage = stage,
@@ -3492,7 +3259,7 @@ public partial class MainWindow : Window, IDisposable
             State = TaskManagerTaskState.Finished,
             ErrorMessage = null,
             Steps = UpdateTaskStepStates(previous.Steps, TaskManagerTaskState.Finished, 1d)
-        };
+        });
         UpdateTaskManagerViews();
         RefreshTaskManagerButton();
         _ = RemoveTaskAfterDelayAsync(taskId, TimeSpan.FromMilliseconds(900));
@@ -3505,7 +3272,7 @@ public partial class MainWindow : Window, IDisposable
         else
             DesktopFileLog.Error("Task", $"任务失败；Id={taskId}；Title={title}；Message={message}。");
         TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, title);
-        _taskSnapshots[taskId] = previous with
+        _taskSessionStore.Upsert(taskId, previous with
         {
             Title = title,
             Stage = canceled ? "任务已取消" : "任务失败",
@@ -3516,7 +3283,7 @@ public partial class MainWindow : Window, IDisposable
                 previous.Steps,
                 canceled ? TaskManagerTaskState.Canceled : TaskManagerTaskState.Failed,
                 previous.Progress)
-        };
+        });
         UpdateTaskManagerViews();
         RefreshTaskManagerButton();
         if (canceled)
@@ -3524,7 +3291,7 @@ public partial class MainWindow : Window, IDisposable
     }
 
     private TaskManagerEntrySnapshot GetTaskSnapshotOrDefault(string taskId, string title) =>
-        _taskSnapshots.TryGetValue(taskId, out TaskManagerEntrySnapshot? snapshot)
+        _taskSessionStore.TryGet(taskId, out TaskManagerEntrySnapshot snapshot)
             ? snapshot
             : new TaskManagerEntrySnapshot(
                 taskId,
@@ -3545,24 +3312,24 @@ public partial class MainWindow : Window, IDisposable
 
     private void RemoveTask(string taskId)
     {
-        _taskSnapshots.Remove(taskId);
+        _taskSessionStore.Remove(taskId);
         _speedRight?.RemoveTask(taskId);
         UpdateTaskManagerViews();
         RefreshTaskManagerButton();
 
-        if (_isTaskManagerVisible && _taskSnapshots.Count == 0)
+        if (_taskSessionStore.IsTaskManagerVisible && _taskSessionStore.Snapshots.Count == 0)
             ReturnFromTaskManager();
     }
 
     private void UpdateTaskManagerViews()
     {
-        if (_taskSnapshots.Count == 0)
+        if (_taskSessionStore.Snapshots.Count == 0)
         {
             _speedLeft?.SetIdle();
             return;
         }
 
-        foreach (TaskManagerEntrySnapshot snapshot in _taskSnapshots.Values)
+        foreach (TaskManagerEntrySnapshot snapshot in _taskSessionStore.Snapshots.Values)
             _speedRight?.UpsertTask(snapshot);
 
         _speedLeft?.UpdateSummary(CreateTaskManagerSummary());
@@ -3570,10 +3337,12 @@ public partial class MainWindow : Window, IDisposable
 
     private TaskManagerSummary CreateTaskManagerSummary()
     {
-        TaskManagerEntrySnapshot[] activeTasks = _taskSnapshots.Values
+        TaskManagerEntrySnapshot[] activeTasks = _taskSessionStore.Snapshots.Values
             .Where(static snapshot => snapshot.State is TaskManagerTaskState.Waiting or TaskManagerTaskState.Running)
             .ToArray();
-        TaskManagerEntrySnapshot[] sourceTasks = activeTasks.Length == 0 ? _taskSnapshots.Values.ToArray() : activeTasks;
+        TaskManagerEntrySnapshot[] sourceTasks = activeTasks.Length == 0
+            ? _taskSessionStore.Snapshots.Values.ToArray()
+            : activeTasks;
 
         double progress = sourceTasks.Length == 0
             ? 1d
@@ -3611,24 +3380,20 @@ public partial class MainWindow : Window, IDisposable
         if (this.FindControl<MyExtraButton>("BtnExtraDownload") is not { } button)
             return;
 
-        bool hasActiveTask = _taskSnapshots.Values.Any(static snapshot =>
-            snapshot.State is TaskManagerTaskState.Waiting or TaskManagerTaskState.Running);
-        bool hasVisibleTask = _taskSnapshots.Values.Any(static snapshot =>
-            snapshot.State is TaskManagerTaskState.Waiting or TaskManagerTaskState.Running or
-                TaskManagerTaskState.Failed or TaskManagerTaskState.Canceled);
+        bool hasActiveTask = _taskSessionStore.HasActiveTask;
+        bool hasVisibleTask = _taskSessionStore.HasVisibleTask;
         double progress = hasActiveTask ? CreateTaskManagerSummary().Progress : hasVisibleTask ? 1d : 0d;
-        bool show = hasVisibleTask && !_isTaskManagerVisible;
+        bool show = hasVisibleTask && !_taskSessionStore.IsTaskManagerVisible;
         _extraDockViewModel.SetTaskManager(show, progress);
         button.Progress = _extraDockViewModel.TaskProgress;
         button.Show = _extraDockViewModel.ShowTaskManager;
-        DesktopCompositionRoot.GetRequiredService<IMessenger>().Send(
-            new TaskProgressChangedMessage(hasVisibleTask, hasActiveTask, progress, _isTaskManagerVisible));
+        _taskSessionStore.PublishProgress();
         RefreshExtraDockChrome();
     }
 
     private string CreateTaskId(string kind, string identity)
     {
-        int sequence = Interlocked.Increment(ref _taskSequence);
+        int sequence = _taskSessionStore.NextSequence();
         string safeIdentity = identity
             .Replace(Path.DirectorySeparatorChar, '_')
             .Replace(Path.AltDirectorySeparatorChar, '_');
@@ -5415,9 +5180,8 @@ public partial class MainWindow : Window, IDisposable
             _runningGameContext = null;
         }
 
-        _isGameRunning = _runningGameProcess is not null;
-        _extraDockViewModel.SetGameRunning(_isGameRunning);
-        DesktopCompositionRoot.GetRequiredService<IMessenger>().Send(new GameRunningChangedMessage(_isGameRunning));
+        _gameSessionStore.SetRunning(_runningGameProcess, _runningGameContext);
+        _extraDockViewModel.SetGameRunning(_gameSessionStore.IsRunning);
 
         if (this.FindControl<MyExtraButton>("BtnExtraShutdown") is { } shutdown)
         {
@@ -9754,7 +9518,7 @@ public partial class MainWindow : Window, IDisposable
             return;
 
         settings ??= LauncherSettingsPageBinder.LoadSettings();
-        bool pauseForGame = _isGameRunning && settings.GetBooleanOption(
+        bool pauseForGame = _gameSessionStore.IsRunning && settings.GetBooleanOption(
             "UiAutoPauseVideo",
             LauncherSettingDefaults.GetBoolean("UiAutoPauseVideo"));
         if (WindowState == WindowState.Minimized || pauseForGame)
@@ -10060,6 +9824,6 @@ public partial class MainWindow : Window, IDisposable
         return 1d - inverse * inverse * inverse;
     }
 
-    private sealed record MinecraftFolderSetting(string Name, string RootDirectory);
+
 
 }

@@ -47,9 +47,9 @@ Copy-Item "$env:USERPROFILE\.codex\skills\architecture" `
 
 | Phase | Goal |
 |-------|------|
-| 0 | `CommunityToolkit.Mvvm` + composition root + messages + feature module interface |
-| 1 | Shell MVVM（TitleBar / ExtraDock / Experimental profile） |
-| 2 | Session Stores 单例 |
+| 0 | ✅ `CommunityToolkit.Mvvm` + composition root + messages + feature module interface |
+| 1 | ✅ Shell MVVM（TitleBar / ExtraDock / Experimental profile） |
+| 2 | ✅ Session Stores 单例（Folder / Instance / Task / Game） |
 | 3 | Launch + Instances Feature 模块 |
 | 4 | Downloads / Tasks / Settings / Community |
 | 5 | 瘦 MainWindow、拆 Headless 测试、可选 DynamicData |

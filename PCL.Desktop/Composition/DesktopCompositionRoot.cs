@@ -5,13 +5,14 @@
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using PCL.Desktop.Features;
+using PCL.Desktop.Session;
 using PCL.Desktop.Shell;
 
 namespace PCL.Desktop.Composition;
 
 /// <summary>
-/// Avalonia desktop composition root (Phase 0). Built once at startup; Shell/Stores are
-/// singletons; page ViewModels register as transient as Features migrate.
+/// Avalonia desktop composition root. Shell + Session stores are singletons;
+/// page ViewModels register as transient as Features migrate.
 /// </summary>
 public static class DesktopCompositionRoot
 {
@@ -46,9 +47,14 @@ public static class DesktopCompositionRoot
     public static T GetRequiredService<T>() where T : notnull =>
         Services.GetRequiredService<T>();
 
-    private static void ConfigureServices(IServiceCollection services)
+    public static void ConfigureCoreServices(IServiceCollection services)
     {
         services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
+
+        services.AddSingleton<MinecraftFolderStore>();
+        services.AddSingleton<InstanceSelectionStore>();
+        services.AddSingleton<TaskSessionStore>();
+        services.AddSingleton<GameSessionStore>();
 
         services.AddSingleton<ExperimentalUiProfileSource>();
         services.AddSingleton<AppShellViewModel>();
@@ -58,4 +64,7 @@ public static class DesktopCompositionRoot
         // Feature modules register themselves as they are migrated (Phase 3+).
         services.AddSingleton<IReadOnlyList<IDesktopFeatureModule>>(_ => []);
     }
+
+    private static void ConfigureServices(IServiceCollection services) =>
+        ConfigureCoreServices(services);
 }

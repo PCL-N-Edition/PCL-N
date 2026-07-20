@@ -325,9 +325,12 @@ public sealed record ExperimentalUiProfile(
 
 ### Phase 2 — Session Stores
 
-1. Folder / Instance / Task / Game Stores 注册为 Singleton  
-2. 持久化只经 Store  
-3. 选择版本只消费 Store  
+1. [x] `MinecraftFolderStore` / `InstanceSelectionStore` / `TaskSessionStore` / `GameSessionStore` 注册为 Singleton  
+2. [x] 文件夹列表与选中 root 持久化只经 `MinecraftFolderStore`  
+3. [x] 实例偏好路径经 `InstanceSelectionStore`  
+4. [x] 任务快照 / 游戏运行态经 Task/Game stores + Messenger → ExtraDock  
+5. [x] MainWindow 委托 Store（仍负责 UI 挂载与异步启动刷新）  
+6. [ ] 选择版本页直接注入 Store（去掉 MainWindow 中转）— Phase 3 Feature 模块  
 
 ### Phase 3 — Instances + Launch Feature
 

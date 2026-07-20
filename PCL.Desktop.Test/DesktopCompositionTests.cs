@@ -5,7 +5,9 @@
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using PCL.Desktop.Composition;
+using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Messaging;
+using PCL.Desktop.Session;
 using PCL.Desktop.Shell;
 
 namespace PCL.Desktop.Test;
@@ -62,10 +64,9 @@ public sealed class DesktopCompositionTests
         WeakReferenceMessenger localMessenger = new();
         ServiceCollection services = new();
         services.AddSingleton<IMessenger>(localMessenger);
-        services.AddSingleton<ExperimentalUiProfileSource>();
-        services.AddSingleton<AppShellViewModel>();
-        services.AddSingleton<TitleBarViewModel>();
-        services.AddSingleton<ExtraDockViewModel>();
+        DesktopCompositionRoot.ConfigureCoreServices(services);
+        // Re-bind messenger after ConfigureCoreServices so we own the bus.
+        services.AddSingleton<IMessenger>(localMessenger);
         DesktopCompositionRoot.ResetForTests();
         DesktopCompositionRoot.InitializeForTests(services.BuildServiceProvider());
 
@@ -78,6 +79,62 @@ public sealed class DesktopCompositionTests
         localMessenger.Send(new GameRunningChangedMessage(false));
         Assert.IsFalse(dock.ShowShutdown);
         Assert.IsFalse(dock.ShowGameLog);
+    }
+
+    [TestMethod]
+    public void MinecraftFolderStore_AddRenameRemoveAndSelection()
+    {
+        // Isolated store — do not pollute the process-wide composition root used by MainWindow tests.
+        MinecraftFolderStore store = new(new WeakReferenceMessenger());
+        store.EnsureLoaded();
+        Assert.IsTrue(store.Folders.Count >= 1);
+
+        string tempRoot = Path.Combine(Path.GetTempPath(), "pcl-folder-store-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            MinecraftFolderInfo added = store.AddOrGet(tempRoot, "Temp Custom", isCustom: true);
+            Assert.IsTrue(added.IsCustom);
+            Assert.IsTrue(store.ContainsRoot(added.RootDirectory));
+
+            Assert.IsTrue(store.TryRename(added, "Renamed"));
+            Assert.IsTrue(store.Folders.Any(f => f.Name == "Renamed"));
+
+            Assert.IsTrue(store.TrySetSelectedRoot(added.RootDirectory));
+            Assert.AreEqual(
+                SessionPath.NormalizeDirectory(tempRoot),
+                store.SelectedRoot);
+
+            MinecraftFolderInfo? next = store.Remove(added);
+            // Removing selected folder returns a replacement selection.
+            Assert.IsNotNull(next);
+            Assert.IsFalse(store.ContainsRoot(added.RootDirectory));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+                Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void TaskAndGameSessionStores_PublishDockMessages()
+    {
+        WeakReferenceMessenger messenger = new();
+        TaskSessionStore tasks = new(messenger);
+        GameSessionStore games = new(messenger);
+        AppShellViewModel shell = new(messenger, new ExperimentalUiProfileSource(messenger));
+        ExtraDockViewModel dock = new(messenger, shell);
+
+        tasks.Upsert("t1", new Features.Tasks.Views.TaskManagerEntrySnapshot(
+            "t1", "title", "stage", "detail", 0.5d, 1, 2, 0,
+            Features.Tasks.Views.TaskManagerTaskState.Running));
+        Assert.IsTrue(tasks.HasActiveTask);
+        Assert.IsTrue(dock.ShowTaskManager);
+
+        games.SetRunning(null);
+        Assert.IsFalse(games.IsRunning);
+        Assert.IsFalse(dock.ShowShutdown);
     }
 
     [TestMethod]
