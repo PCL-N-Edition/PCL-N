@@ -16,8 +16,9 @@ namespace PCL.Desktop.Features.Instances.Views;
 
 public partial class PageInstanceSelectRight : MyPageRight, IDisposable
 {
-    private const int SearchNormalDelayMs = 75;
-    private const int SearchQuickDelayMs = 50;
+    // Avalonia guide: 150–300 ms search debounce to keep UI thread free while typing.
+    private const int SearchNormalDelayMs = 200;
+    private const int SearchQuickDelayMs = 150;
     private readonly DispatcherTimer _reloadTimer;
     private readonly object _metadataLock = new();
     private CancellationTokenSource? _metadataLoadCancellation;

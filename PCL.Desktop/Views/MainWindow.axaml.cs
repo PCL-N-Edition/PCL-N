@@ -118,6 +118,7 @@ public partial class MainWindow : Window, IDisposable
     private LaunchInstanceInfo? _managedInstance;
     private bool _isTitleSubPageVisible;
     private Action? _titleInnerBackAction;
+    private readonly UiUpdateCoalescer _taskUiCoalescer;
     private MyScrollViewer? _backButtonScrollViewer;
     private CancellationTokenSource? _launchCancellation;
     private CancellationTokenSource? _microsoftLoginCancellation;
@@ -193,6 +194,13 @@ public partial class MainWindow : Window, IDisposable
         _taskManagerSurface = DesktopCompositionRoot.GetRequiredService<TaskManagerSurface>();
         _instancesManage = DesktopCompositionRoot.GetRequiredService<InstancesManageSurface>();
         _launchLoginSurface = DesktopCompositionRoot.GetRequiredService<LaunchLoginSurface>();
+        _taskUiCoalescer = new UiUpdateCoalescer(
+            () =>
+            {
+                UpdateTaskManagerViews();
+                RefreshTaskManagerButton();
+            },
+            intervalMs: 50);
         BindStartMinecraftUseCase();
         _extraDockViewModel.PropertyChanged += ExtraDockViewModel_PropertyChanged;
         AvaloniaXamlLoader.Load(this);
@@ -2699,13 +2707,16 @@ public partial class MainWindow : Window, IDisposable
             0,
             0,
             TaskManagerTaskState.Waiting));
-        UpdateTaskManagerViews();
+        // Lifecycle edges flush immediately so the task row appears without waiting for coalesce.
+        _taskUiCoalescer.FlushNow();
         NotifyTaskManagerButton(ribble: true);
     }
 
     private void TrackTaskProgress(string taskId, string title, double progress, string detail)
     {
-        DesktopFileLog.RealTime("Task", $"任务进度；Id={taskId}；Title={title}；Progress={Math.Clamp(progress, 0d, 1d):P1}；Detail={detail}。");
+        // Model always updates; view refresh is coalesced (~20 Hz) per Avalonia performance guide.
+        if (PortableLog.IsEnabled(PortableLogLevel.RealTime))
+            DesktopFileLog.RealTime("Task", $"任务进度；Id={taskId}；Title={title}；Progress={Math.Clamp(progress, 0d, 1d):P1}；Detail={detail}。");
         TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, title);
         _taskSessionStore.Upsert(taskId, previous with
         {
@@ -2716,17 +2727,19 @@ public partial class MainWindow : Window, IDisposable
             State = TaskManagerTaskState.Running,
             ErrorMessage = null
         });
-        UpdateTaskManagerViews();
-        RefreshTaskManagerButton();
+        _taskUiCoalescer.Request();
     }
 
     private void TrackInstallProgress(string taskId, string title, MinecraftInstallProgress progress)
     {
         string stage = string.IsNullOrWhiteSpace(progress.Stage) ? "正在处理下载任务" : progress.Stage;
-        DesktopFileLog.RealTime(
-            "Task",
-            $"安装任务进度；Id={taskId}；Title={title}；Stage={stage}；Progress={progress.Progress:P1}；" +
-            $"Files={progress.CompletedFiles}/{progress.TotalFiles}；Threads={progress.ActiveThreads}/{progress.ThreadLimit}；Speed={progress.SpeedBytesPerSecond}B/s。");
+        if (PortableLog.IsEnabled(PortableLogLevel.RealTime))
+        {
+            DesktopFileLog.RealTime(
+                "Task",
+                $"安装任务进度；Id={taskId}；Title={title}；Stage={stage}；Progress={progress.Progress:P1}；" +
+                $"Files={progress.CompletedFiles}/{progress.TotalFiles}；Threads={progress.ActiveThreads}/{progress.ThreadLimit}；Speed={progress.SpeedBytesPerSecond}B/s。");
+        }
         _taskSessionStore.Upsert(taskId, new TaskManagerEntrySnapshot(
             taskId,
             title,
@@ -2740,8 +2753,7 @@ public partial class MainWindow : Window, IDisposable
             ActiveThreads: progress.ActiveThreads,
             ThreadLimit: progress.ThreadLimit,
             Steps: CreateInstallTaskSteps(progress)));
-        UpdateTaskManagerViews();
-        RefreshTaskManagerButton();
+        _taskUiCoalescer.Request();
     }
 
     private static TaskManagerSubTaskSnapshot[] CreateInstallTaskSteps(
@@ -2798,8 +2810,7 @@ public partial class MainWindow : Window, IDisposable
             ErrorMessage = null,
             Steps = UpdateTaskStepStates(previous.Steps, TaskManagerTaskState.Finished, 1d)
         });
-        UpdateTaskManagerViews();
-        RefreshTaskManagerButton();
+        _taskUiCoalescer.FlushNow();
         _ = RemoveTaskAfterDelayAsync(taskId, TimeSpan.FromMilliseconds(900));
     }
 
@@ -2822,8 +2833,7 @@ public partial class MainWindow : Window, IDisposable
                 canceled ? TaskManagerTaskState.Canceled : TaskManagerTaskState.Failed,
                 previous.Progress)
         });
-        UpdateTaskManagerViews();
-        RefreshTaskManagerButton();
+        _taskUiCoalescer.FlushNow();
         if (canceled)
             _ = RemoveTaskAfterDelayAsync(taskId, TimeSpan.FromMilliseconds(700));
     }
@@ -4444,6 +4454,7 @@ public partial class MainWindow : Window, IDisposable
         _homepageLoadCancellation?.Cancel();
         _homepageLoadCancellation?.Dispose();
         _homepageLoadCancellation = null;
+        _taskUiCoalescer.Dispose();
         DisposeTrackedTasks();
         _launchCancellation?.Cancel();
         _launchCancellation?.Dispose();

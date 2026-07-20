@@ -63,6 +63,7 @@ public partial class PageDownloadInstall : MyPageRight
     private IReadOnlyList<MinecraftVersionManifestEntry> _versions = [];
     private DownloadVersionFilter _filter = DownloadVersionFilter.All;
     private string _searchText = string.Empty;
+    private readonly DispatcherTimer _searchFilterTimer;
     private MinecraftVersionManifestEntry? _selectedVersion;
     private MinecraftLoaderKind? _selectedLoaderKind;
     private MinecraftLoaderVersionEntry? _selectedLoaderVersion;
@@ -94,6 +95,16 @@ public partial class PageDownloadInstall : MyPageRight
         _installService = installService;
         _loaderMetadataService = loaderMetadataService;
         _addonMetadataService = addonMetadataService ?? new MinecraftInstallAddonMetadataService();
+        // Avalonia guide: debounce search 150–300 ms; filter chips still apply immediately.
+        _searchFilterTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(200)
+        };
+        _searchFilterTimer.Tick += (_, _) =>
+        {
+            _searchFilterTimer.Stop();
+            ApplyRenderedFilters();
+        };
         AvaloniaXamlLoader.Load(this);
         PanScroll = this.FindControl<MyScrollViewer>("PanBack");
 
@@ -361,7 +372,8 @@ public partial class PageDownloadInstall : MyPageRight
             searchBar.TextChanged += (_, _) =>
             {
                 _searchText = searchBar.Text?.Trim() ?? string.Empty;
-                ApplyRenderedFilters();
+                _searchFilterTimer.Stop();
+                _searchFilterTimer.Start();
             };
         }
 
@@ -674,8 +686,8 @@ public partial class PageDownloadInstall : MyPageRight
             bool searchVisible = string.IsNullOrWhiteSpace(_searchText) ||
                                  tag.Version.Manifest.Id.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ||
                                  tag.Version.Title.Contains(_searchText, StringComparison.OrdinalIgnoreCase);
+            // IsVisible=false skips layout/render; Opacity=0 still measures and may hit-test.
             item.IsVisible = categoryVisible && searchVisible;
-            item.Opacity = item.IsVisible ? 1d : 0d;
         }
     }
 
