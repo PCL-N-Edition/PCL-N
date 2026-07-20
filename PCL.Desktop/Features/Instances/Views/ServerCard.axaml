@@ -81,6 +81,11 @@
                     Orientation="Horizontal"
                     VerticalAlignment="Center"
                     Margin="0,0,4,0">
+            <legacy:MyIconButton x:Name="BtnPin"
+                                 Width="24"
+                                 SvgIcon="lucide/pin"
+                                 IsVisible="False"
+                                 Click="BtnPin_Click" />
             <legacy:MyIconButton x:Name="BtnConnect"
                                  Width="24"
                                  SvgIcon="lucide/play"

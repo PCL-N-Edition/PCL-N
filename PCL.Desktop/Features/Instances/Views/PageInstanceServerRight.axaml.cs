@@ -93,7 +93,7 @@ public partial class PageInstanceServerRight : MyPageRight
         foreach (MinecraftServerEntry server in servers)
         {
             ServerCard serverCard = new();
-            serverCard.UpdateServerInfo(server);
+            serverCard.UpdateServerInfo(server, _instance.InstanceDirectory);
             serverCard.RefreshRequested += (_, entry) => _ = RefreshServerCardAsync(serverCard, entry);
             serverCard.ConnectRequested += (_, entry) => ConnectServerRequested?.Invoke(this, entry);
             serverCard.EditRequested += (_, entry) => EditServerRequested?.Invoke(this, entry);

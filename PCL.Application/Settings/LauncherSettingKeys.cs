@@ -44,6 +44,12 @@ public static class LauncherSettingKeys
 
     public static readonly SettingKey ExperimentalHomepageUi = new("ExperimentalHomepageUi");
 
+    /// <summary>iOS-style shortcut dock on the experimental launch home carousel.</summary>
+    public static readonly SettingKey ExperimentalLaunchShortcuts = new("ExperimentalLaunchShortcuts");
+
+    /// <summary>JSON array of pinned worlds/servers for the experimental shortcut dock.</summary>
+    public static readonly SettingKey ExperimentalLaunchShortcutsPins = new("ExperimentalLaunchShortcutsPins");
+
     public static readonly SettingKey ExperimentalMinecraftAiRepair = new("ExperimentalMinecraftAiRepair");
 
     public static readonly SettingKey ExperimentalMinecraftAiLocalModel = new("ExperimentalMinecraftAiLocalModel");

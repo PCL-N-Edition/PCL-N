@@ -10,6 +10,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using PCL.Application.Instances;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Features.Launching;
+using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Instances.Views;
 
@@ -22,6 +24,7 @@ public sealed partial class ServerCard : MyCard
     private readonly TextBlock _serverPlayer;
     private readonly TextBlock _serverMotd;
     private MinecraftServerEntry? _server;
+    private string? _instanceDirectory;
 
     public ServerCard()
     {
@@ -41,17 +44,66 @@ public sealed partial class ServerCard : MyCard
 
     public event EventHandler<MinecraftServerEntry>? RemoveRequested;
 
+    public event EventHandler? PinChanged;
+
     public MinecraftServerEntry? Server => _server;
 
-    public void UpdateServerInfo(MinecraftServerEntry server)
+    public void UpdateServerInfo(MinecraftServerEntry server, string? instanceDirectory = null)
     {
         _server = server;
+        if (!string.IsNullOrWhiteSpace(instanceDirectory))
+            _instanceDirectory = instanceDirectory;
         _serverName.Text = server.Name;
         ToolTip.SetTip(_serverName, server.Name);
         _serverPlayer.Text = server.Address;
         ToolTip.SetTip(_serverPlayer, server.Address);
         _serverMotd.Text = "服务器状态等待刷新";
         SetIcon(server.Icon);
+        RefreshPinButton();
+    }
+
+    public void SetInstanceDirectory(string instanceDirectory)
+    {
+        _instanceDirectory = instanceDirectory;
+        RefreshPinButton();
+    }
+
+    private void RefreshPinButton()
+    {
+        if (this.FindControl<MyIconButton>("BtnPin") is not { } pinButton)
+            return;
+
+        bool enabled = LaunchShortcutStore.IsFeatureEnabled() &&
+                       !string.IsNullOrWhiteSpace(_instanceDirectory) &&
+                       _server is not null;
+        pinButton.IsVisible = enabled;
+        if (!enabled || _server is null || string.IsNullOrWhiteSpace(_instanceDirectory))
+            return;
+
+        bool pinned = LaunchShortcutStore.IsPinned(
+            LaunchShortcutKind.Server,
+            _instanceDirectory,
+            _server.Address);
+        pinButton.SvgIcon = pinned ? "lucide/pin-off" : "lucide/pin";
+        pinButton.ToolTip = AvaloniaLocalizationManager.GetText(
+            pinned ? "Launch.Experimental.Shortcuts.Unpin" : "Launch.Experimental.Shortcuts.Pin",
+            pinned ? "取消固定" : "固定到启动页快捷栏");
+    }
+
+    private void BtnPin_Click(object? sender, EventArgs e)
+    {
+        if (_server is null || string.IsNullOrWhiteSpace(_instanceDirectory))
+            return;
+
+        LaunchShortcutPin pin = new(
+            LaunchShortcutPin.CreateId(LaunchShortcutKind.Server, _instanceDirectory, _server.Address),
+            LaunchShortcutKind.Server,
+            _instanceDirectory,
+            string.IsNullOrWhiteSpace(_server.Name) ? _server.Address : _server.Name,
+            _server.Address);
+        LaunchShortcutStore.Toggle(pin);
+        RefreshPinButton();
+        PinChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void SetRefreshing()

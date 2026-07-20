@@ -38,6 +38,9 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
     /// <summary>Built-in trivia flip card.</summary>
     public const string CardIdTrivia = "pcl.builtin.trivia";
 
+    /// <summary>Experimental iOS-style shortcut dock for pinned worlds/servers.</summary>
+    public const string CardIdShortcuts = "pcl.builtin.shortcuts";
+
     /// <summary>
     /// Compatibility shell for deprecated slot <c>primary-actions.after</c>.
     /// Prefer <c>cards.flip</c> for new plugin contributions.
@@ -79,8 +82,10 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         RegisterPluginUiSurfaces();
         SetLoadingState();
         SeedCommunityHints();
+        RefreshShortcutDock();
         AttachedToVisualTree += (_, _) =>
         {
+            RefreshShortcutDock();
             if (_isLoadedOnce)
                 return;
             _isLoadedOnce = true;
@@ -133,6 +138,9 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
 
     public event EventHandler? CommunityHintHideRequested;
 
+    /// <summary>Raised when the user activates a pin on the experimental shortcut dock.</summary>
+    public event EventHandler<LaunchShortcutPin>? ShortcutActivated;
+
     public Task EnsureInstancesLoadedAsync()
     {
         if (_isInstanceLoadFinished)
@@ -141,6 +149,33 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             return _refreshInstancesTask;
         _refreshInstancesTask = RefreshInstancesAsync();
         return _refreshInstancesTask;
+    }
+
+    /// <summary>
+    /// Sync the shortcut flip card with the experimental setting and pin store.
+    /// Call after settings change or when returning to the launch home.
+    /// </summary>
+    public void RefreshShortcutDock()
+    {
+        if (_disposed)
+            return;
+
+        if (!LaunchShortcutStore.IsFeatureEnabled())
+        {
+            UnregisterWidgetCard(CardIdShortcuts);
+            if (this.FindControl<Control>("PanShortcuts") is { } hidden)
+            {
+                hidden.IsVisible = false;
+                hidden.IsHitTestVisible = false;
+            }
+            return;
+        }
+
+        if (this.FindControl<Control>("PanShortcuts") is not { } surface)
+            return;
+
+        RegisterWidgetCard(CardIdShortcuts, surface, order: 20);
+        RebuildShortcutDockItems();
     }
 
     public async Task RefreshInstancesAsync()
@@ -823,9 +858,100 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         if (this.FindControl<Control>("PanHintExtra") is { } trivia)
             RegisterWidgetCard(CardIdTrivia, trivia, order: 10);
 
+        // Shortcut dock is registered in RefreshShortcutDock when the experimental flag is on.
+
         // Deprecated primary-actions.after shell — always present as one card.
         if (this.FindControl<Control>("PanPluginPage") is { } plugin)
             RegisterWidgetCard(CardIdLegacyPrimaryActions, plugin, order: 100);
+    }
+
+    private void RebuildShortcutDockItems()
+    {
+        if (this.FindControl<Panel>("PanShortcutsDockItems") is not { } items ||
+            this.FindControl<Control>("PanShortcutsEmpty") is not { } empty ||
+            this.FindControl<Control>("PanShortcutsDock") is not { } dock)
+        {
+            return;
+        }
+
+        items.Children.Clear();
+        IReadOnlyList<LaunchShortcutPin> pins = LaunchShortcutStore.Load();
+        bool hasPins = pins.Count > 0;
+        empty.IsVisible = !hasPins;
+        dock.IsVisible = hasPins;
+        if (!hasPins)
+            return;
+
+        foreach (LaunchShortcutPin pin in pins)
+            items.Children.Add(CreateShortcutDockItem(pin));
+    }
+
+    private StackPanel CreateShortcutDockItem(LaunchShortcutPin pin)
+    {
+        Border iconShell = new()
+        {
+            Width = 48,
+            Height = 48,
+            CornerRadius = new CornerRadius(12),
+            Background = ResolveBrush("ColorBrushWhite") ?? Brushes.White,
+            BorderBrush = ResolveBrush("ColorBrushGray6"),
+            BorderThickness = new Thickness(1),
+            ClipToBounds = true,
+            Child = new SvgIcon
+            {
+                Width = 22,
+                Height = 22,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Icon = pin.Kind == LaunchShortcutKind.Server ? "lucide/server" : "lucide/globe",
+                IconBrush = ResolveBrush("ColorBrush2") ?? Brushes.Gray
+            }
+        };
+
+        TextBlock label = new()
+        {
+            Text = pin.Title,
+            FontSize = 11,
+            MaxWidth = 64,
+            MaxLines = 1,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextAlignment = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Foreground = ResolveBrush("ColorBrush1") ?? Brushes.Black
+        };
+
+        StackPanel stack = new()
+        {
+            Spacing = 4,
+            Width = 64,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Children = { iconShell, label }
+        };
+
+        ToolTip.SetTip(
+            stack,
+            pin.Kind == LaunchShortcutKind.Server
+                ? $"{pin.Title}\n{pin.Target}\n右键取消固定"
+                : $"{pin.Title}\n右键取消固定");
+
+        stack.PointerPressed += (_, e) =>
+        {
+            if (e.GetCurrentPoint(stack).Properties.IsRightButtonPressed)
+            {
+                e.Handled = true;
+                LaunchShortcutStore.Remove(pin.Id);
+                RefreshShortcutDock();
+                return;
+            }
+
+            if (e.GetCurrentPoint(stack).Properties.IsLeftButtonPressed)
+            {
+                e.Handled = true;
+                ShortcutActivated?.Invoke(this, pin);
+            }
+        };
+
+        return stack;
     }
 
     private void InitWidgetPager()
@@ -840,7 +966,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         }
 
         // Hide all known card surfaces until registry rebuild selects one.
-        foreach (string name in new[] { "PanHint", "PanHintExtra", "PanPluginPage" })
+        foreach (string name in new[] { "PanHint", "PanHintExtra", "PanPluginPage", "PanShortcuts" })
         {
             if (this.FindControl<Control>(name) is { } surface)
             {
@@ -905,7 +1031,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         }
 
         // Hide built-in surfaces that are not registered.
-        foreach (string name in new[] { "PanHint", "PanHintExtra", "PanPluginPage" })
+        foreach (string name in new[] { "PanHint", "PanHintExtra", "PanPluginPage", "PanShortcuts" })
         {
             if (this.FindControl<Control>(name) is not { } surface)
                 continue;

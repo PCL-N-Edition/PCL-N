@@ -9,7 +9,9 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Launching.Views;
+using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Instances.Views;
 
@@ -252,6 +254,7 @@ public partial class PageInstanceSavesRight : MyPageRight
         };
         btnInfo.Click += (_, _) => SaveDetailsRequested?.Invoke(this, curFolder);
 
+        List<MyIconButton> buttons = [btnOpen, btnDelete, btnCopy, btnInfo];
         if (_quickPlayFeature)
         {
             MyIconButton btnLaunch = new()
@@ -260,13 +263,37 @@ public partial class PageInstanceSavesRight : MyPageRight
                 ToolTip = Text("Instance.Saves.QuickPlay")
             };
             btnLaunch.Click += (_, _) => QuickPlayRequested?.Invoke(this, GetFileNameFromPath(curFolder));
-            worldItem.Buttons = [btnOpen, btnDelete, btnCopy, btnInfo, btnLaunch];
-        }
-        else
-        {
-            worldItem.Buttons = [btnOpen, btnDelete, btnCopy, btnInfo];
+            buttons.Add(btnLaunch);
         }
 
+        if (LaunchShortcutStore.IsFeatureEnabled() && _instance is { } instance)
+        {
+            string worldName = GetFolderNameFromPath(curFolder);
+            string iconPath = Path.Combine(curFolder, "icon.png");
+            LaunchShortcutPin pin = new(
+                LaunchShortcutPin.CreateId(LaunchShortcutKind.World, instance.InstanceDirectory, worldName),
+                LaunchShortcutKind.World,
+                instance.InstanceDirectory,
+                worldName,
+                worldName,
+                File.Exists(iconPath) ? iconPath : null);
+            bool pinned = LaunchShortcutStore.IsPinned(LaunchShortcutKind.World, instance.InstanceDirectory, worldName);
+            MyIconButton btnPin = new()
+            {
+                SvgIcon = pinned ? "lucide/pin-off" : "lucide/pin",
+                ToolTip = AvaloniaLocalizationManager.GetText(
+                    pinned ? "Launch.Experimental.Shortcuts.Unpin" : "Launch.Experimental.Shortcuts.Pin",
+                    pinned ? "取消固定" : "固定到启动页快捷栏")
+            };
+            btnPin.Click += (_, _) =>
+            {
+                LaunchShortcutStore.Toggle(pin);
+                Reload();
+            };
+            buttons.Insert(0, btnPin);
+        }
+
+        worldItem.Buttons = buttons.ToArray();
         return worldItem;
     }
 

@@ -1274,6 +1274,7 @@ public partial class MainWindow : Window, IDisposable
                     _launchLeft!.RefreshButtonsUI();
                     _ = _launchLeft.EnsureInstancesLoadedAsync();
                     _launchLeft.TriggerEnterAnimation();
+                    _launchHomeExperimental?.RefreshShortcutDock();
                 });
         }
 
@@ -1357,6 +1358,32 @@ public partial class MainWindow : Window, IDisposable
         page.StatusMessage += (_, message) => HandleStatusMessage(message);
         page.LoginPageRequested += (_, type) => ApplyLaunchLoginPage(page, type);
         page.LaunchRequested += (_, instance) => _ = StartMinecraftAsync(page, instance);
+        if (page is PageLaunchHomeExperimental experimental)
+            experimental.ShortcutActivated += (_, pin) => _ = ActivateLaunchShortcutAsync(pin);
+    }
+
+    private async Task ActivateLaunchShortcutAsync(LaunchShortcutPin pin)
+    {
+        LaunchInstanceInfo? instance = (_launchLeft?.Instances ?? [])
+            .FirstOrDefault(candidate =>
+                string.Equals(
+                    candidate.InstanceDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    pin.InstanceDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    StringComparison.OrdinalIgnoreCase));
+        if (instance is null)
+        {
+            ShowHint("固定目标对应的版本不存在或未加载", critical: true);
+            return;
+        }
+
+        ILaunchHomeSurface? launchHome = _launchLeft;
+        if (launchHome is null)
+            return;
+
+        if (pin.Kind == LaunchShortcutKind.Server)
+            await StartMinecraftAsync(launchHome, instance, serverAddress: pin.Target).ConfigureAwait(true);
+        else
+            await StartMinecraftAsync(launchHome, instance, worldName: pin.Target).ConfigureAwait(true);
     }
 
     private void PromptHideCommunityHint()
@@ -2151,6 +2178,7 @@ public partial class MainWindow : Window, IDisposable
         CancellationToken cancellationToken,
         string? explicitTargetPath = null)
     {
+        string targetDirectory = ResolveCommunityDownloadDirectory(category, baseDirectory);
         string targetPath;
         if (!string.IsNullOrWhiteSpace(explicitTargetPath))
         {
@@ -2161,7 +2189,6 @@ public partial class MainWindow : Window, IDisposable
         }
         else
         {
-            string targetDirectory = ResolveCommunityDownloadDirectory(category, baseDirectory);
             Directory.CreateDirectory(targetDirectory);
             targetPath = Path.Combine(targetDirectory, SanitizeFileName(item.File.FileName));
         }
