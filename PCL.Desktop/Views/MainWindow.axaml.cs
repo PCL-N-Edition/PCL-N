@@ -1356,7 +1356,7 @@ public partial class MainWindow : Window, IDisposable
         SyncLaunchFieldsFromSurface();
     }
 
-    private void WireLaunchHomeSurface(ILaunchHomeSurface page)
+    private void WireLaunchHomeSurface(PageLaunchLeft page)
     {
         // Legacy entry points (e.g. CreateLaunchLeftPage) still wire through surface bindings.
         LaunchHomeBindings bindings = CreateLaunchHomeBindings(LauncherSettingsPageBinder.LoadSettings());
@@ -1372,8 +1372,6 @@ public partial class MainWindow : Window, IDisposable
         page.LoginPageRequested += (_, type) => bindings.OpenLoginPage(page, type);
         page.LaunchRequested += (_, instance) =>
             _ = bindings.StartMinecraft(new StartMinecraftRequest(page, instance));
-        if (page is PageLaunchHomeExperimental experimental)
-            experimental.ShortcutActivated += (_, pin) => _ = bindings.ActivateShortcut(pin);
     }
 
     private async Task ActivateLaunchShortcutAsync(LaunchShortcutPin pin)

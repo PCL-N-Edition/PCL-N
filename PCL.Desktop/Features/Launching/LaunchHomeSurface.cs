@@ -16,7 +16,7 @@ namespace PCL.Desktop.Features.Launching;
 /// Singleton for DI, but page instances are scoped to a host window token so headless
 /// tests (and multi-window) do not re-parent controls across MainWindow lifetimes.
 /// </summary>
-public sealed class LaunchHomeSurface
+public sealed class LaunchHomeSurface : IDisposable
 {
     private readonly LaunchHomeProfileResolver _profileResolver;
     private object? _hostToken;
@@ -26,6 +26,7 @@ public sealed class LaunchHomeSurface
     private PageLaunchRight? _classicRight;
     private PageLaunchHomeExperimental? _experimentalHome;
     private bool _useExperimental;
+    private bool _disposed;
 
     public LaunchHomeSurface(LaunchHomeProfileResolver profileResolver)
     {
@@ -132,11 +133,26 @@ public sealed class LaunchHomeSurface
 
     private void ClearPages()
     {
+        if (_classicLeft is IDisposable classicLeft)
+            classicLeft.Dispose();
+        _classicRight?.Dispose();
+        _experimentalHome?.Dispose();
         _classicLeft = null;
         _classicRight = null;
         _experimentalHome = null;
         _home = null;
         _useExperimental = false;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        ClearPages();
+        _bindings = null;
+        _hostToken = null;
+        GC.SuppressFinalize(this);
     }
 
     private void EnsureExperimentalHome(LauncherSettings launchSettings, LaunchHomeBindings b)
