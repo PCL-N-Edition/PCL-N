@@ -111,11 +111,29 @@ internal static class ControlVisualHelpers
         !ReduceMotionPreferred() &&
         !false.Equals(animationOverride);
 
+    // SPI_GETCLIENTAREAANIMATION is a kernel round-trip; cache briefly (measured in UI samples).
+    private static bool? _reduceMotionCached;
+    private static long _reduceMotionCachedAtMs;
+    private const int ReduceMotionCacheMs = 2000;
+
     /// <summary>
     /// Prefer reduced motion when the OS asks for it, or when debug animation speed is effectively instant.
     /// </summary>
     internal static bool ReduceMotionPreferred()
     {
+        // Debug speed can change at runtime without an OS SPI change — always honor it.
+        if (ModAnimation.aniSpeed >= 100d)
+            return true;
+
+        long now = Environment.TickCount64;
+        if (_reduceMotionCached is bool cached &&
+            now - _reduceMotionCachedAtMs >= 0 &&
+            now - _reduceMotionCachedAtMs < ReduceMotionCacheMs)
+        {
+            return cached;
+        }
+
+        bool preferred = false;
         try
         {
             if (OperatingSystem.IsWindows())
@@ -124,17 +142,18 @@ internal static class ControlVisualHelpers
                 if (NativeMethods.SystemParametersInfo(0x1042, 0, out bool clientAreaAnimation, 0) &&
                     !clientAreaAnimation)
                 {
-                    return true;
+                    preferred = true;
                 }
             }
         }
         catch
         {
-            // Ignore platform probe failures; fall through to debug speed.
+            // Ignore platform probe failures.
         }
 
-        // SystemDebugAnim > 29 forces near-instant animation in ModAnimation; treat as reduced.
-        return ModAnimation.aniSpeed >= 100d;
+        _reduceMotionCached = preferred;
+        _reduceMotionCachedAtMs = now;
+        return preferred;
     }
 
     private static class NativeMethods

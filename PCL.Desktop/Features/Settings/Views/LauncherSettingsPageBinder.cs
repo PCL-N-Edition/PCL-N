@@ -558,12 +558,29 @@ internal static class LauncherSettingsPageBinder
         string path = CreateSettingsPath();
         try
         {
+            // Hot path (measured): ~155 disk loads / 45s during normal nav. Serve memory
+            // unless the JSON file is newer on disk (external edit).
+            long diskWriteTicks = TryGetSettingsWriteTicks(path);
+            lock (LatestSavedSettingsLock)
+            {
+                if (_latestSavedSettings is { } cached &&
+                    PathsEqual(cached.SettingsPath, path) &&
+                    cached.DiskWriteTicks == diskWriteTicks)
+                {
+                    return cached.Settings;
+                }
+            }
+
             using LauncherSettingsStore store = new(path);
-            LauncherSettings settings = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
+            LauncherSettings settings = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings
+                .NormalizeOptionDictionaries();
+            diskWriteTicks = TryGetSettingsWriteTicks(path);
+            lock (LatestSavedSettingsLock)
+                _latestSavedSettings = new LatestSavedSettings(path, settings, diskWriteTicks);
             PortableLog.Debug(
                 "Settings",
                 $"设置读取完成；Path={path}；Bool={settings.BooleanOptions.Count}；Int={settings.IntegerOptions.Count}；Text={settings.TextOptions.Count}。");
-            return settings.NormalizeOptionDictionaries();
+            return settings;
         }
         catch (Exception ex)
         {
@@ -579,8 +596,9 @@ internal static class LauncherSettingsPageBinder
         {
             using LauncherSettingsStore store = new(settingsPath);
             store.SaveAsync(settings).AsTask().GetAwaiter().GetResult();
+            long diskWriteTicks = TryGetSettingsWriteTicks(settingsPath);
             lock (LatestSavedSettingsLock)
-                _latestSavedSettings = new LatestSavedSettings(settingsPath, settings);
+                _latestSavedSettings = new LatestSavedSettings(settingsPath, settings, diskWriteTicks);
             PortableLog.Debug(
                 "Settings",
                 $"设置保存完成；Path={settingsPath}；Bool={settings.BooleanOptions.Count}；Int={settings.IntegerOptions.Count}；Text={settings.TextOptions.Count}。");
@@ -604,6 +622,24 @@ internal static class LauncherSettingsPageBinder
         settings.SetIntegerOption(key, value);
         SaveSettings(settings);
     }
+
+    private static long TryGetSettingsWriteTicks(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.GetLastWriteTimeUtc(path).Ticks : 0L;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return -1L;
+        }
+    }
+
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(
+            left,
+            right,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     private static void FlushLatestSettings()
     {
@@ -731,7 +767,10 @@ internal static class LauncherSettingsPageBinder
             .First(pair => pair.item == ColorTheme.CatBlue).index;
     }
 
-    private sealed record LatestSavedSettings(string SettingsPath, LauncherSettings Settings);
+    private sealed record LatestSavedSettings(
+        string SettingsPath,
+        LauncherSettings Settings,
+        long DiskWriteTicks);
 
     private sealed class BindingState
     {
