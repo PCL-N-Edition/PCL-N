@@ -368,7 +368,9 @@ public sealed record ExperimentalUiProfile(
 2. [x] `CommunityDownloadPaths` + `DesktopPathHelpers` 路径小工具  
 3. [x] `CommunityDownloadOrchestrator`：社区资源下载/依赖/另存为（UI 经 host）  
 4. [x] `MinecraftRepairModels` + `MinecraftRepairPolicy`：修复上下文/决策纯函数  
-5. [ ] `TryRepairMissingDependenciesAsync` 整段编排再抽（执行体仍 MainWindow）
+5. [x] `MainWindow.Repair.cs` partial：~2k 行修复/AI/崩溃导出从主文件拆出  
+6. [x] `MainWindow.Login.cs` partial：登录/档案/对话框从主文件拆出  
+7. [ ] 修复执行体再抽为独立 Service（当前仍 partial 宿主方法）
 
 **DoD（每阶段）：** 编译 + 相关测试绿；实验开/关冒烟；不扩大业务分叉；可独立回滚。
 
