@@ -7,6 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 using PCL.Desktop.Composition;
 using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Messaging;
+using PCL.Desktop.Features;
+using PCL.Desktop.Features.Instances;
+using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Session;
 using PCL.Desktop.Shell;
 

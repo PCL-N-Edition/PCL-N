@@ -334,9 +334,12 @@ public sealed record ExperimentalUiProfile(
 
 ### Phase 3 — Instances + Launch Feature
 
-1. 同一 VM + 经典/整页两 View（Profile）  
-2. `SelectFolder` / `StartMinecraft` UseCase  
-3. 列表 Refreshable 薄模式（不必 DynamicData）  
+1. [x] `InstancesSelectSurface` + `InstancesSelectBindings`：经典/整页布局由 Profile 驱动  
+2. [x] `InstancesFeatureModule` / `LaunchFeatureModule` 注册进组合根  
+3. [x] MainWindow `ApplyInstanceSelectPage` 委托 Surface；Launch 使用 `LaunchHomeProfileResolver`  
+4. [ ] 启动主页完全迁出 MainWindow（仍需 host 回调抽取）  
+5. [ ] `StartMinecraft` UseCase 门面  
+6. [ ] 列表 Refreshable 薄模式（不必 DynamicData）  
 
 ### Phase 4 — Downloads / Tasks / Settings / Community  
 

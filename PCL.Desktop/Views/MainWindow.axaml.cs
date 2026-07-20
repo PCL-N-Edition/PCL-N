@@ -49,6 +49,7 @@ using PCL.Desktop.Shell;
 using PCL.Desktop.Theme;
 using PCL.Desktop.Platform;
 using PCL.Desktop.Features.Downloads.Views;
+using PCL.Desktop.Features.Instances;
 using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Launching.Views;
@@ -91,6 +92,8 @@ public partial class MainWindow : Window, IDisposable
     private readonly InstanceSelectionStore _instanceSelectionStore;
     private readonly TaskSessionStore _taskSessionStore;
     private readonly GameSessionStore _gameSessionStore;
+    private readonly InstancesSelectSurface _instancesSelect;
+    private readonly LaunchHomeProfileResolver _launchHomeProfile;
     private bool _isDisposed;
     private PageLoginProfile? _loginProfilePage;
     private PageLoginProfileSkin? _loginProfileSkinPage;
@@ -107,8 +110,6 @@ public partial class MainWindow : Window, IDisposable
     private PageSpeedLeft? _speedLeft;
     private PageSpeedRight? _speedRight;
     private PageInstanceLeft? _instanceLeft;
-    private PageInstanceSelectLeft? _instanceSelectLeft;
-    private PageInstanceSelectRight? _instanceSelectPage;
     private PageInstanceManageRight? _instanceManagePage;
     private PageInstanceSetupRight? _instanceSetupPage;
     private PageInstanceExportRight? _instanceExportPage;
@@ -189,6 +190,8 @@ public partial class MainWindow : Window, IDisposable
         _instanceSelectionStore = DesktopCompositionRoot.GetRequiredService<InstanceSelectionStore>();
         _taskSessionStore = DesktopCompositionRoot.GetRequiredService<TaskSessionStore>();
         _gameSessionStore = DesktopCompositionRoot.GetRequiredService<GameSessionStore>();
+        _instancesSelect = DesktopCompositionRoot.GetRequiredService<InstancesSelectSurface>();
+        _launchHomeProfile = DesktopCompositionRoot.GetRequiredService<LaunchHomeProfileResolver>();
         _extraDockViewModel.PropertyChanged += ExtraDockViewModel_PropertyChanged;
         AvaloniaXamlLoader.Load(this);
         DesktopHostUiComposition.Instance.RegisterTarget("pcl.window.main", this);
@@ -1276,7 +1279,9 @@ public partial class MainWindow : Window, IDisposable
     private DesktopMainPage CreateLaunchMainPage()
     {
         LauncherSettings launchSettings = LauncherSettingsPageBinder.LoadSettings();
-        bool experimental = IsExperimentalHomepageUiEnabled(launchSettings);
+        // Prefer feature profile resolver (Phase 3); keep settings fallback for parity.
+        bool experimental = _launchHomeProfile.UseExperimentalFullPageHome() ||
+                            IsExperimentalHomepageUiEnabled(launchSettings);
         ApplyExperimentalChrome(experimental);
 
         if (experimental)
@@ -2507,7 +2512,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         EnsureMinecraftFoldersLoaded();
-        bool experimental = IsExperimentalHomepageUiEnabled();
+        bool experimental = _instancesSelect.IsFullPageLayout;
         ApplyExperimentalChrome(experimental);
 
         // Prefer the live launch root so the folder list highlights the folder in use.
@@ -2518,141 +2523,68 @@ public partial class MainWindow : Window, IDisposable
                 _folderStore.SetSelectedRootWithoutPersist(normalizedLive);
         }
 
-        _instanceSelectPage ??= CreateInstanceSelectPage();
-        _instanceSelectPage.SetFullPageLayout(experimental);
-        _instanceSelectPage.SetInstances(_launchLeft?.Instances ?? [], _launchLeft?.SelectedInstance);
-
-        if (experimental)
-        {
-            // Full-page select: sidebar lives inside the right page.
-            if (leftHost.Child is MyPageLeft oldLeft)
-                oldLeft.TriggerHideAnimation();
-            leftHost.Child = null;
-            _instanceSelectPage.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
-        }
-        else
-        {
-            // Classic: dedicated left folder rail + content-only right page.
-            _instanceSelectLeft ??= CreateInstanceSelectLeftPage();
-            _instanceSelectLeft.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
-            if (!ReferenceEquals(leftHost.Child, _instanceSelectLeft))
-            {
-                if (leftHost.Child is MyPageLeft previousLeft)
-                    previousLeft.TriggerHideAnimation();
-                leftHost.Child = _instanceSelectLeft;
-            }
-
-            _instanceSelectLeft.TriggerShowAnimation();
-        }
-
-        if (!ReferenceEquals(rightHost.Child, _instanceSelectPage))
-        {
-            if (rightHost.Child is MyPageRight oldRight)
-                oldRight.PageOnExit();
-            rightHost.Child = _instanceSelectPage;
-        }
+        _instancesSelect.WireOnce(CreateInstancesSelectBindings());
+        _instancesSelect.Apply(
+            leftHost,
+            rightHost,
+            _launchLeft?.Instances ?? [],
+            _launchLeft?.SelectedInstance);
 
         EnterTitleSubPage("选择版本");
         RefreshBackToTopBinding();
-        rightHost.Opacity = 1d;
-        _instanceSelectPage.PageOnEnter();
     }
 
-    private PageInstanceSelectLeft CreateInstanceSelectLeftPage()
-    {
-        PageInstanceSelectLeft page = new();
-        page.FolderSelected += (_, folder) => _ = SelectMinecraftFolderAsync(folder);
-        page.FolderRefreshRequested += (_, folder) => _ = SelectMinecraftFolderAsync(folder, forceRefresh: true);
-        page.FolderOpenRequested += (_, folder) => OpenFolder(folder.RootDirectory);
-        page.FolderRenameRequested += (_, folder) => ShowInputDialog(
-            "重命名游戏文件夹",
-            "请输入新的显示名称。",
-            folder.Name,
-            "游戏文件夹名称",
-            result =>
+    private InstancesSelectBindings CreateInstancesSelectBindings() =>
+        new()
+        {
+            SelectFolderAsync = SelectMinecraftFolderAsync,
+            OpenPath = OpenFolder,
+            PromptRenameFolder = folder => ShowInputDialog(
+                "重命名游戏文件夹",
+                "请输入新的显示名称。",
+                folder.Name,
+                "游戏文件夹名称",
+                result =>
+                {
+                    RenameMinecraftFolder(folder, result);
+                    _instancesSelect.RefreshFolderLists();
+                }),
+            RemoveFolder = RemoveMinecraftFolder,
+            CreateDefaultFolderAsync = CreateDefaultMinecraftFolderAsync,
+            AddFolderAsync = AddMinecraftFolderAsync,
+            ImportModpackAsync = PickModpackForImportAsync,
+            RefreshInstancesAsync = async () =>
             {
-                RenameMinecraftFolder(folder, result);
-                RefreshInstanceSelectFolderLists();
-            });
-        page.FolderRemoveRequested += (_, folder) =>
-        {
-            RemoveMinecraftFolder(folder);
-            RefreshInstanceSelectFolderLists();
-        };
-        page.CreateFolderRequested += (_, _) => _ = CreateDefaultMinecraftFolderAsync();
-        page.AddFolderRequested += (_, _) => _ = AddMinecraftFolderAsync();
-        page.ImportModpackRequested += (_, _) => _ = PickModpackForImportAsync();
-        return page;
-    }
-
-    private void RefreshInstanceSelectFolderLists()
-    {
-        _instanceSelectLeft?.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
-        if (_instanceSelectPage is { IsFullPageLayout: true })
-            _instanceSelectPage.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
-    }
-
-    private PageInstanceSelectRight CreateInstanceSelectPage()
-    {
-        PageInstanceSelectRight page = new();
-        page.FolderSelected += (_, folder) => _ = SelectMinecraftFolderAsync(folder);
-        page.FolderRefreshRequested += (_, folder) => _ = SelectMinecraftFolderAsync(folder, forceRefresh: true);
-        page.FolderOpenRequested += (_, folder) => OpenFolder(folder.RootDirectory);
-        page.FolderRenameRequested += (_, folder) => ShowInputDialog(
-            "重命名游戏文件夹",
-            "请输入新的显示名称。",
-            folder.Name,
-            "游戏文件夹名称",
-            result =>
+                if (_launchLeft is null)
+                    return [];
+                await _launchLeft.RefreshInstancesAsync().ConfigureAwait(true);
+                return _launchLeft.Instances;
+            },
+            GetSelectedInstance = () => _launchLeft?.SelectedInstance,
+            NavigateDownload = () => SelectNavRoute(DownloadRoute, animate: true),
+            NavigateLaunch = () => SelectNavRoute(LaunchRoute, animate: true),
+            OpenInstanceFolder = instance => OpenFolder(instance.InstanceDirectory),
+            DeleteInstance = PromptDeleteInstance,
+            SelectInstance = instance =>
             {
-                RenameMinecraftFolder(folder, result);
-                RefreshInstanceSelectFolderLists();
-            });
-        page.FolderRemoveRequested += (_, folder) =>
-        {
-            RemoveMinecraftFolder(folder);
-            RefreshInstanceSelectFolderLists();
-        };
-        page.CreateFolderRequested += async (_, _) =>
-        {
-            await CreateDefaultMinecraftFolderAsync().ConfigureAwait(true);
-            RefreshInstanceSelectFolderLists();
-        };
-        page.AddFolderRequested += async (_, _) =>
-        {
-            await AddMinecraftFolderAsync().ConfigureAwait(true);
-            RefreshInstanceSelectFolderLists();
-        };
-        page.ImportModpackRequested += (_, _) => _ = PickModpackForImportAsync();
-        page.RefreshRequested += async (_, _) =>
-        {
-            if (_launchLeft is null)
-                return;
-            await _launchLeft.RefreshInstancesAsync().ConfigureAwait(true);
-            page.SetInstances(_launchLeft.Instances, _launchLeft.SelectedInstance);
-        };
-        page.DownloadRequested += (_, _) => SelectNavRoute(DownloadRoute, animate: true);
-        page.InstanceOpenFolderRequested += (_, instance) => OpenFolder(instance.InstanceDirectory);
-        page.InstanceDeleteRequested += (_, instance) => PromptDeleteInstance(instance);
-        page.InstanceSelected += (_, instance) =>
-        {
-            if (_launchLeft is not null)
-            {
-                // Prefer the select-page snapshot; launch home may still be empty after a root change.
-                IReadOnlyList<LaunchInstanceInfo> snapshot = _launchLeft.Instances.Count > 0
-                    ? _launchLeft.Instances
-                    : [instance];
-                _launchLeft.SetInstances(snapshot, instance);
-            }
+                if (_launchLeft is not null)
+                {
+                    IReadOnlyList<LaunchInstanceInfo> snapshot = _launchLeft.Instances.Count > 0
+                        ? _launchLeft.Instances
+                        : [instance];
+                    _launchLeft.SetInstances(snapshot, instance);
+                }
 
-            _instanceSelectionStore.PersistPreferred(
-                _launchLeft?.PreferredInstanceDirectory ?? instance.InstanceDirectory);
-            _launchRight?.AppendLog($"已选择游戏版本 {instance.Name}。");
-            SelectNavRoute(LaunchRoute, animate: true);
+                _instanceSelectionStore.PersistPreferred(
+                    _launchLeft?.PreferredInstanceDirectory ?? instance.InstanceDirectory);
+                _launchRight?.AppendLog($"已选择游戏版本 {instance.Name}。");
+                SelectNavRoute(LaunchRoute, animate: true);
+            },
+            ManageInstance = instance => ApplyInstanceManagePage(instance)
         };
-        page.InstanceManageRequested += (_, instance) => ApplyInstanceManagePage(instance);
-        return page;
-    }
+
+    private void RefreshInstanceSelectFolderLists() =>
+        _instancesSelect.RefreshFolderLists();
 
     private string? LoadPreferredInstanceDirectory() =>
         _instanceSelectionStore.LoadPreferred();
@@ -2687,7 +2619,7 @@ public partial class MainWindow : Window, IDisposable
         if (changed || forceRefresh)
             await _launchLeft.RefreshInstancesAsync().ConfigureAwait(true);
 
-        _instanceSelectPage?.SetInstances(_launchLeft.Instances, _launchLeft.SelectedInstance);
+        _instancesSelect.SetInstances(_launchLeft.Instances, _launchLeft.SelectedInstance);
     }
 
     private async Task AddMinecraftFolderAsync()
@@ -2749,7 +2681,7 @@ public partial class MainWindow : Window, IDisposable
             if (result.RefreshInstances && result.Installed && _launchLeft is not null)
             {
                 await _launchLeft.RefreshInstancesAsync().ConfigureAwait(true);
-                _instanceSelectPage?.SetInstances(_launchLeft.Instances, _launchLeft.SelectedInstance);
+                _instancesSelect.SetInstances(_launchLeft.Instances, _launchLeft.SelectedInstance);
             }
 
             ShowTextDialog(
@@ -8159,7 +8091,7 @@ public partial class MainWindow : Window, IDisposable
                 string.Equals(instance.InstanceDirectory, selectedDirectory, StringComparison.OrdinalIgnoreCase));
         if (selected is not null)
             _launchLeft.SetInstances(_launchLeft.Instances, selected);
-        _instanceSelectPage?.SetInstances(_launchLeft.Instances, selected);
+        _instancesSelect.SetInstances(_launchLeft.Instances, selected);
         if (selected is not null)
             _instanceManagePage?.SetInstance(selected);
     }
@@ -8640,7 +8572,7 @@ public partial class MainWindow : Window, IDisposable
         _launchRight?.Dispose();
         _communityRight?.Dispose();
         _communityDetail?.Dispose();
-        _instanceSelectPage?.Dispose();
+        _instancesSelect.RightPage?.Dispose();
         _setupRight?.Dispose();
         GC.SuppressFinalize(this);
     }
