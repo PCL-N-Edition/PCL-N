@@ -41,17 +41,17 @@ internal static class MinecraftJvmHostEntryPoint
             ValidateRequest(request);
             Environment.CurrentDirectory = request.WorkingDirectory;
 
-            // Prefer offline ASM patch of authlib.jar over javaagent (works with JNI-only host).
-            bool hasAuthlibAgent = request.VmArguments.Any(static argument =>
-                argument.StartsWith("-javaagent:", StringComparison.OrdinalIgnoreCase) &&
-                argument.Contains("authlib", StringComparison.OrdinalIgnoreCase));
+            // Host takes over non-Microsoft identities only (offline + third-party).
+            // Official/MSA keeps stock authlib; traditional process launch still uses javaagent.
             bool useSessionBridge = request.IdentityMode is
                 MinecraftJvmHostIdentityMode.Offline or MinecraftJvmHostIdentityMode.ThirdParty;
 
             using MinecraftSessionBridge? bridge = useSessionBridge
                 ? MinecraftSessionBridge.Start(request, lifecycle)
                 : null;
-            List<string> vmArguments = [.. request.VmArguments];
+            List<string> vmArguments = AuthlibJarPatcher
+                .StripJavaAgentVmArguments(request.VmArguments)
+                .ToList();
             string[] classpath = request.ClasspathEntries;
 
             if (bridge is not null)
@@ -59,30 +59,22 @@ internal static class MinecraftJvmHostEntryPoint
                 bridge.AppendJvmProperties(vmArguments);
                 lifecycle.Send("BridgeReady", bridge.BaseUrl);
 
-                // Replace classpath authlib with a jar whose constants point at this bridge,
-                // and relax signature / texture domain checks (JVMTI is disabled in safe mode).
-                AuthlibPatchProfile patchProfile = request.IdentityMode == MinecraftJvmHostIdentityMode.ThirdParty &&
-                                                   !string.IsNullOrWhiteSpace(request.AuthServer)
-                    ? AuthlibPatchProfile.ForYggdrasilServer(request.AuthServer!)
-                    : AuthlibPatchProfile.ForLoopbackBridge(bridge.BaseUrl);
-                // For third-party: bake Yggdrasil server into authlib, then also set services host via bridge props.
-                // Re-patch with bridge URLs so session/services go through 127.0.0.1 and ygg join is proxied.
-                if (request.IdentityMode == MinecraftJvmHostIdentityMode.ThirdParty)
-                    patchProfile = AuthlibPatchProfile.ForLoopbackBridge(bridge.BaseUrl);
-
+                // ASM-patch authlib on disk and swap classpath (JVMTI disabled in JNI-only host).
+                AuthlibPatchProfile patchProfile = AuthlibPatchProfile.ForLoopbackBridge(bridge.BaseUrl);
                 string[] patched = AuthlibJarPatcher.RewriteClasspath(classpath, patchProfile);
                 if (!classpath.SequenceEqual(patched, StringComparer.Ordinal))
                 {
                     classpath = patched;
-                    // Jar patch supersedes javaagent — strip agent flags so they cannot fight rewrites.
-                    vmArguments = AuthlibJarPatcher.StripJavaAgentVmArguments(vmArguments).ToList();
-                    hasAuthlibAgent = false;
-                    lifecycle.Send("AuthlibPatched", "已用 ASM 修补并替换 classpath 中的 Authlib jar");
+                    lifecycle.Send(
+                        "AuthlibPatched",
+                        request.IdentityMode == MinecraftJvmHostIdentityMode.ThirdParty
+                            ? "Host 已接管第三方认证：ASM 修补 Authlib + 会话桥"
+                            : "Host 已接管离线会话：ASM 修补 Authlib + 会话桥");
                 }
-            }
-            else if (hasAuthlibAgent)
-            {
-                lifecycle.Send("AuthlibAgent", "第三方认证使用 authlib-injector javaagent");
+                else
+                {
+                    lifecycle.Send("AuthlibPatchSkip", "未找到可修补的 Authlib jar，仅依赖会话桥系统属性");
+                }
             }
 
             RegisterJdkImplementation(request.JavaMajorVersion);

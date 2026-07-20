@@ -110,7 +110,7 @@ internal static class AuthlibJarPatcher
         }
 
         // Remove -javaagent:...authlib... tokens and related -Dauthlibinjector.* properties.
-        IReadOnlyList<string> tokens = SplitArgumentsPreservingQuotes(arguments);
+        List<string> tokens = SplitArgumentsPreservingQuotes(arguments);
         List<string> kept = [];
         foreach (string token in tokens)
         {
@@ -206,7 +206,7 @@ internal static class AuthlibJarPatcher
         return result;
     }
 
-    private static IReadOnlyList<string> SplitArgumentsPreservingQuotes(string arguments)
+    private static List<string> SplitArgumentsPreservingQuotes(string arguments)
     {
         List<string> tokens = [];
         StringBuilder current = new();

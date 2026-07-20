@@ -482,7 +482,7 @@ public static class MinecraftProcessLaunchService
     private static StringComparer GetPathComparer() =>
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
-    private static IReadOnlyList<string> CreateJvmPrefixArguments(MinecraftProcessLaunchRequest request)
+    private static List<string> CreateJvmPrefixArguments(MinecraftProcessLaunchRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.AuthlibInjectorPath) ||
             string.IsNullOrWhiteSpace(request.AuthlibServer))
