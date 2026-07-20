@@ -313,7 +313,7 @@ internal sealed class MinecraftSessionBridge : IDisposable
         byte[] body = await ReadLimitedAsync(response.Content, MaxResponseBytes, cancellationToken).ConfigureAwait(false);
         string contentTypeValue = response.Content.Headers.ContentType?.ToString() ?? "application/json; charset=utf-8";
 
-        PublishThirdPartyLifecycle(request.Method, path, response.StatusCode);
+        PublishThirdPartyLifecycle(request.Method, path, response.StatusCode, body);
         return new HttpResponseData((int)response.StatusCode, response.ReasonPhrase ?? "Upstream", contentTypeValue, body);
     }
 
@@ -332,14 +332,27 @@ internal sealed class MinecraftSessionBridge : IDisposable
         method == "POST" &&
         string.Equals(path, "/sessionserver/session/minecraft/join", StringComparison.OrdinalIgnoreCase);
 
-    private void PublishThirdPartyLifecycle(string method, string path, HttpStatusCode statusCode)
+    private void PublishThirdPartyLifecycle(
+        string method,
+        string path,
+        HttpStatusCode statusCode,
+        byte[]? responseBody = null)
     {
         int status = (int)statusCode;
         if (method == "POST" &&
             string.Equals(path, "/sessionserver/session/minecraft/join", StringComparison.OrdinalIgnoreCase))
         {
             string stage = status is >= 200 and < 300 ? "ThirdPartyJoin" : "ThirdPartyJoinFailed";
-            _lifecycle.SendOnce(stage, $"第三方服务器会话注册 HTTP {status}");
+            string detail = $"第三方服务器会话注册 HTTP {status}";
+            if (status is < 200 or >= 300 && responseBody is { Length: > 0 })
+            {
+                string snippet = Encoding.UTF8.GetString(responseBody);
+                if (snippet.Length > 240)
+                    snippet = snippet[..240] + "…";
+                detail += "；" + snippet;
+            }
+
+            _lifecycle.SendOnce(stage, detail);
             return;
         }
 

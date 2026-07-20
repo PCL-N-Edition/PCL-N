@@ -88,6 +88,13 @@ public partial class MainWindow
         if (removed == 0)
             return;
 
+        if (profile.Kind == LaunchLoginProfileKind.ThirdParty &&
+            !string.IsNullOrWhiteSpace(profile.AuthServer) &&
+            !string.IsNullOrWhiteSpace(profile.Uuid))
+        {
+            _ = ThirdPartyCredentialStore.DeleteAsync(profile.AuthServer, profile.Uuid);
+        }
+
         LoginProfileInfo? selected = _loginProfiles.FirstOrDefault();
         page.SetProfiles(_loginProfiles, selected);
         launchPage.SetSelectedProfilePresent(selected is not null);
@@ -1014,7 +1021,10 @@ public partial class MainWindow
         {
             ThirdPartyAuthLoginResult result = await _thirdPartyAuthService
                 .AuthenticateAsync(
-                    new ThirdPartyAuthLoginRequest(request.Server, request.Username, request.Password))
+                    new ThirdPartyAuthLoginRequest(
+                        request.Server,
+                        request.Username,
+                        request.Password))
                 .ConfigureAwait(true);
             page.UpdateProgress(0.8d);
             string skinAddress = MySkin.ResolveSkinAddress(
@@ -1029,15 +1039,27 @@ public partial class MainWindow
                 SvgIcon: "lucide/key-round",
                 SkinAddress: string.IsNullOrWhiteSpace(skinAddress) ? null : skinAddress,
                 AuthServer: result.AuthServer,
-                AccessToken: result.AccessToken);
+                AccessToken: result.AccessToken,
+                RefreshToken: result.RefreshToken,
+                ClientToken: result.ClientToken);
             AddOrUpdateLoginProfile(profile);
             _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, profile);
             _launchLoginSurface.ProfileSkinPage?.SetProfile(profile);
             _launchLeft?.SetSelectedProfilePresent(true);
             _launchLeft?.RefreshPage(anim: true);
             SaveProfilesInBackground("保存第三方认证档案");
-            _launchRight?.AppendLog($"第三方认证登录成功，已选中档案 {profile.Username}。");
-            ShowTextDialog("登录成功", $"已添加并选中 {profile.Username}。", "知道了");
+
+            // Encrypt password for silent re-auth / refresh when accessToken expires.
+            await ThirdPartyCredentialStore.SaveAsync(
+                    result.AuthServer,
+                    result.Uuid,
+                    request.Username,
+                    request.Password,
+                    result.ClientToken)
+                .ConfigureAwait(true);
+
+            _launchRight?.AppendLog($"第三方认证登录成功，已选中档案 {profile.Username}（凭据已加密保存，可用于自动刷新）。");
+            ShowTextDialog("登录成功", $"已添加并选中 {profile.Username}。\n\n登录密码已加密保存在本机，启动时可自动刷新会话。", "知道了");
         }
         catch (Exception ex)
         {
@@ -1252,7 +1274,8 @@ public partial class MainWindow
             profile.SkinAddress,
             profile.AuthServer,
             profile.AccessToken,
-            profile.RefreshToken);
+            profile.RefreshToken,
+            profile.ClientToken);
 
     private static LaunchProfile ToLaunchProfile(LoginProfileInfo profile) =>
         new()
@@ -1271,7 +1294,8 @@ public partial class MainWindow
             SkinAddress = profile.SkinAddress,
             AuthServer = profile.AuthServer,
             AccessToken = profile.AccessToken,
-            RefreshToken = profile.RefreshToken
+            RefreshToken = profile.RefreshToken,
+            ClientToken = profile.ClientToken
         };
 
     private static string? NormalizeAuthServerUrl(string authServer)

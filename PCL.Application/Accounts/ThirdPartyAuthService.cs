@@ -12,14 +12,17 @@ namespace PCL.Application.Accounts;
 public sealed record ThirdPartyAuthLoginRequest(
     string Server,
     string Username,
-    string Password);
+    string Password,
+    string? ClientToken = null);
 
 public sealed record ThirdPartyAuthLoginResult(
     string Username,
     string Uuid,
     string AccessToken,
     string AuthServer,
-    string AuthServerDisplayName);
+    string AuthServerDisplayName,
+    string ClientToken = "",
+    string RefreshToken = "");
 
 public sealed class ThirdPartyAuthService(HttpClient? httpClient = null)
 {
@@ -44,6 +47,11 @@ public sealed class ThirdPartyAuthService(HttpClient? httpClient = null)
             throw new ArgumentException("认证服务器、邮箱和密码不能为空。", nameof(request));
         }
 
+        // Stable clientToken improves validate/refresh on many Yggdrasil servers (LittleSkin).
+        string clientToken = string.IsNullOrWhiteSpace(request.ClientToken)
+            ? Guid.NewGuid().ToString("N")
+            : request.ClientToken.Trim();
+
         JsonObject payload = new()
         {
             ["agent"] = new JsonObject
@@ -53,6 +61,7 @@ public sealed class ThirdPartyAuthService(HttpClient? httpClient = null)
             },
             ["username"] = request.Username,
             ["password"] = request.Password,
+            ["clientToken"] = clientToken,
             ["requestUser"] = true
         };
 
@@ -73,7 +82,99 @@ public sealed class ThirdPartyAuthService(HttpClient? httpClient = null)
             throw exception;
         }
 
+        return ParseLoginResult(json, authServer, "认证");
+    }
+
+    /// <summary>
+    /// Validates a stored access token against the auth server (Yggdrasil validate).
+    /// </summary>
+    public async Task<bool> ValidateAsync(
+        string authServer,
+        string accessToken,
+        string? clientToken = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken))
+            return false;
+
+        string server = NormalizeYggdrasilServer(authServer);
+        JsonObject payload = new() { ["accessToken"] = accessToken };
+        if (!string.IsNullOrWhiteSpace(clientToken))
+            payload["clientToken"] = clientToken;
+
+        using StringContent content = new(payload.ToJsonString(), Encoding.UTF8, "application/json");
+        try
+        {
+            using HttpResponseMessage response = await _httpClient
+                .PostAsync($"{server}/authserver/validate", content, cancellationToken)
+                .ConfigureAwait(false);
+            // Spec: 204 No Content = valid; 403 = invalid.
+            if (response.IsSuccessStatusCode)
+            {
+                PortableLog.Debug("ThirdPartyAuth", $"访问令牌校验通过；服务器={GetServerDisplayName(server)}。");
+                return true;
+            }
+
+            PortableLog.Warn(
+                "ThirdPartyAuth",
+                $"访问令牌校验失败；服务器={GetServerDisplayName(server)}；HTTP={(int)response.StatusCode}。");
+            return false;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            PortableLog.Warn(ex, "ThirdPartyAuth", "访问令牌校验请求失败，将尝试 refresh。");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Refreshes an access token (Yggdrasil refresh). Prefer when JWT is near expiry or validate fails.
+    /// </summary>
+    public async Task<ThirdPartyAuthLoginResult> RefreshAsync(
+        string authServer,
+        string accessToken,
+        string? clientToken = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken))
+            throw new ArgumentException("访问令牌为空，无法刷新。", nameof(accessToken));
+
+        string server = NormalizeYggdrasilServer(authServer);
+        PortableLog.Info("ThirdPartyAuth", $"刷新第三方访问令牌；服务器={GetServerDisplayName(server)}。");
+        JsonObject payload = new()
+        {
+            ["accessToken"] = accessToken,
+            ["requestUser"] = true
+        };
+        if (!string.IsNullOrWhiteSpace(clientToken))
+            payload["clientToken"] = clientToken;
+
+        using StringContent content = new(payload.ToJsonString(), Encoding.UTF8, "application/json");
+        using HttpResponseMessage response = await _httpClient
+            .PostAsync($"{server}/authserver/refresh", content, cancellationToken)
+            .ConfigureAwait(false);
+        string responseBody = await response.Content.ReadAsStringAsync(cancellationToken)
+            .ConfigureAwait(false);
+        JsonObject? json = TryParseObject(responseBody);
+        if (!response.IsSuccessStatusCode || json?["error"] is not null)
+        {
+            InvalidOperationException exception = CreateAuthException(response.StatusCode, json, responseBody);
+            PortableLog.Error(
+                exception,
+                "ThirdPartyAuth",
+                $"刷新第三方令牌失败；服务器={GetServerDisplayName(server)}；HTTP={(int)response.StatusCode}。");
+            throw exception;
+        }
+
+        return ParseLoginResult(json, server, "刷新");
+    }
+
+    private static ThirdPartyAuthLoginResult ParseLoginResult(JsonObject? json, string authServer, string actionLabel)
+    {
         string accessToken = json?["accessToken"]?.ToString() ?? "";
+        string clientToken = json?["clientToken"]?.ToString() ?? "";
+        // Some Yggdrasil Connect servers also return refreshToken.
+        string refreshToken = json?["refreshToken"]?.ToString() ?? "";
         JsonObject? profile = json?["selectedProfile"] as JsonObject ??
                               (json?["availableProfiles"] as JsonArray)?.OfType<JsonObject>().FirstOrDefault();
         string uuid = profile?["id"]?.ToString() ?? "";
@@ -82,17 +183,50 @@ public sealed class ThirdPartyAuthService(HttpClient? httpClient = null)
             string.IsNullOrWhiteSpace(uuid) ||
             string.IsNullOrWhiteSpace(username))
         {
-            PortableLog.Error("ThirdPartyAuth", $"第三方认证响应缺少可用档案；服务器={GetServerDisplayName(authServer)}。");
-            throw new InvalidOperationException("认证成功，但服务器没有返回可用的 Minecraft 档案。");
+            PortableLog.Error("ThirdPartyAuth", $"第三方{actionLabel}响应缺少可用档案；服务器={GetServerDisplayName(authServer)}。");
+            throw new InvalidOperationException($"第三方{actionLabel}成功，但服务器没有返回可用的 Minecraft 档案。");
         }
 
-        PortableLog.Info("ThirdPartyAuth", $"第三方认证完成；服务器={GetServerDisplayName(authServer)}；玩家={username}。");
+        PortableLog.Info("ThirdPartyAuth", $"第三方{actionLabel}完成；服务器={GetServerDisplayName(authServer)}；玩家={username}。");
         return new ThirdPartyAuthLoginResult(
             username,
             uuid,
             accessToken,
             authServer,
-            GetServerDisplayName(authServer));
+            GetServerDisplayName(authServer),
+            clientToken,
+            refreshToken);
+    }
+
+    /// <summary>Returns true when a JWT access token has not yet reached its exp claim (with skew).</summary>
+    public static bool IsJwtAccessTokenUnexpired(string? accessToken, TimeSpan? skew = null)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken))
+            return false;
+
+        string[] parts = accessToken.Split('.');
+        if (parts.Length < 2)
+            return true; // Opaque token — cannot judge from payload.
+
+        try
+        {
+            string payload = parts[1].Replace('-', '+').Replace('_', '/');
+            payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
+            using System.Text.Json.JsonDocument document =
+                System.Text.Json.JsonDocument.Parse(Convert.FromBase64String(payload));
+            if (!document.RootElement.TryGetProperty("exp", out System.Text.Json.JsonElement expiration) ||
+                !expiration.TryGetInt64(out long seconds))
+            {
+                return true;
+            }
+
+            TimeSpan margin = skew ?? TimeSpan.FromMinutes(2);
+            return DateTimeOffset.FromUnixTimeSeconds(seconds) > DateTimeOffset.UtcNow.Add(margin);
+        }
+        catch (Exception ex) when (ex is FormatException or System.Text.Json.JsonException or ArgumentOutOfRangeException)
+        {
+            return true;
+        }
     }
 
     public static string NormalizeYggdrasilServer(string server)

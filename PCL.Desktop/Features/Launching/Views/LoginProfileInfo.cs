@@ -17,7 +17,8 @@ public sealed record LoginProfileInfo(
     string? SkinAddress = null,
     string AuthServer = "",
     string AccessToken = "",
-    string RefreshToken = "")
+    string RefreshToken = "",
+    string ClientToken = "")
 {
     private const string AuthlibInjectorPrefix = "Authlib-Injector · ";
 

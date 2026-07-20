@@ -28,4 +28,7 @@ public sealed record LaunchProfile
     public string AccessToken { get; init; } = string.Empty;
 
     public string RefreshToken { get; init; } = string.Empty;
+
+    /// <summary>Yggdrasil clientToken used for validate/refresh (third-party).</summary>
+    public string ClientToken { get; init; } = string.Empty;
 }

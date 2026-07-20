@@ -61,19 +61,33 @@ internal static class MinecraftJvmHostEntryPoint
 
                 // ASM-patch authlib on disk and swap classpath (JVMTI disabled in JNI-only host).
                 AuthlibPatchProfile patchProfile = AuthlibPatchProfile.ForLoopbackBridge(bridge.BaseUrl);
+                int authlibEntries = classpath.Count(AuthlibJarPatcher.IsAuthlibJarPath);
                 string[] patched = AuthlibJarPatcher.RewriteClasspath(classpath, patchProfile);
-                if (!classpath.SequenceEqual(patched, StringComparer.Ordinal))
+                int rewritten = 0;
+                for (int i = 0; i < classpath.Length; i++)
                 {
-                    classpath = patched;
+                    if (!string.Equals(classpath[i], patched[i], StringComparison.Ordinal))
+                        rewritten++;
+                }
+
+                classpath = patched;
+                if (rewritten > 0)
+                {
                     lifecycle.Send(
                         "AuthlibPatched",
                         request.IdentityMode == MinecraftJvmHostIdentityMode.ThirdParty
-                            ? "Host 已接管第三方认证：ASM 修补 Authlib + 会话桥"
-                            : "Host 已接管离线会话：ASM 修补 Authlib + 会话桥");
+                            ? $"Host 已接管第三方认证：ASM 修补 Authlib ×{rewritten} + 会话桥"
+                            : $"Host 已接管离线会话：ASM 修补 Authlib ×{rewritten} + 会话桥");
+                }
+                else if (authlibEntries == 0)
+                {
+                    lifecycle.Send("AuthlibPatchSkip", "classpath 未包含 authlib-*.jar，仅依赖会话桥系统属性");
                 }
                 else
                 {
-                    lifecycle.Send("AuthlibPatchSkip", "未找到可修补的 Authlib jar，仅依赖会话桥系统属性");
+                    lifecycle.Send(
+                        "AuthlibPatchSkip",
+                        $"找到 {authlibEntries} 个 Authlib jar 但修补后路径未变（可能已缓存或修补失败，见 AuthlibPatch 日志）");
                 }
             }
 

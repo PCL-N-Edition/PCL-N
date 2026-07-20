@@ -3682,6 +3682,9 @@ public partial class MainWindow : Window, IDisposable
         LoginProfileInfo profile,
         CancellationToken cancellationToken)
     {
+        if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
+            return await RefreshThirdPartyLaunchProfileAsync(profile, cancellationToken).ConfigureAwait(false);
+
         if (profile.Kind != LaunchLoginProfileKind.Microsoft ||
             string.IsNullOrWhiteSpace(profile.RefreshToken))
         {
@@ -3719,6 +3722,179 @@ public partial class MainWindow : Window, IDisposable
             Info = refreshed.OwnsMinecraft ? "Microsoft 正版" : profile.Info
         };
     }
+
+    /// <summary>
+    /// Ensures third-party (LittleSkin / Yggdrasil) access tokens are still accepted before launch.
+    /// Order: validate → refresh → re-authenticate with encrypted password → fail with re-login hint.
+    /// </summary>
+    private async Task<LoginProfileInfo> RefreshThirdPartyLaunchProfileAsync(
+        LoginProfileInfo profile,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(profile.AuthServer))
+        {
+            throw new InvalidOperationException(
+                "第三方档案缺少认证服务器地址。请重新登录该账户。");
+        }
+
+        ThirdPartyStoredCredential? stored = await ThirdPartyCredentialStore
+            .TryReadAsync(profile.AuthServer, profile.Uuid, cancellationToken)
+            .ConfigureAwait(false);
+        string clientToken = !string.IsNullOrWhiteSpace(profile.ClientToken)
+            ? profile.ClientToken
+            : stored?.ClientToken ?? string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(profile.AccessToken) &&
+            ThirdPartyAuthService.IsJwtAccessTokenUnexpired(profile.AccessToken))
+        {
+            bool stillValid = await _thirdPartyAuthService
+                .ValidateAsync(
+                    profile.AuthServer,
+                    profile.AccessToken,
+                    string.IsNullOrWhiteSpace(clientToken) ? null : clientToken,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (stillValid)
+            {
+                Dispatcher.UIThread.Post(
+                    () => _launchRight?.AppendLog("第三方访问令牌有效。"),
+                    DispatcherPriority.Background);
+                return profile;
+            }
+        }
+
+        Dispatcher.UIThread.Post(
+            () => _launchRight?.AppendLog("第三方访问令牌失效，正在自动刷新会话…"),
+            DispatcherPriority.Background);
+
+        // 1) Yggdrasil refresh (works while accessToken is still accepted for refresh).
+        if (!string.IsNullOrWhiteSpace(profile.AccessToken))
+        {
+            try
+            {
+                ThirdPartyAuthLoginResult refreshed = await _thirdPartyAuthService
+                    .RefreshAsync(
+                        profile.AuthServer,
+                        profile.AccessToken,
+                        string.IsNullOrWhiteSpace(clientToken) ? null : clientToken,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                return await PersistRefreshedThirdPartyProfileAsync(
+                        profile,
+                        refreshed,
+                        stored,
+                        "第三方访问令牌已自动刷新。")
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                PortableLog.Warn(ex, "ThirdPartyAuth", "Yggdrasil refresh 失败，尝试加密凭据重登。");
+            }
+        }
+
+        // 2) Silent re-auth with DPAPI/Keychain-stored password.
+        if (stored is not null)
+        {
+            try
+            {
+                ThirdPartyAuthLoginResult reauthed = await _thirdPartyAuthService
+                    .AuthenticateAsync(
+                        new ThirdPartyAuthLoginRequest(
+                            profile.AuthServer,
+                            stored.LoginUsername,
+                            stored.Password,
+                            string.IsNullOrWhiteSpace(clientToken) ? stored.ClientToken : clientToken),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                // Keep password vault in sync with any new clientToken.
+                await ThirdPartyCredentialStore.SaveAsync(
+                        reauthed.AuthServer,
+                        reauthed.Uuid,
+                        stored.LoginUsername,
+                        stored.Password,
+                        reauthed.ClientToken,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                return await PersistRefreshedThirdPartyProfileAsync(
+                        profile,
+                        reauthed,
+                        stored,
+                        "已使用加密保存的凭据重新登录第三方账户。")
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                PortableLog.Error(ex, "ThirdPartyAuth", "加密凭据重登失败。");
+                throw new InvalidOperationException(
+                    "第三方访问令牌已失效，使用本机加密凭据重新登录也失败。" +
+                    Environment.NewLine +
+                    "请打开「账户」重新登录该认证服务器（密码可能已更改）。" +
+                    Environment.NewLine +
+                    "详情：" + ex.Message,
+                    ex);
+            }
+        }
+
+        throw new InvalidOperationException(
+            "第三方访问令牌已失效，且本机没有可用于自动刷新的加密凭据。" +
+            Environment.NewLine +
+            "请打开「账户」重新登录该认证服务器。登录成功后密码会加密保存在本机，之后可自动刷新。");
+    }
+
+    private async Task<LoginProfileInfo> PersistRefreshedThirdPartyProfileAsync(
+        LoginProfileInfo profile,
+        ThirdPartyAuthLoginResult refreshed,
+        ThirdPartyStoredCredential? stored,
+        string logMessage)
+    {
+        LoginProfileInfo updated = profile with
+        {
+            Username = refreshed.Username,
+            Uuid = refreshed.Uuid,
+            AccessToken = refreshed.AccessToken,
+            ClientToken = string.IsNullOrWhiteSpace(refreshed.ClientToken)
+                ? profile.ClientToken
+                : refreshed.ClientToken,
+            RefreshToken = string.IsNullOrWhiteSpace(refreshed.RefreshToken)
+                ? profile.RefreshToken
+                : refreshed.RefreshToken,
+            AuthServer = refreshed.AuthServer,
+            SkinAddress = MySkin.ResolveSkinAddress(
+                skinAddress: null,
+                uuid: refreshed.Uuid,
+                authServer: refreshed.AuthServer)
+        };
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            AddOrUpdateLoginProfile(updated);
+            _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
+            SaveProfilesInBackground("刷新第三方访问令牌");
+            _launchRight?.AppendLog(logMessage);
+        });
+
+        // If we re-authed under a new UUID (rare), migrate vault key.
+        if (stored is not null &&
+            !string.Equals(NormalizeUuidHex(stored.ProfileUuid), NormalizeUuidHex(updated.Uuid), StringComparison.OrdinalIgnoreCase))
+        {
+            await ThirdPartyCredentialStore.DeleteAsync(stored.AuthServer, stored.ProfileUuid)
+                .ConfigureAwait(false);
+            await ThirdPartyCredentialStore.SaveAsync(
+                    updated.AuthServer,
+                    updated.Uuid,
+                    stored.LoginUsername,
+                    stored.Password,
+                    updated.ClientToken)
+                .ConfigureAwait(false);
+        }
+
+        return updated;
+    }
+
+    private static string NormalizeUuidHex(string uuid) =>
+        new string(uuid.Where(static ch => ch is not ('-' or ' ')).ToArray()).ToLowerInvariant();
 
     private async Task IncrementInstanceLaunchCountAsync(LaunchInstanceInfo instance)
     {
