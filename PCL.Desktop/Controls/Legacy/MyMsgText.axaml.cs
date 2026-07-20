@@ -66,7 +66,18 @@ public partial class MyMsgText : Grid
             SyncTitleLine(titleBrush);
         }
         if (this.FindControl<TextBlock>("LabCaption") is { } captionBlock)
-            captionBlock.Text = caption;
+        {
+            // Long Windows paths rarely contain spaces; force soft break opportunities so Wrap
+            // actually multi-lines instead of clipping mid-path in compact dialogs (#49).
+            captionBlock.Text = SoftBreakLongTokens(caption);
+            captionBlock.TextWrapping = TextWrapping.Wrap;
+            captionBlock.TextTrimming = TextTrimming.None;
+            // Constrain width before first measure so the first layout wraps correctly.
+            double maxWidth = Math.Clamp((TopLevel.GetTopLevel(this)?.ClientSize.Width ?? 720d) - 120d, 280d, 640d);
+            captionBlock.MaxWidth = maxWidth;
+            if (this.FindControl<MyScrollViewer>("PanCaption") is { } captionScroll)
+                captionScroll.MaxWidth = maxWidth + 24d;
+        }
 
         ConfigureSecondaryButton(this.FindControl<MyButton>("Btn2"), secondaryButton);
         ConfigureSecondaryButton(this.FindControl<MyButton>("Btn3"), thirdButton);
@@ -238,6 +249,24 @@ public partial class MyMsgText : Grid
     private IBrush FindBrush(string resourceKey, string fallback)
     {
         return LegacyResourceResolver.Brush(this, resourceKey, fallback);
+    }
+
+    /// <summary>
+    /// Insert zero-width spaces after path separators / long-token breaks so TextWrapping can
+    /// multi-line without changing the visual glyphs users copy from the dialog.
+    /// </summary>
+    internal static string SoftBreakLongTokens(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
+        // ZWSP is invisible and is stripped by most path parsers when users retype, but keeps
+        // the full path selectable. Prefer breaks after path separators and hyphens in filenames.
+        return text
+            .Replace("\\", "\\\u200b", StringComparison.Ordinal)
+            .Replace("/", "/\u200b", StringComparison.Ordinal)
+            .Replace("-", "-\u200b", StringComparison.Ordinal)
+            .Replace("_", "_\u200b", StringComparison.Ordinal);
     }
 
     private void SyncTitleLine(IBrush brush)

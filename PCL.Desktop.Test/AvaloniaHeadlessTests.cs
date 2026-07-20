@@ -4399,8 +4399,21 @@ public sealed class AvaloniaHeadlessTests
                 System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
             .Invoke(null, [targetPath])!;
 
-        Assert.AreEqual("日志已导出到：" + System.IO.Path.GetFullPath(targetPath), message);
+        Assert.AreEqual("日志已导出到：\n" + System.IO.Path.GetFullPath(targetPath), message);
         Assert.IsFalse(message.EndsWith("：", StringComparison.Ordinal));
+        StringAssert.Contains(message, System.IO.Path.GetFullPath(targetPath));
+    }
+
+    [TestMethod]
+    public void MyMsgText_SoftBreakLongTokens_InsertsBreaksWithoutChangingVisibleSeparators()
+    {
+        string path = @"C:\Users\MoonRivulet\Desktop\PCLN-CurrentLog-20260717-203051.zip";
+        string soft = PCL.Desktop.Controls.Legacy.MyMsgText.SoftBreakLongTokens(path);
+        Assert.AreEqual(
+            path,
+            soft.Replace("\u200b", string.Empty, StringComparison.Ordinal));
+        Assert.IsTrue(soft.Contains("\\\u200b", StringComparison.Ordinal));
+        Assert.IsTrue(soft.Contains("-\u200b", StringComparison.Ordinal));
     }
 
     [TestMethod]

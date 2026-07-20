@@ -179,11 +179,19 @@ public partial class PageSetupLog : MyPageRight, IRefreshableSettingsPage, ISett
                 await source.CopyToAsync(entryStream).ConfigureAwait(true);
             }
 
-            MessageRequested?.Invoke(
+            string folder = Path.GetDirectoryName(Path.GetFullPath(targetPath)) ?? GetLogDirectory();
+            ConfirmRequested?.Invoke(
                 this,
-                new SettingsMessageRequestedEventArgs(
+                new SettingsConfirmRequestedEventArgs(
                     "导出完成",
-                    BuildExportCompletedMessage(targetPath)));
+                    BuildExportCompletedMessage(targetPath),
+                    confirmed =>
+                    {
+                        if (confirmed)
+                            OpenPathRequested?.Invoke(this, new SettingsPathRequestedEventArgs(folder));
+                    },
+                    primaryButton: "打开文件夹",
+                    secondaryButton: "知道了"));
             DesktopFileLog.Info("LogExport", $"导出完成：{Path.GetFileName(targetPath)}。");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -214,9 +222,9 @@ public partial class PageSetupLog : MyPageRight, IRefreshableSettingsPage, ISett
     private static string BuildExportCompletedMessage(string targetPath)
     {
         string displayPath = Path.GetFullPath(targetPath);
-        // Keep the path on the first visible line. Some compact modal layouts
-        // could previously measure only the label before the explicit newline.
-        return "日志已导出到：" + displayPath;
+        // Put the path on its own line so long Windows paths can wrap inside the dialog
+        // (see MyMsgText.SoftBreakLongTokens). Offer "打开文件夹" as the primary action.
+        return "日志已导出到：\n" + displayPath;
     }
 
     private static string GetLogDirectory() =>
