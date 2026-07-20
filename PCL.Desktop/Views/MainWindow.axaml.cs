@@ -103,6 +103,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly SettingsFeatureSurface _settingsSurface;
     private readonly CommunityFeatureSurface _communitySurface;
     private readonly TaskManagerSurface _taskManagerSurface;
+    private readonly InstancesManageSurface _instancesManage;
     private bool _isDisposed;
     private PageLoginProfile? _loginProfilePage;
     private PageLoginProfileSkin? _loginProfileSkinPage;
@@ -118,19 +119,6 @@ public partial class MainWindow : Window, IDisposable
     private readonly CommunityFavoritesStore _communityFavorites = new();
     private PageSpeedLeft? _speedLeft;
     private PageSpeedRight? _speedRight;
-    private PageInstanceLeft? _instanceLeft;
-    private PageInstanceManageRight? _instanceManagePage;
-    private PageInstanceSetupRight? _instanceSetupPage;
-    private PageInstanceExportRight? _instanceExportPage;
-    private PageInstanceInstallRight? _instanceInstallPage;
-    private PageInstanceSavesRight? _instanceSavesPage;
-    private PageInstanceSavesInfoRight? _instanceSavesInfoPage;
-    private PageInstanceScreenshotRight? _instanceScreenshotPage;
-    private PageInstanceToolsRight? _instanceToolsPage;
-    private PageInstanceModDisabledRight? _instanceModDisabledPage;
-    private PageInstanceResourceRight? _instanceResourcePage;
-    private PageInstanceResourceRight? _instanceDatapackPage;
-    private PageInstanceServerRight? _instanceServerPage;
     private LaunchInstanceInfo? _managedInstance;
     private bool _isTitleSubPageVisible;
     private Action? _titleInnerBackAction;
@@ -207,6 +195,7 @@ public partial class MainWindow : Window, IDisposable
         _settingsSurface = DesktopCompositionRoot.GetRequiredService<SettingsFeatureSurface>();
         _communitySurface = DesktopCompositionRoot.GetRequiredService<CommunityFeatureSurface>();
         _taskManagerSurface = DesktopCompositionRoot.GetRequiredService<TaskManagerSurface>();
+        _instancesManage = DesktopCompositionRoot.GetRequiredService<InstancesManageSurface>();
         _startMinecraft.Bind(async (request, _) =>
             await StartMinecraftAsync(
                 request.Home,
@@ -2716,21 +2705,21 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        _managedInstance = instance;
-        _instanceLeft ??= CreateInstanceLeftPage();
-        _instanceLeft.SetInstance(instance);
-        subPage = _instanceLeft.NormalizePage(subPage);
-        if (!ReferenceEquals(leftHost.Child, _instanceLeft))
+        WireInstancesManageSurface();
+        (PageInstanceLeft left, MyPageRight rightPage, InstancePageSubType normalized) =
+            _instancesManage.Prepare(instance, subPage);
+        _managedInstance = _instancesManage.ManagedInstance;
+
+        if (!ReferenceEquals(leftHost.Child, left))
         {
             if (leftHost.Child is MyPageLeft oldLeft)
                 oldLeft.TriggerHideAnimation();
-            leftHost.Child = _instanceLeft;
-            _instanceLeft.TriggerShowAnimation();
+            leftHost.Child = left;
+            left.TriggerShowAnimation();
         }
-        _instanceLeft.SelectPage(subPage);
+
         EnterTitleSubPage($"版本设置 - {instance.Name}");
 
-        MyPageRight rightPage = GetInstanceRightPage(instance, subPage);
         MyPageRight? oldRight = rightHost.Child as MyPageRight;
         if (ReferenceEquals(oldRight, rightPage))
             return;
@@ -2739,165 +2728,87 @@ public partial class MainWindow : Window, IDisposable
         rightHost.Child = rightPage;
         RefreshBackToTopBinding();
         rightPage.PageOnEnter();
+        _ = normalized;
     }
 
-    private PageInstanceLeft CreateInstanceLeftPage()
+    private void WireInstancesManageSurface()
     {
-        PageInstanceLeft page = new();
-        page.PageChanged += (_, subPage) =>
+        _instancesManage.WireOnce(this, new InstancesManageBindings
         {
-            if (_managedInstance is not null)
-                ApplyInstanceManagePage(_managedInstance, subPage);
-        };
-        page.RefreshRequested += (_, subPage) =>
-        {
-            if (subPage == InstancePageSubType.Overall)
-                _ = RefreshInstancesAfterManagementAsync(_managedInstance?.InstanceDirectory);
-            else if (subPage == InstancePageSubType.Servers)
-                _instanceServerPage?.Reload();
-            else if (subPage == InstancePageSubType.Export)
-                _instanceExportPage?.RefreshAll();
-            else if (subPage == InstancePageSubType.Install)
-                _instanceInstallPage?.RefreshAll();
-            else if (subPage == InstancePageSubType.Saves)
-                _instanceSavesPage?.Reload();
-            else if (subPage == InstancePageSubType.Screenshots)
-                _ = _instanceScreenshotPage?.Reload();
-            else if (subPage is InstancePageSubType.Mods or InstancePageSubType.ResourcePacks or InstancePageSubType.Shaders or InstancePageSubType.Schematics)
-                _instanceResourcePage?.Reload();
-            else
-                _instanceToolsPage?.Reload();
-        };
-        page.ResetRequested += (_, _) =>
-        {
-            if (_managedInstance is not null)
-                PromptResetInstanceSettings(_managedInstance);
-        };
-        return page;
-    }
-
-    private MyPageRight GetInstanceRightPage(LaunchInstanceInfo instance, InstancePageSubType subPage)
-    {
-        if (subPage == InstancePageSubType.Overall)
-        {
-            _instanceManagePage ??= CreateInstanceManagePage();
-            _instanceManagePage.SetInstance(instance);
-            return _instanceManagePage;
-        }
-
-        if (subPage == InstancePageSubType.Servers)
-        {
-            _instanceServerPage ??= CreateInstanceServerPage();
-            _instanceServerPage.SetInstance(instance);
-            return _instanceServerPage;
-        }
-
-        if (subPage == InstancePageSubType.Setup)
-        {
-            _instanceSetupPage ??= CreateInstanceSetupPage();
-            _instanceSetupPage.SetInstance(instance);
-            return _instanceSetupPage;
-        }
-
-        if (subPage == InstancePageSubType.Export)
-        {
-            _instanceExportPage ??= CreateInstanceExportPage();
-            _instanceExportPage.SetInstance(instance);
-            return _instanceExportPage;
-        }
-
-        if (subPage == InstancePageSubType.Install)
-        {
-            _instanceInstallPage ??= CreateInstanceInstallPage();
-            _instanceInstallPage.SetInstance(instance);
-            return _instanceInstallPage;
-        }
-
-        if (subPage == InstancePageSubType.Screenshots)
-        {
-            _instanceScreenshotPage ??= CreateInstanceScreenshotPage();
-            _instanceScreenshotPage.SetInstance(instance);
-            return _instanceScreenshotPage;
-        }
-
-        if (subPage == InstancePageSubType.Saves)
-        {
-            _instanceSavesPage ??= CreateInstanceSavesPage();
-            _instanceSavesPage.SetInstance(instance);
-            return _instanceSavesPage;
-        }
-
-        if (subPage == InstancePageSubType.ModsDisabled)
-        {
-            _instanceModDisabledPage ??= CreateInstanceModDisabledPage();
-            return _instanceModDisabledPage;
-        }
-
-        if (subPage is InstancePageSubType.Mods or InstancePageSubType.ResourcePacks or InstancePageSubType.Shaders or InstancePageSubType.Schematics)
-        {
-            _instanceResourcePage ??= CreateInstanceResourcePage();
-            _instanceResourcePage.SetContext(instance, subPage);
-            return _instanceResourcePage;
-        }
-
-        _instanceToolsPage ??= CreateInstanceToolsPage();
-        _instanceToolsPage.SetContext(instance, subPage);
-        return _instanceToolsPage;
-    }
-
-    private PageInstanceManageRight CreateInstanceManagePage()
-    {
-        PageInstanceManageRight page = new();
-        page.OpenFolderRequested += (_, instance) => OpenFolder(instance.InstanceDirectory);
-        page.OpenPathRequested += (_, path) => OpenFolder(path);
-        page.RenameRequested += (_, instance) => PromptRenameInstance(instance);
-        page.DeleteRequested += (_, instance) => PromptDeleteInstance(instance);
-        page.EditDescriptionRequested += (_, instance) => PromptEditInstanceDescription(instance);
-        page.ToggleStarRequested += (_, instance) => _ = ToggleInstanceStarAsync(instance);
-        page.ExportLaunchScriptRequested += (_, instance) => _ = ExportLaunchScriptAsync(instance);
-        page.TestLaunchRequested += (_, instance) => _ = TestLaunchFromInstancePageAsync(instance);
-        page.RepairFilesRequested += (_, instance) => _ = RepairInstanceFilesAsync(instance);
-        page.ResetSettingsRequested += (_, instance) => PromptResetInstanceSettings(instance);
-        page.PatchCoreRequested += (_, instance) => _ = PatchInstanceCoreAsync(instance);
-        return page;
-    }
-
-    private PageInstanceSetupRight CreateInstanceSetupPage()
-    {
-        PageInstanceSetupRight page = new();
-        page.OpenGlobalSettingsRequested += (_, _) => SelectNavRoute(SettingsRoute, animate: true);
-        page.MessageRequested += (_, args) => ShowTextDialog(args.Title, args.Message, args.PrimaryButton);
-        page.ConfirmRequested += (_, args) => ShowConfirmDialog(
-            args.Title,
-            args.Message,
-            args.Complete,
-            args.PrimaryButton,
-            args.SecondaryButton,
-            args.IsWarn);
-        page.CreateAuthProfileRequested += (_, authServer) =>
-        {
-            SelectNavRoute(LaunchRoute, animate: true);
-            _launchLeft ??= CreateLaunchLeftPage();
-            ApplyLaunchLoginPage(_launchLeft, PageLaunchLeft.LaunchLoginPageType.Auth);
-            _loginAuthPage?.SetServer(authServer);
-        };
-        return page;
-    }
-
-    private PageInstanceExportRight CreateInstanceExportPage()
-    {
-        PageInstanceExportRight page = new();
-        page.ExportRequested += (_, request) => _ = ExportInstanceZipAsync(request);
-        page.ImportConfigRequested += (_, _) => _ = ImportInstanceRulesConfigAsync(page);
-        page.ExportConfigRequested += (_, rules) => _ = ExportInstanceRulesConfigAsync(rules);
-        return page;
-    }
-
-    private PageInstanceInstallRight CreateInstanceInstallPage()
-    {
-        PageInstanceInstallRight page = new();
-        page.ModifyRequested += (_, request) => _ = OpenDownloadInstallForInstanceAsync(request);
-        return page;
+            SelectSubPage = ApplyInstanceManagePage,
+            RefreshInstancesAsync = path => RefreshInstancesAfterManagementAsync(path),
+            ResetSettings = PromptResetInstanceSettings,
+            OpenPath = OpenFolder,
+            OpenExistingPath = OpenExistingPath,
+            StatusMessage = HandleStatusMessage,
+            ShowHint = message => ShowHint(message),
+            RenameInstance = PromptRenameInstance,
+            DeleteInstance = PromptDeleteInstance,
+            EditDescription = PromptEditInstanceDescription,
+            ToggleStarAsync = ToggleInstanceStarAsync,
+            ExportLaunchScriptAsync = ExportLaunchScriptAsync,
+            TestLaunchAsync = TestLaunchFromInstancePageAsync,
+            RepairFilesAsync = RepairInstanceFilesAsync,
+            PatchCoreAsync = PatchInstanceCoreAsync,
+            OpenGlobalSettings = () => SelectNavRoute(SettingsRoute, animate: true),
+            ShowMessage = (title, message, primary) => ShowTextDialog(title, message, primary ?? "确定"),
+            Confirm = (title, message, complete, primary, secondary, isWarn) =>
+                ShowConfirmDialog(
+                    title,
+                    message,
+                    complete,
+                    primary ?? "确定",
+                    secondary ?? "取消",
+                    isWarn),
+            CreateAuthProfile = authServer =>
+            {
+                SelectNavRoute(LaunchRoute, animate: true);
+                _launchLeft ??= CreateLaunchLeftPage();
+                ApplyLaunchLoginPage(_launchLeft, PageLaunchLeft.LaunchLoginPageType.Auth);
+                _loginAuthPage?.SetServer(authServer);
+            },
+            ExportZipAsync = ExportInstanceZipAsync,
+            ImportExportConfigAsync = ImportInstanceRulesConfigAsync,
+            ExportExportConfigAsync = ExportInstanceRulesConfigAsync,
+            OpenDownloadInstallAsync = OpenDownloadInstallForInstanceAsync,
+            ShowSaveDetailsAsync = ShowInstanceSaveDetailsAsync,
+            QuickPlayWorld = worldName =>
+            {
+                if (_managedInstance is not null && _launchLeft is not null)
+                    _ = StartMinecraftAsync(_launchLeft, _managedInstance, worldName);
+            },
+            NavigateDownload = () => SelectNavRoute(DownloadRoute, animate: true),
+            NavigateInstanceSelect = () =>
+            {
+                SelectNavRoute(LaunchRoute, animate: true);
+                ApplyInstanceSelectPage();
+            },
+            OpenCommunityForResource = OpenCommunityForResourcePage,
+            OpenCommunityDataPacks = () =>
+            {
+                SelectNavRoute(CommunityRoute, animate: true);
+                _ = _communityLeft?.TrySelectCategory(CommunityResourceCategory.DataPack) == true
+                    ? _communityRight?.SetCategoryAsync(CommunityResourceCategory.DataPack)
+                    : Task.CompletedTask;
+            },
+            ShowDatapacks = ShowInstanceDatapacks,
+            AddServer = PromptAddServer,
+            ConnectServer = server =>
+            {
+                if (_managedInstance is { } instance && _launchLeft is { } launchPage)
+                    _ = StartMinecraftAsync(launchPage, instance, serverAddress: server.Address);
+            },
+            EditServer = (page, server) =>
+            {
+                if (_managedInstance is { } instance)
+                    PromptEditServer(instance, page, server);
+            },
+            RemoveServer = (page, server) =>
+            {
+                if (_managedInstance is { } instance)
+                    PromptRemoveServer(instance, page, server);
+            }
+        });
     }
 
     private async Task OpenDownloadInstallForInstanceAsync(InstanceInstallModifyRequest request)
@@ -3034,10 +2945,10 @@ public partial class MainWindow : Window, IDisposable
 
         if (_managedInstance is not null &&
             this.FindControl<Border>("PanMainLeft")?.Child is PageInstanceLeft &&
-            _instanceLeft is not null)
+            _instancesManage.Left is { } manageLeft)
         {
             LaunchInstanceInfo instance = _managedInstance;
-            InstancePageSubType subPage = _instanceLeft.PageId;
+            InstancePageSubType subPage = manageLeft.PageId;
             return () => ApplyInstanceManagePage(instance, subPage);
         }
 
@@ -3361,37 +3272,6 @@ public partial class MainWindow : Window, IDisposable
         _taskCancellations.Clear();
     }
 
-    private PageInstanceScreenshotRight CreateInstanceScreenshotPage()
-    {
-        PageInstanceScreenshotRight page = new();
-        page.OpenFolderRequested += (_, path) => OpenFolder(path);
-        page.OpenFileRequested += (_, path) => OpenExistingPath(path);
-        page.StatusMessage += (_, message) => HandleStatusMessage(message);
-        return page;
-    }
-
-    private PageInstanceSavesRight CreateInstanceSavesPage()
-    {
-        PageInstanceSavesRight page = new();
-        page.OpenFolderRequested += (_, path) => OpenFolder(path);
-        page.SaveDetailsRequested += (_, path) => _ = ShowInstanceSaveDetailsAsync(path);
-        page.QuickPlayRequested += (_, worldName) =>
-        {
-            if (_managedInstance is not null && _launchLeft is not null)
-                _ = StartMinecraftAsync(_launchLeft, _managedInstance, worldName);
-        };
-        page.StatusMessage += (_, message) => HandleStatusMessage(message);
-        return page;
-    }
-
-    private PageInstanceSavesInfoRight CreateInstanceSavesInfoPage()
-    {
-        PageInstanceSavesInfoRight page = new();
-        page.StatusMessage += (_, message) => HandleStatusMessage(message);
-        page.DatapackManageRequested += (_, saveFolder) => ShowInstanceDatapacks(saveFolder);
-        return page;
-    }
-
     private async Task ShowInstanceSaveDetailsAsync(string saveFolder)
     {
         if (_managedInstance is null ||
@@ -3400,8 +3280,8 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        _instanceSavesInfoPage ??= CreateInstanceSavesInfoPage();
-        PageInstanceSavesInfoRight page = _instanceSavesInfoPage;
+        WireInstancesManageSurface();
+        PageInstanceSavesInfoRight page = _instancesManage.EnsureSavesInfoPage();
         _titleInnerBackAction = () =>
         {
             if (_managedInstance is not null)
@@ -3426,8 +3306,8 @@ public partial class MainWindow : Window, IDisposable
         if (this.FindControl<Border>("PanMainRight") is not { } rightHost)
             return;
 
-        _instanceDatapackPage ??= CreateInstanceDatapackPage();
-        PageInstanceResourceRight page = _instanceDatapackPage;
+        WireInstancesManageSurface();
+        PageInstanceResourceRight page = _instancesManage.EnsureDatapackPage();
         _titleInnerBackAction = () => _ = ShowInstanceSaveDetailsAsync(saveFolder);
         EnterTitleSubPage("数据包 - " + Path.GetFileName(saveFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
 
@@ -3441,57 +3321,6 @@ public partial class MainWindow : Window, IDisposable
         page.SetDataPackFolder(saveFolder);
         RefreshBackToTopBinding();
         page.PageOnEnter();
-    }
-
-    private PageInstanceToolsRight CreateInstanceToolsPage()
-    {
-        PageInstanceToolsRight page = new();
-        page.OpenFolderRequested += (_, path) => OpenFolder(path);
-        return page;
-    }
-
-    private PageInstanceModDisabledRight CreateInstanceModDisabledPage()
-    {
-        PageInstanceModDisabledRight page = new();
-        page.DownloadRequested += (_, _) => SelectNavRoute(DownloadRoute, animate: true);
-        page.InstanceSelectRequested += (_, _) =>
-        {
-            SelectNavRoute(LaunchRoute, animate: true);
-            ApplyInstanceSelectPage();
-        };
-        return page;
-    }
-
-    private PageInstanceResourceRight CreateInstanceResourcePage()
-    {
-        PageInstanceResourceRight page = new();
-        page.OpenFolderRequested += (_, path) => OpenFolder(path);
-        page.DownloadRequested += (_, subPage) => OpenCommunityForResourcePage(subPage);
-        page.StatusMessage += (_, message) =>
-        {
-            HandleStatusMessage(message);
-            ShowHint(message);
-        };
-        return page;
-    }
-
-    private PageInstanceResourceRight CreateInstanceDatapackPage()
-    {
-        PageInstanceResourceRight page = new();
-        page.OpenFolderRequested += (_, path) => OpenFolder(path);
-        page.DownloadRequested += (_, _) =>
-        {
-            SelectNavRoute(CommunityRoute, animate: true);
-            _ = _communityLeft?.TrySelectCategory(CommunityResourceCategory.DataPack) == true
-                ? _communityRight?.SetCategoryAsync(CommunityResourceCategory.DataPack)
-                : Task.CompletedTask;
-        };
-        page.StatusMessage += (_, message) =>
-        {
-            HandleStatusMessage(message);
-            ShowHint(message);
-        };
-        return page;
     }
 
     private void OpenCommunityForResourcePage(InstancePageSubType subPage)
@@ -3508,29 +3337,6 @@ public partial class MainWindow : Window, IDisposable
         SelectNavRoute(CommunityRoute, animate: true);
         if (_communityLeft is not null && _communityLeft.TrySelectCategory(category))
             _ = _communityRight?.SetCategoryAsync(category);
-    }
-
-    private PageInstanceServerRight CreateInstanceServerPage()
-    {
-        PageInstanceServerRight page = new();
-        page.RefreshRequested += (_, _) => page.Reload();
-        page.AddServerRequested += (_, instance) => PromptAddServer(instance, page);
-        page.ConnectServerRequested += (_, server) =>
-        {
-            if (_managedInstance is { } instance && _launchLeft is { } launchPage)
-                _ = StartMinecraftAsync(launchPage, instance, serverAddress: server.Address);
-        };
-        page.EditServerRequested += (_, server) =>
-        {
-            if (_managedInstance is { } instance)
-                PromptEditServer(instance, page, server);
-        };
-        page.RemoveServerRequested += (_, server) =>
-        {
-            if (_managedInstance is { } instance)
-                PromptRemoveServer(instance, page, server);
-        };
-        return page;
     }
 
     private void PromptAddServer(LaunchInstanceInfo instance, PageInstanceServerRight page)
@@ -7328,11 +7134,11 @@ public partial class MainWindow : Window, IDisposable
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                if (_instanceManagePage is not null &&
+                if (_instancesManage.ManagePage is not null &&
                     _managedInstance is not null &&
                     string.Equals(_managedInstance.InstanceDirectory, instance.InstanceDirectory, StringComparison.OrdinalIgnoreCase))
                 {
-                    _instanceManagePage.SetInstance(instance);
+                    _instancesManage.ManagePage.SetInstance(instance);
                 }
 
                 _launchRight?.AppendLog($"这是 {instance.Name} 的第 {metadata.LaunchCount.ToString(CultureInfo.InvariantCulture)} 次启动。");
@@ -7806,7 +7612,7 @@ public partial class MainWindow : Window, IDisposable
                     instance.InstanceDirectory,
                     metadata => metadata with { Description = description.Trim() })
                 .ConfigureAwait(true);
-            _instanceManagePage?.SetInstance(instance);
+            _instancesManage.ManagePage?.SetInstance(instance);
             _launchRight?.AppendLog($"已更新 {instance.Name} 的版本描述。");
         }
         catch (Exception ex)
@@ -7823,7 +7629,7 @@ public partial class MainWindow : Window, IDisposable
                     instance.InstanceDirectory,
                     current => current with { IsStarred = !current.IsStarred })
                 .ConfigureAwait(true);
-            _instanceManagePage?.SetInstance(instance);
+            _instancesManage.ManagePage?.SetInstance(instance);
             _launchRight?.AppendLog(metadata.IsStarred
                 ? $"已收藏版本 {instance.Name}。"
                 : $"已取消收藏版本 {instance.Name}。");
@@ -7972,7 +7778,7 @@ public partial class MainWindow : Window, IDisposable
         {
             await InstanceMetadataStore.SaveAsync(instance.InstanceDirectory, new InstanceMetadata())
                 .ConfigureAwait(true);
-            _instanceManagePage?.SetInstance(instance);
+            _instancesManage.ManagePage?.SetInstance(instance);
             _launchRight?.AppendLog($"已初始化 {instance.Name} 的版本设置。");
         }
         catch (Exception ex)
@@ -8004,7 +7810,7 @@ public partial class MainWindow : Window, IDisposable
                     instance.InstanceDirectory,
                     metadata => metadata with { DisableAssetVerification = true })
                 .ConfigureAwait(true);
-            _instanceManagePage?.SetInstance(instance);
+            _instancesManage.ManagePage?.SetInstance(instance);
             ShowTextDialog("补全完成", $"已向核心文件写入 {count} 个文件。\n\n为避免补丁被校验覆盖，已自动关闭该版本的资源校验偏好。");
         }
         catch (Exception ex)
@@ -8074,7 +7880,7 @@ public partial class MainWindow : Window, IDisposable
             _launchLeft.SetInstances(_launchLeft.Instances, selected);
         _instancesSelect.SetInstances(_launchLeft.Instances, selected);
         if (selected is not null)
-            _instanceManagePage?.SetInstance(selected);
+            _instancesManage.ManagePage?.SetInstance(selected);
     }
 
     private static void RenameFileIfExists(string oldPath, string newPath)

@@ -21,6 +21,7 @@ internal sealed class InstancesFeatureModule : IDesktopFeatureModule
     public void Register(IServiceCollection services)
     {
         services.AddSingleton<InstancesSelectSurface>();
+        services.AddSingleton<InstancesManageSurface>();
     }
 
     public DesktopMainPage CreateMainPage(IServiceProvider services) =>

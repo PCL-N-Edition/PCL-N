@@ -347,9 +347,16 @@ public sealed record ExperimentalUiProfile(
 2. [x] `SettingsFeatureModule` + `SettingsFeatureSurface`  
 3. [x] `CommunityFeatureModule` + `CommunityFeatureSurface`（detail/favorites 仍经 host 回调）  
 4. [x] `TasksFeatureModule` + `TaskManagerSurface`（任务管理为 host overlay，无主导航路由）  
-5. [ ] 进一步从 MainWindow 删除遗留 Create* 私有页工厂 / 下载编排迁入 Application
+5. [x] `InstancesManageSurface`：版本设置左右页工厂迁出 MainWindow  
+6. [ ] 下载编排 / `StartMinecraftAsync` 本体迁入 Application（UI 侧仅编排）
 
 ### Phase 5 — 瘦 MainWindow、拆 Headless、可选 DynamicData  
+
+1. [x] Instances manage surface（Phase 4.5 延续）  
+2. [ ] Login pages surface  
+3. [ ] `StartMinecraftAsync` 重实现体下沉（保留 Dispatcher UI 适配）  
+4. [ ] 拆 Headless 会话污染；修 FolderLeft 选择页断言  
+5. [ ] 可选 DynamicData  
 
 **DoD（每阶段）：** 编译 + 相关测试绿；实验开/关冒烟；不扩大业务分叉；可独立回滚。
 

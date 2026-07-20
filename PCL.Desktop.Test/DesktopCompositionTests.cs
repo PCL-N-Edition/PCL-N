@@ -69,6 +69,7 @@ public sealed class DesktopCompositionTests
         SettingsFeatureSurface settings = DesktopCompositionRoot.GetRequiredService<SettingsFeatureSurface>();
         CommunityFeatureSurface community = DesktopCompositionRoot.GetRequiredService<CommunityFeatureSurface>();
         TaskManagerSurface tasks = DesktopCompositionRoot.GetRequiredService<TaskManagerSurface>();
+        InstancesManageSurface manage = DesktopCompositionRoot.GetRequiredService<InstancesManageSurface>();
         Assert.IsNotNull(select);
         Assert.IsNotNull(launchProfile);
         Assert.IsNotNull(launchHome);
@@ -77,6 +78,7 @@ public sealed class DesktopCompositionTests
         Assert.IsNotNull(settings);
         Assert.IsNotNull(community);
         Assert.IsNotNull(tasks);
+        Assert.IsNotNull(manage);
         Assert.AreEqual("instances.select", InstancesSelectSurface.SubPageId);
     }
 
