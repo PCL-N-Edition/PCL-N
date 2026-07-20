@@ -32,6 +32,38 @@ public partial class PageSetupExperimental : MyPageRight, ISettingsPageInteracti
 
     public event EventHandler<SettingsConfirmRequestedEventArgs>? ConfirmRequested;
 
+    private void ExperimentalHomepageUi_OnPreviewChange(object sender, RouteEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not MyCheckBox checkBox)
+            return;
+
+        string title = AvaloniaLocalizationManager.GetText(
+            "Setup.Experimental.HomepageUi.Confirm.Title",
+            "启用实验性用户界面");
+        string message = AvaloniaLocalizationManager.GetText(
+            "Setup.Experimental.HomepageUi.Confirm.Message",
+            "将启用实验性用户界面（当前先重构启动页，后续功能界面会逐步迁移）。遇到问题可随时在实验性功能中关闭。是否继续？");
+
+        void Complete(bool confirmed)
+        {
+            if (confirmed)
+                checkBox.SetChecked(true, user: false);
+        }
+
+        SettingsConfirmRequestedEventArgs args = new(
+            title,
+            message,
+            Complete,
+            primaryButton: AvaloniaLocalizationManager.GetText(
+                "Setup.Experimental.HomepageUi.Confirm.Enable",
+                "启用"),
+            secondaryButton: AvaloniaLocalizationManager.GetText("Common.Action.Cancel", "取消"),
+            isWarn: true);
+        if (ConfirmRequested is { } requested)
+            requested.Invoke(this, args);
+    }
+
     private void ExperimentalJvmHost_OnPreviewChange(object sender, RouteEventArgs e)
     {
         // Stop the state transition until the warning dialog has been answered. This also

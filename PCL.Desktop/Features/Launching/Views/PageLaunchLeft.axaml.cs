@@ -14,7 +14,7 @@ using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Launching.Views;
 
-public partial class PageLaunchLeft : MyPageLeft, IDisposable
+public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposable
 {
     private const int ProgressAnimDurationMs = 260;
 
@@ -280,9 +280,18 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
         string? selectedDirectory = NormalizeInstanceDirectory(selectedInstance?.InstanceDirectory)
                                     ?? NormalizeInstanceDirectory(SelectedInstance?.InstanceDirectory)
                                     ?? _preferredInstanceDirectory;
-        Instances = instances;
-        SelectedInstance = FindInstanceByDirectory(instances, selectedDirectory)
-                           ?? (instances.Count > 0 ? instances[0] : null);
+        Instances = instances ?? [];
+        SelectedInstance = selectedInstance
+                           ?? FindInstanceByDirectory(Instances, selectedDirectory)
+                           ?? (Instances.Count > 0 ? Instances[0] : null);
+        if (SelectedInstance is not null &&
+            FindInstanceByDirectory(Instances, SelectedInstance.InstanceDirectory) is null)
+        {
+            List<LaunchInstanceInfo> merged = [SelectedInstance];
+            merged.AddRange(Instances);
+            Instances = merged;
+        }
+
         RememberSelectedInstance();
         _isInstanceLoadFinished = true;
         RefreshButtonsUI();
@@ -354,10 +363,9 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
         if (page is ILoginPage loginPage)
             loginPage.Reload();
 
-        if (!animate)
+        if (!animate || (page.Parent == panLogin && panLogin.Children.Contains(page)))
         {
-            panLogin.Children.Clear();
-            panLogin.Children.Add(page);
+            MountLoginPage(panLogin, page);
             panLogin.Opacity = 1d;
             return;
         }
@@ -370,11 +378,7 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
                     -panLogin.Opacity,
                     100,
                     ease: new ModAnimation.AniEaseOutFluent()),
-                ModAnimation.AaCode(() =>
-                {
-                    panLogin.Children.Clear();
-                    panLogin.Children.Add(page);
-                }, 100),
+                ModAnimation.AaCode(() => MountLoginPage(panLogin, page), 100),
                 ModAnimation.AaOpacity(
                     panLogin,
                     1d,
@@ -383,6 +387,25 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
                     new ModAnimation.AniEaseInFluent())
             },
             "FrmLogin PageChange");
+    }
+
+    private static void MountLoginPage(Grid panLogin, Control page)
+    {
+        if (page.Parent is Panel parentPanel && parentPanel.Children.Contains(page))
+            parentPanel.Children.Remove(page);
+        else if (page.Parent is Decorator decorator && ReferenceEquals(decorator.Child, page))
+            decorator.Child = null;
+        else if (page.Parent is ContentControl contentControl && ReferenceEquals(contentControl.Content, page))
+            contentControl.Content = null;
+
+        for (int index = panLogin.Children.Count - 1; index >= 0; index--)
+        {
+            if (!ReferenceEquals(panLogin.Children[index], page))
+                panLogin.Children.RemoveAt(index);
+        }
+
+        if (!panLogin.Children.Contains(page))
+            panLogin.Children.Add(page);
     }
 
     public void PageChangeToLogin()
@@ -655,6 +678,8 @@ public partial class PageLaunchLeft : MyPageLeft, IDisposable
         InstanceSettingsRequested?.Invoke(this, EventArgs.Empty);
         StatusMessage?.Invoke(this, $"当前版本位置：{SelectedInstance.InstanceDirectory}");
     }
+
+    public void TriggerEnterAnimation() => TriggerShowAnimation();
 
     public void LaunchButtonClick()
     {

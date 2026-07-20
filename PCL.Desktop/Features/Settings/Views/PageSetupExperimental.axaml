@@ -9,7 +9,32 @@
                            Theme="Yellow"
                            Text="{DynamicResource Setup.Experimental.Warning}" />
 
-            <legacy:MyCard Margin="0,15" Title="{DynamicResource Setup.Experimental.JvmHost.Title}">
+            <legacy:MyCard Margin="0,15" Title="{DynamicResource Setup.Experimental.HomepageUi.Title}">
+                <StackPanel Margin="25,40,25,18" Spacing="12">
+                    <legacy:MyCheckBox x:Name="CheckExperimentalHomepageUi"
+                                       Tag="ExperimentalHomepageUi"
+                                       Text="{DynamicResource Setup.Experimental.HomepageUi.Enable}"
+                                       PreviewChange="ExperimentalHomepageUi_OnPreviewChange" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.HomepageUi.Summary}"
+                               TextWrapping="Wrap" Opacity="0.82" />
+                    <Grid ColumnDefinitions="1*,18,1*">
+                        <StackPanel Grid.Column="0" Spacing="7">
+                            <TextBlock Text="{DynamicResource Setup.Experimental.Benefits.Title}" FontWeight="SemiBold" />
+                            <TextBlock Text="{DynamicResource Setup.Experimental.HomepageUi.Benefits}"
+                                       TextWrapping="Wrap" Opacity="0.78" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="7">
+                            <TextBlock Text="{DynamicResource Setup.Experimental.Risks.Title}" FontWeight="SemiBold" />
+                            <TextBlock Text="{DynamicResource Setup.Experimental.HomepageUi.Risks}"
+                                       TextWrapping="Wrap" Opacity="0.78" />
+                        </StackPanel>
+                    </Grid>
+                    <legacy:MyHint Theme="Blue"
+                                   Text="{DynamicResource Setup.Experimental.HomepageUi.Scope}" />
+                </StackPanel>
+            </legacy:MyCard>
+
+            <legacy:MyCard Margin="0,0,0,15" Title="{DynamicResource Setup.Experimental.JvmHost.Title}">
                 <StackPanel Margin="25,40,25,18" Spacing="12">
                     <legacy:MyCheckBox x:Name="CheckExperimentalJvmHost"
                                        Tag="ExperimentalJvmLifecycleHost"

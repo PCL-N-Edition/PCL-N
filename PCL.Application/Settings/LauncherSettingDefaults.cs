@@ -43,6 +43,7 @@ public static class LauncherSettingDefaults
         ["ToolDownloadClipboard"] = false,
         ["UiHideNEditionHint"] = false,
         ["ExperimentalJvmLifecycleHost"] = false,
+        ["ExperimentalHomepageUi"] = false,
         ["ExperimentalMinecraftAiRepair"] = false
     };
 

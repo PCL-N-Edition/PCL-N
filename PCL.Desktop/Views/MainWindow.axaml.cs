@@ -74,8 +74,10 @@ public partial class MainWindow : Window, IDisposable
     private NavigationRouteId? _currentNavRoute;
     private NavigationRouteId? _pendingNavRoute;
     private bool _isMainWindowOpened;
-    private PageLaunchLeft? _launchLeft;
+    private ILaunchHomeSurface? _launchLeft;
     private PageLaunchRight? _launchRight;
+    private PageLaunchHomeExperimental? _launchHomeExperimental;
+    private bool _useExperimentalLaunchHome;
     private PageLoginProfile? _loginProfilePage;
     private PageLoginProfileSkin? _loginProfileSkinPage;
     private PageLoginMs? _loginMsPage;
@@ -201,6 +203,7 @@ public partial class MainWindow : Window, IDisposable
         CanResize = true;
         WindowDecorations = Avalonia.Controls.WindowDecorations.None;
         SetWindowIcon();
+        ApplyMacOsChromeIfNeeded();
         LauncherSettingsPageBinder.SettingsChanged += LauncherSettingsChanged;
         AvaloniaThemeManager.ThemeChanged += ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged += LocalizationChanged;
@@ -402,10 +405,49 @@ public partial class MainWindow : Window, IDisposable
             this.FindControl<MyIconButton>(name)?.RefreshAnim();
     }
 
+    private MacOsTrafficLights? _macTrafficLights;
+
+    private void ApplyMacOsChromeIfNeeded()
+    {
+        if (!MacOsWindowChrome.IsActivePlatform)
+            return;
+
+        _macTrafficLights = MacOsWindowChrome.Apply(this);
+        if (_macTrafficLights is not null)
+            MacOsWindowChrome.WireWindowEvents(this, _macTrafficLights);
+    }
+
     private void FormMain_KeyDown(object? sender, KeyEventArgs e)
     {
         if (this.FindControl<Panel>("PanMsg") is { Children.Count: > 0 })
             return;
+
+        // macOS window shortcuts: ⌘W close, ⌘M minimize, ⌃⌘F full screen.
+        if (OperatingSystem.IsMacOS() && e.KeyModifiers.HasFlag(KeyModifiers.Meta))
+        {
+            if (e.Key == Key.W && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+            {
+                Close();
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.M)
+            {
+                WindowState = WindowState.Minimized;
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            {
+                WindowState = WindowState == WindowState.FullScreen
+                    ? WindowState.Normal
+                    : WindowState.FullScreen;
+                e.Handled = true;
+                return;
+            }
+        }
 
         if (e.Key == Key.Escape && _isTitleSubPageVisible)
         {
@@ -427,9 +469,25 @@ public partial class MainWindow : Window, IDisposable
         if (IsTextInputEventSource(e.Source))
             return;
 
-        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed &&
-            e.GetPosition(this).Y <= 48)
+        // Do not start a window drag when pressing traffic lights.
+        if (e.Source is Visual visual &&
+            visual.FindAncestorOfType<MacOsTrafficLights>() is not null)
         {
+            return;
+        }
+
+        double titleHeight = OperatingSystem.IsMacOS() ? 52d : 48d;
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed &&
+            e.GetPosition(this).Y <= titleHeight)
+        {
+            if (e.ClickCount == 2 && CanResize && OperatingSystem.IsMacOS())
+            {
+                // Double-click title bar zooms (macOS).
+                ToggleMaximized();
+                e.Handled = true;
+                return;
+            }
+
             BeginMoveDrag(e);
         }
     }
@@ -724,11 +782,15 @@ public partial class MainWindow : Window, IDisposable
 
     private void UpdateWindowChrome()
     {
-        bool maximized = WindowState == WindowState.Maximized;
+        bool maximized = WindowState is WindowState.Maximized or WindowState.FullScreen;
         if (this.FindControl<Border>("PanBack") is { } background)
         {
-            background.Margin = maximized ? new Thickness(0d) : new Thickness(10d);
-            background.CornerRadius = maximized ? new CornerRadius(0d) : new CornerRadius(8d);
+            // macOS full-screen / zoom: flush to edges; keep small radius in normal zoomed-like max.
+            bool flushChrome = maximized || OperatingSystem.IsMacOS() && WindowState == WindowState.FullScreen;
+            background.Margin = flushChrome ? new Thickness(0d) : new Thickness(10d);
+            background.CornerRadius = flushChrome
+                ? new CornerRadius(0d)
+                : new CornerRadius(OperatingSystem.IsMacOS() ? 10d : 8d);
         }
         if (this.FindControl<Border>("PanWindowShadow") is { } shadow)
             shadow.IsVisible = !maximized;
@@ -1194,6 +1256,36 @@ public partial class MainWindow : Window, IDisposable
 
     private DesktopMainPage CreateLaunchMainPage()
     {
+        LauncherSettings launchSettings = LauncherSettingsPageBinder.LoadSettings();
+        bool experimental = launchSettings.GetBooleanOption(
+            LauncherSettingKeys.ExperimentalHomepageUi,
+            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalHomepageUi.Value));
+
+        if (experimental)
+        {
+            EnsureExperimentalLaunchHome(launchSettings);
+            _useExperimentalLaunchHome = true;
+            return new DesktopMainPage(
+                null,
+                _launchHomeExperimental!,
+                Activated: () =>
+                {
+                    // Restore chrome after version-select remount (may leave stale loading text).
+                    _launchLeft!.RefreshButtonsUI();
+                    _ = _launchLeft.EnsureInstancesLoadedAsync();
+                    _launchLeft.TriggerEnterAnimation();
+                });
+        }
+
+        // Leaving experimental mode: keep classic left/right pair.
+        if (_useExperimentalLaunchHome)
+        {
+            _launchHomeExperimental = null;
+            _launchLeft = null;
+            _launchRight = null;
+            _useExperimentalLaunchHome = false;
+        }
+
         _launchLeft ??= CreateLaunchLeftPage();
         if (_launchRight is null)
         {
@@ -1201,19 +1293,70 @@ public partial class MainWindow : Window, IDisposable
             _launchRight.CommunityHintHideRequested += (_, _) => PromptHideCommunityHint();
         }
 
-        LauncherSettings launchSettings = LauncherSettingsPageBinder.LoadSettings();
         _launchRight.SetMaximumLogLines(ResolveMaximumLogLines(launchSettings));
         ApplyLaunchPageSettings(launchSettings);
         ApplyHomepageSettings(launchSettings);
+        ILaunchHomeSurface launchHome = _launchLeft;
+        PageLaunchRight launchRight = _launchRight;
         return new DesktopMainPage(
-            _launchLeft,
-            _launchRight,
+            (Control)launchHome,
+            launchRight,
             Activated: () =>
             {
-                _ = _launchLeft.EnsureInstancesLoadedAsync();
-                _launchLeft.TriggerShowAnimation();
-                _launchRight.PageOnEnter();
+                _ = launchHome.EnsureInstancesLoadedAsync();
+                launchHome.TriggerEnterAnimation();
+                launchRight.PageOnEnter();
             });
+    }
+
+    private void EnsureExperimentalLaunchHome(LauncherSettings launchSettings)
+    {
+        // Must load folders before first discovery, otherwise root is null and the
+        // homepage reports “未找到版本” until the user switches folders once.
+        EnsureMinecraftFoldersLoaded();
+
+        if (_launchHomeExperimental is not null && _launchLeft is PageLaunchHomeExperimental)
+        {
+            _launchHomeExperimental.SetMaximumLogLines(ResolveMaximumLogLines(launchSettings));
+            // Re-apply root if folders finished loading after first construction.
+            _launchHomeExperimental.SetMinecraftRootDirectory(_selectedMinecraftRoot);
+            _launchHomeExperimental.SetPreferredInstanceDirectory(LoadPreferredInstanceDirectory());
+            ApplyLaunchPageSettings(launchSettings);
+            return;
+        }
+
+        PageLaunchHomeExperimental page = new();
+        WireLaunchHomeSurface(page);
+        page.CommunityHintHideRequested += (_, _) => PromptHideCommunityHint();
+        page.SetMaximumLogLines(ResolveMaximumLogLines(launchSettings));
+        page.SetPreferredInstanceDirectory(LoadPreferredInstanceDirectory());
+        page.SetMinecraftRootDirectory(_selectedMinecraftRoot);
+        page.ConfigureLaunchingHint(launchSettings.GetBooleanOption(
+            "UiShowLaunchingHint",
+            LauncherSettingDefaults.GetBoolean("UiShowLaunchingHint")));
+        _launchHomeExperimental = page;
+        _launchLeft = page;
+        _launchRight = null;
+        ApplyLaunchPageSettings(launchSettings);
+    }
+
+    private void WireLaunchHomeSurface(ILaunchHomeSurface page)
+    {
+        page.DownloadRequested += (_, _) => SelectNavRoute(DownloadRoute, animate: true);
+        page.InstanceSelectRequested += (_, _) => ApplyInstanceSelectPage();
+        page.InstanceSettingsRequested += (_, _) =>
+        {
+            if (page.SelectedInstance is not null)
+                ApplyInstanceManagePage(page.SelectedInstance);
+        };
+        page.CancelLaunchRequested += (_, _) =>
+        {
+            _launchCancellation?.Cancel();
+            HandleStatusMessage("已取消启动。");
+        };
+        page.StatusMessage += (_, message) => HandleStatusMessage(message);
+        page.LoginPageRequested += (_, type) => ApplyLaunchLoginPage(page, type);
+        page.LaunchRequested += (_, instance) => _ = StartMinecraftAsync(page, instance);
     }
 
     private void PromptHideCommunityHint()
@@ -1239,6 +1382,8 @@ public partial class MainWindow : Window, IDisposable
                     PageLaunchRight.SetCommunityHintPermanentlyHidden(true);
                     if (_launchRight?.FindControl<MyCard>("PanHint") is { } card)
                         card.IsVisible = false;
+                    // Experimental homepage: unregister the flip card (not only hide).
+                    _launchHomeExperimental?.UnregisterCommunityHintCard();
                     ShowHint("已永久隐藏 N 版提示");
                 }
                 else
@@ -1509,28 +1654,17 @@ public partial class MainWindow : Window, IDisposable
         PageLaunchLeft page = new();
         page.SetPreferredInstanceDirectory(LoadPreferredInstanceDirectory());
         page.SetMinecraftRootDirectory(_selectedMinecraftRoot);
-        page.DownloadRequested += (_, _) => SelectNavRoute(DownloadRoute, animate: true);
-        page.InstanceSelectRequested += (_, _) => ApplyInstanceSelectPage();
-        page.InstanceSettingsRequested += (_, _) =>
-        {
-            if (page.SelectedInstance is not null)
-                ApplyInstanceManagePage(page.SelectedInstance);
-        };
-        page.CancelLaunchRequested += (_, _) =>
-        {
-            _launchCancellation?.Cancel();
-            HandleStatusMessage("已取消启动。");
-        };
-        page.StatusMessage += (_, message) => HandleStatusMessage(message);
-        page.LoginPageRequested += (_, type) => ApplyLaunchLoginPage(page, type);
-        page.LaunchRequested += (_, instance) => _ = StartMinecraftAsync(page, instance);
+        WireLaunchHomeSurface(page);
         return page;
     }
 
     private void HandleStatusMessage(string message)
     {
         // WPF: most status strings only go to the launch log; bottom Hint is reserved for short toasts.
-        _launchRight?.AppendLog(message);
+        if (_launchHomeExperimental is not null)
+            _launchHomeExperimental.AppendLog(message);
+        else
+            _launchRight?.AppendLog(message);
     }
 
     /// <summary>
@@ -1874,14 +2008,62 @@ public partial class MainWindow : Window, IDisposable
                 [],
                 [file]);
 
-            string baseDirectory = instance is null
-                ? Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                    "PCL-N Downloads")
-                : await InstanceGameDirectory.ResolveAsync(instance, cancellation.Token).ConfigureAwait(true);
+            LauncherSettings downloadSettings = LauncherSettingsPageBinder.LoadSettings();
+            bool autoInstallDependencies = downloadSettings.GetBooleanOption(
+                "ToolDownloadAutoInstallDependencies",
+                LauncherSettingDefaults.GetBoolean("ToolDownloadAutoInstallDependencies", true));
+
+            string baseDirectory;
+            string? saveAsPath = null;
+            if (request.SaveAs)
+            {
+                IStorageProvider? storage = StorageProvider;
+                if (storage is null)
+                {
+                    TrackTaskFailed(taskId, taskTitle, "当前窗口无法打开保存对话框。", canceled: false);
+                    ShowHint("另存为失败：无法打开保存对话框", critical: true);
+                    return;
+                }
+
+                IStorageFile? target = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
+                {
+                    Title = "另存为 — " + request.Entry.Title,
+                    SuggestedFileName = file.FileName,
+                    FileTypeChoices =
+                    [
+                        new FilePickerFileType("资源文件")
+                        {
+                            Patterns = ["*" + (Path.GetExtension(file.FileName) is { Length: > 0 } ext ? ext : ".*")]
+                        }
+                    ]
+                }).ConfigureAwait(true);
+                if (target is null)
+                {
+                    TrackTaskFailed(taskId, taskTitle, "已取消另存为。", canceled: true);
+                    ShowHint("已取消另存为");
+                    return;
+                }
+
+                saveAsPath = target.Path.LocalPath;
+                baseDirectory = Path.GetDirectoryName(saveAsPath) ??
+                    Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                        "PCL-N Downloads");
+            }
+            else
+            {
+                baseDirectory = instance is null
+                    ? Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                        "PCL-N Downloads")
+                    : await InstanceGameDirectory.ResolveAsync(instance, cancellation.Token).ConfigureAwait(true);
+            }
 
             IReadOnlyList<CommunityResourceDownloadPlanItem> plan;
-            if (request.Category == CommunityResourceCategory.Mod)
+            // 另存为只保存选中文件本身；自动依赖受设置「自动安装必需依赖」控制（#17）。
+            if (request.Category == CommunityResourceCategory.Mod &&
+                !request.SaveAs &&
+                autoInstallDependencies)
             {
                 TrackTaskBegin(taskId, taskTitle, "正在解析必需前置");
                 plan = await CommunityResourceDependencyResolver.ResolveRequiredDownloadsAsync(
@@ -1923,7 +2105,8 @@ public partial class MainWindow : Window, IDisposable
                         baseDirectory,
                         taskId,
                         taskTitle,
-                        cancellation.Token)
+                        cancellation.Token,
+                        explicitTargetPath: item.IsDependency ? null : saveAsPath)
                     .ConfigureAwait(true);
                 if (item.IsDependency)
                     _launchRight?.AppendLog($"已安装前置：{item.Entry.Title} → {path}");
@@ -1934,9 +2117,11 @@ public partial class MainWindow : Window, IDisposable
             TrackTaskFinished(taskId, taskTitle, "已保存到 " + completedPath);
             DesktopFileLog.Info("CommunityDownload", $"社区资源下载完成：{request.Entry.Title} -> {completedPath}");
             _launchRight?.AppendLog($"社区资源已下载：{request.Entry.Title} → {completedPath}");
-            ShowHint(request.Category == CommunityResourceCategory.World
-                ? "世界安装完成：" + Path.GetFileName(completedPath)
-                : "下载完成：" + Path.GetFileName(completedPath));
+            ShowHint(request.SaveAs
+                ? "已另存为：" + Path.GetFileName(completedPath)
+                : request.Category == CommunityResourceCategory.World
+                    ? "世界安装完成：" + Path.GetFileName(completedPath)
+                    : "下载完成：" + Path.GetFileName(completedPath));
         }
         catch (OperationCanceledException)
         {
@@ -1963,11 +2148,24 @@ public partial class MainWindow : Window, IDisposable
         string baseDirectory,
         string taskId,
         string taskTitle,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? explicitTargetPath = null)
     {
-        string targetDirectory = ResolveCommunityDownloadDirectory(category, baseDirectory);
-        Directory.CreateDirectory(targetDirectory);
-        string targetPath = Path.Combine(targetDirectory, SanitizeFileName(item.File.FileName));
+        string targetPath;
+        if (!string.IsNullOrWhiteSpace(explicitTargetPath))
+        {
+            targetPath = Path.GetFullPath(explicitTargetPath);
+            string? parent = Path.GetDirectoryName(targetPath);
+            if (!string.IsNullOrWhiteSpace(parent))
+                Directory.CreateDirectory(parent);
+        }
+        else
+        {
+            string targetDirectory = ResolveCommunityDownloadDirectory(category, baseDirectory);
+            Directory.CreateDirectory(targetDirectory);
+            targetPath = Path.Combine(targetDirectory, SanitizeFileName(item.File.FileName));
+        }
+
         string temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".PCLDownloading";
         string phase = item.IsDependency
             ? "正在下载前置 " + item.Entry.Title
@@ -2187,7 +2385,15 @@ public partial class MainWindow : Window, IDisposable
         page.InstanceDeleteRequested += (_, instance) => PromptDeleteInstance(instance);
         page.InstanceSelected += (_, instance) =>
         {
-            _launchLeft?.SetInstances(_launchLeft.Instances, instance);
+            if (_launchLeft is not null)
+            {
+                // Prefer the select-page snapshot; launch home may still be empty after a root change.
+                IReadOnlyList<LaunchInstanceInfo> snapshot = _launchLeft.Instances.Count > 0
+                    ? _launchLeft.Instances
+                    : [instance];
+                _launchLeft.SetInstances(snapshot, instance);
+            }
+
             PersistPreferredInstanceDirectory(_launchLeft?.PreferredInstanceDirectory ?? instance.InstanceDirectory);
             _launchRight?.AppendLog($"已选择游戏版本 {instance.Name}。");
             SelectNavRoute(LaunchRoute, animate: true);
@@ -2815,14 +3021,14 @@ public partial class MainWindow : Window, IDisposable
                 ModAnimation.AniStart(
                     new List<ModAnimation.AniData>
                     {
-                        ModAnimation.AaOpacity(rightHost, -rightHost.Opacity, 110),
+                        ModAnimation.AaOpacity(rightHost, -rightHost.Opacity, MotionTokens.NavCrossfadeOutMs),
                         ModAnimation.AaCode(() =>
                         {
                             rightHost.Child = rightPage;
                             rightHost.Opacity = 0d;
                             RefreshBackToTopBinding();
                         }, after: true),
-                        ModAnimation.AaOpacity(rightHost, 1d, 170),
+                        ModAnimation.AaOpacity(rightHost, 1d, MotionTokens.NavCrossfadeInMs),
                         ModAnimation.AaCode(rightPage.PageOnEnter, after: true)
                     },
                     "FrmMain PageChangeRight");
@@ -3639,7 +3845,7 @@ public partial class MainWindow : Window, IDisposable
             "PageSetupLeft PageChange");
     }
 
-    private void ApplyLaunchLoginPage(PageLaunchLeft launchPage, PageLaunchLeft.LaunchLoginPageType type)
+    private void ApplyLaunchLoginPage(ILaunchHomeSurface launchPage, PageLaunchLeft.LaunchLoginPageType type)
     {
         switch (type)
         {
@@ -3682,7 +3888,7 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private PageLoginProfile CreateProfilePage(PageLaunchLeft launchPage)
+    private PageLoginProfile CreateProfilePage(ILaunchHomeSurface launchPage)
     {
         PageLoginProfile page = new();
         page.ProfileSelected += (_, profile) =>
@@ -3718,7 +3924,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void RemoveLoginProfile(
         PageLoginProfile page,
-        PageLaunchLeft launchPage,
+        ILaunchHomeSurface launchPage,
         LoginProfileInfo profile)
     {
         int removed = _loginProfiles.RemoveAll(existing => IsSameProfile(existing, profile));
@@ -3730,10 +3936,10 @@ public partial class MainWindow : Window, IDisposable
         launchPage.SetSelectedProfilePresent(selected is not null);
         launchPage.RefreshPage(anim: true, PageLaunchLeft.LaunchLoginPageType.Profile);
         SaveProfilesInBackground("删除账户档案");
-        _launchRight?.AppendLog($"已删除账户档案 {profile.Username}。");
+        HandleStatusMessage($"已删除账户档案 {profile.Username}。");
     }
 
-    private PageLoginProfileSkin CreateProfileSkinPage(PageLaunchLeft launchPage)
+    private PageLoginProfileSkin CreateProfileSkinPage(ILaunchHomeSurface launchPage)
     {
         PageLoginProfileSkin page = new();
         page.ChangeProfileRequested += (_, _) =>
@@ -4233,7 +4439,7 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private void ShowProfileTypeSelector(PageLaunchLeft launchPage)
+    private void ShowProfileTypeSelector(ILaunchHomeSurface launchPage)
     {
         MyMsgSelect dialog = new();
         dialog.Configure(
@@ -4283,7 +4489,7 @@ public partial class MainWindow : Window, IDisposable
             Margin = new Thickness(0d, 2d)
         };
 
-    private void ShowProfileImportExportSelector(PageLoginProfile page, PageLaunchLeft launchPage)
+    private void ShowProfileImportExportSelector(PageLoginProfile page, ILaunchHomeSurface launchPage)
     {
         MyMsgSelect dialog = new();
         dialog.Configure(
@@ -4623,7 +4829,7 @@ public partial class MainWindow : Window, IDisposable
     }
 
     private async Task StartMinecraftAsync(
-        PageLaunchLeft launchPage,
+        ILaunchHomeSurface launchPage,
         LaunchInstanceInfo instance,
         string? worldName = null,
         string? serverAddress = null,
@@ -6975,7 +7181,7 @@ public partial class MainWindow : Window, IDisposable
 
     private sealed record RunningGameContext(
         LaunchInstanceInfo Instance,
-        PageLaunchLeft LaunchPage,
+        ILaunchHomeSurface LaunchPage,
         LauncherSettings Settings,
         Task<MinecraftLaunchFaultReport?>? FaultReport = null,
         string? NativesDirectory = null,
@@ -8377,7 +8583,7 @@ public partial class MainWindow : Window, IDisposable
         }, "MyMsg Background");
     }
 
-    private PageLoginMs CreateMicrosoftLoginPage(PageLaunchLeft launchPage)
+    private PageLoginMs CreateMicrosoftLoginPage(ILaunchHomeSurface launchPage)
     {
         PageLoginMs page = new();
         page.BackRequested += (_, _) => launchPage.RefreshPage(anim: true);
@@ -8388,7 +8594,7 @@ public partial class MainWindow : Window, IDisposable
         return page;
     }
 
-    private async Task StartMicrosoftLoginAsync(PageLoginMs page, PageLaunchLeft launchPage)
+    private async Task StartMicrosoftLoginAsync(PageLoginMs page, ILaunchHomeSurface launchPage)
     {
         string clientId = MicrosoftMinecraftAuthService.ResolveClientId();
         if (string.IsNullOrWhiteSpace(clientId))
@@ -8486,7 +8692,7 @@ public partial class MainWindow : Window, IDisposable
             : $"请在浏览器中打开 {website}，并按页面提示登录 Microsoft 账户。\n\n授权码：{deviceCode.UserCode}";
     }
 
-    private PageLoginAuth CreateAuthLoginPage(PageLaunchLeft launchPage)
+    private PageLoginAuth CreateAuthLoginPage(ILaunchHomeSurface launchPage)
     {
         PageLoginAuth page = new();
         page.BackRequested += (_, _) => launchPage.RefreshPage(anim: true);
@@ -8563,7 +8769,7 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private PageLoginOffline CreateOfflineLoginPage(PageLaunchLeft launchPage)
+    private PageLoginOffline CreateOfflineLoginPage(ILaunchHomeSurface launchPage)
     {
         PageLoginOffline page = new();
         page.BackRequested += (_, _) => launchPage.RefreshPage(anim: true);
@@ -8609,7 +8815,7 @@ public partial class MainWindow : Window, IDisposable
         _loginProfiles.Insert(0, updated);
     }
 
-    private async Task ImportProfilesAsync(PageLoginProfile page, PageLaunchLeft launchPage)
+    private async Task ImportProfilesAsync(PageLoginProfile page, ILaunchHomeSurface launchPage)
     {
         try
         {
@@ -9412,8 +9618,8 @@ public partial class MainWindow : Window, IDisposable
             item.Title = route.Value switch
             {
                 DesktopNavigationRegistry.LaunchRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Launch", "启动"),
-                DesktopNavigationRegistry.DownloadRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Download", "下载"),
-                DesktopNavigationRegistry.CommunityRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Community", "社区"),
+                DesktopNavigationRegistry.DownloadRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Download", "安装"),
+                DesktopNavigationRegistry.CommunityRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Community", "资源"),
                 DesktopNavigationRegistry.SettingsRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Settings", "设置"),
                 _ => item.Title
             };
@@ -9432,13 +9638,13 @@ public partial class MainWindow : Window, IDisposable
         ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
-                ModAnimation.AaOpacity(right, -right.Opacity, 110),
+                ModAnimation.AaOpacity(right, -right.Opacity, MotionTokens.NavCrossfadeOutMs),
                 ModAnimation.AaCode(() =>
                 {
                     ApplyPagePlaceholder(route);
                     right.Opacity = 0d;
                 }, after: true),
-                ModAnimation.AaOpacity(right, 1d, 170),
+                ModAnimation.AaOpacity(right, 1d, MotionTokens.NavCrossfadeInMs),
                 // Always force full opacity when the sequence finishes — guards against
                 // mid-animation AniStop / nested page swaps leaving the right pane gray.
                 ModAnimation.AaCode(() => right.Opacity = 1d, after: true)

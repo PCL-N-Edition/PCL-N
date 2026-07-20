@@ -42,6 +42,8 @@ public static class LauncherSettingKeys
 
     public static readonly SettingKey ExperimentalJvmLifecycleHost = new("ExperimentalJvmLifecycleHost");
 
+    public static readonly SettingKey ExperimentalHomepageUi = new("ExperimentalHomepageUi");
+
     public static readonly SettingKey ExperimentalMinecraftAiRepair = new("ExperimentalMinecraftAiRepair");
 
     public static readonly SettingKey ExperimentalMinecraftAiLocalModel = new("ExperimentalMinecraftAiLocalModel");

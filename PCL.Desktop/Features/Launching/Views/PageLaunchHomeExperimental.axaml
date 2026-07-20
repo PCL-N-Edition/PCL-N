@@ -1,0 +1,469 @@
+<legacy:MyPageRight x:Class="PCL.Desktop.Features.Launching.Views.PageLaunchHomeExperimental"
+                    xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
+                    Background="Transparent">
+    <!--
+      Experimental Launch: no page title.
+      Left = account; Right = version/launch + full-bleed flip cards.
+      Launching = full-page overlay with cancel inside the card.
+      Root stays Transparent like other MyPageRight hosts so wallpaper /
+      ColorBrushBackground from PanForm show through the content column.
+    -->
+    <Grid Background="Transparent" ClipToBounds="True">
+        <!-- Idle surface: fill host; clip so children cannot paint over each other -->
+        <Grid x:Name="PanBack"
+              Margin="28,24"
+              ClipToBounds="True"
+              VerticalAlignment="Stretch"
+              HorizontalAlignment="Stretch">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="0.92*" MinWidth="240" MaxWidth="360" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="1.35*" MinWidth="280" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: account only -->
+            <Border Grid.Column="0"
+                    Background="{DynamicResource ColorBrushWhite}"
+                    CornerRadius="16"
+                    Padding="20,18"
+                    BorderBrush="{DynamicResource ColorBrushGray6}"
+                    BorderThickness="1"
+                    VerticalAlignment="Stretch">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+                        <TextBlock FontSize="12"
+                                   FontWeight="SemiBold"
+                                   LetterSpacing="0.3"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource ColorBrushGray3}"
+                                   Text="{DynamicResource Launch.Experimental.Section.Account}" />
+                        <Border Grid.Column="1"
+                                Padding="7,2"
+                                CornerRadius="6"
+                                VerticalAlignment="Center"
+                                Background="{DynamicResource ColorBrush7}">
+                            <TextBlock FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource ColorBrush2}"
+                                       Text="{DynamicResource Launch.Experimental.Badge}" />
+                        </Border>
+                    </Grid>
+                    <Grid x:Name="PanLogin"
+                          Grid.Row="1"
+                          MinHeight="160"
+                          VerticalAlignment="Stretch" />
+                    <TextBlock x:Name="LabAccountSummary"
+                               Grid.Row="2"
+                               Margin="0,12,0,0"
+                               FontSize="13"
+                               LineHeight="18"
+                               Foreground="{DynamicResource ColorBrushGray2}"
+                               TextWrapping="Wrap"
+                               Text="{DynamicResource Launch.Experimental.Account.Hint}" />
+                </Grid>
+            </Border>
+
+            <!--
+              Right: version (compact Auto) + flip cards (* remainder).
+              MinHeight=0 on the star row is required so Auto content cannot force
+              overflow/overlap when the host is short.
+            -->
+            <Grid Grid.Column="2"
+                  ClipToBounds="True"
+                  VerticalAlignment="Stretch">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" MinHeight="0" />
+                </Grid.RowDefinitions>
+
+                <!-- Compact version + launch (must not steal the flip-card band) -->
+                <Border Grid.Row="0"
+                        Background="{DynamicResource ColorBrushWhite}"
+                        CornerRadius="16"
+                        Padding="16,14"
+                        BorderBrush="{DynamicResource ColorBrushGray6}"
+                        BorderThickness="1"
+                        VerticalAlignment="Top">
+                    <StackPanel Spacing="10">
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                            <TextBlock FontSize="12"
+                                       FontWeight="SemiBold"
+                                       LetterSpacing="0.3"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource ColorBrushGray3}"
+                                       Text="{DynamicResource Launch.Experimental.Section.Version}" />
+                            <legacy:MyLoading x:Name="LoadInstanceCheck"
+                                              Grid.Column="1"
+                                              AutoRun="False"
+                                              Height="22"
+                                              MaxWidth="100"
+                                              Margin="0,0,4,0"
+                                              HorizontalAlignment="Right"
+                                              VerticalAlignment="Center"
+                                              Text="{DynamicResource Launch.Home.VersionList.Loading}" />
+                            <legacy:MyIconButton x:Name="BtnMore"
+                                                 Grid.Column="2"
+                                                 Height="28"
+                                                 Width="28"
+                                                 VerticalAlignment="Center"
+                                                 Theme="Color"
+                                                 LogoScale="1.0"
+                                                 SvgIcon="lucide/settings-2"
+                                                 ToolTip="{DynamicResource Launch.Home.InstanceSettings}"
+                                                 IsVisible="False"
+                                                 Click="BtnMore_Click" />
+                        </Grid>
+
+                        <!-- Single-line picker row -->
+                        <Border x:Name="BtnInstance"
+                                Background="{DynamicResource ColorBrushGray8}"
+                                CornerRadius="12"
+                                Padding="12,10"
+                                Cursor="Hand"
+                                IsEnabled="False"
+                                Opacity="0.55"
+                                PointerReleased="BtnInstance_PointerReleased">
+                            <Grid ColumnDefinitions="*,Auto" MinHeight="36">
+                                <StackPanel Spacing="1" VerticalAlignment="Center" Margin="0,0,10,0">
+                                    <TextBlock x:Name="LabVersion"
+                                               FontSize="16"
+                                               FontWeight="SemiBold"
+                                               LetterSpacing="-0.25"
+                                               LineHeight="20"
+                                               MaxLines="1"
+                                               TextWrapping="NoWrap"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource ColorBrush1}"
+                                               Text="{DynamicResource Launch.Home.VersionList.Loading}" />
+                                    <TextBlock x:Name="LabVersionAction"
+                                               FontSize="11"
+                                               MaxLines="1"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource ColorBrushGray3}"
+                                               Text="{DynamicResource Launch.Experimental.Version.TapToSelect}" />
+                                </StackPanel>
+                                <Border Grid.Column="1"
+                                        Width="26"
+                                        Height="26"
+                                        CornerRadius="13"
+                                        VerticalAlignment="Center"
+                                        Background="{DynamicResource ColorBrushWhite}"
+                                        BorderBrush="{DynamicResource ColorBrushGray6}"
+                                        BorderThickness="1">
+                                    <legacy:SvgIcon Width="13"
+                                                    Height="13"
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center"
+                                                    Icon="lucide/chevron-right"
+                                                    IconBrush="{DynamicResource ColorBrushGray3}" />
+                                </Border>
+                            </Grid>
+                        </Border>
+
+                        <legacy:MyButton x:Name="BtnLaunch"
+                                         Height="44"
+                                         ColorType="Highlight"
+                                         CornerRadius="11"
+                                         Text="{DynamicResource Launch.Home.Button.Loading}"
+                                         Click="BtnLaunch_Click"
+                                         IsEnabled="False" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Flip cards: take only remaining height; clip page transitions -->
+                <Grid x:Name="PanWidgetPager"
+                      Grid.Row="1"
+                      Margin="0,12,0,0"
+                      MinHeight="0"
+                      ClipToBounds="True"
+                      Background="Transparent"
+                      VerticalAlignment="Stretch"
+                      HorizontalAlignment="Stretch">
+                    <Grid x:Name="PanWidgetPages"
+                          ClipToBounds="True"
+                          MinHeight="0">
+                        <!-- Page 0: community tips -->
+                        <Border x:Name="PanHint"
+                                Background="{DynamicResource ColorBrushWhite}"
+                                CornerRadius="18"
+                                Padding="18,14,32,14"
+                                BorderBrush="{DynamicResource ColorBrushGray6}"
+                                BorderThickness="1"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch">
+                            <Grid MinHeight="0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" MinHeight="0" />
+                                </Grid.RowDefinitions>
+                                <Grid Grid.Row="0" Margin="0,0,0,8" ColumnDefinitions="*,Auto">
+                                    <TextBlock FontSize="12"
+                                               FontWeight="SemiBold"
+                                               LetterSpacing="0.3"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource ColorBrushGray3}"
+                                               Text="{DynamicResource Launch.Right.CommunityHint.Title}" />
+                                    <legacy:MyIconButton x:Name="BtnHintClose"
+                                                         Grid.Column="1"
+                                                         Height="28"
+                                                         Width="28"
+                                                         HorizontalAlignment="Right"
+                                                         VerticalAlignment="Top"
+                                                         Theme="Color"
+                                                         SvgIcon="lucide/x"
+                                                         Click="BtnHintClose_Click" />
+                                </Grid>
+                                <ScrollViewer Grid.Row="1"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              VerticalScrollBarVisibility="Auto"
+                                              AllowAutoHide="True">
+                                    <StackPanel Spacing="8" Margin="0,0,6,0">
+                                        <TextBlock x:Name="LabHint1"
+                                                   FontSize="14"
+                                                   FontWeight="SemiBold"
+                                                   LetterSpacing="-0.15"
+                                                   LineHeight="20"
+                                                   Foreground="{DynamicResource ColorBrush1}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock x:Name="LabHint2"
+                                                   FontSize="13"
+                                                   LineHeight="18"
+                                                   Foreground="{DynamicResource ColorBrushGray2}"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+
+                        <!-- Page 1: trivia -->
+                        <Border x:Name="PanHintExtra"
+                                IsVisible="False"
+                                Opacity="0"
+                                Background="{DynamicResource ColorBrushWhite}"
+                                CornerRadius="18"
+                                Padding="18,14,32,14"
+                                BorderBrush="{DynamicResource ColorBrushGray6}"
+                                BorderThickness="1"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch">
+                            <Grid MinHeight="0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" MinHeight="0" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           LetterSpacing="0.3"
+                                           Margin="0,0,0,8"
+                                           Foreground="{DynamicResource ColorBrushGray3}"
+                                           Text="{DynamicResource Launch.Status.Trivia}" />
+                                <ScrollViewer Grid.Row="1"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              VerticalScrollBarVisibility="Auto"
+                                              AllowAutoHide="True">
+                                    <TextBlock x:Name="LabHintExtra"
+                                               FontSize="14"
+                                               FontWeight="SemiBold"
+                                               LetterSpacing="-0.15"
+                                               LineHeight="20"
+                                               Foreground="{DynamicResource ColorBrush1}"
+                                               TextWrapping="Wrap" />
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+
+                        <!-- Compat shell for deprecated primary-actions.after (single registered card) -->
+                        <Border x:Name="PanPluginPage"
+                                IsVisible="False"
+                                Opacity="0"
+                                Background="{DynamicResource ColorBrushWhite}"
+                                CornerRadius="18"
+                                Padding="16,12,32,12"
+                                BorderBrush="{DynamicResource ColorBrushGray6}"
+                                BorderThickness="1"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch">
+                            <Grid MinHeight="0">
+                                <TextBlock x:Name="LabPluginEmpty"
+                                           FontSize="13"
+                                           Foreground="{DynamicResource ColorBrushGray3}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           Text="{DynamicResource Launch.Experimental.Help.Body}" />
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                              VerticalScrollBarVisibility="Auto"
+                                              AllowAutoHide="True">
+                                    <StackPanel x:Name="PanPluginWidgets"
+                                                Spacing="10"
+                                                VerticalAlignment="Top" />
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <!-- Vertical page dots -->
+                    <StackPanel x:Name="PanWidgetDots"
+                                Orientation="Vertical"
+                                Spacing="7"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center"
+                                Margin="0,0,10,0"
+                                IsHitTestVisible="True" />
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <!-- Full-page launching overlay (scrim over wallpaper, same base as host) -->
+        <Grid x:Name="PanLaunching"
+              IsVisible="False"
+              Opacity="0"
+              Background="{DynamicResource ColorBrushTransparentBackground}">
+            <Border HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Width="420"
+                    MaxWidth="460"
+                    MinHeight="360"
+                    Margin="32"
+                    Padding="32,36,32,28"
+                    CornerRadius="20"
+                    Background="{DynamicResource ColorBrushWhite}"
+                    BorderBrush="{DynamicResource ColorBrushGray6}"
+                    BorderThickness="1"
+                    BoxShadow="0 12 40 0 #1A000000"
+                    ClipToBounds="True">
+                <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+                    <legacy:MyLoading x:Name="LoadLaunching"
+                                      Grid.Row="0"
+                                      AutoRun="False"
+                                      Height="48"
+                                      Margin="0,0,0,16"
+                                      HorizontalAlignment="Center" />
+                    <TextBlock x:Name="LabLaunchingTitle"
+                               Grid.Row="1"
+                               FontSize="22"
+                               FontWeight="Bold"
+                               LetterSpacing="-0.4"
+                               HorizontalAlignment="Center"
+                               Foreground="{DynamicResource ColorBrush1}"
+                               Text="{DynamicResource Launch.Status.Title.Launching}" />
+                    <TextBlock x:Name="LabLaunchingName"
+                               Grid.Row="2"
+                               FontSize="14"
+                               Margin="0,6,0,0"
+                               HorizontalAlignment="Center"
+                               Foreground="{DynamicResource ColorBrushGray2}"
+                               Text="—" />
+
+                    <StackPanel Grid.Row="3" Margin="0,20,0,0" VerticalAlignment="Top">
+                        <Border Height="4"
+                                CornerRadius="2"
+                                ClipToBounds="True"
+                                Background="{DynamicResource ColorBrushGray6}">
+                            <Grid ColumnDefinitions="0.01*,0.99*">
+                                <Rectangle x:Name="RectLaunchProgressFill"
+                                           Grid.Column="0"
+                                           Fill="{DynamicResource ColorBrush3}" />
+                                <Rectangle Grid.Column="1" Fill="Transparent" />
+                            </Grid>
+                        </Border>
+
+                        <Grid Margin="0,16,0,0"
+                              ColumnDefinitions="Auto,14,*"
+                              RowDefinitions="Auto,Auto,Auto,Auto">
+                            <TextBlock Grid.Row="0"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource ColorBrushGray3}"
+                                       Text="{DynamicResource Launch.Status.CurrentStep}" />
+                            <TextBlock x:Name="LabLaunchingStage"
+                                       Grid.Row="0" Grid.Column="2"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource ColorBrush1}" />
+                            <TextBlock Grid.Row="1"
+                                       Margin="0,8,0,0"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource ColorBrushGray3}"
+                                       Text="{DynamicResource Launch.Status.LoginMethod}" />
+                            <TextBlock x:Name="LabLaunchingMethod"
+                                       Grid.Row="1" Grid.Column="2"
+                                       Margin="0,8,0,0"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource ColorBrush1}" />
+                            <TextBlock x:Name="LabLaunchingProgressLeft"
+                                       Grid.Row="2"
+                                       Margin="0,8,0,0"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource ColorBrushGray3}"
+                                       Text="{DynamicResource Launch.Status.LaunchProgress}" />
+                            <TextBlock x:Name="LabLaunchingProgress"
+                                       Grid.Row="2" Grid.Column="2"
+                                       Margin="0,8,0,0"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource ColorBrush1}"
+                                       Text="0%" />
+                            <TextBlock x:Name="LabLaunchingDownloadLeft"
+                                       Grid.Row="3"
+                                       Margin="0,8,0,0"
+                                       FontSize="12"
+                                       Opacity="0"
+                                       IsVisible="False"
+                                       Foreground="{DynamicResource ColorBrushGray3}"
+                                       Text="{DynamicResource Launch.Status.DownloadSpeed}" />
+                            <TextBlock x:Name="LabLaunchingDownload"
+                                       Grid.Row="3" Grid.Column="2"
+                                       Margin="0,8,0,0"
+                                       FontSize="12"
+                                       Opacity="0"
+                                       IsVisible="False"
+                                       Foreground="{DynamicResource ColorBrush1}" />
+                        </Grid>
+
+                        <Border x:Name="PanLaunchingHint"
+                                Margin="0,16,0,0"
+                                Padding="12,12"
+                                CornerRadius="12"
+                                Background="{DynamicResource ColorBrushGray8}"
+                                IsVisible="False"
+                                Opacity="0">
+                            <StackPanel Spacing="4">
+                                <TextBlock FontSize="11"
+                                           FontWeight="SemiBold"
+                                           HorizontalAlignment="Center"
+                                           Foreground="{DynamicResource ColorBrushGray3}"
+                                           Text="{DynamicResource Launch.Status.Trivia}" />
+                                <TextBlock x:Name="LabLaunchingHint"
+                                           FontSize="12"
+                                           LineHeight="16"
+                                           TextWrapping="Wrap"
+                                           MaxHeight="48"
+                                           TextTrimming="CharacterEllipsis"
+                                           HorizontalAlignment="Center"
+                                           Foreground="{DynamicResource ColorBrushGray2}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Cancel stays in the card bottom row -->
+                    <legacy:MyButton x:Name="BtnCancel"
+                                     Grid.Row="4"
+                                     Height="40"
+                                     Margin="0,24,0,0"
+                                     HorizontalAlignment="Stretch"
+                                     ColorType="Gray"
+                                     CornerRadius="10"
+                                     Text="{DynamicResource Common.Action.Cancel}"
+                                     Click="BtnCancel_Click" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</legacy:MyPageRight>
