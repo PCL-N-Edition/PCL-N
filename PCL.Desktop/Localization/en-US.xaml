@@ -446,6 +446,18 @@
     <sys:String x:Key="Select.Instance.Search.ToolTip">Search installed instances</sys:String>
     <sys:String x:Key="Select.Instance.Hero.Eyebrow">Library</sys:String>
     <sys:String x:Key="Select.Instance.Hero.Title">Choose a version to play</sys:String>
+    <sys:String x:Key="Select.Instance.Hero.Subtitle">Pick a game folder on the left, then choose a version.</sys:String>
+    <sys:String x:Key="Select.Instance.Hero.Subtitle.Folder">{0} · {1} versions</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.Eyebrow">Sources</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.Title">Game folders</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.Section.Folders">Added</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.Section.Actions">Add or import</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.CreateFolder">Create game folder</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.CreateFolder.Tip">Create .minecraft under the launcher directory</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.AddFolder">Add existing folder</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.AddFolder.Tip">Add an existing Minecraft folder to the list</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.ImportModpack">Import modpack</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.ImportModpack.Tip">Import an instance from a local archive</sys:String>
     <sys:String x:Key="Select.Instance.CurrentSelection">Selected</sys:String>
 
     <!-- Setup -->

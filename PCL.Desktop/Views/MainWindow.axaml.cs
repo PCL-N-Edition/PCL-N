@@ -93,7 +93,6 @@ public partial class MainWindow : Window, IDisposable
     private PageSpeedLeft? _speedLeft;
     private PageSpeedRight? _speedRight;
     private PageInstanceLeft? _instanceLeft;
-    private PageInstanceSelectLeft? _instanceSelectLeft;
     private PageInstanceSelectRight? _instanceSelectPage;
     private PageInstanceManageRight? _instanceManagePage;
     private PageInstanceSetupRight? _instanceSetupPage;
@@ -2366,21 +2365,30 @@ public partial class MainWindow : Window, IDisposable
         }
 
         EnsureMinecraftFoldersLoaded();
-        _instanceSelectLeft ??= CreateInstanceSelectLeftPage();
-        _instanceSelectLeft.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
-        leftHost.Child = _instanceSelectLeft;
-        _instanceSelectLeft.TriggerShowAnimation();
+        // Full-page select surface: no separate left rail host (sidebar is inside the page).
+        if (leftHost.Child is MyPageLeft oldLeft)
+            oldLeft.TriggerHideAnimation();
+        leftHost.Child = null;
+
         _instanceSelectPage ??= CreateInstanceSelectPage();
+        _instanceSelectPage.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
         _instanceSelectPage.SetInstances(_launchLeft?.Instances ?? [], _launchLeft?.SelectedInstance);
-        rightHost.Child = _instanceSelectPage;
+        if (!ReferenceEquals(rightHost.Child, _instanceSelectPage))
+        {
+            if (rightHost.Child is MyPageRight oldRight)
+                oldRight.PageOnExit();
+            rightHost.Child = _instanceSelectPage;
+        }
+
         EnterTitleSubPage("选择版本");
         RefreshBackToTopBinding();
+        rightHost.Opacity = 1d;
         _instanceSelectPage.PageOnEnter();
     }
 
-    private PageInstanceSelectLeft CreateInstanceSelectLeftPage()
+    private PageInstanceSelectRight CreateInstanceSelectPage()
     {
-        PageInstanceSelectLeft page = new();
+        PageInstanceSelectRight page = new();
         page.FolderSelected += (_, folder) => _ = SelectMinecraftFolderAsync(folder);
         page.FolderRefreshRequested += (_, folder) => _ = SelectMinecraftFolderAsync(folder, forceRefresh: true);
         page.FolderOpenRequested += (_, folder) => OpenFolder(folder.RootDirectory);
@@ -2389,17 +2397,27 @@ public partial class MainWindow : Window, IDisposable
             "请输入新的显示名称。",
             folder.Name,
             "游戏文件夹名称",
-            result => RenameMinecraftFolder(folder, result));
-        page.FolderRemoveRequested += (_, folder) => RemoveMinecraftFolder(folder);
-        page.CreateFolderRequested += (_, _) => _ = CreateDefaultMinecraftFolderAsync();
-        page.AddFolderRequested += (_, _) => _ = AddMinecraftFolderAsync();
+            result =>
+            {
+                RenameMinecraftFolder(folder, result);
+                page.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+            });
+        page.FolderRemoveRequested += (_, folder) =>
+        {
+            RemoveMinecraftFolder(folder);
+            page.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        };
+        page.CreateFolderRequested += async (_, _) =>
+        {
+            await CreateDefaultMinecraftFolderAsync().ConfigureAwait(true);
+            page.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        };
+        page.AddFolderRequested += async (_, _) =>
+        {
+            await AddMinecraftFolderAsync().ConfigureAwait(true);
+            page.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        };
         page.ImportModpackRequested += (_, _) => _ = PickModpackForImportAsync();
-        return page;
-    }
-
-    private PageInstanceSelectRight CreateInstanceSelectPage()
-    {
-        PageInstanceSelectRight page = new();
         page.RefreshRequested += async (_, _) =>
         {
             if (_launchLeft is null)
@@ -2538,7 +2556,7 @@ public partial class MainWindow : Window, IDisposable
         bool changed = !string.Equals(_selectedMinecraftRoot, normalized, StringComparison.OrdinalIgnoreCase);
         _selectedMinecraftRoot = normalized;
         PersistMinecraftFolders();
-        _instanceSelectLeft?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        _instanceSelectPage?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
         _launchLeft.SetMinecraftRootDirectory(normalized);
         if (changed || forceRefresh)
             await _launchLeft.RefreshInstancesAsync().ConfigureAwait(true);
@@ -2626,7 +2644,7 @@ public partial class MainWindow : Window, IDisposable
         MinecraftFolderInfo added = new(name, normalized, IsCustom: true);
         _minecraftFolders.Add(added);
         PersistMinecraftFolders();
-        _instanceSelectLeft?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        _instanceSelectPage?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
         return added;
     }
 
@@ -2641,7 +2659,7 @@ public partial class MainWindow : Window, IDisposable
 
         _minecraftFolders[index] = folder with { Name = name.Trim(), IsCustom = true };
         PersistMinecraftFolders();
-        _instanceSelectLeft?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+        _instanceSelectPage?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
     }
 
     private void RemoveMinecraftFolder(MinecraftFolderInfo folder)
@@ -2664,7 +2682,7 @@ public partial class MainWindow : Window, IDisposable
         else
         {
             PersistMinecraftFolders();
-            _instanceSelectLeft?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
+            _instanceSelectPage?.SetFolders(_minecraftFolders, _selectedMinecraftRoot);
         }
     }
 

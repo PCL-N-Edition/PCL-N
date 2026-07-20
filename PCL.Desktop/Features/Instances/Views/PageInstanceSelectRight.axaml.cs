@@ -23,6 +23,8 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
     private CancellationTokenSource? _metadataLoadCancellation;
     private Dictionary<string, InstanceMetadata> _metadataCache = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<LaunchInstanceInfo> _instances = [];
+    private IReadOnlyList<MinecraftFolderInfo> _folders = [];
+    private string? _selectedRootDirectory;
     private LaunchInstanceInfo? _selectedInstance;
     private Task _metadataLoadTask = Task.CompletedTask;
     private DateTime _lastInputTime = DateTime.MinValue;
@@ -42,6 +44,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         if (this.FindControl<MySearchBox>("PanVerSearchBox") is { } searchBox)
             searchBox.TextChanged += PanVerSearchBox_TextChanged;
         SetLoadingState(false);
+        ReloadFolders();
     }
 
     public bool ShowHidden
@@ -68,6 +71,32 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
     public event EventHandler<LaunchInstanceInfo>? InstanceOpenFolderRequested;
 
     public event EventHandler<LaunchInstanceInfo>? InstanceDeleteRequested;
+
+    public event EventHandler<MinecraftFolderInfo>? FolderSelected;
+
+    public event EventHandler<MinecraftFolderInfo>? FolderOpenRequested;
+
+    public event EventHandler<MinecraftFolderInfo>? FolderRefreshRequested;
+
+    public event EventHandler<MinecraftFolderInfo>? FolderRenameRequested;
+
+    public event EventHandler<MinecraftFolderInfo>? FolderRemoveRequested;
+
+    public event EventHandler? CreateFolderRequested;
+
+    public event EventHandler? AddFolderRequested;
+
+    public event EventHandler? ImportModpackRequested;
+
+    public void SetFolders(IReadOnlyList<MinecraftFolderInfo> folders, string? selectedRootDirectory)
+    {
+        _folders = folders ?? [];
+        _selectedRootDirectory = NormalizeFolderPath(selectedRootDirectory);
+        if (_selectedRootDirectory is null && _folders.Count > 0)
+            _selectedRootDirectory = NormalizeFolderPath(_folders[0].RootDirectory);
+        ReloadFolders();
+        UpdateLibrarySubtitle();
+    }
 
     public bool TrySelectInstance(LaunchInstanceInfo instance)
     {
@@ -101,6 +130,204 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         _selectedInstance = selectedInstance;
         StartMetadataLoad(instances);
         SetLoadingState(false);
+        UpdateLibrarySubtitle();
+    }
+
+    private void UpdateLibrarySubtitle()
+    {
+        if (this.FindControl<TextBlock>("LabLibrarySubtitle") is not { } subtitle)
+            return;
+
+        MinecraftFolderInfo? selected = _folders.FirstOrDefault(folder =>
+            string.Equals(
+                NormalizeFolderPath(folder.RootDirectory),
+                _selectedRootDirectory,
+                StringComparison.OrdinalIgnoreCase));
+        if (selected is null)
+        {
+            subtitle.Text = ResourceText("Select.Instance.Hero.Subtitle", "从左侧选择游戏文件夹，然后点选要启动的版本。");
+            return;
+        }
+
+        int count = _instances.Count;
+        subtitle.Text = string.Format(
+            System.Globalization.CultureInfo.CurrentCulture,
+            ResourceText("Select.Instance.Hero.Subtitle.Folder", "{0} · {1} 个版本"),
+            selected.Name,
+            count);
+    }
+
+    private void ReloadFolders()
+    {
+        if (this.FindControl<StackPanel>("PanFolders") is not { } panel)
+            return;
+
+        panel.Children.Clear();
+        panel.Children.Add(CreateSidebarSection(
+            ResourceText("Select.Instance.Sidebar.Section.Folders", "游戏文件夹")));
+        foreach (MinecraftFolderInfo folder in _folders)
+            panel.Children.Add(CreateFolderRow(folder));
+
+        panel.Children.Add(CreateSidebarSection(
+            ResourceText("Select.Instance.Sidebar.Section.Actions", "添加或导入")));
+        string defaultRoot = Path.Combine(AppContext.BaseDirectory, ".minecraft");
+        if (!Directory.Exists(defaultRoot))
+        {
+            panel.Children.Add(CreateSidebarAction(
+                ResourceText("Select.Instance.Sidebar.CreateFolder", "新建游戏文件夹"),
+                ResourceText("Select.Instance.Sidebar.CreateFolder.Tip", "在启动器目录创建 .minecraft"),
+                "lucide/folder-plus",
+                () => CreateFolderRequested?.Invoke(this, EventArgs.Empty)));
+        }
+
+        panel.Children.Add(CreateSidebarAction(
+            ResourceText("Select.Instance.Sidebar.AddFolder", "添加已有文件夹"),
+            ResourceText("Select.Instance.Sidebar.AddFolder.Tip", "把已有的 Minecraft 文件夹加入列表"),
+            "lucide/folder-input",
+            () => AddFolderRequested?.Invoke(this, EventArgs.Empty)));
+        panel.Children.Add(CreateSidebarAction(
+            ResourceText("Select.Instance.Sidebar.ImportModpack", "导入整合包"),
+            ResourceText("Select.Instance.Sidebar.ImportModpack.Tip", "从本地压缩包导入游戏实例"),
+            "lucide/package-plus",
+            () => ImportModpackRequested?.Invoke(this, EventArgs.Empty)));
+    }
+
+    private Border CreateFolderRow(MinecraftFolderInfo folder)
+    {
+        bool selected = string.Equals(
+            NormalizeFolderPath(folder.RootDirectory),
+            _selectedRootDirectory,
+            StringComparison.OrdinalIgnoreCase);
+
+        Border row = new()
+        {
+            Margin = new Thickness(0, 2),
+            Padding = new Thickness(10, 9),
+            CornerRadius = new CornerRadius(10),
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Background = selected
+                ? ResolveBrush("ColorBrush7") ?? Brushes.Transparent
+                : Brushes.Transparent,
+            Tag = folder
+        };
+
+        Grid grid = new()
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto")
+        };
+        StackPanel text = new()
+        {
+            Spacing = 2,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = folder.Name,
+                    FontSize = 13.5,
+                    FontWeight = selected ? FontWeight.SemiBold : FontWeight.Medium,
+                    Foreground = ResolveBrush("ColorBrush1") ?? Brushes.Black,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                },
+                new TextBlock
+                {
+                    Text = folder.RootDirectory,
+                    FontSize = 11,
+                    Opacity = 0.62,
+                    Foreground = ResolveBrush("ColorBrushGray2") ?? Brushes.Gray,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                }
+            }
+        };
+        Grid.SetColumn(text, 0);
+        grid.Children.Add(text);
+
+        StackPanel actions = new()
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 0,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            Children =
+            {
+                CreateTinyIcon("lucide/folder-open", "打开文件夹", () => FolderOpenRequested?.Invoke(this, folder)),
+                CreateTinyIcon("lucide/refresh-cw", "刷新", () => FolderRefreshRequested?.Invoke(this, folder))
+            }
+        };
+        if (folder.IsCustom)
+        {
+            actions.Children.Add(CreateTinyIcon("lucide/pencil", "重命名", () => FolderRenameRequested?.Invoke(this, folder)));
+            actions.Children.Add(CreateTinyIcon("lucide/list-x", "从列表移除", () => FolderRemoveRequested?.Invoke(this, folder)));
+        }
+
+        Grid.SetColumn(actions, 1);
+        grid.Children.Add(actions);
+        row.Child = grid;
+        row.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(row).Properties.IsLeftButtonPressed)
+                return;
+            e.Handled = true;
+            _selectedRootDirectory = NormalizeFolderPath(folder.RootDirectory);
+            ReloadFolders();
+            FolderSelected?.Invoke(this, folder);
+        };
+        return row;
+    }
+
+    private static MyIconButton CreateTinyIcon(string icon, string tip, Action click)
+    {
+        MyIconButton button = new()
+        {
+            Width = 24,
+            Height = 24,
+            SvgIcon = icon,
+            LogoScale = 0.9d,
+            ToolTip = tip
+        };
+        button.Click += (_, _) => click();
+        return button;
+    }
+
+    private static TextBlock CreateSidebarSection(string text) =>
+        new()
+        {
+            Text = text,
+            Margin = new Thickness(8, 14, 8, 6),
+            FontSize = 11,
+            FontWeight = FontWeight.SemiBold,
+            LetterSpacing = 0.35,
+            Opacity = 0.55
+        };
+
+    private static MyListItem CreateSidebarAction(string title, string tip, string icon, Action click)
+    {
+        MyListItem item = new()
+        {
+            Title = title,
+            Height = 36d,
+            Type = MyListItem.CheckType.Clickable,
+            IsScaleAnimationEnabled = false,
+            SvgIcon = icon,
+            LogoScale = 0.92d,
+            Margin = new Thickness(0, 1)
+        };
+        ToolTip.SetTip(item, tip);
+        item.Click += (_, _) => click();
+        return item;
+    }
+
+    private static string? NormalizeFolderPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+        try
+        {
+            return Path.GetFullPath(path.Trim())
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
     }
 
     public async Task ReloadMetadataAsync(CancellationToken cancellationToken = default)
@@ -275,7 +502,10 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
             ControlVisualHelpers.AnimateListEntrance(panel, "Instance Select List");
         }
 
-        SetVisible("PanVerSearchBox", _instances.Count > 0);
+        if (this.FindControl<Control>("PanVerSearchBox") is { } search)
+            search.IsVisible = _instances.Count > 0;
+        if (this.FindControl<Control>("BtnDownloadHeader") is { } headerDownload)
+            headerDownload.IsVisible = _instances.Count > 0 || !_showHidden;
         SetVisible("BtnEmptyDownload", !_showHidden);
         if (_instances.Count == 0)
         {
@@ -508,6 +738,11 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
             ? text
             : string.Format(System.Globalization.CultureInfo.CurrentCulture, text, args);
     }
+
+    private IBrush? ResolveBrush(string key) =>
+        this.TryFindResource(key, ActualThemeVariant, out object? value) && value is IBrush brush
+            ? brush
+            : null;
 
     private readonly record struct InstanceEntry(LaunchInstanceInfo Instance, InstanceMetadata Metadata);
 }

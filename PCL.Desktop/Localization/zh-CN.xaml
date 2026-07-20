@@ -446,6 +446,18 @@
     <sys:String x:Key="Select.Instance.Search.ToolTip">搜索已安装的版本</sys:String>
     <sys:String x:Key="Select.Instance.Hero.Eyebrow">版本库</sys:String>
     <sys:String x:Key="Select.Instance.Hero.Title">选择要启动的版本</sys:String>
+    <sys:String x:Key="Select.Instance.Hero.Subtitle">从左侧选择游戏文件夹，然后点选要启动的版本。</sys:String>
+    <sys:String x:Key="Select.Instance.Hero.Subtitle.Folder">{0} · {1} 个版本</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.Eyebrow">来源</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.Title">游戏文件夹</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.Section.Folders">已添加</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.Section.Actions">添加或导入</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.CreateFolder">新建游戏文件夹</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.CreateFolder.Tip">在启动器目录创建 .minecraft</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.AddFolder">添加已有文件夹</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.AddFolder.Tip">把已有的 Minecraft 文件夹加入列表</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.ImportModpack">导入整合包</sys:String>
+    <sys:String x:Key="Select.Instance.Sidebar.ImportModpack.Tip">从本地压缩包导入游戏实例</sys:String>
     <sys:String x:Key="Select.Instance.CurrentSelection">当前选择</sys:String>
 
     <!-- Setup -->
