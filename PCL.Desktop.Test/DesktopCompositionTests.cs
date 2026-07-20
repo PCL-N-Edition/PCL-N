@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using CommunityToolkit.Mvvm.Messaging;
+using Microsoft.Extensions.DependencyInjection;
 using PCL.Desktop.Composition;
 using PCL.Desktop.Messaging;
 using PCL.Desktop.Shell;
@@ -12,14 +13,19 @@ namespace PCL.Desktop.Test;
 [TestClass]
 public sealed class DesktopCompositionTests
 {
+    [TestInitialize]
+    public void Init()
+    {
+        DesktopCompositionRoot.ResetForTests();
+        DesktopCompositionRoot.Initialize();
+    }
+
     [TestCleanup]
     public void Cleanup() => DesktopCompositionRoot.ResetForTests();
 
     [TestMethod]
     public void CompositionRoot_ResolvesShellViewModels()
     {
-        DesktopCompositionRoot.ResetForTests();
-        DesktopCompositionRoot.Initialize();
 
         AppShellViewModel shell = DesktopCompositionRoot.GetRequiredService<AppShellViewModel>();
         TitleBarViewModel title = DesktopCompositionRoot.GetRequiredService<TitleBarViewModel>();
@@ -36,8 +42,6 @@ public sealed class DesktopCompositionTests
     [TestMethod]
     public void ExtraDockViewModel_GlassDockRequiresVisibleButton()
     {
-        DesktopCompositionRoot.ResetForTests();
-        DesktopCompositionRoot.Initialize();
         ExtraDockViewModel dock = DesktopCompositionRoot.GetRequiredService<ExtraDockViewModel>();
 
         dock.UseGlassChrome = true;
@@ -53,16 +57,25 @@ public sealed class DesktopCompositionTests
     [TestMethod]
     public void Messenger_GameRunningUpdatesExtraDock()
     {
+        // Use a private messenger so shared WeakReferenceMessenger.Default cannot
+        // wake a live MainWindow handler from another headless test.
+        WeakReferenceMessenger localMessenger = new();
+        ServiceCollection services = new();
+        services.AddSingleton<IMessenger>(localMessenger);
+        services.AddSingleton<ExperimentalUiProfileSource>();
+        services.AddSingleton<AppShellViewModel>();
+        services.AddSingleton<TitleBarViewModel>();
+        services.AddSingleton<ExtraDockViewModel>();
         DesktopCompositionRoot.ResetForTests();
-        DesktopCompositionRoot.Initialize();
-        ExtraDockViewModel dock = DesktopCompositionRoot.GetRequiredService<ExtraDockViewModel>();
-        IMessenger messenger = DesktopCompositionRoot.GetRequiredService<IMessenger>();
+        DesktopCompositionRoot.InitializeForTests(services.BuildServiceProvider());
 
-        messenger.Send(new GameRunningChangedMessage(true));
+        ExtraDockViewModel dock = DesktopCompositionRoot.GetRequiredService<ExtraDockViewModel>();
+
+        localMessenger.Send(new GameRunningChangedMessage(true));
         Assert.IsTrue(dock.ShowShutdown);
         Assert.IsTrue(dock.ShowGameLog);
 
-        messenger.Send(new GameRunningChangedMessage(false));
+        localMessenger.Send(new GameRunningChangedMessage(false));
         Assert.IsFalse(dock.ShowShutdown);
         Assert.IsFalse(dock.ShowGameLog);
     }

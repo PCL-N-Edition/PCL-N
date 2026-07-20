@@ -86,6 +86,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly AppShellViewModel _shellViewModel;
     private readonly TitleBarViewModel _titleBarViewModel;
     private readonly ExtraDockViewModel _extraDockViewModel;
+    private bool _isDisposed;
     private PageLoginProfile? _loginProfilePage;
     private PageLoginProfileSkin? _loginProfileSkinPage;
     private PageLoginMs? _loginMsPage;
@@ -186,15 +187,7 @@ public partial class MainWindow : Window, IDisposable
         _shellViewModel = DesktopCompositionRoot.GetRequiredService<AppShellViewModel>();
         _titleBarViewModel = DesktopCompositionRoot.GetRequiredService<TitleBarViewModel>();
         _extraDockViewModel = DesktopCompositionRoot.GetRequiredService<ExtraDockViewModel>();
-        _extraDockViewModel.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName is nameof(ExtraDockViewModel.ShouldShowGlassDock)
-                or nameof(ExtraDockViewModel.UseGlassChrome)
-                or nameof(ExtraDockViewModel.HasAnyVisibleButton))
-            {
-                RefreshExtraDockChrome();
-            }
-        };
+        _extraDockViewModel.PropertyChanged += ExtraDockViewModel_PropertyChanged;
         AvaloniaXamlLoader.Load(this);
         DesktopHostUiComposition.Instance.RegisterTarget("pcl.window.main", this);
         if (this.FindControl<Panel>("PanTitleSelect") is { } navigationPanel)
@@ -8823,8 +8816,31 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
+    private void ExtraDockViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (_isDisposed)
+            return;
+        if (e.PropertyName is not (
+            nameof(ExtraDockViewModel.ShouldShowGlassDock) or
+            nameof(ExtraDockViewModel.UseGlassChrome) or
+            nameof(ExtraDockViewModel.HasAnyVisibleButton)))
+        {
+            return;
+        }
+
+        // Headless tests may fire messenger updates after Close without Dispose.
+        if (!IsLoaded)
+            return;
+
+        RefreshExtraDockChrome();
+    }
+
     public void Dispose()
     {
+        if (_isDisposed)
+            return;
+        _isDisposed = true;
+        _extraDockViewModel.PropertyChanged -= ExtraDockViewModel_PropertyChanged;
         if (_registeredPluginPageSurfaceId is { } pageSurface)
             DesktopHostUiComposition.Instance.UnregisterTarget(pageSurface);
         DesktopHostUiComposition.Instance.UnregisterSlot("pcl.navigation.main", "items.after-download");
