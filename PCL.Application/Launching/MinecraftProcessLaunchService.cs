@@ -248,7 +248,13 @@ public static class MinecraftProcessLaunchService
             ["${auth_access_token}"] = request.AccessToken,
             ["${clientid}"] = Guid.NewGuid().ToString("N"),
             ["${auth_xuid}"] = "0",
-            ["${user_type}"] = "msa",
+            // Microsoft → msa; Authlib-Injector third-party → mojang (Yggdrasil); offline → legacy.
+            ["${user_type}"] = request.JvmHostIdentityMode switch
+            {
+                MinecraftJvmHostIdentityMode.ThirdParty => "mojang",
+                MinecraftJvmHostIdentityMode.Offline => "legacy",
+                _ => "msa"
+            },
             ["${version_type}"] = request.VersionType,
             ["${resolution_width}"] = request.Width.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["${resolution_height}"] = request.Height.ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -484,18 +490,20 @@ public static class MinecraftProcessLaunchService
             return [];
         }
 
-        string javaAgent = "-javaagent:" + Quote(request.AuthlibInjectorPath) + "=" + request.AuthlibServer;
+        // Separate JVM options so Jvm.NET host / ParseCommandLine keep each flag intact.
+        List<string> prefix =
+        [
+            "-javaagent:" + Quote(request.AuthlibInjectorPath) + "=" + request.AuthlibServer,
+            "-Dauthlibinjector.side=client"
+        ];
         if (!string.IsNullOrWhiteSpace(request.AuthlibPrefetchedMetadata))
         {
-            javaAgent += " -Dauthlibinjector.side=client -Dauthlibinjector.yggdrasil.prefetched=" +
-                         Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(request.AuthlibPrefetchedMetadata));
-        }
-        else
-        {
-            javaAgent += " -Dauthlibinjector.side=client";
+            prefix.Add(
+                "-Dauthlibinjector.yggdrasil.prefetched=" +
+                Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(request.AuthlibPrefetchedMetadata)));
         }
 
-        return [javaAgent];
+        return prefix;
     }
 
     private static MinecraftJvmHostRequest CreateJvmHostRequest(

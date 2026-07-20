@@ -314,13 +314,14 @@ internal static class MinecraftLaunchPlanFactory
         if (profile.Kind != LaunchLoginProfileKind.ThirdParty || string.IsNullOrWhiteSpace(profile.AuthServer))
             return (null, null, null);
 
+        // Always attach authlib-injector for third-party profiles — including experimental
+        // JVM host. The loopback session bridge alone does not rewrite authlib endpoints
+        // the way the javaagent does, so multiplayer join / profile verify fails without it.
+        _ = useJvmHost;
         AuthlibInjectorService service = new();
         string authServer = AuthlibInjectorService.NormalizeAuthServer(profile.AuthServer);
         string metadata = await service.GetServerMetadataAsync(authServer, cancellationToken)
             .ConfigureAwait(false);
-        if (useJvmHost)
-            return (null, authServer, metadata);
-
         string authlibPath = await service.EnsureAsync(GetAuthlibInjectorCachePath(), cancellationToken)
             .ConfigureAwait(false);
         return (authlibPath, authServer, metadata);

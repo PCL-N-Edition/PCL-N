@@ -41,14 +41,30 @@ internal static class MinecraftJvmHostEntryPoint
             ValidateRequest(request);
             Environment.CurrentDirectory = request.WorkingDirectory;
 
-            using MinecraftSessionBridge? bridge = request.IdentityMode == MinecraftJvmHostIdentityMode.Official
-                ? null
-                : MinecraftSessionBridge.Start(request, lifecycle);
+            // Offline still needs the loopback session bridge. Third-party uses authlib-injector
+            // javaagent (in VmArguments); do not also rewrite session hosts or the two fight.
+            bool hasAuthlibAgent = request.VmArguments.Any(static argument =>
+                argument.StartsWith("-javaagent:", StringComparison.OrdinalIgnoreCase) &&
+                argument.Contains("authlib", StringComparison.OrdinalIgnoreCase));
+            bool useSessionBridge = request.IdentityMode switch
+            {
+                MinecraftJvmHostIdentityMode.Offline => true,
+                MinecraftJvmHostIdentityMode.ThirdParty => !hasAuthlibAgent,
+                _ => false
+            };
+
+            using MinecraftSessionBridge? bridge = useSessionBridge
+                ? MinecraftSessionBridge.Start(request, lifecycle)
+                : null;
             List<string> vmArguments = [.. request.VmArguments];
             if (bridge is not null)
             {
                 bridge.AppendJvmProperties(vmArguments);
                 lifecycle.Send("BridgeReady", bridge.BaseUrl);
+            }
+            else if (hasAuthlibAgent)
+            {
+                lifecycle.Send("AuthlibAgent", "第三方认证使用 authlib-injector javaagent");
             }
 
             RegisterJdkImplementation(request.JavaMajorVersion);

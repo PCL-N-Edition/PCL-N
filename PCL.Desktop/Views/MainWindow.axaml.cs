@@ -2137,22 +2137,10 @@ public partial class MainWindow : Window, IDisposable
         "BtnExtraShutdown", "BtnExtraLog", "BtnExtraMusic"
     ];
 
-    private bool HasVisibleExtraButtonOnControls()
-    {
-        foreach (string name in ExtraButtonNames)
-        {
-            if (this.FindControl<MyExtraButton>(name) is { } extra &&
-                (extra.Show || (extra.IsVisible && extra.Height > 0.5d)))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /// <summary>
     /// Frosted dock chrome only when experimental UI is on <em>and</em> ExtraDock reports a visible FAB.
+    /// Uses VM <see cref="ExtraDockViewModel.HasAnyVisibleButton"/> only — never control Height/IsVisible
+    /// during hide animations (that left an empty glass “bubble” in the corner).
     /// </summary>
     private void RefreshExtraDockChrome()
     {
@@ -2160,9 +2148,7 @@ public partial class MainWindow : Window, IDisposable
             return;
 
         bool experimental = _extraDockViewModel.UseGlassChrome || _experimentalChromeApplied;
-        // Prefer VM state; also honor any FAB still toggled only on controls (migration hybrid).
-        bool showChrome = experimental &&
-                          (_extraDockViewModel.HasAnyVisibleButton || HasVisibleExtraButtonOnControls());
+        bool showChrome = experimental && _extraDockViewModel.HasAnyVisibleButton;
 
         if (showChrome)
         {
@@ -2189,7 +2175,8 @@ public partial class MainWindow : Window, IDisposable
             dock.BorderThickness = new Thickness(0d);
             dock.BoxShadow = default;
             dock.Margin = experimental ? new Thickness(20d) : new Thickness(15d);
-            dock.IsHitTestVisible = true;
+            // No chrome and no intentional FABs: do not intercept clicks on an empty corner.
+            dock.IsHitTestVisible = !experimental || _extraDockViewModel.HasAnyVisibleButton;
         }
     }
 

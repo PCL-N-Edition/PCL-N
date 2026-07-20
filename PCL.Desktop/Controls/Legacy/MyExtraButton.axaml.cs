@@ -301,18 +301,28 @@ public partial class MyExtraButton : Grid
     private void ApplyShowState(bool show, bool animate)
     {
         IsHitTestVisible = show;
-        if (!animate)
+        // Always collapse layout height immediately when hiding so the frosted dock
+        // cannot linger as an empty bubble while a height/scale animation finishes.
+        if (!show)
         {
-            IsVisible = show;
-            Height = show ? 50d : 0d;
-            SetScale(this, show ? 1d : 0d);
+            ModAnimation.AniStop("MyExtraButton MainScale " + Uuid);
+            Height = 0d;
+            SetScale(this, 0d);
+            IsVisible = false;
             return;
         }
 
-        if (show)
+        if (!animate)
         {
             IsVisible = true;
-            ModAnimation.AniStart(
+            Height = 50d;
+            SetScale(this, 1d);
+            return;
+        }
+
+        IsVisible = true;
+        Height = 50d;
+        ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
                 ModAnimation.AaScaleTransform(
@@ -326,27 +336,9 @@ public partial class MyExtraButton : Grid
                     0.7d,
                     500,
                     60,
-                    new ModAnimation.AniEaseOutBack(ModAnimation.AniEasePower.Weak)),
-                ModAnimation.AaHeight(
-                    this,
-                    50d - Height,
-                    200,
-                    ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak))
-            }, "MyExtraButton MainScale " + Uuid);
-            return;
-        }
-
-        ModAnimation.AniStart(
-        new List<ModAnimation.AniData>
-        {
-            ModAnimation.AaScaleTransform(
-                this,
-                -GetScaleX(this),
-                100,
-                ease: new ModAnimation.AniEaseInFluent(ModAnimation.AniEasePower.Weak)),
-            ModAnimation.AaHeight(this, -Height, 400, 100, new ModAnimation.AniEaseOutFluent()),
-            ModAnimation.AaCode(() => IsVisible = false, after: true)
-        }, "MyExtraButton MainScale " + Uuid);
+                    new ModAnimation.AniEaseOutBack(ModAnimation.AniEasePower.Weak))
+            },
+            "MyExtraButton MainScale " + Uuid);
     }
 
     private void StartScaleAnimation(double targetScale, double reboundScale, int reboundDuration = 60)
