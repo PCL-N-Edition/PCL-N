@@ -1319,11 +1319,15 @@ public partial class MainWindow : Window, IDisposable
             ApplyHomepageSettings = () => ApplyHomepageSettings(launchSettings),
             ResolveMaximumLogLines = () => ResolveMaximumLogLines(launchSettings),
             EnsureFoldersLoaded = EnsureMinecraftFoldersLoaded,
-            SelectedMinecraftRoot = _folderStore.SelectedRoot,
-            PreferredInstanceDirectory = LoadPreferredInstanceDirectory(),
-            ShowLaunchingHint = launchSettings.GetBooleanOption(
-                "UiShowLaunchingHint",
-                LauncherSettingDefaults.GetBoolean("UiShowLaunchingHint"))
+            SelectedMinecraftRoot = () => _folderStore.SelectedRoot,
+            PreferredInstanceDirectory = LoadPreferredInstanceDirectory,
+            ShowLaunchingHint = () =>
+            {
+                LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+                return settings.GetBooleanOption(
+                    "UiShowLaunchingHint",
+                    LauncherSettingDefaults.GetBoolean("UiShowLaunchingHint"));
+            }
         };
 
     private void EnsureExperimentalLaunchHome(LauncherSettings launchSettings)
@@ -2477,11 +2481,13 @@ public partial class MainWindow : Window, IDisposable
         }
 
         EnsureMinecraftFoldersLoaded();
+        SyncLaunchFieldsFromSurface();
         bool experimental = _instancesSelect.IsFullPageLayout;
         ApplyExperimentalChrome(experimental);
 
+        ILaunchHomeSurface? launchHome = _launchLeft ?? _launchHomeSurface.Home;
         // Prefer the live launch root so the folder list highlights the folder in use.
-        if (_launchLeft?.MinecraftRootDirectory is { Length: > 0 } liveRoot)
+        if (launchHome?.MinecraftRootDirectory is { Length: > 0 } liveRoot)
         {
             string? normalizedLive = NormalizeDirectoryPath(liveRoot);
             if (normalizedLive is not null && _folderStore.ContainsRoot(normalizedLive))
@@ -2492,8 +2498,8 @@ public partial class MainWindow : Window, IDisposable
         _instancesSelect.Apply(
             leftHost,
             rightHost,
-            _launchLeft?.Instances ?? [],
-            _launchLeft?.SelectedInstance);
+            launchHome?.Instances ?? [],
+            launchHome?.SelectedInstance);
 
         EnterTitleSubPage("选择版本");
         RefreshBackToTopBinding();

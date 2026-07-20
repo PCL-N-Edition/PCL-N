@@ -145,8 +145,8 @@ public sealed class LaunchHomeSurface
         if (_experimentalHome is not null && _home is PageLaunchHomeExperimental)
         {
             _experimentalHome.SetMaximumLogLines(b.ResolveMaximumLogLines());
-            _experimentalHome.SetMinecraftRootDirectory(b.SelectedMinecraftRoot);
-            _experimentalHome.SetPreferredInstanceDirectory(b.PreferredInstanceDirectory);
+            _experimentalHome.SetMinecraftRootDirectory(b.SelectedMinecraftRoot());
+            _experimentalHome.SetPreferredInstanceDirectory(b.PreferredInstanceDirectory());
             b.ApplyLaunchPageSettings();
             return;
         }
@@ -155,9 +155,9 @@ public sealed class LaunchHomeSurface
         WireHome(page, b);
         page.CommunityHintHideRequested += (_, _) => b.HideCommunityHint();
         page.SetMaximumLogLines(b.ResolveMaximumLogLines());
-        page.SetPreferredInstanceDirectory(b.PreferredInstanceDirectory);
-        page.SetMinecraftRootDirectory(b.SelectedMinecraftRoot);
-        page.ConfigureLaunchingHint(b.ShowLaunchingHint);
+        page.SetPreferredInstanceDirectory(b.PreferredInstanceDirectory());
+        page.SetMinecraftRootDirectory(b.SelectedMinecraftRoot());
+        page.ConfigureLaunchingHint(b.ShowLaunchingHint());
         _experimentalHome = page;
         _home = page;
         _classicRight = null;
@@ -168,8 +168,8 @@ public sealed class LaunchHomeSurface
     {
         b.EnsureFoldersLoaded();
         PageLaunchLeft page = new();
-        page.SetPreferredInstanceDirectory(b.PreferredInstanceDirectory);
-        page.SetMinecraftRootDirectory(b.SelectedMinecraftRoot);
+        page.SetPreferredInstanceDirectory(b.PreferredInstanceDirectory());
+        page.SetMinecraftRootDirectory(b.SelectedMinecraftRoot());
         WireHome(page, b);
         return page;
     }

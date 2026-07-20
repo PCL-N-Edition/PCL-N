@@ -35,9 +35,10 @@ public sealed class LaunchHomeBindings
 
     public required Action EnsureFoldersLoaded { get; init; }
 
-    public required string? SelectedMinecraftRoot { get; init; }
+    /// <summary>Live selected Minecraft root (evaluate after <see cref="EnsureFoldersLoaded"/>).</summary>
+    public required Func<string?> SelectedMinecraftRoot { get; init; }
 
-    public required string? PreferredInstanceDirectory { get; init; }
+    public required Func<string?> PreferredInstanceDirectory { get; init; }
 
-    public required bool ShowLaunchingHint { get; init; }
+    public required Func<bool> ShowLaunchingHint { get; init; }
 }

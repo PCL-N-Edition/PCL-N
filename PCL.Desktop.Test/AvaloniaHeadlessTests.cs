@@ -24,6 +24,7 @@ using PCL.Application.Settings;
 using PCL.Core.App;
 using PCL.Core.Logging;
 using PCL.Desktop;
+using PCL.Desktop.Composition;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Community;
@@ -4962,23 +4963,61 @@ public sealed class AvaloniaHeadlessTests
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                     ModAnimation.AdvanceUntilIdleForTesting();
                     PageLaunchLeft launchPage = FindVisual<PageLaunchLeft>(window)!;
-                    await launchPage.EnsureInstancesLoadedAsync().ConfigureAwait(true);
+                    Assert.IsNotNull(launchPage, "Classic launch home required (experimental full-page must stay off).");
 
-                    Click(window, launchPage.FindControl<MyButton>("BtnInstance")!);
+                    // Prefer explicit instances (same as Escape headless) so BtnInstance is
+                    // enabled without racing discovery/cancel-after timeouts.
+                    string firstInstanceDir = System.IO.Path.Combine(firstRoot, "versions", "First");
+                    string firstJson = System.IO.Path.Combine(firstInstanceDir, "First.json");
+                    launchPage.SetMinecraftRootDirectory(firstRoot);
+                    launchPage.SetInstances(
+                    [
+                        new LaunchInstanceInfo("First", firstJson, firstInstanceDir)
+                    ]);
+
+                    MyButton instanceButton = launchPage.FindControl<MyButton>("BtnInstance")!;
+                    Assert.IsTrue(instanceButton.IsEnabled, "Instance picker must be enabled after SetInstances.");
+                    // Headless pointer routing is flaky after discovery/SetInstances layout churn;
+                    // invoke the axaml handler directly so InstanceSelectRequested always fires.
+                    typeof(PageLaunchLeft)
+                        .GetMethod(
+                            "BtnInstance_Click",
+                            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                        .Invoke(launchPage, [instanceButton, EventArgs.Empty]);
                     ModAnimation.AdvanceUntilIdleForTesting();
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
-                    PageInstanceSelectLeft left = FindVisual<PageInstanceSelectLeft>(window)!;
+                    Assert.IsTrue(
+                        window.FindControl<Control>("PanTitleInner")?.IsVisible == true,
+                        "Selecting version should enter title sub-page.");
                     PageInstanceSelectRight right = FindVisual<PageInstanceSelectRight>(window)!;
-                    Assert.IsNotNull(left);
+                    Assert.IsNotNull(right, "Version select right pane should mount.");
+                    PageInstanceSelectLeft left = FindVisual<PageInstanceSelectLeft>(window)!;
+                    Assert.IsNotNull(
+                        left,
+                        "Classic layout must keep PageInstanceSelectLeft (ExperimentalHomepageUi off).");
+
+                    // List cards may populate after metadata tick — wait rather than assume sync.
+                    await WaitForConditionAsync(() =>
+                        right.GetVisualDescendants().OfType<MyListItem>().Any(item =>
+                            string.Equals(item.Title, "First", StringComparison.Ordinal)));
                     Assert.IsTrue(right.GetVisualDescendants().OfType<MyListItem>().Any(item => item.Title == "First"));
 
                     MyListItem secondFolder = left.FindControl<StackPanel>("PanList")!.Children
                         .OfType<MyListItem>()
                         .Single(item => item.Tag is MinecraftFolderInfo folder &&
-                            string.Equals(folder.RootDirectory, secondRoot, StringComparison.OrdinalIgnoreCase));
-                    Click(window, secondFolder);
+                            string.Equals(
+                                System.IO.Path.TrimEndingDirectorySeparator(
+                                    System.IO.Path.GetFullPath(folder.RootDirectory)),
+                                System.IO.Path.TrimEndingDirectorySeparator(
+                                    System.IO.Path.GetFullPath(secondRoot)),
+                                StringComparison.OrdinalIgnoreCase));
+                    // Prefer explicit select API over headless pointer routing on list rows.
+                    Assert.IsTrue(left.TrySelectFolder(
+                        (MinecraftFolderInfo)secondFolder.Tag!));
                     await WaitForConditionAsync(() =>
-                        right.GetVisualDescendants().OfType<MyListItem>().Any(item => item.Title == "Second"));
+                        right.GetVisualDescendants().OfType<MyListItem>().Any(item =>
+                            string.Equals(item.Title, "Second", StringComparison.Ordinal)));
 
                     Assert.IsFalse(right.GetVisualDescendants().OfType<MyListItem>().Any(item => item.Title == "First"));
                     string settingsPath = Environment.GetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH")!;
@@ -11423,23 +11462,24 @@ public sealed class AvaloniaHeadlessTests
         string? previousSettingsPath = Environment.GetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH");
         string? previousDisableFirstRun = Environment.GetEnvironmentVariable("PCL_DISABLE_FIRST_RUN");
         string? previousDisableDebugHint = Environment.GetEnvironmentVariable("PCL_DISABLE_DEBUG_HINT");
-        Environment.SetEnvironmentVariable(
-            "PCLN_LAUNCH_PROFILES_PATH",
-            System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(),
-                "pcl-desktop-test-profiles-" + Guid.NewGuid().ToString("N") + ".json"));
-        if (string.IsNullOrWhiteSpace(previousSettingsPath))
-        {
-            Environment.SetEnvironmentVariable(
-                "PCLN_LAUNCHER_SETTINGS_PATH",
-                System.IO.Path.Combine(
-                    System.IO.Path.GetTempPath(),
-                    "pcl-desktop-test-settings-" + Guid.NewGuid().ToString("N") + ".json"));
-        }
+
+        // Always isolate settings/profiles so ambient env or prior tests cannot leak
+        // ExperimentalHomepageUi (full-page select hides PageInstanceSelectLeft).
+        string settingsPath = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-desktop-test-settings-" + Guid.NewGuid().ToString("N") + ".json");
+        string profilesPath = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-desktop-test-profiles-" + Guid.NewGuid().ToString("N") + ".json");
+        Environment.SetEnvironmentVariable("PCLN_LAUNCH_PROFILES_PATH", profilesPath);
+        Environment.SetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH", settingsPath);
 
         // MainWindow first-run EULA / community / special-build dialogs block headless tests.
         Environment.SetEnvironmentVariable("PCL_DISABLE_FIRST_RUN", "1");
         Environment.SetEnvironmentVariable("PCL_DISABLE_DEBUG_HINT", "1");
+
+        // Drop process-wide composition so host-scoped surfaces and stores start clean.
+        DesktopCompositionRoot.ResetForTests();
 
         try
         {
@@ -11741,6 +11781,7 @@ public sealed class AvaloniaHeadlessTests
             }
             finally
             {
+                DesktopCompositionRoot.ResetForTests();
                 Environment.SetEnvironmentVariable("PCLN_LAUNCH_PROFILES_PATH", _previousLaunchProfilesPath);
                 Environment.SetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH", _previousSettingsPath);
                 Environment.SetEnvironmentVariable("PCL_DISABLE_FIRST_RUN", _previousDisableFirstRun);

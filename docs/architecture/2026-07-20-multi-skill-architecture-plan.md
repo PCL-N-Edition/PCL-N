@@ -348,15 +348,19 @@ public sealed record ExperimentalUiProfile(
 3. [x] `CommunityFeatureModule` + `CommunityFeatureSurface`（detail/favorites 仍经 host 回调）  
 4. [x] `TasksFeatureModule` + `TaskManagerSurface`（任务管理为 host overlay，无主导航路由）  
 5. [x] `InstancesManageSurface`：版本设置左右页工厂迁出 MainWindow  
-6. [ ] 下载编排 / `StartMinecraftAsync` 本体迁入 Application（UI 侧仅编排）
+6. [x] 启动协调进 `StartMinecraftUseCase`（计划创建/修复 AI 仍 host；Application 再下沉可选）
 
 ### Phase 5 — 瘦 MainWindow、拆 Headless、可选 DynamicData  
 
 1. [x] Instances manage surface（Phase 4.5 延续）  
 2. [x] `LaunchLoginSurface`：档案/MS/Auth/离线登录页工厂 + Apply  
 3. [x] `StartMinecraftUseCase` 拥有协调流水线；MainWindow 经 `StartMinecraftHost` 提供 UI/修复钩子  
-4. [ ] 拆 Headless 会话污染；修 FolderLeft 选择页断言  
-5. [ ] 可选 DynamicData  
+4. [x] Headless 隔离：`CreateSession` 强制独立 settings/profiles + `DesktopCompositionRoot.ResetForTests`  
+5. [x] FolderLeft 选择页回归：`MainWindow_InstanceSelectUsesFolderLeftPageAndScopesDiscovery`  
+6. [x] `LaunchHomeBindings` 根路径改为 live `Func`（避免 EnsureFolders 前快照为 null）  
+7. [~] DynamicData：**有意不做**（列表薄模式足够；非阻塞项）  
+
+**Phase 5 结论：** 壳层 Feature Surface / UseCase 主线已落地；MainWindow 仍承载对话框、修复 AI、计划创建等 host 细节，后续可按需继续 Strangler，不阻塞发布。
 
 **DoD（每阶段）：** 编译 + 相关测试绿；实验开/关冒烟；不扩大业务分叉；可独立回滚。
 
@@ -368,7 +372,7 @@ public sealed record ExperimentalUiProfile(
 |----|------|------|
 | ADR-001 | 模块化单体，不拆微服务 | **Accepted** |
 | ADR-002 | Experimental 仅为 Presentation Profile | **Accepted** |
-| ADR-003 | CommunityToolkit.Mvvm + ME.DI + WeakReferenceMessenger | **Accepted**（skill 已装，实现待 Phase 0） |
+| ADR-003 | CommunityToolkit.Mvvm + ME.DI + WeakReferenceMessenger | **Accepted**（Shell + Feature surfaces 已落地） |
 | ADR-004 | 不强制 Zafiro 整栈 | **Accepted** |
 | ADR-005 | 插件边界冻结，Shell 适配 | **Accepted** |
 | ADR-006 | CQRS-lite 无 MediatR | **Accepted** |
