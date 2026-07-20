@@ -1959,328 +1959,56 @@ public partial class MainWindow : Window, IDisposable
         ExitTitleSubPage();
     }
 
-    private async Task DownloadCommunityResourceAsync(CommunityResourceDownloadRequest request)
-    {
-        LaunchInstanceInfo? instance = _launchLeft?.SelectedInstance ?? _managedInstance;
-        string taskId = CreateTaskId("community", request.Entry.ProjectId);
-        using CancellationTokenSource cancellation = RegisterTrackedTask(taskId);
-        string taskTitle = "下载 " + request.Entry.Title;
-        DesktopFileLog.Info(
-            "CommunityDownload",
-            $"开始下载社区资源 {request.Entry.Title}；分类={request.Category}；来源={request.Entry.Source}；实例={instance?.Name ?? "(桌面下载)"}。");
-        DesktopFileLog.Debug(
-            "CommunityDownload",
-            $"下载请求：ProjectId={request.Entry.ProjectId}；PreferredVersion={request.PreferredVersion?.VersionId ?? "(自动)"}；PreferredFile={request.PreferredFile?.FileName ?? "(自动)"}。");
-
-        // WPF: stay on community list (or return from detail) — do not jump to task manager.
-        if (this.FindControl<Border>("PanMainRight")?.Child is PageCommunityDetail)
-            CloseCommunityDetail();
-
-        TrackTaskBegin(taskId, taskTitle, "解析下载地址");
-        ShowHint("已开始下载：" + request.Entry.Title);
-
-        try
-        {
-            CommunitySearchOptions downloadOptions = instance is null
-                ? request.Options
-                : CommunityInstanceCompatibility.Apply(request.Options, request.Category, instance);
-            using CompositeCommunityResourceCatalog catalog = new();
-            CommunityResourceVersion? selectedVersion = request.PreferredVersion;
-            CommunityResourceDownloadFile? file = request.PreferredFile;
-            if (selectedVersion is null)
+    private Task DownloadCommunityResourceAsync(CommunityResourceDownloadRequest request) =>
+        CommunityDownloadOrchestrator.RunAsync(
+            request,
+            new CommunityDownloadHost
             {
-                IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(
-                        request.Entry,
-                        downloadOptions,
-                        cancellation.Token)
-                    .ConfigureAwait(true);
-                selectedVersion = file is null
-                    ? versions.OrderByDescending(static version => version.PublishedAt ?? DateTimeOffset.MinValue)
-                        .FirstOrDefault()
-                    : versions.FirstOrDefault(version =>
-                        string.Equals(version.VersionId, file.VersionId, StringComparison.OrdinalIgnoreCase));
-            }
-
-            file ??= selectedVersion is { Files.Count: > 0 } ? selectedVersion.Files[0] : null;
-
-            if (file is null)
-            {
-                DesktopFileLog.Warn("CommunityDownload", $"未找到符合筛选条件的文件：{request.Entry.Title}");
-                TrackTaskFailed(taskId, taskTitle, "未找到匹配当前筛选条件的版本文件。", canceled: false);
-                ShowHint("下载失败：未找到可下载的文件", critical: true);
-                return;
-            }
-
-            selectedVersion ??= new CommunityResourceVersion(
-                file.VersionId,
-                file.VersionName,
-                file.VersionName,
-                null,
-                null,
-                [],
-                [],
-                [file]);
-
-            LauncherSettings downloadSettings = LauncherSettingsPageBinder.LoadSettings();
-            bool autoInstallDependencies = downloadSettings.GetBooleanOption(
-                "ToolDownloadAutoInstallDependencies",
-                LauncherSettingDefaults.GetBoolean("ToolDownloadAutoInstallDependencies", true));
-
-            string baseDirectory;
-            string? saveAsPath = null;
-            if (request.SaveAs)
-            {
-                IStorageProvider? storage = StorageProvider;
-                if (storage is null)
+                GetSelectedInstance = () => _launchLeft?.SelectedInstance ?? _managedInstance,
+                CloseDetailIfOpen = () =>
                 {
-                    TrackTaskFailed(taskId, taskTitle, "当前窗口无法打开保存对话框。", canceled: false);
-                    ShowHint("另存为失败：无法打开保存对话框", critical: true);
-                    return;
-                }
-
-                IStorageFile? target = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
+                    if (this.FindControl<Border>("PanMainRight")?.Child is PageCommunityDetail)
+                        CloseCommunityDetail();
+                },
+                CreateTaskId = projectId => CreateTaskId("community", projectId),
+                RegisterTrackedTask = RegisterTrackedTask,
+                UnregisterTrackedTask = UnregisterTrackedTask,
+                TrackTaskBegin = TrackTaskBegin,
+                TrackTaskProgress = TrackTaskProgress,
+                TrackTaskFinished = TrackTaskFinished,
+                TrackTaskFailed = TrackTaskFailed,
+                AppendLog = message => _launchRight?.AppendLog(message),
+                ShowHint = ShowHint,
+                TruncateHint = message => TruncateHint(message),
+                PickSaveAsPathAsync = async (title, suggestedFileName) =>
                 {
-                    Title = "另存为 — " + request.Entry.Title,
-                    SuggestedFileName = file.FileName,
-                    FileTypeChoices =
-                    [
-                        new FilePickerFileType("资源文件")
-                        {
-                            Patterns = ["*" + (Path.GetExtension(file.FileName) is { Length: > 0 } ext ? ext : ".*")]
-                        }
-                    ]
-                }).ConfigureAwait(true);
-                if (target is null)
-                {
-                    TrackTaskFailed(taskId, taskTitle, "已取消另存为。", canceled: true);
-                    ShowHint("已取消另存为");
-                    return;
-                }
-
-                saveAsPath = target.Path.LocalPath;
-                baseDirectory = Path.GetDirectoryName(saveAsPath) ??
-                    Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                        "PCL-N Downloads");
-            }
-            else
-            {
-                baseDirectory = instance is null
-                    ? Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                        "PCL-N Downloads")
-                    : await InstanceGameDirectory.ResolveAsync(instance, cancellation.Token).ConfigureAwait(true);
-            }
-
-            IReadOnlyList<CommunityResourceDownloadPlanItem> plan;
-            // 另存为只保存选中文件本身；自动依赖受设置「自动安装必需依赖」控制（#17）。
-            if (request.Category == CommunityResourceCategory.Mod &&
-                !request.SaveAs &&
-                autoInstallDependencies)
-            {
-                TrackTaskBegin(taskId, taskTitle, "正在解析必需前置");
-                plan = await CommunityResourceDependencyResolver.ResolveRequiredDownloadsAsync(
-                        catalog,
-                        request.Entry,
-                        selectedVersion,
-                        file,
-                        downloadOptions,
-                        cancellation.Token)
-                    .ConfigureAwait(true);
-            }
-            else
-            {
-                plan = [new CommunityResourceDownloadPlanItem(request.Entry, selectedVersion, file, false)];
-            }
-
-            using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(10) };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
-            string completedPath = string.Empty;
-            int dependencyCount = plan.Count(static item => item.IsDependency);
-            DesktopFileLog.Info(
-                "CommunityDownload",
-                $"下载计划已生成；资源={request.Entry.Title}；项目数={plan.Count}；必需前置={dependencyCount}；目标={baseDirectory}。");
-            if (dependencyCount > 0)
-            {
-                _launchRight?.AppendLog(
-                    $"社区资源：{request.Entry.Title} 需要 {dependencyCount} 个必需前置，将自动下载。");
-            }
-
-            foreach (CommunityResourceDownloadPlanItem item in plan)
-            {
-                CommunityResourceCategory itemCategory = item.IsDependency
-                    ? CommunityResourceCategory.Mod
-                    : request.Category;
-                string path = await DownloadCommunityPlanItemAsync(
-                        client,
-                        item,
-                        itemCategory,
-                        baseDirectory,
-                        taskId,
-                        taskTitle,
-                        cancellation.Token,
-                        explicitTargetPath: item.IsDependency ? null : saveAsPath)
-                    .ConfigureAwait(true);
-                if (item.IsDependency)
-                    _launchRight?.AppendLog($"已安装前置：{item.Entry.Title} → {path}");
-                else
-                    completedPath = path;
-            }
-
-            TrackTaskFinished(taskId, taskTitle, "已保存到 " + completedPath);
-            DesktopFileLog.Info("CommunityDownload", $"社区资源下载完成：{request.Entry.Title} -> {completedPath}");
-            _launchRight?.AppendLog($"社区资源已下载：{request.Entry.Title} → {completedPath}");
-            ShowHint(request.SaveAs
-                ? "已另存为：" + Path.GetFileName(completedPath)
-                : request.Category == CommunityResourceCategory.World
-                    ? "世界安装完成：" + Path.GetFileName(completedPath)
-                    : "下载完成：" + Path.GetFileName(completedPath));
-        }
-        catch (OperationCanceledException)
-        {
-            DesktopFileLog.Warn("CommunityDownload", $"社区资源下载已取消：{request.Entry.Title}");
-            TrackTaskFailed(taskId, taskTitle, "下载已取消。", canceled: true);
-            ShowHint("下载已取消");
-        }
-        catch (Exception ex)
-        {
-            DesktopFileLog.Error("CommunityDownload", $"社区资源下载失败：{request.Entry.Title}", ex);
-            TrackTaskFailed(taskId, taskTitle, ex.Message, canceled: false);
-            ShowHint("下载失败：" + TruncateHint(ex.Message), critical: true);
-        }
-        finally
-        {
-            UnregisterTrackedTask(taskId, cancellation);
-        }
-    }
-
-    private async Task<string> DownloadCommunityPlanItemAsync(
-        HttpClient client,
-        CommunityResourceDownloadPlanItem item,
-        CommunityResourceCategory category,
-        string baseDirectory,
-        string taskId,
-        string taskTitle,
-        CancellationToken cancellationToken,
-        string? explicitTargetPath = null)
-    {
-        string targetDirectory = CommunityDownloadPaths.ResolveDirectory(category, baseDirectory);
-        string targetPath;
-        if (!string.IsNullOrWhiteSpace(explicitTargetPath))
-        {
-            targetPath = Path.GetFullPath(explicitTargetPath);
-            string? parent = Path.GetDirectoryName(targetPath);
-            if (!string.IsNullOrWhiteSpace(parent))
-                Directory.CreateDirectory(parent);
-        }
-        else
-        {
-            Directory.CreateDirectory(targetDirectory);
-            targetPath = Path.Combine(targetDirectory, DesktopPathHelpers.SanitizeFileName(item.File.FileName));
-        }
-
-        string temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".PCLDownloading";
-        string phase = item.IsDependency
-            ? "正在下载前置 " + item.Entry.Title
-            : "正在下载 " + item.File.FileName;
-        TrackTaskBegin(taskId, taskTitle, phase);
-
-        try
-        {
-            Exception? lastDownloadError = null;
-            foreach (string candidateUrl in item.File.CandidateUrls.Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    if (File.Exists(temporaryPath))
-                        File.Delete(temporaryPath);
-                    using HttpResponseMessage response = await client.GetAsync(
-                            candidateUrl,
-                            HttpCompletionOption.ResponseHeadersRead,
-                            cancellationToken)
-                        .ConfigureAwait(true);
-                    response.EnsureSuccessStatusCode();
-                    long? total = response.Content.Headers.ContentLength;
-                    await using Stream network = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(true);
-                    await using FileStream output = new(
-                        temporaryPath,
-                        FileMode.CreateNew,
-                        FileAccess.Write,
-                        FileShare.None,
-                        64 * 1024,
-                        useAsync: true);
-                    byte[] buffer = new byte[64 * 1024];
-                    long written = 0;
-                    int read;
-                    while ((read = await network.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
-                               .ConfigureAwait(true)) > 0)
+                    IStorageProvider? storage = StorageProvider;
+                    if (storage is null)
                     {
-                        await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(true);
-                        written += read;
-                        double progress = total is > 0 ? written / (double)total.Value : 0d;
-                        DesktopFileLog.RealTime(
-                            "CommunityDownload",
-                            $"下载进度：{item.File.FileName}；字节={written}/{total?.ToString(CultureInfo.InvariantCulture) ?? "?"}；进度={progress:P1}。");
-                        TrackTaskProgress(
-                            taskId,
-                            taskTitle,
-                            Math.Clamp(progress, 0d, 1d),
-                            $"{written.ToString(CultureInfo.InvariantCulture)} / {(total?.ToString(CultureInfo.InvariantCulture) ?? "?")} 字节");
+                        ShowHint("另存为失败：无法打开保存对话框", critical: true);
+                        return null;
                     }
-                    lastDownloadError = null;
-                    break;
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex) when (ex is HttpRequestException or IOException)
-                {
-                    lastDownloadError = ex;
-                    DesktopFileLog.Warn("CommunityDownload", $"下载候选失败，将尝试下一来源：{new Uri(candidateUrl).Host}。", ex);
-                }
-            }
-            if (lastDownloadError is not null || !File.Exists(temporaryPath))
-                throw lastDownloadError ?? new HttpRequestException("所有下载候选均失败。");
 
-            if (category == CommunityResourceCategory.Mod)
-            {
-                targetPath = MinecraftModArchiveInstaller.Install(
-                    temporaryPath,
-                    targetDirectory,
-                    Path.GetFileName(targetPath));
-            }
-            else
-            {
-                File.Move(temporaryPath, targetPath, overwrite: true);
-            }
-
-            if (category != CommunityResourceCategory.World)
-                return targetPath;
-
-            TrackTaskBegin(taskId, taskTitle, "正在安装世界");
-            string installed = await MinecraftWorldArchiveInstaller
-                .InstallAsync(targetPath, targetDirectory, cancellationToken)
-                .ConfigureAwait(true);
-            File.Delete(targetPath);
-            return installed;
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath))
-            {
-                try
-                {
-                    File.Delete(temporaryPath);
+                    IStorageFile? target = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
+                    {
+                        Title = "另存为 — " + title,
+                        SuggestedFileName = suggestedFileName,
+                        FileTypeChoices =
+                        [
+                            new FilePickerFileType("资源文件")
+                            {
+                                Patterns =
+                                [
+                                    "*" + (Path.GetExtension(suggestedFileName) is { Length: > 0 } ext
+                                        ? ext
+                                        : ".*")
+                                ]
+                            }
+                        ]
+                    }).ConfigureAwait(true);
+                    return target?.Path.LocalPath;
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    // A failed cleanup must not mask the original download result.
-                    DesktopFileLog.Warn("CommunityDownload", $"清理临时下载文件失败：{temporaryPath}", ex);
-                }
-            }
-        }
-    }
+            });
 
     private PageDownloadLeft CreateDownloadLeftPage()
     {
@@ -5286,22 +5014,8 @@ public partial class MainWindow : Window, IDisposable
     private static MinecraftRepairActionKind SelectConventionalRepairAction(
         MinecraftLaunchFaultReport fault,
         IReadOnlyList<MinecraftMissingDependency> dependencies,
-        string? nativesDirectory)
-    {
-        if (fault.Code == MinecraftLaunchFaultCode.NativeLibraryFailed &&
-            !string.IsNullOrWhiteSpace(nativesDirectory))
-            return MinecraftRepairActionKind.ReextractNatives;
-        if (fault.Code == MinecraftLaunchFaultCode.MissingModDependency && dependencies.Count > 0)
-            return MinecraftRepairActionKind.InstallMissingModDependencies;
-        return fault.Code switch
-        {
-            MinecraftLaunchFaultCode.MainClassMissing or MinecraftLaunchFaultCode.ClasspathDependencyMissing =>
-                MinecraftRepairActionKind.RepairVersionFiles,
-            MinecraftLaunchFaultCode.JavaRuntimeMissing or MinecraftLaunchFaultCode.JavaRuntimeIncompatible or
-                MinecraftLaunchFaultCode.JvmInitializationFailed => MinecraftRepairActionKind.SelectCompatibleJava,
-            _ => MinecraftRepairActionKind.InspectOnly
-        };
-    }
+        string? nativesDirectory) =>
+        MinecraftRepairPolicy.SelectConventionalRepairAction(fault, dependencies, nativesDirectory);
 
     private async Task<MinecraftRepairExecutionResult> ExecuteMinecraftRepairAsync(
         RunningGameContext context,
@@ -5876,17 +5590,9 @@ public partial class MainWindow : Window, IDisposable
     internal static string DescribeAiRepairStepForTest(MinecraftRepairActionKind action) =>
         DescribeAiRepairStep(action, new MinecraftAiRepairParameters());
 
-    private static bool IsAutomaticallyExecutableRepair(MinecraftRepairActionKind action) => action is
-        MinecraftRepairActionKind.RepairVersionFiles or
-        MinecraftRepairActionKind.ReextractNatives or
-        MinecraftRepairActionKind.InstallMissingModDependencies or
-        MinecraftRepairActionKind.DownloadMod or
-        MinecraftRepairActionKind.DisableMod or
-        MinecraftRepairActionKind.UpdateMod or
-        MinecraftRepairActionKind.SelectCompatibleJava or
-        MinecraftRepairActionKind.DownloadCompatibleJava or
-        MinecraftRepairActionKind.ReinstallVersionAndUpdateLoader or
-        MinecraftRepairActionKind.DisableExperimentalJvmHost;
+    private static bool IsAutomaticallyExecutableRepair(MinecraftRepairActionKind action) =>
+        MinecraftRepairPolicy.IsAutomaticallyExecutableRepair(action);
+
 
     private static async Task<MinecraftLaunchFaultReport?> AwaitFaultReportAsync(
         Task<MinecraftLaunchFaultReport?>? faultReportTask,
@@ -5933,23 +5639,8 @@ public partial class MainWindow : Window, IDisposable
 
     private static string DescribeAiRepairStep(
         MinecraftRepairActionKind action,
-        MinecraftAiRepairParameters parameters) => action switch
-        {
-            MinecraftRepairActionKind.DownloadMod =>
-                $"下载模组 {parameters.ModId} {parameters.ModVersion}",
-            MinecraftRepairActionKind.DisableMod => $"禁用模组 {parameters.ModId}",
-            MinecraftRepairActionKind.UpdateMod =>
-                $"将模组 {parameters.ModId} 更新至 {parameters.ModVersion}",
-            MinecraftRepairActionKind.DisableExperimentalJvmHost =>
-                "关闭实验性 Jvm.NET Host，并改用传统 Java 进程启动",
-            MinecraftRepairActionKind.SelectCompatibleJava => "切换至另一套已安装的兼容 Java",
-            MinecraftRepairActionKind.DownloadCompatibleJava => "下载并选择兼容 Java",
-            MinecraftRepairActionKind.ReinstallVersionAndUpdateLoader => "重新安装版本并更新模组加载器",
-            MinecraftRepairActionKind.RepairVersionFiles => "重新校验并补全 Minecraft 版本文件",
-            MinecraftRepairActionKind.ReextractNatives => "重新生成 Minecraft Natives",
-            MinecraftRepairActionKind.InstallMissingModDependencies => "下载缺失的前置模组",
-            _ => action.ToString()
-        };
+        MinecraftAiRepairParameters parameters) =>
+        MinecraftRepairPolicy.DescribeAiRepairStep(action, parameters);
 
     private async Task RestartMinecraftAfterRepairAsync(
         RunningGameContext context,
@@ -6785,7 +6476,8 @@ public partial class MainWindow : Window, IDisposable
         bool isFirstAttempt,
         bool automaticRepairEnabled,
         bool experimentalAiRepairEnabled) =>
-        isFirstAttempt && automaticRepairEnabled && !experimentalAiRepairEnabled;
+        MinecraftRepairPolicy.ShouldExecuteConventionalRepairDirectly(
+            isFirstAttempt, automaticRepairEnabled, experimentalAiRepairEnabled);
 
     private static string BuildRepairAttemptSummary(
         string source,
@@ -6798,7 +6490,7 @@ public partial class MainWindow : Window, IDisposable
         MinecraftRepairSession session,
         MinecraftLaunchFaultReport currentFault,
         int? processExitCode) =>
-        FormatFailedRepairFeedback(
+        MinecraftRepairPolicy.FormatFailedRepairFeedback(
             session.LastRepairSummary,
             currentFault.Code,
             currentFault.Stage,
@@ -6808,46 +6500,12 @@ public partial class MainWindow : Window, IDisposable
         string? previousRepairSummary,
         MinecraftLaunchFaultCode currentCode,
         string? currentStage,
-        int? processExitCode)
-    {
-        string summary = string.IsNullOrWhiteSpace(previousRepairSummary)
-            ? "上次修复内容未记录"
-            : previousRepairSummary.Trim();
-        return $"上次修复已执行，但修复后的重新启动仍然失败。上次修复：{summary}" +
-               $" 本次失败：Code={currentCode}；Stage={currentStage ?? "Unknown"}；" +
-               $"ExitCode={processExitCode?.ToString(CultureInfo.InvariantCulture) ?? "Unknown"}。" +
-               "请结合本次新错误重新判断，并避免无依据重复上次修复。";
-    }
+        int? processExitCode) =>
+        MinecraftRepairPolicy.FormatFailedRepairFeedback(
+            previousRepairSummary, currentCode, currentStage, processExitCode);
 
-    private sealed record MinecraftRepairExecutionResult(
-        string Message,
-        bool IsFailure,
-        bool MadeChanges = false);
 
-    private readonly record struct ModDownloadResult(bool Success, bool Changed);
 
-    private sealed record RunningGameContext(
-        LaunchInstanceInfo Instance,
-        ILaunchHomeSurface LaunchPage,
-        LauncherSettings Settings,
-        Task<MinecraftLaunchFaultReport?>? FaultReport = null,
-        string? NativesDirectory = null,
-        string? WorldName = null,
-        string? ServerAddress = null,
-        MinecraftRepairSession? RepairSession = null,
-        int? JavaMajorVersion = null,
-        int? MemoryMegabytes = null,
-        string? LoginMethod = null,
-        string? LoginServerHost = null,
-        string? ProfileUsername = null,
-        string? ProfileUuid = null,
-        bool UsedExperimentalJvmHost = false,
-        string? JavaExecutableName = null,
-        string? JavaExecutablePathForRedaction = null,
-        int? ClasspathEntryCount = null,
-        int? VmArgumentCount = null,
-        int? GameArgumentCount = null,
-        int? ProcessExitCode = null);
 
     private static int? TryReadMaximumHeapMegabytes(IEnumerable<string> arguments)
     {

@@ -366,8 +366,9 @@ public sealed record ExperimentalUiProfile(
 
 1. [x] `MinecraftLaunchPlanFactory`：CreatePlan / 预启动命令 / 进程优先级 / 根路径 / Java 解析  
 2. [x] `CommunityDownloadPaths` + `DesktopPathHelpers` 路径小工具  
-3. [ ] 社区下载编排整段迁出 MainWindow  
-4. [ ] 崩溃修复 AI 流水线模块化
+3. [x] `CommunityDownloadOrchestrator`：社区资源下载/依赖/另存为（UI 经 host）  
+4. [x] `MinecraftRepairModels` + `MinecraftRepairPolicy`：修复上下文/决策纯函数  
+5. [ ] `TryRepairMissingDependenciesAsync` 整段编排再抽（执行体仍 MainWindow）
 
 **DoD（每阶段）：** 编译 + 相关测试绿；实验开/关冒烟；不扩大业务分叉；可独立回滚。
 
