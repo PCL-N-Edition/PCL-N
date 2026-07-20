@@ -30,8 +30,11 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
     private CommunitySearchOptions _baseOptions = new();
     private CommunityResourceCategory _category = CommunityResourceCategory.Mod;
     private IReadOnlyList<CommunityResourceVersion> _allVersions = [];
-    private string? _instanceFilter; // null = 全部
+    /// <summary>Major game line filter (e.g. <c>1.20</c>), null = 全部. Minor versions live under the major card.</summary>
+    private string? _instanceFilter;
     private string? _loaderFilter;
+    /// <summary>When set, prefer expanding this full version (e.g. <c>1.20.1</c>) under its major card.</summary>
+    private string? _preferredMinorVersion;
     private CancellationTokenSource? _loadCancellation;
     private bool _disposed;
     private bool _filtersReady;
@@ -102,6 +105,7 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
         _baseOptions = options ?? new CommunitySearchOptions();
         _instanceFilter = null;
         _loaderFilter = null;
+        _preferredMinorVersion = null;
         _filtersReady = false;
         BindIntro(entry);
         UpdateFavoriteButton();
@@ -260,27 +264,33 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
         panVersion.Children.Clear();
         panLoader.Children.Clear();
 
-        HashSet<string> gameVersions = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> majorLines = new(StringComparer.OrdinalIgnoreCase);
         HashSet<string> loaders = new(StringComparer.OrdinalIgnoreCase);
         foreach (CommunityResourceVersion v in versions)
         {
             foreach (string g in v.GameVersions)
-                if (!string.IsNullOrWhiteSpace(g))
-                    gameVersions.Add(g);
+            {
+                if (string.IsNullOrWhiteSpace(g))
+                    continue;
+                majorLines.Add(GetMajorGameLine(g));
+            }
+
             foreach (string l in v.Loaders)
+            {
                 if (!string.IsNullOrWhiteSpace(l))
                     loaders.Add(l);
+            }
         }
 
-        // Version-aware order (1.21 > 1.20.1); string ordinal wrongly ranks "1.9" above "1.21".
-        List<string> orderedVersions = gameVersions
+        // Chips list major lines only (1.21 / 1.20 / 1.16…); minors live under each major card.
+        List<string> orderedMajors = majorLines
             .OrderByDescending(static s => s, MinecraftVersionNameComparer.Instance)
             .ToList();
         List<string> orderedLoaders = loaders
             .OrderBy(static s => s, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        bool showFilters = orderedVersions.Count >= 2 || orderedLoaders.Count >= 1;
+        bool showFilters = orderedMajors.Count >= 2 || orderedLoaders.Count >= 1;
         if (cardFilter is not null)
             cardFilter.IsVisible = showFilters;
 
@@ -290,12 +300,22 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
             return;
         }
 
-        // Prefer list-page filters when present; otherwise default to “全部”.
+        // List-page filter may be full (1.20.1) or major (1.20) — map to major chip + remember minor.
         string? preferredVersion = _baseOptions.GameVersion;
-        if (!string.IsNullOrWhiteSpace(preferredVersion) &&
-            orderedVersions.Any(v => string.Equals(v, preferredVersion, StringComparison.OrdinalIgnoreCase)))
+        _preferredMinorVersion = null;
+        if (!string.IsNullOrWhiteSpace(preferredVersion))
         {
-            _instanceFilter = preferredVersion;
+            string preferredMajor = GetMajorGameLine(preferredVersion);
+            if (orderedMajors.Any(v => string.Equals(v, preferredMajor, StringComparison.OrdinalIgnoreCase)))
+            {
+                _instanceFilter = preferredMajor;
+                if (!string.Equals(preferredVersion, preferredMajor, StringComparison.OrdinalIgnoreCase))
+                    _preferredMinorVersion = preferredVersion.Trim();
+            }
+            else
+            {
+                _instanceFilter = null;
+            }
         }
         else
         {
@@ -304,12 +324,11 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
 
         panVersion.Children.Add(CreateFilterLabel("版本"));
         AddChip(panVersion, "全部", isVersion: true, selected: _instanceFilter is null);
-        // Show all known game versions (Sodium alone lists ~38 from 1.16.3→26.x). Chips wrap.
-        foreach (string v in orderedVersions)
+        foreach (string major in orderedMajors)
         {
             bool selected = _instanceFilter is not null &&
-                            string.Equals(v, _instanceFilter, StringComparison.OrdinalIgnoreCase);
-            AddChip(panVersion, v, isVersion: true, selected: selected);
+                            string.Equals(major, _instanceFilter, StringComparison.OrdinalIgnoreCase);
+            AddChip(panVersion, major, isVersion: true, selected: selected);
         }
 
         // Loader chips (mods / modpacks)
@@ -376,9 +395,16 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
             if (!_filtersReady || sender is not MyRadioButton rb)
                 return;
             if (isVersion)
+            {
                 _instanceFilter = string.Equals(rb.Text, "全部", StringComparison.Ordinal) ? null : rb.Text;
+                // Manual chip change clears the one-shot preferred minor from the list page.
+                _preferredMinorVersion = null;
+            }
             else
+            {
                 _loaderFilter = string.Equals(rb.Text, "全部", StringComparison.Ordinal) ? null : rb.Text;
+            }
+
             ApplyFiltersAndRender();
         };
         panel.Children.Add(chip);
@@ -393,9 +419,9 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
         List<CommunityResourceVersion> filtered = _allVersions.ToList();
         if (!string.IsNullOrWhiteSpace(_instanceFilter))
         {
+            string major = _instanceFilter;
             filtered = filtered
-                .Where(v =>
-                    v.GameVersions.Any(g => string.Equals(g, _instanceFilter, StringComparison.OrdinalIgnoreCase)))
+                .Where(v => v.GameVersions.Any(g => MatchesMajorLine(g, major)))
                 .ToList();
         }
 
@@ -407,31 +433,37 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
                 .ToList();
         }
 
-        // WPF PageDownloadCompDetail / CompFilesGet: one card per Minecraft version.
-        // With a chip filter, collapse into that single card; otherwise assign each
-        // file to its newest supported game version (avoids multi-card fan-out spam).
-        Dictionary<string, List<CommunityResourceVersion>> groups = new(StringComparer.OrdinalIgnoreCase);
+        // Hierarchy: major line cards (1.20 / 1.21) → nested minor cards (1.20.1 / 1.20.2) → files.
+        Dictionary<string, Dictionary<string, List<CommunityResourceVersion>>> majorGroups =
+            new(StringComparer.OrdinalIgnoreCase);
+
         foreach (CommunityResourceVersion version in filtered)
         {
+            IEnumerable<string> gameVersions = version.GameVersions
+                .Where(static g => !string.IsNullOrWhiteSpace(g));
+
             if (!string.IsNullOrWhiteSpace(_instanceFilter))
             {
-                AddToGroup(groups, _instanceFilter!, version);
+                // Under a major filter, only place into minors that belong to that major.
+                foreach (string g in gameVersions.Where(g => MatchesMajorLine(g, _instanceFilter!)))
+                    AddToMajorMinorGroup(majorGroups, GetMajorGameLine(g), g.Trim(), version);
                 continue;
             }
 
-            string key = "其他";
-            if (version.GameVersions.Count > 0)
+            // 全部: assign each file once to its newest supported game version's major/minor.
+            string? newest = gameVersions
+                .OrderByDescending(static g => g, MinecraftVersionNameComparer.Instance)
+                .FirstOrDefault();
+            if (newest is null)
             {
-                key = version.GameVersions
-                    .Where(static g => !string.IsNullOrWhiteSpace(g))
-                    .OrderByDescending(static g => g, MinecraftVersionNameComparer.Instance)
-                    .FirstOrDefault() ?? "其他";
+                AddToMajorMinorGroup(majorGroups, "其他", "其他", version);
+                continue;
             }
 
-            AddToGroup(groups, key, version);
+            AddToMajorMinorGroup(majorGroups, GetMajorGameLine(newest), newest.Trim(), version);
         }
 
-        if (groups.Count == 0)
+        if (majorGroups.Count == 0)
         {
             panResults.Children.Add(new TextBlock
             {
@@ -442,70 +474,117 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
             return;
         }
 
-        // Newest game versions first (WPF uses version-aware sort).
-        List<KeyValuePair<string, List<CommunityResourceVersion>>> ordered = groups
+        List<KeyValuePair<string, Dictionary<string, List<CommunityResourceVersion>>>> orderedMajors = majorGroups
             .OrderByDescending(static g => g.Key, MinecraftVersionNameComparer.Instance)
             .ToList();
 
-        int cardIndex = 0;
-        foreach ((string title, List<CommunityResourceVersion> list) in ordered)
+        int majorIndex = 0;
+        foreach ((string majorTitle, Dictionary<string, List<CommunityResourceVersion>> minors) in orderedMajors)
         {
-            // Within a card: newest publish date first.
-            List<CommunityResourceVersion> sorted = list
-                .OrderByDescending(static v => v.PublishedAt ?? DateTimeOffset.MinValue)
+            int fileCount = minors.Values.Sum(static list => list.Count);
+            List<KeyValuePair<string, List<CommunityResourceVersion>>> orderedMinors = minors
+                .OrderByDescending(static m => m.Key, MinecraftVersionNameComparer.Instance)
                 .ToList();
 
-            MyCard card = new()
+            bool expandMajor = majorIndex == 0 ||
+                               (!string.IsNullOrWhiteSpace(_instanceFilter) &&
+                                string.Equals(majorTitle, _instanceFilter, StringComparison.OrdinalIgnoreCase));
+
+            MyCard majorCard = new()
             {
-                Title = title + "（" + sorted.Count.ToString(CultureInfo.CurrentCulture) + "）",
+                Title = majorTitle + "（" + fileCount.ToString(CultureInfo.CurrentCulture) + "）",
                 Margin = new Thickness(0, 0, 0, 15),
                 CanSwap = true,
-                // First (newest) group expanded; rest collapsed — matches WPF default.
-                IsSwapped = cardIndex > 0
+                IsSwapped = !expandMajor
             };
 
-            StackPanel stack = new()
+            StackPanel majorStack = new()
             {
-                Margin = new Thickness(20d, MyCard.SwapedHeight, 18d, 8d),
+                Margin = new Thickness(12d, MyCard.SwapedHeight, 12d, 8d),
                 VerticalAlignment = VerticalAlignment.Top,
-                Tag = sorted
+                Tag = new MajorGroupTag(majorTitle, orderedMinors)
             };
-            card.SwapControl = stack;
-            card.InstallMethod = InstallVersionStack;
-            // MyCard only sizes to SwapControl when it is a visual child (same as install/select pages).
-            card.Children.Add(stack);
-            panResults.Children.Add(card);
+            majorCard.SwapControl = majorStack;
+            majorCard.InstallMethod = InstallMajorGroupStack;
+            majorCard.Children.Add(majorStack);
+            panResults.Children.Add(majorCard);
 
-            if (!card.IsSwapped)
-                card.StackInstall();
+            if (!majorCard.IsSwapped)
+                majorCard.StackInstall();
 
-            cardIndex++;
+            majorIndex++;
         }
 
         if (panResults.Children.Count == 1 && panResults.Children[0] is MyCard only)
+        {
             only.IsSwapped = false;
+            only.StackInstall();
+        }
     }
 
-    private static void AddToGroup(
-        Dictionary<string, List<CommunityResourceVersion>> groups,
-        string key,
-        CommunityResourceVersion version)
+    private void InstallMajorGroupStack(StackPanel stack)
     {
-        if (!groups.TryGetValue(key, out List<CommunityResourceVersion>? list))
+        if (stack.Tag is not MajorGroupTag tag)
+            return;
+
+        stack.Children.Clear();
+
+        // Single minor under this major: skip the extra nested card.
+        if (tag.Minors.Count == 1)
         {
-            list = [];
-            groups[key] = list;
+            InstallFileRows(stack, tag.Minors[0].Value);
+            return;
         }
 
-        // Avoid duplicating the same version id inside one card.
-        if (list.Any(v => string.Equals(v.VersionId, version.VersionId, StringComparison.OrdinalIgnoreCase)))
-            return;
-        list.Add(version);
+        int minorIndex = 0;
+        foreach ((string minorTitle, List<CommunityResourceVersion> files) in tag.Minors)
+        {
+            List<CommunityResourceVersion> sorted = files
+                .OrderByDescending(static v => v.PublishedAt ?? DateTimeOffset.MinValue)
+                .ToList();
+
+            bool preferThisMinor = _preferredMinorVersion is { Length: > 0 } preferred &&
+                                   string.Equals(minorTitle, preferred, StringComparison.OrdinalIgnoreCase);
+            // Preferred minor expanded first; otherwise newest minor open, rest collapsed.
+            bool expandMinor = preferThisMinor ||
+                               (minorIndex == 0 && string.IsNullOrWhiteSpace(_preferredMinorVersion));
+
+            MyCard minorCard = new()
+            {
+                Title = minorTitle + "（" + sorted.Count.ToString(CultureInfo.CurrentCulture) + "）",
+                Margin = new Thickness(0, 0, 0, 10),
+                CanSwap = true,
+                IsSwapped = !expandMinor
+            };
+
+            StackPanel minorStack = new()
+            {
+                Margin = new Thickness(12d, MyCard.SwapedHeight, 10d, 6d),
+                VerticalAlignment = VerticalAlignment.Top,
+                Tag = sorted
+            };
+            minorCard.SwapControl = minorStack;
+            minorCard.InstallMethod = InstallVersionStack;
+            minorCard.Children.Add(minorStack);
+            stack.Children.Add(minorCard);
+
+            if (!minorCard.IsSwapped)
+                minorCard.StackInstall();
+
+            minorIndex++;
+        }
     }
 
     private void InstallVersionStack(StackPanel stack)
     {
-        if (stack.Tag is not List<CommunityResourceVersion> list || _entry is null)
+        if (stack.Tag is not List<CommunityResourceVersion> list)
+            return;
+        InstallFileRows(stack, list);
+    }
+
+    private void InstallFileRows(StackPanel stack, List<CommunityResourceVersion> list)
+    {
+        if (_entry is null)
             return;
 
         stack.Children.Clear();
@@ -527,6 +606,11 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
                 : "—";
             string size = primary.Size > 0 ? FormatSize(primary.Size) : "—";
             string dependencies = FormatDependencies(version.Dependencies);
+            string gameRange = version.GameVersions.Count > 0
+                ? string.Join(", ", version.GameVersions
+                    .OrderByDescending(static g => g, MinecraftVersionNameComparer.Instance)
+                    .Take(4))
+                : "—";
 
             MyIconButton download = new()
             {
@@ -557,7 +641,7 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
                 Title = string.IsNullOrWhiteSpace(version.Name)
                     ? version.VersionNumber
                     : version.Name,
-                Info = loaders + " · " + size + " · " + published + " · " + primary.FileName +
+                Info = gameRange + " · " + loaders + " · " + size + " · " + published + " · " + primary.FileName +
                        (string.IsNullOrWhiteSpace(dependencies) ? string.Empty : "\n" + dependencies),
                 Height = string.IsNullOrWhiteSpace(dependencies) ? 48d : 66d,
                 Type = MyListItem.CheckType.Clickable,
@@ -571,6 +655,59 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
             stack.Children.Add(item);
         }
     }
+
+    private static void AddToMajorMinorGroup(
+        Dictionary<string, Dictionary<string, List<CommunityResourceVersion>>> majorGroups,
+        string major,
+        string minor,
+        CommunityResourceVersion version)
+    {
+        if (!majorGroups.TryGetValue(major, out Dictionary<string, List<CommunityResourceVersion>>? minors))
+        {
+            minors = new Dictionary<string, List<CommunityResourceVersion>>(StringComparer.OrdinalIgnoreCase);
+            majorGroups[major] = minors;
+        }
+
+        if (!minors.TryGetValue(minor, out List<CommunityResourceVersion>? list))
+        {
+            list = [];
+            minors[minor] = list;
+        }
+
+        if (list.Any(v => string.Equals(v.VersionId, version.VersionId, StringComparison.OrdinalIgnoreCase)))
+            return;
+        list.Add(version);
+    }
+
+    /// <summary>
+    /// Minecraft “大版本” line: <c>1.20.1</c>/<c>1.20</c> → <c>1.20</c>; <c>26.2-rc-1</c> → <c>26.2</c>.
+    /// Non-semver labels are kept as-is.
+    /// </summary>
+    private static string GetMajorGameLine(string gameVersion)
+    {
+        if (string.IsNullOrWhiteSpace(gameVersion))
+            return "其他";
+
+        string raw = gameVersion.Trim();
+        string core = raw.Split('-', '+')[0].Trim();
+        if (!Version.TryParse(core, out Version? v))
+            return raw;
+
+        // Two-component line is what players call the major (1.16 / 1.20 / 26.1).
+        return v.Major.ToString(CultureInfo.InvariantCulture) + "." +
+               v.Minor.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static bool MatchesMajorLine(string gameVersion, string majorFilter)
+    {
+        if (string.Equals(gameVersion, majorFilter, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return string.Equals(GetMajorGameLine(gameVersion), majorFilter, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed record MajorGroupTag(
+        string Major,
+        List<KeyValuePair<string, List<CommunityResourceVersion>>> Minors);
 
     private static string FormatDependencies(IReadOnlyList<CommunityResourceDependency> dependencies)
     {
