@@ -96,10 +96,12 @@ internal static class ControlVisualHelpers
 
     private static void SnapListEntranceFinal(Panel panel)
     {
+        // Soft snap: only write dirty properties to avoid a settle-frame layout thrash.
         foreach (Control child in panel.Children)
         {
-            child.Opacity = 1d;
-            if (child.RenderTransform is TranslateTransform translate)
+            if (child.Opacity < 0.999d)
+                child.Opacity = 1d;
+            if (child.RenderTransform is TranslateTransform translate && Math.Abs(translate.Y) > 0.01d)
                 translate.Y = 0d;
         }
     }

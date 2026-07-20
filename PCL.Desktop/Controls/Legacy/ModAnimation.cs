@@ -27,6 +27,8 @@ public static partial class ModAnimation
     private static DispatcherTimer? _aniTimer;
     private static double _aniLastTick;
     private static TimeSpan _frameInterval = TimeSpan.FromMilliseconds(16d);
+    /// <summary>Max ms applied per tick so hitchy UI threads don't slam the final ease step.</summary>
+    private const int MaxFrameDeltaMs = 32;
 
     public static int AniControlEnabled { get; set; }
 
@@ -144,6 +146,11 @@ public static partial class ModAnimation
         try
         {
             deltaTick = (int)Math.Round(Math.Clamp(deltaTick * aniSpeed, 0d, 100000d));
+            // Cap per-frame advance so a stalled UI thread doesn't dump a huge last step
+            // (reads as a hitch right as the tween should settle).
+            if (deltaTick > MaxFrameDeltaMs)
+                deltaTick = MaxFrameDeltaMs;
+
             // Reuse a buffer instead of Dictionary.ToArray() every frame (alloc + GC pressure).
             FrameBuffer.Clear();
             foreach (KeyValuePair<string, AniGroupEntry> pair in AniGroups)
@@ -240,6 +247,10 @@ public static partial class ModAnimation
                     {
                         canRemoveAfter = false;
                         anim.isAfter = false;
+                        // Defer after-chain by ≥1 frame so the settle frame is not packed with
+                        // AaCode / layout work (common "hitch at the end of every animation").
+                        if (anim.timeFinished >= 0)
+                            anim.timeFinished = -1;
                         if (index < entry.Data.Count && ReferenceEquals(entry.Data[index], anim))
                             entry.Data[index] = anim;
                         continue;
@@ -702,8 +713,14 @@ public static partial class ModAnimation
 
     private static AniData AniRun(AniData ani)
     {
-        double progress = ani.timeFinished / ani.timeTotal;
-        double delta = ani.ease.GetDelta(progress, ani.timePercent);
+        // Always evaluate ease on a clamped progress so overshot ticks don't overshoot visuals.
+        double progress = Math.Clamp(ani.timeFinished / ani.timeTotal, 0d, 1d);
+        double previous = Math.Clamp(ani.timePercent, 0d, 1d);
+        // If this is the completing sample, force ease to 1 so residual distance is applied exactly once.
+        if (ani.timeFinished >= ani.timeTotal)
+            progress = 1d;
+
+        double delta = ani.ease.GetDelta(progress, previous);
 
         switch (ani.typeMain)
         {
@@ -738,24 +755,20 @@ public static partial class ModAnimation
 
     private static void AniFinish(AniData ani)
     {
+        // Color with a theme resource key: re-bind the live brush so later theme changes stick.
+        // Absolute Color targets keep workingBrush and need no settle-frame rewrite.
         if (ani.typeMain != AniType.Color ||
             ani.obj is not object[] colorObj ||
-            colorObj.Length < 2 ||
-            ani.value is not AniColor)
+            colorObj.Length < 3 ||
+            colorObj[2] is not string resourceKey ||
+            string.IsNullOrWhiteSpace(resourceKey) ||
+            colorObj[0] is not Control control ||
+            colorObj[1] is not AvaloniaProperty property)
         {
             return;
         }
 
-        if (colorObj[0] is Control control &&
-            colorObj[1] is AvaloniaProperty property)
-        {
-            if (colorObj.Length >= 3 &&
-                colorObj[2] is string resourceKey &&
-                !string.IsNullOrWhiteSpace(resourceKey))
-            {
-                SetBrush(control, property, FindColor(control, resourceKey).ToBrush());
-            }
-        }
+        SetBrush(control, property, FindColor(control, resourceKey).ToBrush());
     }
 
     private static void ApplyNumber(AniData ani, double progressDelta)
@@ -837,10 +850,8 @@ public static partial class ModAnimation
         }
         else
         {
+            // Mutate in place — avoid GetValue/SetBrush every frame (end-frame cost especially).
             ani.workingBrush.Color = color;
-            // Ensure the property still points at our working brush (theme code may replace it).
-            if (!ReferenceEquals(GetBrushTarget(control, property), ani.workingBrush))
-                SetBrush(control, property, ani.workingBrush);
         }
     }
 

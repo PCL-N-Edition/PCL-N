@@ -3,6 +3,7 @@
 
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Threading;
 using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Controls.Legacy;
@@ -84,7 +85,10 @@ internal static class PageHostTransitions
                 ModAnimation.AaCode(() =>
                 {
                     SnapHostVisible(rightHost);
-                    target.PageOnEnter();
+                    // Next frame: keep the settle paint free of PageOnEnter work.
+                    Dispatcher.UIThread.Post(
+                        () => target.PageOnEnter(),
+                        DispatcherPriority.Render);
                 }, after: true)
             },
             RightHostAnimationKey,
@@ -94,8 +98,9 @@ internal static class PageHostTransitions
 
     public static void SnapHostVisible(Control host)
     {
-        host.Opacity = 1d;
-        if (host.RenderTransform is TranslateTransform t)
+        if (host.Opacity < 0.999d)
+            host.Opacity = 1d;
+        if (host.RenderTransform is TranslateTransform t && Math.Abs(t.Y) > 0.01d)
             t.Y = 0d;
     }
 }

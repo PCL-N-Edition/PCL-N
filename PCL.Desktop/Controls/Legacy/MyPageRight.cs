@@ -376,16 +376,17 @@ public class MyPageRight : ContentControl, IDisposable
                 new ModAnimation.AniEaseOutFluent()));
         }
 
-        // Always restore hit-test / state even when the group is interrupted mid-flight.
+        // Soft settle on next after-tick (engine defers after-chain one frame).
         animations.Add(ModAnimation.AaCode(() =>
         {
             foreach (Control element in realElements)
             {
                 foreach (Control control in GetAllAnimControls(element, ignoreInvisibility: true))
                 {
-                    if (control.Opacity < 1d)
+                    if (control.Opacity < 0.999d)
                         control.Opacity = 1d;
-                    if (control.RenderTransform is TranslateTransform t && (Math.Abs(t.X) > 0.01d || Math.Abs(t.Y) > 0.01d))
+                    if (control.RenderTransform is TranslateTransform t &&
+                        (Math.Abs(t.X) > 0.01d || Math.Abs(t.Y) > 0.01d))
                     {
                         t.X = 0d;
                         t.Y = 0d;
