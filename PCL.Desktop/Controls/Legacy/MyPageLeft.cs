@@ -5,6 +5,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -36,15 +37,15 @@ public class MyPageLeft : Grid
                     ModAnimation.AaScaleTransform(
                         this,
                         1d - GetScaleX(this),
-                        ease: new ModAnimation.AniEaseOutBack(ModAnimation.AniEasePower.Weak)),
-                    ModAnimation.AaOpacity(this, 1d, 100)
+                        MotionTokens.PageEnterSlideMs,
+                        ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
+                    ModAnimation.AaOpacity(this, 1d, MotionTokens.PageEnterOpacityMs)
                 },
                 $"PageLeft PageChange {_uuid}");
             return;
         }
 
         List<ModAnimation.AniData> animations = [];
-        int id = 0;
         int delay = 0;
         foreach (Control control in GetAllAnimControls(AnimatedControl, ignoreInvisibility: true))
         {
@@ -58,22 +59,21 @@ public class MyPageLeft : Grid
             }
 
             control.Opacity = 0d;
-            control.RenderTransform = new TranslateTransform(-25d, 0d);
+            control.RenderTransform = new TranslateTransform(-14d, 0d);
             if (control is MyListItem listItem)
                 listItem.isMouseOverAnimationEnabled = false;
             animations.Add(ModAnimation.AaOpacity(
                 control,
-                control is TextBlock ? 0.6d : 1d,
-                100,
+                control is TextBlock ? 0.55d : 1d,
+                MotionTokens.PageEnterOpacityMs,
                 delay,
                 new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)));
-            animations.Add(ModAnimation.AaTranslateX(control, 5d, 200, delay, new ModAnimation.AniEaseOutFluent()));
             animations.Add(ModAnimation.AaTranslateX(
                 control,
-                20d,
-                300,
+                14d,
+                MotionTokens.PageEnterSlideMs,
                 delay,
-                new ModAnimation.AniEaseOutBack(ModAnimation.AniEasePower.Weak)));
+                new ModAnimation.AniEaseOutFluent()));
             if (control is MyListItem)
             {
                 MyListItem animatedListItem = (MyListItem)control;
@@ -83,10 +83,9 @@ public class MyPageLeft : Grid
                         animatedListItem.isMouseOverAnimationEnabled = true;
                         animatedListItem.RefreshColor(this, EventArgs.Empty);
                     },
-                    delay + 280));
+                    delay + MotionTokens.PageEnterSlideMs));
             }
-            delay += Math.Max(15 - id, 7) * 2;
-            id++;
+            delay += MotionTokens.PageStaggerMs;
         }
 
         ModAnimation.AniStart(animations, $"PageLeft PageChange {_uuid}");

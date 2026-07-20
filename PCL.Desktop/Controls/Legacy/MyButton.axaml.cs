@@ -181,16 +181,13 @@ public partial class MyButton : Border
 
         _isPressed = true;
         Focus();
+        // Instant press-down feedback; no long creep (Apple: respond on pointer-down).
         ModAnimation.AniStart(
-            new List<ModAnimation.AniData>
-            {
-                ModAnimation.AaScaleTransform(
-                    _foregroundBorder,
-                    0.955d - GetForegroundScale(),
-                    80,
-                    ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.ExtraStrong)),
-                ModAnimation.AaScaleTransform(_foregroundBorder, -0.01d, 700, ease: new ModAnimation.AniEaseOutFluent())
-            },
+            ModAnimation.AaScaleTransform(
+                _foregroundBorder,
+                MotionTokens.PressScale - GetForegroundScale(),
+                MotionTokens.PressInMs,
+                ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.ExtraStrong)),
             "MyButton Scale " + Uuid);
         e.Handled = true;
     }
@@ -210,9 +207,8 @@ public partial class MyButton : Border
             ModAnimation.AaScaleTransform(
                 _foregroundBorder,
                 1d - GetForegroundScale(),
-                300,
-                10,
-                new ModAnimation.AniEaseOutFluent()),
+                MotionTokens.PressOutMs,
+                ease: new ModAnimation.AniEaseOutFluent()),
             "MyButton Scale " + Uuid);
         e.Handled = true;
     }

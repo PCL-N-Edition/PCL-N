@@ -57,7 +57,41 @@ internal static class ControlVisualHelpers
         control.IsAttachedToVisualTree() &&
         control.IsVisible &&
         ModAnimation.AniControlEnabled == 0 &&
+        !ReduceMotionPreferred() &&
         !false.Equals(animationOverride);
+
+    /// <summary>
+    /// Prefer reduced motion when the OS asks for it, or when debug animation speed is effectively instant.
+    /// </summary>
+    internal static bool ReduceMotionPreferred()
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                // SPI_GETCLIENTAREAANIMATION = 0x1042; false means "turn off animations".
+                if (NativeMethods.SystemParametersInfo(0x1042, 0, out bool clientAreaAnimation, 0) &&
+                    !clientAreaAnimation)
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore platform probe failures; fall through to debug speed.
+        }
+
+        // SystemDebugAnim > 29 forces near-instant animation in ModAnimation; treat as reduced.
+        return ModAnimation.aniSpeed >= 100d;
+    }
+
+    private static class NativeMethods
+    {
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, out bool pvParam, uint fWinIni);
+    }
 
     internal static void SetCenterScale(Control control, double scale) =>
         SetCenterScale(control, scale, scale);

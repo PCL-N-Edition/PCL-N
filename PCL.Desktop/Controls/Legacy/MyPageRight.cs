@@ -9,6 +9,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -274,17 +275,22 @@ public class MyPageRight : ContentControl, IDisposable
                     continue;
                 }
 
+                // Critically damped enter: short fade + single settle, no OutBack bounce.
                 control.Opacity = 0d;
-                control.RenderTransform = new TranslateTransform(0d, -16d);
+                control.RenderTransform = new TranslateTransform(0d, MotionTokens.PageEnterOffsetY);
                 animations.Add(ModAnimation.AaOpacity(
                     control,
                     1d,
-                    100,
+                    MotionTokens.PageEnterOpacityMs,
                     delay,
                     new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)));
-                animations.Add(ModAnimation.AaTranslateY(control, 5d, 250, delay, new ModAnimation.AniEaseOutFluent()));
-                animations.Add(ModAnimation.AaTranslateY(control, 11d, 350, delay, new ModAnimation.AniEaseOutBack()));
-                delay += 25;
+                animations.Add(ModAnimation.AaTranslateY(
+                    control,
+                    -MotionTokens.PageEnterOffsetY,
+                    MotionTokens.PageEnterSlideMs,
+                    delay,
+                    new ModAnimation.AniEaseOutFluent()));
+                delay += MotionTokens.PageStaggerMs;
             }
         }
 
@@ -481,7 +487,10 @@ public class MyPageRight : ContentControl, IDisposable
 
     private MyScrollViewer? ResolveCopiedPageScrollViewer()
     {
-        if (this.FindControl<MyScrollViewer>("PanBack") is { } namedScroll)
+        // Some pages reuse the legacy name "PanBack" for a non-scroll root (e.g. experimental
+        // Launch homepage uses a Grid). Avalonia's FindControl<T> throws InvalidOperationException
+        // when a control with that name exists but is not T — treat that as "no scroll".
+        if (this.FindControl<Control>("PanBack") is MyScrollViewer namedScroll)
             return namedScroll;
 
         if (GetContentTarget() is { } content)

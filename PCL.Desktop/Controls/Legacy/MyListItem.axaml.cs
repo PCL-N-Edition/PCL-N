@@ -803,7 +803,7 @@ public partial class MyListItem : Grid, IMyRadio
                     ease: new ModAnimation.AniEaseOutFluent()));
                 animations.Add(ModAnimation.AaScaleTransform(
                     this,
-                    (stateNew == "MouseDown" ? 0.98d : 1d) - GetScaleX(this),
+                    (stateNew == "MouseDown" ? MotionTokens.PressScale : 1d) - GetScaleX(this),
                     stateNew == "MouseDown" ? (int)Math.Round(time * 0.9d) : (int)Math.Round(time * 1.2d),
                     ease: new ModAnimation.AniEaseOutFluent()));
             }
