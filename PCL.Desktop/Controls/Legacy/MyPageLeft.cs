@@ -47,7 +47,6 @@ public class MyPageLeft : Grid
 
         List<ModAnimation.AniData> animations = [];
         int delay = 0;
-        int animatedCount = 0;
         foreach (Control control in GetAllAnimControls(AnimatedControl, ignoreInvisibility: true))
         {
             if (!control.IsVisible)
@@ -56,15 +55,6 @@ public class MyPageLeft : Grid
                 control.RenderTransform = new TranslateTransform();
                 if (control is MyListItem collapsedItem)
                     collapsedItem.isMouseOverAnimationEnabled = true;
-                continue;
-            }
-
-            if (animatedCount >= MotionTokens.PageEnterMaxChildren)
-            {
-                control.Opacity = control is TextBlock ? 0.55d : 1d;
-                control.RenderTransform = new TranslateTransform();
-                if (control is MyListItem restItem)
-                    restItem.isMouseOverAnimationEnabled = true;
                 continue;
             }
 
@@ -96,7 +86,6 @@ public class MyPageLeft : Grid
                     delay + MotionTokens.PageEnterSlideMs));
             }
             delay += MotionTokens.PageStaggerMs;
-            animatedCount++;
         }
 
         ModAnimation.AniStart(animations, $"PageLeft PageChange {_uuid}");

@@ -20,47 +20,25 @@ internal static class ControlVisualHelpers
         if (!ShouldAnimate(panel) || panel.Children.Count == 0)
             return;
 
-        int animateCount = Math.Min(panel.Children.Count, MotionTokens.ListEnterMaxChildren);
-        Control[] children = new Control[panel.Children.Count];
-        for (int i = 0; i < panel.Children.Count; i++)
-            children[i] = panel.Children[i];
-
-        // Only stagger a bounded prefix; remaining rows appear at rest immediately.
-        for (int i = 0; i < children.Length; i++)
+        Control[] children = panel.Children.Take(MotionTokens.ListEnterMaxChildren).ToArray();
+        foreach (Control child in children)
         {
-            Control child = children[i];
-            if (i < animateCount)
+            child.Opacity = 0d;
+            if (child.RenderTransform is not TranslateTransform translate)
             {
-                child.Opacity = 0d;
-                if (child.RenderTransform is not TranslateTransform translate)
-                {
-                    translate = new TranslateTransform();
-                    child.RenderTransform = translate;
-                }
-                translate.Y = 8d;
+                translate = new TranslateTransform();
+                child.RenderTransform = translate;
             }
-            else
-            {
-                child.Opacity = 1d;
-                if (child.RenderTransform is TranslateTransform rest)
-                    rest.Y = 0d;
-            }
+            translate.Y = 8d;
         }
-
-        if (animateCount == 0)
-            return;
 
         Dispatcher.UIThread.Post(() =>
         {
             List<ModAnimation.AniData> animations = [];
             int index = 0;
-            for (int i = 0; i < animateCount; i++)
+            foreach (Control child in children.Where(panel.Children.Contains))
             {
-                Control child = children[i];
-                if (!panel.Children.Contains(child))
-                    continue;
-
-                int delay = Math.Min(index * MotionTokens.ListStaggerMs, 120);
+                int delay = Math.Min(index * MotionTokens.ListStaggerMs, 180);
                 animations.Add(ModAnimation.AaOpacity(child, 1d, MotionTokens.ListEnterOpacityMs, delay));
                 animations.Add(ModAnimation.AaTranslateY(
                     child,

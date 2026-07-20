@@ -121,7 +121,8 @@ public partial class MainWindow : Window, IDisposable
     private DispatcherTimer? _taskUiThrottleTimer;
     private bool _taskUiDirty;
     private bool? _lastExtraDockChromeShown;
-    private const int TaskUiRefreshIntervalMs = 66;
+    // Coalesce multi-updates within a single display frame only — no visible progress lag.
+    private const int TaskUiRefreshIntervalMs = 16;
     private MyScrollViewer? _backButtonScrollViewer;
     private CancellationTokenSource? _launchCancellation;
     private CancellationTokenSource? _microsoftLoginCancellation;
@@ -2757,7 +2758,8 @@ public partial class MainWindow : Window, IDisposable
     }
 
     /// <summary>
-    /// Coalesce high-frequency download progress into ~15 Hz UI updates to avoid layout thrash.
+    /// Coalesce multi-tick download progress into at most one UI pass per display frame.
+    /// Does not reduce perceived progress smoothness (16ms).
     /// </summary>
     private void RequestTaskManagerUiRefresh()
     {
@@ -4910,13 +4912,9 @@ public partial class MainWindow : Window, IDisposable
             1d);
         image.Opacity = opacity;
         video.Opacity = opacity;
-        // Cap blur: full-window BlurEffect is GPU-expensive, especially with video.
-        int blurRadius = Math.Min(
-            settings.GetIntegerOption("UiBackgroundBlur", LauncherSettingDefaults.GetInteger("UiBackgroundBlur")),
-            24);
-        // Skip blur on video backgrounds — decode + blur per frame is a common stutter source.
+        int blurRadius = settings.GetIntegerOption("UiBackgroundBlur", LauncherSettingDefaults.GetInteger("UiBackgroundBlur"));
         image.Effect = blurRadius > 0 ? new BlurEffect { Radius = blurRadius } : null;
-        video.Effect = null;
+        video.Effect = blurRadius > 0 ? new BlurEffect { Radius = blurRadius } : null;
         int backgroundSuit = settings.GetIntegerOption("UiBackgroundSuit", LauncherSettingDefaults.GetInteger("UiBackgroundSuit"));
         ApplyBackgroundSuit(image, backgroundSuit);
         ApplyBackgroundSuit(video, backgroundSuit);
