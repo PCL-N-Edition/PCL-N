@@ -5,7 +5,7 @@
                   Width="152">
     <legacy:MyScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="0,12,0,0" x:Name="PanItem">
-            <TextBlock Text="{DynamicResource Instance.Left.Game}" Margin="13,6,5,4" Opacity="0.6" FontSize="12" />
+            <TextBlock Text="{DynamicResource Instance.Left.Game}" Margin="13,6,5,4" Opacity="0.55" FontSize="12" FontWeight="SemiBold" />
             <legacy:MyListItem x:Name="ItemOverall" IsScaleAnimationEnabled="False" Checked="True" Type="RadioBox"
                               Check="PageCheck"
                               Tag="0" MinPaddingRight="35" Height="36" VerticalAlignment="Top"
@@ -40,8 +40,8 @@
                                             Click="RefreshButton_Click" LogoScale="0.85"
                                             SvgIcon="lucide/refresh-cw" /></legacy:MyListItem.Buttons>
             </legacy:MyListItem>
-            <TextBlock x:Name="TextResource" Text="{DynamicResource Instance.Left.Resources}" Margin="13,6,5,4"
-                       Opacity="0.6" FontSize="12" />
+            <TextBlock x:Name="TextResource" Text="{DynamicResource Instance.Left.Content}" Margin="13,6,5,4"
+                       Opacity="0.55" FontSize="12" FontWeight="SemiBold" />
             <legacy:MyListItem x:Name="ItemWorld" LogoScale="0.95" IsScaleAnimationEnabled="False" Type="RadioBox"
                               Check="PageCheck"
                               MinPaddingRight="35" Height="36" VerticalAlignment="Top"
@@ -102,6 +102,7 @@
                                             Click="RefreshButton_Click" LogoScale="0.85"
                                             SvgIcon="lucide/refresh-cw" /></legacy:MyListItem.Buttons>
             </legacy:MyListItem>
+            <TextBlock Text="{DynamicResource Instance.Left.Network}" Margin="13,10,5,3" Opacity="0.55" FontSize="12" FontWeight="SemiBold" />
             <legacy:MyListItem x:Name="ItemServer" LogoScale="0.85" IsScaleAnimationEnabled="False" Type="RadioBox"
                               Check="PageCheck"
                               MinPaddingRight="35" Height="36" VerticalAlignment="Top"

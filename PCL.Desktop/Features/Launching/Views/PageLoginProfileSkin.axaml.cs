@@ -151,7 +151,7 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
 
     private void SetButtonsOpacity(double opacity)
     {
-        if (this.FindControl<MyCard>("PanButtons") is { } buttons)
+        if (this.FindControl<Control>("PanButtons") is { } buttons)
             buttons.Opacity = opacity;
     }
 }

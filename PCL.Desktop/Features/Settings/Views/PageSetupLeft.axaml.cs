@@ -517,10 +517,28 @@ public partial class PageSetupLeft : MyPageLeft
         }
     }
 
-    private string GetPageTitle(SetupPageSubType page) =>
-        page == SetupPageSubType.Plugin && _hostSettingsPages.Count > 0
-            ? _hostSettingsPages[0].Title
-            : SetupPageRegistry.GetTitle(page);
+    private string GetPageTitle(SetupPageSubType page)
+    {
+        if (page == SetupPageSubType.Plugin && _hostSettingsPages.Count > 0)
+            return _hostSettingsPages[0].Title;
+
+        // Prefer localized sidebar labels so reset dialogs match the left rail.
+        return page switch
+        {
+            SetupPageSubType.Launch => AvaloniaLocalizationManager.GetText("Setup.Left.Item.Launch", "启动选项"),
+            SetupPageSubType.Ui => AvaloniaLocalizationManager.GetText("Setup.Left.Item.Ui", "外观"),
+            SetupPageSubType.GameManage => AvaloniaLocalizationManager.GetText("Setup.Left.Item.GameManage", "游戏数据"),
+            SetupPageSubType.About => AvaloniaLocalizationManager.GetText("Setup.Left.Item.About", "关于"),
+            SetupPageSubType.Log => AvaloniaLocalizationManager.GetText("Setup.Left.Item.Log", "诊断日志"),
+            SetupPageSubType.Feedback => AvaloniaLocalizationManager.GetText("Setup.Left.Item.Feedback", "反馈"),
+            SetupPageSubType.Update => AvaloniaLocalizationManager.GetText("Setup.Left.Item.Update", "软件更新"),
+            SetupPageSubType.Java => AvaloniaLocalizationManager.GetText("Setup.Left.Item.Java", "Java"),
+            SetupPageSubType.LauncherMisc => AvaloniaLocalizationManager.GetText("Setup.Left.Item.Misc", "通用"),
+            SetupPageSubType.LauncherLanguage => AvaloniaLocalizationManager.GetText("Setup.LauncherLanguage.Title", "语言"),
+            SetupPageSubType.Experimental => AvaloniaLocalizationManager.GetText("Setup.Left.Item.Experimental", "实验性功能"),
+            _ => SetupPageRegistry.GetTitle(page)
+        };
+    }
 
     private static string SanitizeName(string value)
     {

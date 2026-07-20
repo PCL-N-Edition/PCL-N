@@ -14,19 +14,19 @@ internal static partial class SetupPageRegistry
 
     public static partial string GetTitle(SetupPageSubType page);
 
-    [SetupPage(SetupPageSubType.Launch, "启动")]
+    [SetupPage(SetupPageSubType.Launch, "启动选项")]
     private static PageSetupLaunch CreateLaunchPage() => new();
 
-    [SetupPage(SetupPageSubType.Ui, "个性化")]
+    [SetupPage(SetupPageSubType.Ui, "外观")]
     private static PageSetupUI CreateUiPage() => new();
 
-    [SetupPage(SetupPageSubType.GameManage, "管理")]
+    [SetupPage(SetupPageSubType.GameManage, "游戏数据")]
     private static PageSetupGameManage CreateGameManagePage() => new();
 
-    [SetupPage(SetupPageSubType.About, "软件信息")]
+    [SetupPage(SetupPageSubType.About, "关于")]
     private static PageSetupAbout CreateAboutPage() => new();
 
-    [SetupPage(SetupPageSubType.Log, "查看日志")]
+    [SetupPage(SetupPageSubType.Log, "诊断日志")]
     private static PageSetupLog CreateLogPage() => new();
 
     [SetupPage(SetupPageSubType.Feedback, "反馈")]
@@ -38,7 +38,7 @@ internal static partial class SetupPageRegistry
     [SetupPage(SetupPageSubType.Java, "Java")]
     private static PageSetupJava CreateJavaPage() => new();
 
-    [SetupPage(SetupPageSubType.LauncherMisc, "杂项")]
+    [SetupPage(SetupPageSubType.LauncherMisc, "通用")]
     private static PageSetupLauncherMisc CreateLauncherMiscPage() => new();
 
     [SetupPage(SetupPageSubType.LauncherLanguage, "语言")]

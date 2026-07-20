@@ -25,11 +25,11 @@ internal static partial class DesktopNavigationRegistry
     private static DesktopMainPage CreateLaunchPage(DesktopPageContext context) =>
         context.CreateLaunchPage();
 
-    [DesktopNavigationPage("pcl.builtin.download", DownloadRouteValue, "下载", "lucide/pickaxe", 10)]
+    [DesktopNavigationPage("pcl.builtin.download", DownloadRouteValue, "安装", "lucide/package-plus", 10)]
     private static DesktopMainPage CreateDownloadPage(DesktopPageContext context) =>
         context.CreateDownloadPage();
 
-    [DesktopNavigationPage("pcl.builtin.community", CommunityRouteValue, "社区", "lucide/download", 20)]
+    [DesktopNavigationPage("pcl.builtin.community", CommunityRouteValue, "资源", "lucide/blocks", 20)]
     private static DesktopMainPage CreateCommunityPage(DesktopPageContext context) =>
         context.CreateCommunityPage();
 

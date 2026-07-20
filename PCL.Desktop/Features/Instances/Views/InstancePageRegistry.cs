@@ -18,7 +18,7 @@ internal static partial class InstancePageRegistry
 
     public static partial InstanceResourceKind GetResourceKind(InstancePageSubType page);
 
-    [InstancePage(InstancePageSubType.Overall, "概览", "", "", usesGenericFolderPage: false)]
+    [InstancePage(InstancePageSubType.Overall, "总览", "", "", usesGenericFolderPage: false)]
     private static void Overall()
     {
     }
@@ -43,12 +43,12 @@ internal static partial class InstancePageRegistry
     {
     }
 
-    [InstancePage(InstancePageSubType.Mods, "Mod", "管理当前 Minecraft 根目录下的 Mod 文件。", "mods", usesGenericFolderPage: true, resourceKind: InstanceResourceKind.Mod)]
+    [InstancePage(InstancePageSubType.Mods, "模组", "管理当前 Minecraft 根目录下的模组文件。", "mods", usesGenericFolderPage: true, resourceKind: InstanceResourceKind.Mod)]
     private static void Mods()
     {
     }
 
-    [InstancePage(InstancePageSubType.ModsDisabled, "Mod", "", "", usesGenericFolderPage: false, resourceKind: InstanceResourceKind.Mod)]
+    [InstancePage(InstancePageSubType.ModsDisabled, "模组", "", "", usesGenericFolderPage: false, resourceKind: InstanceResourceKind.Mod)]
     private static void ModsDisabled()
     {
     }
@@ -58,7 +58,7 @@ internal static partial class InstancePageRegistry
     {
     }
 
-    [InstancePage(InstancePageSubType.Shaders, "光影", "管理当前 Minecraft 根目录下的光影包。", "shaderpacks", usesGenericFolderPage: true, resourceKind: InstanceResourceKind.ShaderPack)]
+    [InstancePage(InstancePageSubType.Shaders, "光影包", "管理当前 Minecraft 根目录下的光影包。", "shaderpacks", usesGenericFolderPage: true, resourceKind: InstanceResourceKind.ShaderPack)]
     private static void Shaders()
     {
     }
@@ -68,7 +68,7 @@ internal static partial class InstancePageRegistry
     {
     }
 
-    [InstancePage(InstancePageSubType.Install, "安装", "", "", usesGenericFolderPage: false)]
+    [InstancePage(InstancePageSubType.Install, "组件", "", "", usesGenericFolderPage: false)]
     private static void Install()
     {
     }

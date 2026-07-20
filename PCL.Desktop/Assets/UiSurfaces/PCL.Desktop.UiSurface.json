@@ -25,7 +25,7 @@
     {
       "id": "pcl.page.launch",
       "kind": "page",
-      "version": "3.1",
+      "version": "3.2",
       "supportedOperations": [ "observe", "inject", "modify", "replace", "wrap" ],
       "slots": [
         {
@@ -34,9 +34,18 @@
           "allowedOperations": [ "observe", "modify", "replace", "wrap" ]
         },
         {
+          "id": "cards.flip",
+          "cardinality": "many",
+          "allowedOperations": [ "inject", "observe" ],
+          "description": "Preferred launch homepage flip-card slot. Each inject becomes one full-bleed registered card."
+        },
+        {
           "id": "primary-actions.after",
           "cardinality": "many",
-          "allowedOperations": [ "inject" ]
+          "allowedOperations": [ "inject" ],
+          "deprecated": true,
+          "replacedBy": "cards.flip",
+          "description": "Deprecated compatibility shell. Injects into a single registered flip card that wraps the legacy primary-actions stack."
         }
       ]
     },
