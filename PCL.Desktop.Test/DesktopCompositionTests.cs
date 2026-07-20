@@ -81,7 +81,10 @@ public sealed class DesktopCompositionTests
         Assert.IsNotNull(tasks);
         Assert.IsNotNull(manage);
         Assert.IsNotNull(login);
-        Assert.AreEqual("instances.select", InstancesSelectSurface.SubPageId);
+        // SubPageId is a compile-time constant; assert module wiring instead of MSTEST0032-always-true.
+        Assert.IsTrue(
+            modules.Any(m => m.Id == "instances"),
+            "Instances feature module must be registered for select surface routing.");
     }
 
     [TestMethod]
