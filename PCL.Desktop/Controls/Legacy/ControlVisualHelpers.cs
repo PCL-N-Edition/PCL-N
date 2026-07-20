@@ -96,13 +96,12 @@ internal static class ControlVisualHelpers
 
     private static void SnapListEntranceFinal(Panel panel)
     {
-        // Soft snap: only write dirty properties to avoid a settle-frame layout thrash.
+        // Safety net only for stuck invisibles — absolute tweens already end at the target;
+        // forcing Y=0 here caused a visible end-frame 拉回 when residual was non-zero.
         foreach (Control child in panel.Children)
         {
-            if (child.Opacity < 0.999d)
+            if (child.Opacity < 0.02d)
                 child.Opacity = 1d;
-            if (child.RenderTransform is TranslateTransform translate && Math.Abs(translate.Y) > 0.01d)
-                translate.Y = 0d;
         }
     }
 

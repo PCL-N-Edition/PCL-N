@@ -201,6 +201,10 @@ public partial class MainWindow : Window, IDisposable
         BindStartMinecraftUseCase();
         _extraDockViewModel.PropertyChanged += ExtraDockViewModel_PropertyChanged;
         AvaloniaXamlLoader.Load(this);
+        // Compositor hints so opacity/transform motion stays on the GPU path.
+        DesktopRenderBootstrap.ApplyCompositorHints(this);
+        if (this.FindControl<Control>("PanBack") is { } panBack)
+            DesktopRenderBootstrap.ApplyCompositorHints(panBack);
         DesktopHostUiComposition.Instance.RegisterTarget("pcl.window.main", this);
         if (this.FindControl<Panel>("PanTitleSelect") is { } navigationPanel)
         {
@@ -1264,10 +1268,10 @@ public partial class MainWindow : Window, IDisposable
             ExitTitleSubPage();
 
         RefreshBackToTopBinding();
+        // Do not EnsureContentPresentationVisible here — it forces Opacity=1 and kills enter tweens,
+        // which also produced an end-frame "拉回" when host fade finished later.
         page.Activated?.Invoke();
         PageHostTransitions.SnapHostVisible(rightHost);
-        if (page.Right is MyPageRight settled)
-            settled.EnsureContentPresentationVisible();
     }
 
     private void RegisterCurrentPluginPageSurface(Control page)

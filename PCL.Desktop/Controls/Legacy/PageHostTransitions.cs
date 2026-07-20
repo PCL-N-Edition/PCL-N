@@ -3,7 +3,6 @@
 
 using Avalonia.Controls;
 using Avalonia.Media;
-using Avalonia.Threading;
 using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Controls.Legacy;
@@ -17,8 +16,8 @@ internal static class PageHostTransitions
 
     /// <summary>
     /// Swaps <paramref name="rightHost"/>.Child to <paramref name="target"/>.
-    /// Rapid retargets cancel the previous host tween without replaying its after-chain
-    /// (avoids empty-pane flash and multi-second catch-up).
+    /// Content enter runs at swap time (parallel with host fade) — never re-zero content
+    /// after the host tween finishes (that was the end-frame 拉回).
     /// </summary>
     public static void TransitionRightPage(
         Border rightHost,
@@ -57,11 +56,12 @@ internal static class PageHostTransitions
             rightHost.RenderTransform = navTranslate;
         }
 
-        // Swap first (content present), then short fade-in from current opacity.
-        // Avoid fade-to-zero-then-swap scripts that leave the pane empty on interrupt/close.
         oldRight?.PageOnExit();
         rightHost.Child = target;
         onHostUpdated?.Invoke();
+
+        // Content motion starts with the swap — not after the host fade (avoids end-frame blank/拉回).
+        target.PageOnEnter();
 
         double fromOpacity = rightHost.Opacity;
         if (fromOpacity >= 0.98d)
@@ -82,14 +82,7 @@ internal static class PageHostTransitions
                     -MotionTokens.NavEnterOffsetY,
                     MotionTokens.NavCrossfadeInMs,
                     ease: new ModAnimation.AniEaseOutFluent()),
-                ModAnimation.AaCode(() =>
-                {
-                    SnapHostVisible(rightHost);
-                    // Next frame: keep the settle paint free of PageOnEnter work.
-                    Dispatcher.UIThread.Post(
-                        () => target.PageOnEnter(),
-                        DispatcherPriority.Render);
-                }, after: true)
+                ModAnimation.AaCode(() => SnapHostVisible(rightHost), after: true)
             },
             RightHostAnimationKey,
             refreshTime: false,

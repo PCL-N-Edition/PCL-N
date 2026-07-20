@@ -713,22 +713,25 @@ public static partial class ModAnimation
 
     private static AniData AniRun(AniData ani)
     {
-        // Always evaluate ease on a clamped progress so overshot ticks don't overshoot visuals.
-        double progress = Math.Clamp(ani.timeFinished / ani.timeTotal, 0d, 1d);
+        // Monotonic ease progress in [0,1]. Never reverse (progress < previous) — that reads as 拉回.
         double previous = Math.Clamp(ani.timePercent, 0d, 1d);
-        // If this is the completing sample, force ease to 1 so residual distance is applied exactly once.
+        double progress = Math.Clamp(ani.timeFinished / (double)ani.timeTotal, 0d, 1d);
         if (ani.timeFinished >= ani.timeTotal)
             progress = 1d;
+        if (progress < previous)
+            progress = previous;
 
-        double delta = ani.ease.GetDelta(progress, previous);
+        double easeNow = ani.ease.GetValue(progress);
+        double easePrev = ani.ease.GetValue(previous);
+        double easeDelta = easeNow - easePrev;
 
         switch (ani.typeMain)
         {
             case AniType.Number:
-                ApplyNumber(ani, delta);
+                ApplyNumberAtProgress(ani, progress, easeNow, easeDelta);
                 break;
             case AniType.Scale:
-                ApplyScale(ani, delta);
+                ApplyScale(ani, easeDelta);
                 break;
             case AniType.Color:
                 ApplyColor(ani, progress);
@@ -737,10 +740,10 @@ public static partial class ModAnimation
                 ApplyTextAppear(ani, progress);
                 break;
             case AniType.ScaleTransform:
-                ApplyScaleTransform(ani, delta);
+                ApplyScaleTransformAtProgress(ani, progress, easeNow);
                 break;
             case AniType.RotateTransform:
-                ApplyRotateTransform(ani, delta);
+                ApplyRotateTransform(ani, easeDelta);
                 break;
             case AniType.Code:
                 if (ani.value is Action action)
@@ -755,8 +758,7 @@ public static partial class ModAnimation
 
     private static void AniFinish(AniData ani)
     {
-        // Color with a theme resource key: re-bind the live brush so later theme changes stick.
-        // Absolute Color targets keep workingBrush and need no settle-frame rewrite.
+        // Color with a theme resource key: paint final color onto the working brush (no brush replace thrash).
         if (ani.typeMain != AniType.Color ||
             ani.obj is not object[] colorObj ||
             colorObj.Length < 3 ||
@@ -768,10 +770,72 @@ public static partial class ModAnimation
             return;
         }
 
-        SetBrush(control, property, FindColor(control, resourceKey).ToBrush());
+        Color finalColor = FindColor(control, resourceKey).ToColor();
+        if (ani.workingBrush is not null)
+        {
+            ani.workingBrush.Color = finalColor;
+            if (!ReferenceEquals(GetBrushTarget(control, property), ani.workingBrush))
+                SetBrush(control, property, ani.workingBrush);
+            return;
+        }
+
+        SetBrush(control, property, new SolidColorBrush(finalColor));
     }
 
-    private static void ApplyNumber(AniData ani, double progressDelta)
+    /// <summary>
+    /// Opacity / translate use absolute start+delta*ease (no cumulative error → no end-frame snap-back).
+    /// Layout properties stay relative for compatibility.
+    /// </summary>
+    private static void ApplyNumberAtProgress(AniData ani, double progress, double easeNow, double easeDelta)
+    {
+        if (ani.obj is null || ani.value is not double total)
+            return;
+
+        switch (ani.typeSub)
+        {
+            case AniTypeSub.Opacity:
+                if (ani.obj is not Control opacityControl)
+                    return;
+                if (ani.valueLast is not double opacityStart)
+                {
+                    opacityStart = opacityControl.Opacity;
+                    ani.valueLast = opacityStart;
+                }
+
+                opacityControl.Opacity = Math.Clamp(opacityStart + total * easeNow, 0d, 1d);
+                return;
+            case AniTypeSub.TranslateX:
+            {
+                TranslateTransform t = EnsureTranslate(ani.obj);
+                if (ani.valueLast is not double startX)
+                {
+                    startX = t.X;
+                    ani.valueLast = startX;
+                }
+
+                t.X = startX + total * easeNow;
+                return;
+            }
+            case AniTypeSub.TranslateY:
+            {
+                TranslateTransform t = EnsureTranslate(ani.obj);
+                if (ani.valueLast is not double startY)
+                {
+                    startY = t.Y;
+                    ani.valueLast = startY;
+                }
+
+                t.Y = startY + total * easeNow;
+                return;
+            }
+            default:
+                // Relative residual path (width/height/margin/…).
+                ApplyNumberRelative(ani, easeDelta);
+                return;
+        }
+    }
+
+    private static void ApplyNumberRelative(AniData ani, double progressDelta)
     {
         if (ani.obj is null || ani.value is not double total)
             return;
@@ -793,10 +857,6 @@ public static partial class ModAnimation
                 if (ani.obj is Control heightControl)
                     heightControl.Height = Math.Max(0d, heightControl.Height + delta);
                 break;
-            case AniTypeSub.Opacity:
-                if (ani.obj is Control opacityControl)
-                    opacityControl.Opacity = Math.Clamp(opacityControl.Opacity + delta, 0d, 1d);
-                break;
             case AniTypeSub.Value:
                 AddValue(ani.obj, delta);
                 break;
@@ -808,12 +868,6 @@ public static partial class ModAnimation
                 break;
             case AniTypeSub.StrokeThickness:
                 AddStrokeThickness(ani.obj, delta);
-                break;
-            case AniTypeSub.TranslateX:
-                EnsureTranslate(ani.obj).X += delta;
-                break;
-            case AniTypeSub.TranslateY:
-                EnsureTranslate(ani.obj).Y += delta;
                 break;
             case AniTypeSub.Double:
                 if (ani.obj is Action<double> action)
@@ -827,6 +881,23 @@ public static partial class ModAnimation
                 AddGridLengthWidth(ani.obj, delta);
                 break;
         }
+    }
+
+    private static void ApplyScaleTransformAtProgress(AniData ani, double progress, double easeNow)
+    {
+        if (ani.obj is null || ani.value is not double total)
+            return;
+
+        ScaleTransform scale = EnsureScale(ani.obj);
+        if (ani.valueLast is not double start)
+        {
+            start = scale.ScaleX;
+            ani.valueLast = start;
+        }
+
+        double next = Math.Max(start + total * easeNow, 0d);
+        scale.ScaleX = next;
+        scale.ScaleY = next;
     }
 
     private static void ApplyColor(AniData ani, double progress)
@@ -891,17 +962,6 @@ public static partial class ModAnimation
         AddScaleMargin(control, delta.Left, delta.Top);
         control.Width = Math.Max(0d, GetControlWidth(control) + delta.Width);
         control.Height = Math.Max(0d, GetControlHeight(control) + delta.Height);
-    }
-
-    private static void ApplyScaleTransform(AniData ani, double progressDelta)
-    {
-        if (ani.obj is null || ani.value is not double total)
-            return;
-
-        ScaleTransform scale = EnsureScale(ani.obj);
-        double delta = Percent(total, progressDelta);
-        scale.ScaleX = Math.Max(scale.ScaleX + delta, 0d);
-        scale.ScaleY = Math.Max(scale.ScaleY + delta, 0d);
     }
 
     private static void ApplyRotateTransform(AniData ani, double progressDelta)

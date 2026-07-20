@@ -79,9 +79,22 @@ internal static class Program
 
     public static AppBuilder BuildAvaloniaApp()
     {
+        LauncherSettings settings;
+        try
+        {
+            settings = LauncherSettingsPageBinder.LoadSettings();
+        }
+        catch
+        {
+            settings = new LauncherSettings();
+        }
+
         AppBuilder builder = AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont();
+
+        // GPU / Skia path (ANGLE·Vulkan·GL first; software fallback). Honors SystemDisableHardwareAcceleration.
+        builder = DesktopRenderBootstrap.Configure(builder, settings);
 
         if (DesktopDisplayBackendSelector.ShouldUseWaylandForCurrentProcess())
         {
