@@ -340,71 +340,94 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
         if (string.IsNullOrWhiteSpace(id))
             return [];
 
-        // WPF CompFilesGet loads a large version list then groups client-side by game version.
-        List<string> query = ["limit=100"];
-        if (!string.IsNullOrWhiteSpace(options.GameVersion))
-            query.Add("game_versions=" + Uri.EscapeDataString("[\"" + options.GameVersion.Trim() + "\"]"));
-        if (!string.IsNullOrWhiteSpace(options.Loader) &&
-            !string.Equals(options.Loader, "any", StringComparison.OrdinalIgnoreCase))
-        {
-            query.Add("loaders=" + Uri.EscapeDataString("[\"" + options.Loader.Trim().ToLowerInvariant() + "\"]"));
-        }
-
-        string requestUrl = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(id) +
-                            "/version?" + string.Join('&', query);
-        using HttpResponseMessage response = await GetWithFallbackAsync(requestUrl, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
-        if (document.RootElement.ValueKind != JsonValueKind.Array)
-            return [];
-
+        // Paginate: Sodium alone has 100+ versions; limit=100 truncates everything at/before ~1.21
+        // for projects that also ship 26.x snapshots (user reports: cannot download Sodium ≤1.21).
+        const int pageSize = 100;
+        const int maxPages = 20; // hard cap 2000 versions
         List<CommunityResourceVersion> versions = [];
-        foreach (JsonElement version in document.RootElement.EnumerateArray())
-        {
-            if (version.ValueKind != JsonValueKind.Object)
-                continue;
+        HashSet<string> seenIds = new(StringComparer.OrdinalIgnoreCase);
 
-            List<CommunityResourceDownloadFile> files = [];
-            if (TryGetProperty(version, "files", out JsonElement filesEl) && filesEl.ValueKind == JsonValueKind.Array)
+        for (int page = 0; page < maxPages; page++)
+        {
+            List<string> query =
+            [
+                "limit=" + pageSize.ToString(CultureInfo.InvariantCulture),
+                "offset=" + (page * pageSize).ToString(CultureInfo.InvariantCulture)
+            ];
+            if (!string.IsNullOrWhiteSpace(options.GameVersion))
+                query.Add("game_versions=" + Uri.EscapeDataString("[\"" + options.GameVersion.Trim() + "\"]"));
+            if (!string.IsNullOrWhiteSpace(options.Loader) &&
+                !string.Equals(options.Loader, "any", StringComparison.OrdinalIgnoreCase))
             {
-                foreach (JsonElement file in filesEl.EnumerateArray())
-                {
-                    if (file.ValueKind != JsonValueKind.Object)
-                        continue;
-                    string url = ReadString(file, "url");
-                    string fileName = ReadString(file, "filename");
-                    if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(fileName))
-                        continue;
-                    long size = 0;
-                    if (TryGetProperty(file, "size", out JsonElement sizeEl))
-                        sizeEl.TryGetInt64(out size);
-                    files.Add(CreateDownloadFile(
-                        fileName,
-                        url,
-                        size,
-                        ReadString(version, "id"),
-                        ReadString(version, "name")));
-                }
+                query.Add("loaders=" + Uri.EscapeDataString("[\"" + options.Loader.Trim().ToLowerInvariant() + "\"]"));
             }
 
-            if (files.Count == 0)
-                continue;
+            string requestUrl = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(id) +
+                                "/version?" + string.Join('&', query);
+            using HttpResponseMessage response = await GetWithFallbackAsync(requestUrl, cancellationToken)
+                .ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+                break;
 
-            CommunityResourceVersion parsed = new(
-                ReadString(version, "id"),
-                ReadString(version, "name"),
-                ReadString(version, "version_number"),
-                NullIfWhiteSpace(ReadString(version, "changelog")),
-                ReadDateTimeOffset(version, "date_published"),
-                ReadStringArray(version, "game_versions"),
-                ReadStringArray(version, "loaders"),
-                files)
+            int pageCount = 0;
+            foreach (JsonElement version in document.RootElement.EnumerateArray())
             {
-                Dependencies = ReadModrinthDependencies(version)
-            };
-            versions.Add(parsed);
+                pageCount++;
+                if (version.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                string versionId = ReadString(version, "id");
+                if (!string.IsNullOrWhiteSpace(versionId) && !seenIds.Add(versionId))
+                    continue;
+
+                List<CommunityResourceDownloadFile> files = [];
+                if (TryGetProperty(version, "files", out JsonElement filesEl) && filesEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement file in filesEl.EnumerateArray())
+                    {
+                        if (file.ValueKind != JsonValueKind.Object)
+                            continue;
+                        string url = ReadString(file, "url");
+                        string fileName = ReadString(file, "filename");
+                        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(fileName))
+                            continue;
+                        long size = 0;
+                        if (TryGetProperty(file, "size", out JsonElement sizeEl))
+                            sizeEl.TryGetInt64(out size);
+                        files.Add(CreateDownloadFile(
+                            fileName,
+                            url,
+                            size,
+                            versionId,
+                            ReadString(version, "name")));
+                    }
+                }
+
+                if (files.Count == 0)
+                    continue;
+
+                CommunityResourceVersion parsed = new(
+                    versionId,
+                    ReadString(version, "name"),
+                    ReadString(version, "version_number"),
+                    NullIfWhiteSpace(ReadString(version, "changelog")),
+                    ReadDateTimeOffset(version, "date_published"),
+                    ReadStringArray(version, "game_versions"),
+                    ReadStringArray(version, "loaders"),
+                    files)
+                {
+                    Dependencies = ReadModrinthDependencies(version)
+                };
+                versions.Add(parsed);
+            }
+
+            if (pageCount < pageSize)
+                break;
         }
 
         return versions;

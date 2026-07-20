@@ -272,8 +272,9 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
                     loaders.Add(l);
         }
 
+        // Version-aware order (1.21 > 1.20.1); string ordinal wrongly ranks "1.9" above "1.21".
         List<string> orderedVersions = gameVersions
-            .OrderByDescending(static s => s, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(static s => s, MinecraftVersionNameComparer.Instance)
             .ToList();
         List<string> orderedLoaders = loaders
             .OrderBy(static s => s, StringComparer.OrdinalIgnoreCase)
@@ -303,11 +304,20 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
 
         panVersion.Children.Add(CreateFilterLabel("版本"));
         AddChip(panVersion, "全部", isVersion: true, selected: _instanceFilter is null);
-        foreach (string v in orderedVersions.Take(24))
+        // Cap chips for layout, but keep enough room for legacy MC lines (Sodium spans 1.16→26.x).
+        foreach (string v in orderedVersions.Take(48))
         {
             bool selected = _instanceFilter is not null &&
                             string.Equals(v, _instanceFilter, StringComparison.OrdinalIgnoreCase);
             AddChip(panVersion, v, isVersion: true, selected: selected);
+        }
+
+        // Preferred version not in the chip cap still needs a chip so the user can select it.
+        if (_instanceFilter is { Length: > 0 } preferred &&
+            !orderedVersions.Take(48).Any(v => string.Equals(v, preferred, StringComparison.OrdinalIgnoreCase)) &&
+            orderedVersions.Any(v => string.Equals(v, preferred, StringComparison.OrdinalIgnoreCase)))
+        {
+            AddChip(panVersion, preferred, isVersion: true, selected: true);
         }
 
         // Loader chips (mods / modpacks)
