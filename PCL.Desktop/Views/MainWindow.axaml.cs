@@ -193,12 +193,7 @@ public partial class MainWindow : Window, IDisposable
         _taskManagerSurface = DesktopCompositionRoot.GetRequiredService<TaskManagerSurface>();
         _instancesManage = DesktopCompositionRoot.GetRequiredService<InstancesManageSurface>();
         _launchLoginSurface = DesktopCompositionRoot.GetRequiredService<LaunchLoginSurface>();
-        _startMinecraft.Bind(async (request, _) =>
-            await StartMinecraftAsync(
-                request.Home,
-                request.Instance,
-                worldName: request.WorldName,
-                serverAddress: request.ServerAddress).ConfigureAwait(true));
+        BindStartMinecraftUseCase();
         _extraDockViewModel.PropertyChanged += ExtraDockViewModel_PropertyChanged;
         AvaloniaXamlLoader.Load(this);
         DesktopHostUiComposition.Instance.RegisterTarget("pcl.window.main", this);
@@ -4577,259 +4572,177 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private async Task StartMinecraftAsync(
+    private void BindStartMinecraftUseCase()
+    {
+        _startMinecraft.Bind(
+            new StartMinecraftHost
+            {
+                ResolveProfile = () =>
+                    _launchLoginSurface.ProfileSkinPage?.Profile ??
+                    _launchLoginSurface.ProfilePage?.SelectedProfile ??
+                    _loginProfiles.FirstOrDefault(),
+                AcquireLaunchCancellation = repairSession =>
+                {
+                    if (repairSession is null)
+                    {
+                        _launchCancellation?.Cancel();
+                        _launchCancellation?.Dispose();
+                        _launchCancellation = new CancellationTokenSource();
+                    }
+                    else if (_launchCancellation is null)
+                    {
+                        _launchCancellation = new CancellationTokenSource();
+                    }
+
+                    return _launchCancellation.Token;
+                },
+                GetMinecraftRoot = GetMinecraftRootFromInstance,
+                WaitForUiPaintAsync = async () =>
+                {
+                    // Yield until after layout + animation frames so the launching pane is visible
+                    // before any disk/network work (WPF ModLaunch similarly paints first).
+                    await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+                    await Task.Yield();
+                    await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+                    await Task.Delay(32).ConfigureAwait(false);
+                    await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                },
+                PostUi = action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background),
+                InvokeUiAsync = action => Dispatcher.UIThread.InvokeAsync(action).GetTask(),
+                AppendLog = message => _launchRight?.AppendLog(message),
+                ShowNoProfileDialog = () =>
+                    ShowTextDialog("请选择账户档案", "启动游戏前需要先选择或创建一个账户档案。"),
+                ShowLaunchFailedDialog = message =>
+                    ShowTextDialog("启动失败", "未能启动游戏。\n\n详细信息：" + message),
+                LoadSettingsAsync = cancellationToken => Task.Run(
+                    LauncherSettingsPageBinder.LoadSettings,
+                    cancellationToken),
+                RefreshProfileAsync = RefreshLaunchProfileAsync,
+                CreatePlanAsync = CreateLaunchPlanAsync,
+                RunPreLaunchCommandAsync = RunPreLaunchCommandAsync,
+                ApplyProcessPriority = ApplyProcessPriority,
+                ConfirmJavaDownloadAsync = ConfirmJavaDownloadAsync,
+                StopRepairServerAsync = () => _minecraftAiRepairAdvisor.StopLocalServerAsync(),
+                OnSucceededAsync = OnStartMinecraftSucceededAsync,
+                OnFailedAsync = OnStartMinecraftFailedAsync,
+                IncrementLaunchCountAsync = IncrementInstanceLaunchCountAsync
+            },
+            _launchCoordinator);
+    }
+
+    private Task StartMinecraftAsync(
         ILaunchHomeSurface launchPage,
         LaunchInstanceInfo instance,
         string? worldName = null,
         string? serverAddress = null,
-        MinecraftRepairSession? repairSession = null)
+        MinecraftRepairSession? repairSession = null) =>
+        _startMinecraft.ExecuteAsync(
+            new StartMinecraftRequest(
+                launchPage,
+                instance,
+                WorldName: worldName,
+                ServerAddress: serverAddress),
+            repairSession);
+
+    private async Task OnStartMinecraftSucceededAsync(StartMinecraftSucceededArgs args)
     {
-        // Prefer the profile currently shown on the login UI (not always the first saved entry).
-        LoginProfileInfo? profile =
-            _launchLoginSurface.ProfileSkinPage?.Profile ??
-            _launchLoginSurface.ProfilePage?.SelectedProfile ??
-            _loginProfiles.FirstOrDefault();
-        if (profile is null)
+        await Dispatcher.UIThread.InvokeAsync(() =>
         {
-            if (repairSession is not null)
-                await repairSession.Transaction.RollbackAsync().ConfigureAwait(false);
-            if (launchPage.IsLaunchInProgress)
-                launchPage.PageChangeToLogin();
-            ShowTextDialog("请选择账户档案", "启动游戏前需要先选择或创建一个账户档案。");
+            if (!ReferenceEquals(args.Result.Profile, args.OriginalProfile) &&
+                args.Result.Profile.Kind == LaunchLoginProfileKind.Microsoft)
+            {
+                AddOrUpdateLoginProfile(args.Result.Profile);
+                _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, args.Result.Profile);
+                _launchLoginSurface.ProfileSkinPage?.SetProfile(args.Result.Profile);
+                SaveProfilesInBackground("刷新 Microsoft 正版档案");
+            }
+
+            Process process = args.Result.Process;
+            SetGameRunningExtras(
+                process,
+                new RunningGameContext(
+                    args.Instance,
+                    args.Home,
+                    args.Settings,
+                    args.Result.FaultReport,
+                    args.Result.Plan.NativesDirectory,
+                    args.WorldName,
+                    args.ServerAddress,
+                    JavaMajorVersion: args.Result.Plan.JvmHostRequest?.JavaMajorVersion,
+                    MemoryMegabytes: TryReadMaximumHeapMegabytes(args.Result.Plan.JvmHostRequest is { } hostRequest
+                        ? hostRequest.VmArguments
+                        : args.Result.Plan.StartInfo.ArgumentList),
+                    LoginMethod: MinecraftLaunchCoordinator.FormatLoginMethod(args.Result.Profile),
+                    LoginServerHost: ResolveLoginServerHost(args.Result.Profile.AuthServer),
+                    ProfileUsername: args.Result.Profile.Username,
+                    ProfileUuid: args.Result.Profile.Uuid,
+                    UsedExperimentalJvmHost: args.Result.Plan.JvmHostRequest is not null,
+                    JavaExecutableName: Path.GetFileName(args.Result.Plan.JvmHostRequest?.JavaExecutablePath ??
+                                                         args.Result.Plan.StartInfo.FileName),
+                    JavaExecutablePathForRedaction: args.Result.Plan.JvmHostRequest?.JavaExecutablePath ??
+                                                    args.Result.Plan.StartInfo.FileName,
+                    ClasspathEntryCount: args.Result.Plan.ClasspathEntries.Count,
+                    VmArgumentCount: args.Result.Plan.JvmHostRequest?.VmArguments.Length ??
+                                     args.Result.Plan.StartInfo.ArgumentList.Count(argument =>
+                                         argument.StartsWith('-')),
+                    GameArgumentCount: args.Result.Plan.JvmHostRequest?.GameArguments.Length));
+            UpdateBackgroundVideoPlayback(args.Settings);
+            _launchRight?.AppendLog(!string.IsNullOrWhiteSpace(args.WorldName)
+                ? $"{args.Instance.Name} 已启动，正在进入存档 {args.WorldName}。"
+                : !string.IsNullOrWhiteSpace(args.ServerAddress)
+                    ? $"{args.Instance.Name} 已启动，正在连接服务器 {args.ServerAddress}。"
+                    : $"{args.Instance.Name} 已启动。");
+
+            if (args.Settings.GetIntegerOption(
+                    "LaunchArgumentVisible",
+                    LauncherSettingDefaults.GetInteger("LaunchArgumentVisible")) != 0)
+            {
+                args.Home.PageChangeToLogin();
+            }
+
+            ApplyLauncherVisibility(process, args.Settings);
+        });
+    }
+
+    private async Task OnStartMinecraftFailedAsync(StartMinecraftFailedArgs args)
+    {
+        LauncherSettings? repairSettings = args.RuntimeSettings ?? args.RepairSession?.Settings;
+        if (repairSettings is not null)
+        {
+            MinecraftLaunchFaultReport failureReport = args.Exception is MinecraftLaunchFailureException launchFailure &&
+                                                       launchFailure.FaultReport is { } structuredFailure
+                ? structuredFailure
+                : MinecraftLaunchFaultAnalyzer.Analyze(args.Exception, "LaunchCoordinator");
+            await Dispatcher.UIThread.InvokeAsync(() =>
+                _launchRight?.AppendLog("启动失败，错误处理器正在分析：" + args.Exception.Message));
+            await TryRepairMissingDependenciesAsync(
+                    new RunningGameContext(
+                        args.Instance,
+                        args.Home,
+                        repairSettings,
+                        Task.FromResult<MinecraftLaunchFaultReport?>(failureReport),
+                        WorldName: args.WorldName,
+                        ServerAddress: args.ServerAddress,
+                        RepairSession: args.RepairSession,
+                        LoginMethod: MinecraftLaunchCoordinator.FormatLoginMethod(args.Profile),
+                        LoginServerHost: ResolveLoginServerHost(args.Profile.AuthServer),
+                        ProfileUsername: args.Profile.Username,
+                        ProfileUuid: args.Profile.Uuid,
+                        UsedExperimentalJvmHost: repairSettings.GetBooleanOption(
+                            LauncherSettingKeys.ExperimentalJvmLifecycleHost,
+                            LauncherSettingDefaults.GetBoolean(
+                                LauncherSettingKeys.ExperimentalJvmLifecycleHost.Value))))
+                .ConfigureAwait(false);
             return;
         }
 
-        // Paint launching UI immediately (PageLaunchLeft already calls ShowLaunching on click;
-        // keep a fallback for other entry points). Then hop off the UI thread completely.
-        if (!launchPage.IsLaunchInProgress)
-            launchPage.ShowLaunching(instance);
-
-        // Yield until after layout + animation frames so the launching pane is visible
-        // before any disk/network work (WPF ModLaunch similarly paints first).
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
-        await Task.Yield();
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-        await Task.Delay(32).ConfigureAwait(false);
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
-
-        if (repairSession is null)
+        await Dispatcher.UIThread.InvokeAsync(() =>
         {
-            _launchCancellation?.Cancel();
-            _launchCancellation?.Dispose();
-            _launchCancellation = new CancellationTokenSource();
-        }
-        else if (_launchCancellation is null)
-        {
-            _launchCancellation = new CancellationTokenSource();
-        }
-        CancellationToken cancellationToken = _launchCancellation.Token;
-        LauncherSettings? runtimeSettingsForRepair = null;
-
-        try
-        {
-            // Entire prep + coordinate pipeline off UI thread (no UI-thread JSON/IO).
-            string instanceDirectory = instance.InstanceDirectory;
-            InstanceMetadata metadata = await InstanceMetadataStore.LoadAsync(
-                    instanceDirectory,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            LauncherSettings runtimeSettings = await Task.Run(
-                    LauncherSettingsPageBinder.LoadSettings,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            runtimeSettingsForRepair = runtimeSettings;
-            string method = MinecraftLaunchCoordinator.FormatLoginMethod(profile);
-            Dispatcher.UIThread.Post(() => launchPage.LaunchingRefresh(
-                AvaloniaLocalizationManager.GetText("Common.Action.Initialize", "初始化"),
-                0d,
-                method: method), DispatcherPriority.Background);
-
-            MinecraftLaunchCoordinatorResult result = await _launchCoordinator.RunAsync(
-                    new MinecraftLaunchCoordinatorRequest
-                    {
-                        Instance = instance,
-                        Profile = profile,
-                        Metadata = metadata,
-                        Settings = runtimeSettings,
-                        MinecraftRootDirectory = GetMinecraftRootFromInstance(instance),
-                        PreferOfficialSource = runtimeSettings.DownloadSource !=
-                                               DownloadSourcePreference.MirrorOnly,
-                        WorldName = worldName,
-                        ServerAddress = serverAddress,
-                        Report = report =>
-                        {
-                            // Always Post — never call LaunchingRefresh synchronously on a hot path.
-                            Dispatcher.UIThread.Post(
-                                () => launchPage.LaunchingRefresh(
-                                    report.StageName,
-                                    report.Progress,
-                                    report.IsLaunched,
-                                    report.Method,
-                                    report.DownloadSpeed),
-                                DispatcherPriority.Background);
-                        },
-                        Log = message =>
-                        {
-                            Dispatcher.UIThread.Post(
-                                () => _launchRight?.AppendLog(message),
-                                DispatcherPriority.Background);
-                        },
-                        RefreshProfileAsync = RefreshLaunchProfileAsync,
-                        CreatePlanAsync = CreateLaunchPlanAsync,
-                        RunPreLaunchCommandAsync = RunPreLaunchCommandAsync,
-                        ApplyProcessPriority = ApplyProcessPriority,
-                        ConfirmJavaDownloadAsync = ConfirmJavaDownloadAsync
-                    },
-                    cancellationToken)
-                .ConfigureAwait(false);
-
-            // Surviving the coordinator's early-exit grace period means the repaired launch is
-            // healthy enough to commit. Any later crash starts a fresh diagnosis session.
-            repairSession?.Transaction.Commit();
-            try
-            {
-                await _minecraftAiRepairAdvisor.StopLocalServerAsync().ConfigureAwait(false);
-            }
-            catch (Exception serverStopException)
-            {
-                DesktopFileLog.Warn(
-                    "MinecraftRepairAI",
-                    "Minecraft 已成功启动，但释放本地模型服务失败。",
-                    serverStopException);
-            }
-
-            // Launch pipeline succeeded — never fold post-success UI side effects into "启动失败".
-            // (e.g. Close()/Hide launcher visibility can throw ObjectDisposedException.)
-            try
-            {
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    if (!ReferenceEquals(result.Profile, profile) &&
-                        result.Profile.Kind == LaunchLoginProfileKind.Microsoft)
-                    {
-                        AddOrUpdateLoginProfile(result.Profile);
-                        _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, result.Profile);
-                        _launchLoginSurface.ProfileSkinPage?.SetProfile(result.Profile);
-                        SaveProfilesInBackground("刷新 Microsoft 正版档案");
-                    }
-
-                    Process process = result.Process;
-                    SetGameRunningExtras(
-                        process,
-                        new RunningGameContext(
-                            instance,
-                            launchPage,
-                            runtimeSettings,
-                            result.FaultReport,
-                            result.Plan.NativesDirectory,
-                            worldName,
-                            serverAddress,
-                            JavaMajorVersion: result.Plan.JvmHostRequest?.JavaMajorVersion,
-                            MemoryMegabytes: TryReadMaximumHeapMegabytes(result.Plan.JvmHostRequest is { } hostRequest
-                                ? hostRequest.VmArguments
-                                : result.Plan.StartInfo.ArgumentList),
-                            LoginMethod: MinecraftLaunchCoordinator.FormatLoginMethod(result.Profile),
-                            LoginServerHost: ResolveLoginServerHost(result.Profile.AuthServer),
-                            ProfileUsername: result.Profile.Username,
-                            ProfileUuid: result.Profile.Uuid,
-                            UsedExperimentalJvmHost: result.Plan.JvmHostRequest is not null,
-                            JavaExecutableName: Path.GetFileName(result.Plan.JvmHostRequest?.JavaExecutablePath ??
-                                                                 result.Plan.StartInfo.FileName),
-                            JavaExecutablePathForRedaction: result.Plan.JvmHostRequest?.JavaExecutablePath ??
-                                                            result.Plan.StartInfo.FileName,
-                            ClasspathEntryCount: result.Plan.ClasspathEntries.Count,
-                            VmArgumentCount: result.Plan.JvmHostRequest?.VmArguments.Length ??
-                                             result.Plan.StartInfo.ArgumentList.Count(argument =>
-                                                 argument.StartsWith('-')),
-                            GameArgumentCount: result.Plan.JvmHostRequest?.GameArguments.Length));
-                    UpdateBackgroundVideoPlayback(runtimeSettings);
-                    _launchRight?.AppendLog(!string.IsNullOrWhiteSpace(worldName)
-                        ? $"{instance.Name} 已启动，正在进入存档 {worldName}。"
-                        : !string.IsNullOrWhiteSpace(serverAddress)
-                            ? $"{instance.Name} 已启动，正在连接服务器 {serverAddress}。"
-                            : $"{instance.Name} 已启动。");
-
-                    if (runtimeSettings.GetIntegerOption(
-                            "LaunchArgumentVisible",
-                            LauncherSettingDefaults.GetInteger("LaunchArgumentVisible")) != 0)
-                    {
-                        launchPage.PageChangeToLogin();
-                    }
-
-                    // Visibility last — Close/Hide must not reverse a successful launch UX.
-                    ApplyLauncherVisibility(process, runtimeSettings);
-                });
-            }
-            catch (Exception postEx)
-            {
-                DesktopFileLog.Warn("LaunchUI", "游戏已启动，但启动后界面处理发生异常。", postEx);
-                _launchRight?.AppendLog("启动后界面处理异常（游戏已启动）：" + postEx.Message);
-            }
-
-            try
-            {
-                await IncrementInstanceLaunchCountAsync(instance).ConfigureAwait(false);
-            }
-            catch (Exception countEx)
-            {
-                DesktopFileLog.Warn("LaunchHistory", $"记录实例 {instance.Name} 的启动次数失败。", countEx);
-                _launchRight?.AppendLog("记录启动次数失败：" + countEx.Message);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            await _minecraftAiRepairAdvisor.StopLocalServerAsync().ConfigureAwait(false);
-            DesktopFileLog.Warn("LaunchUI", $"实例 {instance.Name} 的启动操作已取消。");
-            if (repairSession is not null)
-                await repairSession.Transaction.RollbackAsync().ConfigureAwait(false);
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (launchPage.IsLaunchInProgress)
-                    launchPage.PageChangeToLogin();
-            });
-        }
-        catch (Exception ex)
-        {
-            DesktopFileLog.Error("LaunchUI", $"实例 {instance.Name} 启动失败。", ex);
-            LauncherSettings? repairSettings = runtimeSettingsForRepair ?? repairSession?.Settings;
-            if (repairSettings is not null)
-            {
-                MinecraftLaunchFaultReport failureReport = ex is MinecraftLaunchFailureException launchFailure &&
-                                                           launchFailure.FaultReport is { } structuredFailure
-                    ? structuredFailure
-                    : MinecraftLaunchFaultAnalyzer.Analyze(ex, "LaunchCoordinator");
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                    _launchRight?.AppendLog("启动失败，错误处理器正在分析：" + ex.Message));
-                await TryRepairMissingDependenciesAsync(
-                        new RunningGameContext(
-                            instance,
-                            launchPage,
-                            repairSettings,
-                            Task.FromResult<MinecraftLaunchFaultReport?>(failureReport),
-                            WorldName: worldName,
-                            ServerAddress: serverAddress,
-                            RepairSession: repairSession,
-                            LoginMethod: MinecraftLaunchCoordinator.FormatLoginMethod(profile),
-                            LoginServerHost: ResolveLoginServerHost(profile.AuthServer),
-                            ProfileUsername: profile.Username,
-                            ProfileUuid: profile.Uuid,
-                            UsedExperimentalJvmHost: repairSettings.GetBooleanOption(
-                                LauncherSettingKeys.ExperimentalJvmLifecycleHost,
-                                LauncherSettingDefaults.GetBoolean(
-                                    LauncherSettingKeys.ExperimentalJvmLifecycleHost.Value))))
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    if (launchPage.IsLaunchInProgress)
-                        launchPage.PageChangeToLogin();
-                    ShowTextDialog("启动失败", "未能启动游戏。\n\n详细信息：" + ex.Message);
-                    _launchRight?.AppendLog("启动失败：" + ex.Message);
-                });
-            }
-        }
+            if (args.Home.IsLaunchInProgress)
+                args.Home.PageChangeToLogin();
+            ShowTextDialog("启动失败", "未能启动游戏。\n\n详细信息：" + args.Exception.Message);
+            _launchRight?.AppendLog("启动失败：" + args.Exception.Message);
+        });
     }
 
     private void SetGameRunningExtras(Process? process, RunningGameContext? context = null)
@@ -6975,26 +6888,6 @@ public partial class MainWindow : Window, IDisposable
                parsed > 0 && parsed * multiplier <= int.MaxValue
             ? (int)(parsed * multiplier)
             : null;
-    }
-
-    private enum MinecraftRepairAttempt
-    {
-        None,
-        ConventionalApplied,
-        ModelApplied
-    }
-
-    private sealed class MinecraftRepairSession(LauncherSettings settings)
-    {
-        public LauncherSettings Settings { get; } = settings;
-
-        public MinecraftRepairTransaction Transaction { get; } = new();
-
-        public MinecraftRepairAttempt Attempt { get; set; }
-
-        public string? LastModelAnalysis { get; set; }
-
-        public string? LastRepairSummary { get; set; }
     }
 
     private Task<bool> ConfirmJavaDownloadAsync(string versionLabel, CancellationToken cancellationToken)

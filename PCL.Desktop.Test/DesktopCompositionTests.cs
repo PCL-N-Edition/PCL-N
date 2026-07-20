@@ -94,16 +94,8 @@ public sealed class DesktopCompositionTests
                 Home: null!,
                 Instance: null!)).GetAwaiter().GetResult());
 
-        int calls = 0;
-        useCase.Bind((_, _) =>
-        {
-            calls++;
-            return Task.CompletedTask;
-        });
-
         Assert.ThrowsExactly<ArgumentNullException>(() =>
             useCase.ExecuteAsync(null!).GetAwaiter().GetResult());
-        Assert.AreEqual(0, calls);
     }
 
     [TestMethod]
