@@ -194,6 +194,8 @@ internal sealed class MinecraftLaunchCoordinator
         Report(request, StageName("Minecraft.Launch.Stage.CustomCommand", "执行自定义命令"), completed, method: method);
 
         Report(request, StageName("Minecraft.Launch.Stage.StartProcess", "启动进程"), completed, method: method);
+        // Do not spawn the game if the user already cancelled during earlier stages.
+        cancellationToken.ThrowIfCancellationRequested();
         // Normalize FileName before logging so the UI shows the real executable used.
         NormalizeJavaExecutableForLaunch(plan.StartInfo);
         request.Log?.Invoke(
@@ -201,60 +203,70 @@ internal sealed class MinecraftLaunchCoordinator
             "\n工作目录：" + plan.StartInfo.WorkingDirectory +
             "\nNatives：" + plan.NativesDirectory +
             "\n参数预览：" + Truncate(plan.StartInfo.Arguments ?? string.Empty, 240));
-        MinecraftStartedProcess startedProcess = StartProcess(plan, request.Log);
-        Process process = startedProcess.Process;
-        GameSessionSnapshot session = GameSessionRegistry.Shared.Start(request.Instance.Name, process.Id);
-        GameSessionRegistry.Shared.PublishOutput(
-            session.SessionId,
-            GameProcessOutputChannel.Launcher,
-            "Minecraft process started.");
-        _ = ObserveProcessExitAsync(process, session.SessionId);
-        request.ApplyProcessPriority(process, request.Settings);
-        completed += MinecraftLaunchStages.StartProcess;
-        string processMethod = "PID " + process.Id.ToString(CultureInfo.InvariantCulture);
-        Report(
-            request,
-            StageName("Minecraft.Launch.Stage.StartProcess", "启动进程"),
-            completed,
-            method: processMethod);
 
-        // Mark launched so the title flips to "游戏已启动", then briefly watch for early crash.
-        // Do not flood the UI with heartbeat posts during this wait (was freezing Avalonia).
-        Report(
-            request,
-            StageName("Minecraft.Launch.Stage.WaitWindow", "等待游戏窗口"),
-            completed,
-            isLaunched: true,
-            method: processMethod);
-        await WaitForGameAppearanceAsync(
-                process,
-                cancellationToken,
-                request.Log,
-                startedProcess.FaultReport)
-            .ConfigureAwait(false);
-        completed += MinecraftLaunchStages.WaitWindow;
-        Report(
-            request,
-            StageName("Minecraft.Launch.Stage.WaitWindow", "等待游戏窗口"),
-            completed,
-            isLaunched: true,
-            method: processMethod);
+        Process? launchedProcess = null;
+        Guid launchedSessionId = Guid.Empty;
+        try
+        {
+            MinecraftStartedProcess startedProcess = StartProcess(plan, request.Log);
+            Process process = startedProcess.Process;
+            launchedProcess = process;
+            GameSessionSnapshot session = GameSessionRegistry.Shared.Start(request.Instance.Name, process.Id);
+            launchedSessionId = session.SessionId;
+            GameSessionRegistry.Shared.PublishOutput(
+                session.SessionId,
+                GameProcessOutputChannel.Launcher,
+                "Minecraft process started.");
+            _ = ObserveProcessExitAsync(process, session.SessionId);
+            request.ApplyProcessPriority(process, request.Settings);
+            completed += MinecraftLaunchStages.StartProcess;
+            string processMethod = "PID " + process.Id.ToString(CultureInfo.InvariantCulture);
+            Report(
+                request,
+                StageName("Minecraft.Launch.Stage.StartProcess", "启动进程"),
+                completed,
+                method: processMethod);
 
-        Report(
-            request,
-            StageName("Minecraft.Launch.Stage.End", "结束处理"),
-            completed,
-            isLaunched: true,
-            method: processMethod);
-        completed += MinecraftLaunchStages.End;
-        Report(
-            request,
-            StageName("Minecraft.Launch.Stage.End", "结束处理"),
-            completed,
-            isLaunched: true,
-            method: processMethod);
+            // Mark launched so the title flips to "游戏已启动", then briefly watch for early crash.
+            // Do not flood the UI with heartbeat posts during this wait (was freezing Avalonia).
+            Report(
+                request,
+                StageName("Minecraft.Launch.Stage.WaitWindow", "等待游戏窗口"),
+                completed,
+                isLaunched: true,
+                method: processMethod);
+            await WaitForGameAppearanceAsync(
+                    process,
+                    cancellationToken,
+                    request.Log,
+                    startedProcess.FaultReport)
+                .ConfigureAwait(false);
+            completed += MinecraftLaunchStages.WaitWindow;
+            Report(
+                request,
+                StageName("Minecraft.Launch.Stage.WaitWindow", "等待游戏窗口"),
+                completed,
+                isLaunched: true,
+                method: processMethod);
+
+            Report(
+                request,
+                StageName("Minecraft.Launch.Stage.End", "结束处理"),
+                completed,
+                isLaunched: true,
+                method: processMethod);
+            completed += MinecraftLaunchStages.End;
+            Report(
+                request,
+                StageName("Minecraft.Launch.Stage.End", "结束处理"),
+                completed,
+                isLaunched: true,
+                method: processMethod);
 
             PortableLog.Info("Launch", $"实例 {request.Instance.Name} 启动成功；PID={process.Id}；会话={session.SessionId}。");
+            // Success: do not kill on the outer cancel path.
+            launchedProcess = null;
+            launchedSessionId = Guid.Empty;
             return new MinecraftLaunchCoordinatorResult(
                 process,
                 plan,
@@ -265,6 +277,14 @@ internal sealed class MinecraftLaunchCoordinator
         }
         catch (OperationCanceledException)
         {
+            // Process may already be alive (e.g. cancel during WaitWindow). Terminate it so the
+            // game window does not orphan without the launcher tracking "running" state.
+            TryTerminateLaunchedProcess(launchedProcess, launchedSessionId, request.Log);
+            throw;
+        }
+        }
+        catch (OperationCanceledException)
+        {
             PortableLog.Warn("Launch", $"实例 {request.Instance.Name} 的启动已取消；最后进度={MinecraftLaunchStages.ProgressAt(completed):P0}。");
             throw;
         }
@@ -272,6 +292,53 @@ internal sealed class MinecraftLaunchCoordinator
         {
             PortableLog.Error(ex, "Launch", $"实例 {request.Instance.Name} 启动失败；最后进度={MinecraftLaunchStages.ProgressAt(completed):P0}。");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Ends a game process started during a launch that was later cancelled.
+    /// Safe to call when <paramref name="process"/> is null or already exited.
+    /// </summary>
+    internal static void TryTerminateLaunchedProcess(
+        Process? process,
+        Guid sessionId,
+        Action<string>? log = null)
+    {
+        if (process is null && sessionId == Guid.Empty)
+            return;
+
+        try
+        {
+            if (process is not null && !process.HasExited)
+            {
+                int pid = process.Id;
+                log?.Invoke("启动已取消，正在结束游戏进程（PID " +
+                            pid.ToString(CultureInfo.InvariantCulture) + "）…");
+                PortableLog.Warn("Launch", $"取消启动：结束游戏进程树 PID={pid}。");
+                process.Kill(entireProcessTree: true);
+                if (!process.WaitForExit(5000))
+                    PortableLog.Warn("Launch", $"取消启动：进程 PID={pid} 在 5s 内未退出。");
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or
+                                       NotSupportedException or AggregateException)
+        {
+            PortableLog.Warn(ex, "Launch", "取消启动时结束游戏进程失败。");
+            log?.Invoke("结束游戏进程失败：" + ex.Message);
+        }
+        finally
+        {
+            if (sessionId != Guid.Empty)
+            {
+                try
+                {
+                    GameSessionRegistry.Shared.Complete(sessionId, exitCode: -1, terminated: true);
+                }
+                catch (Exception ex)
+                {
+                    PortableLog.Warn(ex, "Launch", $"取消启动时完成会话 {sessionId} 失败。");
+                }
+            }
         }
     }
 
