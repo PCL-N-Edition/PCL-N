@@ -22,6 +22,8 @@ internal sealed class MinecraftRepairTransaction : IAsyncDisposable
     private readonly SemaphoreSlim _fileBackupGate = new(1, 1);
     private bool _completed;
 
+    public bool HasChanges => _entries.Count > 0 || _directories.Count > 0;
+
     public async Task BackupFileAsync(string path, CancellationToken cancellationToken)
     {
         string fullPath = Path.GetFullPath(path);
