@@ -20,6 +20,8 @@ public sealed record MinecraftJvmHostRequest
 
     public required string PlayerUuid { get; init; }
 
+    public string AccessToken { get; init; } = "0";
+
     public int JavaMajorVersion { get; init; }
 
     public string[] VmArguments { get; init; } = [];

@@ -189,9 +189,17 @@ public static class MinecraftProcessLaunchService
             PortableLog.Debug(
                 "LaunchPlan",
                 $"进程参数：FileName={startInfo.FileName}；WorkingDirectory={startInfo.WorkingDirectory}；Arguments={startInfo.Arguments}");
-            MinecraftJvmHostRequest? jvmHostRequest = request.UseExperimentalJvmHost
-                ? CreateJvmHostRequest(request, launchPlan.Arguments, mainClass, gameDirectory, classpath.Entries)
-                : null;
+            MinecraftJvmHostRequest? jvmHostRequest = null;
+            if (request.UseExperimentalJvmHost)
+            {
+                IReadOnlyList<string> launchTokens = ParseCommandLine(launchPlan.Arguments);
+                jvmHostRequest = CreateJvmHostRequest(
+                    request,
+                    launchTokens,
+                    mainClass,
+                    gameDirectory,
+                    classpath.Entries);
+            }
             return new MinecraftProcessLaunchPlan(startInfo, nativesDirectory, classpath.Entries, nativeExtraction)
             {
                 JvmHostRequest = jvmHostRequest
@@ -492,12 +500,11 @@ public static class MinecraftProcessLaunchService
 
     private static MinecraftJvmHostRequest CreateJvmHostRequest(
         MinecraftProcessLaunchRequest request,
-        string arguments,
+        IReadOnlyList<string> tokens,
         string mainClass,
         string gameDirectory,
         IReadOnlyList<string> classpathEntries)
     {
-        IReadOnlyList<string> tokens = ParseCommandLine(arguments);
         int mainClassIndex = -1;
         for (int i = 0; i < tokens.Count; i++)
         {
@@ -511,22 +518,7 @@ public static class MinecraftProcessLaunchService
         if (mainClassIndex < 0)
             throw new FormatException("启动参数中未找到 Minecraft 主类：" + mainClass);
 
-        List<string> vmArguments = [];
-        for (int i = 0; i < mainClassIndex; i++)
-        {
-            string token = tokens[i];
-            if (token is "-cp" or "-classpath" or "--class-path")
-            {
-                // Jvm.NET receives the structured classpath separately.
-                i++;
-                continue;
-            }
-
-            if (token.StartsWith("-Djava.class.path=", StringComparison.Ordinal))
-                continue;
-
-            vmArguments.Add(token);
-        }
+        List<string> vmArguments = NormalizeJvmHostVmArguments(tokens.Take(mainClassIndex).ToArray()).ToList();
 
         string[] gameArguments = tokens.Skip(mainClassIndex + 1).ToArray();
         return new MinecraftJvmHostRequest
@@ -537,6 +529,7 @@ public static class MinecraftProcessLaunchService
             MainClass = mainClass,
             PlayerName = request.PlayerName,
             PlayerUuid = request.PlayerUuid.Replace("-", string.Empty, StringComparison.Ordinal),
+            AccessToken = request.AccessToken,
             VmArguments = vmArguments.ToArray(),
             ClasspathEntries = classpathEntries.ToArray(),
             GameArguments = gameArguments,
@@ -552,6 +545,41 @@ public static class MinecraftProcessLaunchService
     /// Parses the quoting shape accepted by ProcessStartInfo. It follows the CRT
     /// backslash-before-quote rules and also accepts single quotes for custom Unix arguments.
     /// </summary>
+    internal static IReadOnlyList<string> NormalizeJvmHostVmArguments(IReadOnlyList<string> tokens)
+    {
+        HashSet<string> pairedOptions = new(StringComparer.Ordinal)
+        {
+            "-p", "--module-path", "--upgrade-module-path", "--add-modules", "--limit-modules",
+            "--add-reads", "--add-exports", "--add-opens", "--patch-module"
+        };
+        List<string> normalized = [];
+        for (int index = 0; index < tokens.Count; index++)
+        {
+            string token = tokens[index];
+            if (token is "-cp" or "-classpath" or "--class-path")
+            {
+                if (++index >= tokens.Count)
+                    throw new FormatException($"JVM 参数 {token} 缺少 classpath 值。");
+                continue;
+            }
+            if (token.StartsWith("-Djava.class.path=", StringComparison.Ordinal))
+                continue;
+            if (!pairedOptions.Contains(token))
+            {
+                normalized.Add(token);
+                continue;
+            }
+            if (++index >= tokens.Count || string.IsNullOrWhiteSpace(tokens[index]) ||
+                tokens[index][0] == '-')
+            {
+                throw new FormatException($"JVM 模块参数 {token} 缺少值。");
+            }
+            string canonicalName = token == "-p" ? "--module-path" : token;
+            normalized.Add(canonicalName + "=" + tokens[index]);
+        }
+        return normalized;
+    }
+
     internal static IReadOnlyList<string> ParseCommandLine(string commandLine)
     {
         List<string> result = [];

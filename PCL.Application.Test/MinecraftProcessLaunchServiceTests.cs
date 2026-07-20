@@ -31,6 +31,53 @@ public sealed class MinecraftProcessLaunchServiceTests
     }
 
     [TestMethod]
+    public void NormalizeJvmHostVmArguments_CanonicalizesNeoForgeModuleOptions()
+    {
+        IReadOnlyList<string> normalized = MinecraftProcessLaunchService.NormalizeJvmHostVmArguments(
+            [
+                "-Xmx3379m",
+                "-cp", "client.jar;libraries.jar",
+                "-p", "bootstrap.jar;securejarhandler.jar",
+                "--add-modules", "ALL-MODULE-PATH",
+                "--add-opens", "java.base/java.util.jar=cpw.mods.securejarhandler",
+                "--add-exports", "java.base/sun.security.util=cpw.mods.securejarhandler",
+                "-Djava.net.preferIPv4Stack=true"
+            ]);
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "-Xmx3379m",
+                "--module-path=bootstrap.jar;securejarhandler.jar",
+                "--add-modules=ALL-MODULE-PATH",
+                "--add-opens=java.base/java.util.jar=cpw.mods.securejarhandler",
+                "--add-exports=java.base/sun.security.util=cpw.mods.securejarhandler",
+                "-Djava.net.preferIPv4Stack=true"
+            },
+            normalized.ToArray());
+    }
+
+    [TestMethod]
+    public void NormalizeJvmHostVmArguments_RejectsMissingPairedOptionValue()
+    {
+        AssertFormatException(["--add-modules"]);
+        AssertFormatException(["--add-opens", "--add-exports", "x=y"]);
+        AssertFormatException(["-cp"]);
+    }
+
+    private static void AssertFormatException(IReadOnlyList<string> arguments)
+    {
+        try
+        {
+            MinecraftProcessLaunchService.NormalizeJvmHostVmArguments(arguments);
+            Assert.Fail("Expected FormatException.");
+        }
+        catch (FormatException)
+        {
+        }
+    }
+
+    [TestMethod]
     public async Task CreatePlanAsync_ProducesStructuredJvmHostRequest()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcl-jvm-host-plan-" + Guid.NewGuid().ToString("N"));
