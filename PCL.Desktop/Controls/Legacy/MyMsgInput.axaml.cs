@@ -9,6 +9,7 @@ using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using FluentValidation;
+using PCL.Desktop.Shell;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -24,6 +25,8 @@ public partial class MyMsgInput : Grid
     private readonly int _uuid = Random.Shared.Next();
     private TranslateTransform? _transformPos;
     private RotateTransform? _transformRotate;
+    private ScaleTransform? _transformScale;
+    private bool _useExperimentalChrome;
     private string? _pendingResult;
     private AnimationMode _animationMode;
 
@@ -34,6 +37,7 @@ public partial class MyMsgInput : Grid
         Opacity = 0d;
         AttachedToVisualTree += (_, _) =>
         {
+            ApplyExperimentalChrome();
             if (this.FindControl<MyTextBox>("TextArea") is { } input)
             {
                 input.Focus(NavigationMethod.Pointer);
@@ -85,13 +89,26 @@ public partial class MyMsgInput : Grid
         ConfigurePrimaryButton(primaryButton, isWarn);
         ConfigureSecondaryButton(secondaryButton);
         TextCaptionValidateChanged(this, EventArgs.Empty);
+        ApplyExperimentalChrome();
     }
 
     public void BeginShowAnimation()
     {
-        CaptureTransforms();
+        ApplyExperimentalChrome();
         _pendingResult = null;
         _animationMode = AnimationMode.Opening;
+        if (_useExperimentalChrome && _transformScale is not null && _transformPos is not null)
+        {
+            ExperimentalMsgChrome.RunShowAnimation(
+                this,
+                _transformScale,
+                _transformPos,
+                _uuid,
+                () => _animationMode = AnimationMode.None);
+            return;
+        }
+
+        CaptureTransforms();
         Opacity = 0d;
         SetTransform(40d, -4d);
         ModAnimation.AniStart(
@@ -109,8 +126,23 @@ public partial class MyMsgInput : Grid
         if (_animationMode == AnimationMode.Closing)
             return;
 
-        CaptureTransforms();
         _animationMode = AnimationMode.Closing;
+        if (_useExperimentalChrome && _transformScale is not null && _transformPos is not null)
+        {
+            ExperimentalMsgChrome.RunCloseAnimation(
+                this,
+                _transformScale,
+                _transformPos,
+                _uuid,
+                () =>
+                {
+                    _animationMode = AnimationMode.None;
+                    completed?.Invoke();
+                });
+            return;
+        }
+
+        CaptureTransforms();
         ModAnimation.AniStart(
         new List<ModAnimation.AniData>
         {
@@ -123,6 +155,28 @@ public partial class MyMsgInput : Grid
                 completed?.Invoke();
             }, after: true)
         }, $"MyMsgBox {_uuid}");
+    }
+
+    private void ApplyExperimentalChrome()
+    {
+        if (!ExperimentalMsgChrome.IsEnabled)
+        {
+            _useExperimentalChrome = false;
+            CaptureTransforms();
+            return;
+        }
+
+        _useExperimentalChrome = true;
+        ExperimentalMsgChrome.ApplyShell(
+            this,
+            this.FindControl<Border>("PanBorder"),
+            this.FindControl<TextBlock>("LabTitle"),
+            this.FindControl<Rectangle>("ShapeLine"),
+            this.FindControl<Panel>("PanBtn"));
+        (ScaleTransform scale, TranslateTransform translate) = ExperimentalMsgChrome.PrepareOpenTransforms(this);
+        _transformScale = scale;
+        _transformPos = translate;
+        _transformRotate = null;
     }
 
     public void Btn1Click(object? sender, EventArgs e)

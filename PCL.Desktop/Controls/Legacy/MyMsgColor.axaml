@@ -11,7 +11,7 @@
             <TranslateTransform X="0" Y="40" />
         </TransformGroup>
     </Grid.RenderTransform>
-    <Border CornerRadius="8" Background="{DynamicResource ColorBrushBackground}"
+    <Border x:Name="PanBorder" CornerRadius="8" Background="{DynamicResource ColorBrushBackground}"
             BoxShadow="0 4 28 0 #663c3c3c" ClipToBounds="False">
         <Grid Margin="22,22,22,20" RowDefinitions="Auto,2,12,*,16,Auto">
             <TextBlock Grid.Row="0" x:Name="LabTitle" FontSize="23" TextWrapping="Wrap"
@@ -19,7 +19,7 @@
             <Rectangle Grid.Row="1" x:Name="ShapeLine" Height="2" Fill="{DynamicResource ColorBrush2}" />
             <ColorPicker Grid.Row="3" x:Name="Picker" IsAlphaEnabled="False" IsAlphaVisible="False"
                          MinHeight="330" HorizontalAlignment="Stretch" />
-            <StackPanel Grid.Row="5" HorizontalAlignment="Right" Orientation="Horizontal" Margin="12,0,4,0">
+            <StackPanel Grid.Row="5" x:Name="PanBtn" HorizontalAlignment="Right" Orientation="Horizontal" Margin="12,0,4,0">
                 <legacy:MyButton Text="确定" x:Name="BtnConfirm" Margin="12,0,0,0" Padding="5,0"
                                  MinHeight="32" Click="ConfirmClick" />
                 <legacy:MyButton Text="取消" x:Name="BtnCancel" Margin="12,0,0,0" Padding="5,0"

@@ -3,7 +3,9 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Media;
+using PCL.Desktop.Shell;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -16,11 +18,15 @@ public partial class MyMsgColor : Grid
 {
     private readonly int _uuid = Random.Shared.Next();
     private bool _isClosing;
+    private ScaleTransform? _transformScale;
+    private TranslateTransform? _transformPos;
+    private bool _useExperimentalChrome;
 
     public MyMsgColor()
     {
         Avalonia.Markup.Xaml.AvaloniaXamlLoader.Load(this);
         Opacity = 0d;
+        AttachedToVisualTree += (_, _) => ApplyExperimentalChrome();
     }
 
     public event EventHandler<MyMsgColorClosedEventArgs>? Closed;
@@ -33,10 +39,23 @@ public partial class MyMsgColor : Grid
         ColorPicker picker = this.FindControl<ColorPicker>("Picker")!;
         picker.Color = initialColor;
         picker.ColorChanged += (_, args) => PreviewChanged?.Invoke(this, args.NewColor);
+        ApplyExperimentalChrome();
     }
 
     public void BeginShowAnimation()
     {
+        ApplyExperimentalChrome();
+        if (_useExperimentalChrome && _transformScale is not null && _transformPos is not null)
+        {
+            ExperimentalMsgChrome.RunShowAnimation(
+                this,
+                _transformScale,
+                _transformPos,
+                _uuid,
+                () => { });
+            return;
+        }
+
         TransformGroup transforms = (TransformGroup)RenderTransform!;
         RotateTransform rotate = transforms.Children.OfType<RotateTransform>().First();
         TranslateTransform translate = transforms.Children.OfType<TranslateTransform>().First();
@@ -62,11 +81,42 @@ public partial class MyMsgColor : Grid
         if (_isClosing)
             return;
         _isClosing = true;
+        if (_useExperimentalChrome && _transformScale is not null && _transformPos is not null)
+        {
+            ExperimentalMsgChrome.RunCloseAnimation(
+                this,
+                _transformScale,
+                _transformPos,
+                _uuid,
+                () => Closed?.Invoke(this, new MyMsgColorClosedEventArgs(color)));
+            return;
+        }
+
         ModAnimation.AniStart(
         new List<ModAnimation.AniData>
         {
             ModAnimation.AaOpacity(this, -Opacity, 80, 20),
             ModAnimation.AaCode(() => Closed?.Invoke(this, new MyMsgColorClosedEventArgs(color)), after: true)
         }, $"MyMsgBox {_uuid}");
+    }
+
+    private void ApplyExperimentalChrome()
+    {
+        if (!ExperimentalMsgChrome.IsEnabled)
+        {
+            _useExperimentalChrome = false;
+            return;
+        }
+
+        _useExperimentalChrome = true;
+        ExperimentalMsgChrome.ApplyShell(
+            this,
+            this.FindControl<Border>("PanBorder"),
+            this.FindControl<TextBlock>("LabTitle"),
+            this.FindControl<Rectangle>("ShapeLine"),
+            this.FindControl<Panel>("PanBtn"));
+        (ScaleTransform scale, TranslateTransform translate) = ExperimentalMsgChrome.PrepareOpenTransforms(this);
+        _transformScale = scale;
+        _transformPos = translate;
     }
 }

@@ -4663,18 +4663,29 @@ public partial class MainWindow : Window, IDisposable
 
     private static void AnimateMsgBackground(BlurBorder background, byte targetAlpha, Action? completed = null)
     {
+        // Experimental glass dialogs use a slightly stronger, longer-settling scrim (Apple-style focus dim).
+        bool experimental = ExperimentalMsgChrome.IsEnabled;
+        byte alpha = targetAlpha == 0
+            ? (byte)0
+            : experimental
+                ? ExperimentalMsgChrome.ScrimAlpha
+                : targetAlpha;
+        int duration = experimental ? 320 : 200;
+        ModAnimation.AniEase ease = experimental
+            ? new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Middle)
+            : new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak);
         ModAnimation.AniStart(
         new List<ModAnimation.AniData>
         {
             ModAnimation.AaColor(
                 background,
                 Border.BackgroundProperty,
-                Color.FromArgb(targetAlpha, 0, 0, 0),
-                200,
-                ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
+                Color.FromArgb(alpha, 0, 0, 0),
+                duration,
+                ease: ease),
             ModAnimation.AaCode(() =>
             {
-                background.Background = new SolidColorBrush(Color.FromArgb(targetAlpha, 0, 0, 0));
+                background.Background = new SolidColorBrush(Color.FromArgb(alpha, 0, 0, 0));
                 completed?.Invoke();
             }, after: true)
         }, "MyMsg Background");
