@@ -4,6 +4,7 @@
 
 using System.Collections.Concurrent;
 using System.Text.Json;
+using PCL.Core.Logging;
 
 namespace PCL.Application.Settings;
 
@@ -34,28 +35,55 @@ public sealed class LauncherSettingsStore : IDisposable
 
             try
             {
-                await using FileStream stream = new(
-                    SettingsPath,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.ReadWrite | FileShare.Delete,
-                    bufferSize: 16 * 1024,
-                    FileOptions.Asynchronous | FileOptions.SequentialScan);
-                LauncherSettings? settings = await JsonSerializer.DeserializeAsync(
-                        stream,
-                        LauncherSettingsJsonContext.Default.LauncherSettings,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (settings is null)
-                    throw new InvalidDataException("The launcher settings file is empty.");
-                if (settings.SchemaVersion is <= 0 or > LauncherSettings.CurrentSchemaVersion)
+                JsonDocument document;
+                await using (FileStream stream = new(
+                                 SettingsPath,
+                                 FileMode.Open,
+                                 FileAccess.Read,
+                                 FileShare.ReadWrite | FileShare.Delete,
+                                 bufferSize: 16 * 1024,
+                                 FileOptions.Asynchronous | FileOptions.SequentialScan))
                 {
-                    throw new InvalidDataException(
-                        $"Unsupported launcher settings schema: {settings.SchemaVersion}.");
+                    document = await JsonDocument.ParseAsync(
+                            stream,
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
                 }
 
-                return new(settings.NormalizeOptionDictionaries(), false, null);
+                using (document)
+                {
+                    LauncherSettings settings = ReadSettings(document.RootElement, out bool recoveredInvalidItems);
+                    if (settings.SchemaVersion is <= 0 or > LauncherSettings.CurrentSchemaVersion)
+                    {
+                        throw new InvalidDataException(
+                            $"Unsupported launcher settings schema: {settings.SchemaVersion}.");
+                    }
+
+                    settings = settings.NormalizeOptionDictionaries();
+                    if (!recoveredInvalidItems)
+                        return new(settings, false, null);
+
+                    string backupPath = SettingsPath + ".invalid";
+                    File.Copy(SettingsPath, backupPath, overwrite: true);
+                    try
+                    {
+                        await SaveCoreAsync(settings, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (IOException exception)
+                    {
+                        // Loading valid settings is more important than persisting the cleanup. The
+                        // next regular save can still replace a file held briefly by another process.
+                        PortableLog.Warn(
+                            exception,
+                            "Settings",
+                            "已隔离损坏的启动器配置项，但暂时无法写回修复后的设置文件。");
+                    }
+
+                    PortableLog.Warn(
+                        "Settings",
+                        $"启动器设置中存在损坏项，已保留其他有效设置并备份到 {backupPath}。");
+                    return new(settings, true, backupPath);
+                }
             }
             catch (Exception exception)
                 when (exception is JsonException or InvalidDataException)
@@ -85,17 +113,28 @@ public sealed class LauncherSettingsStore : IDisposable
         }
 
         await _accessLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        string? temporaryPath = null;
         try
         {
-            string directory = Path.GetDirectoryName(SettingsPath)
-                ?? throw new InvalidOperationException(
-                    "The launcher settings path has no parent directory.");
-            Directory.CreateDirectory(directory);
-            temporaryPath = Path.Combine(
-                directory,
-                $".{Path.GetFileName(SettingsPath)}.{Guid.NewGuid():N}.tmp");
+            await SaveCoreAsync(settings, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _accessLock.Release();
+        }
+    }
 
+    private async Task SaveCoreAsync(LauncherSettings settings, CancellationToken cancellationToken)
+    {
+        string directory = Path.GetDirectoryName(SettingsPath)
+            ?? throw new InvalidOperationException(
+                "The launcher settings path has no parent directory.");
+        Directory.CreateDirectory(directory);
+        string temporaryPath = Path.Combine(
+            directory,
+            $".{Path.GetFileName(SettingsPath)}.{Guid.NewGuid():N}.tmp");
+
+        try
+        {
             await using (FileStream stream = new(
                              temporaryPath,
                              FileMode.CreateNew,
@@ -114,11 +153,11 @@ public sealed class LauncherSettingsStore : IDisposable
             }
 
             await ReplaceWithRetryAsync(temporaryPath, cancellationToken).ConfigureAwait(false);
-            temporaryPath = null;
+            temporaryPath = string.Empty;
         }
         finally
         {
-            if (temporaryPath is not null)
+            if (!string.IsNullOrEmpty(temporaryPath))
             {
                 try
                 {
@@ -130,8 +169,124 @@ public sealed class LauncherSettingsStore : IDisposable
                     // remove an externally locked temporary file.
                 }
             }
-            _accessLock.Release();
         }
+    }
+
+    private static LauncherSettings ReadSettings(JsonElement root, out bool recoveredInvalidItems)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("The launcher settings file root must be an object.");
+
+        LauncherSettings defaults = new();
+        recoveredInvalidItems = false;
+        return new LauncherSettings
+        {
+            SchemaVersion = ReadInt32(root, "schemaVersion", defaults.SchemaVersion, ref recoveredInvalidItems),
+            AutomaticallyRepairGameIssues = ReadBoolean(
+                root,
+                "automaticallyRepairGameIssues",
+                defaults.AutomaticallyRepairGameIssues,
+                ref recoveredInvalidItems),
+            ColorMode = ReadEnum(root, "colorMode", defaults.ColorMode, ref recoveredInvalidItems),
+            LightColor = ReadEnum(root, "lightColor", defaults.LightColor, ref recoveredInvalidItems),
+            DarkColor = ReadEnum(root, "darkColor", defaults.DarkColor, ref recoveredInvalidItems),
+            DownloadSource = ReadEnum(root, "downloadSource", defaults.DownloadSource, ref recoveredInvalidItems),
+            BooleanOptions = ReadDictionary(root, "booleanOptions", static value =>
+                value.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    ? (true, value.GetBoolean())
+                    : (false, default), ref recoveredInvalidItems),
+            IntegerOptions = ReadDictionary(root, "integerOptions", static value =>
+                value.TryGetInt32(out int parsed)
+                    ? (true, parsed)
+                    : (false, default), ref recoveredInvalidItems),
+            TextOptions = ReadDictionary(root, "textOptions", static value =>
+                value.ValueKind == JsonValueKind.String
+                    ? (true, value.GetString() ?? string.Empty)
+                    : (false, string.Empty), ref recoveredInvalidItems)
+        };
+    }
+
+    private static bool ReadBoolean(
+        JsonElement root,
+        string propertyName,
+        bool fallback,
+        ref bool recovered)
+    {
+        if (!root.TryGetProperty(propertyName, out JsonElement value))
+            return fallback;
+        if (value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            return value.GetBoolean();
+
+        recovered = true;
+        return fallback;
+    }
+
+    private static int ReadInt32(
+        JsonElement root,
+        string propertyName,
+        int fallback,
+        ref bool recovered)
+    {
+        if (!root.TryGetProperty(propertyName, out JsonElement value))
+            return fallback;
+        if (value.TryGetInt32(out int parsed))
+            return parsed;
+
+        recovered = true;
+        return fallback;
+    }
+
+    private static TEnum ReadEnum<TEnum>(
+        JsonElement root,
+        string propertyName,
+        TEnum fallback,
+        ref bool recovered)
+        where TEnum : struct, Enum
+    {
+        if (!root.TryGetProperty(propertyName, out JsonElement value))
+            return fallback;
+
+        TEnum parsed = fallback;
+        bool valid = value.ValueKind switch
+        {
+            JsonValueKind.String => Enum.TryParse(value.GetString(), ignoreCase: true, out parsed) &&
+                                    Enum.IsDefined(parsed),
+            JsonValueKind.Number when value.TryGetInt32(out int number) =>
+                Enum.IsDefined(parsed = (TEnum)Enum.ToObject(typeof(TEnum), number)),
+            _ => false
+        };
+        if (valid)
+            return parsed;
+
+        recovered = true;
+        return fallback;
+    }
+
+    private static Dictionary<string, TValue> ReadDictionary<TValue>(
+        JsonElement root,
+        string propertyName,
+        Func<JsonElement, (bool Success, TValue Value)> readValue,
+        ref bool recovered)
+    {
+        Dictionary<string, TValue> result = new(StringComparer.OrdinalIgnoreCase);
+        if (!root.TryGetProperty(propertyName, out JsonElement dictionary))
+            return result;
+        if (dictionary.ValueKind != JsonValueKind.Object)
+        {
+            recovered = true;
+            return result;
+        }
+
+        foreach (JsonProperty property in dictionary.EnumerateObject())
+        {
+            (bool success, TValue value) = readValue(property.Value);
+            if (success)
+                result[property.Name] = value;
+            else
+                recovered = true;
+        }
+
+        return result;
     }
 
     private async Task ReplaceWithRetryAsync(string temporaryPath, CancellationToken cancellationToken)

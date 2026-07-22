@@ -50,6 +50,59 @@ public sealed class LauncherSettingsStoreTests
     }
 
     [TestMethod]
+    public async Task LoadAsync_InvalidSingleItemsPreservesValidSettingsAndRepairsFile()
+    {
+        using TestDirectory directory = new();
+        string settingsPath = Path.Combine(directory.Path, "settings.json");
+        await File.WriteAllTextAsync(
+            settingsPath,
+            """
+            {
+              "schemaVersion": 1,
+              "automaticallyRepairGameIssues": false,
+              "colorMode": "not-a-color-mode",
+              "lightColor": "SkyBlue",
+              "darkColor": "CatBlue",
+              "downloadSource": "OfficialOnly",
+              "booleanOptions": {
+                "ValidBoolean": true,
+                "BrokenBoolean": "yes"
+              },
+              "integerOptions": {
+                "ValidInteger": 42,
+                "BrokenInteger": 1.5
+              },
+              "textOptions": {
+                "ValidText": "kept",
+                "BrokenText": false
+              }
+            }
+            """);
+        using LauncherSettingsStore store = new(settingsPath);
+
+        LauncherSettingsLoadResult result = await store.LoadAsync();
+
+        Assert.IsTrue(result.RecoveredFromInvalidFile);
+        Assert.IsTrue(File.Exists(result.InvalidFileBackupPath));
+        Assert.IsFalse(result.Settings.AutomaticallyRepairGameIssues);
+        Assert.AreEqual(ColorMode.System, result.Settings.ColorMode);
+        Assert.AreEqual(ColorTheme.SkyBlue, result.Settings.LightColor);
+        Assert.AreEqual(DownloadSourcePreference.OfficialOnly, result.Settings.DownloadSource);
+        Assert.IsTrue(result.Settings.GetBooleanOption("ValidBoolean"));
+        Assert.IsFalse(result.Settings.BooleanOptions.ContainsKey("BrokenBoolean"));
+        Assert.AreEqual(42, result.Settings.GetIntegerOption("ValidInteger"));
+        Assert.IsFalse(result.Settings.IntegerOptions.ContainsKey("BrokenInteger"));
+        Assert.AreEqual("kept", result.Settings.GetTextOption("ValidText"));
+        Assert.IsFalse(result.Settings.TextOptions.ContainsKey("BrokenText"));
+
+        LauncherSettingsLoadResult repaired = await store.LoadAsync();
+        Assert.IsFalse(repaired.RecoveredFromInvalidFile);
+        Assert.IsFalse(repaired.Settings.AutomaticallyRepairGameIssues);
+        Assert.AreEqual(ColorTheme.SkyBlue, repaired.Settings.LightColor);
+        Assert.IsTrue(repaired.Settings.GetBooleanOption("ValidBoolean"));
+    }
+
+    [TestMethod]
     public async Task SeparateStoreInstances_SerializeConcurrentReadsAndWrites()
     {
         using TestDirectory directory = new();
