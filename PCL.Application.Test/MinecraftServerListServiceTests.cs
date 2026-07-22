@@ -112,6 +112,35 @@ public sealed class MinecraftServerListServiceTests
         }
     }
 
+    [TestMethod]
+    public async Task AddAsync_ConcurrentCallsDoNotLoseEntries()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-server-list-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            Task[] additions = Enumerable.Range(0, 20)
+                .Select(index => MinecraftServerListService.AddAsync(
+                    root,
+                    new MinecraftServerEntry($"Server {index}", $"server-{index}.example.net", null)))
+                .ToArray();
+
+            await Task.WhenAll(additions);
+
+            IReadOnlyList<MinecraftServerEntry> servers = await MinecraftServerListService.LoadAsync(root);
+            Assert.AreEqual(20, servers.Count);
+            CollectionAssert.AreEquivalent(
+                Enumerable.Range(0, 20).Select(index => $"server-{index}.example.net").ToArray(),
+                servers.Select(server => server.Address).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static void WriteServersDat(string root)
     {
         NbtCompound rootTag = new("");
