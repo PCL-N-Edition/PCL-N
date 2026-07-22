@@ -152,6 +152,18 @@ public sealed record CommunityResourceUpdateCandidate(
     CommunityResourceVersion Latest,
     CommunityResourceDownloadFile PrimaryFile);
 
+public sealed record CommunityResourceVersionLookupResult(
+    CommunityResourceEntry Entry,
+    CommunityResourceVersion Version);
+
+public interface ICommunityResourceVersionLookup
+{
+    Task<CommunityResourceVersionLookupResult?> GetVersionAsync(
+        CommunityResourceSource source,
+        string versionId,
+        CancellationToken cancellationToken = default);
+}
+
 public interface ICommunityResourceCatalog
 {
     Task<IReadOnlyList<CommunityResourceEntry>> SearchAsync(
@@ -187,7 +199,10 @@ public interface ICommunityResourceCatalog
         CancellationToken cancellationToken = default);
 }
 
-public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog, IDisposable
+public sealed class ModrinthCommunityResourceCatalog :
+    ICommunityResourceCatalog,
+    ICommunityResourceVersionLookup,
+    IDisposable
 {
     private readonly HttpClient _client;
     private readonly bool _ownsClient;
@@ -599,6 +614,55 @@ public sealed class ModrinthCommunityResourceCatalog : ICommunityResourceCatalog
         {
             Source = CommunityResourceSource.Modrinth
         };
+    }
+
+    public async Task<CommunityResourceVersionLookupResult?> GetVersionAsync(
+        CommunityResourceSource source,
+        string versionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (source == CommunityResourceSource.CurseForge || string.IsNullOrWhiteSpace(versionId))
+            return null;
+
+        string requestUrl = "https://api.modrinth.com/v2/version/" + Uri.EscapeDataString(versionId.Trim());
+        using HttpResponseMessage response = await GetWithFallbackAsync(requestUrl, cancellationToken)
+            .ConfigureAwait(false);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return null;
+        response.EnsureSuccessStatusCode();
+        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken)
+            .ConfigureAwait(false);
+        using JsonDocument document = await JsonDocument.ParseAsync(
+                stream,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        JsonElement versionJson = document.RootElement;
+        string projectId = ReadString(versionJson, "project_id");
+        if (string.IsNullOrWhiteSpace(projectId) ||
+            !TryParseModrinthVersion(versionJson, new HashSet<string>(StringComparer.OrdinalIgnoreCase), out CommunityResourceVersion? version) ||
+            version is null)
+        {
+            return null;
+        }
+
+        CommunityResourceEntry? entry = await GetProjectAsync(
+                CommunityResourceSource.Modrinth,
+                projectId,
+                cancellationToken)
+            .ConfigureAwait(false);
+        entry ??= new CommunityResourceEntry(
+            projectId,
+            projectId,
+            projectId,
+            string.Empty,
+            "mod",
+            null,
+            0,
+            null)
+        {
+            Source = CommunityResourceSource.Modrinth
+        };
+        return new CommunityResourceVersionLookupResult(entry, version);
     }
 
     public async Task<CommunityResourceFileIdentity?> LookupFileBySha1Async(

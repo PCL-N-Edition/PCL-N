@@ -20,11 +20,16 @@ public static class CommunityResourceDependencyResolver
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(catalog);
-        Dictionary<(CommunityResourceSource Source, string ProjectId), string> titles = [];
-        IEnumerable<(CommunityResourceSource Source, string ProjectId)> keys = versions
+        Dictionary<(CommunityResourceSource Source, string ProjectId, string VersionId), string> titles = [];
+        IEnumerable<(CommunityResourceSource Source, string ProjectId, string VersionId)> keys = versions
             .SelectMany(static version => version.Dependencies)
-            .Where(static dependency => !string.IsNullOrWhiteSpace(dependency.ProjectId))
-            .Select(static dependency => (dependency.Source, dependency.ProjectId))
+            .Where(static dependency =>
+                !string.IsNullOrWhiteSpace(dependency.ProjectId) ||
+                !string.IsNullOrWhiteSpace(dependency.VersionId))
+            .Select(static dependency => (
+                dependency.Source,
+                dependency.ProjectId,
+                dependency.VersionId ?? string.Empty))
             .Distinct()
             .Take(40);
 
@@ -34,12 +39,19 @@ public static class CommunityResourceDependencyResolver
             await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                CommunityResourceEntry? project = await TryGetProjectAsync(
-                        catalog,
-                        key.Source,
-                        key.ProjectId,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                CommunityResourceEntry? project = !string.IsNullOrWhiteSpace(key.ProjectId)
+                    ? await TryGetProjectAsync(
+                            catalog,
+                            key.Source,
+                            key.ProjectId,
+                            cancellationToken)
+                        .ConfigureAwait(false)
+                    : (await TryGetVersionAsync(
+                            catalog,
+                            key.Source,
+                            key.VersionId,
+                            cancellationToken)
+                        .ConfigureAwait(false))?.Entry;
                 if (project is not null)
                 {
                     lock (titles)
@@ -56,7 +68,10 @@ public static class CommunityResourceDependencyResolver
         {
             Dependencies = version.Dependencies.Select(dependency => dependency with
             {
-                ProjectTitle = titles.GetValueOrDefault((dependency.Source, dependency.ProjectId))
+                ProjectTitle = titles.GetValueOrDefault((
+                    dependency.Source,
+                    dependency.ProjectId,
+                    dependency.VersionId ?? string.Empty))
             }).ToArray()
         }).ToArray();
     }
@@ -107,18 +122,36 @@ public static class CommunityResourceDependencyResolver
             foreach (CommunityResourceDependency dependency in version.Dependencies
                          .Where(static dependency => dependency.Type == CommunityResourceDependencyType.Required))
             {
+                CommunityResourceEntry? dependencyEntry;
+                CommunityResourceVersion? dependencyVersion = null;
                 if (string.IsNullOrWhiteSpace(dependency.ProjectId))
                 {
-                    throw new InvalidOperationException(
-                        $"前置 {dependency.DisplayName} 缺少项目标识，无法自动下载。");
+                    CommunityResourceVersionLookupResult? lookup =
+                        !string.IsNullOrWhiteSpace(dependency.VersionId)
+                            ? await TryGetVersionAsync(
+                                    catalog,
+                                    dependency.Source,
+                                    dependency.VersionId,
+                                    cancellationToken)
+                                .ConfigureAwait(false)
+                            : null;
+                    dependencyEntry = lookup?.Entry;
+                    dependencyVersion = lookup?.Version;
+                    if (dependencyEntry is null || dependencyVersion is null)
+                    {
+                        throw new InvalidOperationException(
+                            $"前置 {dependency.DisplayName} 缺少可解析的项目或版本标识，无法自动下载。");
+                    }
                 }
-
-                CommunityResourceEntry? dependencyEntry = await TryGetProjectAsync(
-                        catalog,
-                        dependency.Source,
-                        dependency.ProjectId,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                else
+                {
+                    dependencyEntry = await TryGetProjectAsync(
+                            catalog,
+                            dependency.Source,
+                            dependency.ProjectId,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
                 PortableLog.Debug(
                     "CommunityDependency",
                     $"解析必需前置：{dependency.DisplayName}；来源={dependency.Source}；ProjectId={dependency.ProjectId}；指定版本={dependency.VersionId ?? "(自动)"}。");
@@ -136,20 +169,23 @@ public static class CommunityResourceDependencyResolver
                 };
 
                 CommunitySearchOptions dependencyOptions = options with { Source = dependency.Source };
-                IReadOnlyList<CommunityResourceVersion> candidates = await catalog.GetVersionsAsync(
-                        dependencyEntry,
-                        dependencyOptions,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                CommunityResourceVersion? dependencyVersion = SelectVersion(candidates, dependency.VersionId);
-                if (dependencyVersion is null && !string.IsNullOrWhiteSpace(dependency.VersionId))
+                if (dependencyVersion is null)
                 {
-                    candidates = await catalog.GetVersionsAsync(
+                    IReadOnlyList<CommunityResourceVersion> candidates = await catalog.GetVersionsAsync(
                             dependencyEntry,
-                            dependencyOptions with { GameVersion = null, Loader = null },
+                            dependencyOptions,
                             cancellationToken)
                         .ConfigureAwait(false);
                     dependencyVersion = SelectVersion(candidates, dependency.VersionId);
+                    if (dependencyVersion is null && !string.IsNullOrWhiteSpace(dependency.VersionId))
+                    {
+                        candidates = await catalog.GetVersionsAsync(
+                                dependencyEntry,
+                                dependencyOptions with { GameVersion = null, Loader = null },
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        dependencyVersion = SelectVersion(candidates, dependency.VersionId);
+                    }
                 }
 
                 CommunityResourceDownloadFile? dependencyFile = dependencyVersion is { Files.Count: > 0 }
@@ -205,6 +241,30 @@ public static class CommunityResourceDependencyResolver
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or IOException)
         {
             PortableLog.Warn(ex, "CommunityDependency", $"获取前置项目详情失败，将使用依赖声明继续：{source}/{projectId}");
+            return null;
+        }
+    }
+
+    private static async Task<CommunityResourceVersionLookupResult?> TryGetVersionAsync(
+        ICommunityResourceCatalog catalog,
+        CommunityResourceSource source,
+        string versionId,
+        CancellationToken cancellationToken)
+    {
+        if (catalog is not ICommunityResourceVersionLookup lookup || string.IsNullOrWhiteSpace(versionId))
+            return null;
+
+        try
+        {
+            return await lookup.GetVersionAsync(source, versionId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or IOException)
+        {
+            PortableLog.Warn(ex, "CommunityDependency", $"按版本解析前置失败：{source}/{versionId}");
             return null;
         }
     }

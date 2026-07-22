@@ -6,7 +6,10 @@ using PCL.Core.Logging;
 
 namespace PCL.Desktop.Features.Community;
 
-public sealed class CompositeCommunityResourceCatalog : ICommunityResourceCatalog, IDisposable
+public sealed class CompositeCommunityResourceCatalog :
+    ICommunityResourceCatalog,
+    ICommunityResourceVersionLookup,
+    IDisposable
 {
     private readonly ICommunityResourceCatalog _modrinth;
     private readonly ICommunityResourceCatalog _curseForge;
@@ -105,6 +108,19 @@ public sealed class CompositeCommunityResourceCatalog : ICommunityResourceCatalo
         CancellationToken cancellationToken = default) =>
         (source == CommunityResourceSource.CurseForge ? _curseForge : _modrinth)
         .GetProjectAsync(source, projectId, cancellationToken);
+
+    public Task<CommunityResourceVersionLookupResult?> GetVersionAsync(
+        CommunityResourceSource source,
+        string versionId,
+        CancellationToken cancellationToken = default)
+    {
+        ICommunityResourceCatalog catalog = source == CommunityResourceSource.CurseForge
+            ? _curseForge
+            : _modrinth;
+        return catalog is ICommunityResourceVersionLookup lookup
+            ? lookup.GetVersionAsync(source, versionId, cancellationToken)
+            : Task.FromResult<CommunityResourceVersionLookupResult?>(null);
+    }
 
     public Task<CommunityResourceFileIdentity?> LookupFileBySha1Async(
         string sha1Hex,

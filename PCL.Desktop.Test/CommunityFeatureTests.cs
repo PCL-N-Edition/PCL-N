@@ -151,6 +151,83 @@ public sealed class CommunityFeatureTests
     }
 
     [TestMethod]
+    public async Task ModrinthDependencies_VersionOnlyReferenceResolvesProjectAndFile()
+    {
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            return path switch
+            {
+                "/v2/project/root/version" => JsonResponse(
+                    """
+                    [{
+                      "id": "root-version",
+                      "name": "Root 1.0",
+                      "version_number": "1.0",
+                      "game_versions": ["1.21.1"],
+                      "loaders": ["fabric"],
+                      "dependencies": [{
+                        "version_id": "dependency-version",
+                        "file_name": "dependency.jar",
+                        "dependency_type": "required"
+                      }],
+                      "files": [{
+                        "filename": "root.jar",
+                        "url": "https://cdn.modrinth.com/root.jar",
+                        "size": 20
+                      }]
+                    }]
+                    """),
+                "/v2/version/dependency-version" => JsonResponse(
+                    """
+                    {
+                      "id": "dependency-version",
+                      "project_id": "dependency-project",
+                      "name": "Dependency 1.0",
+                      "version_number": "1.0",
+                      "game_versions": ["1.21.1"],
+                      "loaders": ["fabric"],
+                      "dependencies": [],
+                      "files": [{
+                        "filename": "dependency.jar",
+                        "url": "https://cdn.modrinth.com/dependency.jar",
+                        "size": 10
+                      }]
+                    }
+                    """),
+                "/v2/project/dependency-project" => JsonResponse(
+                    """
+                    {
+                      "id": "dependency-project",
+                      "slug": "dependency-project",
+                      "title": "Resolved Dependency",
+                      "description": "Required dependency",
+                      "project_type": "mod",
+                      "downloads": 100
+                    }
+                    """),
+                _ => throw new AssertFailedException("Unexpected request: " + request.RequestUri)
+            };
+        }));
+        using ModrinthCommunityResourceCatalog catalog = new(client);
+        CommunityResourceEntry root = new("root", "root", "Root Mod", string.Empty, "mod", null, 0, null);
+        CommunitySearchOptions options = new(GameVersion: "1.21.1", Loader: "fabric");
+
+        IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(root, options);
+        IReadOnlyList<CommunityResourceVersion> enriched = await CommunityResourceDependencyResolver
+            .EnrichNamesAsync(catalog, versions);
+        IReadOnlyList<CommunityResourceDownloadPlanItem> plan = await CommunityResourceDependencyResolver
+            .ResolveRequiredDownloadsAsync(catalog, root, versions.Single(), versions.Single().Files.Single(), options);
+
+        Assert.AreEqual("Resolved Dependency", enriched.Single().Dependencies.Single().DisplayName);
+        Assert.AreEqual(2, plan.Count);
+        Assert.AreEqual("dependency-project", plan[0].Entry.ProjectId);
+        Assert.AreEqual("dependency-version", plan[0].Version.VersionId);
+        Assert.AreEqual("dependency.jar", plan[0].File.FileName);
+        Assert.IsFalse(plan[1].IsDependency);
+    }
+
+    [TestMethod]
     public async Task VersionInspector_ShouldPreferClientVersionForStandaloneLoaderProfile()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcln-version-test-" + Guid.NewGuid().ToString("N"));
