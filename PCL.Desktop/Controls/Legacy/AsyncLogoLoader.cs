@@ -4,6 +4,7 @@
 
 using System.Text;
 using System.Text.Json;
+using System.Collections.Concurrent;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -22,6 +23,7 @@ internal static class AsyncLogoLoader
 
     private static readonly HttpClient Client = CreateClient();
     private static readonly object CacheGate = new();
+    private static readonly ConcurrentDictionary<string, Task<string>> CacheTasks = new(StringComparer.Ordinal);
     private static Bitmap? _placeholder;
     private static readonly Dictionary<string, Bitmap> MemoryCache = new(StringComparer.OrdinalIgnoreCase);
 
@@ -195,6 +197,19 @@ internal static class AsyncLogoLoader
 
     private static async Task<string> EnsureCachedFileAsync(string url)
     {
+        Task<string> task = CacheTasks.GetOrAdd(url, static key => CacheFileCoreAsync(key));
+        try
+        {
+            return await task.ConfigureAwait(false);
+        }
+        finally
+        {
+            CacheTasks.TryRemove(new KeyValuePair<string, Task<string>>(url, task));
+        }
+    }
+
+    private static async Task<string> CacheFileCoreAsync(string url)
+    {
         string root = Path.Combine(Path.GetTempPath(), "PCL-N", "Cache", "Logos");
         Directory.CreateDirectory(root);
         string name = Convert.ToHexString(
@@ -210,12 +225,30 @@ internal static class AsyncLogoLoader
         if (LooksLikeJson(bytes) && TryParseSkinTextureUrl(bytes) is { } textureUrl)
             bytes = await DownloadBytesAsync(textureUrl).ConfigureAwait(false);
 
-        string temp = path + ".download";
-        await File.WriteAllBytesAsync(temp, bytes).ConfigureAwait(false);
-        if (File.Exists(path))
+        string temp = path + "." + Environment.ProcessId + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            await File.WriteAllBytesAsync(temp, bytes).ConfigureAwait(false);
+            File.Move(temp, path, overwrite: true);
+            temp = string.Empty;
+            return path;
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(temp))
+                TryDeleteFile(temp);
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
             File.Delete(path);
-        File.Move(temp, path);
-        return path;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     private static async Task<byte[]> DownloadBytesAsync(string url)

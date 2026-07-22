@@ -310,10 +310,9 @@ public class MyImage : Image
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException)
         {
-            TryDeleteFile(tempPath);
             TryDeleteFile(downloadingPath);
             Trace.WriteLine($"Try to get online image fail (url = {url}, dest = {tempPath}): {ex}");
-            return string.Empty;
+            return File.Exists(tempPath) ? tempPath : string.Empty;
         }
     }
 

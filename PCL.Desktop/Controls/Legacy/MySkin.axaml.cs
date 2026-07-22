@@ -358,12 +358,27 @@ public partial class MySkin : Grid
             .ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         byte[] bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-        string temp = cachePath + ".download";
-        await File.WriteAllBytesAsync(temp, bytes, cancellationToken).ConfigureAwait(false);
-        if (File.Exists(cachePath))
-            File.Delete(cachePath);
-        File.Move(temp, cachePath);
-        return cachePath;
+        string temp = cachePath + "." + Environment.ProcessId + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            await File.WriteAllBytesAsync(temp, bytes, cancellationToken).ConfigureAwait(false);
+            File.Move(temp, cachePath, overwrite: true);
+            temp = string.Empty;
+            return cachePath;
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(temp))
+            {
+                try
+                {
+                    File.Delete(temp);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+        }
     }
 
     private static string NormalizeUuid(string? uuid)
