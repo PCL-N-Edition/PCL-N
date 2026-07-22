@@ -7552,6 +7552,9 @@ public sealed class AvaloniaHeadlessTests
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
                     StackPanel list = page.FindControl<StackPanel>("PanList")!;
+                    Assert.AreEqual(
+                        System.IO.Path.GetFullPath(datapacksDirectory),
+                        System.IO.Path.GetFullPath(page.ResourceDirectory));
                     Assert.AreEqual("数据包 列表 (2)", page.FindControl<MyCard>("PanListBack")!.Title);
                     Assert.IsTrue(list.Children.OfType<MyLocalModItem>().Any(item => item.Title == "zip-pack.zip"));
                     Assert.IsTrue(list.Children.OfType<MyLocalModItem>().Any(item => item.Title == "folder-pack"));

@@ -161,6 +161,7 @@ public sealed class CommunityFeatureSurface
         PageCommunityLeft page = new();
         page.CategoryChanged += (_, category) =>
         {
+            b.CategoryChanged(category);
             b.ApplyRightPage(rightPage);
             _ = rightPage.SetCategoryAsync(category);
         };
@@ -205,4 +206,6 @@ public sealed class CommunityFeatureBindings
     public required Action<string?> OpenUrl { get; init; }
 
     public required Action<string, string> ShowMessage { get; init; }
+
+    public required Action<CommunityResourceCategory> CategoryChanged { get; init; }
 }

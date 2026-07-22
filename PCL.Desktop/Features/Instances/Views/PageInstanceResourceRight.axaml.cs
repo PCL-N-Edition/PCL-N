@@ -46,6 +46,8 @@ public partial class PageInstanceResourceRight : MyPageRight
 
     public event EventHandler<string>? StatusMessage;
 
+    public string ResourceDirectory => _folder;
+
     public void SetContext(LaunchInstanceInfo instance, InstancePageSubType page)
     {
         _instance = instance ?? throw new ArgumentNullException(nameof(instance));

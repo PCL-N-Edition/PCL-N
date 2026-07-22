@@ -7,8 +7,15 @@ namespace PCL.Desktop.Features.Community;
 /// <summary>Maps community resource categories to game-folder subdirectories.</summary>
 internal static class CommunityDownloadPaths
 {
-    public static string ResolveDirectory(CommunityResourceCategory category, string baseDirectory) =>
-        category switch
+    public static string ResolveDirectory(
+        CommunityResourceCategory category,
+        string baseDirectory,
+        string? targetDirectoryOverride = null)
+    {
+        if (!string.IsNullOrWhiteSpace(targetDirectoryOverride))
+            return Path.GetFullPath(targetDirectoryOverride);
+
+        return category switch
         {
             CommunityResourceCategory.Mod => Path.Combine(baseDirectory, "mods"),
             CommunityResourceCategory.ResourcePack => Path.Combine(baseDirectory, "resourcepacks"),
@@ -18,4 +25,5 @@ internal static class CommunityDownloadPaths
             CommunityResourceCategory.World => Path.Combine(baseDirectory, "saves"),
             _ => baseDirectory
         };
+    }
 }

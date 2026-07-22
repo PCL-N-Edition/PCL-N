@@ -113,7 +113,7 @@ public sealed class InstancesManageSurface
 
         PageInstanceResourceRight page = new();
         page.OpenFolderRequested += (_, path) => b.OpenPath(path);
-        page.DownloadRequested += (_, _) => b.OpenCommunityDataPacks();
+        page.DownloadRequested += (_, _) => b.OpenCommunityDataPacks(page.ResourceDirectory);
         page.StatusMessage += (_, message) =>
         {
             b.StatusMessage(message);
@@ -470,7 +470,7 @@ public sealed class InstancesManageBindings
 
     public required Action<InstancePageSubType> OpenCommunityForResource { get; init; }
 
-    public required Action OpenCommunityDataPacks { get; init; }
+    public required Action<string> OpenCommunityDataPacks { get; init; }
 
     public required Action<string> ShowDatapacks { get; init; }
 

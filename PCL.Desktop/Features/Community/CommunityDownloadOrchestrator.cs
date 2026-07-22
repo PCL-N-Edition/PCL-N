@@ -121,6 +121,10 @@ internal static class CommunityDownloadOrchestrator
                     : await InstanceGameDirectory.ResolveAsync(instance, token).ConfigureAwait(true);
             }
 
+            string? targetDirectoryOverride = request.SaveAs
+                ? null
+                : host.GetTargetDirectoryOverride(request.Category);
+
             IReadOnlyList<CommunityResourceDownloadPlanItem> plan;
             if (request.Category == CommunityResourceCategory.Mod &&
                 !request.SaveAs &&
@@ -168,6 +172,7 @@ internal static class CommunityDownloadOrchestrator
                         taskTitle,
                         host,
                         token,
+                        targetDirectoryOverride: item.IsDependency ? null : targetDirectoryOverride,
                         explicitTargetPath: item.IsDependency ? null : saveAsPath)
                     .ConfigureAwait(true);
                 if (item.IsDependency)
@@ -212,9 +217,13 @@ internal static class CommunityDownloadOrchestrator
         string taskTitle,
         CommunityDownloadHost host,
         CancellationToken cancellationToken,
+        string? targetDirectoryOverride = null,
         string? explicitTargetPath = null)
     {
-        string targetDirectory = CommunityDownloadPaths.ResolveDirectory(category, baseDirectory);
+        string targetDirectory = CommunityDownloadPaths.ResolveDirectory(
+            category,
+            baseDirectory,
+            targetDirectoryOverride);
         string targetPath;
         if (!string.IsNullOrWhiteSpace(explicitTargetPath))
         {
@@ -339,6 +348,8 @@ internal static class CommunityDownloadOrchestrator
 internal sealed class CommunityDownloadHost
 {
     public required Func<LaunchInstanceInfo?> GetSelectedInstance { get; init; }
+
+    public required Func<CommunityResourceCategory, string?> GetTargetDirectoryOverride { get; init; }
 
     public required Action CloseDetailIfOpen { get; init; }
 

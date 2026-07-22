@@ -112,6 +112,7 @@ public partial class MainWindow : Window, IDisposable
     private PageCommunityRight? _communityRight;
     private PageCommunityDetail? _communityDetail;
     private PageCommunityFavoritesRight? _communityFavoritesRight;
+    private (CommunityResourceCategory Category, string Directory)? _communityDownloadTarget;
     private readonly CommunityFavoritesStore _communityFavorites = new();
     private PageSpeedLeft? _speedLeft;
     private PageSpeedRight? _speedRight;
@@ -647,6 +648,8 @@ public partial class MainWindow : Window, IDisposable
         if (sender is not MyListItem item || !TryGetNavRoute(item, out NavigationRouteId route))
             return;
 
+        if (route.Equals(CommunityRoute.Value))
+            _communityDownloadTarget = null;
         SelectNavPage(route, animate: _isMainWindowOpened);
         e.Handled = true;
     }
@@ -1112,6 +1115,8 @@ public partial class MainWindow : Window, IDisposable
         if (descriptor is null)
             return;
         route = descriptor.Route;
+        if (!route.Equals(CommunityRoute.Value))
+            _communityDownloadTarget = null;
 
         if (_pendingNavRoute is NavigationRouteId pendingRoute && pendingRoute.Equals(route.Value))
         {
@@ -1829,6 +1834,11 @@ public partial class MainWindow : Window, IDisposable
             ApplyRightPage = ApplyCommunityRightPage,
             OpenDetailAsync = OpenCommunityDetailAsync,
             DownloadAsync = DownloadCommunityResourceAsync,
+            CategoryChanged = category =>
+            {
+                if (_communityDownloadTarget is { } target && target.Category != category)
+                    _communityDownloadTarget = null;
+            },
             CloseDetail = CloseCommunityDetail,
             OpenUrl = url =>
             {
@@ -1974,6 +1984,10 @@ public partial class MainWindow : Window, IDisposable
             new CommunityDownloadHost
             {
                 GetSelectedInstance = () => _launchLeft?.SelectedInstance ?? _managedInstance,
+                GetTargetDirectoryOverride = category =>
+                    _communityDownloadTarget is { } target && target.Category == category
+                        ? target.Directory
+                        : null,
                 CloseDetailIfOpen = () =>
                 {
                     if (this.FindControl<Border>("PanMainRight")?.Child is PageCommunityDetail)
@@ -2490,13 +2504,7 @@ public partial class MainWindow : Window, IDisposable
                 ApplyInstanceSelectPage();
             },
             OpenCommunityForResource = OpenCommunityForResourcePage,
-            OpenCommunityDataPacks = () =>
-            {
-                SelectNavRoute(CommunityRoute, animate: true);
-                _ = _communityLeft?.TrySelectCategory(CommunityResourceCategory.DataPack) == true
-                    ? _communityRight?.SetCategoryAsync(CommunityResourceCategory.DataPack)
-                    : Task.CompletedTask;
-            },
+            OpenCommunityDataPacks = OpenCommunityDataPacks,
             ShowDatapacks = ShowInstanceDatapacks,
             AddServer = PromptAddServer,
             ConnectServer = server =>
@@ -3042,9 +3050,23 @@ public partial class MainWindow : Window, IDisposable
             _ => CommunityResourceCategory.Mod
         };
 
+        _communityDownloadTarget = null;
         SelectNavRoute(CommunityRoute, animate: true);
         if (_communityLeft is not null && _communityLeft.TrySelectCategory(category))
             _ = _communityRight?.SetCategoryAsync(category);
+    }
+
+    private void OpenCommunityDataPacks(string targetDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(targetDirectory))
+            return;
+
+        _communityDownloadTarget = (
+            CommunityResourceCategory.DataPack,
+            Path.GetFullPath(targetDirectory));
+        SelectNavRoute(CommunityRoute, animate: true);
+        if (_communityLeft?.TrySelectCategory(CommunityResourceCategory.DataPack) == true)
+            _ = _communityRight?.SetCategoryAsync(CommunityResourceCategory.DataPack);
     }
 
     private void PromptAddServer(LaunchInstanceInfo instance, PageInstanceServerRight page)
