@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Buffers;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
@@ -77,6 +78,8 @@ public sealed class MinecraftVanillaInstallService
     private const string VersionManifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
     private const int DefaultDownloadThreadLimit = 64;
     private const int MaxDownloadThreadLimit = 256;
+    private static readonly SearchValues<char> InvalidVersionIdCharacters =
+        SearchValues.Create("<>:\"/\\|?*");
     private readonly HttpClient _httpClient;
     private readonly IMinecraftLoaderMetadataService _loaderMetadataService;
     private readonly IMinecraftExternalLoaderInstaller _externalLoaderInstaller;
@@ -138,11 +141,13 @@ public sealed class MinecraftVanillaInstallService
         ArgumentException.ThrowIfNullOrWhiteSpace(request.VersionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.VersionJsonUrl);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.MinecraftRootDirectory);
+        ValidateVersionId(request.VersionId, nameof(request.VersionId));
 
         string minecraftRoot = Path.GetFullPath(request.MinecraftRootDirectory);
         string baseVersionId = string.IsNullOrWhiteSpace(request.BaseVersionId)
             ? request.VersionId
             : request.BaseVersionId.Trim();
+        ValidateVersionId(baseVersionId, nameof(request.BaseVersionId));
         bool installsLoader = request.Loader is not null;
         if (installsLoader && string.Equals(request.VersionId, baseVersionId, StringComparison.OrdinalIgnoreCase))
         {
@@ -304,6 +309,7 @@ public sealed class MinecraftVanillaInstallService
         ArgumentException.ThrowIfNullOrWhiteSpace(request.VersionJsonPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.MinecraftRootDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.InstanceDirectory);
+        ValidateVersionId(request.VersionId, nameof(request.VersionId));
 
         string minecraftRoot = Path.GetFullPath(request.MinecraftRootDirectory);
         string instanceDirectory = Path.GetFullPath(request.InstanceDirectory);
@@ -328,6 +334,42 @@ public sealed class MinecraftVanillaInstallService
         PortableLog.Info("MinecraftRepair", $"版本 {request.VersionId} 文件检查与补全完成。");
         return new MinecraftInstallResult(request.VersionId, minecraftRoot, instanceDirectory, request.VersionJsonPath);
     }
+
+    private static void ValidateVersionId(string versionId, string parameterName)
+    {
+        string value = versionId.Trim();
+        if (!string.Equals(value, versionId, StringComparison.Ordinal) ||
+            value.Length > 180 ||
+            value is "." or ".." ||
+            Path.IsPathRooted(value) ||
+            value.AsSpan().IndexOfAny(InvalidVersionIdCharacters) >= 0 ||
+            value.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new ArgumentException("Minecraft 版本名称包含非法路径字符。", parameterName);
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            if (value.EndsWith(' ') || value.EndsWith('.'))
+                throw new ArgumentException("Minecraft 版本名称不能以空格或句点结尾。", parameterName);
+
+            string deviceName = value.Split('.', 2)[0];
+            if (deviceName.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
+                deviceName.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+                deviceName.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
+                deviceName.Equals("NUL", StringComparison.OrdinalIgnoreCase) ||
+                IsNumberedDeviceName(deviceName, "COM") ||
+                IsNumberedDeviceName(deviceName, "LPT"))
+            {
+                throw new ArgumentException("Minecraft 版本名称不能使用系统保留设备名。", parameterName);
+            }
+        }
+    }
+
+    private static bool IsNumberedDeviceName(string value, string prefix) =>
+        value.Length == prefix.Length + 1 &&
+        value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+        value[^1] is >= '1' and <= '9';
 
     private async Task DownloadVersionFilesAsync(
         string versionId,

@@ -14,6 +14,45 @@ namespace PCL.Application.Test;
 public sealed class MinecraftVanillaInstallServiceTests
 {
     [TestMethod]
+    [DataRow("../outside")]
+    [DataRow("folder/version")]
+    [DataRow("folder\\version")]
+    [DataRow("C:\\outside")]
+    [DataRow("version?.jar")]
+    public async Task InstallAsync_RejectsUnsafeVersionIdBeforeNetworkAccess(string versionId)
+    {
+        using HttpClient client = new(new DelegateHandler(_ =>
+            throw new AssertFailedException("Invalid version IDs must be rejected before network access.")));
+        MinecraftVanillaInstallService service = new(client);
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.InstallAsync(
+            new MinecraftInstallRequest
+            {
+                VersionId = versionId,
+                VersionJsonUrl = "https://example.invalid/version.json",
+                MinecraftRootDirectory = Path.GetTempPath()
+            }));
+    }
+
+    [TestMethod]
+    public async Task InstallAsync_RejectsUnsafeBaseVersionIdBeforeNetworkAccess()
+    {
+        using HttpClient client = new(new DelegateHandler(_ =>
+            throw new AssertFailedException("Invalid base version IDs must be rejected before network access.")));
+        MinecraftVanillaInstallService service = new(client);
+
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.InstallAsync(
+            new MinecraftInstallRequest
+            {
+                VersionId = "SafeInstance",
+                BaseVersionId = "../../outside",
+                VersionJsonUrl = "https://example.invalid/version.json",
+                MinecraftRootDirectory = Path.GetTempPath(),
+                Loader = new MinecraftLoaderInstallRequest(MinecraftLoaderKind.Fabric, "0.16.0")
+            }));
+    }
+
+    [TestMethod]
     public async Task InstallAsync_RewritesVersionJsonIdWhenInstallNameIsCustomized()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcl-install-" + Guid.NewGuid().ToString("N"));
