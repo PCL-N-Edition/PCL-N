@@ -95,4 +95,30 @@ public sealed class InstanceMetadataStoreTests
                 Directory.Delete(root, recursive: true);
         }
     }
+
+    [TestMethod]
+    public async Task UpdateAsync_SerializesWholeReadModifyWriteTransaction()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-instance-metadata-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            await InstanceMetadataStore.SaveAsync(root, new InstanceMetadata());
+
+            const int updateCount = 40;
+            await Task.WhenAll(Enumerable.Range(0, updateCount).Select(_ =>
+                InstanceMetadataStore.UpdateAsync(
+                    root,
+                    metadata => metadata with { LaunchCount = metadata.LaunchCount + 1 })));
+
+            InstanceMetadata result = await InstanceMetadataStore.LoadAsync(root);
+            Assert.AreEqual(updateCount, result.LaunchCount);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
 }

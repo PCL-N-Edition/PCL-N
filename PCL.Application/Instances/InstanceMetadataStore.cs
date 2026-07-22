@@ -2,8 +2,8 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
-using System.Text.Json;
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace PCL.Application.Instances;
 
@@ -11,7 +11,8 @@ public static class InstanceMetadataStore
 {
     public const string MetadataDirectoryName = "PCL";
     public const string MetadataFileName = "InstanceMetadata.json";
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> AccessLocks = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> AccessLocks = new(
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
     public static string GetMetadataPath(string instanceDirectory)
     {
@@ -29,32 +30,7 @@ public static class InstanceMetadataStore
 
         try
         {
-            if (!File.Exists(metadataPath))
-                return new InstanceMetadata();
-
-            await using FileStream stream = new(
-                metadataPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                bufferSize: 8 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
-            InstanceMetadata? metadata = await JsonSerializer.DeserializeAsync(
-                    stream,
-                    InstanceMetadataJsonContext.Default.InstanceMetadata,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (metadata is null)
-                return new InstanceMetadata();
-
-            if (metadata.SchemaVersion is <= 0 or > InstanceMetadata.CurrentSchemaVersion)
-                return new InstanceMetadata();
-
-            return metadata;
-        }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
-            return new InstanceMetadata();
+            return await LoadCoreAsync(metadataPath, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -79,40 +55,12 @@ public static class InstanceMetadataStore
         string metadataPath = GetMetadataPath(instanceDirectory);
         SemaphoreSlim saveLock = AccessLocks.GetOrAdd(metadataPath, static _ => new SemaphoreSlim(1, 1));
         await saveLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        string temporaryPath = string.Empty;
         try
         {
-            string directory = Path.GetDirectoryName(metadataPath)
-                ?? throw new InvalidOperationException("The metadata path has no parent directory.");
-            Directory.CreateDirectory(directory);
-
-            temporaryPath = Path.Combine(
-                directory,
-                $".{Path.GetFileName(metadataPath)}.{Guid.NewGuid():N}.tmp");
-            await using (FileStream stream = new(
-                             temporaryPath,
-                             FileMode.CreateNew,
-                             FileAccess.Write,
-                             FileShare.None,
-                             bufferSize: 8 * 1024,
-                             FileOptions.Asynchronous | FileOptions.WriteThrough))
-            {
-                await JsonSerializer.SerializeAsync(
-                        stream,
-                        metadata,
-                        InstanceMetadataJsonContext.Default.InstanceMetadata,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            await MoveWithRetryAsync(temporaryPath, metadataPath, cancellationToken).ConfigureAwait(false);
-            temporaryPath = string.Empty;
+            await SaveCoreAsync(metadataPath, metadata, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            if (!string.IsNullOrEmpty(temporaryPath) && File.Exists(temporaryPath))
-                TryDeleteTemporaryFile(temporaryPath);
             saveLock.Release();
         }
     }
@@ -158,9 +106,104 @@ public static class InstanceMetadataStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(update);
-        InstanceMetadata current = await LoadAsync(instanceDirectory, cancellationToken).ConfigureAwait(false);
-        InstanceMetadata next = update(current);
-        await SaveAsync(instanceDirectory, next, cancellationToken).ConfigureAwait(false);
-        return next;
+        string metadataPath = GetMetadataPath(instanceDirectory);
+        SemaphoreSlim accessLock = AccessLocks.GetOrAdd(metadataPath, static _ => new SemaphoreSlim(1, 1));
+        await accessLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            InstanceMetadata current = await LoadCoreAsync(metadataPath, cancellationToken).ConfigureAwait(false);
+            InstanceMetadata next = update(current) ??
+                                    throw new InvalidOperationException("The metadata update callback returned null.");
+            if (next.SchemaVersion != InstanceMetadata.CurrentSchemaVersion)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(update),
+                    next.SchemaVersion,
+                    "Only the current instance metadata schema can be saved.");
+            }
+
+            await SaveCoreAsync(metadataPath, next, cancellationToken).ConfigureAwait(false);
+            return next;
+        }
+        finally
+        {
+            accessLock.Release();
+        }
+    }
+
+    private static async Task<InstanceMetadata> LoadCoreAsync(
+        string metadataPath,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(metadataPath))
+            return new InstanceMetadata();
+
+        try
+        {
+            await using FileStream stream = new(
+                metadataPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 8 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            InstanceMetadata? metadata = await JsonSerializer.DeserializeAsync(
+                    stream,
+                    InstanceMetadataJsonContext.Default.InstanceMetadata,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (metadata is null ||
+                metadata.SchemaVersion is <= 0 or > InstanceMetadata.CurrentSchemaVersion)
+            {
+                return new InstanceMetadata();
+            }
+
+            return metadata;
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return new InstanceMetadata();
+        }
+    }
+
+    private static async Task SaveCoreAsync(
+        string metadataPath,
+        InstanceMetadata metadata,
+        CancellationToken cancellationToken)
+    {
+        string directory = Path.GetDirectoryName(metadataPath)
+            ?? throw new InvalidOperationException("The metadata path has no parent directory.");
+        Directory.CreateDirectory(directory);
+
+        string temporaryPath = Path.Combine(
+            directory,
+            $".{Path.GetFileName(metadataPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using (FileStream stream = new(
+                             temporaryPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             bufferSize: 8 * 1024,
+                             FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await JsonSerializer.SerializeAsync(
+                        stream,
+                        metadata,
+                        InstanceMetadataJsonContext.Default.InstanceMetadata,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await MoveWithRetryAsync(temporaryPath, metadataPath, cancellationToken).ConfigureAwait(false);
+            temporaryPath = string.Empty;
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(temporaryPath) && File.Exists(temporaryPath))
+                TryDeleteTemporaryFile(temporaryPath);
+        }
     }
 }
