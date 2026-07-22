@@ -117,8 +117,10 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
 
         _loadCancellation?.Cancel();
         _loadCancellation?.Dispose();
-        _loadCancellation = new CancellationTokenSource();
-        CancellationToken cancellationToken = _loadCancellation.Token;
+        CancellationTokenSource loadCancellation = new();
+        _loadCancellation = loadCancellation;
+        CancellationToken cancellationToken = loadCancellation.Token;
+        CommunityResourceCategory category = _category;
         SetLoadingState(true);
         SetError(null);
 
@@ -126,14 +128,14 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
         {
             string query = this.FindControl<MySearchBar>("PanSearchBox")?.Text?.Trim() ?? string.Empty;
             CommunitySearchOptions options = BuildSearchOptions();
-            PortableLog.Debug("CommunityUI", $"刷新资源列表；分类={_category}；页={_page + 1}；查询={query}；来源={options.Source}。");
+            PortableLog.Debug("CommunityUI", $"刷新资源列表；分类={category}；页={_page + 1}；查询={query}；来源={options.Source}。");
             bool useChineseIndex = AvaloniaLocalizationManager.CurrentLanguageCode == AvaloniaLocalizationManager.ChineseLanguage &&
                                    query.Any(static value => value is >= '\u3400' and <= '\u9fff');
             IReadOnlyList<CommunityResourceEntry> entries =
                 await McModCommunitySearch.SearchAsync(
                         _catalog,
                         McModIndex.Current,
-                        _category,
+                        category,
                         query,
                         options,
                         useChineseIndex,
@@ -143,7 +145,7 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                if (cancellationToken.IsCancellationRequested)
+                if (!IsCurrentLoad(loadCancellation))
                     return;
 
                 _hasLoaded = true;
@@ -157,18 +159,31 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
         }
         catch (OperationCanceledException)
         {
-            PortableLog.Debug("CommunityUI", $"资源列表刷新已取消；分类={_category}。");
+            PortableLog.Debug("CommunityUI", $"资源列表刷新已取消；分类={category}。");
         }
         catch (Exception ex)
         {
-            PortableLog.Error(ex, "CommunityUI", $"资源列表刷新失败；分类={_category}。");
+            if (!IsCurrentLoad(loadCancellation))
+            {
+                PortableLog.Debug(ex, "CommunityUI", $"忽略已过期资源列表请求的异常；分类={category}。");
+                return;
+            }
+
+            PortableLog.Error(ex, "CommunityUI", $"资源列表刷新失败；分类={category}。");
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
+                if (!IsCurrentLoad(loadCancellation))
+                    return;
                 SetError(ex.Message);
                 SetLoadingState(false);
             });
         }
     }
+
+    private bool IsCurrentLoad(CancellationTokenSource loadCancellation) =>
+        !_disposed &&
+        !loadCancellation.IsCancellationRequested &&
+        ReferenceEquals(_loadCancellation, loadCancellation);
 
     public override void Dispose()
     {

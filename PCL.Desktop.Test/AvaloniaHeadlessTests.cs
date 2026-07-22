@@ -2814,6 +2814,37 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void CommunityPages_StaleFailureCannotReplaceNewerResults()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(async () =>
+        {
+            RacingCommunityResourceCatalog catalog = new();
+            PageCommunityRight right = new(catalog);
+            try
+            {
+                Task stale = right.RefreshAsync();
+                await catalog.FirstSearchStarted.Task.ConfigureAwait(true);
+
+                Task current = right.RefreshAsync();
+                await current.ConfigureAwait(true);
+                catalog.FailFirstSearch();
+                await stale.ConfigureAwait(true);
+
+                MyHint error = right.FindControl<MyHint>("HintError")!;
+                StackPanel projects = right.FindControl<StackPanel>("PanProjects")!;
+                Assert.IsFalse(error.IsVisible);
+                Assert.AreEqual("Current Result", projects.Children.OfType<MyListItem>().Single().Title);
+            }
+            finally
+            {
+                right.Dispose();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
     public void CommunityDetail_ShowsRequiredDependencies()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -11634,6 +11665,77 @@ public sealed class AvaloniaHeadlessTests
             Task.FromResult(Projects.FirstOrDefault(project =>
                 project.Source == source &&
                 string.Equals(project.ProjectId, projectId, StringComparison.OrdinalIgnoreCase)));
+
+        public Task<CommunityResourceFileIdentity?> LookupFileBySha1Async(
+            string sha1Hex,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<CommunityResourceFileIdentity?>(null);
+
+        public Task<CommunityResourceVersion?> GetLatestVersionAsync(
+            string projectId,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<CommunityResourceVersion?>(null);
+    }
+
+    private sealed class RacingCommunityResourceCatalog : ICommunityResourceCatalog
+    {
+        private readonly TaskCompletionSource<IReadOnlyList<CommunityResourceEntry>> _firstSearch =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _searchCount;
+
+        public TaskCompletionSource FirstSearchStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void FailFirstSearch() =>
+            _firstSearch.TrySetException(new InvalidOperationException("stale failure"));
+
+        public Task<IReadOnlyList<CommunityResourceEntry>> SearchAsync(
+            CommunityResourceCategory category,
+            string query,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _searchCount) == 1)
+            {
+                FirstSearchStarted.TrySetResult();
+                // Deliberately ignore cancellation to model an HTTP/provider failure racing a
+                // newer request. The page must reject this completion by request identity.
+                return _firstSearch.Task;
+            }
+
+            IReadOnlyList<CommunityResourceEntry> result =
+            [
+                new CommunityResourceEntry(
+                    "current",
+                    "current",
+                    "Current Result",
+                    string.Empty,
+                    "mod",
+                    null,
+                    0,
+                    null)
+            ];
+            return Task.FromResult(result);
+        }
+
+        public Task<CommunityResourceDownloadFile?> ResolveDownloadAsync(
+            CommunityResourceEntry entry,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<CommunityResourceDownloadFile?>(null);
+
+        public Task<IReadOnlyList<CommunityResourceVersion>> GetVersionsAsync(
+            CommunityResourceEntry entry,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<CommunityResourceVersion>>([]);
+
+        public Task<CommunityResourceEntry?> GetProjectAsync(
+            CommunityResourceSource source,
+            string projectId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<CommunityResourceEntry?>(null);
 
         public Task<CommunityResourceFileIdentity?> LookupFileBySha1Async(
             string sha1Hex,

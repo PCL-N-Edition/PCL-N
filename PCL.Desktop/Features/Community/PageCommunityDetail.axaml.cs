@@ -154,15 +154,19 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
 
     private async Task ShowTranslationAsync()
     {
-        if (_entry is null)
+        CommunityResourceEntry? entry = _entry;
+        if (entry is null)
             return;
+        CancellationToken token = _loadCancellation?.Token ?? CancellationToken.None;
         try
         {
             using HttpClient client = new() { Timeout = TimeSpan.FromSeconds(35) };
             client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
             McimTranslationResult result = await new McimTranslationService(client)
-                .GetAsync(_entry, _loadCancellation?.Token ?? CancellationToken.None)
+                .GetAsync(entry, token)
                 .ConfigureAwait(true);
+            if (_disposed || !ReferenceEquals(_entry, entry) || token.IsCancellationRequested)
+                return;
             string message = result.NotFound || string.IsNullOrWhiteSpace(result.Text)
                 ? "MCIM 暂无此项目的中文描述。"
                 : result.Text;
@@ -170,12 +174,14 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
         }
         catch (OperationCanceledException)
         {
-            MessageRequested?.Invoke(this, ("中文描述", "中文描述请求已取消或超时。"));
+            if (!_disposed && ReferenceEquals(_entry, entry) && !token.IsCancellationRequested)
+                MessageRequested?.Invoke(this, ("中文描述", "中文描述请求已取消或超时。"));
         }
         catch (Exception ex)
         {
-            PortableLog.Warn(ex, "MCIM", $"中文描述请求失败；项目={_entry.ProjectId}。");
-            MessageRequested?.Invoke(this, ("中文描述", "暂时无法获取中文描述，请稍后重试。"));
+            PortableLog.Warn(ex, "MCIM", $"中文描述请求失败；项目={entry.ProjectId}。");
+            if (!_disposed && ReferenceEquals(_entry, entry) && !token.IsCancellationRequested)
+                MessageRequested?.Invoke(this, ("中文描述", "暂时无法获取中文描述，请稍后重试。"));
         }
     }
 
@@ -207,8 +213,10 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
 
         _loadCancellation?.Cancel();
         _loadCancellation?.Dispose();
-        _loadCancellation = new CancellationTokenSource();
-        CancellationToken token = _loadCancellation.Token;
+        CancellationTokenSource loadCancellation = new();
+        _loadCancellation = loadCancellation;
+        CancellationToken token = loadCancellation.Token;
+        CommunityResourceEntry entry = _entry;
         SetLoading(true);
         SetError(null);
 
@@ -220,9 +228,9 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
                 GameVersion: null,
                 Loader: null,
                 Tag: _baseOptions.Tag,
-                Source: _entry.Source);
+                Source: entry.Source);
             IReadOnlyList<CommunityResourceVersion> versions =
-                await _catalog.GetVersionsAsync(_entry, fetchOptions, token).ConfigureAwait(false);
+                await _catalog.GetVersionsAsync(entry, fetchOptions, token).ConfigureAwait(false);
             versions = await CommunityResourceDependencyResolver
                 .EnrichNamesAsync(_catalog, versions, token)
                 .ConfigureAwait(false);
@@ -230,7 +238,7 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                if (token.IsCancellationRequested)
+                if (!IsCurrentLoad(loadCancellation, entry))
                     return;
                 _allVersions = versions;
                 BuildFilterChips(versions);
@@ -240,18 +248,34 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
         }
         catch (OperationCanceledException)
         {
-            PortableLog.Debug("CommunityUI", $"资源版本加载已取消：{_entry.Title}");
+            PortableLog.Debug("CommunityUI", $"资源版本加载已取消：{entry.Title}");
         }
         catch (Exception ex)
         {
-            PortableLog.Error(ex, "CommunityUI", $"加载资源版本失败：{_entry.Title}；来源={_entry.Source}。");
+            if (!IsCurrentLoad(loadCancellation, entry))
+            {
+                PortableLog.Debug(ex, "CommunityUI", $"忽略已过期资源版本请求的异常：{entry.Title}");
+                return;
+            }
+
+            PortableLog.Error(ex, "CommunityUI", $"加载资源版本失败：{entry.Title}；来源={entry.Source}。");
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
+                if (!IsCurrentLoad(loadCancellation, entry))
+                    return;
                 SetError(ex.Message);
                 SetLoading(false);
             });
         }
     }
+
+    private bool IsCurrentLoad(
+        CancellationTokenSource loadCancellation,
+        CommunityResourceEntry entry) =>
+        !_disposed &&
+        !loadCancellation.IsCancellationRequested &&
+        ReferenceEquals(_loadCancellation, loadCancellation) &&
+        ReferenceEquals(_entry, entry);
 
     private void BuildFilterChips(IReadOnlyList<CommunityResourceVersion> versions)
     {
