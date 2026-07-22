@@ -350,7 +350,10 @@ public partial class MainWindow
                         localModel,
                         MinecraftAiRepairAdvisor.NormalizeTokenBudget(tokenBudget),
                         downloadThreadLimit);
-                    MinecraftAiRepairSuggestion? aiSuggestion = await _minecraftAiRepairAdvisor.AdviseAsync(
+                    Task<MinecraftAiRepairSuggestion?> RequestSuggestionAsync(
+                        string? followUp,
+                        MinecraftAiRepairSuggestion? previous) =>
+                        _minecraftAiRepairAdvisor.AdviseAsync(
                             modelFault,
                             modelCrashLines,
                             installedMods,
@@ -378,10 +381,23 @@ public partial class MainWindow
                                     (string.IsNullOrWhiteSpace(progress.Detail) ? string.Empty : " · " + progress.Detail));
                             }, DispatcherPriority.Background),
                             cancellationToken,
-                            summaryOnly: session.Attempt == MinecraftRepairAttempt.ModelApplied)
-                        .ConfigureAwait(false);
-                    if (aiSuggestion is not null)
+                            summaryOnly: session.Attempt == MinecraftRepairAttempt.ModelApplied,
+                            userRequestProvider: PromptMinecraftAiRequestAsync,
+                            userFollowUp: followUp,
+                            previousSuggestion: previous);
+
+                    string? userFollowUp = null;
+                    MinecraftAiRepairSuggestion? previousSuggestion = null;
+                    while (true)
                     {
+                        MinecraftAiRepairSuggestion? aiSuggestion = await RequestSuggestionAsync(
+                                userFollowUp,
+                                previousSuggestion)
+                            .ConfigureAwait(false);
+                        userFollowUp = null;
+                        previousSuggestion = null;
+                        if (aiSuggestion is null)
+                            break;
                         analysisMarkdown = string.IsNullOrWhiteSpace(aiSuggestion.AnalysisMarkdown)
                             ? analysisMarkdown
                             : aiSuggestion.AnalysisMarkdown;
@@ -402,11 +418,49 @@ public partial class MainWindow
                         });
                         if (aiSuggestion.NoAbility)
                         {
+                            string? followUp = await PromptMinecraftAiNoAbilityFollowUpAsync(
+                                    aiSuggestion,
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                            if (!string.IsNullOrWhiteSpace(followUp))
+                            {
+                                previousSuggestion = aiSuggestion;
+                                userFollowUp = followUp;
+                                await Dispatcher.UIThread.InvokeAsync(() =>
+                                    _launchRight?.AppendLog("用户在 noability 后补充信息，模型将继续分析。"));
+                                continue;
+                            }
                             repair = new MinecraftRepairExecutionResult("AI 已完成错误总结，但没有安全可执行的修复动作。", true);
+                            break;
                         }
-                        else if (context.Settings.AutomaticallyRepairGameIssues &&
-                                 aiSuggestion.RepairSteps.All(step => IsAutomaticallyExecutableRepair(step.Action)) &&
-                                 await ConfirmAiRepairActionAsync(aiSuggestion, cancellationToken).ConfigureAwait(false))
+                        if (!context.Settings.AutomaticallyRepairGameIssues ||
+                            !aiSuggestion.RepairSteps.All(step => IsAutomaticallyExecutableRepair(step.Action)))
+                        {
+                            break;
+                        }
+
+                        MinecraftAiRepairDecision decision = await ConfirmAiRepairActionAsync(
+                                aiSuggestion,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        while (decision == MinecraftAiRepairDecision.Question)
+                        {
+                            string? challenge = await PromptMinecraftAiChallengeAsync(aiSuggestion, cancellationToken)
+                                .ConfigureAwait(false);
+                            if (!string.IsNullOrWhiteSpace(challenge))
+                            {
+                                previousSuggestion = aiSuggestion;
+                                userFollowUp = challenge;
+                                break;
+                            }
+                            decision = await ConfirmAiRepairActionAsync(aiSuggestion, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        if (!string.IsNullOrWhiteSpace(userFollowUp))
+                            continue;
+                        if (decision != MinecraftAiRepairDecision.Execute)
+                            break;
+
                         {
                             bool planMadeChanges = false;
                             List<string> completedMessages = [];
@@ -478,6 +532,7 @@ public partial class MainWindow
                                     "模型修复没有产生改动，已停止自动重启。"));
                             }
                         }
+                        break;
                     }
                 }
                 catch (Exception aiException)
@@ -1135,31 +1190,152 @@ public partial class MainWindow
             : null;
     }
 
-    private Task<bool> ConfirmAiRepairActionAsync(
+    private enum MinecraftAiRepairDecision
+    {
+        Execute,
+        Question,
+        Decline
+    }
+
+    private Task<MinecraftAiRepairDecision> ConfirmAiRepairActionAsync(
         MinecraftAiRepairSuggestion suggestion,
         CancellationToken cancellationToken)
     {
-        TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<MinecraftAiRepairDecision> completion = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         CancellationTokenRegistration registration = cancellationToken.Register(
-            static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(),
+            static state => ((TaskCompletionSource<MinecraftAiRepairDecision>)state!).TrySetCanceled(),
             completion);
         string target = string.Join(
             "\n",
             suggestion.RepairSteps.Select((step, index) =>
                 $"{index + 1}. {DescribeAiRepairStep(step.Action, step.Parameters)}" +
                 (string.IsNullOrWhiteSpace(step.Rationale) ? string.Empty : $"\n   依据：{step.Rationale}")));
-        Dispatcher.UIThread.Post(() => ShowConfirmDialog(
+        Dispatcher.UIThread.Post(() => ShowMarkdownDialog(
             AvaloniaLocalizationManager.GetText("Crash.Model.Confirm.Title", "模型请求执行修复"),
             $"AI 修复模型生成了以下链式修复计划：\n\n{target}\n\n可信度：{suggestion.Confidence:P0}\n\n" +
-            "每一步都会由启动器重新验证参数并记录到同一个可回滚事务中；模型不会直接访问网络或文件。是否执行？",
-            confirmed =>
+            "每一步都会由启动器重新验证参数并记录到同一个可回滚事务中；模型不会直接访问网络或文件。" +
+            "你可以执行、质疑模型后要求它重新判断，或拒绝执行。",
+            result =>
             {
                 registration.Dispose();
-                completion.TrySetResult(confirmed);
+                completion.TrySetResult(result switch
+                {
+                    1 => MinecraftAiRepairDecision.Execute,
+                    2 => MinecraftAiRepairDecision.Question,
+                    _ => MinecraftAiRepairDecision.Decline
+                });
             },
             AvaloniaLocalizationManager.GetText("Crash.Model.Confirm.Execute", "执行修复"),
-            AvaloniaLocalizationManager.GetText("Crash.Model.Confirm.Decline", "不执行"),
+            AvaloniaLocalizationManager.GetText("Crash.Model.Confirm.Question", "质疑并询问"),
+            AvaloniaLocalizationManager.GetText("Crash.Model.Confirm.Decline", "拒绝执行"),
             isWarn: true));
+        return completion.Task;
+    }
+
+    private Task<string?> PromptMinecraftAiRequestAsync(
+        MinecraftAiUserRequest request,
+        CancellationToken cancellationToken)
+    {
+        string options = request.Options.Count == 0
+            ? string.Empty
+            : "\n\n模型给出的可选参考：\n" + string.Join(
+                "\n",
+                request.Options.Select((option, index) => $"{index + 1}. {option}"));
+        return PromptMinecraftAiInputAsync(
+            AvaloniaLocalizationManager.GetText("Crash.Model.Request.Title", "模型需要补充信息"),
+            request.Question + options + "\n\n你也可以直接质疑问题中的前提或给出选项外答案。",
+            AvaloniaLocalizationManager.GetText("Crash.Model.Request.Hint", "输入回答、补充信息或质疑…"),
+            cancellationToken);
+    }
+
+    private async Task<string?> PromptMinecraftAiNoAbilityFollowUpAsync(
+        MinecraftAiRepairSuggestion suggestion,
+        CancellationToken cancellationToken)
+    {
+        int result = await PromptMinecraftAiMarkdownChoiceAsync(
+                AvaloniaLocalizationManager.GetText("Crash.Model.NoAbility.Title", "模型暂时无法安全修复"),
+                suggestion.AnalysisMarkdown +
+                "\n\n---\n\n你可以继续补充信息、追问或质疑这个结论；模型会保留本轮结论并重新分析。",
+                AvaloniaLocalizationManager.GetText("Crash.Model.NoAbility.Continue", "继续询问"),
+                AvaloniaLocalizationManager.GetText("Crash.Model.NoAbility.Finish", "结束分析"),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (result != 1)
+            return null;
+        return await PromptMinecraftAiInputAsync(
+                AvaloniaLocalizationManager.GetText("Crash.Model.NoAbility.InputTitle", "继续询问模型"),
+                "补充模型尚未掌握的信息，或说明你不同意结论的原因。",
+                AvaloniaLocalizationManager.GetText("Crash.Model.NoAbility.InputHint", "输入补充、问题或质疑…"),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private Task<string?> PromptMinecraftAiChallengeAsync(
+        MinecraftAiRepairSuggestion suggestion,
+        CancellationToken cancellationToken) =>
+        PromptMinecraftAiInputAsync(
+            AvaloniaLocalizationManager.GetText("Crash.Model.Challenge.Title", "质疑模型修复计划"),
+            "请指出你认为不正确的判断、缺失的信息或希望模型重新考虑的条件。\n\n" +
+            "当前结论：" + suggestion.AnalysisMarkdown,
+            AvaloniaLocalizationManager.GetText("Crash.Model.Challenge.Hint", "输入问题或质疑…"),
+            cancellationToken);
+
+    private Task<int> PromptMinecraftAiMarkdownChoiceAsync(
+        string title,
+        string markdown,
+        string primaryButton,
+        string secondaryButton,
+        CancellationToken cancellationToken)
+    {
+        TaskCompletionSource<int> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationTokenRegistration registration = cancellationToken.Register(
+            static state => ((TaskCompletionSource<int>)state!).TrySetCanceled(),
+            completion);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (completion.Task.IsCompleted)
+                return;
+            ShowMarkdownDialog(
+                title,
+                markdown,
+                result =>
+                {
+                    registration.Dispose();
+                    completion.TrySetResult(result);
+                },
+                primaryButton,
+                secondaryButton,
+                isWarn: true);
+        });
+        return completion.Task;
+    }
+
+    private Task<string?> PromptMinecraftAiInputAsync(
+        string title,
+        string caption,
+        string hint,
+        CancellationToken cancellationToken)
+    {
+        TaskCompletionSource<string?> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationTokenRegistration registration = cancellationToken.Register(
+            static state => ((TaskCompletionSource<string?>)state!).TrySetCanceled(),
+            completion);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (completion.Task.IsCompleted)
+                return;
+            ShowInputDialog(
+                title,
+                caption,
+                string.Empty,
+                hint,
+                value =>
+                {
+                    registration.Dispose();
+                    completion.TrySetResult(string.IsNullOrWhiteSpace(value) ? null : value.Trim());
+                });
+        });
         return completion.Task;
     }
 

@@ -267,6 +267,51 @@ public sealed class MinecraftAiRepairAdvisorTests
     }
 
     [TestMethod]
+    public void Protocol_AnswerIsTerminalAndRequestRemainsInteractive()
+    {
+        const string terminal =
+            "[title]形成结论[/title][think]private reasoning[/think]" +
+            "[answer]{\"type\":\"result\",\"analysisMarkdown\":\"第一份终态结论\",\"confidence\":0.8," +
+            "\"steps\":[{\"action\":\"InspectOnly\",\"stage\":\"完成\",\"progress\":1}]}[/answer]" +
+            "[title]不应继续[/title][think]must be ignored[/think]" +
+            "[tool_call name=\"request\"]{\"question\":\"不应触发吗？\"}[/tool_call]";
+
+        MinecraftAiRepairSuggestion? suggestion = MinecraftAiRepairAdvisor.ParseSuggestion(
+            terminal,
+            [MinecraftRepairActionKind.InspectOnly]);
+
+        Assert.IsNotNull(suggestion);
+        Assert.AreEqual("第一份终态结论", suggestion.AnalysisMarkdown);
+        Assert.IsNull(MinecraftAiRepairAdvisor.ParseUserRequest(terminal));
+
+        MinecraftAiUserRequest? request = MinecraftAiRepairAdvisor.ParseUserRequest(
+            "[title]需要澄清[/title][think]private[/think]" +
+            "[tool_call name=\"request\"]{\"question\":\"你是否手动替换过 Java？\"," +
+            "\"options\":[\"是\",\"否\"],\"name\":\"等待用户\",\"progress\":0.7}[/tool_call]");
+        Assert.IsNotNull(request);
+        Assert.AreEqual("你是否手动替换过 Java？", request.Question);
+        CollectionAssert.AreEqual(new[] { "是", "否" }, request.Options.ToArray());
+    }
+
+    [TestMethod]
+    public void ProtocolPrompt_UsesPromptIntensityAndNativeRequestTool()
+    {
+        string prompt = MinecraftAiRepairAdvisor.BuildSystemPrompt(
+            MinecraftAiReasoningEffort.High,
+            nativeToolCalls: true);
+        JsonArray tools = MinecraftAiRepairAdvisor.CreateOpenAiToolDefinitions();
+        string[] names = tools.Select(tool =>
+                tool!["function"]!["name"]!.GetValue<string>())
+            .ToArray();
+
+        StringAssert.Contains(prompt, "HIGH");
+        StringAssert.Contains(prompt, "answer 是严格终态");
+        CollectionAssert.Contains(names, "request");
+        CollectionAssert.DoesNotContain(names, "noability");
+        Assert.IsFalse(MinecraftAiRepairAdvisor.LocalProtocolGrammar.Contains("answer-follow", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void ContainsCompleteTerminalResult_RequiresClosedFinalJson()
     {
         Assert.IsFalse(MinecraftAiRepairAdvisor.ContainsCompleteTerminalResult(
@@ -654,6 +699,59 @@ public sealed class MinecraftAiRepairAdvisorTests
     }
 
     [TestMethod]
+    public async Task AdviseAsync_RequestToolReturnsFreeFormUserChallengeAndCallerThinkingIsOff()
+    {
+        const string request =
+            "[tool_call name=\"request\"]{\"question\":\"你改过 Java 吗？\",\"options\":[\"是\",\"否\"]}[/tool_call]";
+        const string result =
+            "[answer]{\"type\":\"result\",\"analysisMarkdown\":\"已根据用户质疑重新检查。\",\"confidence\":0.7," +
+            "\"steps\":[{\"action\":\"InspectOnly\",\"stage\":\"重新检查\",\"progress\":1}]}[/answer]";
+        SequencedChatHandler handler = new(request, result);
+        using MinecraftAiRepairAdvisor advisor = new(new HttpClient(handler), Path.GetTempPath());
+        MinecraftAiUserRequest? observed = null;
+
+        MinecraftAiRepairSuggestion? suggestion = await advisor.AdviseAsync(
+            new MinecraftLaunchFaultReport
+            {
+                Code = MinecraftLaunchFaultCode.Unknown,
+                Stage = "GameProcess",
+                Message = "unknown",
+                AllowedActions = [MinecraftRepairActionKind.InspectOnly]
+            },
+            [], [],
+            new MinecraftAiRepairContext("1.21.1", "Fabric", 21, 4096, "Test OS", "X64", 0, 1),
+            contextProvider: null,
+            "zh-CN",
+            new MinecraftAiModelOptions(
+                Provider: MinecraftAiProvider.OpenAiCompatible,
+                ApiBaseUrl: "https://example.test/v1",
+                ApiModel: "reasoning-model",
+                ApiKey: "test-secret",
+                ReasoningEffort: MinecraftAiReasoningEffort.High),
+            progress: null,
+            CancellationToken.None,
+            userRequestProvider: (value, _) =>
+            {
+                observed = value;
+                return Task.FromResult<string?>("我没有改 Java，而且我质疑这是 Java 导致的。");
+            });
+
+        Assert.IsNotNull(suggestion);
+        Assert.IsNotNull(observed);
+        Assert.AreEqual(2, handler.RequestBodies.Count);
+        using JsonDocument continuationBody = JsonDocument.Parse(handler.RequestBodies[1]);
+        string continuationPrompt = continuationBody.RootElement
+            .GetProperty("messages")[1]
+            .GetProperty("content")
+            .GetString()!;
+        StringAssert.Contains(continuationPrompt, "我质疑这是 Java 导致的");
+        using JsonDocument body = JsonDocument.Parse(handler.RequestBodies[0]);
+        Assert.AreEqual("off", body.RootElement.GetProperty("reasoning_effort").GetString());
+        string systemPrompt = body.RootElement.GetProperty("messages")[0].GetProperty("content").GetString()!;
+        StringAssert.Contains(systemPrompt, "HIGH");
+    }
+
+    [TestMethod]
     [DataRow(0, "E2B", 3_000_000_000L)]
     [DataRow(1, "E4B", 4_000_000_000L)]
     public void ResolveLocalModel_ProvidesPinnedGemmaPackages(
@@ -843,6 +941,7 @@ public sealed class MinecraftAiRepairAdvisorTests
         Assert.AreEqual(4096, payload["n_predict"]?.GetValue<int>());
         Assert.IsTrue(payload["stream"]?.GetValue<bool>());
         Assert.IsTrue(payload["cache_prompt"]?.GetValue<bool>());
+        Assert.AreEqual(MinecraftAiRepairAdvisor.LocalProtocolGrammar, payload["grammar"]?.GetValue<string>());
     }
 
     [TestMethod]
