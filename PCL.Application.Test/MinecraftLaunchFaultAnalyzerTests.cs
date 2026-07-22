@@ -47,4 +47,25 @@ public sealed class MinecraftLaunchFaultAnalyzerTests
         Assert.AreEqual("MinecraftClient", report.Stage);
         Assert.AreEqual("org.lwjgl.glfw.GLFW", report.LastClassName);
     }
+
+    [TestMethod]
+    [DataRow("Open J9 is not supported by this version", MinecraftLaunchFaultCode.JavaRuntimeIncompatible)]
+    [DataRow("because module java.base does not export sun.security.util", MinecraftLaunchFaultCode.JavaRuntimeIncompatible)]
+    [DataRow("java.lang.ClassNotFoundException: jdk.nashorn.api.scripting.NashornScriptEngineFactory", MinecraftLaunchFaultCode.JavaRuntimeIncompatible)]
+    [DataRow("Invalid maximum heap size: -Xmx4096m", MinecraftLaunchFaultCode.JavaRuntimeIncompatible)]
+    [DataRow("The directories below appear to be extracted jar files. Fix this before you continue.", MinecraftLaunchFaultCode.ModConflict)]
+    [DataRow("java.lang.ClassNotFoundException: org.spongepowered.asm.launch.MixinTweaker", MinecraftLaunchFaultCode.ModLoaderBootstrapFailed)]
+    [DataRow("Cannot find launch target fmlclient, unable to launch", MinecraftLaunchFaultCode.ModLoaderBootstrapFailed)]
+    [DataRow("The driver does not appear to support OpenGL", MinecraftLaunchFaultCode.GraphicsInitializationFailed)]
+    [DataRow("Pixel format not accelerated", MinecraftLaunchFaultCode.GraphicsInitializationFailed)]
+    public void AnalyzeText_RecognizesUpstream215HighConfidenceSignatures(
+        string evidence,
+        MinecraftLaunchFaultCode expected)
+    {
+        MinecraftLaunchFaultReport report = MinecraftLaunchFaultAnalyzer.AnalyzeText(
+            [evidence],
+            "GameProcess");
+
+        Assert.AreEqual(expected, report.Code);
+    }
 }

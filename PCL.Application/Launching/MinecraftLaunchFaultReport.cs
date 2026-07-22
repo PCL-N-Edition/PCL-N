@@ -131,27 +131,85 @@ public static class MinecraftLaunchFaultAnalyzer
             return MinecraftLaunchFaultCode.FileLocked;
         if (ContainsAny(text, "access is denied", "accessdenied", "unauthorizedaccessexception", "permission denied", "拒绝访问"))
             return MinecraftLaunchFaultCode.AccessDenied;
-        if (ContainsAny(text, "unsupportedclassversionerror", "class file version", "only recognizes class file versions"))
+        // High-confidence Java/runtime signatures synchronized with upstream PCL CE 2.15.0.
+        // Keep these before generic ClassNotFound/NoClassDef rules so a missing JDK API is not
+        // misdiagnosed as a damaged Minecraft library.
+        if (ContainsAny(
+                text,
+                "unsupportedclassversionerror",
+                "class file version",
+                "only recognizes class file versions",
+                "unsupported major.minor version",
+                "unable to make protected final java.lang.class java.lang.classloader.defineclass",
+                "java.lang.classcastexception: java.base/jdk",
+                "java.lang.classcastexception: class jdk.",
+                "open j9 is not supported",
+                "openj9 is incompatible",
+                ".j9vminternals.",
+                "because module java.base does not export",
+                "java.lang.classnotfoundexception: jdk.nashorn.api.scripting.nashornscriptenginefactory",
+                "java.lang.classnotfoundexception: java.lang.invoke.lambdametafactory",
+                "java.lang.nosuchmethoderror: sun.security.util.manifestentryverifier",
+                "invalid maximum heap size"))
+        {
             return MinecraftLaunchFaultCode.JavaRuntimeIncompatible;
+        }
         if (ContainsAny(text, "outofmemoryerror", "java heap space", "unable to create native thread", "could not reserve enough space"))
             return MinecraftLaunchFaultCode.OutOfMemory;
         if (ContainsAny(text, "could not find or load main class", "mainclassmissing", "找不到或无法加载主类"))
             return MinecraftLaunchFaultCode.MainClassMissing;
+        if (ContainsAny(text, "java.lang.classnotfoundexception: org.spongepowered.asm.launch.mixintweaker"))
+            return MinecraftLaunchFaultCode.ModLoaderBootstrapFailed;
         if (ContainsAny(text, "noclassdeffounderror", "classnotfoundexception", "no such file or directory") &&
             !stage.Contains("JvmStarting", StringComparison.OrdinalIgnoreCase))
             return MinecraftLaunchFaultCode.ClasspathDependencyMissing;
         if (ContainsAny(text, "missing mandatory dependencies", "requires version", "requires any version", "mod resolution encountered", "依赖模组"))
             return MinecraftLaunchFaultCode.MissingModDependency;
-        if (ContainsAny(text, "mod loading has failed", "modloadingexception", "mixin apply failed", "mixintransformererror", "failed to load mod"))
+        if (ContainsAny(
+                text,
+                "mod loading has failed",
+                "modloadingexception",
+                "mixin apply failed",
+                "mixintransformererror",
+                "failed to load mod",
+                "the directories below appear to be extracted jar files",
+                "extracted mod jars found, loading will not continue",
+                "shaders mod detected. please remove it, optifine has built-in support for shaders",
+                "invalid module name: '' is not a java identifier",
+                "transformer/net.optifine/net.optifine.reflect.reflector.<clinit>(reflector.java",
+                "net.minecraft.client.renderer.texture.spritecontents.<init>",
+                "com.mojang.blaze3d.systems.rendersystem.getbackenddescription"))
+        {
             return MinecraftLaunchFaultCode.ModConflict;
-        if (ContainsAny(text, "fabricloader", "modlauncher", "quiltloader", "neoforged", "minecraftforge") &&
+        }
+        if (ContainsAny(
+                text,
+                "cannot find launch target fmlclient, unable to launch") ||
+            ContainsAll(text, "invalid paths argument, contained no existing paths", "libraries\\net\\minecraftforge\\fmlcore") ||
+            ContainsAny(text, "fabricloader", "modlauncher", "quiltloader", "neoforged", "minecraftforge") &&
             ContainsAny(text, "bootstrap", "failed", "exception", "error"))
+        {
             return MinecraftLaunchFaultCode.ModLoaderBootstrapFailed;
+        }
         if (ContainsAny(text, "unsatisfiedlinkerror", "failed to load library", "no lwjgl", "natives") ||
             ContainsAny(text, "org.lwjgl.system.library", "java.library.path"))
             return MinecraftLaunchFaultCode.NativeLibraryFailed;
-        if (ContainsAny(text, "glfw error", "failed to create window", "opengl", "vulkan", "graphics driver", "pixel format"))
+        if (ContainsAny(
+                text,
+                "glfw error",
+                "failed to create window",
+                "opengl",
+                "vulkan",
+                "graphics driver",
+                "pixel format",
+                "the driver does not appear to support opengl",
+                "couldn't set pixel format",
+                "pixel format not accelerated",
+                "1282: invalid operation",
+                "maybe try a lower resolution resourcepack"))
+        {
             return MinecraftLaunchFaultCode.GraphicsInitializationFailed;
+        }
         if (ContainsAny(text, "invalid credentials", "invalid token", "forbiddenoperationexception", "authenticationexception", "http 401", "http 403"))
             return MinecraftLaunchFaultCode.AuthenticationFailed;
         if (ContainsAny(text, "sessionserver", "hasjoined", "joinserver", "http 503", "service unavailable") &&
@@ -241,6 +299,9 @@ public static class MinecraftLaunchFaultAnalyzer
 
     private static bool ContainsAny(string text, params string[] values) =>
         values.Any(value => text.Contains(value, StringComparison.OrdinalIgnoreCase));
+
+    private static bool ContainsAll(string text, params string[] values) =>
+        values.All(value => text.Contains(value, StringComparison.OrdinalIgnoreCase));
 
     private static string? Truncate(string? value, int maximumLength) =>
         string.IsNullOrEmpty(value) || value.Length <= maximumLength ? value : value[..maximumLength];
