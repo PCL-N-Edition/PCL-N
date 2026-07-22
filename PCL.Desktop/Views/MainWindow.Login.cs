@@ -30,6 +30,9 @@ namespace PCL.Desktop.Views;
 
 public partial class MainWindow
 {
+    private readonly object _profileSaveQueueLock = new();
+    private Task _profileSaveQueue = Task.CompletedTask;
+
     private void WireLaunchLoginSurface()
     {
         _launchLoginSurface.WireOnce(this, new LaunchLoginBindings
@@ -1230,19 +1233,47 @@ public partial class MainWindow
         {
             Profiles = _loginProfiles.Select(ToLaunchProfile).ToArray()
         };
-        _ = Task.Run(async () =>
+
+        lock (_profileSaveQueueLock)
         {
+            Task predecessor = _profileSaveQueue;
+            _profileSaveQueue = SaveProfilesAfterAsync(predecessor, snapshot, action);
+        }
+    }
+
+    private async Task SaveProfilesAfterAsync(
+        Task predecessor,
+        LaunchProfileSet snapshot,
+        string action)
+    {
+        try
+        {
+            await predecessor.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // A failed notification dispatch must not poison the ordered save queue.
+            PortableLog.Warn(ex, "AccountProfile", "前一个账户档案保存任务异常结束，继续保存最新快照。");
+        }
+
+        try
+        {
+            using LaunchProfileStore store = CreateLaunchProfileStore();
+            await store.SaveAsync(snapshot).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "AccountProfile", action + "失败。");
             try
-            {
-                using LaunchProfileStore store = CreateLaunchProfileStore();
-                await store.SaveAsync(snapshot).ConfigureAwait(false);
-            }
-            catch (Exception ex)
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
                     _launchRight?.AppendLog(action + "失败：" + ex.Message));
             }
-        });
+            catch (Exception dispatchException)
+            {
+                PortableLog.Debug(dispatchException, "AccountProfile", "窗口关闭后无法显示账户档案保存失败提示。");
+            }
+        }
     }
 
     private static LaunchProfileStore CreateLaunchProfileStore() =>

@@ -2,18 +2,23 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace PCL.Application.Accounts;
 
 public sealed class LaunchProfileStore : IDisposable
 {
-    private readonly SemaphoreSlim _accessLock = new(1, 1);
+    private const int ReplaceAttemptCount = 6;
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> AccessLocks = new(
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    private readonly SemaphoreSlim _accessLock;
 
     public LaunchProfileStore(string profilePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(profilePath);
         ProfilePath = Path.GetFullPath(profilePath);
+        _accessLock = AccessLocks.GetOrAdd(ProfilePath, static _ => new SemaphoreSlim(1, 1));
     }
 
     public string ProfilePath { get; }
@@ -33,7 +38,7 @@ public sealed class LaunchProfileStore : IDisposable
                     ProfilePath,
                     FileMode.Open,
                     FileAccess.Read,
-                    FileShare.Read,
+                    FileShare.ReadWrite | FileShare.Delete,
                     bufferSize: 16 * 1024,
                     FileOptions.Asynchronous | FileOptions.SequentialScan);
                 LaunchProfileSet? profiles = await JsonSerializer.DeserializeAsync(
@@ -108,16 +113,63 @@ public sealed class LaunchProfileStore : IDisposable
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            File.Move(temporaryPath, ProfilePath, overwrite: true);
+            await ReplaceWithRetryAsync(temporaryPath, cancellationToken).ConfigureAwait(false);
             temporaryPath = null;
         }
         finally
         {
             if (temporaryPath is not null)
-                File.Delete(temporaryPath);
+                TryDeleteTemporaryFile(temporaryPath);
             _accessLock.Release();
         }
     }
 
-    public void Dispose() => _accessLock.Dispose();
+    private async Task ReplaceWithRetryAsync(
+        string temporaryPath,
+        CancellationToken cancellationToken)
+    {
+        Exception? lastException = null;
+        for (int attempt = 1; attempt <= ReplaceAttemptCount; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                File.Move(temporaryPath, ProfilePath, overwrite: true);
+                return;
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException)
+            {
+                lastException = exception;
+                if (attempt < ReplaceAttemptCount)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(25 * attempt), cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+        }
+
+        throw new IOException(
+            $"Unable to replace launch profile file '{ProfilePath}' after {ReplaceAttemptCount} attempts.",
+            lastException);
+    }
+
+    private static void TryDeleteTemporaryFile(string temporaryPath)
+    {
+        try
+        {
+            File.Delete(temporaryPath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Preserve the original save exception. A later save or OS cleanup can remove an
+            // externally locked temporary file.
+        }
+    }
+
+    // Locks are shared by every store instance for the same normalized path and live for the
+    // process lifetime. Disposing one short-lived store must not dispose the shared lock.
+    public void Dispose()
+    {
+    }
 }

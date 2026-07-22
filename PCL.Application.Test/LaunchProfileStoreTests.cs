@@ -63,6 +63,46 @@ public sealed class LaunchProfileStoreTests
         Assert.IsTrue(File.Exists(result.BackupPath));
     }
 
+    [TestMethod]
+    public async Task SeparateStoreInstances_SerializeConcurrentReadsAndWrites()
+    {
+        using TestDirectory directory = new();
+        string profilePath = Path.Combine(directory.Path, "profiles.json");
+        using (LaunchProfileStore initial = new(profilePath))
+            await initial.SaveAsync(new LaunchProfileSet());
+
+        Task[] workers = Enumerable.Range(0, 12).Select(async worker =>
+        {
+            for (int iteration = 0; iteration < 15; iteration++)
+            {
+                LaunchProfileSet snapshot = new()
+                {
+                    Profiles =
+                    [
+                        new LaunchProfile
+                        {
+                            Username = $"worker-{worker}-iteration-{iteration}",
+                            Kind = LaunchProfileKind.Offline
+                        }
+                    ]
+                };
+                using LaunchProfileStore store = new(profilePath);
+                await store.SaveAsync(snapshot);
+                LaunchProfileLoadResult loaded = await store.LoadAsync();
+                Assert.IsFalse(loaded.WasRecovered);
+                Assert.AreEqual(LaunchProfileSet.CurrentSchemaVersion, loaded.Profiles.SchemaVersion);
+            }
+        }).ToArray();
+
+        await Task.WhenAll(workers);
+
+        using LaunchProfileStore finalStore = new(profilePath);
+        LaunchProfileLoadResult result = await finalStore.LoadAsync();
+        Assert.IsFalse(result.WasRecovered);
+        Assert.AreEqual(1, result.Profiles.Profiles.Count);
+        Assert.AreEqual(0, Directory.EnumerateFiles(directory.Path, "*.tmp").Count());
+    }
+
     private sealed class TestDirectory : IDisposable
     {
         public TestDirectory()
