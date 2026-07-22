@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using PCL.Application.Minecraft.Launch.Arguments;
+using PCL.Core.Logging;
 
 namespace PCL.Application.Minecraft.Launch.Libraries;
 
@@ -38,17 +39,27 @@ public static class MinecraftLibraryResolver
                 continue;
 
             bool isLocal = string.Equals(library["hint"]?.ToString(), "local", StringComparison.Ordinal);
-            string? rootUrl = BuildRootUrl(library["url"]?.ToString(), originalName);
 
-            if (library["natives"] is null)
+            try
             {
-                result.Add(ResolveArtifact(library, originalName, rootUrl, minecraftRoot, request.TargetInstanceDirectory, isLocal));
-                continue;
-            }
+                string? rootUrl = BuildRootUrl(library["url"]?.ToString(), originalName);
+                if (library["natives"] is null)
+                {
+                    result.Add(ResolveArtifact(library, originalName, rootUrl, minecraftRoot, request.TargetInstanceDirectory, isLocal));
+                    continue;
+                }
 
-            MinecraftLibraryToken? nativeToken = ResolveNative(library, originalName, rootUrl, minecraftRoot, request, isLocal);
-            if (nativeToken is not null)
-                result.Add(nativeToken);
+                MinecraftLibraryToken? nativeToken = ResolveNative(library, originalName, rootUrl, minecraftRoot, request, isLocal);
+                if (nativeToken is not null)
+                    result.Add(nativeToken);
+            }
+            catch (InvalidDataException exception)
+            {
+                PortableLog.Warn(
+                    exception,
+                    "MinecraftLibrary",
+                    $"跳过包含非法下载路径的支持库：{originalName}。");
+            }
         }
 
         return result;
@@ -62,6 +73,10 @@ public static class MinecraftLibraryResolver
         string[] parts = coordinate.Split(':');
         if (parts.Length < 3)
             throw new FormatException($"Invalid library coordinate: {coordinate}");
+
+        ValidateCoordinatePart(parts[0], nameof(coordinate), allowDots: true);
+        ValidateCoordinatePart(parts[1], nameof(coordinate), allowDots: false);
+        ValidateCoordinatePart(parts[2], nameof(coordinate), allowDots: false);
 
         string relativePath = Path.Combine(
             parts[0].Replace('.', Path.DirectorySeparatorChar),
@@ -91,7 +106,7 @@ public static class MinecraftLibraryResolver
         {
             localPath = artifact["path"] is null
                 ? GetCoordinatePath(originalName, minecraftRoot)
-                : Path.Combine(minecraftRoot, "libraries", NormalizeManifestPath(artifact["path"]!.ToString()));
+                : ResolveManifestLibraryPath(minecraftRoot, artifact["path"]!.ToString());
 
             return CreateToken(
                 originalName,
@@ -130,7 +145,7 @@ public static class MinecraftLibraryResolver
         {
             string localPath = classifier["path"] is null
                 ? GetNativeCoordinatePath(originalName, minecraftRoot, nativeClassifier)
-                : Path.Combine(minecraftRoot, "libraries", NormalizeManifestPath(classifier["path"]!.ToString()));
+                : ResolveManifestLibraryPath(minecraftRoot, classifier["path"]!.ToString());
 
             return CreateToken(
                 originalName,
@@ -219,12 +234,44 @@ public static class MinecraftLibraryResolver
 
     private static string GetNativeCoordinatePath(string coordinate, string minecraftRoot, string classifier)
     {
+        ValidateCoordinatePart(classifier, nameof(classifier), allowDots: false);
         string artifactPath = GetCoordinatePath(coordinate, minecraftRoot);
         return Path.ChangeExtension(artifactPath, null) + "-" + classifier + ".jar";
     }
 
-    private static string NormalizeManifestPath(string manifestPath) =>
-        manifestPath.Replace('/', Path.DirectorySeparatorChar);
+    private static string ResolveManifestLibraryPath(string minecraftRoot, string manifestPath)
+    {
+        if (string.IsNullOrWhiteSpace(manifestPath))
+            throw new InvalidDataException("支持库下载路径不能为空。");
+
+        try
+        {
+            string normalized = manifestPath
+                .Replace('\\', Path.DirectorySeparatorChar)
+                .Replace('/', Path.DirectorySeparatorChar);
+            if (Path.IsPathRooted(normalized))
+                throw new InvalidDataException($"支持库下载路径不能为绝对路径：{manifestPath}");
+
+            string librariesRoot = Path.GetFullPath(Path.Combine(minecraftRoot, "libraries"));
+            string candidate = Path.GetFullPath(Path.Combine(librariesRoot, normalized));
+            string rootPrefix = Path.TrimEndingDirectorySeparator(librariesRoot) + Path.DirectorySeparatorChar;
+            StringComparison comparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            if (!candidate.StartsWith(rootPrefix, comparison))
+            {
+                throw new InvalidDataException(
+                    $"支持库下载路径不能位于 libraries 文件夹外：{manifestPath}");
+            }
+
+            return candidate;
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or IOException or NotSupportedException)
+        {
+            throw new InvalidDataException($"支持库下载路径无效：{manifestPath}", exception);
+        }
+    }
 
     private static long ParseSize(JsonNode? node)
     {
@@ -239,9 +286,32 @@ public static class MinecraftLibraryResolver
 
     private static string GetLocalLibraryFileName(string coordinate)
     {
-        int firstColonIndex = coordinate.IndexOf(':', StringComparison.Ordinal);
-        string tail = firstColonIndex >= 0 ? coordinate[(firstColonIndex + 1)..] : coordinate;
-        return tail.Replace(':', '-') + ".jar";
+        string[] parts = coordinate.Split(':');
+        if (parts.Length < 3)
+            throw new InvalidDataException($"支持库坐标无效：{coordinate}");
+        ValidateCoordinatePart(parts[1], nameof(coordinate), allowDots: false);
+        ValidateCoordinatePart(parts[2], nameof(coordinate), allowDots: false);
+        return parts[1] + "-" + parts[2] + ".jar";
+    }
+
+    private static void ValidateCoordinatePart(
+        string value,
+        string parameterName,
+        bool allowDots)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            value is "." or ".." ||
+            value.Contains('/') ||
+            value.Contains('\\') ||
+            value.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new InvalidDataException($"支持库坐标包含非法路径片段：{value}");
+        }
+
+        if (allowDots && value.Split('.').Any(static segment => string.IsNullOrWhiteSpace(segment)))
+            throw new InvalidDataException($"支持库坐标包含非法组名：{value}");
+        if (!allowDots && value.Contains(Path.DirectorySeparatorChar))
+            throw new ArgumentException("Invalid path segment.", parameterName);
     }
 
     private static string? GetNameWithoutVersion(string originalName)

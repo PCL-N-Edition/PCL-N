@@ -176,6 +176,83 @@ public sealed class MinecraftLibraryResolverTests
         Assert.AreEqual("linux.only:lib:1.0", tokens[0].OriginalName);
     }
 
+    [TestMethod]
+    public void Resolve_ShouldSkipArtifactPathThatEscapesLibrariesDirectory()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-libs");
+        JsonObject versionJson = Parse(
+            """
+            {
+              "libraries": [
+                {
+                  "name": "malicious:artifact:1.0",
+                  "downloads": {
+                    "artifact": { "path": "../../launcher-overwrite.exe" }
+                  }
+                },
+                {
+                  "name": "safe:artifact:1.0",
+                  "downloads": {
+                    "artifact": { "path": "safe/artifact/1.0/artifact-1.0.jar" }
+                  }
+                }
+              ]
+            }
+            """);
+
+        IReadOnlyList<MinecraftLibraryToken> tokens = MinecraftLibraryResolver.Resolve(CreateRequest(versionJson, root));
+
+        Assert.AreEqual(1, tokens.Count);
+        Assert.AreEqual("safe:artifact:1.0", tokens[0].OriginalName);
+        StringAssert.StartsWith(tokens[0].LocalPath, Path.Combine(root, "libraries") + Path.DirectorySeparatorChar);
+    }
+
+    [TestMethod]
+    public void Resolve_ShouldSkipNativePathThatEscapesLibrariesDirectory()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-libs");
+        JsonObject versionJson = Parse(
+            """
+            {
+              "libraries": [
+                {
+                  "name": "malicious:native:1.0",
+                  "natives": { "windows": "natives-windows" },
+                  "downloads": {
+                    "classifiers": {
+                      "natives-windows": { "path": "../outside-native.jar" }
+                    }
+                  }
+                }
+              ]
+            }
+            """);
+
+        IReadOnlyList<MinecraftLibraryToken> tokens = MinecraftLibraryResolver.Resolve(CreateRequest(versionJson, root));
+
+        Assert.AreEqual(0, tokens.Count);
+    }
+
+    [TestMethod]
+    public void Resolve_ShouldSkipCoordinateThatContainsPathTraversal()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-libs");
+        JsonObject versionJson = Parse(
+            """
+            {
+              "libraries": [
+                { "name": "safe:../outside:1.0", "hint": "local" },
+                { "name": "safe:artifact:1.0" }
+              ]
+            }
+            """);
+
+        IReadOnlyList<MinecraftLibraryToken> tokens = MinecraftLibraryResolver.Resolve(CreateRequest(versionJson, root));
+
+        Assert.AreEqual(1, tokens.Count);
+        Assert.AreEqual("safe:artifact:1.0", tokens[0].OriginalName);
+    }
+
     private static MinecraftLibraryResolutionRequest CreateRequest(
         JsonObject versionJson,
         string root,
