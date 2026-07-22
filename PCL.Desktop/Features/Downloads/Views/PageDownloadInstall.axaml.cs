@@ -885,7 +885,7 @@ public partial class PageDownloadInstall : MyPageRight
             return LoaderSupportState.VisibleClosed(incompatibleLoader ?? canAdd);
 
         if (_selectedLoaderKind == MinecraftLoaderKind.OptiFine &&
-            kind is MinecraftLoaderKind.Fabric or MinecraftLoaderKind.LegacyFabric)
+            !CanCombineWithOptiFine(kind))
         {
             return LoaderSupportState.VisibleClosed(ResourceText(
                 "Download.Install.Compat.IncompatibleWithLoader",
@@ -914,7 +914,7 @@ public partial class PageDownloadInstall : MyPageRight
             return LoaderSupportState.Selected(addon.DisplayVersion);
         if (_selectedLoaderKind == MinecraftLoaderKind.OptiFine && _selectedLoaderVersion is { } selected)
             return LoaderSupportState.Selected(selected.DisplayVersion);
-        if (_selectedLoaderKind is MinecraftLoaderKind.Fabric or MinecraftLoaderKind.LegacyFabric)
+        if (_selectedLoaderKind is { } selectedLoader && !CanCombineWithOptiFine(selectedLoader))
             return LoaderSupportState.VisibleClosed(ResourceText(
                 "Download.Install.Compat.IncompatibleWithLoader",
                 "与 {0} 不兼容",
@@ -931,6 +931,19 @@ public partial class PageDownloadInstall : MyPageRight
             _loaderVersionErrors.TryGetValue(key, out string? error)
                 ? "版本列表加载失败：" + error
                 : "正在获取版本列表");
+    }
+
+    private bool CanCombineWithOptiFine(MinecraftLoaderKind loaderKind)
+    {
+        if (loaderKind == MinecraftLoaderKind.LiteLoader)
+            return true;
+        if (loaderKind != MinecraftLoaderKind.Forge)
+            return false;
+
+        string? gameVersion = _selectedVersion?.Id?.Split('-', 2)[0];
+        return !Version.TryParse(gameVersion, out Version? parsed) ||
+               parsed < new Version(1, 13) ||
+               parsed > new Version(1, 14, 3);
     }
 
     private void BeginLoaderVersionPreload()

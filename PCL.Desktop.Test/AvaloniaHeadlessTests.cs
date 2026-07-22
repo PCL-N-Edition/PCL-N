@@ -3425,6 +3425,82 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageDownloadInstall_BlocksUpstreamIncompatibleOptiFineLoaderPairs()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            PageDownloadInstall page = new(
+                new MinecraftVanillaInstallService(),
+                new FakeMinecraftLoaderMetadataService(),
+                new FakeMinecraftInstallAddonMetadataService());
+            SetPrivateField(
+                page,
+                "_versions",
+                new[]
+                {
+                    new MinecraftVersionManifestEntry(
+                        "1.20.1",
+                        "release",
+                        "https://example.invalid/1.20.1.json",
+                        DateTimeOffset.Parse("2023-06-12T00:00:00Z"))
+                });
+            Window window = new()
+            {
+                Width = 620,
+                Height = 520,
+                Content = page
+            };
+
+            try
+            {
+                window.Show();
+                page.FocusVersionAsync("1.20.1").GetAwaiter().GetResult();
+
+                SetPrivateField(page, "_selectedLoaderKind", MinecraftLoaderKind.NeoForge);
+                SetPrivateField(
+                    page,
+                    "_selectedLoaderVersion",
+                    new MinecraftLoaderVersionEntry(MinecraftLoaderKind.NeoForge, "21.1.200", true));
+                InvokePrivateNoArgs(page, "ReloadSelectedLoaderCards");
+                Assert.AreEqual("与 NeoForge 不兼容", page.FindControl<TextBlock>("LabOptiFine")!.Text);
+                Assert.IsFalse(page.FindControl<MyCard>("CardOptiFine")!.MainSwap.IsVisible);
+
+                SetPrivateField(page, "_selectedLoaderKind", MinecraftLoaderKind.OptiFine);
+                SetPrivateField(
+                    page,
+                    "_selectedLoaderVersion",
+                    new MinecraftLoaderVersionEntry(MinecraftLoaderKind.OptiFine, "1.20.1_HD_U_I6", true));
+                InvokePrivateNoArgs(page, "ReloadSelectedLoaderCards");
+                Assert.AreEqual("与 OptiFine 不兼容", page.FindControl<TextBlock>("LabNeoForge")!.Text);
+                Assert.IsFalse(page.FindControl<MyCard>("CardNeoForge")!.MainSwap.IsVisible);
+
+                SetPrivateField(
+                    page,
+                    "_selectedVersion",
+                    new MinecraftVersionManifestEntry(
+                        "1.14.3",
+                        "release",
+                        "https://example.invalid/1.14.3.json",
+                        DateTimeOffset.Parse("2019-06-24T00:00:00Z")));
+                SetPrivateField(page, "_selectedLoaderKind", MinecraftLoaderKind.Forge);
+                SetPrivateField(
+                    page,
+                    "_selectedLoaderVersion",
+                    new MinecraftLoaderVersionEntry(MinecraftLoaderKind.Forge, "27.0.60", true));
+                InvokePrivateNoArgs(page, "ReloadSelectedLoaderCards");
+                Assert.AreEqual("与 Forge 不兼容", page.FindControl<TextBlock>("LabOptiFine")!.Text);
+                Assert.IsFalse(page.FindControl<MyCard>("CardOptiFine")!.MainSwap.IsVisible);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void PageDownloadInstall_PreservesInstanceInstallTargetWhenSelectingLoader()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
