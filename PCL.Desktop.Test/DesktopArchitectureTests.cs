@@ -19,6 +19,15 @@ namespace PCL.Desktop.Test;
 public sealed class DesktopArchitectureTests
 {
     [TestMethod]
+    public void DesktopShellSuppressionUsesDedicatedTestSwitchOnly()
+    {
+        Assert.IsFalse(App.ShouldSkipDesktopShell(key =>
+            key is "PCL_DISABLE_FIRST_RUN" or "PCL_DISABLE_DEBUG_HINT" ? "1" : null));
+        Assert.IsTrue(App.ShouldSkipDesktopShell(key =>
+            key == "PCL_DISABLE_DESKTOP_SHELL" ? "1" : null));
+    }
+
+    [TestMethod]
     public void HostLocalizationKeepsLegacyFallbacksResolvable()
     {
         string originalLanguage = AvaloniaLocalizationManager.CurrentLanguageCode;

@@ -48,10 +48,9 @@ public sealed partial class App : Avalonia.Application
 
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-                // Headless unit tests host their own windows; skip splash/MainWindow shell.
-                bool skipShell =
-                    !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PCL_DISABLE_FIRST_RUN")) ||
-                    !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PCL_DISABLE_DEBUG_HINT"));
+                // Headless tests host their own windows. First-run/debug notice switches must not
+                // suppress the actual launcher window: PCL_DISABLE_DEBUG_HINT is documented to users.
+                bool skipShell = ShouldSkipDesktopShell(Environment.GetEnvironmentVariable);
 
                 if (!skipShell)
                 {
@@ -81,5 +80,11 @@ public sealed partial class App : Avalonia.Application
             UnhandledExceptionGuard.Report(ex, "App.OnFrameworkInitializationCompleted", canContinue: false);
             throw;
         }
+    }
+
+    internal static bool ShouldSkipDesktopShell(Func<string, string?> getEnvironmentVariable)
+    {
+        ArgumentNullException.ThrowIfNull(getEnvironmentVariable);
+        return !string.IsNullOrWhiteSpace(getEnvironmentVariable("PCL_DISABLE_DESKTOP_SHELL"));
     }
 }
