@@ -19,6 +19,10 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (LauncherUpdateBootstrap.TryRunUpdateHelper(args, out int updateExitCode))
+            return updateExitCode;
+        args = LauncherUpdateBootstrap.ProcessStartupCleanup(args);
+
         // Catch process-wide crashes as early as possible.
         UnhandledExceptionGuard.Install();
 

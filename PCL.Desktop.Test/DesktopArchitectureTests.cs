@@ -681,13 +681,13 @@ public sealed class DesktopArchitectureTests
             StringAssert.Contains(ci, runtime);
         StringAssert.Contains(beta, "github.event.release.tag_name != 'ci-latest'");
         StringAssert.Contains(beta, "inputs.tag_name != 'ci-latest'");
-        // Dual matrix: WithPlugin + NoPlugin per RID/runtime variant (not a single hard-coded true).
-        StringAssert.Contains(stable, "include_plugin: ${{ matrix.plugin.include }}");
-        StringAssert.Contains(beta, "include_plugin: ${{ matrix.plugin.include }}");
+        // Published builds always include the plugin runtime; NoPlugin is not a release branch.
+        StringAssert.Contains(stable, "include_plugin: true");
+        StringAssert.Contains(beta, "include_plugin: true");
         StringAssert.Contains(stable, "WithPlugin");
-        StringAssert.Contains(stable, "NoPlugin");
         StringAssert.Contains(beta, "WithPlugin");
-        StringAssert.Contains(beta, "NoPlugin");
+        Assert.IsFalse(stable.Contains("NoPlugin", StringComparison.Ordinal));
+        Assert.IsFalse(beta.Contains("NoPlugin", StringComparison.Ordinal));
         Assert.IsFalse(reusable.Contains("Plain Craft Launcher 2", StringComparison.Ordinal));
     }
 

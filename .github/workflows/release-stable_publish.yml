@@ -57,9 +57,6 @@ jobs:
         runtime:
           - { self_contained: true, variant: SelfContained }
           - { self_contained: false, variant: NoRuntime }
-        plugin:
-          - { include: true, suffix: WithPlugin }
-          - { include: false, suffix: NoPlugin }
 
     uses: ./.github/workflows/reusable-build.yml
     with:
@@ -69,8 +66,8 @@ jobs:
       architecture: ${{ matrix.target.architecture }}
       binary_name: ${{ matrix.target.binary_name }}
       self_contained: ${{ matrix.runtime.self_contained }}
-      runtime_variant: ${{ matrix.runtime.variant }}_${{ matrix.plugin.suffix }}
-      include_plugin: ${{ matrix.plugin.include }}
+      runtime_variant: ${{ matrix.runtime.variant }}_WithPlugin
+      include_plugin: true
       plugin_tag: ${{ needs.resolve-plugin-version.outputs.tag }}
       channel: release
       version_tag: ${{ github.event.release.tag_name || inputs.tag_name }}
@@ -120,18 +117,17 @@ jobs:
           - { runtime_id: osx-x64, binary_name: PCL.Desktop, package: tar }
           - { runtime_id: osx-arm64, binary_name: PCL.Desktop, package: tar }
         runtime_variant: [SelfContained, NoRuntime]
-        plugin_suffix: [WithPlugin, NoPlugin]
     steps:
       - name: Download Avalonia artifact
         uses: actions/download-artifact@v4
         with:
-          name: PCL_N_Release_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}_${{ matrix.plugin_suffix }}
+          name: PCL_N_Release_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}_WithPlugin
           path: artifact
 
       - name: Package release asset
         shell: bash
         run: |
-          base="PCL_N_Release_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}_${{ matrix.plugin_suffix }}"
+          base="PCL_N_Release_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}_WithPlugin"
           mkdir -p dist
           if [[ "${{ matrix.target.runtime_id }}" == osx-* ]]; then
             binary="artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"

@@ -84,9 +84,8 @@ public sealed class LauncherUpdateService : IDisposable
         string? currentCommitSha = null,
         CancellationToken cancellationToken = default)
     {
-        string variant = preferPluginBuild
-            ? "SelfContained_WithPlugin"
-            : "SelfContained_NoPlugin";
+        _ = preferPluginBuild; // NoPlugin release artifacts are no longer published.
+        const string variant = "SelfContained_WithPlugin";
         LauncherBuildIdentity identity = new(
             currentVersion,
             ResolveRuntimeId(),
@@ -410,6 +409,7 @@ public sealed class LauncherUpdateService : IDisposable
         CancellationToken cancellationToken)
     {
         LauncherUpdatePackage fallback = BuildFullPackage(targetTag, channel, identity);
+        LauncherBuildIdentity targetIdentity = ResolvePublishedIdentity(identity);
         LoadedPatchIndex? targetIndex = await TryLoadPatchIndexAsync(targetTag, cancellationToken).ConfigureAwait(false);
         if (targetIndex is null)
         {
@@ -417,24 +417,35 @@ public sealed class LauncherUpdateService : IDisposable
             return fallback;
         }
 
-        LauncherPatchVariantDto? targetVariant = FindVariant(targetIndex.Index, identity);
+        LauncherPatchVariantDto? targetVariant = FindVariant(targetIndex.Index, targetIdentity);
         if (targetVariant is null || string.IsNullOrWhiteSpace(targetVariant.TargetAssetName))
         {
             PortableLog.Warn(
                 "Update",
-                $"补丁索引没有匹配变体：{identity.RuntimeId}/{identity.NormalizedRuntimeVariant}，将使用完整包。");
+                $"补丁索引没有匹配变体：{targetIdentity.RuntimeId}/{targetIdentity.NormalizedRuntimeVariant}，将使用完整包。");
             return fallback;
         }
 
         string normalizedCurrent = NormalizeVersion(identity.Version);
         string normalizedTarget = NormalizeVersion(targetIndex.Index.TargetVersion ?? targetTag);
         List<LoadedPatchIndex> indexes = [targetIndex];
-        List<LauncherUpdatePatchStep> path = FindPatchPath(indexes, identity, normalizedCurrent, normalizedTarget);
+        bool canPatchCurrentBuild = identity.NormalizedRuntimeVariant.EndsWith(
+            "_WithPlugin",
+            StringComparison.OrdinalIgnoreCase);
+        List<LauncherUpdatePatchStep> path = canPatchCurrentBuild
+            ? FindPatchPath(indexes, targetIdentity, normalizedCurrent, normalizedTarget)
+            : [];
+        if (!canPatchCurrentBuild)
+        {
+            PortableLog.Info(
+                "Update",
+                $"当前构建为旧版 {identity.NormalizedRuntimeVariant}；目标统一迁移到 WithPlugin，直接使用完整包。");
+        }
 
         // Format 2 keeps only a direct window. Walk backwards through each index's oldest
         // selected tag until a route is found; this implements the documented 1→11→21 plan.
         HashSet<string> loadedTags = new(StringComparer.OrdinalIgnoreCase) { targetTag };
-        for (int hop = 0; path.Count == 0 && hop < 12; hop++)
+        for (int hop = 0; canPatchCurrentBuild && path.Count == 0 && hop < 12; hop++)
         {
             string? previousTag = indexes[^1].Index.Strategy?.SelectedFromTags?
                 .FirstOrDefault(static tag => !string.IsNullOrWhiteSpace(tag));
@@ -445,7 +456,7 @@ public sealed class LauncherUpdateService : IDisposable
             if (previous is null)
                 break;
             indexes.Add(previous);
-            path = FindPatchPath(indexes, identity, normalizedCurrent, normalizedTarget);
+            path = FindPatchPath(indexes, targetIdentity, normalizedCurrent, normalizedTarget);
 
             string previousTarget = NormalizeVersion(previous.Index.TargetVersion ?? previousTag);
             if (CompareVersions(previousTarget, normalizedCurrent) <= 0 && path.Count == 0)
@@ -489,8 +500,8 @@ public sealed class LauncherUpdateService : IDisposable
             targetVariant.TargetSha256,
             targetVariant.TargetSize > 0 ? targetVariant.TargetSize : null,
             path,
-            identity.RuntimeId,
-            identity.NormalizedRuntimeVariant,
+            targetIdentity.RuntimeId,
+            targetIdentity.NormalizedRuntimeVariant,
             LauncherBuildIdentity.NormalizeConfiguration(targetVariant.Configuration),
             fullUrl + ".asc",
             fullUrl + ".binary.asc");
@@ -631,12 +642,13 @@ public sealed class LauncherUpdateService : IDisposable
             _ => "Release"
         };
         string ext = identity.RuntimeId.StartsWith("win-", StringComparison.OrdinalIgnoreCase) ? "zip" : "tar.gz";
+        LauncherBuildIdentity targetIdentity = ResolvePublishedIdentity(identity);
         string variant = channel is UpdateChannel.CI or UpdateChannel.Dev
             ? "SelfContained"
-            : identity.NormalizedRuntimeVariant;
+            : targetIdentity.NormalizedRuntimeVariant;
         string resolvedRuntimeVariant = channel is UpdateChannel.CI or UpdateChannel.Dev
             ? "SelfContained_WithPlugin"
-            : identity.NormalizedRuntimeVariant;
+            : targetIdentity.NormalizedRuntimeVariant;
         string assetName = $"PCL_N_{config}_{identity.RuntimeId}_{variant}.{ext}";
         return new LauncherUpdatePackage(
             NormalizeVersion(tag),
@@ -652,6 +664,16 @@ public sealed class LauncherUpdateService : IDisposable
             config,
             BuildReleaseAssetUrl(tag, assetName + ".asc"),
             BuildReleaseAssetUrl(tag, assetName + ".binary.asc"));
+    }
+
+    private static LauncherBuildIdentity ResolvePublishedIdentity(LauncherBuildIdentity identity)
+    {
+        string runtime = identity.NormalizedRuntimeVariant.StartsWith(
+            "NoRuntime",
+            StringComparison.OrdinalIgnoreCase)
+            ? "NoRuntime"
+            : "SelfContained";
+        return identity with { RuntimeVariant = runtime + "_WithPlugin" };
     }
 
     private static string GetPackageStem(string assetName) =>

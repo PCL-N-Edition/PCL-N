@@ -156,9 +156,7 @@ public sealed class LauncherUpdateInstaller : IDisposable
             throw new FileNotFoundException("已下载的启动器更新不存在。", update.StagedExecutablePath);
 
         Directory.CreateDirectory(update.WorkDirectory);
-        ProcessStartInfo startInfo = OperatingSystem.IsWindows()
-            ? CreateWindowsReplacementProcess(update, processId, restartAfterInstall)
-            : CreateUnixReplacementProcess(update, processId, restartAfterInstall);
+        ProcessStartInfo startInfo = CreateReplacementProcess(update, processId, restartAfterInstall);
         Process? process = Process.Start(startInfo);
         if (process is null)
             throw new InvalidOperationException("无法启动更新替换进程。");
@@ -407,60 +405,22 @@ public sealed class LauncherUpdateInstaller : IDisposable
         return Convert.ToHexStringLower(hash);
     }
 
-    internal static ProcessStartInfo CreateWindowsReplacementProcess(
+    internal static ProcessStartInfo CreateReplacementProcess(
         PreparedLauncherUpdate update,
         int processId,
         bool restartAfterInstall)
     {
-        string script = Path.Combine(
-            update.WorkDirectory,
-            "install-update-" + Guid.NewGuid().ToString("N") + ".ps1");
-        File.WriteAllText(script, WindowsReplacementScript);
-        ProcessStartInfo startInfo = new("powershell.exe")
+        ProcessStartInfo startInfo = new(update.StagedExecutablePath)
         {
             UseShellExecute = false,
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(update.CurrentExecutablePath) ?? Environment.CurrentDirectory
         };
-        startInfo.ArgumentList.Add("-NoProfile");
-        startInfo.ArgumentList.Add("-NonInteractive");
-        startInfo.ArgumentList.Add("-ExecutionPolicy");
-        startInfo.ArgumentList.Add("Bypass");
-        startInfo.ArgumentList.Add("-File");
-        startInfo.ArgumentList.Add(script);
+        startInfo.ArgumentList.Add("--pcln-apply-update");
         startInfo.ArgumentList.Add(processId.ToString(System.Globalization.CultureInfo.InvariantCulture));
         startInfo.ArgumentList.Add(update.CurrentExecutablePath);
         startInfo.ArgumentList.Add(update.StagedExecutablePath);
-        startInfo.ArgumentList.Add(restartAfterInstall ? "1" : "0");
-        return startInfo;
-    }
-
-    private static ProcessStartInfo CreateUnixReplacementProcess(
-        PreparedLauncherUpdate update,
-        int processId,
-        bool restartAfterInstall)
-    {
-        if (OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException("Unix 更新替换器不能在 Windows 上运行。");
-        string script = Path.Combine(
-            update.WorkDirectory,
-            "install-update-" + Guid.NewGuid().ToString("N") + ".sh");
-        File.WriteAllText(script, UnixReplacementScript);
-        File.SetUnixFileMode(
-            script,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-            UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
-            UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-        ProcessStartInfo startInfo = new("/bin/sh")
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WorkingDirectory = Path.GetDirectoryName(update.CurrentExecutablePath) ?? Environment.CurrentDirectory
-        };
-        startInfo.ArgumentList.Add(script);
-        startInfo.ArgumentList.Add(processId.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        startInfo.ArgumentList.Add(update.CurrentExecutablePath);
-        startInfo.ArgumentList.Add(update.StagedExecutablePath);
+        startInfo.ArgumentList.Add(update.WorkDirectory);
         startInfo.ArgumentList.Add(restartAfterInstall ? "1" : "0");
         return startInfo;
     }
@@ -523,54 +483,6 @@ public sealed class LauncherUpdateInstaller : IDisposable
             _httpClient.Dispose();
     }
 
-    private const string WindowsReplacementScript = """
-        param([int]$ProcessIdToWait, [string]$Current, [string]$Staged, [int]$RestartAfterInstall)
-        $ErrorActionPreference = 'Stop'
-        Wait-Process -Id $ProcessIdToWait -ErrorAction SilentlyContinue
-        $Backup = "$Current.pcln-old"
-        for ($Attempt = 0; $Attempt -lt 40; $Attempt++) {
-            try {
-                if (Test-Path -LiteralPath $Backup) { Remove-Item -LiteralPath $Backup -Force }
-                Move-Item -LiteralPath $Current -Destination $Backup -Force
-                Move-Item -LiteralPath $Staged -Destination $Current -Force
-                if ($RestartAfterInstall -eq 1) {
-                    Start-Process -FilePath $Current -WorkingDirectory (Split-Path -Parent $Current)
-                    Start-Sleep -Seconds 2
-                }
-                Remove-Item -LiteralPath $Backup -Force -ErrorAction SilentlyContinue
-                Remove-Item -LiteralPath $PSScriptRoot -Recurse -Force -ErrorAction SilentlyContinue
-                exit 0
-            } catch {
-                if (-not (Test-Path -LiteralPath $Current) -and (Test-Path -LiteralPath $Backup)) {
-                    Move-Item -LiteralPath $Backup -Destination $Current -Force -ErrorAction SilentlyContinue
-                }
-                Start-Sleep -Milliseconds 500
-            }
-        }
-        exit 1
-        """;
-
-    private const string UnixReplacementScript = """
-        pid="$1"
-        current="$2"
-        staged="$3"
-        restart_after_install="$4"
-        while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
-        backup="${current}.pcln-old"
-        rm -f "$backup"
-        if mv "$current" "$backup" && mv "$staged" "$current"; then
-          chmod +x "$current"
-          if [ "$restart_after_install" = "1" ]; then
-            (cd "$(dirname "$current")" && "$current" >/dev/null 2>&1 &)
-            sleep 2
-          fi
-          rm -f "$backup"
-          rm -rf "$(dirname "$0")"
-          exit 0
-        fi
-        if [ ! -f "$current" ] && [ -f "$backup" ]; then mv "$backup" "$current"; fi
-        exit 1
-        """;
 }
 
 public sealed record PreparedLauncherUpdate(
