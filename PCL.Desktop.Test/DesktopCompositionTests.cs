@@ -102,6 +102,30 @@ public sealed class DesktopCompositionTests
     }
 
     [TestMethod]
+    public void StartMinecraftUseCase_LinksCallerAndHostCancellation()
+    {
+        using CancellationTokenSource host = new();
+        using CancellationTokenSource caller = new();
+        using CancellationTokenSource? linked = StartMinecraftUseCase.CreateLinkedCancellationSource(
+            host.Token,
+            caller.Token);
+
+        Assert.IsNotNull(linked);
+        caller.Cancel();
+        Assert.IsTrue(linked.Token.IsCancellationRequested);
+    }
+
+    [TestMethod]
+    public void StartMinecraftUseCase_DoesNotAllocateLinkWithoutCallerCancellation()
+    {
+        using CancellationTokenSource host = new();
+
+        Assert.IsNull(StartMinecraftUseCase.CreateLinkedCancellationSource(
+            host.Token,
+            CancellationToken.None));
+    }
+
+    [TestMethod]
     public void ExtraDockViewModel_GlassDockRequiresVisibleButton()
     {
         ExtraDockViewModel dock = DesktopCompositionRoot.GetRequiredService<ExtraDockViewModel>();

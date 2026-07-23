@@ -65,8 +65,7 @@ public sealed class StartMinecraftUseCase
         LoginProfileInfo? profile = host.ResolveProfile();
         if (profile is null)
         {
-            if (repairSession is not null)
-                await repairSession.Transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            await TryRollbackRepairAsync(repairSession, "缺少账户档案").ConfigureAwait(false);
             await host.InvokeUiAsync(() =>
             {
                 if (launchPage.IsLaunchInProgress)
@@ -81,9 +80,11 @@ public sealed class StartMinecraftUseCase
 
         await host.WaitForUiPaintAsync().ConfigureAwait(false);
 
-        // Host owns the launch CTS (cancel previous launch / repair reuse). Outer token is reserved.
-        _ = outerToken;
-        CancellationToken cancellationToken = host.AcquireLaunchCancellation(repairSession);
+        // The host token owns UI cancellation and repair reuse; the outer token belongs to the
+        // caller. Both must stop the same launch pipeline.
+        CancellationToken hostToken = host.AcquireLaunchCancellation(repairSession);
+        using CancellationTokenSource? linkedCancellation = CreateLinkedCancellationSource(hostToken, outerToken);
+        CancellationToken cancellationToken = linkedCancellation?.Token ?? hostToken;
 
         LauncherSettings? runtimeSettingsForRepair = null;
 
@@ -176,10 +177,9 @@ public sealed class StartMinecraftUseCase
         }
         catch (OperationCanceledException)
         {
-            await host.StopRepairServerAsync().ConfigureAwait(false);
+            await TryStopRepairServerAsync(host).ConfigureAwait(false);
             DesktopFileLog.Warn("LaunchUI", $"实例 {instance.Name} 的启动操作已取消。");
-            if (repairSession is not null)
-                await repairSession.Transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            await TryRollbackRepairAsync(repairSession, "启动取消").ConfigureAwait(false);
             await host.InvokeUiAsync(() =>
             {
                 if (launchPage.IsLaunchInProgress)
@@ -189,15 +189,75 @@ public sealed class StartMinecraftUseCase
         catch (Exception ex)
         {
             DesktopFileLog.Error("LaunchUI", $"实例 {instance.Name} 启动失败。", ex);
-            await host.OnFailedAsync(new StartMinecraftFailedArgs(
-                launchPage,
-                instance,
-                profile,
-                ex,
-                runtimeSettingsForRepair,
-                repairSession,
-                worldName,
-                serverAddress)).ConfigureAwait(false);
+            try
+            {
+                await host.OnFailedAsync(new StartMinecraftFailedArgs(
+                    launchPage,
+                    instance,
+                    profile,
+                    ex,
+                    runtimeSettingsForRepair,
+                    repairSession,
+                    worldName,
+                    serverAddress)).ConfigureAwait(false);
+            }
+            catch (Exception handlerException)
+            {
+                DesktopFileLog.Error(
+                    "LaunchUI",
+                    $"实例 {instance.Name} 的错误处理器异常，改用基础失败提示。",
+                    handlerException);
+                await TryRollbackRepairAsync(repairSession, "错误处理器异常").ConfigureAwait(false);
+                await host.InvokeUiAsync(() =>
+                {
+                    if (launchPage.IsLaunchInProgress)
+                        launchPage.PageChangeToLogin();
+                    host.AppendLog("错误处理器异常：" + handlerException.Message);
+                    host.ShowLaunchFailedDialog(ex.Message);
+                }).ConfigureAwait(false);
+            }
+        }
+    }
+
+    internal static CancellationTokenSource? CreateLinkedCancellationSource(
+        CancellationToken hostToken,
+        CancellationToken outerToken)
+    {
+        if (!outerToken.CanBeCanceled || outerToken == hostToken)
+            return null;
+        return CancellationTokenSource.CreateLinkedTokenSource(hostToken, outerToken);
+    }
+
+    private static async Task TryStopRepairServerAsync(StartMinecraftHost host)
+    {
+        try
+        {
+            await host.StopRepairServerAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            DesktopFileLog.Warn(
+                "MinecraftRepairAI",
+                "停止 Minecraft 修复模型服务失败，继续完成启动状态清理。",
+                exception);
+        }
+    }
+
+    private static async Task TryRollbackRepairAsync(MinecraftRepairSession? repairSession, string reason)
+    {
+        if (repairSession is null)
+            return;
+
+        try
+        {
+            await repairSession.Transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            DesktopFileLog.Error(
+                "MinecraftRepairAI",
+                $"Minecraft 修复回滚失败；原因={reason}。",
+                exception);
         }
     }
 }
