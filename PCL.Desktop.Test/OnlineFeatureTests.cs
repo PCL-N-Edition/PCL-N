@@ -4,6 +4,7 @@
 
 using System.Text.Json.Nodes;
 using PCL.Application.Settings;
+using PCL.Core.App;
 using PCL.Desktop.Features.Community;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Online;
@@ -66,10 +67,66 @@ public sealed class OnlineFeatureTests
             Assert.IsNull(snapshot["account"]["access_token"]);
             Assert.IsNull(snapshot["account"]["refresh_token"]);
             Assert.AreEqual(true, snapshot["uiPreferences"]["booleans"]?["UiBlur"]?.GetValue<bool>());
+            Assert.AreEqual(true, snapshot["uiPreferences"]["ui_blur"]?.GetValue<bool>());
             Assert.AreEqual("Cloud title", snapshot["launchPreferences"]["texts"]?["LaunchArgumentTitle"]?.GetValue<string>());
+            Assert.AreEqual("Cloud title", snapshot["launchPreferences"]["launch_title"]?.GetValue<string>());
             Assert.IsNull(snapshot["launchPreferences"]["texts"]?["LaunchAdvanceRun"]);
             Assert.AreEqual(2, snapshot["updatePreferences"]["integers"]?["SystemUpdateChannel"]?.GetValue<int>());
+            Assert.AreEqual(2, snapshot["updatePreferences"]["system_update_channel"]?.GetValue<int>());
             Assert.AreEqual(1, snapshot["favorites"]["items"]?.AsArray().Count);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH", previousSettingsPath);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void RuntimeHostAppliesOriginalWpfCloudSchemaWithoutDroppingLocalOptions()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcln-online-wpf-schema-" + Guid.NewGuid().ToString("N"));
+        string settingsPath = Path.Combine(root, "launcher-settings.json");
+        string? previousSettingsPath = Environment.GetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH");
+        Environment.SetEnvironmentVariable("PCLN_LAUNCHER_SETTINGS_PATH", settingsPath);
+        try
+        {
+            LauncherSettings initial = new();
+            initial.SetTextOption("UnrelatedLocalOption", "keep-me");
+            LauncherSettingsPageBinder.SaveSettings(initial, notify: false);
+            DesktopOnlineRuntimeHost host = new(new CommunityFavoritesStore(Path.Combine(root, "favorites.json")));
+            Dictionary<string, JsonObject?> sections = new()
+            {
+                ["uiPreferences"] = new JsonObject
+                {
+                    ["ui_dark_mode"] = 1,
+                    ["ui_font"] = "Inter",
+                    ["ui_blur"] = true
+                },
+                ["downloadPreferences"] = new JsonObject
+                {
+                    ["download_thread_limit"] = 31,
+                    ["download_auto_select_instance"] = false
+                },
+                ["launchPreferences"] = new JsonObject { ["launch_title"] = "WPF cloud title" },
+                ["customVariables"] = new JsonObject
+                {
+                    ["custom_variables"] = new JsonObject { ["server"] = "example.invalid" }
+                }
+            };
+
+            host.ApplySections(sections, overwriteAccount: false);
+
+            LauncherSettings saved = LauncherSettingsPageBinder.LoadSettings();
+            Assert.AreEqual(ColorMode.Dark, saved.ColorMode);
+            Assert.AreEqual("Inter", saved.GetTextOption("UiFont"));
+            Assert.IsTrue(saved.GetBooleanOption("UiBlur"));
+            Assert.AreEqual(31, saved.GetIntegerOption("ToolDownloadThread"));
+            Assert.IsFalse(saved.GetBooleanOption("ToolDownloadAutoSelectVersion", true));
+            Assert.AreEqual("WPF cloud title", saved.GetTextOption("LaunchArgumentTitle"));
+            Assert.AreEqual("example.invalid", saved.GetTextOption("CustomVariable.server"));
+            Assert.AreEqual("keep-me", saved.GetTextOption("UnrelatedLocalOption"));
         }
         finally
         {
