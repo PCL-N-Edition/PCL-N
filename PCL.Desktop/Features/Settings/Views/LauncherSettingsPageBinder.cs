@@ -583,9 +583,35 @@ internal static class LauncherSettingsPageBinder
     internal static void SaveIntegerOption(string key, int value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
-        LauncherSettings settings = LoadSettings();
-        settings.SetIntegerOption(key, value);
-        SaveSettings(settings);
+        UpdateSettings(settings =>
+        {
+            settings.SetIntegerOption(key, value);
+            return settings;
+        });
+    }
+
+    internal static LauncherSettings UpdateSettings(
+        Func<LauncherSettings, LauncherSettings> update,
+        bool notify = true)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        string settingsPath = CreateSettingsPath();
+        try
+        {
+            using LauncherSettingsStore store = new(settingsPath);
+            LauncherSettings settings = store.UpdateAsync(update).AsTask().GetAwaiter().GetResult();
+            PortableLog.Debug(
+                "Settings",
+                $"设置事务更新完成；Path={settingsPath}；Bool={settings.BooleanOptions.Count}；Int={settings.IntegerOptions.Count}；Text={settings.TextOptions.Count}。");
+            if (notify)
+                SettingsChanged?.Invoke(settings);
+            return settings;
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "Settings", $"事务更新启动器设置失败：{settingsPath}");
+            throw;
+        }
     }
 
     internal static string CreateSettingsPath()

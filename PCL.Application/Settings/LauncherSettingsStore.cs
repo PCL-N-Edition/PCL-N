@@ -30,68 +30,7 @@ public sealed class LauncherSettingsStore : IDisposable
         await _accessLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!File.Exists(SettingsPath))
-                return new(new LauncherSettings(), false, null);
-
-            try
-            {
-                JsonDocument document;
-                await using (FileStream stream = new(
-                                 SettingsPath,
-                                 FileMode.Open,
-                                 FileAccess.Read,
-                                 FileShare.ReadWrite | FileShare.Delete,
-                                 bufferSize: 16 * 1024,
-                                 FileOptions.Asynchronous | FileOptions.SequentialScan))
-                {
-                    document = await JsonDocument.ParseAsync(
-                            stream,
-                            cancellationToken: cancellationToken)
-                        .ConfigureAwait(false);
-                }
-
-                using (document)
-                {
-                    LauncherSettings settings = ReadSettings(document.RootElement, out bool recoveredInvalidItems);
-                    if (settings.SchemaVersion is <= 0 or > LauncherSettings.CurrentSchemaVersion)
-                    {
-                        throw new InvalidDataException(
-                            $"Unsupported launcher settings schema: {settings.SchemaVersion}.");
-                    }
-
-                    settings = settings.NormalizeOptionDictionaries();
-                    if (!recoveredInvalidItems)
-                        return new(settings, false, null);
-
-                    string backupPath = SettingsPath + ".invalid";
-                    File.Copy(SettingsPath, backupPath, overwrite: true);
-                    try
-                    {
-                        await SaveCoreAsync(settings, cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (IOException exception)
-                    {
-                        // Loading valid settings is more important than persisting the cleanup. The
-                        // next regular save can still replace a file held briefly by another process.
-                        PortableLog.Warn(
-                            exception,
-                            "Settings",
-                            "已隔离损坏的启动器配置项，但暂时无法写回修复后的设置文件。");
-                    }
-
-                    PortableLog.Warn(
-                        "Settings",
-                        $"启动器设置中存在损坏项，已保留其他有效设置并备份到 {backupPath}。");
-                    return new(settings, true, backupPath);
-                }
-            }
-            catch (Exception exception)
-                when (exception is JsonException or InvalidDataException)
-            {
-                string backupPath = SettingsPath + ".invalid";
-                File.Copy(SettingsPath, backupPath, overwrite: true);
-                return new(new LauncherSettings(), true, backupPath);
-            }
+            return await LoadCoreAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -104,13 +43,7 @@ public sealed class LauncherSettingsStore : IDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        if (settings.SchemaVersion != LauncherSettings.CurrentSchemaVersion)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(settings),
-                settings.SchemaVersion,
-                "Only the current launcher settings schema can be saved.");
-        }
+        ValidateCurrentSchema(settings);
 
         await _accessLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -120,6 +53,99 @@ public sealed class LauncherSettingsStore : IDisposable
         finally
         {
             _accessLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Atomically loads, changes, and saves settings while holding the path-wide lock.
+    /// Use this for partial updates so concurrent launcher services cannot overwrite
+    /// unrelated values with a stale snapshot.
+    /// </summary>
+    public async ValueTask<LauncherSettings> UpdateAsync(
+        Func<LauncherSettings, LauncherSettings> update,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+
+        await _accessLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            LauncherSettingsLoadResult loaded = await LoadCoreAsync(cancellationToken).ConfigureAwait(false);
+            LauncherSettings settings = update(loaded.Settings)
+                ?? throw new InvalidOperationException("The launcher settings update returned null.");
+            ValidateCurrentSchema(settings);
+            await SaveCoreAsync(settings, cancellationToken).ConfigureAwait(false);
+            return settings;
+        }
+        finally
+        {
+            _accessLock.Release();
+        }
+    }
+
+    private async ValueTask<LauncherSettingsLoadResult> LoadCoreAsync(CancellationToken cancellationToken)
+    {
+        if (!File.Exists(SettingsPath))
+            return new(new LauncherSettings(), false, null);
+
+        try
+        {
+            JsonDocument document;
+            await using (FileStream stream = new(
+                             SettingsPath,
+                             FileMode.Open,
+                             FileAccess.Read,
+                             FileShare.ReadWrite | FileShare.Delete,
+                             bufferSize: 16 * 1024,
+                             FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                document = await JsonDocument.ParseAsync(
+                        stream,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            using (document)
+            {
+                LauncherSettings settings = ReadSettings(document.RootElement, out bool recoveredInvalidItems);
+                if (settings.SchemaVersion is <= 0 or > LauncherSettings.CurrentSchemaVersion)
+                {
+                    throw new InvalidDataException(
+                        $"Unsupported launcher settings schema: {settings.SchemaVersion}.");
+                }
+
+                settings = settings.NormalizeOptionDictionaries();
+                if (!recoveredInvalidItems)
+                    return new(settings, false, null);
+
+                string backupPath = SettingsPath + ".invalid";
+                File.Copy(SettingsPath, backupPath, overwrite: true);
+                try
+                {
+                    await SaveCoreAsync(settings, cancellationToken).ConfigureAwait(false);
+                }
+                catch (IOException exception)
+                {
+                    // Loading valid settings is more important than persisting the cleanup. The
+                    // next regular save can still replace a file held briefly by another process.
+                    PortableLog.Warn(
+                        exception,
+                        "Settings",
+                        "已隔离损坏的启动器配置项，但暂时无法写回修复后的设置文件。");
+                }
+
+                PortableLog.Warn(
+                    "Settings",
+                    $"启动器设置中存在损坏项，已保留其他有效设置并备份到 {backupPath}。");
+                return new(settings, true, backupPath);
+            }
+        }
+        catch (Exception exception)
+            when (exception is JsonException or InvalidDataException)
+        {
+            string backupPath = SettingsPath + ".invalid";
+            File.Copy(SettingsPath, backupPath, overwrite: true);
+            return new(new LauncherSettings(), true, backupPath);
         }
     }
 
@@ -169,6 +195,17 @@ public sealed class LauncherSettingsStore : IDisposable
                     // remove an externally locked temporary file.
                 }
             }
+        }
+    }
+
+    private static void ValidateCurrentSchema(LauncherSettings settings)
+    {
+        if (settings.SchemaVersion != LauncherSettings.CurrentSchemaVersion)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settings),
+                settings.SchemaVersion,
+                "Only the current launcher settings schema can be saved.");
         }
     }
 

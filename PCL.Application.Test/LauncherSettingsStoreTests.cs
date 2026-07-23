@@ -136,6 +136,34 @@ public sealed class LauncherSettingsStoreTests
     }
 
     [TestMethod]
+    public async Task UpdateAsync_PreservesConcurrentPartialUpdates()
+    {
+        using TestDirectory directory = new();
+        string settingsPath = Path.Combine(directory.Path, "settings.json");
+        using LauncherSettingsStore initialStore = new(settingsPath);
+        await initialStore.SaveAsync(new LauncherSettings());
+
+        const int updateCount = 24;
+        Task[] updates = Enumerable.Range(0, updateCount)
+            .Select(async index =>
+            {
+                using LauncherSettingsStore store = new(settingsPath);
+                await store.UpdateAsync(settings =>
+                {
+                    settings.SetIntegerOption("Concurrent-" + index, index);
+                    return settings;
+                });
+            })
+            .ToArray();
+
+        await Task.WhenAll(updates);
+
+        LauncherSettings saved = (await initialStore.LoadAsync()).Settings;
+        for (int index = 0; index < updateCount; index++)
+            Assert.AreEqual(index, saved.GetIntegerOption("Concurrent-" + index));
+    }
+
+    [TestMethod]
     public void Normalize_DisablesUnsupportedAccentAndMirrorChoices()
     {
         LauncherSettings settings = new()
