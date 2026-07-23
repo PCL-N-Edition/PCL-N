@@ -552,8 +552,39 @@ public partial class MainWindow : Window, IDisposable
         SyncMainSize();
     }
 
-    private void FormMain_Closing(object? sender, WindowClosingEventArgs e)
+    private async void FormMain_Closing(object? sender, WindowClosingEventArgs e)
     {
+        if (!_profileSavesDrainedForClose && HasPendingProfileSaves())
+        {
+            e.Cancel = true;
+            if (_profileSaveDrainRequested)
+                return;
+
+            _profileSaveDrainRequested = true;
+            DesktopFileLog.Info("AccountProfile", "关闭前等待账户档案保存队列完成。");
+            try
+            {
+                using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+                await DrainProfileSaveQueueAsync(timeout.Token).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                DesktopFileLog.Warn("AccountProfile", "关闭前等待账户档案保存超时；将继续关闭启动器。");
+            }
+            catch (Exception ex)
+            {
+                DesktopFileLog.Warn("AccountProfile", "关闭前等待账户档案保存失败；将继续关闭启动器。", ex);
+            }
+            finally
+            {
+                _profileSavesDrainedForClose = true;
+                _profileSaveDrainRequested = false;
+            }
+
+            Close();
+            return;
+        }
+
         DesktopFileLog.Info("Window", "主窗口正在关闭。");
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaThemeManager.ThemeChanged -= ThemeChanged;

@@ -34,6 +34,8 @@ public partial class MainWindow
 {
     private readonly object _profileSaveQueueLock = new();
     private Task _profileSaveQueue = Task.CompletedTask;
+    private bool _profileSaveDrainRequested;
+    private bool _profileSavesDrainedForClose;
 
     private void WireLaunchLoginSurface()
     {
@@ -1293,6 +1295,30 @@ public partial class MainWindow
             catch (Exception dispatchException)
             {
                 PortableLog.Debug(dispatchException, "AccountProfile", "窗口关闭后无法显示账户档案保存失败提示。");
+            }
+        }
+    }
+
+    private bool HasPendingProfileSaves()
+    {
+        lock (_profileSaveQueueLock)
+            return !_profileSaveQueue.IsCompleted;
+    }
+
+    private async Task DrainProfileSaveQueueAsync(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            Task pending;
+            lock (_profileSaveQueueLock)
+                pending = _profileSaveQueue;
+
+            await pending.WaitAsync(cancellationToken).ConfigureAwait(true);
+
+            lock (_profileSaveQueueLock)
+            {
+                if (ReferenceEquals(pending, _profileSaveQueue))
+                    return;
             }
         }
     }
