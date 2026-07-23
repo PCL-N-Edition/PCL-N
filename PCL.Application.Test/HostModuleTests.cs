@@ -28,7 +28,8 @@ public sealed class HostModuleTests
 
         using IDisposable registration = registry.Register(new StubFeedbackSubmissionHandler());
         Assert.IsTrue(registry.IsAvailable);
-        HostFeedbackSubmissionResult result = await registry.SubmitAsync();
+        HostFeedbackDraft draft = new("bug", "Launcher failure", "Detailed reproduction steps.");
+        HostFeedbackSubmissionResult result = await registry.SubmitAsync(draft);
 
         Assert.IsTrue(result.Submitted);
         Assert.AreEqual("submitted", result.Message);
@@ -395,7 +396,9 @@ public sealed class HostModuleTests
 
     private sealed class StubFeedbackSubmissionHandler : IHostFeedbackSubmissionHandler
     {
-        public Task<HostFeedbackSubmissionResult> SubmitAsync(CancellationToken cancellationToken = default) =>
+        public Task<HostFeedbackSubmissionResult> SubmitAsync(
+            HostFeedbackDraft draft,
+            CancellationToken cancellationToken = default) =>
             Task.FromResult(new HostFeedbackSubmissionResult(true, "submitted"));
     }
 }

@@ -21,6 +21,7 @@ public enum SetupPageSubType
     GameManage = 2,
     About = 4,
     Log = 5,
+    Feedback = 6,
     Update = 8,
     Java = 9,
     LauncherMisc = 10,
@@ -533,6 +534,8 @@ public partial class PageSetupLeft : MyPageLeft
             return AvaloniaLocalizationManager.GetText("Setup.Left.Item.About", "关于");
         if (page == SetupPageSubType.Log)
             return AvaloniaLocalizationManager.GetText("Setup.Left.Item.Log", "诊断日志");
+        if (page == SetupPageSubType.Feedback)
+            return AvaloniaLocalizationManager.GetText("Setup.Left.Item.Feedback", "反馈");
         if (page == SetupPageSubType.Update)
             return AvaloniaLocalizationManager.GetText("Setup.Left.Item.Update", "软件更新");
         if (page == SetupPageSubType.Java)

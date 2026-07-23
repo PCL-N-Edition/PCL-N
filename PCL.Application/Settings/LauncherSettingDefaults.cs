@@ -101,7 +101,6 @@ public static class LauncherSettingDefaults
         ["SystemHttpProxyCustomUsername"] = string.Empty,
         ["SystemHttpProxyCustomPassword"] = string.Empty,
         ["UiLogoText"] = string.Empty,
-        ["UiCustomNet"] = string.Empty,
         ["UiLanguage"] = "auto",
         ["UiFormatCulture"] = "auto",
         ["LaunchAdvanceJvm"] = "-XX:+UseG1GC -XX:-UseAdaptiveSizePolicy -XX:-OmitStackTraceInFastThrow -Djdk.lang.Process.allowAmbiguousCommands=true -Dfml.ignoreInvalidMinecraftCertificates=True -Dfml.ignorePatchDiscrepancies=True -Dlog4j2.formatMsgNoLookups=true",

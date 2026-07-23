@@ -35,8 +35,7 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
         IHostFileArtifactRegistry? fileArtifacts = null,
         IHostLocalization? localization = null,
         IHostWindowActivation? windowActivation = null,
-        IHostFeedbackSubmissionService? feedbackSubmission = null,
-        IHostRemoteContentService? remoteContent = null)
+        IHostFeedbackSubmissionService? feedbackSubmission = null)
     {
         SettingsPageGroups = settingsPageGroups ?? throw new ArgumentNullException(nameof(settingsPageGroups));
         SettingsPages = settingsPages ?? throw new ArgumentNullException(nameof(settingsPages));
@@ -48,7 +47,6 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
         UriLauncher = uriLauncher ?? UnavailableHostUriLauncher.Instance;
         WindowActivation = windowActivation ?? NullHostWindowActivation.Instance;
         FeedbackSubmission = feedbackSubmission ?? new HostFeedbackSubmissionRegistry();
-        RemoteContent = remoteContent ?? new HostRemoteContentRegistry();
         Processes = processes;
         Clipboard = clipboard;
         Accounts = accounts ?? new AccountProviderRegistry();
@@ -75,7 +73,6 @@ internal sealed class RuntimeExtensionHost : IRuntimeExtensionHost
     public IHostUriLauncher UriLauncher { get; }
     public IHostWindowActivation WindowActivation { get; }
     public IHostFeedbackSubmissionService FeedbackSubmission { get; }
-    public IHostRemoteContentService RemoteContent { get; }
     public IProcessService? Processes { get; }
     public IHostClipboard? Clipboard { get; }
     public IAccountProviderRegistry Accounts { get; }
@@ -237,82 +234,23 @@ internal sealed class HostFeedbackSubmissionRegistry : IHostFeedbackSubmissionSe
         return new Registration(this, handler);
     }
 
-    public Task<HostFeedbackSubmissionResult> SubmitAsync(CancellationToken cancellationToken = default)
+    public Task<HostFeedbackSubmissionResult> SubmitAsync(
+        HostFeedbackDraft draft,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(draft);
         IHostFeedbackSubmissionHandler? handler;
         lock (_sync)
             handler = _handler;
         return handler is null
             ? Task.FromException<HostFeedbackSubmissionResult>(
                 new NotSupportedException("当前构建未加载 PCL.Plugin，无法在启动器内提交反馈。"))
-            : handler.SubmitAsync(cancellationToken);
+            : handler.SubmitAsync(draft, cancellationToken);
     }
 
     private sealed class Registration(
         HostFeedbackSubmissionRegistry owner,
         IHostFeedbackSubmissionHandler handler) : IDisposable
-    {
-        private bool _disposed;
-
-        public void Dispose()
-        {
-            if (_disposed)
-                return;
-            lock (owner._sync)
-            {
-                if (ReferenceEquals(owner._handler, handler))
-                    owner._handler = null;
-            }
-            _disposed = true;
-        }
-    }
-}
-
-internal sealed class HostRemoteContentRegistry : IHostRemoteContentService
-{
-    private readonly object _sync = new();
-    private IHostRemoteContentHandler? _handler;
-
-    public bool IsAvailable
-    {
-        get
-        {
-            lock (_sync)
-                return _handler is not null;
-        }
-    }
-
-    public IDisposable Register(IHostRemoteContentHandler handler)
-    {
-        ArgumentNullException.ThrowIfNull(handler);
-        lock (_sync)
-        {
-            if (_handler is not null)
-                throw new InvalidOperationException("A remote content handler is already registered.");
-            _handler = handler;
-        }
-        return new Registration(this, handler);
-    }
-
-    public Task<string> GetStringAsync(
-        Uri uri,
-        int maximumBytes,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(uri);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumBytes);
-        IHostRemoteContentHandler? handler;
-        lock (_sync)
-            handler = _handler;
-        return handler is null
-            ? Task.FromException<string>(
-                new NotSupportedException("当前构建未加载 PCL.Plugin，远程内容不可用。"))
-            : handler.GetStringAsync(uri, maximumBytes, cancellationToken);
-    }
-
-    private sealed class Registration(
-        HostRemoteContentRegistry owner,
-        IHostRemoteContentHandler handler) : IDisposable
     {
         private bool _disposed;
 

@@ -151,7 +151,6 @@ public partial class MainWindow : Window, IDisposable
     private string? _titleLogoFile;
     private Bitmap? _titleLogoBitmap;
     private string? _homepageSignature;
-    private CancellationTokenSource? _homepageLoadCancellation;
     private readonly IDisposable _windowStateSubscription;
     private string? _registeredPluginPageSurfaceId;
 
@@ -1505,13 +1504,19 @@ public partial class MainWindow : Window, IDisposable
             LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
             MaybeShowCommunityWelcome(
                 settings,
-                () => MaybeShowSpecialVersionNotice(HostShellLifecycleEvents.PublishReady));
+                () => MaybeShowSpecialVersionNotice(OnStartupNoticesCompleted));
         }
         catch (Exception ex)
         {
             DesktopFileLog.Warn("FirstRun", "首次运行引导加载失败，将继续显示特殊版本提示。", ex);
-            MaybeShowSpecialVersionNotice(HostShellLifecycleEvents.PublishReady);
+            MaybeShowSpecialVersionNotice(OnStartupNoticesCompleted);
         }
+    }
+
+    private void OnStartupNoticesCompleted()
+    {
+        HostShellLifecycleEvents.PublishReady();
+        _ = MaybeShowLauncherAnnouncementsAsync();
     }
 
     /// <summary>
@@ -1626,6 +1631,92 @@ public partial class MainWindow : Window, IDisposable
             AvaloniaLocalizationManager.GetText("Main.SpecialVersion.OpenDownloadPageAndExit", "打开最新下载页并退出"),
             isWarn: true);
     }
+
+    private async Task MaybeShowLauncherAnnouncementsAsync()
+    {
+        try
+        {
+            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+            int activityMode = Math.Clamp(settings.GetIntegerOption(
+                "SystemSystemActivity",
+                LauncherSettingDefaults.GetInteger("SystemSystemActivity")), 0, 2);
+            if (activityMode == 2)
+                return;
+            HashSet<string> seen = settings.GetTextOption("SystemAnnouncementSeen", string.Empty)
+                .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .ToHashSet(StringComparer.Ordinal);
+            LauncherUpdatePolicy policy = LauncherUpdatePolicy.Resolve(settings, GetAssemblyConfiguration());
+            string channel = policy.Channel switch
+            {
+                UpdateChannel.Beta => "beta",
+                UpdateChannel.CI => "ci",
+                _ => "release"
+            };
+            string platform = OperatingSystem.IsWindows() ? "windows" :
+                OperatingSystem.IsMacOS() ? "macos" : "linux";
+            IReadOnlyList<LauncherAnnouncement> announcements = await new LauncherAnnouncementService()
+                .FetchEligibleAsync(
+                    PclBuildInfo.DisplayVersion,
+                    channel,
+                    platform,
+                    AvaloniaLocalizationManager.CurrentLanguageCode,
+                    activityMode,
+                    seen)
+                .ConfigureAwait(true);
+            ShowLauncherAnnouncement(announcements, 0, seen);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            DesktopFileLog.Warn("Announcement", "启动器公告获取失败；不会阻塞启动。", exception);
+        }
+    }
+
+    private void ShowLauncherAnnouncement(
+        IReadOnlyList<LauncherAnnouncement> announcements,
+        int index,
+        HashSet<string> seen)
+    {
+        if (index >= announcements.Count)
+            return;
+        LauncherAnnouncement announcement = announcements[index];
+        ShowMarkdownDialog(
+            announcement.Title,
+            announcement.Markdown,
+            result =>
+            {
+                if (announcement.Dismissible)
+                {
+                    seen.Add(announcement.SeenKey);
+                    string serializedSeen = string.Join('\n', seen.TakeLast(200));
+                    LauncherSettingsPageBinder.UpdateSettings(current =>
+                    {
+                        current.SetTextOption("SystemAnnouncementSeen", serializedSeen);
+                        return current;
+                    });
+                }
+                if (result == 2 && announcement.ActionUri is not null)
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = announcement.ActionUri.AbsoluteUri,
+                            UseShellExecute = true
+                        });
+                    }
+                    catch (Exception exception)
+                    {
+                        DesktopFileLog.Warn("Announcement", "无法打开公告链接。", exception);
+                    }
+                }
+                ShowLauncherAnnouncement(announcements, index + 1, seen);
+            },
+            announcement.PrimaryLabel,
+            announcement.ActionLabel ?? string.Empty,
+            thirdButton: string.Empty,
+            isWarn: announcement.Severity is "important" or "security");
+    }
+
 
     private static string GetAssemblyConfiguration()
     {
@@ -4620,9 +4711,6 @@ public partial class MainWindow : Window, IDisposable
         }
         _titleLogoBitmap?.Dispose();
         _titleLogoBitmap = null;
-        _homepageLoadCancellation?.Cancel();
-        _homepageLoadCancellation?.Dispose();
-        _homepageLoadCancellation = null;
         _taskUiCoalescer.Dispose();
         DisposeTrackedTasks();
         _launchCancellation?.Cancel();
@@ -5165,25 +5253,19 @@ public partial class MainWindow : Window, IDisposable
             return;
 
         int mode = settings.GetIntegerOption("UiCustomType", LauncherSettingDefaults.GetInteger("UiCustomType"));
-        string networkAddress = settings.GetTextOption("UiCustomNet", LauncherSettingDefaults.GetText("UiCustomNet"));
+        if (mode == 2)
+            mode = 0; // Remote homepages were removed; legacy settings fall back to blank.
         int preset = settings.GetIntegerOption("UiCustomPreset", LauncherSettingDefaults.GetInteger("UiCustomPreset"));
-        string signature = $"{mode.ToString(CultureInfo.InvariantCulture)}|{preset.ToString(CultureInfo.InvariantCulture)}|{networkAddress}";
+        string signature = $"{mode.ToString(CultureInfo.InvariantCulture)}|{preset.ToString(CultureInfo.InvariantCulture)}";
         if (mode != 1 && string.Equals(_homepageSignature, signature, StringComparison.Ordinal))
             return;
 
         _homepageSignature = signature;
-        _homepageLoadCancellation?.Cancel();
-        _homepageLoadCancellation?.Dispose();
-        _homepageLoadCancellation = null;
 
         switch (mode)
         {
             case 1:
                 LoadLocalHomepage();
-                break;
-            case 2 when Uri.TryCreate(networkAddress, UriKind.Absolute, out Uri? address):
-                _homepageLoadCancellation = new CancellationTokenSource();
-                _ = LoadNetworkHomepageAsync(address, _homepageLoadCancellation.Token);
                 break;
             case 3:
                 _launchRight.ClearCustomContent();
@@ -5218,25 +5300,6 @@ public partial class MainWindow : Window, IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _launchRight?.LoadTextContent("读取自定义主页失败：" + ex.Message);
-        }
-    }
-
-    private async Task LoadNetworkHomepageAsync(Uri address, CancellationToken cancellationToken)
-    {
-        try
-        {
-            string content = await RuntimeExtensionHostAccess.Current.RemoteContent
-                .GetStringAsync(address, 1024 * 1024, cancellationToken)
-                .ConfigureAwait(false);
-            await Dispatcher.UIThread.InvokeAsync(() => _launchRight?.LoadTextContent(content));
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception ex) when (ex is HttpRequestException or IOException)
-        {
-            await Dispatcher.UIThread.InvokeAsync(() =>
-                _launchRight?.LoadTextContent("下载自定义主页失败：" + ex.Message));
         }
     }
 

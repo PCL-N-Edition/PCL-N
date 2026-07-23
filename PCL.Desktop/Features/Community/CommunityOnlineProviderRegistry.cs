@@ -2,60 +2,97 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using PCL.Core.Logging;
+
 namespace PCL.Desktop.Features.Community;
 
+/// <summary>
+/// Launcher-owned online resource services. These are core Minecraft resource
+/// capabilities and must remain available independently of PCL.Plugin.
+/// </summary>
 internal static class CommunityOnlineProviderRegistry
 {
-    private static readonly object Gate = new();
-    private static ICommunityOnlineProvider? _provider;
-
-    public static IDisposable Register(ICommunityOnlineProvider provider)
+    private static readonly HttpClient TranslationClient = new()
     {
-        ArgumentNullException.ThrowIfNull(provider);
-        lock (Gate)
-        {
-            if (_provider is not null)
-                throw new InvalidOperationException("社区在线提供者已注册。");
-            _provider = provider;
-        }
-        return new Registration(provider);
-    }
+        Timeout = TimeSpan.FromSeconds(35)
+    };
 
-    public static (ICommunityResourceCatalog Modrinth, ICommunityResourceCatalog CurseForge) CreateCatalogs()
-    {
-        ICommunityOnlineProvider provider = GetProvider();
-        return provider.CreateCatalogs();
-    }
+    public static (ICommunityResourceCatalog Modrinth, ICommunityResourceCatalog CurseForge) CreateCatalogs() =>
+        (new ModrinthCommunityResourceCatalog(), new CurseForgeCommunityResourceCatalog());
 
     public static ICommunityTranslationService CreateTranslationService() =>
-        GetProvider().CreateTranslationService();
+        new McimTranslationService(TranslationClient);
 
     public static ICommunityArtifactDownloader CreateArtifactDownloader() =>
-        GetProvider().CreateArtifactDownloader();
+        new LauncherCommunityArtifactDownloader();
 
-    private static ICommunityOnlineProvider GetProvider()
+    private sealed class LauncherCommunityArtifactDownloader : ICommunityArtifactDownloader
     {
-        lock (Gate)
+        public async Task DownloadAsync(
+            IReadOnlyList<string> candidateUrls,
+            string targetPath,
+            Action<long, long?> reportProgress,
+            CancellationToken cancellationToken = default)
         {
-            return _provider ?? throw new NotSupportedException(
-                "当前构建未加载 PCL.Plugin，社区在线服务不可用。");
-        }
-    }
+            ArgumentNullException.ThrowIfNull(candidateUrls);
+            ArgumentException.ThrowIfNullOrWhiteSpace(targetPath);
+            ArgumentNullException.ThrowIfNull(reportProgress);
 
-    private sealed class Registration(ICommunityOnlineProvider provider) : IDisposable
-    {
-        private ICommunityOnlineProvider? _provider = provider;
-
-        public void Dispose()
-        {
-            ICommunityOnlineProvider? current = Interlocked.Exchange(ref _provider, null);
-            if (current is null)
-                return;
-            lock (Gate)
+            using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(10) };
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N-Desktop/1.0");
+            Exception? lastError = null;
+            foreach (string candidateUrl in candidateUrls.Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                if (ReferenceEquals(CommunityOnlineProviderRegistry._provider, current))
-                    CommunityOnlineProviderRegistry._provider = null;
+                try
+                {
+                    if (File.Exists(targetPath))
+                        File.Delete(targetPath);
+                    using HttpResponseMessage response = await client.GetAsync(
+                            candidateUrl,
+                            HttpCompletionOption.ResponseHeadersRead,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+                    long? total = response.Content.Headers.ContentLength;
+                    await using Stream network = await response.Content
+                        .ReadAsStreamAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    await using FileStream output = new(
+                        targetPath,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        64 * 1024,
+                        useAsync: true);
+                    byte[] buffer = new byte[64 * 1024];
+                    long written = 0;
+                    int read;
+                    while ((read = await network.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+                    {
+                        await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                        written += read;
+                        reportProgress(written, total);
+                    }
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception exception) when (exception is HttpRequestException or IOException)
+                {
+                    lastError = exception;
+                    string host = Uri.TryCreate(candidateUrl, UriKind.Absolute, out Uri? uri)
+                        ? uri.Host
+                        : "(invalid)";
+                    PortableLog.Warn(
+                        exception,
+                        "CommunityDownload",
+                        $"下载候选失败，将尝试下一来源：{host}。");
+                }
             }
+
+            throw lastError ?? new HttpRequestException("所有下载候选均失败。");
         }
     }
 }

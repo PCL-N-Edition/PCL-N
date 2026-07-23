@@ -184,7 +184,7 @@ public sealed class DesktopArchitectureTests
     }
 
     [TestMethod]
-    public void OptionalOnlineImplementations_DoNotReturnToDesktop()
+    public void AccountAndCloudImplementations_RemainOutsideDesktop()
     {
         string desktopRoot = FindDesktopProjectRoot();
         string repositoryRoot = Directory.GetParent(desktopRoot)?.FullName
@@ -195,18 +195,17 @@ public sealed class DesktopArchitectureTests
             "PCL.Desktop must not reference the removed PCL.Online project.");
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "PCL.Online", "PCL.Online.csproj")),
-            "Optional online services belong to PCL.Plugin, not a launcher-body project.");
+            "Account and cloud services belong to PCL.Plugin, not a launcher-body project.");
 
         string[] forbiddenTokens =
         [
             "namespace PCL.Online",
             "NCloudHttpClient",
             "CloudSyncService",
-            "LauncherAnnouncementService",
-            "ModrinthCommunityResourceCatalog",
-            "CurseForgeCommunityResourceCatalog",
-            "api.github.com/repos/PCL-N-Edition/PCL-N/issues",
-            "plugin-center-api/v1/announcements"
+            "OnlineAccountService",
+            "OnlineFriendService",
+            "XboxSocialService",
+            "PluginRemoteContentHandler"
         ];
         List<string> violations = [];
         foreach (string file in Directory.EnumerateFiles(desktopRoot, "*.cs", SearchOption.AllDirectories))
@@ -225,7 +224,7 @@ public sealed class DesktopArchitectureTests
         Assert.AreEqual(
             0,
             violations.Count,
-            "Optional online implementations must be supplied by PCL.Plugin:" +
+            "Account and cloud implementations must be supplied by PCL.Plugin:" +
             Environment.NewLine +
             string.Join(Environment.NewLine, violations));
     }

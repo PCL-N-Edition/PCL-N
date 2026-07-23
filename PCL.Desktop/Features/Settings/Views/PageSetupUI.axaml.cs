@@ -389,20 +389,14 @@ public partial class PageSetupUI : MyPageRight, IRefreshableSettingsPage, ISetti
         int selectedType = GetSelectedHomepageType();
         if (this.FindControl<Grid>("PanCustomLocal") is { } local)
             local.IsVisible = selectedType == 1;
-        if (this.FindControl<Grid>("PanCustomNet") is { } network)
-            network.IsVisible = selectedType == 2;
         if (this.FindControl<Grid>("PanCustomPreset") is { } preset)
             preset.IsVisible = selectedType == 3;
-        if (this.FindControl<MyHint>("HintCustomWarn") is { } warning)
-            warning.IsVisible = selectedType == 2;
     }
 
     private int GetSelectedHomepageType()
     {
         if (this.FindControl<MyRadioBox>("RadioCustomType1")?.Checked == true)
             return 1;
-        if (this.FindControl<MyRadioBox>("RadioCustomType2")?.Checked == true)
-            return 2;
         if (this.FindControl<MyRadioBox>("RadioCustomType3")?.Checked == true)
             return 3;
         return 0;

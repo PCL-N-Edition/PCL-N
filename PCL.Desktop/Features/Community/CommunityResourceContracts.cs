@@ -207,12 +207,3 @@ internal interface ICommunityArtifactDownloader
         Action<long, long?> reportProgress,
         CancellationToken cancellationToken = default);
 }
-
-internal interface ICommunityOnlineProvider
-{
-    (ICommunityResourceCatalog Modrinth, ICommunityResourceCatalog CurseForge) CreateCatalogs();
-
-    ICommunityTranslationService CreateTranslationService();
-
-    ICommunityArtifactDownloader CreateArtifactDownloader();
-}
