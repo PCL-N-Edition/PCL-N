@@ -279,7 +279,15 @@ internal sealed class MinecraftLaunchCoordinator
         {
             // Process may already be alive (e.g. cancel during WaitWindow). Terminate it so the
             // game window does not orphan without the launcher tracking "running" state.
-            TryTerminateLaunchedProcess(launchedProcess, launchedSessionId, request.Log);
+            TryTerminateIncompleteLaunch(launchedProcess, launchedSessionId, request.Log);
+            throw;
+        }
+        catch
+        {
+            // Process.Start can succeed before session registration, priority assignment, or
+            // the early-crash observation stage fails. Do not leave that process detached from
+            // the launcher's lifecycle when the overall launch did not complete successfully.
+            TryTerminateIncompleteLaunch(launchedProcess, launchedSessionId, request.Log);
             throw;
         }
         }
@@ -296,10 +304,10 @@ internal sealed class MinecraftLaunchCoordinator
     }
 
     /// <summary>
-    /// Ends a game process started during a launch that was later cancelled.
+    /// Ends a game process started during a launch that did not complete successfully.
     /// Safe to call when <paramref name="process"/> is null or already exited.
     /// </summary>
-    internal static void TryTerminateLaunchedProcess(
+    internal static void TryTerminateIncompleteLaunch(
         Process? process,
         Guid sessionId,
         Action<string>? log = null)
@@ -312,18 +320,18 @@ internal sealed class MinecraftLaunchCoordinator
             if (process is not null && !process.HasExited)
             {
                 int pid = process.Id;
-                log?.Invoke("启动已取消，正在结束游戏进程（PID " +
+                log?.Invoke("启动未完成，正在结束游戏进程（PID " +
                             pid.ToString(CultureInfo.InvariantCulture) + "）…");
-                PortableLog.Warn("Launch", $"取消启动：结束游戏进程树 PID={pid}。");
+                PortableLog.Warn("Launch", $"启动未完成：结束游戏进程树 PID={pid}。");
                 process.Kill(entireProcessTree: true);
                 if (!process.WaitForExit(5000))
-                    PortableLog.Warn("Launch", $"取消启动：进程 PID={pid} 在 5s 内未退出。");
+                    PortableLog.Warn("Launch", $"启动未完成：进程 PID={pid} 在 5s 内未退出。");
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or
                                        NotSupportedException or AggregateException)
         {
-            PortableLog.Warn(ex, "Launch", "取消启动时结束游戏进程失败。");
+            PortableLog.Warn(ex, "Launch", "启动未完成时结束游戏进程失败。");
             log?.Invoke("结束游戏进程失败：" + ex.Message);
         }
         finally
@@ -336,7 +344,7 @@ internal sealed class MinecraftLaunchCoordinator
                 }
                 catch (Exception ex)
                 {
-                    PortableLog.Warn(ex, "Launch", $"取消启动时完成会话 {sessionId} 失败。");
+                    PortableLog.Warn(ex, "Launch", $"启动未完成时完成会话 {sessionId} 失败。");
                 }
             }
         }

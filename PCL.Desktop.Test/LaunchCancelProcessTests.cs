@@ -11,7 +11,7 @@ namespace PCL.Desktop.Test;
 public sealed class LaunchCancelProcessTests
 {
     [TestMethod]
-    public void TryTerminateLaunchedProcess_KillsRunningProcessTree()
+    public void TryTerminateIncompleteLaunch_KillsRunningProcessTree()
     {
         ProcessStartInfo startInfo = OperatingSystem.IsWindows()
             ? new ProcessStartInfo("cmd.exe", "/c ping 127.0.0.1 -n 30 >nul")
@@ -27,16 +27,16 @@ public sealed class LaunchCancelProcessTests
         using Process process = Process.Start(startInfo)!;
         Assert.IsFalse(process.HasExited);
 
-        MinecraftLaunchCoordinator.TryTerminateLaunchedProcess(process, Guid.Empty);
+        MinecraftLaunchCoordinator.TryTerminateIncompleteLaunch(process, Guid.Empty);
 
         Assert.IsTrue(process.WaitForExit(5000));
         Assert.IsTrue(process.HasExited);
     }
 
     [TestMethod]
-    public void TryTerminateLaunchedProcess_IsNoOpForNullOrExitedProcess()
+    public void TryTerminateIncompleteLaunch_IsNoOpForNullOrExitedProcess()
     {
-        MinecraftLaunchCoordinator.TryTerminateLaunchedProcess(null, Guid.Empty);
+        MinecraftLaunchCoordinator.TryTerminateIncompleteLaunch(null, Guid.Empty);
 
         ProcessStartInfo startInfo = OperatingSystem.IsWindows()
             ? new ProcessStartInfo("cmd.exe", "/c exit 0") { UseShellExecute = false, CreateNoWindow = true }
@@ -44,7 +44,7 @@ public sealed class LaunchCancelProcessTests
         using Process process = Process.Start(startInfo)!;
         Assert.IsTrue(process.WaitForExit(5000));
 
-        MinecraftLaunchCoordinator.TryTerminateLaunchedProcess(process, Guid.Empty);
+        MinecraftLaunchCoordinator.TryTerminateIncompleteLaunch(process, Guid.Empty);
         Assert.IsTrue(process.HasExited);
     }
 }
