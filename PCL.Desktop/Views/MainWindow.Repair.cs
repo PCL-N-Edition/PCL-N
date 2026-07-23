@@ -684,9 +684,11 @@ public partial class MainWindow
                 false);
         }
         context.Settings.SetBooleanOption(LauncherSettingKeys.ExperimentalJvmLifecycleHost, false);
-        LauncherSettings persisted = LauncherSettingsPageBinder.LoadSettings();
-        persisted.SetBooleanOption(LauncherSettingKeys.ExperimentalJvmLifecycleHost, false);
-        LauncherSettingsPageBinder.SaveSettings(persisted);
+        LauncherSettingsPageBinder.UpdateSettings(persisted =>
+        {
+            persisted.SetBooleanOption(LauncherSettingKeys.ExperimentalJvmLifecycleHost, false);
+            return persisted;
+        });
         return new MinecraftRepairExecutionResult(
             "已关闭实验性 Jvm.NET Host；下次启动将使用传统 Java 进程。",
             false,

@@ -184,15 +184,18 @@ internal sealed class DesktopOnlineRuntimeHost :
         if (policy.AllowDomesticMirrorSwitch)
             return false;
 
-        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
         DownloadSourcePreference target = policy.UseDomesticMirror
             ? DownloadSourcePreference.MirrorOnly
             : DownloadSourcePreference.OfficialOnly;
-        if (settings.DownloadSource == target)
-            return false;
-
-        LauncherSettingsPageBinder.SaveSettings(settings with { DownloadSource = target });
-        return true;
+        bool changed = false;
+        LauncherSettingsPageBinder.UpdateSettings(settings =>
+        {
+            if (settings.DownloadSource == target)
+                return settings;
+            changed = true;
+            return settings with { DownloadSource = target };
+        });
+        return changed;
     }
 
     public void HydrateMicrosoftProfile(LoginProfileInfo profile, bool explicitLogin)
@@ -233,25 +236,26 @@ internal sealed class DesktopOnlineRuntimeHost :
         if (GetBoolean("Online.CloudSyncAccount"))
             ApplyAccount(GetSection(sections, "account"), overwriteAccount);
 
-        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-        if (GetBoolean("Online.CloudSyncUiPreferences"))
-            settings = ApplyUiSection(GetSection(sections, "uiPreferences"), settings);
-        if (GetBoolean("Online.CloudSyncHintPreferences"))
-            ApplyOptionSection(GetSection(sections, "hintPreferences"), settings, HintBooleanKeys, [], HintTextKeys);
-        if (GetBoolean("Online.CloudSyncDownloadPreferences"))
-            settings = ApplyDownloadSection(GetSection(sections, "downloadPreferences"), settings);
-        if (GetBoolean("Online.CloudSyncLaunchPreferences"))
-            ApplyOptionSection(GetSection(sections, "launchPreferences"), settings, LaunchBooleanKeys, LaunchIntegerKeys, LaunchTextKeys);
-        if (GetBoolean("Online.CloudSyncHomepagePreferences"))
-            ApplyOptionSection(GetSection(sections, "homepagePreferences"), settings, [], HomepageIntegerKeys, HomepageTextKeys);
-        if (GetBoolean("Online.CloudSyncMusicPreferences"))
-            ApplyOptionSection(GetSection(sections, "musicPreferences"), settings, MusicBooleanKeys, MusicIntegerKeys, []);
-        if (GetBoolean("Online.CloudSyncUpdatePreferences"))
-            ApplyOptionSection(GetSection(sections, "updatePreferences"), settings, UpdateBooleanKeys, UpdateIntegerKeys, []);
-        if (GetBoolean("Online.CloudSyncCustomVariables"))
-            ApplyCustomVariablesSection(GetSection(sections, "customVariables"), settings);
-
-        LauncherSettingsPageBinder.SaveSettings(settings);
+        LauncherSettingsPageBinder.UpdateSettings(settings =>
+        {
+            if (GetBoolean("Online.CloudSyncUiPreferences"))
+                settings = ApplyUiSection(GetSection(sections, "uiPreferences"), settings);
+            if (GetBoolean("Online.CloudSyncHintPreferences"))
+                ApplyOptionSection(GetSection(sections, "hintPreferences"), settings, HintBooleanKeys, [], HintTextKeys);
+            if (GetBoolean("Online.CloudSyncDownloadPreferences"))
+                settings = ApplyDownloadSection(GetSection(sections, "downloadPreferences"), settings);
+            if (GetBoolean("Online.CloudSyncLaunchPreferences"))
+                ApplyOptionSection(GetSection(sections, "launchPreferences"), settings, LaunchBooleanKeys, LaunchIntegerKeys, LaunchTextKeys);
+            if (GetBoolean("Online.CloudSyncHomepagePreferences"))
+                ApplyOptionSection(GetSection(sections, "homepagePreferences"), settings, [], HomepageIntegerKeys, HomepageTextKeys);
+            if (GetBoolean("Online.CloudSyncMusicPreferences"))
+                ApplyOptionSection(GetSection(sections, "musicPreferences"), settings, MusicBooleanKeys, MusicIntegerKeys, []);
+            if (GetBoolean("Online.CloudSyncUpdatePreferences"))
+                ApplyOptionSection(GetSection(sections, "updatePreferences"), settings, UpdateBooleanKeys, UpdateIntegerKeys, []);
+            if (GetBoolean("Online.CloudSyncCustomVariables"))
+                ApplyCustomVariablesSection(GetSection(sections, "customVariables"), settings);
+            return settings;
+        });
         if (GetBoolean("Online.CloudSyncFavorites"))
             ApplyFavorites(GetSection(sections, "favorites"));
         Flush();

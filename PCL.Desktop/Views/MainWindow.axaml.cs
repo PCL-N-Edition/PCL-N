@@ -1517,8 +1517,11 @@ public partial class MainWindow : Window, IDisposable
             body,
             _ =>
             {
-                settings.SetTextOption("UiCommunityNoticeVersion", currentVersion);
-                LauncherSettingsPageBinder.SaveSettings(settings);
+                LauncherSettingsPageBinder.UpdateSettings(current =>
+                {
+                    current.SetTextOption("UiCommunityNoticeVersion", currentVersion);
+                    return current;
+                });
                 completed();
             },
             confirm);
@@ -1626,7 +1629,7 @@ public partial class MainWindow : Window, IDisposable
                     activityMode,
                     seen)
                 .ConfigureAwait(true);
-            ShowLauncherAnnouncement(announcements, 0, settings, seen);
+            ShowLauncherAnnouncement(announcements, 0, seen);
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
@@ -1637,7 +1640,6 @@ public partial class MainWindow : Window, IDisposable
     private void ShowLauncherAnnouncement(
         IReadOnlyList<LauncherAnnouncement> announcements,
         int index,
-        LauncherSettings settings,
         HashSet<string> seen)
     {
         if (index >= announcements.Count)
@@ -1651,8 +1653,12 @@ public partial class MainWindow : Window, IDisposable
                 if (announcement.Dismissible)
                 {
                     seen.Add(announcement.SeenKey);
-                    settings.SetTextOption("SystemAnnouncementSeen", string.Join('\n', seen.TakeLast(200)));
-                    LauncherSettingsPageBinder.SaveSettings(settings);
+                    string serializedSeen = string.Join('\n', seen.TakeLast(200));
+                    LauncherSettingsPageBinder.UpdateSettings(current =>
+                    {
+                        current.SetTextOption("SystemAnnouncementSeen", serializedSeen);
+                        return current;
+                    });
                 }
                 if (result == 2 && announcement.ActionUri is not null)
                 {
@@ -1669,7 +1675,7 @@ public partial class MainWindow : Window, IDisposable
                         DesktopFileLog.Warn("Announcement", "无法打开公告链接。", exception);
                     }
                 }
-                ShowLauncherAnnouncement(announcements, index + 1, settings, seen);
+                ShowLauncherAnnouncement(announcements, index + 1, seen);
             },
             announcement.PrimaryLabel,
             announcement.ActionLabel ?? string.Empty,
