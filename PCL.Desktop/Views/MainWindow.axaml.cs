@@ -41,6 +41,7 @@ using PCL.Desktop.Composition;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Community;
+using PCL.Desktop.Features.Online;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Messaging;
@@ -62,6 +63,7 @@ using PCL.Desktop.Features.Shared;
 using PCL.Desktop.Features.Tasks.Views;
 using PCL.Platform.Java;
 using PCL.Platform.Paths;
+using PCL.Online;
 using PCL.UI.Abstractions.Navigation;
 using PCL.UI.Abstractions.Pages;
 
@@ -113,7 +115,7 @@ public partial class MainWindow : Window, IDisposable
     private PageCommunityDetail? _communityDetail;
     private PageCommunityFavoritesRight? _communityFavoritesRight;
     private (CommunityResourceCategory Category, string Directory)? _communityDownloadTarget;
-    private readonly CommunityFavoritesStore _communityFavorites = new();
+    private readonly CommunityFavoritesStore _communityFavorites;
     private PageSpeedLeft? _speedLeft;
     private PageSpeedRight? _speedRight;
     private LaunchInstanceInfo? _managedInstance;
@@ -192,6 +194,9 @@ public partial class MainWindow : Window, IDisposable
         _downloadSurface = DesktopCompositionRoot.GetRequiredService<DownloadFeatureSurface>();
         _settingsSurface = DesktopCompositionRoot.GetRequiredService<SettingsFeatureSurface>();
         _communitySurface = DesktopCompositionRoot.GetRequiredService<CommunityFeatureSurface>();
+        _communityFavorites = DesktopCompositionRoot.GetRequiredService<CommunityFavoritesStore>();
+        DesktopOnlineRuntime.Initialize(_communityFavorites);
+        CloudSyncService.Notice += OnCloudSyncNotice;
         _taskManagerSurface = DesktopCompositionRoot.GetRequiredService<TaskManagerSurface>();
         _instancesManage = DesktopCompositionRoot.GetRequiredService<InstancesManageSurface>();
         _launchLoginSurface = DesktopCompositionRoot.GetRequiredService<LaunchLoginSurface>();
@@ -3269,6 +3274,9 @@ public partial class MainWindow : Window, IDisposable
             launchSettingsPage.SwitchToInstanceSetupRequested += (_, _) => _ = SwitchToSelectedInstanceSetupAsync();
         }
 
+        if (page is PageSetupOnline onlineSettingsPage)
+            onlineSettingsPage.MicrosoftLoginRequested += (_, _) => OpenMicrosoftLoginForOnline();
+
         if (page is not ISettingsPageInteractionSource source)
             return;
 
@@ -4655,6 +4663,7 @@ public partial class MainWindow : Window, IDisposable
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
+        CloudSyncService.Notice -= OnCloudSyncNotice;
         _backgroundBitmap?.Dispose();
         _backgroundBitmap = null;
         _windowStateSubscription.Dispose();

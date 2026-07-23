@@ -965,4 +965,47 @@
     <sys:String x:Key="Update.CommunityNotice.Confirm">继续</sys:String>
     <sys:String x:Key="Update.CommunityNotice.Title">PCL N Edition</sys:String>
 
+    <!-- Online -->
+    <sys:String x:Key="Setup.Online.Group">在线</sys:String>
+    <sys:String x:Key="Setup.Online.Group.Description">Microsoft 账户、N Cloud 同步与在线服务。</sys:String>
+    <sys:String x:Key="Setup.Online.Title">账户与同步</sys:String>
+    <sys:String x:Key="Setup.Online.Description">在设备之间同步启动器设置和社区收藏。</sys:String>
+    <sys:String x:Key="Online.Account.NotLoggedIn">连接 Microsoft 正版档案后即可使用 N Cloud。</sys:String>
+    <sys:String x:Key="Online.Account.LoginMicrosoft">前往 Microsoft 登录</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout">删除云端数据</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Title">删除云端数据</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Warning">将永久删除当前账户保存在 N Cloud 的同步数据，并断开连接。此操作不可撤销。</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Success.Title">删除完成</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Success">云端同步数据已删除，N Cloud 已断开。</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Failed.Title">删除失败</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Failed">未能删除云端同步数据：{0}</sys:String>
+    <sys:String x:Key="Online.Account.Disconnect">断开连接</sys:String>
+    <sys:String x:Key="Online.Account.Disconnect.Title">断开云端账户</sys:String>
+    <sys:String x:Key="Online.Account.Disconnect.Warning">这只会断开 N Cloud，不会删除启动器中的 Microsoft 游戏档案。下次可重新连接。</sys:String>
+    <sys:String x:Key="Online.Account.LoginRedirected">请完成 Microsoft 登录；成功后会自动连接 N Cloud。</sys:String>
+    <sys:String x:Key="Online.Account.OwnsMinecraft">Microsoft 正版档案</sys:String>
+    <sys:String x:Key="Online.Account.DoesNotOwnMinecraft">Microsoft 账户</sys:String>
+    <sys:String x:Key="Online.CloudSync.Title">N Cloud 同步</sys:String>
+    <sys:String x:Key="Online.CloudSync.Description">同步安全的账户摘要、收藏夹和启动器偏好；访问令牌不会上传。</sys:String>
+    <sys:String x:Key="Online.CloudSync.DisableAll">停用同步</sys:String>
+    <sys:String x:Key="Online.CloudSync.Enabled">启用 N Cloud 自动同步</sys:String>
+    <sys:String x:Key="Online.CloudSync.DisabledHint">同步已停用，下面的分类设置会保留。</sys:String>
+    <sys:String x:Key="Online.CloudSync.Account">账户摘要</sys:String>
+    <sys:String x:Key="Online.CloudSync.Favorites">社区收藏</sys:String>
+    <sys:String x:Key="Online.CloudSync.UiPreferences">界面偏好</sys:String>
+    <sys:String x:Key="Online.CloudSync.HintPreferences">提示状态</sys:String>
+    <sys:String x:Key="Online.CloudSync.DownloadPreferences">下载偏好</sys:String>
+    <sys:String x:Key="Online.CloudSync.LaunchPreferences">启动偏好</sys:String>
+    <sys:String x:Key="Online.CloudSync.HomepagePreferences">主页偏好</sys:String>
+    <sys:String x:Key="Online.CloudSync.MusicPreferences">音乐偏好</sys:String>
+    <sys:String x:Key="Online.CloudSync.UpdatePreferences">更新偏好</sys:String>
+    <sys:String x:Key="Online.CloudSync.CustomVariables">自定义变量</sys:String>
+    <sys:String x:Key="Online.CloudSync.Unavailable">N Cloud 暂时不可用</sys:String>
+    <sys:String x:Key="Online.CloudSync.Unavailable.Detail">已保留本机数据。请检查网络后重试，成功前不会用不完整的数据覆盖设置。</sys:String>
+    <sys:String x:Key="Online.CloudSync.Retry">重新同步</sys:String>
+    <sys:String x:Key="Online.CloudSync.Starting">正在同步 N Cloud 数据……</sys:String>
+    <sys:String x:Key="Online.CloudSync.Retrying">N Cloud 同步暂时失败，正在进行第 {0} 次重试……</sys:String>
+    <sys:String x:Key="Online.CloudSync.Success">N Cloud 同步完成。</sys:String>
+    <sys:String x:Key="Online.CloudSync.Failed">N Cloud 同步失败，可在“设置 → 在线”中重试。</sys:String>
+
 </ResourceDictionary>

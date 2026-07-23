@@ -5,6 +5,7 @@
 using PCL.Application.Hosting;
 using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Application.Launching;
+using PCL.Desktop.Features.Online;
 using PCL.Platform.Paths;
 using PCL.Platform.Processes;
 using PCL.Platform.Security;
@@ -36,6 +37,7 @@ internal static class DesktopHost
         PortableLog.Info("PluginHost", "开始初始化桌面宿主与插件运行时。");
         PclHostBuilder builder = new();
         DesktopNavigationRegistry.RegisterGeneratedHostModules(builder);
+        builder.AddModule(new DesktopOnlineHostModule());
         IReadOnlyList<IPclHostModule> embeddedModules = EmbeddedRuntimeExtensionLoader.LoadHostModules();
         PortableLog.Debug("PluginHost", $"发现嵌入式宿主模块：{embeddedModules.Count} 个。");
         foreach (IPclHostModule module in embeddedModules)

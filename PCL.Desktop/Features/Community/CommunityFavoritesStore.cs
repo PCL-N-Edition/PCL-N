@@ -100,6 +100,45 @@ public sealed class CommunityFavoritesStore
         return added;
     }
 
+    public string ExportJson()
+    {
+        lock (_state.Gate)
+        {
+            return JsonSerializer.Serialize(
+                _state.Items,
+                CommunityFavoritesJsonContext.Default.ListCommunityFavoriteEntry);
+        }
+    }
+
+    public void ReplaceFromJson(string json)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(json);
+        List<CommunityFavoriteEntry> replacement = JsonSerializer.Deserialize(
+                json,
+                CommunityFavoritesJsonContext.Default.ListCommunityFavoriteEntry)
+            ?? throw new InvalidDataException("云端收藏夹数据为空。");
+
+        EventHandler? changed;
+        lock (_state.Gate)
+        {
+            List<CommunityFavoriteEntry> previous = _state.Items;
+            _state.Items = replacement;
+            try
+            {
+                Save(_path, _state.Items);
+            }
+            catch
+            {
+                _state.Items = previous;
+                throw;
+            }
+
+            changed = _state.Changed;
+        }
+
+        changed?.Invoke(this, EventArgs.Empty);
+    }
+
     private static bool IsSameProject(CommunityResourceEntry left, CommunityResourceEntry right) =>
         left.Source == right.Source &&
         string.Equals(left.ProjectId, right.ProjectId, StringComparison.OrdinalIgnoreCase);
@@ -145,7 +184,7 @@ public sealed class CommunityFavoritesStore
                 stream.Flush(flushToDisk: true);
             }
 
-            File.Move(temporary, path, overwrite: true);
+            ReplaceWithRetry(temporary, path);
             temporary = string.Empty;
         }
         finally
@@ -168,6 +207,27 @@ public sealed class CommunityFavoritesStore
     {
         DefaultPlatformPathProvider paths = new();
         return Path.Combine(paths.ApplicationDataDirectory, "PCL-N", "community-favorites.json");
+    }
+
+    private static void ReplaceWithRetry(string temporaryPath, string targetPath)
+    {
+        Exception? lastException = null;
+        for (int attempt = 1; attempt <= 6; attempt++)
+        {
+            try
+            {
+                File.Move(temporaryPath, targetPath, overwrite: true);
+                return;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                lastException = exception;
+                if (attempt < 6)
+                    Thread.Sleep(20 * attempt);
+            }
+        }
+
+        throw new IOException($"Unable to replace community favorites file '{targetPath}'.", lastException);
     }
 
     private sealed class StoreState(List<CommunityFavoriteEntry> items)

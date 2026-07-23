@@ -21,6 +21,7 @@ internal sealed class CommunityFeatureModule : IDesktopFeatureModule
 
     public void Register(IServiceCollection services)
     {
+        services.AddSingleton<CommunityFavoritesStore>();
         services.AddSingleton<CommunityFeatureSurface>();
     }
 

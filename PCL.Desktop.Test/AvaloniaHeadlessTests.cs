@@ -5863,6 +5863,34 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageSetupOnline_LoadsCloudSyncControls()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            PageSetupOnline page = new();
+            Window window = new()
+            {
+                Width = 900,
+                Height = 680,
+                Content = page
+            };
+            window.Show();
+            try
+            {
+                Assert.IsNotNull(page.FindControl<MyCheckBox>("CheckCloudSyncEnabled"));
+                Assert.IsNotNull(page.FindControl<MyCheckBox>("CheckSyncFavorites"));
+                Assert.IsNotNull(page.FindControl<MyIconTextButton>("BtnRetrySync"));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
     public void PageSetupFeedback_LoadsEveryGitHubPageAndExcludesPullRequests()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

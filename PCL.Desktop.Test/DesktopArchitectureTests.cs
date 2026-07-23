@@ -204,7 +204,7 @@ public sealed class DesktopArchitectureTests
         "WindowsBase",
         "PCL.Core",
         "PCL.Plugin",
-        "PCL.Online",
+        "PCL.Online.Windows",
         "Plain Craft Launcher 2"
     ];
 
@@ -224,6 +224,11 @@ public sealed class DesktopArchitectureTests
                 forbidden,
                 $"PCL.Desktop must not reference {forbidden}.");
         }
+
+        CollectionAssert.Contains(
+            references,
+            "PCL.Online",
+            "PCL.Desktop should load the portable online module through the Avalonia adapter.");
     }
 
     [TestMethod]
@@ -241,7 +246,7 @@ public sealed class DesktopArchitectureTests
             "PresentationFramework",
             "PresentationCore",
             "WindowsBase",
-            "PCL.Online",
+            "PCL.Online.Windows",
             "Plain Craft Launcher 2"
         ];
 

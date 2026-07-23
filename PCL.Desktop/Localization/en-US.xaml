@@ -965,4 +965,47 @@
     <sys:String x:Key="Update.CommunityNotice.Confirm">Continue</sys:String>
     <sys:String x:Key="Update.CommunityNotice.Title">PCL N Edition</sys:String>
 
+    <!-- Online -->
+    <sys:String x:Key="Setup.Online.Group">Online</sys:String>
+    <sys:String x:Key="Setup.Online.Group.Description">Microsoft account, N Cloud sync, and online services.</sys:String>
+    <sys:String x:Key="Setup.Online.Title">Account &amp; Sync</sys:String>
+    <sys:String x:Key="Setup.Online.Description">Sync launcher settings and community favorites between devices.</sys:String>
+    <sys:String x:Key="Online.Account.NotLoggedIn">Connect a Microsoft Minecraft profile to use N Cloud.</sys:String>
+    <sys:String x:Key="Online.Account.LoginMicrosoft">Go to Microsoft sign-in</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout">Delete cloud data</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Title">Delete cloud data</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Warning">This permanently deletes the current account's N Cloud sync data and disconnects it. This cannot be undone.</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Success.Title">Data deleted</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Success">Cloud sync data was deleted and N Cloud was disconnected.</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Failed.Title">Delete failed</sys:String>
+    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Failed">Could not delete cloud sync data: {0}</sys:String>
+    <sys:String x:Key="Online.Account.Disconnect">Disconnect</sys:String>
+    <sys:String x:Key="Online.Account.Disconnect.Title">Disconnect cloud account</sys:String>
+    <sys:String x:Key="Online.Account.Disconnect.Warning">This only disconnects N Cloud. It does not delete the Microsoft game profile from the launcher, and you can reconnect later.</sys:String>
+    <sys:String x:Key="Online.Account.LoginRedirected">Complete Microsoft sign-in; N Cloud will connect automatically.</sys:String>
+    <sys:String x:Key="Online.Account.OwnsMinecraft">Microsoft Minecraft profile</sys:String>
+    <sys:String x:Key="Online.Account.DoesNotOwnMinecraft">Microsoft account</sys:String>
+    <sys:String x:Key="Online.CloudSync.Title">N Cloud Sync</sys:String>
+    <sys:String x:Key="Online.CloudSync.Description">Syncs safe account metadata, favorites, and launcher preferences. Access tokens are never uploaded.</sys:String>
+    <sys:String x:Key="Online.CloudSync.DisableAll">Disable sync</sys:String>
+    <sys:String x:Key="Online.CloudSync.Enabled">Enable automatic N Cloud sync</sys:String>
+    <sys:String x:Key="Online.CloudSync.DisabledHint">Sync is disabled; the section choices below are preserved.</sys:String>
+    <sys:String x:Key="Online.CloudSync.Account">Account metadata</sys:String>
+    <sys:String x:Key="Online.CloudSync.Favorites">Community favorites</sys:String>
+    <sys:String x:Key="Online.CloudSync.UiPreferences">UI preferences</sys:String>
+    <sys:String x:Key="Online.CloudSync.HintPreferences">Hint state</sys:String>
+    <sys:String x:Key="Online.CloudSync.DownloadPreferences">Download preferences</sys:String>
+    <sys:String x:Key="Online.CloudSync.LaunchPreferences">Launch preferences</sys:String>
+    <sys:String x:Key="Online.CloudSync.HomepagePreferences">Homepage preferences</sys:String>
+    <sys:String x:Key="Online.CloudSync.MusicPreferences">Music preferences</sys:String>
+    <sys:String x:Key="Online.CloudSync.UpdatePreferences">Update preferences</sys:String>
+    <sys:String x:Key="Online.CloudSync.CustomVariables">Custom variables</sys:String>
+    <sys:String x:Key="Online.CloudSync.Unavailable">N Cloud is temporarily unavailable</sys:String>
+    <sys:String x:Key="Online.CloudSync.Unavailable.Detail">Local data was preserved. Check your connection and retry; incomplete remote data will not overwrite settings.</sys:String>
+    <sys:String x:Key="Online.CloudSync.Retry">Sync again</sys:String>
+    <sys:String x:Key="Online.CloudSync.Starting">Syncing N Cloud data…</sys:String>
+    <sys:String x:Key="Online.CloudSync.Retrying">N Cloud sync failed temporarily; starting retry {0}…</sys:String>
+    <sys:String x:Key="Online.CloudSync.Success">N Cloud sync completed.</sys:String>
+    <sys:String x:Key="Online.CloudSync.Failed">N Cloud sync failed. Retry from Settings → Online.</sys:String>
+
 </ResourceDictionary>
