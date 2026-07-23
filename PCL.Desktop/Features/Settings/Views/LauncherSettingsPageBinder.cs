@@ -106,13 +106,14 @@ internal static class LauncherSettingsPageBinder
                 if (string.IsNullOrWhiteSpace(tag))
                     return;
 
-                settings = LoadSettings();
                 bool value = checkBox.Checked == true;
-                settings.SetBooleanOption(tag, value);
-                if (tag == "LaunchAutoRepairGame")
-                    settings = settings with { AutomaticallyRepairGameIssues = value };
-
-                SaveSettings(settings);
+                UpdateSettings(current =>
+                {
+                    current.SetBooleanOption(tag, value);
+                    return tag == "LaunchAutoRepairGame"
+                        ? current with { AutomaticallyRepairGameIssues = value }
+                        : current;
+                });
             };
         }
 
@@ -206,53 +207,57 @@ internal static class LauncherSettingsPageBinder
                                 return;
                             }
 
-                            LauncherSettings confirmed = dark
-                                ? settings with { DarkColor = ColorTheme.Custom }
-                                : settings with { LightColor = ColorTheme.Custom };
-                            confirmed.SetTextOption(colorKey, chosen.Value.ToString());
-                            confirmed.SetIntegerOption(tag, comboBox.SelectedIndex);
+                            int selectedIndex = comboBox.SelectedIndex;
+                            LauncherSettings confirmed = UpdateSettings(current =>
+                            {
+                                LauncherSettings updated = dark
+                                    ? current with { DarkColor = ColorTheme.Custom }
+                                    : current with { LightColor = ColorTheme.Custom };
+                                updated.SetTextOption(colorKey, chosen.Value.ToString());
+                                updated.SetIntegerOption(tag, selectedIndex);
+                                return updated;
+                            }, notify: false);
                             ThemeAvailabilityPolicy.MarkManualThemeSelection();
                             AvaloniaThemeManager.Apply(confirmed);
-                            SaveSettings(confirmed);
+                            SettingsChanged?.Invoke(confirmed);
                         });
                     return;
                 }
 
                 int comboValue = GetComboValue(comboBox);
-                settings.SetIntegerOption(tag, comboValue);
                 bool shouldApplyTheme = false;
-                settings = tag switch
+                int selectedIndex = comboBox.SelectedIndex;
+                string editableText = comboBox.Text ?? string.Empty;
+                bool isEditable = comboBox.IsEditable;
+                settings = UpdateSettings(current =>
                 {
-                    "UiDarkMode" => settings with
+                    current.SetIntegerOption(tag, comboValue);
+                    LauncherSettings updated = tag switch
                     {
-                        ColorMode = (ColorMode)Math.Clamp(comboBox.SelectedIndex, 0, 2)
-                    },
-                    "UiLightColor" => settings with
-                    {
-                        LightColor = GetTheme(comboBox.SelectedIndex)
-                    },
-                    "UiDarkColor" => settings with
-                    {
-                        DarkColor = GetTheme(comboBox.SelectedIndex)
-                    },
-                    "ToolDownloadSource" or "ToolDownloadVersion" or "ToolDownloadMod" => settings with
-                    {
-                        DownloadSource = (DownloadSourcePreference)Math.Clamp(comboBox.SelectedIndex, 0, 2)
-                    },
-                    _ => settings
-                };
+                        "UiDarkMode" => current with
+                        {
+                            ColorMode = (ColorMode)Math.Clamp(selectedIndex, 0, 2)
+                        },
+                        "UiLightColor" => current with { LightColor = GetTheme(selectedIndex) },
+                        "UiDarkColor" => current with { DarkColor = GetTheme(selectedIndex) },
+                        "ToolDownloadSource" or "ToolDownloadVersion" or "ToolDownloadMod" => current with
+                        {
+                            DownloadSource = (DownloadSourcePreference)Math.Clamp(selectedIndex, 0, 2)
+                        },
+                        _ => current
+                    };
+                    if (isEditable)
+                        updated.SetTextOption(tag, editableText);
+                    return updated;
+                }, notify: false);
                 shouldApplyTheme = tag is "UiDarkMode" or "UiLightColor" or "UiDarkColor";
                 if (tag is "UiLightColor" or "UiDarkColor")
                     ThemeAvailabilityPolicy.MarkManualThemeSelection();
 
-                if (comboBox.IsEditable)
-                    settings.SetTextOption(tag, comboBox.Text ?? string.Empty);
-
                 // Apply theme palette first so SettingsChanged / form chrome see new colors.
                 if (shouldApplyTheme)
                     AvaloniaThemeManager.Apply(settings);
-                // Always flush immediately so defaults/persist survive page switches.
-                SaveSettings(settings);
+                SettingsChanged?.Invoke(settings);
             }
 
             comboBox.SelectionChanged += (_, _) => PersistComboBox();
@@ -269,9 +274,12 @@ internal static class LauncherSettingsPageBinder
                     if (string.IsNullOrWhiteSpace(tag))
                         return;
 
-                    settings = LoadSettings();
-                    settings.SetTextOption(tag, comboBox.Text ?? string.Empty);
-                    SaveSettings(settings);
+                    string text = comboBox.Text ?? string.Empty;
+                    UpdateSettings(current =>
+                    {
+                        current.SetTextOption(tag, text);
+                        return current;
+                    });
                 };
             }
         }
@@ -287,9 +295,12 @@ internal static class LauncherSettingsPageBinder
                 if (string.IsNullOrWhiteSpace(tag))
                     return;
 
-                settings = LoadSettings();
-                settings.SetIntegerOption(tag, slider.Value);
-                SaveSettings(settings);
+                int value = slider.Value;
+                UpdateSettings(current =>
+                {
+                    current.SetIntegerOption(tag, value);
+                    return current;
+                });
             };
         }
 
@@ -304,19 +315,22 @@ internal static class LauncherSettingsPageBinder
                 if (string.IsNullOrWhiteSpace(tag))
                     return;
 
-                settings = LoadSettings();
+                int? integerValue = null;
+                string text = textBox.Text ?? string.Empty;
                 if (tag == LauncherSettingKeys.ExperimentalMinecraftAiTokenBudget.Value)
                 {
-                    if (int.TryParse(textBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int integerValue))
-                        settings.SetIntegerOption(tag, integerValue);
-                    else
+                    if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedValue))
                         return;
+                    integerValue = parsedValue;
                 }
-                else
+                UpdateSettings(current =>
                 {
-                    settings.SetTextOption(tag, textBox.Text ?? string.Empty);
-                }
-                SaveSettings(settings);
+                    if (integerValue is int parsedValue)
+                        current.SetIntegerOption(tag, parsedValue);
+                    else
+                        current.SetTextOption(tag, text);
+                    return current;
+                });
             };
         }
 
@@ -330,9 +344,11 @@ internal static class LauncherSettingsPageBinder
                 if (!TryParseRadioTag(GetTag(radioBox), out string? key, out int value))
                     return;
 
-                settings = LoadSettings();
-                settings.SetIntegerOption(key, value);
-                SaveSettings(settings);
+                UpdateSettings(current =>
+                {
+                    current.SetIntegerOption(key, value);
+                    return current;
+                });
             };
         }
     }
@@ -346,13 +362,13 @@ internal static class LauncherSettingsPageBinder
         state.IsApplying = true;
         try
         {
-            LauncherSettings settings = LoadSettings();
             LauncherSettings defaults = new();
             bool resetAutoRepair = page is PageSetupLaunch;
             bool resetColorMode = page is PageSetupUI;
             bool resetLightColor = page is PageSetupUI;
             bool resetDarkColor = page is PageSetupUI;
             bool resetDownloadSource = page is PageSetupGameManage;
+            List<string> settingKeys = [];
 
             foreach (Control control in state.TaggedControls)
             {
@@ -363,10 +379,7 @@ internal static class LauncherSettingsPageBinder
                 string settingKey = control is MyRadioBox && TryParseRadioTag(tag, out string key, out _)
                     ? key
                     : tag;
-                settings.BooleanOptions.Remove(settingKey);
-                settings.IntegerOptions.Remove(settingKey);
-                settings.TextOptions.Remove(settingKey);
-
+                settingKeys.Add(settingKey);
                 resetAutoRepair |= tag == "LaunchAutoRepairGame";
                 resetColorMode |= tag == "UiDarkMode";
                 resetLightColor |= tag == "UiLightColor";
@@ -374,18 +387,26 @@ internal static class LauncherSettingsPageBinder
                 resetDownloadSource |= tag is "ToolDownloadSource" or "ToolDownloadVersion" or "ToolDownloadMod";
             }
 
-            settings = settings with
+            LauncherSettings settings = UpdateSettings(current =>
             {
-                AutomaticallyRepairGameIssues = resetAutoRepair
-                    ? defaults.AutomaticallyRepairGameIssues
-                    : settings.AutomaticallyRepairGameIssues,
-                ColorMode = resetColorMode ? defaults.ColorMode : settings.ColorMode,
-                LightColor = resetLightColor ? defaults.LightColor : settings.LightColor,
-                DarkColor = resetDarkColor ? defaults.DarkColor : settings.DarkColor,
-                DownloadSource = resetDownloadSource ? defaults.DownloadSource : settings.DownloadSource
-            };
+                foreach (string settingKey in settingKeys)
+                {
+                    current.BooleanOptions.Remove(settingKey);
+                    current.IntegerOptions.Remove(settingKey);
+                    current.TextOptions.Remove(settingKey);
+                }
 
-            SaveSettings(settings);
+                return current with
+                {
+                    AutomaticallyRepairGameIssues = resetAutoRepair
+                        ? defaults.AutomaticallyRepairGameIssues
+                        : current.AutomaticallyRepairGameIssues,
+                    ColorMode = resetColorMode ? defaults.ColorMode : current.ColorMode,
+                    LightColor = resetLightColor ? defaults.LightColor : current.LightColor,
+                    DarkColor = resetDarkColor ? defaults.DarkColor : current.DarkColor,
+                    DownloadSource = resetDownloadSource ? defaults.DownloadSource : current.DownloadSource
+                };
+            });
             state.RestoreControlDefaults();
             ApplySettings(page, settings);
             state.SettingsApplied?.Invoke(settings);
