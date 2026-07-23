@@ -38,6 +38,8 @@ public static class CloudSyncService
     }
 
     private const int MaxRetryCount = 3;
+    private const int MetadataReplaceAttemptCount = 5;
+    private static readonly object MetadataGate = new();
     private static int _syncing;
     private static int _isAvailable = 1;
     private static string _lastReason = "manual-retry";
@@ -291,45 +293,117 @@ public static class CloudSyncService
 
     private static CloudSyncMetadataFile LoadMetadata()
     {
-        try
+        lock (MetadataGate)
         {
-            if (!File.Exists(MetadataFilePath))
-                return new CloudSyncMetadataFile();
+            try
+            {
+                if (!File.Exists(MetadataFilePath))
+                    return new CloudSyncMetadataFile();
 
-            var json = File.ReadAllText(MetadataFilePath, Encoding.UTF8);
-            return OnlineJson.Deserialize<CloudSyncMetadataFile>(json)
-                   ?? new CloudSyncMetadataFile();
-        }
-        catch (Exception ex)
-        {
-            PortableLog.Warn(ex, "CloudSync", "读取本地同步元数据失败，将使用空状态继续。");
-            return new CloudSyncMetadataFile();
+                var json = File.ReadAllText(MetadataFilePath, Encoding.UTF8);
+                return OnlineJson.Deserialize<CloudSyncMetadataFile>(json)
+                       ?? new CloudSyncMetadataFile();
+            }
+            catch (Exception ex)
+            {
+                PortableLog.Warn(ex, "CloudSync", "读取本地同步元数据失败，将使用空状态继续。");
+                return new CloudSyncMetadataFile();
+            }
         }
     }
 
     private static void SaveMetadata(CloudSyncMetadataFile metadata)
     {
-        try
+        lock (MetadataGate)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(MetadataFilePath)!);
-            File.WriteAllText(MetadataFilePath, OnlineJson.Serialize(metadata, writeIndented: true), Encoding.UTF8);
-        }
-        catch (Exception ex)
-        {
-            PortableLog.Warn(ex, "CloudSync", "写入本地同步元数据失败。");
+            string? temporaryPath = null;
+            try
+            {
+                string metadataPath = MetadataFilePath;
+                string directory = Path.GetDirectoryName(metadataPath)
+                    ?? throw new InvalidOperationException("云同步元数据路径缺少父目录。");
+                Directory.CreateDirectory(directory);
+                temporaryPath = Path.Combine(
+                    directory,
+                    $".{Path.GetFileName(metadataPath)}.{Guid.NewGuid():N}.tmp");
+
+                byte[] payload = Encoding.UTF8.GetBytes(OnlineJson.Serialize(metadata, writeIndented: true));
+                using (FileStream stream = new(
+                           temporaryPath,
+                           FileMode.CreateNew,
+                           FileAccess.Write,
+                           FileShare.None,
+                           bufferSize: 16 * 1024,
+                           FileOptions.WriteThrough))
+                {
+                    stream.Write(payload);
+                    stream.Flush(flushToDisk: true);
+                }
+
+                ReplaceMetadataWithRetry(temporaryPath, metadataPath);
+                temporaryPath = null;
+            }
+            catch (Exception ex)
+            {
+                PortableLog.Warn(ex, "CloudSync", "写入本地同步元数据失败。");
+            }
+            finally
+            {
+                if (temporaryPath is not null)
+                    TryDeleteFile(temporaryPath);
+            }
         }
     }
 
     private static void TryDeleteLocalMetadata()
     {
+        lock (MetadataGate)
+        {
+            try
+            {
+                if (File.Exists(MetadataFilePath))
+                    File.Delete(MetadataFilePath);
+            }
+            catch (Exception ex)
+            {
+                PortableLog.Warn(ex, "CloudSync", "删除本地同步元数据失败。");
+            }
+        }
+    }
+
+    private static void ReplaceMetadataWithRetry(string temporaryPath, string metadataPath)
+    {
+        IOException? lastException = null;
+        for (int attempt = 1; attempt <= MetadataReplaceAttemptCount; attempt++)
+        {
+            try
+            {
+                File.Move(temporaryPath, metadataPath, overwrite: true);
+                return;
+            }
+            catch (IOException exception)
+            {
+                lastException = exception;
+                if (attempt < MetadataReplaceAttemptCount)
+                    Thread.Sleep(15 * attempt);
+            }
+        }
+
+        throw new IOException(
+            $"Unable to replace cloud sync metadata '{metadataPath}'.",
+            lastException);
+    }
+
+    private static void TryDeleteFile(string path)
+    {
         try
         {
-            if (File.Exists(MetadataFilePath))
-                File.Delete(MetadataFilePath);
+            File.Delete(path);
         }
-        catch (Exception ex)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            PortableLog.Warn(ex, "CloudSync", "删除本地同步元数据失败。");
+            // Preserve the write failure. A later sync or operating-system cleanup can remove
+            // a temporary file that is still held by antivirus or another process.
         }
     }
 
