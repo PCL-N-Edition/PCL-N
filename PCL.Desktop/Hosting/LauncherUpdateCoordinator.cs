@@ -406,9 +406,11 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
 
     private void SkipVersion(LauncherUpdateCheckResult result)
     {
-        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-        settings.SetTextOption(LauncherSettingKeys.SystemUpdateSkippedTarget, UpdateIdentity(result));
-        LauncherSettingsPageBinder.SaveSettings(settings);
+        LauncherSettingsPageBinder.UpdateSettings(settings =>
+        {
+            settings.SetTextOption(LauncherSettingKeys.SystemUpdateSkippedTarget, UpdateIdentity(result));
+            return settings;
+        });
 
         PreparedLauncherUpdate? prepared;
         lock (_sync)
@@ -427,11 +429,12 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
 
     private static void ClearSkippedVersion(LauncherUpdateCheckResult result)
     {
-        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-        if (!IsSkippedVersion(result, settings))
-            return;
-        settings.RemoveTextOption(LauncherSettingKeys.SystemUpdateSkippedTarget);
-        LauncherSettingsPageBinder.SaveSettings(settings);
+        LauncherSettingsPageBinder.UpdateSettings(settings =>
+        {
+            if (IsSkippedVersion(result, settings))
+                settings.RemoveTextOption(LauncherSettingKeys.SystemUpdateSkippedTarget);
+            return settings;
+        });
     }
 
     private static string UpdateIdentity(LauncherUpdateCheckResult result) =>

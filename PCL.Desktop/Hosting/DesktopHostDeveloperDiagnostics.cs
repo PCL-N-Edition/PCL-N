@@ -26,8 +26,10 @@ internal sealed class DesktopHostDeveloperDiagnostics : IHostDeveloperDiagnostic
 
     public void SetEnabled(bool enabled)
     {
-        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-        settings.SetBooleanOption("SystemDebugMode", enabled);
-        LauncherSettingsPageBinder.SaveSettings(settings);
+        LauncherSettingsPageBinder.UpdateSettings(settings =>
+        {
+            settings.SetBooleanOption("SystemDebugMode", enabled);
+            return settings;
+        });
     }
 }

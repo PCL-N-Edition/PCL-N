@@ -213,18 +213,18 @@ public sealed class MinecraftFolderStore
     {
         try
         {
-            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
             MinecraftFolderSetting[] customFolders = _folders
                 .Where(static folder => folder.IsCustom)
                 .Select(static folder => new MinecraftFolderSetting(folder.Name, folder.RootDirectory))
                 .ToArray();
-            settings.SetTextOption(
-                LauncherSettingKeys.LaunchMinecraftFolders,
-                SerializeFolderSettings(customFolders));
-            settings.SetTextOption(
-                LauncherSettingKeys.LaunchSelectedMinecraftRoot,
-                _selectedRoot ?? string.Empty);
-            LauncherSettingsPageBinder.SaveSettings(settings, notify: false);
+            string serializedFolders = SerializeFolderSettings(customFolders);
+            string selectedRoot = _selectedRoot ?? string.Empty;
+            LauncherSettingsPageBinder.UpdateSettings(settings =>
+            {
+                settings.SetTextOption(LauncherSettingKeys.LaunchMinecraftFolders, serializedFolders);
+                settings.SetTextOption(LauncherSettingKeys.LaunchSelectedMinecraftRoot, selectedRoot);
+                return settings;
+            }, notify: false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {

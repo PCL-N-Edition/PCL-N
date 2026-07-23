@@ -54,7 +54,6 @@ public static class LaunchShortcutStore
     public static void Save(IEnumerable<LaunchShortcutPin> pins)
     {
         LaunchShortcutPin[] list = pins.Take(12).ToArray();
-        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
         using MemoryStream stream = new();
         using (Utf8JsonWriter writer = new(stream))
         {
@@ -76,8 +75,11 @@ public static class LaunchShortcutStore
         }
 
         string json = Encoding.UTF8.GetString(stream.ToArray());
-        settings.SetTextOption(LauncherSettingKeys.ExperimentalLaunchShortcutsPins, json);
-        LauncherSettingsPageBinder.SaveSettings(settings);
+        LauncherSettingsPageBinder.UpdateSettings(current =>
+        {
+            current.SetTextOption(LauncherSettingKeys.ExperimentalLaunchShortcutsPins, json);
+            return current;
+        });
     }
 
     private static bool TryReadPin(JsonElement element, out LaunchShortcutPin? pin)

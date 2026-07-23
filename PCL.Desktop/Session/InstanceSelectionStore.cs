@@ -38,9 +38,11 @@ public sealed class InstanceSelectionStore
         _preferredInstanceDirectory = instanceDirectory;
         try
         {
-            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            settings.SetTextOption(LauncherSettingKeys.LaunchSelectedInstanceDirectory, instanceDirectory);
-            LauncherSettingsPageBinder.SaveSettings(settings, notify: false);
+            LauncherSettingsPageBinder.UpdateSettings(settings =>
+            {
+                settings.SetTextOption(LauncherSettingKeys.LaunchSelectedInstanceDirectory, instanceDirectory);
+                return settings;
+            }, notify: false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
