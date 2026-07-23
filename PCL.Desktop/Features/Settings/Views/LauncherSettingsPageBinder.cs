@@ -23,9 +23,7 @@ namespace PCL.Desktop.Features.Settings.Views;
 internal static class LauncherSettingsPageBinder
 {
     private const string SettingsPathOverrideEnvironmentVariable = "PCLN_LAUNCHER_SETTINGS_PATH";
-    private static readonly object LatestSavedSettingsLock = new();
     private static readonly ConditionalWeakTable<MyPageRight, BindingState> BindingStates = new();
-    private static LatestSavedSettings? _latestSavedSettings;
 
     internal static IReadOnlyList<ColorTheme> ThemeOrder => ThemeAvailabilityPolicy.GetAvailableThemes();
 
@@ -77,7 +75,6 @@ internal static class LauncherSettingsPageBinder
 
             ownerWindow = window;
             ownerWindow.Closing += OwnerWindow_Closing;
-            ownerWindow.Closed += OwnerWindow_Closed;
         };
         // While detached, ignore control change storms; re-enable on attach (above).
         page.DetachedFromVisualTree += (_, _) => state.IsApplying = true;
@@ -93,21 +90,9 @@ internal static class LauncherSettingsPageBinder
             ownerWindow = null;
         }
 
-        void OwnerWindow_Closed(object? sender, EventArgs e)
-        {
-            state.IsApplying = true;
-            FlushLatestSettings();
-            if (ownerWindow is not null)
-            {
-                UnwireOwnerWindow(ownerWindow);
-                ownerWindow = null;
-            }
-        }
-
         void UnwireOwnerWindow(Window window)
         {
             window.Closing -= OwnerWindow_Closing;
-            window.Closed -= OwnerWindow_Closed;
         }
 
         foreach (MyCheckBox checkBox in GetControlDescendants(page).OfType<MyCheckBox>())
@@ -579,8 +564,6 @@ internal static class LauncherSettingsPageBinder
         {
             using LauncherSettingsStore store = new(settingsPath);
             store.SaveAsync(settings).AsTask().GetAwaiter().GetResult();
-            lock (LatestSavedSettingsLock)
-                _latestSavedSettings = new LatestSavedSettings(settingsPath, settings);
             PortableLog.Debug(
                 "Settings",
                 $"设置保存完成；Path={settingsPath}；Bool={settings.BooleanOptions.Count}；Int={settings.IntegerOptions.Count}；Text={settings.TextOptions.Count}。");
@@ -603,19 +586,6 @@ internal static class LauncherSettingsPageBinder
         LauncherSettings settings = LoadSettings();
         settings.SetIntegerOption(key, value);
         SaveSettings(settings);
-    }
-
-    private static void FlushLatestSettings()
-    {
-        LatestSavedSettings? latest;
-        lock (LatestSavedSettingsLock)
-            latest = _latestSavedSettings;
-
-        if (latest is null)
-            return;
-
-        using LauncherSettingsStore store = new(latest.SettingsPath);
-        store.SaveAsync(latest.Settings).AsTask().GetAwaiter().GetResult();
     }
 
     internal static string CreateSettingsPath()
@@ -730,8 +700,6 @@ internal static class LauncherSettingsPageBinder
         return themes.Select(static (item, index) => (item, index))
             .First(pair => pair.item == ColorTheme.CatBlue).index;
     }
-
-    private sealed record LatestSavedSettings(string SettingsPath, LauncherSettings Settings);
 
     private sealed class BindingState
     {
