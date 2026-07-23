@@ -271,6 +271,11 @@ public sealed class InstancesManageSurface
         page.RepairFilesRequested += (_, instance) => _ = b.RepairFilesAsync(instance);
         page.ResetSettingsRequested += (_, instance) => b.ResetSettings(instance);
         page.PatchCoreRequested += (_, instance) => _ = b.PatchCoreAsync(instance);
+        page.StatusMessage += (_, message) =>
+        {
+            b.StatusMessage(message);
+            b.ShowHint(message);
+        };
         _managePage = page;
         return page;
     }

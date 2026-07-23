@@ -10,6 +10,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PCL.Application.Instances;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Shared;
 
@@ -51,6 +52,8 @@ public partial class PageInstanceManageRight : MyPageRight
     public event EventHandler<LaunchInstanceInfo>? ResetSettingsRequested;
 
     public event EventHandler<LaunchInstanceInfo>? PatchCoreRequested;
+
+    public event EventHandler<string>? StatusMessage;
 
     public Task WaitForPendingMetadataWritesAsync() => _pendingMetadataWrite;
 
@@ -226,6 +229,20 @@ public partial class PageInstanceManageRight : MyPageRight
 
     private async void ComboDisplayLogo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        try
+        {
+            await HandleDisplayLogoSelectionChangedAsync(sender).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            await RecoverMetadataAfterSaveFailureAsync().ConfigureAwait(true);
+            DesktopFileLog.Error("InstanceMetadata", "保存实例图标设置失败。", ex);
+            StatusMessage?.Invoke(this, "保存实例图标失败：" + ex.Message);
+        }
+    }
+
+    private async Task HandleDisplayLogoSelectionChangedAsync(object? sender)
+    {
         if (_isApplyingMetadata || _instance is null || sender is not MyComboBox comboBox)
             return;
 
@@ -241,11 +258,25 @@ public partial class PageInstanceManageRight : MyPageRight
             return;
         }
 
-        TryDeleteCustomLogo(_instance);
         await PersistSelectedDisplayOptionsAsync().ConfigureAwait(true);
+        TryDeleteCustomLogo(_instance);
     }
 
     private async void ComboDisplayType_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        try
+        {
+            await HandleDisplayTypeSelectionChangedAsync(sender).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            await RecoverMetadataAfterSaveFailureAsync().ConfigureAwait(true);
+            DesktopFileLog.Error("InstanceMetadata", "保存实例卡片样式失败。", ex);
+            StatusMessage?.Invoke(this, "保存实例卡片样式失败：" + ex.Message);
+        }
+    }
+
+    private async Task HandleDisplayTypeSelectionChangedAsync(object? sender)
     {
         if (_isApplyingMetadata || sender is not MyComboBox comboBox)
             return;
@@ -292,16 +323,37 @@ public partial class PageInstanceManageRight : MyPageRight
         Directory.CreateDirectory(Path.GetDirectoryName(logoPath)
             ?? throw new InvalidOperationException("无法确定自定义图标目录。"));
 
-        await using (Stream source = await files[0].OpenReadAsync().ConfigureAwait(true))
-        await using (FileStream destination = new(
-                         logoPath,
-                         FileMode.Create,
-                         FileAccess.Write,
-                         FileShare.None,
-                         bufferSize: 8 * 1024,
-                         FileOptions.Asynchronous | FileOptions.WriteThrough))
+        string temporaryPath = logoPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
         {
-            await source.CopyToAsync(destination).ConfigureAwait(true);
+            await using (Stream source = await files[0].OpenReadAsync().ConfigureAwait(true))
+            await using (FileStream destination = new(
+                             temporaryPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             bufferSize: 8 * 1024,
+                             FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await source.CopyToAsync(destination).ConfigureAwait(true);
+                await destination.FlushAsync().ConfigureAwait(true);
+            }
+
+            File.Move(temporaryPath, logoPath, overwrite: true);
+            temporaryPath = string.Empty;
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(temporaryPath))
+            {
+                try
+                {
+                    File.Delete(temporaryPath);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
         }
 
         await TrackMetadataUpdate(metadata => metadata with
@@ -362,6 +414,35 @@ public partial class PageInstanceManageRight : MyPageRight
         finally
         {
             _metadataWriteLock.Release();
+        }
+    }
+
+    private async Task RecoverMetadataAfterSaveFailureAsync()
+    {
+        try
+        {
+            LaunchInstanceInfo? instance = _instance;
+            if (instance is null)
+                return;
+
+            InstanceMetadata metadata = await InstanceMetadataStore.LoadAsync(instance.InstanceDirectory)
+                .ConfigureAwait(true);
+            if (_instance is null ||
+                !string.Equals(
+                    _instance.InstanceDirectory,
+                    instance.InstanceDirectory,
+                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _metadata = metadata;
+            PopulateDisplayItem(instance);
+            ApplyMetadataToControls();
+        }
+        catch (Exception ex)
+        {
+            DesktopFileLog.Warn("InstanceMetadata", "实例设置保存失败后无法恢复界面状态。", ex);
         }
     }
 
