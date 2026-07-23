@@ -43,60 +43,6 @@ public sealed class DesktopArchitectureTests
         }
     }
     [TestMethod]
-    public void McimMirrorPolicyOrdersApiAndDownloadCandidates()
-    {
-        IReadOnlyList<string> api = McimMirrorPolicy.ApiCandidates(
-            "https://api.modrinth.com/v2/search",
-            CommunityResourceSource.Modrinth,
-            DownloadSourcePreference.MirrorOnly);
-        Assert.AreEqual("https://mod.mcimirror.top/modrinth/v2/search", api[0]);
-        Assert.AreEqual("https://api.modrinth.com/v2/search", api[1]);
-
-        IReadOnlyList<string> downloads = McimMirrorPolicy.DownloadCandidates(
-            "https://cdn.modrinth.com/data/a/file.jar",
-            CommunityResourceSource.Modrinth,
-            DownloadSourcePreference.PreferOfficialWithMirrorFallback);
-        Assert.AreEqual("https://cdn.modrinth.com/data/a/file.jar", downloads[0]);
-        Assert.AreEqual("https://mod.mcimirror.top/data/a/file.jar", downloads[1]);
-    }
-
-    [TestMethod]
-    public async Task McimTranslationCachesBySourceProjectAndDescriptionHash()
-    {
-        int requests = 0;
-        using HttpClient client = new(new DelegateHttpHandler(_ =>
-        {
-            requests++;
-            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            {
-                Content = new StringContent("{\"data\":{\"description\":\"中文说明\"}}")
-            };
-        }));
-        string cache = Path.Combine(Path.GetTempPath(), "pcl-mcim-test-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            McimTranslationService service = new(client, cache);
-            CommunityResourceEntry entry = new("abc", "slug", "Title", "English", "mod", null, 0, null);
-            McimTranslationResult first = await service.GetAsync(entry);
-            McimTranslationResult second = await service.GetAsync(entry);
-            Assert.AreEqual("中文说明", first.Text);
-            Assert.IsTrue(second.FromCache);
-            Assert.AreEqual(1, requests);
-        }
-        finally
-        {
-            if (Directory.Exists(cache))
-                Directory.Delete(cache, recursive: true);
-        }
-    }
-
-    private sealed class DelegateHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> handler) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(handler(request));
-    }
-
-    [TestMethod]
     public void SystemAccentAndCustomColorsProduceDistinctPalettes()
     {
         Color accent = Color.Parse("#E04080");
@@ -213,6 +159,7 @@ public sealed class DesktopArchitectureTests
         "WindowsBase",
         "PCL.Core",
         "PCL.Plugin",
+        "PCL.Online",
         "PCL.Online.Windows",
         "Plain Craft Launcher 2"
     ];
@@ -234,10 +181,53 @@ public sealed class DesktopArchitectureTests
                 $"PCL.Desktop must not reference {forbidden}.");
         }
 
-        CollectionAssert.Contains(
-            references,
-            "PCL.Online",
-            "PCL.Desktop should load the portable online module through the Avalonia adapter.");
+    }
+
+    [TestMethod]
+    public void OptionalOnlineImplementations_DoNotReturnToDesktop()
+    {
+        string desktopRoot = FindDesktopProjectRoot();
+        string repositoryRoot = Directory.GetParent(desktopRoot)?.FullName
+            ?? throw new DirectoryNotFoundException("Could not locate repository root.");
+        string project = File.ReadAllText(Path.Combine(desktopRoot, "PCL.Desktop.csproj"));
+        Assert.IsFalse(
+            project.Contains("PCL.Online", StringComparison.Ordinal),
+            "PCL.Desktop must not reference the removed PCL.Online project.");
+        Assert.IsFalse(
+            File.Exists(Path.Combine(repositoryRoot, "PCL.Online", "PCL.Online.csproj")),
+            "Optional online services belong to PCL.Plugin, not a launcher-body project.");
+
+        string[] forbiddenTokens =
+        [
+            "namespace PCL.Online",
+            "NCloudHttpClient",
+            "CloudSyncService",
+            "LauncherAnnouncementService",
+            "ModrinthCommunityResourceCatalog",
+            "CurseForgeCommunityResourceCatalog",
+            "api.github.com/repos/PCL-N-Edition/PCL-N/issues",
+            "plugin-center-api/v1/announcements"
+        ];
+        List<string> violations = [];
+        foreach (string file in Directory.EnumerateFiles(desktopRoot, "*.cs", SearchOption.AllDirectories))
+        {
+            string relative = Path.GetRelativePath(desktopRoot, file);
+            if (ShouldSkipSourceScan(relative))
+                continue;
+            string text = File.ReadAllText(file);
+            foreach (string token in forbiddenTokens)
+            {
+                if (text.Contains(token, StringComparison.Ordinal))
+                    violations.Add($"{relative}: {token}");
+            }
+        }
+
+        Assert.AreEqual(
+            0,
+            violations.Count,
+            "Optional online implementations must be supplied by PCL.Plugin:" +
+            Environment.NewLine +
+            string.Join(Environment.NewLine, violations));
     }
 
     [TestMethod]

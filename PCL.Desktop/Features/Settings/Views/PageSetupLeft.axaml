@@ -106,17 +106,6 @@
                                Check="PageCheck"
                                Height="36" VerticalAlignment="Top" Title="{DynamicResource Setup.Left.Item.Update}" Type="RadioBox"
                               SvgIcon="lucide/refresh-cw" />
-            <legacy:MyListItem x:Name="ItemFeedback" IsScaleAnimationEnabled="False" Type="RadioBox" Tag="6"
-                               Check="PageCheck"
-                               MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="{DynamicResource Setup.Left.Item.Feedback}"
-                              LogoScale="0.9"
-                              SvgIcon="lucide/message-circle">
-                <legacy:MyListItem.Buttons>
-<legacy:MyIconButton Tag="6" ToolTip.Tip="{DynamicResource Common.Action.Refresh}"
-                                            Click="Refresh" LogoScale="0.85"
-                                            SvgIcon="lucide/refresh-cw" />
-</legacy:MyListItem.Buttons>
-            </legacy:MyListItem>
             <legacy:MyListItem x:Name="ItemLog" IsScaleAnimationEnabled="False" Tag="5" MinPaddingRight="35" Height="36"
                                Check="PageCheck"
                                VerticalAlignment="Top" Title="{DynamicResource Setup.Left.Item.Log}" Type="RadioBox" LogoScale="0.9"

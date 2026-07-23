@@ -16,7 +16,13 @@ public sealed class CompositeCommunityResourceCatalog :
     private readonly bool _ownsCatalogs;
 
     public CompositeCommunityResourceCatalog()
-        : this(new ModrinthCommunityResourceCatalog(), new CurseForgeCommunityResourceCatalog(), ownsCatalogs: true)
+        : this(CommunityOnlineProviderRegistry.CreateCatalogs())
+    {
+    }
+
+    private CompositeCommunityResourceCatalog(
+        (ICommunityResourceCatalog Modrinth, ICommunityResourceCatalog CurseForge) catalogs)
+        : this(catalogs.Modrinth, catalogs.CurseForge, ownsCatalogs: true)
     {
     }
 
@@ -82,7 +88,7 @@ public sealed class CompositeCommunityResourceCatalog :
         if (!string.IsNullOrWhiteSpace(query) && options.Sort == CommunityResourceSort.Relevance)
         {
             combined = combined
-                .OrderBy(entry => CurseForgeCommunityResourceCatalog.GetSearchRank(entry, query.Trim()))
+                .OrderBy(entry => GetSearchRank(entry, query.Trim()))
                 .ThenByDescending(static entry => entry.Downloads)
                 .ToList();
         }
@@ -143,6 +149,19 @@ public sealed class CompositeCommunityResourceCatalog :
 
     private ICommunityResourceCatalog Select(CommunityResourceEntry entry) =>
         entry.Source == CommunityResourceSource.CurseForge ? _curseForge : _modrinth;
+
+    private static int GetSearchRank(CommunityResourceEntry entry, string query)
+    {
+        string title = entry.Title.Trim();
+        string slug = entry.Slug.Trim();
+        if (title.Equals(query, StringComparison.OrdinalIgnoreCase)) return 0;
+        if (slug.Equals(query, StringComparison.OrdinalIgnoreCase)) return 1;
+        if (title.StartsWith(query, StringComparison.OrdinalIgnoreCase)) return 2;
+        if (slug.StartsWith(query, StringComparison.OrdinalIgnoreCase)) return 3;
+        if (title.Contains(query, StringComparison.OrdinalIgnoreCase)) return 4;
+        if (slug.Contains(query, StringComparison.OrdinalIgnoreCase)) return 5;
+        return 6;
+    }
 
     private static async Task<(IReadOnlyList<CommunityResourceEntry> Entries, Exception? Error)> TrySearchWithErrorAsync(
         ICommunityResourceCatalog catalog,

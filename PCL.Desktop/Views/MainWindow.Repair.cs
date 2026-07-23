@@ -782,8 +782,7 @@ public partial class MainWindow
         int repaired = 0;
         int changed = 0;
         using CompositeCommunityResourceCatalog catalog = new();
-        using HttpClient downloader = new() { Timeout = TimeSpan.FromMinutes(5) };
-        downloader.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
+        ICommunityArtifactDownloader downloader = CommunityOnlineProviderRegistry.CreateArtifactDownloader();
         for (int index = 0; index < dependencies.Count; index++)
         {
             MinecraftMissingDependency dependency = dependencies[index];
@@ -904,25 +903,13 @@ public partial class MainWindow
         string temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".PCLDownloading";
         try
         {
-            using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(10) };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
-            using HttpResponseMessage response = await client.GetAsync(
-                    file.Url,
-                    HttpCompletionOption.ResponseHeadersRead,
+            ICommunityArtifactDownloader downloader = CommunityOnlineProviderRegistry.CreateArtifactDownloader();
+            await downloader.DownloadAsync(
+                    file.CandidateUrls,
+                    temporaryPath,
+                    static (_, _) => { },
                     cancellationToken)
                 .ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using FileStream target = new(
-                temporaryPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                64 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
-            await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
-            await target.FlushAsync(cancellationToken).ConfigureAwait(false);
-            target.Close();
             File.Move(temporaryPath, targetPath, overwrite: true);
         }
         finally
@@ -1619,7 +1606,7 @@ public partial class MainWindow
 
     private static async Task<ModDownloadResult> DownloadMissingDependencyAsync(
         CompositeCommunityResourceCatalog catalog,
-        HttpClient downloader,
+        ICommunityArtifactDownloader downloader,
         MinecraftMissingDependency dependency,
         string gameVersion,
         string loader,
@@ -1667,23 +1654,12 @@ public partial class MainWindow
         string temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".PCLDownloading";
         try
         {
-            using HttpResponseMessage response = await downloader.GetAsync(
-                    file.Url,
-                    HttpCompletionOption.ResponseHeadersRead,
+            await downloader.DownloadAsync(
+                    file.CandidateUrls,
+                    temporaryPath,
+                    static (_, _) => { },
                     cancellationToken)
                 .ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using (FileStream target = new(
-                             temporaryPath,
-                             FileMode.CreateNew,
-                             FileAccess.Write,
-                             FileShare.None,
-                             64 * 1024,
-                             useAsync: true))
-            {
-                await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
-            }
 
             if (MinecraftModMetadataReader.TryRead(temporaryPath, out MinecraftModMetadata? incoming) && incoming is not null)
             {

@@ -27,6 +27,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PCL.Application.Accounts;
 using PCL.Application.Downloads;
+using PCL.Application.Hosting;
 using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Application.Instances;
 using PCL.Application.Launching;
@@ -41,7 +42,6 @@ using PCL.Desktop.Composition;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Community;
-using PCL.Desktop.Features.Online;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Messaging;
@@ -63,7 +63,6 @@ using PCL.Desktop.Features.Shared;
 using PCL.Desktop.Features.Tasks.Views;
 using PCL.Platform.Java;
 using PCL.Platform.Paths;
-using PCL.Online;
 using PCL.UI.Abstractions.Navigation;
 using PCL.UI.Abstractions.Pages;
 
@@ -195,8 +194,6 @@ public partial class MainWindow : Window, IDisposable
         _settingsSurface = DesktopCompositionRoot.GetRequiredService<SettingsFeatureSurface>();
         _communitySurface = DesktopCompositionRoot.GetRequiredService<CommunityFeatureSurface>();
         _communityFavorites = DesktopCompositionRoot.GetRequiredService<CommunityFavoritesStore>();
-        DesktopOnlineRuntime.Initialize(_communityFavorites);
-        CloudSyncService.Notice += OnCloudSyncNotice;
         _taskManagerSurface = DesktopCompositionRoot.GetRequiredService<TaskManagerSurface>();
         _instancesManage = DesktopCompositionRoot.GetRequiredService<InstancesManageSurface>();
         _launchLoginSurface = DesktopCompositionRoot.GetRequiredService<LaunchLoginSurface>();
@@ -1487,6 +1484,7 @@ public partial class MainWindow : Window, IDisposable
             Opacity = _targetWindowOpacity;
             if (_showAnimationRoot is not null)
                 _showAnimationRoot.RenderTransform = null;
+            HostShellLifecycleEvents.PublishReady();
             return;
         }
 
@@ -1507,12 +1505,12 @@ public partial class MainWindow : Window, IDisposable
             LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
             MaybeShowCommunityWelcome(
                 settings,
-                () => MaybeShowSpecialVersionNotice(() => _ = MaybeShowLauncherAnnouncementsAsync()));
+                () => MaybeShowSpecialVersionNotice(HostShellLifecycleEvents.PublishReady));
         }
         catch (Exception ex)
         {
             DesktopFileLog.Warn("FirstRun", "首次运行引导加载失败，将继续显示特殊版本提示。", ex);
-            MaybeShowSpecialVersionNotice(() => _ = MaybeShowLauncherAnnouncementsAsync());
+            MaybeShowSpecialVersionNotice(HostShellLifecycleEvents.PublishReady);
         }
     }
 
@@ -1627,91 +1625,6 @@ public partial class MainWindow : Window, IDisposable
             AvaloniaLocalizationManager.GetText("Main.SpecialVersion.IUnderstand", "我知道我在做什么"),
             AvaloniaLocalizationManager.GetText("Main.SpecialVersion.OpenDownloadPageAndExit", "打开最新下载页并退出"),
             isWarn: true);
-    }
-
-    private async Task MaybeShowLauncherAnnouncementsAsync()
-    {
-        try
-        {
-            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            int activityMode = Math.Clamp(settings.GetIntegerOption(
-                "SystemSystemActivity",
-                LauncherSettingDefaults.GetInteger("SystemSystemActivity")), 0, 2);
-            if (activityMode == 2)
-                return;
-            HashSet<string> seen = settings.GetTextOption("SystemAnnouncementSeen", string.Empty)
-                .Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                .ToHashSet(StringComparer.Ordinal);
-            LauncherUpdatePolicy policy = LauncherUpdatePolicy.Resolve(settings, GetAssemblyConfiguration());
-            string channel = policy.Channel switch
-            {
-                UpdateChannel.Beta => "beta",
-                UpdateChannel.CI => "ci",
-                _ => "release"
-            };
-            string platform = OperatingSystem.IsWindows() ? "windows" :
-                OperatingSystem.IsMacOS() ? "macos" : "linux";
-            IReadOnlyList<LauncherAnnouncement> announcements = await new LauncherAnnouncementService()
-                .FetchEligibleAsync(
-                    PclBuildInfo.DisplayVersion,
-                    channel,
-                    platform,
-                    AvaloniaLocalizationManager.CurrentLanguageCode,
-                    activityMode,
-                    seen)
-                .ConfigureAwait(true);
-            ShowLauncherAnnouncement(announcements, 0, seen);
-        }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
-        {
-            DesktopFileLog.Warn("Announcement", "启动器公告获取失败；不会阻塞启动。", exception);
-        }
-    }
-
-    private void ShowLauncherAnnouncement(
-        IReadOnlyList<LauncherAnnouncement> announcements,
-        int index,
-        HashSet<string> seen)
-    {
-        if (index >= announcements.Count)
-            return;
-        LauncherAnnouncement announcement = announcements[index];
-        ShowMarkdownDialog(
-            announcement.Title,
-            announcement.Markdown,
-            result =>
-            {
-                if (announcement.Dismissible)
-                {
-                    seen.Add(announcement.SeenKey);
-                    string serializedSeen = string.Join('\n', seen.TakeLast(200));
-                    LauncherSettingsPageBinder.UpdateSettings(current =>
-                    {
-                        current.SetTextOption("SystemAnnouncementSeen", serializedSeen);
-                        return current;
-                    });
-                }
-                if (result == 2 && announcement.ActionUri is not null)
-                {
-                    try
-                    {
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = announcement.ActionUri.AbsoluteUri,
-                            UseShellExecute = true
-                        });
-                    }
-                    catch (Exception exception)
-                    {
-                        DesktopFileLog.Warn("Announcement", "无法打开公告链接。", exception);
-                    }
-                }
-                ShowLauncherAnnouncement(announcements, index + 1, seen);
-            },
-            announcement.PrimaryLabel,
-            announcement.ActionLabel ?? string.Empty,
-            thirdButton: string.Empty,
-            isWarn: announcement.Severity is "important" or "security");
     }
 
     private static string GetAssemblyConfiguration()
@@ -3311,9 +3224,6 @@ public partial class MainWindow : Window, IDisposable
             launchSettingsPage.SwitchToInstanceSetupRequested += (_, _) => _ = SwitchToSelectedInstanceSetupAsync();
         }
 
-        if (page is PageSetupOnline onlineSettingsPage)
-            onlineSettingsPage.MicrosoftLoginRequested += (_, _) => OpenMicrosoftLoginForOnline();
-
         if (page is not ISettingsPageInteractionSource source)
             return;
 
@@ -4700,7 +4610,6 @@ public partial class MainWindow : Window, IDisposable
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
-        CloudSyncService.Notice -= OnCloudSyncNotice;
         _backgroundBitmap?.Dispose();
         _backgroundBitmap = null;
         _windowStateSubscription.Dispose();
@@ -5316,10 +5225,9 @@ public partial class MainWindow : Window, IDisposable
     {
         try
         {
-            using HttpClient client = new() { Timeout = TimeSpan.FromSeconds(15) };
-            string content = await client.GetStringAsync(address, cancellationToken).ConfigureAwait(false);
-            if (content.Length > 1024 * 1024)
-                content = content[..(1024 * 1024)];
+            string content = await RuntimeExtensionHostAccess.Current.RemoteContent
+                .GetStringAsync(address, 1024 * 1024, cancellationToken)
+                .ConfigureAwait(false);
             await Dispatcher.UIThread.InvokeAsync(() => _launchRight?.LoadTextContent(content));
         }
         catch (OperationCanceledException)

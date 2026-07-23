@@ -309,7 +309,7 @@ public partial class PageInstanceResourceRight : MyPageRight
             : MinecraftVersionJsonInspector.Read(_instance).MinecraftVersionId;
         string? loaderHint = DetectLoaderHint(_instance);
 
-        using ModrinthCommunityResourceCatalog catalog = new();
+        using CompositeCommunityResourceCatalog catalog = new();
         using SemaphoreSlim gate = new(3, 3);
         List<Task> tasks = [];
 
@@ -409,22 +409,15 @@ public partial class PageInstanceResourceRight : MyPageRight
         try
         {
             StatusMessage?.Invoke(this, "正在更新 " + (match.Identity.ProjectTitle ?? GetDisplayName(entry)) + "…");
-            using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(10) };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
-            using HttpResponseMessage response = await client.GetAsync(
-                    file.Url,
-                    HttpCompletionOption.ResponseHeadersRead)
-                .ConfigureAwait(true);
-            response.EnsureSuccessStatusCode();
-
             string targetName = SanitizeFileName(file.FileName);
             string targetPath = Path.Combine(_folder, targetName);
             string tempPath = targetPath + ".download";
-            await using (Stream network = await response.Content.ReadAsStreamAsync().ConfigureAwait(true))
-            await using (FileStream output = File.Create(tempPath))
-            {
-                await network.CopyToAsync(output).ConfigureAwait(true);
-            }
+            ICommunityArtifactDownloader downloader = CommunityOnlineProviderRegistry.CreateArtifactDownloader();
+            await downloader.DownloadAsync(
+                    file.CandidateUrls,
+                    tempPath,
+                    static (_, _) => { })
+                .ConfigureAwait(true);
 
             // Replace current file (keep disabled suffix if present).
             string finalPath = entry.IsDisabled && !targetPath.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase)

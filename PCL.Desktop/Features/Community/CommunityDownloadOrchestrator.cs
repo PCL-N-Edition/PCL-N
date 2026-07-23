@@ -3,7 +3,6 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Globalization;
-using System.Net.Http;
 using PCL.Application.Downloads;
 using PCL.Application.Settings;
 using PCL.Desktop.Diagnostics;
@@ -145,8 +144,7 @@ internal static class CommunityDownloadOrchestrator
                 plan = [new CommunityResourceDownloadPlanItem(request.Entry, selectedVersion, file, false)];
             }
 
-            using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(10) };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
+            ICommunityArtifactDownloader downloader = CommunityOnlineProviderRegistry.CreateArtifactDownloader();
             string completedPath = string.Empty;
             int dependencyCount = plan.Count(static item => item.IsDependency);
             DesktopFileLog.Info(
@@ -164,7 +162,7 @@ internal static class CommunityDownloadOrchestrator
                     ? CommunityResourceCategory.Mod
                     : request.Category;
                 string path = await DownloadPlanItemAsync(
-                        client,
+                        downloader,
                         item,
                         itemCategory,
                         baseDirectory,
@@ -209,7 +207,7 @@ internal static class CommunityDownloadOrchestrator
     }
 
     private static async Task<string> DownloadPlanItemAsync(
-        HttpClient client,
+        ICommunityArtifactDownloader downloader,
         CommunityResourceDownloadPlanItem item,
         CommunityResourceCategory category,
         string baseDirectory,
@@ -246,36 +244,11 @@ internal static class CommunityDownloadOrchestrator
 
         try
         {
-            Exception? lastDownloadError = null;
-            foreach (string candidateUrl in item.File.CandidateUrls.Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    if (File.Exists(temporaryPath))
-                        File.Delete(temporaryPath);
-                    using HttpResponseMessage response = await client.GetAsync(
-                            candidateUrl,
-                            HttpCompletionOption.ResponseHeadersRead,
-                            cancellationToken)
-                        .ConfigureAwait(true);
-                    response.EnsureSuccessStatusCode();
-                    long? total = response.Content.Headers.ContentLength;
-                    await using Stream network = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(true);
-                    await using FileStream output = new(
-                        temporaryPath,
-                        FileMode.CreateNew,
-                        FileAccess.Write,
-                        FileShare.None,
-                        64 * 1024,
-                        useAsync: true);
-                    byte[] buffer = new byte[64 * 1024];
-                    long written = 0;
-                    int read;
-                    while ((read = await network.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
-                               .ConfigureAwait(true)) > 0)
+            await downloader.DownloadAsync(
+                    item.File.CandidateUrls,
+                    temporaryPath,
+                    (written, total) =>
                     {
-                        await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(true);
-                        written += read;
                         double progress = total is > 0 ? written / (double)total.Value : 0d;
                         DesktopFileLog.RealTime(
                             "CommunityDownload",
@@ -285,25 +258,9 @@ internal static class CommunityDownloadOrchestrator
                             taskTitle,
                             Math.Clamp(progress, 0d, 1d),
                             $"{written.ToString(CultureInfo.InvariantCulture)} / {(total?.ToString(CultureInfo.InvariantCulture) ?? "?")} 字节");
-                    }
-                    lastDownloadError = null;
-                    break;
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex) when (ex is HttpRequestException or IOException)
-                {
-                    lastDownloadError = ex;
-                    DesktopFileLog.Warn(
-                        "CommunityDownload",
-                        $"下载候选失败，将尝试下一来源：{new Uri(candidateUrl).Host}。",
-                        ex);
-                }
-            }
-            if (lastDownloadError is not null || !File.Exists(temporaryPath))
-                throw lastDownloadError ?? new HttpRequestException("所有下载候选均失败。");
+                    },
+                    cancellationToken)
+                .ConfigureAwait(true);
 
             if (category == CommunityResourceCategory.Mod)
             {

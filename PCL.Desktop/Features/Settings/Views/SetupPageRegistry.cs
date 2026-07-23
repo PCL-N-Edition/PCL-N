@@ -29,9 +29,6 @@ internal static partial class SetupPageRegistry
     [SetupPage(SetupPageSubType.Log, "诊断日志")]
     private static PageSetupLog CreateLogPage() => new();
 
-    [SetupPage(SetupPageSubType.Feedback, "反馈")]
-    private static PageSetupFeedback CreateFeedbackPage() => new();
-
     [SetupPage(SetupPageSubType.Update, "软件更新")]
     private static PageSetupUpdate CreateUpdatePage() => new();
 

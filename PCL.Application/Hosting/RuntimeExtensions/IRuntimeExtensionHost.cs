@@ -19,6 +19,7 @@ internal interface IRuntimeExtensionHost
     IHostUriLauncher UriLauncher { get; }
     IHostWindowActivation WindowActivation { get; }
     IHostFeedbackSubmissionService FeedbackSubmission { get; }
+    IHostRemoteContentService RemoteContent { get; }
     IProcessService? Processes { get; }
     IHostClipboard? Clipboard { get; }
     IAccountProviderRegistry Accounts { get; }
@@ -272,6 +273,26 @@ internal sealed record HostFeedbackSubmissionResult(
     bool Submitted,
     string Message,
     string? IssueUrl = null);
+
+internal interface IHostRemoteContentService
+{
+    bool IsAvailable { get; }
+
+    IDisposable Register(IHostRemoteContentHandler handler);
+
+    Task<string> GetStringAsync(
+        Uri uri,
+        int maximumBytes,
+        CancellationToken cancellationToken = default);
+}
+
+internal interface IHostRemoteContentHandler
+{
+    Task<string> GetStringAsync(
+        Uri uri,
+        int maximumBytes,
+        CancellationToken cancellationToken = default);
+}
 
 internal static class RuntimeExtensionHostAccess
 {

@@ -20,13 +20,11 @@ using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Launching.Views;
-using PCL.Desktop.Features.Online;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Shared;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Theme;
 using PCL.Platform.Paths;
-using PCL.Online;
 
 namespace PCL.Desktop.Views;
 
@@ -51,8 +49,7 @@ public partial class MainWindow
                 SaveProfilesInBackground("保存账户档案选择");
                 if (profile.Kind == LaunchLoginProfileKind.Microsoft)
                 {
-                    DesktopOnlineRuntime.Host.HydrateMicrosoftProfile(profile, explicitLogin: true);
-                    CloudSyncService.TrySyncInBackground("account-selected");
+                    PublishMicrosoftProfile(profile, HostAccountSessionReason.Selected);
                 }
                 _launchRight?.AppendLog($"已选择账户档案 {profile.Username}。");
             },
@@ -997,10 +994,7 @@ public partial class MainWindow
             launchPage.SetSelectedProfilePresent(true);
             launchPage.RefreshPage(anim: true);
             SaveProfilesInBackground("保存 Microsoft 正版档案");
-            DesktopOnlineRuntime.Host.HydrateMicrosoftProfile(profile, explicitLogin: true);
-            CloudSyncService.TrySyncInBackground(
-                "login",
-                CloudSyncService.SyncMode.RemoteOverwrite);
+            PublishMicrosoftProfile(profile, HostAccountSessionReason.Authenticated);
             _launchRight?.AppendLog($"Microsoft 登录成功，已选中档案 {profile.Username}。");
             ShowTextDialog("登录成功", $"已添加并选中正版档案 {profile.Username}。", "知道了");
         }
@@ -1226,11 +1220,11 @@ public partial class MainWindow
             LoginProfileInfo? microsoftProfile = profiles.FirstOrDefault(static profile =>
                 profile.Kind == LaunchLoginProfileKind.Microsoft);
             if (microsoftProfile is not null)
-                DesktopOnlineRuntime.Host.HydrateMicrosoftProfile(microsoftProfile, explicitLogin: false);
-            if (!ShouldSuppressStartupDialogs())
             {
-                RegionalPolicyClient.RefreshInBackground();
-                CloudSyncService.TrySyncInBackground("startup");
+                PublishMicrosoftProfile(
+                    microsoftProfile,
+                    HostAccountSessionReason.Restored,
+                    allowBackgroundOnlineWork: !ShouldSuppressStartupDialogs());
             }
         }
         catch (Exception ex)
@@ -1262,6 +1256,17 @@ public partial class MainWindow
             Task predecessor = _profileSaveQueue;
             _profileSaveQueue = SaveProfilesAfterAsync(predecessor, snapshot, action);
         }
+    }
+
+    private static void PublishMicrosoftProfile(
+        LoginProfileInfo profile,
+        HostAccountSessionReason reason,
+        bool allowBackgroundOnlineWork = true)
+    {
+        HostAccountSessionEvents.PublishMicrosoftProfile(
+            new HostMicrosoftProfileSnapshot(profile.Username, profile.Uuid, profile.SkinAddress),
+            reason,
+            allowBackgroundOnlineWork);
     }
 
     private async Task SaveProfilesAfterAsync(

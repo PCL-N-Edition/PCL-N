@@ -160,9 +160,8 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
         CancellationToken token = _loadCancellation?.Token ?? CancellationToken.None;
         try
         {
-            using HttpClient client = new() { Timeout = TimeSpan.FromSeconds(35) };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
-            McimTranslationResult result = await new McimTranslationService(client)
+            ICommunityTranslationService service = CommunityOnlineProviderRegistry.CreateTranslationService();
+            McimTranslationResult result = await service
                 .GetAsync(entry, token)
                 .ConfigureAwait(true);
             if (_disposed || !ReferenceEquals(_entry, entry) || token.IsCancellationRequested)
