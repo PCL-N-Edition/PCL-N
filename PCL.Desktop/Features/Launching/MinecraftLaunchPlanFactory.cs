@@ -12,6 +12,7 @@ using PCL.Application.Launching;
 using PCL.Application.Minecraft.Launch;
 using PCL.Application.Minecraft.Launch.Arguments;
 using PCL.Application.Settings;
+using PCL.Core.Logging;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Platform.Java;
@@ -127,11 +128,12 @@ internal static class MinecraftLaunchPlanFactory
 
     public static void ApplyProcessPriority(Process process, LauncherSettings settings)
     {
+        int configuredPriority = settings.GetIntegerOption(
+            "LaunchArgumentPriority",
+            LauncherSettingDefaults.GetInteger("LaunchArgumentPriority"));
         try
         {
-            process.PriorityClass = settings.GetIntegerOption(
-                "LaunchArgumentPriority",
-                LauncherSettingDefaults.GetInteger("LaunchArgumentPriority")) switch
+            process.PriorityClass = configuredPriority switch
             {
                 0 => ProcessPriorityClass.AboveNormal,
                 2 => ProcessPriorityClass.BelowNormal,
@@ -142,6 +144,20 @@ internal static class MinecraftLaunchPlanFactory
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
         {
+            int processId;
+            try
+            {
+                processId = process.Id;
+            }
+            catch (InvalidOperationException)
+            {
+                processId = -1;
+            }
+
+            PortableLog.Warn(
+                ex,
+                "Launch",
+                $"无法设置 Minecraft 进程优先级；PID={processId}；配置值={configuredPriority}。");
         }
     }
 
@@ -242,8 +258,12 @@ internal static class MinecraftLaunchPlanFactory
             if (!string.IsNullOrWhiteSpace(id))
                 return id;
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
+            PortableLog.Warn(
+                ex,
+                "Launch",
+                $"读取实例版本标识失败，将回退到实例文件夹名称：{instance.VersionJsonPath}");
         }
 
         return instance.Name;
