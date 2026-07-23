@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PCL.Platform.Paths;
@@ -15,9 +16,10 @@ public sealed record CommunityFavoriteEntry(
 
 public sealed class CommunityFavoritesStore
 {
+    private static readonly ConcurrentDictionary<string, StoreState> Stores = new(
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly string _path;
-    private readonly object _gate = new();
-    private List<CommunityFavoriteEntry> _items;
+    private readonly StoreState _state;
 
     public CommunityFavoritesStore()
         : this(CreateDefaultPath())
@@ -28,58 +30,73 @@ public sealed class CommunityFavoritesStore
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         _path = Path.GetFullPath(path);
-        _items = Load(_path);
+        _state = Stores.GetOrAdd(_path, static normalizedPath => new StoreState(Load(normalizedPath)));
     }
 
-    public event EventHandler? Changed;
+    public event EventHandler? Changed
+    {
+        add
+        {
+            lock (_state.Gate)
+                _state.Changed += value;
+        }
+        remove
+        {
+            lock (_state.Gate)
+                _state.Changed -= value;
+        }
+    }
 
     public IReadOnlyList<CommunityFavoriteEntry> Items
     {
         get
         {
-            lock (_gate)
-                return _items.OrderByDescending(static item => item.AddedAt).ToArray();
+            lock (_state.Gate)
+                return _state.Items.OrderByDescending(static item => item.AddedAt).ToArray();
         }
     }
 
     public bool Contains(CommunityResourceEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        lock (_gate)
-            return _items.Any(item => IsSameProject(item.Entry, entry));
+        lock (_state.Gate)
+            return _state.Items.Any(item => IsSameProject(item.Entry, entry));
     }
 
     public bool Toggle(CommunityResourceEntry entry, CommunityResourceCategory category)
     {
         ArgumentNullException.ThrowIfNull(entry);
         bool added;
-        lock (_gate)
+        EventHandler? changed;
+        lock (_state.Gate)
         {
-            List<CommunityFavoriteEntry> previous = [.. _items];
-            int index = _items.FindIndex(item => IsSameProject(item.Entry, entry));
+            List<CommunityFavoriteEntry> previous = [.. _state.Items];
+            int index = _state.Items.FindIndex(item => IsSameProject(item.Entry, entry));
             if (index >= 0)
             {
-                _items.RemoveAt(index);
+                _state.Items.RemoveAt(index);
                 added = false;
             }
             else
             {
-                _items.Add(new CommunityFavoriteEntry(entry, category, DateTimeOffset.UtcNow));
+                _state.Items.Add(new CommunityFavoriteEntry(entry, category, DateTimeOffset.UtcNow));
                 added = true;
             }
 
             try
             {
-                Save(_path, _items);
+                Save(_path, _state.Items);
             }
             catch
             {
-                _items = previous;
+                _state.Items = previous;
                 throw;
             }
+
+            changed = _state.Changed;
         }
 
-        Changed?.Invoke(this, EventArgs.Empty);
+        changed?.Invoke(this, EventArgs.Empty);
         return added;
     }
 
@@ -107,18 +124,59 @@ public sealed class CommunityFavoritesStore
         string? directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
-        string temporary = path + ".tmp";
+        string temporary = Path.Combine(
+            directory ?? AppContext.BaseDirectory,
+            $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
         List<CommunityFavoriteEntry> serializableItems = [.. items];
-        File.WriteAllText(
-            temporary,
-            JsonSerializer.Serialize(serializableItems, CommunityFavoritesJsonContext.Default.ListCommunityFavoriteEntry));
-        File.Move(temporary, path, overwrite: true);
+        try
+        {
+            using (FileStream stream = new(
+                       temporary,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None,
+                       bufferSize: 16 * 1024,
+                       FileOptions.WriteThrough))
+            {
+                JsonSerializer.Serialize(
+                    stream,
+                    serializableItems,
+                    CommunityFavoritesJsonContext.Default.ListCommunityFavoriteEntry);
+                stream.Flush(flushToDisk: true);
+            }
+
+            File.Move(temporary, path, overwrite: true);
+            temporary = string.Empty;
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(temporary))
+            {
+                try
+                {
+                    File.Delete(temporary);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    // Preserve the original save failure.
+                }
+            }
+        }
     }
 
     private static string CreateDefaultPath()
     {
         DefaultPlatformPathProvider paths = new();
         return Path.Combine(paths.ApplicationDataDirectory, "PCL-N", "community-favorites.json");
+    }
+
+    private sealed class StoreState(List<CommunityFavoriteEntry> items)
+    {
+        public object Gate { get; } = new();
+
+        public List<CommunityFavoriteEntry> Items { get; set; } = items;
+
+        public EventHandler? Changed { get; set; }
     }
 }
 

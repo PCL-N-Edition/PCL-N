@@ -607,6 +607,49 @@ public sealed class CommunityFeatureTests
         }
     }
 
+    [TestMethod]
+    public async Task FavoritesStore_ShouldSharePathStateAcrossConcurrentInstances()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcln-favorites-race-test-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "favorites.json");
+        try
+        {
+            CommunityFavoritesStore first = new(path);
+            CommunityFavoritesStore second = new(path);
+            int changeCount = 0;
+            second.Changed += (_, _) => Interlocked.Increment(ref changeCount);
+
+            Task[] updates = Enumerable.Range(0, 16)
+                .Select(index => Task.Run(() =>
+                {
+                    CommunityResourceEntry entry = new(
+                        "project-" + index,
+                        "slug-" + index,
+                        "Title " + index,
+                        "Summary",
+                        "mod",
+                        null,
+                        index,
+                        null);
+                    CommunityFavoritesStore store = index % 2 == 0 ? first : second;
+                    Assert.IsTrue(store.Toggle(entry, CommunityResourceCategory.Mod));
+                }))
+                .ToArray();
+
+            await Task.WhenAll(updates);
+
+            Assert.AreEqual(16, first.Items.Count);
+            Assert.AreEqual(16, second.Items.Count);
+            Assert.AreEqual(16, new CommunityFavoritesStore(path).Items.Count);
+            Assert.AreEqual(16, changeCount);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
     {
         Content = new StringContent(json, Encoding.UTF8, "application/json")
