@@ -19,12 +19,18 @@
             <Rectangle Grid.Row="1" x:Name="ShapeLine" Height="2" Fill="{DynamicResource ColorBrush2}" />
             <ColorPicker Grid.Row="3" x:Name="Picker" IsAlphaEnabled="False" IsAlphaVisible="False"
                          MinHeight="330" HorizontalAlignment="Stretch" />
-            <StackPanel Grid.Row="5" x:Name="PanBtn" HorizontalAlignment="Right" Orientation="Horizontal" Margin="12,0,4,0">
-                <legacy:MyButton Text="确定" x:Name="BtnConfirm" Margin="12,0,0,0" Padding="5,0"
-                                 MinHeight="32" Click="ConfirmClick" />
-                <legacy:MyButton Text="取消" x:Name="BtnCancel" Margin="12,0,0,0" Padding="5,0"
-                                 MinHeight="32" Click="CancelClick" />
-            </StackPanel>
+            <Grid Grid.Row="5" x:Name="PanActions" ColumnDefinitions="Auto,*,Auto" Margin="12,0,4,0">
+                <legacy:MyButton x:Name="BtnLeft" Grid.Column="0" Padding="5,0" MinHeight="32"
+                                 IsVisible="False" Click="LeftClick" />
+                <StackPanel x:Name="PanBtn" Grid.Column="2" HorizontalAlignment="Right" Orientation="Horizontal">
+                    <legacy:MyButton Text="确定" x:Name="BtnConfirm" Margin="12,0,0,0" Padding="5,0"
+                                     MinHeight="32" Click="ConfirmClick" />
+                    <legacy:MyButton Text="取消" x:Name="BtnCancel" Margin="12,0,0,0" Padding="5,0"
+                                     MinHeight="32" Click="CancelClick" />
+                    <legacy:MyButton x:Name="BtnThird" Margin="12,0,0,0" Padding="5,0"
+                                     MinHeight="32" IsVisible="False" Click="ThirdClick" />
+                </StackPanel>
+            </Grid>
         </Grid>
     </Border>
 </Grid>

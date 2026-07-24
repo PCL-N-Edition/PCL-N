@@ -5,6 +5,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using PCL.Desktop.Messaging;
+using PCL.Application.Settings;
 
 namespace PCL.Desktop.Shell;
 
@@ -70,6 +71,13 @@ public sealed partial class AppShellViewModel : ObservableObject
     public ExperimentalUiProfile RefreshProfile()
     {
         ExperimentalUiProfile profile = _profileSource.RefreshFromSettings();
+        UseExperimentalChrome = profile.Chrome == ChromeStyle.Glass;
+        return profile;
+    }
+
+    public ExperimentalUiProfile RefreshProfile(LauncherSettings settings)
+    {
+        ExperimentalUiProfile profile = _profileSource.RefreshFromSettings(settings);
         UseExperimentalChrome = profile.Chrome == ChromeStyle.Glass;
         return profile;
     }

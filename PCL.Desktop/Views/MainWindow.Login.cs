@@ -753,7 +753,7 @@ public partial class MainWindow
         }
 
         MyMsgText dialog = new();
-        dialog.Configure(title, caption, primaryButton);
+        dialog.Configure(MyMsgDialogModel.CreateLegacy(title, caption, primaryButton));
         host.Children.Clear();
         background.IsVisible = true;
         AnimateMsgBackground(background, 90);
@@ -808,7 +808,13 @@ public partial class MainWindow
         }
 
         MyMsgMarkdown dialog = new();
-        dialog.Configure(title, markdown, primaryButton, secondaryButton, thirdButton, isWarn);
+        dialog.Configure(MyMsgDialogModel.CreateLegacy(
+            title,
+            markdown,
+            primaryButton,
+            secondaryButton,
+            thirdButton,
+            isWarn));
         host.Children.Clear();
         background.IsVisible = true;
         AnimateMsgBackground(background, 90);

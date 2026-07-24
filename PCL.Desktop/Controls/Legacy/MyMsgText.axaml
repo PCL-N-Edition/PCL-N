@@ -55,36 +55,48 @@
                            FontWeight="Normal"
                            Padding="1,0,4,8" />
             </legacy:MyScrollViewer>
-            <StackPanel Grid.Row="5"
-                        x:Name="PanBtn"
-                        VerticalAlignment="Top"
-                        HorizontalAlignment="Right"
-                        Margin="12,0,4,0"
-                        Orientation="Horizontal">
-                <legacy:MyButton ColorType="Normal"
-                                 Text="确定"
-                                 x:Name="Btn1"
-                                 Margin="12,0,0,0"
-                                 Padding="5,0"
-                                 MinHeight="32"
-                                 Click="Btn1Click" />
-                <legacy:MyButton ColorType="Normal"
-                                 Text="取消"
-                                 x:Name="Btn2"
-                                 Margin="12,0,0,0"
+            <Grid Grid.Row="5"
+                  x:Name="PanActions"
+                  ColumnDefinitions="Auto,*,Auto"
+                  Margin="12,0,4,0">
+                <legacy:MyButton x:Name="BtnLeft"
+                                 Grid.Column="0"
+                                 ColorType="Normal"
+                                 Margin="0"
                                  Padding="5,0"
                                  MinHeight="32"
                                  IsVisible="False"
-                                 Click="Btn2Click" />
-                <legacy:MyButton ColorType="Normal"
-                                 Text="关闭"
-                                 x:Name="Btn3"
-                                 Margin="12,0,0,0"
-                                 Padding="5,0"
-                                 MinHeight="32"
-                                 IsVisible="False"
-                                 Click="Btn3Click" />
-            </StackPanel>
+                                 Click="BtnLeftClick" />
+                <StackPanel x:Name="PanBtn"
+                            Grid.Column="2"
+                            VerticalAlignment="Top"
+                            HorizontalAlignment="Right"
+                            Orientation="Horizontal">
+                    <legacy:MyButton ColorType="Normal"
+                                     Text="确定"
+                                     x:Name="Btn1"
+                                     Margin="12,0,0,0"
+                                     Padding="5,0"
+                                     MinHeight="32"
+                                     Click="Btn1Click" />
+                    <legacy:MyButton ColorType="Normal"
+                                     Text="取消"
+                                     x:Name="Btn2"
+                                     Margin="12,0,0,0"
+                                     Padding="5,0"
+                                     MinHeight="32"
+                                     IsVisible="False"
+                                     Click="Btn2Click" />
+                    <legacy:MyButton ColorType="Normal"
+                                     Text="关闭"
+                                     x:Name="Btn3"
+                                     Margin="12,0,0,0"
+                                     Padding="5,0"
+                                     MinHeight="32"
+                                     IsVisible="False"
+                                     Click="Btn3Click" />
+                </StackPanel>
+            </Grid>
         </Grid>
     </Border>
 </Grid>

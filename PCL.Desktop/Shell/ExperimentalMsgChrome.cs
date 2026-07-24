@@ -7,6 +7,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
+using System.Runtime.CompilerServices;
 using PCL.Application.Settings;
 using PCL.Desktop.Composition;
 using PCL.Desktop.Controls.Legacy;
@@ -24,6 +25,7 @@ internal static class ExperimentalMsgChrome
     private const double OpenTranslateY = 14d;
     private const double CloseScaleTo = 0.97d;
     private const double CloseTranslateY = 10d;
+    private static readonly ConditionalWeakTable<Control, ShellSnapshot> ClassicShells = new();
 
     public static bool IsEnabled
     {
@@ -71,6 +73,9 @@ internal static class ExperimentalMsgChrome
         if (!IsEnabled)
             return;
 
+        _ = ClassicShells.GetValue(
+            root,
+            _ => ShellSnapshot.Capture(root, border, title, line, buttons));
         root.RenderTransformOrigin = new RelativePoint(0.5d, 0.5d, RelativeUnit.Relative);
         root.Margin = new Thickness(28d);
 
@@ -107,17 +112,32 @@ internal static class ExperimentalMsgChrome
         if (buttons is not null)
         {
             buttons.HorizontalAlignment = HorizontalAlignment.Stretch;
-            buttons.Margin = new Thickness(16d, 4d, 16d, 4d);
-            foreach (Control child in buttons.Children)
+            buttons.Margin = new Thickness(16d, 6d, 16d, 4d);
+            foreach (MyButton button in EnumerateButtons(buttons))
             {
-                if (child is not MyButton button)
-                    continue;
                 button.MinHeight = 36d;
                 button.MinWidth = 92d;
-                button.Margin = new Thickness(8d, 0d, 0d, 0d);
+                button.Margin = button.Name == "BtnLeft"
+                    ? new Thickness(0d)
+                    : new Thickness(8d, 0d, 0d, 0d);
                 button.Padding = new Thickness(14d, 0d, 14d, 0d);
+                button.UseExperimentalStyle = true;
             }
         }
+    }
+
+    /// <summary>Restores every property changed by <see cref="ApplyShell"/>.</summary>
+    public static void RestoreShell(
+        Control root,
+        Border? border,
+        TextBlock? title,
+        Rectangle? line,
+        Panel? buttons)
+    {
+        if (!ClassicShells.TryGetValue(root, out ShellSnapshot? snapshot))
+            return;
+
+        snapshot.Restore(root, border, title, line, buttons);
     }
 
     public static (ScaleTransform Scale, TranslateTransform Translate) PrepareOpenTransforms(Control root)
@@ -219,4 +239,209 @@ internal static class ExperimentalMsgChrome
     private static bool IsDarkTheme(Control root) =>
         root.ActualThemeVariant == ThemeVariant.Dark ||
         global::Avalonia.Application.Current?.ActualThemeVariant == ThemeVariant.Dark;
+
+    private static IEnumerable<MyButton> EnumerateButtons(Control root)
+    {
+        if (root is MyButton button)
+            yield return button;
+
+        if (root is Panel panel)
+        {
+            foreach (Control child in panel.Children)
+            {
+                foreach (MyButton descendant in EnumerateButtons(child))
+                    yield return descendant;
+            }
+        }
+        else if (root is ContentControl { Content: Control content })
+        {
+            foreach (MyButton descendant in EnumerateButtons(content))
+                yield return descendant;
+        }
+    }
+
+    private sealed class ShellSnapshot
+    {
+        private readonly RelativePoint _renderTransformOrigin;
+        private readonly ITransform? _renderTransform;
+        private readonly Thickness _rootMargin;
+        private readonly BorderSnapshot? _border;
+        private readonly TitleSnapshot? _title;
+        private readonly LineSnapshot? _line;
+        private readonly PanelSnapshot? _panel;
+        private readonly Dictionary<MyButton, ButtonSnapshot> _buttons;
+
+        private ShellSnapshot(
+            Control root,
+            Border? border,
+            TextBlock? title,
+            Rectangle? line,
+            Panel? panel)
+        {
+            _renderTransformOrigin = root.RenderTransformOrigin;
+            _renderTransform = root.RenderTransform;
+            _rootMargin = root.Margin;
+            _border = border is null ? null : new BorderSnapshot(border);
+            _title = title is null ? null : new TitleSnapshot(title);
+            _line = line is null ? null : new LineSnapshot(line);
+            _panel = panel is null ? null : new PanelSnapshot(panel);
+            _buttons = panel is null
+                ? []
+                : EnumerateButtons(panel).ToDictionary(static button => button, static button => new ButtonSnapshot(button));
+        }
+
+        public static ShellSnapshot Capture(
+            Control root,
+            Border? border,
+            TextBlock? title,
+            Rectangle? line,
+            Panel? panel) =>
+            new(root, border, title, line, panel);
+
+        public void Restore(
+            Control root,
+            Border? border,
+            TextBlock? title,
+            Rectangle? line,
+            Panel? panel)
+        {
+            root.RenderTransformOrigin = _renderTransformOrigin;
+            root.RenderTransform = _renderTransform;
+            root.Margin = _rootMargin;
+            if (border is not null)
+                _border?.Restore(border);
+            if (title is not null)
+                _title?.Restore(title);
+            if (line is not null)
+                _line?.Restore(line);
+            if (panel is not null)
+                _panel?.Restore(panel);
+            foreach ((MyButton button, ButtonSnapshot snapshot) in _buttons)
+                snapshot.Restore(button);
+        }
+    }
+
+    private sealed record BorderSnapshot(
+        CornerRadius CornerRadius,
+        BoxShadows BoxShadow,
+        Thickness BorderThickness,
+        IBrush? BorderBrush,
+        IBrush? Background,
+        bool ClipToBounds)
+    {
+        public BorderSnapshot(Border border)
+            : this(
+                border.CornerRadius,
+                border.BoxShadow,
+                border.BorderThickness,
+                border.BorderBrush,
+                border.Background,
+                border.ClipToBounds)
+        {
+        }
+
+        public void Restore(Border border)
+        {
+            border.CornerRadius = CornerRadius;
+            border.BoxShadow = BoxShadow;
+            border.BorderThickness = BorderThickness;
+            border.BorderBrush = BorderBrush;
+            border.Background = Background;
+            border.ClipToBounds = ClipToBounds;
+        }
+    }
+
+    private sealed record TitleSnapshot(
+        double FontSize,
+        FontWeight FontWeight,
+        double LetterSpacing,
+        double LineHeight,
+        HorizontalAlignment HorizontalAlignment,
+        TextAlignment TextAlignment,
+        Thickness Margin)
+    {
+        public TitleSnapshot(TextBlock title)
+            : this(
+                title.FontSize,
+                title.FontWeight,
+                title.LetterSpacing,
+                title.LineHeight,
+                title.HorizontalAlignment,
+                title.TextAlignment,
+                title.Margin)
+        {
+        }
+
+        public void Restore(TextBlock title)
+        {
+            title.FontSize = FontSize;
+            title.FontWeight = FontWeight;
+            title.LetterSpacing = LetterSpacing;
+            title.LineHeight = LineHeight;
+            title.HorizontalAlignment = HorizontalAlignment;
+            title.TextAlignment = TextAlignment;
+            title.Margin = Margin;
+        }
+    }
+
+    private sealed record LineSnapshot(
+        double Height,
+        double Opacity,
+        IBrush? Fill,
+        Thickness Margin)
+    {
+        public LineSnapshot(Rectangle line)
+            : this(line.Height, line.Opacity, line.Fill, line.Margin)
+        {
+        }
+
+        public void Restore(Rectangle line)
+        {
+            line.Height = Height;
+            line.Opacity = Opacity;
+            line.Fill = Fill;
+            line.Margin = Margin;
+        }
+    }
+
+    private sealed record PanelSnapshot(HorizontalAlignment HorizontalAlignment, Thickness Margin)
+    {
+        public PanelSnapshot(Panel panel)
+            : this(panel.HorizontalAlignment, panel.Margin)
+        {
+        }
+
+        public void Restore(Panel panel)
+        {
+            panel.HorizontalAlignment = HorizontalAlignment;
+            panel.Margin = Margin;
+        }
+    }
+
+    private sealed record ButtonSnapshot(
+        double MinHeight,
+        double MinWidth,
+        Thickness Margin,
+        Thickness Padding,
+        bool UseExperimentalStyle)
+    {
+        public ButtonSnapshot(MyButton button)
+            : this(
+                button.MinHeight,
+                button.MinWidth,
+                button.Margin,
+                button.Padding,
+                button.UseExperimentalStyle)
+        {
+        }
+
+        public void Restore(MyButton button)
+        {
+            button.MinHeight = MinHeight;
+            button.MinWidth = MinWidth;
+            button.Margin = Margin;
+            button.Padding = Padding;
+            button.UseExperimentalStyle = UseExperimentalStyle;
+        }
+    }
 }

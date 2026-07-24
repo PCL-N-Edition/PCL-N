@@ -2212,10 +2212,11 @@ public partial class MainWindow : Window, IDisposable
 
         if (showChrome)
         {
-            dock.Padding = new Thickness(6d, 8d);
+            bool dark = AvaloniaThemeManager.IsDarkMode;
+            dock.Padding = new Thickness(6d);
             dock.CornerRadius = new CornerRadius(26d);
-            dock.Background = new SolidColorBrush(Color.Parse("#CCF5F5F7"));
-            dock.BorderBrush = new SolidColorBrush(Color.Parse("#33FFFFFF"));
+            dock.Background = new SolidColorBrush(Color.Parse(dark ? "#D929292D" : "#CCF5F5F7"));
+            dock.BorderBrush = new SolidColorBrush(Color.Parse(dark ? "#38FFFFFF" : "#33FFFFFF"));
             dock.BorderThickness = new Thickness(1d);
             dock.BoxShadow = new BoxShadows(new BoxShadow
             {
@@ -4880,6 +4881,12 @@ public partial class MainWindow : Window, IDisposable
         }
 
         ApplyFormBackground(AvaloniaThemeManager.CurrentSettings);
+        foreach (string name in ExtraButtonNames)
+        {
+            if (this.FindControl<MyExtraButton>(name) is { } extra)
+                extra.RefreshColor();
+        }
+        RefreshExtraDockChrome();
     }
 
     private void LocalizationChanged(object? sender, EventArgs e)
@@ -4921,7 +4928,8 @@ public partial class MainWindow : Window, IDisposable
         ApplyTitleAppearance(settings);
         ApplyBackgroundAppearance(settings);
         ApplyNetworkProxy(settings);
-        ApplyExperimentalChrome(IsExperimentalHomepageUiEnabled(settings));
+        ExperimentalUiProfile profile = _shellViewModel.RefreshProfile(settings);
+        ApplyExperimentalChrome(profile.HomepageUi);
         _launchRight?.SetMaximumLogLines(ResolveMaximumLogLines(settings));
         ApplyLaunchPageSettings(settings);
         ApplyHomepageSettings(settings);

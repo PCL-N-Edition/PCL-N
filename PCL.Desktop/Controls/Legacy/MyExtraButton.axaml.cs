@@ -96,7 +96,14 @@ public partial class MyExtraButton : Grid
         this.GetObservable(ProgressProperty).Subscribe(_ => RefreshProgress());
         this.GetObservable(ShowProperty).Subscribe(value => ApplyShowState(value, _isLoaded));
         this.GetObservable(IsEnabledProperty).Subscribe(_ => RefreshColor());
-        this.GetObservable(UseGlassChromeProperty).Subscribe(_ => RefreshColor());
+        this.GetObservable(UseGlassChromeProperty).Subscribe(_ =>
+        {
+            if (_panScale is not null)
+                _panScale.Margin = UseGlassChrome ? new Thickness(0d) : new Thickness(0d, 10d, 0d, 0d);
+            if (Show)
+                Height = UseGlassChrome ? 40d : 50d;
+            RefreshColor();
+        });
 
         RefreshIcon();
         RefreshScale();
@@ -315,13 +322,13 @@ public partial class MyExtraButton : Grid
         if (!animate)
         {
             IsVisible = true;
-            Height = 50d;
+            Height = UseGlassChrome ? 40d : 50d;
             SetScale(this, 1d);
             return;
         }
 
         IsVisible = true;
-        Height = 50d;
+        Height = UseGlassChrome ? 40d : 50d;
         ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
@@ -379,12 +386,12 @@ public partial class MyExtraButton : Grid
 
         if (UseGlassChrome)
         {
-            // Frosted control: pale material + dark glyph (iOS Maps / Control Center-ish).
+            bool dark = PCL.Desktop.Theme.AvaloniaThemeManager.IsDarkMode;
             IBrush surface = !IsEnabled
-                ? FindBrush("ColorBrushGray5", "#d9dde3")
+                ? new SolidColorBrush(Color.Parse(dark ? "#B52F2F32" : "#D9D9DDE3"))
                 : IsPointerOver
-                    ? new SolidColorBrush(Color.Parse("#F5FFFFFF"))
-                    : new SolidColorBrush(Color.Parse("#E8FFFFFF"));
+                    ? new SolidColorBrush(Color.Parse(dark ? "#F04A4A50" : "#F5FFFFFF"))
+                    : new SolidColorBrush(Color.Parse(dark ? "#D83A3A3E" : "#E8FFFFFF"));
             _panColor.Background = surface;
             _panColor.BoxShadow = new BoxShadows(new BoxShadow
             {
@@ -394,7 +401,7 @@ public partial class MyExtraButton : Grid
             });
             IBrush glassIcon = !IsEnabled
                 ? FindBrush("ColorBrushGray3", "#8a9199")
-                : FindBrush("ColorBrush1", "#1c1c1e");
+                : new SolidColorBrush(Color.Parse(dark ? "#FFF2F2F7" : "#FF1C1C1E"));
             if (_path is not null)
             {
                 _path.Fill = glassIcon;

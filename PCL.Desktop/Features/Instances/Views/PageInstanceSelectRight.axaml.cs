@@ -67,6 +67,10 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
 
     private void ApplyFullPageLayoutChrome()
     {
+        if (this.FindControl<MyButton>("BtnDownloadHeader") is { } headerDownload)
+            headerDownload.UseExperimentalStyle = _fullPageLayout;
+        if (this.FindControl<MyButton>("BtnEmptyDownload") is { } emptyDownload)
+            emptyDownload.UseExperimentalStyle = _fullPageLayout;
         if (this.FindControl<Border>("PanFolderSidebar") is { } sidebar)
             sidebar.IsVisible = _fullPageLayout;
         if (this.FindControl<Grid>("PanRoot") is { } root)

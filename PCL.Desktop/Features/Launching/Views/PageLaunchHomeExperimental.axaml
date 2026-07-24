@@ -171,6 +171,7 @@
                                          Height="44"
                                          ColorType="Highlight"
                                          CornerRadius="11"
+                                         UseExperimentalStyle="True"
                                          Text="{DynamicResource Launch.Home.Button.Loading}"
                                          Click="BtnLaunch_Click"
                                          IsEnabled="False" />
@@ -537,6 +538,7 @@
                                      HorizontalAlignment="Stretch"
                                      ColorType="Gray"
                                      CornerRadius="10"
+                                     UseExperimentalStyle="True"
                                      Text="{DynamicResource Common.Action.Cancel}"
                                      Click="BtnCancel_Click" />
                 </Grid>

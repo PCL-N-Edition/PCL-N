@@ -51,6 +51,9 @@ public partial class MyButton : Border
     public static readonly StyledProperty<object?> ToolTipProperty =
         AvaloniaProperty.Register<MyButton, object?>(nameof(ToolTip));
 
+    public static readonly StyledProperty<bool> UseExperimentalStyleProperty =
+        AvaloniaProperty.Register<MyButton, bool>(nameof(UseExperimentalStyle));
+
     public new static readonly StyledProperty<Thickness> PaddingProperty =
         AvaloniaProperty.Register<MyButton, Thickness>(nameof(Padding), new Thickness());
 
@@ -88,6 +91,11 @@ public partial class MyButton : Border
         this.GetObservable(ColorTypeProperty).Subscribe(_ => RefreshColor());
         this.GetObservable(IsEnabledProperty).Subscribe(_ => RefreshColor());
         this.GetObservable(ToolTipProperty).Subscribe(tip => Avalonia.Controls.ToolTip.SetTip(this, tip));
+        this.GetObservable(UseExperimentalStyleProperty).Subscribe(_ =>
+        {
+            ApplyVisualStyle();
+            RefreshColor();
+        });
         this.GetObservable(PaddingProperty).Subscribe(padding =>
         {
             if (_foregroundBorder is not null)
@@ -162,6 +170,13 @@ public partial class MyButton : Border
         set => SetValue(ToolTipProperty, value);
     }
 
+    /// <summary>Uses the experimental, Apple-inspired filled/tonal dialog button treatment.</summary>
+    public bool UseExperimentalStyle
+    {
+        get => GetValue(UseExperimentalStyleProperty);
+        set => SetValue(UseExperimentalStyleProperty, value);
+    }
+
     public new Thickness Padding
     {
         get => GetValue(PaddingProperty);
@@ -218,6 +233,12 @@ public partial class MyButton : Border
         if (_foregroundBorder is null || _label is null)
             return;
 
+        if (UseExperimentalStyle)
+        {
+            RefreshExperimentalColor();
+            return;
+        }
+
         string resourceKey = IsEnabled ? GetBorderBrushResourceKey() : "ColorBrushGray4";
         ControlVisualHelpers.AnimateColorOrSetResource(
             _foregroundBorder,
@@ -255,6 +276,12 @@ public partial class MyButton : Border
         if (!IsEnabled || _foregroundBorder is null)
             return;
 
+        if (UseExperimentalStyle)
+        {
+            RefreshExperimentalColor();
+            return;
+        }
+
         ControlVisualHelpers.AnimateColorOrSetResource(
             _foregroundBorder,
             Border.BackgroundProperty,
@@ -269,6 +296,13 @@ public partial class MyButton : Border
         if (_foregroundBorder is null)
             return;
 
+        if (UseExperimentalStyle)
+        {
+            RefreshExperimentalColor();
+            RestorePressedScaleIfNeeded();
+            return;
+        }
+
         ControlVisualHelpers.AnimateColorOrSetResource(
             _foregroundBorder,
             Border.BackgroundProperty,
@@ -276,7 +310,89 @@ public partial class MyButton : Border
             AnimationColorOut,
             "MyButton Background " + Uuid,
             ControlVisualHelpers.ShouldAnimate(this));
-        if (!_isPressed)
+        RestorePressedScaleIfNeeded();
+    }
+
+    private double GetForegroundScale() =>
+        _foregroundBorder?.RenderTransform is ScaleTransform scale ? scale.ScaleX : 1d;
+
+    private void ApplyVisualStyle()
+    {
+        if (_foregroundBorder is null || _label is null)
+            return;
+
+        if (UseExperimentalStyle)
+        {
+            _foregroundBorder.CornerRadius = new CornerRadius(10d);
+            _foregroundBorder.BorderThickness = new Thickness(1d);
+            _foregroundBorder.MinHeight = 36d;
+            _label.FontWeight = FontWeight.SemiBold;
+            _label.FontSize = 13d;
+            _label.LetterSpacing = 0.05d;
+            return;
+        }
+
+        _foregroundBorder.CornerRadius = new CornerRadius(4d);
+        _foregroundBorder.BorderThickness = new Thickness(1d);
+        _foregroundBorder.MinHeight = 32d;
+        _foregroundBorder.Background = LegacyResourceResolver.Brush(this, "ColorBrushHalfWhite", "#80ffffff");
+        _foregroundBorder.BorderBrush = LegacyResourceResolver.Brush(this, "ColorBrush1", "#3a3a3a");
+        _label.Foreground = LegacyResourceResolver.Brush(this, "ColorBrush1", "#3a3a3a");
+        _label.FontWeight = FontWeight.Normal;
+        _label.FontSize = 13d;
+        _label.LetterSpacing = 0d;
+    }
+
+    private void RefreshExperimentalColor()
+    {
+        if (_foregroundBorder is null || _label is null)
+            return;
+
+        bool dark = AvaloniaThemeManager.IsDarkMode;
+        bool hover = IsEnabled && IsPointerOver;
+        Color surface;
+        Color stroke;
+        Color text;
+
+        if (!IsEnabled)
+        {
+            surface = dark ? Color.Parse("#663A3A3E") : Color.Parse("#99E5E5EA");
+            stroke = dark ? Color.Parse("#24FFFFFF") : Color.Parse("#14000000");
+            text = dark ? Color.Parse("#829999A1") : Color.Parse("#7A6E6E73");
+        }
+        else if (ColorType == ColorState.Highlight)
+        {
+            IBrush accent = LegacyResourceResolver.Brush(this, hover ? "ColorBrush3" : "ColorBrush2", "#1370f3");
+            surface = accent is SolidColorBrush accentBrush ? accentBrush.Color : Color.Parse("#1370f3");
+            stroke = dark ? Color.Parse("#38FFFFFF") : Color.Parse("#1FFFFFFF");
+            text = Color.Parse("#FFFFFFFF");
+        }
+        else if (ColorType == ColorState.Red)
+        {
+            surface = dark
+                ? Color.Parse(hover ? "#B85C252B" : "#9952252A")
+                : Color.Parse(hover ? "#FFF0D9DC" : "#FFF8E9EB");
+            stroke = dark ? Color.Parse("#66FF6961") : Color.Parse("#40D70015");
+            text = dark ? Color.Parse("#FFFF8A83") : Color.Parse("#FFD70015");
+        }
+        else
+        {
+            surface = dark
+                ? Color.Parse(hover ? "#F04A4A50" : "#D83A3A3E")
+                : Color.Parse(hover ? "#FFFFFFFF" : "#EEF2F2F7");
+            stroke = dark ? Color.Parse("#32FFFFFF") : Color.Parse("#18000000");
+            text = dark ? Color.Parse("#FFF2F2F7") : Color.Parse("#FF1C1C1E");
+        }
+
+        _foregroundBorder.Background = new SolidColorBrush(surface);
+        _foregroundBorder.BorderBrush = new SolidColorBrush(stroke);
+        _label.Foreground = new SolidColorBrush(text);
+        Cursor = IsEnabled ? new Cursor(StandardCursorType.Hand) : Cursor.Default;
+    }
+
+    private void RestorePressedScaleIfNeeded()
+    {
+        if (!_isPressed || _foregroundBorder is null)
             return;
 
         _isPressed = false;
@@ -288,7 +404,4 @@ public partial class MyButton : Border
                 ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Strong)),
             "MyButton Scale " + Uuid);
     }
-
-    private double GetForegroundScale() =>
-        _foregroundBorder?.RenderTransform is ScaleTransform scale ? scale.ScaleX : 1d;
 }

@@ -18,6 +18,7 @@ using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Localization;
+using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Features.Launching.Views;
 
@@ -82,6 +83,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         RegisterPluginUiSurfaces();
         SetLoadingState();
         SeedCommunityHints();
+        AvaloniaThemeManager.ThemeChanged += ThemeChanged;
         RefreshShortcutDock();
         AttachedToVisualTree += (_, _) =>
         {
@@ -174,8 +176,31 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         if (this.FindControl<Control>("PanShortcuts") is not { } surface)
             return;
 
+        ApplyShortcutTheme();
         RegisterWidgetCard(CardIdShortcuts, surface, order: 20);
         RebuildShortcutDockItems();
+    }
+
+    private void ThemeChanged()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(ThemeChanged, DispatcherPriority.Background);
+            return;
+        }
+
+        ApplyShortcutTheme();
+        RebuildShortcutDockItems();
+    }
+
+    private void ApplyShortcutTheme()
+    {
+        if (this.FindControl<Border>("PanShortcuts") is not { } surface)
+            return;
+
+        bool dark = AvaloniaThemeManager.IsDarkMode;
+        surface.Background = new SolidColorBrush(Color.Parse(dark ? "#E028282C" : "#F4FFFFFF"));
+        surface.BorderBrush = new SolidColorBrush(Color.Parse(dark ? "#38FFFFFF" : "#18000000"));
     }
 
     public async Task RefreshInstancesAsync()
@@ -719,6 +744,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         if (_disposed)
             return;
         _disposed = true;
+        AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         UnregisterPluginUiSurfaces();
         _refreshCancellation?.Cancel();
         _refreshCancellation?.Dispose();
@@ -888,13 +914,15 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
 
     private StackPanel CreateShortcutDockItem(LaunchShortcutPin pin)
     {
+        bool dark = AvaloniaThemeManager.IsDarkMode;
+        IBrush foreground = new SolidColorBrush(Color.Parse(dark ? "#FFF2F2F7" : "#FF1C1C1E"));
         Border iconShell = new()
         {
             Width = 48,
             Height = 48,
             CornerRadius = new CornerRadius(12),
-            Background = ResolveBrush("ColorBrushWhite") ?? Brushes.White,
-            BorderBrush = ResolveBrush("ColorBrushGray6"),
+            Background = new SolidColorBrush(Color.Parse(dark ? "#D83A3A3E" : "#EEFFFFFF")),
+            BorderBrush = new SolidColorBrush(Color.Parse(dark ? "#32FFFFFF" : "#18000000")),
             BorderThickness = new Thickness(1),
             ClipToBounds = true,
             Child = new SvgIcon
@@ -904,7 +932,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 Icon = pin.Kind == LaunchShortcutKind.Server ? "lucide/server" : "lucide/globe",
-                IconBrush = ResolveBrush("ColorBrush2") ?? Brushes.Gray
+                IconBrush = foreground
             }
         };
 
@@ -917,7 +945,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             TextTrimming = TextTrimming.CharacterEllipsis,
             TextAlignment = TextAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Foreground = ResolveBrush("ColorBrush1") ?? Brushes.Black
+            Foreground = foreground
         };
 
         StackPanel stack = new()

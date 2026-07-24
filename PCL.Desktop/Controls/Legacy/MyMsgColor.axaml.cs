@@ -76,6 +76,10 @@ public partial class MyMsgColor : Grid
 
     private void CancelClick(object? sender, EventArgs e) => Close(null);
 
+    private void LeftClick(object? sender, EventArgs e) => Close(null);
+
+    private void ThirdClick(object? sender, EventArgs e) => Close(null);
+
     private void Close(Color? color)
     {
         if (_isClosing)
@@ -104,7 +108,12 @@ public partial class MyMsgColor : Grid
     {
         if (!ExperimentalMsgChrome.IsEnabled)
         {
+            ExperimentalMsgChrome.RestoreShell(this, this.FindControl<Border>("PanBorder"),
+                this.FindControl<TextBlock>("LabTitle"), this.FindControl<Rectangle>("ShapeLine"),
+                this.FindControl<Panel>("PanActions"));
             _useExperimentalChrome = false;
+            _transformScale = null;
+            _transformPos = null;
             return;
         }
 
@@ -114,7 +123,7 @@ public partial class MyMsgColor : Grid
             this.FindControl<Border>("PanBorder"),
             this.FindControl<TextBlock>("LabTitle"),
             this.FindControl<Rectangle>("ShapeLine"),
-            this.FindControl<Panel>("PanBtn"));
+            this.FindControl<Panel>("PanActions"));
         (ScaleTransform scale, TranslateTransform translate) = ExperimentalMsgChrome.PrepareOpenTransforms(this);
         _transformScale = scale;
         _transformPos = translate;

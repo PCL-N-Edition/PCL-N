@@ -24,9 +24,7 @@ public partial class MyMsgMarkdown : Grid
     private bool _useExperimentalChrome;
     private int _pendingResult;
     private AnimationMode _animationMode;
-    private Action? _button1Action;
-    private Action? _button2Action;
-    private Action? _button3Action;
+    private MyMsgDialogModel? _model;
 
     public MyMsgMarkdown()
     {
@@ -51,25 +49,26 @@ public partial class MyMsgMarkdown : Grid
         Action? secondaryAction = null,
         Action? thirdAction = null)
     {
-        _button1Action = primaryAction;
-        _button2Action = secondaryAction;
-        _button3Action = thirdAction;
+        Configure(MyMsgDialogModel.CreateLegacy(
+            title,
+            markdown,
+            primaryButton,
+            secondaryButton,
+            thirdButton,
+            isWarn,
+            primaryAction,
+            secondaryAction,
+            thirdAction));
+    }
 
-        if (this.FindControl<TextBlock>("LabTitle") is { } titleBlock)
-        {
-            titleBlock.Text = title;
-            IBrush titleBrush = isWarn
-                ? FindBrush("ColorBrushRedLight", "#ff4c4c")
-                : FindBrush("ColorBrush2", "#3a3a3a");
-            titleBlock.Foreground = titleBrush;
-            SyncTitleLine(titleBrush);
-        }
+    public void Configure(MyMsgDialogModel model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        _model = model;
+        ApplyModel();
         if (this.FindControl<MyMarkdownViewer>("LabCaption") is { } caption)
-            caption.Markdown = markdown;
+            caption.Markdown = model.Content;
 
-        ConfigureSecondaryButton(this.FindControl<MyButton>("Btn2"), secondaryButton);
-        ConfigureSecondaryButton(this.FindControl<MyButton>("Btn3"), thirdButton);
-        ConfigurePrimaryButton(primaryButton, isWarn);
         ApplyExperimentalChrome();
     }
 
@@ -142,8 +141,18 @@ public partial class MyMsgMarkdown : Grid
     {
         if (!ExperimentalMsgChrome.IsEnabled)
         {
+            ExperimentalMsgChrome.RestoreShell(
+                this,
+                this.FindControl<Border>("PanBorder"),
+                this.FindControl<TextBlock>("LabTitle"),
+                this.FindControl<Rectangle>("ShapeLine"),
+                this.FindControl<Panel>("PanActions"));
             _useExperimentalChrome = false;
+            _transformScale = null;
+            _transformPos = null;
+            _transformRotate = null;
             CaptureTransforms();
+            ApplyModel();
             return;
         }
 
@@ -153,7 +162,7 @@ public partial class MyMsgMarkdown : Grid
             this.FindControl<Border>("PanBorder"),
             this.FindControl<TextBlock>("LabTitle"),
             this.FindControl<Rectangle>("ShapeLine"),
-            this.FindControl<Panel>("PanBtn"));
+            this.FindControl<Panel>("PanActions"));
         (ScaleTransform scale, TranslateTransform translate) = ExperimentalMsgChrome.PrepareOpenTransforms(this);
         _transformScale = scale;
         _transformPos = translate;
@@ -162,65 +171,35 @@ public partial class MyMsgMarkdown : Grid
 
     public void Btn1Click(object? sender, EventArgs e)
     {
-        if (_animationMode == AnimationMode.Closing)
-            return;
-
-        if (_button1Action is not null)
-        {
-            _button1Action();
-            return;
-        }
-
-        CloseWithResult(1);
+        InvokeButton(this.FindControl<MyButton>("Btn1"), 1);
     }
 
     public void Btn2Click(object? sender, EventArgs e)
     {
-        if (_animationMode == AnimationMode.Closing)
-            return;
-
-        if (_button2Action is not null)
-        {
-            _button2Action();
-            return;
-        }
-
-        CloseWithResult(2);
+        InvokeButton(this.FindControl<MyButton>("Btn2"), 2);
     }
 
     public void Btn3Click(object? sender, EventArgs e)
     {
+        InvokeButton(this.FindControl<MyButton>("Btn3"), 3);
+    }
+
+    public void BtnLeftClick(object? sender, EventArgs e) =>
+        InvokeButton(this.FindControl<MyButton>("BtnLeft"), 0);
+
+    private void InvokeButton(MyButton? button, int fallbackResult)
+    {
         if (_animationMode == AnimationMode.Closing)
             return;
 
-        if (_button3Action is not null)
+        MyMsgDialogButton? action = MyMsgDialogPresenter.GetAction(button);
+        if (action?.Action is { } callback)
         {
-            _button3Action();
+            callback();
             return;
         }
 
-        CloseWithResult(3);
-    }
-
-    private void ConfigurePrimaryButton(string text, bool isWarn)
-    {
-        if (this.FindControl<MyButton>("Btn1") is not { } primary)
-            return;
-
-        primary.Text = text;
-        primary.ColorType = isWarn ? MyButton.ColorState.Red : MyButton.ColorState.Normal;
-        bool hasSecondaryAction = this.FindControl<MyButton>("Btn2") is { IsVisible: true };
-        if (hasSecondaryAction && !isWarn)
-            primary.ColorType = MyButton.ColorState.Highlight;
-    }
-
-    private static void ConfigureSecondaryButton(MyButton? button, string text)
-    {
-        if (button is null)
-            return;
-
-        button.Text = text;
-        button.IsVisible = !string.IsNullOrEmpty(text);
+        CloseWithResult(action?.Result ?? fallbackResult);
     }
 
     private void CloseWithResult(int result)
@@ -267,15 +246,20 @@ public partial class MyMsgMarkdown : Grid
             _transformRotate.Angle += value;
     }
 
-    private IBrush FindBrush(string resourceKey, string fallback)
+    private void ApplyModel()
     {
-        return LegacyResourceResolver.Brush(this, resourceKey, fallback);
-    }
+        if (_model is null)
+            return;
 
-    private void SyncTitleLine(IBrush brush)
-    {
-        if (this.FindControl<Rectangle>("ShapeLine") is { } line)
-            line.Fill = brush;
+        MyMsgDialogPresenter.Apply(
+            this,
+            _model,
+            this.FindControl<TextBlock>("LabTitle"),
+            this.FindControl<Rectangle>("ShapeLine"),
+            this.FindControl<MyButton>("BtnLeft"),
+            this.FindControl<MyButton>("Btn1"),
+            this.FindControl<MyButton>("Btn2"),
+            this.FindControl<MyButton>("Btn3"));
     }
 
     private enum AnimationMode

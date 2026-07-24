@@ -16,6 +16,8 @@ using PCL.Desktop.Features.Settings;
 using PCL.Desktop.Features.Tasks;
 using PCL.Desktop.Session;
 using PCL.Desktop.Shell;
+using PCL.Desktop.Controls.Legacy;
+using PCL.Application.Settings;
 
 namespace PCL.Desktop.Test;
 
@@ -99,6 +101,42 @@ public sealed class DesktopCompositionTests
 
         Assert.ThrowsExactly<ArgumentNullException>(() =>
             useCase.ExecuteAsync(null!).GetAwaiter().GetResult());
+    }
+
+    [TestMethod]
+    public void MyMsgDialogModel_AllowsOneLeftAndAtMostThreeRightActions()
+    {
+        MyMsgDialogButton left = new("帮助", 0);
+        MyMsgDialogButton[] right =
+        [
+            new("继续", 1, MyMsgDialogButtonRole.Primary),
+            new("稍后", 2),
+            new("跳过", 3)
+        ];
+
+        MyMsgDialogModel model = new("更新", "内容", left, right);
+
+        Assert.AreSame(left, model.LeftButton);
+        Assert.AreEqual(3, model.RightButtons.Count);
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            _ = new MyMsgDialogModel(
+                "无效",
+                "内容",
+                rightButtons: [.. right, new MyMsgDialogButton("第四个", 4)]));
+    }
+
+    [TestMethod]
+    public void ExperimentalUiProfileSource_UsesLiveSettingsForImmediateRollback()
+    {
+        ExperimentalUiProfileSource source =
+            DesktopCompositionRoot.GetRequiredService<ExperimentalUiProfileSource>();
+        LauncherSettings settings = new();
+        settings.SetBooleanOption(LauncherSettingKeys.ExperimentalHomepageUi, true);
+        Assert.AreEqual(ChromeStyle.Glass, source.RefreshFromSettings(settings).Chrome);
+
+        settings.SetBooleanOption(LauncherSettingKeys.ExperimentalHomepageUi, false);
+        Assert.AreEqual(ChromeStyle.Classic, source.RefreshFromSettings(settings).Chrome);
+        Assert.AreEqual(ChromeStyle.Classic, source.Current.Chrome);
     }
 
     [TestMethod]

@@ -94,4 +94,18 @@ public sealed class ExperimentalUiProfileSource
 
         return _current;
     }
+
+    public ExperimentalUiProfile RefreshFromSettings(LauncherSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        bool homepageUi = settings.GetBooleanOption(
+            LauncherSettingKeys.ExperimentalHomepageUi,
+            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalHomepageUi.Value));
+        ExperimentalUiProfile next = ExperimentalUiProfile.FromHomepageFlag(homepageUi);
+        bool changed = next != _current;
+        _current = next;
+        if (changed)
+            _messenger.Send(new ExperimentalProfileChangedMessage(next.HomepageUi));
+        return _current;
+    }
 }

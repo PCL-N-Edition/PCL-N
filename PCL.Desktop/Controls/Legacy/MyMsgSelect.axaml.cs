@@ -105,6 +105,10 @@ public partial class MyMsgSelect : Grid
     private void Btn2Click(object? sender, EventArgs e) =>
         CloseWithResult(null);
 
+    private void Btn3Click(object? sender, EventArgs e) => CloseWithResult(null);
+
+    private void BtnLeftClick(object? sender, EventArgs e) => CloseWithResult(null);
+
     public void BeginShowAnimation()
     {
         ApplyExperimentalChrome();
@@ -185,7 +189,13 @@ public partial class MyMsgSelect : Grid
     {
         if (!ExperimentalMsgChrome.IsEnabled)
         {
+            ExperimentalMsgChrome.RestoreShell(this, this.FindControl<Border>("PanBorder"),
+                this.FindControl<TextBlock>("LabTitle"), this.FindControl<Rectangle>("ShapeLine"),
+                this.FindControl<Panel>("PanActions"));
             _useExperimentalChrome = false;
+            _transformScale = null;
+            _transformPos = null;
+            _transformRotate = null;
             CaptureTransforms();
             return;
         }
@@ -196,7 +206,7 @@ public partial class MyMsgSelect : Grid
             this.FindControl<Border>("PanBorder"),
             this.FindControl<TextBlock>("LabTitle"),
             this.FindControl<Rectangle>("ShapeLine"),
-            this.FindControl<Panel>("PanBtn"));
+            this.FindControl<Panel>("PanActions"));
         (ScaleTransform scale, TranslateTransform translate) = ExperimentalMsgChrome.PrepareOpenTransforms(this);
         _transformScale = scale;
         _transformPos = translate;

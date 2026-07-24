@@ -161,7 +161,13 @@ public partial class MyMsgInput : Grid
     {
         if (!ExperimentalMsgChrome.IsEnabled)
         {
+            ExperimentalMsgChrome.RestoreShell(this, this.FindControl<Border>("PanBorder"),
+                this.FindControl<TextBlock>("LabTitle"), this.FindControl<Rectangle>("ShapeLine"),
+                this.FindControl<Panel>("PanActions"));
             _useExperimentalChrome = false;
+            _transformScale = null;
+            _transformPos = null;
+            _transformRotate = null;
             CaptureTransforms();
             return;
         }
@@ -172,7 +178,7 @@ public partial class MyMsgInput : Grid
             this.FindControl<Border>("PanBorder"),
             this.FindControl<TextBlock>("LabTitle"),
             this.FindControl<Rectangle>("ShapeLine"),
-            this.FindControl<Panel>("PanBtn"));
+            this.FindControl<Panel>("PanActions"));
         (ScaleTransform scale, TranslateTransform translate) = ExperimentalMsgChrome.PrepareOpenTransforms(this);
         _transformScale = scale;
         _transformPos = translate;
@@ -193,6 +199,10 @@ public partial class MyMsgInput : Grid
 
     public void Btn2Click(object? sender, EventArgs e) =>
         CloseWithResult(null);
+
+    private void Btn3Click(object? sender, EventArgs e) => CloseWithResult(null);
+
+    private void BtnLeftClick(object? sender, EventArgs e) => CloseWithResult(null);
 
     private void ConfigurePrimaryButton(string text, bool isWarn)
     {
