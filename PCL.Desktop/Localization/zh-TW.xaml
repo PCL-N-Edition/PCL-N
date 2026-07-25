@@ -877,11 +877,8 @@
     <sys:String x:Key="Setup.Ui.Font.Motd.ToolTip">用於伺服器狀態等格式化文字的字型。</sys:String>
     <sys:String x:Key="Setup.Ui.Font.Title">字型</sys:String>
     <sys:String x:Key="Setup.Ui.Homepage.Blank">空白</sys:String>
-    <sys:String x:Key="Setup.Ui.Homepage.DownloadUrl">網址</sys:String>
     <sys:String x:Key="Setup.Ui.Homepage.HintReferToModSetup">詳情請參閱 ModSetup</sys:String>
     <sys:String x:Key="Setup.Ui.Homepage.LocalFile">本地檔案</sys:String>
-    <sys:String x:Key="Setup.Ui.Homepage.NetUpdate">線上來源</sys:String>
-    <sys:String x:Key="Setup.Ui.Homepage.NetWarning">僅使用可信來源提供的主頁。惡意主頁可能執行有害內容。</sys:String>
     <sys:String x:Key="Setup.Ui.Homepage.Preset">預設</sys:String>
     <sys:String x:Key="Setup.Ui.Homepage.PresetLabel">預設</sys:String>
     <sys:String x:Key="Setup.Ui.Homepage.Refresh">重新載入主頁</sys:String>
@@ -980,48 +977,5 @@
     <sys:String x:Key="Update.CommunityNotice.Body">歡迎使用 Plain Craft Launcher N Edition。&#x0a;&#x0a;PCL N 是由 MUXUE1230 獨立維護的分支，與 LTCat 或 PCL-Community 無隸屬關係。&#x0a;&#x0a;主要功能：&#x0a;• 離線檔案可使用 Microsoft 賬戶皮膚&#x0a;• 在版本內瀏覽並安裝資源，自動處理依賴&#x0a;• 透過 IPv6 或 UPnP 進行 P2P 聯機&#x0a;• Fluent 風格介面&#x0a;&#x0a;遇到問題時，請前往本專案的 GitHub Issues。此提示會在每次更新後顯示一次。</sys:String>
     <sys:String x:Key="Update.CommunityNotice.Confirm">繼續</sys:String>
     <sys:String x:Key="Update.CommunityNotice.Title">PCL N Edition</sys:String>
-
-    <!-- Online -->
-    <sys:String x:Key="Setup.Online.Group">線上</sys:String>
-    <sys:String x:Key="Setup.Online.Group.Description">Microsoft 帳戶、N Cloud 同步與線上服務。</sys:String>
-    <sys:String x:Key="Setup.Online.Title">帳戶與同步</sys:String>
-    <sys:String x:Key="Setup.Online.Description">在裝置之間同步啟動器設定與社群收藏。</sys:String>
-    <sys:String x:Key="Online.Account.NotLoggedIn">連接 Microsoft 正版檔案後即可使用 N Cloud。</sys:String>
-    <sys:String x:Key="Online.Account.LoginMicrosoft">前往 Microsoft 登入</sys:String>
-    <sys:String x:Key="Online.Account.DeleteCloudAndLogout">刪除雲端資料</sys:String>
-    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Title">刪除雲端資料</sys:String>
-    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Warning">將永久刪除目前帳戶儲存在 N Cloud 的同步資料，並中斷連接。此操作無法復原。</sys:String>
-    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Success.Title">刪除完成</sys:String>
-    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Success">雲端同步資料已刪除，N Cloud 已中斷連接。</sys:String>
-    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Failed.Title">刪除失敗</sys:String>
-    <sys:String x:Key="Online.Account.DeleteCloudAndLogout.Failed">無法刪除雲端同步資料：{0}</sys:String>
-    <sys:String x:Key="Online.Account.Disconnect">中斷連接</sys:String>
-    <sys:String x:Key="Online.Account.Disconnect.Title">中斷雲端帳戶</sys:String>
-    <sys:String x:Key="Online.Account.Disconnect.Warning">這只會中斷 N Cloud，不會刪除啟動器中的 Microsoft 遊戲檔案。下次可重新連接。</sys:String>
-    <sys:String x:Key="Online.Account.LoginRedirected">請完成 Microsoft 登入；成功後會自動連接 N Cloud。</sys:String>
-    <sys:String x:Key="Online.Account.OwnsMinecraft">Microsoft 正版檔案</sys:String>
-    <sys:String x:Key="Online.Account.DoesNotOwnMinecraft">Microsoft 帳戶</sys:String>
-    <sys:String x:Key="Online.CloudSync.Title">N Cloud 同步</sys:String>
-    <sys:String x:Key="Online.CloudSync.Description">同步安全的帳戶摘要、收藏與啟動器偏好；存取權杖不會上傳。</sys:String>
-    <sys:String x:Key="Online.CloudSync.DisableAll">停用同步</sys:String>
-    <sys:String x:Key="Online.CloudSync.Enabled">啟用 N Cloud 自動同步</sys:String>
-    <sys:String x:Key="Online.CloudSync.DisabledHint">同步已停用，下方的分類設定會保留。</sys:String>
-    <sys:String x:Key="Online.CloudSync.Account">帳戶摘要</sys:String>
-    <sys:String x:Key="Online.CloudSync.Favorites">社群收藏</sys:String>
-    <sys:String x:Key="Online.CloudSync.UiPreferences">介面偏好</sys:String>
-    <sys:String x:Key="Online.CloudSync.HintPreferences">提示狀態</sys:String>
-    <sys:String x:Key="Online.CloudSync.DownloadPreferences">下載偏好</sys:String>
-    <sys:String x:Key="Online.CloudSync.LaunchPreferences">啟動偏好</sys:String>
-    <sys:String x:Key="Online.CloudSync.HomepagePreferences">首頁偏好</sys:String>
-    <sys:String x:Key="Online.CloudSync.MusicPreferences">音樂偏好</sys:String>
-    <sys:String x:Key="Online.CloudSync.UpdatePreferences">更新偏好</sys:String>
-    <sys:String x:Key="Online.CloudSync.CustomVariables">自訂變數</sys:String>
-    <sys:String x:Key="Online.CloudSync.Unavailable">N Cloud 暫時無法使用</sys:String>
-    <sys:String x:Key="Online.CloudSync.Unavailable.Detail">已保留本機資料。請檢查網路後重試；成功前不會以不完整資料覆蓋設定。</sys:String>
-    <sys:String x:Key="Online.CloudSync.Retry">重新同步</sys:String>
-    <sys:String x:Key="Online.CloudSync.Starting">正在同步 N Cloud 資料……</sys:String>
-    <sys:String x:Key="Online.CloudSync.Retrying">N Cloud 同步暫時失敗，正在進行第 {0} 次重試……</sys:String>
-    <sys:String x:Key="Online.CloudSync.Success">N Cloud 同步完成。</sys:String>
-    <sys:String x:Key="Online.CloudSync.Failed">N Cloud 同步失敗，可在「設定 → 線上」中重試。</sys:String>
 
 </ResourceDictionary>
