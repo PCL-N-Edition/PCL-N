@@ -37,6 +37,12 @@ public sealed record CommunitySearchOptions(
     string? Tag = null,
     CommunityResourceSource Source = CommunityResourceSource.All);
 
+public sealed record CommunityResourceProjectReference(
+    CommunityResourceSource Source,
+    string ProjectId,
+    string Slug,
+    string WebsiteUrl);
+
 public sealed record CommunityResourceEntry(
     string ProjectId,
     string Slug,
@@ -52,6 +58,9 @@ public sealed record CommunityResourceEntry(
     public int? WikiId { get; init; }
     public string? ChineseName { get; init; }
     public string? OriginalTitle { get; init; }
+    public IReadOnlyList<string> Tags { get; init; } = [];
+    public CommunityResourceProjectReference? ModrinthProject { get; init; }
+    public CommunityResourceProjectReference? CurseForgeProject { get; init; }
 
     public string DisplayTitle =>
         AvaloniaLocalizationManager.CurrentLanguageCode == AvaloniaLocalizationManager.ChineseLanguage &&
@@ -67,10 +76,33 @@ public sealed record CommunityResourceEntry(
 
     public string? McModUrl => WikiId is > 0 ? $"https://www.mcmod.cn/class/{WikiId.Value}.html" : null;
 
+    public string SourceDisplayName =>
+        ModrinthProject is not null && CurseForgeProject is not null
+            ? "Modrinth + CurseForge"
+            : Source switch
+            {
+                CommunityResourceSource.All => "Modrinth + CurseForge",
+                CommunityResourceSource.CurseForge => "CurseForge",
+                _ => "Modrinth"
+            };
+
     public string WebsiteUrl => ProjectUrl ?? (Source == CommunityResourceSource.CurseForge
         ? "https://www.curseforge.com/minecraft/" + CurseForgeProjectPath(ProjectType) + "/" +
           (string.IsNullOrWhiteSpace(Slug) ? ProjectId : Slug)
         : "https://modrinth.com/" + ProjectType + "/" + (string.IsNullOrWhiteSpace(Slug) ? ProjectId : Slug));
+
+    public CommunityResourceProjectReference? GetProjectReference(CommunityResourceSource source)
+    {
+        CommunityResourceProjectReference? reference = source switch
+        {
+            CommunityResourceSource.Modrinth => ModrinthProject,
+            CommunityResourceSource.CurseForge => CurseForgeProject,
+            _ => null
+        };
+        if (reference is not null || Source != source)
+            return reference;
+        return new CommunityResourceProjectReference(source, ProjectId, Slug, WebsiteUrl);
+    }
 
     private static string CurseForgeProjectPath(string projectType) => projectType.ToLowerInvariant() switch
     {
@@ -91,6 +123,9 @@ public sealed record CommunityResourceDownloadFile(
     string VersionName)
 {
     public IReadOnlyList<string> CandidateUrls { get; init; } = [Url];
+    public CommunityResourceSource Source { get; init; } = CommunityResourceSource.Modrinth;
+    public string? Sha1 { get; init; }
+    public string? Sha256 { get; init; }
 }
 
 public enum CommunityResourceDependencyType
@@ -127,6 +162,7 @@ public sealed record CommunityResourceVersion(
     IReadOnlyList<CommunityResourceDownloadFile> Files)
 {
     public IReadOnlyList<CommunityResourceDependency> Dependencies { get; init; } = [];
+    public CommunityResourceSource Source { get; init; } = CommunityResourceSource.Modrinth;
 }
 
 public sealed record CommunityResourceFileIdentity(
@@ -138,7 +174,15 @@ public sealed record CommunityResourceFileIdentity(
     string VersionNumber,
     DateTimeOffset? PublishedAt,
     string? IconUrl,
-    string WebsiteUrl);
+    string WebsiteUrl)
+{
+    public CommunityResourceSource Source { get; init; } = CommunityResourceSource.Modrinth;
+    public CommunityResourceDownloadFile? CurrentFile { get; init; }
+}
+
+public sealed record CommunityResourceFileMatches(
+    CommunityResourceFileIdentity? Modrinth,
+    CommunityResourceFileIdentity? CurseForge);
 
 public sealed record CommunityResourceUpdateCandidate(
     CommunityResourceFileIdentity Current,
@@ -154,6 +198,13 @@ public interface ICommunityResourceVersionLookup
     Task<CommunityResourceVersionLookupResult?> GetVersionAsync(
         CommunityResourceSource source,
         string versionId,
+        CancellationToken cancellationToken = default);
+}
+
+public interface ICommunityResourceFingerprintLookup
+{
+    Task<CommunityResourceFileIdentity?> LookupFileByFingerprintAsync(
+        uint fingerprint,
         CancellationToken cancellationToken = default);
 }
 

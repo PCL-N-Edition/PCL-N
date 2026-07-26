@@ -143,7 +143,7 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
         }
 
         if (this.FindControl<MyIconTextButton>("BtnIntroWeb") is { } web)
-            web.Text = entry.Source == CommunityResourceSource.CurseForge ? "CurseForge" : "Modrinth";
+            web.Text = entry.SourceDisplayName;
         if (this.FindControl<MyIconTextButton>("BtnIntroMcMod") is { } mcMod)
             mcMod.IsVisible = _entry?.McModUrl is not null &&
                               _category is CommunityResourceCategory.Mod or CommunityResourceCategory.DataPack;
@@ -227,7 +227,10 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
                 GameVersion: null,
                 Loader: null,
                 Tag: _baseOptions.Tag,
-                Source: entry.Source);
+                Source: entry.GetProjectReference(CommunityResourceSource.Modrinth) is not null &&
+                        entry.GetProjectReference(CommunityResourceSource.CurseForge) is not null
+                    ? CommunityResourceSource.All
+                    : entry.Source);
             IReadOnlyList<CommunityResourceVersion> versions =
                 await _catalog.GetVersionsAsync(entry, fetchOptions, token).ConfigureAwait(false);
             versions = await CommunityResourceDependencyResolver
@@ -629,6 +632,12 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
                 : "—";
             string size = primary.Size > 0 ? FormatSize(primary.Size) : "—";
             string dependencies = FormatDependencies(version.Dependencies);
+            string source = primary.Source switch
+            {
+                CommunityResourceSource.All => "Modrinth + CurseForge",
+                CommunityResourceSource.CurseForge => "CurseForge",
+                _ => "Modrinth"
+            };
             string gameRange = version.GameVersions.Count > 0
                 ? string.Join(", ", version.GameVersions
                     .OrderByDescending(static g => g, MinecraftVersionNameComparer.Instance)
@@ -664,7 +673,7 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
                 Title = string.IsNullOrWhiteSpace(version.Name)
                     ? version.VersionNumber
                     : version.Name,
-                Info = gameRange + " · " + loaders + " · " + size + " · " + published + " · " + primary.FileName +
+                Info = gameRange + " · " + loaders + " · " + size + " · " + published + " · " + source + " · " + primary.FileName +
                        (string.IsNullOrWhiteSpace(dependencies) ? string.Empty : "\n" + dependencies),
                 Height = string.IsNullOrWhiteSpace(dependencies) ? 48d : 66d,
                 Type = MyListItem.CheckType.Clickable,
@@ -697,7 +706,7 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
             minors[minor] = list;
         }
 
-        if (list.Any(v => string.Equals(v.VersionId, version.VersionId, StringComparison.OrdinalIgnoreCase)))
+        if (list.Any(existing => ReferenceEquals(existing, version)))
             return;
         list.Add(version);
     }

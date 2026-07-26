@@ -139,9 +139,28 @@ public sealed class CommunityFavoritesStore
         changed?.Invoke(this, EventArgs.Empty);
     }
 
-    private static bool IsSameProject(CommunityResourceEntry left, CommunityResourceEntry right) =>
-        left.Source == right.Source &&
-        string.Equals(left.ProjectId, right.ProjectId, StringComparison.OrdinalIgnoreCase);
+    private static bool IsSameProject(CommunityResourceEntry left, CommunityResourceEntry right)
+    {
+        if (left.Source == right.Source &&
+            string.Equals(left.ProjectId, right.ProjectId, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return HasSameReference(CommunityResourceSource.Modrinth) ||
+               HasSameReference(CommunityResourceSource.CurseForge);
+
+        bool HasSameReference(CommunityResourceSource source)
+        {
+            CommunityResourceProjectReference? leftReference = left.GetProjectReference(source);
+            CommunityResourceProjectReference? rightReference = right.GetProjectReference(source);
+            return leftReference is not null && rightReference is not null &&
+                   string.Equals(
+                    leftReference.ProjectId,
+                    rightReference.ProjectId,
+                    StringComparison.OrdinalIgnoreCase);
+        }
+    }
 
     private static List<CommunityFavoriteEntry> Load(string path)
     {

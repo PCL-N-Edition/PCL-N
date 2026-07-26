@@ -4,6 +4,7 @@
 
 using System.Net;
 using System.Text;
+using PCL.Application.Settings;
 using PCL.Desktop.Features.Community;
 using PCL.Desktop.Features.Launching.Views;
 
@@ -42,6 +43,152 @@ public sealed class CommunityFeatureTests
     }
 
     [TestMethod]
+    public async Task ModrinthCatalog_ShouldFallbackWhenMirrorReturnsHtml()
+    {
+        List<Uri> requests = [];
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            requests.Add(request.RequestUri!);
+            return requests.Count == 1
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("<html>mirror unavailable</html>", Encoding.UTF8, "text/html")
+                }
+                : JsonResponse(
+                    """
+                    { "hits": [{
+                      "project_id": "modrinth-only",
+                      "slug": "modrinth-only",
+                      "title": "Modrinth Only",
+                      "project_type": "mod"
+                    }] }
+                    """);
+        }));
+        using ModrinthCommunityResourceCatalog catalog = new(
+            client,
+            DownloadSourcePreference.MirrorOnly);
+
+        IReadOnlyList<CommunityResourceEntry> entries = await catalog.SearchAsync(
+            CommunityResourceCategory.Mod,
+            "modrinth-only");
+
+        Assert.AreEqual("modrinth-only", entries.Single().ProjectId);
+        Assert.AreEqual("mod.mcimirror.top", requests[0].Host);
+        Assert.AreEqual("api.modrinth.com", requests[1].Host);
+    }
+
+    [TestMethod]
+    public async Task ModrinthFileLookup_ShouldNotRepeatProjectLookup()
+    {
+        const string sha1 = "0123456789abcdef0123456789abcdef01234567";
+        List<Uri> requests = [];
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            requests.Add(request.RequestUri!);
+            return JsonResponse(
+                $$"""
+                {
+                  "project_id": "project-id",
+                  "id": "version-id",
+                  "version_number": "1.0.0",
+                  "date_published": "2026-01-02T03:04:05Z",
+                  "files": [{
+                    "filename": "project.jar",
+                    "url": "https://cdn.modrinth.com/project.jar",
+                    "size": 42,
+                    "hashes": { "sha1": "{{sha1}}" }
+                  }]
+                }
+                """);
+        }));
+        using ModrinthCommunityResourceCatalog catalog = new(
+            client,
+            DownloadSourcePreference.OfficialOnly);
+
+        CommunityResourceFileIdentity? identity = await catalog.LookupFileBySha1Async(sha1);
+
+        Assert.IsNotNull(identity);
+        Assert.AreEqual("project-id", identity.ProjectId);
+        Assert.AreEqual(sha1, identity.CurrentFile?.Sha1);
+        Assert.AreEqual(1, requests.Count);
+        StringAssert.Contains(requests[0].AbsolutePath, "/version_file/");
+    }
+
+    [TestMethod]
+    public async Task CurseForgeCatalog_ShouldUseMirrorWithoutApiKey()
+    {
+        List<(Uri Uri, string? ApiKey)> requests = [];
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            requests.Add((request.RequestUri!, ReadApiKey(request)));
+            return JsonResponse("""{ "data": [] }""");
+        }));
+        using CurseForgeCommunityResourceCatalog catalog = new(
+            client,
+            apiKey: null,
+            DownloadSourcePreference.MirrorOnly);
+
+        await catalog.SearchAsync(CommunityResourceCategory.Mod, "mirror-only");
+
+        Assert.AreEqual(1, requests.Count);
+        Assert.AreEqual("mod.mcimirror.top", requests[0].Uri.Host);
+        Assert.IsNull(requests[0].ApiKey);
+
+        using CurseForgeCommunityResourceCatalog officialOnlyCatalog = new(
+            client,
+            apiKey: null,
+            DownloadSourcePreference.OfficialOnly);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            officialOnlyCatalog.SearchAsync(CommunityResourceCategory.Mod, "official-only"));
+        Assert.AreEqual(1, requests.Count);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CurseForgeCatalog_ShouldFallbackAndSignOnlyOfficial(bool mirrorReturnsHtml)
+    {
+        List<(Uri Uri, string? ApiKey)> requests = [];
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            requests.Add((request.RequestUri!, ReadApiKey(request)));
+            if (request.RequestUri!.Host.Equals("mod.mcimirror.top", StringComparison.OrdinalIgnoreCase))
+            {
+                return mirrorReturnsHtml
+                    ? new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("<html>mirror unavailable</html>", Encoding.UTF8, "text/html")
+                    }
+                    : new HttpResponseMessage(HttpStatusCode.NotFound);
+            }
+
+            return JsonResponse(
+                """
+                { "data": [{
+                  "id": 42,
+                  "name": "CurseForge Only",
+                  "slug": "curseforge-only"
+                }] }
+                """);
+        }));
+        using CurseForgeCommunityResourceCatalog catalog = new(
+            client,
+            "test-key",
+            DownloadSourcePreference.MirrorOnly);
+
+        IReadOnlyList<CommunityResourceEntry> entries = await catalog.SearchAsync(
+            CommunityResourceCategory.Mod,
+            "curseforge-only");
+
+        Assert.AreEqual("42", entries.Single().ProjectId);
+        Assert.AreEqual(2, requests.Count);
+        Assert.AreEqual("mod.mcimirror.top", requests[0].Uri.Host);
+        Assert.IsNull(requests[0].ApiKey);
+        Assert.AreEqual("api.curseforge.com", requests[1].Uri.Host);
+        Assert.AreEqual("test-key", requests[1].ApiKey);
+    }
+
+    [TestMethod]
     public async Task CurseForgeCatalog_ShouldUsePopularityAndRankExactMatchesFirst()
     {
         HttpRequestMessage? captured = null;
@@ -67,6 +214,88 @@ public sealed class CommunityFeatureTests
         Assert.AreEqual("JEI", entries[0].Title);
         Assert.AreEqual("jei", entries[1].Slug);
         StringAssert.Contains(Uri.UnescapeDataString(captured!.RequestUri!.Query), "sortField=2");
+    }
+
+    [TestMethod]
+    [DataRow(CommunityResourceSort.Downloads, "sortField=6")]
+    [DataRow(CommunityResourceSort.Updated, "sortField=3")]
+    public async Task CurseForgeCatalog_NonRelevanceSort_ShouldPreserveApiOrdering(
+        CommunityResourceSort sort,
+        string expectedSortField)
+    {
+        HttpRequestMessage? captured = null;
+        using HttpClient client = new(new DelegateHandler(request =>
+        {
+            captured = request;
+            return JsonResponse(
+                """
+                { "data": [
+                  {
+                    "id": 1,
+                    "name": "JEI Addons",
+                    "slug": "jei-addons",
+                    "downloadCount": 9000,
+                    "dateModified": "2026-07-02T00:00:00Z"
+                  },
+                  {
+                    "id": 2,
+                    "name": "JEI",
+                    "slug": "jei",
+                    "downloadCount": 8000,
+                    "dateModified": "2026-07-01T00:00:00Z"
+                  }
+                ] }
+                """);
+        }));
+        using CurseForgeCommunityResourceCatalog catalog = new(client, "test-key");
+
+        IReadOnlyList<CommunityResourceEntry> entries = await catalog.SearchAsync(
+            CommunityResourceCategory.Mod,
+            "jei",
+            new CommunitySearchOptions(sort, Source: CommunityResourceSource.CurseForge));
+
+        CollectionAssert.AreEqual(new[] { "1", "2" }, entries.Select(static entry => entry.ProjectId).ToArray());
+        StringAssert.Contains(Uri.UnescapeDataString(captured!.RequestUri!.Query), expectedSortField);
+    }
+
+    [TestMethod]
+    public void FavoritesDownloadOptions_ShouldUseAllOnlyForMergedEntries()
+    {
+        CommunityResourceEntry merged = new(
+            "modrinth-id",
+            "example",
+            "Example",
+            string.Empty,
+            "mod",
+            null,
+            0,
+            null)
+        {
+            Source = CommunityResourceSource.Modrinth,
+            ModrinthProject = new CommunityResourceProjectReference(
+                CommunityResourceSource.Modrinth,
+                "modrinth-id",
+                "example",
+                "https://modrinth.com/mod/example"),
+            CurseForgeProject = new CommunityResourceProjectReference(
+                CommunityResourceSource.CurseForge,
+                "curseforge-id",
+                "example",
+                "https://www.curseforge.com/minecraft/mc-mods/example")
+        };
+        CommunityResourceEntry legacyCurseForge = merged with
+        {
+            ProjectId = "curseforge-id",
+            Source = CommunityResourceSource.CurseForge,
+            ModrinthProject = null,
+            CurseForgeProject = null
+        };
+
+        CommunitySearchOptions mergedOptions = PageCommunityFavoritesRight.CreateDownloadOptions(merged);
+        CommunitySearchOptions legacyOptions = PageCommunityFavoritesRight.CreateDownloadOptions(legacyCurseForge);
+
+        Assert.AreEqual(CommunityResourceSource.All, mergedOptions.Source);
+        Assert.AreEqual(CommunityResourceSource.CurseForge, legacyOptions.Source);
     }
 
     [TestMethod]
@@ -582,6 +811,457 @@ public sealed class CommunityFeatureTests
     }
 
     [TestMethod]
+    public async Task CompositeCatalog_ShouldMergeProjectsBySummedProviderRanks()
+    {
+        StubCommunityResourceCatalog modrinth = new()
+        {
+            Projects =
+            [
+                CreateProject("modrinth-a", "alpha", "Alpha", 10, ["fabric"]),
+                CreateProject("modrinth-b", "beta", "Beta", 20, ["technology"]),
+                CreateProject("modrinth-c", "gamma", "Gamma", 30, ["utility"])
+            ]
+        };
+        StubCommunityResourceCatalog curseForge = new()
+        {
+            Projects =
+            [
+                CreateProject("curse-b", "beta", "Beta", 200, ["magic"]),
+                CreateProject("curse-c", "gamma", "Gamma", 300, ["library"]),
+                CreateProject("curse-a", "alpha", "Alpha", 100, ["optimization"])
+            ]
+        };
+        using CompositeCommunityResourceCatalog catalog = new(modrinth, curseForge);
+
+        IReadOnlyList<CommunityResourceEntry> projects = await catalog.SearchAsync(
+            CommunityResourceCategory.Mod,
+            string.Empty,
+            new CommunitySearchOptions(Source: CommunityResourceSource.All));
+
+        CollectionAssert.AreEqual(new[] { "beta", "alpha", "gamma" }, projects.Select(p => p.Slug).ToArray());
+        CommunityResourceEntry beta = projects[0];
+        Assert.AreEqual(220L, beta.Downloads);
+        Assert.AreEqual("modrinth-b", beta.ModrinthProject?.ProjectId);
+        Assert.AreEqual("curse-b", beta.CurseForgeProject?.ProjectId);
+        Assert.AreEqual("Modrinth + CurseForge", beta.SourceDisplayName);
+        CollectionAssert.AreEquivalent(new[] { "technology", "magic" }, beta.Tags.ToArray());
+    }
+
+    [TestMethod]
+    public async Task CompositeCatalog_ShouldNotMergeProjectsWithConflictingWikiIds()
+    {
+        StubCommunityResourceCatalog modrinth = new()
+        {
+            Projects = [CreateProject("modrinth-project", "same-slug", "Same Title", 10, []) with { WikiId = 101 }]
+        };
+        StubCommunityResourceCatalog curseForge = new()
+        {
+            Projects = [CreateProject("curse-project", "same-slug", "Same Title", 20, []) with { WikiId = 202 }]
+        };
+        using CompositeCommunityResourceCatalog catalog = new(modrinth, curseForge);
+
+        IReadOnlyList<CommunityResourceEntry> projects = await catalog.SearchAsync(
+            CommunityResourceCategory.Mod,
+            string.Empty,
+            new CommunitySearchOptions(Source: CommunityResourceSource.All));
+
+        Assert.AreEqual(2, projects.Count);
+        Assert.IsFalse(projects.Any(project =>
+            project.ModrinthProject is not null && project.CurseForgeProject is not null));
+    }
+
+    [TestMethod]
+    public async Task CompositeCatalog_ShouldLoadVersionsForEitherSingleSource()
+    {
+        CommunityResourceVersion modrinthVersion = CreateVersion(
+            "modrinth-version",
+            "2026-07-02T00:00:00Z",
+            new string('a', 64),
+            "https://modrinth.test/version.jar");
+        StubCommunityResourceCatalog modrinth = new()
+        {
+            Versions = new Dictionary<string, CommunityResourceVersion[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["modrinth-only"] = [modrinthVersion]
+            }
+        };
+        StubCommunityResourceCatalog unusedCurseForge = new();
+        using (CompositeCommunityResourceCatalog catalog = new(modrinth, unusedCurseForge))
+        {
+            CommunityResourceEntry project = CreateProject(
+                "modrinth-only",
+                "modrinth-only",
+                "Modrinth Only",
+                0,
+                []);
+
+            IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(
+                project,
+                new CommunitySearchOptions(Source: CommunityResourceSource.All));
+
+            Assert.AreEqual("modrinth-version", versions.Single().VersionId);
+            CollectionAssert.AreEqual(new[] { "modrinth-only" }, modrinth.VersionRequests.ToArray());
+            Assert.AreEqual(0, unusedCurseForge.VersionRequests.Count);
+        }
+
+        CommunityResourceVersion curseForgeVersion = CreateVersion(
+            "curseforge-version",
+            "2026-07-03T00:00:00Z",
+            new string('b', 64),
+            "https://curseforge.test/version.jar") with
+        {
+            Source = CommunityResourceSource.CurseForge
+        };
+        StubCommunityResourceCatalog unusedModrinth = new();
+        StubCommunityResourceCatalog curseForge = new()
+        {
+            Versions = new Dictionary<string, CommunityResourceVersion[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["curseforge-only"] = [curseForgeVersion]
+            }
+        };
+        using (CompositeCommunityResourceCatalog catalog = new(unusedModrinth, curseForge))
+        {
+            CommunityResourceEntry project = CreateProject(
+                "curseforge-only",
+                "curseforge-only",
+                "CurseForge Only",
+                0,
+                []) with
+            {
+                Source = CommunityResourceSource.CurseForge
+            };
+
+            IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(
+                project,
+                new CommunitySearchOptions(Source: CommunityResourceSource.All));
+
+            Assert.AreEqual("curseforge-version", versions.Single().VersionId);
+            Assert.AreEqual(0, unusedModrinth.VersionRequests.Count);
+            CollectionAssert.AreEqual(new[] { "curseforge-only" }, curseForge.VersionRequests.ToArray());
+        }
+    }
+
+    [TestMethod]
+    public async Task CompositeCatalog_ShouldKeepAvailableSourceWhenOtherVersionLookupFails()
+    {
+        CommunityResourceEntry project = CreateProject("modrinth-project", "example", "Example", 0, []) with
+        {
+            ModrinthProject = new CommunityResourceProjectReference(
+                CommunityResourceSource.Modrinth,
+                "modrinth-project",
+                "example",
+                "https://modrinth.com/mod/example"),
+            CurseForgeProject = new CommunityResourceProjectReference(
+                CommunityResourceSource.CurseForge,
+                "curseforge-project",
+                "example",
+                "https://www.curseforge.com/minecraft/mc-mods/example")
+        };
+        StubCommunityResourceCatalog modrinth = new()
+        {
+            Versions = new Dictionary<string, CommunityResourceVersion[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["modrinth-project"] =
+                [
+                    CreateVersion(
+                        "available-version",
+                        "2026-07-03T00:00:00Z",
+                        new string('a', 64),
+                        "https://modrinth.test/available.jar")
+                ]
+            }
+        };
+        StubCommunityResourceCatalog curseForge = new()
+        {
+            VersionsException = new System.Text.Json.JsonException("'<' is an invalid start of a value.")
+        };
+        using CompositeCommunityResourceCatalog catalog = new(modrinth, curseForge);
+
+        IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(
+            project,
+            new CommunitySearchOptions(Source: CommunityResourceSource.All));
+
+        Assert.AreEqual("available-version", versions.Single().VersionId);
+        CollectionAssert.AreEqual(new[] { "modrinth-project" }, modrinth.VersionRequests.ToArray());
+        CollectionAssert.AreEqual(new[] { "curseforge-project" }, curseForge.VersionRequests.ToArray());
+    }
+
+    [TestMethod]
+    public async Task CompositeCatalog_ShouldMergeVersionsByPublishedTimeAndSha256()
+    {
+        const string duplicateSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string differentSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        CommunityResourceEntry mergedProject = CreateProject("modrinth-project", "example", "Example", 10, []) with
+        {
+            ModrinthProject = new CommunityResourceProjectReference(
+                CommunityResourceSource.Modrinth,
+                "modrinth-project",
+                "example",
+                "https://modrinth.com/mod/example"),
+            CurseForgeProject = new CommunityResourceProjectReference(
+                CommunityResourceSource.CurseForge,
+                "curse-project",
+                "example",
+                "https://www.curseforge.com/minecraft/mc-mods/example")
+        };
+        StubCommunityResourceCatalog modrinth = new()
+        {
+            Versions = new Dictionary<string, CommunityResourceVersion[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["modrinth-project"] =
+                [
+                    CreateVersion("newest", "2026-07-05T00:00:00Z", differentSha, "https://modrinth.test/newest.jar"),
+                    CreateVersion("duplicate-mr", "2026-07-03T00:00:00Z", duplicateSha, "https://modrinth.test/duplicate.jar") with
+                    {
+                        Dependencies =
+                        [
+                            new CommunityResourceDependency(
+                                "shared-dependency",
+                                "shared-version",
+                                null,
+                                CommunityResourceDependencyType.Required,
+                                CommunityResourceSource.Modrinth)
+                        ]
+                    }
+                ]
+            }
+        };
+        StubCommunityResourceCatalog curseForge = new()
+        {
+            Versions = new Dictionary<string, CommunityResourceVersion[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["curse-project"] =
+                [
+                    CreateVersion("duplicate-cf", "2026-07-03T00:00:00Z", duplicateSha, "https://curseforge.test/duplicate.jar") with
+                    {
+                        Dependencies =
+                        [
+                            new CommunityResourceDependency(
+                                "curse-only-dependency",
+                                "curse-version",
+                                "curse-only.jar",
+                                CommunityResourceDependencyType.Optional,
+                                CommunityResourceSource.CurseForge),
+                            new CommunityResourceDependency(
+                                "curse-only-dependency",
+                                "curse-version",
+                                "duplicate-file-name-is-ignored.jar",
+                                CommunityResourceDependencyType.Optional,
+                                CommunityResourceSource.CurseForge)
+                        ]
+                    },
+                    CreateVersion("same-time-different-hash", "2026-07-03T00:00:00Z", differentSha, "https://curseforge.test/different.jar"),
+                    CreateVersion("same-time-no-hash", "2026-07-03T00:00:00Z", null, "https://curseforge.test/no-hash.jar"),
+                    CreateVersion("same-hash-different-time", "2026-07-02T00:00:00Z", duplicateSha, "https://curseforge.test/older.jar")
+                ]
+            }
+        };
+        using CompositeCommunityResourceCatalog catalog = new(modrinth, curseForge);
+
+        IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(
+            mergedProject,
+            new CommunitySearchOptions(Source: CommunityResourceSource.All));
+
+        Assert.AreEqual(5, versions.Count);
+        CollectionAssert.AreEqual(
+            new[] { "2026-07-05", "2026-07-03", "2026-07-03", "2026-07-03", "2026-07-02" },
+            versions.Select(version => version.PublishedAt!.Value.ToString("yyyy-MM-dd")).ToArray());
+        CommunityResourceVersion duplicate = versions.Single(version => version.Source == CommunityResourceSource.All);
+        Assert.AreEqual("duplicate-mr", duplicate.VersionId);
+        CollectionAssert.AreEquivalent(
+            new[] { "https://modrinth.test/duplicate.jar", "https://curseforge.test/duplicate.jar" },
+            duplicate.Files.Single().CandidateUrls.ToArray());
+        Assert.AreEqual(2, duplicate.Dependencies.Count);
+        Assert.IsTrue(duplicate.Dependencies.Any(dependency =>
+            dependency.Source == CommunityResourceSource.Modrinth &&
+            dependency.ProjectId == "shared-dependency"));
+        Assert.IsTrue(duplicate.Dependencies.Any(dependency =>
+            dependency.Source == CommunityResourceSource.CurseForge &&
+            dependency.ProjectId == "curse-only-dependency"));
+        Assert.AreEqual(2, versions.Count(version => version.Files.Any(file => file.Sha256 == duplicateSha)));
+        Assert.IsTrue(versions.Any(version => version.Files.Any(file => file.Sha256 is null)));
+        CollectionAssert.AreEquivalent(
+            new[] { "modrinth-project" },
+            modrinth.VersionRequests.ToArray());
+        CollectionAssert.AreEquivalent(
+            new[] { "curse-project" },
+            curseForge.VersionRequests.ToArray());
+    }
+
+    [TestMethod]
+    public async Task CompositeCatalog_ShouldFallbackToSha1WhenSha256IsUnavailable()
+    {
+        const string sha1 = "0123456789abcdef0123456789abcdef01234567";
+        CommunityResourceEntry project = CreateProject("modrinth-project", "example", "Example", 0, []) with
+        {
+            ModrinthProject = new CommunityResourceProjectReference(
+                CommunityResourceSource.Modrinth,
+                "modrinth-project",
+                "example",
+                "https://modrinth.com/mod/example"),
+            CurseForgeProject = new CommunityResourceProjectReference(
+                CommunityResourceSource.CurseForge,
+                "curse-project",
+                "example",
+                "https://www.curseforge.com/minecraft/mc-mods/example")
+        };
+        StubCommunityResourceCatalog modrinth = new()
+        {
+            Versions = new Dictionary<string, CommunityResourceVersion[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["modrinth-project"] =
+                [
+                    CreateVersion(
+                        "modrinth-version",
+                        "2026-07-01T00:00:00Z",
+                        null,
+                        "https://modrinth.test/example.jar",
+                        sha1)
+                ]
+            }
+        };
+        StubCommunityResourceCatalog curseForge = new()
+        {
+            Versions = new Dictionary<string, CommunityResourceVersion[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["curse-project"] =
+                [
+                    CreateVersion(
+                        "curse-version",
+                        "2026-07-01T00:00:00Z",
+                        null,
+                        "https://curseforge.test/example.jar",
+                        sha1)
+                ]
+            }
+        };
+        using CompositeCommunityResourceCatalog catalog = new(modrinth, curseForge);
+
+        CommunityResourceVersion version = (await catalog.GetVersionsAsync(
+            project,
+            new CommunitySearchOptions(Source: CommunityResourceSource.All))).Single();
+
+        Assert.AreEqual(CommunityResourceSource.All, version.Source);
+        Assert.AreEqual(sha1, version.Files.Single().Sha1);
+        CollectionAssert.AreEquivalent(
+            new[] { "https://modrinth.test/example.jar", "https://curseforge.test/example.jar" },
+            version.Files.Single().CandidateUrls.ToArray());
+    }
+
+    [TestMethod]
+    public async Task CompositeCatalog_ShouldPreferSha256OverMatchingSha1()
+    {
+        const string sha1 = "0123456789abcdef0123456789abcdef01234567";
+        CommunityResourceEntry project = CreateProject("modrinth-project", "example", "Example", 0, []) with
+        {
+            ModrinthProject = new CommunityResourceProjectReference(
+                CommunityResourceSource.Modrinth,
+                "modrinth-project",
+                "example",
+                "https://modrinth.com/mod/example"),
+            CurseForgeProject = new CommunityResourceProjectReference(
+                CommunityResourceSource.CurseForge,
+                "curse-project",
+                "example",
+                "https://www.curseforge.com/minecraft/mc-mods/example")
+        };
+        StubCommunityResourceCatalog modrinth = new()
+        {
+            Versions = new Dictionary<string, CommunityResourceVersion[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["modrinth-project"] =
+                [
+                    CreateVersion(
+                        "modrinth-version",
+                        "2026-07-01T00:00:00Z",
+                        new string('a', 64),
+                        "https://modrinth.test/example.jar",
+                        sha1)
+                ]
+            }
+        };
+        StubCommunityResourceCatalog curseForge = new()
+        {
+            Versions = new Dictionary<string, CommunityResourceVersion[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["curse-project"] =
+                [
+                    CreateVersion(
+                        "curse-version",
+                        "2026-07-01T00:00:00Z",
+                        new string('b', 64),
+                        "https://curseforge.test/example.jar",
+                        sha1)
+                ]
+            }
+        };
+        using CompositeCommunityResourceCatalog catalog = new(modrinth, curseForge);
+
+        IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(
+            project,
+            new CommunitySearchOptions(Source: CommunityResourceSource.All));
+
+        Assert.AreEqual(2, versions.Count);
+        Assert.IsFalse(versions.Any(version => version.Source == CommunityResourceSource.All));
+    }
+
+    [TestMethod]
+    public async Task CommunityCatalogs_ShouldParseSha256WhenProvidersReturnIt()
+    {
+        const string sha = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+        const string sha1 = "0123456789abcdef0123456789abcdef01234567";
+        using HttpClient modrinthClient = new(new DelegateHandler(_ => JsonResponse($$"""
+            [{
+              "id": "version",
+              "name": "Version",
+              "version_number": "1.0",
+              "date_published": "2026-07-01T00:00:00Z",
+              "game_versions": ["1.21.1"],
+              "loaders": ["fabric"],
+              "files": [{
+                "filename": "modrinth.jar",
+                "url": "https://modrinth.test/modrinth.jar",
+                "hashes": { "sha1": "{{sha1}}", "sha256": "{{sha}}" }
+              }]
+            }]
+            """)));
+        using ModrinthCommunityResourceCatalog modrinth = new(modrinthClient);
+        CommunityResourceVersion modrinthVersion = (await modrinth.GetVersionsAsync(
+            CreateProject("modrinth-project", "example", "Example", 0, []),
+            new CommunitySearchOptions(GameVersion: "1.21.1"))).Single();
+
+        using HttpClient curseForgeClient = new(new DelegateHandler(_ => JsonResponse($$"""
+            {
+              "data": [{
+                "id": 1234567,
+                "displayName": "Version",
+                "fileName": "curseforge.jar",
+                "downloadUrl": "https://curseforge.test/curseforge.jar",
+                "fileDate": "2026-07-01T00:00:00Z",
+                "hashes": [
+                  { "algo": 1, "value": "{{sha1}}" },
+                  { "algo": 3, "value": "{{sha}}" }
+                ]
+              }]
+            }
+            """)));
+        using CurseForgeCommunityResourceCatalog curseForge = new(curseForgeClient, "test-key");
+        CommunityResourceVersion curseForgeVersion = (await curseForge.GetVersionsAsync(
+            CreateProject("curse-project", "example", "Example", 0, []) with
+            {
+                Source = CommunityResourceSource.CurseForge
+            })).Single();
+
+        Assert.AreEqual(sha, modrinthVersion.Files.Single().Sha256);
+        Assert.AreEqual(sha, curseForgeVersion.Files.Single().Sha256);
+        Assert.AreEqual(sha1, modrinthVersion.Files.Single().Sha1);
+        Assert.AreEqual(sha1, curseForgeVersion.Files.Single().Sha1);
+        Assert.AreEqual(CommunityResourceSource.Modrinth, modrinthVersion.Files.Single().Source);
+        Assert.AreEqual(CommunityResourceSource.CurseForge, curseForgeVersion.Files.Single().Source);
+    }
+
+    [TestMethod]
     public void FavoritesStore_ShouldPersistAndToggleBySourceAndProjectId()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcln-favorites-test-" + Guid.NewGuid().ToString("N"));
@@ -654,6 +1334,128 @@ public sealed class CommunityFeatureTests
     {
         Content = new StringContent(json, Encoding.UTF8, "application/json")
     };
+
+    private static string? ReadApiKey(HttpRequestMessage request) =>
+        request.Headers.TryGetValues("x-api-key", out IEnumerable<string>? values)
+            ? values.SingleOrDefault()
+            : null;
+
+    private static CommunityResourceEntry CreateProject(
+        string projectId,
+        string slug,
+        string title,
+        long downloads,
+        IReadOnlyList<string> tags) =>
+        new(projectId, slug, title, title + " description", "mod", null, downloads, DateTimeOffset.Parse("2026-07-01T00:00:00Z"))
+        {
+            Tags = tags
+        };
+
+    private static CommunityResourceVersion CreateVersion(
+        string versionId,
+        string publishedAt,
+        string? sha256,
+        string url,
+        string? sha1 = null)
+    {
+        CommunityResourceDownloadFile file = new(
+            versionId + ".jar",
+            url,
+            10,
+            versionId,
+            versionId)
+        {
+            Sha1 = sha1,
+            Sha256 = sha256
+        };
+        return new CommunityResourceVersion(
+            versionId,
+            versionId,
+            versionId,
+            null,
+            DateTimeOffset.Parse(publishedAt),
+            ["1.21.1"],
+            ["fabric"],
+            [file]);
+    }
+
+    private sealed class StubCommunityResourceCatalog : ICommunityResourceCatalog
+    {
+        public CommunityResourceEntry[] Projects { get; init; } = [];
+
+        public Dictionary<string, CommunityResourceVersion[]> Versions { get; init; } =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        public List<string> VersionRequests { get; } = [];
+
+        public Exception? VersionsException { get; init; }
+
+        public Task<IReadOnlyList<CommunityResourceEntry>> SearchAsync(
+            CommunityResourceCategory category,
+            string query,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<CommunityResourceEntry>>(Projects);
+        }
+
+        public async Task<CommunityResourceDownloadFile?> ResolveDownloadAsync(
+            CommunityResourceEntry entry,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<CommunityResourceVersion> versions = await GetVersionsAsync(
+                entry,
+                options,
+                cancellationToken);
+            return versions.SelectMany(static version => version.Files).FirstOrDefault();
+        }
+
+        public Task<IReadOnlyList<CommunityResourceVersion>> GetVersionsAsync(
+            CommunityResourceEntry entry,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            VersionRequests.Add(entry.ProjectId);
+            if (VersionsException is not null)
+                return Task.FromException<IReadOnlyList<CommunityResourceVersion>>(VersionsException);
+            IReadOnlyList<CommunityResourceVersion> versions = Versions.GetValueOrDefault(entry.ProjectId) ?? [];
+            return Task.FromResult(versions);
+        }
+
+        public Task<CommunityResourceEntry?> GetProjectAsync(
+            CommunityResourceSource source,
+            string projectId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(Projects.FirstOrDefault(project =>
+                string.Equals(project.ProjectId, projectId, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        public Task<CommunityResourceFileIdentity?> LookupFileBySha1Async(
+            string sha1Hex,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<CommunityResourceFileIdentity?>(null);
+        }
+
+        public async Task<CommunityResourceVersion?> GetLatestVersionAsync(
+            string projectId,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            CommunityResourceEntry entry = CreateProject(projectId, projectId, projectId, 0, []);
+            IReadOnlyList<CommunityResourceVersion> versions = await GetVersionsAsync(
+                entry,
+                options,
+                cancellationToken);
+            return versions.FirstOrDefault();
+        }
+    }
 
     private sealed class DelegateHandler(Func<HttpRequestMessage, HttpResponseMessage> handler) : HttpMessageHandler
     {

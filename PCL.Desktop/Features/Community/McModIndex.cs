@@ -56,17 +56,23 @@ public sealed class McModIndex
 
     public IReadOnlyList<McModIndexEntry> SearchChinese(string query, int limit = 12)
     {
-        if (string.IsNullOrWhiteSpace(query) || !query.Any(IsCjk))
-            return [];
         string normalized = query.Trim();
-        return _entries
-            .Where(entry => !string.IsNullOrWhiteSpace(entry.ChineseName) &&
-                            entry.ChineseName.Contains(normalized, StringComparison.OrdinalIgnoreCase))
+        return FindChineseCandidates(normalized)
             .OrderBy(entry => entry.ChineseName.Equals(normalized, StringComparison.OrdinalIgnoreCase) ? 0 :
                               entry.ChineseName.StartsWith(normalized, StringComparison.OrdinalIgnoreCase) ? 1 : 2)
             .ThenBy(static entry => entry.ChineseName.Length)
             .Take(Math.Max(1, limit))
             .ToArray();
+    }
+
+    internal IEnumerable<McModIndexEntry> FindChineseCandidates(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query) || !query.Any(IsCjk))
+            return [];
+        string normalized = query.Trim();
+        return _entries.Where(entry =>
+            !string.IsNullOrWhiteSpace(entry.ChineseName) &&
+            entry.ChineseName.Contains(normalized, StringComparison.OrdinalIgnoreCase));
     }
 
     public CommunityResourceEntry Decorate(CommunityResourceEntry entry)

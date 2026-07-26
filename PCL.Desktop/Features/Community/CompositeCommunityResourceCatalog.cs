@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Text.Json;
 using PCL.Core.Logging;
 
 namespace PCL.Desktop.Features.Community;
@@ -77,36 +78,86 @@ public sealed class CompositeCommunityResourceCatalog :
             return await _modrinth.SearchAsync(category, query, options, cancellationToken).ConfigureAwait(false);
         }
 
-        List<CommunityResourceEntry> combined = [];
-        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
-        foreach (CommunityResourceEntry entry in modrinth.Concat(curseForge))
-        {
-            string key = string.IsNullOrWhiteSpace(entry.Slug) ? entry.Title : entry.Slug;
-            if (seen.Add(key))
-                combined.Add(entry);
-        }
-        if (!string.IsNullOrWhiteSpace(query) && options.Sort == CommunityResourceSort.Relevance)
-        {
-            combined = combined
-                .OrderBy(entry => GetSearchRank(entry, query.Trim()))
-                .ThenByDescending(static entry => entry.Downloads)
-                .ToList();
-        }
+        IReadOnlyList<CommunityResourceEntry> combined = CommunityResourceMerge.MergeProjects(
+            modrinth,
+            curseForge,
+            McModIndex.Current);
         PortableLog.Info("Community", $"社区资源搜索完成；Modrinth={modrinth.Count}；CurseForge={curseForge.Count}；合并后={combined.Count}。");
         return combined;
     }
 
-    public Task<CommunityResourceDownloadFile?> ResolveDownloadAsync(
+    public async Task<CommunityResourceDownloadFile?> ResolveDownloadAsync(
         CommunityResourceEntry entry,
         CommunitySearchOptions? options = null,
-        CancellationToken cancellationToken = default) =>
-        Select(entry).ResolveDownloadAsync(entry, options, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<CommunityResourceVersion> versions = await GetVersionsAsync(
+                entry,
+                options,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return versions.SelectMany(static version => version.Files).FirstOrDefault();
+    }
 
-    public Task<IReadOnlyList<CommunityResourceVersion>> GetVersionsAsync(
+    public async Task<IReadOnlyList<CommunityResourceVersion>> GetVersionsAsync(
         CommunityResourceEntry entry,
         CommunitySearchOptions? options = null,
-        CancellationToken cancellationToken = default) =>
-        Select(entry).GetVersionsAsync(entry, options, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        options ??= new CommunitySearchOptions();
+        bool hasBothSources = entry.GetProjectReference(CommunityResourceSource.Modrinth) is not null &&
+                              entry.GetProjectReference(CommunityResourceSource.CurseForge) is not null;
+        if (options.Source != CommunityResourceSource.All || !hasBothSources)
+        {
+            CommunityResourceSource source = options.Source != CommunityResourceSource.All
+                ? options.Source
+                : entry.Source;
+            CommunityResourceEntry? sourceEntry = CreateSourceEntry(entry, source);
+            if (sourceEntry is null)
+                return [];
+            return await Select(source)
+                .GetVersionsAsync(sourceEntry, options with { Source = source }, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        CommunityResourceEntry? modrinthEntry = CreateSourceEntry(entry, CommunityResourceSource.Modrinth);
+        CommunityResourceEntry? curseForgeEntry = CreateSourceEntry(entry, CommunityResourceSource.CurseForge);
+        Task<(IReadOnlyList<CommunityResourceVersion> Versions, Exception? Error)> modrinthTask =
+            TryGetVersionsWithErrorAsync(
+                _modrinth,
+                modrinthEntry,
+                options with { Source = CommunityResourceSource.Modrinth },
+                cancellationToken);
+        Task<(IReadOnlyList<CommunityResourceVersion> Versions, Exception? Error)> curseForgeTask =
+            TryGetVersionsWithErrorAsync(
+                _curseForge,
+                curseForgeEntry,
+                options with { Source = CommunityResourceSource.CurseForge },
+                cancellationToken);
+        await Task.WhenAll(modrinthTask, curseForgeTask).ConfigureAwait(false);
+        (IReadOnlyList<CommunityResourceVersion> modrinth, Exception? modrinthError) =
+            await modrinthTask.ConfigureAwait(false);
+        (IReadOnlyList<CommunityResourceVersion> curseForge, Exception? curseForgeError) =
+            await curseForgeTask.ConfigureAwait(false);
+        if (modrinth.Count == 0 && curseForge.Count == 0)
+        {
+            if (modrinthError is not null && curseForgeError is not null)
+                throw new AggregateException("社区资源版本加载失败。", modrinthError, curseForgeError);
+            if (modrinthError is not null)
+                throw modrinthError;
+            if (curseForgeError is not null)
+                throw curseForgeError;
+        }
+
+        IReadOnlyList<CommunityResourceVersion> merged = CommunityResourceMerge.MergeVersions(
+            modrinth,
+            curseForge);
+        PortableLog.Info(
+            "Community",
+            $"社区资源版本加载完成；Modrinth={modrinth.Count}；CurseForge={curseForge.Count}；合并后={merged.Count}。");
+        return merged;
+    }
 
     public Task<CommunityResourceEntry?> GetProjectAsync(
         CommunityResourceSource source,
@@ -133,6 +184,34 @@ public sealed class CompositeCommunityResourceCatalog :
         CancellationToken cancellationToken = default) =>
         _modrinth.LookupFileBySha1Async(sha1Hex, cancellationToken);
 
+    public Task<CommunityResourceFileIdentity?> LookupFileByFingerprintAsync(
+        uint fingerprint,
+        CancellationToken cancellationToken = default) =>
+        _curseForge is ICommunityResourceFingerprintLookup lookup
+            ? lookup.LookupFileByFingerprintAsync(fingerprint, cancellationToken)
+            : Task.FromResult<CommunityResourceFileIdentity?>(null);
+
+    public async Task<CommunityResourceFileMatches> LookupFilesAsync(
+        string sha1Hex,
+        uint? curseForgeFingerprint,
+        bool modrinthOnly = false,
+        CancellationToken cancellationToken = default)
+    {
+        Task<CommunityResourceFileIdentity?> modrinthTask = TryLookupAsync(
+            () => _modrinth.LookupFileBySha1Async(sha1Hex, cancellationToken),
+            cancellationToken);
+        Task<CommunityResourceFileIdentity?> curseForgeTask =
+            modrinthOnly || curseForgeFingerprint is null
+                ? Task.FromResult<CommunityResourceFileIdentity?>(null)
+                : TryLookupAsync(
+                    () => LookupFileByFingerprintAsync(curseForgeFingerprint.Value, cancellationToken),
+                    cancellationToken);
+        await Task.WhenAll(modrinthTask, curseForgeTask).ConfigureAwait(false);
+        return new CommunityResourceFileMatches(
+            await modrinthTask.ConfigureAwait(false),
+            await curseForgeTask.ConfigureAwait(false));
+    }
+
     public Task<CommunityResourceVersion?> GetLatestVersionAsync(
         string projectId,
         CommunitySearchOptions? options = null,
@@ -147,20 +226,23 @@ public sealed class CompositeCommunityResourceCatalog :
         (_curseForge as IDisposable)?.Dispose();
     }
 
-    private ICommunityResourceCatalog Select(CommunityResourceEntry entry) =>
-        entry.Source == CommunityResourceSource.CurseForge ? _curseForge : _modrinth;
+    private ICommunityResourceCatalog Select(CommunityResourceSource source) =>
+        source == CommunityResourceSource.CurseForge ? _curseForge : _modrinth;
 
-    private static int GetSearchRank(CommunityResourceEntry entry, string query)
+    private static CommunityResourceEntry? CreateSourceEntry(
+        CommunityResourceEntry entry,
+        CommunityResourceSource source)
     {
-        string title = entry.Title.Trim();
-        string slug = entry.Slug.Trim();
-        if (title.Equals(query, StringComparison.OrdinalIgnoreCase)) return 0;
-        if (slug.Equals(query, StringComparison.OrdinalIgnoreCase)) return 1;
-        if (title.StartsWith(query, StringComparison.OrdinalIgnoreCase)) return 2;
-        if (slug.StartsWith(query, StringComparison.OrdinalIgnoreCase)) return 3;
-        if (title.Contains(query, StringComparison.OrdinalIgnoreCase)) return 4;
-        if (slug.Contains(query, StringComparison.OrdinalIgnoreCase)) return 5;
-        return 6;
+        CommunityResourceProjectReference? reference = entry.GetProjectReference(source);
+        return reference is null
+            ? null
+            : entry with
+            {
+                ProjectId = reference.ProjectId,
+                Slug = reference.Slug,
+                Source = source,
+                ProjectUrl = reference.WebsiteUrl
+            };
     }
 
     private static async Task<(IReadOnlyList<CommunityResourceEntry> Entries, Exception? Error)> TrySearchWithErrorAsync(
@@ -184,6 +266,50 @@ public sealed class CompositeCommunityResourceCatalog :
         {
             PortableLog.Warn(ex, "Community", $"社区资源来源 {catalog.GetType().Name} 搜索失败，将保留其他来源结果。");
             return ([], ex);
+        }
+    }
+
+    private static async Task<(IReadOnlyList<CommunityResourceVersion> Versions, Exception? Error)> TryGetVersionsWithErrorAsync(
+        ICommunityResourceCatalog catalog,
+        CommunityResourceEntry? entry,
+        CommunitySearchOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (entry is null)
+            return ([], null);
+        try
+        {
+            IReadOnlyList<CommunityResourceVersion> versions =
+                await catalog.GetVersionsAsync(entry, options, cancellationToken).ConfigureAwait(false);
+            return (versions, null);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException or IOException or TimeoutException)
+        {
+            PortableLog.Warn(ex, "Community", $"{entry.Source} 资源版本加载失败，将保留其他来源结果。");
+            return ([], ex);
+        }
+    }
+
+    private static async Task<CommunityResourceFileIdentity?> TryLookupAsync(
+        Func<Task<CommunityResourceFileIdentity?>> lookup,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await lookup().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException or IOException or TimeoutException)
+        {
+            PortableLog.Warn(ex, "Community", "本地资源文件在线识别失败，将保留其他来源结果。");
+            return null;
         }
     }
 }

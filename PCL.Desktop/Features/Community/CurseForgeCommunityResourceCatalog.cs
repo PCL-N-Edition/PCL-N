@@ -5,16 +5,23 @@
 
 using System.Globalization;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
+
+using PCL.Application.Settings;
 
 namespace PCL.Desktop.Features.Community;
 
-public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatalog, IDisposable
+public sealed class CurseForgeCommunityResourceCatalog :
+    ICommunityResourceCatalog,
+    ICommunityResourceFingerprintLookup,
+    IDisposable
 {
     private const string ApiRoot = "https://api.curseforge.com/v1";
     private readonly HttpClient _client;
     private readonly bool _ownsClient;
     private readonly string? _apiKey;
+    private readonly DownloadSourcePreference? _sourcePreference;
 
     public CurseForgeCommunityResourceCatalog()
         : this(CreateDefaultClient(), ResolveApiKey(), ownsClient: true)
@@ -26,6 +33,16 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _apiKey = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim();
         _ownsClient = ownsClient;
+    }
+
+    internal CurseForgeCommunityResourceCatalog(
+        HttpClient client,
+        string? apiKey,
+        DownloadSourcePreference sourcePreference,
+        bool ownsClient = false)
+        : this(client, apiKey, ownsClient)
+    {
+        _sourcePreference = sourcePreference;
     }
 
     public async Task<IReadOnlyList<CommunityResourceEntry>> SearchAsync(
@@ -93,11 +110,12 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
                 ReadDateTimeOffset(project, "dateModified"))
             {
                 Source = CommunityResourceSource.CurseForge,
-                ProjectUrl = website
+                ProjectUrl = website,
+                Tags = ReadCategoryNames(project)
             });
         }
 
-        return string.IsNullOrWhiteSpace(query)
+        return string.IsNullOrWhiteSpace(query) || options.Sort != CommunityResourceSort.Relevance
             ? entries
             : RankSearchResults(entries, query);
     }
@@ -229,6 +247,9 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
             id,
             displayName)
         {
+            Source = CommunityResourceSource.CurseForge,
+            Sha1 = ReadSha1(file),
+            Sha256 = ReadSha256(file),
             CandidateUrls = McimMirrorPolicy.DownloadCandidates(
                 urlValue,
                 CommunityResourceSource.CurseForge,
@@ -244,7 +265,8 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
             loaders,
             [download])
         {
-            Dependencies = ReadCurseForgeDependencies(file)
+            Dependencies = ReadCurseForgeDependencies(file),
+            Source = CommunityResourceSource.CurseForge
         };
     }
 
@@ -292,7 +314,8 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
             ReadDateTimeOffset(project, "dateModified"))
         {
             Source = CommunityResourceSource.CurseForge,
-            ProjectUrl = website
+            ProjectUrl = website,
+            Tags = ReadCategoryNames(project)
         };
     }
 
@@ -300,6 +323,70 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
         string sha1Hex,
         CancellationToken cancellationToken = default) =>
         Task.FromResult<CommunityResourceFileIdentity?>(null);
+
+    public async Task<CommunityResourceFileIdentity?> LookupFileByFingerprintAsync(
+        uint fingerprint,
+        CancellationToken cancellationToken = default)
+    {
+        string body = "{\"fingerprints\":[" +
+                      fingerprint.ToString(CultureInfo.InvariantCulture) +
+                      "]}";
+        using HttpResponseMessage response = await SendAsync(
+                HttpMethod.Post,
+                ApiRoot + "/fingerprints/432",
+                body,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return null;
+        response.EnsureSuccessStatusCode();
+        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (!TryGetProperty(document.RootElement, "data", out JsonElement data) ||
+            !TryGetProperty(data, "exactMatches", out JsonElement matches) ||
+            matches.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (JsonElement match in matches.EnumerateArray())
+        {
+            if (!TryGetProperty(match, "file", out JsonElement file) ||
+                file.ValueKind != JsonValueKind.Object ||
+                ReadInt64(file, "fileFingerprint") != fingerprint)
+            {
+                continue;
+            }
+
+            string projectId = ReadNumberOrString(file, "modId");
+            if (string.IsNullOrWhiteSpace(projectId))
+                projectId = ReadNumberOrString(match, "id");
+            CommunityResourceVersion? version = ParseVersion(file);
+            CommunityResourceDownloadFile? currentFile = version is { Files.Count: > 0 }
+                ? version.Files[0]
+                : null;
+            if (string.IsNullOrWhiteSpace(projectId) || version is null || currentFile is null)
+                continue;
+
+            return new CommunityResourceFileIdentity(
+                projectId,
+                projectId,
+                projectId,
+                "mod",
+                version.VersionId,
+                version.VersionNumber,
+                version.PublishedAt,
+                null,
+                "https://www.curseforge.com/minecraft/mc-mods/" + projectId)
+            {
+                Source = CommunityResourceSource.CurseForge,
+                CurrentFile = currentFile
+            };
+        }
+
+        return null;
+    }
 
     public async Task<CommunityResourceVersion?> GetLatestVersionAsync(
         string projectId,
@@ -322,29 +409,60 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(_apiKey))
-            throw new InvalidOperationException("CurseForge API 密钥未配置，请设置 PCL_CURSEFORGE_API_KEY。");
+        => await SendAsync(method, url, jsonBody: null, cancellationToken).ConfigureAwait(false);
 
+    private async Task<HttpResponseMessage> SendAsync(
+        HttpMethod method,
+        string url,
+        string? jsonBody,
+        CancellationToken cancellationToken)
+    {
         Exception? lastError = null;
+        HttpResponseMessage? lastNotFound = null;
         foreach (string candidate in McimMirrorPolicy.ApiCandidates(
                      url,
                      CommunityResourceSource.CurseForge,
-                     McimMirrorPolicy.CurrentPreference))
+                     _sourcePreference ?? McimMirrorPolicy.CurrentPreference))
         {
+            bool isOfficialApi = IsOfficialApi(candidate);
+            if (isOfficialApi && string.IsNullOrWhiteSpace(_apiKey))
+            {
+                lastError = new InvalidOperationException(
+                    "CurseForge API 密钥未配置，请设置 PCL_CURSEFORGE_API_KEY。");
+                continue;
+            }
+
+            HttpResponseMessage? response = null;
             try
             {
                 using HttpRequestMessage request = new(method, candidate);
-                request.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
-                HttpResponseMessage response = await _client.SendAsync(
+                if (isOfficialApi)
+                    request.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
+                if (jsonBody is not null)
+                    request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                response = await _client.SendAsync(
                         request,
                         HttpCompletionOption.ResponseHeadersRead,
                         cancellationToken)
                     .ConfigureAwait(false);
-                if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                    return response;
-                lastError = new HttpRequestException($"CurseForge API returned {(int)response.StatusCode}.");
-                response.Dispose();
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    lastNotFound?.Dispose();
+                    lastNotFound = response;
+                    response = null;
+                    continue;
+                }
+                if (!response.IsSuccessStatusCode)
+                {
+                    lastError = new HttpRequestException($"CurseForge API returned {(int)response.StatusCode}.");
+                    continue;
+                }
+
+                await BufferAndValidateJsonAsync(response, cancellationToken).ConfigureAwait(false);
+                HttpResponseMessage result = response;
+                response = null;
+                lastNotFound?.Dispose();
+                return result;
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -354,8 +472,42 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
             {
                 lastError = ex;
             }
+            catch (JsonException ex)
+            {
+                lastError = ex;
+            }
+            catch (IOException ex)
+            {
+                lastError = ex;
+            }
+            finally
+            {
+                response?.Dispose();
+            }
         }
+
+        if (lastError is null && lastNotFound is not null)
+            return lastNotFound;
+        lastNotFound?.Dispose();
         throw lastError ?? new HttpRequestException("CurseForge API request failed.");
+    }
+
+    private static bool IsOfficialApi(string candidate) =>
+        Uri.TryCreate(candidate, UriKind.Absolute, out Uri? uri) &&
+        uri.Host.Equals("api.curseforge.com", StringComparison.OrdinalIgnoreCase);
+
+    private static async Task BufferAndValidateJsonAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        HttpContent originalContent = response.Content;
+        byte[] payload = await originalContent.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        using JsonDocument document = JsonDocument.Parse(payload);
+        ByteArrayContent bufferedContent = new(payload);
+        foreach (KeyValuePair<string, IEnumerable<string>> header in originalContent.Headers)
+            bufferedContent.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        response.Content = bufferedContent;
+        originalContent.Dispose();
     }
 
     private static HttpClient CreateDefaultClient()
@@ -523,6 +675,46 @@ public sealed class CurseForgeCommunityResourceCatalog : ICommunityResourceCatal
             .Where(static value => !string.IsNullOrWhiteSpace(value))
             .Select(static value => value!)
             .ToList();
+    }
+
+    private static List<string> ReadCategoryNames(JsonElement project)
+    {
+        if (!TryGetProperty(project, "categories", out JsonElement categories) ||
+            categories.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return categories.EnumerateArray()
+            .Select(static category => ReadString(category, "name"))
+            .Where(static name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string? ReadSha256(JsonElement file)
+        => ReadHash(file, 3, CommunityResourceMerge.NormalizeSha256);
+
+    private static string? ReadSha1(JsonElement file)
+        => ReadHash(file, 1, CommunityResourceMerge.NormalizeSha1);
+
+    private static string? ReadHash(
+        JsonElement file,
+        long algorithm,
+        Func<string?, string?> normalize)
+    {
+        if (!TryGetProperty(file, "hashes", out JsonElement hashes) ||
+            hashes.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (JsonElement hash in hashes.EnumerateArray())
+        {
+            if (ReadInt64(hash, "algo") == algorithm)
+                return normalize(ReadString(hash, "value"));
+        }
+        return null;
     }
 
     private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)

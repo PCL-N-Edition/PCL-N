@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
+using PCL.Application.Settings;
 using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Community;
@@ -18,6 +19,7 @@ public sealed class ModrinthCommunityResourceCatalog :
 {
     private readonly HttpClient _client;
     private readonly bool _ownsClient;
+    private readonly DownloadSourcePreference? _sourcePreference;
 
     public ModrinthCommunityResourceCatalog()
         : this(CreateDefaultClient(), ownsClient: true)
@@ -28,6 +30,15 @@ public sealed class ModrinthCommunityResourceCatalog :
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _ownsClient = ownsClient;
+    }
+
+    internal ModrinthCommunityResourceCatalog(
+        HttpClient client,
+        DownloadSourcePreference sourcePreference,
+        bool ownsClient = false)
+        : this(client, ownsClient)
+    {
+        _sourcePreference = sourcePreference;
     }
 
     public async Task<IReadOnlyList<CommunityResourceEntry>> SearchAsync(
@@ -44,7 +55,7 @@ public sealed class ModrinthCommunityResourceCatalog :
             CommunityResourceSort.Updated => "updated",
             _ => "relevance"
         };
-        string requestUrl = "https://api.modrinth.com/v2/search?limit=80&index=" + index +
+        string requestUrl = "https://api.modrinth.com/v2/search?limit=50&index=" + index +
                             "&query=" + Uri.EscapeDataString(query?.Trim() ?? string.Empty) +
                             "&facets=" + Uri.EscapeDataString(facets);
         using HttpResponseMessage response = await GetWithFallbackAsync(requestUrl, cancellationToken).ConfigureAwait(false);
@@ -76,7 +87,10 @@ public sealed class ModrinthCommunityResourceCatalog :
                 NormalizeProjectType(ReadString(hit, "project_type"), category),
                 NullIfWhiteSpace(ReadString(hit, "icon_url")),
                 ReadInt64(hit, "downloads"),
-                ReadDateTimeOffset(hit, "date_modified")));
+                ReadDateTimeOffset(hit, "date_modified"))
+            {
+                Tags = ReadStringArray(hit, "categories")
+            });
         }
 
         return entries;
@@ -150,7 +164,9 @@ public sealed class ModrinthCommunityResourceCatalog :
                 url,
                 size,
                 ReadString(version, "id"),
-                ReadString(version, "name"));
+                ReadString(version, "name"),
+                ReadSha256(chosen),
+                ReadSha1(chosen));
         }
 
         return null;
@@ -226,7 +242,9 @@ public sealed class ModrinthCommunityResourceCatalog :
                 .ConfigureAwait(false);
         }
 
-        return versions;
+        return versions
+            .OrderByDescending(static version => version.PublishedAt ?? DateTimeOffset.MinValue)
+            .ToArray();
     }
 
     /// <summary>
@@ -364,12 +382,23 @@ public sealed class ModrinthCommunityResourceCatalog :
                 long size = 0;
                 if (TryGetProperty(file, "size", out JsonElement sizeEl))
                     sizeEl.TryGetInt64(out size);
-                files.Add(CreateDownloadFile(
+                CommunityResourceDownloadFile download = CreateDownloadFile(
                     fileName,
                     url,
                     size,
                     versionId,
-                    ReadString(version, "name")));
+                    ReadString(version, "name"),
+                    ReadSha256(file),
+                    ReadSha1(file));
+                if (TryGetProperty(file, "primary", out JsonElement primary) &&
+                    primary.ValueKind == JsonValueKind.True)
+                {
+                    files.Insert(0, download);
+                }
+                else
+                {
+                    files.Add(download);
+                }
             }
         }
 
@@ -424,7 +453,8 @@ public sealed class ModrinthCommunityResourceCatalog :
             ReadInt64(project, "downloads"),
             ReadDateTimeOffset(project, "updated"))
         {
-            Source = CommunityResourceSource.Modrinth
+            Source = CommunityResourceSource.Modrinth,
+            Tags = ReadStringArray(project, "categories")
         };
     }
 
@@ -504,34 +534,37 @@ public sealed class ModrinthCommunityResourceCatalog :
 
             string versionNumber = ReadString(root, "version_number");
             DateTimeOffset? published = ReadDateTimeOffset(root, "date_published");
+            CommunityResourceDownloadFile? currentFile = null;
+            if (TryGetProperty(root, "files", out JsonElement files) && files.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement file in files.EnumerateArray())
+                {
+                    if (!TryGetProperty(file, "hashes", out JsonElement hashes) ||
+                        !string.Equals(ReadString(hashes, algorithm), sha1Hex, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
 
-            // Project metadata for title / icon / type.
+                    string downloadUrl = ReadString(file, "url");
+                    string fileName = ReadString(file, "filename");
+                    if (!string.IsNullOrWhiteSpace(downloadUrl) && !string.IsNullOrWhiteSpace(fileName))
+                    {
+                        currentFile = CreateDownloadFile(
+                            fileName,
+                            downloadUrl,
+                            ReadInt64(file, "size"),
+                            versionId,
+                            versionNumber,
+                            ReadSha256(file),
+                            ReadSha1(file));
+                    }
+                    break;
+                }
+            }
+
             string title = projectId;
             string slug = projectId;
             string projectType = "mod";
-            string? iconUrl = null;
-            try
-            {
-                string projectUrl = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(projectId);
-                using HttpResponseMessage projectResponse = await GetWithFallbackAsync(projectUrl, cancellationToken)
-                    .ConfigureAwait(false);
-                if (projectResponse.IsSuccessStatusCode)
-                {
-                    await using Stream projectStream =
-                        await projectResponse.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                    using JsonDocument projectDoc =
-                        await JsonDocument.ParseAsync(projectStream, cancellationToken: cancellationToken)
-                            .ConfigureAwait(false);
-                    title = NullIfWhiteSpace(ReadString(projectDoc.RootElement, "title")) ?? title;
-                    slug = NullIfWhiteSpace(ReadString(projectDoc.RootElement, "slug")) ?? slug;
-                    projectType = NullIfWhiteSpace(ReadString(projectDoc.RootElement, "project_type")) ?? projectType;
-                    iconUrl = NullIfWhiteSpace(ReadString(projectDoc.RootElement, "icon_url"));
-                }
-            }
-            catch
-            {
-                // identity still useful without project decoration
-            }
 
             string website = "https://modrinth.com/" + projectType + "/" +
                              (string.IsNullOrWhiteSpace(slug) ? projectId : slug);
@@ -543,8 +576,16 @@ public sealed class ModrinthCommunityResourceCatalog :
                 versionId,
                 versionNumber,
                 published,
-                iconUrl,
-                website);
+                null,
+                website)
+            {
+                Source = CommunityResourceSource.Modrinth,
+                CurrentFile = currentFile
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or IOException)
         {
@@ -588,18 +629,38 @@ public sealed class ModrinthCommunityResourceCatalog :
         CancellationToken cancellationToken)
     {
         Exception? lastError = null;
+        HttpResponseMessage? lastNotFound = null;
         foreach (string candidate in McimMirrorPolicy.ApiCandidates(
                      url,
                      CommunityResourceSource.Modrinth,
-                     McimMirrorPolicy.CurrentPreference))
+                     _sourcePreference ?? McimMirrorPolicy.CurrentPreference))
         {
+            HttpResponseMessage? response = null;
             try
             {
-                HttpResponseMessage response = await _client.GetAsync(candidate, cancellationToken).ConfigureAwait(false);
-                if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                    return response;
-                lastError = new HttpRequestException($"Modrinth API returned {(int)response.StatusCode}.");
-                response.Dispose();
+                response = await _client.GetAsync(
+                        candidate,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    lastNotFound?.Dispose();
+                    lastNotFound = response;
+                    response = null;
+                    continue;
+                }
+                if (!response.IsSuccessStatusCode)
+                {
+                    lastError = new HttpRequestException($"Modrinth API returned {(int)response.StatusCode}.");
+                    continue;
+                }
+
+                await BufferAndValidateJsonAsync(response, cancellationToken).ConfigureAwait(false);
+                HttpResponseMessage result = response;
+                response = null;
+                lastNotFound?.Dispose();
+                return result;
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -609,8 +670,38 @@ public sealed class ModrinthCommunityResourceCatalog :
             {
                 lastError = ex;
             }
+            catch (JsonException ex)
+            {
+                lastError = ex;
+            }
+            catch (IOException ex)
+            {
+                lastError = ex;
+            }
+            finally
+            {
+                response?.Dispose();
+            }
         }
+
+        if (lastError is null && lastNotFound is not null)
+            return lastNotFound;
+        lastNotFound?.Dispose();
         throw lastError ?? new HttpRequestException("Modrinth API request failed.");
+    }
+
+    private static async Task BufferAndValidateJsonAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        HttpContent originalContent = response.Content;
+        byte[] payload = await originalContent.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        using JsonDocument document = JsonDocument.Parse(payload);
+        ByteArrayContent bufferedContent = new(payload);
+        foreach (KeyValuePair<string, IEnumerable<string>> header in originalContent.Headers)
+            bufferedContent.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        response.Content = bufferedContent;
+        originalContent.Dispose();
     }
 
     private static CommunityResourceDownloadFile CreateDownloadFile(
@@ -618,14 +709,38 @@ public sealed class ModrinthCommunityResourceCatalog :
         string url,
         long size,
         string versionId,
-        string versionName) =>
+        string versionName,
+        string? sha256 = null,
+        string? sha1 = null) =>
         new(fileName, url, size, versionId, versionName)
         {
+            Source = CommunityResourceSource.Modrinth,
+            Sha1 = CommunityResourceMerge.NormalizeSha1(sha1),
+            Sha256 = CommunityResourceMerge.NormalizeSha256(sha256),
             CandidateUrls = McimMirrorPolicy.DownloadCandidates(
                 url,
                 CommunityResourceSource.Modrinth,
                 McimMirrorPolicy.CurrentPreference)
         };
+
+    private static string? ReadSha256(JsonElement file)
+        => ReadFileHash(file, "sha256", CommunityResourceMerge.NormalizeSha256);
+
+    private static string? ReadSha1(JsonElement file)
+        => ReadFileHash(file, "sha1", CommunityResourceMerge.NormalizeSha1);
+
+    private static string? ReadFileHash(
+        JsonElement file,
+        string algorithm,
+        Func<string?, string?> normalize)
+    {
+        if (!TryGetProperty(file, "hashes", out JsonElement hashes) ||
+            hashes.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+        return normalize(ReadString(hashes, algorithm));
+    }
 
     private static HttpClient CreateDefaultClient()
     {

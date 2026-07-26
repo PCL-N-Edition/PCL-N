@@ -78,7 +78,7 @@ public partial class PageCommunityFavoritesRight : MyPageRight
             Width = 25,
             Height = 25
         };
-        CommunitySearchOptions favoriteOptions = new(Source: favorite.Entry.Source);
+        CommunitySearchOptions favoriteOptions = CreateDownloadOptions(favorite.Entry);
         download.Click += (_, _) => DownloadRequested?.Invoke(
             this,
             new CommunityResourceDownloadRequest(
@@ -104,7 +104,7 @@ public partial class PageCommunityFavoritesRight : MyPageRight
         {
             Title = favorite.Entry.Title,
             Info = favorite.Entry.Description + "  ·  " +
-                   (favorite.Entry.Source == CommunityResourceSource.CurseForge ? "CurseForge" : "Modrinth"),
+                   favorite.Entry.SourceDisplayName,
             Height = 64d,
             Type = MyListItem.CheckType.Clickable,
             Tag = favorite,
@@ -115,5 +115,12 @@ public partial class PageCommunityFavoritesRight : MyPageRight
         };
         item.Click += (_, _) => OpenProjectRequested?.Invoke(this, favorite);
         return item;
+    }
+
+    internal static CommunitySearchOptions CreateDownloadOptions(CommunityResourceEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        bool hasBothSources = entry.ModrinthProject is not null && entry.CurseForgeProject is not null;
+        return new CommunitySearchOptions(Source: hasBothSources ? CommunityResourceSource.All : entry.Source);
     }
 }

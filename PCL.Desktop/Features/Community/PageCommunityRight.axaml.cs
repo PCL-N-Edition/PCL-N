@@ -577,7 +577,7 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
         {
             Title = entry.DisplayTitle,
             Info = entry.DisplayDescription + "  ·  ↓" + downloadsText + "  ·  " + timeText + "  ·  " +
-                   (entry.Source == CommunityResourceSource.CurseForge ? "CurseForge" : "Modrinth"),
+                   entry.SourceDisplayName,
             Height = 64d,
             Type = MyListItem.CheckType.Clickable,
             Tag = entry,
