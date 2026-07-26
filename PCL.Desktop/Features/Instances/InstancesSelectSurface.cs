@@ -81,6 +81,7 @@ public sealed class InstancesSelectSurface
                 oldLeft.TriggerHideAnimation();
             leftHost.Child = null;
             _right.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
+            SynchronizeEffectiveFolderSelection();
         }
         else
         {
@@ -113,11 +114,28 @@ public sealed class InstancesSelectSurface
         if (_left is not null)
             _left.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
         if (_right is { IsFullPageLayout: true })
+        {
             _right.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
+            SynchronizeEffectiveFolderSelection();
+        }
     }
 
     public void SetInstances(IReadOnlyList<LaunchInstanceInfo> instances, LaunchInstanceInfo? selected) =>
         _right?.SetInstances(instances, selected);
+
+    private void SynchronizeEffectiveFolderSelection()
+    {
+        if (_right?.SelectedRootDirectory is not { Length: > 0 } effectiveRoot ||
+            string.Equals(
+                _folderStore.SelectedRoot,
+                effectiveRoot,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _folderStore.SetSelectedRootWithoutPersist(effectiveRoot);
+    }
 
     private PageInstanceSelectLeft CreateLeftPage(InstancesSelectBindings b)
     {

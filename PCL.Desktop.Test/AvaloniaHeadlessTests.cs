@@ -5317,7 +5317,7 @@ public sealed class AvaloniaHeadlessTests
                 try
                 {
                     page.SetFullPageLayout(true);
-                    page.SetFolders([missing, first, second], missing.RootDirectory);
+                    page.SetFolders([missing, first, second], selectedRootDirectory: null);
                     window.Show();
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
@@ -5328,11 +5328,25 @@ public sealed class AvaloniaHeadlessTests
                     Assert.AreEqual(2, folderRows.Length);
                     Assert.AreSame(first, folderRows[0].Tag);
                     Assert.AreEqual(
-                        RequiredBrush("ColorBrush7").Color,
+                        System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(firstRoot)),
+                        page.SelectedRootDirectory);
+                    Assert.AreEqual(
+                        RequiredBrush("ColorBrushBg1").Color,
                         ((ISolidColorBrush)folderRows[0].Background!).Color);
                     Assert.AreEqual(
                         Colors.Transparent,
                         ((ISolidColorBrush)folderRows[1].Background!).Color);
+                    Border selectedIndicator = ((Grid)folderRows[0].Child!).Children
+                        .OfType<Border>()
+                        .Single();
+                    Border unselectedIndicator = ((Grid)folderRows[1].Child!).Children
+                        .OfType<Border>()
+                        .Single();
+                    Assert.AreEqual(1d, selectedIndicator.Opacity);
+                    Assert.AreEqual(0d, unselectedIndicator.Opacity);
+                    Assert.AreEqual(
+                        RequiredBrush("ColorBrush3").Color,
+                        ((ISolidColorBrush)selectedIndicator.Background!).Color);
                 }
                 finally
                 {

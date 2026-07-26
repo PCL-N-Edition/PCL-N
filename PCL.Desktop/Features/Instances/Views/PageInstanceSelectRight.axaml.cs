@@ -45,6 +45,16 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         _reloadTimer.Tick += ReloadTimer_Tick;
         if (this.FindControl<MySearchBox>("PanVerSearchBox") is { } searchBox)
             searchBox.TextChanged += PanVerSearchBox_TextChanged;
+        AttachedToVisualTree += (_, _) =>
+        {
+            if (_fullPageLayout)
+                ReloadFolders();
+        };
+        ActualThemeVariantChanged += (_, _) =>
+        {
+            if (_fullPageLayout)
+                ReloadFolders();
+        };
         SetLoadingState(false);
         ApplyFullPageLayoutChrome();
         ReloadFolders();
@@ -123,6 +133,8 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
     public event EventHandler? AddFolderRequested;
 
     public event EventHandler? ImportModpackRequested;
+
+    public string? SelectedRootDirectory => _selectedRootDirectory;
 
     public void SetFolders(IReadOnlyList<MinecraftFolderInfo> folders, string? selectedRootDirectory)
     {
@@ -243,19 +255,32 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         Border row = new()
         {
             Margin = new Thickness(0, 2),
-            Padding = new Thickness(10, 9),
+            Padding = new Thickness(9, 9),
             CornerRadius = new CornerRadius(10),
             Cursor = new Cursor(StandardCursorType.Hand),
             Background = selected
-                ? ResolveBrush("ColorBrush7") ?? Brushes.Transparent
+                ? ResolveBrushOrFallback("ColorBrushBg1", "#bee0eafd")
                 : Brushes.Transparent,
             Tag = folder
         };
 
         Grid grid = new()
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto")
+            ColumnDefinitions = new ColumnDefinitions("3,8,*,Auto")
         };
+        Border selectionIndicator = new()
+        {
+            Width = 3,
+            CornerRadius = new CornerRadius(2),
+            Margin = new Thickness(0, 2),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
+            Background = ResolveBrushOrFallback("ColorBrush3", "#1370f3"),
+            IsHitTestVisible = false,
+            Opacity = selected ? 1d : 0d
+        };
+        Grid.SetColumn(selectionIndicator, 0);
+        grid.Children.Add(selectionIndicator);
+
         StackPanel text = new()
         {
             Spacing = 2,
@@ -266,7 +291,9 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
                     Text = folder.Name,
                     FontSize = 13.5,
                     FontWeight = selected ? FontWeight.SemiBold : FontWeight.Medium,
-                    Foreground = ResolveBrush("ColorBrush1") ?? Brushes.Black,
+                    Foreground = selected
+                        ? ResolveBrushOrFallback("ColorBrush2", "#0b5bcb")
+                        : ResolveBrushOrFallback("ColorBrush1", "#343d4a"),
                     TextTrimming = TextTrimming.CharacterEllipsis
                 },
                 new TextBlock
@@ -274,12 +301,12 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
                     Text = folder.RootDirectory,
                     FontSize = 11,
                     Opacity = 0.62,
-                    Foreground = ResolveBrush("ColorBrushGray2") ?? Brushes.Gray,
+                    Foreground = ResolveBrushOrFallback("ColorBrushGray2", "#737373"),
                     TextTrimming = TextTrimming.CharacterEllipsis
                 }
             }
         };
-        Grid.SetColumn(text, 0);
+        Grid.SetColumn(text, 2);
         grid.Children.Add(text);
 
         StackPanel actions = new()
@@ -303,7 +330,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
                 CreateTinyIcon("lucide/pencil", "重命名", () => FolderRenameRequested?.Invoke(this, folder)));
         }
 
-        Grid.SetColumn(actions, 1);
+        Grid.SetColumn(actions, 3);
         grid.Children.Add(actions);
         row.Child = grid;
         row.PointerPressed += (_, e) =>
@@ -797,6 +824,9 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         this.TryFindResource(key, ActualThemeVariant, out object? value) && value is IBrush brush
             ? brush
             : null;
+
+    private IBrush ResolveBrushOrFallback(string key, string fallback) =>
+        ResolveBrush(key) ?? new SolidColorBrush(Color.Parse(fallback));
 
     private readonly record struct InstanceEntry(LaunchInstanceInfo Instance, InstanceMetadata Metadata);
 }
