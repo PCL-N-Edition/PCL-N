@@ -7,8 +7,6 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
-using Avalonia.Media.Imaging;
-using Avalonia.Platform;
 using PCL.Desktop.Controls.Legacy;
 
 namespace PCL.Desktop.Features.Instances.Views;
@@ -23,10 +21,11 @@ public partial class MyLocalModItem : Grid
     private ColumnDefinition? _paddingRightColumn;
     private Border? _rectBack;
     private Border? _rectCheck;
-    private Image? _stateImage;
+    private MyImage? _stateImage;
     private Control? _buttonStack;
     private bool _checked;
     private bool _isPressed;
+    private bool _pressStarted;
     private bool _isLoaded;
     private bool _isSettingChecked;
     private string? _lastColorState;
@@ -44,13 +43,18 @@ public partial class MyLocalModItem : Grid
         if (this.FindControl<MyIconButton>("BtnUpdate") is { } update)
             update.Click += (_, _) => UpdateRequested?.Invoke(this, EventArgs.Empty);
 
-        PointerEntered += (_, _) => RefreshColor(animate: true);
+        PointerEntered += (_, args) =>
+        {
+            ContinueSwipeSelection(args);
+            RefreshColor(animate: true);
+        };
         PointerExited += (_, _) =>
         {
             _isPressed = false;
             RefreshColor(animate: true);
         };
         PointerPressed += OnPointerPressed;
+        PointerMoved += OnPointerMoved;
         PointerReleased += OnPointerReleased;
         AttachedToVisualTree += (_, _) =>
         {
@@ -70,6 +74,8 @@ public partial class MyLocalModItem : Grid
 
     /// <summary>Raised when the user clicks the small update icon (resource-site newer version).</summary>
     public event EventHandler? UpdateRequested;
+
+    public SwipeSelect? CurrentSwipe { get; set; }
 
     public bool ShowUpdateButton
     {
@@ -219,8 +225,8 @@ public partial class MyLocalModItem : Grid
             return;
 
         _isPressed = true;
-        if (_buttonStack is not null)
-            _buttonStack.IsHitTestVisible = false;
+        _pressStarted = true;
+        StartSwipeSelection();
         Focus();
         RefreshColor(animate: true);
         e.Handled = true;
@@ -228,6 +234,11 @@ public partial class MyLocalModItem : Grid
 
     private void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
+        if (CurrentSwipe is { Origin: not null } swipe)
+        {
+            CompleteSwipeSelection(swipe, e);
+            return;
+        }
         if (!_isPressed)
             return;
 
@@ -237,6 +248,98 @@ public partial class MyLocalModItem : Grid
         Click?.Invoke(this, e);
         RefreshColor(animate: true);
         e.Handled = true;
+    }
+
+    private void StartSwipeSelection()
+    {
+        if (CurrentSwipe is not { } swipe || Parent is not StackPanel panel)
+            return;
+
+        int index = panel.Children.IndexOf(this);
+        if (index < 0)
+            return;
+
+        swipe.Start = index;
+        swipe.End = index;
+        swipe.Swiping = true;
+        swipe.SwipeToState = !Checked;
+        swipe.Origin = this;
+    }
+
+    private void ContinueSwipeSelection(PointerEventArgs args)
+    {
+        if (CurrentSwipe is not { Swiping: true } swipe || Parent is not StackPanel panel)
+            return;
+        if (!args.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            EndSwipeSelection(swipe);
+            return;
+        }
+
+        int index = panel.Children.IndexOf(this);
+        if (index < 0)
+            return;
+
+        ApplySwipeSelection(panel, swipe, index);
+    }
+
+    private void OnPointerMoved(object? sender, PointerEventArgs args)
+    {
+        if (CurrentSwipe is not { Swiping: true } swipe || Parent is not StackPanel panel)
+            return;
+        if (!args.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            EndSwipeSelection(swipe);
+            return;
+        }
+
+        Point position = args.GetPosition(panel);
+        for (int index = 0; index < panel.Children.Count; index++)
+        {
+            if (panel.Children[index].Bounds.Contains(position))
+            {
+                ApplySwipeSelection(panel, swipe, index);
+                break;
+            }
+        }
+    }
+
+    private static void ApplySwipeSelection(StackPanel panel, SwipeSelect swipe, int index)
+    {
+        swipe.Start = Math.Max(0, Math.Min(swipe.Start, index));
+        swipe.End = Math.Min(panel.Children.Count - 1, Math.Max(swipe.End, index));
+        if (swipe.Start == swipe.End)
+            return;
+
+        for (int itemIndex = swipe.Start; itemIndex <= swipe.End; itemIndex++)
+        {
+            if (panel.Children[itemIndex] is MyLocalModItem item)
+                item.Checked = swipe.SwipeToState;
+        }
+    }
+
+    private static void EndSwipeSelection(SwipeSelect swipe)
+    {
+        swipe.Swiping = false;
+        if (swipe.Origin is { } origin)
+        {
+            origin._pressStarted = false;
+            origin._isPressed = false;
+            origin.RefreshColor(animate: true);
+        }
+        swipe.Origin = null;
+    }
+
+    internal static void CompleteSwipeSelection(SwipeSelect swipe, PointerReleasedEventArgs args)
+    {
+        MyLocalModItem? origin = swipe.Origin;
+        bool invokeClick = origin is not null && origin._pressStarted && swipe.Start == swipe.End;
+        EndSwipeSelection(swipe);
+        if (!invokeClick || origin is null)
+            return;
+
+        origin.Click?.Invoke(origin, args);
+        args.Handled = true;
     }
 
     private void SyncVisuals(bool animate)
@@ -258,9 +361,9 @@ public partial class MyLocalModItem : Grid
         if (_logo is null)
             return;
 
-        _logo.Source = LoadLogoImage(string.IsNullOrWhiteSpace(Logo)
+        _logo.Source = string.IsNullOrWhiteSpace(Logo)
             ? InstanceDisplayHelper.ImageAssetRoot + "Icons/NoIcon.png"
-            : Logo);
+            : Logo;
     }
 
     private void ApplyTitle()
@@ -272,11 +375,11 @@ public partial class MyLocalModItem : Grid
         _title.TextDecorations = null;
         if (State == ResourceItemState.Disabled)
         {
-            _title.TextDecorations = TextDecorations.Strikethrough;
+            _title.TextDecorations = TextDecorationCollection.Parse("Strikethrough");
         }
         else if (State == ResourceItemState.Unavailable)
         {
-            _title.TextDecorations = TextDecorations.Strikethrough;
+            _title.TextDecorations = TextDecorationCollection.Parse("Strikethrough");
             title += "（不可用）";
         }
 
@@ -556,12 +659,12 @@ public partial class MyLocalModItem : Grid
 
         _stateImage ??= CreateStateImage();
         string iconName = State == ResourceItemState.Disabled ? "Disabled.png" : "Unavailable.png";
-        _stateImage.Source = LoadLogoImage(InstanceDisplayHelper.ImageAssetRoot + "Icons/" + iconName);
+        _stateImage.Source = InstanceDisplayHelper.ImageAssetRoot + "Icons/" + iconName;
     }
 
-    private Image CreateStateImage()
+    private MyImage CreateStateImage()
     {
-        Image image = new()
+        MyImage image = new()
         {
             Width = 20d,
             Height = 20d,
@@ -652,37 +755,6 @@ public partial class MyLocalModItem : Grid
             _ => new SolidColorBrush(Color.Parse(fallback))
         };
 
-    private static Bitmap? LoadLogoImage(string logo)
-    {
-        try
-        {
-            string normalized = NormalizeLogoUri(logo);
-            if (File.Exists(normalized))
-            {
-                using Stream fileStream = File.OpenRead(normalized);
-                return new Bitmap(fileStream);
-            }
-
-            if (!Uri.TryCreate(normalized, UriKind.Absolute, out Uri? uri))
-                return null;
-
-            using Stream stream = uri.IsFile ? File.OpenRead(uri.LocalPath) : AssetLoader.Open(uri);
-            return new Bitmap(stream);
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
-
-    private static string NormalizeLogoUri(string logo)
-    {
-        const string wpfImagePrefix = "pack://application:,,,/images/";
-        return logo.StartsWith(wpfImagePrefix, StringComparison.OrdinalIgnoreCase)
-            ? InstanceDisplayHelper.ImageAssetRoot + logo[wpfImagePrefix.Length..].Replace('\\', '/')
-            : logo;
-    }
-
     private static double GetScaleX(Control control) =>
         control.RenderTransform switch
         {
@@ -690,6 +762,19 @@ public partial class MyLocalModItem : Grid
             TransformGroup group => group.Children.OfType<ScaleTransform>().FirstOrDefault()?.ScaleX ?? 1d,
             _ => 1d
         };
+
+    public sealed class SwipeSelect
+    {
+        public int Start { get; set; }
+
+        public int End { get; set; }
+
+        public bool Swiping { get; set; }
+
+        public bool SwipeToState { get; set; }
+
+        internal MyLocalModItem? Origin { get; set; }
+    }
 }
 
 public enum ResourceItemState

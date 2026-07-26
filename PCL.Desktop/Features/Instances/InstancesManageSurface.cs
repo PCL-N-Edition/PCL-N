@@ -4,6 +4,7 @@
 
 using PCL.Application.Instances;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Features.Community;
 using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Features.Launching.Views;
 
@@ -390,6 +391,10 @@ public sealed class InstancesManageSurface
         PageInstanceResourceRight page = new();
         page.OpenFolderRequested += (_, path) => b.OpenPath(path);
         page.DownloadRequested += (_, subPage) => b.OpenCommunityForResource(subPage);
+        page.OpenProjectRequested += (_, request) => _ = b.OpenCommunityDetailAsync(
+            request.Entry,
+            request.Category,
+            request.Options);
         page.StatusMessage += (_, message) =>
         {
             b.StatusMessage(message);
@@ -474,6 +479,9 @@ public sealed class InstancesManageBindings
     public required Action NavigateInstanceSelect { get; init; }
 
     public required Action<InstancePageSubType> OpenCommunityForResource { get; init; }
+
+    public required Func<CommunityResourceEntry, CommunityResourceCategory, CommunitySearchOptions, Task>
+        OpenCommunityDetailAsync { get; init; }
 
     public required Action<string> OpenCommunityDataPacks { get; init; }
 

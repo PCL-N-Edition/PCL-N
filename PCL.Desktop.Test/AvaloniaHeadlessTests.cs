@@ -1378,6 +1378,30 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void MyLocalModItem_DelegatesLogoAndStateImageLoadingToMyImage()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            const string remoteLogo = "https://example.invalid/mod-icon.png";
+            MyLocalModItem item = new();
+            MyImage logo = item.FindControl<MyImage>("PathLogo")!;
+
+            item.Logo = remoteLogo;
+            item.State = ResourceItemState.Disabled;
+
+            Assert.AreEqual(remoteLogo, logo.Source);
+            MyImage stateIcon = item.Children
+                .OfType<MyImage>()
+                .Single(image => !ReferenceEquals(image, logo));
+            Assert.AreEqual(
+                InstanceDisplayHelper.ImageAssetRoot + "Icons/Disabled.png",
+                stateIcon.Source);
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MyScrollViewer_ExposesWpfDeltaMultProperty()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -2652,6 +2676,64 @@ public sealed class AvaloniaHeadlessTests
                 Assert.AreEqual(1d, right.Opacity, 0.01d);
                 Assert.IsNotNull(FindVisual<PageCommunityLeft>(window));
                 Assert.IsNotNull(FindVisual<PageCommunityRight>(window));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
+    public void MainWindow_CommunityResourceDetailSurvivesRouteAnimations()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(async () =>
+        {
+            MainWindow window = new();
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                InvokePrivateMethod(window, "WireCommunitySurface");
+                CommunityFeatureSurface surface =
+                    GetPrivateField<CommunityFeatureSurface>(window, "_communitySurface");
+                PageCommunityDetail detail = new(new FakeCommunityResourceCatalog());
+                SetPrivateField(surface, "_detail", detail);
+                CommunityResourceEntry entry = new(
+                    "example",
+                    "example",
+                    "Example Mod",
+                    string.Empty,
+                    "mod",
+                    null,
+                    0,
+                    null);
+                var openDetail = typeof(MainWindow).GetMethod(
+                    "OpenCommunityResourceDetailAsync",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("OpenCommunityResourceDetailAsync was not found.");
+
+                Task task = (Task)(openDetail.Invoke(
+                    window,
+                    [entry, CommunityResourceCategory.Mod, new CommunitySearchOptions()])
+                    ?? throw new InvalidOperationException("OpenCommunityResourceDetailAsync returned null."));
+                await task.ConfigureAwait(true);
+
+                Border left = window.FindControl<Border>("PanMainLeft")!;
+                Border right = window.FindControl<Border>("PanMainRight")!;
+                Assert.IsNull(left.Child);
+                Assert.AreSame(detail, right.Child);
+
+                AdvancePageChangeAnimation(window);
+
+                Assert.IsNull(left.Child);
+                Assert.AreSame(detail, right.Child);
+                MyListItem communityNav = window.FindControl<Panel>("PanTitleSelect")!.Children
+                    .OfType<MyListItem>()
+                    .Single(item => item.Tag?.ToString() == "pcl.community");
+                Assert.IsTrue(communityNav.Checked);
             }
             finally
             {
@@ -6885,7 +6967,7 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
-    public void PageInstanceExportRight_UsesCopiedWpfOptionTreeAndRaisesExportRequest()
+    public void PageInstanceExportRight_BuildsDynamicOptionsAndRaisesCompleteRequest()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
         string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pcl-instance-export-ui-" + Guid.NewGuid().ToString("N"));
@@ -6894,7 +6976,29 @@ public sealed class AvaloniaHeadlessTests
         {
             string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
             Directory.CreateDirectory(versionDirectory);
-            File.WriteAllText(System.IO.Path.Combine(root, "options.txt"), "settings");
+            Directory.CreateDirectory(System.IO.Path.Combine(versionDirectory, "resourcepacks"));
+            Directory.CreateDirectory(System.IO.Path.Combine(versionDirectory, "shaderpacks", "Folder Shader"));
+            Directory.CreateDirectory(System.IO.Path.Combine(versionDirectory, "saves", "World One"));
+            Directory.CreateDirectory(System.IO.Path.Combine(versionDirectory, "custom [folder]"));
+            File.WriteAllText(System.IO.Path.Combine(versionDirectory, "options.txt"), "settings");
+            File.WriteAllText(System.IO.Path.Combine(versionDirectory, "resourcepacks", "Pack [A].zip"), "pack");
+            File.WriteAllText(System.IO.Path.Combine(versionDirectory, "shaderpacks", "Shader.zip"), "shader");
+            File.WriteAllText(System.IO.Path.Combine(versionDirectory, "shaderpacks", "Shader.zip.txt"), "config");
+            File.WriteAllText(System.IO.Path.Combine(versionDirectory, "shaderpacks", "Folder Shader", "shader.properties"), "config");
+            File.WriteAllText(System.IO.Path.Combine(versionDirectory, "shaderpacks", "Folder Shader.txt"), "config");
+            File.WriteAllText(System.IO.Path.Combine(versionDirectory, "saves", "World One", "level.dat"), "world");
+            File.WriteAllText(System.IO.Path.Combine(versionDirectory, "custom [folder]", "data.txt"), "custom");
+            File.WriteAllText(
+                System.IO.Path.Combine(versionDirectory, "1.20.1.json"),
+                """
+                {
+                  "id": "fabric-loader-0.16.10-1.20.1",
+                  "inheritsFrom": "1.20.1",
+                  "libraries": [
+                    { "name": "net.fabricmc:fabric-loader:0.16.10" }
+                  ]
+                }
+                """);
             LaunchInstanceInfo instance = new("1.20.1", System.IO.Path.Combine(versionDirectory, "1.20.1.json"), versionDirectory);
 
             session.Dispatch(() =>
@@ -6929,11 +7033,64 @@ public sealed class AvaloniaHeadlessTests
                         DisplayText(page.FindControl<MyCheckBox>("CheckOptionsOptions")!.FindControl<TextBlock>("LabText")!),
                         "键位、音量、视频设置等");
 
+                    StackPanel resourcePacks = page.FindControl<StackPanel>("PanOptionsResourcePacks")!;
+                    MyCheckBox resourcePack = resourcePacks.Children.OfType<MyCheckBox>().Single();
+                    Assert.AreEqual("Pack [A].zip", ((ExportOption)resourcePack.Tag!).Title);
+                    Assert.AreEqual("resourcepacks/Pack [[]A[]].zip", ((ExportOption)resourcePack.Tag!).Rules);
+
+                    StackPanel shaderPacks = page.FindControl<StackPanel>("PanOptionsShaderPacks")!;
+                    Dictionary<string, ExportOption> shaderOptions = shaderPacks.Children
+                        .OfType<MyCheckBox>()
+                        .Select(static checkBox => (ExportOption)checkBox.Tag!)
+                        .ToDictionary(static option => option.Title, StringComparer.Ordinal);
+                    Assert.AreEqual(4, shaderOptions.Count);
+                    Assert.AreEqual("shaderpacks/Shader.zip", shaderOptions["Shader.zip"].Rules);
+                    Assert.AreEqual("shaderpacks/Shader.zip.txt", shaderOptions["Shader.zip.txt"].Rules);
+                    Assert.AreEqual("shaderpacks/Folder Shader/", shaderOptions["Folder Shader"].Rules);
+                    Assert.AreEqual("shaderpacks/Folder Shader.txt", shaderOptions["Folder Shader.txt"].Rules);
+
+                    StackPanel saves = page.FindControl<StackPanel>("PanOptionsSaves")!;
+                    MyCheckBox save = saves.Children.OfType<MyCheckBox>().Single();
+                    Assert.AreEqual("saves/World One/", ((ExportOption)save.Tag!).Rules);
+
+                    StackPanel otherFolders = page.FindControl<StackPanel>("PanOptionsOtherFolders")!;
+                    MyCheckBox otherFolder = otherFolders.Children.OfType<MyCheckBox>().Single();
+                    Assert.AreEqual("custom [folder]", ((ExportOption)otherFolder.Tag!).Title);
+                    Assert.AreEqual("custom [[]folder[]]/", ((ExportOption)otherFolder.Tag!).Rules);
+
+                    Assert.IsFalse(page.FindControl<MyCheckBox>("CheckOptionsPcl")!.Checked);
+                    page.FindControl<MyCheckBox>("CheckOptionsSaves")!.Checked = true;
+                    page.FindControl<MyCheckBox>("CheckOptionsOtherFolders")!.Checked = true;
+                    otherFolder.Checked = true;
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
                     Click(window, page.FindControl<MyExtraTextButton>("BtnExport")!);
 
                     Assert.IsNotNull(exportRequest);
                     Assert.AreEqual("1.20.1", exportRequest!.PackageName);
                     CollectionAssert.Contains(exportRequest.Rules.ToList(), "options.txt");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "resourcepacks/Pack [[]A[]].zip");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "shaderpacks/Shader.zip");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "shaderpacks/Shader.zip.txt");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "shaderpacks/Folder Shader/");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "shaderpacks/Folder Shader.txt");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "saves/World One/");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "custom [[]folder[]]/");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "!*.log");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "!*.dat_old");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "!*.BakaCoreInfo");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "!hmclversion.cfg");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "!log4j2.xml");
+                    Assert.IsFalse(exportRequest.IncludeLauncherFiles);
+                    Assert.IsFalse(exportRequest.IncludeLauncherCustom);
+                    Assert.IsFalse(exportRequest.IncludeBundleFiles);
+                    Assert.IsFalse(exportRequest.ModrinthUploadMode);
+
+                    exportRequest = null;
+                    page.ApplyRulesOverride([]);
+                    Click(window, page.FindControl<MyExtraTextButton>("BtnExport")!);
+                    Assert.IsNotNull(exportRequest);
+                    Assert.AreEqual(0, exportRequest.Rules.Count);
                 }
                 finally
                 {
@@ -7410,6 +7567,41 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    [DataRow("net.minecraftforge:forge:1.20.1-47.2.0", "forge")]
+    [DataRow("net.neoforged:neoforge:20.4.237", "neoforge")]
+    [DataRow("net.fabricmc:fabric-loader:0.16.10", "fabric")]
+    [DataRow("net.fabricmc:fabric-loader:0.16.10|org.quiltmc:quilt-loader:0.27.1", "quilt")]
+    [DataRow("com.mumfrey:liteloader:1.12.2", "liteloader")]
+    public void PageInstanceResourceRight_DetectsLoaderCoordinates(string coordinates, string expected)
+    {
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-resource-loader-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "custom");
+            Directory.CreateDirectory(versionDirectory);
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "custom.json");
+            string[] libraries = coordinates.Split('|', StringSplitOptions.RemoveEmptyEntries);
+            File.WriteAllText(
+                jsonPath,
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    id = "custom",
+                    libraries = libraries.Select(static name => new { name }).ToArray()
+                }));
+            LaunchInstanceInfo instance = new("custom", jsonPath, versionDirectory);
+
+            Assert.AreEqual(expected, PageInstanceResourceRight.DetectLoaderHint(instance));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void PageInstanceResourceRight_ListsAndManagesLocalMods()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -7418,7 +7610,7 @@ public sealed class AvaloniaHeadlessTests
         try
         {
             string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
-            string modsDirectory = System.IO.Path.Combine(root, "mods");
+            string modsDirectory = System.IO.Path.Combine(versionDirectory, "mods");
             Directory.CreateDirectory(versionDirectory);
             Directory.CreateDirectory(modsDirectory);
             string enabledMod = System.IO.Path.Combine(modsDirectory, "enabled.jar");
@@ -7431,7 +7623,10 @@ public sealed class AvaloniaHeadlessTests
 
             session.Dispatch(async () =>
             {
-                PageInstanceResourceRight page = new();
+                PageInstanceResourceRight page = new(() =>
+                    new CompositeCommunityResourceCatalog(
+                        new FileLookupCommunityCatalog(),
+                        new FileLookupCommunityCatalog()));
                 Window window = new()
                 {
                     Width = 760,
@@ -7452,10 +7647,58 @@ public sealed class AvaloniaHeadlessTests
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
                     StackPanel list = page.FindControl<StackPanel>("PanList")!;
-                    Assert.AreEqual("Mod 列表 (2)", page.FindControl<MyCard>("PanListBack")!.Title);
+                    await WaitForConditionAsync(() =>
+                            list.Children.OfType<MyLocalModItem>().Count() == 2)
+                        .ConfigureAwait(true);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    page.FindControl<MyCard>("PanListBack")!.TriggerForceResize();
+                    list.InvalidateMeasure();
+                    page.InvalidateMeasure();
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    string listTitle = page.FindControl<MyCard>("PanListBack")!.Title;
+                    StringAssert.Contains(listTitle, "Mod");
+                    StringAssert.Contains(listTitle, "2");
                     Assert.IsFalse(page.FindControl<MyCard>("PanEmpty")!.IsVisible);
                     Assert.IsTrue(list.Children.OfType<MyLocalModItem>().Any(item => item.Title == "enabled.jar"));
                     Assert.IsTrue(list.Children.OfType<MyLocalModItem>().Any(item => item.Title == "disabled.jar"));
+
+                    MyLocalModItem enabledSelection = list.Children
+                        .OfType<MyLocalModItem>()
+                        .Single(item => item.Title == "enabled.jar");
+                    MyLocalModItem disabledSelection = list.Children
+                        .OfType<MyLocalModItem>()
+                        .Single(item => item.Title == "disabled.jar");
+                    await WaitForConditionAsync(() =>
+                    {
+                        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                        return enabledSelection.Bounds.Width > 0d && enabledSelection.Bounds.Height > 0d;
+                    }).ConfigureAwait(true);
+                    Click(window, enabledSelection);
+                    Assert.IsTrue(enabledSelection.Checked);
+                    Assert.IsTrue(page.FindControl<MyCard>("CardSelect")!.IsVisible);
+                    StringAssert.Contains(page.FindControl<TextBlock>("LabSelect")!.Text!, "1");
+                    Click(window, page.FindControl<MyIconTextButton>("BtnSelectCancel")!);
+                    Assert.IsFalse(enabledSelection.Checked);
+                    Assert.IsFalse(page.FindControl<MyCard>("CardSelect")!.IsVisible);
+
+                    Click(window, page.FindControl<MyButton>("BtnManageSelectAll")!);
+                    Assert.IsTrue(enabledSelection.Checked);
+                    Assert.IsTrue(disabledSelection.Checked);
+                    StringAssert.Contains(page.FindControl<TextBlock>("LabSelect")!.Text!, "2");
+                    Click(window, page.FindControl<MyButton>("BtnManageSelectAll")!);
+                    Assert.IsFalse(enabledSelection.Checked);
+                    Assert.IsFalse(disabledSelection.Checked);
+                    Assert.IsFalse(page.FindControl<MyCard>("CardSelect")!.IsVisible);
+
+                    MyLocalModItem firstVisible = list.Children.OfType<MyLocalModItem>().First();
+                    Drag(
+                        window,
+                        firstVisible,
+                        new Point(70d, firstVisible.Bounds.Height / 2d),
+                        new Point(70d, firstVisible.Bounds.Height * 1.5d));
+                    Assert.IsTrue(enabledSelection.Checked);
+                    Assert.IsTrue(disabledSelection.Checked);
+                    Click(window, page.FindControl<MyIconTextButton>("BtnSelectCancel")!);
 
                     Click(window, page.FindControl<MyButton>("BtnManageOpen")!);
                     Assert.AreEqual(modsDirectory, openedFolder);
@@ -7466,24 +7709,885 @@ public sealed class AvaloniaHeadlessTests
                     MyLocalModItem disabledItem = list.Children.OfType<MyLocalModItem>().Single(item => item.Title == "disabled.jar");
                     MyIconButton enableButton = disabledItem.Buttons.Single(button => Equals(button.ToolTip, "启用"));
                     Click(window, enableButton);
-                    await WaitForConditionAsync(() => File.Exists(System.IO.Path.Combine(modsDirectory, "disabled.jar"))).ConfigureAwait(true);
-                    Assert.AreEqual("已启用。", status);
+                    await WaitForConditionAsync(() =>
+                            File.Exists(System.IO.Path.Combine(modsDirectory, "disabled.jar")) &&
+                            status?.Contains("启用", StringComparison.Ordinal) == true)
+                        .ConfigureAwait(true);
+                    StringAssert.Contains(status!, "启用");
 
                     page.FindControl<MySearchBox>("SearchBox")!.Text = "disabled";
-                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-                    Assert.AreEqual(1, list.Children.OfType<MyLocalModItem>().Count());
-                    Assert.AreEqual("disabled.jar", list.Children.OfType<MyLocalModItem>().Single().Title);
+                    await Task.Delay(450).ConfigureAwait(true);
+                    await WaitForConditionAsync(
+                            () => list.Children.OfType<MyLocalModItem>().Any(item => item.Title == "disabled.jar"))
+                        .ConfigureAwait(true);
 
-                    MyIconButton deleteButton = list.Children.OfType<MyLocalModItem>().Single().Buttons.Single(button => Equals(button.ToolTip, "删除"));
+                    MyLocalModItem enabledItem = list.Children
+                        .OfType<MyLocalModItem>()
+                        .Single(item => item.Title == "disabled.jar");
+                    MyIconButton deleteButton = enabledItem.Buttons.Single(button => Equals(button.ToolTip, "删除"));
                     Click(window, deleteButton);
-                    await WaitForConditionAsync(() => !File.Exists(System.IO.Path.Combine(modsDirectory, "disabled.jar"))).ConfigureAwait(true);
-                    Assert.AreEqual("项目已删除。", status);
+                    await WaitForConditionAsync(() =>
+                            !File.Exists(System.IO.Path.Combine(modsDirectory, "disabled.jar")) &&
+                            status?.Contains("删除", StringComparison.Ordinal) == true)
+                        .ConfigureAwait(true);
+                    StringAssert.Contains(status!, "删除");
                 }
                 finally
                 {
                     window.Close();
+                    page.Dispose();
                 }
-            }, CancellationToken.None);
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void PageInstanceResourceRight_LoadsModMetadataWithoutBlockingUiThread()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-resource-background-load-ui-" + Guid.NewGuid().ToString("N"));
+        using ManualResetEventSlim releaseReader = new(false);
+        TaskCompletionSource readerStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
+            string modsDirectory = System.IO.Path.Combine(versionDirectory, "mods");
+            Directory.CreateDirectory(modsDirectory);
+            string modPath = System.IO.Path.Combine(modsDirectory, "slow.jar");
+            File.WriteAllText(modPath, "slow");
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "1.20.1.json");
+            File.WriteAllText(jsonPath, """{ "id": "1.20.1" }""");
+            LaunchInstanceInfo instance = new("1.20.1", jsonPath, versionDirectory);
+
+            session.Dispatch(async () =>
+            {
+                PageInstanceResourceRight page = new(
+                    () => new CompositeCommunityResourceCatalog(
+                        new FileLookupCommunityCatalog(),
+                        new FileLookupCommunityCatalog()),
+                    path =>
+                    {
+                        readerStarted.TrySetResult();
+                        releaseReader.Wait(TimeSpan.FromSeconds(2));
+                        return new MinecraftModMetadata(path, "slow", "Slow Mod", "1.0", "fabric", []);
+                    });
+                Window window = new() { Width = 760, Height = 520, Content = page };
+                string? openedFolder = null;
+                page.OpenFolderRequested += (_, path) => openedFolder = path;
+                try
+                {
+                    window.Show();
+                    System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                    page.SetContext(instance, InstancePageSubType.Mods);
+                    await readerStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(true);
+
+                    Assert.IsTrue(stopwatch.Elapsed < TimeSpan.FromSeconds(1.5));
+                    Click(window, page.FindControl<MyButton>("BtnManageOpen")!);
+                    Assert.AreEqual(modsDirectory, openedFolder);
+
+                    releaseReader.Set();
+                    StackPanel list = page.FindControl<StackPanel>("PanList")!;
+                    await WaitForConditionAsync(() =>
+                            list.Children.OfType<MyLocalModItem>().Any(item => item.Title == "Slow Mod"))
+                        .ConfigureAwait(true);
+                }
+                finally
+                {
+                    releaseReader.Set();
+                    window.Close();
+                    page.Dispose();
+                }
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            releaseReader.Set();
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void PageInstanceResourceRight_UsesLocalMetadataAndOnlineProjectDetailsInSearch()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-resource-online-ui-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
+            string modsDirectory = System.IO.Path.Combine(versionDirectory, "mods");
+            Directory.CreateDirectory(versionDirectory);
+            Directory.CreateDirectory(modsDirectory);
+            string sodiumPath = System.IO.Path.Combine(modsDirectory, "renamed-file.jar");
+            string otherPath = System.IO.Path.Combine(modsDirectory, "other-file.jar");
+            WriteFabricModArchive(sodiumPath, "local-sodium-id", "Local Sodium Name", "1.2.3");
+            WriteFabricModArchive(otherPath, "other-local-id", "Other Local Mod", "4.5.6");
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "1.20.1.json");
+            File.WriteAllText(jsonPath, """{ "id": "1.20.1" }""");
+            LaunchInstanceInfo instance = new("1.20.1", jsonPath, versionDirectory);
+
+            string sodiumSha1 = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA1.HashData(File.ReadAllBytes(sodiumPath)));
+            McModIndexEntry mapping = McModIndex.Current.FindBySlug(
+                CommunityResourceSource.Modrinth,
+                "sodium") ?? throw new AssertFailedException("The embedded MC百科 index must contain Sodium.");
+            string onlineTitle = AvaloniaLocalizationManager.CurrentLanguageCode ==
+                                 AvaloniaLocalizationManager.ChineseLanguage
+                ? mapping.ChineseName
+                : "Sodium";
+            CommunityResourceFileIdentity identity = new(
+                "sodium-project",
+                "sodium",
+                "Sodium",
+                "mod",
+                "sodium-version",
+                "1.2.3",
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+                null,
+                "https://modrinth.com/mod/sodium")
+            {
+                Source = CommunityResourceSource.Modrinth
+            };
+            CommunityResourceEntry project = new(
+                "sodium-project",
+                "sodium",
+                "Sodium",
+                "Fast renderer from the online project",
+                "mod",
+                "https://example.invalid/sodium-icon.png",
+                1_000_000,
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z"))
+            {
+                Source = CommunityResourceSource.Modrinth,
+                Tags = ["Performance", "Technology"]
+            };
+            FileLookupCommunityCatalog modrinth = new()
+            {
+                Sha1Files = new Dictionary<string, CommunityResourceFileIdentity>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [sodiumSha1] = identity
+                },
+                Projects = [project],
+                VersionsException = new System.Text.Json.JsonException("'<' is an invalid start of a value.")
+            };
+            FileLookupCommunityCatalog curseForge = new();
+
+            session.Dispatch(async () =>
+            {
+                PageInstanceResourceRight page = new(() =>
+                    new CompositeCommunityResourceCatalog(modrinth, curseForge));
+                Window window = new()
+                {
+                    Width = 760,
+                    Height = 520,
+                    Content = page
+                };
+                InstanceResourceProjectRequest? openedProject = null;
+                page.OpenProjectRequested += (_, request) => openedProject = request;
+
+                try
+                {
+                    window.Show();
+                    page.SetContext(instance, InstancePageSubType.Mods);
+                    StackPanel list = page.FindControl<StackPanel>("PanList")!;
+                    await WaitForConditionAsync(() =>
+                            list.Children.OfType<MyLocalModItem>()
+                                .Any(item => item.Title == onlineTitle))
+                        .ConfigureAwait(true);
+
+                    MyLocalModItem sodium = list.Children
+                        .OfType<MyLocalModItem>()
+                        .Single(item => item.Title == onlineTitle);
+                    StringAssert.Contains(sodium.SubTitle, "Sodium");
+                    StringAssert.Contains(sodium.SubTitle, "1.2.3");
+                    StringAssert.Contains(sodium.Description, "Fast renderer from the online project");
+                    CollectionAssert.AreEquivalent(
+                        new[] { "Performance", "Technology" },
+                        sodium.Tags.ToArray());
+                    Assert.AreEqual("https://example.invalid/sodium-icon.png", sodium.Logo);
+                    Assert.AreEqual(
+                        sodium.Logo,
+                        sodium.FindControl<MyImage>("PathLogo")!.Source);
+                    MyIconButton details = sodium.Buttons
+                        .Single(button => Equals(button.ToolTip, "详情") || Equals(button.ToolTip, "Details"));
+                    Click(window, details);
+                    Assert.AreEqual(project.ProjectId, openedProject?.Entry.ProjectId);
+                    Assert.AreEqual(CommunityResourceCategory.Mod, openedProject?.Category);
+                    Assert.AreEqual("1.20.1", openedProject?.Options.GameVersion);
+                    Assert.IsFalse(sodium.Checked);
+                    Assert.IsTrue(list.Children.OfType<MyLocalModItem>()
+                        .Any(item => item.Title == "Other Local Mod" && item.SubTitle == "4.5.6"));
+
+                    MySearchBox search = page.FindControl<MySearchBox>("SearchBox")!;
+                    search.Text = "other-local-id";
+                    await WaitForConditionAsync(() =>
+                            list.Children.OfType<MyLocalModItem>().Count() == 1 &&
+                            list.Children.OfType<MyLocalModItem>().First().Title == "Other Local Mod")
+                        .ConfigureAwait(true);
+
+                    search.Text = "Performance";
+                    await WaitForConditionAsync(() =>
+                            list.Children.OfType<MyLocalModItem>().Count() == 1 &&
+                            list.Children.OfType<MyLocalModItem>().First().Title == onlineTitle)
+                        .ConfigureAwait(true);
+
+                    search.Text = string.Empty;
+                    await WaitForConditionAsync(() => list.Children.OfType<MyLocalModItem>().Count() == 2)
+                        .ConfigureAwait(true);
+                    search.Text = "online project";
+                    await WaitForConditionAsync(() =>
+                            list.Children.OfType<MyLocalModItem>().Count() == 1 &&
+                            list.Children.OfType<MyLocalModItem>().First().Title == onlineTitle)
+                        .ConfigureAwait(true);
+
+                    search.Text = string.Empty;
+                    await WaitForConditionAsync(() => list.Children.OfType<MyLocalModItem>().Count() == 2)
+                        .ConfigureAwait(true);
+                    search.Text = "local-sodium-id";
+                    await WaitForConditionAsync(() =>
+                            list.Children.OfType<MyLocalModItem>().Any(item => item.Title == onlineTitle))
+                        .ConfigureAwait(true);
+
+                    search.Text = string.Empty;
+                    await WaitForConditionAsync(() => list.Children.OfType<MyLocalModItem>().Count() == 2)
+                        .ConfigureAwait(true);
+                    search.Text = mapping.ChineseName;
+                    await WaitForConditionAsync(() =>
+                            list.Children.OfType<MyLocalModItem>().Count() == 1 &&
+                            list.Children.OfType<MyLocalModItem>().First().Title == onlineTitle)
+                        .ConfigureAwait(true);
+
+                    Assert.IsTrue(modrinth.Sha1LookupCount >= 2);
+                    Assert.IsTrue(curseForge.FingerprintLookupCount >= 2);
+                }
+                finally
+                {
+                    window.Close();
+                    page.Dispose();
+                }
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void PageInstanceResourceRight_PublishesExactMatchesBeforeSharedUpdateLookupCompletes()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-resource-two-stage-ui-" + Guid.NewGuid().ToString("N"));
+        TaskCompletionSource<IReadOnlyList<CommunityResourceVersion>> versionsCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
+            string modsDirectory = System.IO.Path.Combine(versionDirectory, "mods");
+            Directory.CreateDirectory(modsDirectory);
+            string firstPath = System.IO.Path.Combine(modsDirectory, "shared-first.jar");
+            string secondPath = System.IO.Path.Combine(modsDirectory, "shared-second.jar");
+            WriteFabricModArchive(firstPath, "shared-first", "Shared First Local", "1.0.0");
+            WriteFabricModArchive(secondPath, "shared-second", "Shared Second Local", "1.0.1");
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "1.20.1.json");
+            File.WriteAllText(jsonPath, """{ "id": "1.20.1" }""");
+            LaunchInstanceInfo instance = new("1.20.1", jsonPath, versionDirectory);
+
+            string firstSha1 = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA1.HashData(File.ReadAllBytes(firstPath)));
+            string secondSha1 = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA1.HashData(File.ReadAllBytes(secondPath)));
+            CommunityResourceFileIdentity firstIdentity = new(
+                "shared-project",
+                "shared-online-project",
+                "Shared Online",
+                "mod",
+                "shared-first-version",
+                "1.0.0",
+                DateTimeOffset.Parse("2025-01-01T00:00:00Z"),
+                null,
+                "https://modrinth.com/mod/shared-online-project")
+            {
+                Source = CommunityResourceSource.Modrinth,
+                CurrentFile = new CommunityResourceDownloadFile(
+                    "shared-first.jar",
+                    "https://example.invalid/shared-first.jar",
+                    new FileInfo(firstPath).Length,
+                    "shared-first-version",
+                    "1.0.0")
+                {
+                    Source = CommunityResourceSource.Modrinth,
+                    Sha1 = firstSha1
+                }
+            };
+            CommunityResourceFileIdentity secondIdentity = firstIdentity with
+            {
+                VersionId = "shared-second-version",
+                VersionNumber = "1.0.1",
+                CurrentFile = new CommunityResourceDownloadFile(
+                    "shared-second.jar",
+                    "https://example.invalid/shared-second.jar",
+                    new FileInfo(secondPath).Length,
+                    "shared-second-version",
+                    "1.0.1")
+                {
+                    Source = CommunityResourceSource.Modrinth,
+                    Sha1 = secondSha1
+                }
+            };
+            CommunityResourceEntry project = new(
+                "shared-project",
+                "shared-online-project",
+                "Shared Online",
+                "Shared project details",
+                "mod",
+                "https://example.invalid/shared-icon.png",
+                100,
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z"))
+            {
+                Source = CommunityResourceSource.Modrinth
+            };
+            FileLookupCommunityCatalog modrinth = new()
+            {
+                Sha1Files = new Dictionary<string, CommunityResourceFileIdentity>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [firstSha1] = firstIdentity,
+                    [secondSha1] = secondIdentity
+                },
+                Projects = [project],
+                VersionsCompletion = versionsCompletion
+            };
+
+            session.Dispatch(async () =>
+            {
+                PageInstanceResourceRight page = new(() =>
+                    new CompositeCommunityResourceCatalog(modrinth, new FileLookupCommunityCatalog()));
+                Window window = new()
+                {
+                    Width = 760,
+                    Height = 520,
+                    Content = page
+                };
+
+                try
+                {
+                    window.Show();
+                    page.SetContext(instance, InstancePageSubType.Mods);
+                    StackPanel list = page.FindControl<StackPanel>("PanList")!;
+                    await WaitForConditionAsync(() =>
+                            list.Children.OfType<MyLocalModItem>()
+                                .Count(item => item.Title == "Shared Online") == 2)
+                        .ConfigureAwait(true);
+                    await WaitForConditionAsync(() => modrinth.VersionsLookupCount > 0)
+                        .ConfigureAwait(true);
+
+                    Assert.IsFalse(versionsCompletion.Task.IsCompleted);
+                    Assert.AreEqual(1, modrinth.ProjectLookupCount);
+                    Assert.IsTrue(list.Children.OfType<MyLocalModItem>()
+                        .Where(item => item.Title == "Shared Online")
+                        .All(item => item.Logo == "https://example.invalid/shared-icon.png"));
+                }
+                finally
+                {
+                    versionsCompletion.TrySetResult([]);
+                    window.Close();
+                    page.Dispose();
+                }
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            versionsCompletion.TrySetResult([]);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void PageInstanceResourceRight_RejectsCurseForgeFingerprintCollisionBySha1()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-resource-fingerprint-collision-ui-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
+            string modsDirectory = System.IO.Path.Combine(versionDirectory, "mods");
+            Directory.CreateDirectory(modsDirectory);
+            string modPath = System.IO.Path.Combine(modsDirectory, "verified.jar");
+            WriteFabricModArchive(modPath, "verified-local", "Verified Local", "1.0.0");
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "1.20.1.json");
+            File.WriteAllText(jsonPath, """{ "id": "1.20.1" }""");
+            LaunchInstanceInfo instance = new("1.20.1", jsonPath, versionDirectory);
+
+            byte[] localBytes = File.ReadAllBytes(modPath);
+            string localSha1 = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA1.HashData(localBytes));
+            uint fingerprint = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(
+                PCL.Core.Utils.Hash.MurmurHash2Provider.Instance.ComputeHash(localBytes));
+            CommunityResourceDownloadFile verifiedFile = new(
+                "verified.jar",
+                "https://example.invalid/verified.jar",
+                localBytes.Length,
+                "verified-version",
+                "1.0.0")
+            {
+                Source = CommunityResourceSource.Modrinth,
+                Sha1 = localSha1
+            };
+            CommunityResourceFileIdentity verifiedIdentity = new(
+                "verified-project",
+                "verified-online-project",
+                "Verified Online",
+                "mod",
+                "verified-version",
+                "1.0.0",
+                DateTimeOffset.Parse("2025-01-01T00:00:00Z"),
+                null,
+                "https://modrinth.com/mod/verified-online-project")
+            {
+                Source = CommunityResourceSource.Modrinth,
+                CurrentFile = verifiedFile
+            };
+            CommunityResourceFileIdentity collisionIdentity = new(
+                "collision-project",
+                "collision-project",
+                "Wrong Collision Match",
+                "mod",
+                "collision-version",
+                "9.9.9",
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+                null,
+                "https://www.curseforge.com/minecraft/mc-mods/collision-project")
+            {
+                Source = CommunityResourceSource.CurseForge,
+                CurrentFile = verifiedFile with
+                {
+                    Source = CommunityResourceSource.CurseForge,
+                    Sha1 = new string('f', 40)
+                }
+            };
+            CommunityResourceEntry verifiedProject = new(
+                "verified-project",
+                "verified-online-project",
+                "Verified Online",
+                "Verified project details",
+                "mod",
+                null,
+                100,
+                DateTimeOffset.Parse("2025-01-01T00:00:00Z"))
+            {
+                Source = CommunityResourceSource.Modrinth
+            };
+            CommunityResourceEntry collisionProject = new(
+                "collision-project",
+                "collision-project",
+                "Wrong Collision Match",
+                "Wrong project details",
+                "mod",
+                null,
+                100,
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z"))
+            {
+                Source = CommunityResourceSource.CurseForge
+            };
+            FileLookupCommunityCatalog modrinth = new()
+            {
+                Sha1Files = new Dictionary<string, CommunityResourceFileIdentity>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [localSha1] = verifiedIdentity
+                },
+                Projects = [verifiedProject]
+            };
+            FileLookupCommunityCatalog curseForge = new()
+            {
+                FingerprintFiles = new Dictionary<uint, CommunityResourceFileIdentity>
+                {
+                    [fingerprint] = collisionIdentity
+                },
+                Projects = [collisionProject]
+            };
+
+            session.Dispatch(async () =>
+            {
+                PageInstanceResourceRight page = new(() =>
+                    new CompositeCommunityResourceCatalog(modrinth, curseForge));
+                Window window = new()
+                {
+                    Width = 760,
+                    Height = 520,
+                    Content = page
+                };
+
+                try
+                {
+                    window.Show();
+                    page.SetContext(instance, InstancePageSubType.Mods);
+                    StackPanel list = page.FindControl<StackPanel>("PanList")!;
+                    await WaitForConditionAsync(() => list.Children.OfType<MyLocalModItem>()
+                            .Any(item => item.Title == "Verified Online"))
+                        .ConfigureAwait(true);
+
+                    Assert.AreEqual(1, modrinth.ProjectLookupCount);
+                    Assert.AreEqual(0, curseForge.ProjectLookupCount);
+                    Assert.IsFalse(list.Children.OfType<MyLocalModItem>()
+                        .Any(item => item.Title == "Wrong Collision Match"));
+                }
+                finally
+                {
+                    window.Close();
+                    page.Dispose();
+                }
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void PageInstanceResourceRight_PublishesOnlineMatchesWithoutWaitingForSlowFiles()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-resource-progressive-ui-" + Guid.NewGuid().ToString("N"));
+        TaskCompletionSource<CommunityResourceFileIdentity?> slowLookup =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
+            string modsDirectory = System.IO.Path.Combine(versionDirectory, "mods");
+            Directory.CreateDirectory(modsDirectory);
+            string fastPath = System.IO.Path.Combine(modsDirectory, "fast.jar");
+            string slowPath = System.IO.Path.Combine(modsDirectory, "slow.jar");
+            WriteFabricModArchive(fastPath, "fast-local", "Fast Local", "1.0.0");
+            WriteFabricModArchive(slowPath, "slow-local", "Slow Local", "1.0.0");
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "1.20.1.json");
+            File.WriteAllText(jsonPath, """{ "id": "1.20.1" }""");
+            LaunchInstanceInfo instance = new("1.20.1", jsonPath, versionDirectory);
+
+            string fastSha1 = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA1.HashData(File.ReadAllBytes(fastPath)));
+            string slowSha1 = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA1.HashData(File.ReadAllBytes(slowPath)));
+            CommunityResourceFileIdentity fastIdentity = new(
+                "fast-project",
+                "progressive-fast-project",
+                "Fast Online",
+                "mod",
+                "fast-current",
+                "1.0.0",
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+                null,
+                "https://modrinth.com/mod/progressive-fast-project")
+            {
+                Source = CommunityResourceSource.Modrinth
+            };
+            CommunityResourceEntry fastProject = new(
+                "fast-project",
+                "progressive-fast-project",
+                "Fast Online",
+                "Online details",
+                "mod",
+                null,
+                10,
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z"))
+            {
+                Source = CommunityResourceSource.Modrinth
+            };
+            FileLookupCommunityCatalog modrinth = new()
+            {
+                Sha1Files = new Dictionary<string, CommunityResourceFileIdentity>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [fastSha1] = fastIdentity
+                },
+                PendingSha1Lookups = new Dictionary<string, TaskCompletionSource<CommunityResourceFileIdentity?>>(
+                    StringComparer.OrdinalIgnoreCase)
+                {
+                    [slowSha1] = slowLookup
+                },
+                Projects = [fastProject]
+            };
+
+            session.Dispatch(async () =>
+            {
+                PageInstanceResourceRight page = new(() =>
+                    new CompositeCommunityResourceCatalog(modrinth, new FileLookupCommunityCatalog()));
+                Window window = new()
+                {
+                    Width = 760,
+                    Height = 520,
+                    Content = page
+                };
+
+                try
+                {
+                    window.Show();
+                    page.SetContext(instance, InstancePageSubType.Mods);
+                    StackPanel list = page.FindControl<StackPanel>("PanList")!;
+                    await WaitForConditionAsync(() =>
+                            list.Children.OfType<MyLocalModItem>().Any(item => item.Title == "Fast Online"))
+                        .ConfigureAwait(true);
+
+                    Assert.IsFalse(slowLookup.Task.IsCompleted);
+                    Assert.IsTrue(list.Children.OfType<MyLocalModItem>()
+                        .Any(item => item.Title == "Slow Local"));
+                    slowLookup.TrySetResult(null);
+                }
+                finally
+                {
+                    slowLookup.TrySetResult(null);
+                    window.Close();
+                    page.Dispose();
+                }
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            slowLookup.TrySetResult(null);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void PageInstanceResourceRight_FiltersModStatesAndIgnoresSameContentUpdates()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-resource-filters-ui-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
+            string modsDirectory = System.IO.Path.Combine(versionDirectory, "mods");
+            Directory.CreateDirectory(modsDirectory);
+            string duplicateA = System.IO.Path.Combine(modsDirectory, "duplicate-a.jar");
+            string duplicateB = System.IO.Path.Combine(modsDirectory, "duplicate-b.jar");
+            string sameContentPath = System.IO.Path.Combine(modsDirectory, "same-content.jar");
+            string updatePath = System.IO.Path.Combine(modsDirectory, "update.jar");
+            string invalidPath = System.IO.Path.Combine(modsDirectory, "invalid.jar");
+            WriteFabricModArchive(duplicateA, "duplicate-local-id", "Duplicate A", "1.0.0");
+            WriteFabricModArchive(duplicateB, "duplicate-local-id", "Duplicate B", "2.0.0");
+            WriteFabricModArchive(sameContentPath, "same-content-local", "Same Content Local", "1.0.0");
+            WriteFabricModArchive(updatePath, "update-local", "Update Local", "1.0.0");
+            File.WriteAllText(invalidPath, "not a mod archive");
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "1.20.1.json");
+            File.WriteAllText(jsonPath, """{ "id": "1.20.1" }""");
+            LaunchInstanceInfo instance = new("1.20.1", jsonPath, versionDirectory);
+
+            byte[] sameContentBytes = File.ReadAllBytes(sameContentPath);
+            string sha1 = Convert.ToHexStringLower(System.Security.Cryptography.SHA1.HashData(sameContentBytes));
+            CommunityResourceDownloadFile currentFile = new(
+                "same-content.jar",
+                "https://example.invalid/current.jar",
+                sameContentBytes.Length,
+                "current-version",
+                "1.0.0")
+            {
+                Source = CommunityResourceSource.Modrinth,
+                Sha1 = sha1
+            };
+            CommunityResourceFileIdentity identity = new(
+                "same-content-project",
+                "same-content-project",
+                "Same Content Online",
+                "mod",
+                "current-version",
+                "1.0.0",
+                DateTimeOffset.Parse("2025-01-01T00:00:00Z"),
+                null,
+                "https://modrinth.com/mod/same-content-project")
+            {
+                Source = CommunityResourceSource.Modrinth,
+                CurrentFile = currentFile
+            };
+            CommunityResourceEntry project = new(
+                "same-content-project",
+                "same-content-project",
+                "Same Content Online",
+                string.Empty,
+                "mod",
+                null,
+                10,
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z"))
+            {
+                Source = CommunityResourceSource.Modrinth
+            };
+            CommunityResourceVersion latest = new(
+                "different-version-id",
+                "Same bytes republished",
+                "2.0.0",
+                null,
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+                ["1.20.1"],
+                ["fabric"],
+                [currentFile with { VersionId = "different-version-id", VersionName = "2.0.0" }])
+            {
+                Source = CommunityResourceSource.Modrinth
+            };
+            byte[] updateBytes = File.ReadAllBytes(updatePath);
+            string updateSha1 = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA1.HashData(updateBytes));
+            string updateSha256 = Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA256.HashData(updateBytes));
+            CommunityResourceDownloadFile updateCurrentFile = new(
+                "update.jar",
+                "https://example.invalid/update-current.jar",
+                updateBytes.Length,
+                "update-current",
+                "1.0.0")
+            {
+                Source = CommunityResourceSource.Modrinth,
+                Sha256 = updateSha256
+            };
+            CommunityResourceFileIdentity updateIdentity = new(
+                "update-project",
+                "update-project",
+                "Update Online",
+                "mod",
+                "update-current",
+                "1.0.0",
+                DateTimeOffset.Parse("2025-01-01T00:00:00Z"),
+                null,
+                "https://modrinth.com/mod/update-project")
+            {
+                Source = CommunityResourceSource.Modrinth,
+                CurrentFile = updateCurrentFile
+            };
+            CommunityResourceEntry updateProject = new(
+                "update-project",
+                "update-project",
+                "Update Online",
+                string.Empty,
+                "mod",
+                null,
+                10,
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z"))
+            {
+                Source = CommunityResourceSource.Modrinth
+            };
+            CommunityResourceDownloadFile updateLatestFile = new(
+                "update-2.jar",
+                "https://example.invalid/update-2.jar",
+                20,
+                "update-latest",
+                "2.0.0")
+            {
+                Source = CommunityResourceSource.Modrinth,
+                Sha256 = new string('a', 64)
+            };
+            CommunityResourceVersion updateLatest = new(
+                "update-latest",
+                "Update available",
+                "2.0.0",
+                null,
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+                ["1.20.1"],
+                ["fabric"],
+                [updateLatestFile])
+            {
+                Source = CommunityResourceSource.Modrinth
+            };
+            FileLookupCommunityCatalog modrinth = new()
+            {
+                Sha1Files = new Dictionary<string, CommunityResourceFileIdentity>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [sha1] = identity,
+                    [updateSha1] = updateIdentity
+                },
+                Projects = [project, updateProject],
+                LatestVersions = new Dictionary<string, CommunityResourceVersion>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [project.ProjectId] = latest,
+                    [updateProject.ProjectId] = updateLatest
+                }
+            };
+
+            session.Dispatch(async () =>
+            {
+                PageInstanceResourceRight page = new(() =>
+                    new CompositeCommunityResourceCatalog(modrinth, new FileLookupCommunityCatalog()));
+                Window window = new()
+                {
+                    Width = 760,
+                    Height = 520,
+                    Content = page
+                };
+
+                try
+                {
+                    window.Show();
+                    page.SetContext(instance, InstancePageSubType.Mods);
+                    StackPanel list = page.FindControl<StackPanel>("PanList")!;
+                    await WaitForConditionAsync(() => list.Children.OfType<MyLocalModItem>()
+                            .Any(item => item.Title == "Same Content Online") &&
+                        list.Children.OfType<MyLocalModItem>()
+                            .Any(item => item.Title == "Update Online"))
+                        .ConfigureAwait(true);
+                    await WaitForConditionAsync(() =>
+                            page.FindControl<MyRadioButton>("BtnFilterDuplicate")!.Text.Contains(
+                                "2",
+                                StringComparison.Ordinal) &&
+                            page.FindControl<MyRadioButton>("BtnFilterError")!.Text.Contains(
+                                "1",
+                                StringComparison.Ordinal))
+                        .ConfigureAwait(true);
+
+                    MyLocalModItem sameContent = list.Children.OfType<MyLocalModItem>()
+                        .Single(item => item.Title == "Same Content Online");
+                    Assert.IsFalse(sameContent.ShowUpdateButton);
+                    Assert.IsTrue(list.Children.OfType<MyLocalModItem>()
+                        .Single(item => item.Title == "Update Online").ShowUpdateButton);
+
+                    MyRadioButton duplicate = page.FindControl<MyRadioButton>("BtnFilterDuplicate")!;
+                    StringAssert.Contains(duplicate.Text, "2");
+                    Assert.IsTrue(duplicate.IsVisible);
+                    duplicate.SetChecked(true, raiseByMouse: true, anime: false);
+                    Assert.AreEqual(2, list.Children.OfType<MyLocalModItem>().Count());
+
+                    MyRadioButton error = page.FindControl<MyRadioButton>("BtnFilterError")!;
+                    StringAssert.Contains(error.Text, "1");
+                    Assert.IsTrue(error.IsVisible);
+                    error.SetChecked(true, raiseByMouse: true, anime: false);
+                    MyLocalModItem invalid = list.Children.OfType<MyLocalModItem>().Single();
+                    Assert.AreEqual("invalid.jar", invalid.Title);
+                    Assert.AreEqual(ResourceItemState.Unavailable, invalid.State);
+
+                    MyRadioButton canUpdate = page.FindControl<MyRadioButton>("BtnFilterCanUpdate")!;
+                    StringAssert.Contains(canUpdate.Text, "1");
+                    Assert.IsTrue(canUpdate.IsVisible);
+                    canUpdate.SetChecked(true, raiseByMouse: true, anime: false);
+                    Assert.AreEqual("Update Online", list.Children.OfType<MyLocalModItem>().Single().Title);
+                }
+                finally
+                {
+                    window.Close();
+                    page.Dispose();
+                }
+            }, CancellationToken.None).GetAwaiter().GetResult();
         }
         finally
         {
@@ -7506,9 +8610,12 @@ public sealed class AvaloniaHeadlessTests
             File.WriteAllText(System.IO.Path.Combine(datapacksDirectory, "zip-pack.zip"), "zip");
             Directory.CreateDirectory(System.IO.Path.Combine(datapacksDirectory, "folder-pack"));
 
-            session.Dispatch(() =>
+            session.Dispatch(async () =>
             {
-                PageInstanceResourceRight page = new();
+                PageInstanceResourceRight page = new(() =>
+                    new CompositeCommunityResourceCatalog(
+                        new FileLookupCommunityCatalog(),
+                        new FileLookupCommunityCatalog()));
                 Window window = new()
                 {
                     Width = 760,
@@ -7523,18 +8630,24 @@ public sealed class AvaloniaHeadlessTests
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
                     StackPanel list = page.FindControl<StackPanel>("PanList")!;
+                    await WaitForConditionAsync(() =>
+                            list.Children.OfType<MyLocalModItem>().Count() == 2)
+                        .ConfigureAwait(true);
                     Assert.AreEqual(
                         System.IO.Path.GetFullPath(datapacksDirectory),
                         System.IO.Path.GetFullPath(page.ResourceDirectory));
-                    Assert.AreEqual("数据包 列表 (2)", page.FindControl<MyCard>("PanListBack")!.Title);
+                    string listTitle = page.FindControl<MyCard>("PanListBack")!.Title;
+                    StringAssert.Contains(listTitle, "数据包");
+                    StringAssert.Contains(listTitle, "2");
                     Assert.IsTrue(list.Children.OfType<MyLocalModItem>().Any(item => item.Title == "zip-pack.zip"));
                     Assert.IsTrue(list.Children.OfType<MyLocalModItem>().Any(item => item.Title == "folder-pack"));
                 }
                 finally
                 {
                     window.Close();
+                    page.Dispose();
                 }
-            }, CancellationToken.None);
+            }, CancellationToken.None).GetAwaiter().GetResult();
         }
         finally
         {
@@ -11590,6 +12703,143 @@ public sealed class AvaloniaHeadlessTests
         {
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void WriteFabricModArchive(
+        string path,
+        string id,
+        string name,
+        string version)
+    {
+        using System.IO.Compression.ZipArchive archive = System.IO.Compression.ZipFile.Open(
+            path,
+            System.IO.Compression.ZipArchiveMode.Create);
+        System.IO.Compression.ZipArchiveEntry entry = archive.CreateEntry("fabric.mod.json");
+        using StreamWriter writer = new(entry.Open());
+        writer.Write(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            id,
+            name,
+            version,
+            depends = new Dictionary<string, string> { ["minecraft"] = "*" }
+        }));
+    }
+
+    private sealed class FileLookupCommunityCatalog :
+        ICommunityResourceCatalog,
+        ICommunityResourceFingerprintLookup
+    {
+        private int _projectLookupCount;
+        private int _sha1LookupCount;
+        private int _fingerprintLookupCount;
+        private int _versionsLookupCount;
+
+        public Dictionary<string, CommunityResourceFileIdentity> Sha1Files { get; init; } =
+            new Dictionary<string, CommunityResourceFileIdentity>(StringComparer.OrdinalIgnoreCase);
+
+        public Dictionary<string, TaskCompletionSource<CommunityResourceFileIdentity?>> PendingSha1Lookups { get; init; } =
+            new Dictionary<string, TaskCompletionSource<CommunityResourceFileIdentity?>>(StringComparer.OrdinalIgnoreCase);
+
+        public Dictionary<uint, CommunityResourceFileIdentity> FingerprintFiles { get; init; } =
+            new Dictionary<uint, CommunityResourceFileIdentity>();
+
+        public List<CommunityResourceEntry> Projects { get; init; } = [];
+
+        public Dictionary<string, CommunityResourceVersion> LatestVersions { get; init; } =
+            new Dictionary<string, CommunityResourceVersion>(StringComparer.OrdinalIgnoreCase);
+
+        public Exception? VersionsException { get; init; }
+
+        public TaskCompletionSource<IReadOnlyList<CommunityResourceVersion>>? VersionsCompletion { get; init; }
+
+        public int ProjectLookupCount => Volatile.Read(ref _projectLookupCount);
+
+        public int Sha1LookupCount => Volatile.Read(ref _sha1LookupCount);
+
+        public int FingerprintLookupCount => Volatile.Read(ref _fingerprintLookupCount);
+
+        public int VersionsLookupCount => Volatile.Read(ref _versionsLookupCount);
+
+        public Task<IReadOnlyList<CommunityResourceEntry>> SearchAsync(
+            CommunityResourceCategory category,
+            string query,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<CommunityResourceEntry>>([]);
+        }
+
+        public Task<CommunityResourceDownloadFile?> ResolveDownloadAsync(
+            CommunityResourceEntry entry,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<CommunityResourceDownloadFile?>(null);
+        }
+
+        public Task<IReadOnlyList<CommunityResourceVersion>> GetVersionsAsync(
+            CommunityResourceEntry entry,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _versionsLookupCount);
+            if (VersionsException is not null)
+            {
+                return Task.FromException<IReadOnlyList<CommunityResourceVersion>>(VersionsException);
+            }
+            if (VersionsCompletion is not null)
+                return VersionsCompletion.Task.WaitAsync(cancellationToken);
+            List<CommunityResourceVersion> versions = LatestVersions.TryGetValue(
+                entry.ProjectId,
+                out CommunityResourceVersion? version)
+                ? [version]
+                : [];
+            return Task.FromResult<IReadOnlyList<CommunityResourceVersion>>(versions);
+        }
+
+        public Task<CommunityResourceEntry?> GetProjectAsync(
+            CommunityResourceSource source,
+            string projectId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _projectLookupCount);
+            return Task.FromResult(Projects.FirstOrDefault(project =>
+                project.Source == source &&
+                string.Equals(project.ProjectId, projectId, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        public async Task<CommunityResourceFileIdentity?> LookupFileBySha1Async(
+            string sha1Hex,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _sha1LookupCount);
+            if (PendingSha1Lookups.TryGetValue(sha1Hex, out TaskCompletionSource<CommunityResourceFileIdentity?>? pending))
+                return await pending.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return Sha1Files.GetValueOrDefault(sha1Hex);
+        }
+
+        public Task<CommunityResourceFileIdentity?> LookupFileByFingerprintAsync(
+            uint fingerprint,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _fingerprintLookupCount);
+            return Task.FromResult(FingerprintFiles.GetValueOrDefault(fingerprint));
+        }
+
+        public Task<CommunityResourceVersion?> GetLatestVersionAsync(
+            string projectId,
+            CommunitySearchOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(LatestVersions.GetValueOrDefault(projectId));
         }
     }
 

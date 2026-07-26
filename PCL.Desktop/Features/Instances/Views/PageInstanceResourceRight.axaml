@@ -22,6 +22,9 @@
                             <legacy:MyButton x:Name="BtnManageInstall" MinWidth="110"
                                              Text="{DynamicResource Instance.Resource.InstallFromFiles}" Padding="13,7"
                                              Margin="0,7,10,0" HorizontalAlignment="Left" />
+                            <legacy:MyButton x:Name="BtnManageSelectAll" MinWidth="110"
+                                             Text="{DynamicResource Instance.Resource.SelectAll}" Padding="13,7"
+                                             Margin="0,7,10,0" HorizontalAlignment="Left" />
                         </WrapPanel>
                     </legacy:MyCard>
                     <!-- Title sits at y≈12–40 (MyCard title chrome); filters must start below SwapedHeight. -->
@@ -30,11 +33,11 @@
                         <Grid Margin="12,40,12,12">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid Grid.Row="0" Margin="3,0,3,8" MinHeight="28">
-                                <StackPanel x:Name="PanFilter" Orientation="Horizontal"
-                                            VerticalAlignment="Center" HorizontalAlignment="Left">
+                                <WrapPanel x:Name="PanFilter" Orientation="Horizontal" Margin="0,0,115,0"
+                                           VerticalAlignment="Center" HorizontalAlignment="Left">
                                     <legacy:MyRadioButton Tag="0" ColorType="Highlight" VerticalAlignment="Center"
                                                           Margin="2,0" Text="{DynamicResource Instance.Resource.Filter.All}"
                                                           x:Name="BtnFilterAll" Checked="True" />
@@ -44,7 +47,16 @@
                                     <legacy:MyRadioButton Tag="2" ColorType="Highlight" VerticalAlignment="Center"
                                                           Margin="2,0" Text="{DynamicResource Instance.Resource.Filter.Disabled}"
                                                           x:Name="BtnFilterDisabled" />
-                                </StackPanel>
+                                    <legacy:MyRadioButton Tag="3" ColorType="Highlight" VerticalAlignment="Center"
+                                                          Margin="2,0" Text="{DynamicResource Instance.Resource.Filter.Updatable}"
+                                                          x:Name="BtnFilterCanUpdate" />
+                                    <legacy:MyRadioButton Tag="4" ColorType="Highlight" VerticalAlignment="Center"
+                                                          Margin="2,0" Text="{DynamicResource Instance.Resource.Filter.Error}"
+                                                          x:Name="BtnFilterError" />
+                                    <legacy:MyRadioButton Tag="5" ColorType="Highlight" VerticalAlignment="Center"
+                                                          Margin="2,0" Text="{DynamicResource Instance.Resource.Filter.Duplicate}"
+                                                          x:Name="BtnFilterDuplicate" />
+                                </WrapPanel>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
                                             HorizontalAlignment="Right">
                                     <legacy:MyIconTextButton x:Name="BtnSort"
@@ -75,6 +87,31 @@
                         <legacy:MyButton Height="35" x:Name="BtnHintOpen" MinWidth="130"
                                          Text="{DynamicResource Common.Action.OpenFolder}" Margin="5,0"
                                          Padding="12,0" />
+                    </WrapPanel>
+                </StackPanel>
+            </legacy:MyCard>
+            <legacy:MyCard x:Name="CardSelect" IsVisible="False" Opacity="1"
+                           HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                           Margin="25,25,25,12" UseAnimation="False">
+                <StackPanel>
+                    <TextBlock x:Name="LabSelect" HorizontalAlignment="Center" Margin="9,7,9,3"
+                               Foreground="{DynamicResource ColorBrush2}" />
+                    <WrapPanel HorizontalAlignment="Center" Margin="5,0,5,5">
+                        <legacy:MyIconTextButton x:Name="BtnSelectUpdate"
+                                                 Text="{DynamicResource Instance.Resource.Update}"
+                                                 SvgIcon="lucide/upload" />
+                        <legacy:MyIconTextButton x:Name="BtnSelectEnable"
+                                                 Text="{DynamicResource Instance.Resource.Enable}"
+                                                 SvgIcon="lucide/circle-check" />
+                        <legacy:MyIconTextButton x:Name="BtnSelectDisable"
+                                                 Text="{DynamicResource Instance.Resource.Disable}"
+                                                 SvgIcon="lucide/circle-minus" />
+                        <legacy:MyIconTextButton x:Name="BtnSelectDelete"
+                                                 Text="{DynamicResource Common.Action.Delete}"
+                                                 SvgIcon="lucide/trash-2" />
+                        <legacy:MyIconTextButton x:Name="BtnSelectCancel"
+                                                 Text="{DynamicResource Instance.Resource.CancelSelection}"
+                                                 SvgIcon="lucide/x" />
                     </WrapPanel>
                 </StackPanel>
             </legacy:MyCard>

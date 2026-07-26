@@ -2551,6 +2551,7 @@ public partial class MainWindow : Window, IDisposable
                 ApplyInstanceSelectPage();
             },
             OpenCommunityForResource = OpenCommunityForResourcePage,
+            OpenCommunityDetailAsync = OpenCommunityResourceDetailAsync,
             OpenCommunityDataPacks = OpenCommunityDataPacks,
             ShowDatapacks = ShowInstanceDatapacks,
             AddServer = PromptAddServer,
@@ -3101,6 +3102,16 @@ public partial class MainWindow : Window, IDisposable
         SelectNavRoute(CommunityRoute, animate: true);
         if (_communityLeft is not null && _communityLeft.TrySelectCategory(category))
             _ = _communityRight?.SetCategoryAsync(category);
+    }
+
+    private async Task OpenCommunityResourceDetailAsync(
+        CommunityResourceEntry entry,
+        CommunityResourceCategory category,
+        CommunitySearchOptions options)
+    {
+        _communityDownloadTarget = null;
+        SelectNavRoute(CommunityRoute, animate: false);
+        await OpenCommunityDetailAsync(entry, category, options).ConfigureAwait(true);
     }
 
     private void OpenCommunityDataPacks(string targetDirectory)
@@ -4526,16 +4537,37 @@ public partial class MainWindow : Window, IDisposable
         try
         {
             LaunchInstanceInfo instance = request.Instance;
-            string fileName = $"PCLN-{DesktopPathHelpers.SanitizeFileName(request.PackageName)}-{DesktopPathHelpers.SanitizeFileName(request.PackageVersion)}-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
+            string extension = request.IncludeLauncherFiles ? ".zip" : ".mrpack";
+            string fileName = $"PCLN-{DesktopPathHelpers.SanitizeFileName(request.PackageName)}-{DesktopPathHelpers.SanitizeFileName(request.PackageVersion)}-{DateTime.Now:yyyyMMdd-HHmmss}{extension}";
             string targetPath = Path.Combine(DesktopPathHelpers.GetDesktopOrBaseDirectory(), fileName);
             _launchRight?.AppendLog($"正在导出版本 {instance.Name}。");
+            string gameDirectory = await InstanceGameDirectory.ResolveAsync(instance).ConfigureAwait(true);
+            MinecraftVersionJsonInfo versionInfo = MinecraftVersionJsonInspector.Read(instance);
+            Dictionary<string, string> dependencies = BuildExportDependencies(versionInfo);
+            InstanceMetadata metadata = await InstanceMetadataStore.LoadAsync(instance.InstanceDirectory)
+                .ConfigureAwait(true);
+            using CompositeCommunityResourceCatalog catalog = new();
             await InstanceExportService.ExportAsync(
                     new InstanceExportRequest
                     {
                         InstanceDirectory = instance.InstanceDirectory,
-                        GameDirectory = MinecraftLaunchPlanFactory.GetMinecraftRootFromInstance(instance),
+                        GameDirectory = gameDirectory,
                         TargetArchivePath = targetPath,
-                        Rules = request.Rules
+                        Rules = request.Rules,
+                        PackageName = request.PackageName,
+                        PackageVersion = request.PackageVersion,
+                        Summary = !string.IsNullOrWhiteSpace(metadata.Description)
+                            ? metadata.Description
+                            : metadata.CustomInfo,
+                        Dependencies = dependencies,
+                        IncludeLauncherFiles = request.IncludeLauncherFiles,
+                        IncludeLauncherCustom = request.IncludeLauncherCustom,
+                        IncludeBundleFiles = request.IncludeBundleFiles,
+                        ModrinthUploadMode = request.ModrinthUploadMode,
+                        LauncherExecutablePath = Environment.ProcessPath,
+                        LauncherDataDirectory = Path.Combine(AppContext.BaseDirectory, "PCL"),
+                        ResolveHostedFilesAsync = (files, cancellationToken) =>
+                            ResolveExportHostedFilesAsync(catalog, files, cancellationToken)
                     })
                 .ConfigureAwait(true);
             ShowTextDialog("导出完成", "版本已导出到：\n" + targetPath);
@@ -4545,6 +4577,81 @@ public partial class MainWindow : Window, IDisposable
         {
             ShowTextDialog("导出失败", "未能导出版本。\n\n详细信息：" + ex.Message);
         }
+    }
+
+    private static Dictionary<string, string> BuildExportDependencies(MinecraftVersionJsonInfo versionInfo)
+    {
+        Dictionary<string, string> dependencies = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["minecraft"] = versionInfo.MinecraftVersionId
+        };
+        string? neoForge = MinecraftLoaderLibraryDetector.DetectVersion(
+            versionInfo.Libraries,
+            "net.neoforged:neoforge:",
+            "net.neoforge:forge:");
+        string? forge = neoForge is null
+            ? MinecraftLoaderLibraryDetector.DetectVersion(versionInfo.Libraries, "net.minecraftforge:forge:")
+            : null;
+        string? fabric = MinecraftLoaderLibraryDetector.DetectVersion(
+            versionInfo.Libraries,
+            "net.fabricmc:fabric-loader:");
+        string? quilt = MinecraftLoaderLibraryDetector.DetectVersion(
+            versionInfo.Libraries,
+            "org.quiltmc:quilt-loader:");
+        if (!string.IsNullOrWhiteSpace(neoForge))
+            dependencies["neoforge"] = neoForge;
+        if (!string.IsNullOrWhiteSpace(forge))
+            dependencies["forge"] = forge;
+        if (!string.IsNullOrWhiteSpace(fabric))
+            dependencies["fabric-loader"] = fabric;
+        if (!string.IsNullOrWhiteSpace(quilt))
+            dependencies["quilt-loader"] = quilt;
+        return dependencies;
+    }
+
+    private static async Task<IReadOnlyDictionary<string, InstanceExportHostedFile>> ResolveExportHostedFilesAsync(
+        CompositeCommunityResourceCatalog catalog,
+        IReadOnlyList<InstanceExportFile> files,
+        CancellationToken cancellationToken)
+    {
+        using SemaphoreSlim gate = new(3, 3);
+        Task<KeyValuePair<string, InstanceExportHostedFile>?>[] tasks = files.Select(async file =>
+        {
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                CommunityResourceFileMatches matches = await catalog.LookupFilesAsync(
+                        file.Sha1,
+                        file.ModrinthOnly ? null : file.CurseForgeFingerprint,
+                        file.ModrinthOnly,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                List<string> urls = [];
+                if (matches.Modrinth?.CurrentFile is { } modrinthFile)
+                    urls.AddRange(modrinthFile.CandidateUrls);
+                if (!file.ModrinthOnly && matches.CurseForge?.CurrentFile is { } curseForgeFile)
+                    urls.AddRange(curseForgeFile.CandidateUrls);
+                string[] distinctUrls = urls
+                    .Where(static url => !string.IsNullOrWhiteSpace(url))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                return distinctUrls.Length == 0
+                    ? (KeyValuePair<string, InstanceExportHostedFile>?)null
+                    : KeyValuePair.Create(
+                        file.RelativePath,
+                        new InstanceExportHostedFile(distinctUrls));
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }).ToArray();
+
+        KeyValuePair<string, InstanceExportHostedFile>?[] results = await Task.WhenAll(tasks).ConfigureAwait(false);
+        return results
+            .Where(static result => result.HasValue)
+            .Select(static result => result.GetValueOrDefault())
+            .ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
     }
 
     private async Task ExportInstanceRulesConfigAsync(IReadOnlyList<string> rules)
