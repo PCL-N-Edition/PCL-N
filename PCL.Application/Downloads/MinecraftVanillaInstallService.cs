@@ -6,6 +6,7 @@ using System.Buffers;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using PCL.Application.Minecraft.Assets;
@@ -934,6 +935,7 @@ public sealed class MinecraftVanillaInstallService
                 TargetInstanceDirectory = instanceDirectory,
                 OperatingSystem = GetCurrentLibraryOperatingSystem(),
                 Is64BitArchitecture = Environment.Is64BitOperatingSystem,
+                IsArm64Architecture = RuntimeInformation.OSArchitecture == Architecture.Arm64,
                 OperatingSystemVersion = Environment.OSVersion.VersionString
             });
         MinecraftLibraryDownloadPlan plan = MinecraftLibraryDownloadPlanner.CreatePlan(

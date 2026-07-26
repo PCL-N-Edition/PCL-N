@@ -416,6 +416,7 @@ public sealed class InstancesManageSurface
         page.ConnectServerRequested += (_, server) => b.ConnectServer(server);
         page.EditServerRequested += (_, server) => b.EditServer(page, server);
         page.RemoveServerRequested += (_, server) => b.RemoveServer(page, server);
+        page.RemoveServersRequested += (_, servers) => b.RemoveServers(page, servers);
         _serverPage = page;
         return page;
     }
@@ -494,4 +495,6 @@ public sealed class InstancesManageBindings
     public required Action<PageInstanceServerRight, MinecraftServerEntry> EditServer { get; init; }
 
     public required Action<PageInstanceServerRight, MinecraftServerEntry> RemoveServer { get; init; }
+
+    public required Action<PageInstanceServerRight, IReadOnlyList<MinecraftServerEntry>> RemoveServers { get; init; }
 }

@@ -113,6 +113,36 @@ public sealed class MinecraftServerListServiceTests
     }
 
     [TestMethod]
+    public async Task RemoveManyAsync_RemovesAllMatchingEntriesInOneMutation()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-server-list-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            WriteServersDat(root);
+            MinecraftServerEntry missing = new("Missing", "missing.example.net", null);
+            MinecraftServerEntry hypixel = new("Hypixel", "mc.hypixel.net", null);
+            MinecraftServerEntry local = new("Local", "127.0.0.1", null);
+
+            int removed = await MinecraftServerListService.RemoveManyAsync(
+                root,
+                [missing, hypixel, local]);
+
+            Assert.AreEqual(2, removed);
+            Assert.AreEqual(0, (await MinecraftServerListService.LoadAsync(root)).Count);
+            Assert.AreEqual(
+                0,
+                await MinecraftServerListService.RemoveManyAsync(root, [hypixel, local]));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task AddAsync_ConcurrentCallsDoNotLoseEntries()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcl-server-list-" + Guid.NewGuid().ToString("N"));

@@ -1891,7 +1891,20 @@ public partial class MainWindow : Window, IDisposable
                 if (!string.IsNullOrWhiteSpace(url))
                     OpenExternalUrl(url);
             },
-            ShowMessage = (title, message) => ShowTextDialog(title, message, "知道了")
+            ShowMessage = (title, message) => ShowTextDialog(title, message, "知道了"),
+            PromptInput = request => ShowInputDialog(
+                request.Title,
+                request.Caption,
+                request.Content,
+                request.HintText,
+                request.Complete,
+                maxLength: request.MaxLength),
+            Confirm = request => ShowConfirmDialog(
+                request.Title,
+                request.Caption,
+                request.Complete,
+                request.PrimaryButton,
+                isWarn: request.IsWarning)
         });
     }
 
@@ -2569,6 +2582,11 @@ public partial class MainWindow : Window, IDisposable
             {
                 if (_managedInstance is { } instance)
                     PromptRemoveServer(instance, page, server);
+            },
+            RemoveServers = (page, servers) =>
+            {
+                if (_managedInstance is { } instance)
+                    PromptRemoveServers(instance, page, servers);
             }
         });
     }
@@ -3282,6 +3300,58 @@ public partial class MainWindow : Window, IDisposable
         catch (Exception ex)
         {
             ShowTextDialog("删除失败", "未能删除服务器。\n\n详细信息：" + ex.Message);
+        }
+    }
+
+    private void PromptRemoveServers(
+        LaunchInstanceInfo instance,
+        PageInstanceServerRight page,
+        IReadOnlyList<MinecraftServerEntry> servers)
+    {
+        if (servers.Count == 0)
+            return;
+
+        ShowConfirmDialog(
+            "批量移除服务器",
+            $"确定要从列表中移除选中的 {servers.Count} 个服务器吗？",
+            confirmed =>
+            {
+                if (confirmed)
+                    _ = RemoveServersAsync(instance, page, servers);
+            },
+            "移除",
+            "取消",
+            isWarn: true);
+    }
+
+    private async Task RemoveServersAsync(
+        LaunchInstanceInfo instance,
+        PageInstanceServerRight page,
+        IReadOnlyList<MinecraftServerEntry> servers)
+    {
+        int removed = 0;
+        try
+        {
+            string gameDir = await InstanceGameDirectory.ResolveAsync(instance).ConfigureAwait(true);
+            removed = await MinecraftServerListService
+                .RemoveManyAsync(gameDir, servers)
+                .ConfigureAwait(true);
+
+            page.Reload();
+            _launchRight?.AppendLog($"已移除 {removed} 个服务器。");
+            if (removed < servers.Count)
+            {
+                ShowTextDialog(
+                    "部分服务器未移除",
+                    $"已移除 {removed} 个服务器，另有 {servers.Count - removed} 个条目已不存在。\n请刷新列表后重试。");
+            }
+        }
+        catch (Exception ex)
+        {
+            page.Reload();
+            ShowTextDialog(
+                "批量移除失败",
+                $"已移除 {removed} 个服务器，随后操作失败。\n\n详细信息：{ex.Message}");
         }
     }
 
@@ -4586,17 +4656,17 @@ public partial class MainWindow : Window, IDisposable
             ["minecraft"] = versionInfo.MinecraftVersionId
         };
         string? neoForge = MinecraftLoaderLibraryDetector.DetectVersion(
-            versionInfo.Libraries,
+            versionInfo.LoaderEntries,
             "net.neoforged:neoforge:",
             "net.neoforge:forge:");
         string? forge = neoForge is null
-            ? MinecraftLoaderLibraryDetector.DetectVersion(versionInfo.Libraries, "net.minecraftforge:forge:")
+            ? MinecraftLoaderLibraryDetector.DetectVersion(versionInfo.LoaderEntries, "net.minecraftforge:forge:")
             : null;
         string? fabric = MinecraftLoaderLibraryDetector.DetectVersion(
-            versionInfo.Libraries,
+            versionInfo.LoaderEntries,
             "net.fabricmc:fabric-loader:");
         string? quilt = MinecraftLoaderLibraryDetector.DetectVersion(
-            versionInfo.Libraries,
+            versionInfo.LoaderEntries,
             "org.quiltmc:quilt-loader:");
         if (!string.IsNullOrWhiteSpace(neoForge))
             dependencies["neoforge"] = neoForge;

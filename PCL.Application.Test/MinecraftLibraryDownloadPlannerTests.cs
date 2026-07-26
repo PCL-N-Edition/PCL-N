@@ -36,6 +36,43 @@ public sealed class MinecraftLibraryDownloadPlannerTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void CreatePlan_ShouldMapMavenCentralAndRespectSourcePreference(bool preferOfficialSource)
+    {
+        const string official =
+            "https://repo1.maven.org/maven2/org/lwjgl/lwjgl/3.3.2/lwjgl-3.3.2.jar";
+        const string mirror =
+            "https://bmclapi2.bangbang93.com/maven/org/lwjgl/lwjgl/3.3.2/lwjgl-3.3.2.jar";
+        string root = Path.Combine(Path.GetTempPath(), "pcl-download-plan");
+        string localPath = Path.Combine(
+            root,
+            "libraries",
+            "org",
+            "lwjgl",
+            "lwjgl",
+            "3.3.2",
+            "lwjgl-3.3.2.jar");
+
+        MinecraftLibraryDownloadFile file = MinecraftLibraryDownloadPlanner.CreatePlan(
+            new MinecraftLibraryDownloadPlanRequest
+            {
+                MinecraftRootDirectory = root,
+                PreferOfficialSource = preferOfficialSource,
+                Libraries = [Token(localPath) with { Url = official }]
+            }).DownloadFiles[0];
+
+        Assert.AreEqual(preferOfficialSource ? official : mirror, file.Urls[0]);
+        CollectionAssert.Contains(file.Urls.ToList(), official);
+        CollectionAssert.Contains(file.Urls.ToList(), mirror);
+        Assert.IsFalse(file.Urls.Any(static url =>
+            url.Contains("bmclapi2.bangbang93.com/maven.org/maven2", StringComparison.Ordinal)));
+        Assert.AreEqual("abcdef", file.Sha1);
+        Assert.AreEqual(123L, file.ReportedSize);
+        Assert.AreEqual(123L, file.ActualSize);
+    }
+
+    [TestMethod]
     public void CreatePlan_ShouldUseOnlyMirrorsForThirdPartyMavenFallback()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcl-download-plan");

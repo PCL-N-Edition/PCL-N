@@ -13,5 +13,6 @@ public sealed record MinecraftLibraryResolutionRequest
     public string? TargetInstanceDirectory { get; init; }
     public required MinecraftLibraryOperatingSystem OperatingSystem { get; init; }
     public bool Is64BitArchitecture { get; init; }
+    public bool IsArm64Architecture { get; init; }
     public string OperatingSystemVersion { get; init; } = string.Empty;
 }

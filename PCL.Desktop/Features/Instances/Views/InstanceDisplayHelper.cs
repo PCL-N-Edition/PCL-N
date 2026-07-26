@@ -5,6 +5,7 @@
 using System.Text.Json;
 using PCL.Application.Instances;
 using PCL.Desktop.Features.Launching.Views;
+using PCL.Desktop.Features.Shared;
 
 namespace PCL.Desktop.Features.Instances.Views;
 
@@ -46,10 +47,11 @@ internal static class InstanceDisplayHelper
     }
 
     private static string ResolveAutoLogo(LaunchInstanceInfo instance) =>
-        InferLogoFromVersionJson(instance.VersionJsonPath) ?? DefaultLogo;
+        InferLogoFromVersionJson(instance) ?? DefaultLogo;
 
-    private static string? InferLogoFromVersionJson(string versionJsonPath)
+    private static string? InferLogoFromVersionJson(LaunchInstanceInfo instance)
     {
+        string versionJsonPath = instance.VersionJsonPath;
         if (!File.Exists(versionJsonPath))
             return null;
 
@@ -67,6 +69,7 @@ internal static class InstanceDisplayHelper
                 root.GetRawText()
             ];
             signalParts.AddRange(ReadLibraryNames(root));
+            signalParts.AddRange(MinecraftVersionJsonInspector.Read(instance).LoaderEntries);
             string signal = string.Join('\n', signalParts);
 
             return ResolveLogoFromVersionJson(root, signal);
@@ -245,16 +248,7 @@ internal static class InstanceDisplayHelper
         if (!File.Exists(instance.VersionJsonPath))
             return false;
 
-        try
-        {
-            using FileStream stream = File.OpenRead(instance.VersionJsonPath);
-            using JsonDocument document = JsonDocument.Parse(stream);
-            return ReadLibraryNames(document.RootElement).Any(IsModLoaderLibrary);
-        }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
+        return MinecraftVersionJsonInspector.Read(instance).LoaderEntries.Any(IsModLoaderLibrary);
     }
 
     /// <summary>
@@ -293,17 +287,8 @@ internal static class InstanceDisplayHelper
         if (!File.Exists(instance.VersionJsonPath))
             return false;
 
-        try
-        {
-            using FileStream stream = File.OpenRead(instance.VersionJsonPath);
-            using JsonDocument document = JsonDocument.Parse(stream);
-            return ReadLibraryNames(document.RootElement)
-                .Any(library => needles.Any(n => library.Contains(n, StringComparison.OrdinalIgnoreCase)));
-        }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
+        return MinecraftVersionJsonInspector.Read(instance).LoaderEntries
+            .Any(library => needles.Any(n => library.Contains(n, StringComparison.OrdinalIgnoreCase)));
     }
 
     private static bool HasModJarNeedle(LaunchInstanceInfo instance, params string[] needles)

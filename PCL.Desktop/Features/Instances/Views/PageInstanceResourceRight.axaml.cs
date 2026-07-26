@@ -45,6 +45,7 @@ public partial class PageInstanceResourceRight : MyPageRight
     private List<ResourceEntry> _entries = [];
     private bool _isLoading;
     private bool _catalogUiRefreshScheduled;
+    private bool _isUpdatingFilter;
     private bool _isUpdatingSelection;
     private int _contextVersion;
     private int _reloadVersion;
@@ -261,6 +262,7 @@ public partial class PageInstanceResourceRight : MyPageRight
             _searchResultPaths = new HashSet<string>(GetPathComparer());
             _entryItems = new Dictionary<string, MyLocalModItem>(GetPathComparer());
             render = Interlocked.Increment(ref _renderVersion);
+            UpdateFilterControls();
             showing = GetShowingEntries();
             UpdateViewChrome(showing);
             list = this.FindControl<StackPanel>("PanList");
@@ -359,6 +361,8 @@ public partial class PageInstanceResourceRight : MyPageRight
         {
             radioButton.Check += (sender, _) =>
             {
+                if (_isUpdatingFilter)
+                    return;
                 if (sender.Tag is string text && int.TryParse(text, out int value))
                     _filter = (ResourceFilter)value;
                 RefreshUI();
@@ -1162,7 +1166,7 @@ public partial class PageInstanceResourceRight : MyPageRight
         try
         {
             MinecraftVersionJsonInfo info = MinecraftVersionJsonInspector.Read(instance);
-            string joined = string.Join(' ', info.Libraries);
+            string joined = string.Join(' ', info.LoaderEntries);
             if (joined.Contains("org.quiltmc:quilt-loader:", StringComparison.OrdinalIgnoreCase))
                 return "quilt";
             if (joined.Contains("net.neoforged:neoforge:", StringComparison.OrdinalIgnoreCase) ||
@@ -1423,13 +1427,27 @@ public partial class PageInstanceResourceRight : MyPageRight
         int unavailable = source.Count(IsUnavailable);
         int duplicate = GetDuplicatePaths(source).Count;
 
+        if (!_isLoading && disabled == 0 && _filter is ResourceFilter.Enabled or ResourceFilter.Disabled)
+        {
+            _filter = ResourceFilter.All;
+            _isUpdatingFilter = true;
+            try
+            {
+                this.FindControl<MyRadioButton>("BtnFilterAll")?.SetChecked(true, false, false);
+            }
+            finally
+            {
+                _isUpdatingFilter = false;
+            }
+        }
+
         SetFilterState("BtnFilterAll", IsSearching
             ? Text("Instance.Resource.Filter.SearchResultWithCount", all.ToString(CultureInfo.CurrentCulture))
             : Text("Instance.Resource.Filter.AllWithCount", all.ToString(CultureInfo.CurrentCulture)), true);
         SetFilterState("BtnFilterEnabled", Text("Instance.Resource.Filter.EnabledWithCount", enabled.ToString(CultureInfo.CurrentCulture)),
-            _filter == ResourceFilter.Enabled || enabled is > 0 && enabled < all);
+            disabled > 0 && (_filter == ResourceFilter.Enabled || enabled > 0));
         SetFilterState("BtnFilterDisabled", Text("Instance.Resource.Filter.DisabledWithCount", disabled.ToString(CultureInfo.CurrentCulture)),
-            _filter == ResourceFilter.Disabled || disabled > 0);
+            disabled > 0);
         SetFilterState("BtnFilterCanUpdate", Text("Instance.Resource.Filter.UpdatableWithCount", updatable.ToString(CultureInfo.CurrentCulture)),
             _filter == ResourceFilter.CanUpdate || updatable > 0);
         SetFilterState("BtnFilterError", Text("Instance.Resource.Filter.ErrorWithCount", unavailable.ToString(CultureInfo.CurrentCulture)),
@@ -1824,6 +1842,20 @@ public partial class PageInstanceResourceRight : MyPageRight
         MinecraftModMetadata? metadata = null;
         if (kind == InstanceResourceKind.Mod && !isDirectory)
             metadata = _metadataReader(path);
+        string? localLogo;
+        if (kind == InstanceResourceKind.Mod)
+        {
+            localLogo = MinecraftArchiveIconExtractor.TryExtract(path, metadata?.IconEntryPath);
+            localLogo ??= MinecraftArchiveIconExtractor.TryExtract(path, "pack.png");
+        }
+        else
+        {
+            string? iconEntryPath = kind is InstanceResourceKind.ResourcePack or
+                InstanceResourceKind.ShaderPack or InstanceResourceKind.DataPack
+                ? "pack.png"
+                : null;
+            localLogo = MinecraftArchiveIconExtractor.TryExtract(path, iconEntryPath);
+        }
 
         return new ResourceEntry(
             path,
@@ -1832,7 +1864,8 @@ public partial class PageInstanceResourceRight : MyPageRight
             GetLength(path),
             File.GetCreationTime(path),
             File.GetLastWriteTime(path),
-            metadata);
+            metadata,
+            localLogo);
     }
 
     private static MinecraftModMetadata? ReadModMetadata(string path) =>
@@ -1888,7 +1921,7 @@ public partial class PageInstanceResourceRight : MyPageRight
     }
 
     private string GetEntryLogo(ResourceEntry entry) =>
-        _kind switch
+        entry.LocalLogo ?? (_kind switch
         {
             InstanceResourceKind.Mod => entry.IsDisabled ? InstanceDisplayHelper.BlockAssetRoot + "RedstoneBlock.png" : InstanceDisplayHelper.BlockAssetRoot + "CommandBlock.png",
             InstanceResourceKind.ResourcePack => InstanceDisplayHelper.BlockAssetRoot + "Grass.png",
@@ -1896,7 +1929,7 @@ public partial class PageInstanceResourceRight : MyPageRight
             InstanceResourceKind.Schematic => InstanceDisplayHelper.BlockAssetRoot + "StructureBlock.png",
             InstanceResourceKind.DataPack => InstanceDisplayHelper.BlockAssetRoot + "CommandBlock.png",
             _ => InstanceDisplayHelper.DefaultLogo
-        };
+        });
 
     private static string FormatSize(long bytes)
     {
@@ -2031,7 +2064,8 @@ public partial class PageInstanceResourceRight : MyPageRight
         long Length,
         DateTime CreationTime,
         DateTime ModifyTime,
-        MinecraftModMetadata? Metadata);
+        MinecraftModMetadata? Metadata,
+        string? LocalLogo);
 
     private sealed record CatalogScanResult(
         string FullPath,

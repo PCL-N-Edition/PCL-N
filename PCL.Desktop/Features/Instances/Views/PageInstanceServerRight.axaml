@@ -3,9 +3,10 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
                     Grid.IsSharedSizeScope="True">
-    <legacy:MyScrollViewer VerticalScrollBarVisibility="Auto"
-                           HorizontalScrollBarVisibility="Hidden"
-                           x:Name="PanBack">
+    <Grid>
+        <legacy:MyScrollViewer VerticalScrollBarVisibility="Auto"
+                               HorizontalScrollBarVisibility="Hidden"
+                               x:Name="PanBack">
         <Grid>
             <legacy:MyCard HorizontalAlignment="Center"
                            VerticalAlignment="Center"
@@ -69,35 +70,57 @@
                 <legacy:MyCard Title="{DynamicResource Instance.Server.QuickActions}"
                                Margin="15,0,15,15"
                                x:Name="PanContent">
-                    <Grid Height="35"
-                          Margin="25,40,23,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"
-                                              SharedSizeGroup="Button" />
-                            <ColumnDefinition Width="Auto"
-                                              SharedSizeGroup="Button" />
-                        </Grid.ColumnDefinitions>
-                        <legacy:MyButton Grid.Column="0"
-                                         MinWidth="140"
+                    <WrapPanel Margin="25,40,23,7">
+                        <legacy:MyButton MinWidth="140"
                                          Text="{DynamicResource Instance.Server.RefreshAll}"
                                          Padding="13,0"
-                                         Margin="0,0,20,0"
+                                         Margin="0,0,20,8"
                                          HorizontalAlignment="Left"
                                          Click="BtnRefresh_Click"
                                          ColorType="Highlight" />
-                        <legacy:MyButton Grid.Column="1"
-                                         MinWidth="140"
+                        <legacy:MyButton MinWidth="140"
                                          Text="{DynamicResource Instance.Server.AddServer}"
                                          Padding="13,0"
-                                         Margin="0,0,20,0"
+                                         Margin="0,0,20,8"
                                          HorizontalAlignment="Left"
                                          Click="BtnAddServer_Click" />
-                    </Grid>
+                        <legacy:MyButton MinWidth="140"
+                                         Text="{DynamicResource Instance.Resource.SelectAll}"
+                                         Padding="13,0"
+                                         Margin="0,0,20,8"
+                                         HorizontalAlignment="Left"
+                                         x:Name="BtnSelectAll" />
+                    </WrapPanel>
                 </legacy:MyCard>
 
                 <StackPanel x:Name="PanServers"
                             Margin="15,0,15,15" />
             </StackPanel>
-        </Grid>
-    </legacy:MyScrollViewer>
+            </Grid>
+        </legacy:MyScrollViewer>
+        <legacy:MyCard x:Name="CardSelect"
+                       IsVisible="False"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Bottom"
+                       Margin="25,25,25,12"
+                       UseAnimation="False">
+            <StackPanel>
+                <TextBlock x:Name="LabSelect"
+                           HorizontalAlignment="Center"
+                           Margin="9,7,9,3"
+                           Foreground="{DynamicResource ColorBrush2}" />
+                <WrapPanel HorizontalAlignment="Center" Margin="5,0,5,5">
+                    <legacy:MyIconTextButton x:Name="BtnSelectRefresh"
+                                             Text="{DynamicResource Common.Action.Refresh}"
+                                             SvgIcon="lucide/refresh-cw" />
+                    <legacy:MyIconTextButton x:Name="BtnSelectDelete"
+                                             Text="{DynamicResource Instance.Server.Card.Remove}"
+                                             SvgIcon="lucide/trash-2" />
+                    <legacy:MyIconTextButton x:Name="BtnSelectCancel"
+                                             Text="{DynamicResource Instance.Resource.CancelSelection}"
+                                             SvgIcon="lucide/x" />
+                </WrapPanel>
+            </StackPanel>
+        </legacy:MyCard>
+    </Grid>
 </legacy:MyPageRight>

@@ -308,7 +308,7 @@ public sealed class CurseForgeCommunityResourceCatalog :
             ReadString(project, "slug"),
             title,
             ReadString(project, "summary"),
-            "mod",
+            GetProjectTypeFromClassId(ReadInt64(project, "classId")),
             iconUrl,
             ReadInt64(project, "downloadCount"),
             ReadDateTimeOffset(project, "dateModified"))
@@ -622,6 +622,16 @@ public sealed class CurseForgeCommunityResourceCatalog :
         CommunityResourceCategory.ResourcePack => "resourcepack",
         CommunityResourceCategory.Shader => "shader",
         CommunityResourceCategory.World => "world",
+        _ => "mod"
+    };
+
+    private static string GetProjectTypeFromClassId(long classId) => classId switch
+    {
+        4471 => "modpack",
+        6945 => "datapack",
+        12 => "resourcepack",
+        6552 => "shader",
+        17 => "world",
         _ => "mod"
     };
 

@@ -4,6 +4,7 @@
 
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using PCL.Application.Settings;
 using PCL.Desktop.Features.Community;
 using PCL.Desktop.Features.Launching.Views;
@@ -13,6 +14,16 @@ namespace PCL.Desktop.Test;
 [TestClass]
 public sealed class CommunityFeatureTests
 {
+    [TestMethod]
+    public void MyMsgInput_ShouldPreserveLegacyConfigureBinarySignature()
+    {
+        Assert.IsTrue(typeof(PCL.Desktop.Controls.Legacy.MyMsgInput)
+            .GetMethods()
+            .Any(static method =>
+                string.Equals(method.Name, "Configure", StringComparison.Ordinal) &&
+                method.GetParameters().Length == 8));
+    }
+
     [TestMethod]
     public void McModIndex_ShouldParseEmbeddedDatabaseAndResolveKnownSlug()
     {
@@ -570,6 +581,39 @@ public sealed class CommunityFeatureTests
         StringAssert.Contains(query, "sortField=6");
         StringAssert.Contains(query, "pageSize=50");
         Assert.IsFalse(query.Contains("categoryId=", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [DataRow(6, "mod")]
+    [DataRow(4471, "modpack")]
+    [DataRow(6945, "datapack")]
+    [DataRow(12, "resourcepack")]
+    [DataRow(6552, "shader")]
+    [DataRow(17, "world")]
+    [DataRow(9999, "mod")]
+    public async Task CurseForgeCatalog_GetProjectAsyncShouldMapClassId(int classId, string projectType)
+    {
+        using HttpClient client = new(new DelegateHandler(_ => JsonResponse(
+            $$"""
+            {
+              "data": {
+                "id": 1479191,
+                "classId": {{classId}},
+                "name": "Imported Project",
+                "slug": "imported-project",
+                "summary": "Imported from CE",
+                "downloadCount": 100
+              }
+            }
+            """)));
+        using CurseForgeCommunityResourceCatalog catalog = new(client, "test-key");
+
+        CommunityResourceEntry? entry = await catalog.GetProjectAsync(
+            CommunityResourceSource.CurseForge,
+            "1479191");
+
+        Assert.IsNotNull(entry);
+        Assert.AreEqual(projectType, entry.ProjectType);
     }
 
     [TestMethod]
@@ -1279,6 +1323,258 @@ public sealed class CommunityFeatureTests
             Assert.AreEqual(CommunityResourceCategory.Mod, reloaded.Items.Single().Category);
             Assert.IsFalse(reloaded.Toggle(entry, CommunityResourceCategory.Mod));
             Assert.IsFalse(new CommunityFavoritesStore(path).Contains(entry));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void FavoritesStore_ShouldMigrateLegacyFlatJsonWithoutDroppingMetadata()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcln-favorites-migration-test-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "favorites.json");
+        try
+        {
+            Directory.CreateDirectory(root);
+            CommunityResourceEntry entry = new(
+                "AANobbMI",
+                "sodium",
+                "Sodium",
+                "Fast renderer",
+                "mod",
+                "https://cdn.example/sodium.png",
+                42L,
+                DateTimeOffset.Parse("2026-07-01T00:00:00Z"))
+            {
+                Source = CommunityResourceSource.Modrinth,
+                ChineseName = "钠"
+            };
+            File.WriteAllText(
+                path,
+                JsonSerializer.Serialize(
+                    new[]
+                    {
+                        new CommunityFavoriteEntry(
+                            entry,
+                            CommunityResourceCategory.Mod,
+                            DateTimeOffset.Parse("2026-07-02T00:00:00Z"))
+                    }));
+
+            CommunityFavoritesStore store = new(path);
+
+            Assert.AreEqual(1, store.Folders.Count);
+            Assert.AreEqual(CommunityFavoritesStore.DefaultFolderName, store.SelectedFolder.Name);
+            Assert.AreEqual("Sodium", store.Items.Single().Entry.Title);
+            Assert.AreEqual("钠", store.Items.Single().Entry.ChineseName);
+            Assert.AreEqual("https://cdn.example/sodium.png", store.Items.Single().Entry.IconUrl);
+            using JsonDocument migrated = JsonDocument.Parse(File.ReadAllText(path));
+            Assert.AreEqual(JsonValueKind.Object, migrated.RootElement.ValueKind);
+            Assert.AreEqual(1, migrated.RootElement.GetProperty("folders").GetArrayLength());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void FavoritesStore_ShouldRecognizeLegacyPluginPlaceholdersForMetadataResolution()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcln-favorites-placeholder-test-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "favorites.json");
+        try
+        {
+            Directory.CreateDirectory(root);
+            File.WriteAllText(
+                path,
+                """
+                [{
+                  "entry": {
+                    "projectId": "1479191",
+                    "slug": "1479191",
+                    "title": "1479191",
+                    "summary": "从旧版收藏夹迁移",
+                    "projectType": "mod",
+                    "downloads": 0,
+                    "source": 2
+                  },
+                  "category": 0,
+                  "addedAt": "2026-07-01T00:00:00Z"
+                }]
+                """);
+
+            CommunityFavoritesStore store = new(path);
+            CommunityFavoriteEntry placeholder = store.Items.Single();
+
+            Assert.IsTrue(CommunityFavoritesStore.IsImportedPlaceholder(placeholder.Entry));
+            Assert.AreEqual(1, store.ApplyResolvedMetadata(
+                store.SelectedFolderId,
+                [
+                    new CommunityResourceEntry(
+                        "1479191",
+                        "example-pack",
+                        "Example Pack",
+                        "Resolved metadata",
+                        "modpack",
+                        null,
+                        10,
+                        null)
+                    {
+                        Source = CommunityResourceSource.CurseForge
+                    }
+                ]));
+            Assert.AreEqual(CommunityResourceCategory.Modpack, store.Items.Single().Category);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void FavoritesStore_ShouldManageFoldersAndKeepAtLeastOne()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcln-favorites-folders-test-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "favorites.json");
+        try
+        {
+            CommunityFavoritesStore store = new(path);
+            string defaultFolderId = store.SelectedFolderId;
+            CommunityResourceEntry entry = new("AANobbMI", "sodium", "Sodium", "Fast", "mod", null, 10L, null);
+            Assert.IsTrue(store.Toggle(entry, CommunityResourceCategory.Mod));
+
+            CommunityFavoriteFolder performance = store.CreateFolder("性能优化");
+            Assert.AreEqual(performance.Id, store.SelectedFolderId);
+            Assert.AreEqual(0, store.Items.Count);
+            Assert.IsTrue(store.Contains(entry));
+            Assert.IsFalse(store.Contains(entry, performance.Id));
+            Assert.IsTrue(store.Toggle(entry, CommunityResourceCategory.Mod, performance.Id));
+            Assert.IsTrue(store.RenameFolder(performance.Id, "客户端优化"));
+            Assert.AreEqual("客户端优化", store.SelectedFolder.Name);
+            Assert.ThrowsExactly<InvalidOperationException>(() => store.CreateFolder("客户端优化"));
+
+            Assert.IsTrue(store.DeleteFolder(defaultFolderId));
+            Assert.AreEqual(1, store.Folders.Count);
+            Assert.ThrowsExactly<InvalidOperationException>(() => store.DeleteFolder(performance.Id));
+            Assert.AreEqual(1, store.Folders.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void FavoritesStore_ShouldImportAndExportCeShareArraysByFolder()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcln-favorites-ce-test-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "favorites.json");
+        string restoredPath = Path.Combine(root, "restored.json");
+        try
+        {
+            CommunityFavoritesStore store = new(path);
+            CommunityResourceEntry known = new(
+                "AANobbMI",
+                "sodium",
+                "Sodium",
+                "Fast renderer",
+                "mod",
+                "https://cdn.example/sodium.png",
+                42L,
+                null)
+            {
+                Source = CommunityResourceSource.Modrinth
+            };
+            store.Toggle(known, CommunityResourceCategory.Mod);
+
+            CommunityFavoriteFolder imported = store.CreateFolderFromShare(
+                "CE 导入",
+                """["AANobbMI","1479191","AANobbMI"]""");
+
+            Assert.AreEqual(2, imported.Items.Count);
+            Assert.AreEqual("Sodium", imported.Items.Single(item => item.Entry.ProjectId == "AANobbMI").Entry.Title);
+            CommunityFavoriteEntry curseForge = imported.Items.Single(item => item.Entry.ProjectId == "1479191");
+            Assert.AreEqual(CommunityResourceSource.CurseForge, curseForge.Entry.Source);
+            Assert.AreEqual(1, store.ApplyResolvedMetadata(
+                imported.Id,
+                [
+                    new CommunityResourceEntry(
+                        "1479191",
+                        "example-pack",
+                        "Example Pack",
+                        "Resolved metadata",
+                        "modpack",
+                        "https://cdn.example/pack.png",
+                        100L,
+                        null)
+                    {
+                        Source = CommunityResourceSource.CurseForge
+                    }
+                ]));
+            CommunityFavoriteEntry resolvedCurseForge = store.Items.Single(item => item.Entry.ProjectId == "1479191");
+            Assert.AreEqual("Example Pack", resolvedCurseForge.Entry.Title);
+            Assert.AreEqual("https://cdn.example/pack.png", resolvedCurseForge.Entry.IconUrl);
+            Assert.AreEqual(CommunityResourceCategory.Modpack, resolvedCurseForge.Category);
+            CollectionAssert.AreEquivalent(
+                new[] { "AANobbMI", "1479191" },
+                JsonSerializer.Deserialize<string[]>(store.ExportShareJson())!);
+            Assert.AreEqual(1, store.ImportShareJson("""["another-project","1479191"]""", imported.Id));
+
+            CommunityFavoritesExportSnapshot snapshot = store.ExportSnapshot();
+            string native = snapshot.NativeJson;
+            CommunityFavoritesStore restored = new(restoredPath);
+            restored.ReplaceFromJson(native);
+            Assert.AreEqual(2, restored.Folders.Count);
+            Assert.AreEqual("CE 导入", restored.SelectedFolder.Name);
+            Assert.AreEqual("Sodium", restored.Items.Single(item => item.Entry.ProjectId == "AANobbMI").Entry.Title);
+
+            using JsonDocument ceFolders = JsonDocument.Parse(snapshot.CeFoldersJson);
+            Assert.AreEqual(2, ceFolders.RootElement.GetArrayLength());
+            Assert.AreEqual("CE 导入", ceFolders.RootElement[1].GetProperty("Name").GetString());
+            using JsonDocument nativeDocument = JsonDocument.Parse(snapshot.NativeJson);
+            Assert.AreEqual(
+                nativeDocument.RootElement.GetProperty("folders")[1].GetProperty("id").GetString(),
+                ceFolders.RootElement[1].GetProperty("Id").GetString());
+            Assert.ThrowsExactly<InvalidDataException>(() => store.ImportShareJson("{}"));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void FavoritesStore_ShouldRestoreCeCloudFoldersWithoutFlattening()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcln-favorites-ce-cloud-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CommunityFavoritesStore store = new(Path.Combine(root, "favorites.json"));
+            store.ReplaceFromCeFoldersJson(
+                """
+                [
+                  {"Name":"Modrinth","Id":"folder-mr","Favs":["AANobbMI"],"Notes":{"AANobbMI":"性能优化"}},
+                  {"Name":"CurseForge","Id":"folder-cf","Favs":["1479191"],"Notes":{}}
+                ]
+                """);
+
+            Assert.AreEqual(2, store.Folders.Count);
+            Assert.AreEqual("Modrinth", store.Folders[0].Name);
+            Assert.AreEqual("CurseForge", store.Folders[1].Name);
+            Assert.AreEqual(CommunityResourceSource.Modrinth, store.Folders[0].Items.Single().Entry.Source);
+            Assert.AreEqual(CommunityResourceSource.CurseForge, store.Folders[1].Items.Single().Entry.Source);
+            Assert.AreEqual("性能优化", store.Folders[0].Notes["AANobbMI"]);
+            using JsonDocument exported = JsonDocument.Parse(store.ExportCeFoldersJson());
+            Assert.AreEqual(
+                "性能优化",
+                exported.RootElement[0].GetProperty("Notes").GetProperty("AANobbMI").GetString());
         }
         finally
         {

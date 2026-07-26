@@ -107,8 +107,8 @@ public partial class PageInstanceExportRight : MyPageRight
 
         _gameDirectory = ResolveGameDirectory(_instance);
         MinecraftVersionJsonInfo versionInfo = MinecraftVersionJsonInspector.Read(_instance);
-        _hasModLoader = versionInfo.Libraries.Any(IsModLoaderLibrary) || HasModLoaderFile(_instance);
-        _hasOptiFine = versionInfo.Libraries.Any(static library =>
+        _hasModLoader = versionInfo.LoaderEntries.Any(IsModLoaderLibrary) || HasModLoaderFile(_instance);
+        _hasOptiFine = versionInfo.LoaderEntries.Any(static library =>
                             library.Contains("optifine", StringComparison.OrdinalIgnoreCase)) ||
                        HasFileNamePart(_instance.InstanceDirectory, "optifine");
         if (this.FindControl<Control>("HintOptiFine") is { } optiFineHint)

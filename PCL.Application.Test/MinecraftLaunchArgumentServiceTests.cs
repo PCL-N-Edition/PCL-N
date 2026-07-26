@@ -57,12 +57,55 @@ public sealed class MinecraftLaunchArgumentServiceTests
                 RuleContext = new MinecraftArgumentRuleContext
                 {
                     OperatingSystem = MinecraftArgumentOperatingSystem.Win32,
+                    Architecture = MinecraftArgumentArchitecture.X64,
                     OperatingSystemVersion = "10.0.19045",
-                    Is32BitArchitecture = false
                 }
             });
 
         Assert.AreEqual("--username ${auth_player_name} --winOnly enabled", result.Arguments);
+    }
+
+    [TestMethod]
+    [DataRow("arm64", true)]
+    [DataRow("aarch64", true)]
+    [DataRow("x86", false)]
+    [DataRow("i386", false)]
+    [DataRow("x86_64", false)]
+    [DataRow("amd64", false)]
+    [DataRow("unknown", false)]
+    public void Rules_ShouldMatchOnlyArm64ArchitectureAliases(
+        string ruleArchitecture,
+        bool expected)
+    {
+        JsonNode rules = JsonNode.Parse(
+            $$"""
+            [
+              { "action": "allow", "os": { "arch": "{{ruleArchitecture}}" } }
+            ]
+            """)!;
+        MinecraftArgumentRuleContext context = new()
+        {
+            OperatingSystem = MinecraftArgumentOperatingSystem.Linux,
+            Architecture = MinecraftArgumentArchitecture.Arm64
+        };
+
+        Assert.AreEqual(expected, MinecraftLaunchArgumentService.IsRuleAllowed(rules, context));
+    }
+
+    [TestMethod]
+    public void Rules_ShouldRejectArchitectureConstraintWhenArchitectureIsUnknown()
+    {
+        JsonNode rules = JsonNode.Parse(
+            """
+            [{ "action": "allow", "os": { "arch": "arm64" } }]
+            """)!;
+        MinecraftArgumentRuleContext context = new()
+        {
+            OperatingSystem = MinecraftArgumentOperatingSystem.Linux,
+            Architecture = MinecraftArgumentArchitecture.Unknown
+        };
+
+        Assert.IsFalse(MinecraftLaunchArgumentService.IsRuleAllowed(rules, context));
     }
 
     [TestMethod]

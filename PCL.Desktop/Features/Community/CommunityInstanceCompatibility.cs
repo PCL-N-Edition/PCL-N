@@ -19,7 +19,7 @@ public static class CommunityInstanceCompatibility
         if (string.IsNullOrWhiteSpace(loader) &&
             category is CommunityResourceCategory.Mod or CommunityResourceCategory.Modpack)
         {
-            loader = DetectLoader(versionInfo.Libraries);
+            loader = DetectLoader(versionInfo.LoaderEntries);
         }
 
         return options with

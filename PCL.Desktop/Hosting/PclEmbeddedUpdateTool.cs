@@ -28,19 +28,63 @@ internal static class PclEmbeddedUpdateTool
                 return null;
 
             string directory = Path.Combine(Path.GetTempPath(), "PCL-N", "update-tools");
-            Directory.CreateDirectory(directory);
-            string temporary = Path.Combine(directory, "hpatchz-" + Guid.NewGuid().ToString("N") + ".tmp");
-            await using (FileStream target = new(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024 * 64, true))
-                await resource.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
+            string path = await ExtractToolAsync(
+                    resource,
+                    directory,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            _cachedPath = path;
+            PortableLog.Debug("Update", $"已释放内置 hpatchz：{path}");
+            return path;
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
 
-            await using FileStream hashStream = File.OpenRead(temporary);
-            string hash = Convert.ToHexStringLower(await SHA256.HashDataAsync(hashStream, cancellationToken).ConfigureAwait(false));
+    internal static async Task<string> ExtractToolAsync(
+        Stream resource,
+        string directory,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ArgumentException.ThrowIfNullOrWhiteSpace(directory);
+        Directory.CreateDirectory(directory);
+        string temporary = Path.Combine(directory, "hpatchz-" + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            await using (FileStream target = new(
+                             temporary,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             1024 * 64,
+                             useAsync: true))
+            {
+                await resource.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
+            }
+
+            string hash;
+            await using (FileStream hashStream = File.OpenRead(temporary))
+            {
+                hash = Convert.ToHexStringLower(
+                    await SHA256.HashDataAsync(hashStream, cancellationToken).ConfigureAwait(false));
+            }
+
             string extension = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
-            string path = Path.Combine(directory, "hpatchz-" + hash[..16] + extension);
-            if (!File.Exists(path))
+            string path = Path.Combine(directory, $"hpatchz-{hash[..16]}{extension}");
+            try
+            {
                 File.Move(temporary, path);
-            else
+            }
+            catch (IOException) when (File.Exists(path))
+            {
+                // Another launcher process extracted the same content first.
                 File.Delete(temporary);
+            }
+
+            temporary = string.Empty;
             if (!OperatingSystem.IsWindows())
             {
                 File.SetUnixFileMode(
@@ -49,13 +93,22 @@ internal static class PclEmbeddedUpdateTool
                     UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
                     UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
             }
-            _cachedPath = path;
-            PortableLog.Debug("Update", $"已释放内置 hpatchz：{path}");
+
             return path;
         }
         finally
         {
-            Gate.Release();
+            if (!string.IsNullOrEmpty(temporary))
+            {
+                try
+                {
+                    File.Delete(temporary);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Preserve the extraction failure that caused cleanup to run.
+                }
+            }
         }
     }
 }

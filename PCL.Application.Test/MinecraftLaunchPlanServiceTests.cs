@@ -40,8 +40,8 @@ public sealed class MinecraftLaunchPlanServiceTests
         var ruleContext = new MinecraftArgumentRuleContext
         {
             OperatingSystem = MinecraftArgumentOperatingSystem.Linux,
+            Architecture = MinecraftArgumentArchitecture.X64,
             OperatingSystemVersion = "6.8",
-            Is32BitArchitecture = false
         };
 
         MinecraftLaunchPlanResult result = MinecraftLaunchPlanService.CreatePlan(
@@ -91,8 +91,8 @@ public sealed class MinecraftLaunchPlanServiceTests
                 RuleContext = new MinecraftArgumentRuleContext
                 {
                     OperatingSystem = MinecraftArgumentOperatingSystem.Win32,
+                    Architecture = MinecraftArgumentArchitecture.X64,
                     OperatingSystemVersion = "10.0",
-                    Is32BitArchitecture = false
                 },
                 MainClass = "net.minecraft.client.Minecraft",
                 MemoryMegabytes = 1024,
@@ -129,8 +129,8 @@ public sealed class MinecraftLaunchPlanServiceTests
             RuleContext = new MinecraftArgumentRuleContext
             {
                 OperatingSystem = MinecraftArgumentOperatingSystem.Win32,
+                Architecture = MinecraftArgumentArchitecture.X64,
                 OperatingSystemVersion = "10.0",
-                Is32BitArchitecture = false
             },
             MainClass = "net.minecraft.client.main.Main",
             MemoryMegabytes = 2048,
@@ -162,8 +162,8 @@ public sealed class MinecraftLaunchPlanServiceTests
             RuleContext = new MinecraftArgumentRuleContext
             {
                 OperatingSystem = MinecraftArgumentOperatingSystem.Win32,
+                Architecture = MinecraftArgumentArchitecture.X64,
                 OperatingSystemVersion = "10.0",
-                Is32BitArchitecture = false
             },
             MainClass = "net.minecraft.client.main.Main",
             MemoryMegabytes = 2048,

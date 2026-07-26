@@ -32,8 +32,8 @@ JsonObject versionJson = JsonNode.Parse(
 var ruleContext = new MinecraftArgumentRuleContext
 {
     OperatingSystem = MinecraftArgumentOperatingSystem.Linux,
+    Architecture = MinecraftArgumentArchitecture.X64,
     OperatingSystemVersion = "6.8",
-    Is32BitArchitecture = false
 };
 
 MinecraftLaunchPlanResult result = MinecraftLaunchPlanService.CreatePlan(

@@ -841,7 +841,8 @@ public partial class MainWindow
         string content,
         string hintText,
         Action<string?> closed,
-        bool isWarn = false)
+        bool isWarn = false,
+        int maxLength = 1000)
     {
         if (this.FindControl<BlurBorder>("PanMsgBackground") is not { } background ||
             this.FindControl<Grid>("PanMsg") is not { } host)
@@ -851,7 +852,16 @@ public partial class MainWindow
         }
 
         MyMsgInput dialog = new();
-        dialog.Configure(title, caption, content, hintText, isWarn: isWarn);
+        dialog.Configure(
+            title,
+            caption,
+            content,
+            hintText,
+            "确定",
+            "取消",
+            isWarn,
+            validateRules: null,
+            maxLength);
         host.Children.Clear();
         background.IsVisible = true;
         AnimateMsgBackground(background, 90);

@@ -7,7 +7,7 @@ namespace PCL.Application.Minecraft.Launch.Arguments;
 public sealed record MinecraftArgumentRuleContext
 {
     public required MinecraftArgumentOperatingSystem OperatingSystem { get; init; }
+    public required MinecraftArgumentArchitecture Architecture { get; init; }
     public string OperatingSystemVersion { get; init; } = string.Empty;
-    public bool Is32BitArchitecture { get; init; }
     public bool EnableQuickPlayFeatureArguments { get; init; }
 }

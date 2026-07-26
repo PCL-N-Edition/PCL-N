@@ -307,6 +307,168 @@ public sealed class MinecraftProcessLaunchServiceTests
     }
 
     [TestMethod]
+    public async Task CreatePlanAsync_ResolvesJarAndMultiLevelInheritanceByJsonIdentity()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-launch-json-identity-" + Guid.NewGuid().ToString("N"));
+        string instanceDirectory = Path.Combine(root, "versions", "Renamed Pack");
+        string loaderDirectory = Path.Combine(root, "versions", "Loader Directory");
+        string vanillaDirectory = Path.Combine(root, "versions", "Vanilla Directory");
+        string instanceJsonPath = Path.Combine(instanceDirectory, "launcher-profile.json");
+        string loaderJsonPath = Path.Combine(loaderDirectory, "loader-data.json");
+        string vanillaJsonPath = Path.Combine(vanillaDirectory, "client-manifest.json");
+        string vanillaJarPath = Path.Combine(vanillaDirectory, "client-manifest.jar");
+
+        try
+        {
+            Directory.CreateDirectory(instanceDirectory);
+            Directory.CreateDirectory(loaderDirectory);
+            Directory.CreateDirectory(vanillaDirectory);
+            await File.WriteAllTextAsync(
+                instanceJsonPath,
+                """
+                {
+                  "id": "profile-id",
+                  "inheritsFrom": "quilt-profile-id",
+                  "jar": "minecraft-client-id",
+                  "mainClass": "org.quiltmc.loader.impl.launch.knot.KnotClient",
+                  "libraries": [
+                    { "name": "org.quiltmc:quilt-loader:0.28.1" }
+                  ]
+                }
+                """);
+            await File.WriteAllTextAsync(
+                loaderJsonPath,
+                """
+                {
+                  "id": "quilt-profile-id",
+                  "inheritsFrom": "minecraft-client-id",
+                  "libraries": [
+                    { "name": "org.ow2.asm:asm:9.7.1" }
+                  ]
+                }
+                """);
+            await File.WriteAllTextAsync(
+                vanillaJsonPath,
+                """
+                {
+                  "id": "minecraft-client-id",
+                  "arguments": {
+                    "jvm": ["-cp", "${classpath}"],
+                    "game": ["--username", "${auth_player_name}"]
+                  },
+                  "libraries": [
+                    { "name": "com.mojang:brigadier:1.0.18" }
+                  ]
+                }
+                """);
+            await File.WriteAllTextAsync(vanillaJarPath, string.Empty);
+
+            MinecraftProcessLaunchPlan plan = await MinecraftProcessLaunchService.CreatePlanAsync(
+                new MinecraftProcessLaunchRequest
+                {
+                    VersionId = "Renamed Pack",
+                    VersionJsonPath = instanceJsonPath,
+                    InstanceDirectory = instanceDirectory,
+                    MinecraftRootDirectory = root,
+                    PlayerName = "Steve",
+                    PlayerUuid = "00000000000000000000000000000000",
+                    JavaExecutablePath = "java"
+                });
+
+            StringAssert.Contains(plan.StartInfo.Arguments, "org.quiltmc.loader.impl.launch.knot.KnotClient");
+            StringAssert.Contains(plan.StartInfo.Arguments, "--username Steve");
+            CollectionAssert.Contains(plan.ClasspathEntries.ToArray(), vanillaJarPath);
+            Assert.IsTrue(plan.ClasspathEntries.Any(path => path.EndsWith(
+                Path.Combine("org", "quiltmc", "quilt-loader", "0.28.1", "quilt-loader-0.28.1.jar"),
+                StringComparison.Ordinal)));
+            Assert.IsTrue(plan.ClasspathEntries.Any(path => path.EndsWith(
+                Path.Combine("org", "ow2", "asm", "asm", "9.7.1", "asm-9.7.1.jar"),
+                StringComparison.Ordinal)));
+            Assert.IsTrue(plan.ClasspathEntries.Any(path => path.EndsWith(
+                Path.Combine("com", "mojang", "brigadier", "1.0.18", "brigadier-1.0.18.jar"),
+                StringComparison.Ordinal)));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task CreatePlanAsync_UsesJarAsLegacyLiteLoaderInheritance()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-launch-legacy-lite-" + Guid.NewGuid().ToString("N"));
+        string instanceDirectory = Path.Combine(root, "versions", "Legacy Pack");
+        string vanillaDirectory = Path.Combine(root, "versions", "Vanilla Alias");
+        string instanceJsonPath = Path.Combine(instanceDirectory, "legacy-profile.json");
+        string vanillaJsonPath = Path.Combine(vanillaDirectory, "vanilla-manifest.json");
+        string vanillaJarPath = Path.Combine(vanillaDirectory, "vanilla-manifest.jar");
+
+        try
+        {
+            Directory.CreateDirectory(instanceDirectory);
+            Directory.CreateDirectory(vanillaDirectory);
+            await File.WriteAllTextAsync(
+                instanceJsonPath,
+                """
+                {
+                  "id": "legacy-liteloader-profile",
+                  "jar": "1.5.2",
+                  "mainClass": "net.minecraft.launchwrapper.Launch",
+                  "arguments": {
+                    "game": ["--tweakClass", "com.mumfrey.liteloader.launch.LiteLoaderTweaker"]
+                  },
+                  "libraries": [
+                    { "name": "com.mumfrey:liteloader:1.5.2" }
+                  ]
+                }
+                """);
+            await File.WriteAllTextAsync(
+                vanillaJsonPath,
+                """
+                {
+                  "id": "1.5.2",
+                  "arguments": {
+                    "jvm": ["-cp", "${classpath}"]
+                  },
+                  "libraries": [
+                    { "name": "net.minecraft:launchwrapper:1.8" }
+                  ]
+                }
+                """);
+            await File.WriteAllTextAsync(vanillaJarPath, string.Empty);
+
+            MinecraftProcessLaunchPlan plan = await MinecraftProcessLaunchService.CreatePlanAsync(
+                new MinecraftProcessLaunchRequest
+                {
+                    VersionId = "Legacy Pack",
+                    VersionJsonPath = instanceJsonPath,
+                    InstanceDirectory = instanceDirectory,
+                    MinecraftRootDirectory = root,
+                    PlayerName = "Steve",
+                    PlayerUuid = "00000000000000000000000000000000",
+                    JavaExecutablePath = "java"
+                });
+
+            StringAssert.Contains(plan.StartInfo.Arguments, "net.minecraft.launchwrapper.Launch");
+            StringAssert.Contains(plan.StartInfo.Arguments, "com.mumfrey.liteloader.launch.LiteLoaderTweaker");
+            CollectionAssert.Contains(plan.ClasspathEntries.ToArray(), vanillaJarPath);
+            Assert.IsTrue(plan.ClasspathEntries.Any(path => path.EndsWith(
+                Path.Combine("com", "mumfrey", "liteloader", "1.5.2", "liteloader-1.5.2.jar"),
+                StringComparison.Ordinal)));
+            Assert.IsTrue(plan.ClasspathEntries.Any(path => path.EndsWith(
+                Path.Combine("net", "minecraft", "launchwrapper", "1.8", "launchwrapper-1.8.jar"),
+                StringComparison.Ordinal)));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task CreatePlanAsync_FiltersJdk23OnlyArgumentsUsingSelectedJavaVersion()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcl-launch-java-version-" + Guid.NewGuid().ToString("N"));

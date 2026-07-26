@@ -508,11 +508,12 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
     /// <summary>MyCompItem-style row: icon · title · description · downloads/time/source · actions.</summary>
     private MyListItem CreateCompItem(CommunityResourceEntry entry, CommunitySearchOptions options)
     {
+        bool isFavorite = _favorites?.Contains(entry) == true;
         MyIconButton favorite = new()
         {
-            SvgIcon = _favorites?.Contains(entry) == true ? "lucide/star-off" : "lucide/star",
+            SvgIcon = isFavorite ? "lucide/star-off" : "lucide/star",
             LogoScale = 0.9d,
-            ToolTip = _favorites?.Contains(entry) == true ? "取消收藏" : "收藏",
+            ToolTip = isFavorite ? "管理收藏" : "收藏到…",
             Width = 25,
             Height = 25,
             Margin = new Thickness(0, 0, 4, 0),
@@ -522,9 +523,12 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
         {
             if (_favorites is null)
                 return;
-            bool added = _favorites.Toggle(entry, _category);
-            favorite.SvgIcon = added ? "lucide/star-off" : "lucide/star";
-            favorite.ToolTip = added ? "取消收藏" : "收藏";
+            CommunityFavoriteMenu.Open(favorite, _favorites, entry, _category, () =>
+            {
+                bool favoriteNow = _favorites.Contains(entry);
+                favorite.SvgIcon = favoriteNow ? "lucide/star-off" : "lucide/star";
+                favorite.ToolTip = favoriteNow ? "管理收藏" : "收藏到…";
+            });
         };
 
         MyIconButton website = new()

@@ -121,6 +121,13 @@ public static class MinecraftLibraryDownloadPlanner
 
     private static string GetMavenMirrorUrl(string original)
     {
+        const string mavenCentralPrefix = "https://repo1.maven.org/maven2/";
+        if (original.StartsWith(mavenCentralPrefix, StringComparison.Ordinal))
+        {
+            return "https://bmclapi2.bangbang93.com/maven/" +
+                   original[mavenCentralPrefix.Length..];
+        }
+
         int mavenIndex = original.IndexOf("maven", StringComparison.Ordinal);
         if (mavenIndex < 0)
             return original;

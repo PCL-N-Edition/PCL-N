@@ -3,11 +3,13 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.VisualTree;
 using PCL.Application.Instances;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Launching;
@@ -23,8 +25,14 @@ public sealed partial class ServerCard : MyCard
     private readonly TextBlock _serverName;
     private readonly TextBlock _serverPlayer;
     private readonly TextBlock _serverMotd;
+    private readonly Border _selectionBack;
+    private readonly Border _selectionIndicator;
+    private readonly Grid _interactionSurface;
+    private readonly StackPanel _actionPanel;
     private MinecraftServerEntry? _server;
     private string? _instanceDirectory;
+    private bool _rowPressStarted;
+    private bool _selected;
 
     public ServerCard()
     {
@@ -33,6 +41,12 @@ public sealed partial class ServerCard : MyCard
         _serverName = Required<TextBlock>("ServerName");
         _serverPlayer = Required<TextBlock>("ServerPlayer");
         _serverMotd = Required<TextBlock>("ServerMotD");
+        _selectionBack = Required<Border>("RectSelectionBack");
+        _selectionIndicator = Required<Border>("RectSelectionIndicator");
+        _interactionSurface = Required<Grid>("PanBack");
+        _actionPanel = Required<StackPanel>("PanActions");
+        _interactionSurface.PointerPressed += PanBack_PointerPressed;
+        _interactionSurface.PointerReleased += PanBack_PointerReleased;
         SetDefaultIcon();
     }
 
@@ -46,7 +60,22 @@ public sealed partial class ServerCard : MyCard
 
     public event EventHandler? PinChanged;
 
+    public event EventHandler? SelectionChanged;
+
     public MinecraftServerEntry? Server => _server;
+
+    public bool Selected
+    {
+        get => _selected;
+        set
+        {
+            if (_selected == value)
+                return;
+            _selected = value;
+            RefreshSelectionVisual();
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
 
     public void UpdateServerInfo(MinecraftServerEntry server, string? instanceDirectory = null)
     {
@@ -66,6 +95,42 @@ public sealed partial class ServerCard : MyCard
     {
         _instanceDirectory = instanceDirectory;
         RefreshPinButton();
+    }
+
+    private void PanBack_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!IsEnabled ||
+            !e.GetCurrentPoint(_interactionSurface).Properties.IsLeftButtonPressed ||
+            IsActionSource(e.Source))
+        {
+            return;
+        }
+
+        _rowPressStarted = true;
+        Focus();
+        e.Handled = true;
+    }
+
+    private void PanBack_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        bool shouldToggle = _rowPressStarted && !IsActionSource(e.Source);
+        _rowPressStarted = false;
+        if (!shouldToggle)
+            return;
+
+        Selected = !Selected;
+        e.Handled = true;
+    }
+
+    private bool IsActionSource(object? source) =>
+        source is Control control &&
+        (ReferenceEquals(control, _actionPanel) || control.GetVisualAncestors().Contains(_actionPanel));
+
+    private void RefreshSelectionVisual()
+    {
+        _selectionBack.Opacity = Selected ? 1d : 0d;
+        _selectionIndicator.Height = Selected ? 32d : 0d;
+        _selectionIndicator.Opacity = Selected ? 1d : 0d;
     }
 
     private void RefreshPinButton()

@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using PCL.Application.Launching;
 using PCL.Core.Logging;
 
 namespace PCL.Desktop.Features.Launching.Views;
@@ -99,8 +100,8 @@ public static class LaunchInstanceDiscovery
                 string name = versionDirectory.Name;
                 if (!string.IsNullOrWhiteSpace(name))
                 {
-                    string jsonPath = Path.Combine(versionDirectory.FullName, name + ".json");
-                    if (File.Exists(jsonPath))
+                    string? jsonPath = MinecraftVersionFileResolver.FindPrimaryJson(versionDirectory.FullName);
+                    if (jsonPath is not null)
                     {
                         result.Add((
                             new LaunchInstanceInfo(name, jsonPath, versionDirectory.FullName),

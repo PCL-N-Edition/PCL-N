@@ -14,7 +14,10 @@ public sealed record MinecraftModMetadata(
     string Name,
     string Version,
     string Loader,
-    IReadOnlyList<string> Dependencies);
+    IReadOnlyList<string> Dependencies)
+{
+    public string? IconEntryPath { get; init; }
+}
 
 /// <summary>
 /// Reads local mod descriptors without loading any mod classes. This is the only file-inspection
@@ -50,6 +53,7 @@ public static partial class MinecraftModMetadataReader
                 TryReadQuilt(archive, archivePath, out metadata) ||
                 TryReadToml(archive, archivePath, "META-INF/neoforge.mods.toml", "neoforge", out metadata) ||
                 TryReadToml(archive, archivePath, "META-INF/mods.toml", "forge", out metadata) ||
+                TryReadLegacyForge(archive, archivePath, out metadata) ||
                 TryReadManifest(archive, archivePath, out metadata))
             {
                 return true;
@@ -80,7 +84,10 @@ public static partial class MinecraftModMetadataReader
             ReadString(root, "name", id),
             ReadString(root, "version", "unknown"),
             "fabric",
-            ReadObjectKeys(root, "depends"));
+            ReadObjectKeys(root, "depends"))
+        {
+            IconEntryPath = ReadIconPath(root, "icon")
+        };
         return true;
     }
 
@@ -107,7 +114,12 @@ public static partial class MinecraftModMetadataReader
             name,
             ReadString(loader, "version", "unknown"),
             "quilt",
-            ReadQuiltDependencies(loader));
+            ReadQuiltDependencies(loader))
+        {
+            IconEntryPath = loader.TryGetProperty("metadata", out JsonElement metadataNode)
+                ? ReadIconPath(metadataNode, "icon") ?? ReadIconPath(loader, "icon")
+                : ReadIconPath(loader, "icon")
+        };
         return true;
     }
 
@@ -143,7 +155,57 @@ public static partial class MinecraftModMetadataReader
             string.IsNullOrWhiteSpace(name) ? id : name,
             string.IsNullOrWhiteSpace(version) ? "unknown" : version,
             loader,
-            dependencies);
+            dependencies)
+        {
+            IconEntryPath = EmptyToNull(ReadTomlValue(content, "logoFile"))
+        };
+        return true;
+    }
+
+    private static bool TryReadLegacyForge(
+        ZipArchive archive,
+        string path,
+        out MinecraftModMetadata? metadata)
+    {
+        metadata = null;
+        ZipArchiveEntry? entry = archive.GetEntry("mcmod.info");
+        if (entry is null)
+            return false;
+
+        using Stream stream = entry.Open();
+        using JsonDocument document = JsonDocument.Parse(stream);
+        JsonElement descriptor = document.RootElement;
+        if (descriptor.ValueKind == JsonValueKind.Array)
+        {
+            if (descriptor.GetArrayLength() == 0)
+                return false;
+            descriptor = descriptor[0];
+        }
+        else if (descriptor.ValueKind == JsonValueKind.Object &&
+                 descriptor.TryGetProperty("modList", out JsonElement modList) &&
+                 modList.ValueKind == JsonValueKind.Array)
+        {
+            if (modList.GetArrayLength() == 0)
+                return false;
+            descriptor = modList[0];
+        }
+
+        if (descriptor.ValueKind != JsonValueKind.Object)
+            return false;
+        string id = ReadString(descriptor, "modid");
+        if (string.IsNullOrWhiteSpace(id))
+            return false;
+
+        metadata = new MinecraftModMetadata(
+            path,
+            id,
+            ReadString(descriptor, "name", id),
+            ReadString(descriptor, "version", "unknown"),
+            "forge",
+            [])
+        {
+            IconEntryPath = EmptyToNull(ReadString(descriptor, "logoFile"))
+        };
         return true;
     }
 
@@ -188,6 +250,29 @@ public static partial class MinecraftModMetadataReader
             .ToArray();
     }
 
+    private static string? ReadIconPath(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out JsonElement icon))
+            return null;
+        if (icon.ValueKind == JsonValueKind.String)
+            return EmptyToNull(icon.GetString());
+        if (icon.ValueKind != JsonValueKind.Object)
+            return null;
+
+        return icon.EnumerateObject()
+            .Select(static property => new
+            {
+                Path = property.Value.ValueKind == JsonValueKind.String
+                    ? property.Value.GetString()
+                    : null,
+                Size = int.TryParse(property.Name, out int size) ? size : 0
+            })
+            .Where(static candidate => !string.IsNullOrWhiteSpace(candidate.Path))
+            .OrderByDescending(static candidate => candidate.Size)
+            .Select(static candidate => candidate.Path)
+            .FirstOrDefault();
+    }
+
     private static string ReadString(JsonElement root, string name, string fallback = "") =>
         root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? fallback
@@ -206,6 +291,9 @@ public static partial class MinecraftModMetadataReader
         Match match = Regex.Match(content, "(?im)^" + Regex.Escape(key) + ":\\s*(.+)$");
         return match.Success ? match.Groups[1].Value.Trim() : fallback;
     }
+
+    private static string? EmptyToNull(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static bool IsModArchive(string path) =>
         path.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) ||

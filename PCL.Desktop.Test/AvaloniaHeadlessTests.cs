@@ -10,6 +10,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
@@ -2843,6 +2844,128 @@ public sealed class AvaloniaHeadlessTests
                 right.Dispose();
             }
         }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
+    public void CommunityFavorites_SelectFoldersAndDetailOffersEveryTargetFolder()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-community-favorites-ui-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            session.Dispatch(async () =>
+            {
+                CommunityFavoritesStore store = new(System.IO.Path.Combine(root, "favorites.json"));
+                CommunityResourceEntry sodium = new(
+                    "AANobbMI",
+                    "sodium",
+                    "Sodium",
+                    "Fast renderer",
+                    "mod",
+                    null,
+                    10,
+                    null);
+                CommunityResourceEntry iris = new(
+                    "YL57xq9U",
+                    "iris",
+                    "Iris Shaders",
+                    "Shader loader",
+                    "mod",
+                    null,
+                    9,
+                    null);
+                string defaultFolderId = store.SelectedFolderId;
+                store.Toggle(sodium, CommunityResourceCategory.Mod);
+                CommunityFavoriteFolder second = store.CreateFolder("图形优化");
+                store.Toggle(iris, CommunityResourceCategory.Mod, second.Id);
+                store.SelectFolder(defaultFolderId);
+
+                PageCommunityFavoritesRight favoritesPage = new(store);
+                Window favoritesWindow = new() { Width = 720, Height = 560, Content = favoritesPage };
+                try
+                {
+                    favoritesWindow.Show();
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    MyComboBox combo = favoritesPage.FindControl<MyComboBox>("ComboFolders")!;
+                    Assert.AreEqual(2, combo.Items.Count);
+                    Assert.AreEqual("Sodium", favoritesPage.FindControl<StackPanel>("PanFavorites")!
+                        .Children.OfType<MyListItem>().Single().Title);
+
+                    combo.SelectedItem = combo.Items
+                        .Cast<MyComboBoxItem>()
+                        .Single(item => string.Equals(item.Tag, second.Id));
+                    Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    Assert.AreEqual(second.Id, store.SelectedFolderId);
+                    Assert.AreEqual("Iris Shaders", favoritesPage.FindControl<StackPanel>("PanFavorites")!
+                        .Children.OfType<MyListItem>().Single().Title);
+
+                    MyIconButton manage = favoritesPage.FindControl<MyIconButton>("BtnManageFolders")!;
+                    CommunityFavoriteInputRequest? inputRequest = null;
+                    favoritesPage.InputRequested += (_, request) => inputRequest = request;
+                    Click(favoritesWindow, manage);
+                    MenuItem[] managementItems = manage.ContextMenu!.Items.OfType<MenuItem>().ToArray();
+                    CollectionAssert.IsSubsetOf(
+                        new[]
+                        {
+                            "分享当前收藏夹",
+                            "导入到当前收藏夹",
+                            "导入为新收藏夹",
+                            "新建收藏夹",
+                            "重命名收藏夹",
+                            "删除收藏夹"
+                        },
+                        managementItems
+                            .Select(static item => item.Header?.ToString())
+                            .ToArray());
+                    managementItems.Single(item => Equals(item.Header, "导入到当前收藏夹"))
+                        .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    Assert.IsNotNull(inputRequest);
+                    Assert.AreEqual(256 * 1024, inputRequest.MaxLength);
+                    inputRequest.Complete("""["AANobbMI"]""");
+                    Assert.IsTrue(store.Contains(sodium, second.Id));
+                    store.Toggle(sodium, CommunityResourceCategory.Mod, second.Id);
+                }
+                finally
+                {
+                    favoritesWindow.Close();
+                }
+
+                PageCommunityDetail detail = new(new FakeCommunityResourceCatalog(), favorites: store);
+                Window detailWindow = new() { Width = 720, Height = 560, Content = detail };
+                try
+                {
+                    detailWindow.Show();
+                    await detail.ShowAsync(sodium, CommunityResourceCategory.Mod).ConfigureAwait(true);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    MyIconTextButton favorite = detail.FindControl<MyIconTextButton>("BtnIntroFavorite")!;
+                    Assert.AreEqual("管理收藏", favorite.Text);
+                    Click(detailWindow, favorite);
+                    MenuItem[] targets = favorite.ContextMenu!.Items.OfType<MenuItem>().ToArray();
+                    Assert.AreEqual(2, targets.Length);
+                    MenuItem secondTarget = targets.Single(item => string.Equals(item.Tag, second.Id));
+                    Assert.AreEqual("添加到“图形优化”", secondTarget.Header?.ToString());
+                    secondTarget.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    Assert.IsTrue(store.Contains(sodium, second.Id));
+                }
+                finally
+                {
+                    detailWindow.Close();
+                    detail.Dispose();
+                }
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     [TestMethod]
@@ -6867,6 +6990,147 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageInstanceServerRight_SupportsMultiSelectionAndBatchActions()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-server-selection-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
+            Directory.CreateDirectory(versionDirectory);
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "1.20.1.json");
+            File.WriteAllText(jsonPath, """{ "id": "1.20.1" }""");
+            LaunchInstanceInfo instance = new("1.20.1", jsonPath, versionDirectory);
+            string gameDirectory = InstanceGameDirectory.ResolveAsync(instance).GetAwaiter().GetResult();
+            WriteServersDat(gameDirectory, includeLocal: true);
+            RecordingMinecraftServerStatusService statusService = new();
+
+            session.Dispatch(async () =>
+            {
+                PageInstanceServerRight page = new(statusService);
+                Window window = new()
+                {
+                    Width = 760,
+                    Height = 520,
+                    Content = page
+                };
+                IReadOnlyList<MinecraftServerEntry>? removal = null;
+                MinecraftServerEntry? connected = null;
+                MinecraftServerEntry? edited = null;
+                MinecraftServerEntry? removed = null;
+                page.RemoveServersRequested += (_, entries) => removal = entries;
+                page.ConnectServerRequested += (_, entry) => connected = entry;
+                page.EditServerRequested += (_, entry) => edited = entry;
+                page.RemoveServerRequested += (_, entry) => removed = entry;
+
+                try
+                {
+                    window.Show();
+                    page.SetInstance(instance);
+                    await WaitForConditionAsync(() =>
+                            page.GetVisualDescendants().OfType<ServerCard>().Count() == 2 &&
+                            statusService.RequestCount >= 2)
+                        .ConfigureAwait(true);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    ServerCard[] cards = page.GetVisualDescendants().OfType<ServerCard>().ToArray();
+                    await WaitForConditionAsync(() =>
+                    {
+                        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                        return cards.All(static card => card.Bounds.Height >= 44d);
+                    }).ConfigureAwait(true);
+                    Grid firstRow = cards[0].FindControl<Grid>("PanBack")!;
+                    Border selectionBack = cards[0].FindControl<Border>("RectSelectionBack")!;
+                    Border selectionIndicator = cards[0].FindControl<Border>("RectSelectionIndicator")!;
+                    Assert.IsTrue(cards.All(card => card.FindControl<MyCheckBox>("CheckSelect") is null));
+                    Assert.AreEqual(44d, firstRow.Height);
+                    Assert.AreEqual(new CornerRadius(3d), selectionBack.CornerRadius);
+                    Assert.AreEqual(RequiredBrush("ColorBrushBg1").Color,
+                        ((ISolidColorBrush)selectionBack.Background!).Color);
+                    Assert.AreEqual(5d, selectionIndicator.Width);
+                    Assert.AreEqual(new Thickness(-3d, 0d, 0d, 0d), selectionIndicator.Margin);
+                    Assert.AreEqual(new CornerRadius(2d), selectionIndicator.CornerRadius);
+                    Assert.AreEqual(RequiredBrush("ColorBrush3").Color,
+                        ((ISolidColorBrush)selectionIndicator.Background!).Color);
+
+                    Click(window, firstRow);
+                    Assert.IsTrue(cards[0].Selected);
+                    Assert.IsTrue(cards[0].IsFocused);
+                    Assert.AreEqual(32d, selectionIndicator.Height);
+                    Assert.AreEqual(1d, selectionBack.Opacity);
+                    Assert.IsTrue(page.FindControl<MyCard>("CardSelect")!.IsVisible);
+                    StringAssert.Contains(page.FindControl<TextBlock>("LabSelect")!.Text!, "1");
+
+                    Click(window, cards[0].FindControl<MyIconButton>("BtnConnect")!);
+                    Assert.AreEqual(cards[0].Server, connected);
+                    Assert.IsTrue(cards[0].Selected, "连接按钮不应切换服务器选择状态。");
+
+                    MyIconButton settingsButton = cards[0].FindControl<MyIconButton>("BtnSetting")!;
+                    Click(window, settingsButton);
+                    Assert.IsTrue(cards[0].Selected, "设置按钮不应切换服务器选择状态。");
+                    ContextMenu menu = settingsButton.ContextMenu!;
+                    menu.Items.OfType<MyMenuItem>().Single(item => item.Name == "BtnCopy")
+                        .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    menu.Items.OfType<MyMenuItem>().Single(item => item.Name == "BtnEdit")
+                        .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    menu.Items.OfType<MyMenuItem>().Single(item => item.Name == "BtnRemove")
+                        .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    Assert.AreEqual(cards[0].Server, edited);
+                    Assert.AreEqual(cards[0].Server, removed);
+                    Assert.IsTrue(cards[0].Selected, "设置菜单操作不应切换服务器选择状态。");
+                    menu.Close();
+
+                    Click(window, firstRow);
+                    Assert.IsFalse(cards[0].Selected);
+                    Click(window, firstRow);
+                    Assert.IsTrue(cards[0].Selected);
+
+                    window.KeyPress(Key.A, RawInputModifiers.Control, PhysicalKey.A, "a");
+                    window.KeyRelease(Key.A, RawInputModifiers.Control, PhysicalKey.A, "a");
+                    Assert.IsTrue(cards.All(static card => card.Selected));
+
+                    Click(window, page.FindControl<MyButton>("BtnSelectAll")!);
+                    Assert.IsTrue(cards.All(static card => !card.Selected));
+                    Click(window, page.FindControl<MyButton>("BtnSelectAll")!);
+                    Assert.IsTrue(cards.All(static card => card.Selected));
+                    StringAssert.Contains(page.FindControl<TextBlock>("LabSelect")!.Text!, "2");
+
+                    statusService.Reset();
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    Click(window, page.FindControl<MyIconTextButton>("BtnSelectRefresh")!);
+                    await WaitForConditionAsync(() => statusService.RequestCount == 2).ConfigureAwait(true);
+                    Assert.IsFalse(page.FindControl<MyCard>("CardSelect")!.IsVisible);
+
+                    Click(window, page.FindControl<MyButton>("BtnSelectAll")!);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    Click(window, page.FindControl<MyIconTextButton>("BtnSelectDelete")!);
+                    Assert.IsNotNull(removal);
+                    Assert.AreEqual(2, removal.Count);
+                    CollectionAssert.AreEquivalent(
+                        new[] { "mc.hypixel.net", "127.0.0.1" },
+                        removal.Select(static entry => entry.Address).ToArray());
+
+                    Click(window, page.FindControl<MyIconTextButton>("BtnSelectCancel")!);
+                    Assert.IsTrue(cards.All(static card => !card.Selected));
+                    Assert.IsFalse(page.FindControl<MyCard>("CardSelect")!.IsVisible);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void PageInstanceSetupRight_RefreshesWpfRamDisplayForCurrentInstance()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -7668,6 +7932,16 @@ public sealed class AvaloniaHeadlessTests
                     MyLocalModItem disabledSelection = list.Children
                         .OfType<MyLocalModItem>()
                         .Single(item => item.Title == "disabled.jar");
+                    MyImage enabledLogo = enabledSelection.FindControl<MyImage>("PathLogo")!;
+                    MyImage disabledLogo = disabledSelection.FindControl<MyImage>("PathLogo")!;
+                    await WaitForConditionAsync(() =>
+                            enabledLogo.ActualSource == enabledSelection.Logo &&
+                            disabledLogo.ActualSource == disabledSelection.Logo)
+                        .ConfigureAwait(true);
+                    StringAssert.EndsWith(enabledSelection.Logo, "CommandBlock.png");
+                    StringAssert.EndsWith(disabledSelection.Logo, "RedstoneBlock.png");
+                    Assert.IsNotNull(((Image)enabledLogo).Source);
+                    Assert.IsNotNull(((Image)disabledLogo).Source);
                     await WaitForConditionAsync(() =>
                     {
                         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
@@ -7698,7 +7972,28 @@ public sealed class AvaloniaHeadlessTests
                         new Point(70d, firstVisible.Bounds.Height * 1.5d));
                     Assert.IsTrue(enabledSelection.Checked);
                     Assert.IsTrue(disabledSelection.Checked);
-                    Click(window, page.FindControl<MyIconTextButton>("BtnSelectCancel")!);
+                    Assert.IsTrue(page.FindControl<MyIconTextButton>("BtnSelectEnable")!.IsEnabled);
+                    Assert.IsTrue(page.FindControl<MyIconTextButton>("BtnSelectDisable")!.IsEnabled);
+                    Assert.IsFalse(page.FindControl<MyIconTextButton>("BtnSelectUpdate")!.IsEnabled);
+
+                    Click(window, page.FindControl<MyIconTextButton>("BtnSelectDisable")!);
+                    await WaitForConditionAsync(() =>
+                            File.Exists(System.IO.Path.Combine(modsDirectory, "enabled.jar.disabled")) &&
+                            File.Exists(System.IO.Path.Combine(modsDirectory, "disabled.jar.disabled")) &&
+                            list.Children.OfType<MyLocalModItem>().Count() == 2 &&
+                            list.Children.OfType<MyLocalModItem>().All(item =>
+                                item.Buttons.Any(button => Equals(button.ToolTip, "启用"))))
+                        .ConfigureAwait(true);
+
+                    Click(window, page.FindControl<MyButton>("BtnManageSelectAll")!);
+                    Click(window, page.FindControl<MyIconTextButton>("BtnSelectEnable")!);
+                    await WaitForConditionAsync(() =>
+                            File.Exists(System.IO.Path.Combine(modsDirectory, "enabled.jar")) &&
+                            File.Exists(System.IO.Path.Combine(modsDirectory, "disabled.jar")) &&
+                            list.Children.OfType<MyLocalModItem>().Count() == 2 &&
+                            list.Children.OfType<MyLocalModItem>().All(item =>
+                                item.Buttons.Any(button => Equals(button.ToolTip, "禁用"))))
+                        .ConfigureAwait(true);
 
                     Click(window, page.FindControl<MyButton>("BtnManageOpen")!);
                     Assert.AreEqual(modsDirectory, openedFolder);
@@ -7707,13 +8002,37 @@ public sealed class AvaloniaHeadlessTests
                     Assert.IsTrue(downloadRequested);
 
                     MyLocalModItem disabledItem = list.Children.OfType<MyLocalModItem>().Single(item => item.Title == "disabled.jar");
-                    MyIconButton enableButton = disabledItem.Buttons.Single(button => Equals(button.ToolTip, "启用"));
-                    Click(window, enableButton);
+                    disabledItem.SetChecked(true, user: true);
+                    Assert.IsTrue(disabledItem.Checked);
+                    Click(window, page.FindControl<MyIconTextButton>("BtnSelectDisable")!);
+                    await WaitForConditionAsync(() =>
+                            File.Exists(System.IO.Path.Combine(modsDirectory, "disabled.jar.disabled")))
+                        .ConfigureAwait(true);
+
+                    MyRadioButton disabledFilter = page.FindControl<MyRadioButton>("BtnFilterDisabled")!;
+                    await WaitForConditionAsync(() => disabledFilter.IsVisible).ConfigureAwait(true);
+                    disabledFilter.SetChecked(true, raiseByMouse: true, anime: false);
+                    MyLocalModItem disabledFilteredItem = list.Children
+                        .OfType<MyLocalModItem>()
+                        .Single(item => item.Title == "disabled.jar");
+                    disabledFilteredItem.SetChecked(true, user: true);
+                    Assert.IsTrue(disabledFilteredItem.Checked);
+                    Click(window, page.FindControl<MyIconTextButton>("BtnSelectEnable")!);
                     await WaitForConditionAsync(() =>
                             File.Exists(System.IO.Path.Combine(modsDirectory, "disabled.jar")) &&
                             status?.Contains("启用", StringComparison.Ordinal) == true)
                         .ConfigureAwait(true);
+                    await WaitForConditionAsync(() =>
+                            page.FindControl<MyRadioButton>("BtnFilterAll")!.Checked &&
+                            !page.FindControl<MyRadioButton>("BtnFilterEnabled")!.IsVisible &&
+                            !page.FindControl<MyRadioButton>("BtnFilterDisabled")!.IsVisible)
+                        .ConfigureAwait(true);
+                    await WaitForConditionAsync(() => list.Children.OfType<MyLocalModItem>().Count() == 2)
+                        .ConfigureAwait(true);
                     StringAssert.Contains(status!, "启用");
+                    Assert.IsTrue(page.FindControl<MyRadioButton>("BtnFilterAll")!.Checked);
+                    Assert.IsFalse(page.FindControl<MyRadioButton>("BtnFilterEnabled")!.IsVisible);
+                    Assert.IsFalse(page.FindControl<MyRadioButton>("BtnFilterDisabled")!.IsVisible);
 
                     page.FindControl<MySearchBox>("SearchBox")!.Text = "disabled";
                     await Task.Delay(450).ConfigureAwait(true);
@@ -7731,6 +8050,168 @@ public sealed class AvaloniaHeadlessTests
                             status?.Contains("删除", StringComparison.Ordinal) == true)
                         .ConfigureAwait(true);
                     StringAssert.Contains(status!, "删除");
+
+                    File.WriteAllText(System.IO.Path.Combine(modsDirectory, "extra.jar"), "extra");
+                    page.FindControl<MySearchBox>("SearchBox")!.Text = string.Empty;
+                    page.Reload();
+                    await WaitForConditionAsync(() => list.Children.OfType<MyLocalModItem>().Count() == 2)
+                        .ConfigureAwait(true);
+                    Click(window, page.FindControl<MyButton>("BtnManageSelectAll")!);
+                    Click(window, page.FindControl<MyIconTextButton>("BtnSelectDelete")!);
+                    await WaitForConditionAsync(() =>
+                            !File.Exists(System.IO.Path.Combine(modsDirectory, "enabled.jar")) &&
+                            !File.Exists(System.IO.Path.Combine(modsDirectory, "extra.jar")))
+                        .ConfigureAwait(true);
+                }
+                finally
+                {
+                    window.Close();
+                    page.Dispose();
+                }
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("ResourcePacks", "resourcepacks", "example-pack.zip", "Grass.png")]
+    [DataRow("Shaders", "shaderpacks", "example-shader.zip", "GoldBlock.png")]
+    public void PageInstanceResourceRight_RendersFallbackLogoForResourceKinds(
+        string pageName,
+        string folderName,
+        string fileName,
+        string expectedIcon)
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-resource-logo-ui-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
+            string resourceDirectory = System.IO.Path.Combine(versionDirectory, folderName);
+            Directory.CreateDirectory(resourceDirectory);
+            File.WriteAllText(System.IO.Path.Combine(resourceDirectory, fileName), "resource");
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "1.20.1.json");
+            File.WriteAllText(jsonPath, """{ "id": "1.20.1" }""");
+            LaunchInstanceInfo instance = new("1.20.1", jsonPath, versionDirectory);
+            InstancePageSubType pageType = Enum.Parse<InstancePageSubType>(pageName);
+
+            session.Dispatch(async () =>
+            {
+                PageInstanceResourceRight page = new(() =>
+                    new CompositeCommunityResourceCatalog(
+                        new FileLookupCommunityCatalog(),
+                        new FileLookupCommunityCatalog()));
+                Window window = new()
+                {
+                    Width = 760,
+                    Height = 520,
+                    Content = page
+                };
+
+                try
+                {
+                    window.Show();
+                    page.SetContext(instance, pageType);
+                    StackPanel list = page.FindControl<StackPanel>("PanList")!;
+                    await WaitForConditionAsync(() => list.Children.OfType<MyLocalModItem>().Count() == 1)
+                        .ConfigureAwait(true);
+
+                    MyLocalModItem item = list.Children.OfType<MyLocalModItem>().Single();
+                    MyImage image = item.FindControl<MyImage>("PathLogo")!;
+                    await WaitForConditionAsync(() => image.ActualSource == item.Logo).ConfigureAwait(true);
+
+                    StringAssert.EndsWith(item.Logo, expectedIcon);
+                    Assert.AreEqual(item.Logo, image.Source);
+                    Assert.IsNotNull(((Image)image).Source);
+                }
+                finally
+                {
+                    window.Close();
+                    page.Dispose();
+                }
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void PageInstanceResourceRight_DecodesLocalModIconFromArchive()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-resource-local-icon-ui-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
+            string modsDirectory = System.IO.Path.Combine(versionDirectory, "mods");
+            Directory.CreateDirectory(modsDirectory);
+            string modPath = System.IO.Path.Combine(modsDirectory, "local-icon.jar");
+            byte[] png = Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+            using (System.IO.Compression.ZipArchive archive = System.IO.Compression.ZipFile.Open(
+                       modPath,
+                       System.IO.Compression.ZipArchiveMode.Create))
+            {
+                System.IO.Compression.ZipArchiveEntry descriptor = archive.CreateEntry("fabric.mod.json");
+                using (StreamWriter writer = new(descriptor.Open()))
+                {
+                    writer.Write("""{"id":"local_icon","name":"Local Icon Mod","version":"1.0.0","icon":"assets/local_icon/icon.png"}""");
+                }
+
+                System.IO.Compression.ZipArchiveEntry icon = archive.CreateEntry("assets/local_icon/icon.png");
+                using Stream iconStream = icon.Open();
+                iconStream.Write(png);
+            }
+
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "1.20.1.json");
+            File.WriteAllText(jsonPath, """{ "id": "1.20.1" }""");
+            LaunchInstanceInfo instance = new("1.20.1", jsonPath, versionDirectory);
+
+            session.Dispatch(async () =>
+            {
+                PageInstanceResourceRight page = new(() =>
+                    new CompositeCommunityResourceCatalog(
+                        new FileLookupCommunityCatalog(),
+                        new FileLookupCommunityCatalog()));
+                Window window = new()
+                {
+                    Width = 760,
+                    Height = 520,
+                    Content = page
+                };
+
+                try
+                {
+                    window.Show();
+                    page.SetContext(instance, InstancePageSubType.Mods);
+                    StackPanel list = page.FindControl<StackPanel>("PanList")!;
+                    await WaitForConditionAsync(() => list.Children.OfType<MyLocalModItem>().Count() == 1)
+                        .ConfigureAwait(true);
+
+                    MyLocalModItem item = list.Children.OfType<MyLocalModItem>().Single();
+                    MyImage image = item.FindControl<MyImage>("PathLogo")!;
+                    await WaitForConditionAsync(() =>
+                            image.ActualSource == item.Logo && ((Image)image).Source is not null)
+                        .ConfigureAwait(true);
+
+                    Assert.AreEqual("Local Icon Mod", item.Title);
+                    Assert.IsTrue(File.Exists(item.Logo));
+                    StringAssert.EndsWith(item.Logo, ".img");
+                    Assert.AreEqual(item.Logo, image.Source);
+                    Assert.IsNotNull(((Image)image).Source);
                 }
                 finally
                 {
@@ -8553,8 +9034,16 @@ public sealed class AvaloniaHeadlessTests
                                 StringComparison.Ordinal) &&
                             page.FindControl<MyRadioButton>("BtnFilterError")!.Text.Contains(
                                 "1",
-                                StringComparison.Ordinal))
+                                StringComparison.Ordinal) &&
+                            page.FindControl<MyRadioButton>("BtnFilterCanUpdate")!.Text.Contains(
+                                "1",
+                                StringComparison.Ordinal) &&
+                            list.Children.OfType<MyLocalModItem>()
+                                .Single(item => item.Title == "Update Online").ShowUpdateButton)
                         .ConfigureAwait(true);
+
+                    Assert.IsFalse(page.FindControl<MyRadioButton>("BtnFilterEnabled")!.IsVisible);
+                    Assert.IsFalse(page.FindControl<MyRadioButton>("BtnFilterDisabled")!.IsVisible);
 
                     MyLocalModItem sameContent = list.Children.OfType<MyLocalModItem>()
                         .Single(item => item.Title == "Same Content Online");
@@ -8954,7 +9443,7 @@ public sealed class AvaloniaHeadlessTests
         }
     }
 
-    private static void WriteServersDat(string root)
+    private static void WriteServersDat(string root, bool includeLocal = false)
     {
         fNbt.NbtCompound rootTag = new("");
         fNbt.NbtList servers = new("servers", fNbt.NbtTagType.Compound)
@@ -8965,6 +9454,14 @@ public sealed class AvaloniaHeadlessTests
                 new fNbt.NbtString("ip", "mc.hypixel.net")
             }
         };
+        if (includeLocal)
+        {
+            servers.Add(new fNbt.NbtCompound
+            {
+                new fNbt.NbtString("name", "Local"),
+                new fNbt.NbtString("ip", "127.0.0.1")
+            });
+        }
         rootTag.Add(servers);
         fNbt.NbtFile file = new(rootTag);
         using FileStream stream = File.Create(System.IO.Path.Combine(root, "servers.dat"));
@@ -13047,6 +13544,31 @@ public sealed class AvaloniaHeadlessTests
 
         public PCL.Platform.Abstractions.System.CpuInfo GetCpuInfo() =>
             new("Test CPU", 8, "x64");
+    }
+
+    private sealed class RecordingMinecraftServerStatusService : IMinecraftServerStatusService
+    {
+        private int _requestCount;
+
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        public Task<MinecraftServerStatus> QueryAsync(
+            string address,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _requestCount);
+            return Task.FromResult(new MinecraftServerStatus(
+                "Ready",
+                1,
+                20,
+                "1.21.1",
+                767,
+                TimeSpan.FromMilliseconds(25),
+                null));
+        }
+
+        public void Reset() => Interlocked.Exchange(ref _requestCount, 0);
     }
 
     private sealed class StubHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> handler) : HttpMessageHandler

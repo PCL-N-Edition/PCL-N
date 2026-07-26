@@ -126,6 +126,9 @@ public sealed class CommunityFeatureSurface
                 favorite.Category,
                 new CommunitySearchOptions(Source: favorite.Entry.Source));
         page.DownloadRequested += (_, request) => _ = b.DownloadAsync(request);
+        page.InputRequested += (_, request) => b.PromptInput(request);
+        page.ConfirmationRequested += (_, request) => b.Confirm(request);
+        page.MessageRequested += (_, message) => b.ShowMessage(message.Title, message.Message);
         _favoritesRight = page;
         return page;
     }
@@ -207,6 +210,10 @@ public sealed class CommunityFeatureBindings
     public required Action<string?> OpenUrl { get; init; }
 
     public required Action<string, string> ShowMessage { get; init; }
+
+    public required Action<CommunityFavoriteInputRequest> PromptInput { get; init; }
+
+    public required Action<CommunityFavoriteConfirmationRequest> Confirm { get; init; }
 
     public required Action<CommunityResourceCategory> CategoryChanged { get; init; }
 }

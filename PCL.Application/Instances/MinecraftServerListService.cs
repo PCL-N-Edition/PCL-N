@@ -128,6 +128,59 @@ public sealed class MinecraftServerListService
             cancellationToken);
     }
 
+    public static async Task<int> RemoveManyAsync(
+        string minecraftRoot,
+        IReadOnlyList<MinecraftServerEntry> entries,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRoot);
+        ArgumentNullException.ThrowIfNull(entries);
+        if (entries.Count == 0)
+            return 0;
+        foreach (MinecraftServerEntry entry in entries)
+            ArgumentNullException.ThrowIfNull(entry);
+
+        string serversFile = GetServersFile(minecraftRoot);
+        SemaphoreSlim accessLock = GetAccessLock(serversFile);
+        await accessLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await Task.Run(
+                    () =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!File.Exists(serversFile))
+                            return 0;
+
+                        NbtFile nbtFile = LoadExistingServerFile(serversFile);
+                        NbtList? servers = nbtFile.RootTag.Get<NbtList>("servers");
+                        if (servers is null)
+                            return 0;
+
+                        int removed = 0;
+                        foreach (MinecraftServerEntry entry in entries)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            int index = FindServerIndex(servers, entry);
+                            if (index < 0)
+                                continue;
+                            servers.RemoveAt(index);
+                            removed++;
+                        }
+
+                        if (removed > 0)
+                            SaveServerFile(serversFile, nbtFile, cancellationToken);
+                        return removed;
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            accessLock.Release();
+        }
+    }
+
     private static async Task<bool> MutateAsync(
         string minecraftRoot,
         Func<NbtList, bool> mutate,

@@ -963,7 +963,7 @@ public partial class MainWindow
             .FirstOrDefault(loader => !string.Equals(loader, "unknown", StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrWhiteSpace(metadataLoader))
             return metadataLoader;
-        IReadOnlyList<string> libraries = MinecraftVersionJsonInspector.Read(instance).Libraries;
+        IReadOnlyList<string> libraries = MinecraftVersionJsonInspector.Read(instance).LoaderEntries;
         if (libraries.Any(library => library.Contains("quilt-loader", StringComparison.OrdinalIgnoreCase)))
             return "quilt";
         if (libraries.Any(library => library.Contains("fabric-loader", StringComparison.OrdinalIgnoreCase)))
@@ -1084,7 +1084,7 @@ public partial class MainWindow
         CancellationToken cancellationToken)
     {
         MinecraftVersionJsonInfo info = MinecraftVersionJsonInspector.Read(context.Instance);
-        (MinecraftLoaderKind Kind, string Version)? loader = DetectInstalledLoader(info.Libraries);
+        (MinecraftLoaderKind Kind, string Version)? loader = DetectInstalledLoader(info.LoaderEntries);
         if (loader is null || string.Equals(context.Instance.Name, info.MinecraftVersionId, StringComparison.OrdinalIgnoreCase))
             return new MinecraftRepairExecutionResult("当前版本没有可安全原位更新的模组加载器。", true);
         MinecraftLoaderMetadataService metadataService = new();

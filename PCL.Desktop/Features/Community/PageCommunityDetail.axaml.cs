@@ -74,7 +74,7 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
         if (this.FindControl<MyIconTextButton>("BtnIntroLinkCopy") is { } copyLink)
             copyLink.Click += (_, _) => _ = CopyTextAsync(_entry?.WebsiteUrl ?? string.Empty);
         if (this.FindControl<MyIconTextButton>("BtnIntroFavorite") is { } favorite)
-            favorite.Click += (_, _) => ToggleFavorite();
+            favorite.Click += (_, _) => OpenFavoriteMenu(favorite);
 
         SetLoading(false);
     }
@@ -187,12 +187,16 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
     internal static string CreateMcModSearchUrl(string title) =>
         "https://www.mcmod.cn/s?key=" + Uri.EscapeDataString(title) + "&site=all&filter=0";
 
-    private void ToggleFavorite()
+    private void OpenFavoriteMenu(Control target)
     {
         if (_favorites is null || _entry is null)
             return;
-        _favorites.Toggle(_entry, _category);
-        UpdateFavoriteButton();
+        CommunityFavoriteMenu.Open(
+            target,
+            _favorites,
+            _entry,
+            _category,
+            UpdateFavoriteButton);
     }
 
     private void UpdateFavoriteButton()
@@ -201,7 +205,7 @@ public partial class PageCommunityDetail : MyPageRight, IDisposable
             return;
         button.IsVisible = _favorites is not null;
         bool favorite = _favorites is not null && _entry is not null && _favorites.Contains(_entry);
-        button.Text = favorite ? "取消收藏" : "收藏";
+        button.Text = favorite ? "管理收藏" : "收藏";
         button.SvgIcon = favorite ? "lucide/star-off" : "lucide/star";
     }
 

@@ -2,10 +2,10 @@
                xmlns="https://github.com/avaloniaui"
                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
+               Focusable="True"
                Margin="0,8">
     <Grid x:Name="PanBack"
           Height="44"
-          ClipToBounds="True"
           Background="{DynamicResource ColorBrushSemiTransparent}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="6" />
@@ -21,6 +21,26 @@
             <RowDefinition Height="18" />
             <RowDefinition Height="1*" />
         </Grid.RowDefinitions>
+
+        <Border x:Name="RectSelectionBack"
+                Grid.ColumnSpan="6"
+                Grid.RowSpan="4"
+                CornerRadius="3"
+                IsHitTestVisible="False"
+                Opacity="0"
+                Background="{DynamicResource ColorBrushBg1}" />
+        <Border x:Name="RectSelectionIndicator"
+                Grid.Column="0"
+                Grid.RowSpan="4"
+                Width="5"
+                Height="0"
+                Margin="-3,0,0,0"
+                CornerRadius="2"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsHitTestVisible="False"
+                Opacity="0"
+                Background="{DynamicResource ColorBrush3}" />
 
         <Border Grid.Column="1"
                 Grid.Row="1"
@@ -76,7 +96,8 @@
                    IsHitTestVisible="False"
                    HorizontalAlignment="Stretch" />
 
-        <StackPanel Grid.Row="1"
+        <StackPanel x:Name="PanActions"
+                    Grid.Row="1"
                     Grid.Column="5"
                     Grid.RowSpan="2"
                     Orientation="Horizontal"

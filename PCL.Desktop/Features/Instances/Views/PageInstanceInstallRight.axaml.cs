@@ -471,7 +471,7 @@ public partial class PageInstanceInstallRight : MyPageRight
         CollapseLoaderCards();
         MinecraftVersionJsonInfo versionInfo = MinecraftVersionJsonInspector.Read(instance);
         string minecraftVersionId = versionInfo.MinecraftVersionId;
-        IReadOnlyList<string> libraries = versionInfo.Libraries;
+        IReadOnlyList<string> libraries = versionInfo.LoaderEntries;
         // NeoForge first — DetectLoader("forge") would also match "neoforge" filenames.
         string? neoForge = MinecraftLoaderLibraryDetector.DetectVersion(
                                libraries,
@@ -882,7 +882,7 @@ public partial class PageInstanceInstallRight : MyPageRight
     private static (MinecraftLoaderKind? Kind, string? Version, string? OptiFineVersion) DetectCurrentLoaderSelection(
         LaunchInstanceInfo instance)
     {
-        IReadOnlyList<string> libraries = MinecraftVersionJsonInspector.Read(instance).Libraries;
+        IReadOnlyList<string> libraries = MinecraftVersionJsonInspector.Read(instance).LoaderEntries;
         string? optiFine = MinecraftLoaderLibraryDetector.DetectVersion(libraries, "optifine") ?? DetectLoader(instance, "optifine");
         bool hasLegacyFabricLibraries = libraries.Any(library => library.Contains("net.legacyfabric:", StringComparison.OrdinalIgnoreCase));
         string? fabricLoaderVersion = MinecraftLoaderLibraryDetector.DetectVersion(libraries, "net.fabricmc:fabric-loader:");

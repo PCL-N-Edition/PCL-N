@@ -63,7 +63,28 @@ public partial class MyMsgInput : Grid
         string primaryButton = "确定",
         string secondaryButton = "取消",
         bool isWarn = false,
-        Collection<IValidator<string>>? validateRules = null)
+        Collection<IValidator<string>>? validateRules = null) =>
+        Configure(
+            title,
+            text,
+            content,
+            hintText,
+            primaryButton,
+            secondaryButton,
+            isWarn,
+            validateRules,
+            maxLength: 1000);
+
+    public void Configure(
+        string title,
+        string text,
+        string content,
+        string hintText,
+        string primaryButton,
+        string secondaryButton,
+        bool isWarn,
+        Collection<IValidator<string>>? validateRules,
+        int maxLength)
     {
         if (this.FindControl<TextBlock>("LabTitle") is { } titleBlock)
         {
@@ -80,6 +101,7 @@ public partial class MyMsgInput : Grid
             textPanel.IsVisible = !string.IsNullOrEmpty(text);
         if (this.FindControl<MyTextBox>("TextArea") is { } input)
         {
+            input.MaxLength = maxLength;
             input.Text = content;
             input.HintText = hintText;
             input.ValidateRules = validateRules ?? [];

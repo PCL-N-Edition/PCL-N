@@ -323,6 +323,7 @@
     <sys:String x:Key="Instance.Server.QuickActions">Quick actions</sys:String>
     <sys:String x:Key="Instance.Server.RefreshAll">Refresh All</sys:String>
     <sys:String x:Key="Instance.Server.RefreshInfo">Refresh server info</sys:String>
+    <sys:String x:Key="Instance.Server.SelectedCount">{0} server(s) selected</sys:String>
     <sys:String x:Key="Instance.Setup.Advanced.Classpath">Classpath prefix</sys:String>
     <sys:String x:Key="Instance.Setup.Advanced.Classpath.ToolTip">Adds entries to the beginning of this instance’s classpath.&#x0a;Use absolute paths and separate multiple entries with semicolons (;).</sys:String>
     <sys:String x:Key="Instance.Setup.Advanced.DisableFileVerification">Skip file verification</sys:String>

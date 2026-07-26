@@ -276,11 +276,27 @@ public static class MinecraftLaunchArgumentService
 
         string? architecture = osNode["arch"]?.ToString();
         if (!string.IsNullOrWhiteSpace(architecture))
-            isAllowed = isAllowed &&
-                        string.Equals(architecture, "x86", StringComparison.Ordinal) == context.Is32BitArchitecture;
+            isAllowed = isAllowed && IsArchitectureAllowed(architecture, context.Architecture);
 
         return isAllowed;
     }
+
+    private static bool IsArchitectureAllowed(
+        string architecture,
+        MinecraftArgumentArchitecture expectedArchitecture) =>
+        expectedArchitecture switch
+        {
+            MinecraftArgumentArchitecture.X86 =>
+                string.Equals(architecture, "x86", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(architecture, "i386", StringComparison.OrdinalIgnoreCase),
+            MinecraftArgumentArchitecture.X64 =>
+                string.Equals(architecture, "x86_64", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(architecture, "amd64", StringComparison.OrdinalIgnoreCase),
+            MinecraftArgumentArchitecture.Arm64 =>
+                string.Equals(architecture, "arm64", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(architecture, "aarch64", StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
 
     private static bool AreFeaturesAllowed(JsonNode? featuresNode, MinecraftArgumentRuleContext context)
     {

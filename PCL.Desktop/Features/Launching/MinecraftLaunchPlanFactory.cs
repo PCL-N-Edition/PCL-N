@@ -15,6 +15,7 @@ using PCL.Application.Settings;
 using PCL.Core.Logging;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings.Views;
+using PCL.Desktop.Features.Shared;
 using PCL.Platform.Java;
 using PCL.Platform.Paths;
 
@@ -244,30 +245,7 @@ internal static class MinecraftLaunchPlanFactory
     }
 
     public static string ReadMinecraftVersionId(LaunchInstanceInfo instance)
-    {
-        try
-        {
-            using FileStream stream = File.OpenRead(instance.VersionJsonPath);
-            using JsonDocument document = JsonDocument.Parse(stream);
-            JsonElement root = document.RootElement;
-            string? inheritsFrom = TryReadJsonString(root, "inheritsFrom");
-            if (!string.IsNullOrWhiteSpace(inheritsFrom))
-                return inheritsFrom;
-
-            string? id = TryReadJsonString(root, "id");
-            if (!string.IsNullOrWhiteSpace(id))
-                return id;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            PortableLog.Warn(
-                ex,
-                "Launch",
-                $"读取实例版本标识失败，将回退到实例文件夹名称：{instance.VersionJsonPath}");
-        }
-
-        return instance.Name;
-    }
+        => MinecraftVersionJsonInspector.Read(instance).MinecraftVersionId;
 
     public static bool IsAccessTokenUsable(string? accessToken)
     {

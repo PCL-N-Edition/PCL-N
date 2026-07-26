@@ -599,15 +599,15 @@ internal sealed class MinecraftLaunchCoordinator
         MinecraftVersionJsonInfo info = MinecraftVersionJsonInspector.Read(instance);
         Version? vanillaVersion = TryParseMinecraftVanillaVersion(info.MinecraftVersionId);
         string? neoForgeVersion = MinecraftLoaderLibraryDetector.DetectVersion(
-            info.Libraries,
+            info.LoaderEntries,
             "net.neoforged:neoforge",
             "net.neoforge:forge");
         // Do not use bare "forge" needle — it matches NeoForge library names.
         string? forgeVersion = neoForgeVersion is null
-            ? MinecraftLoaderLibraryDetector.DetectVersion(info.Libraries, "net.minecraftforge:forge")
+            ? MinecraftLoaderLibraryDetector.DetectVersion(info.LoaderEntries, "net.minecraftforge:forge")
             : null;
         string? cleanroomVersion = MinecraftLoaderLibraryDetector.DetectVersion(
-            info.Libraries,
+            info.LoaderEntries,
             "com.cleanroommc:cleanroom");
 
         return new MinecraftLaunchProfile
@@ -627,7 +627,7 @@ internal sealed class MinecraftLaunchCoordinator
             ForgeVersion = forgeVersion ?? neoForgeVersion,
             HasCleanroom = cleanroomVersion is not null || HasLoaderNeedle(instance, "cleanroom"),
             CleanroomVersion = cleanroomVersion,
-            HasFabric = HasLoaderNeedle(instance, "fabric-loader", "quilt-loader"),
+            HasFabric = HasLoaderNeedle(instance, "fabric-loader", "quilt-loader", "legacyfabric", "legacy-fabric"),
             HasLiteLoader = HasLoaderNeedle(instance, "liteloader"),
             HasLabyMod = HasLoaderNeedle(instance, "labymod")
         };
@@ -737,9 +737,17 @@ internal sealed class MinecraftLaunchCoordinator
         CancellationToken cancellationToken)
     {
         // Fast path: client jar present → skip full RepairAsync (was freezing launches).
-        string clientJar = Path.Combine(request.Instance.InstanceDirectory, request.Instance.Name + ".jar");
         string versionJson = request.Instance.VersionJsonPath;
-        bool looksInstalled = File.Exists(clientJar) && File.Exists(versionJson);
+        MinecraftVersionJsonInfo versionInfo = MinecraftVersionJsonInspector.Read(request.Instance);
+        string? clientJar = MinecraftVersionFileResolver.ResolveJarPath(
+                                request.MinecraftRootDirectory,
+                                request.Instance.InstanceDirectory,
+                                versionInfo.MinecraftVersionId)
+                            ?? MinecraftVersionFileResolver.ResolveJarPath(
+                                request.MinecraftRootDirectory,
+                                request.Instance.InstanceDirectory,
+                                request.Instance.Name);
+        bool looksInstalled = clientJar is not null && File.Exists(versionJson);
         if (looksInstalled)
         {
             request.Log?.Invoke("版本文件已存在，跳过完整补全（快速路径）。");
@@ -1032,7 +1040,7 @@ internal sealed class MinecraftLaunchCoordinator
     private static bool HasLoaderNeedle(LaunchInstanceInfo instance, params string[] needles)
     {
         MinecraftVersionJsonInfo info = MinecraftVersionJsonInspector.Read(instance);
-        return info.Libraries.Any(library =>
+        return info.LoaderEntries.Any(library =>
             needles.Any(needle => library.Contains(needle, StringComparison.OrdinalIgnoreCase)));
     }
 
