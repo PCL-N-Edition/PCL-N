@@ -115,9 +115,9 @@
                                                  VerticalAlignment="Center"
                                                  Theme="Color"
                                                  LogoScale="1.0"
-                                                 SvgIcon="lucide/settings-2"
-                                                 ToolTip="{DynamicResource Launch.Home.InstanceSettings}"
-                                                 IsVisible="False"
+                                                 SvgIcon="lucide/list"
+                                                 ToolTip="{DynamicResource Launch.Home.SelectInstance}"
+                                                 IsVisible="True"
                                                  Click="BtnMore_Click" />
                         </Grid>
 
@@ -147,7 +147,7 @@
                                                MaxLines="1"
                                                TextTrimming="CharacterEllipsis"
                                                Foreground="{DynamicResource ColorBrushGray3}"
-                                               Text="{DynamicResource Launch.Experimental.Version.TapToSelect}" />
+                                               Text="{DynamicResource Launch.Experimental.Version.SelectFromToolbar}" />
                                 </StackPanel>
                                 <Border Grid.Column="1"
                                         Width="26"

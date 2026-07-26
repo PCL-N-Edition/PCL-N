@@ -521,37 +521,13 @@ public partial class MyLocalModItem : Grid
     private void RefreshCheckedVisual(bool animate)
     {
         Border indicator = EnsureRectCheck();
-        ModAnimation.AniStop($"MyLocalCompItem Checked {Uuid}");
         indicator.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
         indicator.Margin = new Thickness(-3d, 0d, 0d, 0d);
-
+        string animationKey = $"MyLocalCompItem Checked {Uuid}";
         if (!animate)
-        {
-            indicator.Height = Checked ? 32d : 0d;
-            indicator.Opacity = Checked ? 1d : 0d;
-            ApplyTitleForeground(animate: false);
-            return;
-        }
-
-        List<ModAnimation.AniData> animations = [];
-        if (Checked)
-        {
-            double delta = 32d - indicator.Bounds.Height;
-            animations.Add(ModAnimation.AaHeight(indicator, delta * 0.4d, 200, ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)));
-            animations.Add(ModAnimation.AaHeight(indicator, delta * 0.6d, 300, ease: new ModAnimation.AniEaseOutBack(ModAnimation.AniEasePower.Weak)));
-            animations.Add(ModAnimation.AaOpacity(indicator, 1d - indicator.Opacity, 30));
-            if (_title is not null)
-                animations.Add(ModAnimation.AaColor(_title, TextBlock.ForegroundProperty, CheckedTitleBrushKey, 200));
-        }
-        else
-        {
-            animations.Add(ModAnimation.AaHeight(indicator, -indicator.Bounds.Height, 120, ease: new ModAnimation.AniEaseInFluent(ModAnimation.AniEasePower.Weak)));
-            animations.Add(ModAnimation.AaOpacity(indicator, -indicator.Opacity, 70, 40));
-            if (_title is not null)
-                animations.Add(ModAnimation.AaColor(_title, TextBlock.ForegroundProperty, NormalTitleBrushKey, 120));
-        }
-
-        ModAnimation.AniStart(animations, $"MyLocalCompItem Checked {Uuid}");
+            ModAnimation.AniStop(animationKey);
+        ListSelectionMotion.AnimateRow(this, indicator, Checked, animationKey);
+        ApplyTitleForeground(animate);
     }
 
     private void RefreshColor(bool animate)

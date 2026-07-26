@@ -760,6 +760,7 @@
     <sys:String x:Key="Launch.Experimental.Version.Empty">未找到可启动的游戏版本</sys:String>
     <sys:String x:Key="Launch.Experimental.Version.TapToSelect">轻点以选择或安装版本</sys:String>
     <sys:String x:Key="Launch.Experimental.Version.TapToSwitch">轻点以切换版本</sys:String>
+    <sys:String x:Key="Launch.Experimental.Version.SelectFromToolbar">使用右上角按钮选择或安装版本</sys:String>
     <sys:String x:Key="Launch.Experimental.Version.Scanning">正在扫描本地版本…</sys:String>
     <sys:String x:Key="Launch.Experimental.Account.Hint">登录与档案管理在这里完成。</sys:String>
     <sys:String x:Key="Launch.Experimental.Account.Ready">账户已就绪，可以开始游戏。</sys:String>

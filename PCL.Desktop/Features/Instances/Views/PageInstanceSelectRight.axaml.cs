@@ -24,7 +24,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
     private CancellationTokenSource? _metadataLoadCancellation;
     private Dictionary<string, InstanceMetadata> _metadataCache = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<LaunchInstanceInfo> _instances = [];
-    private IReadOnlyList<MinecraftFolderInfo> _folders = [];
+    private MinecraftFolderInfo[] _folders = [];
     private string? _selectedRootDirectory;
     private LaunchInstanceInfo? _selectedInstance;
     private Task _metadataLoadTask = Task.CompletedTask;
@@ -126,7 +126,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
 
     public void SetFolders(IReadOnlyList<MinecraftFolderInfo> folders, string? selectedRootDirectory)
     {
-        _folders = folders ?? [];
+        _folders = FilterExistingFolders(folders);
         _selectedRootDirectory = ResolveSelectedFolderPath(selectedRootDirectory);
         if (_fullPageLayout)
             ReloadFolders();
@@ -157,7 +157,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
                 return NormalizeFolderPath(current.RootDirectory);
         }
 
-        return _folders.Count > 0 ? NormalizeFolderPath(_folders[0].RootDirectory) : preferred;
+        return _folders.Length > 0 ? NormalizeFolderPath(_folders[0].RootDirectory) : preferred;
     }
 
     public bool TrySelectInstance(LaunchInstanceInfo instance)
@@ -239,7 +239,6 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         string? folderPath = NormalizeFolderPath(folder.RootDirectory);
         bool selected = folderPath is not null &&
                         string.Equals(folderPath, _selectedRootDirectory, StringComparison.OrdinalIgnoreCase);
-        bool missing = folderPath is null || !Directory.Exists(folderPath);
 
         Border row = new()
         {
@@ -250,7 +249,6 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
             Background = selected
                 ? ResolveBrush("ColorBrush7") ?? Brushes.Transparent
                 : Brushes.Transparent,
-            Opacity = missing ? 0.78 : 1d,
             Tag = folder
         };
 
@@ -258,9 +256,6 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto")
         };
-        string secondary = missing
-            ? ResourceText("Select.Instance.Sidebar.MissingPath", "路径不存在") + " · " + folder.RootDirectory
-            : folder.RootDirectory;
         StackPanel text = new()
         {
             Spacing = 2,
@@ -276,7 +271,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
                 },
                 new TextBlock
                 {
-                    Text = secondary,
+                    Text = folder.RootDirectory,
                     FontSize = 11,
                     Opacity = 0.62,
                     Foreground = ResolveBrush("ColorBrushGray2") ?? Brushes.Gray,
@@ -322,6 +317,15 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         };
         return row;
     }
+
+    private static MinecraftFolderInfo[] FilterExistingFolders(
+        IReadOnlyList<MinecraftFolderInfo>? folders) =>
+        folders?
+            .Where(static folder =>
+                NormalizeFolderPath(folder.RootDirectory) is { } path &&
+                Directory.Exists(path))
+            .ToArray()
+        ?? [];
 
     private static MyIconButton CreateTinyIcon(string icon, string tip, Action click)
     {

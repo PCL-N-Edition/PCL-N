@@ -215,8 +215,6 @@ public partial class PageInstanceServerRight : MyPageRight
     private void UpdateSelectionBar()
     {
         bool selected = _selectedCards.Count > 0;
-        if (this.FindControl<MyCard>("CardSelect") is { } card)
-            card.IsVisible = selected;
         if (this.FindControl<TextBlock>("LabSelect") is { } label && selected)
         {
             label.Text = GetText(
@@ -224,8 +222,18 @@ public partial class PageInstanceServerRight : MyPageRight
                 "已选择 {0} 个服务器",
                 _selectedCards.Count.ToString(CultureInfo.CurrentCulture));
         }
-        if (this.FindControl<StackPanel>("PanServers") is { } servers)
-            servers.Margin = new Thickness(15d, 0d, 15d, selected ? 95d : 15d);
+        if (this.FindControl<MyCard>("CardSelect") is { } card &&
+            this.FindControl<StackPanel>("PanServers") is { } servers)
+        {
+            ListSelectionMotion.AnimateActionBar(
+                this,
+                card,
+                servers,
+                selected,
+                visibleBottomMargin: 95d,
+                hiddenBottomMargin: 15d,
+                animationKey: "PageInstanceServer SelectionBar");
+        }
     }
 
     private void Page_KeyDown(object? sender, KeyEventArgs e)

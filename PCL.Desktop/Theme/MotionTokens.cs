@@ -59,4 +59,16 @@ internal static class MotionTokens
 
     /// <summary>List entrance vertical travel duration.</summary>
     public const int ListEnterSlideMs = 220;
+
+    /// <summary>List multi-selection indicator settle duration (critically damped).</summary>
+    public const int ListSelectionIndicatorMs = 180;
+
+    /// <summary>Selection action bar enter duration.</summary>
+    public const int ListSelectionBarEnterMs = 220;
+
+    /// <summary>Selection action bar exit duration.</summary>
+    public const int ListSelectionBarExitMs = 150;
+
+    /// <summary>Vertical travel used by selection action bars.</summary>
+    public const double ListSelectionBarOffsetY = 12d;
 }

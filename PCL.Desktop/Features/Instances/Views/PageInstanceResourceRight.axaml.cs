@@ -1490,8 +1490,6 @@ public partial class PageInstanceResourceRight : MyPageRight
     {
         int selectedCount = _selectedPaths.Count;
         bool selected = selectedCount > 0;
-        if (this.FindControl<MyCard>("CardSelect") is { } card)
-            card.IsVisible = selected;
         if (this.FindControl<TextBlock>("LabSelect") is { } label && selected)
         {
             label.Text = Text(
@@ -1512,8 +1510,18 @@ public partial class PageInstanceResourceRight : MyPageRight
                 _catalogByPath.TryGetValue(entry.FullPath, out LocalCatalogMatch? match) && match.HasUpdate);
         }
 
-        if (this.FindControl<MyCard>("PanListBack") is { } listBack)
-            listBack.Margin = new Thickness(0d, 0d, 0d, selected ? 95d : 14d);
+        if (this.FindControl<MyCard>("CardSelect") is { } card &&
+            this.FindControl<MyCard>("PanListBack") is { } listBack)
+        {
+            ListSelectionMotion.AnimateActionBar(
+                this,
+                card,
+                listBack,
+                selected,
+                visibleBottomMargin: 95d,
+                hiddenBottomMargin: 14d,
+                animationKey: "PageInstanceResource SelectionBar");
+        }
     }
 
     private IEnumerable<ResourceEntry> GetFilterSource() =>

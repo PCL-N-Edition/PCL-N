@@ -419,6 +419,73 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageLaunchHomeExperimental_SwapsInstanceSelectionAndSettingsActions()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-experimental-home-actions-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            Directory.CreateDirectory(root);
+            string jsonPath = System.IO.Path.Combine(root, "1.21.1.json");
+            File.WriteAllText(jsonPath, """{ "id": "1.21.1" }""");
+
+            session.Dispatch(() =>
+            {
+                PageLaunchHomeExperimental page = new();
+                Window window = new()
+                {
+                    Width = 620,
+                    Height = 520,
+                    Content = page
+                };
+                bool selectRequested = false;
+                bool settingsRequested = false;
+                page.InstanceSelectRequested += (_, _) => selectRequested = true;
+                page.InstanceSettingsRequested += (_, _) => settingsRequested = true;
+
+                try
+                {
+                    window.Show();
+                    page.SetInstances(
+                    [
+                        new LaunchInstanceInfo("1.21.1", jsonPath, root)
+                    ]);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    MyIconButton compactSelect = page.FindControl<MyIconButton>("BtnMore")!;
+                    Border settingsRow = page.FindControl<Border>("BtnInstance")!;
+                    Assert.IsTrue(compactSelect.IsVisible);
+                    Assert.AreEqual("lucide/list", compactSelect.SvgIcon);
+                    Assert.AreEqual("选择版本", ToolTip.GetTip(compactSelect));
+                    Assert.IsTrue(settingsRow.IsEnabled);
+                    Assert.AreEqual(
+                        "版本设置",
+                        page.FindControl<TextBlock>("LabVersionAction")!.Text);
+
+                    Click(window, compactSelect);
+                    Assert.IsTrue(selectRequested);
+                    Assert.IsFalse(settingsRequested);
+
+                    Click(window, settingsRow);
+                    Assert.IsTrue(settingsRequested);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void LaunchPage_RootChangeWaitsForOneExplicitRefreshAndLeavesLoadingState()
     {
         string root = System.IO.Path.Combine(
@@ -5172,33 +5239,112 @@ public sealed class AvaloniaHeadlessTests
     public void PageInstanceSelectLeft_ListsMinecraftRootsAndRaisesSelection()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-folder-left-" + Guid.NewGuid().ToString("N"));
+        string firstRoot = System.IO.Path.Combine(root, "Minecraft-A");
+        string secondRoot = System.IO.Path.Combine(root, "Minecraft-B");
+        string missingRoot = System.IO.Path.Combine(root, "Missing");
 
-        session.Dispatch(() =>
+        try
         {
-            PageInstanceSelectLeft page = new();
-            MinecraftFolderInfo first = new("主目录", @"D:\Minecraft-A");
-            MinecraftFolderInfo second = new("测试目录", @"D:\Minecraft-B", IsCustom: true);
-            MinecraftFolderInfo? selected = null;
-            page.FolderSelected += (_, folder) => selected = folder;
-            page.SetFolders([first, second], second.RootDirectory);
+            Directory.CreateDirectory(firstRoot);
+            Directory.CreateDirectory(secondRoot);
+            session.Dispatch(() =>
+            {
+                PageInstanceSelectLeft page = new();
+                MinecraftFolderInfo missing = new("失效目录", missingRoot);
+                MinecraftFolderInfo first = new("主目录", firstRoot);
+                MinecraftFolderInfo second = new("测试目录", secondRoot, IsCustom: true);
+                MinecraftFolderInfo? selected = null;
+                page.FolderSelected += (_, folder) => selected = folder;
+                page.SetFolders([missing, first, second], second.RootDirectory);
 
-            MyListItem[] folders = page.FindControl<StackPanel>("PanList")!.Children
-                .OfType<MyListItem>()
-                .Where(item => item.Tag is MinecraftFolderInfo)
-                .ToArray();
-            Assert.AreEqual(2, folders.Length);
-            Assert.IsFalse(folders[0].Checked);
-            Assert.IsTrue(folders[1].Checked);
-            // Presets: open + refresh + remove (no rename). Custom: + rename.
-            Assert.AreEqual(3, folders[0].Buttons.Count);
-            Assert.AreEqual(4, folders[1].Buttons.Count);
+                MyListItem[] folders = page.FindControl<StackPanel>("PanList")!.Children
+                    .OfType<MyListItem>()
+                    .Where(item => item.Tag is MinecraftFolderInfo)
+                    .ToArray();
+                Assert.AreEqual(2, folders.Length);
+                Assert.IsFalse(folders.Any(item => ReferenceEquals(item.Tag, missing)));
+                Assert.IsFalse(folders[0].Checked);
+                Assert.IsTrue(folders[1].Checked);
+                // Presets: open + refresh + remove (no rename). Custom: + rename.
+                Assert.AreEqual(3, folders[0].Buttons.Count);
+                Assert.AreEqual(4, folders[1].Buttons.Count);
 
-            Assert.IsTrue(page.TrySelectFolder(first));
-            Assert.AreSame(first, selected);
-            Assert.AreEqual(
-                System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(first.RootDirectory)),
-                page.SelectedRootDirectory);
-        }, CancellationToken.None);
+                Assert.IsTrue(page.TrySelectFolder(first));
+                Assert.AreSame(first, selected);
+                Assert.AreEqual(
+                    System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(first.RootDirectory)),
+                    page.SelectedRootDirectory);
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void PageInstanceSelectRight_FullPageHidesMissingFoldersAndSelectsFirstAvailable()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-folder-sidebar-" + Guid.NewGuid().ToString("N"));
+        string firstRoot = System.IO.Path.Combine(root, "Minecraft-A");
+        string secondRoot = System.IO.Path.Combine(root, "Minecraft-B");
+        string missingRoot = System.IO.Path.Combine(root, "Missing");
+
+        try
+        {
+            Directory.CreateDirectory(firstRoot);
+            Directory.CreateDirectory(secondRoot);
+            session.Dispatch(() =>
+            {
+                PageInstanceSelectRight page = new();
+                Window window = new()
+                {
+                    Width = 760,
+                    Height = 520,
+                    Content = page
+                };
+                MinecraftFolderInfo missing = new("失效目录", missingRoot);
+                MinecraftFolderInfo first = new("主目录", firstRoot);
+                MinecraftFolderInfo second = new("测试目录", secondRoot, IsCustom: true);
+
+                try
+                {
+                    page.SetFullPageLayout(true);
+                    page.SetFolders([missing, first, second], missing.RootDirectory);
+                    window.Show();
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    Border[] folderRows = page.FindControl<StackPanel>("PanFolders")!.Children
+                        .OfType<Border>()
+                        .Where(row => row.Tag is MinecraftFolderInfo)
+                        .ToArray();
+                    Assert.AreEqual(2, folderRows.Length);
+                    Assert.AreSame(first, folderRows[0].Tag);
+                    Assert.AreEqual(
+                        RequiredBrush("ColorBrush7").Color,
+                        ((ISolidColorBrush)folderRows[0].Background!).Color);
+                    Assert.AreEqual(
+                        Colors.Transparent,
+                        ((ISolidColorBrush)folderRows[1].Background!).Color);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     [TestMethod]
@@ -7059,8 +7205,15 @@ public sealed class AvaloniaHeadlessTests
                     Click(window, firstRow);
                     Assert.IsTrue(cards[0].Selected);
                     Assert.IsTrue(cards[0].IsFocused);
-                    Assert.AreEqual(32d, selectionIndicator.Height);
-                    Assert.AreEqual(1d, selectionBack.Opacity);
+                    if (ModAnimation.AniIsRun(cards[0].SelectionAnimationKey))
+                    {
+                        ModAnimation.AdvanceForTesting(64);
+                        Assert.IsTrue(selectionIndicator.Height > 0d);
+                        Assert.IsTrue(selectionIndicator.Height < 32d);
+                    }
+                    ModAnimation.AdvanceUntilIdleForTesting();
+                    Assert.AreEqual(32d, selectionIndicator.Height, 0.000001d);
+                    Assert.AreEqual(1d, selectionBack.Opacity, 0.000001d);
                     Assert.IsTrue(page.FindControl<MyCard>("CardSelect")!.IsVisible);
                     StringAssert.Contains(page.FindControl<TextBlock>("LabSelect")!.Text!, "1");
 
@@ -7087,6 +7240,7 @@ public sealed class AvaloniaHeadlessTests
                     Assert.IsFalse(cards[0].Selected);
                     Click(window, firstRow);
                     Assert.IsTrue(cards[0].Selected);
+                    ModAnimation.AdvanceUntilIdleForTesting();
 
                     window.KeyPress(Key.A, RawInputModifiers.Control, PhysicalKey.A, "a");
                     window.KeyRelease(Key.A, RawInputModifiers.Control, PhysicalKey.A, "a");
@@ -7102,9 +7256,11 @@ public sealed class AvaloniaHeadlessTests
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                     Click(window, page.FindControl<MyIconTextButton>("BtnSelectRefresh")!);
                     await WaitForConditionAsync(() => statusService.RequestCount == 2).ConfigureAwait(true);
+                    ModAnimation.AdvanceUntilIdleForTesting();
                     Assert.IsFalse(page.FindControl<MyCard>("CardSelect")!.IsVisible);
 
                     Click(window, page.FindControl<MyButton>("BtnSelectAll")!);
+                    ModAnimation.AdvanceUntilIdleForTesting();
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                     Click(window, page.FindControl<MyIconTextButton>("BtnSelectDelete")!);
                     Assert.IsNotNull(removal);
@@ -7115,6 +7271,7 @@ public sealed class AvaloniaHeadlessTests
 
                     Click(window, page.FindControl<MyIconTextButton>("BtnSelectCancel")!);
                     Assert.IsTrue(cards.All(static card => !card.Selected));
+                    ModAnimation.AdvanceUntilIdleForTesting();
                     Assert.IsFalse(page.FindControl<MyCard>("CardSelect")!.IsVisible);
                 }
                 finally
@@ -7949,19 +8106,23 @@ public sealed class AvaloniaHeadlessTests
                     }).ConfigureAwait(true);
                     Click(window, enabledSelection);
                     Assert.IsTrue(enabledSelection.Checked);
+                    ModAnimation.AdvanceUntilIdleForTesting();
                     Assert.IsTrue(page.FindControl<MyCard>("CardSelect")!.IsVisible);
                     StringAssert.Contains(page.FindControl<TextBlock>("LabSelect")!.Text!, "1");
                     Click(window, page.FindControl<MyIconTextButton>("BtnSelectCancel")!);
                     Assert.IsFalse(enabledSelection.Checked);
+                    ModAnimation.AdvanceUntilIdleForTesting();
                     Assert.IsFalse(page.FindControl<MyCard>("CardSelect")!.IsVisible);
 
                     Click(window, page.FindControl<MyButton>("BtnManageSelectAll")!);
+                    ModAnimation.AdvanceUntilIdleForTesting();
                     Assert.IsTrue(enabledSelection.Checked);
                     Assert.IsTrue(disabledSelection.Checked);
                     StringAssert.Contains(page.FindControl<TextBlock>("LabSelect")!.Text!, "2");
                     Click(window, page.FindControl<MyButton>("BtnManageSelectAll")!);
                     Assert.IsFalse(enabledSelection.Checked);
                     Assert.IsFalse(disabledSelection.Checked);
+                    ModAnimation.AdvanceUntilIdleForTesting();
                     Assert.IsFalse(page.FindControl<MyCard>("CardSelect")!.IsVisible);
 
                     MyLocalModItem firstVisible = list.Children.OfType<MyLocalModItem>().First();

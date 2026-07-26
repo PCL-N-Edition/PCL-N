@@ -34,6 +34,8 @@ public sealed partial class ServerCard : MyCard
     private bool _rowPressStarted;
     private bool _selected;
 
+    internal string SelectionAnimationKey => $"ServerCard Selection {uuid}";
+
     public ServerCard()
     {
         AvaloniaXamlLoader.Load(this);
@@ -128,9 +130,12 @@ public sealed partial class ServerCard : MyCard
 
     private void RefreshSelectionVisual()
     {
-        _selectionBack.Opacity = Selected ? 1d : 0d;
-        _selectionIndicator.Height = Selected ? 32d : 0d;
-        _selectionIndicator.Opacity = Selected ? 1d : 0d;
+        ListSelectionMotion.AnimateRow(
+            this,
+            _selectionIndicator,
+            Selected,
+            SelectionAnimationKey,
+            _selectionBack);
     }
 
     private void RefreshPinButton()

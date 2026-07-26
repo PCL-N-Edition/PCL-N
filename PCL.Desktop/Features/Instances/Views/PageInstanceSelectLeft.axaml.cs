@@ -13,7 +13,7 @@ public sealed record MinecraftFolderInfo(string Name, string RootDirectory, bool
 
 public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
 {
-    private IReadOnlyList<MinecraftFolderInfo> _folders = [];
+    private MinecraftFolderInfo[] _folders = [];
     private string? _selectedRootDirectory;
 
     public PageInstanceSelectLeft()
@@ -45,7 +45,7 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
 
     public void SetFolders(IReadOnlyList<MinecraftFolderInfo> folders, string? selectedRootDirectory)
     {
-        _folders = folders ?? [];
+        _folders = FilterExistingFolders(folders);
         _selectedRootDirectory = ResolveSelectedFolderPath(selectedRootDirectory);
         ReloadList();
     }
@@ -72,7 +72,7 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
                 return NormalizePath(current.RootDirectory);
         }
 
-        return _folders.Count > 0 ? NormalizePath(_folders[0].RootDirectory) : preferred;
+        return _folders.Length > 0 ? NormalizePath(_folders[0].RootDirectory) : preferred;
     }
 
     public void Refresh() => ReloadList();
@@ -125,7 +125,6 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
     private MyListItem CreateFolderItem(MinecraftFolderInfo folder)
     {
         string? folderPath = NormalizePath(folder.RootDirectory);
-        bool missing = folderPath is null || !Directory.Exists(folderPath);
 
         MyIconButton openButton = new()
         {
@@ -169,14 +168,11 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
         MyListItem item = new()
         {
             Title = folder.Name,
-            Info = missing
-                ? "路径不存在 · " + folder.RootDirectory
-                : folder.RootDirectory,
+            Info = folder.RootDirectory,
             Height = 44d,
             Type = MyListItem.CheckType.RadioBox,
             MinPaddingRight = 32d,
             IsScaleAnimationEnabled = false,
-            Opacity = missing ? 0.78d : 1d,
             Tag = folder,
             Buttons = buttons.ToArray()
         };
@@ -188,6 +184,15 @@ public partial class PageInstanceSelectLeft : MyPageLeft, IRefreshable
         item.Click += (_, _) => TrySelectFolder(folder);
         return item;
     }
+
+    private static MinecraftFolderInfo[] FilterExistingFolders(
+        IReadOnlyList<MinecraftFolderInfo>? folders) =>
+        folders?
+            .Where(static folder =>
+                NormalizePath(folder.RootDirectory) is { } path &&
+                Directory.Exists(path))
+            .ToArray()
+        ?? [];
 
     private static TextBlock CreateSectionTitle(string text) =>
         new()

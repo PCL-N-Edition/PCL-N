@@ -637,10 +637,10 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
                 "Launch.Experimental.Version.Empty",
                 "未找到可启动的游戏版本"));
             SetText("LabVersionAction", AvaloniaLocalizationManager.GetText(
-                "Launch.Experimental.Version.TapToSelect",
-                "轻点以选择或安装版本"));
-            SetVersionPickerEnabled(true);
-            SetVisible("BtnMore", false);
+                "Launch.Experimental.Version.SelectFromToolbar",
+                "使用右上角按钮选择或安装版本"));
+            SetVersionPickerEnabled(false);
+            SetVisible("BtnMore", true);
             SetAccountSummary(AvaloniaLocalizationManager.GetText(
                 "Launch.Experimental.Account.NoVersion",
                 "可以先登录账户；没有本地版本时会引导你安装游戏。"));
@@ -653,8 +653,8 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             isEnabled: HasSelectedProfile);
         SetText("LabVersion", SelectedInstance.Name);
         SetText("LabVersionAction", AvaloniaLocalizationManager.GetText(
-            "Launch.Experimental.Version.TapToSwitch",
-            "轻点以切换版本"));
+            "Launch.Home.InstanceSettings",
+            "版本设置"));
         SetVersionPickerEnabled(true);
         SetVisible("BtnMore", true);
         SetAccountSummary(HasSelectedProfile
@@ -1475,13 +1475,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         if (IsLaunchInProgress)
             return;
 
-        InstanceSelectRequested?.Invoke(this, EventArgs.Empty);
-        e.Handled = true;
-    }
-
-    private void BtnMore_Click(object? sender, EventArgs e)
-    {
-        if (IsLaunchInProgress || SelectedInstance is null)
+        if (SelectedInstance is null)
             return;
         if (HasIgnoreMarker(SelectedInstance))
         {
@@ -1490,6 +1484,15 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         }
 
         InstanceSettingsRequested?.Invoke(this, EventArgs.Empty);
+        e.Handled = true;
+    }
+
+    private void BtnMore_Click(object? sender, EventArgs e)
+    {
+        if (IsLaunchInProgress)
+            return;
+
+        InstanceSelectRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void SetVersionPickerEnabled(bool isEnabled)
@@ -1529,9 +1532,9 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         SetText("LabVersionAction", AvaloniaLocalizationManager.GetText(
             "Launch.Experimental.Version.Scanning",
             "正在扫描本地版本…"));
-        // Keep version picker usable so a stuck discovery never traps the user.
-        SetVersionPickerEnabled(true);
-        SetVisible("BtnMore", false);
+        // The compact toolbar entry remains available even if discovery stalls.
+        SetVersionPickerEnabled(false);
+        SetVisible("BtnMore", true);
         if (this.FindControl<MyLoading>("LoadInstanceCheck") is { } check)
         {
             check.IsVisible = true;
@@ -1548,10 +1551,10 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             isEnabled: false);
         SetText("LabVersion", message);
         SetText("LabVersionAction", AvaloniaLocalizationManager.GetText(
-            "Launch.Experimental.Version.TapToSelect",
-            "轻点以选择或安装版本"));
-        SetVersionPickerEnabled(true);
-        SetVisible("BtnMore", false);
+            "Launch.Experimental.Version.SelectFromToolbar",
+            "使用右上角按钮选择或安装版本"));
+        SetVersionPickerEnabled(false);
+        SetVisible("BtnMore", true);
         if (this.FindControl<MyLoading>("LoadInstanceCheck") is { } check)
         {
             check.IsVisible = true;
