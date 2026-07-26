@@ -238,6 +238,17 @@
                                     DefaultChecked="False" />
                             </legacy:MyCheckBox.Tag>
                         </legacy:MyCheckBox>
+                        <legacy:MyCheckBox x:Name="CheckOptionsOtherFolders">
+                            <legacy:MyCheckBox.Tag>
+                                <views:ExportOption
+                                    Title="{DynamicResource Instance.Export.Option.OtherFolders}"
+                                    Description="{DynamicResource Instance.Export.Option.OtherFolders.Desc}"
+                                    TitleResourceKey="Instance.Export.Option.OtherFolders"
+                                    DescriptionResourceKey="Instance.Export.Option.OtherFolders.Desc"
+                                    DefaultChecked="False" />
+                            </legacy:MyCheckBox.Tag>
+                        </legacy:MyCheckBox>
+                        <StackPanel Margin="30,0,0,0" x:Name="PanOptionsOtherFolders" />
                         <legacy:MyCheckBox x:Name="CheckOptionsPcl">
                             <legacy:MyCheckBox.Tag>
                                 <views:ExportOption
@@ -245,7 +256,7 @@
                                     Description="{DynamicResource Instance.Export.Option.Launcher.Desc}"
                                     TitleResourceKey="Instance.Export.Option.Launcher"
                                     DescriptionResourceKey="Instance.Export.Option.Launcher.Desc"
-                                    DefaultChecked="True" />
+                                    DefaultChecked="False" />
                             </legacy:MyCheckBox.Tag>
                         </legacy:MyCheckBox>
                         <StackPanel Margin="30,0,0,0" x:Name="PanOptionsPcl">

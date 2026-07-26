@@ -7,8 +7,10 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using PCL.Application.Instances;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Launching.Views;
+using PCL.Desktop.Features.Shared;
 
 namespace PCL.Desktop.Features.Instances.Views;
 
@@ -61,7 +63,15 @@ public sealed record InstanceExportPageRequest(
 
 public partial class PageInstanceExportRight : MyPageRight
 {
+    private static readonly string[] SubOptionBlackList = ["Quark Programmer Art.zip", "+ EuphoriaPatches_"];
+    private static readonly string[] DefaultExcludeRules =
+        ["!*.log", "!*.dat_old", "!*.BakaCoreInfo", "!hmclversion.cfg", "!log4j2.xml"];
+
     private LaunchInstanceInfo? _instance;
+    private string _gameDirectory = string.Empty;
+    private IReadOnlyList<string> _availableEntries = [];
+    private bool _hasModLoader;
+    private bool _hasOptiFine;
     private List<string>? _rulesOverrides;
 
     public PageInstanceExportRight()
@@ -84,13 +94,25 @@ public partial class PageInstanceExportRight : MyPageRight
                        !string.Equals(_instance.InstanceDirectory, instance.InstanceDirectory, StringComparison.OrdinalIgnoreCase);
         _instance = instance;
         if (changed)
+        {
+            _gameDirectory = ResolveGameDirectory(instance);
             RefreshAll();
+        }
     }
 
     public void RefreshAll()
     {
         if (_instance is null)
             return;
+
+        _gameDirectory = ResolveGameDirectory(_instance);
+        MinecraftVersionJsonInfo versionInfo = MinecraftVersionJsonInspector.Read(_instance);
+        _hasModLoader = versionInfo.Libraries.Any(IsModLoaderLibrary) || HasModLoaderFile(_instance);
+        _hasOptiFine = versionInfo.Libraries.Any(static library =>
+                            library.Contains("optifine", StringComparison.OrdinalIgnoreCase)) ||
+                       HasFileNamePart(_instance.InstanceDirectory, "optifine");
+        if (this.FindControl<Control>("HintOptiFine") is { } optiFineHint)
+            optiFineHint.IsVisible = _hasOptiFine;
 
         if (this.FindControl<MyTextBox>("TextExportName") is { } nameBox)
         {
@@ -111,6 +133,8 @@ public partial class PageInstanceExportRight : MyPageRight
 
         _rulesOverrides = null;
         SyncRulesOverrideUi();
+        ReloadAllSubOptions();
+        _availableEntries = BuildAvailableEntries();
         RefreshAllOptionsUI();
         PanScroll?.ScrollToHome();
     }
@@ -140,8 +164,11 @@ public partial class PageInstanceExportRight : MyPageRight
         WireVisibilityToggle("CheckOptionsResourcePacks", "PanOptionsResourcePacks");
         WireVisibilityToggle("CheckOptionsShaderPacks", "PanOptionsShaderPacks");
         WireVisibilityToggle("CheckOptionsSaves", "PanOptionsSaves");
+        WireVisibilityToggle("CheckOptionsOtherFolders", "PanOptionsOtherFolders");
         WireVisibilityToggle("CheckOptionsPcl", "PanOptionsPcl");
         WireVisibilityToggle("CheckAdvancedInclude", "HintAdvancedInclude");
+        if (this.FindControl<MyCheckBox>("CheckOptionsOtherFolders") is { } otherFolders)
+            otherFolders.Change += CheckOptionsOtherFolders_Change;
     }
 
     private void FillDefaultNameOnFocus()
@@ -168,6 +195,7 @@ public partial class PageInstanceExportRight : MyPageRight
         string packageVersion = this.FindControl<MyTextBox>("TextExportVersion")?.Text?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(packageVersion))
             packageVersion = "1.0.0";
+        bool includeLauncher = this.FindControl<MyCheckBox>("CheckOptionsPcl")?.Checked == true;
 
         ExportRequested?.Invoke(
             this,
@@ -176,8 +204,8 @@ public partial class PageInstanceExportRight : MyPageRight
                 packageName,
                 packageVersion,
                 CollectRules(includeHidden: false),
-                this.FindControl<MyCheckBox>("CheckOptionsPcl")?.Checked == true,
-                this.FindControl<MyCheckBox>("CheckOptionsPclCustom")?.Checked == true,
+                includeLauncher,
+                includeLauncher && this.FindControl<MyCheckBox>("CheckOptionsPclCustom")?.Checked == true,
                 this.FindControl<MyCheckBox>("CheckAdvancedInclude")?.Checked == true,
                 this.FindControl<MyCheckBox>("CheckAdvancedModrinth")?.Checked == true));
     }
@@ -206,6 +234,233 @@ public partial class PageInstanceExportRight : MyPageRight
         if (include.Checked == true)
             modrinth.Checked = false;
         modrinth.IsEnabled = include.Checked != true;
+    }
+
+    private void CheckOptionsOtherFolders_Change(object sender, bool user)
+    {
+        if (!user ||
+            this.FindControl<MyCheckBox>("CheckOptionsOtherFolders") is not { } parent ||
+            this.FindControl<StackPanel>("PanOptionsOtherFolders") is not { } panel)
+        {
+            return;
+        }
+
+        foreach (MyCheckBox child in panel.Children.OfType<MyCheckBox>())
+            child.Checked = parent.Checked;
+    }
+
+    private void ReloadAllSubOptions()
+    {
+        ReloadSubOptions("PanOptionsResourcePacks", acceptCompressedFile: true, acceptFolder: true,
+            "resourcepacks", "texturepacks");
+        ReloadSubOptions("PanOptionsSaves", acceptCompressedFile: false, acceptFolder: true, "saves");
+        ReloadSubOptions("PanOptionsShaderPacks", acceptCompressedFile: true, acceptFolder: true, "shaderpacks");
+        ReloadOtherFolders();
+    }
+
+    private void ReloadSubOptions(
+        string panelName,
+        bool acceptCompressedFile,
+        bool acceptFolder,
+        params string[] folders)
+    {
+        if (this.FindControl<StackPanel>(panelName) is not { } panel)
+            return;
+
+        panel.Children.Clear();
+        foreach (string folderName in folders)
+        {
+            string targetPath = Path.Combine(_gameDirectory, folderName);
+            if (!Directory.Exists(targetPath))
+                continue;
+
+            if (acceptCompressedFile)
+            {
+                IEnumerable<FileInfo> archives = Directory.EnumerateFiles(targetPath, "*", SearchOption.TopDirectoryOnly)
+                    .Select(static path => new FileInfo(path))
+                    .Where(static file => file.Extension.Equals(".zip", StringComparison.OrdinalIgnoreCase) ||
+                                          file.Extension.Equals(".rar", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(static file => file.Name, StringComparer.OrdinalIgnoreCase);
+                foreach (FileInfo archive in archives)
+                {
+                    if (IsBlacklistedSubOption(archive.Name))
+                        continue;
+                    panel.Children.Add(CreateDynamicOption(
+                        archive.Name,
+                        EscapeRulePath(folderName, archive.Name),
+                        defaultChecked: true));
+                    if (folderName.Equals("shaderpacks", StringComparison.OrdinalIgnoreCase))
+                        AddShaderConfigOption(panel, folderName, archive.Name, archive.FullName + ".txt");
+                }
+            }
+
+            if (!acceptFolder)
+                continue;
+
+            IEnumerable<DirectoryInfo> subFolders = Directory.EnumerateDirectories(targetPath, "*", SearchOption.TopDirectoryOnly)
+                .Select(static path => new DirectoryInfo(path))
+                .OrderByDescending(static folder => folder.LastWriteTimeUtc);
+            foreach (DirectoryInfo subFolder in subFolders)
+            {
+                if (IsBlacklistedSubOption(subFolder.Name) || !DirectoryHasEntries(subFolder.FullName))
+                    continue;
+                string? description = panelName == "PanOptionsSaves"
+                    ? subFolder.LastWriteTime.ToString("g", System.Globalization.CultureInfo.CurrentCulture)
+                    : null;
+                panel.Children.Add(CreateDynamicOption(
+                    subFolder.Name,
+                    EscapeRulePath(folderName, subFolder.Name) + "/",
+                    defaultChecked: true,
+                    description));
+                if (folderName.Equals("shaderpacks", StringComparison.OrdinalIgnoreCase))
+                {
+                    AddShaderConfigOption(
+                        panel,
+                        folderName,
+                        subFolder.Name,
+                        Path.Combine(targetPath, subFolder.Name + ".txt"));
+                }
+            }
+        }
+    }
+
+    private void AddShaderConfigOption(
+        StackPanel panel,
+        string folderName,
+        string itemName,
+        string configPath)
+    {
+        if (!File.Exists(configPath))
+            return;
+        string configName = itemName + ".txt";
+        panel.Children.Add(CreateDynamicOption(
+            configName,
+            EscapeRulePath(folderName, configName),
+            defaultChecked: true,
+            ResolveOptionText(this, "Instance.Export.Config.ShaderConfigSuffix", "光影配置文件"),
+            new Thickness(30d, 0d, 0d, 0d)));
+    }
+
+    private void ReloadOtherFolders()
+    {
+        if (this.FindControl<StackPanel>("PanOptionsOtherFolders") is not { } panel ||
+            this.FindControl<MyCheckBox>("CheckOptionsOtherFolders") is not { } parent)
+        {
+            return;
+        }
+
+        panel.Children.Clear();
+        if (!Directory.Exists(_gameDirectory))
+        {
+            parent.IsVisible = false;
+            return;
+        }
+
+        HashSet<string> coveredFolders = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "mods", "coremods", "lib",
+            "addons", "multiblocked", "modpack-update-checker", "global_packs",
+            "global_resource_packs", "global_data_packs", "optional_data_packs", "maps",
+            "mods-resourcepacks", "matmos", "resource_assorts", "patchouli_books", "datapacks",
+            "openloader", "worldshape", "resources", "scripts", "structures", "fontfiles",
+            "oresources", "packmenu", "craftpresence", "pointblanks",
+            "config", "defaultconfigs", "journeymap", "local", "essential", "gg.essential.mod",
+            "CustomSkinLoader", "xaero", "XaeroWaypoints", "XaeroWorldMap",
+            "resourcepacks", "texturepacks", "shaderpacks", "screenshots", "schematics",
+            "replay_recordings", "replay_videos", "saves", "configureddefaults",
+            "assets", "versions", "libraries", "structureCacheV1", ".fabric", ".git",
+            "avatar-cache", "cosmetic-cache", "PCL"
+        };
+
+        foreach (string directoryPath in Directory.EnumerateDirectories(_gameDirectory, "*", SearchOption.TopDirectoryOnly)
+                     .OrderBy(static path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
+        {
+            string name = Path.GetFileName(directoryPath);
+            if (coveredFolders.Contains(name) ||
+                name.StartsWith("kubejs", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("template", StringComparison.OrdinalIgnoreCase) ||
+                name.EndsWith("-natives", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            panel.Children.Add(CreateDynamicOption(
+                name,
+                InstanceExportService.EscapeLiteralRulePath(name) + "/",
+                defaultChecked: false));
+        }
+
+        parent.IsVisible = panel.Children.Count > 0;
+    }
+
+    private static MyCheckBox CreateDynamicOption(
+        string title,
+        string rules,
+        bool defaultChecked,
+        string? description = null,
+        Thickness? margin = null) =>
+        new()
+        {
+            Margin = margin ?? default,
+            Tag = new ExportOption
+            {
+                Title = title,
+                Description = description ?? string.Empty,
+                Rules = rules,
+                DefaultChecked = defaultChecked
+            }
+        };
+
+    private static string EscapeRulePath(string folderName, string entryName) =>
+        InstanceExportService.EscapeLiteralRulePath(folderName) + "/" +
+        InstanceExportService.EscapeLiteralRulePath(entryName);
+
+    private static bool IsBlacklistedSubOption(string name) =>
+        SubOptionBlackList.Any(value => name.Contains(value, StringComparison.OrdinalIgnoreCase));
+
+    private static bool DirectoryHasEntries(string path)
+    {
+        try
+        {
+            return Directory.EnumerateFileSystemEntries(path).Any();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private List<string> BuildAvailableEntries()
+    {
+        if (!Directory.Exists(_gameDirectory))
+            return [];
+
+        List<string> entries = [];
+        try
+        {
+            foreach (string file in Directory.EnumerateFiles(_gameDirectory, "*", SearchOption.TopDirectoryOnly))
+                entries.Add(Path.GetFileName(file));
+            foreach (string directoryPath in Directory.EnumerateDirectories(_gameDirectory, "*", SearchOption.TopDirectoryOnly))
+            {
+                string directoryName = Path.GetFileName(directoryPath);
+                entries.Add(directoryName + "/");
+                try
+                {
+                    foreach (string child in Directory.EnumerateFileSystemEntries(directoryPath, "*", SearchOption.TopDirectoryOnly))
+                    {
+                        entries.Add(directoryName + "/" + Path.GetFileName(child) +
+                                    (Directory.Exists(child) ? "/" : string.Empty));
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+        return entries;
     }
 
     private void RefreshAllOptionsUI()
@@ -262,6 +517,7 @@ public partial class PageInstanceExportRight : MyPageRight
         SyncVisibility("CheckOptionsResourcePacks", "PanOptionsResourcePacks");
         SyncVisibility("CheckOptionsShaderPacks", "PanOptionsShaderPacks");
         SyncVisibility("CheckOptionsSaves", "PanOptionsSaves");
+        SyncVisibility("CheckOptionsOtherFolders", "PanOptionsOtherFolders");
         SyncVisibility("CheckOptionsPcl", "PanOptionsPcl");
         SyncVisibility("CheckAdvancedInclude", "HintAdvancedInclude");
     }
@@ -286,7 +542,7 @@ public partial class PageInstanceExportRight : MyPageRight
 
     private void SyncRulesOverrideUi()
     {
-        bool hasOverride = _rulesOverrides is { Count: > 0 };
+        bool hasOverride = _rulesOverrides is not null;
         if (this.FindControl<MyIconTextButton>("BtnOverrideCancel") is { } overrideCancel)
         {
             overrideCancel.IsVisible = hasOverride;
@@ -309,26 +565,22 @@ public partial class PageInstanceExportRight : MyPageRight
         if (_instance is null)
             return false;
 
-        if (option.RequireOptiFine && !HasFileNamePart(_instance.InstanceDirectory, "optifine"))
+        if (option.RequireOptiFine && !_hasOptiFine)
             return false;
-        if (option.RequireModLoader && !HasModLoader(_instance))
+        if (option.RequireModLoader && !_hasModLoader)
             return false;
-        if (option.RequireModLoaderOrOptiFine && !HasFileNamePart(_instance.InstanceDirectory, "optifine") && !HasModLoader(_instance))
+        if (option.RequireModLoaderOrOptiFine && !_hasOptiFine && !_hasModLoader)
             return false;
 
         string? showRules = option.Rules ?? option.ShowRules;
         if (string.IsNullOrWhiteSpace(showRules))
             return true;
 
-        string gameDirectory = GetMinecraftRootFromInstance(_instance);
         foreach (string rule in SplitRules(showRules))
         {
             if (rule.StartsWith('!'))
                 continue;
-
-            string normalized = rule.TrimEnd('*').TrimEnd('/').Replace('/', Path.DirectorySeparatorChar);
-            string target = Path.Combine(gameDirectory, normalized);
-            if (Directory.Exists(target) || File.Exists(target))
+            if (_availableEntries.Any(entry => InstanceExportService.RuleMatches(entry, rule)))
                 return true;
         }
 
@@ -337,7 +589,7 @@ public partial class PageInstanceExportRight : MyPageRight
 
     private List<string> CollectRules(bool includeHidden)
     {
-        if (_rulesOverrides is { Count: > 0 })
+        if (_rulesOverrides is not null)
             return [.. _rulesOverrides];
 
         List<string> rules = [];
@@ -349,6 +601,8 @@ public partial class PageInstanceExportRight : MyPageRight
             rules.AddRange(SplitRules(option.Rules));
         }
 
+        rules.AddRange(DefaultExcludeRules);
+
         return rules;
     }
 
@@ -357,21 +611,23 @@ public partial class PageInstanceExportRight : MyPageRight
         if (this.FindControl<Panel>("PanOptions") is not { } panel)
             yield break;
 
-        foreach (Control child in EnumerateOptionControls(panel))
+        foreach (Control child in EnumerateOptionControls(panel, includeHidden))
         {
             if (child is MyCheckBox checkBox && (includeHidden || checkBox.IsVisible))
                 yield return checkBox;
         }
     }
 
-    private static IEnumerable<Control> EnumerateOptionControls(Panel panel)
+    private static IEnumerable<Control> EnumerateOptionControls(Panel panel, bool includeHidden)
     {
         foreach (Control child in panel.Children)
         {
+            if (!includeHidden && !child.IsVisible)
+                continue;
             yield return child;
             if (child is Panel childPanel)
             {
-                foreach (Control nested in EnumerateOptionControls(childPanel))
+                foreach (Control nested in EnumerateOptionControls(childPanel, includeHidden))
                     yield return nested;
             }
         }
@@ -386,7 +642,7 @@ public partial class PageInstanceExportRight : MyPageRight
         }
     }
 
-    private static bool HasModLoader(LaunchInstanceInfo instance) =>
+    private static bool HasModLoaderFile(LaunchInstanceInfo instance) =>
         HasFileNamePart(instance.InstanceDirectory, "forge") ||
         HasFileNamePart(instance.InstanceDirectory, "fabric") ||
         HasFileNamePart(instance.InstanceDirectory, "quilt") ||
@@ -401,16 +657,23 @@ public partial class PageInstanceExportRight : MyPageRight
             .Any(file => Path.GetFileName(file).Contains(part, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string GetMinecraftRootFromInstance(LaunchInstanceInfo instance)
-    {
-        DirectoryInfo versionDirectory = new(instance.InstanceDirectory);
-        DirectoryInfo? versionsDirectory = versionDirectory.Parent;
-        if (versionsDirectory?.Parent is not null &&
-            string.Equals(versionsDirectory.Name, "versions", StringComparison.OrdinalIgnoreCase))
-        {
-            return versionsDirectory.Parent.FullName;
-        }
+    private static bool IsModLoaderLibrary(string library) =>
+        library.Contains("net.minecraftforge:forge", StringComparison.OrdinalIgnoreCase) ||
+        library.Contains("net.neoforged:neoforge", StringComparison.OrdinalIgnoreCase) ||
+        library.Contains("net.neoforge:forge", StringComparison.OrdinalIgnoreCase) ||
+        library.Contains("fabric-loader", StringComparison.OrdinalIgnoreCase) ||
+        library.Contains("quilt-loader", StringComparison.OrdinalIgnoreCase) ||
+        library.Contains("liteloader", StringComparison.OrdinalIgnoreCase);
 
-        return instance.InstanceDirectory;
+    private static string ResolveGameDirectory(LaunchInstanceInfo instance)
+    {
+        try
+        {
+            return InstanceGameDirectory.ResolveAsync(instance).GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return instance.InstanceDirectory;
+        }
     }
 }
