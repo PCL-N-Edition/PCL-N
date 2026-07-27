@@ -81,7 +81,8 @@ internal static class MinecraftLaunchPlanFactory
                 UseExperimentalJvmHost = useJvmHost,
                 JvmHostIdentityMode = profile.Kind switch
                 {
-                    LaunchLoginProfileKind.ThirdParty => MinecraftJvmHostIdentityMode.ThirdParty,
+                    LaunchLoginProfileKind.ThirdParty or
+                        LaunchLoginProfileKind.LittleSkin => MinecraftJvmHostIdentityMode.ThirdParty,
                     LaunchLoginProfileKind.Offline => MinecraftJvmHostIdentityMode.Offline,
                     _ => MinecraftJvmHostIdentityMode.Official
                 },
@@ -311,7 +312,7 @@ internal static class MinecraftLaunchPlanFactory
         bool useJvmHost,
         CancellationToken cancellationToken)
     {
-        if (profile.Kind != LaunchLoginProfileKind.ThirdParty || string.IsNullOrWhiteSpace(profile.AuthServer))
+        if (!profile.UsesYggdrasil || string.IsNullOrWhiteSpace(profile.AuthServer))
             return (null, null, null);
 
         AuthlibInjectorService service = new();

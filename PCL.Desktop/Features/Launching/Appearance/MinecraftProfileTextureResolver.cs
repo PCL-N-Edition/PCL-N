@@ -140,7 +140,7 @@ public static class MinecraftProfileTextureResolver
         if (uuid.Length != 32 || profile.Kind == LaunchLoginProfileKind.Offline)
             return null;
 
-        if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
+        if (profile.UsesYggdrasil)
         {
             string address = MySkin.ResolveSkinAddress(null, uuid, profile.AuthServer);
             return Uri.TryCreate(address, UriKind.Absolute, out Uri? thirdPartyUri)

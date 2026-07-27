@@ -1,0 +1,73 @@
+<StackPanel x:Class="PCL.Desktop.Features.Launching.Views.PageLoginLittleSkin"
+            xmlns="https://github.com/avaloniaui"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
+            Tag="False"
+            Orientation="Vertical">
+    <Grid Margin="0,8,0,0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="18" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Path Grid.ColumnSpan="2"
+              Width="42"
+              Height="42"
+              Stretch="Uniform"
+              Fill="{DynamicResource ColorBrush2}"
+              Opacity="0.78"
+              Data="M12 2 2 7l10 5 10-5-10-5Zm-7.5 8.25V17L12 22l7.5-5v-6.75L12 14l-7.5-3.75Z" />
+        <StackPanel Grid.Row="2"
+                    Grid.ColumnSpan="2"
+                    Spacing="4"
+                    HorizontalAlignment="Center">
+            <TextBlock Text="LittleSkin OAuth"
+                       FontSize="15"
+                       FontWeight="SemiBold"
+                       HorizontalAlignment="Center"
+                       Foreground="{DynamicResource ColorBrush1}" />
+            <TextBlock Text="将在浏览器中完成授权，无需向启动器提供密码"
+                       FontSize="11.5"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource ColorBrushGray2}" />
+        </StackPanel>
+        <legacy:MyButton Grid.Row="4"
+                         Grid.Column="0"
+                         x:Name="BtnLogin"
+                         Width="124"
+                         Height="30"
+                         Text="使用 LittleSkin 登录"
+                         ColorType="Highlight"
+                         Click="BtnLoginClick" />
+        <Grid Grid.Row="5"
+              Grid.ColumnSpan="2"
+              Margin="2,26,2,0"
+              HorizontalAlignment="Center"
+              Opacity="0.42"
+              ColumnDefinitions="Auto,28,Auto">
+            <legacy:MyTextButton Grid.Column="0"
+                                 Text="LittleSkin 官网"
+                                 Click="BtnWebsiteClick" />
+            <legacy:MyTextButton Grid.Column="2"
+                                 Text="OAuth 说明"
+                                 Click="BtnDocsClick" />
+        </Grid>
+        <legacy:MyTextButton Grid.Row="6"
+                             Grid.ColumnSpan="2"
+                             x:Name="BtnBack"
+                             Text="返回"
+                             HorizontalAlignment="Center"
+                             Margin="0,54,0,0"
+                             Opacity="0.35"
+                             Click="BtnBackClick" />
+    </Grid>
+</StackPanel>

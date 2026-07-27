@@ -65,7 +65,7 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
                 : MySkin.ResolveSkinAddress(
                     Profile.SkinAddress,
                     Profile.Uuid,
-                    Profile.Kind == LaunchLoginProfileKind.ThirdParty ? Profile.AuthServer : null);
+                    Profile.UsesYggdrasil ? Profile.AuthServer : null);
             if (string.IsNullOrWhiteSpace(address))
                 address = Profile.DisplaySkinAddress;
             skin.Address = address;

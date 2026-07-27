@@ -29,6 +29,12 @@ public sealed record LaunchProfile
 
     public string RefreshToken { get; init; } = string.Empty;
 
+    /// <summary>Provider OAuth token used for account/appearance APIs.</summary>
+    public string ProviderAccessToken { get; init; } = string.Empty;
+
+    /// <summary>Provider OAuth access-token expiration as a Unix timestamp.</summary>
+    public long ProviderTokenExpiresAtUnix { get; init; }
+
     /// <summary>Yggdrasil clientToken used for validate/refresh (third-party).</summary>
     public string ClientToken { get; init; } = string.Empty;
 }

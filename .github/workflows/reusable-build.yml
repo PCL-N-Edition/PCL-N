@@ -58,6 +58,12 @@ on:
         required: false
       PCL_MS_CLIENT_ID:
         required: false
+      LITTLESKIN_CLIENT_ID:
+        required: false
+      LITTLESKIN_CLIENT_SECRET:
+        required: false
+      LITTLESKIN_REDIRECT_URI:
+        required: false
       CURSEFORGE_API_KEY:
         required: false
       SENTRY_DSN:
@@ -262,6 +268,9 @@ jobs:
           PCL_WRITE_SECRET: '1'
           # Prefer env written by Resolve step; fall back to raw secrets for other keys.
           PCL_MS_CLIENT_ID: ${{ env.PCL_MS_CLIENT_ID }}
+          PCL_LITTLESKIN_CLIENT_ID: ${{ secrets.LITTLESKIN_CLIENT_ID }}
+          PCL_LITTLESKIN_CLIENT_SECRET: ${{ secrets.LITTLESKIN_CLIENT_SECRET }}
+          PCL_LITTLESKIN_REDIRECT_URI: ${{ secrets.LITTLESKIN_REDIRECT_URI }}
           PCL_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
           PCL_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           PCL_NAID_CLIENT_ID: ${{ secrets.NAID_CLIENT_ID }}

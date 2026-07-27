@@ -19,6 +19,7 @@ using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Launching;
+using PCL.Desktop.Features.Launching.Appearance;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Shared;
@@ -76,6 +77,7 @@ public partial class MainWindow
             OpenNameEditor = OpenProfileNamePage,
             OpenUrl = OpenExternalUrl,
             StartMicrosoftLoginAsync = StartMicrosoftLoginAsync,
+            StartLittleSkinLoginAsync = StartLittleSkinLoginAsync,
             OpenAuthAccountPage = OpenAuthAccountPage,
             StartThirdPartyLoginAsync = StartThirdPartyAuthLoginAsync,
             CreateOfflineProfile = CreateOfflineLoginProfile
@@ -165,6 +167,12 @@ public partial class MainWindow
             return;
         }
 
+        if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
+        {
+            _ = OpenExperimentalAppearancePageAsync(profile);
+            return;
+        }
+
         // WPF offline: borrow MS profile skin or pick local file.
         ShowOfflineSkinOptions(profile, action);
     }
@@ -208,7 +216,7 @@ public partial class MainWindow
             string skin = MySkin.ResolveSkinAddress(
                 source.SkinAddress,
                 source.Uuid,
-                source.Kind == LaunchLoginProfileKind.ThirdParty ? source.AuthServer : null);
+                source.UsesYggdrasil ? source.AuthServer : null);
             LoginProfileInfo updated = profile with { SkinAddress = skin };
             _ = RecordProfileTextureSnapshotAsync(profile);
             ReplaceLoginProfile(profile, updated);
@@ -365,7 +373,7 @@ public partial class MainWindow
             return;
         }
 
-        if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
+        if (profile.Kind is LaunchLoginProfileKind.ThirdParty or LaunchLoginProfileKind.LittleSkin)
         {
             OpenAuthServerProfilePage(profile, "修改密码");
             return;
@@ -396,7 +404,7 @@ public partial class MainWindow
             return;
         }
 
-        if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
+        if (profile.Kind is LaunchLoginProfileKind.ThirdParty or LaunchLoginProfileKind.LittleSkin)
         {
             OpenAuthServerProfilePage(profile, "修改玩家名");
             return;
@@ -590,22 +598,16 @@ public partial class MainWindow
 
         try
         {
-            if (TryCreateHttpUri(profile.SkinAddress, out Uri? uri))
-            {
-                using HttpClient client = new();
-                byte[] bytes = await client.GetByteArrayAsync(uri).ConfigureAwait(true);
-                await File.WriteAllBytesAsync(targetPath, bytes).ConfigureAwait(true);
-            }
-            else if (File.Exists(profile.SkinAddress))
-            {
-                File.Copy(profile.SkinAddress, targetPath, overwrite: true);
-            }
-            else
+            byte[]? bytes = await MySkin
+                .LoadSkinBytesAsync(profile.DisplaySkinAddress)
+                .ConfigureAwait(true);
+            if (bytes is null)
             {
                 ShowTextDialog("保存皮肤", "当前皮肤资源不存在，可能已经被移动或需要重新登录后刷新。", "知道了");
                 return;
             }
 
+            await File.WriteAllBytesAsync(targetPath, bytes).ConfigureAwait(true);
             ShowTextDialog("保存完成", "皮肤已保存到：\n" + targetPath);
         }
         catch (Exception ex)
@@ -635,6 +637,27 @@ public partial class MainWindow
                 return;
             }
 
+            if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
+            {
+                LoginProfileInfo refreshed = await RefreshLittleSkinLaunchProfileAsync(
+                        profile,
+                        CancellationToken.None)
+                    .ConfigureAwait(true);
+                MinecraftProfileTextures textures = await MinecraftProfileTextureResolver
+                    .ResolveAsync(refreshed)
+                    .ConfigureAwait(true);
+                refreshed = refreshed with { SkinAddress = textures.SkinAddress };
+                ReplaceLoginProfile(profile, refreshed);
+                _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, refreshed);
+                page.SetProfile(refreshed);
+                SaveProfilesInBackground("刷新 LittleSkin 外观");
+                ShowTextDialog(
+                    "外观已刷新",
+                    "已从 LittleSkin 重新获取当前角色的皮肤与披风信息。",
+                    "知道了");
+                return;
+            }
+
             page.Reload();
             ShowTextDialog(
                 "已刷新档案显示",
@@ -661,8 +684,12 @@ public partial class MainWindow
                     "使用正版 Microsoft 账户登录，适合已购买 Minecraft 的玩家。",
                     "lucide/shield-check"),
                 CreateProfileTypeItem(
+                    "LittleSkin 登录",
+                    "通过浏览器 OAuth 授权，可直接管理 LittleSkin 角色、皮肤与披风。",
+                    "lucide/boxes"),
+                CreateProfileTypeItem(
                     "第三方登录",
-                    "使用 Authlib-Injector 兼容认证服务器登录。",
+                    "使用自定义 Authlib-Injector 兼容认证服务器登录。",
                     "lucide/network"),
                 CreateProfileTypeItem(
                     "离线登录",
@@ -677,8 +704,9 @@ public partial class MainWindow
             PageLaunchLeft.LaunchLoginPageType? target = index switch
             {
                 0 => PageLaunchLeft.LaunchLoginPageType.Ms,
-                1 => PageLaunchLeft.LaunchLoginPageType.Auth,
-                2 => PageLaunchLeft.LaunchLoginPageType.Offline,
+                1 => PageLaunchLeft.LaunchLoginPageType.LittleSkin,
+                2 => PageLaunchLeft.LaunchLoginPageType.Auth,
+                3 => PageLaunchLeft.LaunchLoginPageType.Offline,
                 _ => null
             };
             if (target is null)
@@ -1296,7 +1324,15 @@ public partial class MainWindow
     private static bool IsSameProfile(LoginProfileInfo left, LoginProfileInfo right)
     {
         if (!string.IsNullOrWhiteSpace(left.Uuid) && !string.IsNullOrWhiteSpace(right.Uuid))
-            return string.Equals(left.Uuid, right.Uuid, StringComparison.OrdinalIgnoreCase);
+        {
+            return left.Kind == right.Kind &&
+                   string.Equals(left.Uuid, right.Uuid, StringComparison.OrdinalIgnoreCase) &&
+                   (!left.UsesYggdrasil ||
+                    string.Equals(
+                        left.AuthServer,
+                        right.AuthServer,
+                        StringComparison.OrdinalIgnoreCase));
+        }
 
         return left.Kind == right.Kind &&
                string.Equals(left.Username, right.Username, StringComparison.OrdinalIgnoreCase) &&
@@ -1315,6 +1351,276 @@ public partial class MainWindow
             Task predecessor = _profileSaveQueue;
             _profileSaveQueue = SaveProfilesAfterAsync(predecessor, snapshot, action);
         }
+    }
+
+    private async Task StartLittleSkinLoginAsync(
+        PageLoginLittleSkin page,
+        ILaunchHomeSurface launchPage)
+    {
+        LittleSkinOAuthConfiguration configuration;
+        try
+        {
+            configuration = LittleSkinOAuthService.ResolveConfiguration();
+        }
+        catch (Exception exception)
+        {
+            page.FinishLogin();
+            _launchRight?.AppendLog("LittleSkin OAuth 配置缺失：" + exception.Message);
+            ShowTextDialog(
+                "LittleSkin OAuth 配置缺失",
+                exception.Message +
+                "\n\n授权代码流需要在 LittleSkin OAuth 应用中登记回调地址，并为构建提供客户端 ID 与 Secret。",
+                "知道了");
+            return;
+        }
+
+        _littleSkinLoginCancellation?.Cancel();
+        _littleSkinLoginCancellation?.Dispose();
+        _littleSkinLoginCancellation = new CancellationTokenSource();
+        CancellationToken cancellationToken = _littleSkinLoginCancellation.Token;
+        MyMsgLogin? dialog = null;
+        try
+        {
+            using LittleSkinOAuthCallbackListener callbackListener = new(configuration.RedirectUri);
+            callbackListener.Start();
+            string state = LittleSkinOAuthCallbackListener.CreateState();
+            LittleSkinAuthorizationRequest authorization =
+                _littleSkinOAuthService.CreateAuthorizationRequest(configuration, state);
+            dialog = new MyMsgLogin
+            {
+                Title = "LittleSkin OAuth 登录",
+                Caption =
+                    "已在浏览器中打开 LittleSkin 授权页面。\n\n" +
+                    "授权后浏览器会自动返回 PCL N；启动器不会接触你的 LittleSkin 密码。",
+                Website = authorization.AuthorizationUri.AbsoluteUri,
+                ShowCopyCodeAction = false
+            };
+            ShowLoginDialog(dialog, () => _littleSkinLoginCancellation?.Cancel());
+            OpenExternalUrl(authorization.AuthorizationUri.AbsoluteUri);
+            _launchRight?.AppendLog("正在等待 LittleSkin OAuth 授权回调。");
+            page.UpdateProgress(0.08d);
+
+            LittleSkinAuthorizationCallback callback = await callbackListener
+                .WaitForCallbackAsync(state, cancellationToken)
+                .ConfigureAwait(true);
+            if (!string.IsNullOrWhiteSpace(callback.Error))
+            {
+                throw new InvalidOperationException(
+                    callback.ErrorDescription ?? callback.Error ?? "LittleSkin 授权被拒绝。");
+            }
+
+            page.UpdateProgress(0.22d);
+            LittleSkinOAuthTokens tokens = await _littleSkinOAuthService
+                .ExchangeAuthorizationCodeAsync(
+                    configuration,
+                    callback.Code!,
+                    cancellationToken)
+                .ConfigureAwait(true);
+            page.UpdateProgress(0.38d);
+            IReadOnlyList<LittleSkinProfile> profiles = await _littleSkinOAuthService
+                .GetProfilesAsync(tokens.AccessToken, cancellationToken)
+                .ConfigureAwait(true);
+            if (profiles.Count == 0)
+                throw new InvalidOperationException("LittleSkin 账户下没有可用于启动游戏的角色。");
+
+            if (dialog.Parent is not null)
+                dialog.CloseLikeWpf();
+            dialog = null;
+
+            int? selectedIndex = await SelectLittleSkinProfileAsync(profiles, cancellationToken)
+                .ConfigureAwait(true);
+            if (selectedIndex is not int index)
+            {
+                _launchRight?.AppendLog("LittleSkin 登录已取消：未选择角色。");
+                return;
+            }
+
+            LittleSkinProfile selected = profiles[index];
+            page.UpdateProgress(0.62d);
+            LittleSkinMinecraftSession session = await _littleSkinOAuthService
+                .CreateMinecraftSessionAsync(
+                    tokens.AccessToken,
+                    selected.Uuid,
+                    cancellationToken)
+                .ConfigureAwait(true);
+            page.UpdateProgress(0.84d);
+            string skinAddress = MySkin.ResolveSkinAddress(
+                skinAddress: null,
+                uuid: session.Uuid,
+                authServer: LittleSkinOAuthService.YggdrasilServer);
+            LoginProfileInfo profile = new(
+                session.Username,
+                "LittleSkin OAuth",
+                LaunchLoginProfileKind.LittleSkin,
+                session.Uuid,
+                SvgIcon: "lucide/boxes",
+                SkinAddress: string.IsNullOrWhiteSpace(skinAddress) ? null : skinAddress,
+                AuthServer: LittleSkinOAuthService.YggdrasilServer,
+                AccessToken: session.AccessToken,
+                RefreshToken: tokens.RefreshToken,
+                ClientToken: session.ClientToken,
+                ProviderAccessToken: tokens.AccessToken,
+                ProviderTokenExpiresAtUnix: tokens.ExpiresAt.ToUnixTimeSeconds());
+            AddOrUpdateLoginProfile(profile);
+            _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, profile);
+            _launchLoginSurface.ProfileSkinPage?.SetProfile(profile);
+            launchPage.SetSelectedProfilePresent(true);
+            launchPage.RefreshPage(anim: true);
+            SaveProfilesInBackground("保存 LittleSkin OAuth 档案");
+            page.UpdateProgress(1d);
+            _launchRight?.AppendLog($"LittleSkin 登录成功，已选中角色 {profile.Username}。");
+            ShowTextDialog(
+                "登录成功",
+                $"已添加并选中 LittleSkin 角色 {profile.Username}。\n\n" +
+                "现在可以在外观页直接使用 LittleSkin 衣柜中的皮肤与披风。",
+                "知道了");
+        }
+        catch (OperationCanceledException)
+        {
+            _launchRight?.AppendLog("LittleSkin OAuth 登录已取消。");
+        }
+        catch (Exception exception)
+        {
+            if (dialog?.Parent is not null)
+                dialog.CloseLikeWpf();
+            _launchRight?.AppendLog("LittleSkin OAuth 登录失败：" + exception.Message);
+            ShowTextDialog("LittleSkin 登录失败", exception.Message, "知道了");
+        }
+        finally
+        {
+            page.FinishLogin();
+        }
+    }
+
+    private async Task<int?> SelectLittleSkinProfileAsync(
+        IReadOnlyList<LittleSkinProfile> profiles,
+        CancellationToken cancellationToken)
+    {
+        if (profiles.Count == 1)
+            return 0;
+
+        TaskCompletionSource<int?> completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        MyMsgSelect dialog = new();
+        dialog.Configure(
+            "选择 LittleSkin 角色",
+            profiles.Select(profile => CreateProfileTypeItem(
+                    profile.Username,
+                    profile.Uuid,
+                    "lucide/user-round-check"))
+                .ToArray());
+        ShowSelectionDialog(dialog, selected => completion.TrySetResult(selected));
+        using CancellationTokenRegistration registration = cancellationToken.Register(
+            static state => ((TaskCompletionSource<int?>)state!).TrySetCanceled(),
+            completion);
+        return await completion.Task.ConfigureAwait(true);
+    }
+
+    private async Task<LoginProfileInfo> RefreshLittleSkinLaunchProfileAsync(
+        LoginProfileInfo profile,
+        CancellationToken cancellationToken,
+        Action<string>? status = null)
+    {
+        void Report(string message) => status?.Invoke(message);
+
+        if (string.IsNullOrWhiteSpace(profile.AuthServer))
+            throw new InvalidOperationException("LittleSkin 档案缺少 Yggdrasil 服务器地址，请重新登录。");
+
+        if (!string.IsNullOrWhiteSpace(profile.AccessToken))
+        {
+            Report("正在校验 LittleSkin Minecraft 会话…");
+            bool valid = await _thirdPartyAuthService
+                .ValidateAsync(
+                    profile.AuthServer,
+                    profile.AccessToken,
+                    string.IsNullOrWhiteSpace(profile.ClientToken) ? null : profile.ClientToken,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (valid)
+            {
+                Report("LittleSkin Minecraft 会话仍然有效。");
+                return profile;
+            }
+        }
+
+        Report("正在通过 LittleSkin OAuth 重新签发 Minecraft 会话…");
+        (LoginProfileInfo refreshedProfile, LittleSkinMinecraftSession session) =
+            await InvokeLittleSkinOAuthAsync(
+                    profile,
+                    (accessToken, token) => _littleSkinOAuthService.CreateMinecraftSessionAsync(
+                        accessToken,
+                        profile.Uuid,
+                        token),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        Report("LittleSkin Minecraft 会话已刷新。");
+        return refreshedProfile with
+        {
+            Username = session.Username,
+            Uuid = session.Uuid,
+            AccessToken = session.AccessToken,
+            ClientToken = session.ClientToken,
+            AuthServer = LittleSkinOAuthService.YggdrasilServer,
+            Info = "LittleSkin OAuth"
+        };
+    }
+
+    private async Task<(LoginProfileInfo Profile, T Result)> InvokeLittleSkinOAuthAsync<T>(
+        LoginProfileInfo profile,
+        Func<string, CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(operation);
+        LoginProfileInfo current = profile;
+        bool providerTokenExpired =
+            current.ProviderTokenExpiresAtUnix > 0 &&
+            current.ProviderTokenExpiresAtUnix <=
+            DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeSeconds();
+        if (string.IsNullOrWhiteSpace(current.ProviderAccessToken) || providerTokenExpired)
+        {
+            current = await RefreshLittleSkinProviderTokenAsync(current, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        try
+        {
+            T result = await operation(current.ProviderAccessToken, cancellationToken)
+                .ConfigureAwait(false);
+            return (current, result);
+        }
+        catch (HttpRequestException exception) when (
+            exception.StatusCode is System.Net.HttpStatusCode.Unauthorized or
+                System.Net.HttpStatusCode.Forbidden)
+        {
+            current = await RefreshLittleSkinProviderTokenAsync(current, cancellationToken)
+                .ConfigureAwait(false);
+            T result = await operation(current.ProviderAccessToken, cancellationToken)
+                .ConfigureAwait(false);
+            return (current, result);
+        }
+    }
+
+    private async Task<LoginProfileInfo> RefreshLittleSkinProviderTokenAsync(
+        LoginProfileInfo profile,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(profile.RefreshToken))
+        {
+            throw new InvalidOperationException(
+                "LittleSkin OAuth 刷新令牌缺失，请删除此档案并重新授权。");
+        }
+
+        LittleSkinOAuthConfiguration configuration = LittleSkinOAuthService.ResolveConfiguration();
+        LittleSkinOAuthTokens tokens = await _littleSkinOAuthService
+            .RefreshOAuthTokenAsync(configuration, profile.RefreshToken, cancellationToken)
+            .ConfigureAwait(false);
+        return profile with
+        {
+            ProviderAccessToken = tokens.AccessToken,
+            ProviderTokenExpiresAtUnix = tokens.ExpiresAt.ToUnixTimeSeconds(),
+            RefreshToken = tokens.RefreshToken
+        };
     }
 
     private static void PublishMicrosoftProfile(
@@ -1407,6 +1713,7 @@ public partial class MainWindow
             profile.Kind switch
             {
                 LaunchProfileKind.Microsoft => LaunchLoginProfileKind.Microsoft,
+                LaunchProfileKind.LittleSkin => LaunchLoginProfileKind.LittleSkin,
                 LaunchProfileKind.ThirdParty => LaunchLoginProfileKind.ThirdParty,
                 _ => LaunchLoginProfileKind.Offline
             },
@@ -1417,7 +1724,9 @@ public partial class MainWindow
             profile.AuthServer,
             profile.AccessToken,
             profile.RefreshToken,
-            profile.ClientToken);
+            profile.ClientToken,
+            profile.ProviderAccessToken,
+            profile.ProviderTokenExpiresAtUnix);
 
     private static LaunchProfile ToLaunchProfile(LoginProfileInfo profile) =>
         new()
@@ -1427,6 +1736,7 @@ public partial class MainWindow
             Kind = profile.Kind switch
             {
                 LaunchLoginProfileKind.Microsoft => LaunchProfileKind.Microsoft,
+                LaunchLoginProfileKind.LittleSkin => LaunchProfileKind.LittleSkin,
                 LaunchLoginProfileKind.ThirdParty => LaunchProfileKind.ThirdParty,
                 _ => LaunchProfileKind.Offline
             },
@@ -1437,6 +1747,8 @@ public partial class MainWindow
             AuthServer = profile.AuthServer,
             AccessToken = profile.AccessToken,
             RefreshToken = profile.RefreshToken,
+            ProviderAccessToken = profile.ProviderAccessToken,
+            ProviderTokenExpiresAtUnix = profile.ProviderTokenExpiresAtUnix,
             ClientToken = profile.ClientToken
         };
 

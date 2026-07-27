@@ -401,6 +401,7 @@
     <sys:String x:Key="Appearance.Page.Title">外觀</sys:String>
     <sys:String x:Key="Appearance.Source.OtherProfile">其他檔案</sys:String>
     <sys:String x:Key="Appearance.Source.Previous">先前使用</sys:String>
+    <sys:String x:Key="Appearance.Source.LittleSkinCloset">LittleSkin 衣櫃</sys:String>
     <sys:String x:Key="Appearance.Source.CurrentOrPrevious">目前或先前使用</sys:String>
     <sys:String x:Key="Appearance.ThirdPartyAuth.Title">需要皮膚站授權</sys:String>
     <sys:String x:Key="Appearance.ThirdPartyAuth.Message">第三方皮膚站的角色材質介面需要獨立 OAuth 授權，不能重複使用遊戲登入權杖。&#10;&#10;已開啟材質詳情頁，請在皮膚站中將它加入衣櫃並套用到角色。</sys:String>

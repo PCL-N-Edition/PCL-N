@@ -116,6 +116,7 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
         None,
         Auth,
         Ms,
+        LittleSkin,
         Profile,
         ProfileSkin,
         Offline
@@ -784,6 +785,7 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
         {
             LaunchLoginPageType.Auth => "第三方登录",
             LaunchLoginPageType.Ms => "Microsoft 登录",
+            LaunchLoginPageType.LittleSkin => "LittleSkin 登录",
             LaunchLoginPageType.ProfileSkin => "账户档案",
             LaunchLoginPageType.Offline => "离线档案",
             _ => "选择账户档案"
@@ -793,6 +795,8 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
             LaunchLoginPageType.ProfileSkin => "已选择账户档案，可以启动已安装的游戏版本。",
             LaunchLoginPageType.Profile => "请选择或创建一个账户档案，之后才能启动游戏。",
             LaunchLoginPageType.Ms => "使用 Microsoft 账户登录并创建在线档案。",
+            LaunchLoginPageType.LittleSkin =>
+                "通过浏览器授权 LittleSkin，并创建可管理皮肤与披风的在线档案。",
             LaunchLoginPageType.Auth => "使用第三方认证服务器登录并创建在线档案。",
             LaunchLoginPageType.Offline => "创建仅保存在本机的离线档案。",
             _ => "请选择一个账户档案。"

@@ -37,6 +37,9 @@
     <PclWriteSecret Condition="'$(PclWriteSecret)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_WRITE_SECRET'))</PclWriteSecret>
     <PclMsClientId Condition="'$(PclMsClientId)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_MS_CLIENT_ID'))</PclMsClientId>
     <PclMsClientId Condition="'$(PclMsClientId)' == ''">$([System.Environment]::GetEnvironmentVariable('MS_CLIENT_ID'))</PclMsClientId>
+    <PclLittleSkinClientId Condition="'$(PclLittleSkinClientId)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_LITTLESKIN_CLIENT_ID'))</PclLittleSkinClientId>
+    <PclLittleSkinClientSecret Condition="'$(PclLittleSkinClientSecret)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_LITTLESKIN_CLIENT_SECRET'))</PclLittleSkinClientSecret>
+    <PclLittleSkinRedirectUri Condition="'$(PclLittleSkinRedirectUri)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_LITTLESKIN_REDIRECT_URI'))</PclLittleSkinRedirectUri>
     <PclCurseForgeApiKey Condition="'$(PclCurseForgeApiKey)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_CURSEFORGE_API_KEY'))</PclCurseForgeApiKey>
     <PclSentryDsn Condition="'$(PclSentryDsn)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_SENTRY_DSN'))</PclSentryDsn>
     <PclNaidClientId Condition="'$(PclNaidClientId)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_NAID_CLIENT_ID'))</PclNaidClientId>
@@ -84,6 +87,9 @@
     <CompilerVisibleProperty Include="PclIncludesPlugin" />
     <CompilerVisibleProperty Include="PclWriteSecret" />
     <CompilerVisibleProperty Include="PclMsClientId" />
+    <CompilerVisibleProperty Include="PclLittleSkinClientId" />
+    <CompilerVisibleProperty Include="PclLittleSkinClientSecret" />
+    <CompilerVisibleProperty Include="PclLittleSkinRedirectUri" />
     <CompilerVisibleProperty Include="PclCurseForgeApiKey" />
     <CompilerVisibleProperty Include="PclSentryDsn" />
     <CompilerVisibleProperty Include="PclNaidClientId" />

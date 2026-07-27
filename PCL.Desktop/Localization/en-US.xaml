@@ -401,6 +401,7 @@
     <sys:String x:Key="Appearance.Page.Title">Appearance</sys:String>
     <sys:String x:Key="Appearance.Source.OtherProfile">Other profile</sys:String>
     <sys:String x:Key="Appearance.Source.Previous">Previously used</sys:String>
+    <sys:String x:Key="Appearance.Source.LittleSkinCloset">LittleSkin closet</sys:String>
     <sys:String x:Key="Appearance.Source.CurrentOrPrevious">Current or previously used</sys:String>
     <sys:String x:Key="Appearance.ThirdPartyAuth.Title">Skin-Site Authorization Required</sys:String>
     <sys:String x:Key="Appearance.ThirdPartyAuth.Message">A third-party skin site's player texture API requires separate OAuth authorization; the game login token cannot be reused.&#10;&#10;The texture details page has been opened. Add it to your closet and apply it to the player on the skin site.</sys:String>

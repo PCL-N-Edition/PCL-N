@@ -426,6 +426,7 @@ internal sealed class MinecraftLaunchCoordinator
                 "Launch.Account.Type.Microsoft",
                 "微软"),
             LaunchLoginProfileKind.ThirdParty => FormatThirdPartyMethod(profile),
+            LaunchLoginProfileKind.LittleSkin => "LittleSkin",
             _ => AvaloniaLocalizationManager.GetText("Launch.Account.Type.Offline", "离线")
         };
 

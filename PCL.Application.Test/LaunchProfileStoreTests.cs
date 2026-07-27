@@ -31,7 +31,20 @@ public sealed class LaunchProfileStoreTests
                     Username = "Alex",
                     Info = "第三方登录",
                     Kind = LaunchProfileKind.ThirdParty,
-                    AuthServer = "https://littleskin.cn/api/yggdrasil"
+                    AuthServer = "https://example.com/api/yggdrasil"
+                },
+                new LaunchProfile
+                {
+                    Username = "LittleAlex",
+                    Info = "LittleSkin OAuth",
+                    Kind = LaunchProfileKind.LittleSkin,
+                    Uuid = "ffeeddccbbaa99887766554433221100",
+                    AuthServer = LittleSkinOAuthService.YggdrasilServer,
+                    AccessToken = "minecraft-access-token",
+                    RefreshToken = "oauth-refresh-token",
+                    ClientToken = "minecraft-client-token",
+                    ProviderAccessToken = "oauth-access-token",
+                    ProviderTokenExpiresAtUnix = 1_800_000_000
                 }
             ]
         };
@@ -42,9 +55,10 @@ public sealed class LaunchProfileStoreTests
         Assert.IsFalse(result.WasRecovered);
         Assert.IsNull(result.BackupPath);
         Assert.AreEqual(expected.SchemaVersion, result.Profiles.SchemaVersion);
-        Assert.AreEqual(2, result.Profiles.Profiles.Count);
+        Assert.AreEqual(3, result.Profiles.Profiles.Count);
         Assert.AreEqual(expected.Profiles[0], result.Profiles.Profiles[0]);
         Assert.AreEqual(expected.Profiles[1], result.Profiles.Profiles[1]);
+        Assert.AreEqual(expected.Profiles[2], result.Profiles.Profiles[2]);
     }
 
     [TestMethod]

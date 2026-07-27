@@ -10943,6 +10943,53 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageLoginLittleSkin_UsesIndependentOAuthState()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            PageLoginLittleSkin page = new();
+            Window window = new()
+            {
+                Width = 320,
+                Height = 320,
+                Content = page
+            };
+            int loginCount = 0;
+            page.LoginRequested += (_, _) => loginCount++;
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                Click(window, page.FindControl<MyButton>("BtnLogin")!);
+
+                Assert.AreEqual(1, loginCount);
+                Assert.IsTrue(page.IsLoggingIn);
+                Assert.IsFalse(page.FindControl<MyButton>("BtnLogin")!.IsEnabled);
+                Assert.IsFalse(page.FindControl<MyTextButton>("BtnBack")!.IsVisible);
+
+                page.UpdateProgress(0.42d);
+                Assert.AreEqual("42 %", page.FindControl<MyButton>("BtnLogin")!.Text);
+
+                page.FinishLogin();
+                Assert.IsFalse(page.IsLoggingIn);
+                Assert.IsTrue(page.FindControl<MyButton>("BtnLogin")!.IsEnabled);
+                Assert.IsTrue(page.FindControl<MyTextButton>("BtnBack")!.IsVisible);
+                Assert.AreEqual(
+                    "使用 LittleSkin 登录",
+                    page.FindControl<MyButton>("BtnLogin")!.Text);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void PageLoginAuth_ValidatesAndRaisesLoginRequest()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -10969,15 +11016,19 @@ public sealed class AvaloniaHeadlessTests
                 Click(window, page.FindControl<MyButton>("BtnLogin")!);
                 Assert.AreEqual("请填写认证服务器、邮箱和密码。", validation);
 
-                page.FindControl<MyComboBox>("TextServer")!.Text = "LittleSkin";
-                Assert.AreEqual("https://littleskin.cn/api/yggdrasil", page.FindControl<MyComboBox>("TextServer")!.Text);
+                MyComboBox server = page.FindControl<MyComboBox>("TextServer")!;
+                Assert.HasCount(1, server.Items);
+                Assert.AreEqual(
+                    "自定义",
+                    ((MyComboBoxItem)server.Items[0]!).Content);
+                server.Text = "https://example.com/api/yggdrasil";
                 page.FindControl<MyTextBox>("TextName")!.Text = "steve@example.com";
                 page.FindControl<MyTextBox>("TextPass")!.Text = "secret";
 
                 Click(window, page.FindControl<MyButton>("BtnLogin")!);
 
                 Assert.IsNotNull(request);
-                Assert.AreEqual("https://littleskin.cn/api/yggdrasil", request!.Server);
+                Assert.AreEqual("https://example.com/api/yggdrasil", request!.Server);
                 Assert.AreEqual("steve@example.com", request.Username);
                 Assert.AreEqual("secret", request.Password);
                 Assert.IsFalse(page.FindControl<MyButton>("BtnLogin")!.IsEnabled);

@@ -18,7 +18,9 @@ public sealed record LoginProfileInfo(
     string AuthServer = "",
     string AccessToken = "",
     string RefreshToken = "",
-    string ClientToken = "")
+    string ClientToken = "",
+    string ProviderAccessToken = "",
+    long ProviderTokenExpiresAtUnix = 0)
 {
     private const string AuthlibInjectorPrefix = "Authlib-Injector · ";
 
@@ -27,6 +29,9 @@ public sealed record LoginProfileInfo(
     /// no longer loads authlib-injector, so hide that badge from the account chrome.
     /// </summary>
     public string DisplayInfo => FormatDisplayInfo(Info, Kind);
+
+    public bool UsesYggdrasil =>
+        Kind is LaunchLoginProfileKind.ThirdParty or LaunchLoginProfileKind.LittleSkin;
 
     public static string FormatDisplayInfo(string info, LaunchLoginProfileKind kind)
     {
@@ -86,7 +91,7 @@ public sealed record LoginProfileInfo(
             return PCL.Desktop.Controls.Legacy.MySkin.ResolveSkinAddress(
                 skinAddress: null,
                 uuid: Uuid,
-                authServer: Kind == LaunchLoginProfileKind.ThirdParty ? AuthServer : null);
+                authServer: UsesYggdrasil ? AuthServer : null);
         }
     }
 
@@ -148,5 +153,6 @@ public enum LaunchLoginProfileKind
 {
     Microsoft,
     ThirdParty,
-    Offline
+    Offline,
+    LittleSkin
 }

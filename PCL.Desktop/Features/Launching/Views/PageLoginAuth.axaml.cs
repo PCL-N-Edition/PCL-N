@@ -17,7 +17,6 @@ public partial class PageLoginAuth : Grid, PageLaunchLeft.ILoginPage
     private static readonly FrozenDictionary<string, string> PredefinedAuthServers =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["LittleSkin"] = "https://littleskin.cn/api/yggdrasil",
             ["自定义"] = string.Empty
         }.ToFrozenDictionary(StringComparer.Ordinal);
 

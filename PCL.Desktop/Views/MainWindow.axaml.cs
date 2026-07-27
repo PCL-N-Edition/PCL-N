@@ -124,11 +124,13 @@ public partial class MainWindow : Window, IDisposable
     private MyScrollViewer? _backButtonScrollViewer;
     private CancellationTokenSource? _launchCancellation;
     private CancellationTokenSource? _microsoftLoginCancellation;
+    private CancellationTokenSource? _littleSkinLoginCancellation;
     private readonly MinecraftVanillaInstallService _minecraftInstallService = new();
     private readonly MinecraftLaunchCoordinator _launchCoordinator;
     private readonly MinecraftAiRepairAdvisor _minecraftAiRepairAdvisor = new();
     private readonly ThirdPartyAuthService _thirdPartyAuthService = new();
     private readonly IMicrosoftMinecraftAuthService _microsoftAuthService;
+    private readonly ILittleSkinOAuthService _littleSkinOAuthService;
     private readonly Action<string> _externalUrlOpener;
     private readonly Func<string, Task>? _clipboardWriter;
     private PageSetupLeft? _setupLeft;
@@ -163,16 +165,18 @@ public partial class MainWindow : Window, IDisposable
     private static readonly NavigationRouteId SettingsRoute = DesktopNavigationRegistry.SettingsRoute;
 
     public MainWindow()
-        : this(new MicrosoftMinecraftAuthService())
+        : this(new MicrosoftMinecraftAuthService(), littleSkinOAuthService: new LittleSkinOAuthService())
     {
     }
 
     public MainWindow(
         IMicrosoftMinecraftAuthService microsoftAuthService,
         Action<string>? externalUrlOpener = null,
-        Func<string, Task>? clipboardWriter = null)
+        Func<string, Task>? clipboardWriter = null,
+        ILittleSkinOAuthService? littleSkinOAuthService = null)
     {
         _microsoftAuthService = microsoftAuthService ?? throw new ArgumentNullException(nameof(microsoftAuthService));
+        _littleSkinOAuthService = littleSkinOAuthService ?? new LittleSkinOAuthService();
         _externalUrlOpener = externalUrlOpener ?? OpenExternalUrlCore;
         _clipboardWriter = clipboardWriter;
         _launchCoordinator = new MinecraftLaunchCoordinator(_minecraftInstallService);
@@ -3620,12 +3624,16 @@ public partial class MainWindow : Window, IDisposable
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (!ReferenceEquals(args.Result.Profile, args.OriginalProfile) &&
-                args.Result.Profile.Kind == LaunchLoginProfileKind.Microsoft)
+                args.Result.Profile.Kind is
+                    LaunchLoginProfileKind.Microsoft or LaunchLoginProfileKind.LittleSkin)
             {
                 AddOrUpdateLoginProfile(args.Result.Profile);
                 _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, args.Result.Profile);
                 _launchLoginSurface.ProfileSkinPage?.SetProfile(args.Result.Profile);
-                SaveProfilesInBackground("刷新 Microsoft 正版档案");
+                SaveProfilesInBackground(
+                    args.Result.Profile.Kind == LaunchLoginProfileKind.LittleSkin
+                        ? "刷新 LittleSkin OAuth 档案"
+                        : "刷新 Microsoft 正版档案");
             }
 
             Process process = args.Result.Process;
@@ -3847,6 +3855,10 @@ public partial class MainWindow : Window, IDisposable
 
         if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
             return await RefreshThirdPartyLaunchProfileAsync(profile, cancellationToken, status)
+                .ConfigureAwait(false);
+
+        if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
+            return await RefreshLittleSkinLaunchProfileAsync(profile, cancellationToken, status)
                 .ConfigureAwait(false);
 
         if (profile.Kind != LaunchLoginProfileKind.Microsoft ||

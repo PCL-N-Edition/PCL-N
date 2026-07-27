@@ -19,6 +19,7 @@ public sealed class LaunchLoginSurface
     private PageLoginProfile? _profilePage;
     private PageLoginProfileSkin? _profileSkinPage;
     private PageLoginMs? _msPage;
+    private PageLoginLittleSkin? _littleSkinPage;
     private PageLoginAuth? _authPage;
     private PageLoginOffline? _offlinePage;
 
@@ -27,6 +28,8 @@ public sealed class LaunchLoginSurface
     public PageLoginProfileSkin? ProfileSkinPage => _profileSkinPage;
 
     public PageLoginMs? MsPage => _msPage;
+
+    public PageLoginLittleSkin? LittleSkinPage => _littleSkinPage;
 
     public PageLoginAuth? AuthPage => _authPage;
 
@@ -92,6 +95,13 @@ public sealed class LaunchLoginSurface
                     PageLaunchLeft.LaunchLoginPageType.Ms);
                 break;
 
+            case PageLaunchLeft.LaunchLoginPageType.LittleSkin:
+                launchPage.SetLoginPage(
+                    EnsureLittleSkinLoginPage(launchPage),
+                    animate: true,
+                    PageLaunchLeft.LaunchLoginPageType.LittleSkin);
+                break;
+
             case PageLaunchLeft.LaunchLoginPageType.Auth:
                 launchPage.SetLoginPage(
                     EnsureAuthLoginPage(launchPage),
@@ -139,6 +149,7 @@ public sealed class LaunchLoginSurface
         _profilePage = null;
         _profileSkinPage = null;
         _msPage = null;
+        _littleSkinPage = null;
         _authPage = null;
         _offlinePage = null;
     }
@@ -211,6 +222,23 @@ public sealed class LaunchLoginSurface
         return page;
     }
 
+    private PageLoginLittleSkin EnsureLittleSkinLoginPage(ILaunchHomeSurface launchPage)
+    {
+        LaunchLoginBindings b = RequireBindings();
+        EnsureLaunchPage(launchPage);
+        if (_littleSkinPage is not null)
+            return _littleSkinPage;
+
+        PageLoginLittleSkin page = new();
+        page.BackRequested += (_, _) => launchPage.RefreshPage(anim: true);
+        page.WebsiteRequested += (_, _) => b.OpenUrl("https://littleskin.cn/");
+        page.DocumentationRequested += (_, _) => b.OpenUrl(
+            "https://manual.littlesk.in/advanced/oauth2/authorization-code-grant");
+        page.LoginRequested += (_, _) => _ = b.StartLittleSkinLoginAsync(page, launchPage);
+        _littleSkinPage = page;
+        return page;
+    }
+
     private PageLoginOffline EnsureOfflineLoginPage(ILaunchHomeSurface launchPage)
     {
         LaunchLoginBindings b = RequireBindings();
@@ -253,6 +281,8 @@ public sealed class LaunchLoginBindings
     public required Action<string> OpenUrl { get; init; }
 
     public required Func<PageLoginMs, ILaunchHomeSurface, Task> StartMicrosoftLoginAsync { get; init; }
+
+    public required Func<PageLoginLittleSkin, ILaunchHomeSurface, Task> StartLittleSkinLoginAsync { get; init; }
 
     public required Action<string, bool> OpenAuthAccountPage { get; init; }
 

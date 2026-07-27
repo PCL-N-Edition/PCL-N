@@ -401,6 +401,7 @@
     <sys:String x:Key="Appearance.Page.Title">外观</sys:String>
     <sys:String x:Key="Appearance.Source.OtherProfile">其他档案</sys:String>
     <sys:String x:Key="Appearance.Source.Previous">此前使用</sys:String>
+    <sys:String x:Key="Appearance.Source.LittleSkinCloset">LittleSkin 衣柜</sys:String>
     <sys:String x:Key="Appearance.Source.CurrentOrPrevious">当前或此前使用</sys:String>
     <sys:String x:Key="Appearance.ThirdPartyAuth.Title">需要皮肤站授权</sys:String>
     <sys:String x:Key="Appearance.ThirdPartyAuth.Message">第三方皮肤站的角色材质接口需要独立 OAuth 授权，不能复用游戏登录令牌。&#10;&#10;已打开材质详情页，请在皮肤站中将它加入衣柜并应用到角色。</sys:String>

@@ -8,5 +8,6 @@ public enum LaunchProfileKind
 {
     Microsoft,
     ThirdParty,
-    Offline
+    Offline,
+    LittleSkin
 }

@@ -55,6 +55,16 @@ public sealed partial class MyMsgLogin : Grid
 
     public string Website { get; set; } = string.Empty;
 
+    public bool ShowCopyCodeAction
+    {
+        get => this.FindControl<MyButton>("Btn2")?.IsVisible ?? false;
+        set
+        {
+            if (this.FindControl<MyButton>("Btn2") is { } button)
+                button.IsVisible = value;
+        }
+    }
+
     public void CloseLikeWpf()
     {
         TranslateTransform translate = GetTranslateTransform();

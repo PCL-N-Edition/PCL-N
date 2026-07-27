@@ -5,6 +5,8 @@
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using System.Text.Json;
+using PCL.Application.Accounts;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Core.Logging;
 using PCL.Desktop.Features.Launching.Appearance;
@@ -39,6 +41,7 @@ public partial class MainWindow
         page.LocalSkinRequested += (_, _) => _ = PickExperimentalLocalSkinAsync(profile);
         page.SkinLibraryRequested += (_, _) => OpenSkinLibraryPage(profile);
         page.SkinSelected += (_, card) => _ = ApplyAppearanceSkinAsync(profile, card);
+        page.CapeSelected += (_, card) => _ = ApplyAppearanceCapeAsync(profile, card);
         page.SetModel(CreateFallbackAppearanceModel(profile));
         ApplyExperimentalAppearancePage(
             page,
@@ -57,6 +60,22 @@ public partial class MainWindow
                     this.FindControl<Border>("PanMainRight")?.Child != page)
                 {
                     return;
+                }
+
+                if (profile.Kind == LaunchLoginProfileKind.LittleSkin &&
+                    (!string.Equals(
+                         profile.ProviderAccessToken,
+                         model.Profile.ProviderAccessToken,
+                         StringComparison.Ordinal) ||
+                     !string.Equals(
+                         profile.RefreshToken,
+                         model.Profile.RefreshToken,
+                         StringComparison.Ordinal)))
+                {
+                    AddOrUpdateLoginProfile(model.Profile);
+                    _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, model.Profile);
+                    _launchLoginSurface.ProfileSkinPage?.SetProfile(model.Profile);
+                    SaveProfilesInBackground("刷新 LittleSkin 外观授权");
                 }
 
                 page.SetModel(model);
@@ -202,6 +221,53 @@ public partial class MainWindow
             .LoadAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        IReadOnlyList<LittleSkinClosetItem> closetSkins = [];
+        IReadOnlyList<LittleSkinClosetItem> closetCapes = [];
+        if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
+        {
+            try
+            {
+                (LoginProfileInfo refreshed, (
+                    IReadOnlyList<LittleSkinClosetItem> Skins,
+                    IReadOnlyList<LittleSkinClosetItem> Capes) closet) =
+                    await InvokeLittleSkinOAuthAsync(
+                            profile,
+                            async (accessToken, token) =>
+                            {
+                                Task<IReadOnlyList<LittleSkinClosetItem>> skinsTask =
+                                    _littleSkinOAuthService.GetClosetItemsAsync(
+                                        accessToken,
+                                        LittleSkinTextureKind.Skin,
+                                        token);
+                                Task<IReadOnlyList<LittleSkinClosetItem>> capesTask =
+                                    _littleSkinOAuthService.GetClosetItemsAsync(
+                                        accessToken,
+                                        LittleSkinTextureKind.Cape,
+                                        token);
+                                await Task.WhenAll(skinsTask, capesTask).ConfigureAwait(false);
+                                return (
+                                    await skinsTask.ConfigureAwait(false),
+                                    await capesTask.ConfigureAwait(false));
+                            },
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                profile = refreshed;
+                closetSkins = closet.Skins;
+                closetCapes = closet.Capes;
+            }
+            catch (Exception exception) when (
+                exception is HttpRequestException or
+                    InvalidOperationException or
+                    InvalidDataException or
+                    JsonException)
+            {
+                PortableLog.Warn(
+                    exception,
+                    "LittleSkinAppearance",
+                    "读取 LittleSkin 皮肤与披风衣柜失败，将继续显示本地历史。");
+            }
+        }
+
         int currentIndex = Array.FindIndex(
             profiles,
             candidate => IsSameProfile(candidate, profile));
@@ -218,7 +284,7 @@ public partial class MainWindow
             currentTextures.CapeAddress,
             currentTextures.IsSlim,
             CanApply: false);
-        SkinAppearanceCard[] skins = history
+        IEnumerable<SkinAppearanceCard> historySkins = history
             .Where(static entry => entry.Kind == AppearanceTextureKind.Skin)
             .Where(entry =>
                 !string.Equals(
@@ -234,7 +300,19 @@ public partial class MainWindow
                 null,
                 entry.IsSlim))
             .ToArray();
-        SkinAppearanceCard[] capes = history
+        SkinAppearanceCard[] skins = closetSkins
+            .Select(item => new SkinAppearanceCard(
+                item.Name,
+                GetResourceText("Appearance.Source.LittleSkinCloset", "LittleSkin 衣柜"),
+                item.TextureAddress,
+                null,
+                string.Equals(item.Model, "alex", StringComparison.OrdinalIgnoreCase),
+                CanApply: true,
+                TextureId: item.TextureId))
+            .Concat(historySkins)
+            .DistinctBy(static card => card.SkinAddress, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        IEnumerable<SkinAppearanceCard> historyCapes = history
             .Where(static entry => entry.Kind == AppearanceTextureKind.Cape)
             .Select(entry => new SkinAppearanceCard(
                 entry.DisplayName,
@@ -246,12 +324,36 @@ public partial class MainWindow
                 currentTextures.IsSlim,
                 CanApply: false))
             .ToArray();
+        SkinAppearanceCard[] capes = closetCapes
+            .Select(item => new SkinAppearanceCard(
+                item.Name,
+                GetResourceText("Appearance.Source.LittleSkinCloset", "LittleSkin 衣柜"),
+                currentTextures.SkinAddress,
+                item.TextureAddress,
+                currentTextures.IsSlim,
+                CanApply: true,
+                TextureId: item.TextureId))
+            .Concat(historyCapes)
+            .DistinctBy(
+                static card => card.CapeAddress ?? string.Empty,
+                StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         return new SkinAppearancePageModel(profile, current, skins, capes);
     }
 
     private async Task PickExperimentalLocalSkinAsync(LoginProfileInfo requestedProfile)
     {
         LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
+        if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
+        {
+            ShowTextDialog(
+                "上传 LittleSkin 皮肤",
+                "本地材质上传仍由 LittleSkin 网站完成。上传并加入衣柜后，返回此页面即可直接应用。",
+                "打开 LittleSkin");
+            OpenExternalUrl("https://littleskin.cn/user/closet");
+            return;
+        }
+
         if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
         {
             OpenLegacyProfileAppearanceAction(profile, "更换皮肤");
@@ -297,7 +399,32 @@ public partial class MainWindow
                 card.SkinAddress,
                 card.IsSlim,
                 "历史皮肤",
-                detailsUri: null)
+                detailsUri: null,
+                card.TextureId)
+            .ConfigureAwait(true);
+    }
+
+    private async Task ApplyAppearanceCapeAsync(
+        LoginProfileInfo requestedProfile,
+        SkinAppearanceCard card)
+    {
+        LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
+        if (profile.Kind != LaunchLoginProfileKind.LittleSkin ||
+            card.TextureId is not long textureId)
+        {
+            ShowTextDialog(
+                "更换披风",
+                "只有通过 LittleSkin OAuth 登录后，才能在启动器中直接应用衣柜披风。",
+                "知道了");
+            return;
+        }
+
+        await ApplyLittleSkinTextureAsync(
+                profile,
+                textureId,
+                card.CapeAddress ?? string.Empty,
+                card.Title,
+                LittleSkinTextureKind.Cape)
             .ConfigureAwait(true);
     }
 
@@ -310,7 +437,8 @@ public partial class MainWindow
                 item.SkinAddress,
                 string.Equals(item.Model, "alex", StringComparison.OrdinalIgnoreCase),
                 item.Name,
-                item.DetailsUri)
+                item.DetailsUri,
+                item.TextureId)
             .ConfigureAwait(true);
     }
 
@@ -319,9 +447,28 @@ public partial class MainWindow
         string address,
         bool isSlim,
         string displayName,
-        Uri? detailsUri)
+        Uri? detailsUri,
+        long? textureId)
     {
         LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
+        if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
+        {
+            if (textureId is not long littleSkinTextureId)
+            {
+                ShowTextDialog("更换皮肤", "所选材质缺少 LittleSkin TID，无法直接应用。", "知道了");
+                return;
+            }
+
+            await ApplyLittleSkinTextureAsync(
+                    profile,
+                    littleSkinTextureId,
+                    address,
+                    displayName,
+                    LittleSkinTextureKind.Skin)
+                .ConfigureAwait(true);
+            return;
+        }
+
         if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
         {
             if (detailsUri is not null)
@@ -365,16 +512,81 @@ public partial class MainWindow
         await OpenExperimentalAppearancePageAsync(offlineUpdated).ConfigureAwait(true);
     }
 
+    private async Task ApplyLittleSkinTextureAsync(
+        LoginProfileInfo requestedProfile,
+        long textureId,
+        string textureAddress,
+        string displayName,
+        LittleSkinTextureKind kind)
+    {
+        LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
+        try
+        {
+            await RecordProfileTextureSnapshotAsync(profile).ConfigureAwait(true);
+            (LoginProfileInfo refreshed, LittleSkinPlayer player) =
+                await InvokeLittleSkinOAuthAsync(
+                        profile,
+                        async (accessToken, cancellationToken) =>
+                        {
+                            IReadOnlyList<LittleSkinPlayer> players =
+                                await _littleSkinOAuthService
+                                    .GetPlayersAsync(accessToken, cancellationToken)
+                                    .ConfigureAwait(false);
+                            LittleSkinPlayer selected = players.FirstOrDefault(player =>
+                                string.Equals(
+                                    player.Username,
+                                    profile.Username,
+                                    StringComparison.OrdinalIgnoreCase))
+                                ?? throw new InvalidOperationException(
+                                    $"LittleSkin 账户中未找到角色 {profile.Username}。");
+                            await _littleSkinOAuthService
+                                .ApplyTextureAsync(
+                                    accessToken,
+                                    selected.PlayerId,
+                                    textureId,
+                                    kind,
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                            return selected;
+                        },
+                        CancellationToken.None)
+                    .ConfigureAwait(true);
+            _ = player;
+            LoginProfileInfo updated = kind == LittleSkinTextureKind.Skin
+                ? refreshed with { SkinAddress = textureAddress }
+                : refreshed;
+            ApplyUpdatedAppearanceProfile(
+                profile,
+                updated,
+                kind == LittleSkinTextureKind.Cape
+                    ? "应用 LittleSkin 披风"
+                    : "应用 LittleSkin 皮肤",
+                kind == LittleSkinTextureKind.Cape
+                    ? $"已为 {updated.Username} 应用披风 {displayName}。"
+                    : $"已为 {updated.Username} 应用皮肤 {displayName}。");
+            await RecordProfileTextureSnapshotAsync(updated).ConfigureAwait(true);
+            await OpenExperimentalAppearancePageAsync(updated).ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            ShowTextDialog(
+                kind == LittleSkinTextureKind.Cape ? "更换披风失败" : "更换皮肤失败",
+                exception.Message,
+                "知道了");
+        }
+    }
+
     private void ApplyUpdatedAppearanceProfile(
         LoginProfileInfo original,
         LoginProfileInfo updated,
-        string saveAction)
+        string saveAction,
+        string? statusMessage = null)
     {
         ReplaceLoginProfile(original, updated);
         _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
         _launchLoginSurface.ProfileSkinPage?.SetProfile(updated);
         SaveProfilesInBackground(saveAction);
-        HandleStatusMessage($"已为 {updated.Username} 应用皮肤。");
+        HandleStatusMessage(statusMessage ?? $"已为 {updated.Username} 应用皮肤。");
     }
 
     private static async Task RecordProfileTextureSnapshotAsync(LoginProfileInfo profile)

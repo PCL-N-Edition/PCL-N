@@ -19,7 +19,8 @@ public sealed record SkinAppearanceCard(
     string SkinAddress,
     string? CapeAddress,
     bool IsSlim,
-    bool CanApply = true);
+    bool CanApply = true,
+    long? TextureId = null);
 
 public sealed record SkinAppearancePageModel(
     LoginProfileInfo Profile,
