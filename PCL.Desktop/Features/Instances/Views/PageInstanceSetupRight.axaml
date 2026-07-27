@@ -19,15 +19,13 @@
                             <ColumnDefinition Width="60" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="28" />
-                            <RowDefinition Height="9" />
-                            <RowDefinition Height="28" />
-                            <RowDefinition Height="9" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="28" />
-                            <RowDefinition Height="9" />
-                            <RowDefinition Height="28" />
+                            <RowDefinition Height="Auto" MinHeight="32" />
+                            <RowDefinition Height="10" />
+                            <RowDefinition Height="Auto" MinHeight="32" />
+                            <RowDefinition Height="10" />
+                            <RowDefinition Height="Auto" MinHeight="32" />
+                            <RowDefinition Height="10" />
+                            <RowDefinition Height="Auto" MinHeight="32" />
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Left"
                                    Text="{DynamicResource Instance.Setup.InstanceIsolation}"
@@ -45,19 +43,19 @@
                         <legacy:MyComboBox x:Name="TextArgumentTitle" Grid.Row="2" Grid.ColumnSpan="2"
                                           Tag="VersionArgumentTitle" Grid.Column="1" IsEditable="True"
                                           IsTextSearchEnabled="False"
+                                          HintText="{DynamicResource Instance.Setup.WindowTitle.EmptyHint}"
                                           ToolTip.Tip="{DynamicResource Instance.Setup.WindowTitle.ToolTip}">
                             <legacy:MyComboBoxItem Content="{DynamicResource Setup.Launch.WindowTitle.SampleFormat}" />
                         </legacy:MyComboBox>
-                        <legacy:MyCheckBox x:Name="CheckArgumentTitleEmpty" Margin="0,0,0,9" Grid.Row="4"
-                                          Grid.ColumnSpan="3"
+                        <!-- Kept for binder compatibility; empty title means default. -->
+                        <legacy:MyCheckBox x:Name="CheckArgumentTitleEmpty"
+                                          IsVisible="False"
                                           Text="{DynamicResource Instance.Setup.WindowTitle.Default}"
-                                          Tag="VersionArgumentTitleEmpty"
-                                          Grid.Column="0"
-                                          ToolTip.Tip="{DynamicResource Instance.Setup.WindowTitle.Default.ToolTip}" />
-                        <TextBlock Grid.Row="6" VerticalAlignment="Center" HorizontalAlignment="Left"
+                                          Tag="VersionArgumentTitleEmpty" />
+                        <TextBlock Grid.Row="4" VerticalAlignment="Center" HorizontalAlignment="Left"
                                    Text="{DynamicResource Setup.Launch.CustomInfo.Label}"
                                    Margin="0,0,25,0" />
-                        <legacy:MyTextBox x:Name="TextArgumentInfo" Grid.Row="6" Grid.ColumnSpan="2"
+                        <legacy:MyTextBox x:Name="TextArgumentInfo" Grid.Row="4" Grid.ColumnSpan="2"
                                          Tag="VersionArgumentInfo" Grid.Column="1"
                                          HintText="{DynamicResource Instance.Setup.FollowGlobal}"
                                          ToolTip.Tip="{DynamicResource Instance.Setup.CustomInfo.ToolTip}">
@@ -71,10 +69,10 @@
                                 </val:BlacklistValidator>
                             </legacy:MyTextBox.ValidateRules>
                         </legacy:MyTextBox>
-                        <TextBlock VerticalAlignment="Center" Grid.Row="8" HorizontalAlignment="Left"
+                        <TextBlock VerticalAlignment="Center" Grid.Row="6" HorizontalAlignment="Left"
                                    Text="{DynamicResource Instance.Setup.GameJava}"
                                    Margin="0,0,25,0" />
-                        <legacy:MyComboBox x:Name="ComboArgumentJava" Grid.ColumnSpan="2" Grid.Row="8" Grid.Column="1"
+                        <legacy:MyComboBox x:Name="ComboArgumentJava" Grid.ColumnSpan="2" Grid.Row="6" Grid.Column="1"
                                           MaxDropDownHeight="240"
                                           ToolTip.Tip="{DynamicResource Instance.Setup.GameJava.ToolTip}">
                             <ComboBoxItem Content="{DynamicResource Instance.Setup.Java.Loading}" IsSelected="True" />

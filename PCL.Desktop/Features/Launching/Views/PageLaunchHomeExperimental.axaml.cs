@@ -92,11 +92,13 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         {
             ApplyResponsiveLayout();
             RefreshShortcutDock();
+            ExperimentalControlChrome.ApplyDeferred(this, enabled: true);
             if (_isLoadedOnce)
                 return;
             _isLoadedOnce = true;
             _ = EnsureInstancesLoadedAsync();
         };
+        PageEnter += () => ExperimentalControlChrome.ApplyDeferred(this, enabled: true);
         DetachedFromVisualTree += (_, _) => UnregisterPluginUiSurfaces();
     }
 

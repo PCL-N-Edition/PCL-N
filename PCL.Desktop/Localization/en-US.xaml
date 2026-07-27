@@ -134,6 +134,7 @@
     <sys:String x:Key="Instance.Left.Install">Components</sys:String>
     <sys:String x:Key="Instance.Left.Mod">Mods</sys:String>
     <sys:String x:Key="Instance.Left.Overview">Overview</sys:String>
+    <sys:String x:Key="Instance.Experimental.Sidebar.Title">Version settings</sys:String>
     <sys:String x:Key="Instance.Left.ResourcePacks">Resource packs</sys:String>
     <sys:String x:Key="Instance.Left.Content">Content</sys:String>
     <sys:String x:Key="Instance.Left.Saves">Saves</sys:String>
@@ -372,6 +373,7 @@
     <sys:String x:Key="Instance.Setup.Server.Title">Server</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.Default">Use Default Title</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.Default.ToolTip">Keeps Minecraft’s default window title.</sys:String>
+    <sys:String x:Key="Instance.Setup.WindowTitle.EmptyHint">Leave empty for default</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.ToolTip">Customizes the Minecraft window title. Leave blank to use the global setting.&#x0a;Supported tokens: · {user}: Player name · {login}: Login method · {name}: Instance name · {date}, {time}: Current system time · {version}: Vanilla version&#x0a;This setting has no effect when Modern UI controls the window title.</sys:String>
 
     <!-- Launch -->
@@ -792,12 +794,12 @@
     <sys:String x:Key="Setup.Experimental.Warning">Experimental features may prevent the game from starting, break authentication, or conflict with mods. Keep them disabled unless you can provide full logs and revert the option yourself.</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Title">Experimental user interface</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Enable">Enable experimental user interface</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Summary">Uses the redesigned Launch page, full-page version library, frosted title bar, and glass floating actions. Other feature pages will gradually move to this experimental UI as well.</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Summary">Uses the redesigned Launch page, full-page version library, full-page version settings, frosted title bar, and glass floating actions. Other feature pages will gradually move to this experimental UI as well.</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Benefits">Shorter primary path; clearer hierarchy; better on wide screens; Apple-style title and floating actions.</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Risks">Experimental; layout and plugin injection placement may change; turn off anytime to roll back.</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Scope">Turn off and reopen Launch to restore the classic layout (including classic version picker and original floating buttons). Other pages will be rolled out over time.</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Scope">Turn off and reopen Launch to restore the classic layout (including classic version picker, classic version settings, and original floating buttons). Other pages will be rolled out over time.</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Title">Enable experimental user interface</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Message">This enables the experimental UI (Launch, full-page version library, title bar, and floating actions). You can turn it off anytime. Continue?</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Message">This enables the experimental UI (Launch, full-page version library, full-page version settings, title bar, and floating actions). You can turn it off anytime. Continue?</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Enable">Enable</sys:String>
     <sys:String x:Key="Setup.Experimental.LaunchShortcuts.Title">Launch shortcut dock</sys:String>
     <sys:String x:Key="Setup.Experimental.LaunchShortcuts.Enable">Enable launch shortcut dock (pin worlds/servers)</sys:String>

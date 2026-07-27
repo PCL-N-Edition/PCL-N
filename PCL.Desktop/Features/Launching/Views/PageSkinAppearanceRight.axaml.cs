@@ -51,6 +51,8 @@ public partial class PageSkinAppearanceRight : MyPageRight
         WireTrackViewport(this.FindControl<ScrollViewer>("PanSkinScroll"), isCapeTrack: false);
         WireTrackViewport(this.FindControl<ScrollViewer>("PanCapeScroll"), isCapeTrack: true);
         SizeChanged += (_, _) => ApplyResponsiveLayout();
+        AttachedToVisualTree += (_, _) => ExperimentalControlChrome.ApplyDeferred(this, enabled: true);
+        PageEnter += () => ExperimentalControlChrome.ApplyDeferred(this, enabled: true);
         ApplyResponsiveLayout();
     }
 

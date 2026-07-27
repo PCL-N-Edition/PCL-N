@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using Avalonia.Controls;
 using PCL.Application.Instances;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Community;
@@ -19,6 +20,7 @@ public sealed class InstancesManageSurface
     private object? _hostToken;
     private InstancesManageBindings? _bindings;
     private PageInstanceLeft? _left;
+    private PageInstanceManageExperimental? _experimentalShell;
     private PageInstanceManageRight? _managePage;
     private PageInstanceSetupRight? _setupPage;
     private PageInstanceExportRight? _exportPage;
@@ -35,6 +37,8 @@ public sealed class InstancesManageSurface
     public LaunchInstanceInfo? ManagedInstance { get; private set; }
 
     public PageInstanceLeft? Left => _left;
+
+    public PageInstanceManageExperimental? ExperimentalShell => _experimentalShell;
 
     public PageInstanceManageRight? ManagePage => _managePage;
 
@@ -90,7 +94,55 @@ public sealed class InstancesManageSurface
         subPage = left.NormalizePage(subPage);
         left.SelectPage(subPage);
         MyPageRight right = GetRightPage(instance, subPage);
+        ApplyContentChrome(right, experimental: false);
         return (left, right, subPage);
+    }
+
+    /// <summary>
+    /// Prepare experimental full-page shell with nested classic right content.
+    /// </summary>
+    public (PageInstanceManageExperimental Shell, InstancePageSubType SubPage) PrepareExperimental(
+        LaunchInstanceInfo instance,
+        InstancePageSubType subPage)
+    {
+        ArgumentNullException.ThrowIfNull(instance);
+        _ = RequireBindings();
+
+        ManagedInstance = instance;
+        PageInstanceManageExperimental shell = EnsureExperimentalShell();
+        shell.SetInstance(instance);
+        subPage = shell.NormalizePage(subPage);
+        shell.SelectPage(subPage);
+        MyPageRight content = GetRightPage(instance, subPage);
+        ApplyContentChrome(content, experimental: true);
+        shell.SetContent(content);
+        return (shell, subPage);
+    }
+
+    private static void ApplyContentChrome(MyPageRight page, bool experimental)
+    {
+        // Universal experimental form chrome (buttons / combo / text / check / radio).
+        ExperimentalControlChrome.ApplyDeferred(page, experimental);
+
+        if (page is PageInstanceManageRight manage)
+            manage.SetExperimentalChrome(experimental);
+        else if (page is PageInstanceSetupRight setup)
+            setup.SetExperimentalChrome(experimental);
+        else if (experimental)
+            ApplyGenericExperimentalPageChrome(page);
+    }
+
+    private static void ApplyGenericExperimentalPageChrome(MyPageRight page)
+    {
+        page.Background = Avalonia.Media.Brushes.Transparent;
+        page.ClipToBounds = true;
+
+        // Soften outer margins so content fits the narrower content column.
+        if (page.FindControl<Avalonia.Controls.StackPanel>("PanMain") is { } main)
+            main.Margin = new Avalonia.Thickness(18, 14, 18, 20);
+        else if (page.FindControl<Avalonia.Controls.Panel>("PanMain") is { } panel)
+            panel.Margin = new Avalonia.Thickness(18, 14, 18, 20);
+
     }
 
     public PageInstanceSavesInfoRight EnsureSavesInfoPage()
@@ -148,6 +200,7 @@ public sealed class InstancesManageSurface
     private void ClearPages()
     {
         _left = null;
+        _experimentalShell = null;
         _managePage = null;
         _setupPage = null;
         _exportPage = null;
@@ -184,6 +237,28 @@ public sealed class InstancesManageSurface
                 b.ResetSettings(ManagedInstance);
         };
         _left = page;
+        return page;
+    }
+
+    private PageInstanceManageExperimental EnsureExperimentalShell()
+    {
+        InstancesManageBindings b = RequireBindings();
+        if (_experimentalShell is not null)
+            return _experimentalShell;
+
+        PageInstanceManageExperimental page = new();
+        page.PageChanged += (_, subPage) =>
+        {
+            if (ManagedInstance is not null)
+                b.SelectSubPage(ManagedInstance, subPage);
+        };
+        page.RefreshRequested += (_, subPage) => RefreshSubPage(subPage);
+        page.ResetRequested += (_, _) =>
+        {
+            if (ManagedInstance is not null)
+                b.ResetSettings(ManagedInstance);
+        };
+        _experimentalShell = page;
         return page;
     }
 

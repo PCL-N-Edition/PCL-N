@@ -134,6 +134,7 @@
     <sys:String x:Key="Instance.Left.Install">组件</sys:String>
     <sys:String x:Key="Instance.Left.Mod">模组</sys:String>
     <sys:String x:Key="Instance.Left.Overview">总览</sys:String>
+    <sys:String x:Key="Instance.Experimental.Sidebar.Title">版本设置</sys:String>
     <sys:String x:Key="Instance.Left.ResourcePacks">资源包</sys:String>
     <sys:String x:Key="Instance.Left.Content">内容</sys:String>
     <sys:String x:Key="Instance.Left.Saves">存档</sys:String>
@@ -372,7 +373,8 @@
     <sys:String x:Key="Instance.Setup.Server.Title">服务器</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.Default">使用默认标题</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.Default.ToolTip">保留 Minecraft 的默认窗口标题。</sys:String>
-    <sys:String x:Key="Instance.Setup.WindowTitle.ToolTip">自定义 Minecraft 窗口标题。留空则使用全局设置。&#x0a;支持以下标记：· {user}：玩家名称 · {login}：登录方式 · {name}：版本名称 · {date}、{time}：当前系统时间 · {version}：原版版本号&#x0a;若 Modern UI 接管窗口标题，此设置不会生效。</sys:String>
+    <sys:String x:Key="Instance.Setup.WindowTitle.EmptyHint">留空即默认</sys:String>
+    <sys:String x:Key="Instance.Setup.WindowTitle.ToolTip">自定义 Minecraft 窗口标题。留空即使用默认标题（跟随全局设置）。&#x0a;支持以下标记：· {user}：玩家名称 · {login}：登录方式 · {name}：版本名称 · {date}、{time}：当前系统时间 · {version}：原版版本号&#x0a;若 Modern UI 接管窗口标题，此设置不会生效。</sys:String>
 
     <!-- Launch -->
 
@@ -792,12 +794,12 @@
     <sys:String x:Key="Setup.Experimental.Warning">实验性功能可能导致游戏无法启动、认证异常或模组不兼容。除非你愿意提供完整日志并能自行关闭回退，否则请保持默认关闭。</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Title">实验性用户界面</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Enable">启用实验性用户界面</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Summary">启用后使用重构中的启动页、整页版本库、毛玻璃标题栏与右下角快捷按钮。后续功能界面也会逐步迁移到新的实验性用户界面。</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Summary">启用后使用重构中的启动页、整页版本库、整页版本设置、毛玻璃标题栏与右下角快捷按钮。后续功能界面也会逐步迁移到新的实验性用户界面。</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Benefits">主路径更短；层次更清晰；更适合宽屏；标题与浮动操作采用 Apple 风格材质；与现代桌面视觉语言一致。</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Risks">实验阶段；布局与插件注入位置可能随版本变化；遇到问题可随时关闭回退。</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Scope">关闭后重新进入「启动」即可恢复经典布局（含经典版本选择与原浮动按钮样式）。其他功能界面的重构会分批开放。</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Scope">关闭后重新进入「启动」即可恢复经典布局（含经典版本选择、经典版本设置与原浮动按钮样式）。其他功能界面的重构会分批开放。</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Title">启用实验性用户界面</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Message">将启用实验性用户界面（启动页、整页版本库、标题栏与右下角快捷按钮会切换为新样式）。遇到问题可随时在实验性功能中关闭。是否继续？</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Message">将启用实验性用户界面（启动页、整页版本库、整页版本设置、标题栏与右下角快捷按钮会切换为新样式）。遇到问题可随时在实验性功能中关闭。是否继续？</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Enable">启用</sys:String>
     <sys:String x:Key="Setup.Experimental.LaunchShortcuts.Title">启动页快捷栏</sys:String>
     <sys:String x:Key="Setup.Experimental.LaunchShortcuts.Enable">启用启动页快捷栏（固定世界/服务器）</sys:String>

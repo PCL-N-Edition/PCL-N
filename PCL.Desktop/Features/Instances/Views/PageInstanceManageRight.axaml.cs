@@ -5,6 +5,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -64,6 +65,20 @@ public partial class PageInstanceManageRight : MyPageRight
         PopulateDisplayItem(instance);
         PopulateInfo(instance);
         ApplyMetadataToControls();
+    }
+
+    /// <summary>
+    /// Soft experimental chrome for full-page version settings host.
+    /// Form controls are styled via <see cref="ExperimentalControlChrome"/>.
+    /// </summary>
+    public void SetExperimentalChrome(bool enabled)
+    {
+        if (this.FindControl<StackPanel>("PanMain") is { } main)
+            main.Margin = enabled ? new Thickness(18, 14, 18, 20) : new Thickness(25, 10);
+
+        Background = enabled ? Brushes.Transparent : Background;
+        ClipToBounds = true;
+        ExperimentalControlChrome.ApplyDeferred(this, enabled);
     }
 
     private void WireWpfCopiedControls()
@@ -163,7 +178,9 @@ public partial class PageInstanceManageRight : MyPageRight
         InstanceJsonInfo jsonInfo = ReadInstanceJsonInfo(instance);
         WrapPanel wrap = new()
         {
-            Margin = new Thickness(0, -5, -20, 7)
+            Margin = new Thickness(0, -5, -20, 7),
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left
         };
 
         AddInfoItem(
@@ -216,6 +233,7 @@ public partial class PageInstanceManageRight : MyPageRight
 
     private static void AddInfoItem(WrapPanel panel, string title, string info, string imageName)
     {
+        // Fixed tile width so WrapPanel forms a grid of cards (not full-width rows).
         panel.Children.Add(new MyListItem
         {
             Title = title,
@@ -223,6 +241,9 @@ public partial class PageInstanceManageRight : MyPageRight
             Logo = InstanceDisplayHelper.BlockAssetRoot + imageName,
             Height = 42d,
             Width = 245d,
+            MinWidth = 245d,
+            MaxWidth = 245d,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
             Margin = new Thickness(0, 5, 20, 0)
         });
     }

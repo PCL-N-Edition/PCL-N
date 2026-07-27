@@ -90,6 +90,32 @@ public partial class PageInstanceSetupRight : MyPageRight
         _ = SetInstanceAsync(instance);
     }
 
+    /// <summary>
+    /// Soft experimental chrome when hosted inside full-page version settings.
+    /// Advanced card stays collapsed (simplicity: common path first).
+    /// Form controls are styled via <see cref="ExperimentalControlChrome"/>.
+    /// </summary>
+    public void SetExperimentalChrome(bool enabled)
+    {
+        if (this.FindControl<StackPanel>("PanMain") is { } main)
+            main.Margin = enabled ? new Thickness(18, 14, 18, 20) : new Thickness(25, 25, 25, 25);
+
+        Background = enabled ? Brushes.Transparent : Background;
+        ClipToBounds = true;
+
+        if (this.FindControl<MyCard>("CardAdvance") is { } advance)
+        {
+            // Keep advanced collapsed on experimental entry; user can expand.
+            if (enabled)
+                advance.IsSwapped = true;
+        }
+
+        if (this.FindControl<MyExtraTextButton>("BtnSwitch") is { } switchBtn && enabled)
+            switchBtn.Margin = new Thickness(0, 4, 0, 8);
+
+        ExperimentalControlChrome.ApplyDeferred(this, enabled);
+    }
+
     public async Task SetInstanceAsync(LaunchInstanceInfo instance)
     {
         ArgumentNullException.ThrowIfNull(instance);
@@ -202,8 +228,11 @@ public partial class PageInstanceSetupRight : MyPageRight
         try
         {
             SetComboIndex("ComboArgumentIndieV2", _metadata.InstanceIsolation ? 0 : 1);
-            SetEditableComboText("TextArgumentTitle", _metadata.WindowTitle);
-            SetChecked("CheckArgumentTitleEmpty", _metadata.UseGlobalWindowTitle);
+            // Empty title means default/global — surface as blank for the "leave empty" UX.
+            SetEditableComboText(
+                "TextArgumentTitle",
+                _metadata.UseGlobalWindowTitle ? string.Empty : _metadata.WindowTitle);
+            SetChecked("CheckArgumentTitleEmpty", _metadata.UseGlobalWindowTitle || string.IsNullOrWhiteSpace(_metadata.WindowTitle));
             SetText("TextArgumentInfo", _metadata.CustomInfo);
             SetRadio("RadioRamType" + _metadata.MemorySolution);
             SetSliderValue("SliderRamCustom", _metadata.CustomMemorySize);
@@ -287,7 +316,12 @@ public partial class PageInstanceSetupRight : MyPageRight
         string? tag = comboBox.Tag?.ToString();
         if (ReferenceEquals(comboBox, this.FindControl<MyComboBox>("TextArgumentTitle")))
         {
-            UpdateMetadata(metadata => metadata with { WindowTitle = comboBox.Text ?? string.Empty });
+            string titleText = comboBox.Text ?? string.Empty;
+            UpdateMetadata(metadata => metadata with
+            {
+                WindowTitle = titleText,
+                UseGlobalWindowTitle = string.IsNullOrWhiteSpace(titleText)
+            });
             ApplyWindowTitleMode();
             return;
         }
@@ -350,7 +384,12 @@ public partial class PageInstanceSetupRight : MyPageRight
         if (_isLoading || sender is not MyComboBox comboBox)
             return;
 
-        UpdateMetadata(metadata => metadata with { WindowTitle = comboBox.Text ?? string.Empty });
+        string titleText = comboBox.Text ?? string.Empty;
+        UpdateMetadata(metadata => metadata with
+        {
+            WindowTitle = titleText,
+            UseGlobalWindowTitle = string.IsNullOrWhiteSpace(titleText)
+        });
         ApplyWindowTitleMode();
     }
 
@@ -770,14 +809,38 @@ public partial class PageInstanceSetupRight : MyPageRight
 
     private void ApplyWindowTitleMode()
     {
-        if (this.FindControl<MyComboBox>("TextArgumentTitle") is not { } title ||
-            this.FindControl<MyCheckBox>("CheckArgumentTitleEmpty") is not { } useGlobal)
-        {
+        if (this.FindControl<MyComboBox>("TextArgumentTitle") is not { } title)
             return;
+
+        // Empty title means "use default / global"; no separate checkbox.
+        bool empty = string.IsNullOrWhiteSpace(title.Text);
+        if (this.FindControl<MyCheckBox>("CheckArgumentTitleEmpty") is { } useGlobal)
+        {
+            useGlobal.IsVisible = false;
+            if (useGlobal.Checked != empty)
+                useGlobal.SetChecked(empty, user: false);
         }
 
-        useGlobal.IsVisible = string.IsNullOrEmpty(title.Text);
-        title.HintText = useGlobal.Checked == true ? "默认" : "跟随全局设置";
+        title.HintText = GetResourceText("Instance.Setup.WindowTitle.EmptyHint", "留空即默认");
+    }
+
+    private static string GetResourceText(string key, string fallback)
+    {
+        try
+        {
+            if (Avalonia.Application.Current?.Resources.TryGetResource(key, null, out object? value) == true &&
+                value is string text &&
+                !string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+        }
+        catch
+        {
+            // Fall through.
+        }
+
+        return fallback;
     }
 
     private void TextServerAuthServer_LostFocus(object? sender, RoutedEventArgs e)

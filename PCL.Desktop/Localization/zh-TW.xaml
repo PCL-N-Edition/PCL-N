@@ -134,6 +134,7 @@
     <sys:String x:Key="Instance.Left.Install">元件</sys:String>
     <sys:String x:Key="Instance.Left.Mod">模組</sys:String>
     <sys:String x:Key="Instance.Left.Overview">總覽</sys:String>
+    <sys:String x:Key="Instance.Experimental.Sidebar.Title">版本設定</sys:String>
     <sys:String x:Key="Instance.Left.ResourcePacks">資源包</sys:String>
     <sys:String x:Key="Instance.Left.Content">內容</sys:String>
     <sys:String x:Key="Instance.Left.Saves">存檔</sys:String>
@@ -372,6 +373,7 @@
     <sys:String x:Key="Instance.Setup.Server.Title">伺服器</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.Default">使用預設標題</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.Default.ToolTip">保留 Minecraft 的預設視窗標題。</sys:String>
+    <sys:String x:Key="Instance.Setup.WindowTitle.EmptyHint">留空即預設</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.ToolTip">自定義 Minecraft 視窗標題。留空則使用全域性設定。&#x0a;支援以下標記：· {user}：玩家名稱 · {login}：登入方式 · {name}：版本名稱 · {date}、{time}：當前系統時間 · {version}：原版版本號&#x0a;若 Modern UI 接管視窗標題，此設定不會生效。</sys:String>
 
     <!-- Launch -->
@@ -792,12 +794,12 @@
     <sys:String x:Key="Setup.Experimental.Warning">實驗性功能可能導致遊戲無法啟動、驗證異常或模組不相容。除非你願意提供完整日誌並能自行關閉回退，否則請保持預設關閉。</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Title">實驗性使用者介面</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Enable">啟用實驗性使用者介面</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Summary">啟用後使用重構中的啟動頁、整頁版本庫、毛玻璃標題列與右下角快捷按鈕。後續功能介面也會逐步遷移到新的實驗性使用者介面。</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Summary">啟用後使用重構中的啟動頁、整頁版本庫、整頁版本設定、毛玻璃標題列與右下角快捷按鈕。後續功能介面也會逐步遷移到新的實驗性使用者介面。</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Benefits">主路徑更短；層次更清晰；更適合寬螢幕；標題與浮動操作採用 Apple 風格材質。</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Risks">實驗階段；版面與外掛注入位置可能隨版本變化；遇到問題可隨時關閉回退。</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Scope">關閉後重新進入「啟動」即可恢復經典版面（含經典版本選擇與原浮動按鈕樣式）。其他功能介面的重構會分批開放。</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Scope">關閉後重新進入「啟動」即可恢復經典版面（含經典版本選擇、經典版本設定與原浮動按鈕樣式）。其他功能介面的重構會分批開放。</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Title">啟用實驗性使用者介面</sys:String>
-    <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Message">將啟用實驗性使用者介面（啟動頁、整頁版本庫、標題列與右下角快捷按鈕會切換為新樣式）。遇到問題可隨時在實驗性功能中關閉。是否繼續？</sys:String>
+    <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Message">將啟用實驗性使用者介面（啟動頁、整頁版本庫、整頁版本設定、標題列與右下角快捷按鈕會切換為新樣式）。遇到問題可隨時在實驗性功能中關閉。是否繼續？</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Confirm.Enable">啟用</sys:String>
     <sys:String x:Key="Setup.Experimental.LaunchShortcuts.Title">啟動頁快捷列</sys:String>
     <sys:String x:Key="Setup.Experimental.LaunchShortcuts.Enable">啟用啟動頁快捷列（固定世界/伺服器）</sys:String>

@@ -2397,7 +2397,7 @@ public partial class MainWindow : Window, IDisposable
     {
         string root = LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
         Directory.CreateDirectory(Path.Combine(root, "versions"));
-        MinecraftFolderInfo folder = AddOrGetMinecraftFolder(root, "当前文件夹");
+        MinecraftFolderInfo folder = AddOrGetMinecraftFolder(root, "当前");
         await SelectMinecraftFolderAsync(folder, forceRefresh: true).ConfigureAwait(true);
     }
 
@@ -2493,6 +2493,16 @@ public partial class MainWindow : Window, IDisposable
         }
 
         WireInstancesManageSurface();
+        bool experimental =
+            _shellViewModel.Profile.Manage == InstanceManageLayout.FullPageSidebar ||
+            IsExperimentalHomepageUiEnabled();
+
+        if (experimental)
+        {
+            ApplyExperimentalInstanceManagePage(instance, subPage, leftHost, rightHost);
+            return;
+        }
+
         (PageInstanceLeft left, MyPageRight rightPage, InstancePageSubType normalized) =
             _instancesManage.Prepare(instance, subPage);
         _managedInstance = _instancesManage.ManagedInstance;
@@ -2515,6 +2525,38 @@ public partial class MainWindow : Window, IDisposable
         rightHost.Child = rightPage;
         RefreshBackToTopBinding();
         rightPage.PageOnEnter();
+        _ = normalized;
+    }
+
+    private void ApplyExperimentalInstanceManagePage(
+        LaunchInstanceInfo instance,
+        InstancePageSubType subPage,
+        Border leftHost,
+        Border rightHost)
+    {
+        ApplyExperimentalChrome(true);
+
+        (PageInstanceManageExperimental shell, InstancePageSubType normalized) =
+            _instancesManage.PrepareExperimental(instance, subPage);
+        _managedInstance = _instancesManage.ManagedInstance;
+
+        // Full-page: clear classic left rail (appearance / select pattern).
+        if (leftHost.Child is MyPageLeft oldLeft)
+            oldLeft.TriggerHideAnimation();
+        leftHost.Child = null;
+
+        EnterTitleSubPage($"版本设置 - {instance.Name}");
+
+        MyPageRight? oldRight = rightHost.Child as MyPageRight;
+        if (!ReferenceEquals(oldRight, shell))
+        {
+            oldRight?.PageOnExit();
+            rightHost.Child = shell;
+            rightHost.Opacity = 1d;
+            shell.PageOnEnter();
+        }
+
+        RefreshBackToTopBinding();
         _ = normalized;
     }
 

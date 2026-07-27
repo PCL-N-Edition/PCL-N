@@ -141,6 +141,21 @@ public sealed class DesktopCompositionTests
     }
 
     [TestMethod]
+    public void ExperimentalUiProfile_FromHomepageFlag_EnablesFullPageVersionSettings()
+    {
+        ExperimentalUiProfile on = ExperimentalUiProfile.FromHomepageFlag(true);
+        Assert.IsTrue(on.HomepageUi);
+        Assert.AreEqual(ChromeStyle.Glass, on.Chrome);
+        Assert.AreEqual(LaunchHomeLayout.FullPage, on.LaunchHome);
+        Assert.AreEqual(InstanceSelectLayout.FullPageSidebar, on.Select);
+        Assert.AreEqual(InstanceManageLayout.FullPageSidebar, on.Manage);
+
+        ExperimentalUiProfile off = ExperimentalUiProfile.FromHomepageFlag(false);
+        Assert.AreEqual(InstanceManageLayout.ClassicSplit, off.Manage);
+        Assert.AreEqual(ExperimentalUiProfile.Classic, off);
+    }
+
+    [TestMethod]
     public void InstancesSelectSurface_PrefersCurrentInstanceMinecraftRoot()
     {
         string root = Path.Combine(

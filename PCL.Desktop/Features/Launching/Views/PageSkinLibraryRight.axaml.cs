@@ -32,6 +32,8 @@ public partial class PageSkinLibraryRight : MyPageRight
         SizeChanged += (_, _) => ApplyResponsiveLayout();
         ActualThemeVariantChanged += (_, _) => RenderSiteRail();
         PageExit += CancelPendingLoad;
+        AttachedToVisualTree += (_, _) => ExperimentalControlChrome.ApplyDeferred(this, enabled: true);
+        PageEnter += () => ExperimentalControlChrome.ApplyDeferred(this, enabled: true);
         ApplyResponsiveLayout();
         UpdatePager();
     }

@@ -27,6 +27,12 @@ public enum InstanceSelectLayout
     FullPageSidebar = 1
 }
 
+public enum InstanceManageLayout
+{
+    ClassicSplit = 0,
+    FullPageSidebar = 1
+}
+
 /// <summary>
 /// Presentation-only profile. Business stores must not branch on View types.
 /// </summary>
@@ -34,13 +40,15 @@ public sealed record ExperimentalUiProfile(
     bool HomepageUi,
     ChromeStyle Chrome,
     LaunchHomeLayout LaunchHome,
-    InstanceSelectLayout Select)
+    InstanceSelectLayout Select,
+    InstanceManageLayout Manage)
 {
     public static ExperimentalUiProfile Classic { get; } = new(
         HomepageUi: false,
         Chrome: ChromeStyle.Classic,
         LaunchHome: LaunchHomeLayout.Split,
-        Select: InstanceSelectLayout.LeftRight);
+        Select: InstanceSelectLayout.LeftRight,
+        Manage: InstanceManageLayout.ClassicSplit);
 
     public static ExperimentalUiProfile FromHomepageFlag(bool homepageUi) =>
         homepageUi
@@ -48,7 +56,8 @@ public sealed record ExperimentalUiProfile(
                 HomepageUi: true,
                 Chrome: ChromeStyle.Glass,
                 LaunchHome: LaunchHomeLayout.FullPage,
-                Select: InstanceSelectLayout.FullPageSidebar)
+                Select: InstanceSelectLayout.FullPageSidebar,
+                Manage: InstanceManageLayout.FullPageSidebar)
             : Classic;
 }
 
