@@ -84,18 +84,26 @@ public partial class PageInstanceInstallRight : MyPageRight
         HideLoading();
     }
 
+    private bool _startButtonWired;
+
     private void WireWpfCopiedControls()
     {
-        if (this.FindControl<MyExtraTextButton>("BtnSelectStart") is { } startButton)
+        if (this.FindControl<MyExtraTextButton>("BtnSelectStart") is not { } startButton || _startButtonWired)
+            return;
+
+        _startButtonWired = true;
+        startButton.Show = true;
+        startButton.IsEnabled = true;
+        startButton.Click += (_, _) =>
         {
-            startButton.Show = true;
-            startButton.IsEnabled = true;
-            startButton.Click += (_, _) =>
-            {
-                if (_instance is not null)
-                    ModifyRequested?.Invoke(this, new InstanceInstallModifyRequest(_instance, _selectedMinecraftVersionId));
-            };
-        }
+            if (_instance is null)
+                return;
+
+            // Reinstall / re-apply keeps the existing instance directory name (upstream habit).
+            ModifyRequested?.Invoke(
+                this,
+                new InstanceInstallModifyRequest(_instance, _selectedMinecraftVersionId));
+        };
     }
 
     private void ApplySelectPageState()
@@ -124,8 +132,12 @@ public partial class PageInstanceInstallRight : MyPageRight
 
         if (this.FindControl<MyExtraTextButton>("BtnSelectStart") is { } startButton)
         {
-            startButton.Show = true;
+            // Prefer non-animated re-show so re-entering the page cannot accumulate scale.
+            if (!startButton.Show)
+                startButton.Show = true;
             startButton.IsEnabled = true;
+            startButton.Opacity = 1d;
+            startButton.IsVisible = true;
         }
     }
 

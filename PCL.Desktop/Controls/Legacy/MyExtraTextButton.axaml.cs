@@ -235,6 +235,7 @@ public sealed partial class MyExtraTextButton : Grid
         IsHitTestVisible = show;
         if (!animate)
         {
+            ModAnimation.AniStop("MyExtraTextButton MainScale " + Uuid);
             IsVisible = show;
             Opacity = show ? 1d : 0d;
             SetScale(this, show ? 1d : 0d);
@@ -243,28 +244,30 @@ public sealed partial class MyExtraTextButton : Grid
 
         if (show)
         {
+            // Already fully shown — do not re-run pop-in animation (prevents growth on re-entry).
+            if (IsVisible && Opacity >= 0.99d && Math.Abs(GetScaleX(this) - 1d) < 0.02d)
+                return;
+
+            ModAnimation.AniStop("MyExtraTextButton MainScale " + Uuid);
             IsVisible = true;
+            SetScale(this, 0.15d);
             Opacity = 0d;
             ModAnimation.AniStart(
             new List<ModAnimation.AniData>
             {
-                ModAnimation.AaOpacity(this, 1d - Opacity, 80, 50),
-                ModAnimation.AaScaleTransform(
-                    this,
-                    0.15d - GetScaleX(this),
-                    400,
-                    50,
-                    new ModAnimation.AniEaseOutBack()),
+                ModAnimation.AaOpacity(this, 1d, 80, 50),
                 ModAnimation.AaScaleTransform(
                     this,
                     0.85d,
-                    160,
+                    400,
                     50,
-                    new ModAnimation.AniEaseOutFluent())
+                    new ModAnimation.AniEaseOutBack()),
+                ModAnimation.AaCode(() => SetScale(this, 1d), after: true)
             }, "MyExtraTextButton MainScale " + Uuid);
             return;
         }
 
+        ModAnimation.AniStop("MyExtraTextButton MainScale " + Uuid);
         ModAnimation.AniStart(
         new List<ModAnimation.AniData>
         {
@@ -274,7 +277,11 @@ public sealed partial class MyExtraTextButton : Grid
                 -GetScaleX(this),
                 100,
                 ease: new ModAnimation.AniEaseInFluent(ModAnimation.AniEasePower.Weak)),
-            ModAnimation.AaCode(() => IsVisible = false, after: true)
+            ModAnimation.AaCode(() =>
+            {
+                IsVisible = false;
+                SetScale(this, 0d);
+            }, after: true)
         }, "MyExtraTextButton MainScale " + Uuid);
     }
 
