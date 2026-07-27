@@ -90,6 +90,19 @@ public sealed class AuthlibInjectorServiceTests
         Assert.AreEqual("""{"skinDomains":["example.com"]}""", metadata);
     }
 
+    [TestMethod]
+    public void NormalizeAuthServer_MigratesLegacyNCloudEdgeUrl()
+    {
+        const string legacy =
+            "http://vtvhtscdvfnuttwapzxu.supabase.co/plugin-center-api/v1/yggdrasil";
+
+        string normalized = AuthlibInjectorService.NormalizeAuthServer(legacy);
+
+        Assert.AreEqual(
+            "https://vtvhtscdvfnuttwapzxu.supabase.co/functions/v1/plugin-center-api/v1/yggdrasil",
+            normalized);
+    }
+
     private sealed class DelegateHandler(Func<HttpRequestMessage, HttpResponseMessage> handle) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(

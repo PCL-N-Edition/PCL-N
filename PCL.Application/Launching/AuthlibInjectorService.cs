@@ -70,6 +70,24 @@ public sealed class AuthlibInjectorService
         const string authServerSuffix = "/authserver";
         if (normalized.EndsWith(authServerSuffix, StringComparison.OrdinalIgnoreCase))
             normalized = normalized[..^authServerSuffix.Length];
+
+        // Early N Cloud sessions were issued from the Edge Function's internally
+        // rewritten request URL. Persisted profiles therefore contain HTTP and
+        // omit Supabase's public /functions/v1 prefix. Repair those profiles at
+        // every launch so users do not have to remove and re-add their account.
+        if (Uri.TryCreate(normalized, UriKind.Absolute, out Uri? uri) &&
+            uri.Host.EndsWith(".supabase.co", StringComparison.OrdinalIgnoreCase) &&
+            uri.AbsolutePath.StartsWith("/plugin-center-api/", StringComparison.OrdinalIgnoreCase))
+        {
+            UriBuilder builder = new(uri)
+            {
+                Scheme = Uri.UriSchemeHttps,
+                Port = -1,
+                Path = "/functions/v1" + uri.AbsolutePath
+            };
+            normalized = builder.Uri.ToString().TrimEnd('/');
+        }
+
         return normalized;
     }
 

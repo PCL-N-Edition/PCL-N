@@ -14,6 +14,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using PCL.Application.Accounts;
+using PCL.Application.Launching;
 using PCL.Application.Settings;
 using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
@@ -1344,6 +1345,22 @@ public partial class MainWindow
             List<LoginProfileInfo> profiles = result.Profiles.Profiles
                 .Select(ToLoginProfileInfo)
                 .ToList();
+            bool migratedNCloudEndpoint = result.Profiles.Profiles
+                .Zip(profiles)
+                .Any(pair =>
+                    pair.First.Kind == LaunchProfileKind.NCloud &&
+                    !string.Equals(
+                        pair.First.AuthServer,
+                        pair.Second.AuthServer,
+                        StringComparison.OrdinalIgnoreCase));
+            if (migratedNCloudEndpoint)
+            {
+                await store.SaveAsync(new LaunchProfileSet
+                    {
+                        Profiles = profiles.Select(ToLaunchProfile).ToArray()
+                    })
+                    .ConfigureAwait(false);
+            }
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 _loginProfiles.Clear();
@@ -1352,6 +1369,8 @@ public partial class MainWindow
                 _launchLeft?.SetSelectedProfilePresent(_loginProfiles.Count > 0);
                 if (result.WasRecovered)
                     _launchRight?.AppendLog($"账户档案配置已重置，损坏文件已备份到：{result.BackupPath}");
+                if (migratedNCloudEndpoint)
+                    _launchRight?.AppendLog("已自动迁移旧版 N Cloud 认证服务器地址。");
             });
 
             LoginProfileInfo? microsoftProfile = profiles.FirstOrDefault(static profile =>
@@ -1810,28 +1829,34 @@ public partial class MainWindow
         return Path.Combine(paths.ApplicationDataDirectory, "PCL-N", "launch-profiles.json");
     }
 
-    private static LoginProfileInfo ToLoginProfileInfo(LaunchProfile profile) =>
-        new(
+    private static LoginProfileInfo ToLoginProfileInfo(LaunchProfile profile)
+    {
+        LaunchLoginProfileKind kind = profile.Kind switch
+        {
+            LaunchProfileKind.Microsoft => LaunchLoginProfileKind.Microsoft,
+            LaunchProfileKind.LittleSkin => LaunchLoginProfileKind.LittleSkin,
+            LaunchProfileKind.NCloud => LaunchLoginProfileKind.NCloud,
+            LaunchProfileKind.ThirdParty => LaunchLoginProfileKind.ThirdParty,
+            _ => LaunchLoginProfileKind.Offline
+        };
+        string authServer = kind == LaunchLoginProfileKind.NCloud
+            ? AuthlibInjectorService.NormalizeAuthServer(profile.AuthServer)
+            : profile.AuthServer;
+        return new LoginProfileInfo(
             profile.Username,
             profile.Info,
-            profile.Kind switch
-            {
-                LaunchProfileKind.Microsoft => LaunchLoginProfileKind.Microsoft,
-                LaunchProfileKind.LittleSkin => LaunchLoginProfileKind.LittleSkin,
-                LaunchProfileKind.NCloud => LaunchLoginProfileKind.NCloud,
-                LaunchProfileKind.ThirdParty => LaunchLoginProfileKind.ThirdParty,
-                _ => LaunchLoginProfileKind.Offline
-            },
+            kind,
             profile.Uuid,
             profile.Logo,
             profile.SvgIcon,
             profile.SkinAddress,
-            profile.AuthServer,
+            authServer,
             profile.AccessToken,
             profile.RefreshToken,
             profile.ClientToken,
             profile.ProviderAccessToken,
             profile.ProviderTokenExpiresAtUnix);
+    }
 
     private static LaunchProfile ToLaunchProfile(LoginProfileInfo profile) =>
         new()
