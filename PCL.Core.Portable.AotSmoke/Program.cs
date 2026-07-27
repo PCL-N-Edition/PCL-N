@@ -55,8 +55,8 @@ Directory.Delete(saveFolder, recursive: true);
 var pingValid = await VerifyPingAsync();
 var lobbyCode = LobbyCodeGenerator.Generate();
 var lobbyCodeValid =
-    LobbyCodeGenerator.TryParse(lobbyCode.FullCode, out var parsedLobby) &&
-    parsedLobby == lobbyCode;
+    LobbyCodeGenerator.TryParse(lobbyCode) == lobbyCode &&
+    LobbyCodeGenerator.GetRoomId(lobbyCode) is { Length: 8 };
 var oauthValid = await VerifyOAuthAsync();
 var openIdValid = await VerifyOpenIdAsync();
 var yggdrasilValid = await VerifyYggdrasilAsync();

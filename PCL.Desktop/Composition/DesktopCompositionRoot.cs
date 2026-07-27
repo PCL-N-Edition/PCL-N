@@ -9,7 +9,6 @@ using PCL.Desktop.Features.Community;
 using PCL.Desktop.Features.Downloads;
 using PCL.Desktop.Features.Instances;
 using PCL.Desktop.Features.Launching;
-using PCL.Desktop.Features.Link;
 using PCL.Desktop.Features.Settings;
 using PCL.Desktop.Features.Tasks;
 using PCL.Desktop.Session;
@@ -76,7 +75,6 @@ public static class DesktopCompositionRoot
             new DownloadFeatureModule(),
             new SettingsFeatureModule(),
             new CommunityFeatureModule(),
-            new LinkFeatureModule(),
             new TasksFeatureModule()
         ];
         foreach (IDesktopFeatureModule module in modules)

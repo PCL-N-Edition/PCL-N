@@ -481,7 +481,6 @@
     <sys:String x:Key="Community.Left.World">Worlds</sys:String>
 <sys:String x:Key="Main.TopTitle.Download">Install</sys:String>
     <sys:String x:Key="Main.TopTitle.Launch">Play</sys:String>
-    <sys:String x:Key="Main.TopTitle.Link">Multiplayer</sys:String>
     <sys:String x:Key="Main.TopTitle.Settings">Settings</sys:String>
 
     <!-- Minecraft -->
@@ -1045,37 +1044,5 @@
     <sys:String x:Key="Update.CommunityNotice.Body">Welcome to Plain Craft Launcher N Edition.&#x0a;&#x0a;PCL N is an independently maintained fork by MUXUE1230 and is not affiliated with LTCat or PCL-Community.&#x0a;&#x0a;Highlights:&#x0a;• Use a Microsoft skin with an offline profile&#x0a;• Browse and install resources directly in an instance, with dependency resolution&#x0a;• Connect through P2P multiplayer using IPv6 or UPnP&#x0a;• A Fluent-inspired interface&#x0a;&#x0a;Report problems in this project’s GitHub Issues. This notice appears once after each update.</sys:String>
     <sys:String x:Key="Update.CommunityNotice.Confirm">Continue</sys:String>
     <sys:String x:Key="Update.CommunityNotice.Title">PCL N Edition</sys:String>
-
-    <!-- Terracotta multiplayer -->
-    <sys:String x:Key="Link.Page.Agreement.Title">Multiplayer service agreement</sys:String>
-    <sys:String x:Key="Link.Page.Agreement.Description">Terracotta multiplayer creates a virtual LAN through EasyTier and uses the Scaffolding control protocol compatible with PCL CE 2.15.0.</sys:String>
-    <sys:String x:Key="Link.Page.Agreement.Network">Network and privacy notice</sys:String>
-    <sys:String x:Key="Link.Page.Agreement.Body">Multiplayer connects to public relay nodes and shares your display name, random device identifier, and launcher version with members of the same room. A room code acts as an invitation credential; share it only with people you trust.</sys:String>
-    <sys:String x:Key="Link.Page.Agreement.EasyTier">About EasyTier</sys:String>
-    <sys:String x:Key="Link.Page.Agreement.Accept">Accept and enable</sys:String>
-    <sys:String x:Key="Link.Page.Select.Description">Before creating a room, use “Open to LAN” inside Minecraft.</sys:String>
-    <sys:String x:Key="Link.Page.Nat.Tooltip">Test UDP and TCP NAT types and IPv6 availability</sys:String>
-    <sys:String x:Key="Link.Page.Identity.Title">Multiplayer identity</sys:String>
-    <sys:String x:Key="Link.Page.Identity.Name">Display name</sys:String>
-    <sys:String x:Key="Link.Page.Identity.Hint">Name shown to other room members</sys:String>
-    <sys:String x:Key="Link.Page.Join.Title">Join a room</sys:String>
-    <sys:String x:Key="Link.Page.Join.Description">Enter a Terracotta room code shared by the host. After connecting, the room automatically appears in Minecraft's LAN server list.</sys:String>
-    <sys:String x:Key="Link.Page.Join.Hint">U/XXXX-XXXX-XXXX-XXXX</sys:String>
-    <sys:String x:Key="Link.Page.Join.Clear">Clear</sys:String>
-    <sys:String x:Key="Link.Page.Join.Paste">Paste</sys:String>
-    <sys:String x:Key="Link.Page.Join.Action">Join</sys:String>
-    <sys:String x:Key="Link.Page.Create.Title">Create a room</sys:String>
-    <sys:String x:Key="Link.Page.Create.Description">Select an automatically discovered Minecraft LAN world. If none is found, enter the port shown after using “Open to LAN”.</sys:String>
-    <sys:String x:Key="Link.Page.Create.Refresh">Refresh</sys:String>
-    <sys:String x:Key="Link.Page.Create.ManualPort">Manual port</sys:String>
-    <sys:String x:Key="Link.Page.Create.Action">Create</sys:String>
-    <sys:String x:Key="Link.Page.Finish.InfoTitle">Room information</sys:String>
-    <sys:String x:Key="Link.Page.Finish.Actions">Actions</sys:String>
-    <sys:String x:Key="Link.Page.Finish.CopyIp">Copy virtual server address</sys:String>
-    <sys:String x:Key="Link.Page.Finish.CopyCode">Copy room code</sys:String>
-    <sys:String x:Key="Link.Page.Finish.Exit">Leave multiplayer</sys:String>
-    <sys:String x:Key="Link.Page.Member.Title">Room members</sys:String>
-    <sys:String x:Key="Link.Page.Footer.Friends">Powered by:</sys:String>
-    <sys:String x:Key="Link.Page.Footer.Disable">Disable multiplayer</sys:String>
 
 </ResourceDictionary>
