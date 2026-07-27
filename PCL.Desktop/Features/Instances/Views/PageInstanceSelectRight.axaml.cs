@@ -82,20 +82,17 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
 
     private void ApplyFullPageLayoutChrome()
     {
-        if (this.FindControl<MyButton>("BtnDownloadHeader") is { } headerDownload)
-            headerDownload.UseExperimentalStyle = _fullPageLayout;
-        if (this.FindControl<MyButton>("BtnEmptyDownload") is { } emptyDownload)
-            emptyDownload.UseExperimentalStyle = _fullPageLayout;
         if (this.FindControl<Border>("PanFolderSidebar") is { } sidebar)
             sidebar.IsVisible = _fullPageLayout;
         if (this.FindControl<Grid>("PanRoot") is { } root)
         {
             root.ColumnDefinitions = _fullPageLayout
-                ? new ColumnDefinitions("268,*")
+                ? new ColumnDefinitions("220,*")
                 : new ColumnDefinitions("*");
         }
         if (this.FindControl<Grid>("PanContent") is { } content)
             Grid.SetColumn(content, _fullPageLayout ? 1 : 0);
+        ExperimentalControlChrome.ApplyDeferred(this, _fullPageLayout);
         ApplyResponsiveLayout();
     }
 
@@ -127,7 +124,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
             return;
 
         double widthProgress = Math.Clamp((availableWidth - 1000d) / 800d, 0d, 1d);
-        double sidebarWidth = 268d + 44d * widthProgress;
+        double sidebarWidth = 220d + 28d * widthProgress;
         double toolbarEdge = 22d + 10d * widthProgress;
         double contentEdge = 28d + 12d * widthProgress;
         double availableContentWidth = Math.Max(0d, availableWidth - sidebarWidth);
@@ -638,10 +635,11 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
             ControlVisualHelpers.AnimateListEntrance(panel, "Instance Select List");
         }
 
+        // Keep the search box available even when the folder is empty so layout stays stable.
         if (this.FindControl<Control>("PanVerSearchBox") is { } search)
-            search.IsVisible = _instances.Count > 0;
+            search.IsVisible = true;
         if (this.FindControl<Control>("BtnDownloadHeader") is { } headerDownload)
-            headerDownload.IsVisible = _instances.Count > 0 || !_showHidden;
+            headerDownload.IsVisible = true;
         SetVisible("BtnEmptyDownload", !_showHidden);
         if (_instances.Count == 0)
         {
@@ -670,7 +668,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
                 SetVisible("PanEmpty", true);
                 SetVisible("PanEmptySearch", false);
                 SetVisible("BtnEmptyDownload", false);
-                SetVisible("PanVerSearchBox", false);
+                SetVisible("PanVerSearchBox", true);
                 SetText("LabEmptyTitle", ResourceText("Select.Instance.Hidden.EmptyTitle", "没有隐藏版本"));
                 SetText("LabEmptyContent", ResourceText("Select.Instance.Hidden.EmptyMessage", "被隐藏的版本会显示在这里。"));
                 return;

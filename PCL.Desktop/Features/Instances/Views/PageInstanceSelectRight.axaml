@@ -8,7 +8,7 @@
       Full-page version library: frosted source sidebar + instance list (no hero titles).
       Mounted as the sole child of PanMain (no separate MyPageLeft).
     -->
-    <Grid x:Name="PanRoot" ColumnDefinitions="268,*" ClipToBounds="True">
+    <Grid x:Name="PanRoot" ColumnDefinitions="220,*" ClipToBounds="True">
 
         <!-- Sidebar: only when experimental full-page layout is on -->
         <Border x:Name="PanFolderSidebar"
@@ -31,16 +31,11 @@
                   Margin="22,14,22,0"
                   ColumnDefinitions="*,Auto"
                   VerticalAlignment="Center">
-                <Border Padding="2"
-                        CornerRadius="12"
-                        Background="{DynamicResource ColorBrushTransparentBackground}"
-                        BorderBrush="{DynamicResource ColorBrushGray6}"
-                        BorderThickness="1">
-                    <legacy:MySearchBox x:Name="PanVerSearchBox"
-                                        Margin="4,2"
-                                        HintText="{DynamicResource Select.Instance.Search.Hint}"
-                                        ToolTip="{DynamicResource Select.Instance.Search.ToolTip}" />
-                </Border>
+                <!-- MySearchBox already has card chrome; no outer border wrapper. -->
+                <legacy:MySearchBox x:Name="PanVerSearchBox"
+                                    Margin="0,2"
+                                    HintText="{DynamicResource Select.Instance.Search.Hint}"
+                                    ToolTip="{DynamicResource Select.Instance.Search.ToolTip}" />
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
                             Spacing="8"

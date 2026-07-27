@@ -88,7 +88,7 @@ public sealed class MinecraftFolderStore
         {
             string fallback = LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
             _folders.Add(new MinecraftFolderInfo(
-                "当前文件夹",
+                "当前",
                 SessionPath.NormalizeDirectory(fallback) ?? fallback));
         }
 
@@ -188,7 +188,7 @@ public sealed class MinecraftFolderStore
         {
             string fallback = SessionPath.NormalizeDirectory(LaunchInstanceDiscovery.GetCurrentMinecraftRoot())
                               ?? LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
-            _folders.Add(new MinecraftFolderInfo("当前文件夹", fallback));
+            _folders.Add(new MinecraftFolderInfo("当前", fallback));
         }
 
         bool removedSelected = removedPath is not null &&

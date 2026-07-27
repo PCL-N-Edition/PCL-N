@@ -198,15 +198,15 @@ public static class LaunchInstanceDiscovery
         string normalized = NormalizePath(rootDirectory) ?? rootDirectory;
         string? current = NormalizePath(GetCurrentMinecraftRoot());
         if (current is not null && string.Equals(normalized, current, StringComparison.OrdinalIgnoreCase))
-            return "当前文件夹";
+            return "当前";
 
         string? official = NormalizePath(GetOfficialMinecraftRoot());
         if (official is not null && string.Equals(normalized, official, StringComparison.OrdinalIgnoreCase))
-            return "官方启动器文件夹";
+            return "官方启动器";
 
         string? user = NormalizePath(GetUserMinecraftRoot());
         if (user is not null && string.Equals(normalized, user, StringComparison.OrdinalIgnoreCase))
-            return "用户文件夹";
+            return "用户";
 
         // Fallback for a raw %USERPROFILE%\.minecraft that wasn't classified above.
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -216,7 +216,7 @@ public static class LaunchInstanceDiscovery
             if (profileMinecraft is not null &&
                 string.Equals(normalized, profileMinecraft, StringComparison.OrdinalIgnoreCase))
             {
-                return "用户文件夹";
+                return "用户";
             }
         }
 

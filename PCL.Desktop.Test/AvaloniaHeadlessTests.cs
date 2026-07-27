@@ -3329,7 +3329,7 @@ public sealed class AvaloniaHeadlessTests
         string current = LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
         string? official = LaunchInstanceDiscovery.GetOfficialMinecraftRoot();
 
-        Assert.AreEqual("当前文件夹", LaunchInstanceDiscovery.GetMinecraftRootDisplayName(current));
+        Assert.AreEqual("当前", LaunchInstanceDiscovery.GetMinecraftRootDisplayName(current));
         Assert.IsTrue(LaunchInstanceDiscovery.GetCandidateRoots().Any(root =>
             string.Equals(
                 System.IO.Path.GetFullPath(root),
@@ -3337,7 +3337,7 @@ public sealed class AvaloniaHeadlessTests
                 StringComparison.OrdinalIgnoreCase)));
 
         Assert.IsFalse(string.IsNullOrWhiteSpace(official));
-        Assert.AreEqual("官方启动器文件夹", LaunchInstanceDiscovery.GetMinecraftRootDisplayName(official!));
+        Assert.AreEqual("官方启动器", LaunchInstanceDiscovery.GetMinecraftRootDisplayName(official!));
         Assert.IsTrue(LaunchInstanceDiscovery.GetCandidateRoots().Any(root =>
             string.Equals(
                 System.IO.Path.GetFullPath(root),
