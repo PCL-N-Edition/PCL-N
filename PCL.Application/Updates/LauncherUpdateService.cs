@@ -84,8 +84,8 @@ public sealed class LauncherUpdateService : IDisposable
         string? currentCommitSha = null,
         CancellationToken cancellationToken = default)
     {
-        _ = preferPluginBuild; // NoPlugin release artifacts are no longer published.
-        const string variant = "SelfContained_WithPlugin";
+        _ = preferPluginBuild; // Host-only releases; legacy WithPlugin/NoPlugin names still resolve below.
+        const string variant = "SelfContained";
         LauncherBuildIdentity identity = new(
             currentVersion,
             ResolveRuntimeId(),
@@ -429,18 +429,9 @@ public sealed class LauncherUpdateService : IDisposable
         string normalizedCurrent = NormalizeVersion(identity.Version);
         string normalizedTarget = NormalizeVersion(targetIndex.Index.TargetVersion ?? targetTag);
         List<LoadedPatchIndex> indexes = [targetIndex];
-        bool canPatchCurrentBuild = identity.NormalizedRuntimeVariant.EndsWith(
-            "_WithPlugin",
-            StringComparison.OrdinalIgnoreCase);
-        List<LauncherUpdatePatchStep> path = canPatchCurrentBuild
-            ? FindPatchPath(indexes, targetIdentity, normalizedCurrent, normalizedTarget)
-            : [];
-        if (!canPatchCurrentBuild)
-        {
-            PortableLog.Info(
-                "Update",
-                $"当前构建为旧版 {identity.NormalizedRuntimeVariant}；目标统一迁移到 WithPlugin，直接使用完整包。");
-        }
+        // Patch graph uses host-only variants (SelfContained / NoRuntime).
+        bool canPatchCurrentBuild = true;
+        List<LauncherUpdatePatchStep> path = FindPatchPath(indexes, targetIdentity, normalizedCurrent, normalizedTarget);
 
         // Format 2 keeps only a direct window. Walk backwards through each index's oldest
         // selected tag until a route is found; this implements the documented 1→11→21 plan.
@@ -647,7 +638,7 @@ public sealed class LauncherUpdateService : IDisposable
             ? "SelfContained"
             : targetIdentity.NormalizedRuntimeVariant;
         string resolvedRuntimeVariant = channel is UpdateChannel.CI or UpdateChannel.Dev
-            ? "SelfContained_WithPlugin"
+            ? "SelfContained"
             : targetIdentity.NormalizedRuntimeVariant;
         string assetName = $"PCL_N_{config}_{identity.RuntimeId}_{variant}.{ext}";
         return new LauncherUpdatePackage(
@@ -673,7 +664,8 @@ public sealed class LauncherUpdateService : IDisposable
             StringComparison.OrdinalIgnoreCase)
             ? "NoRuntime"
             : "SelfContained";
-        return identity with { RuntimeVariant = runtime + "_WithPlugin" };
+        // New packages drop the WithPlugin/NoPlugin suffix; keep identity on SelfContained/NoRuntime.
+        return identity with { RuntimeVariant = runtime };
     }
 
     private static string GetPackageStem(string assetName) =>

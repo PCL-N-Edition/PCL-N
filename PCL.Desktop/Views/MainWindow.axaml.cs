@@ -3912,13 +3912,13 @@ public partial class MainWindow : Window, IDisposable
 
         if (profile.Kind == LaunchLoginProfileKind.NCloud)
         {
-            Report("正在通过 PCL.Plugin 刷新 N Cloud 会话…");
+            Report("正在刷新 N Cloud 会话…");
             IHostOnlineMinecraftAccountProvider? provider =
                 HostOnlineMinecraftAccountProvider.Current;
             if (provider?.IsAuthenticated != true)
             {
                 throw new InvalidOperationException(
-                    "N Cloud 档案需要已登录的 PCL.Plugin 在线账户。请在设置中重新连接账户。");
+                    "N Cloud 档案需要已登录的在线服务账户。请在设置中重新连接账户。");
             }
 
             HostOnlineMinecraftSession session = await provider

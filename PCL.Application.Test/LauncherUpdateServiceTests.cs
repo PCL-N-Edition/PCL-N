@@ -28,7 +28,7 @@ public sealed class LauncherUpdateServiceTests
             File.WriteAllText(staged, "new");
             LauncherUpdatePackage package = new(
                 "2.0.0", "v2.0.0", "https://example.test/update.zip", "update.zip",
-                "PCL.Desktop.exe", null, null, [], "win-x64", "SelfContained_WithPlugin", "Release");
+                "PCL.Desktop.exe", null, null, [], "win-x64", "SelfContained", "Release");
             PreparedLauncherUpdate prepared = new(package, current, staged, directory, false);
 
             ProcessStartInfo startInfo = LauncherUpdateInstaller.CreateReplacementProcess(prepared, 123, true);
@@ -118,11 +118,11 @@ public sealed class LauncherUpdateServiceTests
     public void BuildIdentity_NormalizesRuntimeAndPluginVariant()
     {
         Assert.AreEqual(
-            "NoRuntime_NoPlugin",
-            LauncherBuildIdentity.NormalizeRuntimeVariant("NoRuntime_NoPlugin"));
+            "NoRuntime",
+            LauncherBuildIdentity.NormalizeRuntimeVariant("NoRuntime"));
         Assert.AreEqual(
-            "SelfContained_WithPlugin",
-            LauncherBuildIdentity.NormalizeRuntimeVariant("SelfContained_WithPlugin"));
+            "SelfContained",
+            LauncherBuildIdentity.NormalizeRuntimeVariant("SelfContained"));
         Assert.AreEqual("CI", LauncherBuildIdentity.NormalizeConfiguration("dev"));
     }
 
@@ -146,7 +146,7 @@ public sealed class LauncherUpdateServiceTests
 
         LauncherUpdateCheckResult result = await service.CheckAsync(
             UpdateChannel.Beta,
-            new LauncherBuildIdentity("1.1.0 beta", "win-x64", "NoRuntime_NoPlugin", "Beta"));
+            new LauncherBuildIdentity("1.1.0 beta", "win-x64", "NoRuntime", "Beta"));
 
         Assert.IsTrue(result.Success, result.ErrorMessage);
         Assert.IsTrue(result.IsUpdateAvailable);
@@ -166,7 +166,7 @@ public sealed class LauncherUpdateServiceTests
         InvalidOperationException error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             service.CheckAsync(
                 UpdateChannel.Beta,
-                new LauncherBuildIdentity("1.1.0 beta", "win-x64", "NoRuntime_NoPlugin", "Beta")));
+                new LauncherBuildIdentity("1.1.0 beta", "win-x64", "NoRuntime", "Beta")));
 
         StringAssert.Contains(error.Message, "不安全");
     }
@@ -201,7 +201,7 @@ public sealed class LauncherUpdateServiceTests
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         });
         using LauncherUpdateService service = new(new HttpClient(handler), "owner", "repo");
-        LauncherBuildIdentity identity = new("1.2.1 beta", "win-x64", "NoRuntime_NoPlugin", "Beta");
+        LauncherBuildIdentity identity = new("1.2.1 beta", "win-x64", "NoRuntime", "Beta");
 
         LauncherUpdateCheckResult oldBuild = await service.CheckAsync(
             UpdateChannel.CI,
@@ -217,7 +217,7 @@ public sealed class LauncherUpdateServiceTests
         Assert.AreEqual(remoteCommit, oldBuild.RemoteCommitSha);
         Assert.IsFalse(oldBuild.SupportsPatches);
         Assert.AreEqual("PCL_N_CI_win-x64_SelfContained.zip", oldBuild.Package?.TargetAssetName);
-        Assert.AreEqual("SelfContained_WithPlugin", oldBuild.Package?.RuntimeVariant);
+        Assert.AreEqual("SelfContained", oldBuild.Package?.RuntimeVariant);
         Assert.IsTrue(currentBuild.Success);
         Assert.IsFalse(currentBuild.IsUpdateAvailable);
     }
@@ -244,7 +244,7 @@ public sealed class LauncherUpdateServiceTests
                 return JsonResponse(PatchIndex("1.2.0-release", "v1.2.0-release", "v1.1.0-release", "v1.1.0-release", 40, "target-sha", "from-11", ["v1.1.0-release"]));
             if (path.Contains("/v1.1.0-release/patch-index.json", StringComparison.Ordinal))
                 return JsonResponse(PatchIndex("1.1.0-release", "v1.1.0-release", "1.0.0-release", "v1.0.0-release", 30, "from-11", "from-10", []));
-            if (path.EndsWith("PCL_N_Release_win-x64_NoRuntime_WithPlugin.zip", StringComparison.Ordinal))
+            if (path.EndsWith("PCL_N_Release_win-x64_NoRuntime.zip", StringComparison.Ordinal))
                 return BytesResponse(new byte[1000]);
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         });
@@ -253,18 +253,18 @@ public sealed class LauncherUpdateServiceTests
 
         LauncherUpdateCheckResult result = await service.CheckAsync(
             UpdateChannel.Release,
-            new LauncherBuildIdentity("1.0.0 release", "win-x64", "NoRuntime_WithPlugin", "Release"));
+            new LauncherBuildIdentity("1.0.0 release", "win-x64", "NoRuntime", "Release"));
 
         Assert.IsTrue(result.Success);
         Assert.IsTrue(result.IsUpdateAvailable);
         Assert.IsNotNull(result.Package);
-        Assert.AreEqual("NoRuntime_WithPlugin", result.Package.RuntimeVariant);
+        Assert.AreEqual("NoRuntime", result.Package.RuntimeVariant);
         Assert.AreEqual("## Complete changelog\n\n- First fix\n- Second fix", result.ReleaseNotes);
-        Assert.AreEqual("PCL_N_Release_win-x64_NoRuntime_WithPlugin.zip", result.Package.TargetAssetName);
+        Assert.AreEqual("PCL_N_Release_win-x64_NoRuntime.zip", result.Package.TargetAssetName);
         Assert.AreEqual(2, result.Package.PatchSteps.Count);
         Assert.AreEqual("1.1.0-release", result.Package.PatchSteps[0].TargetVersion);
         Assert.AreEqual("1.2.0-release", result.Package.PatchSteps[1].TargetVersion);
-        Assert.IsTrue(result.Package.PatchSteps[0].DownloadUrl.EndsWith("win-x64__NoRuntime_WithPlugin__1.0.0-release-to-1.1.0-release.hdiff", StringComparison.Ordinal));
+        Assert.IsTrue(result.Package.PatchSteps[0].DownloadUrl.EndsWith("win-x64__NoRuntime__1.0.0-release-to-1.1.0-release.hdiff", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -279,7 +279,7 @@ public sealed class LauncherUpdateServiceTests
                 return Redirect("https://github.test/owner/repo/releases/tag/v1.2.0-release");
             if (path.Contains("/v1.2.0-release/patch-index.json", StringComparison.Ordinal))
                 return JsonResponse(PatchIndex("1.2.0-release", "v1.2.0-release", "1.0.0-release", "v1.0.0-release", 101, "target-sha", "from-10", []));
-            if (path.EndsWith("PCL_N_Release_win-x64_NoRuntime_WithPlugin.zip", StringComparison.Ordinal))
+            if (path.EndsWith("PCL_N_Release_win-x64_NoRuntime.zip", StringComparison.Ordinal))
                 return BytesResponse(new byte[100]);
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         });
@@ -287,7 +287,7 @@ public sealed class LauncherUpdateServiceTests
 
         LauncherUpdateCheckResult result = await service.CheckAsync(
             UpdateChannel.Release,
-            new LauncherBuildIdentity("1.0.0 release", "win-x64", "NoRuntime_WithPlugin", "Release"));
+            new LauncherBuildIdentity("1.0.0 release", "win-x64", "NoRuntime", "Release"));
 
         Assert.IsNotNull(result.Package);
         Assert.AreEqual(0, result.Package.PatchSteps.Count);
@@ -295,7 +295,7 @@ public sealed class LauncherUpdateServiceTests
     }
 
     [TestMethod]
-    public async Task CheckAsync_LegacyNoPluginBuildMigratesToWithPluginFullPackage()
+    public async Task CheckAsync_LegacyNoPluginBuildMigratesToHostFullPackage()
     {
         RoutingHandler handler = new(request =>
         {
@@ -320,13 +320,12 @@ public sealed class LauncherUpdateServiceTests
 
         LauncherUpdateCheckResult result = await service.CheckAsync(
             UpdateChannel.Release,
-            new LauncherBuildIdentity("1.0.0 release", "win-x64", "NoRuntime_NoPlugin", "Release"));
+            new LauncherBuildIdentity("1.0.0 release", "win-x64", "NoRuntime", "Release"));
 
         Assert.IsNotNull(result.Package);
-        Assert.AreEqual("NoRuntime_WithPlugin", result.Package.RuntimeVariant);
-        Assert.AreEqual("PCL_N_Release_win-x64_NoRuntime_WithPlugin.zip", result.Package.TargetAssetName);
-        Assert.AreEqual(0, result.Package.PatchSteps.Count);
-        Assert.IsFalse(result.SupportsPatches);
+        Assert.AreEqual("NoRuntime", result.Package.RuntimeVariant);
+        Assert.AreEqual("PCL_N_Release_win-x64_NoRuntime.zip", result.Package.TargetAssetName);
+        // Host-only variants may use the patch graph when indexes match.
     }
 
     [TestMethod]
@@ -353,7 +352,7 @@ public sealed class LauncherUpdateServiceTests
                 expected.Length,
                 [new LauncherUpdatePatchStep("1.0.0", "1.2.0", "https://download.test/a.hdiff", "00", 1, "00", 1, targetSha, expected.Length)],
                 "win-x64",
-                "SelfContained_NoPlugin",
+                "SelfContained",
                 "Release",
                 "https://download.test/PCL.zip.asc",
                 "https://download.test/PCL.zip.binary.asc");
@@ -458,7 +457,7 @@ public sealed class LauncherUpdateServiceTests
         string[] selectedFromTags)
     {
         string selected = string.Join(',', selectedFromTags.Select(tag => $"\"{tag}\""));
-        string patchName = $"patches/win-x64/NoRuntime_WithPlugin/win-x64__NoRuntime_WithPlugin__{fromVersion}-to-{targetVersion}.hdiff";
+        string patchName = $"patches/win-x64/NoRuntime/win-x64__NoRuntime__{fromVersion}-to-{targetVersion}.hdiff";
         return $$"""
             {
               "formatVersion": 2,
@@ -467,9 +466,9 @@ public sealed class LauncherUpdateServiceTests
               "strategy": { "selectedFromTags": [{{selected}}] },
               "variants": [{
                 "runtimeId": "win-x64",
-                "runtimeVariant": "NoRuntime_WithPlugin",
+                "runtimeVariant": "NoRuntime",
                 "configuration": "Release",
-                "targetAssetName": "PCL_N_Release_win-x64_NoRuntime_WithPlugin.zip",
+                "targetAssetName": "PCL_N_Release_win-x64_NoRuntime.zip",
                 "targetBinaryName": "PCL.Desktop.exe",
                 "targetSha256": "{{targetSha}}",
                 "targetSize": 5000,

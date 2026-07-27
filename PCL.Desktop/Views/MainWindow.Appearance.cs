@@ -475,7 +475,7 @@ public partial class MainWindow
                 IHostOnlineMinecraftAccountProvider? provider =
                     HostOnlineMinecraftAccountProvider.Current;
                 if (provider?.IsAuthenticated != true)
-                    throw new InvalidOperationException("PCL.Plugin 的 N Cloud 账户尚未登录。");
+                    throw new InvalidOperationException("N Cloud 账户尚未登录。");
                 byte[] bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(true);
                 HostOnlineSkinResult result = await provider
                     .UploadSkinAsync(bytes, isSlim: false)
@@ -620,7 +620,7 @@ public partial class MainWindow
                 IHostOnlineMinecraftAccountProvider? provider =
                     HostOnlineMinecraftAccountProvider.Current;
                 if (provider?.IsAuthenticated != true)
-                    throw new InvalidOperationException("PCL.Plugin 的 N Cloud 账户尚未登录。");
+                    throw new InvalidOperationException("N Cloud 账户尚未登录。");
 
                 HostOnlineSkinResult result;
                 if (textureId is long siteTextureId)

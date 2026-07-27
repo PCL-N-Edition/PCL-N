@@ -7,7 +7,7 @@ namespace PCL.Application.Accounts;
 /// <summary>
 /// Describes why a host-side Microsoft Minecraft profile became available.
 /// The host publishes only local session metadata; optional online behavior is
-/// implemented by privileged runtime extensions such as PCL.Plugin.
+/// implemented by host-side account providers.
 /// </summary>
 internal enum HostAccountSessionReason
 {

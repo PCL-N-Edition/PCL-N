@@ -27,12 +27,14 @@ on:
       runtime_variant:
         required: true
         type: string
+      # Deprecated: host body no longer embeds plugin IL. Kept optional for call-site stability.
       include_plugin:
         required: false
         default: false
         type: boolean
       plugin_tag:
-        required: true
+        required: false
+        default: ""
         type: string
       require_ms_client_id:
         description: Fail the build when Microsoft OAuth CLIENT_ID secret is missing
@@ -76,9 +78,6 @@ on:
         required: false
       LOBBY_DEFAULT_SECRET:
         required: false
-      PCL_PLUGIN_TOKEN:
-        required: false
-
 jobs:
   build:
     name: ${{ inputs.runtime_id }} / ${{ inputs.runtime_variant }}
@@ -138,75 +137,6 @@ jobs:
             exit 1
           fi
           echo "Microsoft CLIENT_ID secret is present (value masked)."
-
-      - name: Download private plugin release
-        if: ${{ inputs.include_plugin }}
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.PCL_PLUGIN_TOKEN }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
-            throw 'PCL_PLUGIN_TOKEN is required to download the private PCL.Plugin release.'
-          }
-
-          New-Item -ItemType Directory -Force -Path plugin | Out-Null
-          $tag = '${{ inputs.plugin_tag }}'
-          $repo = 'PCL-N-Edition/PCL.Plugin'
-          $assemblies = @(
-            'PCL.Plugin.dll',
-            'PCL.N.Plugin.Abstractions.dll',
-            'PCL.N.Plugin.i18n.dll',
-            'PCL.N.Plugin.Sdk.dll',
-            'PCL.N.Plugin.UI.dll',
-            'PCL.N.Plugin.UI.Avalonia.dll',
-            '0Harmony.dll',
-            'BouncyCastle.Cryptography.dll',
-            'jsoncanonicalizer.dll',
-            'es6numberserializer.dll'
-          )
-
-          # Assets can lag a few seconds after a release is published (upload race).
-          $downloaded = $false
-          for ($attempt = 1; $attempt -le 6; $attempt++) {
-            Remove-Item -Path (Join-Path plugin '*') -Force -ErrorAction SilentlyContinue
-            if ([string]::IsNullOrWhiteSpace($tag) -or $tag -eq 'latest') {
-              gh release download --repo $repo --dir plugin --pattern '*.dll*'
-            } else {
-              gh release download $tag --repo $repo --dir plugin --pattern '*.dll*'
-            }
-            if ($LASTEXITCODE -eq 0) {
-              $missing = @()
-              foreach ($assembly in $assemblies) {
-                $path = Join-Path plugin $assembly
-                $checksumPath = "$path.sha256"
-                if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or
-                    -not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) {
-                  $missing += $assembly
-                }
-              }
-              if ($missing.Count -eq 0) {
-                $downloaded = $true
-                break
-              }
-              Write-Host "Plugin release incomplete (missing: $($missing -join ', ')); retry $attempt/6..."
-            } else {
-              Write-Host "Plugin download failed (exit $LASTEXITCODE); retry $attempt/6..."
-            }
-            Start-Sleep -Seconds ([Math]::Min(10 * $attempt, 45))
-          }
-          if (-not $downloaded) {
-            throw "Unable to download complete PCL.Plugin release '$tag' from $repo."
-          }
-
-          foreach ($assembly in $assemblies) {
-            $path = Join-Path plugin $assembly
-            $checksumPath = "$path.sha256"
-            $expected = (Get-Content -LiteralPath $checksumPath -Raw).Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)[0]
-            $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actual -ne $expected.ToLowerInvariant()) {
-              throw "$assembly checksum mismatch. Expected $expected, got $actual."
-            }
-          }
 
       - name: Stamp build metadata (channel / version / commit)
         id: stamp
@@ -278,35 +208,8 @@ jobs:
           PCL_LINK_SERVER_ROOT: ${{ secrets.LINK_SERVER_ROOTS }}
           PCL_LOBBY_DEFAULT_SECRET: ${{ secrets.LOBBY_DEFAULT_SECRET }}
           PCL_GITHUB_SHA: ${{ github.sha }}
-          PCL_PLUGIN_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.Plugin.dll
-          PCL_PLUGIN_ABSTRACTIONS_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.N.Plugin.Abstractions.dll
-          PCL_PLUGIN_I18N_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.N.Plugin.i18n.dll
-          PCL_PLUGIN_SDK_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.N.Plugin.Sdk.dll
-          PCL_PLUGIN_UI_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.N.Plugin.UI.dll
-          PCL_PLUGIN_UI_AVALONIA_ASSEMBLY: ${{ github.workspace }}/plugin/PCL.N.Plugin.UI.Avalonia.dll
-          PCL_PLUGIN_BOUNCY_CASTLE_ASSEMBLY: ${{ github.workspace }}/plugin/BouncyCastle.Cryptography.dll
-          PCL_PLUGIN_HARMONY_ASSEMBLY: ${{ github.workspace }}/plugin/0Harmony.dll
-          PCL_PLUGIN_JSON_CANONICALIZER_ASSEMBLY: ${{ github.workspace }}/plugin/jsoncanonicalizer.dll
-          PCL_PLUGIN_ES6_NUMBER_SERIALIZER_ASSEMBLY: ${{ github.workspace }}/plugin/es6numberserializer.dll
         run: |
-          # Avoid `set -u` + empty array expansion: macOS bash treats unbound
-          # "${plugin_args[@]}" as an error when include_plugin is false (NoPlugin).
           set -eo pipefail
-          plugin_args=()
-          if [[ "${{ inputs.include_plugin }}" == "true" ]]; then
-            plugin_args=(
-              -p:PclPluginAssembly="$PCL_PLUGIN_ASSEMBLY"
-              -p:PclPluginAbstractionsAssembly="$PCL_PLUGIN_ABSTRACTIONS_ASSEMBLY"
-              -p:PclPluginI18nAssembly="$PCL_PLUGIN_I18N_ASSEMBLY"
-              -p:PclPluginSdkAssembly="$PCL_PLUGIN_SDK_ASSEMBLY"
-              -p:PclPluginUiAssembly="$PCL_PLUGIN_UI_ASSEMBLY"
-              -p:PclPluginUiAvaloniaAssembly="$PCL_PLUGIN_UI_AVALONIA_ASSEMBLY"
-              -p:PclPluginBouncyCastleAssembly="$PCL_PLUGIN_BOUNCY_CASTLE_ASSEMBLY"
-              -p:PclPluginHarmonyAssembly="$PCL_PLUGIN_HARMONY_ASSEMBLY"
-              -p:PclPluginJsonCanonicalizerAssembly="$PCL_PLUGIN_JSON_CANONICALIZER_ASSEMBLY"
-              -p:PclPluginEs6NumberSerializerAssembly="$PCL_PLUGIN_ES6_NUMBER_SERIALIZER_ASSEMBLY"
-            )
-          fi
 
           version_args=()
           if [[ -n "${PCL_STAMPED_ASSEMBLY_VERSION:-}" ]]; then
@@ -316,9 +219,8 @@ jobs:
             version_args+=(-p:InformationalVersion="${PCL_STAMPED_INFORMATIONAL_VERSION}")
           fi
 
-          # Single-node publish reduces MSB4166 child-node crashes under memory pressure.
+          # Host body only — no embedded plugin IL. Single-node publish reduces MSB4166 crashes.
           # NETSDK1176: EnableCompressionInSingleFile is only valid for self-contained.
-          # ${plugin_args[@]+...} is empty-safe on older bash (macOS runners).
           # Metadata channel/version stamped in previous step into embedded metadata.json.
           dotnet publish PCL.Desktop/PCL.Desktop.csproj \
             -c "${{ inputs.configuration }}" \
@@ -339,7 +241,6 @@ jobs:
             -p:DebugSymbols=false \
             -p:DeleteExistingFiles=true \
             ${version_args[@]+"${version_args[@]}"} \
-            ${plugin_args[@]+"${plugin_args[@]}"} \
             -warnaserror:CA1416 \
             -o "$PUBLISH_DIR"
 

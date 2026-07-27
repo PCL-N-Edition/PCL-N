@@ -110,7 +110,7 @@ internal sealed class FeedbackSubmissionWindow : Window
                     {
                         Text = Text(
                             "Setup.Feedback.Compose.Privacy",
-                            "PCL.Plugin 仅负责确认登录状态并提交认证请求。请勿填写令牌、密码或完整账户信息。"),
+                            "在线服务仅用于确认登录状态并提交认证请求。请勿填写令牌、密码或完整账户信息。"),
                         Opacity = 0.75d,
                         TextWrapping = TextWrapping.Wrap
                     },

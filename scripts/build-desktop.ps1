@@ -6,8 +6,7 @@ param(
     [switch]$Publish,
     [string]$Runtime = "win-x64",
     [switch]$WriteSecrets,
-    # Native AOT host (NoPlugin). Direct-run multi-file; no single-file self-extract.
-    # WithPlugin still requires CoreCLR single-file until static plugin registration (Option D).
+    # Native AOT host-only publish. Direct-run multi-file; no single-file self-extract.
     [switch]$Aot
 )
 

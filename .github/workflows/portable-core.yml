@@ -66,8 +66,7 @@ jobs:
       - name: Run application Native AOT launch smoke test
         run: ./PCL.Application.AotSmoke/bin/Release/net10.0/linux-x64/publish/PCL.Application.AotSmoke
 
-  # Option D / Phase 0: Desktop shell Native AOT without embedded IL plugins.
-  # WithPlugin still uses CoreCLR single-file until static plugin registration lands.
+  # Host-only Desktop Native AOT smoke (no plugin IL in-process).
   desktop-native-aot:
     name: desktop-aot (${{ matrix.rid }})
     strategy:
@@ -94,7 +93,7 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-      - name: Publish Desktop Native AOT (NoPlugin)
+      - name: Publish Desktop Native AOT (host-only)
         run: >
           dotnet publish PCL.Desktop/PCL.Desktop.csproj
           -c Release

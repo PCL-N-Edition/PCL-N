@@ -8,7 +8,7 @@ namespace PCL.Desktop.Features.Community;
 
 /// <summary>
 /// Launcher-owned online resource services. These are core Minecraft resource
-/// capabilities and must remain available independently of PCL.Plugin.
+/// capabilities and must remain available as host-built-in services.
 /// </summary>
 internal static class CommunityOnlineProviderRegistry
 {

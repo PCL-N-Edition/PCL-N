@@ -15,13 +15,10 @@ public sealed record LauncherBuildIdentity(
     public static string NormalizeRuntimeVariant(string? value)
     {
         string text = value?.Trim() ?? string.Empty;
-        string runtime = text.StartsWith("NoRuntime", StringComparison.OrdinalIgnoreCase)
+        // Host-only packages: SelfContained | NoRuntime (legacy *_{With,No}Plugin collapse to runtime).
+        return text.StartsWith("NoRuntime", StringComparison.OrdinalIgnoreCase)
             ? "NoRuntime"
             : "SelfContained";
-        string plugin = text.Contains("NoPlugin", StringComparison.OrdinalIgnoreCase)
-            ? "NoPlugin"
-            : "WithPlugin";
-        return runtime + "_" + plugin;
     }
 
     public static string NormalizeConfiguration(string? value) => value?.Trim().ToLowerInvariant() switch

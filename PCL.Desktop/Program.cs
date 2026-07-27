@@ -29,7 +29,7 @@ internal static class Program
         try
         {
             // The experimental JVM host is deliberately handled before settings, single-instance,
-            // plugins, or Avalonia are initialized. It is a game process, not another launcher UI.
+            // or Avalonia are initialized. It is a game process, not another launcher UI.
             if (MinecraftJvmHostProcessLauncher.TryGetRequestPath(args, out string jvmHostRequestPath))
                 return MinecraftJvmHostEntryPoint.Run(jvmHostRequestPath);
 
@@ -53,16 +53,6 @@ internal static class Program
                 return ValidateAssets();
             if (args.Contains("--validate-secrets", StringComparer.OrdinalIgnoreCase))
                 return PclEmbeddedSecrets.Count > 0 ? 0 : 2;
-            if (args.Contains("--validate-plugin", StringComparer.OrdinalIgnoreCase))
-            {
-                DesktopHost.Initialize();
-                return DesktopHost.Current.ModuleIds.Count > 0 && DesktopHost.Current.SettingsPages.Pages.Count > 0
-                    ? 0
-                    : 1;
-            }
-
-            EmbeddedRuntimeExtensionLoader.Load();
-            DesktopFileLog.Debug("Startup", "嵌入式运行时扩展预加载完成。");
 
             using SingleInstanceCoordinator singleInstance = SingleInstanceCoordinator.Create();
             DesktopFileLog.Info("SingleInstance", $"单实例检查完成；Primary={singleInstance.IsPrimaryInstance}。");

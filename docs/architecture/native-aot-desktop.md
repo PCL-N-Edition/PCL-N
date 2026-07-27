@@ -1,66 +1,43 @@
-# Native AOT desktop packaging (Option D)
+# Host-only body + Native AOT packaging
 
-## Goal
+## Product rules
 
-Ship **all** multi-platform release variants as **Native AOT** so the launcher
-**starts without single-file self-extraction**.
+1. **Releases never ship a `NoPlugin` SKU.** Artifacts are host-only: `SelfContained` / `NoRuntime`.
+2. **Host body contains no plugin-related code.**  
+   No embed of `PCL.Plugin` IL, no `LoadFromStream` plugin loader, no CI download of private plugin releases into Desktop.
 
-## Why not a one-line CI flip
+Privileged platform / marketplace / `.pnp` products live **outside** this repository’s process (separate product or future IPC sidecar).
 
-| Blocker | Detail |
-|--------|--------|
-| Embedded IL plugins | `EmbeddedRuntimeExtensionLoader` uses `AssemblyLoadContext.LoadFromStream` + `GetTypes` / `Activator` |
-| CSProj policy | `PclPluginAssembly` forces `PublishAot=false` / `PublishTrimmed=false` |
-| CI policy | `reusable-build.yml` forces single-file JIT + native self-extract |
-| Third-party `.pnp` | Collectible ALC + Harmony + runtime AXAML are incompatible with in-process AOT |
-| Private boundary | First-party `PCL.Plugin` is a private DLL release, not a solution project (and `Plugin → Desktop` would cycle if linked naively) |
+## Current host initialization
 
-Measured: **NoPlugin** `PCL.Desktop` **does** Native-AOT publish on `win-x64` after isolating the analyzer project from host AOT flags. Output is a native host **plus** sibling native deps (Skia / VLC / …) — no bundle extract step.
+```
+DesktopHost.Initialize
+  └─ DesktopNavigationRegistry.RegisterGeneratedHostModules  // built-in shell only
+  └─ PclHostBuilder.Build
+```
 
-## Target architecture
+There is no in-process plugin discovery.
 
-### First-party platform (`PCL.Plugin`)
+## Native AOT
 
-**Static native link** into the AOT host:
+Because the host no longer embeds plugin IL:
 
-1. Break Desktop ↔ Plugin project cycle (split Plugin.Core vs Plugin.UI, host only on abstractions).
-2. Replace reflection discovery with **static registration**:
-   - `builder.AddModule(new PclPluginHostModule())`
-   - `new PluginPlatformBootstrap()` (or source-generated list)
-3. CI consumes **plugin sources or an AOT-ready package**, not `LoadFromStream` of release DLLs.
-4. Drop embedded resource DLL model for first-party code.
+- Default Desktop flags can stay AOT-friendly (`PublishAot` / trim analyzers).
+- CI smoke: `portable-core.yml` → `desktop-native-aot` publishes host-only AOT on win/linux/mac.
+- Local: `.\scripts\build-desktop.ps1 -Publish -Aot ...`
+- Release pipelines still use CoreCLR single-file until the AOT matrix is promoted for all RIDs (VLC/native deps remain multi-file next to the AOT host).
 
-### Third-party `.pnp` plugins
+## Migration notes
 
-In-process IL load is **out** under AOT. Product line:
+| Legacy | Now |
+|--------|-----|
+| `*_WithPlugin` artifact suffix | Dropped; use `SelfContained` / `NoRuntime` |
+| `*_NoPlugin` | Never published |
+| Embed `PclPlugin*` MSBuild | Removed from `PCL.Desktop.csproj` |
+| `EmbeddedRuntimeExtensionLoader` | Deleted |
+| Update client `NoPlugin` → `WithPlugin` migration | Keep one release cycle for field upgrades, then remove |
 
-| Phase | Model | Notes |
-|-------|--------|------|
-| D.1 | **Disabled on AOT SKU** | Marketplace / `.pnp` unavailable or install-only for CoreCLR SKU |
-| D.2 | **Out-of-process host** | AOT shell + CoreCLR/native sidecar over IPC (settings/UI as data) |
-| D.3 (optional) | Native ABI plugins | Long-term ecosystem rewrite |
+## Out of host body (explicit)
 
-Harmony stays **out** of the AOT process.
-
-## Migration phases
-
-| Phase | Deliverable | Exit criteria |
-|-------|-------------|----------------|
-| **0** | NoPlugin Desktop AOT publish works on primary RIDs | CI smoke publish + run `--validate-environment` |
-| **1** | Static first-party plugin registration + cycle break | AOT **WithPlugin** binary boots with platform modules |
-| **2** | Third-party policy (D.1 then D.2) | Documented SKU matrix; no in-process IL load |
-| **3** | CI all RIDs / SelfContained AOT | Release artifacts no longer use `PublishSingleFile` extract path |
-| **4** | Remove dual path | Delete embed MSBuild + LoadFromStream loader |
-
-## Publish shape (AOT)
-
-- `PublishAot=true`, `SelfContained=true`
-- **Not** `PublishSingleFile` (native deps remain beside the host; still **direct** start)
-- `DebugType=None` / strip symbols in release jobs
-- macOS continues to wrap the host in `PCL N.app`
-
-## Non-goals (initial)
-
-- Framework-dependent (`NoRuntime`) Native AOT as primary SKU
-- Keeping Harmony / runtime AXAML in-process on AOT
-- Loading arbitrary community IL plugins inside the AOT process
+- `PCL.Plugin` private product and its dependencies (Harmony, marketplace, N Cloud platform, `.pnp` runtime)
+- In-process plugin UI injection (`pcl.plugin.*` tags) — to be removed or rehosted as IPC data later

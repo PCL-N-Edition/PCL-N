@@ -626,15 +626,8 @@ public sealed class DesktopArchitectureTests
     }
 
     [TestMethod]
-    public void RuntimeExtensionHostProvidesWindowActivationBridge()
+    public void DesktopHost_InitializesBuiltinModulesOnly()
     {
-        string repoRoot = Directory.GetParent(FindDesktopProjectRoot())!.FullName;
-        string contract = File.ReadAllText(Path.Combine(
-            repoRoot,
-            "PCL.Application",
-            "Hosting",
-            "RuntimeExtensions",
-            "IRuntimeExtensionHost.cs"));
         string desktopHost = File.ReadAllText(Path.Combine(
             FindDesktopProjectRoot(),
             "Hosting",
@@ -644,8 +637,9 @@ public sealed class DesktopArchitectureTests
             "Hosting",
             "DesktopHostWindowActivation.cs"));
 
-        StringAssert.Contains(contract, "IHostWindowActivation WindowActivation");
-        StringAssert.Contains(desktopHost, "windowActivation: DesktopHostWindowActivation.Instance");
+        StringAssert.Contains(desktopHost, "RegisterGeneratedHostModules");
+        Assert.IsFalse(desktopHost.Contains("EmbeddedRuntimeExtensionLoader", StringComparison.Ordinal));
+        Assert.IsFalse(desktopHost.Contains("RuntimeExtensionHostAccess.Initialize", StringComparison.Ordinal));
         StringAssert.Contains(activation, "mainWindow.ActivateExistingInstance()");
     }
 
@@ -692,16 +686,16 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "PublishSingleFile=true");
         // Desktop ProjectReference → external/Jvm.NET; CI must materialize the submodule.
         StringAssert.Contains(reusable, "submodules: recursive");
-        // Download may use a $repo variable; require both the gh command and plugin repo id.
-        StringAssert.Contains(reusable, "gh release download");
-        StringAssert.Contains(reusable, "PCL-N-Edition/PCL.Plugin");
-        StringAssert.Contains(reusable, "plugin_tag:");
-        StringAssert.Contains(reusable, "required: true");
+        // Host body never downloads or embeds private plugin IL.
+        Assert.IsFalse(reusable.Contains("PCL-N-Edition/PCL.Plugin", StringComparison.Ordinal));
+        Assert.IsFalse(reusable.Contains("PclPluginAssembly", StringComparison.Ordinal));
+        Assert.IsFalse(reusable.Contains("gh release download", StringComparison.Ordinal));
         foreach (string workflow in new[] { ci, stable, beta })
         {
-            StringAssert.Contains(workflow, "resolve-plugin-version:");
-            StringAssert.Contains(workflow, "repos/PCL-N-Edition/PCL.Plugin/releases/latest");
-            StringAssert.Contains(workflow, "plugin_tag: ${{ needs.resolve-plugin-version.outputs.tag }}");
+            Assert.IsFalse(workflow.Contains("resolve-plugin-version:", StringComparison.Ordinal));
+            Assert.IsFalse(workflow.Contains("include_plugin: true", StringComparison.Ordinal));
+            Assert.IsFalse(workflow.Contains("NoPlugin", StringComparison.Ordinal));
+            Assert.IsFalse(workflow.Contains("WithPlugin", StringComparison.Ordinal));
         }
         StringAssert.Contains(reusable, "app=\"$PUBLISH_DIR/PCL N.app\"");
         StringAssert.Contains(reusable, "contents=\"$app/Contents\"");
@@ -713,63 +707,35 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(beta, "chmod +x \"$binary\"");
         StringAssert.Contains(stable, "tar -C artifact -czf \"dist/${base}.tar.gz\" \"PCL N.app\"");
         StringAssert.Contains(beta, "tar -C artifact -czf \"dist/${base}.tar.gz\" \"PCL N.app\"");
-        StringAssert.Contains(reusable, "PclPluginAssembly");
-        StringAssert.Contains(reusable, "PclPluginSdkAssembly");
-        StringAssert.Contains(reusable, "PclPluginUiAssembly");
-        StringAssert.Contains(reusable, "PclPluginUiAvaloniaAssembly");
-        StringAssert.Contains(reusable, "PclPluginBouncyCastleAssembly");
-        StringAssert.Contains(reusable, "PclPluginHarmonyAssembly");
-        StringAssert.Contains(reusable, "PclPluginJsonCanonicalizerAssembly");
-        StringAssert.Contains(reusable, "PclPluginEs6NumberSerializerAssembly");
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");
         foreach (string runtime in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" })
             StringAssert.Contains(ci, runtime);
         StringAssert.Contains(beta, "github.event.release.tag_name != 'ci-latest'");
         StringAssert.Contains(beta, "inputs.tag_name != 'ci-latest'");
-        // Published builds always include the plugin runtime; NoPlugin is not a release branch.
-        StringAssert.Contains(stable, "include_plugin: true");
-        StringAssert.Contains(beta, "include_plugin: true");
-        StringAssert.Contains(stable, "WithPlugin");
-        StringAssert.Contains(beta, "WithPlugin");
-        Assert.IsFalse(stable.Contains("NoPlugin", StringComparison.Ordinal));
-        Assert.IsFalse(beta.Contains("NoPlugin", StringComparison.Ordinal));
         Assert.IsFalse(reusable.Contains("Plain Craft Launcher 2", StringComparison.Ordinal));
     }
 
     [TestMethod]
-    public void DesktopPlugin_IsEmbeddedWithoutJoiningTheSolution()
+    public void DesktopHost_DoesNotEmbedOrReferencePluginAssemblies()
     {
         string desktopRoot = FindDesktopProjectRoot();
         string repoRoot = Directory.GetParent(desktopRoot)?.FullName
             ?? throw new DirectoryNotFoundException("Could not locate repository root.");
         string projectSource = File.ReadAllText(Path.Combine(desktopRoot, "PCL.Desktop.csproj"));
-        string loaderSource = File.ReadAllText(Path.Combine(desktopRoot, "Hosting", "EmbeddedRuntimeExtensionLoader.cs"));
         string solutionSource = File.ReadAllText(Path.Combine(repoRoot, "PCL-N.slnx"));
+        string hostSource = File.ReadAllText(Path.Combine(desktopRoot, "Hosting", "DesktopHost.cs"));
 
-        StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.Plugin.dll");
-        StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.N.Plugin.Abstractions.dll");
-        StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.N.Plugin.i18n.dll");
-        StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.N.Plugin.Sdk.dll");
-        StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.N.Plugin.UI.dll");
-        StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.PCL.N.Plugin.UI.Avalonia.dll");
-        StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.BouncyCastle.Cryptography.dll");
-        StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.jsoncanonicalizer.dll");
-        StringAssert.Contains(projectSource, "PCL.Desktop.Embedded.es6numberserializer.dll");
-        StringAssert.Contains(projectSource, "PublishTrimmed>false");
-        StringAssert.Contains(loaderSource, "AssemblyLoadContext.Default.LoadFromStream(buffer)");
-        StringAssert.Contains(loaderSource, "if (!HasResource(ResourceName))");
-        StringAssert.Contains(loaderSource, "LoadResourceAssembly(AbstractionsResourceName)");
-        StringAssert.Contains(loaderSource, "LoadRequiredDependency(I18nResourceName)");
-        StringAssert.Contains(loaderSource, "LoadRequiredDependency(SdkResourceName)");
-        StringAssert.Contains(loaderSource, "LoadRequiredDependency(BouncyCastleResourceName)");
-        StringAssert.Contains(loaderSource, "LoadRequiredDependency(HarmonyResourceName)");
-        StringAssert.Contains(loaderSource, "LoadRequiredDependency(JsonCanonicalizerResourceName)");
-        StringAssert.Contains(loaderSource, "LoadRequiredDependency(Es6NumberSerializerResourceName)");
+        Assert.IsFalse(File.Exists(Path.Combine(desktopRoot, "Hosting", "EmbeddedRuntimeExtensionLoader.cs")));
+        Assert.IsFalse(projectSource.Contains("PclPluginAssembly", StringComparison.Ordinal));
+        Assert.IsFalse(projectSource.Contains("PCL.Desktop.Embedded.PCL.Plugin", StringComparison.Ordinal));
+        Assert.IsFalse(projectSource.Contains("0Harmony", StringComparison.Ordinal));
+        Assert.IsFalse(projectSource.Contains("InternalsVisibleTo Include=\"PCL.Plugin\"", StringComparison.Ordinal));
+        Assert.IsFalse(hostSource.Contains("LoadFromStream", StringComparison.Ordinal));
+        Assert.IsFalse(hostSource.Contains("EmbeddedRuntimeExtensionLoader", StringComparison.Ordinal));
         Assert.IsFalse(solutionSource.Contains("PCL.Plugin", StringComparison.Ordinal));
         Assert.IsFalse(projectSource.Contains("ProjectReference Include=\"../PCL.Plugin", StringComparison.Ordinal));
-        Assert.IsFalse(solutionSource.Contains("PCL.Plugin.Host.Abstractions", StringComparison.Ordinal));
-        Assert.IsFalse(projectSource.Contains("PCL.Plugin.Host.Abstractions", StringComparison.Ordinal));
+        StringAssert.Contains(hostSource, "RegisterGeneratedHostModules");
     }
 
     [TestMethod]

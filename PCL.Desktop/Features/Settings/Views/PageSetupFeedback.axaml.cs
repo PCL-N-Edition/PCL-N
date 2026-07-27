@@ -147,7 +147,7 @@ public partial class PageSetupFeedback : MyPageRight, IRefreshableSettingsPage, 
         try
         {
             if (!RuntimeExtensionHostAccess.Current.FeedbackSubmission.IsAvailable)
-                throw new InvalidOperationException("请先加载 PCL.Plugin 并登录 PCL N 在线服务账户。");
+                throw new InvalidOperationException("请先登录 PCL N 在线服务账户。");
             if (Avalonia.Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime lifetime ||
                 lifetime.MainWindow is not Window owner)
             {

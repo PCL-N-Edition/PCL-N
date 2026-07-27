@@ -19,30 +19,7 @@ on:
         default: false
 
 jobs:
-  resolve-plugin-version:
-    name: Resolve plugin release
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.tag_name != 'ci-latest') || (github.event_name == 'release' && github.event.release.prerelease && github.event.release.tag_name != 'ci-latest') }}
-    runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.release.outputs.tag }}
-    steps:
-      - name: Resolve latest PCL.Plugin release
-        id: release
-        env:
-          GH_TOKEN: ${{ secrets.PCL_PLUGIN_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="$(gh api repos/PCL-N-Edition/PCL.Plugin/releases/latest --jq .tag_name)"
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]] || {
-            echo "::error::Invalid PCL.Plugin release tag: $tag"
-            exit 1
-          }
-          echo "Resolved PCL.Plugin release: $tag"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: [resolve-plugin-version]
     # ci-latest is a rolling full-package release owned by build-test.yml. A newly
     # created CI release also emits release.published, but must never enter the
     # Beta build or all-history patch pipeline.
@@ -69,9 +46,7 @@ jobs:
       architecture: ${{ matrix.target.architecture }}
       binary_name: ${{ matrix.target.binary_name }}
       self_contained: ${{ matrix.runtime.self_contained }}
-      runtime_variant: ${{ matrix.runtime.variant }}_WithPlugin
-      include_plugin: true
-      plugin_tag: ${{ needs.resolve-plugin-version.outputs.tag }}
+      runtime_variant: ${{ matrix.runtime.variant }}
       channel: beta
       version_tag: ${{ github.event.release.tag_name || inputs.tag_name }}
     secrets: inherit
@@ -124,13 +99,13 @@ jobs:
       - name: Download Avalonia artifact
         uses: actions/download-artifact@v4
         with:
-          name: PCL_N_Beta_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}_WithPlugin
+          name: PCL_N_Beta_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}
           path: artifact
 
       - name: Package prerelease asset
         shell: bash
         run: |
-          base="PCL_N_Beta_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}_WithPlugin"
+          base="PCL_N_Beta_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}"
           mkdir -p dist
           if [[ "${{ matrix.target.runtime_id }}" == osx-* ]]; then
             binary="artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"

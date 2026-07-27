@@ -1,5 +1,5 @@
 // Copyright (c) MUXUE1230. All rights reserved.
-// Online implementation is owned by PCL.Plugin.
+// Online catalog implementation lives in host Application/Desktop.
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 

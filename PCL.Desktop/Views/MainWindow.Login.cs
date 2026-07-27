@@ -748,7 +748,7 @@ public partial class MainWindow
                 CreateProfileTypeItem(
                     useNCloud ? "N Cloud 在线账户" : "离线登录",
                     useNCloud
-                        ? "使用已在 PCL.Plugin 中登录的账户；支持云端皮肤与在线会话。"
+                        ? "使用已登录的在线服务账户；支持云端皮肤与在线会话。"
                         : "创建本地离线档案。联机服务器可能不会接受此档案。",
                     useNCloud ? "lucide/cloud" : "lucide/link-2-off")
             ]);
@@ -1440,10 +1440,10 @@ public partial class MainWindow
             if (provider?.IsAuthenticated != true)
             {
                 throw new InvalidOperationException(
-                    "PCL.Plugin 当前没有已登录的 PCL N 在线服务账户，请先在设置中连接账户。");
+                    "当前没有已登录的 PCL N 在线服务账户，请先在设置中连接账户。");
             }
 
-            _launchRight?.AppendLog("正在通过 PCL.Plugin 创建 N Cloud 在线会话。");
+            _launchRight?.AppendLog("正在创建 N Cloud 在线会话。");
             page.UpdateProgress(0.2d);
             HostOnlineMinecraftSession session = await provider
                 .CreateSessionAsync()

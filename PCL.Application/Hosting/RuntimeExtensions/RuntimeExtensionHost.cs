@@ -244,7 +244,7 @@ internal sealed class HostFeedbackSubmissionRegistry : IHostFeedbackSubmissionSe
             handler = _handler;
         return handler is null
             ? Task.FromException<HostFeedbackSubmissionResult>(
-                new NotSupportedException("当前构建未加载 PCL.Plugin，无法在启动器内提交反馈。"))
+                new NotSupportedException("当前宿主未连接在线反馈服务，无法在启动器内提交反馈。"))
             : handler.SubmitAsync(draft, cancellationToken);
     }
 
