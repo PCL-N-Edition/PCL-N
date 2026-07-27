@@ -27,7 +27,10 @@
 
         <!-- Content: toolbar + library (no hero titles) -->
         <Grid x:Name="PanContent" Grid.Column="1" RowDefinitions="Auto,*" ClipToBounds="True">
-            <Grid Margin="22,14,22,0" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+            <Grid x:Name="PanToolbar"
+                  Margin="22,14,22,0"
+                  ColumnDefinitions="*,Auto"
+                  VerticalAlignment="Center">
                 <Border Padding="2"
                         CornerRadius="12"
                         Background="{DynamicResource ColorBrushTransparentBackground}"

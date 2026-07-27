@@ -19,6 +19,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
     // Avalonia guide: 150–300 ms search debounce to keep UI thread free while typing.
     private const int SearchNormalDelayMs = 200;
     private const int SearchQuickDelayMs = 150;
+    private const double FullPageContentMaxWidth = 1320d;
     private readonly DispatcherTimer _reloadTimer;
     private readonly object _metadataLock = new();
     private CancellationTokenSource? _metadataLoadCancellation;
@@ -45,10 +46,14 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         _reloadTimer.Tick += ReloadTimer_Tick;
         if (this.FindControl<MySearchBox>("PanVerSearchBox") is { } searchBox)
             searchBox.TextChanged += PanVerSearchBox_TextChanged;
+        SizeChanged += (_, _) => ApplyResponsiveLayout();
         AttachedToVisualTree += (_, _) =>
         {
             if (_fullPageLayout)
+            {
+                ApplyResponsiveLayout();
                 ReloadFolders();
+            }
         };
         ActualThemeVariantChanged += (_, _) =>
         {
@@ -91,6 +96,56 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         }
         if (this.FindControl<Grid>("PanContent") is { } content)
             Grid.SetColumn(content, _fullPageLayout ? 1 : 0);
+        ApplyResponsiveLayout();
+    }
+
+    private void ApplyResponsiveLayout()
+    {
+        if (this.FindControl<Grid>("PanRoot") is not { } root ||
+            this.FindControl<Grid>("PanContent") is not { } content)
+        {
+            return;
+        }
+
+        if (!_fullPageLayout)
+        {
+            root.ColumnDefinitions = new ColumnDefinitions("*");
+            Grid.SetColumn(content, 0);
+            content.Width = double.NaN;
+            content.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+            if (this.FindControl<Grid>("PanToolbar") is { } classicToolbar)
+                classicToolbar.Margin = new Thickness(22d, 14d, 22d, 0d);
+            if (this.FindControl<StackPanel>("PanMain") is { } classicMain)
+                classicMain.Margin = new Thickness(28d, 4d, 28d, 28d);
+            if (this.FindControl<StackPanel>("PanFolders") is { } classicFolders)
+                classicFolders.Margin = new Thickness(10d, 12d, 10d, 18d);
+            return;
+        }
+
+        double availableWidth = Bounds.Width;
+        if (availableWidth <= 0d)
+            return;
+
+        double widthProgress = Math.Clamp((availableWidth - 1000d) / 800d, 0d, 1d);
+        double sidebarWidth = 268d + 44d * widthProgress;
+        double toolbarEdge = 22d + 10d * widthProgress;
+        double contentEdge = 28d + 12d * widthProgress;
+        double availableContentWidth = Math.Max(0d, availableWidth - sidebarWidth);
+
+        root.ColumnDefinitions = new ColumnDefinitions($"{sidebarWidth},*");
+        Grid.SetColumn(content, 1);
+        content.Width = Math.Min(FullPageContentMaxWidth, availableContentWidth);
+        content.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
+
+        if (this.FindControl<Grid>("PanToolbar") is { } toolbar)
+            toolbar.Margin = new Thickness(toolbarEdge, 14d, toolbarEdge, 0d);
+        if (this.FindControl<StackPanel>("PanMain") is { } main)
+            main.Margin = new Thickness(contentEdge, 4d, contentEdge, contentEdge);
+        if (this.FindControl<StackPanel>("PanFolders") is { } folders)
+        {
+            double folderEdge = 10d + 4d * widthProgress;
+            folders.Margin = new Thickness(folderEdge, 12d, folderEdge, 18d);
+        }
     }
 
     public bool ShowHidden

@@ -486,6 +486,61 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageLaunchHomeExperimental_ConstrainsAndCentersLargeWindowCanvas()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            PageLaunchHomeExperimental page = new();
+            Window window = new()
+            {
+                Width = 1800,
+                Height = 1100,
+                Content = page
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                Grid canvas = page.FindControl<Grid>("PanBack")!;
+                Assert.AreEqual(1360d, canvas.Width, 0.01d);
+                Assert.AreEqual(860d, canvas.Height, 0.01d);
+                Assert.AreEqual(24d, canvas.ColumnDefinitions[1].Width.Value, 0.01d);
+                Assert.AreEqual(400d, canvas.ColumnDefinitions[0].MaxWidth, 0.01d);
+                Assert.AreEqual(
+                    500d,
+                    page.FindControl<Border>("CardLaunching")!.Width,
+                    0.01d);
+                Assert.AreEqual(
+                    (page.Bounds.Width - canvas.Bounds.Width) / 2d,
+                    canvas.Bounds.X,
+                    0.5d);
+                Assert.AreEqual(
+                    (page.Bounds.Height - canvas.Bounds.Height) / 2d,
+                    canvas.Bounds.Y,
+                    0.5d);
+
+                window.Width = 1000;
+                window.Height = 650;
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                Assert.IsTrue(canvas.Width is > 900d and < 1000d);
+                Assert.IsTrue(canvas.Height is > 560d and < 650d);
+                Assert.IsTrue(canvas.ColumnDefinitions[1].Width.Value is > 16d and < 24d);
+                Assert.IsTrue(canvas.Bounds.Right <= page.Bounds.Width + 0.5d);
+                Assert.IsTrue(canvas.Bounds.Bottom <= page.Bounds.Height + 0.5d);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void LaunchPage_RootChangeWaitsForOneExplicitRefreshAndLeavesLoadingState()
     {
         string root = System.IO.Path.Combine(
@@ -5359,6 +5414,65 @@ public sealed class AvaloniaHeadlessTests
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }
+    }
+
+    [TestMethod]
+    public void PageInstanceSelectRight_ConstrainsLargeFullPageContent()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            PageInstanceSelectRight page = new();
+            Window window = new()
+            {
+                Width = 2000,
+                Height = 1000,
+                Content = page
+            };
+
+            try
+            {
+                page.SetFullPageLayout(true);
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                Grid root = page.FindControl<Grid>("PanRoot")!;
+                Grid content = page.FindControl<Grid>("PanContent")!;
+                Grid toolbar = page.FindControl<Grid>("PanToolbar")!;
+                StackPanel main = page.FindControl<StackPanel>("PanMain")!;
+                StackPanel folders = page.FindControl<StackPanel>("PanFolders")!;
+                Assert.AreEqual(312d, root.ColumnDefinitions[0].Width.Value, 0.01d);
+                Assert.AreEqual(1320d, content.Width, 0.01d);
+                Assert.AreEqual(32d, toolbar.Margin.Left, 0.01d);
+                Assert.AreEqual(40d, main.Margin.Left, 0.01d);
+                Assert.AreEqual(14d, folders.Margin.Left, 0.01d);
+                Assert.AreEqual(
+                    312d + (page.Bounds.Width - 312d - content.Bounds.Width) / 2d,
+                    content.Bounds.X,
+                    0.5d);
+
+                window.Width = 1200;
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                double sidebarWidth = root.ColumnDefinitions[0].Width.Value;
+                Assert.IsTrue(sidebarWidth is > 268d and < 312d);
+                Assert.AreEqual(page.Bounds.Width - sidebarWidth, content.Width, 0.5d);
+                Assert.IsTrue(content.Bounds.Right <= page.Bounds.Width + 0.5d);
+
+                page.SetFullPageLayout(false);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Assert.AreEqual(1, root.ColumnDefinitions.Count);
+                Assert.IsTrue(double.IsNaN(content.Width));
+                Assert.AreEqual(new Thickness(22d, 14d, 22d, 0d), toolbar.Margin);
+                Assert.AreEqual(new Thickness(28d, 4d, 28d, 28d), main.Margin);
+            }
+            finally
+            {
+                window.Close();
+                page.Dispose();
+            }
+        }, CancellationToken.None);
     }
 
     [TestMethod]

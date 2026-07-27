@@ -405,10 +405,11 @@
               IsVisible="False"
               Opacity="0"
               Background="{DynamicResource ColorBrushTransparentBackground}">
-            <Border HorizontalAlignment="Center"
+            <Border x:Name="CardLaunching"
+                    HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Width="420"
-                    MaxWidth="460"
+                    MaxWidth="520"
                     MinHeight="360"
                     Margin="32"
                     Padding="32,36,32,28"

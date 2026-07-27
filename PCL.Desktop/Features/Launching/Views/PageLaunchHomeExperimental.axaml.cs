@@ -32,6 +32,8 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
     private const string WidgetPageAnimId = "Launch Experimental Widget Flip";
     private const double WidgetSwipeThresholdPx = 48d;
     private const int WidgetFlipMs = 220;
+    private const double HomeCanvasMaxWidth = 1360d;
+    private const double HomeCanvasMaxHeight = 860d;
 
     /// <summary>Built-in N-Edition notice flip card.</summary>
     public const string CardIdCommunityHint = "pcl.builtin.community-hint";
@@ -85,8 +87,10 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         SeedCommunityHints();
         AvaloniaThemeManager.ThemeChanged += ThemeChanged;
         RefreshShortcutDock();
+        SizeChanged += (_, _) => ApplyResponsiveLayout();
         AttachedToVisualTree += (_, _) =>
         {
+            ApplyResponsiveLayout();
             RefreshShortcutDock();
             if (_isLoadedOnce)
                 return;
@@ -94,6 +98,44 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             _ = EnsureInstancesLoadedAsync();
         };
         DetachedFromVisualTree += (_, _) => UnregisterPluginUiSurfaces();
+    }
+
+    private void ApplyResponsiveLayout()
+    {
+        if (this.FindControl<Grid>("PanBack") is not { ColumnDefinitions.Count: >= 3 } canvas ||
+            Bounds.Width <= 0d ||
+            Bounds.Height <= 0d)
+        {
+            return;
+        }
+
+        double widthProgress = Math.Clamp((Bounds.Width - 800d) / 560d, 0d, 1d);
+        double heightProgress = Math.Clamp((Bounds.Height - 520d) / 420d, 0d, 1d);
+        double safeHorizontal = 28d + 20d * widthProgress;
+        double safeVertical = 24d + 16d * heightProgress;
+        double canvasWidth = Math.Min(
+            HomeCanvasMaxWidth,
+            Math.Max(0d, Bounds.Width - safeHorizontal * 2d));
+        double canvasHeight = Math.Min(
+            HomeCanvasMaxHeight,
+            Math.Max(0d, Bounds.Height - safeVertical * 2d));
+
+        canvas.Width = canvasWidth;
+        canvas.Height = canvasHeight;
+        canvas.Margin = new Thickness(0d);
+        canvas.HorizontalAlignment = HorizontalAlignment.Center;
+        canvas.VerticalAlignment = VerticalAlignment.Center;
+
+        ColumnDefinition account = canvas.ColumnDefinitions[0];
+        account.Width = new GridLength(0.92d, GridUnitType.Star);
+        account.MinWidth = 240d + 40d * widthProgress;
+        account.MaxWidth = 360d + 40d * widthProgress;
+        canvas.ColumnDefinitions[1].Width = new GridLength(16d + 8d * widthProgress);
+        canvas.ColumnDefinitions[2].Width = new GridLength(
+            1.35d + 0.55d * widthProgress,
+            GridUnitType.Star);
+        if (this.FindControl<Border>("CardLaunching") is { } launchingCard)
+            launchingCard.Width = 420d + 80d * widthProgress;
     }
 
     private sealed class WidgetCardRegistration
