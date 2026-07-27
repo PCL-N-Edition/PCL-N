@@ -344,6 +344,15 @@ public partial class MainWindow
     private async Task PickExperimentalLocalSkinAsync(LoginProfileInfo requestedProfile)
     {
         LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
+        if (profile.Kind == LaunchLoginProfileKind.Offline)
+        {
+            ShowTextDialog(
+                "离线档案",
+                "离线登录不提供修改皮肤功能。登录在线账户后可使用云端皮肤。",
+                "知道了");
+            return;
+        }
+
         if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
         {
             ShowTextDialog(
@@ -383,11 +392,32 @@ public partial class MainWindow
             return;
         }
 
-        await RecordProfileTextureSnapshotAsync(profile).ConfigureAwait(true);
-        LoginProfileInfo offlineUpdated = profile with { SkinAddress = path };
-        ApplyUpdatedAppearanceProfile(profile, offlineUpdated, "更新离线皮肤");
-        await RecordProfileTextureSnapshotAsync(offlineUpdated).ConfigureAwait(true);
-        await OpenExperimentalAppearancePageAsync(offlineUpdated).ConfigureAwait(true);
+        if (profile.Kind == LaunchLoginProfileKind.NCloud)
+        {
+            try
+            {
+                IHostOnlineMinecraftAccountProvider? provider =
+                    HostOnlineMinecraftAccountProvider.Current;
+                if (provider?.IsAuthenticated != true)
+                    throw new InvalidOperationException("PCL.Plugin 的 N Cloud 账户尚未登录。");
+                byte[] bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(true);
+                HostOnlineSkinResult result = await provider
+                    .UploadSkinAsync(bytes, isSlim: false)
+                    .ConfigureAwait(true);
+                await ApplyNCloudSkinResultAsync(
+                        profile,
+                        result,
+                        "上传 N Cloud 皮肤")
+                    .ConfigureAwait(true);
+            }
+            catch (Exception exception)
+            {
+                ShowTextDialog(
+                    "上传皮肤失败",
+                    "未能把皮肤保存到 N Cloud。\n\n详细信息：" + exception.Message,
+                    "知道了");
+            }
+        }
     }
 
     private async Task ApplyAppearanceSkinAsync(
@@ -451,6 +481,56 @@ public partial class MainWindow
         long? textureId)
     {
         LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
+        if (profile.Kind == LaunchLoginProfileKind.NCloud)
+        {
+            try
+            {
+                IHostOnlineMinecraftAccountProvider? provider =
+                    HostOnlineMinecraftAccountProvider.Current;
+                if (provider?.IsAuthenticated != true)
+                    throw new InvalidOperationException("PCL.Plugin 的 N Cloud 账户尚未登录。");
+
+                HostOnlineSkinResult result;
+                if (textureId is long siteTextureId)
+                {
+                    // Skin-site selections remain references. The plugin/service stores
+                    // only the site identity and texture id, never a duplicate PNG.
+                    result = await provider
+                        .UseSkinSiteTextureAsync(
+                            "littleskin",
+                            siteTextureId.ToString(
+                                System.Globalization.CultureInfo.InvariantCulture),
+                            isSlim)
+                        .ConfigureAwait(true);
+                }
+                else
+                {
+                    byte[]? bytes = await MySkin
+                        .LoadSkinBytesAsync(address)
+                        .ConfigureAwait(true);
+                    if (bytes is null)
+                        throw new InvalidOperationException("无法读取所选皮肤材质。");
+                    result = await provider
+                        .UploadSkinAsync(bytes, isSlim)
+                        .ConfigureAwait(true);
+                }
+
+                await ApplyNCloudSkinResultAsync(
+                        profile,
+                        result,
+                        "应用 " + displayName)
+                    .ConfigureAwait(true);
+            }
+            catch (Exception exception)
+            {
+                ShowTextDialog(
+                    "更换皮肤失败",
+                    "未能更新 N Cloud 皮肤。\n\n详细信息：" + exception.Message,
+                    "知道了");
+            }
+            return;
+        }
+
         if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
         {
             if (textureId is not long littleSkinTextureId)
@@ -505,11 +585,31 @@ public partial class MainWindow
             return;
         }
 
+        ShowTextDialog(
+            "离线档案",
+            "离线登录不提供修改皮肤功能。登录在线账户后可使用云端皮肤。",
+            "知道了");
+    }
+
+    private async Task ApplyNCloudSkinResultAsync(
+        LoginProfileInfo profile,
+        HostOnlineSkinResult result,
+        string action)
+    {
         await RecordProfileTextureSnapshotAsync(profile).ConfigureAwait(true);
-        LoginProfileInfo offlineUpdated = profile with { SkinAddress = address };
-        ApplyUpdatedAppearanceProfile(profile, offlineUpdated, "应用皮肤");
-        await RecordProfileTextureSnapshotAsync(offlineUpdated).ConfigureAwait(true);
-        await OpenExperimentalAppearancePageAsync(offlineUpdated).ConfigureAwait(true);
+        LoginProfileInfo updated = profile with { SkinAddress = result.SkinAddress };
+        ApplyUpdatedAppearanceProfile(profile, updated, action);
+        await RecordProfileTextureSnapshotAsync(updated).ConfigureAwait(true);
+        string storageDetail = string.Equals(
+            result.SourceKind,
+            "site",
+            StringComparison.OrdinalIgnoreCase)
+            ? "已保存皮肤站引用，未重复存储材质。"
+            : string.IsNullOrWhiteSpace(result.Sha1)
+                ? "皮肤已保存到 N Cloud。"
+                : $"皮肤已按 SHA-1 去重保存（{result.Sha1}）。";
+        ShowTextDialog(action, storageDetail, "知道了");
+        await OpenExperimentalAppearancePageAsync(updated).ConfigureAwait(true);
     }
 
     private async Task ApplyLittleSkinTextureAsync(

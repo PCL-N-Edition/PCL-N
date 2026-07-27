@@ -3625,7 +3625,9 @@ public partial class MainWindow : Window, IDisposable
         {
             if (!ReferenceEquals(args.Result.Profile, args.OriginalProfile) &&
                 args.Result.Profile.Kind is
-                    LaunchLoginProfileKind.Microsoft or LaunchLoginProfileKind.LittleSkin)
+                    LaunchLoginProfileKind.Microsoft or
+                    LaunchLoginProfileKind.LittleSkin or
+                    LaunchLoginProfileKind.NCloud)
             {
                 AddOrUpdateLoginProfile(args.Result.Profile);
                 _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, args.Result.Profile);
@@ -3633,7 +3635,9 @@ public partial class MainWindow : Window, IDisposable
                 SaveProfilesInBackground(
                     args.Result.Profile.Kind == LaunchLoginProfileKind.LittleSkin
                         ? "刷新 LittleSkin OAuth 档案"
-                        : "刷新 Microsoft 正版档案");
+                        : args.Result.Profile.Kind == LaunchLoginProfileKind.NCloud
+                            ? "刷新 N Cloud 在线档案"
+                            : "刷新 Microsoft 正版档案");
             }
 
             Process process = args.Result.Process;
@@ -3860,6 +3864,32 @@ public partial class MainWindow : Window, IDisposable
         if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
             return await RefreshLittleSkinLaunchProfileAsync(profile, cancellationToken, status)
                 .ConfigureAwait(false);
+
+        if (profile.Kind == LaunchLoginProfileKind.NCloud)
+        {
+            Report("正在通过 PCL.Plugin 刷新 N Cloud 会话…");
+            IHostOnlineMinecraftAccountProvider? provider =
+                HostOnlineMinecraftAccountProvider.Current;
+            if (provider?.IsAuthenticated != true)
+            {
+                throw new InvalidOperationException(
+                    "N Cloud 档案需要已登录的 PCL.Plugin 在线账户。请在设置中重新连接账户。");
+            }
+
+            HostOnlineMinecraftSession session = await provider
+                .CreateSessionAsync(cancellationToken)
+                .ConfigureAwait(false);
+            Report("N Cloud 会话已刷新。");
+            return profile with
+            {
+                Username = session.Username,
+                Uuid = session.Uuid,
+                AccessToken = session.AccessToken,
+                ClientToken = session.ClientToken,
+                AuthServer = session.AuthServer,
+                SkinAddress = session.SkinAddress ?? profile.SkinAddress
+            };
+        }
 
         if (profile.Kind != LaunchLoginProfileKind.Microsoft ||
             string.IsNullOrWhiteSpace(profile.RefreshToken))

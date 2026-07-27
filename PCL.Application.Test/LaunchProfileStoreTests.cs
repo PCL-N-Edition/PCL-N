@@ -45,6 +45,16 @@ public sealed class LaunchProfileStoreTests
                     ClientToken = "minecraft-client-token",
                     ProviderAccessToken = "oauth-access-token",
                     ProviderTokenExpiresAtUnix = 1_800_000_000
+                },
+                new LaunchProfile
+                {
+                    Username = "CloudAlex",
+                    Info = "N Cloud 在线账户",
+                    Kind = LaunchProfileKind.NCloud,
+                    Uuid = "11223344556677889900aabbccddeeff",
+                    AuthServer = "https://example.com/v1/yggdrasil",
+                    AccessToken = "ncloud-access-token",
+                    ClientToken = "ncloud-client-token"
                 }
             ]
         };
@@ -55,10 +65,11 @@ public sealed class LaunchProfileStoreTests
         Assert.IsFalse(result.WasRecovered);
         Assert.IsNull(result.BackupPath);
         Assert.AreEqual(expected.SchemaVersion, result.Profiles.SchemaVersion);
-        Assert.AreEqual(3, result.Profiles.Profiles.Count);
+        Assert.AreEqual(4, result.Profiles.Profiles.Count);
         Assert.AreEqual(expected.Profiles[0], result.Profiles.Profiles[0]);
         Assert.AreEqual(expected.Profiles[1], result.Profiles.Profiles[1]);
         Assert.AreEqual(expected.Profiles[2], result.Profiles.Profiles[2]);
+        Assert.AreEqual(expected.Profiles[3], result.Profiles.Profiles[3]);
     }
 
     [TestMethod]

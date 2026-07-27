@@ -117,6 +117,7 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
         Auth,
         Ms,
         LittleSkin,
+        NCloud,
         Profile,
         ProfileSkin,
         Offline

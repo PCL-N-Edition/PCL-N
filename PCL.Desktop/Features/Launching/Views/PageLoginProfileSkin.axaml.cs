@@ -73,6 +73,8 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
         }
         if (this.FindControl<MyIconButton>("BtnEdit") is { } edit)
             edit.IsVisible = true;
+        if (this.FindControl<MyIconButton>("BtnSkin") is { } skinButton)
+            skinButton.IsVisible = Profile.Kind != LaunchLoginProfileKind.Offline;
     }
 
     private void ShowPanel(object? sender, PointerEventArgs e) => SetButtonsOpacity(1d);
@@ -81,6 +83,9 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
 
     private void BtnSkinClick(object? sender, EventArgs e)
     {
+        if (Profile?.Kind == LaunchLoginProfileKind.Offline)
+            return;
+
         if (UseDirectAppearanceAction)
         {
             ChangeSkinRequested?.Invoke(this, EventArgs.Empty);
@@ -94,6 +99,9 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
 
     private void OpenSkinMenu()
     {
+        if (Profile?.Kind == LaunchLoginProfileKind.Offline)
+            return;
+
         if (this.FindControl<MyIconButton>("BtnSkin") is not { } button)
             return;
 
@@ -122,7 +130,12 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
             Placement = PlacementMode.Bottom,
             MinWidth = 160
         };
-        menu.Items.Add(CreateMenuItem("修改密码", () => EditPasswordRequested?.Invoke(this, EventArgs.Empty)));
+        if (Profile?.Kind != LaunchLoginProfileKind.Offline)
+        {
+            menu.Items.Add(CreateMenuItem(
+                "修改密码",
+                () => EditPasswordRequested?.Invoke(this, EventArgs.Empty)));
+        }
         menu.Items.Add(CreateMenuItem("修改用户名", () => EditNameRequested?.Invoke(this, EventArgs.Empty)));
         button.ContextMenu = menu;
         ShowContextMenu(button, menu);

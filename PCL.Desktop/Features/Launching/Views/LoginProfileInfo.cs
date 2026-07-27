@@ -31,7 +31,9 @@ public sealed record LoginProfileInfo(
     public string DisplayInfo => FormatDisplayInfo(Info, Kind);
 
     public bool UsesYggdrasil =>
-        Kind is LaunchLoginProfileKind.ThirdParty or LaunchLoginProfileKind.LittleSkin;
+        Kind is LaunchLoginProfileKind.ThirdParty or
+            LaunchLoginProfileKind.LittleSkin or
+            LaunchLoginProfileKind.NCloud;
 
     public static string FormatDisplayInfo(string info, LaunchLoginProfileKind kind)
     {
@@ -154,5 +156,6 @@ public enum LaunchLoginProfileKind
     Microsoft,
     ThirdParty,
     Offline,
-    LittleSkin
+    LittleSkin,
+    NCloud
 }

@@ -10343,6 +10343,48 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageLoginProfileSkin_OfflineHidesSkinAndPasswordActions()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            PageLoginProfileSkin page = new();
+            page.SetProfile(new LoginProfileInfo(
+                "Steve",
+                "离线登录",
+                LaunchLoginProfileKind.Offline,
+                Uuid: "0123456789abcdef0123456789abcdef"));
+            Window window = new()
+            {
+                Width = 360,
+                Height = 420,
+                Content = page
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                Assert.IsFalse(page.FindControl<MyIconButton>("BtnSkin")!.IsVisible);
+                MyIconButton editButton = page.FindControl<MyIconButton>("BtnEdit")!;
+                Click(window, editButton);
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                CollectionAssert.AreEqual(
+                    new[] { "修改用户名" },
+                    editButton.ContextMenu!.Items.Cast<MenuItem>()
+                        .Select(static item => item.Header?.ToString())
+                        .ToArray());
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
     public void MainWindow_WiresLaunchLoginPagesInsteadOfPlaceholders()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -11035,6 +11077,49 @@ public sealed class AvaloniaHeadlessTests
                 window.Close();
             }
         }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void PageLoginNCloud_UsesIndependentOnlineSessionState()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            PageLoginNCloud page = new();
+            Window window = new()
+            {
+                Width = 320,
+                Height = 320,
+                Content = page
+            };
+            int loginCount = 0;
+            page.LoginRequested += (_, _) => loginCount++;
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Click(window, page.FindControl<MyButton>("BtnLogin")!);
+
+                Assert.AreEqual(1, loginCount);
+                Assert.IsTrue(page.IsLoggingIn);
+                Assert.IsFalse(page.FindControl<MyButton>("BtnLogin")!.IsEnabled);
+                page.UpdateProgress(0.42d);
+                Assert.AreEqual("42%", page.FindControl<MyButton>("BtnLogin")!.Text);
+
+                page.FinishLogin();
+                Assert.IsFalse(page.IsLoggingIn);
+                Assert.IsTrue(page.FindControl<MyButton>("BtnLogin")!.IsEnabled);
+                Assert.AreEqual(
+                    "使用 N Cloud 登录",
+                    page.FindControl<MyButton>("BtnLogin")!.Text);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
     }
 
     [TestMethod]

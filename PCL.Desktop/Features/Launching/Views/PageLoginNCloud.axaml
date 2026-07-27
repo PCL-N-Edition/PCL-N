@@ -1,0 +1,59 @@
+<StackPanel x:Class="PCL.Desktop.Features.Launching.Views.PageLoginNCloud"
+            xmlns="https://github.com/avaloniaui"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
+            Tag="False"
+            Orientation="Vertical">
+    <Grid Margin="0,8,0,0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="18" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Path Grid.ColumnSpan="2"
+              Width="42"
+              Height="42"
+              Stretch="Uniform"
+              Fill="{DynamicResource ColorBrush2}"
+              Opacity="0.78"
+              Data="M6 19a4 4 0 0 1-.7-7.94A7 7 0 0 1 18.7 9H19a5 5 0 0 1 0 10H6Zm4-3h4v-3h3l-5-5-5 5h3v3Z" />
+        <StackPanel Grid.Row="2"
+                    Grid.ColumnSpan="2"
+                    Spacing="4"
+                    HorizontalAlignment="Center">
+            <TextBlock Text="N Cloud 在线账户"
+                       FontSize="15"
+                       FontWeight="SemiBold"
+                       HorizontalAlignment="Center"
+                       Foreground="{DynamicResource ColorBrush1}" />
+            <TextBlock Text="使用已连接的 PCL N 账户创建在线游戏档案"
+                       FontSize="11.5"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource ColorBrushGray2}" />
+        </StackPanel>
+        <legacy:MyButton Grid.Row="4"
+                         Grid.Column="0"
+                         x:Name="BtnLogin"
+                         Width="146"
+                         Height="30"
+                         Text="使用 N Cloud 登录"
+                         ColorType="Highlight"
+                         Click="BtnLoginClick" />
+        <legacy:MyTextButton Grid.Row="5"
+                             Grid.ColumnSpan="2"
+                             x:Name="BtnBack"
+                             Text="返回"
+                             HorizontalAlignment="Center"
+                             Margin="0,54,0,0"
+                             Opacity="0.35"
+                             Click="BtnBackClick" />
+    </Grid>
+</StackPanel>

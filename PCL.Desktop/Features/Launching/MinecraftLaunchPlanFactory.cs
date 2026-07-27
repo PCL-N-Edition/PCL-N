@@ -82,7 +82,8 @@ internal static class MinecraftLaunchPlanFactory
                 JvmHostIdentityMode = profile.Kind switch
                 {
                     LaunchLoginProfileKind.ThirdParty or
-                        LaunchLoginProfileKind.LittleSkin => MinecraftJvmHostIdentityMode.ThirdParty,
+                        LaunchLoginProfileKind.LittleSkin or
+                        LaunchLoginProfileKind.NCloud => MinecraftJvmHostIdentityMode.ThirdParty,
                     LaunchLoginProfileKind.Offline => MinecraftJvmHostIdentityMode.Offline,
                     _ => MinecraftJvmHostIdentityMode.Official
                 },

@@ -9,5 +9,6 @@ public enum LaunchProfileKind
     Microsoft,
     ThirdParty,
     Offline,
-    LittleSkin
+    LittleSkin,
+    NCloud
 }
