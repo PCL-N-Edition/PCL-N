@@ -30,6 +30,9 @@ public class MyComboBox : ComboBox
     public static readonly StyledProperty<string> SelectionTextProperty =
         AvaloniaProperty.Register<MyComboBox, string>(nameof(SelectionText), string.Empty);
 
+    public static readonly StyledProperty<bool> UseExperimentalStyleProperty =
+        AvaloniaProperty.Register<MyComboBox, bool>(nameof(UseExperimentalStyle));
+
     private bool _isMouseDown;
     private bool _isTextChanging;
     private double _realWidth = double.NaN;
@@ -38,7 +41,9 @@ public class MyComboBox : ComboBox
     private ContentPresenter? _selectedContentPresenter;
     private TextBox? _editableTextBox;
     private Grid? _panPopup;
+    private Border? _chromeBorder;
     private Border? _dropDownBorder;
+    private Border? _dropDownSurface;
     private IDisposable? _selectedContentSubscription;
 
     public MyComboBox()
@@ -65,14 +70,21 @@ public class MyComboBox : ComboBox
         this.GetObservable(IsEditableProperty).Subscribe(_ => RefreshEditableVisibility());
         this.GetObservable(HintTextProperty).Subscribe(text => PlaceholderText = text);
         this.GetObservable(ComboBox.TextProperty).Subscribe(OnTextPropertyChanged);
+        this.GetObservable(UseExperimentalStyleProperty).Subscribe(_ =>
+        {
+            ApplyVisualStyle();
+            RefreshColor();
+        });
         AttachedToVisualTree += (_, _) =>
         {
             EnsureWpfMarkedSelection();
             RefreshSelectionText();
+            ApplyVisualStyle();
             Dispatcher.UIThread.Post(() =>
             {
                 EnsureWpfMarkedSelection();
                 RefreshSelectionText();
+                ApplyVisualStyle();
             }, DispatcherPriority.Loaded);
         };
         RefreshColor();
@@ -97,6 +109,12 @@ public class MyComboBox : ComboBox
     {
         get => GetValue(SelectionTextProperty);
         private set => SetCurrentValue(SelectionTextProperty, value);
+    }
+
+    public bool UseExperimentalStyle
+    {
+        get => GetValue(UseExperimentalStyleProperty);
+        set => SetValue(UseExperimentalStyleProperty, value);
     }
 
     public new string Text
@@ -131,7 +149,9 @@ public class MyComboBox : ComboBox
             ?? e.NameScope.Find<ContentPresenter>("PART_ContentPresenter");
         _editableTextBox = e.NameScope.Find<TextBox>("PART_EditableTextBox");
         _panPopup = e.NameScope.Find<Grid>("PanPopup");
+        _chromeBorder = e.NameScope.Find<Border>("border");
         _dropDownBorder = e.NameScope.Find<Border>("dropDownBorder");
+        _dropDownSurface = _panPopup?.Children.OfType<Border>().FirstOrDefault();
         if (_dropDownArrow is not null)
         {
             _dropDownArrow.RenderTransformOrigin = new RelativePoint(0.5d, 0.5d, RelativeUnit.Relative);
@@ -145,9 +165,20 @@ public class MyComboBox : ComboBox
             _editableTextBox.Text = base.Text ?? _text;
             _editableTextBox.TextChanged += EditableTextBox_TextChanged;
             _editableTextBox.GetObservable(IsFocusedProperty).Subscribe(_ => RefreshColor());
+            // Editable slot is a transparent overlay inside the combo chrome — never
+            // paint a second border/surface.
+            _editableTextBox.BorderThickness = new Thickness(0d);
+            _editableTextBox.Background = Brushes.Transparent;
             if (_editableTextBox is MyTextBox myTextBox)
+            {
                 myTextBox.HintText = HintText;
+                myTextBox.HasBackground = false;
+                myTextBox.UseExperimentalStyle = false;
+                myTextBox.BorderThickness = new Thickness(0d);
+            }
         }
+
+        ApplyVisualStyle();
 
         RefreshEditableVisibility();
         RefreshDropDownArrow(animate: false);
@@ -191,6 +222,12 @@ public class MyComboBox : ComboBox
 
     public void RefreshColor()
     {
+        if (UseExperimentalStyle)
+        {
+            RefreshExperimentalColor();
+            return;
+        }
+
         string foreColorName;
         string backColorName;
         int time;
@@ -237,6 +274,70 @@ public class MyComboBox : ComboBox
         ModAnimation.AniStop("MyComboBox Color " + Uuid);
         Foreground = FindBrush(foreColorName, "#96c0f9");
         Background = FindBrush(backColorName, "#55ffffff");
+    }
+
+    private void ApplyVisualStyle()
+    {
+        if (UseExperimentalStyle)
+        {
+            // Match classic row spacing; avoid 36px controls overflowing 28px rows.
+            MinHeight = 32d;
+            FontSize = 13d;
+            if (_chromeBorder is not null)
+                _chromeBorder.CornerRadius = new CornerRadius(9d);
+            if (_dropDownBorder is not null)
+                _dropDownBorder.CornerRadius = new CornerRadius(12d);
+            if (_dropDownSurface is not null)
+                _dropDownSurface.CornerRadius = new CornerRadius(12d);
+            return;
+        }
+
+        MinHeight = 28d;
+        FontSize = 14d;
+        if (_chromeBorder is not null)
+            _chromeBorder.CornerRadius = new CornerRadius(4d);
+        if (_dropDownBorder is not null)
+            _dropDownBorder.CornerRadius = new CornerRadius(4d);
+        if (_dropDownSurface is not null)
+            _dropDownSurface.CornerRadius = new CornerRadius(4d);
+    }
+
+    private void RefreshExperimentalColor()
+    {
+        bool dark = AvaloniaThemeManager.IsDarkMode;
+        bool focused = IsEnabled &&
+                       (_isMouseDown || IsDropDownOpen || IsFocused ||
+                        (IsEditable && _editableTextBox?.IsFocused == true));
+        bool hover = IsEnabled && IsPointerOver;
+
+        Color surface;
+        Color stroke;
+        Color text;
+        if (!IsEnabled)
+        {
+            surface = ExperimentalControlChrome.Palette.DisabledSurface(dark);
+            stroke = ExperimentalControlChrome.Palette.DisabledStroke(dark);
+            text = ExperimentalControlChrome.Palette.Text(dark, enabled: false);
+        }
+        else
+        {
+            surface = ExperimentalControlChrome.Palette.Surface(dark, hover, focused);
+            stroke = ExperimentalControlChrome.Palette.Stroke(dark, focused);
+            text = ExperimentalControlChrome.Palette.Text(dark, enabled: true);
+        }
+
+        ModAnimation.AniStop("MyComboBox Color " + Uuid);
+        Background = new SolidColorBrush(surface);
+        Foreground = new SolidColorBrush(text);
+        BorderBrush = new SolidColorBrush(stroke);
+        if (_chromeBorder is not null)
+        {
+            _chromeBorder.Background = Background;
+            _chromeBorder.BorderBrush = new SolidColorBrush(stroke);
+        }
+
+        if (_dropDownArrow is not null)
+            _dropDownArrow.Stroke = new SolidColorBrush(text);
     }
 
     private void RefreshEditableVisibility()
@@ -289,9 +390,11 @@ public class MyComboBox : ComboBox
     private void MyComboBox_DropDownOpened(object? sender, EventArgs e)
     {
         RefreshSelectionText();
-        _realWidth = Width;
-        if (DropDownWidthSync && !double.IsNaN(Bounds.Width) && Bounds.Width > 0d)
-            Width = Bounds.Width;
+        EnsureWpfMarkedSelection();
+        // Never mutate control Width on open — that collapses selection captions and
+        // forces parent ScrollViewer offsets to jump. Size the popup surface instead.
+        if (_dropDownBorder is not null && Bounds.Width > 0d)
+            _dropDownBorder.MinWidth = Bounds.Width;
 
         if (_panPopup is not null)
         {
@@ -299,13 +402,19 @@ public class MyComboBox : ComboBox
             _panPopup.Opacity = topLevel?.Opacity ?? 1d;
         }
 
-        if (!DropDownWidthSync && _dropDownBorder is not null && Bounds.Width > 0d)
-            _dropDownBorder.MinWidth = Bounds.Width;
+        RefreshDropDownArrow(animate: true);
+        RefreshColor();
     }
 
     private void MyComboBox_DropDownClosed(object? sender, EventArgs e)
     {
-        Width = _realWidth;
+        // Restore any legacy Width mutation from older builds; keep NaN (auto) otherwise.
+        if (!double.IsNaN(_realWidth))
+            Width = _realWidth;
+        _realWidth = double.NaN;
+        RefreshDropDownArrow(animate: true);
+        RefreshSelectionText();
+        RefreshColor();
     }
 
     private void MyComboBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)

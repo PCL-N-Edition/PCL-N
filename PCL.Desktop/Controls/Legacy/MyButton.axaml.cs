@@ -325,7 +325,7 @@ public partial class MyButton : Border
         {
             _foregroundBorder.CornerRadius = new CornerRadius(10d);
             _foregroundBorder.BorderThickness = new Thickness(1d);
-            _foregroundBorder.MinHeight = 36d;
+            _foregroundBorder.MinHeight = 32d;
             _label.FontWeight = FontWeight.SemiBold;
             _label.FontSize = 13d;
             _label.LetterSpacing = 0.05d;

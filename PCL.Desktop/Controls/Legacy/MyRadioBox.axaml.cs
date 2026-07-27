@@ -9,6 +9,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -34,6 +35,9 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
     public static readonly StyledProperty<string> TextProperty =
         AvaloniaProperty.Register<MyRadioBox, string>(nameof(Text), string.Empty);
 
+    public static readonly StyledProperty<bool> UseExperimentalStyleProperty =
+        AvaloniaProperty.Register<MyRadioBox, bool>(nameof(UseExperimentalStyle));
+
     private readonly TextBlock? _label;
     private readonly Ellipse? _border;
     private readonly Ellipse? _dot;
@@ -56,9 +60,18 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
         PointerPressed += OnPointerPressed;
         PointerReleased += OnPointerReleased;
         KeyDown += OnKeyDown;
-        AttachedToVisualTree += (_, _) => SyncVisual(animate: false);
+        AttachedToVisualTree += (_, _) =>
+        {
+            ApplyVisualStyle();
+            SyncVisual(animate: false);
+        };
         DetachedFromVisualTree += (_, _) => StopAnimation();
         this.GetObservable(IsEnabledProperty).Subscribe(_ => RadioboxIsEnabledChanged());
+        this.GetObservable(UseExperimentalStyleProperty).Subscribe(_ =>
+        {
+            ApplyVisualStyle();
+            SyncVisual(animate: false);
+        });
 
         this.GetObservable(TextProperty).Subscribe(text =>
         {
@@ -86,6 +99,12 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
     {
         get => GetValue(TextProperty);
         set => SetValue(TextProperty, value);
+    }
+
+    public bool UseExperimentalStyle
+    {
+        get => GetValue(UseExperimentalStyleProperty);
+        set => SetValue(UseExperimentalStyleProperty, value);
     }
 
     public int Uuid { get; } = Random.Shared.Next();
@@ -255,18 +274,15 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
                 _dot.Width = DotCheckedSize;
                 _dot.Height = DotCheckedSize;
                 _dot.Opacity = 1d;
-                _border.Stroke = ResolveBrush(IsEnabled ? "ColorBrush2" : "ColorBrushGray4", IsEnabled ? "#0b5bcb" : "#a6a6a6");
-                SyncDotBrush();
             }
             else
             {
                 _dot.Width = 0d;
                 _dot.Height = 0d;
                 _dot.Opacity = 0d;
-                _border.Stroke = ResolveBrush(IsEnabled ? "ColorBrush1" : "ColorBrushGray4", IsEnabled ? "#343d4a" : "#a6a6a6");
-                SyncDotBrush();
             }
 
+            ApplyExperimentalOrClassicChrome();
             return;
         }
 
@@ -365,10 +381,75 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
         }
     }
 
+    private void ApplyVisualStyle()
+    {
+        if (_label is not null)
+            _label.Margin = UseExperimentalStyle
+                ? new Thickness(28d, 0d, 0d, 0d)
+                : new Thickness(26d, 0d, 0d, 0d);
+
+        if (_border is not null)
+            _border.StrokeThickness = UseExperimentalStyle ? 1.4d : 1d;
+    }
+
+    private void ApplyExperimentalOrClassicChrome()
+    {
+        if (_border is null || _dot is null)
+            return;
+
+        if (!UseExperimentalStyle)
+        {
+            if (Checked)
+            {
+                _border.Stroke = ResolveBrush(IsEnabled ? "ColorBrush2" : "ColorBrushGray4", IsEnabled ? "#0b5bcb" : "#a6a6a6");
+                _border.Fill = ResolveBrush("ColorBrushHalfWhite", "#55ffffff");
+            }
+            else
+            {
+                _border.Stroke = ResolveBrush(IsEnabled ? "ColorBrush1" : "ColorBrushGray4", IsEnabled ? "#343d4a" : "#a6a6a6");
+                _border.Fill = ResolveBrush("ColorBrushHalfWhite", "#55ffffff");
+            }
+
+            SyncDotBrush();
+            if (_label is not null)
+                _label.Foreground = ResolveBrush(IsEnabled ? "ColorBrush1" : "ColorBrushGray4", IsEnabled ? "#343d4a" : "#a6a6a6");
+            return;
+        }
+
+        bool dark = AvaloniaThemeManager.IsDarkMode;
+        Color accent = ExperimentalControlChrome.Palette.Accent(
+            LegacyResourceResolver.Brush(this, "ColorBrush2", "#0b5bcb"));
+        if (!IsEnabled)
+        {
+            _border.Fill = new SolidColorBrush(ExperimentalControlChrome.Palette.DisabledSurface(dark));
+            _border.Stroke = new SolidColorBrush(ExperimentalControlChrome.Palette.DisabledStroke(dark));
+            _dot.Fill = new SolidColorBrush(ExperimentalControlChrome.Palette.Text(dark, enabled: false));
+            if (_label is not null)
+                _label.Foreground = new SolidColorBrush(ExperimentalControlChrome.Palette.Text(dark, enabled: false));
+            return;
+        }
+
+        _border.Fill = new SolidColorBrush(
+            ExperimentalControlChrome.Palette.Surface(dark, hover: IsPointerOver, focused: Checked));
+        _border.Stroke = new SolidColorBrush(
+            Checked || IsPointerOver
+                ? accent
+                : ExperimentalControlChrome.Palette.Stroke(dark, focused: false));
+        _dot.Fill = new SolidColorBrush(accent);
+        if (_label is not null)
+            _label.Foreground = new SolidColorBrush(ExperimentalControlChrome.Palette.Text(dark, enabled: true));
+    }
+
     private void RadioboxIsEnabledChanged()
     {
         if (_border is null || _label is null)
             return;
+
+        if (UseExperimentalStyle)
+        {
+            ApplyExperimentalOrClassicChrome();
+            return;
+        }
 
         if (IsEnabled)
         {
@@ -387,6 +468,12 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
         if (_border is null || _label is null)
             return;
 
+        if (UseExperimentalStyle)
+        {
+            ApplyExperimentalOrClassicChrome();
+            return;
+        }
+
         AnimateSelectionBrush("ColorBrush3", MouseInAnimationMilliseconds);
         ModAnimation.AniStart(
             ModAnimation.AaColor(_label, TextBlock.ForegroundProperty, "ColorBrush3", MouseInAnimationMilliseconds),
@@ -397,6 +484,12 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
     {
         if (!IsEnabled || _border is null || _label is null)
             return;
+
+        if (UseExperimentalStyle)
+        {
+            ApplyExperimentalOrClassicChrome();
+            return;
+        }
 
         AnimateSelectionBrush(Checked ? "ColorBrush2" : "ColorBrush1", MouseOutAnimationMilliseconds);
         ModAnimation.AniStart(
@@ -419,6 +512,12 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
 
     private void AnimateSelectionBrush(string resourceKey, int duration)
     {
+        if (UseExperimentalStyle)
+        {
+            ApplyExperimentalOrClassicChrome();
+            return;
+        }
+
         List<ModAnimation.AniData> animations = [];
         if (_border is not null)
             animations.Add(ModAnimation.AaColor(_border, Shape.StrokeProperty, resourceKey, duration));
@@ -431,6 +530,12 @@ public sealed partial class MyRadioBox : Grid, IMyRadio
 
     private void SyncDotBrush()
     {
+        if (UseExperimentalStyle)
+        {
+            ApplyExperimentalOrClassicChrome();
+            return;
+        }
+
         if (_border?.Stroke is not { } brush || _dot is null)
             return;
 

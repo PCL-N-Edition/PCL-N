@@ -33,6 +33,9 @@ public class MyTextBox : TextBox
     public static readonly StyledProperty<bool> ShowValidateResultProperty =
         AvaloniaProperty.Register<MyTextBox, bool>(nameof(ShowValidateResult), true);
 
+    public static readonly StyledProperty<bool> UseExperimentalStyleProperty =
+        AvaloniaProperty.Register<MyTextBox, bool>(nameof(UseExperimentalStyle));
+
     private readonly List<EventHandler<TextChangedEventArgs>> _validatedTextChangedHandlers = [];
     private bool _isAttached;
     private bool _isTextChanged;
@@ -61,6 +64,7 @@ public class MyTextBox : TextBox
         AttachedToVisualTree += (_, _) =>
         {
             _isAttached = true;
+            ApplyVisualStyle();
             Validate();
         };
         DetachedFromVisualTree += (_, _) =>
@@ -87,6 +91,12 @@ public class MyTextBox : TextBox
             RefreshValidationVisual(ControlVisualHelpers.ShouldAnimate(this));
             RefreshVisual();
             ValidateChanged?.Invoke(this, EventArgs.Empty);
+        });
+        this.GetObservable(UseExperimentalStyleProperty).Subscribe(_ =>
+        {
+            ApplyVisualStyle();
+            RefreshVisual();
+            RefreshTextColor();
         });
         RefreshVisual();
         RefreshTextColor();
@@ -124,6 +134,12 @@ public class MyTextBox : TextBox
     {
         get => GetValue(ValidateResultProperty);
         set => SetValue(ValidateResultProperty, value);
+    }
+
+    public bool UseExperimentalStyle
+    {
+        get => GetValue(UseExperimentalStyleProperty);
+        set => SetValue(UseExperimentalStyleProperty, value);
     }
 
     public bool IsValidated => string.IsNullOrEmpty(ValidateResult);
@@ -200,10 +216,37 @@ public class MyTextBox : TextBox
             handler.Invoke(this, e);
     }
 
+    private void ApplyVisualStyle()
+    {
+        if (TemplatedParent is MyComboBox)
+            return;
+
+        if (UseExperimentalStyle)
+        {
+            // Keep height compatible with classic form row spacing (28–32).
+            CornerRadius = new CornerRadius(9d);
+            MinHeight = 32d;
+            Padding = new Thickness(10d, 0d, 10d, 0d);
+            FontSize = 13d;
+            return;
+        }
+
+        CornerRadius = new CornerRadius(3d);
+        MinHeight = 28d;
+        Padding = new Thickness(6d, 0d, 6d, 0d);
+        FontSize = 14d;
+    }
+
     private void RefreshVisual()
     {
         if (TemplatedParent is MyComboBox)
             return;
+
+        if (UseExperimentalStyle)
+        {
+            RefreshExperimentalVisual();
+            return;
+        }
 
         bool showInvalid = IsEnabled && ShowValidateResult && !IsValidated && _isTextChanged;
         string foreColorName;
@@ -268,6 +311,43 @@ public class MyTextBox : TextBox
         Background = HasBackground ? FindBrush(backColorName, "#55ffffff") : Brushes.Transparent;
     }
 
+    private void RefreshExperimentalVisual()
+    {
+        bool dark = AvaloniaThemeManager.IsDarkMode;
+        bool showInvalid = IsEnabled && ShowValidateResult && !IsValidated && _isTextChanged;
+        bool focused = IsEnabled && IsKeyboardFocusWithin;
+        bool hover = IsEnabled && IsPointerOver;
+
+        Color surface;
+        Color stroke;
+        if (!IsEnabled)
+        {
+            surface = ExperimentalControlChrome.Palette.DisabledSurface(dark);
+            stroke = ExperimentalControlChrome.Palette.DisabledStroke(dark);
+            Cursor = Cursor.Default;
+        }
+        else if (showInvalid)
+        {
+            surface = dark ? Color.Parse("#9952252A") : Color.Parse("#FFF8E9EB");
+            stroke = dark ? Color.Parse("#66FF6961") : Color.Parse("#40D70015");
+            Cursor = new Cursor(StandardCursorType.Ibeam);
+        }
+        else
+        {
+            surface = HasBackground
+                ? ExperimentalControlChrome.Palette.Surface(dark, hover, focused)
+                : Colors.Transparent;
+            stroke = ExperimentalControlChrome.Palette.Stroke(dark, focused);
+            Cursor = new Cursor(StandardCursorType.Ibeam);
+        }
+
+        ModAnimation.AniStop("MyTextBox Color " + Uuid);
+        BorderBrush = new SolidColorBrush(stroke);
+        Background = new SolidColorBrush(surface);
+        SelectionBrush = FindBrush("ColorBrush3", "#1370f3");
+        RefreshTextPresenterStyle();
+    }
+
     private void OnThemeChanged()
     {
         if (!Dispatcher.UIThread.CheckAccess())
@@ -302,6 +382,17 @@ public class MyTextBox : TextBox
 
     private void RefreshTextColor()
     {
+        if (UseExperimentalStyle && TemplatedParent is not MyComboBox)
+        {
+            ModAnimation.AniStop("MyTextBox TextColor " + Uuid);
+            Color text = ExperimentalControlChrome.Palette.Text(
+                AvaloniaThemeManager.IsDarkMode,
+                IsEnabled);
+            Foreground = new SolidColorBrush(text);
+            RefreshTextPresenterStyle();
+            return;
+        }
+
         string targetBrush = IsEnabled ? "ColorBrush1" : "ColorBrushGray4";
         if (ControlVisualHelpers.ShouldAnimate(this) && !string.IsNullOrEmpty(Text))
         {

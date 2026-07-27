@@ -10,6 +10,7 @@ using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using PathShape = Avalonia.Controls.Shapes.Path;
+using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Controls.Legacy;
 
@@ -33,6 +34,9 @@ public partial class MyCheckBox : Grid
 
     public static readonly StyledProperty<bool> IsThreeStateProperty =
         AvaloniaProperty.Register<MyCheckBox, bool>(nameof(IsThreeState));
+
+    public static readonly StyledProperty<bool> UseExperimentalStyleProperty =
+        AvaloniaProperty.Register<MyCheckBox, bool>(nameof(UseExperimentalStyle));
 
     private readonly TextBlock? _label;
     private readonly Border? _border;
@@ -65,6 +69,7 @@ public partial class MyCheckBox : Grid
         {
             _isLoaded = true;
             _lastSyncedState = GetFinalState(Checked, IsThreeState);
+            ApplyVisualStyle();
             SyncUI(animate: false);
         };
         this.GetObservable(TextProperty).Subscribe(text =>
@@ -83,6 +88,11 @@ public partial class MyCheckBox : Grid
             SyncUI(_isLoaded);
         });
         this.GetObservable(IsEnabledProperty).Subscribe(_ => CheckboxIsEnabledChanged());
+        this.GetObservable(UseExperimentalStyleProperty).Subscribe(_ =>
+        {
+            ApplyVisualStyle();
+            SyncUI(animate: false);
+        });
         SyncUI(animate: false);
     }
 
@@ -109,6 +119,12 @@ public partial class MyCheckBox : Grid
     {
         get => GetValue(IsThreeStateProperty);
         set => SetValue(IsThreeStateProperty, value);
+    }
+
+    public bool UseExperimentalStyle
+    {
+        get => GetValue(UseExperimentalStyleProperty);
+        set => SetValue(UseExperimentalStyleProperty, value);
     }
 
     public int Uuid { get; } = Random.Shared.Next();
@@ -272,6 +288,12 @@ public partial class MyCheckBox : Grid
         if (_label is null || _border is null || !IsEnabled)
             return;
 
+        if (UseExperimentalStyle)
+        {
+            ApplyExperimentalOrClassicChrome(GetFinalState(Checked, IsThreeState));
+            return;
+        }
+
         ModAnimation.AniStart(
             ModAnimation.AaColor(_label, TextBlock.ForegroundProperty, "ColorBrush3", MouseInAnimationMilliseconds),
             "MyCheckBox TextColor " + Uuid);
@@ -283,12 +305,60 @@ public partial class MyCheckBox : Grid
         if (_label is null || _border is null || !IsEnabled)
             return;
 
+        if (UseExperimentalStyle)
+        {
+            ApplyExperimentalOrClassicChrome(GetFinalState(Checked, IsThreeState));
+            return;
+        }
+
         ModAnimation.AniStart(
             ModAnimation.AaColor(_label, TextBlock.ForegroundProperty, IsEnabled ? "ColorBrush1" : "ColorBrushGray4", MouseOutAnimationMilliseconds),
             "MyCheckBox TextColor " + Uuid);
         AnimateSelectionBrush(
             IsEnabled ? Checked == true ? "ColorBrush2" : "ColorBrush1" : "ColorBrushGray4",
             MouseOutAnimationMilliseconds);
+    }
+
+    private void ApplyVisualStyle()
+    {
+        if (_border is null)
+            return;
+
+        if (UseExperimentalStyle)
+        {
+            _border.CornerRadius = new CornerRadius(6d);
+            _border.Width = 20d;
+            _border.Height = 20d;
+            _border.BorderThickness = new Thickness(1.2d);
+            if (_check is not null)
+            {
+                _check.Width = 12d;
+                _check.Height = 12d;
+                _check.Margin = new Thickness(5d, 0d, 0d, 0d);
+            }
+
+            if (_indeterminate is not null)
+                _indeterminate.CornerRadius = new CornerRadius(3d);
+            if (_label is not null)
+                _label.Margin = new Thickness(28d, 0d, 0d, 0d);
+            return;
+        }
+
+        _border.CornerRadius = new CornerRadius(2d);
+        _border.Width = 18d;
+        _border.Height = 18d;
+        _border.BorderThickness = new Thickness(1.1d);
+        if (_check is not null)
+        {
+            _check.Width = 12d;
+            _check.Height = 12d;
+            _check.Margin = new Thickness(4d, 0d, 0d, 0d);
+        }
+
+        if (_indeterminate is not null)
+            _indeterminate.CornerRadius = new CornerRadius(2d);
+        if (_label is not null)
+            _label.Margin = new Thickness(26d, 0d, 0d, 0d);
     }
 
     private void SyncUI(bool animate)
@@ -301,17 +371,20 @@ public partial class MyCheckBox : Grid
             SetScale(_indeterminate, final is null ? 1d : 0d);
             if (_border is not null)
             {
-                _border.Width = 18d;
-                _border.Height = 18d;
+                double size = UseExperimentalStyle ? 20d : 18d;
+                _border.Width = size;
+                _border.Height = size;
                 _border.Margin = new Thickness(1d, 0d, 0d, 0d);
-                _border.BorderBrush = FindBrush(
-                    IsEnabled ? final == true ? "ColorBrush2" : "ColorBrush1" : "ColorBrushGray4",
-                    IsEnabled ? final == true ? "#0b5bcb" : "#343d4a" : "#a6a6a6");
-                _border.Background = FindBrush("ColorBrushHalfWhite", "#55ffffff");
-                SyncSelectionBrush();
+                ApplyExperimentalOrClassicChrome(final);
             }
             if (_label is not null)
-                _label.Foreground = FindBrush(IsEnabled ? "ColorBrush1" : "ColorBrushGray4", IsEnabled ? "#343d4a" : "#a6a6a6");
+            {
+                _label.Foreground = UseExperimentalStyle
+                    ? new SolidColorBrush(ExperimentalControlChrome.Palette.Text(
+                        AvaloniaThemeManager.IsDarkMode,
+                        IsEnabled))
+                    : FindBrush(IsEnabled ? "ColorBrush1" : "ColorBrushGray4", IsEnabled ? "#343d4a" : "#a6a6a6");
+            }
             return;
         }
 
@@ -495,8 +568,64 @@ public partial class MyCheckBox : Grid
         ControlVisualHelpers.SetCenterScale(control, scale);
     }
 
+    private void ApplyExperimentalOrClassicChrome(bool? final)
+    {
+        if (_border is null)
+            return;
+
+        if (!UseExperimentalStyle)
+        {
+            _border.BorderBrush = FindBrush(
+                IsEnabled ? final == true ? "ColorBrush2" : "ColorBrush1" : "ColorBrushGray4",
+                IsEnabled ? final == true ? "#0b5bcb" : "#343d4a" : "#a6a6a6");
+            _border.Background = FindBrush("ColorBrushHalfWhite", "#55ffffff");
+            SyncSelectionBrush();
+            return;
+        }
+
+        bool dark = AvaloniaThemeManager.IsDarkMode;
+        Color accent = ExperimentalControlChrome.Palette.Accent(
+            LegacyResourceResolver.Brush(this, "ColorBrush2", "#0b5bcb"));
+        if (!IsEnabled)
+        {
+            _border.Background = new SolidColorBrush(ExperimentalControlChrome.Palette.DisabledSurface(dark));
+            _border.BorderBrush = new SolidColorBrush(ExperimentalControlChrome.Palette.DisabledStroke(dark));
+            if (_check is not null)
+                _check.Fill = new SolidColorBrush(ExperimentalControlChrome.Palette.Text(dark, enabled: false));
+            if (_indeterminate is not null)
+                _indeterminate.Background = _check?.Fill;
+            return;
+        }
+
+        if (final == true)
+        {
+            _border.Background = new SolidColorBrush(accent);
+            _border.BorderBrush = new SolidColorBrush(accent);
+            if (_check is not null)
+                _check.Fill = new SolidColorBrush(Colors.White);
+            if (_indeterminate is not null)
+                _indeterminate.Background = new SolidColorBrush(Colors.White);
+            return;
+        }
+
+        _border.Background = new SolidColorBrush(
+            ExperimentalControlChrome.Palette.Surface(dark, hover: IsPointerOver, focused: false));
+        _border.BorderBrush = new SolidColorBrush(
+            ExperimentalControlChrome.Palette.Stroke(dark, focused: IsPointerOver));
+        if (_check is not null)
+            _check.Fill = new SolidColorBrush(accent);
+        if (_indeterminate is not null)
+            _indeterminate.Background = new SolidColorBrush(accent);
+    }
+
     private void AnimateSelectionBrush(string resourceKey, int duration)
     {
+        if (UseExperimentalStyle)
+        {
+            ApplyExperimentalOrClassicChrome(GetFinalState(Checked, IsThreeState));
+            return;
+        }
+
         List<ModAnimation.AniData> animations = [];
         if (_border is not null)
             animations.Add(ModAnimation.AaColor(_border, Border.BorderBrushProperty, resourceKey, duration));
@@ -511,6 +640,12 @@ public partial class MyCheckBox : Grid
 
     private void SyncSelectionBrush()
     {
+        if (UseExperimentalStyle)
+        {
+            ApplyExperimentalOrClassicChrome(GetFinalState(Checked, IsThreeState));
+            return;
+        }
+
         if (_border?.BorderBrush is not { } brush)
             return;
 
