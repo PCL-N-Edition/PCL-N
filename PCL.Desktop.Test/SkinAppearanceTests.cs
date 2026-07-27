@@ -5,6 +5,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Launching.Appearance;
 using PCL.Desktop.Features.Launching.Views;
 
@@ -27,10 +28,55 @@ public sealed class SkinAppearanceTests
         Assert.IsFalse(roomy.IsHorizontal);
         Assert.IsTrue(compact.CardHeight < roomy.CardHeight);
         Assert.IsTrue(compact.PreviewHeight < roomy.PreviewHeight);
-        Assert.AreEqual(compact.PreviewHeight / 2d, compact.PreviewWidth, 0.001d);
-        Assert.AreEqual(roomy.PreviewHeight / 2d, roomy.PreviewWidth, 0.001d);
+        Assert.AreEqual(
+            compact.PreviewHeight * MinecraftPlayerPreview.PreferredAspectRatio,
+            compact.PreviewWidth,
+            0.001d);
+        Assert.AreEqual(
+            roomy.PreviewHeight * MinecraftPlayerPreview.PreferredAspectRatio,
+            roomy.PreviewWidth,
+            0.001d);
         Assert.IsTrue(compact.PreviewHeight < compact.CardHeight);
         Assert.IsTrue(roomy.PreviewHeight < roomy.CardHeight);
+    }
+
+    [TestMethod]
+    public void MinecraftPlayerPreview_CyclesThroughAllSevenViews()
+    {
+        MinecraftPlayerView view = MinecraftPlayerView.Isometric;
+        HashSet<MinecraftPlayerView> visited = [];
+        for (int index = 0; index < 7; index++)
+        {
+            visited.Add(view);
+            view = MinecraftPlayerPreview.GetNextView(view);
+        }
+
+        Assert.HasCount(7, visited);
+        Assert.AreEqual(MinecraftPlayerView.Isometric, view);
+    }
+
+    [TestMethod]
+    public void MinecraftPlayerPreview_RendersExpandedSecondLayerInEveryView()
+    {
+        foreach (MinecraftPlayerView view in Enum.GetValues<MinecraftPlayerView>())
+        {
+            int baseFaces = MinecraftPlayerPreview.CountVisibleSkinFaces(
+                view,
+                isSlim: false,
+                includeSecondLayer: false);
+            int dualLayerFaces = MinecraftPlayerPreview.CountVisibleSkinFaces(
+                view,
+                isSlim: false,
+                includeSecondLayer: true);
+            ProjectedBounds bounds = MinecraftPlayerPreview.CalculateProjectedSkinBounds(
+                view,
+                isSlim: false,
+                includeSecondLayer: true);
+
+            Assert.AreEqual(baseFaces * 2, dualLayerFaces, $"Unexpected layer count in {view}.");
+            Assert.IsGreaterThan(0d, bounds.Width, $"Invalid width in {view}.");
+            Assert.IsGreaterThan(0d, bounds.Height, $"Invalid height in {view}.");
+        }
     }
 
     [TestMethod]

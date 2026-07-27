@@ -280,7 +280,8 @@ public partial class PageSkinAppearanceRight : MyPageRight
         {
             double cardHeight = Math.Clamp(viewportHeight - 10d, 112d, 176d);
             double previewHeight = Math.Clamp(cardHeight - 18d, 72d, 150d);
-            double previewWidth = previewHeight / 2d;
+            double previewWidth =
+                previewHeight * MinecraftPlayerPreview.PreferredAspectRatio;
             double cardWidth = Math.Clamp(previewWidth + 116d, 164d, 216d);
             return new AppearanceCardMetrics(
                 cardWidth,
@@ -296,7 +297,8 @@ public partial class PageSkinAppearanceRight : MyPageRight
             verticalCardHeight - reserved,
             72d,
             180d);
-        double verticalPreviewWidth = verticalPreviewHeight / 2d;
+        double verticalPreviewWidth =
+            verticalPreviewHeight * MinecraftPlayerPreview.PreferredAspectRatio;
         double verticalCardWidth = Math.Clamp(
             verticalPreviewWidth + 88d,
             150d,

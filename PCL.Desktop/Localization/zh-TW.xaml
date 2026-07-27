@@ -406,6 +406,14 @@
     <sys:String x:Key="Appearance.ThirdPartyAuth.Title">需要皮膚站授權</sys:String>
     <sys:String x:Key="Appearance.ThirdPartyAuth.Message">第三方皮膚站的角色材質介面需要獨立 OAuth 授權，不能重複使用遊戲登入權杖。&#10;&#10;已開啟材質詳情頁，請在皮膚站中將它加入衣櫃並套用到角色。</sys:String>
     <sys:String x:Key="Appearance.Current.Subtitle">完整預覽目前檔案正在使用的皮膚與披風</sys:String>
+    <sys:String x:Key="Appearance.Preview.SwitchView">目前視角：{0}。點擊切換視角</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Isometric">軸測</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Front">正面</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Back">背面</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Left">左側</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Right">右側</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Top">頂部</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Bottom">底部</sys:String>
     <sys:String x:Key="Appearance.Action.LocalSkin">選擇本機皮膚</sys:String>
     <sys:String x:Key="Appearance.Action.Library">皮膚庫</sys:String>
     <sys:String x:Key="Appearance.Action.UseSkin">使用皮膚</sys:String>

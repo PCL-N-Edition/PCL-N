@@ -406,6 +406,14 @@
     <sys:String x:Key="Appearance.ThirdPartyAuth.Title">需要皮肤站授权</sys:String>
     <sys:String x:Key="Appearance.ThirdPartyAuth.Message">第三方皮肤站的角色材质接口需要独立 OAuth 授权，不能复用游戏登录令牌。&#10;&#10;已打开材质详情页，请在皮肤站中将它加入衣柜并应用到角色。</sys:String>
     <sys:String x:Key="Appearance.Current.Subtitle">完整预览当前档案正在使用的皮肤与披风</sys:String>
+    <sys:String x:Key="Appearance.Preview.SwitchView">当前视图：{0}。点击切换视图</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Isometric">轴测</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Front">正面</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Back">背面</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Left">左侧</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Right">右侧</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Top">顶部</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Bottom">底部</sys:String>
     <sys:String x:Key="Appearance.Action.LocalSkin">选择本地皮肤</sys:String>
     <sys:String x:Key="Appearance.Action.Library">皮肤库</sys:String>
     <sys:String x:Key="Appearance.Action.UseSkin">使用皮肤</sys:String>

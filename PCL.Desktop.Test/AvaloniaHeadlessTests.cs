@@ -47,6 +47,54 @@ namespace PCL.Desktop.Test;
 public sealed class AvaloniaHeadlessTests
 {
     [TestMethod]
+    public void MinecraftPlayerPreview_RendersAndSwitchesAllSevenViews()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            MinecraftPlayerPreview preview = new()
+            {
+                Width = 156d,
+                Height = 240d
+            };
+            Window window = new()
+            {
+                Width = 220d,
+                Height = 300d,
+                Content = preview
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                MyIconButton switcher = preview
+                    .GetVisualDescendants()
+                    .OfType<MyIconButton>()
+                    .Single();
+                HashSet<MinecraftPlayerView> visited = [];
+                for (int index = 0; index < 7; index++)
+                {
+                    visited.Add(preview.View);
+                    Click(window, switcher);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                }
+
+                Assert.HasCount(7, visited);
+                Assert.AreEqual(MinecraftPlayerView.Isometric, preview.View);
+                Assert.IsTrue(switcher.Bounds.Width >= 20d);
+                Assert.IsTrue(switcher.IsEffectivelyVisible);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MyMsgColor_LoadsColorPickerTemplateAndRendersContent()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

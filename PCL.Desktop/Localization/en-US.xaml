@@ -406,6 +406,14 @@
     <sys:String x:Key="Appearance.ThirdPartyAuth.Title">Skin-Site Authorization Required</sys:String>
     <sys:String x:Key="Appearance.ThirdPartyAuth.Message">A third-party skin site's player texture API requires separate OAuth authorization; the game login token cannot be reused.&#10;&#10;The texture details page has been opened. Add it to your closet and apply it to the player on the skin site.</sys:String>
     <sys:String x:Key="Appearance.Current.Subtitle">Full preview of the skin and cape used by this profile</sys:String>
+    <sys:String x:Key="Appearance.Preview.SwitchView">Current view: {0}. Click to switch view</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Isometric">Axonometric</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Front">Front</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Back">Back</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Left">Left</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Right">Right</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Top">Top</sys:String>
+    <sys:String x:Key="Appearance.Preview.View.Bottom">Bottom</sys:String>
     <sys:String x:Key="Appearance.Action.LocalSkin">Choose Local Skin</sys:String>
     <sys:String x:Key="Appearance.Action.Library">Skin Library</sys:String>
     <sys:String x:Key="Appearance.Action.UseSkin">Use Skin</sys:String>
