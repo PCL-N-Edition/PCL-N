@@ -372,7 +372,6 @@
     <sys:String x:Key="Instance.Setup.Server.SslWarning">Turning off SSL certificate verification can allow a third party to intercept your credentials.&#x0a;Keep certificate verification on unless you have a specific reason to disable it.</sys:String>
     <sys:String x:Key="Instance.Setup.Server.Title">Server</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.Default">Use Default Title</sys:String>
-    <sys:String x:Key="Instance.Setup.WindowTitle.Default.ToolTip">Keeps Minecraft’s default window title.</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.EmptyHint">Leave empty for default</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.ToolTip">Customizes the Minecraft window title. Leave blank to use the global setting.&#x0a;Supported tokens: · {user}: Player name · {login}: Login method · {name}: Instance name · {date}, {time}: Current system time · {version}: Vanilla version&#x0a;This setting has no effect when Modern UI controls the window title.</sys:String>
 

@@ -372,7 +372,6 @@
     <sys:String x:Key="Instance.Setup.Server.SslWarning">關閉 SSL 證書校驗後，登入憑據可能被第三方截獲。&#x0a;除非確有需要，否則應保持證書校驗開啟。</sys:String>
     <sys:String x:Key="Instance.Setup.Server.Title">伺服器</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.Default">使用預設標題</sys:String>
-    <sys:String x:Key="Instance.Setup.WindowTitle.Default.ToolTip">保留 Minecraft 的預設視窗標題。</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.EmptyHint">留空即預設</sys:String>
     <sys:String x:Key="Instance.Setup.WindowTitle.ToolTip">自定義 Minecraft 視窗標題。留空則使用全域性設定。&#x0a;支援以下標記：· {user}：玩家名稱 · {login}：登入方式 · {name}：版本名稱 · {date}、{time}：當前系統時間 · {version}：原版版本號&#x0a;若 Modern UI 接管視窗標題，此設定不會生效。</sys:String>
 
