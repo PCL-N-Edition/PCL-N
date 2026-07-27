@@ -59,8 +59,9 @@ public partial class PageInstanceLeft : MyPageLeft
 
     public InstancePageSubType NormalizePage(InstancePageSubType page)
     {
-        if (page == InstancePageSubType.Mods && !_isModable)
-            return InstancePageSubType.ModsDisabled;
+        // Without a mod loader, do not surface the mods entry (including the disabled stub).
+        if ((page is InstancePageSubType.Mods or InstancePageSubType.ModsDisabled) && !_isModable)
+            return InstancePageSubType.Overall;
         if (page == InstancePageSubType.Shaders && !_hasShaderSupport)
             return InstancePageSubType.Overall;
         if (page == InstancePageSubType.Schematics && !_hasSchematicSupport)
@@ -99,21 +100,20 @@ public partial class PageInstanceLeft : MyPageLeft
 
     private void RefreshResourceNavVisibility()
     {
-        // WPF PageVersionLeft:
-        // - Mod only when a mod loader is installed (else show disabled stub)
-        // - 光影 only when Iris/OptiFine/… present
-        // - 投影 only when Litematica/… present
+        // Mod only when a mod loader is installed — no disabled stub.
+        // 光影 only when Iris/OptiFine/… present
+        // 投影 only when Litematica/… present
         if (this.FindControl<MyListItem>("ItemMod") is { } itemMod)
-            itemMod.IsVisible = _instance is null || _isModable;
+            itemMod.IsVisible = _isModable;
 
         if (this.FindControl<MyListItem>("ItemModDisabled") is { } itemModDisabled)
-            itemModDisabled.IsVisible = _instance is not null && !_isModable;
+            itemModDisabled.IsVisible = false;
 
         if (this.FindControl<MyListItem>("ItemShader") is { } itemShader)
-            itemShader.IsVisible = _instance is null || _hasShaderSupport;
+            itemShader.IsVisible = _hasShaderSupport;
 
         if (this.FindControl<MyListItem>("ItemSchematic") is { } itemSchematic)
-            itemSchematic.IsVisible = _instance is null || _hasSchematicSupport;
+            itemSchematic.IsVisible = _hasSchematicSupport;
     }
 
     private void RefreshButton_Click(object? sender, EventArgs e)
