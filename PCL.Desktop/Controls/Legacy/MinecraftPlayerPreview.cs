@@ -626,8 +626,19 @@ public sealed class MinecraftPlayerPreview : Grid
 
     private void UpdateViewButton()
     {
+        string viewKey = View switch
+        {
+            MinecraftPlayerView.Isometric => "Appearance.Preview.View.Isometric",
+            MinecraftPlayerView.Front => "Appearance.Preview.View.Front",
+            MinecraftPlayerView.Back => "Appearance.Preview.View.Back",
+            MinecraftPlayerView.Left => "Appearance.Preview.View.Left",
+            MinecraftPlayerView.Right => "Appearance.Preview.View.Right",
+            MinecraftPlayerView.Top => "Appearance.Preview.View.Top",
+            MinecraftPlayerView.Bottom => "Appearance.Preview.View.Bottom",
+            _ => "Appearance.Preview.View.Front"
+        };
         string viewName = AvaloniaLocalizationManager.GetText(
-            "Appearance.Preview.View." + View,
+            viewKey,
             View.ToString());
         string format = AvaloniaLocalizationManager.GetText(
             "Appearance.Preview.SwitchView",
