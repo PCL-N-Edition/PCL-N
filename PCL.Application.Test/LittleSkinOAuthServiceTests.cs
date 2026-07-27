@@ -29,9 +29,11 @@ public sealed class LittleSkinOAuthServiceTests
         StringAssert.Contains(url, "client_id=client-id");
         StringAssert.Contains(url, "state=state-token");
         StringAssert.Contains(url, "Player.ReadWrite");
-        StringAssert.Contains(url, "Closet.ReadWrite");
+        StringAssert.Contains(url, "Closet.Read");
         StringAssert.Contains(url, "Yggdrasil.PlayerProfiles.Read");
         StringAssert.Contains(url, "Yggdrasil.MinecraftToken.Create");
+        Assert.DoesNotContain("Yggdrasil.Server.Join", url);
+        Assert.DoesNotContain("Closet.ReadWrite", url);
     }
 
     [TestMethod]

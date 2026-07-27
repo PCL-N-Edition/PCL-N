@@ -111,9 +111,8 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     private const string TokenEndpoint = "https://littleskin.cn/oauth/token";
     private const string ApiRoot = "https://littleskin.cn/api/";
     private const string RequestedScopes =
-        "offline_access User.Read Player.ReadWrite Closet.ReadWrite " +
-        "Yggdrasil.PlayerProfiles.Read Yggdrasil.MinecraftToken.Create " +
-        "Yggdrasil.Server.Join";
+        "offline_access User.Read Player.ReadWrite Closet.Read " +
+        "Yggdrasil.PlayerProfiles.Read Yggdrasil.MinecraftToken.Create";
     private const int MaximumClosetPages = 50;
 
     private readonly HttpClient _client;
