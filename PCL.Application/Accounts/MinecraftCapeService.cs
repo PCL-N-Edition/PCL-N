@@ -5,6 +5,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace PCL.Application.Accounts;
 
@@ -85,8 +86,10 @@ public sealed class MinecraftCapeService : IMinecraftCapeService
                 "所选披风不属于当前正版账户，Minecraft 不允许应用未获得的披风。");
         }
 
-        string body = JsonSerializer.Serialize(new { capeId = normalizedId });
-        using StringContent content = new(body, Encoding.UTF8, "application/json");
+        // Build JSON via JsonObject so AOT/trimming analysis does not need reflection
+        // over an anonymous type (IL2026 / IL3050).
+        JsonObject payload = new() { ["capeId"] = normalizedId };
+        using StringContent content = new(payload.ToJsonString(), Encoding.UTF8, "application/json");
         using HttpRequestMessage request = CreateRequest(
             HttpMethod.Put,
             ActiveCapeEndpoint,
