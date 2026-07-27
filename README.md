@@ -93,7 +93,7 @@ dotnet run --project .\PCL.Desktop\PCL.Desktop.csproj
 # 运行测试
 dotnet test .\PCL-N.slnx -c Release
 
-# 发布单文件（示例：Windows x64 自包含）
+# 发布单文件（CoreCLR；原生库会自解压；可内嵌插件）
 dotnet publish .\PCL.Desktop\PCL.Desktop.csproj `
   -c Release `
   -r win-x64 `
@@ -101,9 +101,14 @@ dotnet publish .\PCL.Desktop\PCL.Desktop.csproj `
   -p:PublishSingleFile=true `
   -p:IncludeNativeLibrariesForSelfExtract=true `
   -o .\artifacts\win-x64
+
+# Native AOT（直接运行、无单文件自解压；当前仅 NoPlugin）
+# 路线图见 docs/architecture/native-aot-desktop.md
+.\scripts\build-desktop.ps1 -Publish -Aot -Runtime win-x64 -Configuration Release -WriteSecrets
 ```
 
 完整多平台发布由 GitHub Actions 的 `release-stable_publish.yml` / `release-beta_publish.yml` 完成。
+正式渠道仍为 **WithPlugin 单文件**；全变体 AOT（方案 D）按 `docs/architecture/native-aot-desktop.md` 分阶段推进。
 
 ## 🔒 许可证
 

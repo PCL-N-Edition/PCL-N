@@ -681,7 +681,11 @@ public sealed class DesktopArchitectureTests
         {
             StringAssert.Contains(workflow, "SelfContained");
             StringAssert.Contains(workflow, "NoRuntime");
-            StringAssert.Contains(workflow, "PCL.Desktop");
+            // Stable still stamps binary_name PCL.Desktop*; beta uses PCL-N-Edition*.
+            Assert.IsTrue(
+                workflow.Contains("PCL.Desktop", StringComparison.Ordinal) ||
+                workflow.Contains("PCL-N-Edition", StringComparison.Ordinal),
+                "Release matrix must publish the Avalonia desktop binary.");
         }
 
         StringAssert.Contains(reusable, "PCL.Desktop/PCL.Desktop.csproj");

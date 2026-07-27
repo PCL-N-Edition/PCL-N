@@ -93,7 +93,7 @@ dotnet run --project .\PCL.Desktop\PCL.Desktop.csproj
 # Run tests
 dotnet test .\PCL-N.slnx -c Release
 
-# Publish a single-file binary (example: Windows x64 self-contained)
+# Publish a single-file binary (CoreCLR; native libs may self-extract; can embed plugins)
 dotnet publish .\PCL.Desktop\PCL.Desktop.csproj `
   -c Release `
   -r win-x64 `
@@ -101,9 +101,14 @@ dotnet publish .\PCL.Desktop\PCL.Desktop.csproj `
   -p:PublishSingleFile=true `
   -p:IncludeNativeLibrariesForSelfExtract=true `
   -o .\artifacts\win-x64
+
+# Native AOT (direct run, no single-file extract; NoPlugin only for now)
+# Roadmap: docs/architecture/native-aot-desktop.md
+.\scripts\build-desktop.ps1 -Publish -Aot -Runtime win-x64 -Configuration Release -WriteSecrets
 ```
 
 Full multi-platform releases are produced by GitHub Actions workflows `release-stable_publish.yml` and `release-beta_publish.yml`.
+Release channels still ship **WithPlugin single-file**; full-variant AOT (option D) follows `docs/architecture/native-aot-desktop.md`.
 
 ## 🔒 License
 

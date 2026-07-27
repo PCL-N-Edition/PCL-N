@@ -5,7 +5,10 @@ param(
     [string]$Configuration = "Debug",
     [switch]$Publish,
     [string]$Runtime = "win-x64",
-    [switch]$WriteSecrets
+    [switch]$WriteSecrets,
+    # Native AOT host (NoPlugin). Direct-run multi-file; no single-file self-extract.
+    # WithPlugin still requires CoreCLR single-file until static plugin registration (Option D).
+    [switch]$Aot
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,13 +34,25 @@ $common = @(
 )
 
 if ($Publish) {
-    & dotnet publish @common `
-        -r $Runtime `
-        --self-contained true `
-        -p:PublishAot=false `
-        -p:PublishTrimmed=false `
-        -p:PublishSingleFile=true `
-        -p:PclWriteSecret=1
+    if ($Aot) {
+        & dotnet publish @common `
+            -r $Runtime `
+            --self-contained true `
+            -p:PublishAot=true `
+            -p:PublishTrimmed=true `
+            -p:PublishSingleFile=false `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -p:PclWriteSecret=1
+    } else {
+        & dotnet publish @common `
+            -r $Runtime `
+            --self-contained true `
+            -p:PublishAot=false `
+            -p:PublishTrimmed=false `
+            -p:PublishSingleFile=true `
+            -p:PclWriteSecret=1
+    }
 } else {
     & dotnet build @common
 }

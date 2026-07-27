@@ -65,6 +65,66 @@ jobs:
         run: dotnet publish PCL.Application.AotSmoke/PCL.Application.AotSmoke.csproj -c Release -r linux-x64 -warnaserror
       - name: Run application Native AOT launch smoke test
         run: ./PCL.Application.AotSmoke/bin/Release/net10.0/linux-x64/publish/PCL.Application.AotSmoke
+
+  # Option D / Phase 0: Desktop shell Native AOT without embedded IL plugins.
+  # WithPlugin still uses CoreCLR single-file until static plugin registration lands.
+  desktop-native-aot:
+    name: desktop-aot (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            rid: win-x64
+            binary: PCL.Desktop.exe
+          - runner: ubuntu-latest
+            rid: linux-x64
+            binary: PCL.Desktop
+          - runner: macos-latest
+            rid: osx-arm64
+            binary: PCL.Desktop
+    runs-on: ${{ matrix.runner }}
+    env:
+      MSBUILDDISABLENODEREUSE: 1
+      DOTNET_CLI_UI_LANGUAGE: en
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish Desktop Native AOT (NoPlugin)
+        run: >
+          dotnet publish PCL.Desktop/PCL.Desktop.csproj
+          -c Release
+          -r ${{ matrix.rid }}
+          --self-contained true
+          -m:1
+          -nodeReuse:false
+          -p:PublishAot=true
+          -p:PublishTrimmed=true
+          -p:PublishSingleFile=false
+          -p:DebugType=None
+          -p:DebugSymbols=false
+          -p:PclRuntimeVariant=SelfContained
+          -warnaserror:CA1416
+          -o desktop-aot-out
+      - name: Validate native host artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="desktop-aot-out/${{ matrix.binary }}"
+          test -s "$binary"
+          chmod +x "$binary" || true
+          # Multi-file AOT is expected (Skia/VLC/native deps beside the host).
+          # There must be no single-file extraction bootstrap requirement.
+          file_count=$(find desktop-aot-out -maxdepth 1 -type f | wc -l | tr -d ' ')
+          echo "Published file count (top-level): $file_count"
+          test "$file_count" -ge 1
+          # Same-arch smoke only (matrix runners match RID for these three).
+          "$binary" --validate-environment
+          "$binary" --validate-assets
   desktop-portable-publish:
     strategy:
       fail-fast: false

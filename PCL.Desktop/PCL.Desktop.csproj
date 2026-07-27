@@ -208,7 +208,11 @@
            Text="PCL.Plugin requires es6numberserializer: $(PclPluginEs6NumberSerializerAssembly)" />
   </Target>
   <ItemGroup>
-    <ProjectReference Include="../PCL.Desktop.SourceGenerators/PCL.Desktop.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <!-- Undefine host publish flags so netstandard analyzer is not published as AOT/R2R. -->
+    <ProjectReference Include="../PCL.Desktop.SourceGenerators/PCL.Desktop.SourceGenerators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      UndefineProperties="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishAot;PublishTrimmed;PublishReadyToRun;PublishProtocol" />
     <ProjectReference Include="../PCL.Application/PCL.Application.csproj" />
     <ProjectReference Include="../PCL.Platform/PCL.Platform.csproj" />
     <ProjectReference Include="../PCL.UI.Abstractions/PCL.UI.Abstractions.csproj" />
