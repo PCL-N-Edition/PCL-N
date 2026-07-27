@@ -487,6 +487,7 @@
     <sys:String x:Key="Minecraft.Launch.Stage.PreLaunch">Preparing to launch</sys:String>
     <sys:String x:Key="Minecraft.Launch.Stage.StartProcess">Starting Minecraft</sys:String>
     <sys:String x:Key="Minecraft.Launch.Stage.WaitWindow">Waiting for game window</sys:String>
+    <sys:String x:Key="Minecraft.Launch.Cancelled.Request">Cancellation requested</sys:String>
 
     <!-- Select -->
 
@@ -797,8 +798,6 @@
     <sys:String x:Key="Launch.Experimental.Section.Account">Account</sys:String>
     <sys:String x:Key="Launch.Experimental.Section.Version">Version</sys:String>
     <sys:String x:Key="Launch.Experimental.Version.Empty">No playable versions found</sys:String>
-    <sys:String x:Key="Launch.Experimental.Version.TapToSelect">Tap to choose or install a version</sys:String>
-    <sys:String x:Key="Launch.Experimental.Version.TapToSwitch">Tap to switch version</sys:String>
     <sys:String x:Key="Launch.Experimental.Version.SelectFromToolbar">Use the button above to choose or install a version</sys:String>
     <sys:String x:Key="Launch.Experimental.Version.Scanning">Scanning local versions…</sys:String>
     <sys:String x:Key="Launch.Experimental.Account.Hint">Sign-in and profiles live here.</sys:String>

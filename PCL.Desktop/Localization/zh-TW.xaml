@@ -487,6 +487,7 @@
     <sys:String x:Key="Minecraft.Launch.Stage.PreLaunch">準備啟動</sys:String>
     <sys:String x:Key="Minecraft.Launch.Stage.StartProcess">啟動 Minecraft</sys:String>
     <sys:String x:Key="Minecraft.Launch.Stage.WaitWindow">等待遊戲視窗</sys:String>
+    <sys:String x:Key="Minecraft.Launch.Cancelled.Request">已請求取消啟動</sys:String>
 
     <!-- Select -->
 
@@ -797,8 +798,6 @@
     <sys:String x:Key="Launch.Experimental.Section.Account">帳戶</sys:String>
     <sys:String x:Key="Launch.Experimental.Section.Version">版本</sys:String>
     <sys:String x:Key="Launch.Experimental.Version.Empty">找不到可啟動的遊戲版本</sys:String>
-    <sys:String x:Key="Launch.Experimental.Version.TapToSelect">輕點以選擇或安裝版本</sys:String>
-    <sys:String x:Key="Launch.Experimental.Version.TapToSwitch">輕點以切換版本</sys:String>
     <sys:String x:Key="Launch.Experimental.Version.SelectFromToolbar">使用右上角按鈕選擇或安裝版本</sys:String>
     <sys:String x:Key="Launch.Experimental.Version.Scanning">正在掃描本機版本…</sys:String>
     <sys:String x:Key="Launch.Experimental.Account.Hint">登入與檔案管理在這裡完成。</sys:String>

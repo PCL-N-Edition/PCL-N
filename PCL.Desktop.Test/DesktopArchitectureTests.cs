@@ -279,8 +279,11 @@ public sealed class DesktopArchitectureTests
             Path.Combine(desktopRoot, "Localization", "en-US.xaml"));
         IReadOnlyDictionary<string, string> chinese = ReadLocalizationCatalog(
             Path.Combine(desktopRoot, "Localization", "zh-CN.xaml"));
+        IReadOnlyDictionary<string, string> traditionalChinese = ReadLocalizationCatalog(
+            Path.Combine(desktopRoot, "Localization", "zh-TW.xaml"));
 
         CollectionAssert.AreEquivalent(english.Keys.ToArray(), chinese.Keys.ToArray());
+        CollectionAssert.AreEquivalent(english.Keys.ToArray(), traditionalChinese.Keys.ToArray());
 
         string repoRoot = Directory.GetParent(desktopRoot)?.FullName
             ?? throw new DirectoryNotFoundException("Could not locate repository root.");
@@ -311,7 +314,46 @@ public sealed class DesktopArchitectureTests
                 ExtractPlaceholderNames(english[key]),
                 ExtractPlaceholderNames(chinese[key]),
                 $"Placeholder mismatch for localization key {key}.");
+            CollectionAssert.AreEquivalent(
+                ExtractPlaceholderNames(english[key]),
+                ExtractPlaceholderNames(traditionalChinese[key]),
+                $"Traditional Chinese placeholder mismatch for localization key {key}.");
         }
+    }
+
+    [TestMethod]
+    public void LocalizationReferences_ArePresentInEveryCatalog()
+    {
+        string desktopRoot = FindDesktopProjectRoot();
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> catalogs =
+            new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal)
+            {
+                ["en-US"] = ReadLocalizationCatalog(
+                    Path.Combine(desktopRoot, "Localization", "en-US.xaml")),
+                ["zh-CN"] = ReadLocalizationCatalog(
+                    Path.Combine(desktopRoot, "Localization", "zh-CN.xaml")),
+                ["zh-TW"] = ReadLocalizationCatalog(
+                    Path.Combine(desktopRoot, "Localization", "zh-TW.xaml"))
+            };
+        HashSet<string> knownRoots = catalogs.Values
+            .SelectMany(static catalog => catalog.Keys)
+            .Select(static key => key.Split('.', 2)[0])
+            .ToHashSet(StringComparer.Ordinal);
+        string[] references = FindLocalizationReferences(desktopRoot, knownRoots)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] missing = catalogs
+            .SelectMany(catalog => references
+                .Where(reference => !catalog.Value.ContainsKey(reference))
+                .Select(reference => $"{catalog.Key}: {reference}"))
+            .ToArray();
+
+        Assert.AreEqual(
+            0,
+            missing.Length,
+            "PCL.Desktop references localization keys missing from one or more catalogs:" +
+            Environment.NewLine +
+            string.Join(Environment.NewLine, missing));
     }
 
     [TestMethod]
@@ -847,6 +889,55 @@ public sealed class DesktopArchitectureTests
             emptyKeys.Length,
             $"Empty localization values in {path}: {string.Join(", ", emptyKeys)}");
         return entries.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
+    }
+
+    private static HashSet<string> FindLocalizationReferences(
+        string desktopRoot,
+        IReadOnlySet<string> knownRoots)
+    {
+        System.Text.RegularExpressions.Regex directCall = new(
+            @"(?:AvaloniaLocalizationManager\.GetText|(?:Get|BuiltIn)?ResourceText|FormatResource)" +
+            @"\s*\(\s*""(?<key>[^""]+)""",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        System.Text.RegularExpressions.Regex dottedString = new(
+            @"""(?<key>[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)+)""",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        System.Text.RegularExpressions.Regex textResource = new(
+            @"\b(?:Text|Title|Header|Content|ToolTip|HintText|Watermark)\s*=\s*""" +
+            @"\{(?:Dynamic|Static)Resource\s+(?<key>[A-Za-z][A-Za-z0-9_.-]+)\}""",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        HashSet<string> references = new(StringComparer.Ordinal);
+
+        foreach (string file in Directory.EnumerateFiles(desktopRoot, "*.*", SearchOption.AllDirectories))
+        {
+            string relative = Path.GetRelativePath(desktopRoot, file);
+            if (ShouldSkipSourceScan(relative) || !IsScannedSourceFile(file))
+                continue;
+
+            string source = File.ReadAllText(file);
+            if (file.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (System.Text.RegularExpressions.Match match in directCall.Matches(source))
+                    references.Add(match.Groups["key"].Value);
+                foreach (System.Text.RegularExpressions.Match match in dottedString.Matches(source))
+                {
+                    string key = match.Groups["key"].Value;
+                    if (knownRoots.Contains(key.Split('.', 2)[0]))
+                        references.Add(key);
+                }
+            }
+            else if (file.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (System.Text.RegularExpressions.Match match in textResource.Matches(source))
+                {
+                    string key = match.Groups["key"].Value;
+                    if (knownRoots.Contains(key.Split('.', 2)[0]))
+                        references.Add(key);
+                }
+            }
+        }
+
+        return references;
     }
 
     private static string[] ExtractPlaceholderNames(string value) =>
