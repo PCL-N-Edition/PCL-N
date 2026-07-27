@@ -20,7 +20,8 @@ public sealed record SkinAppearanceCard(
     string? CapeAddress,
     bool IsSlim,
     bool CanApply = true,
-    long? TextureId = null);
+    long? TextureId = null,
+    string? MicrosoftCapeId = null);
 
 public sealed record SkinAppearancePageModel(
     LoginProfileInfo Profile,
@@ -76,6 +77,7 @@ public partial class PageSkinAppearanceRight : MyPageRight
             name.Text = model.Profile.Username;
         if (this.FindControl<TextBlock>("LabProfileType") is { } type)
             type.Text = model.Profile.DisplayInfo;
+        ApplyCapePolicyText(model.Profile.Kind);
 
         PopulateTrack(
             "PanSkins",
@@ -91,6 +93,54 @@ public partial class PageSkinAppearanceRight : MyPageRight
             model.Capes,
             selected => CapeSelected?.Invoke(this, selected),
             isCapeTrack: true);
+    }
+
+    private void ApplyCapePolicyText(LaunchLoginProfileKind kind)
+    {
+        (
+            string titleKey,
+            string titleFallback,
+            string subtitleKey,
+            string subtitleFallback,
+            string emptyKey,
+            string emptyFallback) =
+            kind switch
+            {
+                LaunchLoginProfileKind.Microsoft => (
+                    "Appearance.Capes.Microsoft.Title",
+                    "正版账户披风",
+                    "Appearance.Capes.Microsoft.Subtitle",
+                    "仅可切换当前正版账户已经获得的披风",
+                    "Appearance.Capes.Microsoft.Empty",
+                    "当前正版账户尚未获得任何披风。"),
+                LaunchLoginProfileKind.LittleSkin => (
+                    "Appearance.Capes.LittleSkin.Title",
+                    "LittleSkin 披风库",
+                    "Appearance.Capes.LittleSkin.Subtitle",
+                    "LittleSkin 披风衣柜，可自由切换账户衣柜中的披风",
+                    "Appearance.Capes.LittleSkin.Empty",
+                    "LittleSkin 披风衣柜为空，可先在 LittleSkin 添加披风。"),
+                LaunchLoginProfileKind.ThirdParty => (
+                    "Appearance.Capes.ThirdParty.Title",
+                    "第三方披风",
+                    "Appearance.Capes.ThirdParty.Subtitle",
+                    "第三方认证站允许自由更换披风，具体内容由对应皮肤站管理",
+                    "Appearance.Capes.ThirdParty.Empty",
+                    "尚未发现披风；可前往对应第三方皮肤站自由设置。"),
+                _ => (
+                    "Appearance.Capes.Title",
+                    "披风",
+                    "Appearance.Capes.Subtitle",
+                    "当前、历史和其他档案中发现的披风",
+                    "Appearance.Capes.Empty",
+                    "当前档案和其他档案中没有发现披风。")
+            };
+        if (this.FindControl<TextBlock>("LabCapeTitle") is { } title)
+            title.Text = ResourceText(titleKey, titleFallback);
+        if (this.FindControl<TextBlock>("LabCapeSubtitle") is { } subtitle)
+            subtitle.Text = ResourceText(subtitleKey, subtitleFallback);
+        if (this.FindControl<TextBlock>("LabCapeEmpty") is { } empty)
+            empty.Text = ResourceText(emptyKey, emptyFallback);
     }
 
     private void PopulateTrack(

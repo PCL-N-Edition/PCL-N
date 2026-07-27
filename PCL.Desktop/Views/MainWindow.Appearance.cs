@@ -223,13 +223,38 @@ public partial class MainWindow
 
         IReadOnlyList<LittleSkinClosetItem> closetSkins = [];
         IReadOnlyList<LittleSkinClosetItem> closetCapes = [];
+        long littleSkinActiveCapeTextureId = 0;
+        IReadOnlyList<MinecraftOwnedCape> microsoftCapes = [];
+        if (profile.Kind == LaunchLoginProfileKind.Microsoft &&
+            !string.IsNullOrWhiteSpace(profile.AccessToken))
+        {
+            try
+            {
+                microsoftCapes = await _minecraftCapeService
+                    .GetOwnedCapesAsync(profile.AccessToken, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (
+                exception is HttpRequestException or
+                    InvalidOperationException or
+                    JsonException or
+                    TaskCanceledException)
+            {
+                PortableLog.Warn(
+                    exception,
+                    "MicrosoftAppearance",
+                    "读取正版账户已获得的披风失败，不会显示其他账户或历史披风作为替代。");
+            }
+        }
+
         if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
         {
             try
             {
                 (LoginProfileInfo refreshed, (
                     IReadOnlyList<LittleSkinClosetItem> Skins,
-                    IReadOnlyList<LittleSkinClosetItem> Capes) closet) =
+                    IReadOnlyList<LittleSkinClosetItem> Capes,
+                    IReadOnlyList<LittleSkinPlayer> Players) closet) =
                     await InvokeLittleSkinOAuthAsync(
                             profile,
                             async (accessToken, token) =>
@@ -244,16 +269,26 @@ public partial class MainWindow
                                         accessToken,
                                         LittleSkinTextureKind.Cape,
                                         token);
-                                await Task.WhenAll(skinsTask, capesTask).ConfigureAwait(false);
+                                Task<IReadOnlyList<LittleSkinPlayer>> playersTask =
+                                    _littleSkinOAuthService.GetPlayersAsync(accessToken, token);
+                                await Task.WhenAll(skinsTask, capesTask, playersTask)
+                                    .ConfigureAwait(false);
                                 return (
                                     await skinsTask.ConfigureAwait(false),
-                                    await capesTask.ConfigureAwait(false));
+                                    await capesTask.ConfigureAwait(false),
+                                    await playersTask.ConfigureAwait(false));
                             },
                             cancellationToken)
                         .ConfigureAwait(false);
                 profile = refreshed;
                 closetSkins = closet.Skins;
                 closetCapes = closet.Capes;
+                littleSkinActiveCapeTextureId = closet.Players
+                    .FirstOrDefault(player => string.Equals(
+                        player.Username,
+                        profile.Username,
+                        StringComparison.OrdinalIgnoreCase))
+                    ?.CapeTextureId ?? 0;
             }
             catch (Exception exception) when (
                 exception is HttpRequestException or
@@ -275,6 +310,17 @@ public partial class MainWindow
             ? textures[currentIndex]
             : await MinecraftProfileTextureResolver.ResolveAsync(profile, cancellationToken)
                 .ConfigureAwait(false);
+        MinecraftOwnedCape? activeMicrosoftCape = microsoftCapes.FirstOrDefault(
+            static cape => cape.IsActive);
+        if (profile.Kind == LaunchLoginProfileKind.Microsoft &&
+            activeMicrosoftCape is not null)
+        {
+            currentTextures = currentTextures with
+            {
+                CapeAddress = activeMicrosoftCape.TextureAddress
+            };
+        }
+
         string currentKey = CreateAppearanceProfileKey(profile);
 
         SkinAppearanceCard current = new(
@@ -324,20 +370,50 @@ public partial class MainWindow
                 currentTextures.IsSlim,
                 CanApply: false))
             .ToArray();
-        SkinAppearanceCard[] capes = closetCapes
-            .Select(item => new SkinAppearanceCard(
-                item.Name,
-                GetResourceText("Appearance.Source.LittleSkinCloset", "LittleSkin 衣柜"),
-                currentTextures.SkinAddress,
-                item.TextureAddress,
-                currentTextures.IsSlim,
-                CanApply: true,
-                TextureId: item.TextureId))
-            .Concat(historyCapes)
-            .DistinctBy(
-                static card => card.CapeAddress ?? string.Empty,
-                StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        SkinAppearanceCard[] capes;
+        if (profile.Kind == LaunchLoginProfileKind.Microsoft)
+        {
+            capes = microsoftCapes
+                .Select(cape => new SkinAppearanceCard(
+                    cape.Name,
+                    cape.IsActive
+                        ? GetResourceText("Appearance.Source.Current", "当前使用")
+                        : GetResourceText(
+                            "Appearance.Source.MicrosoftOwnedCape",
+                            "正版账户已获得"),
+                    currentTextures.SkinAddress,
+                    cape.TextureAddress,
+                    currentTextures.IsSlim,
+                    CanApply: !cape.IsActive,
+                    MicrosoftCapeId: cape.Id))
+                .ToArray();
+        }
+        else if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
+        {
+            capes = closetCapes
+                .Select(item => new SkinAppearanceCard(
+                    item.Name,
+                    item.TextureId == littleSkinActiveCapeTextureId
+                        ? GetResourceText("Appearance.Source.Current", "当前使用")
+                        : GetResourceText(
+                            "Appearance.Source.LittleSkinCloset",
+                            "LittleSkin 衣柜"),
+                    currentTextures.SkinAddress,
+                    item.TextureAddress,
+                    currentTextures.IsSlim,
+                    CanApply: item.TextureId != littleSkinActiveCapeTextureId,
+                    TextureId: item.TextureId))
+                .ToArray();
+        }
+        else
+        {
+            capes = historyCapes
+                .DistinctBy(
+                    static card => card.CapeAddress ?? string.Empty,
+                    StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
         return new SkinAppearancePageModel(profile, current, skins, capes);
     }
 
@@ -439,23 +515,79 @@ public partial class MainWindow
         SkinAppearanceCard card)
     {
         LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
-        if (profile.Kind != LaunchLoginProfileKind.LittleSkin ||
-            card.TextureId is not long textureId)
+        if (profile.Kind == LaunchLoginProfileKind.Microsoft)
         {
+            if (string.IsNullOrWhiteSpace(card.MicrosoftCapeId))
+            {
+                ShowTextDialog(
+                    "更换披风",
+                    "所选披风不在当前正版账户已获得的披风列表中，无法应用。",
+                    "知道了");
+                return;
+            }
+
+            try
+            {
+                HandleStatusMessage("正在更换正版披风…");
+                await _minecraftCapeService
+                    .SetActiveCapeAsync(profile.AccessToken, card.MicrosoftCapeId)
+                    .ConfigureAwait(true);
+                ShowTextDialog(
+                    "更换披风",
+                    $"已为 {profile.Username} 启用披风 {card.Title}。",
+                    "知道了");
+                await OpenExperimentalAppearancePageAsync(profile).ConfigureAwait(true);
+            }
+            catch (Exception exception)
+            {
+                ShowTextDialog(
+                    "更换正版披风失败",
+                    exception.Message,
+                    "知道了");
+            }
+            return;
+        }
+
+        if (profile.Kind == LaunchLoginProfileKind.LittleSkin &&
+            card.TextureId is long textureId)
+        {
+            await ApplyLittleSkinTextureAsync(
+                    profile,
+                    textureId,
+                    card.CapeAddress ?? string.Empty,
+                    card.Title,
+                    LittleSkinTextureKind.Cape)
+                .ConfigureAwait(true);
+            return;
+        }
+
+        if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
+        {
+            string? profileUrl = ResolveAuthServerProfileUrl(profile.AuthServer);
+            if (!string.IsNullOrWhiteSpace(profileUrl))
+                OpenExternalUrl(profileUrl);
             ShowTextDialog(
-                "更换披风",
-                "只有通过 LittleSkin OAuth 登录后，才能在启动器中直接应用衣柜披风。",
+                "第三方披风",
+                string.IsNullOrWhiteSpace(profileUrl)
+                    ? "第三方认证站可自由更换披风；请前往对应皮肤站选择或上传任意披风。"
+                    : "第三方认证站可自由更换披风；已打开对应皮肤站，可选择或上传任意披风。",
                 "知道了");
             return;
         }
 
-        await ApplyLittleSkinTextureAsync(
-                profile,
-                textureId,
-                card.CapeAddress ?? string.Empty,
-                card.Title,
-                LittleSkinTextureKind.Cape)
-            .ConfigureAwait(true);
+        if (profile.Kind != LaunchLoginProfileKind.LittleSkin)
+        {
+            ShowTextDialog(
+                "更换披风",
+                "当前账户类型不支持在启动器内更换披风。",
+                "知道了");
+            return;
+        }
+
+        ShowTextDialog(
+            "更换披风",
+            "所选 LittleSkin 披风缺少衣柜材质 ID，无法直接应用。",
+            "知道了");
     }
 
     private async Task ApplySkinSiteItemAsync(

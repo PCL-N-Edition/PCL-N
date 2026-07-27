@@ -134,11 +134,13 @@
                   ColumnDefinitions="*,Auto"
                   Margin="2,18,2,10">
                 <StackPanel Spacing="3">
-                    <TextBlock Text="{DynamicResource Appearance.Capes.Title}"
+                    <TextBlock x:Name="LabCapeTitle"
+                               Text="{DynamicResource Appearance.Capes.Title}"
                                FontSize="19"
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource ColorBrush1}" />
-                    <TextBlock Text="{DynamicResource Appearance.Capes.Subtitle}"
+                    <TextBlock x:Name="LabCapeSubtitle"
+                               Text="{DynamicResource Appearance.Capes.Subtitle}"
                                FontSize="12"
                                Foreground="{DynamicResource ColorBrushGray2}" />
                 </StackPanel>
@@ -165,7 +167,8 @@
                         Background="{DynamicResource ColorBrushWhite}"
                         BorderBrush="{DynamicResource ColorBrushGray6}"
                         BorderThickness="1">
-                    <TextBlock Text="{DynamicResource Appearance.Capes.Empty}"
+                    <TextBlock x:Name="LabCapeEmpty"
+                               Text="{DynamicResource Appearance.Capes.Empty}"
                                Margin="24"
                                TextWrapping="Wrap"
                                TextAlignment="Center"

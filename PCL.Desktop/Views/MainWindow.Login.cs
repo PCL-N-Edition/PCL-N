@@ -144,6 +144,13 @@ public partial class MainWindow
         if (profile is null)
             return;
 
+        if (profile.Kind == LaunchLoginProfileKind.ThirdParty &&
+            string.Equals(action, "更换披风", StringComparison.Ordinal))
+        {
+            OpenAuthServerProfilePage(profile, action);
+            return;
+        }
+
         if (_launchHomeProfile.UseExperimentalFullPageHome() ||
             IsExperimentalHomepageUiEnabled())
         {

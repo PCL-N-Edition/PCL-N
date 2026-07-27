@@ -131,6 +131,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly ThirdPartyAuthService _thirdPartyAuthService = new();
     private readonly IMicrosoftMinecraftAuthService _microsoftAuthService;
     private readonly ILittleSkinOAuthService _littleSkinOAuthService;
+    private readonly IMinecraftCapeService _minecraftCapeService;
     private readonly Action<string> _externalUrlOpener;
     private readonly Func<string, Task>? _clipboardWriter;
     private PageSetupLeft? _setupLeft;
@@ -173,10 +174,12 @@ public partial class MainWindow : Window, IDisposable
         IMicrosoftMinecraftAuthService microsoftAuthService,
         Action<string>? externalUrlOpener = null,
         Func<string, Task>? clipboardWriter = null,
-        ILittleSkinOAuthService? littleSkinOAuthService = null)
+        ILittleSkinOAuthService? littleSkinOAuthService = null,
+        IMinecraftCapeService? minecraftCapeService = null)
     {
         _microsoftAuthService = microsoftAuthService ?? throw new ArgumentNullException(nameof(microsoftAuthService));
         _littleSkinOAuthService = littleSkinOAuthService ?? new LittleSkinOAuthService();
+        _minecraftCapeService = minecraftCapeService ?? new MinecraftCapeService();
         _externalUrlOpener = externalUrlOpener ?? OpenExternalUrlCore;
         _clipboardWriter = clipboardWriter;
         _launchCoordinator = new MinecraftLaunchCoordinator(_minecraftInstallService);

@@ -401,6 +401,8 @@
     <sys:String x:Key="Appearance.Page.Title">外观</sys:String>
     <sys:String x:Key="Appearance.Source.OtherProfile">其他档案</sys:String>
     <sys:String x:Key="Appearance.Source.Previous">此前使用</sys:String>
+    <sys:String x:Key="Appearance.Source.Current">当前使用</sys:String>
+    <sys:String x:Key="Appearance.Source.MicrosoftOwnedCape">正版账户已获得</sys:String>
     <sys:String x:Key="Appearance.Source.LittleSkinCloset">LittleSkin 衣柜</sys:String>
     <sys:String x:Key="Appearance.Source.CurrentOrPrevious">当前或此前使用</sys:String>
     <sys:String x:Key="Appearance.ThirdPartyAuth.Title">需要皮肤站授权</sys:String>
@@ -424,6 +426,15 @@
     <sys:String x:Key="Appearance.Capes.Title">披风</sys:String>
     <sys:String x:Key="Appearance.Capes.Subtitle">当前、历史和其他档案中发现的披风</sys:String>
     <sys:String x:Key="Appearance.Capes.Empty">当前档案和其他档案中没有发现披风。</sys:String>
+    <sys:String x:Key="Appearance.Capes.Microsoft.Title">正版账户披风</sys:String>
+    <sys:String x:Key="Appearance.Capes.Microsoft.Subtitle">仅可切换当前正版账户已经获得的披风</sys:String>
+    <sys:String x:Key="Appearance.Capes.Microsoft.Empty">当前正版账户尚未获得任何披风。</sys:String>
+    <sys:String x:Key="Appearance.Capes.LittleSkin.Title">LittleSkin 披风库</sys:String>
+    <sys:String x:Key="Appearance.Capes.LittleSkin.Subtitle">LittleSkin 披风衣柜，可自由切换账户衣柜中的披风</sys:String>
+    <sys:String x:Key="Appearance.Capes.LittleSkin.Empty">LittleSkin 披风衣柜为空，可先在 LittleSkin 添加披风。</sys:String>
+    <sys:String x:Key="Appearance.Capes.ThirdParty.Title">第三方披风</sys:String>
+    <sys:String x:Key="Appearance.Capes.ThirdParty.Subtitle">第三方认证站允许自由更换披风，具体内容由对应皮肤站管理</sys:String>
+    <sys:String x:Key="Appearance.Capes.ThirdParty.Empty">尚未发现披风；可前往对应第三方皮肤站自由设置。</sys:String>
     <sys:String x:Key="Appearance.ItemCount">{0} 项</sys:String>
     <sys:String x:Key="Appearance.Library.Title">皮肤库</sys:String>
     <sys:String x:Key="Appearance.Library.Sites">皮肤站</sys:String>

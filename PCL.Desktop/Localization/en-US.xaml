@@ -401,6 +401,8 @@
     <sys:String x:Key="Appearance.Page.Title">Appearance</sys:String>
     <sys:String x:Key="Appearance.Source.OtherProfile">Other profile</sys:String>
     <sys:String x:Key="Appearance.Source.Previous">Previously used</sys:String>
+    <sys:String x:Key="Appearance.Source.Current">Currently active</sys:String>
+    <sys:String x:Key="Appearance.Source.MicrosoftOwnedCape">Owned by this Minecraft account</sys:String>
     <sys:String x:Key="Appearance.Source.LittleSkinCloset">LittleSkin closet</sys:String>
     <sys:String x:Key="Appearance.Source.CurrentOrPrevious">Current or previously used</sys:String>
     <sys:String x:Key="Appearance.ThirdPartyAuth.Title">Skin-Site Authorization Required</sys:String>
@@ -424,6 +426,15 @@
     <sys:String x:Key="Appearance.Capes.Title">Capes</sys:String>
     <sys:String x:Key="Appearance.Capes.Subtitle">Capes found on the current, previous, and other profiles</sys:String>
     <sys:String x:Key="Appearance.Capes.Empty">No cape was found on this or any other profile.</sys:String>
+    <sys:String x:Key="Appearance.Capes.Microsoft.Title">Minecraft Account Capes</sys:String>
+    <sys:String x:Key="Appearance.Capes.Microsoft.Subtitle">Only capes already owned by this Minecraft account can be selected</sys:String>
+    <sys:String x:Key="Appearance.Capes.Microsoft.Empty">This Minecraft account does not own any capes.</sys:String>
+    <sys:String x:Key="Appearance.Capes.LittleSkin.Title">LittleSkin Cape Library</sys:String>
+    <sys:String x:Key="Appearance.Capes.LittleSkin.Subtitle">Your LittleSkin cape closet; freely switch between its capes</sys:String>
+    <sys:String x:Key="Appearance.Capes.LittleSkin.Empty">Your LittleSkin cape closet is empty. Add a cape on LittleSkin first.</sys:String>
+    <sys:String x:Key="Appearance.Capes.ThirdParty.Title">Third-Party Capes</sys:String>
+    <sys:String x:Key="Appearance.Capes.ThirdParty.Subtitle">Third-party services allow arbitrary capes managed by their skin site</sys:String>
+    <sys:String x:Key="Appearance.Capes.ThirdParty.Empty">No cape was found. Set one freely on the corresponding third-party skin site.</sys:String>
     <sys:String x:Key="Appearance.ItemCount">{0} items</sys:String>
     <sys:String x:Key="Appearance.Library.Title">Skin Library</sys:String>
     <sys:String x:Key="Appearance.Library.Sites">Skin Sites</sys:String>
