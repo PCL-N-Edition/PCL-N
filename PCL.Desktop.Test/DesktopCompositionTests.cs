@@ -12,6 +12,7 @@ using PCL.Desktop.Features.Instances;
 using PCL.Desktop.Features.Community;
 using PCL.Desktop.Features.Downloads;
 using PCL.Desktop.Features.Launching;
+using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings;
 using PCL.Desktop.Features.Tasks;
 using PCL.Desktop.Session;
@@ -137,6 +138,43 @@ public sealed class DesktopCompositionTests
         settings.SetBooleanOption(LauncherSettingKeys.ExperimentalHomepageUi, false);
         Assert.AreEqual(ChromeStyle.Classic, source.RefreshFromSettings(settings).Chrome);
         Assert.AreEqual(ChromeStyle.Classic, source.Current.Chrome);
+    }
+
+    [TestMethod]
+    public void InstancesSelectSurface_PrefersCurrentInstanceMinecraftRoot()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "pcl-instance-folder-priority-" + Guid.NewGuid().ToString("N"));
+        string currentRoot = Path.Combine(root, "Current");
+        string savedRoot = Path.Combine(root, "Saved");
+        string instanceDirectory = Path.Combine(currentRoot, "versions", "1.21.1");
+
+        try
+        {
+            Directory.CreateDirectory(instanceDirectory);
+            Directory.CreateDirectory(savedRoot);
+            LaunchInstanceInfo selected = new(
+                "1.21.1",
+                Path.Combine(instanceDirectory, "1.21.1.json"),
+                instanceDirectory);
+            MinecraftFolderInfo current = new("当前实例", currentRoot);
+            MinecraftFolderInfo saved = new("上次选择", savedRoot);
+
+            string? preferred = InstancesSelectSurface.ResolvePreferredFolderRoot(
+                selected,
+                [saved, current],
+                savedRoot);
+
+            Assert.AreEqual(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(currentRoot)),
+                preferred);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     [TestMethod]

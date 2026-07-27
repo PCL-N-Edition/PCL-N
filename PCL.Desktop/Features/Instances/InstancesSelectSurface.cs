@@ -74,20 +74,32 @@ public sealed class InstancesSelectSurface
         bool fullPage = IsFullPageLayout;
         _right.SetFullPageLayout(fullPage);
         _right.SetInstances(instances, selectedInstance);
+        string? preferredFolderRoot = ResolvePreferredFolderRoot(
+            selectedInstance,
+            _folderStore.Folders,
+            _folderStore.SelectedRoot);
+        if (preferredFolderRoot is { Length: > 0 } &&
+            !string.Equals(
+                _folderStore.SelectedRoot,
+                preferredFolderRoot,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            _folderStore.SetSelectedRootWithoutPersist(preferredFolderRoot);
+        }
 
         if (fullPage)
         {
             if (leftHost.Child is MyPageLeft oldLeft)
                 oldLeft.TriggerHideAnimation();
             leftHost.Child = null;
-            _right.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
+            _right.SetFolders(_folderStore.Folders, preferredFolderRoot);
             SynchronizeEffectiveFolderSelection();
         }
         else
         {
             PageInstanceSelectLeft left = _left
                 ?? throw new InvalidOperationException("Classic layout requires left select page.");
-            left.SetFolders(_folderStore.Folders, _folderStore.SelectedRoot);
+            left.SetFolders(_folderStore.Folders, preferredFolderRoot);
             if (!ReferenceEquals(leftHost.Child, left))
             {
                 if (leftHost.Child is MyPageLeft previousLeft)
@@ -122,6 +134,28 @@ public sealed class InstancesSelectSurface
 
     public void SetInstances(IReadOnlyList<LaunchInstanceInfo> instances, LaunchInstanceInfo? selected) =>
         _right?.SetInstances(instances, selected);
+
+    internal static string? ResolvePreferredFolderRoot(
+        LaunchInstanceInfo? selectedInstance,
+        IReadOnlyList<MinecraftFolderInfo> folders,
+        string? savedRoot)
+    {
+        string? instanceRoot =
+            SessionPath.TryGetMinecraftRootFromInstanceDirectory(selectedInstance?.InstanceDirectory);
+        if (instanceRoot is not null)
+        {
+            MinecraftFolderInfo? match = folders.FirstOrDefault(folder =>
+                string.Equals(
+                    SessionPath.NormalizeDirectory(folder.RootDirectory),
+                    instanceRoot,
+                    StringComparison.OrdinalIgnoreCase));
+            string? matchedRoot = SessionPath.NormalizeDirectory(match?.RootDirectory);
+            if (matchedRoot is not null && Directory.Exists(matchedRoot))
+                return matchedRoot;
+        }
+
+        return SessionPath.NormalizeDirectory(savedRoot) ?? savedRoot;
+    }
 
     private void SynchronizeEffectiveFolderSelection()
     {
