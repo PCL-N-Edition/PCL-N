@@ -824,7 +824,6 @@
     <sys:String x:Key="Launch.Experimental.Account.Ready">帳戶已就緒，可以開始遊戲。</sys:String>
     <sys:String x:Key="Launch.Experimental.Account.NeedLogin">請選擇或建立一個帳戶檔案後再啟動。</sys:String>
     <sys:String x:Key="Launch.Experimental.Account.NoVersion">可以先登入帳戶；沒有本機版本時會引導你安裝遊戲。</sys:String>
-    <sys:String x:Key="Launch.Experimental.Help.Body">可在 設定 → 實驗性功能 中關閉此版面。</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Title">Jvm.NET 生命週期 Host</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Enable">使用 Jvm.NET Host 接管 Minecraft 生命週期</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Summary">啟用後，Minecraft 會執行於獨立的 PCL N Host 處理程序。第三方驗證不再載入 authlib-injector，離線檔案的自訂皮膚也會透過同一套工作階段橋接進入遊戲。</sys:String>

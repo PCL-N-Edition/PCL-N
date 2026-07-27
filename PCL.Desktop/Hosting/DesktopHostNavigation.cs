@@ -40,7 +40,7 @@ internal sealed class DesktopHostNavigation : IHostDynamicNavigation
                 object page = registration.CreatePage();
                 if (page is not Control)
                     throw new InvalidOperationException(
-                        $"Plugin page factory returned an unsupported type: {page?.GetType().FullName ?? "null"}");
+                        $"Host page factory returned an unsupported type: {page?.GetType().FullName ?? "null"}");
                 return new ValueTask<object>(page);
             })
         });

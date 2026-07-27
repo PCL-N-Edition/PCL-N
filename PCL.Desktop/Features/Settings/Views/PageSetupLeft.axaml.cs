@@ -26,7 +26,8 @@ public enum SetupPageSubType
     Java = 9,
     LauncherMisc = 10,
     LauncherLanguage = 11,
-    Plugin = 12,
+    /// <summary>Host-registered extra settings pages (not third-party plugins).</summary>
+    HostModule = 12,
     Experimental = 13
 }
 
@@ -86,7 +87,7 @@ public partial class PageSetupLeft : MyPageLeft
         AttachedToVisualTree += (_, _) =>
         {
             if (this.FindControl<StackPanel>("PanItem") is { } panel)
-                DesktopHostUiComposition.Instance.RegisterSlot("pcl.page.settings", "sidebar.after-plugin", panel);
+                DesktopHostUiComposition.Instance.RegisterSlot("pcl.page.settings", "sidebar.extra", panel);
             if (_isLoadedOnce)
                 return;
 
@@ -95,7 +96,7 @@ public partial class PageSetupLeft : MyPageLeft
         };
         DetachedFromVisualTree += (_, _) =>
         {
-            DesktopHostUiComposition.Instance.UnregisterSlot("pcl.page.settings", "sidebar.after-plugin");
+            DesktopHostUiComposition.Instance.UnregisterSlot("pcl.page.settings", "sidebar.extra");
             if (_languageChangedHandler is not null)
             {
                 AvaloniaLocalizationManager.LanguageChanged -= _languageChangedHandler;
@@ -119,7 +120,7 @@ public partial class PageSetupLeft : MyPageLeft
             else
             {
                 _hostPageId = defaultHostPage.Id;
-                PageId = SetupPageSubType.Plugin;
+                PageId = SetupPageSubType.HostModule;
             }
 
             return;
@@ -228,7 +229,7 @@ public partial class PageSetupLeft : MyPageLeft
 
     public MyPageRight PageGet(SetupPageSubType page)
     {
-        if (page == SetupPageSubType.Plugin && _hostSettingsPages.Count > 0)
+        if (page == SetupPageSubType.HostModule && _hostSettingsPages.Count > 0)
             return PageGetHost(_hostSettingsPages[0].Id);
 
         if (_pages.TryGetValue(page, out MyPageRight? cached))
@@ -270,9 +271,9 @@ public partial class PageSetupLeft : MyPageLeft
             return;
 
         _hostPageId = hostPageId;
-        PageId = SetupPageSubType.Plugin;
+        PageId = SetupPageSubType.HostModule;
         MyPageRight target = PageGetHost(hostPageId);
-        PageChanged?.Invoke(this, new SetupPageChangedEventArgs(SetupPageSubType.Plugin, target, hostPageId));
+        PageChanged?.Invoke(this, new SetupPageChangedEventArgs(SetupPageSubType.HostModule, target, hostPageId));
     }
 
     private T Required<T>(string name)
@@ -503,7 +504,7 @@ public partial class PageSetupLeft : MyPageLeft
 
     private bool IsPageDefined(SetupPageSubType page) =>
         SetupPageRegistry.IsDefined(page) ||
-        (page == SetupPageSubType.Plugin && _hostSettingsPages.Count > 0);
+        (page == SetupPageSubType.HostModule && _hostSettingsPages.Count > 0);
 
     private IEnumerable<MyListItem> GetItems()
     {
@@ -519,7 +520,7 @@ public partial class PageSetupLeft : MyPageLeft
 
     private string GetPageTitle(SetupPageSubType page)
     {
-        if (page == SetupPageSubType.Plugin && _hostSettingsPages.Count > 0)
+        if (page == SetupPageSubType.HostModule && _hostSettingsPages.Count > 0)
             return _hostSettingsPages[0].Title;
 
         // Prefer localized sidebar labels so reset dialogs match the left rail.

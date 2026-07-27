@@ -88,7 +88,7 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
         {
             List<Control> remove = panel.Children
                 .OfType<Control>()
-                .Where(static c => c.Tag is string tag && tag.StartsWith("pcl.plugin.inject:", StringComparison.Ordinal))
+                .Where(static c => c.Tag is string tag && tag.StartsWith("pcl.host.inject:", StringComparison.Ordinal))
                 .ToList();
             foreach (Control child in remove)
                 panel.Children.Remove(child);
@@ -210,7 +210,7 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
             parent.Children.RemoveAt(index);
             Border wrapper = new()
             {
-                Tag = "pcl.plugin.wrap:" + request.OwnerId + ":" + request.OperationId,
+                Tag = "pcl.host.wrap:" + request.OwnerId + ":" + request.OperationId,
                 BorderBrush = new SolidColorBrush(Color.FromArgb(80, 80, 140, 220)),
                 BorderThickness = new Thickness(1.5),
                 CornerRadius = new CornerRadius(4),
@@ -262,7 +262,7 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
 
             Border replacement = new()
             {
-                Tag = "pcl.plugin.replace:" + request.OwnerId + ":" + request.OperationId,
+                Tag = "pcl.host.replace:" + request.OwnerId + ":" + request.OperationId,
                 Background = new SolidColorBrush(Color.FromArgb(40, 120, 120, 140)),
                 BorderBrush = new SolidColorBrush(Color.FromArgb(100, 160, 100, 40)),
                 BorderThickness = new Thickness(1),
@@ -413,7 +413,7 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
         InjectionKeyPrefix(surfaceId, slotId) + ownerId + "\0" + contributionId;
 
     private static string InjectionTag(string ownerId, string contributionId) =>
-        "pcl.plugin.inject:" + ownerId + ":" + contributionId;
+        "pcl.host.inject:" + ownerId + ":" + contributionId;
 
     private static void AddInjection(Panel panel, HostUiInjectionRequest request)
     {
@@ -425,10 +425,10 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
             if (existing is not null)
                 panel.Children.Remove(existing);
 
-            Control content = request.CreateContent?.Invoke() is Control pluginContent
+            Control content = request.CreateContent?.Invoke() is Control injected
                 ? new Border
                 {
-                    Child = pluginContent,
+                    Child = injected,
                     Margin = new Thickness(0, 2, 0, 2),
                     Tag = tag
                 }
@@ -445,7 +445,7 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
             {
                 if (panel.Children[i] is Control control &&
                     control.Tag is string existingTag &&
-                    existingTag.StartsWith("pcl.plugin.inject:", StringComparison.Ordinal) &&
+                    existingTag.StartsWith("pcl.host.inject:", StringComparison.Ordinal) &&
                     TryReadOrder(control, out int existingOrder) &&
                     request.Order < existingOrder)
                 {
@@ -461,7 +461,7 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
     }
 
     private static readonly AttachedProperty<int> InjectOrderProperty =
-        AvaloniaProperty.RegisterAttached<Control, int>("PluginInjectOrder", typeof(DesktopHostUiComposition));
+        AvaloniaProperty.RegisterAttached<Control, int>("HostInjectOrder", typeof(DesktopHostUiComposition));
 
     private static bool TryReadOrder(Control control, out int order)
     {
@@ -565,7 +565,7 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
         Border Wrapper,
         Panel Parent,
         int Index,
-        string PluginId,
+        string OwnerId,
         string OperationId);
 
     private sealed record ReplaceRecord(
@@ -573,6 +573,6 @@ internal sealed class DesktopHostUiComposition : IHostUiComposition
         Control Replacement,
         Panel Parent,
         bool WasVisible,
-        string PluginId,
+        string OwnerId,
         string OperationId);
 }

@@ -713,10 +713,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         string runtime = identity.NormalizedRuntimeVariant.StartsWith("NoRuntime", StringComparison.Ordinal)
             ? "依赖 .NET 运行时"
             : "自包含";
-        string plugin = identity.NormalizedRuntimeVariant.EndsWith("NoPlugin", StringComparison.Ordinal)
-            ? "精简运行时"
-            : "自包含运行时";
-        return $"{channel} / {runtime} / {plugin} / {identity.RuntimeId}";
+        return $"{channel} / {runtime} / {identity.RuntimeId}";
     }
 
 }

@@ -155,7 +155,7 @@ public partial class MainWindow : Window, IDisposable
     private Bitmap? _titleLogoBitmap;
     private string? _homepageSignature;
     private readonly IDisposable _windowStateSubscription;
-    private string? _registeredPluginPageSurfaceId;
+    private string? _registeredPageSurfaceId;
 
     private const double NavCollapsedWidth = 50d;
     private const int NavAnimDuration = 200;
@@ -254,19 +254,19 @@ public partial class MainWindow : Window, IDisposable
         RefreshNavigationText();
         CaptureShowAnimationTransforms();
         Opened += OnMainWindowOpened;
-        DesktopHostNotifications.Instance.Attach(OnPluginHostNotification);
-        DesktopHostNotifications.Instance.AttachChoice(OnPluginHostChoiceAsync);
+        DesktopHostNotifications.Instance.Attach(OnHostNotification);
+        DesktopHostNotifications.Instance.AttachChoice(OnHostChoiceAsync);
         DesktopHostBackgroundTasks.Instance.Attach(BeginHostBackgroundTask);
         DesktopHost.Current.Navigation.Changed += NavigationRegistryChanged;
-        DesktopHostNavigation.Instance.Attach(NavigateToPluginRoute);
+        DesktopHostNavigation.Instance.Attach(NavigateToHostRoute);
         _ = LoadProfilesAsync();
         SelectNavRoute(LaunchRoute, animate: false);
     }
 
-    private void OnPluginHostNotification(string message, bool critical) =>
+    private void OnHostNotification(string message, bool critical) =>
         ShowHint(message, critical);
 
-    private Task<int> OnPluginHostChoiceAsync(
+    private Task<int> OnHostChoiceAsync(
         string title,
         string markdown,
         string primaryButton,
@@ -435,7 +435,7 @@ public partial class MainWindow : Window, IDisposable
             SelectNavRoute(selected, animate: false);
     }
 
-    private void NavigateToPluginRoute(string route)
+    private void NavigateToHostRoute(string route)
     {
         if (!string.IsNullOrWhiteSpace(route))
             SelectNavRoute(NavigationRouteId.Parse(route), animate: true);
@@ -1297,7 +1297,7 @@ public partial class MainWindow : Window, IDisposable
             rightHost.Child = page.Right;
         }
 
-        RegisterCurrentPluginPageSurface(page.Right);
+        RegisterCurrentPageSurface(page.Right);
 
         if (page.Title is { Length: > 0 } title)
             EnterTitleSubPage(title);
@@ -1309,7 +1309,7 @@ public partial class MainWindow : Window, IDisposable
         rightHost.Opacity = 1d;
     }
 
-    private void RegisterCurrentPluginPageSurface(Control page)
+    private void RegisterCurrentPageSurface(Control page)
     {
         string? surfaceId = _currentNavRoute?.Value switch
         {
@@ -1322,14 +1322,14 @@ public partial class MainWindow : Window, IDisposable
                 : route,
             _ => null
         };
-        if (_registeredPluginPageSurfaceId is { } previous &&
+        if (_registeredPageSurfaceId is { } previous &&
             !string.Equals(previous, surfaceId, StringComparison.OrdinalIgnoreCase))
         {
             DesktopHostUiComposition.Instance.UnregisterTarget(previous);
         }
         if (surfaceId is null)
             return;
-        _registeredPluginPageSurfaceId = surfaceId;
+        _registeredPageSurfaceId = surfaceId;
         DesktopHostUiComposition.Instance.RegisterTarget(surfaceId, page);
     }
 
@@ -4953,16 +4953,16 @@ public partial class MainWindow : Window, IDisposable
             return;
         _isDisposed = true;
         _extraDockViewModel.PropertyChanged -= ExtraDockViewModel_PropertyChanged;
-        if (_registeredPluginPageSurfaceId is { } pageSurface)
+        if (_registeredPageSurfaceId is { } pageSurface)
             DesktopHostUiComposition.Instance.UnregisterTarget(pageSurface);
         DesktopHostUiComposition.Instance.UnregisterSlot("pcl.navigation.main", "items.after-download");
         DesktopHostUiComposition.Instance.UnregisterTarget("pcl.navigation.main");
         DesktopHostUiComposition.Instance.UnregisterTarget("pcl.window.main");
-        DesktopHostNotifications.Instance.Detach(OnPluginHostNotification);
-        DesktopHostNotifications.Instance.DetachChoice(OnPluginHostChoiceAsync);
+        DesktopHostNotifications.Instance.Detach(OnHostNotification);
+        DesktopHostNotifications.Instance.DetachChoice(OnHostChoiceAsync);
         DesktopHostBackgroundTasks.Instance.Detach();
         DesktopHost.Current.Navigation.Changed -= NavigationRegistryChanged;
-        DesktopHostNavigation.Instance.Detach(NavigateToPluginRoute);
+        DesktopHostNavigation.Instance.Detach(NavigateToHostRoute);
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;

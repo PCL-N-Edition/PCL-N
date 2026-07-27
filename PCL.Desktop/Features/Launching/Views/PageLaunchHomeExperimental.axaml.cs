@@ -44,11 +44,6 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
     /// <summary>Experimental iOS-style shortcut dock for pinned worlds/servers.</summary>
     public const string CardIdShortcuts = "pcl.builtin.shortcuts";
 
-    /// <summary>
-    /// Compatibility shell for deprecated slot <c>primary-actions.after</c>.
-    /// Prefer <c>cards.flip</c> for new plugin contributions.
-    /// </summary>
-    public const string CardIdLegacyPrimaryActions = "pcl.compat.primary-actions.after";
 
     private PageLaunchLeft.LaunchButtonAction _launchButtonAction = PageLaunchLeft.LaunchButtonAction.Loading;
     private CancellationTokenSource? _refreshCancellation;
@@ -71,9 +66,6 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
     private bool _widgetDragging;
     private Point _widgetDragStart;
     private bool _widgetPageAnimating;
-    private Panel? _flipCardSlot;
-    private readonly Dictionary<string, Control> _flipCardSurfaces = new(StringComparer.OrdinalIgnoreCase);
-    private bool _flipSlotSyncing;
 
     public PageLaunchHomeExperimental()
     {
@@ -82,7 +74,6 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         PanScroll = null;
         InitWidgetPager();
         RegisterBuiltinWidgetCards();
-        RegisterPluginUiSurfaces();
         SetLoadingState();
         SeedCommunityHints();
         AvaloniaThemeManager.ThemeChanged += ThemeChanged;
@@ -99,7 +90,6 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             _ = EnsureInstancesLoadedAsync();
         };
         PageEnter += () => ExperimentalControlChrome.ApplyDeferred(this, enabled: true);
-        DetachedFromVisualTree += (_, _) => UnregisterPluginUiSurfaces();
     }
 
     private void ApplyResponsiveLayout()
@@ -789,7 +779,6 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             return;
         _disposed = true;
         AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
-        UnregisterPluginUiSurfaces();
         _refreshCancellation?.Cancel();
         _refreshCancellation?.Dispose();
         _refreshCancellation = null;
@@ -797,61 +786,6 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         GC.SuppressFinalize(this);
     }
 
-    private void RegisterPluginUiSurfaces()
-    {
-        DesktopHostUiComposition.Instance.RegisterTarget("pcl.page.launch", this);
-        if (this.FindControl<MyButton>("BtnLaunch") is { } launchButton)
-            DesktopHostUiComposition.Instance.RegisterTarget("pcl.component.launch-button", launchButton);
-
-        // Preferred: each inject on cards.flip becomes its own registered flip card.
-        _flipCardSlot = new StackPanel
-        {
-            Name = "PanFlipCardSlot",
-            Spacing = 0,
-            IsVisible = false,
-            Width = 0,
-            Height = 0,
-            IsHitTestVisible = false
-        };
-        // Keep off-layout but attached so Avalonia name/logical tree stays consistent.
-        if (this.FindControl<Grid>("PanWidgetPager") is { } pagerHost)
-            pagerHost.Children.Add(_flipCardSlot);
-        _flipCardSlot.Children.CollectionChanged += OnFlipCardSlotChanged;
-        DesktopHostUiComposition.Instance.RegisterSlot("pcl.page.launch", "cards.flip", _flipCardSlot);
-
-        // Deprecated compatibility shell: primary-actions.after → single registered flip card.
-        if (this.FindControl<Panel>("PanPluginWidgets") is { } inject)
-        {
-            DesktopHostUiComposition.Instance.RegisterSlot(
-                "pcl.page.launch",
-                "primary-actions.after",
-                inject);
-            inject.Children.CollectionChanged += OnPluginWidgetsChanged;
-            RefreshPluginEmptyState();
-        }
-    }
-
-    private void UnregisterPluginUiSurfaces()
-    {
-        if (this.FindControl<Panel>("PanPluginWidgets") is { } inject)
-            inject.Children.CollectionChanged -= OnPluginWidgetsChanged;
-        if (_flipCardSlot is not null)
-        {
-            _flipCardSlot.Children.CollectionChanged -= OnFlipCardSlotChanged;
-            if (_flipCardSlot.Parent is Panel parent)
-                parent.Children.Remove(_flipCardSlot);
-            _flipCardSlot = null;
-        }
-
-        foreach (string tag in _flipCardSurfaces.Keys.ToList())
-            UnregisterWidgetCard(tag);
-        _flipCardSurfaces.Clear();
-
-        DesktopHostUiComposition.Instance.UnregisterTarget("pcl.page.launch");
-        DesktopHostUiComposition.Instance.UnregisterTarget("pcl.component.launch-button");
-        DesktopHostUiComposition.Instance.UnregisterSlot("pcl.page.launch", "cards.flip");
-        DesktopHostUiComposition.Instance.UnregisterSlot("pcl.page.launch", "primary-actions.after");
-    }
 
     private void SeedCommunityHints()
     {
@@ -929,10 +863,6 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             RegisterWidgetCard(CardIdTrivia, trivia, order: 10);
 
         // Shortcut dock is registered in RefreshShortcutDock when the experimental flag is on.
-
-        // Deprecated primary-actions.after shell — always present as one card.
-        if (this.FindControl<Control>("PanPluginPage") is { } plugin)
-            RegisterWidgetCard(CardIdLegacyPrimaryActions, plugin, order: 100);
     }
 
     private void RebuildShortcutDockItems()
@@ -1038,7 +968,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         }
 
         // Hide all known card surfaces until registry rebuild selects one.
-        foreach (string name in new[] { "PanHint", "PanHintExtra", "PanPluginPage", "PanShortcuts" })
+        foreach (string name in new[] { "PanHint", "PanHintExtra", "PanShortcuts" })
         {
             if (this.FindControl<Control>(name) is { } surface)
             {
@@ -1103,7 +1033,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         }
 
         // Hide built-in surfaces that are not registered.
-        foreach (string name in new[] { "PanHint", "PanHintExtra", "PanPluginPage", "PanShortcuts" })
+        foreach (string name in new[] { "PanHint", "PanHintExtra", "PanShortcuts" })
         {
             if (this.FindControl<Control>(name) is not { } surface)
                 continue;
@@ -1375,138 +1305,6 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             WidgetPageAnimId);
     }
 
-    private void OnPluginWidgetsChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
-        RefreshPluginEmptyState();
-
-    private void RefreshPluginEmptyState()
-    {
-        if (this.FindControl<Panel>("PanPluginWidgets") is not { } inject)
-            return;
-        bool hasPlugins = inject.Children.Count > 0;
-        if (this.FindControl<Control>("LabPluginEmpty") is { } empty)
-            empty.IsVisible = !hasPlugins;
-
-        // Keep the compatibility card registered so legacy inject still has a home,
-        // but hide empty chrome from the pager when nothing is contributed.
-        if (hasPlugins)
-        {
-            if (this.FindControl<Control>("PanPluginPage") is { } plugin &&
-                _widgetCards.All(entry => !string.Equals(entry.Id, CardIdLegacyPrimaryActions, StringComparison.OrdinalIgnoreCase)))
-            {
-                RegisterWidgetCard(CardIdLegacyPrimaryActions, plugin, order: 100);
-            }
-        }
-        else
-        {
-            // Leave registered with empty state so first inject has a ready card;
-            // still show the empty shell as one page (helps discoverability of the slot).
-        }
-    }
-
-    /// <summary>
-    /// Preferred slot <c>cards.flip</c>: each inject is promoted to a full-bleed registered card.
-    /// Sentinels stay in the slot panel so RemoveInjection can still find the tag.
-    /// </summary>
-    private void OnFlipCardSlotChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        if (_flipCardSlot is null || _flipSlotSyncing)
-            return;
-
-        _flipSlotSyncing = true;
-        try
-        {
-            HashSet<string> liveTags = new(StringComparer.OrdinalIgnoreCase);
-
-            foreach (Control child in _flipCardSlot.Children.OfType<Control>().ToList())
-            {
-                if (child.Tag is not string tag ||
-                    !tag.StartsWith("pcl.plugin.inject:", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                liveTags.Add(tag);
-
-                // Sentinel left behind after promotion — keep for RemoveInjection.
-                if (string.Equals(child.Name, "FlipCardSentinel", StringComparison.Ordinal))
-                    continue;
-
-                // Already promoted (should not remain as raw child).
-                if (_flipCardSurfaces.ContainsKey(tag))
-                    continue;
-
-                int order = 200 + _flipCardSurfaces.Count;
-                _flipCardSlot.Children.Remove(child);
-
-                Border card = WrapAsFlipCard(child, tag);
-                Border sentinel = new()
-                {
-                    Name = "FlipCardSentinel",
-                    Tag = tag,
-                    Width = 0,
-                    Height = 0,
-                    IsVisible = false,
-                    IsHitTestVisible = false
-                };
-                _flipCardSlot.Children.Add(sentinel);
-
-                _flipCardSurfaces[tag] = card;
-                if (this.FindControl<Panel>("PanWidgetPages") is { } pagesHost &&
-                    !pagesHost.Children.Contains(card))
-                {
-                    pagesHost.Children.Add(card);
-                }
-
-                RegisterWidgetCard(tag, card, order: order);
-            }
-
-            // Drop cards whose inject was removed (sentinel gone).
-            foreach (string tag in _flipCardSurfaces.Keys.ToList())
-            {
-                if (liveTags.Contains(tag))
-                    continue;
-
-                if (_flipCardSurfaces.TryGetValue(tag, out Control? surface) &&
-                    surface.Parent is Panel parent)
-                {
-                    parent.Children.Remove(surface);
-                }
-
-                _flipCardSurfaces.Remove(tag);
-                UnregisterWidgetCard(tag);
-            }
-        }
-        finally
-        {
-            _flipSlotSyncing = false;
-        }
-    }
-
-    private Border WrapAsFlipCard(Control content, string tag)
-    {
-        Border card = new()
-        {
-            Name = "FlipCard_" + tag.Replace(':', '_'),
-            Tag = "pcl.flip.card:" + tag,
-            CornerRadius = new CornerRadius(18),
-            Padding = new Thickness(16, 12, 32, 12),
-            BorderThickness = new Thickness(1),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-            IsVisible = false,
-            Opacity = 0d,
-            Child = new ScrollViewer
-            {
-                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
-                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-                AllowAutoHide = true,
-                Content = content
-            }
-        };
-        card.Background = ResolveBrush("ColorBrushWhite") ?? Brushes.White;
-        card.BorderBrush = ResolveBrush("ColorBrushGray6") ?? Brushes.LightGray;
-        return card;
-    }
 
     private void BtnLaunch_Click(object? sender, EventArgs e) => LaunchButtonClick();
 

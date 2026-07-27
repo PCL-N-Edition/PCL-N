@@ -299,35 +299,6 @@
                             </Grid>
                         </Border>
 
-                        <!-- Compat shell for deprecated primary-actions.after (single registered card) -->
-                        <Border x:Name="PanPluginPage"
-                                IsVisible="False"
-                                Opacity="0"
-                                Background="{DynamicResource ColorBrushWhite}"
-                                CornerRadius="18"
-                                Padding="16,12,32,12"
-                                BorderBrush="{DynamicResource ColorBrushGray6}"
-                                BorderThickness="1"
-                                HorizontalAlignment="Stretch"
-                                VerticalAlignment="Stretch">
-                            <Grid MinHeight="0">
-                                <TextBlock x:Name="LabPluginEmpty"
-                                           FontSize="13"
-                                           Foreground="{DynamicResource ColorBrushGray3}"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           TextWrapping="Wrap"
-                                           Text="{DynamicResource Launch.Experimental.Help.Body}" />
-                                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
-                                              VerticalScrollBarVisibility="Auto"
-                                              AllowAutoHide="True">
-                                    <StackPanel x:Name="PanPluginWidgets"
-                                                Spacing="10"
-                                                VerticalAlignment="Top" />
-                                </ScrollViewer>
-                            </Grid>
-                        </Border>
-
                         <!-- Shortcut flip card: keep outer card chrome, pins live in content (no bottom dock strip) -->
                         <Border x:Name="PanShortcuts"
                                 IsVisible="False"

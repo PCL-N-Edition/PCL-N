@@ -824,7 +824,6 @@
     <sys:String x:Key="Launch.Experimental.Account.Ready">Account ready — you can play.</sys:String>
     <sys:String x:Key="Launch.Experimental.Account.NeedLogin">Choose or create a profile before launching.</sys:String>
     <sys:String x:Key="Launch.Experimental.Account.NoVersion">You can sign in first; without a local version you will be guided to install.</sys:String>
-    <sys:String x:Key="Launch.Experimental.Help.Body">Turn this layout off anytime in Settings → Experimental.</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Title">Jvm.NET lifecycle host</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Enable">Use the Jvm.NET host to control the Minecraft lifecycle</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Summary">Minecraft runs inside an isolated PCL N host process. Third-party authentication no longer loads authlib-injector, and custom offline skins use the same session bridge to reach the game.</sys:String>

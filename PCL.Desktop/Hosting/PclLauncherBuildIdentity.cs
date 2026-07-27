@@ -11,16 +11,14 @@ internal static class PclLauncherBuildIdentity
 
     private static LauncherBuildIdentity Create()
     {
+        // Host-only packages: SelfContained | NoRuntime (no plugin SKU axis).
         string runtime = PclBuildInfo.RuntimeVariant.StartsWith("NoRuntime", StringComparison.OrdinalIgnoreCase)
             ? "NoRuntime"
             : "SelfContained";
-        bool includesPlugin = PclBuildInfo.IncludesPlugin ||
-            PclBuildInfo.RuntimeVariant.Contains("WithPlugin", StringComparison.OrdinalIgnoreCase);
-        string plugin = includesPlugin ? "WithPlugin" : "NoPlugin";
         return new LauncherBuildIdentity(
             PclMetadata.Current.DisplayVersion,
             LauncherUpdateService.ResolveRuntimeId(),
-            runtime + "_" + plugin,
+            runtime,
             PclMetadata.Current.UpdateConfiguration);
     }
 }

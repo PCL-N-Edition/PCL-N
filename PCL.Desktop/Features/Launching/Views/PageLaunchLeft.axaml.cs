@@ -30,14 +30,13 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
     private double _targetProgress;
     private double _renderedProgress;
     private bool _showLaunchingHint = true;
-    private StackPanel? _pluginInjectPanel;
+
 
     public PageLaunchLeft()
     {
         AvaloniaXamlLoader.Load(this);
         AnimatedControl = this.FindControl<Grid>("PanInput");
         WireLaunchButtonScaleMirror();
-        RegisterPluginUiSurfaces();
         SetLoadingState();
         AttachedToVisualTree += (_, _) =>
         {
@@ -47,41 +46,6 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
             _isLoadedOnce = true;
             _ = EnsureInstancesLoadedAsync();
         };
-        DetachedFromVisualTree += (_, _) => UnregisterPluginUiSurfaces();
-    }
-
-    private void RegisterPluginUiSurfaces()
-    {
-        DesktopHostUiComposition.Instance.RegisterTarget("pcl.page.launch", this);
-        if (this.FindControl<MyButton>("BtnLaunch") is { } launchButton)
-            DesktopHostUiComposition.Instance.RegisterTarget("pcl.component.launch-button", launchButton);
-
-        if (this.FindControl<Grid>("PanInput") is not { } input)
-            return;
-
-        _pluginInjectPanel = new StackPanel
-        {
-            Name = "PanPluginPrimaryActionsAfter",
-            Spacing = 4,
-            Margin = new Thickness(20, 6, 20, 0),
-            Orientation = Orientation.Vertical
-        };
-        // The slot has its own auto-sized row above the launch button.
-        Grid.SetRow(_pluginInjectPanel, 2);
-        Grid.SetColumn(_pluginInjectPanel, 0);
-        Grid.SetColumnSpan(_pluginInjectPanel, 5);
-        input.Children.Add(_pluginInjectPanel);
-        DesktopHostUiComposition.Instance.RegisterSlot(
-            "pcl.page.launch",
-            "primary-actions.after",
-            _pluginInjectPanel);
-    }
-
-    private static void UnregisterPluginUiSurfaces()
-    {
-        DesktopHostUiComposition.Instance.UnregisterTarget("pcl.page.launch");
-        DesktopHostUiComposition.Instance.UnregisterTarget("pcl.component.launch-button");
-        DesktopHostUiComposition.Instance.UnregisterSlot("pcl.page.launch", "primary-actions.after");
     }
 
     private void WireLaunchButtonScaleMirror()
@@ -344,7 +308,6 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
 
     public void Dispose()
     {
-        UnregisterPluginUiSurfaces();
         _refreshCancellation?.Cancel();
         _refreshCancellation?.Dispose();
         _refreshCancellation = null;
