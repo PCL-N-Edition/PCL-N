@@ -344,13 +344,14 @@ internal static class AsyncLogoLoader
         }
     }
 
-    private static bool LooksLikeMinecraftSkinAddress(string? address)
+    internal static bool LooksLikeMinecraftSkinAddress(string? address)
     {
         if (string.IsNullOrWhiteSpace(address))
             return false;
 
         return IsUuidSkin(address) ||
                address.Contains("Legacy/Skins", StringComparison.OrdinalIgnoreCase) ||
+               address.Contains("/ncloud-skins/", StringComparison.OrdinalIgnoreCase) ||
                address.Contains("/textures/", StringComparison.OrdinalIgnoreCase) ||
                address.Contains("textures.minecraft.net", StringComparison.OrdinalIgnoreCase) ||
                address.Contains("session/minecraft/profile", StringComparison.OrdinalIgnoreCase) ||

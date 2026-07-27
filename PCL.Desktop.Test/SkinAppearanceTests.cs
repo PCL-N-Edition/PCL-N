@@ -15,6 +15,15 @@ namespace PCL.Desktop.Test;
 public sealed class SkinAppearanceTests
 {
     [TestMethod]
+    public void NCloudStorageTexture_IsRecognizedAsMinecraftSkin()
+    {
+        Assert.IsTrue(AsyncLogoLoader.LooksLikeMinecraftSkinAddress(
+            "https://example.supabase.co/storage/v1/object/public/ncloud-skins/ab/skin.png"));
+        Assert.IsFalse(AsyncLogoLoader.LooksLikeMinecraftSkinAddress(
+            "https://example.supabase.co/storage/v1/object/public/plugin-icons/icon.png"));
+    }
+
+    [TestMethod]
     public void AppearanceCardMetrics_AdaptLayoutAndPreserveModelRatio()
     {
         AppearanceCardMetrics compact = PageSkinAppearanceRight.CalculateCardMetrics(
