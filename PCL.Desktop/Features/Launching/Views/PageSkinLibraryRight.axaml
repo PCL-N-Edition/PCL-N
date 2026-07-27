@@ -1,0 +1,146 @@
+<legacy:MyPageRight
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
+    x:Class="PCL.Desktop.Features.Launching.Views.PageSkinLibraryRight"
+    Background="Transparent">
+    <Grid x:Name="PanRoot"
+          ColumnDefinitions="268,*"
+          ClipToBounds="True">
+        <Border Grid.Column="0"
+                Background="{DynamicResource ColorBrushBackgroundTransparentSidebar}"
+                BorderBrush="{DynamicResource ColorBrushGray6}"
+                BorderThickness="0,0,1,0"
+                ClipToBounds="True">
+            <legacy:MyScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                   VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="PanSites"
+                            Margin="12,14,12,20" />
+            </legacy:MyScrollViewer>
+        </Border>
+
+        <Grid Grid.Column="1"
+              RowDefinitions="Auto,*,Auto"
+              MaxWidth="1320"
+              HorizontalAlignment="Center">
+            <Grid Margin="28,18,28,12"
+                  ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="3">
+                    <TextBlock x:Name="LabSiteName"
+                               Text="{DynamicResource Appearance.Library.Title}"
+                               FontSize="20"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource ColorBrush1}" />
+                    <TextBlock x:Name="LabSiteStatus"
+                               Text="{DynamicResource Appearance.Library.Loading}"
+                               FontSize="12"
+                               Foreground="{DynamicResource ColorBrushGray2}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            VerticalAlignment="Center">
+                    <legacy:MyButton x:Name="BtnDocs"
+                                     Height="34"
+                                     MinWidth="86"
+                                     Padding="14,0"
+                                     CornerRadius="10"
+                                     UseExperimentalStyle="True"
+                                     Text="{DynamicResource Appearance.Library.Docs}"
+                                     Click="BtnDocs_Click" />
+                    <legacy:MyIconButton Width="34"
+                                         Height="34"
+                                         SvgIcon="lucide/external-link"
+                                         ToolTip="{DynamicResource Appearance.Library.OpenSite}"
+                                         Click="BtnOpenSite_Click" />
+                    <legacy:MyIconButton Width="34"
+                                         Height="34"
+                                         SvgIcon="lucide/refresh-cw"
+                                         ToolTip="{DynamicResource Common.Action.Refresh}"
+                                         Click="BtnRefresh_Click" />
+                </StackPanel>
+            </Grid>
+
+            <Grid Grid.Row="1">
+                <legacy:MyScrollViewer x:Name="PanBack"
+                                       Margin="20,0,18,0"
+                                       VerticalScrollBarVisibility="Auto"
+                                       HorizontalScrollBarVisibility="Disabled">
+                    <WrapPanel x:Name="PanItems"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Top" />
+                </legacy:MyScrollViewer>
+
+                <Border x:Name="PanLoading"
+                        Margin="28"
+                        CornerRadius="18"
+                        Background="{DynamicResource ColorBrushWhite}"
+                        BorderBrush="{DynamicResource ColorBrushGray6}"
+                        BorderThickness="1"
+                        IsVisible="False">
+                    <legacy:MyLoading Text="{DynamicResource Appearance.Library.Loading}"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      IsHitTestVisible="False"
+                                      AutoRun="True" />
+                </Border>
+
+                <Border x:Name="PanEmpty"
+                        Margin="28"
+                        CornerRadius="18"
+                        Background="{DynamicResource ColorBrushWhite}"
+                        BorderBrush="{DynamicResource ColorBrushGray6}"
+                        BorderThickness="1"
+                        IsVisible="False">
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                MaxWidth="460"
+                                Spacing="9">
+                        <TextBlock x:Name="LabEmptyTitle"
+                                   Text="{DynamicResource Appearance.Library.Empty.Title}"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   TextAlignment="Center"
+                                   Foreground="{DynamicResource ColorBrush1}" />
+                        <TextBlock x:Name="LabEmptyMessage"
+                                   Text="{DynamicResource Appearance.Library.Empty.Message}"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   Foreground="{DynamicResource ColorBrushGray2}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid Grid.Row="2"
+                  Margin="28,10,28,20"
+                  ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Text="{DynamicResource Appearance.Library.ApiNotice}"
+                           MaxWidth="620"
+                           TextWrapping="Wrap"
+                           FontSize="10.5"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource ColorBrushGray2}" />
+                <legacy:MyButton x:Name="BtnPrevious"
+                                 Grid.Column="1"
+                                 Height="34"
+                                 MinWidth="82"
+                                 Margin="12,0,8,0"
+                                 Padding="14,0"
+                                 CornerRadius="10"
+                                 UseExperimentalStyle="True"
+                                 Text="{DynamicResource Appearance.Library.Previous}"
+                                 Click="BtnPrevious_Click" />
+                <legacy:MyButton x:Name="BtnNext"
+                                 Grid.Column="2"
+                                 Height="34"
+                                 MinWidth="82"
+                                 Padding="14,0"
+                                 CornerRadius="10"
+                                 UseExperimentalStyle="True"
+                                 ColorType="Highlight"
+                                 Text="{DynamicResource Appearance.Library.Next}"
+                                 Click="BtnNext_Click" />
+            </Grid>
+        </Grid>
+    </Grid>
+</legacy:MyPageRight>

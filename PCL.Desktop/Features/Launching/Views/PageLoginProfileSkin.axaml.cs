@@ -22,6 +22,12 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
 
     public LoginProfileInfo? Profile { get; private set; }
 
+    /// <summary>
+    /// Experimental launch home uses the shirt icon as a direct wayfinding action
+    /// into the full appearance page. Classic UI keeps the compact context menu.
+    /// </summary>
+    public bool UseDirectAppearanceAction { get; set; }
+
     public event EventHandler? ChangeProfileRequested;
 
     public event EventHandler? ChangeSkinRequested;
@@ -73,7 +79,16 @@ public partial class PageLoginProfileSkin : Grid, PageLaunchLeft.ILoginPage
 
     private void HidePanel(object? sender, PointerEventArgs e) => SetButtonsOpacity(0d);
 
-    private void BtnSkinClick(object? sender, EventArgs e) => OpenSkinMenu();
+    private void BtnSkinClick(object? sender, EventArgs e)
+    {
+        if (UseDirectAppearanceAction)
+        {
+            ChangeSkinRequested?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        OpenSkinMenu();
+    }
 
     private void BtnEditClick(object? sender, EventArgs e) => OpenEditMenu();
 

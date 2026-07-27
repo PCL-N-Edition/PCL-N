@@ -72,6 +72,7 @@ public sealed class LaunchLoginSurface
 
                 LoginProfileInfo selectedProfile = profiles[0];
                 PageLoginProfileSkin skin = EnsureProfileSkinPage(launchPage);
+                skin.UseDirectAppearanceAction = launchPage is PageLaunchHomeExperimental;
                 skin.SetProfile(selectedProfile);
                 launchPage.SetLoginPage(skin, animate: true, PageLaunchLeft.LaunchLoginPageType.ProfileSkin);
                 break;

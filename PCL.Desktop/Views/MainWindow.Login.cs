@@ -140,6 +140,18 @@ public partial class MainWindow
         if (profile is null)
             return;
 
+        if (_launchHomeProfile.UseExperimentalFullPageHome() ||
+            IsExperimentalHomepageUiEnabled())
+        {
+            _ = OpenExperimentalAppearancePageAsync(profile);
+            return;
+        }
+
+        OpenLegacyProfileAppearanceAction(profile, action);
+    }
+
+    private void OpenLegacyProfileAppearanceAction(LoginProfileInfo profile, string action)
+    {
         if (profile.Kind == LaunchLoginProfileKind.Microsoft)
         {
             // WPF: ModProfile.ChangeSkinMs — pick local PNG and upload to Minecraft services.
@@ -198,6 +210,7 @@ public partial class MainWindow
                 source.Uuid,
                 source.Kind == LaunchLoginProfileKind.ThirdParty ? source.AuthServer : null);
             LoginProfileInfo updated = profile with { SkinAddress = skin };
+            _ = RecordProfileTextureSnapshotAsync(profile);
             ReplaceLoginProfile(profile, updated);
             _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
             _launchLoginSurface.ProfileSkinPage?.SetProfile(updated);
@@ -215,6 +228,7 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(path))
             return;
 
+        await RecordProfileTextureSnapshotAsync(profile).ConfigureAwait(true);
         LoginProfileInfo updated = profile with { SkinAddress = path };
         ReplaceLoginProfile(profile, updated);
         _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
@@ -232,21 +246,48 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             return;
 
+        try
+        {
+            byte[] bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(true);
+            _ = await UploadMicrosoftSkinAsync(
+                    profile,
+                    bytes,
+                    Path.GetFileName(path),
+                    isSlim: false,
+                    fallbackAddress: path,
+                    action)
+                .ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            ShowTextDialog(action, "皮肤上传失败。\n\n详细信息：" + ex.Message, "知道了");
+        }
+    }
+
+    private async Task<LoginProfileInfo?> UploadMicrosoftSkinAsync(
+        LoginProfileInfo profile,
+        byte[] bytes,
+        string fileName,
+        bool isSlim,
+        string fallbackAddress,
+        string action)
+    {
         if (string.IsNullOrWhiteSpace(profile.AccessToken))
         {
             ShowTextDialog(action, "当前正版档案缺少访问令牌，请先重新登录后再更换皮肤。", "知道了");
-            return;
+            return null;
         }
 
         try
         {
+            await RecordProfileTextureSnapshotAsync(profile).ConfigureAwait(true);
             HandleStatusMessage("正在上传皮肤…");
-            byte[] bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(true);
             using MultipartFormDataContent content = new();
-            content.Add(new StringContent("classic"), "variant");
+            content.Add(new StringContent(isSlim ? "slim" : "classic"), "variant");
             ByteArrayContent fileContent = new(bytes);
-            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
-            content.Add(fileContent, "file", Path.GetFileName(path));
+            fileContent.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            content.Add(fileContent, "file", fileName);
 
             using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(2) };
             using HttpRequestMessage request = new(
@@ -263,7 +304,7 @@ public partial class MainWindow
             if (!response.IsSuccessStatusCode)
             {
                 ShowTextDialog(action, "皮肤上传失败。\n\n" + body, "知道了");
-                return;
+                return null;
             }
 
             string? skinUrl = null;
@@ -276,11 +317,11 @@ public partial class MainWindow
                     {
                         if (skin.ValueKind != JsonValueKind.Object)
                             continue;
-                        string state = skin.TryGetProperty("state", out JsonElement stateEl)
-                            ? stateEl.GetString() ?? string.Empty
+                        string state = skin.TryGetProperty("state", out JsonElement stateElement)
+                            ? stateElement.GetString() ?? string.Empty
                             : string.Empty;
-                        string? url = skin.TryGetProperty("url", out JsonElement urlEl)
-                            ? urlEl.GetString()
+                        string? url = skin.TryGetProperty("url", out JsonElement urlElement)
+                            ? urlElement.GetString()
                             : null;
                         if (string.Equals(state, "ACTIVE", StringComparison.OrdinalIgnoreCase) &&
                             !string.IsNullOrWhiteSpace(url))
@@ -296,17 +337,19 @@ public partial class MainWindow
 
             LoginProfileInfo updated = profile with
             {
-                SkinAddress = skinUrl ?? path
+                SkinAddress = skinUrl ?? fallbackAddress
             };
             ReplaceLoginProfile(profile, updated);
             _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
             _launchLoginSurface.ProfileSkinPage?.SetProfile(updated);
             SaveProfilesInBackground("更换 Microsoft 皮肤");
             ShowTextDialog(action, "皮肤已上传并更新。", "知道了");
+            return updated;
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            ShowTextDialog(action, "皮肤上传失败。\n\n详细信息：" + ex.Message, "知道了");
+            ShowTextDialog(action, "皮肤上传失败。\n\n详细信息：" + exception.Message, "知道了");
+            return null;
         }
     }
 

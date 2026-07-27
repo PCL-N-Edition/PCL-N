@@ -4895,6 +4895,8 @@ public partial class MainWindow : Window, IDisposable
         _launchCancellation?.Dispose();
         _microsoftLoginCancellation?.Cancel();
         _microsoftLoginCancellation?.Dispose();
+        _appearanceLoadCancellation?.Cancel();
+        _appearanceLoadCancellation?.Dispose();
         (_launchLeft as IDisposable)?.Dispose();
         _launchRight?.Dispose();
         _communityRight?.Dispose();

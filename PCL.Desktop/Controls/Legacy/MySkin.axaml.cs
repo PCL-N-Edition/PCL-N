@@ -194,7 +194,7 @@ public partial class MySkin : Grid
         }
     }
 
-    private static async Task<byte[]?> LoadSkinBytesAsync(string address)
+    internal static async Task<byte[]?> LoadSkinBytesAsync(string address)
     {
         if (File.Exists(address))
             return await File.ReadAllBytesAsync(address).ConfigureAwait(false);
