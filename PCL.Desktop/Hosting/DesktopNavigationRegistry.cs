@@ -12,11 +12,13 @@ internal static partial class DesktopNavigationRegistry
     public const string LaunchRouteValue = "pcl.launch";
     public const string DownloadRouteValue = "pcl.download";
     public const string CommunityRouteValue = "pcl.community";
+    public const string LinkRouteValue = "pcl.link";
     public const string SettingsRouteValue = "pcl.settings";
 
     public static NavigationRouteId LaunchRoute => new(LaunchRouteValue);
     public static NavigationRouteId DownloadRoute => new(DownloadRouteValue);
     public static NavigationRouteId CommunityRoute => new(CommunityRouteValue);
+    public static NavigationRouteId LinkRoute => new(LinkRouteValue);
     public static NavigationRouteId SettingsRoute => new(SettingsRouteValue);
 
     public static partial void RegisterGeneratedHostModules(PclHostBuilder builder);
@@ -32,6 +34,10 @@ internal static partial class DesktopNavigationRegistry
     [DesktopNavigationPage("pcl.builtin.community", CommunityRouteValue, "资源", "lucide/blocks", 20)]
     private static DesktopMainPage CreateCommunityPage(DesktopPageContext context) =>
         context.CreateCommunityPage();
+
+    [DesktopNavigationPage("pcl.builtin.link", LinkRouteValue, "联机", "lucide/network", 30)]
+    private static DesktopMainPage CreateLinkPage(DesktopPageContext context) =>
+        context.CreateLinkPage();
 
     [DesktopNavigationPage("pcl.builtin.settings", SettingsRouteValue, "设置", "lucide/settings", 40)]
     private static DesktopMainPage CreateSettingsPage(DesktopPageContext context) =>

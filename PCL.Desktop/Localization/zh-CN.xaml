@@ -481,6 +481,7 @@
     <sys:String x:Key="Community.Left.World">世界</sys:String>
 <sys:String x:Key="Main.TopTitle.Download">安装</sys:String>
     <sys:String x:Key="Main.TopTitle.Launch">启动</sys:String>
+    <sys:String x:Key="Main.TopTitle.Link">联机</sys:String>
     <sys:String x:Key="Main.TopTitle.Settings">设置</sys:String>
 
     <!-- Minecraft -->
@@ -1044,5 +1045,37 @@
     <sys:String x:Key="Update.CommunityNotice.Body">欢迎使用 Plain Craft Launcher N Edition。&#x0a;&#x0a;PCL N 是由 MUXUE1230 独立维护的分支，与 LTCat 或 PCL-Community 无隶属关系。&#x0a;&#x0a;主要功能：&#x0a;• 离线档案可使用 Microsoft 账户皮肤&#x0a;• 在版本内浏览并安装资源，自动处理依赖&#x0a;• 通过 IPv6 或 UPnP 进行 P2P 联机&#x0a;• Fluent 风格界面&#x0a;&#x0a;遇到问题时，请前往本项目的 GitHub Issues。此提示会在每次更新后显示一次。</sys:String>
     <sys:String x:Key="Update.CommunityNotice.Confirm">继续</sys:String>
     <sys:String x:Key="Update.CommunityNotice.Title">PCL N Edition</sys:String>
+
+    <!-- Terracotta multiplayer -->
+    <sys:String x:Key="Link.Page.Agreement.Title">联机服务协议</sys:String>
+    <sys:String x:Key="Link.Page.Agreement.Description">陶瓦联机通过 EasyTier 建立虚拟局域网，并使用与 PCL CE 2.15.0 兼容的 Scaffolding 控制协议。</sys:String>
+    <sys:String x:Key="Link.Page.Agreement.Network">联网与隐私说明</sys:String>
+    <sys:String x:Key="Link.Page.Agreement.Body">联机时会连接公共中继节点，并向同一房间的成员公开联机显示名、随机设备标识与启动器版本。房间码等同于加入凭据，请仅发送给可信成员。</sys:String>
+    <sys:String x:Key="Link.Page.Agreement.EasyTier">了解 EasyTier</sys:String>
+    <sys:String x:Key="Link.Page.Agreement.Accept">接受并启用联机</sys:String>
+    <sys:String x:Key="Link.Page.Select.Description">创建房间前，请先在 Minecraft 中“对局域网开放”。</sys:String>
+    <sys:String x:Key="Link.Page.Nat.Tooltip">检测 UDP、TCP NAT 类型与 IPv6 可用性</sys:String>
+    <sys:String x:Key="Link.Page.Identity.Title">联机身份</sys:String>
+    <sys:String x:Key="Link.Page.Identity.Name">显示名</sys:String>
+    <sys:String x:Key="Link.Page.Identity.Hint">其他房间成员看到的名字</sys:String>
+    <sys:String x:Key="Link.Page.Join.Title">加入房间</sys:String>
+    <sys:String x:Key="Link.Page.Join.Description">输入房主分享的陶瓦房间码。成功后，房间会自动出现在 Minecraft 的多人游戏局域网列表中。</sys:String>
+    <sys:String x:Key="Link.Page.Join.Hint">U/XXXX-XXXX-XXXX-XXXX</sys:String>
+    <sys:String x:Key="Link.Page.Join.Clear">清空</sys:String>
+    <sys:String x:Key="Link.Page.Join.Paste">粘贴</sys:String>
+    <sys:String x:Key="Link.Page.Join.Action">加入</sys:String>
+    <sys:String x:Key="Link.Page.Create.Title">创建房间</sys:String>
+    <sys:String x:Key="Link.Page.Create.Description">选择自动发现的 Minecraft 局域网世界；若没有发现，也可以手动输入“对局域网开放”后显示的端口。</sys:String>
+    <sys:String x:Key="Link.Page.Create.Refresh">刷新</sys:String>
+    <sys:String x:Key="Link.Page.Create.ManualPort">手动端口</sys:String>
+    <sys:String x:Key="Link.Page.Create.Action">创建</sys:String>
+    <sys:String x:Key="Link.Page.Finish.InfoTitle">大厅信息</sys:String>
+    <sys:String x:Key="Link.Page.Finish.Actions">操作</sys:String>
+    <sys:String x:Key="Link.Page.Finish.CopyIp">复制虚拟服务器地址</sys:String>
+    <sys:String x:Key="Link.Page.Finish.CopyCode">复制房间码</sys:String>
+    <sys:String x:Key="Link.Page.Finish.Exit">退出联机</sys:String>
+    <sys:String x:Key="Link.Page.Member.Title">房间成员</sys:String>
+    <sys:String x:Key="Link.Page.Footer.Friends">技术支持：</sys:String>
+    <sys:String x:Key="Link.Page.Footer.Disable">停用联机功能</sys:String>
 
 </ResourceDictionary>

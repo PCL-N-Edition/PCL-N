@@ -55,6 +55,7 @@ using PCL.Desktop.Features.Instances;
 using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Launching.Views;
+using PCL.Desktop.Features.Link;
 using PCL.Desktop.Features.Settings;
 using PCL.Desktop.Features.Tasks;
 using CommunityToolkit.Mvvm.Messaging;
@@ -103,6 +104,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly DownloadFeatureSurface _downloadSurface;
     private readonly SettingsFeatureSurface _settingsSurface;
     private readonly CommunityFeatureSurface _communitySurface;
+    private readonly LinkFeatureSurface _linkSurface;
     private readonly TaskManagerSurface _taskManagerSurface;
     private readonly InstancesManageSurface _instancesManage;
     private readonly LaunchLoginSurface _launchLoginSurface;
@@ -196,6 +198,7 @@ public partial class MainWindow : Window, IDisposable
         _downloadSurface = DesktopCompositionRoot.GetRequiredService<DownloadFeatureSurface>();
         _settingsSurface = DesktopCompositionRoot.GetRequiredService<SettingsFeatureSurface>();
         _communitySurface = DesktopCompositionRoot.GetRequiredService<CommunityFeatureSurface>();
+        _linkSurface = DesktopCompositionRoot.GetRequiredService<LinkFeatureSurface>();
         _communityFavorites = DesktopCompositionRoot.GetRequiredService<CommunityFavoritesStore>();
         _taskManagerSurface = DesktopCompositionRoot.GetRequiredService<TaskManagerSurface>();
         _instancesManage = DesktopCompositionRoot.GetRequiredService<InstancesManageSurface>();
@@ -235,6 +238,7 @@ public partial class MainWindow : Window, IDisposable
             CreateLaunchMainPage,
             CreateDownloadMainPage,
             CreateCommunityMainPage,
+            CreateLinkMainPage,
             CreateSettingsMainPage,
             CreatePlaceholderMainPage);
         // Headless tests skip the load animation so the window is not left at Opacity 0.
@@ -1313,6 +1317,7 @@ public partial class MainWindow : Window, IDisposable
             DesktopNavigationRegistry.LaunchRouteValue => "pcl.page.launch",
             DesktopNavigationRegistry.DownloadRouteValue => "pcl.page.download",
             DesktopNavigationRegistry.CommunityRouteValue => "pcl.page.community",
+            DesktopNavigationRegistry.LinkRouteValue => "pcl.page.link",
             DesktopNavigationRegistry.SettingsRouteValue => "pcl.page.settings",
             { Length: > 0 } route => route.StartsWith("pcl.", StringComparison.OrdinalIgnoreCase)
                 ? "pcl.page." + route[4..]
@@ -1875,6 +1880,9 @@ public partial class MainWindow : Window, IDisposable
         SyncCommunityFieldsFromSurface();
         return page;
     }
+
+    private DesktopMainPage CreateLinkMainPage() =>
+        _linkSurface.CreateMainPage();
 
     private void WireCommunitySurface()
     {
@@ -4943,6 +4951,7 @@ public partial class MainWindow : Window, IDisposable
         _launchRight?.Dispose();
         _communityRight?.Dispose();
         _communityDetail?.Dispose();
+        _linkSurface.Dispose();
         _instancesSelect.RightPage?.Dispose();
         _setupRight?.Dispose();
         GC.SuppressFinalize(this);
@@ -5554,6 +5563,7 @@ public partial class MainWindow : Window, IDisposable
                 DesktopNavigationRegistry.LaunchRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Launch", "启动"),
                 DesktopNavigationRegistry.DownloadRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Download", "安装"),
                 DesktopNavigationRegistry.CommunityRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Community", "资源"),
+                DesktopNavigationRegistry.LinkRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Link", "联机"),
                 DesktopNavigationRegistry.SettingsRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Settings", "设置"),
                 _ => item.Title
             };

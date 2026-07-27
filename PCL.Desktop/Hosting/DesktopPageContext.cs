@@ -8,5 +8,6 @@ internal sealed record DesktopPageContext(
     Func<DesktopMainPage> CreateLaunchPage,
     Func<DesktopMainPage> CreateDownloadPage,
     Func<DesktopMainPage> CreateCommunityPage,
+    Func<DesktopMainPage> CreateLinkPage,
     Func<DesktopMainPage> CreateSettingsPage,
     Func<string, DesktopMainPage> CreatePlaceholderPage);

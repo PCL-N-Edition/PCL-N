@@ -2,9 +2,10 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
-using System;
+using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using PCL.Core.Link.Scaffolding;
+using PCL.Core.Link.Scaffolding.Client.Models;
 
 namespace PCL.Core.Test;
 
@@ -12,47 +13,55 @@ namespace PCL.Core.Test;
 public sealed class LobbyCodeGenerateTest
 {
     [TestMethod]
-    public void GenerateTest()
+    public void GeneratedCode_UsesUpstreamTerracottaFormat()
     {
-        var code = LobbyCodeGenerator.Generate();
+        LobbyInfo generated = LobbyCodeGenerator.Generate();
+
+        Assert.AreEqual(21, generated.FullCode.Length);
+        Assert.StartsWith("U/", generated.FullCode);
+        Assert.AreEqual('-', generated.FullCode[6]);
+        Assert.AreEqual('-', generated.FullCode[11]);
+        Assert.AreEqual('-', generated.FullCode[16]);
+        Assert.StartsWith("scaffolding-mc-", generated.NetworkName);
+        Assert.AreEqual(24, generated.NetworkName.Length);
+        Assert.AreEqual(9, generated.NetworkSecret.Length);
     }
 
     [TestMethod]
-    public void ParseTest()
+    public void GeneratedCode_RoundTripsToSameEasyTierNetwork()
     {
-        var code = LobbyCodeGenerator.Generate();
+        LobbyInfo generated = LobbyCodeGenerator.Generate();
 
-        Assert.AreEqual(19, code.Length);
-        Assert.AreEqual('-', code[4]);
-        Assert.AreEqual('-', code[9]);
-        Assert.AreEqual('-', code[14]);
-        var parsed = LobbyCodeGenerator.TryParse(code);
-
-        Assert.AreEqual(code, parsed);
+        Assert.IsTrue(LobbyCodeGenerator.TryParse(generated.FullCode, out LobbyInfo? parsed));
+        Assert.IsNotNull(parsed);
+        Assert.AreEqual(generated, parsed);
     }
 
     [TestMethod]
-    public void ParseNormalizesCaseAndSeparators()
+    public void InvalidChecksum_IsRejected()
     {
-        Assert.AreEqual(
-            "0123-4567-89AB-CDEF",
-            LobbyCodeGenerator.TryParse("0123 4567-89ab cdef"));
+        string code = LobbyCodeGenerator.Generate().FullCode;
+        char replacement = code[^1] == '0' ? '1' : '0';
+        string invalid = code[..^1] + replacement;
+
+        Assert.IsFalse(LobbyCodeGenerator.TryParse(invalid, out _));
     }
 
     [TestMethod]
-    public void RoomIdAndShortCodeUseNetworkOrder()
+    public void ScaffoldingFrame_UsesUpstreamNetworkByteOrder()
     {
+        byte[] packet = ScaffoldingProtocol.EncodeRequest("c:ping", [0x12, 0x34]);
+        byte[] expected =
+        [
+            0x06,
+            (byte)'c', (byte)':', (byte)'p', (byte)'i', (byte)'n', (byte)'g',
+            0x00, 0x00, 0x00, 0x02,
+            0x12, 0x34
+        ];
+
+        CollectionAssert.AreEqual(expected, packet);
         CollectionAssert.AreEqual(
-            new byte[] { 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF },
-            LobbyCodeGenerator.GetRoomId("0123-4567-89AB-CDEF"));
-        Assert.AreEqual("01234567", LobbyCodeGenerator.ToShortCode("0123-4567-89AB-CDEF"));
-    }
-
-    [TestMethod]
-    public void InvalidInputIsRejected()
-    {
-        Assert.IsNull(LobbyCodeGenerator.TryParse("not-a-code"));
-        Assert.IsNull(LobbyCodeGenerator.GetRoomId("1234"));
-        Assert.AreEqual(string.Empty, LobbyCodeGenerator.ToShortCode("1234"));
+            new byte[] { 0x00, 0x00, 0x00, 0x00, 0x02, 0x12, 0x34 },
+            ScaffoldingProtocol.EncodeResponse(0, [0x12, 0x34]));
     }
 }

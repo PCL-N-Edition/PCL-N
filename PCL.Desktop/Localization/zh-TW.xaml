@@ -481,6 +481,7 @@
     <sys:String x:Key="Community.Left.World">世界</sys:String>
 <sys:String x:Key="Main.TopTitle.Download">安裝</sys:String>
     <sys:String x:Key="Main.TopTitle.Launch">啟動</sys:String>
+    <sys:String x:Key="Main.TopTitle.Link">連線</sys:String>
     <sys:String x:Key="Main.TopTitle.Settings">設定</sys:String>
 
     <!-- Minecraft -->
@@ -1044,5 +1045,37 @@
     <sys:String x:Key="Update.CommunityNotice.Body">歡迎使用 Plain Craft Launcher N Edition。&#x0a;&#x0a;PCL N 是由 MUXUE1230 獨立維護的分支，與 LTCat 或 PCL-Community 無隸屬關係。&#x0a;&#x0a;主要功能：&#x0a;• 離線檔案可使用 Microsoft 賬戶皮膚&#x0a;• 在版本內瀏覽並安裝資源，自動處理依賴&#x0a;• 透過 IPv6 或 UPnP 進行 P2P 聯機&#x0a;• Fluent 風格介面&#x0a;&#x0a;遇到問題時，請前往本專案的 GitHub Issues。此提示會在每次更新後顯示一次。</sys:String>
     <sys:String x:Key="Update.CommunityNotice.Confirm">繼續</sys:String>
     <sys:String x:Key="Update.CommunityNotice.Title">PCL N Edition</sys:String>
+
+    <!-- Terracotta multiplayer -->
+    <sys:String x:Key="Link.Page.Agreement.Title">連線服務協議</sys:String>
+    <sys:String x:Key="Link.Page.Agreement.Description">陶瓦連線透過 EasyTier 建立虛擬區域網路，並使用與 PCL CE 2.15.0 相容的 Scaffolding 控制協議。</sys:String>
+    <sys:String x:Key="Link.Page.Agreement.Network">網路與隱私說明</sys:String>
+    <sys:String x:Key="Link.Page.Agreement.Body">連線時會連接公共中繼節點，並向同一房間的成員公開顯示名稱、隨機裝置識別碼與啟動器版本。房間碼等同加入憑證，請只分享給可信任的成員。</sys:String>
+    <sys:String x:Key="Link.Page.Agreement.EasyTier">瞭解 EasyTier</sys:String>
+    <sys:String x:Key="Link.Page.Agreement.Accept">接受並啟用連線</sys:String>
+    <sys:String x:Key="Link.Page.Select.Description">建立房間前，請先在 Minecraft 中「對區域網路開放」。</sys:String>
+    <sys:String x:Key="Link.Page.Nat.Tooltip">偵測 UDP、TCP NAT 類型與 IPv6 可用性</sys:String>
+    <sys:String x:Key="Link.Page.Identity.Title">連線身分</sys:String>
+    <sys:String x:Key="Link.Page.Identity.Name">顯示名稱</sys:String>
+    <sys:String x:Key="Link.Page.Identity.Hint">其他房間成員看到的名稱</sys:String>
+    <sys:String x:Key="Link.Page.Join.Title">加入房間</sys:String>
+    <sys:String x:Key="Link.Page.Join.Description">輸入房主分享的陶瓦房間碼。連線成功後，房間會自動出現在 Minecraft 多人遊戲的區域網路清單。</sys:String>
+    <sys:String x:Key="Link.Page.Join.Hint">U/XXXX-XXXX-XXXX-XXXX</sys:String>
+    <sys:String x:Key="Link.Page.Join.Clear">清除</sys:String>
+    <sys:String x:Key="Link.Page.Join.Paste">貼上</sys:String>
+    <sys:String x:Key="Link.Page.Join.Action">加入</sys:String>
+    <sys:String x:Key="Link.Page.Create.Title">建立房間</sys:String>
+    <sys:String x:Key="Link.Page.Create.Description">選擇自動發現的 Minecraft 區域網路世界；若未發現，也可手動輸入「對區域網路開放」後顯示的連接埠。</sys:String>
+    <sys:String x:Key="Link.Page.Create.Refresh">重新整理</sys:String>
+    <sys:String x:Key="Link.Page.Create.ManualPort">手動連接埠</sys:String>
+    <sys:String x:Key="Link.Page.Create.Action">建立</sys:String>
+    <sys:String x:Key="Link.Page.Finish.InfoTitle">大廳資訊</sys:String>
+    <sys:String x:Key="Link.Page.Finish.Actions">操作</sys:String>
+    <sys:String x:Key="Link.Page.Finish.CopyIp">複製虛擬伺服器位址</sys:String>
+    <sys:String x:Key="Link.Page.Finish.CopyCode">複製房間碼</sys:String>
+    <sys:String x:Key="Link.Page.Finish.Exit">退出連線</sys:String>
+    <sys:String x:Key="Link.Page.Member.Title">房間成員</sys:String>
+    <sys:String x:Key="Link.Page.Footer.Friends">技術支援：</sys:String>
+    <sys:String x:Key="Link.Page.Footer.Disable">停用連線功能</sys:String>
 
 </ResourceDictionary>

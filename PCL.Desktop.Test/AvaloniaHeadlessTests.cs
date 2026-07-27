@@ -34,6 +34,7 @@ using PCL.Desktop.Views;
 using PCL.Desktop.Features.Downloads.Views;
 using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Features.Launching.Views;
+using PCL.Desktop.Features.Link;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Tasks.Views;
 using PCL.Desktop.Localization;
@@ -46,6 +47,39 @@ namespace PCL.Desktop.Test;
 [DoNotParallelize]
 public sealed class AvaloniaHeadlessTests
 {
+    [TestMethod]
+    public void TerracottaPage_LoadsUpstreamSectionsHeadless()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            PageGameLink page = new();
+            Window window = new()
+            {
+                Width = 960,
+                Height = 760,
+                Content = page
+            };
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                using Avalonia.Media.Imaging.Bitmap? frame = window.CaptureRenderedFrame();
+                Assert.IsNotNull(frame);
+                Assert.IsTrue(page.GetVisualDescendants().OfType<MyHint>().Any());
+                Assert.IsTrue(page.GetVisualDescendants().OfType<MyCard>().Count() >= 6);
+                Assert.IsTrue(page.GetVisualDescendants().OfType<MyTextBox>().Any());
+            }
+            finally
+            {
+                window.Close();
+                page.Dispose();
+            }
+        }, CancellationToken.None);
+    }
+
     [TestMethod]
     public void MinecraftPlayerPreview_RendersAndSwitchesAllSevenViews()
     {

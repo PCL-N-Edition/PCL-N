@@ -1,109 +1,138 @@
 // Copyright (c) MUXUE1230. All rights reserved.
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
+//
+// The lobby-code wire format is compatible with the Terracotta/Scaffolding
+// implementation used by PCL Community Edition 2.15.0.
 
-using System.Buffers.Binary;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using PCL.Core.Link.Scaffolding.Client.Models;
 
 namespace PCL.Core.Link.Scaffolding;
 
-/// <summary>
-/// Generates and parses 64-bit lobby identifiers in XXXX-XXXX-XXXX-XXXX form.
-/// </summary>
 public static class LobbyCodeGenerator
 {
-    private const int ByteCount = 8;
-    private const int CompactLength = ByteCount * 2;
-    private const int FormattedLength = CompactLength + 3;
-    private static ReadOnlySpan<char> HexDigits => "0123456789ABCDEF";
+    private const string Chars = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    private const string FullCodePrefix = "U/";
+    private const string NetworkNamePrefix = "scaffolding-mc-";
+    private const int BaseValue = 34;
+    private const int DataLength = 16;
+    private const int PayloadLength = 19;
+    private const int CodeLength = 21;
+    private static readonly UInt128 EncodingMaxValue = CalculatePower(BaseValue, DataLength);
+    private static readonly Dictionary<char, byte> CharToValueMap = CreateCharacterMap();
 
-    public static string Generate()
+    public static LobbyInfo Generate()
     {
-        Span<byte> bytes = stackalloc byte[ByteCount];
-        RandomNumberGenerator.Fill(bytes);
-        Span<char> formatted = stackalloc char[FormattedLength];
-        Format(bytes, formatted);
-        return new string(formatted);
+        UInt128 randomValue = GetSecureRandomUInt128();
+        UInt128 valueInRange = randomValue % EncodingMaxValue;
+        UInt128 validValue = valueInRange - valueInRange % 7;
+        return Encode(validValue);
     }
 
-    public static string? TryParse(string input)
+    public static bool TryParse(string? input, [NotNullWhen(true)] out LobbyInfo? roomInfo)
     {
-        if (!TryDecode(input, out var value))
-            return null;
-
-        Span<byte> bytes = stackalloc byte[ByteCount];
-        BinaryPrimitives.WriteUInt64BigEndian(bytes, value);
-        Span<char> formatted = stackalloc char[FormattedLength];
-        Format(bytes, formatted);
-        return new string(formatted);
-    }
-
-    public static byte[]? GetRoomId(string code)
-    {
-        if (!TryDecode(code, out var value))
-            return null;
-
-        var bytes = GC.AllocateUninitializedArray<byte>(ByteCount);
-        BinaryPrimitives.WriteUInt64BigEndian(bytes, value);
-        return bytes;
-    }
-
-    public static string ToShortCode(string fullCode)
-    {
-        if (!TryDecode(fullCode, out var value))
-            return string.Empty;
-
-        value >>= 32;
-        Span<char> shortCode = stackalloc char[8];
-        for (var index = shortCode.Length - 1; index >= 0; index--)
+        roomInfo = null;
+        if (string.IsNullOrWhiteSpace(input) ||
+            !input.StartsWith(FullCodePrefix, StringComparison.Ordinal) ||
+            input.Length != CodeLength)
         {
-            shortCode[index] = HexDigits[(int)(value & 0xF)];
-            value >>= 4;
+            return false;
         }
-        return new string(shortCode);
-    }
 
-    private static bool TryDecode(string? input, out ulong value)
-    {
-        value = 0;
-        if (string.IsNullOrWhiteSpace(input))
+        Span<byte> values = stackalloc byte[DataLength];
+        int valueIndex = 0;
+        ReadOnlySpan<char> payload = input.AsSpan(FullCodePrefix.Length);
+        for (int index = 0; index < payload.Length; index++)
+        {
+            char character = payload[index];
+            if (character == '-')
+            {
+                if (index is not (4 or 9 or 14))
+                    return false;
+                continue;
+            }
+
+            if (valueIndex >= DataLength ||
+                !CharToValueMap.TryGetValue(char.ToUpperInvariant(character), out byte characterValue))
+            {
+                return false;
+            }
+
+            values[valueIndex++] = characterValue;
+        }
+
+        if (valueIndex != DataLength)
             return false;
 
-        var digitCount = 0;
-        foreach (var character in input)
-        {
-            if (character is '-' or ' ')
-                continue;
+        UInt128 value = 0;
+        for (int index = DataLength - 1; index >= 0; index--)
+            value = value * BaseValue + values[index];
 
-            var digit = HexValue(character);
-            if (digit < 0 || digitCount == CompactLength)
-                return false;
+        if (value % 7 != 0)
+            return false;
 
-            value = (value << 4) | (uint)digit;
-            digitCount++;
-        }
-
-        return digitCount == CompactLength;
+        ReadOnlySpan<char> networkNamePayload = payload[..9];
+        ReadOnlySpan<char> networkSecretPayload = payload[10..];
+        roomInfo = new LobbyInfo(
+            string.Concat(FullCodePrefix, payload).ToUpperInvariant(),
+            string.Concat(NetworkNamePrefix, networkNamePayload),
+            networkSecretPayload.ToString());
+        return true;
     }
 
-    private static int HexValue(char character) =>
-        character switch
-        {
-            >= '0' and <= '9' => character - '0',
-            >= 'A' and <= 'F' => character - 'A' + 10,
-            >= 'a' and <= 'f' => character - 'a' + 10,
-            _ => -1
-        };
-
-    private static void Format(ReadOnlySpan<byte> bytes, Span<char> destination)
+    private static LobbyInfo Encode(UInt128 value)
     {
-        var destinationIndex = 0;
-        for (var index = 0; index < bytes.Length; index++)
+        string codePayload = string.Create(PayloadLength, value, static (span, currentValue) =>
         {
-            if (index is 2 or 4 or 6)
-                destination[destinationIndex++] = '-';
-            destination[destinationIndex++] = HexDigits[bytes[index] >> 4];
-            destination[destinationIndex++] = HexDigits[bytes[index] & 0xF];
-        }
+            Span<char> characters = stackalloc char[DataLength];
+            for (int index = 0; index < DataLength; index++)
+            {
+                characters[index] = Chars[(int)(currentValue % BaseValue)];
+                currentValue /= BaseValue;
+            }
+
+            characters[..4].CopyTo(span[..4]);
+            span[4] = '-';
+            characters[4..8].CopyTo(span[5..9]);
+            span[9] = '-';
+            characters[8..12].CopyTo(span[10..14]);
+            span[14] = '-';
+            characters[12..16].CopyTo(span[15..]);
+        });
+
+        return new LobbyInfo(
+            string.Concat(FullCodePrefix, codePayload),
+            string.Concat(NetworkNamePrefix, codePayload.AsSpan(0, 9)),
+            codePayload.AsSpan(10).ToString());
+    }
+
+    private static UInt128 GetSecureRandomUInt128()
+    {
+        Span<byte> bytes = stackalloc byte[16];
+        RandomNumberGenerator.Fill(bytes);
+        ulong lower = MemoryMarshal.Read<ulong>(bytes);
+        ulong upper = MemoryMarshal.Read<ulong>(bytes[8..]);
+        return new UInt128(upper, lower);
+    }
+
+    private static UInt128 CalculatePower(uint baseValue, int exponent)
+    {
+        UInt128 result = 1;
+        for (int index = 0; index < exponent; index++)
+            result *= baseValue;
+        return result;
+    }
+
+    private static Dictionary<char, byte> CreateCharacterMap()
+    {
+        Dictionary<char, byte> result = new(36);
+        for (byte index = 0; index < Chars.Length; index++)
+            result[Chars[index]] = index;
+        result['I'] = 1;
+        result['O'] = 0;
+        return result;
     }
 }
