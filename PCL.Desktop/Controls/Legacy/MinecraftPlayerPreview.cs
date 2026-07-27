@@ -38,7 +38,7 @@ public sealed class MinecraftPlayerPreview : Control
     {
         RenderOptions.SetBitmapInterpolationMode(this, BitmapInterpolationMode.None);
         RenderOptions.SetEdgeMode(this, EdgeMode.Aliased);
-        ClipToBounds = false;
+        ClipToBounds = true;
         this.GetObservable(SkinAddressProperty).Subscribe(address =>
         {
             _ = ReloadAsync();

@@ -6,12 +6,33 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using PCL.Desktop.Features.Launching.Appearance;
+using PCL.Desktop.Features.Launching.Views;
 
 namespace PCL.Desktop.Test;
 
 [TestClass]
 public sealed class SkinAppearanceTests
 {
+    [TestMethod]
+    public void AppearanceCardMetrics_AdaptLayoutAndPreserveModelRatio()
+    {
+        AppearanceCardMetrics compact = PageSkinAppearanceRight.CalculateCardMetrics(
+            146d,
+            canApply: true);
+        AppearanceCardMetrics roomy = PageSkinAppearanceRight.CalculateCardMetrics(
+            286d,
+            canApply: true);
+
+        Assert.IsTrue(compact.IsHorizontal);
+        Assert.IsFalse(roomy.IsHorizontal);
+        Assert.IsTrue(compact.CardHeight < roomy.CardHeight);
+        Assert.IsTrue(compact.PreviewHeight < roomy.PreviewHeight);
+        Assert.AreEqual(compact.PreviewHeight / 2d, compact.PreviewWidth, 0.001d);
+        Assert.AreEqual(roomy.PreviewHeight / 2d, roomy.PreviewWidth, 0.001d);
+        Assert.IsTrue(compact.PreviewHeight < compact.CardHeight);
+        Assert.IsTrue(roomy.PreviewHeight < roomy.CardHeight);
+    }
+
     [TestMethod]
     public void MinecraftProfileTextureResolver_ParsesSkinCapeAndSlimModel()
     {
