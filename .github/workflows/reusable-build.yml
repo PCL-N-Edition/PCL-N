@@ -34,7 +34,7 @@ on:
         default: false
         type: boolean
       plugin_tag:
-        description: PCL.Plugin git tag (empty = latest release/tag via gh)
+        description: PCL.Plugin source tag (empty = Stable channel = GitHub releases/latest tag)
         required: false
         default: ""
         type: string
@@ -122,8 +122,9 @@ jobs:
           GH_TOKEN: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
         run: |
           $tag = '${{ inputs.plugin_tag }}'.Trim()
-          $args = @{}
+          $args = @{ Channel = 'Stable' }
           if ($tag) { $args['Tag'] = $tag }
+          # Source-tag inject only (no DLL download).
           & ./scripts/apply-plugin-overlay.ps1 @args
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

@@ -10,21 +10,25 @@
 
 ## Plugin source-overlay inject
 
-Clone or fetch private `PCL.Plugin` at a release tag, apply host rewrites, compile plugin sources into Desktop:
+**Release product is a PCL.Plugin git tag (source + `host-overlay/`), not DLL assets.**
 
 ```powershell
-# Latest tag
-.\scripts\apply-plugin-overlay.ps1
+# Formal release tag (releases/latest → checkout that tag's source)
+.\scripts\apply-plugin-overlay.ps1 -Channel Stable
 
-# Pin
-.\scripts\apply-plugin-overlay.ps1 -Tag v0.16.0
+# Newest v* git tag
+.\scripts\apply-plugin-overlay.ps1 -Channel Latest
 
-# Build / run with plugin
-.\scripts\build-desktop.ps1 -WithPlugin
+# Pin source tag
+.\scripts\apply-plugin-overlay.ps1 -Tag v0.17.0
+
+# Build host with plugin sources compiled in
+.\scripts\build-desktop.ps1 -WithPlugin -SkipPluginFetch
+
+# Undo host rewrite dirt (DesktopHost.Optional.cs etc.)
+.\scripts\apply-plugin-overlay.ps1 -RestoreHostRewrites -SkipFetch
+
 .\scripts\run-plugin-ui.ps1 -SkipFetch
-.\scripts\test-plugin-ui.ps1 -SkipFetch
 ```
 
-`-SkipFetch` / `-SkipPluginFetch` reuse an existing `PCL.Plugin/` tree (for local development).
-
-Design notes: [docs/architecture/plugin-source-overlay.md](../docs/architecture/plugin-source-overlay.md).
+Design: [docs/architecture/plugin-source-overlay.md](../docs/architecture/plugin-source-overlay.md).

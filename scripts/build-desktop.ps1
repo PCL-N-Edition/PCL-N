@@ -32,7 +32,8 @@ if ($WithPlugin) {
     if ($Aot) {
         throw "WithPlugin builds disable AOT (Harmony / AssemblyLoadContext). Omit -Aot."
     }
-    $overlayArgs = @{}
+    # Source-overlay inject (tag source + host-overlay rewrite), not DLL download/embed.
+    $overlayArgs = @{ Channel = 'Stable' }
     if (-not [string]::IsNullOrWhiteSpace($PluginTag)) { $overlayArgs['Tag'] = $PluginTag }
     if ($SkipPluginFetch) { $overlayArgs['SkipFetch'] = $true }
     & (Join-Path $PSScriptRoot 'apply-plugin-overlay.ps1') @overlayArgs

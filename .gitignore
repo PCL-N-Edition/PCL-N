@@ -365,3 +365,7 @@ MaskFiles/
 
 # CodeGraph local index
 .codegraph/
+
+# Local source-overlay inject state (dirty rewrite tracking)
+.pcl-plugin-overlay.state.json
+
