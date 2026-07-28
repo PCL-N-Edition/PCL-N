@@ -33,12 +33,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 BINARY_NAMES = {
-    "win-x64": "PCL.Desktop.exe",
-    "win-arm64": "PCL.Desktop.exe",
-    "linux-x64": "PCL.Desktop",
-    "linux-arm64": "PCL.Desktop",
-    "osx-x64": "PCL.Desktop",
-    "osx-arm64": "PCL.Desktop",
+    "win-x64": "PCL-N-Edition.exe",
+    "win-arm64": "PCL-N-Edition.exe",
+    "linux-x64": "PCL-N-Edition",
+    "linux-arm64": "PCL-N-Edition",
+    "osx-x64": "PCL-N-Edition",
+    "osx-arm64": "PCL-N-Edition",
 }
 
 RUNTIME_IDS = list(BINARY_NAMES.keys())
@@ -395,7 +395,7 @@ def main() -> int:
     skip_count = 0
 
     for rid in args.rids:
-        binary_name = BINARY_NAMES.get(rid, "PCL.Desktop.exe" if rid.startswith("win") else "PCL.Desktop")
+        binary_name = BINARY_NAMES.get(rid, "PCL-N-Edition.exe" if rid.startswith("win") else "PCL-N-Edition")
         for variant in args.variants:
             log(f"=== {rid} / {variant} ===")
             target_asset = pick_asset(target, target_cfg, rid, variant)

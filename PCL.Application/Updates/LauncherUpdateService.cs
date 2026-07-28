@@ -677,7 +677,7 @@ public sealed class LauncherUpdateService : IDisposable
         $"https://github.com/{_owner}/{_repo}/releases/download/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(assetName)}";
 
     private static string DefaultBinaryName(string runtimeId) =>
-        runtimeId.StartsWith("win-", StringComparison.OrdinalIgnoreCase) ? "PCL.Desktop.exe" : "PCL.Desktop";
+        runtimeId.StartsWith("win-", StringComparison.OrdinalIgnoreCase) ? "PCL-N-Edition.exe" : "PCL-N-Edition";
 
     private async Task<HttpResponseMessage> GetFollowingRedirectsAsync(
         string url,

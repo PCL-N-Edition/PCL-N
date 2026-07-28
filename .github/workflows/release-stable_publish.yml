@@ -25,12 +25,12 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - { runner: windows-latest, runtime_id: win-x64, architecture: x64, binary_name: PCL.Desktop.exe }
-          - { runner: windows-latest, runtime_id: win-arm64, architecture: ARM64, binary_name: PCL.Desktop.exe }
-          - { runner: ubuntu-latest, runtime_id: linux-x64, architecture: x64, binary_name: PCL.Desktop }
-          - { runner: ubuntu-latest, runtime_id: linux-arm64, architecture: ARM64, binary_name: PCL.Desktop }
-          - { runner: macos-latest, runtime_id: osx-x64, architecture: x64, binary_name: PCL.Desktop }
-          - { runner: macos-latest, runtime_id: osx-arm64, architecture: ARM64, binary_name: PCL.Desktop }
+          - { runner: windows-latest, runtime_id: win-x64, architecture: x64, binary_name: PCL-N-Edition.exe }
+          - { runner: windows-latest, runtime_id: win-arm64, architecture: ARM64, binary_name: PCL-N-Edition.exe }
+          - { runner: ubuntu-latest, runtime_id: linux-x64, architecture: x64, binary_name: PCL-N-Edition }
+          - { runner: ubuntu-latest, runtime_id: linux-arm64, architecture: ARM64, binary_name: PCL-N-Edition }
+          - { runner: macos-latest, runtime_id: osx-x64, architecture: x64, binary_name: PCL-N-Edition }
+          - { runner: macos-latest, runtime_id: osx-arm64, architecture: ARM64, binary_name: PCL-N-Edition }
         runtime:
           - { self_contained: true, variant: SelfContained }
           - { self_contained: false, variant: NoRuntime }
@@ -85,12 +85,12 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - { runtime_id: win-x64, binary_name: PCL.Desktop.exe, package: zip }
-          - { runtime_id: win-arm64, binary_name: PCL.Desktop.exe, package: zip }
-          - { runtime_id: linux-x64, binary_name: PCL.Desktop, package: tar }
-          - { runtime_id: linux-arm64, binary_name: PCL.Desktop, package: tar }
-          - { runtime_id: osx-x64, binary_name: PCL.Desktop, package: tar }
-          - { runtime_id: osx-arm64, binary_name: PCL.Desktop, package: tar }
+          - { runtime_id: win-x64, binary_name: PCL-N-Edition.exe, package: zip }
+          - { runtime_id: win-arm64, binary_name: PCL-N-Edition.exe, package: zip }
+          - { runtime_id: linux-x64, binary_name: PCL-N-Edition, package: tar }
+          - { runtime_id: linux-arm64, binary_name: PCL-N-Edition, package: tar }
+          - { runtime_id: osx-x64, binary_name: PCL-N-Edition, package: tar }
+          - { runtime_id: osx-arm64, binary_name: PCL-N-Edition, package: tar }
         runtime_variant: [SelfContained, NoRuntime]
     steps:
       - name: Download Avalonia artifact

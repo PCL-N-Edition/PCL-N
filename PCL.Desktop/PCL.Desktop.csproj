@@ -8,7 +8,10 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
+    <!-- Managed assembly identity (avares://, InternalsVisibleTo, RootNamespace). -->
     <AssemblyName>PCL.Desktop</AssemblyName>
+    <!-- Product host binary file name only (exe/apphost/AOT); not the assembly name. -->
+    <ProductBinaryName Condition="'$(ProductBinaryName)' == ''">PCL-N-Edition</ProductBinaryName>
     <RootNamespace>PCL.Desktop</RootNamespace>
     <Description>PCL N cross-platform Avalonia desktop shell</Description>
     <ApplicationIcon>Assets/icon.ico</ApplicationIcon>
@@ -155,4 +158,51 @@
   -->
   <Import Project="$(MSBuildThisFileDirectory)..\PCL.Plugin\host-overlay\msbuild\PclPlugin.overlay.targets"
           Condition="'$(PclWithPlugin)' == 'true' and Exists('$(MSBuildThisFileDirectory)..\PCL.Plugin\host-overlay\msbuild\PclPlugin.overlay.targets')" />
+
+  <!--
+    Keep AssemblyName=PCL.Desktop for managed identity (avares://PCL.Desktop/..., IVT, *.dll).
+    Rename only the native apphost / AOT host binary to ProductBinaryName (PCL-N-Edition[.exe]).
+    Do NOT rename TargetExt (.dll) — that would change the assembly identity on disk.
+  -->
+  <Target Name="RenameProductHostBinary"
+          AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(ProductBinaryName)' != '' and '$(ProductBinaryName)' != '$(AssemblyName)'">
+    <PropertyGroup>
+      <!-- TargetExt is .dll; the launchable host is AssemblyName.exe (Windows) or AssemblyName (Unix). -->
+      <_HostFile Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(AssemblyName).exe</_HostFile>
+      <_HostFile Condition="'$(_HostFile)' == ''">$(AssemblyName)</_HostFile>
+      <_ProductHostFile Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(ProductBinaryName).exe</_ProductHostFile>
+      <_ProductHostFile Condition="'$(_ProductHostFile)' == ''">$(ProductBinaryName)</_ProductHostFile>
+      <_SrcHost>$(TargetDir)$(_HostFile)</_SrcHost>
+      <_DstHost>$(TargetDir)$(_ProductHostFile)</_DstHost>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_SrcHost)"
+          DestinationFiles="$(_DstHost)"
+          SkipUnchangedFiles="false"
+          OverwriteReadOnlyFiles="true"
+          Condition="Exists('$(_SrcHost)')" />
+    <Delete Files="$(_SrcHost)"
+            Condition="Exists('$(_SrcHost)') and Exists('$(_DstHost)')" />
+  </Target>
+
+  <Target Name="RenamePublishedProductHostBinary"
+          AfterTargets="Publish"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(ProductBinaryName)' != '' and '$(ProductBinaryName)' != '$(AssemblyName)' and '$(PublishDir)' != ''">
+    <PropertyGroup>
+      <_PubDir>$([MSBuild]::EnsureTrailingSlash('$(PublishDir)'))</_PubDir>
+      <_HostFile Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(AssemblyName).exe</_HostFile>
+      <_HostFile Condition="'$(_HostFile)' == ''">$(AssemblyName)</_HostFile>
+      <_ProductHostFile Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(ProductBinaryName).exe</_ProductHostFile>
+      <_ProductHostFile Condition="'$(_ProductHostFile)' == ''">$(ProductBinaryName)</_ProductHostFile>
+      <_SrcHost>$(_PubDir)$(_HostFile)</_SrcHost>
+      <_DstHost>$(_PubDir)$(_ProductHostFile)</_DstHost>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_SrcHost)"
+          DestinationFiles="$(_DstHost)"
+          SkipUnchangedFiles="false"
+          OverwriteReadOnlyFiles="true"
+          Condition="Exists('$(_SrcHost)')" />
+    <Delete Files="$(_SrcHost)"
+            Condition="Exists('$(_SrcHost)') and Exists('$(_DstHost)')" />
+  </Target>
 </Project>

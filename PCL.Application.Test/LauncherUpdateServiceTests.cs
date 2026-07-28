@@ -22,13 +22,13 @@ public sealed class LauncherUpdateServiceTests
         Directory.CreateDirectory(directory);
         try
         {
-            string current = Path.Combine(directory, "PCL.Desktop.exe");
-            string staged = Path.Combine(directory, ".PCL.Desktop.exe.update");
+            string current = Path.Combine(directory, "PCL-N-Edition.exe");
+            string staged = Path.Combine(directory, ".PCL-N-Edition.exe.update");
             File.WriteAllText(current, "old");
             File.WriteAllText(staged, "new");
             LauncherUpdatePackage package = new(
                 "2.0.0", "v2.0.0", "https://example.test/update.zip", "update.zip",
-                "PCL.Desktop.exe", null, null, [], "win-x64", "SelfContained", "Release");
+                "PCL-N-Edition.exe", null, null, [], "win-x64", "SelfContained", "Release");
             PreparedLauncherUpdate prepared = new(package, current, staged, directory, false);
 
             ProcessStartInfo startInfo = LauncherUpdateInstaller.CreateReplacementProcess(prepared, 123, true);
@@ -336,18 +336,18 @@ public sealed class LauncherUpdateServiceTests
         try
         {
             byte[] expected = Encoding.UTF8.GetBytes("new launcher binary");
-            byte[] archive = CreateZip("PCL.Desktop.exe", expected);
+            byte[] archive = CreateZip("PCL-N-Edition.exe", expected);
             string targetSha = Convert.ToHexStringLower(SHA256.HashData(expected));
             using HttpClient client = new(new RoutingHandler(_ => BytesResponse(archive)));
             using LauncherUpdateInstaller installer = new(client, new AcceptAllGpgVerifier());
-            string current = Path.Combine(root, "PCL.Desktop.exe");
+            string current = Path.Combine(root, "PCL-N-Edition.exe");
             await File.WriteAllTextAsync(current, "old launcher binary");
             LauncherUpdatePackage package = new(
                 "1.2.0-release",
                 "v1.2.0-release",
                 "https://download.test/PCL.zip",
                 "PCL.zip",
-                "PCL.Desktop.exe",
+                "PCL-N-Edition.exe",
                 targetSha,
                 expected.Length,
                 [new LauncherUpdatePatchStep("1.0.0", "1.2.0", "https://download.test/a.hdiff", "00", 1, "00", 1, targetSha, expected.Length)],
@@ -469,7 +469,7 @@ public sealed class LauncherUpdateServiceTests
                 "runtimeVariant": "NoRuntime",
                 "configuration": "Release",
                 "targetAssetName": "PCL_N_Release_win-x64_NoRuntime.zip",
-                "targetBinaryName": "PCL.Desktop.exe",
+                "targetBinaryName": "PCL-N-Edition.exe",
                 "targetSha256": "{{targetSha}}",
                 "targetSize": 5000,
                 "patches": [{

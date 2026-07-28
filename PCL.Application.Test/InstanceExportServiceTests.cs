@@ -292,7 +292,7 @@ public sealed class InstanceExportServiceTests
         string gameDirectory = temporary.CreateDirectory("game");
         string instanceDirectory = temporary.CreateDirectory("instance");
         string launcherDataDirectory = temporary.CreateDirectory("launcher-data");
-        string launcherPath = temporary.GetPath("PCL.Desktop.exe");
+        string launcherPath = temporary.GetPath("PCL-N-Edition.exe");
         string archivePath = temporary.GetPath("launcher-bundle.zip");
 
         temporary.WriteFile("game/options.txt", "settings");
@@ -316,7 +316,7 @@ public sealed class InstanceExportServiceTests
             });
 
         using ZipArchive outerArchive = ZipFile.OpenRead(archivePath);
-        AssertEntry(outerArchive, "PCL.Desktop.exe", "launcher");
+        AssertEntry(outerArchive, "PCL-N-Edition.exe", "launcher");
         AssertEntry(outerArchive, "PCL/Pictures/background.png", "picture");
         AssertEntry(outerArchive, "PCL/Musics/theme.mp3", "music");
         AssertEntry(outerArchive, "PCL/Custom.xaml", "custom");

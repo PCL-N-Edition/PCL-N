@@ -675,14 +675,14 @@ public sealed class DesktopArchitectureTests
         {
             StringAssert.Contains(workflow, "SelfContained");
             StringAssert.Contains(workflow, "NoRuntime");
-            // Stable still stamps binary_name PCL.Desktop*; beta uses PCL-N-Edition*.
+            // Product binary is always PCL-N-Edition (AssemblyName); project folder remains PCL.Desktop.
             Assert.IsTrue(
-                workflow.Contains("PCL.Desktop", StringComparison.Ordinal) ||
                 workflow.Contains("PCL-N-Edition", StringComparison.Ordinal),
-                "Release matrix must publish the Avalonia desktop binary.");
+                "Release matrix must publish the Avalonia desktop binary as PCL-N-Edition.");
         }
 
         StringAssert.Contains(reusable, "PCL.Desktop/PCL.Desktop.csproj");
+        StringAssert.Contains(reusable, "binary_name:");
         StringAssert.Contains(reusable, "PublishSingleFile=true");
         // Desktop ProjectReference → external/Jvm.NET; CI must materialize the submodule.
         StringAssert.Contains(reusable, "submodules: recursive");

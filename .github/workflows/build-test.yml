@@ -32,32 +32,32 @@ jobs:
             runner: windows-latest
             runtime_id: win-x64
             architecture: x64
-            binary_name: PCL.Desktop.exe
+            binary_name: PCL-N-Edition.exe
           - configuration: CI
             runner: windows-latest
             runtime_id: win-arm64
             architecture: ARM64
-            binary_name: PCL.Desktop.exe
+            binary_name: PCL-N-Edition.exe
           - configuration: CI
             runner: ubuntu-latest
             runtime_id: linux-x64
             architecture: x64
-            binary_name: PCL.Desktop
+            binary_name: PCL-N-Edition
           - configuration: CI
             runner: ubuntu-latest
             runtime_id: linux-arm64
             architecture: ARM64
-            binary_name: PCL.Desktop
+            binary_name: PCL-N-Edition
           - configuration: CI
             runner: macos-latest
             runtime_id: osx-x64
             architecture: x64
-            binary_name: PCL.Desktop
+            binary_name: PCL-N-Edition
           - configuration: CI
             runner: macos-latest
             runtime_id: osx-arm64
             architecture: ARM64
-            binary_name: PCL.Desktop
+            binary_name: PCL-N-Edition
       fail-fast: false
 
     uses: ./.github/workflows/reusable-build.yml
@@ -114,15 +114,15 @@ jobs:
             # Prefer Windows executable, then macOS bundle, then bare Unix binary.
             bin=""
             package_source=""
-            if [[ -f "$dir/PCL.Desktop.exe" ]]; then
-              bin="$dir/PCL.Desktop.exe"
-              package_source="PCL.Desktop.exe"
-            elif [[ -f "$dir/PCL N.app/Contents/MacOS/PCL.Desktop" ]]; then
-              bin="$dir/PCL N.app/Contents/MacOS/PCL.Desktop"
+            if [[ -f "$dir/PCL-N-Edition.exe" ]]; then
+              bin="$dir/PCL-N-Edition.exe"
+              package_source="PCL-N-Edition.exe"
+            elif [[ -f "$dir/PCL N.app/Contents/MacOS/PCL-N-Edition" ]]; then
+              bin="$dir/PCL N.app/Contents/MacOS/PCL-N-Edition"
               package_source="PCL N.app"
-            elif [[ -f "$dir/PCL.Desktop" ]]; then
-              bin="$dir/PCL.Desktop"
-              package_source="PCL.Desktop"
+            elif [[ -f "$dir/PCL-N-Edition" ]]; then
+              bin="$dir/PCL-N-Edition"
+              package_source="PCL-N-Edition"
             else
               echo "No binary in $dir"; continue
             fi
