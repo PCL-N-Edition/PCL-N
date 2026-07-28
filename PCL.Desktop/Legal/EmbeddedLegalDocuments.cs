@@ -13,7 +13,7 @@ namespace PCL.Desktop.Legal;
 internal static class EmbeddedLegalDocuments
 {
     /// <summary>Bump when legal text materially changes so users re-accept.</summary>
-    public const string DocumentVersion = "v0.1";
+    public const string DocumentVersion = "v0.2";
 
     public const string SettingsKeyAcceptedVersion = "LegalAcceptedVersion";
 
