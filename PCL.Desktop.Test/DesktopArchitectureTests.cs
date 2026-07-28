@@ -725,17 +725,26 @@ public sealed class DesktopArchitectureTests
         string projectSource = File.ReadAllText(Path.Combine(desktopRoot, "PCL.Desktop.csproj"));
         string solutionSource = File.ReadAllText(Path.Combine(repoRoot, "PCL-N.slnx"));
         string hostSource = File.ReadAllText(Path.Combine(desktopRoot, "Hosting", "DesktopHost.cs"));
+        string optionalSource = File.ReadAllText(Path.Combine(desktopRoot, "Hosting", "DesktopHost.Optional.cs"));
 
         Assert.IsFalse(File.Exists(Path.Combine(desktopRoot, "Hosting", "EmbeddedRuntimeExtensionLoader.cs")));
         Assert.IsFalse(projectSource.Contains("PclPluginAssembly", StringComparison.Ordinal));
         Assert.IsFalse(projectSource.Contains("PCL.Desktop.Embedded.PCL.Plugin", StringComparison.Ordinal));
-        Assert.IsFalse(projectSource.Contains("0Harmony", StringComparison.Ordinal));
+        // Harmony only arrives via overlay targets when PclWithPlugin=true — not inlined in host csproj body.
+        Assert.IsFalse(projectSource.Contains("Lib.Harmony", StringComparison.Ordinal));
         Assert.IsFalse(projectSource.Contains("InternalsVisibleTo Include=\"PCL.Plugin\"", StringComparison.Ordinal));
         Assert.IsFalse(hostSource.Contains("LoadFromStream", StringComparison.Ordinal));
         Assert.IsFalse(hostSource.Contains("EmbeddedRuntimeExtensionLoader", StringComparison.Ordinal));
         Assert.IsFalse(solutionSource.Contains("PCL.Plugin", StringComparison.Ordinal));
         Assert.IsFalse(projectSource.Contains("ProjectReference Include=\"../PCL.Plugin", StringComparison.Ordinal));
         StringAssert.Contains(hostSource, "RegisterGeneratedHostModules");
+        StringAssert.Contains(hostSource, "RegisterOptionalModules");
+        // Host tree keeps no-op partials; overlay rewrite injects PclPluginHostModule at build time.
+        Assert.IsFalse(optionalSource.Contains("PclPluginHostModule", StringComparison.Ordinal));
+        Assert.IsFalse(optionalSource.Contains("PluginPlatformBootstrap", StringComparison.Ordinal));
+        // Conditional import of overlay targets is the only host-side plugin path.
+        StringAssert.Contains(projectSource, "PclPlugin.overlay.targets");
+        StringAssert.Contains(projectSource, "PclWithPlugin");
     }
 
     [TestMethod]

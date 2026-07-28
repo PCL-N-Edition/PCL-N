@@ -1,17 +1,30 @@
-# Local plugin UI testing
+# Local scripts
 
-Clone the private `PCL.Plugin` repository into `PCL.Plugin/`, then use one of these commands from the repository root.
-
-Run the real Avalonia UI with the locally built plugin embedded:
+## Host-only Desktop
 
 ```powershell
-.\scripts\run-plugin-ui.ps1
+.\scripts\build-desktop.ps1
+.\scripts\build-desktop.ps1 -Publish -Runtime win-x64
+.\scripts\build-desktop.ps1 -Publish -Aot -Runtime win-x64
 ```
 
-Run only the injected-plugin UI flow through Avalonia Headless:
+## Plugin source-overlay inject
+
+Clone or fetch private `PCL.Plugin` at a release tag, apply host rewrites, compile plugin sources into Desktop:
 
 ```powershell
-.\scripts\test-plugin-ui.ps1
+# Latest tag
+.\scripts\apply-plugin-overlay.ps1
+
+# Pin
+.\scripts\apply-plugin-overlay.ps1 -Tag v0.16.0
+
+# Build / run with plugin
+.\scripts\build-desktop.ps1 -WithPlugin
+.\scripts\run-plugin-ui.ps1 -SkipFetch
+.\scripts\test-plugin-ui.ps1 -SkipFetch
 ```
 
-Both scripts accept `-PluginProject <path>` when the private repository is stored elsewhere. The headless test verifies that the plugin HostModule adds the navigation item and that its settings page renders the registered heading, description, and hints.
+`-SkipFetch` / `-SkipPluginFetch` reuse an existing `PCL.Plugin/` tree (for local development).
+
+Design notes: [docs/architecture/plugin-source-overlay.md](../docs/architecture/plugin-source-overlay.md).

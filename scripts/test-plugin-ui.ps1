@@ -1,64 +1,55 @@
+# Copyright (c) 2026 PCL N contributors.
+# Headless tests against a Desktop build with source-overlay plugin inject.
+
 param(
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Release',
-    [string]$PluginProject
+    [string]$Configuration = 'Debug',
+    [string]$Tag = '',
+    [switch]$SkipFetch,
+    [switch]$SkipOverlay
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-if ([string]::IsNullOrWhiteSpace($PluginProject)) {
-    $PluginProject = Join-Path $repoRoot 'PCL.Plugin\PCL.Plugin.csproj'
-}
-$PluginProject = [System.IO.Path]::GetFullPath($PluginProject)
-if (-not (Test-Path -LiteralPath $PluginProject -PathType Leaf)) {
-    throw "PCL.Plugin project not found: $PluginProject. Clone the private plugin repository into PCL.Plugin or pass -PluginProject."
+
+if (-not $SkipOverlay) {
+    $overlayArgs = @{}
+    if (-not [string]::IsNullOrWhiteSpace($Tag)) { $overlayArgs['Tag'] = $Tag }
+    if ($SkipFetch) { $overlayArgs['SkipFetch'] = $true }
+    & (Join-Path $PSScriptRoot 'apply-plugin-overlay.ps1') @overlayArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-dotnet build $PluginProject -c $Configuration "-p:PclNRoot=$repoRoot" -warnaserror
+$pluginProject = Join-Path $repoRoot 'PCL.Plugin\PCL.Plugin.csproj'
+if (-not (Test-Path -LiteralPath $pluginProject -PathType Leaf)) {
+    throw "PCL.Plugin not found at $pluginProject. Run apply-plugin-overlay.ps1 first."
+}
+
+# Build Desktop with plugin sources compiled in (defines PclIncludesPlugin for tests).
+dotnet build (Join-Path $repoRoot 'PCL.Desktop\PCL.Desktop.csproj') `
+    -c $Configuration `
+    -p:PclWithPlugin=true `
+    -m:1 `
+    -nodeReuse:false `
+    -warnaserror
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-$pluginDirectory = Split-Path -Parent $PluginProject
-$pluginAssembly = Join-Path $pluginDirectory "bin\$Configuration\net10.0\PCL.Plugin.dll"
-$pluginAbstractionsAssembly = Join-Path $pluginDirectory "bin\$Configuration\net10.0\PCL.N.Plugin.Abstractions.dll"
-$pluginSdkAssembly = Join-Path $pluginDirectory "bin\$Configuration\net10.0\PCL.N.Plugin.Sdk.dll"
-$pluginUiAssembly = Join-Path $pluginDirectory "bin\$Configuration\net10.0\PCL.N.Plugin.UI.dll"
-$pluginUiAvaloniaAssembly = Join-Path $pluginDirectory "bin\$Configuration\net10.0\PCL.N.Plugin.UI.Avalonia.dll"
-$pluginBouncyCastleAssembly = Join-Path $pluginDirectory "bin\$Configuration\net10.0\BouncyCastle.Cryptography.dll"
-$pluginJsonCanonicalizerAssembly = Join-Path $pluginDirectory "bin\$Configuration\net10.0\jsoncanonicalizer.dll"
-$pluginEs6NumberSerializerAssembly = Join-Path $pluginDirectory "bin\$Configuration\net10.0\es6numberserializer.dll"
-foreach ($assembly in @($pluginAssembly, $pluginAbstractionsAssembly, $pluginSdkAssembly, $pluginUiAssembly, $pluginUiAvaloniaAssembly, $pluginBouncyCastleAssembly, $pluginJsonCanonicalizerAssembly, $pluginEs6NumberSerializerAssembly)) {
-    if (-not (Test-Path -LiteralPath $assembly -PathType Leaf)) {
-        throw "Plugin assembly was not produced: $assembly"
-    }
+# Plugin unit tests still build the standalone plugin project against the host.
+dotnet test (Join-Path $repoRoot 'PCL.Plugin\PCL.Plugin.Test\PCL.Plugin.Test.csproj') `
+    -c $Configuration `
+    -p:PclNRoot=$repoRoot `
+    --no-restore
+if ($LASTEXITCODE -ne 0) {
+    # restore then retest if needed
+    dotnet test (Join-Path $repoRoot 'PCL.Plugin\PCL.Plugin.Test\PCL.Plugin.Test.csproj') `
+        -c $Configuration `
+        -p:PclNRoot=$repoRoot
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-$previousExpectation = $env:PCLN_EXPECT_PLUGIN_UI
-$previousRuntimePath = $env:PCLN_PLUGIN_RUNTIME_PATH
-$isolatedRuntimePath = Join-Path ([System.IO.Path]::GetTempPath()) ('pcl-plugin-ui-test-' + [Guid]::NewGuid().ToString('N'))
-try {
-    $env:PCLN_EXPECT_PLUGIN_UI = '1'
-    $env:PCLN_PLUGIN_RUNTIME_PATH = $isolatedRuntimePath
-    dotnet test (Join-Path $repoRoot 'PCL.Desktop.Test\PCL.Desktop.Test.csproj') `
-        -c $Configuration `
-        "-p:PclPluginAssembly=$pluginAssembly" `
-        "-p:PclPluginAbstractionsAssembly=$pluginAbstractionsAssembly" `
-        "-p:PclPluginSdkAssembly=$pluginSdkAssembly" `
-        "-p:PclPluginUiAssembly=$pluginUiAssembly" `
-        "-p:PclPluginUiAvaloniaAssembly=$pluginUiAvaloniaAssembly" `
-        "-p:PclPluginBouncyCastleAssembly=$pluginBouncyCastleAssembly" `
-        "-p:PclPluginJsonCanonicalizerAssembly=$pluginJsonCanonicalizerAssembly" `
-        "-p:PclPluginEs6NumberSerializerAssembly=$pluginEs6NumberSerializerAssembly" `
-        --filter 'TestCategory=InjectedPlugin' `
-        --blame-hang `
-        --blame-hang-timeout 60s `
-        --blame-hang-dump-type mini `
-        -warnaserror
-    exit $LASTEXITCODE
-}
-finally {
-    $env:PCLN_EXPECT_PLUGIN_UI = $previousExpectation
-    $env:PCLN_PLUGIN_RUNTIME_PATH = $previousRuntimePath
-    if (Test-Path -LiteralPath $isolatedRuntimePath) {
-        Remove-Item -LiteralPath $isolatedRuntimePath -Recurse -Force
-    }
-}
+# Desktop headless suite — filter plugin-related when available.
+dotnet test (Join-Path $repoRoot 'PCL.Desktop.Test\PCL.Desktop.Test.csproj') `
+    -c $Configuration `
+    -p:PclWithPlugin=true `
+    --filter 'FullyQualifiedName~Plugin|FullyQualifiedName~HostSettings|FullyQualifiedName~DesktopArchitecture'
+exit $LASTEXITCODE

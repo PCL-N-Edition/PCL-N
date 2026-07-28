@@ -108,7 +108,8 @@ dotnet publish .\PCL.Desktop\PCL.Desktop.csproj `
 ```
 
 完整多平台发布由 GitHub Actions 的 `release-stable_publish.yml` / `release-beta_publish.yml` 完成。
-发布仅提供 **宿主本体**（`SelfContained` / `NoRuntime`），不提供 NoPlugin 对照包，也不内嵌任何插件 IL。
+发布默认仅提供 **宿主本体**（`SelfContained` / `NoRuntime`），不提供 NoPlugin 对照包，也不内嵌任何插件 IL。  
+可选 **源码覆盖注入**：`.\scripts\apply-plugin-overlay.ps1` 拉取最新 `PCL.Plugin` tag 源码并改写宿主钩子后，以 `-p:PclWithPlugin=true` 编译即可编入插件（见 `docs/architecture/plugin-source-overlay.md`）。
 
 ## 🔒 许可证
 

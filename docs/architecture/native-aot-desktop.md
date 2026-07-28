@@ -2,30 +2,32 @@
 
 ## Product rules
 
-1. **Releases never ship a `NoPlugin` SKU.** Artifacts are host-only: `SelfContained` / `NoRuntime`.
-2. **Host body contains no plugin-related code.**  
-   No embed of `PCL.Plugin` IL, no `LoadFromStream` plugin loader, no CI download of private plugin releases into Desktop.
+1. **Releases never ship a `NoPlugin` SKU.** Artifacts are host-only: `SelfContained` / `NoRuntime`, unless a pipeline explicitly enables source-overlay inject.
+2. **Default host body contains no plugin product code.**  
+   No embed of `PCL.Plugin` IL, no `LoadFromStream` plugin loader.
+3. **Optional inject is source overlay** (see [plugin-source-overlay.md](./plugin-source-overlay.md)): pull latest plugin tag source → rewrite host hooks → compile with `-p:PclWithPlugin=true`.
 
-Privileged platform / marketplace / `.pnp` products live **outside** this repository’s process (separate product or future IPC sidecar).
+Privileged platform / marketplace / `.pnp` products are either out-of-process or compiled in only after overlay.
 
 ## Current host initialization
 
 ```
 DesktopHost.Initialize
   └─ DesktopNavigationRegistry.RegisterGeneratedHostModules  // built-in shell only
+  └─ RegisterOptionalModules (partial; no-op unless overlay rewrite applied)
   └─ PclHostBuilder.Build
+  └─ InitializeOptionalRuntime (partial; no-op unless overlay rewrite applied)
 ```
-
-There is no in-process plugin discovery.
 
 ## Native AOT
 
-Because the host no longer embeds plugin IL:
+Host-only builds can stay AOT-friendly (`PublishAot` / trim analyzers).
 
-- Default Desktop flags can stay AOT-friendly (`PublishAot` / trim analyzers).
 - CI smoke: `portable-core.yml` → `desktop-native-aot` publishes host-only AOT on win/linux/mac.
 - Local: `.\scripts\build-desktop.ps1 -Publish -Aot ...`
-- Release pipelines still use CoreCLR single-file until the AOT matrix is promoted for all RIDs (VLC/native deps remain multi-file next to the AOT host).
+- **WithPlugin builds force CoreCLR** (Harmony / collectible ALC for `.pnp`); do not combine with `-Aot`.
+
+Release pipelines still use CoreCLR single-file until the AOT matrix is promoted for all RIDs (VLC/native deps remain multi-file next to the AOT host).
 
 ## Migration notes
 
@@ -33,11 +35,12 @@ Because the host no longer embeds plugin IL:
 |--------|-----|
 | `*_WithPlugin` artifact suffix | Dropped; use `SelfContained` / `NoRuntime` |
 | `*_NoPlugin` | Never published |
-| Embed `PclPlugin*` MSBuild | Removed from `PCL.Desktop.csproj` |
+| Embed `PclPlugin*` MSBuild | Removed |
 | `EmbeddedRuntimeExtensionLoader` | Deleted |
+| DLL inject props (`PclPluginAssembly=…`) | Replaced by source overlay + `PclWithPlugin=true` |
 | Update client `NoPlugin` → `WithPlugin` migration | Keep one release cycle for field upgrades, then remove |
 
-## Out of host body (explicit)
+## Out of default host body
 
-- `PCL.Plugin` private product and its dependencies (Harmony, marketplace, N Cloud platform, `.pnp` runtime)
-- In-process plugin UI injection (`pcl.plugin.*` tags) — to be removed or rehosted as IPC data later
+- `PCL.Plugin` private product (present only after overlay + `PclWithPlugin`)
+- Third-party `.pnp` runtime, Harmony, marketplace (same)

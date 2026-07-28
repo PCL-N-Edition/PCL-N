@@ -108,7 +108,8 @@ dotnet publish .\PCL.Desktop\PCL.Desktop.csproj `
 ```
 
 Full multi-platform releases are produced by GitHub Actions workflows `release-stable_publish.yml` and `release-beta_publish.yml`.
-Releases ship **host-only** packages (`SelfContained` / `NoRuntime`) — no NoPlugin SKU and no embedded plugin IL.
+Releases default to **host-only** packages (`SelfContained` / `NoRuntime`) — no NoPlugin SKU and no embedded plugin IL.  
+Optional **source-overlay inject**: `.\scripts\apply-plugin-overlay.ps1` pulls the latest `PCL.Plugin` tag source and rewrites host hooks, then build with `-p:PclWithPlugin=true` (see `docs/architecture/plugin-source-overlay.md`).
 
 ## 🔒 License
 

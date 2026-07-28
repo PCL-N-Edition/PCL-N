@@ -7,7 +7,11 @@ param(
     [string]$Runtime = "win-x64",
     [switch]$WriteSecrets,
     # Native AOT host-only publish. Direct-run multi-file; no single-file self-extract.
-    [switch]$Aot
+    [switch]$Aot,
+    # Compile PCL.Plugin sources into Desktop after apply-plugin-overlay.ps1 (source-overlay inject).
+    [switch]$WithPlugin,
+    [string]$PluginTag = '',
+    [switch]$SkipPluginFetch
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,6 +28,17 @@ if ($WriteSecrets) {
     $env:PCL_WRITE_SECRET = "1"
 }
 
+if ($WithPlugin) {
+    if ($Aot) {
+        throw "WithPlugin builds disable AOT (Harmony / AssemblyLoadContext). Omit -Aot."
+    }
+    $overlayArgs = @{}
+    if (-not [string]::IsNullOrWhiteSpace($PluginTag)) { $overlayArgs['Tag'] = $PluginTag }
+    if ($SkipPluginFetch) { $overlayArgs['SkipFetch'] = $true }
+    & (Join-Path $PSScriptRoot 'apply-plugin-overlay.ps1') @overlayArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 $common = @(
     $project,
     "-c", $Configuration,
@@ -31,6 +46,10 @@ $common = @(
     "-nodeReuse:false",
     "--nologo"
 )
+
+if ($WithPlugin) {
+    $common += "-p:PclWithPlugin=true"
+}
 
 if ($Publish) {
     if ($Aot) {

@@ -10,10 +10,11 @@ using PCL.UI.Abstractions.Pages;
 namespace PCL.Desktop.Hosting;
 
 /// <summary>
-/// Desktop host composition for the launcher shell only.
-/// Privileged platform / marketplace products must not be loaded in-process here.
+/// Desktop host composition for the launcher shell.
+/// Optional plugin product is composed only after source-overlay inject
+/// (see <c>scripts/apply-plugin-overlay.ps1</c> and <see cref="DesktopHost"/> partials).
 /// </summary>
-internal static class DesktopHost
+internal static partial class DesktopHost
 {
     private static IPclHost? _current;
 
@@ -34,12 +35,20 @@ internal static class DesktopHost
         PortableLog.Info("DesktopHost", "开始初始化桌面宿主。");
         PclHostBuilder builder = new();
         DesktopNavigationRegistry.RegisterGeneratedHostModules(builder);
+        RegisterOptionalModules(builder);
         _current = builder.Build();
         PortableLog.Info(
             "DesktopHost",
             $"桌面宿主构建完成；模块数={_current.ModuleIds.Count}；设置页数={_current.SettingsPages.Pages.Count}。");
         DesktopHostNavigation.Instance.Initialize(_current.Navigation);
+        InitializeOptionalRuntime(_current);
     }
+
+    /// <summary>Defining declaration; implementation supplied by overlay rewrite of DesktopHost.Optional.cs.</summary>
+    static partial void RegisterOptionalModules(PclHostBuilder builder);
+
+    /// <summary>Defining declaration; implementation supplied by overlay rewrite of DesktopHost.Optional.cs.</summary>
+    static partial void InitializeOptionalRuntime(IPclHost host);
 }
 
 internal static class DesktopNavigationModule

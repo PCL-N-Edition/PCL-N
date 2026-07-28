@@ -78,6 +78,7 @@
     <CompilerVisibleProperty Include="Version" />
     <CompilerVisibleProperty Include="SourceRevisionId" />
     <CompilerVisibleProperty Include="PclRuntimeVariant" />
+    <CompilerVisibleProperty Include="PclIncludesPlugin" />
     <CompilerVisibleProperty Include="PclWriteSecret" />
     <CompilerVisibleProperty Include="PclMsClientId" />
     <CompilerVisibleProperty Include="PclLittleSkinClientId" />
@@ -143,4 +144,11 @@
     <ProjectReference Include="../PCL.UI.Abstractions/PCL.UI.Abstractions.csproj" />
   </ItemGroup>
   <Import Project="GenerateEmbeddedSecrets.targets" />
+  <!--
+    Source-overlay plugin inject: after scripts/apply-plugin-overlay.ps1 pulls PCL.Plugin
+    and rewrites host hooks, build with -p:PclWithPlugin=true to compile plugin sources
+    into the desktop host (no embedded plugin IL).
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)..\PCL.Plugin\host-overlay\msbuild\PclPlugin.overlay.targets"
+          Condition="'$(PclWithPlugin)' == 'true' and Exists('$(MSBuildThisFileDirectory)..\PCL.Plugin\host-overlay\msbuild\PclPlugin.overlay.targets')" />
 </Project>
