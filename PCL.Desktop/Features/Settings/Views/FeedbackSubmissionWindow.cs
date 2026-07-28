@@ -8,25 +8,44 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Hosting.PluginSidecar;
 using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Settings.Views;
 
 internal sealed class FeedbackSubmissionWindow : Window
 {
-    private static readonly string[] Categories = ["bug", "game_crash", "feature", "improvement", "feedback"];
     private readonly MyComboBox _category;
     private readonly MyTextBox _title;
     private readonly MyTextBox _description;
+    private readonly TextBlock _typeHint;
     private readonly TextBlock _validation;
+    private readonly IReadOnlyList<PluginSidecarIssueCategoryDto> _categories;
+    private string? _lastAppliedTemplate;
 
-    public FeedbackSubmissionWindow()
+    public FeedbackSubmissionWindow(IReadOnlyList<PluginSidecarIssueCategoryDto> categories)
     {
+        ArgumentNullException.ThrowIfNull(categories);
+        _categories = categories.Count > 0
+            ? categories
+            : new[]
+            {
+                new PluginSidecarIssueCategoryDto
+                {
+                    Id = "bug",
+                    Title = "Bug 反馈",
+                    Description = "启动器功能相关 Bug",
+                    IssueType = "Bug",
+                    Labels = ["bug"],
+                    BodyTemplate = "### 描述\n\n"
+                }
+            };
+
         Title = Text("Setup.Feedback.Compose.Title", "新建反馈");
-        Width = 680d;
-        Height = 560d;
-        MinWidth = 520d;
-        MinHeight = 460d;
+        Width = 720d;
+        Height = 620d;
+        MinWidth = 540d;
+        MinHeight = 500d;
         CanResize = true;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
@@ -35,16 +54,15 @@ internal sealed class FeedbackSubmissionWindow : Window
             Name = "ComboFeedbackType",
             Height = 34d,
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            ItemsSource = new MyComboBoxItem[]
+            ItemsSource = _categories.Select(static c => new MyComboBoxItem
             {
-                new() { Content = Text("Setup.Feedback.Compose.Type.Bug", "启动器 Bug") },
-                new() { Content = Text("Setup.Feedback.Compose.Type.Crash", "Minecraft 崩溃") },
-                new() { Content = Text("Setup.Feedback.Compose.Type.Feature", "功能建议") },
-                new() { Content = Text("Setup.Feedback.Compose.Type.Improvement", "改进建议") },
-                new() { Content = Text("Setup.Feedback.Compose.Type.Other", "其他反馈") }
-            },
+                Content = c.Title,
+                Tag = c.Id
+            }).ToArray(),
             SelectedIndex = 0
         };
+        _category.SelectionChanged += (_, _) => ApplyTemplateForSelection(force: false);
+
         _title = new MyTextBox
         {
             Name = "TextFeedbackTitle",
@@ -57,13 +75,19 @@ internal sealed class FeedbackSubmissionWindow : Window
             Name = "TextFeedbackDescription",
             HintText = Text(
                 "Setup.Feedback.Compose.DescriptionHint",
-                "请描述现象、复现步骤、预期行为和必要环境信息（至少 20 个字符）"),
+                "请按模板填写（至少 20 个字符）"),
             MaxLength = 10_000,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             VerticalContentAlignment = VerticalAlignment.Top,
-            MinHeight = 240d,
+            MinHeight = 280d,
             Padding = new Thickness(8d)
+        };
+        _typeHint = new TextBlock
+        {
+            Opacity = 0.75d,
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12.5d
         };
         _validation = new TextBlock
         {
@@ -110,12 +134,13 @@ internal sealed class FeedbackSubmissionWindow : Window
                     {
                         Text = Text(
                             "Setup.Feedback.Compose.Privacy",
-                            "在线服务仅用于确认登录状态并提交认证请求。请勿填写令牌、密码或完整账户信息。"),
+                            "在线服务仅用于确认登录状态并提交认证请求。请勿填写令牌、密码或完整账户信息。提交后将按类型自动标记 Issue Type 与标签。"),
                         Opacity = 0.75d,
                         TextWrapping = TextWrapping.Wrap
                     },
                     new TextBlock { Text = Text("Setup.Feedback.Compose.Type", "类型") },
                     _category,
+                    _typeHint,
                     new TextBlock { Text = Text("Setup.Feedback.Compose.Subject", "标题") },
                     _title,
                     new TextBlock { Text = Text("Setup.Feedback.Compose.Description", "详细描述") },
@@ -129,6 +154,37 @@ internal sealed class FeedbackSubmissionWindow : Window
                 }
             }
         };
+
+        ApplyTemplateForSelection(force: true);
+    }
+
+    private PluginSidecarIssueCategoryDto CurrentCategory()
+    {
+        int index = Math.Clamp(_category.SelectedIndex, 0, _categories.Count - 1);
+        return _categories[index];
+    }
+
+    private void ApplyTemplateForSelection(bool force)
+    {
+        PluginSidecarIssueCategoryDto category = CurrentCategory();
+        string labels = category.Labels is { Length: > 0 }
+            ? string.Join(", ", category.Labels)
+            : "—";
+        _typeHint.Text =
+            $"{category.Description}\nIssue Type: {category.IssueType} · Labels: {labels}";
+
+        string template = (category.BodyTemplate ?? "").Trim();
+        if (template.Length == 0)
+            return;
+
+        string current = _description.Text?.Trim() ?? "";
+        if (force ||
+            string.IsNullOrWhiteSpace(current) ||
+            string.Equals(current, _lastAppliedTemplate, StringComparison.Ordinal))
+        {
+            _description.Text = template;
+            _lastAppliedTemplate = template;
+        }
     }
 
     private void Submit()
@@ -140,6 +196,7 @@ internal sealed class FeedbackSubmissionWindow : Window
             ShowValidation(Text("Setup.Feedback.Compose.TitleValidation", "标题长度必须为 8～160 个字符。"));
             return;
         }
+
         if (description.Length is < 20 or > 10_000)
         {
             ShowValidation(Text(
@@ -148,8 +205,8 @@ internal sealed class FeedbackSubmissionWindow : Window
             return;
         }
 
-        int categoryIndex = Math.Clamp(_category.SelectedIndex, 0, Categories.Length - 1);
-        Close(new HostFeedbackDraft(Categories[categoryIndex], title, description));
+        PluginSidecarIssueCategoryDto category = CurrentCategory();
+        Close(new HostFeedbackDraft(category.Id, title, description));
     }
 
     private void ShowValidation(string message)

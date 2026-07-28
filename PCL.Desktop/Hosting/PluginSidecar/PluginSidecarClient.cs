@@ -116,6 +116,27 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
     public Task<PluginSidecarResult> ShutdownAsync(CancellationToken cancellationToken = default) =>
         CallAsync(PluginSidecarMethods.SystemShutdown, null, cancellationToken);
 
+    public Task<PluginSidecarResult> FeedbackSessionAsync(CancellationToken cancellationToken = default) =>
+        CallAsync(PluginSidecarMethods.FeedbackSession, null, cancellationToken);
+
+    public Task<PluginSidecarResult> FeedbackCatalogAsync(CancellationToken cancellationToken = default) =>
+        CallAsync(PluginSidecarMethods.FeedbackCatalog, null, cancellationToken);
+
+    public Task<PluginSidecarResult> FeedbackSubmitAsync(
+        string category,
+        string title,
+        string description,
+        CancellationToken cancellationToken = default) =>
+        CallAsync(
+            PluginSidecarMethods.FeedbackSubmit,
+            new PluginSidecarParams
+            {
+                Category = category,
+                Title = title,
+                Description = description
+            },
+            cancellationToken);
+
     public Task<PluginSidecarResult> CallAsync(
         string method,
         PluginSidecarParams? parameters,

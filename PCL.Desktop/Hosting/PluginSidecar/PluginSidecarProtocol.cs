@@ -23,6 +23,9 @@ internal static class PluginSidecarMethods
     public const string UiGetPage = "ui.getPage";
     /// <summary>Data-chain: invoke an action declared on a node.</summary>
     public const string UiInvokeAction = "ui.invokeAction";
+    public const string FeedbackSession = "feedback.session";
+    public const string FeedbackCatalog = "feedback.catalog";
+    public const string FeedbackSubmit = "feedback.submit";
 }
 
 internal sealed class PluginSidecarRequest
@@ -108,6 +111,15 @@ internal sealed class PluginSidecarParams
 
     [JsonPropertyName("boolValue")]
     public bool? BoolValue { get; set; }
+
+    [JsonPropertyName("category")]
+    public string? Category { get; set; }
+
+    [JsonPropertyName("title")]
+    public string? Title { get; set; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
 }
 
 internal sealed class PluginSidecarResult
@@ -173,6 +185,45 @@ internal sealed class PluginSidecarResult
 
     [JsonPropertyName("hostBooleanValue")]
     public bool? HostBooleanValue { get; set; }
+
+    [JsonPropertyName("hasSession")]
+    public bool HasSession { get; set; }
+
+    [JsonPropertyName("displayName")]
+    public string? DisplayName { get; set; }
+
+    [JsonPropertyName("issueCategories")]
+    public PluginSidecarIssueCategoryDto[]? IssueCategories { get; set; }
+
+    [JsonPropertyName("issueNumber")]
+    public int IssueNumber { get; set; }
+
+    [JsonPropertyName("issueUrl")]
+    public string? IssueUrl { get; set; }
+
+    [JsonPropertyName("repository")]
+    public string? Repository { get; set; }
+}
+
+internal sealed class PluginSidecarIssueCategoryDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = "";
+
+    [JsonPropertyName("issueType")]
+    public string IssueType { get; set; } = "";
+
+    [JsonPropertyName("labels")]
+    public string[] Labels { get; set; } = [];
+
+    [JsonPropertyName("bodyTemplate")]
+    public string BodyTemplate { get; set; } = "";
 }
 
 internal sealed class PluginSidecarError

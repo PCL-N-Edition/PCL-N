@@ -25,5 +25,7 @@ namespace PCL.Desktop.Hosting.PluginSidecar;
 [JsonSerializable(typeof(PluginUiNodeDto[]))]
 [JsonSerializable(typeof(PluginUiOptionDto))]
 [JsonSerializable(typeof(PluginUiOptionDto[]))]
+[JsonSerializable(typeof(PluginSidecarIssueCategoryDto))]
+[JsonSerializable(typeof(PluginSidecarIssueCategoryDto[]))]
 [JsonSerializable(typeof(string[]))]
 internal partial class PluginSidecarJsonContext : JsonSerializerContext;

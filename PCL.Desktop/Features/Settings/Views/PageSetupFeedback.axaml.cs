@@ -9,10 +9,11 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Instances.Views;
+using PCL.Desktop.Hosting.PluginSidecar;
 using PCL.Desktop.Localization;
-using PCL.Application.Hosting.RuntimeExtensions;
 
 #pragma warning disable CA1822, CS0067
 
@@ -146,29 +147,73 @@ public partial class PageSetupFeedback : MyPageRight, IRefreshableSettingsPage, 
     {
         try
         {
+            if (!PluginSidecarSupervisor.Instance.IsAvailable)
+            {
+                bool started = await PluginSidecarSupervisor.Instance.TryStartAsync().ConfigureAwait(true);
+                if (!started)
+                    throw new InvalidOperationException("插件侧车未运行，无法提交反馈。请使用带插件侧车的构建。");
+            }
+
+            // Ensure host feedback bridge is registered (sidecar warm-start is async).
             if (!RuntimeExtensionHostAccess.Current.FeedbackSubmission.IsAvailable)
-                throw new InvalidOperationException("请先登录 PCL N 在线服务账户。");
+            {
+                try
+                {
+                    RuntimeExtensionHostAccess.Current.FeedbackSubmission.Register(
+                        new PluginSidecarFeedbackSubmissionHandler());
+                }
+                catch (InvalidOperationException)
+                {
+                    // already registered
+                }
+            }
+
+            PluginSidecarClient client = PluginSidecarSupervisor.Instance.Client
+                ?? throw new InvalidOperationException("插件侧车未连接。");
+
+            PluginSidecarResult session = await client.FeedbackSessionAsync().ConfigureAwait(true);
+            if (!session.HasSession)
+            {
+                throw new InvalidOperationException(
+                    "新建反馈需要先登录 PCL N 在线服务账户。\n请打开「设置 → 在线 → 账户」连接后再试。");
+            }
+
             if (Avalonia.Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime lifetime ||
                 lifetime.MainWindow is not Window owner)
             {
                 throw new InvalidOperationException("当前无法打开反馈编辑窗口。");
             }
 
-            FeedbackSubmissionWindow window = new();
+            PluginSidecarResult catalog = await client.FeedbackCatalogAsync().ConfigureAwait(true);
+            IReadOnlyList<PluginSidecarIssueCategoryDto> categories =
+                catalog.IssueCategories is { Length: > 0 }
+                    ? catalog.IssueCategories
+                    : Array.Empty<PluginSidecarIssueCategoryDto>();
+
+            FeedbackSubmissionWindow window = new(categories);
             HostFeedbackDraft? draft = await window.ShowDialog<HostFeedbackDraft?>(owner).ConfigureAwait(true);
             if (draft is null)
                 return;
+
             HostFeedbackSubmissionResult result = await RuntimeExtensionHostAccess.Current.FeedbackSubmission
                 .SubmitAsync(draft)
                 .ConfigureAwait(true);
             if (!result.Submitted)
                 return;
+
+            string message = result.Message;
+            if (!string.IsNullOrWhiteSpace(result.IssueUrl))
+                message += "\n" + result.IssueUrl;
+
             MessageRequested?.Invoke(
                 this,
-                new SettingsMessageRequestedEventArgs("反馈已提交", result.Message));
+                new SettingsMessageRequestedEventArgs("反馈已提交", message));
+            if (!string.IsNullOrWhiteSpace(result.IssueUrl))
+                OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(result.IssueUrl));
             RefreshPage();
         }
-        catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or HttpRequestException)
+        catch (Exception ex) when (
+            ex is InvalidOperationException or NotSupportedException or HttpRequestException or TimeoutException)
         {
             MessageRequested?.Invoke(
                 this,

@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using PCL.Application.Hosting;
+using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Core.Logging;
 using PCL.Desktop.Hosting.PluginSidecar;
 
@@ -15,6 +16,7 @@ namespace PCL.Desktop.Hosting;
 internal static partial class DesktopHost
 {
     private static IDisposable? _pnpHandlerRegistration;
+    private static IDisposable? _feedbackHandlerRegistration;
 
     static partial void RegisterOptionalModules(PclHostBuilder builder)
     {
@@ -37,8 +39,10 @@ internal static partial class DesktopHost
 
                 _pnpHandlerRegistration ??= DesktopFileArtifactHost.Instance.Register(
                     new PluginSidecarPnpFileArtifactHandler());
+                _feedbackHandlerRegistration ??= RuntimeExtensionHostAccess.Current.FeedbackSubmission.Register(
+                    new PluginSidecarFeedbackSubmissionHandler());
                 await PluginSidecarUiInjector.InjectAsync(host).ConfigureAwait(false);
-                PortableLog.Info("DesktopHost", "Plugin sidecar started; UI data-chain injected.");
+                PortableLog.Info("DesktopHost", "Plugin sidecar started; UI data-chain + feedback bridge ready.");
             }
             catch (Exception ex)
             {
@@ -51,6 +55,8 @@ internal static partial class DesktopHost
     {
         try
         {
+            _feedbackHandlerRegistration?.Dispose();
+            _feedbackHandlerRegistration = null;
             _pnpHandlerRegistration?.Dispose();
             _pnpHandlerRegistration = null;
             PluginSidecarSupervisor.Instance.DisposeAsync().AsTask().GetAwaiter().GetResult();
