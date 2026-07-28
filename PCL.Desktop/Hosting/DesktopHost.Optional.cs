@@ -87,6 +87,8 @@ internal static partial class DesktopHost
     {
         try
         {
+            PluginUiPageCache.Clear();
+
             string? executable = PluginSidecarPaths.ResolveExecutable();
             if (executable is null)
             {

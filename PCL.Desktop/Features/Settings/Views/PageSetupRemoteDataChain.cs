@@ -38,8 +38,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         _panMain = new StackPanel
         {
             Margin = new Thickness(25, 25, 25, 10),
-            Spacing = 0,
-            Children = { _status }
+            Spacing = 0
         };
         MyScrollViewer scroll = new()
         {
@@ -49,13 +48,37 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         };
         PanScroll = scroll;
         Content = scroll;
+
+        // Splash preloads roots — open instantly without the loading line when possible.
+        if (PluginUiPageCache.TryGetRoot(_pageId, out PluginUiNodeDto? cached) && cached is not null)
+        {
+            ApplyRoot(cached);
+            return;
+        }
+
+        if (PluginUiPageCache.TryGetFailure(_pageId, out string? failure) &&
+            !string.IsNullOrWhiteSpace(failure))
+        {
+            ShowPageMessage(failure!, warn: true);
+            return;
+        }
+
+        _panMain.Children.Add(_status);
         RefreshPage();
     }
 
-    public void RefreshPage() => _ = RefreshAsync();
+    public void RefreshPage() => _ = RefreshAsync(forceNetwork: true);
 
-    private async Task RefreshAsync()
+    private async Task RefreshAsync(bool forceNetwork = false)
     {
+        if (!forceNetwork &&
+            PluginUiPageCache.TryGetRoot(_pageId, out PluginUiNodeDto? cached) &&
+            cached is not null)
+        {
+            ApplyRoot(cached);
+            return;
+        }
+
         if (!PluginSidecarSupervisor.Instance.IsAvailable)
         {
             bool started = await PluginSidecarSupervisor.Instance.TryStartAsync().ConfigureAwait(true);
@@ -77,6 +100,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                 return;
             }
 
+            PluginUiPageCache.SetRoot(_pageId, page.Root);
             ApplyRoot(page.Root);
         }
         catch (Exception ex)
@@ -768,12 +792,16 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
             if (result.Root is not null)
             {
+                PluginUiPageCache.SetRoot(_pageId, result.Root);
                 ApplyRoot(result.Root);
                 return;
             }
 
             if (result.RefreshPage || result.Ok)
-                await RefreshAsync().ConfigureAwait(true);
+            {
+                PluginUiPageCache.Invalidate(_pageId);
+                await RefreshAsync(forceNetwork: true).ConfigureAwait(true);
+            }
         }
         catch (Exception ex)
         {
