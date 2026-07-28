@@ -131,6 +131,16 @@ internal sealed class PluginSidecarResult
 
     [JsonPropertyName("pickFileTitle")]
     public string? PickFileTitle { get; set; }
+
+    [JsonPropertyName("pickFolder")]
+    public bool PickFolder { get; set; }
+
+    [JsonPropertyName("pickFolderTitle")]
+    public string? PickFolderTitle { get; set; }
+
+    /// <summary>Host should re-fetch ui.manifest and inject newly visible pages.</summary>
+    [JsonPropertyName("refreshNavigation")]
+    public bool RefreshNavigation { get; set; }
 }
 
 internal sealed class PluginSidecarError

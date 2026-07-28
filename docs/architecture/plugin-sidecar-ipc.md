@@ -15,12 +15,22 @@ Plugin pages are **not** hardcoded into the host. Sidecar pushes page metadata a
 runtime.init → LoadEnabled
 ui.manifest  → groups[] + pages[]     → host SettingsPageGroups/Pages.Add*
 ui.getPage   → root node tree         → PageSetupRemoteDataChain
-ui.invokeAction → result              → refresh / pick file / openUrl / toast
+ui.invokeAction → result              → refresh / pick file|folder / openUrl / toast / refreshNavigation
 ```
 
 ### Node kinds
 
 `card` | `stack` | `list` | `row` | `text` | `muted` | `hint` | `button` | `checkbox`
+
+### Action result flags
+
+| Field | Host behavior |
+|-------|----------------|
+| `refreshPage` | Re-fetch `ui.getPage` |
+| `refreshNavigation` | Re-run `ui.manifest` inject (e.g. developer show Safety) |
+| `root` | Replace page body with inline tree (local market scan) |
+| `pickFilePatterns` / `pickFolder` | Host picker → re-invoke with path |
+| `openUrl` | System browser |
 
 ### Protocol version
 
@@ -32,17 +42,20 @@ ui.invokeAction → result              → refresh / pick file / openUrl / toas
 - `PluginSidecarUiInjector` — registers remote pages after sidecar start
 - `PluginSidecarPnpFileArtifactHandler` — `.pnp` drop → catalog.installPnp
 
-## Expanding to full original plugin system
-
-Add more pages/actions in `PCL.Plugin.Sidecar/Ui/UiDataChain.cs` (and future providers):
+## Original plugin surfaces (data-chain)
 
 | Original page | Status |
 |---------------|--------|
-| 已安装 | ✅ data-chain |
-| 安全 | ✅ data-chain |
-| 开发者 | ✅ data-chain |
-| 平台状态 | ✅ data-chain |
-| 市场 / 账户 / 云同步 / UI Patch / 兼容性 | extend providers + actions |
+| 平台状态 | ✅ |
+| 已安装 | ✅ install/enable/disable/uninstall/rollback |
+| 市场 | ✅ local folder scan + web market + .pnp install |
+| 安全 | ✅ gated by developer flags |
+| 开发者 | ✅ + `refreshNavigation` reinject |
+| UI Patch | ✅ apply + conflict resolve |
+| 兼容性 | ✅ offline records |
+| 账户 | ✅ OnlineAccountService pairing / logout |
+| 云同步 | ✅ section toggles via PluginOnlineRuntime |
+| 数据与隐私 | ✅ permission grant/revoke |
 
 No host UI code required for new pages — only sidecar data.
 

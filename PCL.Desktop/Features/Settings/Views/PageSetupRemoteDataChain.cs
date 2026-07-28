@@ -7,9 +7,10 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
-using PCL.Desktop.Hosting.PluginSidecar;
 using PCL.Desktop.Hosting;
+using PCL.Desktop.Hosting.PluginSidecar;
 
 namespace PCL.Desktop.Features.Settings.Views;
 
@@ -240,11 +241,13 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             IsEnabled = node.Enabled
         };
         string? actionId = node.ActionId;
+        string? meta = node.Meta;
         if (!string.IsNullOrWhiteSpace(actionId))
         {
             box.Change += async (_, _) =>
             {
-                await InvokeAsync(actionId!, boolValue: box.Checked == true).ConfigureAwait(true);
+                await InvokeAsync(actionId!, pluginId: meta, boolValue: box.Checked == true)
+                    .ConfigureAwait(true);
             };
         }
 
@@ -274,8 +277,20 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                     pluginId: pluginId)
                 .ConfigureAwait(true);
 
-            // Host-side pick file then re-invoke with path (data-chain handoff).
-            if (result.PickFilePatterns is { Length: > 0 })
+            // Host-side pick file/folder then re-invoke (data-chain handoff).
+            if (result.PickFolder)
+            {
+                string? path = await PickFolderAsync(result.PickFolderTitle).ConfigureAwait(true);
+                if (string.IsNullOrWhiteSpace(path))
+                    return;
+                result = await client.UiInvokeActionAsync(
+                        _pageId,
+                        actionId,
+                        packagePath: path,
+                        pluginId: pluginId)
+                    .ConfigureAwait(true);
+            }
+            else if (result.PickFilePatterns is { Length: > 0 })
             {
                 string? path = await PickFileAsync(result.PickFileTitle, result.PickFilePatterns).ConfigureAwait(true);
                 if (string.IsNullOrWhiteSpace(path))
@@ -296,6 +311,27 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
             if (!string.IsNullOrWhiteSpace(result.Message))
                 DesktopHostNotifications.Instance.ShowInformation(result.Message!);
+
+            // Developer toggles may add Safety / UI Patch / Compatibility pages.
+            if (result.RefreshNavigation)
+            {
+                try
+                {
+                    await PluginSidecarUiInjector.InjectAsync(DesktopHost.Current).ConfigureAwait(true);
+                }
+                catch (Exception injectEx)
+                {
+                    PortableLog.Warn("PluginSidecar", "Navigation reinject failed: " + injectEx.Message);
+                }
+            }
+
+            // Prefer inline root from action (e.g. local market scan) over full page reload.
+            if (result.Root is not null)
+            {
+                _panMain.Children.Clear();
+                _panMain.Children.Add(RenderNode(result.Root));
+                return;
+            }
 
             if (result.RefreshPage || result.Ok)
                 await RefreshAsync().ConfigureAwait(true);
@@ -326,5 +362,20 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                 ]
             }).ConfigureAwait(true);
         return files.Count == 0 ? null : files[0].TryGetLocalPath();
+    }
+
+    private async Task<string?> PickFolderAsync(string? title)
+    {
+        TopLevel? top = TopLevel.GetTopLevel(this);
+        if (top?.StorageProvider is null)
+            return null;
+
+        IReadOnlyList<IStorageFolder> folders = await top.StorageProvider.OpenFolderPickerAsync(
+            new FolderPickerOpenOptions
+            {
+                Title = title ?? "选择目录",
+                AllowMultiple = false
+            }).ConfigureAwait(true);
+        return folders.Count == 0 ? null : folders[0].TryGetLocalPath();
     }
 }
