@@ -65,26 +65,35 @@ public sealed partial class App : Avalonia.Application
                     bool showSplash = settings.GetBooleanOption(
                         "UiLauncherLogo",
                         LauncherSettingDefaults.GetBoolean("UiLauncherLogo"));
-                    bool firstRunWizard = FirstRunWizardWindow.NeedsWizard(settings)
-                        && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PCL_DISABLE_FIRST_RUN"));
+                    bool runOobe = FirstRunWizardWindow.NeedsWizard(settings);
 
-                    if (firstRunWizard)
+                    if (runOobe)
                     {
-                        // OOBE: splash → multi-step setup; finish restarts so path overrides apply cleanly.
-                        FirstRunWizardWindow wizard = new();
+                        OobeRunPlan plan = OobeConfiguration.CreateRunPlan(settings);
+                        FirstRunWizardWindow wizard = new(plan);
                         wizard.PrepareCentered();
                         desktop.MainWindow = wizard;
 
                         wizard.Completed += (_, _) =>
                         {
+                            bool restart = wizard.ShouldRestartAfterComplete;
                             try
                             {
-                                RestartLauncherProcess();
+                                if (restart)
+                                    RestartLauncherProcess();
                             }
                             finally
                             {
                                 try { wizard.Close(); } catch { /* ignore */ }
-                                desktop.Shutdown(0);
+                                if (restart)
+                                {
+                                    desktop.Shutdown(0);
+                                }
+                                else
+                                {
+                                    // Short update OOBE: continue into the main shell without restart.
+                                    ShowMainWindow(desktop, fadeSplash: false);
+                                }
                             }
                         };
 
@@ -92,7 +101,6 @@ public sealed partial class App : Avalonia.Application
                         {
                             _splashWindow = new SplashWindow();
                             _splashWindow.Show();
-                            // Wait until splash is laid out, then hand off position and START expand once.
                             Dispatcher.UIThread.Post(() =>
                             {
                                 try
@@ -115,7 +123,7 @@ public sealed partial class App : Avalonia.Application
                                 }
                                 catch (Exception ex)
                                 {
-                                    DesktopFileLog.Warn("Startup", "首次启动与 Splash 衔接失败，使用居中开场。", ex);
+                                    DesktopFileLog.Warn("Startup", "OOBE 与 Splash 衔接失败，使用居中开场。", ex);
                                     wizard.StartIntroAnimation();
                                 }
 
@@ -125,11 +133,12 @@ public sealed partial class App : Avalonia.Application
                         }
                         else
                         {
-                            // No splash: Opened/StartIntroAnimation path will expand from center.
                             Dispatcher.UIThread.Post(wizard.StartIntroAnimation, DispatcherPriority.Loaded);
                         }
 
-                        DesktopFileLog.Info("Startup", "OOBE 已创建（欢迎 → 协议 → 数据 → 在线 → 遥测 → 完成）。");
+                        DesktopFileLog.Info(
+                            "Startup",
+                            $"OOBE 已创建；Kind={plan.Kind}；Reason={plan.Reason}；Steps={string.Join('>', plan.Steps)}；Restart={plan.RestartAfterComplete}。");
                     }
                     else
                     {

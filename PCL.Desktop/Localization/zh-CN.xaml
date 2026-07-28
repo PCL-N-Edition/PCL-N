@@ -486,7 +486,9 @@
     <sys:String x:Key="FirstRun.Legal.Next">下一页</sys:String>
     <sys:String x:Key="FirstRun.Legal.Agree">同意条款</sys:String>
     <sys:String x:Key="Oobe.Welcome.Start">开始配置</sys:String>
+    <sys:String x:Key="Oobe.Welcome.Continue">继续</sys:String>
     <sys:String x:Key="Oobe.Welcome.Title">欢迎使用 PCL N Edition</sys:String>
+    <sys:String x:Key="Oobe.Welcome.UpdateTitle">PCL N Edition 已更新</sys:String>
     <sys:String x:Key="Oobe.Legal.Disagree">不同意</sys:String>
     <sys:String x:Key="Oobe.Legal.DisagreeExit">不同意并退出</sys:String>
     <sys:String x:Key="Oobe.Legal.Agree">同意条款</sys:String>

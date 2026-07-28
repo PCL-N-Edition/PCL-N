@@ -11,6 +11,7 @@ using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Platform;
+using PCL.Desktop.Views.FirstRun;
 
 namespace PCL.Desktop;
 
@@ -53,6 +54,11 @@ internal static class Program
                 return ValidateAssets();
             if (args.Contains("--validate-secrets", StringComparer.OrdinalIgnoreCase))
                 return PclEmbeddedSecrets.Count > 0 ? 0 : 2;
+
+            // OOBE: --oobe forces full flow; content version bumps drive short update flow.
+            OobeConfiguration.ApplyCommandLine(args);
+            if (OobeConfiguration.ForceFullFromCommandLine)
+                DesktopFileLog.Info("OOBE", "检测到 --oobe，将强制完整 OOBE。");
 
             using SingleInstanceCoordinator singleInstance = SingleInstanceCoordinator.Create();
             DesktopFileLog.Info("SingleInstance", $"单实例检查完成；Primary={singleInstance.IsPrimaryInstance}。");
