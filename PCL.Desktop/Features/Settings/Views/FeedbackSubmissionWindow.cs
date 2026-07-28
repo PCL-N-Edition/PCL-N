@@ -33,10 +33,46 @@ internal sealed class FeedbackSubmissionWindow : Window
                 new PluginSidecarIssueCategoryDto
                 {
                     Id = "bug",
-                    Title = "Bug 反馈",
+                    Title = Text("Setup.Feedback.Compose.Type.Bug", "启动器 Bug"),
                     Description = "启动器功能相关 Bug",
                     IssueType = "Bug",
                     Labels = ["bug"],
+                    BodyTemplate = "### 描述\n\n"
+                },
+                new PluginSidecarIssueCategoryDto
+                {
+                    Id = "crash",
+                    Title = Text("Setup.Feedback.Compose.Type.Crash", "Minecraft 崩溃"),
+                    Description = "游戏或启动崩溃",
+                    IssueType = "Bug",
+                    Labels = ["崩溃"],
+                    BodyTemplate = "### 崩溃描述\n\n"
+                },
+                new PluginSidecarIssueCategoryDto
+                {
+                    Id = "feature",
+                    Title = Text("Setup.Feedback.Compose.Type.Feature", "功能建议"),
+                    Description = "希望新增的功能",
+                    IssueType = "Feature",
+                    Labels = ["新功能"],
+                    BodyTemplate = "### 功能描述\n\n"
+                },
+                new PluginSidecarIssueCategoryDto
+                {
+                    Id = "improvement",
+                    Title = Text("Setup.Feedback.Compose.Type.Improvement", "改进建议"),
+                    Description = "体验与优化建议",
+                    IssueType = "Feature",
+                    Labels = ["优化"],
+                    BodyTemplate = "### 改进描述\n\n"
+                },
+                new PluginSidecarIssueCategoryDto
+                {
+                    Id = "other",
+                    Title = Text("Setup.Feedback.Compose.Type.Other", "其他反馈"),
+                    Description = "其它问题或建议",
+                    IssueType = "Question",
+                    Labels = ["等待处理"],
                     BodyTemplate = "### 描述\n\n"
                 }
             };

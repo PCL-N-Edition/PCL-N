@@ -155,8 +155,8 @@ jobs:
       - name: Validate Avalonia desktop portable shell
         shell: bash
         run: |
-          ./PCL.Desktop/bin/Release/net10.0/${{ steps.runtime.outputs.rid }}/publish/PCL-N-Edition --validate-environment
-          ./PCL.Desktop/bin/Release/net10.0/${{ steps.runtime.outputs.rid }}/publish/PCL-N-Edition --validate-assets
+          ./PCL.Desktop/bin/Release/net10.0/${{ steps.runtime.outputs.rid }}/publish/PCL.Desktop --validate-environment
+          ./PCL.Desktop/bin/Release/net10.0/${{ steps.runtime.outputs.rid }}/publish/PCL.Desktop --validate-assets
 
   desktop-single-file:
     name: single-file (${{ matrix.rid }}, ${{ matrix.runtime_label }})
@@ -169,7 +169,7 @@ jobs:
             os_name: win
             architecture: x64
             platform: x64
-            binary_name: PCL-N-Edition.exe
+            binary_name: PCL.Desktop.exe
             runtime_label: runtime
             runtime_variant: SelfContained
             self_contained: true
@@ -178,7 +178,7 @@ jobs:
             os_name: win
             architecture: x64
             platform: x64
-            binary_name: PCL-N-Edition.exe
+            binary_name: PCL.Desktop.exe
             runtime_label: noruntime
             runtime_variant: NoRuntime
             self_contained: false
@@ -187,7 +187,7 @@ jobs:
             os_name: win
             architecture: arm64
             platform: ARM64
-            binary_name: PCL-N-Edition.exe
+            binary_name: PCL.Desktop.exe
             runtime_label: runtime
             runtime_variant: SelfContained
             self_contained: true
@@ -196,7 +196,7 @@ jobs:
             os_name: win
             architecture: arm64
             platform: ARM64
-            binary_name: PCL-N-Edition.exe
+            binary_name: PCL.Desktop.exe
             runtime_label: noruntime
             runtime_variant: NoRuntime
             self_contained: false
@@ -205,7 +205,7 @@ jobs:
             os_name: linux
             architecture: x64
             platform: x64
-            binary_name: PCL-N-Edition
+            binary_name: PCL.Desktop
             runtime_label: runtime
             runtime_variant: SelfContained
             self_contained: true
@@ -214,7 +214,7 @@ jobs:
             os_name: linux
             architecture: x64
             platform: x64
-            binary_name: PCL-N-Edition
+            binary_name: PCL.Desktop
             runtime_label: noruntime
             runtime_variant: NoRuntime
             self_contained: false
@@ -223,7 +223,7 @@ jobs:
             os_name: linux
             architecture: arm64
             platform: ARM64
-            binary_name: PCL-N-Edition
+            binary_name: PCL.Desktop
             runtime_label: runtime
             runtime_variant: SelfContained
             self_contained: true
@@ -232,7 +232,7 @@ jobs:
             os_name: linux
             architecture: arm64
             platform: ARM64
-            binary_name: PCL-N-Edition
+            binary_name: PCL.Desktop
             runtime_label: noruntime
             runtime_variant: NoRuntime
             self_contained: false
@@ -241,7 +241,7 @@ jobs:
             os_name: mac
             architecture: x64
             platform: x64
-            binary_name: PCL-N-Edition
+            binary_name: PCL.Desktop
             runtime_label: runtime
             runtime_variant: SelfContained
             self_contained: true
@@ -250,7 +250,7 @@ jobs:
             os_name: mac
             architecture: x64
             platform: x64
-            binary_name: PCL-N-Edition
+            binary_name: PCL.Desktop
             runtime_label: noruntime
             runtime_variant: NoRuntime
             self_contained: false
@@ -259,7 +259,7 @@ jobs:
             os_name: mac
             architecture: arm64
             platform: ARM64
-            binary_name: PCL-N-Edition
+            binary_name: PCL.Desktop
             runtime_label: runtime
             runtime_variant: SelfContained
             self_contained: true
@@ -268,7 +268,7 @@ jobs:
             os_name: mac
             architecture: arm64
             platform: ARM64
-            binary_name: PCL-N-Edition
+            binary_name: PCL.Desktop
             runtime_label: noruntime
             runtime_variant: NoRuntime
             self_contained: false
