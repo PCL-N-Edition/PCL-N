@@ -1,0 +1,73 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PCL.Desktop.Views.FirstRun.FirstRunWizardWindow"
+        x:Name="WindFirstRun"
+        Width="136"
+        Height="136"
+        MinWidth="136"
+        MinHeight="136"
+        CanResize="False"
+        ShowInTaskbar="True"
+        Topmost="False"
+        Title="PCL N Edition"
+        Icon="avares://PCL.Desktop/Assets/icon.png"
+        Background="Transparent"
+        WindowDecorations="None"
+        WindowStartupLocation="Manual"
+        TransparencyLevelHint="Transparent">
+
+    <!-- Outer transparent surface; content grows with circular reveal from the splash icon. -->
+    <Border x:Name="PanShadow"
+            Margin="0"
+            CornerRadius="68"
+            Background="#01000000"
+            BoxShadow="0 0 0 0 #00000000"
+            ClipToBounds="True">
+        <Border x:Name="PanSurface"
+                Background="{DynamicResource ColorBrushBackground}"
+                CornerRadius="68"
+                ClipToBounds="True">
+            <Grid x:Name="PanStage"
+                  ClipToBounds="True">
+                <!-- In-window hero icon (takes over from splash after expand). -->
+                <Image x:Name="HeroIcon"
+                       Source="avares://PCL.Desktop/Assets/icon.png"
+                       Width="112"
+                       Height="112"
+                       Stretch="Uniform"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       RenderTransformOrigin="50%,50%">
+                    <Image.RenderTransform>
+                        <TranslateTransform X="0" Y="0" />
+                    </Image.RenderTransform>
+                </Image>
+
+                <!-- Welcome copy (page 1 right side). -->
+                <StackPanel x:Name="WelcomePanel"
+                            Orientation="Vertical"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Margin="0,0,48,0"
+                            Opacity="0"
+                            Spacing="18"
+                            IsHitTestVisible="False">
+                    <TextBlock x:Name="LabWelcome"
+                               Text="欢迎使用 PCL N Edition"
+                               FontSize="28"
+                               FontWeight="SemiBold"
+                               TextWrapping="Wrap"
+                               MaxWidth="360"
+                               Foreground="{DynamicResource ColorBrush1}" />
+                    <Button x:Name="BtnStartSetup"
+                            Content="开始配置"
+                            MinWidth="140"
+                            MinHeight="40"
+                            Padding="20,10"
+                            HorizontalAlignment="Left"
+                            Click="BtnStartSetup_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Border>
+</Window>

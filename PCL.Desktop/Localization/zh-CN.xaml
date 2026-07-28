@@ -478,6 +478,8 @@
     <sys:String x:Key="Main.SpecialVersion.CiHint">这是 PCL N Edition 的自动化 CI 构建，可能包含尚未完成的更改，不适合日常使用或制作整合包。&#x0a;&#x0a;除非社区贡献者要求测试此构建，否则请使用最新稳定版。</sys:String>
     <sys:String x:Key="Main.SpecialVersion.DebugHint">此 Debug 构建仅用于开发调试，可能出现严重的性能或网络问题。将其作为日常版本使用所引发的问题不在社区支持范围内。&#x0a;&#x0a;若并非在开发 PCL N，请改用最新稳定版。</sys:String>
     <sys:String x:Key="Main.SpecialVersion.HideHintNotice">将环境变量 PCL_DISABLE_DEBUG_HINT 设为任意值可隐藏此提示。</sys:String>
+    <sys:String x:Key="FirstRun.Page1.StartSetup">开始配置</sys:String>
+    <sys:String x:Key="FirstRun.Page1.WelcomeTitle">欢迎使用 PCL N Edition</sys:String>
     <sys:String x:Key="Legal.FirstRun.Accept">我已阅读并同意</sys:String>
     <sys:String x:Key="Legal.FirstRun.Decline">不同意并退出</sys:String>
     <sys:String x:Key="Legal.FirstRun.Title">用户协议与隐私保护</sys:String>

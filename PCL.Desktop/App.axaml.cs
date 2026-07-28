@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
@@ -12,6 +13,7 @@ using PCL.Desktop.Localization;
 using PCL.Desktop.Platform;
 using PCL.Desktop.Theme;
 using PCL.Desktop.Views;
+using PCL.Desktop.Views.FirstRun;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Application.Settings;
 using PCL.Desktop.Diagnostics;
@@ -59,21 +61,71 @@ public sealed partial class App : Avalonia.Application
                         DesktopHost.ShutdownOptionalRuntime();
                         LauncherUpdateCoordinator.Current.Dispose();
                     };
-                    if (settings.GetBooleanOption("UiLauncherLogo", LauncherSettingDefaults.GetBoolean("UiLauncherLogo")))
+                    bool showSplash = settings.GetBooleanOption(
+                        "UiLauncherLogo",
+                        LauncherSettingDefaults.GetBoolean("UiLauncherLogo"));
+                    bool firstRunWizard = FirstRunWizardWindow.NeedsWizard(settings)
+                        && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PCL_DISABLE_FIRST_RUN"));
+
+                    if (firstRunWizard)
                     {
-                        _splashWindow = new SplashWindow();
-                        _splashWindow.Show();
+                        // First-run: splash icon hands off into the wizard (circular expand → welcome).
+                        FirstRunWizardWindow wizard = new();
+                        wizard.PrepareCentered();
+                        desktop.MainWindow = wizard;
+
+                        if (showSplash)
+                        {
+                            _splashWindow = new SplashWindow();
+                            _splashWindow.Show();
+                            // After layout, align wizard to splash and hide splash without fade (seamless).
+                            Dispatcher.UIThread.Post(() =>
+                            {
+                                try
+                                {
+                                    if (_splashWindow is { } splash)
+                                    {
+                                        PixelPoint pos = splash.Position;
+                                        int w = (int)Math.Round(splash.Bounds.Width * splash.RenderScaling);
+                                        int h = (int)Math.Round(splash.Bounds.Height * splash.RenderScaling);
+                                        if (w < 1) w = (int)Math.Round(136 * splash.RenderScaling);
+                                        if (h < 1) h = (int)Math.Round(136 * splash.RenderScaling);
+                                        wizard.PrepareFromSplash(new PixelRect(pos.X, pos.Y, w, h));
+                                        splash.Hide();
+                                        splash.Close();
+                                        _splashWindow = null;
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    DesktopFileLog.Warn("Startup", "首次启动与 Splash 衔接失败，使用居中开场。", ex);
+                                }
+
+                                if (!wizard.IsVisible)
+                                    wizard.Show();
+                            }, DispatcherPriority.Loaded);
+                        }
+
+                        wizard.Completed += (_, _) =>
+                        {
+                            // Page 1 only for now; later steps will call MarkCompleted at the true end.
+                            FirstRunWizardWindow.MarkCompleted();
+                            ShowMainWindow(desktop, fadeSplash: false);
+                            wizard.Close();
+                        };
+
+                        DesktopFileLog.Info("Startup", "首次启动向导已创建（第 1 页：欢迎）。");
                     }
+                    else
+                    {
+                        if (showSplash)
+                        {
+                            _splashWindow = new SplashWindow();
+                            _splashWindow.Show();
+                        }
 
-                    MainWindow mainWindow = new();
-                    DesktopFileLog.Info("Startup", "主窗口创建完成。");
-                    mainWindow.Opened += (_, _) => _splashWindow?.CloseWithFade(TimeSpan.FromMilliseconds(400));
-                    SingleInstanceCoordinator?.ActivationRequested += (_, _) =>
-                        Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
-                    if (SingleInstanceCoordinator?.ConsumePendingActivation() == true)
-                        Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
-
-                    desktop.MainWindow = mainWindow;
+                        ShowMainWindow(desktop, fadeSplash: true);
+                    }
                 }
             }
 
@@ -90,5 +142,24 @@ public sealed partial class App : Avalonia.Application
     {
         ArgumentNullException.ThrowIfNull(getEnvironmentVariable);
         return !string.IsNullOrWhiteSpace(getEnvironmentVariable("PCL_DISABLE_DESKTOP_SHELL"));
+    }
+
+    private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop, bool fadeSplash)
+    {
+        MainWindow mainWindow = new();
+        DesktopFileLog.Info("Startup", "主窗口创建完成。");
+        if (fadeSplash)
+            mainWindow.Opened += (_, _) => _splashWindow?.CloseWithFade(TimeSpan.FromMilliseconds(400));
+        else
+            _splashWindow?.Close();
+
+        SingleInstanceCoordinator?.ActivationRequested += (_, _) =>
+            Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
+        if (SingleInstanceCoordinator?.ConsumePendingActivation() == true)
+            Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
+
+        desktop.MainWindow = mainWindow;
+        if (!mainWindow.IsVisible)
+            mainWindow.Show();
     }
 }
