@@ -4,40 +4,42 @@
 
 | Process | Runtime | Role |
 |---------|---------|------|
-| `PCL.Desktop` | Native AOT capable | Shell only; thin IPC client |
-| `PCL.Plugin.Sidecar` | CoreCLR | Full plugin platform (ALC, Harmony, market, settings) |
+| `PCL.Desktop` | Native AOT capable | Shell + host settings UI + thin IPC client |
+| `PCL.Plugin.Sidecar` | CoreCLR | Plugin runtime, `.pnp` catalog, install (headless) |
 
 ## Layout
 
 ```
 PCL.Desktop.exe
 sidecar/
-  PCL.Plugin.Sidecar.exe   # or next to host on Unix
+  PCL.Plugin.Sidecar.exe
   PCL.Plugin.dll
   …
 ```
 
-Resolve order: `PCL_PLUGIN_SIDECAR_PATH` → `{base}/sidecar/…` → `{base}/…` → dev bin path.
+Resolve: `PCL_PLUGIN_SIDECAR_PATH` → `{base}/sidecar/…` → `{base}/…` → dev bin.
 
 ## Protocol
 
-Length-prefixed (big-endian u32) UTF-8 JSON request/response frames.
+Length-prefixed (BE u32) UTF-8 JSON. Methods: `system.hello`, `system.shutdown`, `health.ping`, `runtime.init`, `catalog.list`, `catalog.installPnp`.  
+`ui.openSettings` is **not** used (no independent plugin window).
 
-Methods (phase 1): `system.hello`, `system.shutdown`, `health.ping`, `runtime.init`, `ui.openSettings`, `catalog.list`, `catalog.installPnp`.
+Host DTOs: `PluginSidecarJsonContext` (AOT source-gen).
 
-Host DTOs use `System.Text.Json` source generation (`PluginSidecarJsonContext`) for AOT.
+## Host UX
 
-## Lifecycle
+Settings → **插件平台 → 侧车与目录** (`PageSetupPluginSidecar`): status, list, install `.pnp`.  
+Drag-and-drop `.pnp` → `PluginSidecarPnpFileArtifactHandler`.
 
-1. Host `DesktopHost.InitializeOptionalRuntime` warm-starts `PluginSidecarSupervisor`.
-2. Missing binary → plugin features off (shell continues).
-3. Host exit disposes supervisor (shutdown RPC + kill).
+## Packaging
 
-## UI (phase 1)
-
-Settings UI stays **in the sidecar process** (window deferred; runtime init is live). Host may call `ui.openSettings` as a stub until Avalonia shell is attached to the sidecar.
+```powershell
+.\scripts\build-plugin-sidecar.ps1 -Publish -Runtime win-x64
+.\scripts\build-desktop.ps1 -WithPlugin -Publish -Aot -Runtime win-x64
+```
 
 ## Non-goals
 
-- In-process `PclWithPlugin` compile-into-Desktop as product path
-- Cross-process Avalonia visual tree patches into host chrome
+- Sidecar-owned Avalonia settings window
+- In-process `PclWithPlugin` into Desktop product packages
+- Cross-process UI composition into host chrome

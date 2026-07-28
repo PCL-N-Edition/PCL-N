@@ -28,15 +28,22 @@ if ($WriteSecrets) {
     $env:PCL_WRITE_SECRET = "1"
 }
 
+# -WithPlugin builds/publishes the CoreCLR sidecar next to the host (host may remain AOT).
+# In-process PclWithPlugin compile-into-Desktop is no longer the product path.
 if ($WithPlugin) {
-    if ($Aot) {
-        throw "WithPlugin builds disable AOT (Harmony / AssemblyLoadContext). Omit -Aot."
+    $sidecarArgs = @{
+        Configuration = $Configuration
+        SkipFetch     = $SkipPluginFetch
     }
-    # Source-overlay inject (tag source + host-overlay rewrite), not DLL download/embed.
-    $overlayArgs = @{ Channel = 'Stable' }
-    if (-not [string]::IsNullOrWhiteSpace($PluginTag)) { $overlayArgs['Tag'] = $PluginTag }
-    if ($SkipPluginFetch) { $overlayArgs['SkipFetch'] = $true }
-    & (Join-Path $PSScriptRoot 'apply-plugin-overlay.ps1') @overlayArgs
+    if (-not [string]::IsNullOrWhiteSpace($PluginTag)) { $sidecarArgs['PluginTag'] = $PluginTag }
+    if ($Publish) {
+        $sidecarArgs['Publish'] = $true
+        $sidecarArgs['Runtime'] = $Runtime
+        $sidecarArgs['Output'] = Join-Path $PSScriptRoot "..\artifacts\desktop-$Runtime\sidecar"
+    } else {
+        $sidecarArgs['Output'] = Join-Path $PSScriptRoot "..\PCL.Desktop\bin\$Configuration\net10.0\sidecar"
+    }
+    & (Join-Path $PSScriptRoot 'build-plugin-sidecar.ps1') @sidecarArgs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -48,11 +55,8 @@ $common = @(
     "--nologo"
 )
 
-if ($WithPlugin) {
-    $common += "-p:PclWithPlugin=true"
-}
-
 if ($Publish) {
+    $outDir = Join-Path $PSScriptRoot "..\artifacts\desktop-$Runtime"
     if ($Aot) {
         & dotnet publish @common `
             -r $Runtime `
@@ -62,7 +66,8 @@ if ($Publish) {
             -p:PublishSingleFile=false `
             -p:DebugType=None `
             -p:DebugSymbols=false `
-            -p:PclWriteSecret=1
+            -p:PclWriteSecret=1 `
+            -o $outDir
     } else {
         & dotnet publish @common `
             -r $Runtime `
@@ -70,10 +75,23 @@ if ($Publish) {
             -p:PublishAot=false `
             -p:PublishTrimmed=false `
             -p:PublishSingleFile=true `
-            -p:PclWriteSecret=1
+            -p:PclWriteSecret=1 `
+            -o $outDir
+    }
+    if ($LASTEXITCODE -eq 0 -and $WithPlugin) {
+        $sidecarSrc = Join-Path $outDir 'sidecar'
+        if (Test-Path $sidecarSrc) {
+            Write-Host "Sidecar staged at $sidecarSrc (host resolves sidecar/ next to publish output)."
+        }
     }
 } else {
     & dotnet build @common
+    if ($LASTEXITCODE -eq 0 -and $WithPlugin) {
+        $devSidecar = Join-Path $PSScriptRoot "..\PCL.Desktop\bin\$Configuration\net10.0\sidecar"
+        if (Test-Path $devSidecar) {
+            Write-Host "Dev sidecar at $devSidecar"
+        }
+    }
 }
 
 exit $LASTEXITCODE

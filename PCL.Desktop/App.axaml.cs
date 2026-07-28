@@ -54,7 +54,11 @@ public sealed partial class App : Avalonia.Application
 
                 if (!skipShell)
                 {
-                    desktop.Exit += (_, _) => LauncherUpdateCoordinator.Current.Dispose();
+                    desktop.Exit += (_, _) =>
+                    {
+                        DesktopHost.ShutdownOptionalRuntime();
+                        LauncherUpdateCoordinator.Current.Dispose();
+                    };
                     if (settings.GetBooleanOption("UiLauncherLogo", LauncherSettingDefaults.GetBoolean("UiLauncherLogo")))
                     {
                         _splashWindow = new SplashWindow();

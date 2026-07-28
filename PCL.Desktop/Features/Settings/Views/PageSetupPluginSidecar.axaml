@@ -1,0 +1,47 @@
+<legacy:MyPageRight
+    x:Class="PCL.Desktop.Features.Settings.Views.PageSetupPluginSidecar"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:legacy="using:PCL.Desktop.Controls.Legacy">
+    <legacy:MyScrollViewer
+        x:Name="PanBack"
+        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+        ScrollViewer.VerticalScrollBarVisibility="Auto">
+        <StackPanel x:Name="PanMain" Margin="25,25,25,10" Spacing="12">
+            <legacy:MyCard Title="插件侧车（进程外）">
+                <StackPanel Margin="25,40,25,20" Spacing="10">
+                    <TextBlock x:Name="StatusText"
+                               Opacity="0.85"
+                               Text="正在检测插件侧车…"
+                               TextWrapping="Wrap" />
+                    <WrapPanel ItemHeight="36" Orientation="Horizontal">
+                        <legacy:MyButton x:Name="RefreshButton"
+                                         Width="100"
+                                         Height="32"
+                                         Margin="0,0,8,6"
+                                         Text="刷新" />
+                        <legacy:MyButton x:Name="StartButton"
+                                         Width="120"
+                                         Height="32"
+                                         Margin="0,0,8,6"
+                                         Text="启动侧车" />
+                        <legacy:MyButton x:Name="InstallButton"
+                                         Width="130"
+                                         Height="32"
+                                         Margin="0,0,8,6"
+                                         Text="安装 .pnp" />
+                    </WrapPanel>
+                    <TextBlock FontSize="12"
+                               Opacity="0.7"
+                               Text="插件平台在独立 CoreCLR 进程中运行，宿主可保持 Native AOT。管理 UI 在宿主设置页完成，不打开插件独立窗口。"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </legacy:MyCard>
+            <legacy:MyCard Title="已安装插件（侧车目录）">
+                <StackPanel Margin="25,40,25,20" Spacing="8">
+                    <StackPanel x:Name="PluginList" Spacing="8" />
+                </StackPanel>
+            </legacy:MyCard>
+        </StackPanel>
+    </legacy:MyScrollViewer>
+</legacy:MyPageRight>
