@@ -141,6 +141,13 @@ internal sealed class PluginSidecarResult
     /// <summary>Host should re-fetch ui.manifest and inject newly visible pages.</summary>
     [JsonPropertyName("refreshNavigation")]
     public bool RefreshNavigation { get; set; }
+
+    /// <summary>Optional host launcher boolean setting key (e.g. SystemDebugMode).</summary>
+    [JsonPropertyName("hostBooleanKey")]
+    public string? HostBooleanKey { get; set; }
+
+    [JsonPropertyName("hostBooleanValue")]
+    public bool? HostBooleanValue { get; set; }
 }
 
 internal sealed class PluginSidecarError

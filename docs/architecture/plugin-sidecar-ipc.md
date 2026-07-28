@@ -34,6 +34,7 @@ ui.invokeAction → result              → refresh / pick file|folder / openUrl
 | `root` | Replace page body with inline tree (local market scan) |
 | `pickFilePatterns` / `pickFolder` | Host picker → re-invoke with path |
 | `openUrl` | System browser |
+| `hostBooleanKey` / `hostBooleanValue` | Write host launcher bool (e.g. `SystemDebugMode`) |
 
 ### Protocol version
 
@@ -51,7 +52,7 @@ ui.invokeAction → result              → refresh / pick file|folder / openUrl
 |---------------|--------|
 | 平台状态 | ✅ |
 | 已安装 | ✅ install/enable/disable/uninstall/rollback |
-| 市场 | ✅ local folder scan + web market + .pnp install |
+| 市场 | ✅ online search/list/get/update + local (dev) + web |
 | 安全 | ✅ Safe Mode + isolation ID textbox |
 | 开发者 | ✅ order verify textbox + `refreshNavigation` |
 | UI Patch | ✅ apply + conflict resolve |

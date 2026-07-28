@@ -245,10 +245,15 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
     private MyCheckBox RenderCheckBox(PluginUiNodeDto node)
     {
+        bool isChecked = node.Checked == true;
+        // Host-owned settings: sidecar cannot read launcher prefs; resolve by known field id.
+        if (string.Equals(node.Id, "host.SystemDebugMode", StringComparison.Ordinal))
+            isChecked = DesktopHostDeveloperDiagnostics.Instance.IsEnabled;
+
         MyCheckBox box = new()
         {
             Text = node.Text ?? node.Title ?? "",
-            Checked = node.Checked == true,
+            Checked = isChecked,
             Height = 22,
             IsEnabled = node.Enabled
         };
@@ -363,6 +368,15 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
             if (!string.IsNullOrWhiteSpace(result.Message))
                 DesktopHostNotifications.Instance.ShowInformation(result.Message!);
+
+            // Sidecar may request host-only settings (e.g. SystemDebugMode diagnostics).
+            if (!string.IsNullOrWhiteSpace(result.HostBooleanKey) && result.HostBooleanValue is { } hostBool)
+            {
+                if (string.Equals(result.HostBooleanKey, "SystemDebugMode", StringComparison.Ordinal))
+                    DesktopHostDeveloperDiagnostics.Instance.SetEnabled(hostBool);
+                else
+                    PortableLog.Warn("PluginSidecar", "Unknown hostBooleanKey: " + result.HostBooleanKey);
+            }
 
             // Developer toggles may add Safety / UI Patch / Compatibility pages.
             if (result.RefreshNavigation)
