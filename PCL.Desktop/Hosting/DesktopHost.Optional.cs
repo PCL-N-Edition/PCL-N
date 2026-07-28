@@ -3,16 +3,14 @@
 // Licensed under the Apache License, Version 2.0.
 
 using PCL.Application.Hosting;
-using PCL.Application.Settings;
 using PCL.Core.Logging;
-using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Hosting.PluginSidecar;
 
 namespace PCL.Desktop.Hosting;
 
 /// <summary>
 /// Host optional runtime: out-of-process plugin sidecar (AOT-safe).
-/// Host settings page drives catalog/install over IPC — no plugin independent window.
+/// Plugin settings pages are NOT hardcoded — they are injected via UI data-chain after sidecar starts.
 /// </summary>
 internal static partial class DesktopHost
 {
@@ -20,52 +18,27 @@ internal static partial class DesktopHost
 
     static partial void RegisterOptionalModules(PclHostBuilder builder)
     {
-        builder.AddSettingsPageGroup(new HostSettingsPageGroupDescriptor(
-            "pcl.settings.plugin-sidecar",
-            "插件平台",
-            "lucide/plug",
-            Order: 320,
-            Description: "进程外侧车中的第三方 .pnp 与平台状态。")
-        {
-            LocalizedTitle = HostLocalizedText.FromResource("PluginSidecar.Group.Title", "插件平台")
-        });
-
-        builder.AddSettingsPage(new HostSettingsPageDescriptor(
-            "pcl.settings.plugin-sidecar.status",
-            "侧车与目录",
-            "lucide/box",
-            "插件侧车",
-            "查看 CoreCLR 插件侧车状态，列出已安装 .pnp，并从宿主安装包。",
-            [])
-        {
-            GroupId = "pcl.settings.plugin-sidecar",
-            Order = 10,
-            PageFactory = static () => new PageSetupPluginSidecar(),
-            LocalizedTitle = HostLocalizedText.FromResource("PluginSidecar.Status.Title", "侧车与目录"),
-            LocalizedHeading = HostLocalizedText.FromResource("PluginSidecar.Status.Heading", "插件侧车"),
-            LocalizedDescription = HostLocalizedText.FromResource(
-                "PluginSidecar.Status.Description",
-                "查看 CoreCLR 插件侧车状态，列出已安装 .pnp，并从宿主安装包。")
-        });
+        // No host-hardcoded plugin pages. Sidecar ui.manifest injects groups/pages at runtime.
+        _ = builder;
     }
 
     static partial void InitializeOptionalRuntime(IPclHost host)
     {
-        _ = host;
         _ = Task.Run(async () =>
         {
             try
             {
                 bool ok = await PluginSidecarSupervisor.Instance.TryStartAsync().ConfigureAwait(false);
-                if (ok)
+                if (!ok)
                 {
-                    _pnpHandlerRegistration ??= DesktopFileArtifactHost.Instance.Register(
-                        new PluginSidecarPnpFileArtifactHandler());
+                    PortableLog.Info("DesktopHost", "Plugin sidecar not started.");
+                    return;
                 }
 
-                PortableLog.Info(
-                    "DesktopHost",
-                    ok ? "Plugin sidecar started; .pnp drop handler registered." : "Plugin sidecar not started.");
+                _pnpHandlerRegistration ??= DesktopFileArtifactHost.Instance.Register(
+                    new PluginSidecarPnpFileArtifactHandler());
+                await PluginSidecarUiInjector.InjectAsync(host).ConfigureAwait(false);
+                PortableLog.Info("DesktopHost", "Plugin sidecar started; UI data-chain injected.");
             }
             catch (Exception ex)
             {
@@ -74,7 +47,6 @@ internal static partial class DesktopHost
         });
     }
 
-    /// <summary>Called on app exit to stop the sidecar cleanly.</summary>
     public static void ShutdownOptionalRuntime()
     {
         try

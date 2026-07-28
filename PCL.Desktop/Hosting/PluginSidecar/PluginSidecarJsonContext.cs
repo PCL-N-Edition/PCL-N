@@ -16,4 +16,11 @@ namespace PCL.Desktop.Hosting.PluginSidecar;
 [JsonSerializable(typeof(PluginSidecarError))]
 [JsonSerializable(typeof(PluginSidecarCatalogEntry))]
 [JsonSerializable(typeof(PluginSidecarCatalogEntry[]))]
+[JsonSerializable(typeof(PluginUiGroupDto))]
+[JsonSerializable(typeof(PluginUiGroupDto[]))]
+[JsonSerializable(typeof(PluginUiPageDto))]
+[JsonSerializable(typeof(PluginUiPageDto[]))]
+[JsonSerializable(typeof(PluginUiNodeDto))]
+[JsonSerializable(typeof(PluginUiNodeDto[]))]
+[JsonSerializable(typeof(string[]))]
 internal partial class PluginSidecarJsonContext : JsonSerializerContext;

@@ -10,6 +10,7 @@ using Avalonia.Threading;
 using PCL.Application.Settings;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Hosting;
+using PCL.Desktop.Hosting.PluginSidecar;
 using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Settings.Views;
@@ -62,8 +63,8 @@ public partial class PageSetupLeft : MyPageLeft
     private readonly Dictionary<SetupPageSubType, MyPageRight> _pages = [];
     private readonly Dictionary<string, MyPageRight> _hostPages = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HostSettingsPageDescriptor> _hostPageMap = new(StringComparer.OrdinalIgnoreCase);
-    private readonly IReadOnlyList<HostSettingsPageDescriptor> _hostSettingsPages;
-    private readonly IReadOnlyList<HostSettingsPageGroupDescriptor> _hostSettingsGroups;
+    private IReadOnlyList<HostSettingsPageDescriptor> _hostSettingsPages = [];
+    private IReadOnlyList<HostSettingsPageGroupDescriptor> _hostSettingsGroups = [];
     private bool _isLoadedOnce;
     private EventHandler? _languageChangedHandler;
     private string? _hostPageId;
@@ -71,12 +72,10 @@ public partial class PageSetupLeft : MyPageLeft
     public PageSetupLeft()
     {
         AvaloniaXamlLoader.Load(this);
-        _hostSettingsGroups = DesktopHost.Current.SettingsPageGroups.Groups;
-        _hostSettingsPages = DesktopHost.Current.SettingsPages.Pages;
-        foreach (HostSettingsPageDescriptor page in _hostSettingsPages)
-            _hostPageMap[page.Id] = page;
+        ReloadHostSettingsSnapshot();
         _languageChangedHandler = (_, _) => Dispatcher.UIThread.Post(RefreshHostSettingsPages);
         AvaloniaLocalizationManager.LanguageChanged += _languageChangedHandler;
+        PluginSidecarUiInjector.SettingsNavigationChanged += OnSidecarNavigationChanged;
         RegisterHostSettingsPages();
         AnimatedControl = Required<Control>("PanItem");
         InitializeRegisteredPageTags();
@@ -97,12 +96,24 @@ public partial class PageSetupLeft : MyPageLeft
         DetachedFromVisualTree += (_, _) =>
         {
             DesktopHostUiComposition.Instance.UnregisterSlot("pcl.page.settings", "sidebar.extra");
+            PluginSidecarUiInjector.SettingsNavigationChanged -= OnSidecarNavigationChanged;
             if (_languageChangedHandler is not null)
             {
                 AvaloniaLocalizationManager.LanguageChanged -= _languageChangedHandler;
                 _languageChangedHandler = null;
             }
         };
+    }
+
+    private void OnSidecarNavigationChanged() => Dispatcher.UIThread.Post(RefreshHostSettingsPages);
+
+    private void ReloadHostSettingsSnapshot()
+    {
+        _hostSettingsGroups = DesktopHost.Current.SettingsPageGroups.Groups;
+        _hostSettingsPages = DesktopHost.Current.SettingsPages.Pages;
+        _hostPageMap.Clear();
+        foreach (HostSettingsPageDescriptor page in _hostSettingsPages)
+            _hostPageMap[page.Id] = page;
     }
 
     /// <summary>
@@ -387,6 +398,8 @@ public partial class PageSetupLeft : MyPageLeft
     {
         if (this.FindControl<Panel>("PanItem") is not { } panel)
             return;
+
+        ReloadHostSettingsSnapshot();
 
         for (int index = panel.Children.Count - 1; index >= 0; index--)
         {

@@ -1,63 +1,56 @@
-# Plugin sidecar IPC (host AOT + CoreCLR plugin process)
+# Plugin sidecar + UI data-chain injection
 
 ## Goal
 
-| Process | Runtime | Role |
-|---------|---------|------|
-| `PCL.Desktop` | Native AOT capable | Shell + host settings UI + thin IPC client |
-| `PCL.Plugin.Sidecar` | CoreCLR | Plugin runtime, `.pnp` catalog, install (headless) |
+| Process | Role |
+|---------|------|
+| **PCL.Desktop** (AOT OK) | Shell + **generic** UI renderer; no plugin business pages in host source |
+| **PCL.Plugin.Sidecar** (CoreCLR) | Full plugin platform + **UI data-chain** (manifest / page tree / actions) |
 
-## Layout
+Plugin pages are **not** hardcoded into the host. Sidecar pushes page metadata and node trees; host injects settings nav and renders remotely.
+
+## Data chain
 
 ```
-PCL.Desktop.exe
-sidecar/
-  PCL.Plugin.Sidecar.exe
-  PCL.Plugin.dll
-  …
+runtime.init → LoadEnabled
+ui.manifest  → groups[] + pages[]     → host SettingsPageGroups/Pages.Add*
+ui.getPage   → root node tree         → PageSetupRemoteDataChain
+ui.invokeAction → result              → refresh / pick file / openUrl / toast
 ```
 
-Resolve: `PCL_PLUGIN_SIDECAR_PATH` → `{base}/sidecar/…` → `{base}/…` → dev bin.
+### Node kinds
 
-## Protocol
+`card` | `stack` | `list` | `row` | `text` | `muted` | `hint` | `button` | `checkbox`
 
-Length-prefixed (BE u32) UTF-8 JSON. Protocol version **2**.
+### Protocol version
 
-| Method | Role |
-|--------|------|
-| `system.hello` / `system.shutdown` / `health.ping` | Lifecycle |
-| `runtime.init` | Data/cache roots + bootstrap + LoadEnabled |
-| `runtime.status` | installed/enabled counts + runtime root |
-| `catalog.list` | Installed plugins |
-| `catalog.installPnp` | Install package path |
-| `catalog.setEnabled` | Enable / disable |
-| `catalog.uninstall` | Uninstall |
+**3** (data-chain). Legacy catalog.* RPCs remain for file-drop install.
 
-`ui.openSettings` is **not** used (host owns management UX).
+## Host types
 
-Host DTOs: `PluginSidecarJsonContext` (AOT source-gen).
+- `PageSetupRemoteDataChain` — only generic renderer
+- `PluginSidecarUiInjector` — registers remote pages after sidecar start
+- `PluginSidecarPnpFileArtifactHandler` — `.pnp` drop → catalog.installPnp
 
-## Host UX
+## Expanding to full original plugin system
 
-Settings → **插件平台 → 侧车与目录** (`PageSetupPluginSidecar`): status, list, install `.pnp`.  
-Drag-and-drop `.pnp` → `PluginSidecarPnpFileArtifactHandler`.
+Add more pages/actions in `PCL.Plugin.Sidecar/Ui/UiDataChain.cs` (and future providers):
+
+| Original page | Status |
+|---------------|--------|
+| 已安装 | ✅ data-chain |
+| 安全 | ✅ data-chain |
+| 开发者 | ✅ data-chain |
+| 平台状态 | ✅ data-chain |
+| 市场 / 账户 / 云同步 / UI Patch / 兼容性 | extend providers + actions |
+
+No host UI code required for new pages — only sidecar data.
 
 ## Packaging
 
 ```powershell
-.\scripts\build-plugin-sidecar.ps1 -Publish -Runtime win-x64
-.\scripts\build-desktop.ps1 -WithPlugin -Publish -Aot -Runtime win-x64
-# → artifacts/desktop-win-x64/ + sidecar/
+.\scripts\build-desktop.ps1 -WithPlugin -SkipPluginFetch
+# host bin/.../sidecar/ + inject on launch
 ```
 
-CI (`reusable-build.yml` with `include_plugin: true`):
-
-1. Fetch PCL.Plugin tag source (`SkipRewrite`)
-2. Publish host (no plugin IL)
-3. `build-plugin-sidecar.ps1 -Publish` → `$PUBLISH_DIR/sidecar/`
-
-## Non-goals
-
-- Sidecar-owned Avalonia settings window
-- In-process `PclWithPlugin` into Desktop product packages
-- Cross-process UI composition into host chrome
+CI `include_plugin: true` stages `sidecar/` next to host without compiling plugin into Desktop.

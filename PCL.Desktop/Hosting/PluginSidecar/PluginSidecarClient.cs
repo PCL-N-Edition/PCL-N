@@ -50,19 +50,41 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
             },
             cancellationToken);
 
-    public Task<PluginSidecarResult> OpenSettingsAsync(
-        string? pageId = null,
-        CancellationToken cancellationToken = default) =>
-        CallAsync(
-            PluginSidecarMethods.UiOpenSettings,
-            new PluginSidecarParams { PageId = pageId },
-            cancellationToken);
-
     public Task<PluginSidecarResult> ListCatalogAsync(CancellationToken cancellationToken = default) =>
         CallAsync(PluginSidecarMethods.CatalogList, null, cancellationToken);
 
     public Task<PluginSidecarResult> RuntimeStatusAsync(CancellationToken cancellationToken = default) =>
         CallAsync(PluginSidecarMethods.RuntimeStatus, null, cancellationToken);
+
+    public Task<PluginSidecarResult> UiManifestAsync(CancellationToken cancellationToken = default) =>
+        CallAsync(PluginSidecarMethods.UiManifest, null, cancellationToken);
+
+    public Task<PluginSidecarResult> UiGetPageAsync(string pageId, CancellationToken cancellationToken = default) =>
+        CallAsync(
+            PluginSidecarMethods.UiGetPage,
+            new PluginSidecarParams { PageId = pageId },
+            cancellationToken);
+
+    public Task<PluginSidecarResult> UiInvokeActionAsync(
+        string pageId,
+        string actionId,
+        string? value = null,
+        bool? boolValue = null,
+        string? packagePath = null,
+        string? pluginId = null,
+        CancellationToken cancellationToken = default) =>
+        CallAsync(
+            PluginSidecarMethods.UiInvokeAction,
+            new PluginSidecarParams
+            {
+                PageId = pageId,
+                ActionId = actionId,
+                Value = value,
+                BoolValue = boolValue,
+                PackagePath = packagePath,
+                PluginId = pluginId
+            },
+            cancellationToken);
 
     public Task<PluginSidecarResult> InstallPnpAsync(
         string packagePath,

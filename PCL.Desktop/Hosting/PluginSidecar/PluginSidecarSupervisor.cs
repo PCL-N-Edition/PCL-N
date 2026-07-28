@@ -149,23 +149,6 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
         }
     }
 
-    public async Task<bool> OpenSettingsAsync(string? pageId = null, CancellationToken cancellationToken = default)
-    {
-        if (!IsAvailable)
-        {
-            bool started = await TryStartAsync(cancellationToken).ConfigureAwait(false);
-            if (!started)
-                return false;
-        }
-
-        PluginSidecarClient? client = Client;
-        if (client is null)
-            return false;
-
-        PluginSidecarResult result = await client.OpenSettingsAsync(pageId, cancellationToken).ConfigureAwait(false);
-        return result.Ok;
-    }
-
     private static async Task<Stream> ConnectPipeAsync(string pipeName, CancellationToken cancellationToken)
     {
         const int maxAttempts = 40;
