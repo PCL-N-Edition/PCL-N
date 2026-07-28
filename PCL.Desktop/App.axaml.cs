@@ -76,8 +76,7 @@ public sealed partial class App : Avalonia.Application
 
                         wizard.Completed += (_, _) =>
                         {
-                            // Page 1 only for now; later steps will call MarkCompleted at the true end.
-                            FirstRunWizardWindow.MarkCompleted();
+                            // Wizard marks legal + first-run version on "同意条款".
                             ShowMainWindow(desktop, fadeSplash: false);
                             wizard.Close();
                         };

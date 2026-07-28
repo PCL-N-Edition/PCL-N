@@ -480,6 +480,11 @@
     <sys:String x:Key="Main.SpecialVersion.HideHintNotice">将环境变量 PCL_DISABLE_DEBUG_HINT 设为任意值可隐藏此提示。</sys:String>
     <sys:String x:Key="FirstRun.Page1.StartSetup">开始配置</sys:String>
     <sys:String x:Key="FirstRun.Page1.WelcomeTitle">欢迎使用 PCL N Edition</sys:String>
+    <sys:String x:Key="FirstRun.Legal.Disagree">不同意</sys:String>
+    <sys:String x:Key="FirstRun.Legal.DisagreeExit">不同意并退出</sys:String>
+    <sys:String x:Key="FirstRun.Legal.Previous">上一页</sys:String>
+    <sys:String x:Key="FirstRun.Legal.Next">下一页</sys:String>
+    <sys:String x:Key="FirstRun.Legal.Agree">同意条款</sys:String>
     <sys:String x:Key="Legal.FirstRun.Accept">我已阅读并同意</sys:String>
     <sys:String x:Key="Legal.FirstRun.Decline">不同意并退出</sys:String>
     <sys:String x:Key="Legal.FirstRun.Title">用户协议与隐私保护</sys:String>
