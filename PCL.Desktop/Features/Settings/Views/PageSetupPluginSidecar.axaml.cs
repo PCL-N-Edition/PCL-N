@@ -46,10 +46,7 @@ public partial class PageSetupPluginSidecar : MyPageRight, IRefreshableSettingsP
         RefreshPage();
     }
 
-    public void RefreshPage()
-    {
-        _ = RefreshAsync();
-    }
+    public void RefreshPage() => _ = RefreshAsync();
 
     private async Task RefreshAsync()
     {
@@ -76,7 +73,7 @@ public partial class PageSetupPluginSidecar : MyPageRight, IRefreshableSettingsP
             PluginSidecarResult ping = await client.PingAsync().ConfigureAwait(true);
             PluginSidecarResult catalog = await client.ListCatalogAsync().ConfigureAwait(true);
             _statusText.Text =
-                $"侧车在线 · {catalog.Message ?? "ok"} · ping={(ping.Ok ? "ok" : "fail")}";
+                $"侧车在线 · {catalog.Message ?? "ok"} · ping={(ping.Ok ? "ok" : "fail")} · protocol v2";
 
             _pluginList.Children.Clear();
             PluginSidecarCatalogEntry[] plugins = catalog.Plugins ?? [];
@@ -92,41 +89,119 @@ public partial class PageSetupPluginSidecar : MyPageRight, IRefreshableSettingsP
             }
 
             foreach (PluginSidecarCatalogEntry entry in plugins)
-            {
-                Border row = new()
-                {
-                    BorderBrush = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
-                    BorderThickness = new Avalonia.Thickness(1),
-                    CornerRadius = new Avalonia.CornerRadius(6),
-                    Padding = new Avalonia.Thickness(12, 10)
-                };
-                row.Child = new StackPanel
-                {
-                    Spacing = 2,
-                    Children =
-                    {
-                        new TextBlock
-                        {
-                            Text = entry.Name,
-                            FontWeight = FontWeight.SemiBold,
-                            FontSize = 14
-                        },
-                        new TextBlock
-                        {
-                            Text = $"{entry.PluginId} · v{entry.Version ?? "—"} · {(entry.Enabled ? "已启用" : "已禁用")}",
-                            FontSize = 12,
-                            Opacity = 0.75,
-                            TextWrapping = TextWrapping.Wrap
-                        }
-                    }
-                };
-                _pluginList.Children.Add(row);
-            }
+                _pluginList.Children.Add(CreatePluginRow(entry));
         }
         catch (Exception ex)
         {
             _statusText.Text = "刷新失败：" + ex.Message;
         }
+    }
+
+    private Border CreatePluginRow(PluginSidecarCatalogEntry entry)
+    {
+        Border row = new()
+        {
+            BorderBrush = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(6),
+            Padding = new Avalonia.Thickness(12, 10)
+        };
+
+        Grid grid = new();
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+
+        StackPanel text = new()
+        {
+            Spacing = 2,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = entry.Name,
+                    FontWeight = FontWeight.SemiBold,
+                    FontSize = 14
+                },
+                new TextBlock
+                {
+                    Text = $"{entry.PluginId} · v{entry.Version ?? "—"} · {(entry.Enabled ? "已启用" : "已禁用")}",
+                    FontSize = 12,
+                    Opacity = 0.75,
+                    TextWrapping = TextWrapping.Wrap
+                }
+            }
+        };
+        Grid.SetColumn(text, 0);
+        grid.Children.Add(text);
+
+        WrapPanel actions = new()
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Avalonia.Thickness(12, 0, 0, 0)
+        };
+
+        string pluginId = entry.PluginId;
+        bool nextEnabled = !entry.Enabled;
+        MyButton toggle = new()
+        {
+            Text = entry.Enabled ? "禁用" : "启用",
+            MinWidth = 72,
+            Height = 32,
+            Margin = new Avalonia.Thickness(0, 0, 8, 0)
+        };
+        toggle.Click += async (_, _) =>
+        {
+            toggle.IsEnabled = false;
+            try
+            {
+                PluginSidecarClient client = PluginSidecarSupervisor.Instance.Client
+                    ?? throw new InvalidOperationException("client null");
+                PluginSidecarResult result = await client.SetEnabledAsync(pluginId, nextEnabled).ConfigureAwait(true);
+                _statusText.Text = result.Message ?? "已更新启用状态。";
+            }
+            catch (Exception ex)
+            {
+                _statusText.Text = "操作失败：" + ex.Message;
+            }
+            finally
+            {
+                RefreshPage();
+            }
+        };
+        actions.Children.Add(toggle);
+
+        MyButton uninstall = new()
+        {
+            Text = "卸载",
+            MinWidth = 72,
+            Height = 32
+        };
+        uninstall.Click += async (_, _) =>
+        {
+            uninstall.IsEnabled = false;
+            try
+            {
+                PluginSidecarClient client = PluginSidecarSupervisor.Instance.Client
+                    ?? throw new InvalidOperationException("client null");
+                PluginSidecarResult result = await client.UninstallAsync(pluginId).ConfigureAwait(true);
+                _statusText.Text = result.Message ?? "已卸载。";
+            }
+            catch (Exception ex)
+            {
+                _statusText.Text = "卸载失败：" + ex.Message;
+            }
+            finally
+            {
+                RefreshPage();
+            }
+        };
+        actions.Children.Add(uninstall);
+
+        Grid.SetColumn(actions, 1);
+        grid.Children.Add(actions);
+        row.Child = grid;
+        return row;
     }
 
     private async Task InstallPnpAsync()

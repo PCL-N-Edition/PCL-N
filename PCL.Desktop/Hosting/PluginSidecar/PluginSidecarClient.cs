@@ -69,6 +69,23 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
             new PluginSidecarParams { PackagePath = packagePath },
             cancellationToken);
 
+    public Task<PluginSidecarResult> SetEnabledAsync(
+        string pluginId,
+        bool enabled,
+        CancellationToken cancellationToken = default) =>
+        CallAsync(
+            PluginSidecarMethods.CatalogSetEnabled,
+            new PluginSidecarParams { PluginId = pluginId, Enabled = enabled },
+            cancellationToken);
+
+    public Task<PluginSidecarResult> UninstallAsync(
+        string pluginId,
+        CancellationToken cancellationToken = default) =>
+        CallAsync(
+            PluginSidecarMethods.CatalogUninstall,
+            new PluginSidecarParams { PluginId = pluginId },
+            cancellationToken);
+
     public Task<PluginSidecarResult> ShutdownAsync(CancellationToken cancellationToken = default) =>
         CallAsync(PluginSidecarMethods.SystemShutdown, null, cancellationToken);
 

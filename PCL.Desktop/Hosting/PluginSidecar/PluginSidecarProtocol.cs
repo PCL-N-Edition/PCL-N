@@ -15,6 +15,8 @@ internal static class PluginSidecarMethods
     public const string UiOpenSettings = "ui.openSettings";
     public const string CatalogList = "catalog.list";
     public const string CatalogInstallPnp = "catalog.installPnp";
+    public const string CatalogSetEnabled = "catalog.setEnabled";
+    public const string CatalogUninstall = "catalog.uninstall";
 }
 
 internal sealed class PluginSidecarRequest
@@ -60,6 +62,12 @@ internal sealed class PluginSidecarParams
 
     [JsonPropertyName("packagePath")]
     public string? PackagePath { get; set; }
+
+    [JsonPropertyName("pluginId")]
+    public string? PluginId { get; set; }
+
+    [JsonPropertyName("enabled")]
+    public bool? Enabled { get; set; }
 }
 
 internal sealed class PluginSidecarResult

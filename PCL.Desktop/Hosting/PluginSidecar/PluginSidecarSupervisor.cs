@@ -24,7 +24,6 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
     private PluginSidecarClient? _client;
     private string? _pipeName;
     private string? _token;
-    private bool _started;
 
     public bool IsAvailable
     {
@@ -49,9 +48,16 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (_started)
-                return IsAvailable;
-            _started = true;
+            if (_client is { IsConnected: true } && _process is { HasExited: false })
+                return true;
+
+            // Allow retry after failed start or crashed process.
+            if (_process is not null || _client is not null)
+            {
+                _client = null;
+                try { _process?.Dispose(); } catch { /* ignore */ }
+                _process = null;
+            }
         }
 
         string? executable = PluginSidecarPaths.ResolveExecutable();

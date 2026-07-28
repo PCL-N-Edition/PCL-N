@@ -21,8 +21,18 @@ Resolve: `PCL_PLUGIN_SIDECAR_PATH` → `{base}/sidecar/…` → `{base}/…` →
 
 ## Protocol
 
-Length-prefixed (BE u32) UTF-8 JSON. Methods: `system.hello`, `system.shutdown`, `health.ping`, `runtime.init`, `catalog.list`, `catalog.installPnp`.  
-`ui.openSettings` is **not** used (no independent plugin window).
+Length-prefixed (BE u32) UTF-8 JSON. Protocol version **2**.
+
+| Method | Role |
+|--------|------|
+| `system.hello` / `system.shutdown` / `health.ping` | Lifecycle |
+| `runtime.init` | Data/cache roots + bootstrap |
+| `catalog.list` | Installed plugins |
+| `catalog.installPnp` | Install package path |
+| `catalog.setEnabled` | Enable / disable |
+| `catalog.uninstall` | Uninstall |
+
+`ui.openSettings` is **not** used (host owns management UX).
 
 Host DTOs: `PluginSidecarJsonContext` (AOT source-gen).
 
