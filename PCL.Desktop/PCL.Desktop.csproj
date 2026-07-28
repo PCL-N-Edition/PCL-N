@@ -135,6 +135,12 @@
     <EmbeddedResource Include="metadata.json">
       <LogicalName>PCL.Desktop.metadata.json</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Legal/terms.md">
+      <LogicalName>PCL.Desktop.Legal.terms.md</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Legal/privacy.md">
+      <LogicalName>PCL.Desktop.Legal.privacy.md</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="$(PclHpatchzPath)"
                       Condition="'$(PclHpatchzPath)' != '' and Exists('$(PclHpatchzPath)')">
       <LogicalName>PCL.Desktop.Embedded.hpatchz</LogicalName>

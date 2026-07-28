@@ -43,6 +43,7 @@ using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Community;
 using PCL.Desktop.Hosting;
+using PCL.Desktop.Legal;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Messaging;
 using PCL.Desktop.Session;
@@ -1509,15 +1510,73 @@ public partial class MainWindow : Window, IDisposable
         try
         {
             LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            MaybeShowCommunityWelcome(
+            // Legal acceptance (PCL-N-Edition terms + privacy) must pass before other first-run notices.
+            MaybeShowLegalAcceptance(
                 settings,
-                () => MaybeShowSpecialVersionNotice(OnStartupNoticesCompleted));
+                () => MaybeShowCommunityWelcome(
+                    settings,
+                    () => MaybeShowSpecialVersionNotice(OnStartupNoticesCompleted)));
         }
         catch (Exception ex)
         {
             DesktopFileLog.Warn("FirstRun", "首次运行引导加载失败，将继续显示特殊版本提示。", ex);
             MaybeShowSpecialVersionNotice(OnStartupNoticesCompleted);
         }
+    }
+
+    private void MaybeShowLegalAcceptance(LauncherSettings settings, Action completed)
+    {
+        string accepted = settings.GetTextOption(
+            EmbeddedLegalDocuments.SettingsKeyAcceptedVersion,
+            string.Empty);
+        if (string.Equals(accepted, EmbeddedLegalDocuments.DocumentVersion, StringComparison.Ordinal))
+        {
+            completed();
+            return;
+        }
+
+        string title = AvaloniaLocalizationManager.GetText(
+            "Legal.FirstRun.Title",
+            "用户协议与隐私保护");
+        string body;
+        try
+        {
+            body = EmbeddedLegalDocuments.BuildFirstRunAcceptanceMarkdown();
+        }
+        catch (Exception ex)
+        {
+            DesktopFileLog.Warn("FirstRun", "无法加载嵌入的法律文档。", ex);
+            body =
+                "无法加载嵌入的《用户服务协议》与《隐私保护协议》。\n\n" +
+                "请从官方渠道重新获取安装包。若继续使用，表示你确认已另行阅读并同意相关协议。";
+        }
+
+        string accept = AvaloniaLocalizationManager.GetText("Legal.FirstRun.Accept", "我已阅读并同意");
+        string decline = AvaloniaLocalizationManager.GetText("Legal.FirstRun.Decline", "不同意并退出");
+
+        ShowMarkdownDialog(
+            title,
+            body,
+            result =>
+            {
+                if (result != 1)
+                {
+                    Close();
+                    return;
+                }
+
+                LauncherSettingsPageBinder.UpdateSettings(current =>
+                {
+                    current.SetTextOption(
+                        EmbeddedLegalDocuments.SettingsKeyAcceptedVersion,
+                        EmbeddedLegalDocuments.DocumentVersion);
+                    return current;
+                });
+                completed();
+            },
+            accept,
+            decline,
+            isWarn: true);
     }
 
     private void OnStartupNoticesCompleted()
