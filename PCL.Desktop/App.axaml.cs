@@ -74,38 +74,6 @@ public sealed partial class App : Avalonia.Application
                         wizard.PrepareCentered();
                         desktop.MainWindow = wizard;
 
-                        if (showSplash)
-                        {
-                            _splashWindow = new SplashWindow();
-                            _splashWindow.Show();
-                            // After layout, align wizard to splash and hide splash without fade (seamless).
-                            Dispatcher.UIThread.Post(() =>
-                            {
-                                try
-                                {
-                                    if (_splashWindow is { } splash)
-                                    {
-                                        PixelPoint pos = splash.Position;
-                                        int w = (int)Math.Round(splash.Bounds.Width * splash.RenderScaling);
-                                        int h = (int)Math.Round(splash.Bounds.Height * splash.RenderScaling);
-                                        if (w < 1) w = (int)Math.Round(136 * splash.RenderScaling);
-                                        if (h < 1) h = (int)Math.Round(136 * splash.RenderScaling);
-                                        wizard.PrepareFromSplash(new PixelRect(pos.X, pos.Y, w, h));
-                                        splash.Hide();
-                                        splash.Close();
-                                        _splashWindow = null;
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    DesktopFileLog.Warn("Startup", "首次启动与 Splash 衔接失败，使用居中开场。", ex);
-                                }
-
-                                if (!wizard.IsVisible)
-                                    wizard.Show();
-                            }, DispatcherPriority.Loaded);
-                        }
-
                         wizard.Completed += (_, _) =>
                         {
                             // Page 1 only for now; later steps will call MarkCompleted at the true end.
@@ -113,6 +81,47 @@ public sealed partial class App : Avalonia.Application
                             ShowMainWindow(desktop, fadeSplash: false);
                             wizard.Close();
                         };
+
+                        if (showSplash)
+                        {
+                            _splashWindow = new SplashWindow();
+                            _splashWindow.Show();
+                            // Wait until splash is laid out, then hand off position and START expand once.
+                            Dispatcher.UIThread.Post(() =>
+                            {
+                                try
+                                {
+                                    if (_splashWindow is { } splash)
+                                    {
+                                        PixelPoint pos = splash.Position;
+                                        double scale = splash.RenderScaling > 0 ? splash.RenderScaling : 1;
+                                        int w = (int)Math.Round(Math.Max(splash.Bounds.Width, 136) * scale);
+                                        int h = (int)Math.Round(Math.Max(splash.Bounds.Height, 136) * scale);
+                                        splash.Hide();
+                                        splash.Close();
+                                        _splashWindow = null;
+                                        wizard.PrepareFromSplash(new PixelRect(pos.X, pos.Y, w, h));
+                                    }
+                                    else
+                                    {
+                                        wizard.StartIntroAnimation();
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    DesktopFileLog.Warn("Startup", "首次启动与 Splash 衔接失败，使用居中开场。", ex);
+                                    wizard.StartIntroAnimation();
+                                }
+
+                                if (!wizard.IsVisible)
+                                    wizard.Show();
+                            }, DispatcherPriority.Loaded);
+                        }
+                        else
+                        {
+                            // No splash: Opened/StartIntroAnimation path will expand from center.
+                            Dispatcher.UIThread.Post(wizard.StartIntroAnimation, DispatcherPriority.Loaded);
+                        }
 
                         DesktopFileLog.Info("Startup", "首次启动向导已创建（第 1 页：欢迎）。");
                     }

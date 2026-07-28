@@ -4,8 +4,8 @@
         x:Name="WindFirstRun"
         Width="136"
         Height="136"
-        MinWidth="136"
-        MinHeight="136"
+        MinWidth="1"
+        MinHeight="1"
         CanResize="False"
         ShowInTaskbar="True"
         Topmost="False"
@@ -16,19 +16,19 @@
         WindowStartupLocation="Manual"
         TransparencyLevelHint="Transparent">
 
-    <!-- Outer transparent surface; content grows with circular reveal from the splash icon. -->
+    <!-- Outer transparent surface; circular reveal is applied in code via EllipseGeometry Clip. -->
     <Border x:Name="PanShadow"
             Margin="0"
             CornerRadius="68"
             Background="#01000000"
             BoxShadow="0 0 0 0 #00000000"
-            ClipToBounds="True">
+            ClipToBounds="False">
         <Border x:Name="PanSurface"
                 Background="{DynamicResource ColorBrushBackground}"
                 CornerRadius="68"
-                ClipToBounds="True">
+                ClipToBounds="False">
             <Grid x:Name="PanStage"
-                  ClipToBounds="True">
+                  ClipToBounds="False">
                 <!-- In-window hero icon (takes over from splash after expand). -->
                 <Image x:Name="HeroIcon"
                        Source="avares://PCL.Desktop/Assets/icon.png"
