@@ -209,7 +209,7 @@ internal static class OobeConfiguration
     private static OobeManifest Load()
     {
         OobeManifest defaults = OobeManifest.CreateDefault();
-        string path = Path.Combine(AppContext.BaseDirectory, OverrideFileName);
+        string path = Path.Combine(PCL.Desktop.Paths.LauncherPathLayout.GetHostDirectory(), OverrideFileName);
         if (!File.Exists(path))
             return defaults;
 

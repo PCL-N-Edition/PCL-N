@@ -10,23 +10,56 @@ namespace PCL.Desktop.Paths;
 
 /// <summary>
 /// Optional portable path overrides for launcher data / cache (OOBE + advanced setups).
-/// Stored next to the host binary so custom locations survive restarts before settings load.
+/// <c>pcln-paths.json</c> is resolved next to the host executable (not AppContext.BaseDirectory,
+/// which may be a temp extract folder on C: for single-file / some host modes).
 /// </summary>
 internal static class LauncherPathLayout
 {
     public const string FileName = "pcln-paths.json";
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true
-    };
+    private static readonly object Gate = new();
+    private static LauncherPathOverrideDocument? _cachedDocument;
+    private static string? _cachedOverrideFilePath;
 
-    public static string OverrideFilePath =>
-        Path.Combine(AppContext.BaseDirectory, FileName);
+    public static string OverrideFilePath => ResolveOverrideFilePath();
+
+    /// <summary>
+    /// Directory that contains the real host binary (preferred over <see cref="AppContext.BaseDirectory"/>).
+    /// </summary>
+    public static string GetHostDirectory()
+    {
+        try
+        {
+            string? executablePath = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(executablePath) &&
+                !string.Equals(
+                    Path.GetFileNameWithoutExtension(executablePath),
+                    "dotnet",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                string? executableDirectory = Path.GetDirectoryName(Path.GetFullPath(executablePath));
+                if (!string.IsNullOrWhiteSpace(executableDirectory) && Directory.Exists(executableDirectory))
+                    return executableDirectory;
+            }
+        }
+        catch
+        {
+            // fall through
+        }
+
+        try
+        {
+            string baseDir = Path.GetFullPath(AppContext.BaseDirectory);
+            if (Directory.Exists(baseDir))
+                return baseDir;
+        }
+        catch
+        {
+            // fall through
+        }
+
+        return Path.GetFullPath(Environment.CurrentDirectory);
+    }
 
     public static string GetDefaultDataDirectory()
     {
@@ -42,50 +75,110 @@ internal static class LauncherPathLayout
 
     public static LauncherPathOverrideDocument Load()
     {
-        string path = OverrideFilePath;
-        if (!File.Exists(path))
-            return new LauncherPathOverrideDocument();
-
-        try
+        lock (Gate)
         {
-            string json = File.ReadAllText(path);
-            LauncherPathOverrideDocument? doc =
-                JsonSerializer.Deserialize(json, LauncherPathLayoutJsonContext.Default.LauncherPathOverrideDocument);
-            return doc ?? new LauncherPathOverrideDocument();
+            if (_cachedDocument is not null)
+                return Clone(_cachedDocument);
         }
-        catch (Exception ex)
+
+        LauncherPathOverrideDocument doc = LoadCore();
+        lock (Gate)
+            _cachedDocument = Clone(doc);
+        return doc;
+    }
+
+    /// <summary>Drop cached path layout (tests / after external file edit).</summary>
+    public static void InvalidateCache()
+    {
+        lock (Gate)
         {
-            PortableLog.Warn("Paths", "读取路径覆盖失败：" + ex.Message);
-            return new LauncherPathOverrideDocument();
+            _cachedDocument = null;
+            _cachedOverrideFilePath = null;
         }
     }
 
     public static void Save(LauncherPathOverrideDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
-        string path = OverrideFilePath;
-        Directory.CreateDirectory(Path.GetDirectoryName(path) ?? AppContext.BaseDirectory);
-        string json = JsonSerializer.Serialize(
-            document,
-            LauncherPathLayoutJsonContext.Default.LauncherPathOverrideDocument);
-        File.WriteAllText(path, json);
-        PortableLog.Info("Paths", "已写入路径覆盖：" + path);
+        string path = ResolveOverrideFilePath();
+        try
+        {
+            string? dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir))
+                Directory.CreateDirectory(dir);
+
+            string json = JsonSerializer.Serialize(
+                document,
+                LauncherPathLayoutJsonContext.Default.LauncherPathOverrideDocument);
+            File.WriteAllText(path, json);
+
+            // Also mirror next to AppContext.BaseDirectory when it differs (single-file extract vs real exe).
+            try
+            {
+                string baseMirror = Path.Combine(Path.GetFullPath(AppContext.BaseDirectory), FileName);
+                if (!PathsEqual(baseMirror, path))
+                {
+                    string? baseDir = Path.GetDirectoryName(baseMirror);
+                    if (!string.IsNullOrWhiteSpace(baseDir))
+                        Directory.CreateDirectory(baseDir);
+                    File.WriteAllText(baseMirror, json);
+                }
+            }
+            catch
+            {
+                // mirror is best-effort
+            }
+
+            lock (Gate)
+            {
+                _cachedDocument = Clone(document);
+                _cachedOverrideFilePath = path;
+            }
+
+            PortableLog.Info("Paths", "已写入路径覆盖：" + path);
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Warn("Paths", "写入路径覆盖失败：" + ex.Message);
+        }
     }
 
     public static string ResolveDataDirectory(LauncherPathOverrideDocument? document = null)
     {
         document ??= Load();
         if (!string.IsNullOrWhiteSpace(document.ApplicationDataDirectory))
-            return Path.GetFullPath(document.ApplicationDataDirectory.Trim());
-        return GetDefaultDataDirectory();
+        {
+            if (TryNormalizeExistingOrCreatableDirectory(
+                    document.ApplicationDataDirectory,
+                    out string custom))
+                return custom;
+
+            PortableLog.Warn(
+                "Paths",
+                "自定义数据目录不可用，回退默认：" + document.ApplicationDataDirectory);
+        }
+
+        string fallback = GetDefaultDataDirectory();
+        TryEnsureDirectory(fallback);
+        return fallback;
     }
 
     public static string ResolveCacheDirectory(LauncherPathOverrideDocument? document = null)
     {
         document ??= Load();
         if (!string.IsNullOrWhiteSpace(document.CacheDirectory))
-            return Path.GetFullPath(document.CacheDirectory.Trim());
-        return GetDefaultCacheDirectory();
+        {
+            if (TryNormalizeExistingOrCreatableDirectory(document.CacheDirectory, out string custom))
+                return custom;
+
+            PortableLog.Warn(
+                "Paths",
+                "自定义缓存目录不可用，回退默认：" + document.CacheDirectory);
+        }
+
+        string fallback = GetDefaultCacheDirectory();
+        TryEnsureDirectory(fallback);
+        return fallback;
     }
 
     public static string ResolveSettingsFilePath(LauncherPathOverrideDocument? document = null) =>
@@ -106,8 +199,8 @@ internal static class LauncherPathLayout
             ? GetDefaultCacheDirectory()
             : Path.GetFullPath(cacheDirectory.Trim());
 
-        Directory.CreateDirectory(newData);
-        Directory.CreateDirectory(newCache);
+        TryEnsureDirectory(newData);
+        TryEnsureDirectory(newCache);
 
         bool dataMigrated = false;
         bool cacheMigrated = false;
@@ -130,9 +223,140 @@ internal static class LauncherPathLayout
             ApplicationDataDirectory = PathsEqual(newData, GetDefaultDataDirectory()) ? null : newData,
             CacheDirectory = PathsEqual(newCache, GetDefaultCacheDirectory()) ? null : newCache
         };
+        InvalidateCache();
         Save(doc);
 
         return new LauncherPathMigrationResult(oldData, newData, oldCache, newCache, dataMigrated, cacheMigrated);
+    }
+
+    private static string ResolveOverrideFilePath()
+    {
+        lock (Gate)
+        {
+            if (!string.IsNullOrWhiteSpace(_cachedOverrideFilePath))
+                return _cachedOverrideFilePath!;
+        }
+
+        // Prefer existing file near the real executable, then BaseDirectory, then host dir.
+        foreach (string dir in EnumerateHostCandidateDirectories())
+        {
+            string candidate = Path.Combine(dir, FileName);
+            if (File.Exists(candidate))
+            {
+                lock (Gate)
+                    _cachedOverrideFilePath = candidate;
+                return candidate;
+            }
+        }
+
+        string primary = Path.Combine(GetHostDirectory(), FileName);
+        lock (Gate)
+            _cachedOverrideFilePath = primary;
+        return primary;
+    }
+
+    private static HashSet<string> EnumerateHostCandidateDirectories()
+    {
+        HashSet<string> seen = new(OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal);
+
+        void Add(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+            try
+            {
+                string full = Path.GetFullPath(path);
+                if (Directory.Exists(full))
+                    seen.Add(full);
+            }
+            catch
+            {
+                // skip invalid
+            }
+        }
+
+        Add(GetHostDirectory());
+        try { Add(AppContext.BaseDirectory); } catch { /* ignore */ }
+        try { Add(Environment.CurrentDirectory); } catch { /* ignore */ }
+
+        return seen;
+    }
+
+    private static LauncherPathOverrideDocument LoadCore()
+    {
+        foreach (string dir in EnumerateHostCandidateDirectories())
+        {
+            string path = Path.Combine(dir, FileName);
+            if (!File.Exists(path))
+                continue;
+
+            try
+            {
+                string json = File.ReadAllText(path);
+                LauncherPathOverrideDocument? doc =
+                    JsonSerializer.Deserialize(
+                        json,
+                        LauncherPathLayoutJsonContext.Default.LauncherPathOverrideDocument);
+                if (doc is not null)
+                {
+                    PortableLog.Info("Paths", "已加载路径覆盖：" + path);
+                    lock (Gate)
+                        _cachedOverrideFilePath = path;
+                    return doc;
+                }
+            }
+            catch (Exception ex)
+            {
+                PortableLog.Warn("Paths", $"读取路径覆盖失败（{path}）：" + ex.Message);
+            }
+        }
+
+        return new LauncherPathOverrideDocument();
+    }
+
+    private static bool TryNormalizeExistingOrCreatableDirectory(string raw, out string fullPath)
+    {
+        fullPath = string.Empty;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            fullPath = Path.GetFullPath(raw.Trim());
+            // Reject obvious non-directory roots (e.g. missing drive letter on Windows).
+            if (OperatingSystem.IsWindows() &&
+                fullPath.Length >= 2 &&
+                fullPath[1] == ':' &&
+                !Directory.Exists(fullPath[..2] + "\\"))
+            {
+                return false;
+            }
+
+            if (!TryEnsureDirectory(fullPath))
+                return false;
+
+            return true;
+        }
+        catch
+        {
+            fullPath = string.Empty;
+            return false;
+        }
+    }
+
+    private static bool TryEnsureDirectory(string path)
+    {
+        try
+        {
+            Directory.CreateDirectory(path);
+            return Directory.Exists(path);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool TryMigrateDirectory(string source, string destination)
@@ -171,7 +395,6 @@ internal static class LauncherPathLayout
             if (!string.IsNullOrWhiteSpace(parent))
                 Directory.CreateDirectory(parent);
 
-            // Prefer newer / keep existing target if locked.
             try
             {
                 File.Copy(file, target, overwrite: true);
@@ -183,6 +406,13 @@ internal static class LauncherPathLayout
             }
         }
     }
+
+    private static LauncherPathOverrideDocument Clone(LauncherPathOverrideDocument source) =>
+        new()
+        {
+            ApplicationDataDirectory = source.ApplicationDataDirectory,
+            CacheDirectory = source.CacheDirectory
+        };
 
     private static bool PathsEqual(string a, string b) =>
         string.Equals(

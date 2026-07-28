@@ -562,9 +562,24 @@ internal static class LauncherSettingsPageBinder
 
     internal static LauncherSettings LoadSettings()
     {
-        string path = CreateSettingsPath();
+        string path;
         try
         {
+            path = CreateSettingsPath();
+        }
+        catch (Exception ex)
+        {
+            // Never crash the host because path layout is broken (deleted C: config, bad override, etc.).
+            PortableLog.Warn("Settings", "解析设置路径失败，使用空设置：" + ex.Message);
+            return new LauncherSettings().NormalizeOptionDictionaries();
+        }
+
+        try
+        {
+            string? dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir))
+                Directory.CreateDirectory(dir);
+
             using LauncherSettingsStore store = new(path);
             LauncherSettings settings = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
             PortableLog.Debug(
@@ -574,8 +589,8 @@ internal static class LauncherSettingsPageBinder
         }
         catch (Exception ex)
         {
-            PortableLog.Error(ex, "Settings", $"读取启动器设置失败：{path}");
-            throw;
+            PortableLog.Error(ex, "Settings", $"读取启动器设置失败（已回退空设置）：{path}");
+            return new LauncherSettings().NormalizeOptionDictionaries();
         }
     }
 

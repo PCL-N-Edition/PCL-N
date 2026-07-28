@@ -38,6 +38,7 @@ internal static class Program
 
             // Apply CI-embedded secrets (MS client id, etc.) before any auth/UI code runs.
             PclEmbeddedSecrets.ApplyToEnvironment();
+            // Path layout must resolve next to the real executable before any settings I/O.
             LauncherSettings startupSettings = LauncherSettingsPageBinder.LoadSettings();
             DesktopFileLog.Initialize(DesktopFileLog.LevelFromSetting(startupSettings.GetIntegerOption(
                 "SystemLogLevel",
@@ -45,7 +46,12 @@ internal static class Program
             DesktopTraceLogBridge.Install();
             DesktopFileLog.Info(
                 "Startup",
-                $"进程入口已执行；参数数量={args.Length}；日志级别={DesktopFileLog.Level}；启动器目录={GetLauncherDirectory()}；工作目录={Environment.CurrentDirectory}。");
+                $"进程入口已执行；参数数量={args.Length}；日志级别={DesktopFileLog.Level}；" +
+                $"启动器目录={GetLauncherDirectory()}；BaseDirectory={AppContext.BaseDirectory}；" +
+                $"路径覆盖={PCL.Desktop.Paths.LauncherPathLayout.OverrideFilePath}；" +
+                $"数据目录={PCL.Desktop.Paths.LauncherPathLayout.ResolveDataDirectory()}；" +
+                $"设置文件={LauncherSettingsPageBinder.CreateSettingsPath()}；" +
+                $"工作目录={Environment.CurrentDirectory}。");
             DesktopFileLog.Debug("Startup", "命令行参数：" + string.Join(' ', args));
 
             if (args.Contains("--validate-environment", StringComparer.OrdinalIgnoreCase))
@@ -109,22 +115,8 @@ internal static class Program
         return builder.LogToTrace();
     }
 
-    internal static string GetLauncherDirectory()
-    {
-        string? executablePath = Environment.ProcessPath;
-        if (!string.IsNullOrWhiteSpace(executablePath) &&
-            !string.Equals(
-                Path.GetFileNameWithoutExtension(executablePath),
-                "dotnet",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            string? executableDirectory = Path.GetDirectoryName(Path.GetFullPath(executablePath));
-            if (!string.IsNullOrWhiteSpace(executableDirectory))
-                return executableDirectory;
-        }
-
-        return Path.GetFullPath(AppContext.BaseDirectory);
-    }
+    internal static string GetLauncherDirectory() =>
+        PCL.Desktop.Paths.LauncherPathLayout.GetHostDirectory();
 
     private static void SetLauncherWorkingDirectory()
     {
