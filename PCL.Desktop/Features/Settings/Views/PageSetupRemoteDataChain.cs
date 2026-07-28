@@ -16,29 +16,29 @@ using PCL.Desktop.Hosting.PluginSidecar;
 namespace PCL.Desktop.Features.Settings.Views;
 
 /// <summary>
-/// Generic host settings page: body is fully supplied by sidecar UI data-chain (no plugin UI code here).
+/// Generic host settings page: body from sidecar UI data-chain.
+/// Visual language matches classic PCL setup pages (MyCard / MyTextBox / MyButton) — not experimental UI.
 /// </summary>
 internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettingsPage
 {
+    private static readonly IBrush RowBorderBrush =
+        new SolidColorBrush(Color.FromArgb(40, 128, 128, 128));
+
     private readonly string _pageId;
     private readonly StackPanel _panMain;
     private readonly TextBlock _status;
     private readonly Dictionary<string, Func<string?>> _fields = new(StringComparer.OrdinalIgnoreCase);
+    private int _listAnimSeq;
 
     public PageSetupRemoteDataChain(string pageId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pageId);
         _pageId = pageId;
-        _status = new TextBlock
-        {
-            Opacity = 0.75,
-            TextWrapping = TextWrapping.Wrap,
-            Text = "正在从插件侧车加载页面…"
-        };
+        _status = CreateMuted("正在从插件侧车加载页面…", 13);
         _panMain = new StackPanel
         {
             Margin = new Thickness(25, 25, 25, 10),
-            Spacing = 12,
+            Spacing = 0,
             Children = { _status }
         };
         MyScrollViewer scroll = new()
@@ -61,7 +61,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             bool started = await PluginSidecarSupervisor.Instance.TryStartAsync().ConfigureAwait(true);
             if (!started)
             {
-                _status.Text = "插件侧车未运行，无法加载远程页面。";
+                ShowPageMessage("插件侧车未运行，无法加载此页面。可重新打开设置，或检查 sidecar 是否已随启动器打包。", warn: true);
                 return;
             }
         }
@@ -73,7 +73,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             PluginSidecarResult page = await client.UiGetPageAsync(_pageId).ConfigureAwait(true);
             if (!page.Ok || page.Root is null)
             {
-                _status.Text = page.Message ?? "页面为空。";
+                ShowPageMessage(page.Message ?? "页面为空。", warn: true);
                 return;
             }
 
@@ -81,10 +81,20 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         }
         catch (Exception ex)
         {
-            _status.Text = "加载失败：" + ex.Message;
-            _panMain.Children.Clear();
-            _panMain.Children.Add(_status);
+            ShowPageMessage("加载失败：" + ex.Message, warn: true);
         }
+    }
+
+    private void ShowPageMessage(string text, bool warn)
+    {
+        _fields.Clear();
+        _panMain.Children.Clear();
+        _panMain.Children.Add(new MyHint
+        {
+            Text = text,
+            Theme = warn ? MyHint.Themes.Yellow : MyHint.Themes.Blue,
+            Margin = new Thickness(0, 0, 0, 12)
+        });
     }
 
     private void ApplyRoot(PluginUiNodeDto root)
@@ -100,32 +110,23 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         return kind.ToLowerInvariant() switch
         {
             "card" => RenderCard(node),
-            "text" => new TextBlock
-            {
-                Text = node.Text ?? "",
-                FontSize = 14,
-                TextWrapping = TextWrapping.Wrap,
-                IsEnabled = node.Enabled
-            },
-            "muted" => new TextBlock
-            {
-                Text = node.Text ?? "",
-                FontSize = 12,
-                Opacity = 0.75,
-                TextWrapping = TextWrapping.Wrap
-            },
+            "toolbar" => RenderToolbar(node),
+            "text" => CreateBodyText(node.Text ?? "", enabled: node.Enabled),
+            "muted" => CreateMuted(node.Text ?? ""),
             "hint" => new MyHint
             {
                 Text = node.Text ?? "",
-                Theme = MyHint.Themes.Yellow
+                Theme = MyHint.Themes.Yellow,
+                Margin = new Thickness(0, 2, 0, 6)
             },
             "button" => RenderButton(node),
             "checkbox" => RenderCheckBox(node),
             "textbox" => RenderTextBox(node),
             "select" => RenderSelect(node),
-            "list" or "stack" => RenderStack(node),
+            "list" => RenderList(node),
+            "stack" => RenderStack(node),
             "row" => RenderRow(node),
-            _ => new TextBlock { Text = $"未知节点: {kind}", Opacity = 0.6 }
+            _ => CreateMuted($"未知节点: {kind}")
         };
     }
 
@@ -134,7 +135,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         MyCard card = new()
         {
             Title = node.Title ?? "",
-            Margin = new Thickness(0, 0, 0, 12)
+            Margin = new Thickness(0, 0, 0, 15)
         };
         StackPanel content = new()
         {
@@ -149,20 +150,47 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
     private StackPanel RenderStack(PluginUiNodeDto node)
     {
-        StackPanel panel = new() { Spacing = 8 };
+        StackPanel panel = new() { Spacing = 0 };
         if (!string.IsNullOrWhiteSpace(node.Title))
-        {
-            panel.Children.Add(new TextBlock
-            {
-                Text = node.Title,
-                FontWeight = FontWeight.SemiBold,
-                FontSize = 13
-            });
-        }
+            panel.Children.Add(CreateSectionTitle(node.Title!));
 
         foreach (PluginUiNodeDto child in node.Children ?? [])
             panel.Children.Add(RenderNode(child));
         return panel;
+    }
+
+    private StackPanel RenderList(PluginUiNodeDto node)
+    {
+        StackPanel panel = new() { Spacing = 8, Margin = new Thickness(0, 4, 0, 0) };
+        if (!string.IsNullOrWhiteSpace(node.Title))
+            panel.Children.Add(CreateSectionTitle(node.Title!));
+
+        foreach (PluginUiNodeDto child in node.Children ?? [])
+            panel.Children.Add(RenderNode(child));
+
+        string key = "remote-data-chain-" + _pageId + "-" + Interlocked.Increment(ref _listAnimSeq);
+        ControlVisualHelpers.AnimateListEntrance(panel, key);
+        return panel;
+    }
+
+    private WrapPanel RenderToolbar(PluginUiNodeDto node)
+    {
+        WrapPanel bar = new()
+        {
+            Orientation = Orientation.Horizontal,
+            ItemHeight = 36,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        foreach (PluginUiNodeDto child in node.Children ?? [])
+        {
+            Control control = RenderNode(child);
+            // Inline controls in toolbar shouldn't stretch full card width.
+            if (control is StackPanel stack)
+                stack.HorizontalAlignment = HorizontalAlignment.Left;
+            bar.Children.Add(control);
+        }
+
+        return bar;
     }
 
     private Border RenderRow(PluginUiNodeDto node)
@@ -170,7 +198,12 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         Grid grid = new();
         grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
         grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
-        StackPanel left = new() { Spacing = 2 };
+
+        StackPanel left = new()
+        {
+            Spacing = 3,
+            VerticalAlignment = VerticalAlignment.Center
+        };
         if (!string.IsNullOrWhiteSpace(node.Title))
         {
             left.Children.Add(new TextBlock
@@ -183,13 +216,19 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
         if (!string.IsNullOrWhiteSpace(node.Text))
         {
-            left.Children.Add(new TextBlock
+            // Multi-line detail: first line metadata, rest as secondary lines.
+            string[] lines = node.Text.Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            for (int i = 0; i < lines.Length; i++)
             {
-                Text = node.Text,
-                FontSize = 12,
-                Opacity = 0.75,
-                TextWrapping = TextWrapping.Wrap
-            });
+                left.Children.Add(new TextBlock
+                {
+                    Text = lines[i],
+                    FontSize = i == 0 ? 12 : 12,
+                    Opacity = 0.75,
+                    TextWrapping = TextWrapping.Wrap
+                });
+            }
         }
 
         Grid.SetColumn(left, 0);
@@ -199,20 +238,24 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         {
             Orientation = Orientation.Horizontal,
             VerticalAlignment = VerticalAlignment.Center,
+            ItemHeight = 35,
             Margin = new Thickness(12, 0, 0, 0)
         };
         foreach (PluginUiNodeDto child in node.Children ?? [])
         {
             if (string.Equals(child.Kind, "button", StringComparison.OrdinalIgnoreCase))
-                actions.Children.Add(RenderButton(child));
+                actions.Children.Add(RenderButton(child, inRow: true));
         }
 
-        Grid.SetColumn(actions, 1);
-        grid.Children.Add(actions);
+        if (actions.Children.Count > 0)
+        {
+            Grid.SetColumn(actions, 1);
+            grid.Children.Add(actions);
+        }
 
         return new Border
         {
-            BorderBrush = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
+            BorderBrush = RowBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(12, 10),
@@ -220,15 +263,18 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         };
     }
 
-    private MyButton RenderButton(PluginUiNodeDto node)
+    private MyButton RenderButton(PluginUiNodeDto node, bool inRow = false)
     {
+        string label = node.Text ?? node.Title ?? "操作";
         MyButton button = new()
         {
-            Text = node.Text ?? node.Title ?? "操作",
-            MinWidth = 80,
+            Text = label,
+            MinWidth = inRow ? 72 : 90,
             Height = 32,
             Margin = new Thickness(0, 0, 8, 6),
-            IsEnabled = node.Enabled
+            VerticalAlignment = VerticalAlignment.Center,
+            IsEnabled = node.Enabled,
+            ColorType = ResolveButtonColor(node.ActionId, label)
         };
         string? actionId = node.ActionId;
         string? meta = node.Meta;
@@ -247,10 +293,22 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         return button;
     }
 
+    private static MyButton.ColorState ResolveButtonColor(string? actionId, string label)
+    {
+        if (actionId is "catalog.uninstall" || label.Contains("卸载", StringComparison.Ordinal))
+            return MyButton.ColorState.Red;
+        if (actionId is "catalog.disable" || label is "禁用")
+            return MyButton.ColorState.Gray;
+        if (actionId is "market.installRemote" or "catalog.install" or "market.installListing"
+            or "developer.verify" or "online.connect"
+            || label is "获取" or "安装" or "更新" or "验证订单并启用" or "连接 PCL N 在线服务账户")
+            return MyButton.ColorState.Highlight;
+        return MyButton.ColorState.Normal;
+    }
+
     private MyCheckBox RenderCheckBox(PluginUiNodeDto node)
     {
         bool isChecked = node.Checked == true;
-        // Host-owned settings: sidecar cannot read launcher prefs; resolve by known field id.
         if (string.Equals(node.Id, "host.SystemDebugMode", StringComparison.Ordinal))
             isChecked = DesktopHostDeveloperDiagnostics.Instance.IsEnabled;
 
@@ -259,6 +317,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             Text = node.Text ?? node.Title ?? "",
             Checked = isChecked,
             Height = 22,
+            Margin = new Thickness(0, 2, 0, 2),
             IsEnabled = node.Enabled
         };
         string? actionId = node.ActionId;
@@ -277,25 +336,25 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
     private StackPanel RenderTextBox(PluginUiNodeDto node)
     {
-        StackPanel panel = new() { Spacing = 4 };
-        if (!string.IsNullOrWhiteSpace(node.Title))
+        StackPanel panel = new()
         {
-            panel.Children.Add(new TextBlock
-            {
-                Text = node.Title,
-                FontSize = 13,
-                FontWeight = FontWeight.SemiBold
-            });
-        }
+            Spacing = 4,
+            Margin = new Thickness(0, 0, 12, 6),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        if (!string.IsNullOrWhiteSpace(node.Title))
+            panel.Children.Add(CreateFieldLabel(node.Title!));
 
-        TextBox box = new()
+        MyTextBox box = new()
         {
             Text = node.Text ?? "",
-            PlaceholderText = node.Placeholder ?? "",
-            MinWidth = 280,
-            MinHeight = 32,
+            HintText = node.Placeholder ?? "",
+            MinWidth = 220,
+            Height = 32,
+            MaxLength = 200,
             IsEnabled = node.Enabled,
-            HorizontalAlignment = HorizontalAlignment.Stretch
+            UseExperimentalStyle = false
         };
         if (!string.IsNullOrWhiteSpace(node.Id))
             _fields[node.Id!] = () => box.Text;
@@ -306,23 +365,23 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
     private StackPanel RenderSelect(PluginUiNodeDto node)
     {
-        StackPanel panel = new() { Spacing = 4 };
-        if (!string.IsNullOrWhiteSpace(node.Title))
+        StackPanel panel = new()
         {
-            panel.Children.Add(new TextBlock
-            {
-                Text = node.Title,
-                FontSize = 13,
-                FontWeight = FontWeight.SemiBold
-            });
-        }
+            Spacing = 4,
+            Margin = new Thickness(0, 0, 12, 6),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        if (!string.IsNullOrWhiteSpace(node.Title))
+            panel.Children.Add(CreateFieldLabel(node.Title!));
 
         ComboBox combo = new()
         {
-            MinWidth = 180,
-            MinHeight = 32,
+            MinWidth = 150,
+            Height = 32,
             IsEnabled = node.Enabled,
-            HorizontalAlignment = HorizontalAlignment.Left
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalContentAlignment = VerticalAlignment.Center
         };
 
         int selectedIndex = 0;
@@ -355,7 +414,6 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
                 string? value = ResolveFieldValue(valueField);
                 string? pluginId = ResolveFieldValue(metaField) ?? staticMeta;
-                // When metaField is this select's own id, use current selection immediately.
                 if (!string.IsNullOrWhiteSpace(node.Id) &&
                     string.Equals(metaField, node.Id, StringComparison.OrdinalIgnoreCase) &&
                     combo.SelectedItem is SelectOptionItem current)
@@ -375,6 +433,43 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         return panel;
     }
 
+    private static TextBlock CreateSectionTitle(string text) =>
+        new()
+        {
+            Text = text,
+            FontWeight = FontWeight.SemiBold,
+            FontSize = 13,
+            Margin = new Thickness(0, 8, 0, 4)
+        };
+
+    private static TextBlock CreateFieldLabel(string text) =>
+        new()
+        {
+            Text = text,
+            FontSize = 12,
+            Opacity = 0.8
+        };
+
+    private static TextBlock CreateBodyText(string text, bool enabled = true) =>
+        new()
+        {
+            Text = text,
+            FontSize = 14,
+            TextWrapping = TextWrapping.Wrap,
+            IsEnabled = enabled,
+            Margin = new Thickness(0, 0, 0, 2)
+        };
+
+    private static TextBlock CreateMuted(string text, double fontSize = 12) =>
+        new()
+        {
+            Text = text,
+            FontSize = fontSize,
+            Opacity = 0.75,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 2)
+        };
+
     private string? ResolveFieldValue(string? fieldId)
     {
         if (string.IsNullOrWhiteSpace(fieldId))
@@ -385,6 +480,13 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
     private static bool TracksHostTask(string actionId) =>
         actionId is "market.installRemote" or "catalog.install" or "market.installListing";
 
+    private static bool QuietSuccessToast(string actionId) =>
+        actionId is "page.refresh" or "catalog.refresh" or "market.searchOnline"
+            or "safety.setPluginSafe" or "safety.setUiSafe" or "safety.setIsolation"
+            or "developer.setMode" or "developer.setAllowUnsigned" or "developer.showSafety"
+            or "developer.showUiPatches" or "developer.showCompatibility"
+            or "developer.setDiagnostics" or "cloud.setSection";
+
     private async Task InvokeAsync(
         string actionId,
         string? pluginId = null,
@@ -394,7 +496,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
     {
         if (!PluginSidecarSupervisor.Instance.IsAvailable)
         {
-            _status.Text = "侧车未连接。";
+            DesktopHostNotifications.Instance.ShowWarning("插件侧车未连接。");
             return;
         }
 
@@ -437,7 +539,6 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                     progress: progress)
                 .ConfigureAwait(true);
 
-            // Host-side pick file/folder then re-invoke (data-chain handoff).
             if (result.PickFolder)
             {
                 string? path = await PickFolderAsync(result.PickFolderTitle).ConfigureAwait(true);
@@ -482,9 +583,13 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             }
 
             if (!string.IsNullOrWhiteSpace(result.Message))
-                DesktopHostNotifications.Instance.ShowInformation(result.Message!);
+            {
+                if (!result.Ok)
+                    DesktopHostNotifications.Instance.ShowWarning(result.Message!);
+                else if (!QuietSuccessToast(actionId))
+                    DesktopHostNotifications.Instance.ShowInformation(result.Message!);
+            }
 
-            // Sidecar may request host-only settings (e.g. SystemDebugMode diagnostics).
             if (!string.IsNullOrWhiteSpace(result.HostBooleanKey) && result.HostBooleanValue is { } hostBool)
             {
                 if (string.Equals(result.HostBooleanKey, "SystemDebugMode", StringComparison.Ordinal))
@@ -493,7 +598,6 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                     PortableLog.Warn("PluginSidecar", "Unknown hostBooleanKey: " + result.HostBooleanKey);
             }
 
-            // Developer toggles may add Safety / UI Patch / Compatibility pages.
             if (result.RefreshNavigation)
             {
                 try
@@ -514,7 +618,6 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                     hostTask.Fail(result.Message ?? "失败");
             }
 
-            // Prefer inline root from action (e.g. local market scan) over full page reload.
             if (result.Root is not null)
             {
                 ApplyRoot(result.Root);

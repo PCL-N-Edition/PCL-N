@@ -20,7 +20,9 @@ ui.invokeAction → result              → refresh / pick file|folder / openUrl
 
 ### Node kinds
 
-`card` | `stack` | `list` | `row` | `text` | `muted` | `hint` | `button` | `checkbox` | `textbox` | `select`
+`card` | `stack` | `list` | `row` | `toolbar` | `text` | `muted` | `hint` | `button` | `checkbox` | `textbox` | `select`
+
+Host rendering follows classic setup pages (`MyCard` / `MyTextBox` / `MyButton`), not experimental UI.
 
 - `textbox`: optional `id`, `placeholder`, initial `text`
 - `select`: `options[{value,label}]`, `selected`, optional `actionId` on change
