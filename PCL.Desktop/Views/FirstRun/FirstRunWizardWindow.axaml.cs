@@ -7,32 +7,42 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using PCL.Application.Settings;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Settings.Views;
+using PCL.Desktop.Hosting.PluginSidecar;
 using PCL.Desktop.Legal;
 using PCL.Desktop.Localization;
+using PCL.Desktop.Paths;
 
 namespace PCL.Desktop.Views.FirstRun;
 
 /// <summary>
-/// First-run wizard:
-/// page 1 welcome (fixed window + growing bubble card → icon slide),
-/// page 2 terms, page 3 privacy.
+/// Out-of-box experience (OOBE) after first install:
+/// welcome → terms → privacy → data paths → online (plugin) → telemetry → finish + restart.
 /// </summary>
 public sealed partial class FirstRunWizardWindow : Window
 {
-    public const string SettingsKeyCompletedVersion = "UiFirstRunWizardVersion";
+    /// <summary>Legacy key kept for users who finished an earlier first-run build.</summary>
+    public const string SettingsKeyCompletedVersionLegacy = "UiFirstRunWizardVersion";
+
+    /// <summary>Primary OOBE completion marker.</summary>
+    public const string SettingsKeyCompletedVersion = "UiOobeVersion";
+
     public const string WizardVersion = "1";
+
+    /// <summary>Plugin data-chain page injected for OOBE online setup.</summary>
+    public const string PluginOobeOnlinePageId = "pcl.oobe.online";
 
     private const double SplashSize = 136d;
     private const double IconSize = 112d;
     private const double TargetWidth = 860d;
     private const double TargetHeight = 520d;
     private const double BubbleMargin = 12d;
-    private const double BubbleEndWidth = TargetWidth - BubbleMargin * 2d;  // 836
-    private const double BubbleEndHeight = TargetHeight - BubbleMargin * 2d; // 496
+    private const double BubbleEndWidth = TargetWidth - BubbleMargin * 2d;
+    private const double BubbleEndHeight = TargetHeight - BubbleMargin * 2d;
     private const double SurfaceCorner = 12d;
 
     private readonly Stopwatch _clock = new();
@@ -42,24 +52,40 @@ public sealed partial class FirstRunWizardWindow : Window
     private PixelPoint _centerScreen;
     private bool _introStarted;
     private bool _splashPrepared;
-    private int _legalPageIndex; // 0 = terms, 1 = privacy
+    private OobeStep _step = OobeStep.Welcome;
+    private int _legalPageIndex;
+    private bool _finishLayoutApplied;
+    private bool _completing;
 
     private Border? _panBubble;
     private Image? _heroIcon;
+    private Image? _finishIcon;
     private StackPanel? _welcomePanel;
+    private StackPanel? _finishPanel;
+    private TranslateTransform? _iconTranslate;
+    private TranslateTransform? _finishIconTranslate;
     private Grid? _pageWelcome;
     private Grid? _pageLegal;
-    private TranslateTransform? _iconTranslate;
+    private Grid? _pageData;
+    private Grid? _pageOnline;
+    private Grid? _pageTelemetry;
+    private Grid? _pageFinish;
     private MyMarkdownViewer? _labLegalMarkdown;
     private MyScrollViewer? _panLegalScroll;
+    private MyTextBox? _txtDataPath;
+    private MyTextBox? _txtCachePath;
+    private ContentControl? _hostOnlinePlugin;
     private MyButton? _btnStart;
-    private MyButton? _btnDisagree;
-    private MyButton? _btnPrev;
-    private MyButton? _btnNext;
+    private MyButton? _btnLegalDisagree;
+    private MyButton? _btnLegalPrev;
+    private MyButton? _btnLegalNext;
+    private MyButton? _btnFinish;
 
     private string _termsMarkdown = string.Empty;
     private string _privacyMarkdown = string.Empty;
+    private Control? _onlineFallback;
 
+    /// <summary>Raised when OOBE finishes successfully (caller should restart host).</summary>
     public event EventHandler? Completed;
 
     private enum Phase
@@ -72,39 +98,31 @@ public sealed partial class FirstRunWizardWindow : Window
         Done
     }
 
+    private enum OobeStep
+    {
+        Welcome,
+        Terms,
+        Privacy,
+        DataPaths,
+        Online,
+        Telemetry,
+        Finish
+    }
+
     public FirstRunWizardWindow()
     {
         AvaloniaXamlLoader.Load(this);
-        _panBubble = this.FindControl<Border>("PanBubble");
-        _pageWelcome = this.FindControl<Grid>("PageWelcome");
-        _pageLegal = this.FindControl<Grid>("PageLegal");
-        _heroIcon = this.FindControl<Image>("HeroIcon");
-        _welcomePanel = this.FindControl<StackPanel>("WelcomePanel");
-        _labLegalMarkdown = this.FindControl<MyMarkdownViewer>("LabLegalMarkdown");
-        _panLegalScroll = this.FindControl<MyScrollViewer>("PanLegalScroll");
-        _btnStart = this.FindControl<MyButton>("BtnStartSetup");
-        _btnDisagree = this.FindControl<MyButton>("BtnLegalDisagree");
-        _btnPrev = this.FindControl<MyButton>("BtnLegalPrev");
-        _btnNext = this.FindControl<MyButton>("BtnLegalNext");
+        WireControls();
 
-        // Window size is fixed for the whole wizard — never animate it.
         Width = TargetWidth;
         Height = TargetHeight;
         MinWidth = TargetWidth;
         MinHeight = TargetHeight;
 
         ApplyBubbleFrame(SplashSize, SplashSize, SplashSize / 2d, shadowProgress: 0d);
-
-        if (_heroIcon?.RenderTransform is TranslateTransform tt)
-            _iconTranslate = tt;
-        else if (_heroIcon is not null)
-        {
-            _iconTranslate = new TranslateTransform();
-            _heroIcon.RenderTransform = _iconTranslate;
-        }
-
         ApplyLocalizedCopy();
         LoadLegalDocuments();
+        SeedPathFields();
 
         Opened += OnOpened;
     }
@@ -112,8 +130,12 @@ public sealed partial class FirstRunWizardWindow : Window
     public static bool NeedsWizard(LauncherSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        string seen = settings.GetTextOption(SettingsKeyCompletedVersion, string.Empty);
-        return !string.Equals(seen, WizardVersion, StringComparison.Ordinal);
+        string oobe = settings.GetTextOption(SettingsKeyCompletedVersion, string.Empty);
+        if (string.Equals(oobe, WizardVersion, StringComparison.Ordinal))
+            return false;
+
+        string legacy = settings.GetTextOption(SettingsKeyCompletedVersionLegacy, string.Empty);
+        return !string.Equals(legacy, WizardVersion, StringComparison.Ordinal);
     }
 
     public static void MarkCompleted()
@@ -121,11 +143,11 @@ public sealed partial class FirstRunWizardWindow : Window
         LauncherSettingsPageBinder.UpdateSettings(current =>
         {
             current.SetTextOption(SettingsKeyCompletedVersion, WizardVersion);
+            current.SetTextOption(SettingsKeyCompletedVersionLegacy, WizardVersion);
             return current;
         });
     }
 
-    /// <summary>Center the fixed window on the splash icon, then grow the bubble.</summary>
     public void PrepareFromSplash(PixelRect splashBounds)
     {
         _splashPrepared = true;
@@ -158,16 +180,65 @@ public sealed partial class FirstRunWizardWindow : Window
         TryStartIntro();
     }
 
+    private void WireControls()
+    {
+        _panBubble = this.FindControl<Border>("PanBubble");
+        _pageWelcome = this.FindControl<Grid>("PageWelcome");
+        _pageLegal = this.FindControl<Grid>("PageLegal");
+        _pageData = this.FindControl<Grid>("PageData");
+        _pageOnline = this.FindControl<Grid>("PageOnline");
+        _pageTelemetry = this.FindControl<Grid>("PageTelemetry");
+        _pageFinish = this.FindControl<Grid>("PageFinish");
+        _heroIcon = this.FindControl<Image>("HeroIcon");
+        _finishIcon = this.FindControl<Image>("FinishIcon");
+        _welcomePanel = this.FindControl<StackPanel>("WelcomePanel");
+        _finishPanel = this.FindControl<StackPanel>("FinishPanel");
+        _labLegalMarkdown = this.FindControl<MyMarkdownViewer>("LabLegalMarkdown");
+        _panLegalScroll = this.FindControl<MyScrollViewer>("PanLegalScroll");
+        _txtDataPath = this.FindControl<MyTextBox>("TxtDataPath");
+        _txtCachePath = this.FindControl<MyTextBox>("TxtCachePath");
+        _hostOnlinePlugin = this.FindControl<ContentControl>("HostOnlinePlugin");
+        _btnStart = this.FindControl<MyButton>("BtnStartSetup");
+        _btnLegalDisagree = this.FindControl<MyButton>("BtnLegalDisagree");
+        _btnLegalPrev = this.FindControl<MyButton>("BtnLegalPrev");
+        _btnLegalNext = this.FindControl<MyButton>("BtnLegalNext");
+        _btnFinish = this.FindControl<MyButton>("BtnFinish");
+
+        if (_heroIcon?.RenderTransform is TranslateTransform tt)
+            _iconTranslate = tt;
+        else if (_heroIcon is not null)
+        {
+            _iconTranslate = new TranslateTransform();
+            _heroIcon.RenderTransform = _iconTranslate;
+        }
+
+        if (_finishIcon?.RenderTransform is TranslateTransform ft)
+            _finishIconTranslate = ft;
+        else if (_finishIcon is not null)
+        {
+            _finishIconTranslate = new TranslateTransform();
+            _finishIcon.RenderTransform = _finishIconTranslate;
+        }
+    }
+
     private void ApplyLocalizedCopy()
     {
         if (_btnStart is not null)
-            _btnStart.Text = AvaloniaLocalizationManager.GetText("FirstRun.Page1.StartSetup", "开始配置");
+            _btnStart.Text = AvaloniaLocalizationManager.GetText("Oobe.Welcome.Start", "开始配置");
         if (this.FindControl<TextBlock>("LabWelcome") is { } lab)
-        {
-            lab.Text = AvaloniaLocalizationManager.GetText(
-                "FirstRun.Page1.WelcomeTitle",
-                "欢迎使用 PCL N Edition");
-        }
+            lab.Text = AvaloniaLocalizationManager.GetText("Oobe.Welcome.Title", "欢迎使用 PCL N Edition");
+        if (this.FindControl<TextBlock>("LabDataTitle") is { } dataTitle)
+            dataTitle.Text = AvaloniaLocalizationManager.GetText("Oobe.Data.Title", "启动器数据配置");
+        if (this.FindControl<TextBlock>("LabOnlineTitle") is { } onlineTitle)
+            onlineTitle.Text = AvaloniaLocalizationManager.GetText("Oobe.Online.Title", "在线服务配置");
+        if (this.FindControl<TextBlock>("LabTelemetryTitle") is { } telTitle)
+            telTitle.Text = AvaloniaLocalizationManager.GetText("Oobe.Telemetry.Title", "遥测与数据收集");
+        if (this.FindControl<TextBlock>("LabTelemetryBody") is { } telBody)
+            telBody.Text = AvaloniaLocalizationManager.GetText("Oobe.Telemetry.Empty", "暂无遥测内容");
+        if (this.FindControl<TextBlock>("LabFinishTitle") is { } finish)
+            finish.Text = AvaloniaLocalizationManager.GetText("Oobe.Finish.Title", "感谢您选择 PCL N Edition！");
+        if (_btnFinish is not null)
+            _btnFinish.Text = AvaloniaLocalizationManager.GetText("Oobe.Finish.Complete", "完成配置");
     }
 
     private void LoadLegalDocuments()
@@ -179,11 +250,17 @@ public sealed partial class FirstRunWizardWindow : Window
         }
         catch (Exception)
         {
-            _termsMarkdown =
-                "无法加载嵌入的《用户服务协议》。\n\n请从官方渠道重新获取安装包。";
-            _privacyMarkdown =
-                "无法加载嵌入的《隐私保护协议》。\n\n请从官方渠道重新获取安装包。";
+            _termsMarkdown = "无法加载嵌入的《用户服务协议》。";
+            _privacyMarkdown = "无法加载嵌入的《隐私保护协议》。";
         }
+    }
+
+    private void SeedPathFields()
+    {
+        if (_txtDataPath is not null)
+            _txtDataPath.Text = LauncherPathLayout.ResolveDataDirectory();
+        if (_txtCachePath is not null)
+            _txtCachePath.Text = LauncherPathLayout.ResolveCacheDirectory();
     }
 
     private void PlaceWindowAtCenter(PixelPoint centerScreen)
@@ -204,14 +281,11 @@ public sealed partial class FirstRunWizardWindow : Window
         _panBubble.CornerRadius = new CornerRadius(cornerRadius);
 
         double p = Math.Clamp(shadowProgress, 0d, 1d);
-        double blur = Lerp(0d, 22d, p);
-        double offsetY = Lerp(0d, 10d, p);
-        byte alpha = (byte)Math.Clamp((int)(Lerp(0d, 0.34d, p) * 255d), 0, 255);
         _panBubble.BoxShadow = new BoxShadows(new BoxShadow
         {
-            Blur = blur,
-            OffsetY = offsetY,
-            Color = Color.FromArgb(alpha, 0, 0, 0)
+            Blur = Lerp(0d, 22d, p),
+            OffsetY = Lerp(0d, 10d, p),
+            Color = Color.FromArgb((byte)Math.Clamp((int)(Lerp(0d, 0.34d, p) * 255d), 0, 255), 0, 0, 0)
         });
     }
 
@@ -305,7 +379,7 @@ public sealed partial class FirstRunWizardWindow : Window
                 {
                     _timer?.Stop();
                     _phase = Phase.Done;
-                    FinishFadeToLegal();
+                    ShowStep(OobeStep.Terms, animate: false);
                 }
                 break;
         }
@@ -313,11 +387,8 @@ public sealed partial class FirstRunWizardWindow : Window
 
     private void TickExpandBubble(double eased)
     {
-        // Grow centered bubble from splash circle → full rounded card.
-        // Window position/size stay constant → no icon jitter from host moves.
         double w = Lerp(SplashSize, BubbleEndWidth, eased);
         double h = Lerp(SplashSize, BubbleEndHeight, eased);
-        // Stay circular until late, then ease into card corners.
         double circleCorner = Math.Min(w, h) / 2d;
         double corner = Lerp(circleCorner, SurfaceCorner, Math.Pow(eased, 1.6d));
         ApplyBubbleFrame(w, h, corner, shadowProgress: eased);
@@ -331,7 +402,6 @@ public sealed partial class FirstRunWizardWindow : Window
         double targetX = -Math.Min(BubbleEndWidth * 0.22, 170);
         _iconTranslate.X = Lerp(0, targetX, eased);
         _welcomePanel.Opacity = eased;
-
         double panelLeft = BubbleEndWidth * 0.5 + targetX + IconSize * 0.45;
         _welcomePanel.Margin = new Thickness(Math.Max(panelLeft, BubbleEndWidth * 0.42), 0, 48, 0);
     }
@@ -347,24 +417,201 @@ public sealed partial class FirstRunWizardWindow : Window
             _welcomePanel.Opacity = opacity;
     }
 
-    private void FinishFadeToLegal()
+    private void ShowStep(OobeStep step, bool animate)
     {
-        if (_pageWelcome is not null)
+        _step = step;
+        SetPageVisible(_pageWelcome, false);
+        SetPageVisible(_pageLegal, step is OobeStep.Terms or OobeStep.Privacy);
+        SetPageVisible(_pageData, step == OobeStep.DataPaths);
+        SetPageVisible(_pageOnline, step == OobeStep.Online);
+        SetPageVisible(_pageTelemetry, step == OobeStep.Telemetry);
+        SetPageVisible(_pageFinish, step == OobeStep.Finish);
+
+        switch (step)
         {
-            _pageWelcome.IsVisible = false;
-            _pageWelcome.IsHitTestVisible = false;
-            _pageWelcome.Opacity = 0;
+            case OobeStep.Terms:
+                ShowLegalPage(0);
+                break;
+            case OobeStep.Privacy:
+                ShowLegalPage(1);
+                break;
+            case OobeStep.DataPaths:
+                SeedPathFieldsIfEmpty();
+                break;
+            case OobeStep.Online:
+                EnsureOnlinePluginContent();
+                break;
+            case OobeStep.Finish:
+                ApplyFinishLayout();
+                break;
         }
 
-        if (_pageLegal is not null)
+        if (animate)
         {
-            _pageLegal.IsVisible = true;
-            _pageLegal.Opacity = 1;
-            _pageLegal.IsHitTestVisible = true;
+            Grid? active = step switch
+            {
+                OobeStep.Terms or OobeStep.Privacy => _pageLegal,
+                OobeStep.DataPaths => _pageData,
+                OobeStep.Online => _pageOnline,
+                OobeStep.Telemetry => _pageTelemetry,
+                OobeStep.Finish => _pageFinish,
+                _ => null
+            };
+            if (active is not null)
+            {
+                active.Opacity = 0.55;
+                Dispatcher.UIThread.Post(() => active.Opacity = 1, DispatcherPriority.Render);
+            }
         }
+    }
 
-        _legalPageIndex = 0;
-        ShowLegalPage(0, animateContent: false);
+    private static void SetPageVisible(Grid? page, bool visible)
+    {
+        if (page is null)
+            return;
+        page.IsVisible = visible;
+        page.Opacity = visible ? 1 : 0;
+        page.IsHitTestVisible = visible;
+    }
+
+    private void SeedPathFieldsIfEmpty()
+    {
+        if (_txtDataPath is not null && string.IsNullOrWhiteSpace(_txtDataPath.Text))
+            _txtDataPath.Text = LauncherPathLayout.ResolveDataDirectory();
+        if (_txtCachePath is not null && string.IsNullOrWhiteSpace(_txtCachePath.Text))
+            _txtCachePath.Text = LauncherPathLayout.ResolveCacheDirectory();
+    }
+
+    private void ShowLegalPage(int index)
+    {
+        _legalPageIndex = index is 0 or 1 ? index : 0;
+        if (_labLegalMarkdown is not null)
+            _labLegalMarkdown.Markdown = _legalPageIndex == 0 ? _termsMarkdown : _privacyMarkdown;
+        _panLegalScroll?.ScrollToHome();
+
+        if (_legalPageIndex == 0)
+        {
+            if (_btnLegalDisagree is not null)
+            {
+                _btnLegalDisagree.Text = AvaloniaLocalizationManager.GetText("Oobe.Legal.Disagree", "不同意");
+                _btnLegalDisagree.ColorType = MyButton.ColorState.Red;
+            }
+
+            if (_btnLegalPrev is not null)
+            {
+                _btnLegalPrev.Text = AvaloniaLocalizationManager.GetText("Oobe.Nav.Previous", "上一页");
+                _btnLegalPrev.IsEnabled = false;
+            }
+
+            if (_btnLegalNext is not null)
+            {
+                _btnLegalNext.Text = AvaloniaLocalizationManager.GetText("Oobe.Nav.Next", "下一页");
+                _btnLegalNext.ColorType = MyButton.ColorState.Highlight;
+            }
+        }
+        else
+        {
+            if (_btnLegalDisagree is not null)
+            {
+                _btnLegalDisagree.Text = AvaloniaLocalizationManager.GetText(
+                    "Oobe.Legal.DisagreeExit",
+                    "不同意并退出");
+                _btnLegalDisagree.ColorType = MyButton.ColorState.Red;
+            }
+
+            if (_btnLegalPrev is not null)
+            {
+                _btnLegalPrev.Text = AvaloniaLocalizationManager.GetText("Oobe.Nav.Previous", "上一页");
+                _btnLegalPrev.IsEnabled = true;
+            }
+
+            if (_btnLegalNext is not null)
+            {
+                _btnLegalNext.Text = AvaloniaLocalizationManager.GetText("Oobe.Legal.Agree", "同意条款");
+                _btnLegalNext.ColorType = MyButton.ColorState.Highlight;
+            }
+        }
+    }
+
+    private void ApplyFinishLayout()
+    {
+        if (_finishLayoutApplied)
+            return;
+        _finishLayoutApplied = true;
+
+        double targetX = -Math.Min(BubbleEndWidth * 0.22, 170);
+        if (_finishIconTranslate is not null)
+            _finishIconTranslate.X = targetX;
+        if (_finishPanel is not null)
+        {
+            double panelLeft = BubbleEndWidth * 0.5 + targetX + IconSize * 0.45;
+            _finishPanel.Margin = new Thickness(Math.Max(panelLeft, BubbleEndWidth * 0.42), 0, 48, 0);
+        }
+    }
+
+    private void EnsureOnlinePluginContent()
+    {
+        // Plugin actively provides OOBE online page via sidecar data-chain.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (!PluginSidecarSupervisor.Instance.IsAvailable)
+                    await PluginSidecarSupervisor.Instance.TryStartAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Host will show fallback.
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (_hostOnlinePlugin is null || _step != OobeStep.Online)
+                    return;
+
+                if (PluginSidecarSupervisor.Instance.IsAvailable)
+                {
+                    if (_hostOnlinePlugin.Content is PageSetupRemoteDataChain)
+                        return;
+                    _hostOnlinePlugin.Content = new PageSetupRemoteDataChain(PluginOobeOnlinePageId)
+                    {
+                        Margin = new Thickness(0)
+                    };
+                    return;
+                }
+
+                _onlineFallback ??= CreateOnlineFallback();
+                _hostOnlinePlugin.Content = _onlineFallback;
+            });
+        });
+    }
+
+    private static StackPanel CreateOnlineFallback()
+    {
+        return new StackPanel
+        {
+            Spacing = 10,
+            Margin = new Thickness(0, 12, 0, 0),
+            Children =
+            {
+                new MyHint
+                {
+                    Text = AvaloniaLocalizationManager.GetText(
+                        "Oobe.Online.Unavailable",
+                        "插件侧车未运行，暂时无法登录在线账户。可跳过本页，稍后在「设置 → 在线」中连接。"),
+                    Theme = MyHint.Themes.Yellow
+                },
+                new TextBlock
+                {
+                    Text = AvaloniaLocalizationManager.GetText(
+                        "Oobe.Online.Unavailable.Detail",
+                        "在线服务由 Plugin 提供；打包完整发行版后，此页将显示登录与云同步入口。"),
+                    Opacity = 0.7,
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = new SolidColorBrush(Color.Parse("#FF1C1C1E"))
+                }
+            }
+        };
     }
 
     private void BtnStartSetup_Click(object? sender, EventArgs e)
@@ -377,74 +624,133 @@ public sealed partial class FirstRunWizardWindow : Window
         if (_btnStart is not null)
             _btnStart.IsEnabled = false;
 
+        // Warm sidecar early so page 5 is ready.
+        _ = PluginSidecarSupervisor.Instance.TryStartAsync();
         BeginPhase(Phase.FadeWelcomeOut, durationMs: 320);
     }
 
-    private void ShowLegalPage(int index, bool animateContent)
+    private void BtnLegalDisagree_Click(object? sender, EventArgs e) => ShutdownHost();
+
+    private void BtnLegalPrev_Click(object? sender, EventArgs e)
     {
-        _legalPageIndex = index is 0 or 1 ? index : 0;
-        string markdown = _legalPageIndex == 0 ? _termsMarkdown : _privacyMarkdown;
+        if (_step == OobeStep.Privacy)
+            ShowStep(OobeStep.Terms, animate: true);
+    }
 
-        if (_labLegalMarkdown is not null)
-            _labLegalMarkdown.Markdown = markdown;
-
-        _panLegalScroll?.ScrollToHome();
-
-        if (_legalPageIndex == 0)
+    private void BtnLegalNext_Click(object? sender, EventArgs e)
+    {
+        if (_step == OobeStep.Terms)
         {
-            if (_btnDisagree is not null)
-            {
-                _btnDisagree.Text = AvaloniaLocalizationManager.GetText("FirstRun.Legal.Disagree", "不同意");
-                _btnDisagree.ColorType = MyButton.ColorState.Red;
-            }
-
-            if (_btnPrev is not null)
-            {
-                _btnPrev.Text = AvaloniaLocalizationManager.GetText("FirstRun.Legal.Previous", "上一页");
-                _btnPrev.IsEnabled = false;
-            }
-
-            if (_btnNext is not null)
-            {
-                _btnNext.Text = AvaloniaLocalizationManager.GetText("FirstRun.Legal.Next", "下一页");
-                _btnNext.ColorType = MyButton.ColorState.Highlight;
-            }
-        }
-        else
-        {
-            if (_btnDisagree is not null)
-            {
-                _btnDisagree.Text = AvaloniaLocalizationManager.GetText(
-                    "FirstRun.Legal.DisagreeExit",
-                    "不同意并退出");
-                _btnDisagree.ColorType = MyButton.ColorState.Red;
-            }
-
-            if (_btnPrev is not null)
-            {
-                _btnPrev.Text = AvaloniaLocalizationManager.GetText("FirstRun.Legal.Previous", "上一页");
-                _btnPrev.IsEnabled = true;
-            }
-
-            if (_btnNext is not null)
-            {
-                _btnNext.Text = AvaloniaLocalizationManager.GetText("FirstRun.Legal.Agree", "同意条款");
-                _btnNext.ColorType = MyButton.ColorState.Highlight;
-            }
+            ShowStep(OobeStep.Privacy, animate: true);
+            return;
         }
 
-        if (animateContent && _pageLegal is not null)
+        // Privacy accepted → record legal, continue OOBE (do not finish yet).
+        LauncherSettingsPageBinder.UpdateSettings(current =>
         {
-            _pageLegal.Opacity = 0.55;
-            Dispatcher.UIThread.Post(() =>
+            current.SetTextOption(
+                EmbeddedLegalDocuments.SettingsKeyAcceptedVersion,
+                EmbeddedLegalDocuments.DocumentVersion);
+            return current;
+        });
+        ShowStep(OobeStep.DataPaths, animate: true);
+    }
+
+    private async void BtnBrowseData_Click(object? sender, EventArgs e)
+    {
+        string? path = await PickFolderAsync(
+            AvaloniaLocalizationManager.GetText("Oobe.Data.BrowseData", "选择启动器数据位置")).ConfigureAwait(true);
+        if (!string.IsNullOrWhiteSpace(path) && _txtDataPath is not null)
+            _txtDataPath.Text = path;
+    }
+
+    private async void BtnBrowseCache_Click(object? sender, EventArgs e)
+    {
+        string? path = await PickFolderAsync(
+            AvaloniaLocalizationManager.GetText("Oobe.Data.BrowseCache", "选择启动器缓存位置")).ConfigureAwait(true);
+        if (!string.IsNullOrWhiteSpace(path) && _txtCachePath is not null)
+            _txtCachePath.Text = path;
+    }
+
+    private async Task<string?> PickFolderAsync(string title)
+    {
+        IStorageProvider? storage = StorageProvider;
+        if (storage?.CanPickFolder != true)
+            return null;
+
+        IReadOnlyList<IStorageFolder> folders = await storage.OpenFolderPickerAsync(
+            new FolderPickerOpenOptions
             {
-                if (_pageLegal is not null)
-                    _pageLegal.Opacity = 1;
-            }, DispatcherPriority.Render);
+                Title = title,
+                AllowMultiple = false
+            }).ConfigureAwait(true);
+        return folders.Count == 0 ? null : folders[0].TryGetLocalPath();
+    }
+
+    private void BtnDataPrev_Click(object? sender, EventArgs e) => ShowStep(OobeStep.Privacy, animate: true);
+
+    private void BtnDataNext_Click(object? sender, EventArgs e) => ShowStep(OobeStep.Online, animate: true);
+
+    private void BtnOnlinePrev_Click(object? sender, EventArgs e) => ShowStep(OobeStep.DataPaths, animate: true);
+
+    private void BtnOnlineNext_Click(object? sender, EventArgs e) => ShowStep(OobeStep.Telemetry, animate: true);
+
+    private void BtnTelemetryPrev_Click(object? sender, EventArgs e) => ShowStep(OobeStep.Online, animate: true);
+
+    private void BtnTelemetryNext_Click(object? sender, EventArgs e) => ShowStep(OobeStep.Finish, animate: true);
+
+    private void BtnFinish_Click(object? sender, EventArgs e)
+    {
+        if (_completing)
+            return;
+        _completing = true;
+        if (_btnFinish is not null)
+            _btnFinish.IsEnabled = false;
+
+        try
+        {
+            string dataPath = _txtDataPath?.Text?.Trim() ?? LauncherPathLayout.GetDefaultDataDirectory();
+            string cachePath = _txtCachePath?.Text?.Trim() ?? LauncherPathLayout.GetDefaultCacheDirectory();
+
+            // Persist path overrides + migrate existing config into the chosen roots.
+            LauncherPathLayout.ApplyAndMigrate(dataPath, cachePath);
+
+            LauncherSettingsPageBinder.UpdateSettings(current =>
+            {
+                current.SetTextOption(
+                    EmbeddedLegalDocuments.SettingsKeyAcceptedVersion,
+                    EmbeddedLegalDocuments.DocumentVersion);
+                current.SetTextOption(SettingsKeyCompletedVersion, WizardVersion);
+                current.SetTextOption(SettingsKeyCompletedVersionLegacy, WizardVersion);
+                current.SetTextOption("OobeDataDirectory", LauncherPathLayout.ResolveDataDirectory());
+                current.SetTextOption("OobeCacheDirectory", LauncherPathLayout.ResolveCacheDirectory());
+                return current;
+            });
+
+            Completed?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            _completing = false;
+            if (_btnFinish is not null)
+                _btnFinish.IsEnabled = true;
+            PortableLogFinishError(ex);
         }
     }
 
-    private void BtnLegalDisagree_Click(object? sender, EventArgs e)
+    private static void PortableLogFinishError(Exception ex)
+    {
+        try
+        {
+            PCL.Core.Logging.PortableLog.Warn("OOBE", "完成配置失败：" + ex.Message);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private void ShutdownHost()
     {
         try
         {
@@ -461,38 +767,6 @@ public sealed partial class FirstRunWizardWindow : Window
         }
 
         Close();
-    }
-
-    private void BtnLegalPrev_Click(object? sender, EventArgs e)
-    {
-        if (_legalPageIndex <= 0)
-            return;
-        ShowLegalPage(0, animateContent: true);
-    }
-
-    private void BtnLegalNext_Click(object? sender, EventArgs e)
-    {
-        if (_legalPageIndex == 0)
-        {
-            ShowLegalPage(1, animateContent: true);
-            return;
-        }
-
-        AcceptLegalAndComplete();
-    }
-
-    private void AcceptLegalAndComplete()
-    {
-        LauncherSettingsPageBinder.UpdateSettings(current =>
-        {
-            current.SetTextOption(
-                EmbeddedLegalDocuments.SettingsKeyAcceptedVersion,
-                EmbeddedLegalDocuments.DocumentVersion);
-            current.SetTextOption(SettingsKeyCompletedVersion, WizardVersion);
-            return current;
-        });
-
-        Completed?.Invoke(this, EventArgs.Empty);
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)

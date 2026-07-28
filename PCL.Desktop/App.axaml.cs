@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -69,16 +70,22 @@ public sealed partial class App : Avalonia.Application
 
                     if (firstRunWizard)
                     {
-                        // First-run: splash icon hands off into the wizard (circular expand → welcome).
+                        // OOBE: splash → multi-step setup; finish restarts so path overrides apply cleanly.
                         FirstRunWizardWindow wizard = new();
                         wizard.PrepareCentered();
                         desktop.MainWindow = wizard;
 
                         wizard.Completed += (_, _) =>
                         {
-                            // Wizard marks legal + first-run version on "同意条款".
-                            ShowMainWindow(desktop, fadeSplash: false);
-                            wizard.Close();
+                            try
+                            {
+                                RestartLauncherProcess();
+                            }
+                            finally
+                            {
+                                try { wizard.Close(); } catch { /* ignore */ }
+                                desktop.Shutdown(0);
+                            }
                         };
 
                         if (showSplash)
@@ -122,7 +129,7 @@ public sealed partial class App : Avalonia.Application
                             Dispatcher.UIThread.Post(wizard.StartIntroAnimation, DispatcherPriority.Loaded);
                         }
 
-                        DesktopFileLog.Info("Startup", "首次启动向导已创建（第 1 页：欢迎）。");
+                        DesktopFileLog.Info("Startup", "OOBE 已创建（欢迎 → 协议 → 数据 → 在线 → 遥测 → 完成）。");
                     }
                     else
                     {
@@ -169,5 +176,43 @@ public sealed partial class App : Avalonia.Application
         desktop.MainWindow = mainWindow;
         if (!mainWindow.IsVisible)
             mainWindow.Show();
+    }
+
+    /// <summary>Relaunch this host after OOBE so path overrides and migrated settings take effect.</summary>
+    private static void RestartLauncherProcess()
+    {
+        string? exe = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe))
+        {
+            try
+            {
+                exe = Process.GetCurrentProcess().MainModule?.FileName;
+            }
+            catch
+            {
+                exe = null;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(exe))
+        {
+            DesktopFileLog.Warn("OOBE", "无法解析可执行文件路径，完成配置后未自动重启。");
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = exe,
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(exe) ?? Environment.CurrentDirectory
+            });
+            DesktopFileLog.Info("OOBE", "OOBE 完成，已请求重启启动器：" + exe);
+        }
+        catch (Exception ex)
+        {
+            DesktopFileLog.Warn("OOBE", "重启启动器失败：" + ex.Message);
+        }
     }
 }

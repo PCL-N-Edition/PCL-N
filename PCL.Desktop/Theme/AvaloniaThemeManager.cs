@@ -121,8 +121,7 @@ public static class AvaloniaThemeManager
         if (!string.IsNullOrWhiteSpace(overridePath))
             return Path.GetFullPath(overridePath);
 
-        DefaultPlatformPathProvider paths = new();
-        return Path.Combine(paths.ApplicationDataDirectory, "PCL-N", "launcher-settings.json");
+        return Paths.LauncherPathLayout.ResolveSettingsFilePath();
     }
 
     private static bool ResolveDarkMode(ColorMode mode, Avalonia.Application application)

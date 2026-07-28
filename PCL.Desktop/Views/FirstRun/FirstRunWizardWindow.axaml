@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
         x:Class="PCL.Desktop.Views.FirstRun.FirstRunWizardWindow"
-        x:Name="WindFirstRun"
+        x:Name="WindOobe"
         Width="860"
         Height="520"
         MinWidth="860"
@@ -17,13 +17,8 @@
         WindowStartupLocation="Manual"
         TransparencyLevelHint="Transparent">
 
-    <!--
-      Window stays full-size and never moves.
-      Expand is done by growing PanBubble (centered circle → rounded card).
-    -->
-    <Grid x:Name="PanRoot"
-          Background="Transparent"
-          ClipToBounds="False">
+    <!-- OOBE shell: fixed window; intro expands a centered bubble card. -->
+    <Grid x:Name="PanRoot" Background="Transparent" ClipToBounds="False">
         <Border x:Name="PanBubble"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
@@ -34,22 +29,18 @@
                 BoxShadow="0 0 0 0 #00000000"
                 ClipToBounds="True">
             <Grid x:Name="PanStage">
-                <!-- Page 1: splash-handoff icon + welcome -->
-                <Grid x:Name="PageWelcome"
-                      IsHitTestVisible="True">
+
+                <!-- 1: Welcome -->
+                <Grid x:Name="PageWelcome" IsHitTestVisible="True">
                     <Image x:Name="HeroIcon"
                            Source="avares://PCL.Desktop/Assets/icon.png"
-                           Width="112"
-                           Height="112"
-                           Stretch="Uniform"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center"
+                           Width="112" Height="112" Stretch="Uniform"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
                            RenderTransformOrigin="50%,50%">
                         <Image.RenderTransform>
                             <TranslateTransform X="0" Y="0" />
                         </Image.RenderTransform>
                     </Image>
-
                     <StackPanel x:Name="WelcomePanel"
                                 Orientation="Vertical"
                                 HorizontalAlignment="Left"
@@ -60,81 +51,210 @@
                                 IsHitTestVisible="False">
                         <TextBlock x:Name="LabWelcome"
                                    Text="欢迎使用 PCL N Edition"
-                                   FontSize="28"
-                                   FontWeight="SemiBold"
-                                   TextWrapping="Wrap"
-                                   MaxWidth="360"
+                                   FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap" MaxWidth="360"
                                    Foreground="{DynamicResource ColorBrush1}" />
                         <legacy:MyButton x:Name="BtnStartSetup"
                                          Text="开始配置"
                                          ColorType="Highlight"
                                          UseExperimentalStyle="True"
-                                         MinWidth="148"
-                                         Height="36"
-                                         Padding="18,0"
+                                         MinWidth="148" Height="36" Padding="18,0"
                                          HorizontalAlignment="Left"
                                          Click="BtnStartSetup_Click" />
                     </StackPanel>
                 </Grid>
 
-                <!-- Pages 2–3: legal markdown (MD H1 acts as title) -->
-                <Grid x:Name="PageLegal"
-                      Opacity="0"
-                      IsHitTestVisible="False"
-                      IsVisible="False"
-                      Margin="28,18,28,22">
+                <!-- 2–3: Legal (MD H1 as title) -->
+                <Grid x:Name="PageLegal" IsVisible="False" Opacity="0" IsHitTestVisible="False" Margin="28,18,28,22">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-
-                    <legacy:MyScrollViewer Grid.Row="0"
-                                           x:Name="PanLegalScroll"
-                                           Margin="0,-4,0,16"
-                                           Padding="2,0,8,0"
+                    <legacy:MyScrollViewer Grid.Row="0" x:Name="PanLegalScroll"
+                                           Margin="0,-4,0,16" Padding="2,0,8,0"
                                            VerticalScrollBarVisibility="Auto"
                                            HorizontalScrollBarVisibility="Disabled">
                         <legacy:MyMarkdownViewer x:Name="LabLegalMarkdown"
-                                                 VerticalAlignment="Top"
-                                                 FontSize="15"
+                                                 VerticalAlignment="Top" FontSize="15"
                                                  Foreground="{DynamicResource ColorBrush1}" />
                     </legacy:MyScrollViewer>
-
-                    <Grid Grid.Row="1"
-                          x:Name="PanLegalActions"
-                          ColumnDefinitions="*,Auto,Auto,Auto"
-                          Margin="0,4,0,0">
-                        <legacy:MyButton x:Name="BtnLegalDisagree"
-                                         Grid.Column="1"
-                                         ColorType="Red"
-                                         UseExperimentalStyle="True"
-                                         Text="不同意"
-                                         MinWidth="120"
-                                         Height="36"
-                                         Padding="14,0"
-                                         Margin="0,0,10,0"
+                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,4,0,0">
+                        <legacy:MyButton x:Name="BtnLegalDisagree" Grid.Column="1"
+                                         ColorType="Red" UseExperimentalStyle="True"
+                                         Text="不同意" MinWidth="120" Height="36" Padding="14,0" Margin="0,0,10,0"
                                          Click="BtnLegalDisagree_Click" />
-                        <legacy:MyButton x:Name="BtnLegalPrev"
-                                         Grid.Column="2"
-                                         ColorType="Normal"
-                                         UseExperimentalStyle="True"
-                                         Text="上一页"
-                                         MinWidth="110"
-                                         Height="36"
-                                         Padding="14,0"
-                                         Margin="0,0,10,0"
+                        <legacy:MyButton x:Name="BtnLegalPrev" Grid.Column="2"
+                                         ColorType="Normal" UseExperimentalStyle="True"
+                                         Text="上一页" MinWidth="110" Height="36" Padding="14,0" Margin="0,0,10,0"
                                          Click="BtnLegalPrev_Click" />
-                        <legacy:MyButton x:Name="BtnLegalNext"
-                                         Grid.Column="3"
-                                         ColorType="Highlight"
-                                         UseExperimentalStyle="True"
-                                         Text="下一页"
-                                         MinWidth="120"
-                                         Height="36"
-                                         Padding="14,0"
+                        <legacy:MyButton x:Name="BtnLegalNext" Grid.Column="3"
+                                         ColorType="Highlight" UseExperimentalStyle="True"
+                                         Text="下一页" MinWidth="120" Height="36" Padding="14,0"
                                          Click="BtnLegalNext_Click" />
                     </Grid>
                 </Grid>
+
+                <!-- 4: Launcher data paths -->
+                <Grid x:Name="PageData" IsVisible="False" Opacity="0" IsHitTestVisible="False" Margin="32,24,32,22">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="LabDataTitle" Grid.Row="0"
+                               Text="启动器数据配置"
+                               FontSize="24" FontWeight="SemiBold"
+                               Margin="0,0,0,14"
+                               Foreground="{DynamicResource ColorBrush1}" />
+                    <StackPanel Grid.Row="1" Spacing="16">
+                        <TextBlock Text="配置完成后会将现有配置与数据迁移到目标目录。"
+                                   Opacity="0.72" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource ColorBrush1}" />
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="启动器数据位置" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource ColorBrush1}" />
+                            <Grid ColumnDefinitions="*,Auto">
+                                <legacy:MyTextBox x:Name="TxtDataPath"
+                                                  Grid.Column="0"
+                                                  UseExperimentalStyle="True"
+                                                  MinHeight="36"
+                                                  Margin="0,0,10,0" />
+                                <legacy:MyButton x:Name="BtnBrowseData"
+                                                 Grid.Column="1"
+                                                 Text="浏览"
+                                                 ColorType="Normal"
+                                                 UseExperimentalStyle="True"
+                                                 MinWidth="88" Height="36" Padding="12,0"
+                                                 Click="BtnBrowseData_Click" />
+                            </Grid>
+                        </StackPanel>
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="启动器缓存位置" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource ColorBrush1}" />
+                            <Grid ColumnDefinitions="*,Auto">
+                                <legacy:MyTextBox x:Name="TxtCachePath"
+                                                  Grid.Column="0"
+                                                  UseExperimentalStyle="True"
+                                                  MinHeight="36"
+                                                  Margin="0,0,10,0" />
+                                <legacy:MyButton x:Name="BtnBrowseCache"
+                                                 Grid.Column="1"
+                                                 Text="浏览"
+                                                 ColorType="Normal"
+                                                 UseExperimentalStyle="True"
+                                                 MinWidth="88" Height="36" Padding="12,0"
+                                                 Click="BtnBrowseCache_Click" />
+                            </Grid>
+                        </StackPanel>
+                        <TextBlock x:Name="LabDataHint"
+                                   Opacity="0.55" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource ColorBrush1}"
+                                   Text="默认为系统应用数据目录；可改为其他盘符以节省空间或便于备份。" />
+                    </StackPanel>
+                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,0">
+                        <legacy:MyButton x:Name="BtnDataPrev" Grid.Column="1"
+                                         ColorType="Normal" UseExperimentalStyle="True"
+                                         Text="上一页" MinWidth="110" Height="36" Padding="14,0" Margin="0,0,10,0"
+                                         Click="BtnDataPrev_Click" />
+                        <legacy:MyButton x:Name="BtnDataNext" Grid.Column="2"
+                                         ColorType="Highlight" UseExperimentalStyle="True"
+                                         Text="下一页" MinWidth="120" Height="36" Padding="14,0"
+                                         Click="BtnDataNext_Click" />
+                    </Grid>
+                </Grid>
+
+                <!-- 5: Online services (plugin-injected content host) -->
+                <Grid x:Name="PageOnline" IsVisible="False" Opacity="0" IsHitTestVisible="False" Margin="28,18,28,22">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="LabOnlineTitle" Grid.Row="0"
+                               Text="在线服务配置"
+                               FontSize="24" FontWeight="SemiBold"
+                               Margin="0,0,0,8"
+                               Foreground="{DynamicResource ColorBrush1}" />
+                    <Border Grid.Row="1" ClipToBounds="True">
+                        <ContentControl x:Name="HostOnlinePlugin" />
+                    </Border>
+                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,10,0,0">
+                        <legacy:MyButton x:Name="BtnOnlinePrev" Grid.Column="1"
+                                         ColorType="Normal" UseExperimentalStyle="True"
+                                         Text="上一页" MinWidth="110" Height="36" Padding="14,0" Margin="0,0,10,0"
+                                         Click="BtnOnlinePrev_Click" />
+                        <legacy:MyButton x:Name="BtnOnlineNext" Grid.Column="2"
+                                         ColorType="Highlight" UseExperimentalStyle="True"
+                                         Text="下一页" MinWidth="120" Height="36" Padding="14,0"
+                                         Click="BtnOnlineNext_Click" />
+                    </Grid>
+                </Grid>
+
+                <!-- 6: Telemetry placeholder -->
+                <Grid x:Name="PageTelemetry" IsVisible="False" Opacity="0" IsHitTestVisible="False" Margin="32,24,32,22">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="LabTelemetryTitle" Grid.Row="0"
+                               Text="遥测与数据收集"
+                               FontSize="24" FontWeight="SemiBold"
+                               Margin="0,0,0,14"
+                               Foreground="{DynamicResource ColorBrush1}" />
+                    <StackPanel Grid.Row="1" Spacing="12" VerticalAlignment="Center">
+                        <TextBlock x:Name="LabTelemetryBody"
+                                   Text="暂无遥测内容"
+                                   FontSize="18" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource ColorBrush1}" />
+                        <TextBlock Text="当前版本尚未启用遥测或诊断数据上报。后续若引入相关功能，将在此页提供开关与说明。"
+                                   Opacity="0.65" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="520"
+                                   HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource ColorBrush1}" />
+                    </StackPanel>
+                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,0">
+                        <legacy:MyButton x:Name="BtnTelemetryPrev" Grid.Column="1"
+                                         ColorType="Normal" UseExperimentalStyle="True"
+                                         Text="上一页" MinWidth="110" Height="36" Padding="14,0" Margin="0,0,10,0"
+                                         Click="BtnTelemetryPrev_Click" />
+                        <legacy:MyButton x:Name="BtnTelemetryNext" Grid.Column="2"
+                                         ColorType="Highlight" UseExperimentalStyle="True"
+                                         Text="下一页" MinWidth="120" Height="36" Padding="14,0"
+                                         Click="BtnTelemetryNext_Click" />
+                    </Grid>
+                </Grid>
+
+                <!-- 7: Finish (layout similar to page 1) -->
+                <Grid x:Name="PageFinish" IsVisible="False" Opacity="0" IsHitTestVisible="False">
+                    <Image x:Name="FinishIcon"
+                           Source="avares://PCL.Desktop/Assets/icon.png"
+                           Width="112" Height="112" Stretch="Uniform"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           RenderTransformOrigin="50%,50%">
+                        <Image.RenderTransform>
+                            <TranslateTransform X="0" Y="0" />
+                        </Image.RenderTransform>
+                    </Image>
+                    <StackPanel x:Name="FinishPanel"
+                                Orientation="Vertical"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                Margin="0,0,48,0"
+                                Spacing="18">
+                        <TextBlock x:Name="LabFinishTitle"
+                                   Text="感谢您选择 PCL N Edition！"
+                                   FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap" MaxWidth="380"
+                                   Foreground="{DynamicResource ColorBrush1}" />
+                        <legacy:MyButton x:Name="BtnFinish"
+                                         Text="完成配置"
+                                         ColorType="Highlight"
+                                         UseExperimentalStyle="True"
+                                         MinWidth="148" Height="36" Padding="18,0"
+                                         HorizontalAlignment="Left"
+                                         Click="BtnFinish_Click" />
+                    </StackPanel>
+                </Grid>
+
             </Grid>
         </Border>
     </Grid>

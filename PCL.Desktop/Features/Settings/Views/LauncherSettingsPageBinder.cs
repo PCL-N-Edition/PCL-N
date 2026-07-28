@@ -13,6 +13,7 @@ using PCL.Application.Settings;
 using PCL.Core.App;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Localization;
+using PCL.Desktop.Paths;
 using PCL.Desktop.Theme;
 using PCL.Platform.Paths;
 using PCL.Core.Logging;
@@ -641,8 +642,8 @@ internal static class LauncherSettingsPageBinder
         if (!string.IsNullOrWhiteSpace(overridePath))
             return Path.GetFullPath(overridePath);
 
-        DefaultPlatformPathProvider paths = new();
-        return Path.Combine(paths.ApplicationDataDirectory, "PCL-N", "launcher-settings.json");
+        // OOBE / portable path layout (pcln-paths.json next to host binary).
+        return LauncherPathLayout.ResolveSettingsFilePath();
     }
 
     internal static string CreateDataDirectory()
@@ -650,6 +651,13 @@ internal static class LauncherSettingsPageBinder
         string settingsDirectory = Path.GetDirectoryName(CreateSettingsPath()) ?? AppContext.BaseDirectory;
         Directory.CreateDirectory(settingsDirectory);
         return settingsDirectory;
+    }
+
+    internal static string CreateCacheDirectory()
+    {
+        string cache = LauncherPathLayout.ResolveCacheDirectory();
+        Directory.CreateDirectory(cache);
+        return cache;
     }
 
     private static string? GetTag(Control control) => control.Tag?.ToString();
