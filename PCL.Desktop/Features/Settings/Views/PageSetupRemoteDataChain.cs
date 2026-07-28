@@ -126,6 +126,8 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             "list" => RenderList(node),
             "stack" => RenderStack(node),
             "row" => RenderRow(node),
+            "settingsgroup" => RenderSettingsGroup(node),
+            "settingscell" => RenderSettingsCell(node),
             _ => CreateMuted($"未知节点: {kind}")
         };
     }
@@ -191,6 +193,152 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         }
 
         return bar;
+    }
+
+    /// <summary>iOS Settings–style grouped section (inset rounded list).</summary>
+    private StackPanel RenderSettingsGroup(PluginUiNodeDto node)
+    {
+        StackPanel outer = new()
+        {
+            Spacing = 6,
+            Margin = new Thickness(0, 0, 0, 16)
+        };
+        if (!string.IsNullOrWhiteSpace(node.Title))
+        {
+            outer.Children.Add(new TextBlock
+            {
+                Text = node.Title.ToUpperInvariant(),
+                FontSize = 12,
+                Opacity = 0.55,
+                Margin = new Thickness(16, 0, 16, 0),
+                FontWeight = FontWeight.SemiBold
+            });
+        }
+
+        StackPanel cells = new() { Spacing = 0 };
+        PluginUiNodeDto[] children = node.Children ?? [];
+        for (int i = 0; i < children.Length; i++)
+        {
+            cells.Children.Add(RenderNode(children[i]));
+            if (i < children.Length - 1)
+            {
+                cells.Children.Add(new Border
+                {
+                    Height = 1,
+                    Margin = new Thickness(16, 0, 0, 0),
+                    Background = new SolidColorBrush(Color.FromArgb(36, 128, 128, 128)),
+                    HorizontalAlignment = HorizontalAlignment.Stretch
+                });
+            }
+        }
+
+        outer.Children.Add(new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(18, 128, 128, 128)),
+            CornerRadius = new CornerRadius(12),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(28, 128, 128, 128)),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(0, 2),
+            Child = cells,
+            ClipToBounds = true
+        });
+        return outer;
+    }
+
+    /// <summary>iOS Settings–style row: title/subtitle + optional trailing switch.</summary>
+    private Border RenderSettingsCell(PluginUiNodeDto node)
+    {
+        Grid grid = new()
+        {
+            MinHeight = 44,
+            Margin = new Thickness(16, 8, 12, 8)
+        };
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+
+        StackPanel left = new()
+        {
+            Spacing = 2,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        if (!string.IsNullOrWhiteSpace(node.Title))
+        {
+            left.Children.Add(new TextBlock
+            {
+                Text = node.Title,
+                FontSize = 15,
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(node.Text))
+        {
+            left.Children.Add(new TextBlock
+            {
+                Text = node.Text,
+                FontSize = 12,
+                Opacity = 0.6,
+                TextWrapping = TextWrapping.Wrap
+            });
+        }
+
+        Grid.SetColumn(left, 0);
+        grid.Children.Add(left);
+
+        bool hasToggle = node.Checked.HasValue ||
+                         string.Equals(node.ActionId, "permission.toggle", StringComparison.Ordinal) ||
+                         string.Equals(node.ActionId, "cloud.setSection", StringComparison.Ordinal) ||
+                         (node.ActionId?.StartsWith("safety.", StringComparison.Ordinal) ?? false) ||
+                         (node.ActionId?.StartsWith("developer.", StringComparison.Ordinal) ?? false);
+
+        if (hasToggle && !string.IsNullOrWhiteSpace(node.ActionId))
+        {
+            bool isChecked = node.Checked == true;
+            if (string.Equals(node.Id, "host.SystemDebugMode", StringComparison.Ordinal))
+                isChecked = DesktopHostDeveloperDiagnostics.Instance.IsEnabled;
+
+            MyCheckBox box = new()
+            {
+                Checked = isChecked,
+                Height = 22,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsEnabled = node.Enabled,
+                // Empty label — title is on the left like iOS.
+                Text = ""
+            };
+            string actionId = node.ActionId!;
+            string? meta = node.Meta;
+            box.Change += async (_, _) =>
+            {
+                await InvokeAsync(actionId, pluginId: meta, boolValue: box.Checked == true)
+                    .ConfigureAwait(true);
+            };
+            Grid.SetColumn(box, 1);
+            grid.Children.Add(box);
+        }
+        else if (node.Children is { Length: > 0 })
+        {
+            WrapPanel trailing = new()
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            foreach (PluginUiNodeDto child in node.Children)
+            {
+                if (string.Equals(child.Kind, "button", StringComparison.OrdinalIgnoreCase))
+                    trailing.Children.Add(RenderButton(child, inRow: true));
+            }
+
+            Grid.SetColumn(trailing, 1);
+            grid.Children.Add(trailing);
+        }
+
+        return new Border
+        {
+            Background = Brushes.Transparent,
+            Child = grid,
+            IsEnabled = node.Enabled
+        };
     }
 
     private Border RenderRow(PluginUiNodeDto node)

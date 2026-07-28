@@ -20,9 +20,10 @@ ui.invokeAction → result              → refresh / pick file|folder / openUrl
 
 ### Node kinds
 
-`card` | `stack` | `list` | `row` | `toolbar` | `text` | `muted` | `hint` | `button` | `checkbox` | `textbox` | `select`
+`card` | `stack` | `list` | `row` | `toolbar` | `text` | `muted` | `hint` | `button` | `checkbox` | `textbox` | `select` | `settingsGroup` | `settingsCell`
 
 Host rendering follows classic setup pages (`MyCard` / `MyTextBox` / `MyButton`), not experimental UI.
+`settingsGroup` / `settingsCell` approximate iOS Settings grouped lists (inset rounded sections + trailing switches).
 
 - `textbox`: optional `id`, `placeholder`, initial `text`
 - `select`: `options[{value,label}]`, `selected`, optional `actionId` on change
