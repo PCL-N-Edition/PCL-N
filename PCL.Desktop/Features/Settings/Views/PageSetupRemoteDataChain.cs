@@ -22,6 +22,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
     private readonly string _pageId;
     private readonly StackPanel _panMain;
     private readonly TextBlock _status;
+    private readonly Dictionary<string, TextBox> _fields = new(StringComparer.OrdinalIgnoreCase);
 
     public PageSetupRemoteDataChain(string pageId)
     {
@@ -75,8 +76,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                 return;
             }
 
-            _panMain.Children.Clear();
-            _panMain.Children.Add(RenderNode(page.Root));
+            ApplyRoot(page.Root);
         }
         catch (Exception ex)
         {
@@ -84,6 +84,13 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             _panMain.Children.Clear();
             _panMain.Children.Add(_status);
         }
+    }
+
+    private void ApplyRoot(PluginUiNodeDto root)
+    {
+        _fields.Clear();
+        _panMain.Children.Clear();
+        _panMain.Children.Add(RenderNode(root));
     }
 
     private Control RenderNode(PluginUiNodeDto node)
@@ -113,6 +120,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             },
             "button" => RenderButton(node),
             "checkbox" => RenderCheckBox(node),
+            "textbox" => RenderTextBox(node),
             "list" or "stack" => RenderStack(node),
             "row" => RenderRow(node),
             _ => new TextBlock { Text = $"未知节点: {kind}", Opacity = 0.6 }
@@ -222,10 +230,14 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         };
         string? actionId = node.ActionId;
         string? meta = node.Meta;
+        string? valueField = node.ValueField;
         if (!string.IsNullOrWhiteSpace(actionId))
         {
             button.Click += async (_, _) =>
-                await InvokeAsync(actionId!, pluginId: meta).ConfigureAwait(true);
+            {
+                string? value = ResolveFieldValue(valueField);
+                await InvokeAsync(actionId!, pluginId: meta, value: value).ConfigureAwait(true);
+            };
         }
 
         return button;
@@ -254,11 +266,48 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         return box;
     }
 
+    private StackPanel RenderTextBox(PluginUiNodeDto node)
+    {
+        StackPanel panel = new() { Spacing = 4 };
+        if (!string.IsNullOrWhiteSpace(node.Title))
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = node.Title,
+                FontSize = 13,
+                FontWeight = FontWeight.SemiBold
+            });
+        }
+
+        TextBox box = new()
+        {
+            Text = node.Text ?? "",
+            PlaceholderText = node.Placeholder ?? "",
+            MinWidth = 280,
+            MinHeight = 32,
+            IsEnabled = node.Enabled,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        if (!string.IsNullOrWhiteSpace(node.Id))
+            _fields[node.Id!] = box;
+
+        panel.Children.Add(box);
+        return panel;
+    }
+
+    private string? ResolveFieldValue(string? fieldId)
+    {
+        if (string.IsNullOrWhiteSpace(fieldId))
+            return null;
+        return _fields.TryGetValue(fieldId, out TextBox? box) ? box.Text : null;
+    }
+
     private async Task InvokeAsync(
         string actionId,
         string? pluginId = null,
         bool? boolValue = null,
-        string? packagePath = null)
+        string? packagePath = null,
+        string? value = null)
     {
         if (!PluginSidecarSupervisor.Instance.IsAvailable)
         {
@@ -272,6 +321,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             PluginSidecarResult result = await client.UiInvokeActionAsync(
                     _pageId,
                     actionId,
+                    value: value,
                     boolValue: boolValue,
                     packagePath: packagePath,
                     pluginId: pluginId)
@@ -286,6 +336,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                 result = await client.UiInvokeActionAsync(
                         _pageId,
                         actionId,
+                        value: value,
                         packagePath: path,
                         pluginId: pluginId)
                     .ConfigureAwait(true);
@@ -298,6 +349,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                 result = await client.UiInvokeActionAsync(
                         _pageId,
                         actionId,
+                        value: value,
                         packagePath: path,
                         pluginId: pluginId)
                     .ConfigureAwait(true);
@@ -328,8 +380,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             // Prefer inline root from action (e.g. local market scan) over full page reload.
             if (result.Root is not null)
             {
-                _panMain.Children.Clear();
-                _panMain.Children.Add(RenderNode(result.Root));
+                ApplyRoot(result.Root);
                 return;
             }
 

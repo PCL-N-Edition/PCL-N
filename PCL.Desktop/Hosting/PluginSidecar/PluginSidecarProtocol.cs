@@ -212,7 +212,7 @@ internal sealed class PluginUiPageDto
 /// <summary>Declarative UI node rendered by host (data-chain injection).</summary>
 internal sealed class PluginUiNodeDto
 {
-    /// <summary>card | text | muted | button | checkbox | stack | list | row | hint</summary>
+    /// <summary>card | text | muted | button | checkbox | stack | list | row | hint | textbox</summary>
     [JsonPropertyName("kind")]
     public string Kind { get; set; } = "stack";
 
@@ -239,4 +239,12 @@ internal sealed class PluginUiNodeDto
 
     [JsonPropertyName("meta")]
     public string? Meta { get; set; }
+
+    /// <summary>Watermark for textbox nodes.</summary>
+    [JsonPropertyName("placeholder")]
+    public string? Placeholder { get; set; }
+
+    /// <summary>On button click, send current text of this field id as <c>value</c>.</summary>
+    [JsonPropertyName("valueField")]
+    public string? ValueField { get; set; }
 }

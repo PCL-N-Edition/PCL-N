@@ -20,7 +20,10 @@ ui.invokeAction → result              → refresh / pick file|folder / openUrl
 
 ### Node kinds
 
-`card` | `stack` | `list` | `row` | `text` | `muted` | `hint` | `button` | `checkbox`
+`card` | `stack` | `list` | `row` | `text` | `muted` | `hint` | `button` | `checkbox` | `textbox`
+
+- `textbox`: optional `id`, `placeholder`, initial `text`
+- `button.valueField`: host reads that field’s text and sends it as `params.value`
 
 ### Action result flags
 
@@ -49,8 +52,8 @@ ui.invokeAction → result              → refresh / pick file|folder / openUrl
 | 平台状态 | ✅ |
 | 已安装 | ✅ install/enable/disable/uninstall/rollback |
 | 市场 | ✅ local folder scan + web market + .pnp install |
-| 安全 | ✅ gated by developer flags |
-| 开发者 | ✅ + `refreshNavigation` reinject |
+| 安全 | ✅ Safe Mode + isolation ID textbox |
+| 开发者 | ✅ order verify textbox + `refreshNavigation` |
 | UI Patch | ✅ apply + conflict resolve |
 | 兼容性 | ✅ offline records |
 | 账户 | ✅ OnlineAccountService pairing / logout |
