@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using PCL.Application.Settings;
 using PCL.Core.Logging;
 using PCL.Desktop.Features.Settings.Views;
+using PCL.Desktop.Legal;
 
 namespace PCL.Desktop.Views.FirstRun;
 
@@ -133,6 +134,18 @@ internal static class OobeConfiguration
 
         if (string.IsNullOrEmpty(completed))
         {
+            // Already used the launcher (legal accepted / existing prefs) but never finished
+            // the new OOBE marker — do NOT force the full install wizard again.
+            if (HasPriorLauncherState(settings))
+            {
+                return new OobeRunPlan(
+                    OobeRunKind.Update,
+                    NormalizeSteps(manifest.UpdateSteps, OobeManifest.DefaultUpdateSteps),
+                    manifest.ContentVersion,
+                    RestartAfterComplete: manifest.RestartAfterUpdate,
+                    Reason: "existing-profile-no-oobe-marker");
+            }
+
             return new OobeRunPlan(
                 OobeRunKind.Full,
                 NormalizeSteps(manifest.FullSteps, OobeManifest.DefaultFullSteps),
@@ -148,6 +161,36 @@ internal static class OobeConfiguration
             manifest.ContentVersion,
             RestartAfterComplete: manifest.RestartAfterUpdate,
             Reason: $"content {completed} → {manifest.ContentVersion}");
+    }
+
+    /// <summary>
+    /// True when settings already look like a used install (not a blank first launch).
+    /// </summary>
+    public static bool HasPriorLauncherState(LauncherSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (!string.IsNullOrWhiteSpace(
+                settings.GetTextOption(EmbeddedLegalDocuments.SettingsKeyAcceptedVersion, string.Empty)))
+            return true;
+
+        // Any persisted options beyond empty defaults indicate a returning user.
+        if (settings.BooleanOptions.Count > 0 ||
+            settings.IntegerOptions.Count > 0 ||
+            settings.TextOptions.Count > 0)
+            return true;
+
+        try
+        {
+            string path = LauncherSettingsPageBinder.CreateSettingsPath();
+            if (File.Exists(path) && new FileInfo(path).Length > 32)
+                return true;
+        }
+        catch
+        {
+            // ignore path probe failures
+        }
+
+        return false;
     }
 
     public static void MarkCompleted(string contentVersion)

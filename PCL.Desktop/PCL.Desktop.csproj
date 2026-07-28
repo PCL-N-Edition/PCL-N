@@ -211,4 +211,26 @@
     <Delete Files="$(_SrcHost)"
             Condition="Exists('$(_SrcHost)') and Exists('$(_DstHost)')" />
   </Target>
+
+  <!-- Ship CoreCLR plugin sidecar next to the host so splash warm-up can find it. -->
+  <PropertyGroup>
+    <PclPluginSidecarProject Condition="'$(PclPluginSidecarProject)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\PCL.Plugin\PCL.Plugin.Sidecar\PCL.Plugin.Sidecar.csproj'))</PclPluginSidecarProject>
+    <PclPluginSidecarOutDir Condition="'$(PclPluginSidecarOutDir)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\PCL.Plugin\PCL.Plugin.Sidecar\bin\$(Configuration)\net10.0\'))</PclPluginSidecarOutDir>
+  </PropertyGroup>
+  <Target Name="CopyPluginSidecarToOutput"
+          AfterTargets="Build"
+          Condition="Exists('$(PclPluginSidecarProject)')">
+    <MakeDir Directories="$(TargetDir)sidecar" />
+    <ItemGroup>
+      <_SidecarFiles Include="$(PclPluginSidecarOutDir)**\*.*"
+                     Condition="Exists('$(PclPluginSidecarOutDir)')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_SidecarFiles)"
+          DestinationFiles="@(_SidecarFiles->'$(TargetDir)sidecar\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(_SidecarFiles)' != ''" />
+    <Message Importance="high"
+             Text="Plugin sidecar not built yet under $(PclPluginSidecarOutDir); host will try dev path or run without plugins."
+             Condition="'@(_SidecarFiles)' == ''" />
+  </Target>
 </Project>

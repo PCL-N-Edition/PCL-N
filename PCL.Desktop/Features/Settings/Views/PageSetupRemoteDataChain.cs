@@ -84,7 +84,11 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             bool started = await PluginSidecarSupervisor.Instance.TryStartAsync().ConfigureAwait(true);
             if (!started)
             {
-                ShowPageMessage("插件侧车未运行，无法加载此页面。可重新打开设置，或检查 sidecar 是否已随启动器打包。", warn: true);
+                ShowPageMessage(
+                    "插件侧车未运行，无法配置插件。\n\n" +
+                    "常见原因：发行包未附带 PCL.Plugin.Sidecar（应在启动器目录的 sidecar\\ 下），" +
+                    "或侧车启动失败。开发构建请先编译 PCL.Plugin.Sidecar，并确认日志中有 “Starting sidecar”。",
+                    warn: true);
                 return;
             }
         }

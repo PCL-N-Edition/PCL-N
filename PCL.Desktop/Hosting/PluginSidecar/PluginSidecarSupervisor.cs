@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO.Pipes;
 using System.Security.Cryptography;
 using PCL.Core.Logging;
+using PCL.Desktop.Paths;
 using PCL.Platform.Paths;
 
 // DefaultPlatformPathProvider lives in PCL.Platform
@@ -67,20 +68,26 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
             return false;
         }
 
-        DefaultPlatformPathProvider paths = new();
+        DefaultPlatformPathProvider platformPaths = new();
+        // Align plugin runtime with OOBE / pcln-paths.json data roots (not only OS defaults).
+        string dataRoot = LauncherPathLayout.ResolveDataDirectory();
+        string cacheRoot = LauncherPathLayout.ResolveCacheDirectory();
+        string sidecarDataArg = ResolveSidecarDataArgument(dataRoot);
+        string sidecarCacheArg = ResolveSidecarCacheArgument(cacheRoot);
+
         _pipeName = "pcl-n-plugin-" + Guid.NewGuid().ToString("N");
         _token = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
 
         string pipePath = OperatingSystem.IsWindows()
             ? @"\\.\pipe\" + _pipeName
-            : Path.Combine(paths.TemporaryDirectory, _pipeName + ".sock");
+            : Path.Combine(platformPaths.TemporaryDirectory, _pipeName + ".sock");
 
         try
         {
             if (!OperatingSystem.IsWindows())
             {
                 // Ensure parent dir for UDS path
-                Directory.CreateDirectory(paths.TemporaryDirectory);
+                Directory.CreateDirectory(platformPaths.TemporaryDirectory);
                 if (File.Exists(pipePath))
                     File.Delete(pipePath);
             }
@@ -95,13 +102,15 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
                 {
                     "--pipe", _pipeName,
                     "--token", _token,
-                    "--data", paths.ApplicationDataDirectory,
-                    "--cache", paths.CacheDirectory
+                    "--data", sidecarDataArg,
+                    "--cache", sidecarCacheArg
                 }
             };
             start.Environment["PCL_PLUGIN_SIDECAR_TOKEN"] = _token;
 
-            PortableLog.Info("PluginSidecar", $"Starting sidecar: {executable}");
+            PortableLog.Info(
+                "PluginSidecar",
+                $"Starting sidecar: {executable}; data={sidecarDataArg}; cache={sidecarCacheArg}");
             Process process = new() { StartInfo = start };
             if (!process.Start())
             {
@@ -127,8 +136,8 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
 
             string hostVersion = typeof(PluginSidecarSupervisor).Assembly.GetName().Version?.ToString() ?? "dev";
             await client.InitRuntimeAsync(
-                    paths.ApplicationDataDirectory,
-                    paths.CacheDirectory,
+                    sidecarDataArg,
+                    sidecarCacheArg,
                     hostVersion,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -187,6 +196,39 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
         }
 
         throw new TimeoutException("Timed out connecting to plugin sidecar pipe.", last);
+    }
+
+    /// <summary>
+    /// Sidecar historically received OS ApplicationData and nested <c>PCL-N</c> itself.
+    /// Host data dir is usually <c>…/PCL-N</c>; pass the parent in that case so plugin-runtime
+    /// lands next to launcher-settings.json. Custom roots (no PCL-N name) are passed as-is.
+    /// </summary>
+    internal static string ResolveSidecarDataArgument(string launcherDataDirectory)
+    {
+        string full = Path.GetFullPath(launcherDataDirectory);
+        string name = Path.GetFileName(full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.Equals(name, "PCL-N", StringComparison.OrdinalIgnoreCase))
+        {
+            string? parent = Path.GetDirectoryName(full);
+            if (!string.IsNullOrWhiteSpace(parent))
+                return parent;
+        }
+
+        return full;
+    }
+
+    internal static string ResolveSidecarCacheArgument(string launcherCacheDirectory)
+    {
+        string full = Path.GetFullPath(launcherCacheDirectory);
+        string name = Path.GetFileName(full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.Equals(name, "PCL-N", StringComparison.OrdinalIgnoreCase))
+        {
+            string? parent = Path.GetDirectoryName(full);
+            if (!string.IsNullOrWhiteSpace(parent))
+                return parent;
+        }
+
+        return full;
     }
 
     private static void TryKill(Process process)
