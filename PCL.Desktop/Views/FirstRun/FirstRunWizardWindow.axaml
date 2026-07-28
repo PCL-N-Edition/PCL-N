@@ -17,16 +17,21 @@
         WindowStartupLocation="Manual"
         TransparencyLevelHint="Transparent">
 
-    <!-- Fixed outer chrome. Circular expand is an in-window clip only — never resizes/moves the window. -->
-    <Border x:Name="PanShadow"
-            Margin="12"
-            CornerRadius="12"
-            Background="#01000000"
-            BoxShadow="0 10 28 0 #52000000"
-            ClipToBounds="False">
-        <Border x:Name="PanSurface"
+    <!--
+      Window stays full-size and never moves.
+      Expand is done by growing PanBubble (centered circle → rounded card).
+    -->
+    <Grid x:Name="PanRoot"
+          Background="Transparent"
+          ClipToBounds="False">
+        <Border x:Name="PanBubble"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Width="136"
+                Height="136"
+                CornerRadius="68"
                 Background="{DynamicResource ColorBrushBackground}"
-                CornerRadius="12"
+                BoxShadow="0 0 0 0 #00000000"
                 ClipToBounds="True">
             <Grid x:Name="PanStage">
                 <!-- Page 1: splash-handoff icon + welcome -->
@@ -72,7 +77,7 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Pages 2–3: legal markdown (no window title — MD H1 is the title) -->
+                <!-- Pages 2–3: legal markdown (MD H1 acts as title) -->
                 <Grid x:Name="PageLegal"
                       Opacity="0"
                       IsHitTestVisible="False"
@@ -83,7 +88,6 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Extend slightly upward so markdown heading sits where a title would. -->
                     <legacy:MyScrollViewer Grid.Row="0"
                                            x:Name="PanLegalScroll"
                                            Margin="0,-4,0,16"
@@ -133,5 +137,5 @@
                 </Grid>
             </Grid>
         </Border>
-    </Border>
+    </Grid>
 </Window>

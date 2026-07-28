@@ -18,7 +18,7 @@ namespace PCL.Desktop.Views.FirstRun;
 
 /// <summary>
 /// First-run wizard:
-/// page 1 welcome (fixed-size circular reveal + icon slide),
+/// page 1 welcome (fixed window + growing bubble card → icon slide),
 /// page 2 terms, page 3 privacy.
 /// </summary>
 public sealed partial class FirstRunWizardWindow : Window
@@ -30,6 +30,9 @@ public sealed partial class FirstRunWizardWindow : Window
     private const double IconSize = 112d;
     private const double TargetWidth = 860d;
     private const double TargetHeight = 520d;
+    private const double BubbleMargin = 12d;
+    private const double BubbleEndWidth = TargetWidth - BubbleMargin * 2d;  // 836
+    private const double BubbleEndHeight = TargetHeight - BubbleMargin * 2d; // 496
     private const double SurfaceCorner = 12d;
 
     private readonly Stopwatch _clock = new();
@@ -41,12 +44,11 @@ public sealed partial class FirstRunWizardWindow : Window
     private bool _splashPrepared;
     private int _legalPageIndex; // 0 = terms, 1 = privacy
 
-    private EllipseGeometry? _revealClip;
+    private Border? _panBubble;
     private Image? _heroIcon;
     private StackPanel? _welcomePanel;
     private Grid? _pageWelcome;
     private Grid? _pageLegal;
-    private Border? _panSurface;
     private TranslateTransform? _iconTranslate;
     private MyMarkdownViewer? _labLegalMarkdown;
     private MyScrollViewer? _panLegalScroll;
@@ -63,7 +65,7 @@ public sealed partial class FirstRunWizardWindow : Window
     private enum Phase
     {
         Idle,
-        ExpandClip,
+        ExpandBubble,
         SettleIcon,
         RevealWelcome,
         FadeWelcomeOut,
@@ -73,7 +75,7 @@ public sealed partial class FirstRunWizardWindow : Window
     public FirstRunWizardWindow()
     {
         AvaloniaXamlLoader.Load(this);
-        _panSurface = this.FindControl<Border>("PanSurface");
+        _panBubble = this.FindControl<Border>("PanBubble");
         _pageWelcome = this.FindControl<Grid>("PageWelcome");
         _pageLegal = this.FindControl<Grid>("PageLegal");
         _heroIcon = this.FindControl<Image>("HeroIcon");
@@ -85,20 +87,13 @@ public sealed partial class FirstRunWizardWindow : Window
         _btnPrev = this.FindControl<MyButton>("BtnLegalPrev");
         _btnNext = this.FindControl<MyButton>("BtnLegalNext");
 
-        // Fixed window size from construction — never animate Width/Height/Position each frame.
+        // Window size is fixed for the whole wizard — never animate it.
         Width = TargetWidth;
         Height = TargetHeight;
         MinWidth = TargetWidth;
         MinHeight = TargetHeight;
 
-        _revealClip = new EllipseGeometry
-        {
-            Center = new Point(TargetWidth / 2d, TargetHeight / 2d),
-            RadiusX = SplashSize / 2d,
-            RadiusY = SplashSize / 2d
-        };
-        if (_panSurface is not null)
-            _panSurface.Clip = _revealClip;
+        ApplyBubbleFrame(SplashSize, SplashSize, SplashSize / 2d, shadowProgress: 0d);
 
         if (_heroIcon?.RenderTransform is TranslateTransform tt)
             _iconTranslate = tt;
@@ -130,7 +125,7 @@ public sealed partial class FirstRunWizardWindow : Window
         });
     }
 
-    /// <summary>Center on splash icon (screen pixels), keep full window size, start clip expand.</summary>
+    /// <summary>Center the fixed window on the splash icon, then grow the bubble.</summary>
     public void PrepareFromSplash(PixelRect splashBounds)
     {
         _splashPrepared = true;
@@ -139,7 +134,7 @@ public sealed partial class FirstRunWizardWindow : Window
             splashBounds.Y + splashBounds.Height / 2);
         WindowStartupLocation = WindowStartupLocation.Manual;
         PlaceWindowAtCenter(_centerScreen);
-        ResetRevealClip();
+        ApplyBubbleFrame(SplashSize, SplashSize, SplashSize / 2d, shadowProgress: 0d);
         TryStartIntro();
     }
 
@@ -148,7 +143,7 @@ public sealed partial class FirstRunWizardWindow : Window
         Width = TargetWidth;
         Height = TargetHeight;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        ResetRevealClip();
+        ApplyBubbleFrame(SplashSize, SplashSize, SplashSize / 2d, shadowProgress: 0d);
     }
 
     public void StartIntroAnimation()
@@ -191,25 +186,33 @@ public sealed partial class FirstRunWizardWindow : Window
         }
     }
 
-    private void ResetRevealClip()
-    {
-        if (_revealClip is null || _panSurface is null)
-            return;
-
-        _revealClip.Center = new Point(TargetWidth / 2d, TargetHeight / 2d);
-        _revealClip.RadiusX = SplashSize / 2d;
-        _revealClip.RadiusY = SplashSize / 2d;
-        _panSurface.Clip = _revealClip;
-        _panSurface.CornerRadius = new CornerRadius(SurfaceCorner);
-    }
-
     private void PlaceWindowAtCenter(PixelPoint centerScreen)
     {
-        // Single placement — never touch Position during animation frames.
         double scale = RenderScaling > 0 ? RenderScaling : 1d;
         int pw = Math.Max(1, (int)Math.Round(TargetWidth * scale));
         int ph = Math.Max(1, (int)Math.Round(TargetHeight * scale));
         Position = new PixelPoint(centerScreen.X - pw / 2, centerScreen.Y - ph / 2);
+    }
+
+    private void ApplyBubbleFrame(double width, double height, double cornerRadius, double shadowProgress)
+    {
+        if (_panBubble is null)
+            return;
+
+        _panBubble.Width = width;
+        _panBubble.Height = height;
+        _panBubble.CornerRadius = new CornerRadius(cornerRadius);
+
+        double p = Math.Clamp(shadowProgress, 0d, 1d);
+        double blur = Lerp(0d, 22d, p);
+        double offsetY = Lerp(0d, 10d, p);
+        byte alpha = (byte)Math.Clamp((int)(Lerp(0d, 0.34d, p) * 255d), 0, 255);
+        _panBubble.BoxShadow = new BoxShadows(new BoxShadow
+        {
+            Blur = blur,
+            OffsetY = offsetY,
+            Color = Color.FromArgb(alpha, 0, 0, 0)
+        });
     }
 
     private void OnOpened(object? sender, EventArgs e)
@@ -238,11 +241,10 @@ public sealed partial class FirstRunWizardWindow : Window
 
         _introStarted = true;
         WindowStartupLocation = WindowStartupLocation.Manual;
-        // Ensure we stay at full size; only clip grows.
         Width = TargetWidth;
         Height = TargetHeight;
-        ResetRevealClip();
-        BeginPhase(Phase.ExpandClip, durationMs: 720);
+        ApplyBubbleFrame(SplashSize, SplashSize, SplashSize / 2d, shadowProgress: 0d);
+        BeginPhase(Phase.ExpandBubble, durationMs: 780);
     }
 
     private void BeginPhase(Phase phase, double durationMs)
@@ -272,12 +274,11 @@ public sealed partial class FirstRunWizardWindow : Window
 
         switch (_phase)
         {
-            case Phase.ExpandClip:
-                TickExpandClip(eased);
+            case Phase.ExpandBubble:
+                TickExpandBubble(eased);
                 if (t >= 1d)
                 {
-                    if (_panSurface is not null)
-                        _panSurface.Clip = null;
+                    ApplyBubbleFrame(BubbleEndWidth, BubbleEndHeight, SurfaceCorner, shadowProgress: 1d);
                     BeginPhase(Phase.SettleIcon, durationMs: 140);
                 }
                 break;
@@ -310,19 +311,16 @@ public sealed partial class FirstRunWizardWindow : Window
         }
     }
 
-    private void TickExpandClip(double eased)
+    private void TickExpandBubble(double eased)
     {
-        if (_revealClip is null)
-            return;
-
-        // Cover the full surface (corner-to-corner) so clip can be removed cleanly.
-        double startR = SplashSize / 2d;
-        double endR = Math.Sqrt((TargetWidth * 0.5d) * (TargetWidth * 0.5d) +
-                                (TargetHeight * 0.5d) * (TargetHeight * 0.5d)) * 1.05d;
-        double radius = Lerp(startR, endR, eased);
-        _revealClip.Center = new Point(TargetWidth / 2d, TargetHeight / 2d);
-        _revealClip.RadiusX = radius;
-        _revealClip.RadiusY = radius;
+        // Grow centered bubble from splash circle → full rounded card.
+        // Window position/size stay constant → no icon jitter from host moves.
+        double w = Lerp(SplashSize, BubbleEndWidth, eased);
+        double h = Lerp(SplashSize, BubbleEndHeight, eased);
+        // Stay circular until late, then ease into card corners.
+        double circleCorner = Math.Min(w, h) / 2d;
+        double corner = Lerp(circleCorner, SurfaceCorner, Math.Pow(eased, 1.6d));
+        ApplyBubbleFrame(w, h, corner, shadowProgress: eased);
     }
 
     private void TickRevealWelcome(double eased)
@@ -330,12 +328,12 @@ public sealed partial class FirstRunWizardWindow : Window
         if (_iconTranslate is null || _welcomePanel is null)
             return;
 
-        double targetX = -Math.Min(TargetWidth * 0.22, 170);
+        double targetX = -Math.Min(BubbleEndWidth * 0.22, 170);
         _iconTranslate.X = Lerp(0, targetX, eased);
         _welcomePanel.Opacity = eased;
 
-        double panelLeft = TargetWidth * 0.5 + targetX + IconSize * 0.45;
-        _welcomePanel.Margin = new Thickness(Math.Max(panelLeft, TargetWidth * 0.42), 0, 48, 0);
+        double panelLeft = BubbleEndWidth * 0.5 + targetX + IconSize * 0.45;
+        _welcomePanel.Margin = new Thickness(Math.Max(panelLeft, BubbleEndWidth * 0.42), 0, 48, 0);
     }
 
     private void TickFadeWelcomeOut(double eased)
@@ -371,7 +369,7 @@ public sealed partial class FirstRunWizardWindow : Window
 
     private void BtnStartSetup_Click(object? sender, EventArgs e)
     {
-        if (_phase is Phase.ExpandClip or Phase.SettleIcon or Phase.RevealWelcome or Phase.FadeWelcomeOut)
+        if (_phase is Phase.ExpandBubble or Phase.SettleIcon or Phase.RevealWelcome or Phase.FadeWelcomeOut)
             return;
 
         if (_welcomePanel is not null)
@@ -392,8 +390,6 @@ public sealed partial class FirstRunWizardWindow : Window
 
         _panLegalScroll?.ScrollToHome();
 
-        // Page 2 (terms): 不同意 / 上一页(disabled) / 下一页
-        // Page 3 (privacy): 不同意并退出 / 上一页 / 同意条款
         if (_legalPageIndex == 0)
         {
             if (_btnDisagree is not null)
@@ -439,7 +435,6 @@ public sealed partial class FirstRunWizardWindow : Window
 
         if (animateContent && _pageLegal is not null)
         {
-            // Soft content swap: only middle opacity, chrome stays put.
             _pageLegal.Opacity = 0.55;
             Dispatcher.UIThread.Post(() =>
             {
@@ -451,7 +446,6 @@ public sealed partial class FirstRunWizardWindow : Window
 
     private void BtnLegalDisagree_Click(object? sender, EventArgs e)
     {
-        // Decline either agreement → exit without completing wizard / legal accept.
         try
         {
             if (Avalonia.Application.Current?.ApplicationLifetime is
