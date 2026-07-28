@@ -47,6 +47,31 @@ internal sealed class PluginSidecarResponse
 
     [JsonPropertyName("error")]
     public PluginSidecarError? Error { get; set; }
+
+    /// <summary>Intermediate progress frame (same request id); final frame has result/error.</summary>
+    [JsonPropertyName("progress")]
+    public PluginSidecarProgress? Progress { get; set; }
+}
+
+internal sealed class PluginSidecarProgress
+{
+    [JsonPropertyName("stage")]
+    public string Stage { get; set; } = "";
+
+    [JsonPropertyName("detail")]
+    public string? Detail { get; set; }
+
+    [JsonPropertyName("progress")]
+    public double Progress { get; set; }
+
+    [JsonPropertyName("completedFiles")]
+    public int CompletedFiles { get; set; }
+
+    [JsonPropertyName("totalFiles")]
+    public int TotalFiles { get; set; }
+
+    [JsonPropertyName("speedBytesPerSecond")]
+    public long SpeedBytesPerSecond { get; set; }
 }
 
 internal sealed class PluginSidecarParams
@@ -219,7 +244,7 @@ internal sealed class PluginUiPageDto
 /// <summary>Declarative UI node rendered by host (data-chain injection).</summary>
 internal sealed class PluginUiNodeDto
 {
-    /// <summary>card | text | muted | button | checkbox | stack | list | row | hint | textbox</summary>
+    /// <summary>card | text | muted | button | checkbox | stack | list | row | hint | textbox | select</summary>
     [JsonPropertyName("kind")]
     public string Kind { get; set; } = "stack";
 
@@ -254,4 +279,25 @@ internal sealed class PluginUiNodeDto
     /// <summary>On button click, send current text of this field id as <c>value</c>.</summary>
     [JsonPropertyName("valueField")]
     public string? ValueField { get; set; }
+
+    /// <summary>On button click, send current field text as <c>pluginId</c> (meta override).</summary>
+    [JsonPropertyName("metaField")]
+    public string? MetaField { get; set; }
+
+    /// <summary>Current value for select nodes.</summary>
+    [JsonPropertyName("selected")]
+    public string? Selected { get; set; }
+
+    /// <summary>Options for select nodes.</summary>
+    [JsonPropertyName("options")]
+    public PluginUiOptionDto[]? Options { get; set; }
+}
+
+internal sealed class PluginUiOptionDto
+{
+    [JsonPropertyName("value")]
+    public string Value { get; set; } = "";
+
+    [JsonPropertyName("label")]
+    public string Label { get; set; } = "";
 }

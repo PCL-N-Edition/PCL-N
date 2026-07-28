@@ -7,6 +7,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Hosting;
@@ -22,7 +23,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
     private readonly string _pageId;
     private readonly StackPanel _panMain;
     private readonly TextBlock _status;
-    private readonly Dictionary<string, TextBox> _fields = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Func<string?>> _fields = new(StringComparer.OrdinalIgnoreCase);
 
     public PageSetupRemoteDataChain(string pageId)
     {
@@ -121,6 +122,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             "button" => RenderButton(node),
             "checkbox" => RenderCheckBox(node),
             "textbox" => RenderTextBox(node),
+            "select" => RenderSelect(node),
             "list" or "stack" => RenderStack(node),
             "row" => RenderRow(node),
             _ => new TextBlock { Text = $"未知节点: {kind}", Opacity = 0.6 }
@@ -231,12 +233,14 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         string? actionId = node.ActionId;
         string? meta = node.Meta;
         string? valueField = node.ValueField;
+        string? metaField = node.MetaField;
         if (!string.IsNullOrWhiteSpace(actionId))
         {
             button.Click += async (_, _) =>
             {
                 string? value = ResolveFieldValue(valueField);
-                await InvokeAsync(actionId!, pluginId: meta, value: value).ConfigureAwait(true);
+                string? pluginId = ResolveFieldValue(metaField) ?? meta;
+                await InvokeAsync(actionId!, pluginId: pluginId, value: value).ConfigureAwait(true);
             };
         }
 
@@ -294,9 +298,80 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
         if (!string.IsNullOrWhiteSpace(node.Id))
-            _fields[node.Id!] = box;
+            _fields[node.Id!] = () => box.Text;
 
         panel.Children.Add(box);
+        return panel;
+    }
+
+    private StackPanel RenderSelect(PluginUiNodeDto node)
+    {
+        StackPanel panel = new() { Spacing = 4 };
+        if (!string.IsNullOrWhiteSpace(node.Title))
+        {
+            panel.Children.Add(new TextBlock
+            {
+                Text = node.Title,
+                FontSize = 13,
+                FontWeight = FontWeight.SemiBold
+            });
+        }
+
+        ComboBox combo = new()
+        {
+            MinWidth = 180,
+            MinHeight = 32,
+            IsEnabled = node.Enabled,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+
+        int selectedIndex = 0;
+        PluginUiOptionDto[] options = node.Options ?? [];
+        for (int i = 0; i < options.Length; i++)
+        {
+            PluginUiOptionDto opt = options[i];
+            combo.Items.Add(new SelectOptionItem(opt.Value ?? "", opt.Label ?? opt.Value ?? ""));
+            if (string.Equals(opt.Value, node.Selected, StringComparison.OrdinalIgnoreCase))
+                selectedIndex = i;
+        }
+
+        if (!string.IsNullOrWhiteSpace(node.Id))
+        {
+            _fields[node.Id!] = () =>
+                combo.SelectedItem is SelectOptionItem item ? item.Value : node.Selected;
+        }
+
+        string? actionId = node.ActionId;
+        string? valueField = node.ValueField;
+        string? metaField = node.MetaField;
+        string? staticMeta = node.Meta;
+        bool selectionReady = false;
+        if (!string.IsNullOrWhiteSpace(actionId))
+        {
+            combo.SelectionChanged += async (_, _) =>
+            {
+                if (!selectionReady)
+                    return;
+
+                string? value = ResolveFieldValue(valueField);
+                string? pluginId = ResolveFieldValue(metaField) ?? staticMeta;
+                // When metaField is this select's own id, use current selection immediately.
+                if (!string.IsNullOrWhiteSpace(node.Id) &&
+                    string.Equals(metaField, node.Id, StringComparison.OrdinalIgnoreCase) &&
+                    combo.SelectedItem is SelectOptionItem current)
+                {
+                    pluginId = current.Value;
+                }
+
+                await InvokeAsync(actionId!, pluginId: pluginId, value: value).ConfigureAwait(true);
+            };
+        }
+
+        if (combo.Items.Count > 0)
+            combo.SelectedIndex = selectedIndex;
+        selectionReady = true;
+
+        panel.Children.Add(combo);
         return panel;
     }
 
@@ -304,8 +379,11 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
     {
         if (string.IsNullOrWhiteSpace(fieldId))
             return null;
-        return _fields.TryGetValue(fieldId, out TextBox? box) ? box.Text : null;
+        return _fields.TryGetValue(fieldId, out Func<string?>? getter) ? getter() : null;
     }
+
+    private static bool TracksHostTask(string actionId) =>
+        actionId is "market.installRemote" or "catalog.install" or "market.installListing";
 
     private async Task InvokeAsync(
         string actionId,
@@ -320,8 +398,34 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             return;
         }
 
+        IHostBackgroundTask? hostTask = null;
         try
         {
+            if (TracksHostTask(actionId))
+            {
+                string title = actionId switch
+                {
+                    "market.installRemote" => "获取插件 " + ExtractPluginName(pluginId),
+                    "market.installListing" => "安装本地市场插件",
+                    _ => "安装插件包"
+                };
+                hostTask = DesktopHostBackgroundTasks.Instance.Begin(title, openTaskManager: true);
+                hostTask.Report(new HostBackgroundTaskProgress("准备", "正在连接插件侧车…", 0.01));
+            }
+
+            IProgress<PluginSidecarProgress>? progress = hostTask is null
+                ? null
+                : new Progress<PluginSidecarProgress>(p =>
+                {
+                    hostTask.Report(new HostBackgroundTaskProgress(
+                        p.Stage,
+                        p.Detail ?? "",
+                        p.Progress,
+                        p.CompletedFiles,
+                        p.TotalFiles,
+                        p.SpeedBytesPerSecond));
+                });
+
             PluginSidecarClient client = PluginSidecarSupervisor.Instance.Client!;
             PluginSidecarResult result = await client.UiInvokeActionAsync(
                     _pageId,
@@ -329,7 +433,8 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                     value: value,
                     boolValue: boolValue,
                     packagePath: packagePath,
-                    pluginId: pluginId)
+                    pluginId: pluginId,
+                    progress: progress)
                 .ConfigureAwait(true);
 
             // Host-side pick file/folder then re-invoke (data-chain handoff).
@@ -337,26 +442,36 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             {
                 string? path = await PickFolderAsync(result.PickFolderTitle).ConfigureAwait(true);
                 if (string.IsNullOrWhiteSpace(path))
+                {
+                    hostTask?.Fail("已取消选择目录", canceled: true);
                     return;
+                }
+
                 result = await client.UiInvokeActionAsync(
                         _pageId,
                         actionId,
                         value: value,
                         packagePath: path,
-                        pluginId: pluginId)
+                        pluginId: pluginId,
+                        progress: progress)
                     .ConfigureAwait(true);
             }
             else if (result.PickFilePatterns is { Length: > 0 })
             {
                 string? path = await PickFileAsync(result.PickFileTitle, result.PickFilePatterns).ConfigureAwait(true);
                 if (string.IsNullOrWhiteSpace(path))
+                {
+                    hostTask?.Fail("已取消选择文件", canceled: true);
                     return;
+                }
+
                 result = await client.UiInvokeActionAsync(
                         _pageId,
                         actionId,
                         value: value,
                         packagePath: path,
-                        pluginId: pluginId)
+                        pluginId: pluginId,
+                        progress: progress)
                     .ConfigureAwait(true);
             }
 
@@ -391,6 +506,14 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                 }
             }
 
+            if (hostTask is not null)
+            {
+                if (result.Ok)
+                    hostTask.Complete(result.Message ?? "完成");
+                else
+                    hostTask.Fail(result.Message ?? "失败");
+            }
+
             // Prefer inline root from action (e.g. local market scan) over full page reload.
             if (result.Root is not null)
             {
@@ -403,8 +526,26 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         }
         catch (Exception ex)
         {
+            hostTask?.Fail(ex.Message);
             DesktopHostNotifications.Instance.ShowWarning(ex.Message);
         }
+        finally
+        {
+            hostTask?.Dispose();
+        }
+    }
+
+    private static string ExtractPluginName(string? pluginIdMeta)
+    {
+        if (string.IsNullOrWhiteSpace(pluginIdMeta))
+            return "";
+        int tab = pluginIdMeta.IndexOf('\t');
+        return tab < 0 ? pluginIdMeta : pluginIdMeta[..tab];
+    }
+
+    private sealed record SelectOptionItem(string Value, string Label)
+    {
+        public override string ToString() => Label;
     }
 
     private async Task<string?> PickFileAsync(string? title, string[] patterns)

@@ -72,6 +72,7 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
         bool? boolValue = null,
         string? packagePath = null,
         string? pluginId = null,
+        IProgress<PluginSidecarProgress>? progress = null,
         CancellationToken cancellationToken = default) =>
         CallAsync(
             PluginSidecarMethods.UiInvokeAction,
@@ -84,6 +85,7 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
                 PackagePath = packagePath,
                 PluginId = pluginId
             },
+            progress,
             cancellationToken);
 
     public Task<PluginSidecarResult> InstallPnpAsync(
@@ -114,9 +116,16 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
     public Task<PluginSidecarResult> ShutdownAsync(CancellationToken cancellationToken = default) =>
         CallAsync(PluginSidecarMethods.SystemShutdown, null, cancellationToken);
 
+    public Task<PluginSidecarResult> CallAsync(
+        string method,
+        PluginSidecarParams? parameters,
+        CancellationToken cancellationToken = default) =>
+        CallAsync(method, parameters, progress: null, cancellationToken);
+
     public async Task<PluginSidecarResult> CallAsync(
         string method,
         PluginSidecarParams? parameters,
+        IProgress<PluginSidecarProgress>? progress,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
@@ -139,19 +148,29 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            PluginSidecarResponse? response = await PluginSidecarFraming.ReadAsync(
-                    stream,
-                    PluginSidecarJsonContext.Default.PluginSidecarResponse,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            while (true)
+            {
+                PluginSidecarResponse? response = await PluginSidecarFraming.ReadAsync(
+                        stream,
+                        PluginSidecarJsonContext.Default.PluginSidecarResponse,
+                        cancellationToken)
+                    .ConfigureAwait(false);
 
-            if (response is null)
-                throw new InvalidOperationException("Empty sidecar response.");
-            if (!string.Equals(response.Id, id, StringComparison.Ordinal))
-                throw new InvalidOperationException($"Sidecar response id mismatch: expected {id}, got {response.Id}.");
-            if (response.Error is not null)
-                throw new InvalidOperationException($"Sidecar error {response.Error.Code}: {response.Error.Message}");
-            return response.Result ?? new PluginSidecarResult { Ok = true };
+                if (response is null)
+                    throw new InvalidOperationException("Empty sidecar response.");
+                if (!string.Equals(response.Id, id, StringComparison.Ordinal))
+                    throw new InvalidOperationException($"Sidecar response id mismatch: expected {id}, got {response.Id}.");
+
+                if (response.Progress is not null && response.Result is null && response.Error is null)
+                {
+                    progress?.Report(response.Progress);
+                    continue;
+                }
+
+                if (response.Error is not null)
+                    throw new InvalidOperationException($"Sidecar error {response.Error.Code}: {response.Error.Message}");
+                return response.Result ?? new PluginSidecarResult { Ok = true };
+            }
         }
         finally
         {

@@ -20,10 +20,21 @@ ui.invokeAction → result              → refresh / pick file|folder / openUrl
 
 ### Node kinds
 
-`card` | `stack` | `list` | `row` | `text` | `muted` | `hint` | `button` | `checkbox` | `textbox`
+`card` | `stack` | `list` | `row` | `text` | `muted` | `hint` | `button` | `checkbox` | `textbox` | `select`
 
 - `textbox`: optional `id`, `placeholder`, initial `text`
-- `button.valueField`: host reads that field’s text and sends it as `params.value`
+- `select`: `options[{value,label}]`, `selected`, optional `actionId` on change
+- `button.valueField` / `metaField`: host sends field text as `params.value` / `params.pluginId`
+
+### Progress frames
+
+Long actions (e.g. `market.installRemote`) may emit intermediate responses:
+
+```json
+{ "id": "…", "progress": { "stage": "下载", "detail": "…", "progress": 0.4 } }
+```
+
+Final frame has `result` or `error`. Host maps progress into the task manager.
 
 ### Action result flags
 
