@@ -23,6 +23,9 @@ namespace PCL.Desktop;
 
 public sealed partial class App : Avalonia.Application
 {
+    /// <summary>Max time to wait on splash for plugin sidecar (missing/fail still proceeds).</summary>
+    private static readonly TimeSpan PluginWarmupTimeout = TimeSpan.FromSeconds(25);
+
     private SplashWindow? _splashWindow;
 
     internal static SingleInstanceCoordinator? SingleInstanceCoordinator { get; set; }
@@ -67,88 +70,26 @@ public sealed partial class App : Avalonia.Application
                         LauncherSettingDefaults.GetBoolean("UiLauncherLogo"));
                     bool runOobe = FirstRunWizardWindow.NeedsWizard(settings);
 
-                    if (runOobe)
+                    // Always show splash (when enabled) while plugin platform is probed.
+                    if (showSplash)
                     {
-                        OobeRunPlan plan = OobeConfiguration.CreateRunPlan(settings);
-                        FirstRunWizardWindow wizard = new(plan);
-                        wizard.PrepareCentered();
-                        desktop.MainWindow = wizard;
-
-                        wizard.Completed += (_, _) =>
-                        {
-                            bool restart = wizard.ShouldRestartAfterComplete;
-                            try
-                            {
-                                if (restart)
-                                    RestartLauncherProcess();
-                            }
-                            finally
-                            {
-                                try { wizard.Close(); } catch { /* ignore */ }
-                                if (restart)
-                                {
-                                    desktop.Shutdown(0);
-                                }
-                                else
-                                {
-                                    // Short update OOBE: continue into the main shell without restart.
-                                    ShowMainWindow(desktop, fadeSplash: false);
-                                }
-                            }
-                        };
-
-                        if (showSplash)
-                        {
-                            _splashWindow = new SplashWindow();
-                            _splashWindow.Show();
-                            Dispatcher.UIThread.Post(() =>
-                            {
-                                try
-                                {
-                                    if (_splashWindow is { } splash)
-                                    {
-                                        PixelPoint pos = splash.Position;
-                                        double scale = splash.RenderScaling > 0 ? splash.RenderScaling : 1;
-                                        int w = (int)Math.Round(Math.Max(splash.Bounds.Width, 136) * scale);
-                                        int h = (int)Math.Round(Math.Max(splash.Bounds.Height, 136) * scale);
-                                        splash.Hide();
-                                        splash.Close();
-                                        _splashWindow = null;
-                                        wizard.PrepareFromSplash(new PixelRect(pos.X, pos.Y, w, h));
-                                    }
-                                    else
-                                    {
-                                        wizard.StartIntroAnimation();
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    DesktopFileLog.Warn("Startup", "OOBE 与 Splash 衔接失败，使用居中开场。", ex);
-                                    wizard.StartIntroAnimation();
-                                }
-
-                                if (!wizard.IsVisible)
-                                    wizard.Show();
-                            }, DispatcherPriority.Loaded);
-                        }
-                        else
-                        {
-                            Dispatcher.UIThread.Post(wizard.StartIntroAnimation, DispatcherPriority.Loaded);
-                        }
-
-                        DesktopFileLog.Info(
-                            "Startup",
-                            $"OOBE 已创建；Kind={plan.Kind}；Reason={plan.Reason}；Steps={string.Join('>', plan.Steps)}；Restart={plan.RestartAfterComplete}。");
+                        _splashWindow = new SplashWindow();
+                        _splashWindow.Show();
+                        DesktopFileLog.Info("Startup", "启动图标已显示；等待插件功能就绪或确认不可用。");
                     }
                     else
                     {
-                        if (showSplash)
-                        {
-                            _splashWindow = new SplashWindow();
-                            _splashWindow.Show();
-                        }
+                        DesktopFileLog.Info("Startup", "启动图标已关闭；仍等待插件功能就绪或确认不可用后再进入主页。");
+                    }
 
-                        ShowMainWindow(desktop, fadeSplash: true);
+                    if (runOobe)
+                    {
+                        OobeRunPlan plan = OobeConfiguration.CreateRunPlan(settings);
+                        _ = EnterOobeAfterPluginReadyAsync(desktop, plan, showSplash);
+                    }
+                    else
+                    {
+                        _ = EnterMainShellAfterPluginReadyAsync(desktop, showSplash);
                     }
                 }
             }
@@ -166,6 +107,122 @@ public sealed partial class App : Avalonia.Application
     {
         ArgumentNullException.ThrowIfNull(getEnvironmentVariable);
         return !string.IsNullOrWhiteSpace(getEnvironmentVariable("PCL_DISABLE_DESKTOP_SHELL"));
+    }
+
+    /// <summary>
+    /// Splash-time gate: load plugin sidecar until ready / not present / failed / timeout, then open main shell.
+    /// </summary>
+    private async Task EnterMainShellAfterPluginReadyAsync(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        bool fadeSplash)
+    {
+        await WaitForPluginOptionalRuntimeAsync("main").ConfigureAwait(false);
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            ShowMainWindow(desktop, fadeSplash);
+        });
+    }
+
+    /// <summary>
+    /// Splash-time gate before OOBE so online/plugin pages can use a warmed sidecar.
+    /// </summary>
+    private async Task EnterOobeAfterPluginReadyAsync(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        OobeRunPlan plan,
+        bool hadSplash)
+    {
+        await WaitForPluginOptionalRuntimeAsync("oobe").ConfigureAwait(false);
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            FirstRunWizardWindow wizard = new(plan);
+            wizard.PrepareCentered();
+            desktop.MainWindow = wizard;
+
+            wizard.Completed += (_, _) =>
+            {
+                bool restart = wizard.ShouldRestartAfterComplete;
+                try
+                {
+                    if (restart)
+                        RestartLauncherProcess();
+                }
+                finally
+                {
+                    try { wizard.Close(); } catch { /* ignore */ }
+                    if (restart)
+                    {
+                        desktop.Shutdown(0);
+                    }
+                    else
+                    {
+                        ShowMainWindow(desktop, fadeSplash: false);
+                    }
+                }
+            };
+
+            if (hadSplash && _splashWindow is { } splash)
+            {
+                try
+                {
+                    PixelPoint pos = splash.Position;
+                    double scale = splash.RenderScaling > 0 ? splash.RenderScaling : 1;
+                    int w = (int)Math.Round(Math.Max(splash.Bounds.Width, 136) * scale);
+                    int h = (int)Math.Round(Math.Max(splash.Bounds.Height, 136) * scale);
+                    splash.Hide();
+                    splash.Close();
+                    _splashWindow = null;
+                    wizard.PrepareFromSplash(new PixelRect(pos.X, pos.Y, w, h));
+                }
+                catch (Exception ex)
+                {
+                    DesktopFileLog.Warn("Startup", "OOBE 与 Splash 衔接失败，使用居中开场。", ex);
+                    _splashWindow?.Close();
+                    _splashWindow = null;
+                    wizard.StartIntroAnimation();
+                }
+            }
+            else
+            {
+                _splashWindow?.Close();
+                _splashWindow = null;
+                Dispatcher.UIThread.Post(wizard.StartIntroAnimation, DispatcherPriority.Loaded);
+            }
+
+            if (!wizard.IsVisible)
+                wizard.Show();
+
+            DesktopFileLog.Info(
+                "Startup",
+                $"OOBE 已创建；Kind={plan.Kind}；Reason={plan.Reason}；Steps={string.Join('>', plan.Steps)}；Restart={plan.RestartAfterComplete}。");
+        });
+    }
+
+    private static async Task WaitForPluginOptionalRuntimeAsync(string phase)
+    {
+        DesktopFileLog.Info("Startup", $"[{phase}] 插件侧车探测开始（超时 {PluginWarmupTimeout.TotalSeconds:0}s）。");
+        try
+        {
+            PluginOptionalRuntimeResult result = await DesktopHost
+                .EnsureOptionalRuntimeReadyAsync()
+                .WaitAsync(PluginWarmupTimeout)
+                .ConfigureAwait(false);
+
+            DesktopFileLog.Info(
+                "Startup",
+                $"[{phase}] 插件侧车探测结束：Status={result.Status}；{result.Message}");
+        }
+        catch (TimeoutException)
+        {
+            DesktopFileLog.Warn(
+                "Startup",
+                $"[{phase}] 插件侧车在 {PluginWarmupTimeout.TotalSeconds:0}s 内未完成，继续进入后续界面。");
+        }
+        catch (Exception ex)
+        {
+            DesktopFileLog.Warn("Startup", $"[{phase}] 插件侧车等待异常，继续进入后续界面。", ex);
+        }
     }
 
     private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop, bool fadeSplash)
