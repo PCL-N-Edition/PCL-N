@@ -27,7 +27,9 @@ internal sealed class PluginSidecarFeedbackSubmissionHandler : IHostFeedbackSubm
             ?? throw new InvalidOperationException("插件侧车未连接。");
 
         PluginSidecarResult session = await client.FeedbackSessionAsync(cancellationToken).ConfigureAwait(false);
-        if (!session.HasSession)
+        bool authenticated = session.HasSession ||
+            string.Equals(session.SessionStatus, "authenticated", StringComparison.OrdinalIgnoreCase);
+        if (!authenticated)
             throw new InvalidOperationException("请先在「设置 → 在线 → 账户」中连接 PCL N 在线服务账户，再提交反馈。");
 
         PluginSidecarResult result = await client.FeedbackSubmitAsync(

@@ -189,6 +189,10 @@ internal sealed class PluginSidecarResult
     [JsonPropertyName("hasSession")]
     public bool HasSession { get; set; }
 
+    /// <summary>authenticated | anonymous</summary>
+    [JsonPropertyName("sessionStatus")]
+    public string? SessionStatus { get; set; }
+
     [JsonPropertyName("displayName")]
     public string? DisplayName { get; set; }
 

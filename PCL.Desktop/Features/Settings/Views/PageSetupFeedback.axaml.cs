@@ -172,7 +172,9 @@ public partial class PageSetupFeedback : MyPageRight, IRefreshableSettingsPage, 
                 ?? throw new InvalidOperationException("插件侧车未连接。");
 
             PluginSidecarResult session = await client.FeedbackSessionAsync().ConfigureAwait(true);
-            if (!session.HasSession)
+            bool authenticated = session.HasSession ||
+                string.Equals(session.SessionStatus, "authenticated", StringComparison.OrdinalIgnoreCase);
+            if (!authenticated)
             {
                 throw new InvalidOperationException(
                     "新建反馈需要先登录 PCL N 在线服务账户。\n请打开「设置 → 在线 → 账户」连接后再试。");
