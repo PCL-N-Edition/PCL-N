@@ -17,6 +17,7 @@ internal static class PluginSidecarMethods
     public const string CatalogInstallPnp = "catalog.installPnp";
     public const string CatalogSetEnabled = "catalog.setEnabled";
     public const string CatalogUninstall = "catalog.uninstall";
+    public const string RuntimeStatus = "runtime.status";
 }
 
 internal sealed class PluginSidecarRequest
@@ -86,6 +87,15 @@ internal sealed class PluginSidecarResult
 
     [JsonPropertyName("plugins")]
     public PluginSidecarCatalogEntry[]? Plugins { get; set; }
+
+    [JsonPropertyName("runtimeRoot")]
+    public string? RuntimeRoot { get; set; }
+
+    [JsonPropertyName("installedCount")]
+    public int InstalledCount { get; set; }
+
+    [JsonPropertyName("enabledCount")]
+    public int EnabledCount { get; set; }
 }
 
 internal sealed class PluginSidecarError

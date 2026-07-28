@@ -26,7 +26,8 @@ Length-prefixed (BE u32) UTF-8 JSON. Protocol version **2**.
 | Method | Role |
 |--------|------|
 | `system.hello` / `system.shutdown` / `health.ping` | Lifecycle |
-| `runtime.init` | Data/cache roots + bootstrap |
+| `runtime.init` | Data/cache roots + bootstrap + LoadEnabled |
+| `runtime.status` | installed/enabled counts + runtime root |
 | `catalog.list` | Installed plugins |
 | `catalog.installPnp` | Install package path |
 | `catalog.setEnabled` | Enable / disable |
@@ -46,7 +47,14 @@ Drag-and-drop `.pnp` → `PluginSidecarPnpFileArtifactHandler`.
 ```powershell
 .\scripts\build-plugin-sidecar.ps1 -Publish -Runtime win-x64
 .\scripts\build-desktop.ps1 -WithPlugin -Publish -Aot -Runtime win-x64
+# → artifacts/desktop-win-x64/ + sidecar/
 ```
+
+CI (`reusable-build.yml` with `include_plugin: true`):
+
+1. Fetch PCL.Plugin tag source (`SkipRewrite`)
+2. Publish host (no plugin IL)
+3. `build-plugin-sidecar.ps1 -Publish` → `$PUBLISH_DIR/sidecar/`
 
 ## Non-goals
 

@@ -27,14 +27,14 @@ on:
       runtime_variant:
         required: true
         type: string
-      # Source-overlay inject: pull PCL.Plugin tag source, rewrite host hooks, compile into Desktop.
-      # Host-only default remains false (no plugin product in public packages unless enabled).
+      # Ship CoreCLR plugin sidecar next to the host (host stays free of plugin IL / AOT-capable).
+      # Default false = host-only public packages.
       include_plugin:
         required: false
         default: false
         type: boolean
       plugin_tag:
-        description: PCL.Plugin source tag (empty = Stable channel = GitHub releases/latest tag)
+        description: PCL.Plugin source tag for sidecar build (empty = Stable channel)
         required: false
         default: ""
         type: string
@@ -107,7 +107,7 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Checkout PCL-N-Plugin-SDK (source-overlay)
+      - name: Checkout PCL-N-Plugin-SDK (sidecar build)
         if: ${{ inputs.include_plugin }}
         uses: actions/checkout@v6
         with:
@@ -115,16 +115,15 @@ jobs:
           path: PCL-N-Plugin-SDK
           token: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
 
-      - name: Source-overlay inject PCL.Plugin
+      - name: Fetch PCL.Plugin source tag (no host rewrite)
         if: ${{ inputs.include_plugin }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
         run: |
           $tag = '${{ inputs.plugin_tag }}'.Trim()
-          $args = @{ Channel = 'Stable' }
+          $args = @{ Channel = 'Stable'; SkipRewrite = $true }
           if ($tag) { $args['Tag'] = $tag }
-          # Source-tag inject only (no DLL download).
           & ./scripts/apply-plugin-overlay.ps1 @args
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -247,14 +246,7 @@ jobs:
 
           # Single-node publish reduces MSB4166 crashes.
           # NETSDK1176: EnableCompressionInSingleFile is only valid for self-contained.
-          # Metadata channel/version stamped in previous step into embedded metadata.json.
-          # With include_plugin: source-overlay compiles PCL.Plugin into Desktop (no embed IL).
-          plugin_args=()
-          if [[ "${{ inputs.include_plugin }}" == "true" ]]; then
-            plugin_args+=(-p:PclWithPlugin=true)
-            plugin_args+=(-p:PclNPluginSdkRoot="$PWD/PCL-N-Plugin-SDK")
-          fi
-
+          # Host stays free of plugin IL (AOT-capable path). Sidecar is staged separately when enabled.
           dotnet publish PCL.Desktop/PCL.Desktop.csproj \
             -c "${{ inputs.configuration }}" \
             -r "${{ inputs.runtime_id }}" \
@@ -274,9 +266,28 @@ jobs:
             -p:DebugSymbols=false \
             -p:DeleteExistingFiles=true \
             ${version_args[@]+"${version_args[@]}"} \
-            ${plugin_args[@]+"${plugin_args[@]}"} \
             -warnaserror:CA1416 \
             -o "$PUBLISH_DIR"
+
+      - name: Stage plugin sidecar next to host
+        if: ${{ inputs.include_plugin }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
+        run: |
+          $out = Join-Path $env:PUBLISH_DIR 'sidecar'
+          & ./scripts/build-plugin-sidecar.ps1 `
+            -Configuration '${{ inputs.configuration }}' `
+            -Runtime '${{ inputs.runtime_id }}' `
+            -Publish `
+            -SkipFetch `
+            -Output $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = if ($IsWindows -or $env:RUNNER_OS -eq 'Windows') { 'PCL.Plugin.Sidecar.exe' } else { 'PCL.Plugin.Sidecar' }
+          if (-not (Test-Path -LiteralPath (Join-Path $out $exe))) {
+            throw "Sidecar executable missing after publish: $out\$exe"
+          }
+          Write-Host "Sidecar staged at $out"
 
       - name: Validate Avalonia artifact
         shell: bash

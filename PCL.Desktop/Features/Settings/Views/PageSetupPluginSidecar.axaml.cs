@@ -71,9 +71,11 @@ public partial class PageSetupPluginSidecar : MyPageRight, IRefreshableSettingsP
             PluginSidecarClient client = PluginSidecarSupervisor.Instance.Client
                 ?? throw new InvalidOperationException("client null");
             PluginSidecarResult ping = await client.PingAsync().ConfigureAwait(true);
+            PluginSidecarResult status = await client.RuntimeStatusAsync().ConfigureAwait(true);
             PluginSidecarResult catalog = await client.ListCatalogAsync().ConfigureAwait(true);
             _statusText.Text =
-                $"侧车在线 · {catalog.Message ?? "ok"} · ping={(ping.Ok ? "ok" : "fail")} · protocol v2";
+                $"侧车在线 · 已装 {status.InstalledCount} / 启用 {status.EnabledCount} · " +
+                $"ping={(ping.Ok ? "ok" : "fail")} · {status.RuntimeRoot ?? ""}";
 
             _pluginList.Children.Clear();
             PluginSidecarCatalogEntry[] plugins = catalog.Plugins ?? [];

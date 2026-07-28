@@ -61,6 +61,9 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
     public Task<PluginSidecarResult> ListCatalogAsync(CancellationToken cancellationToken = default) =>
         CallAsync(PluginSidecarMethods.CatalogList, null, cancellationToken);
 
+    public Task<PluginSidecarResult> RuntimeStatusAsync(CancellationToken cancellationToken = default) =>
+        CallAsync(PluginSidecarMethods.RuntimeStatus, null, cancellationToken);
+
     public Task<PluginSidecarResult> InstallPnpAsync(
         string packagePath,
         CancellationToken cancellationToken = default) =>
