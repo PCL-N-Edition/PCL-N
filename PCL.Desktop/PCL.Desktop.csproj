@@ -65,6 +65,10 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="PCL.Desktop.Test" />
+    <!-- Plugin UI types (MyPageRight, etc.) when running inside sidecar process only. -->
+    <InternalsVisibleTo Include="PCL.Plugin" />
+    <InternalsVisibleTo Include="PCL.Plugin.Sidecar" />
+    <InternalsVisibleTo Include="PCL.Plugin.Test" />
   </ItemGroup>
   <Import Project="LibVlcPlaybackModules.props" />
   <ItemGroup>

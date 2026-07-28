@@ -11,8 +11,7 @@ namespace PCL.Desktop.Hosting;
 
 /// <summary>
 /// Desktop host composition for the launcher shell.
-/// Optional plugin product is composed only after source-overlay inject
-/// (see <c>scripts/apply-plugin-overlay.ps1</c> and <see cref="DesktopHost"/> partials).
+/// Plugin platform runs out-of-process via <c>PluginSidecarSupervisor</c> (AOT-safe host).
 /// </summary>
 internal static partial class DesktopHost
 {

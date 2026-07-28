@@ -36,5 +36,9 @@
   <ItemGroup>
     <InternalsVisibleTo Include="PCL.Desktop" />
     <InternalsVisibleTo Include="PCL.Application.Test" />
+    <!-- Sidecar / plugin process (out-of-process); not linked into AOT host. -->
+    <InternalsVisibleTo Include="PCL.Plugin" />
+    <InternalsVisibleTo Include="PCL.Plugin.Sidecar" />
+    <InternalsVisibleTo Include="PCL.Plugin.Test" />
   </ItemGroup>
 </Project>

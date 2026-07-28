@@ -730,21 +730,22 @@ public sealed class DesktopArchitectureTests
         Assert.IsFalse(File.Exists(Path.Combine(desktopRoot, "Hosting", "EmbeddedRuntimeExtensionLoader.cs")));
         Assert.IsFalse(projectSource.Contains("PclPluginAssembly", StringComparison.Ordinal));
         Assert.IsFalse(projectSource.Contains("PCL.Desktop.Embedded.PCL.Plugin", StringComparison.Ordinal));
-        // Harmony only arrives via overlay targets when PclWithPlugin=true — not inlined in host csproj body.
+        // Harmony must never appear in host project body (sidecar owns it).
         Assert.IsFalse(projectSource.Contains("Lib.Harmony", StringComparison.Ordinal));
-        Assert.IsFalse(projectSource.Contains("InternalsVisibleTo Include=\"PCL.Plugin\"", StringComparison.Ordinal));
         Assert.IsFalse(hostSource.Contains("LoadFromStream", StringComparison.Ordinal));
         Assert.IsFalse(hostSource.Contains("EmbeddedRuntimeExtensionLoader", StringComparison.Ordinal));
         Assert.IsFalse(solutionSource.Contains("PCL.Plugin", StringComparison.Ordinal));
         Assert.IsFalse(projectSource.Contains("ProjectReference Include=\"../PCL.Plugin", StringComparison.Ordinal));
         StringAssert.Contains(hostSource, "RegisterGeneratedHostModules");
         StringAssert.Contains(hostSource, "RegisterOptionalModules");
-        // Host tree keeps no-op partials; overlay rewrite injects PclPluginHostModule at build time.
+        // In-process bootstrap must not live in host; sidecar process hosts PluginPlatformBootstrap.
         Assert.IsFalse(optionalSource.Contains("PclPluginHostModule", StringComparison.Ordinal));
         Assert.IsFalse(optionalSource.Contains("PluginPlatformBootstrap", StringComparison.Ordinal));
-        // Conditional import of overlay targets is the only host-side plugin path.
-        StringAssert.Contains(projectSource, "PclPlugin.overlay.targets");
-        StringAssert.Contains(projectSource, "PclWithPlugin");
+        // Out-of-process IPC client is the supported integration.
+        StringAssert.Contains(optionalSource, "PluginSidecarSupervisor");
+        // InternalsVisibleTo PCL.Plugin is allowed so the *sidecar process* can share Desktop UI types;
+        // host still must not ProjectReference or embed plugin assemblies.
+        StringAssert.Contains(projectSource, "InternalsVisibleTo Include=\"PCL.Plugin\"");
     }
 
     [TestMethod]
