@@ -478,6 +478,9 @@
     <sys:String x:Key="Main.SpecialVersion.CiHint">This is an automated CI build of PCL N Edition. It may contain unfinished changes and is not recommended for everyday use or modpack creation.&#x0a;&#x0a;Use the latest stable release unless a contributor specifically asks you to test this build.</sys:String>
     <sys:String x:Key="Main.SpecialVersion.DebugHint">This Debug build is intended only for development and may have severe performance or network issues. Community support is not provided for problems caused by using it as a regular build.&#x0a;&#x0a;If you aren’t developing PCL N, install the latest stable release instead.</sys:String>
     <sys:String x:Key="Main.SpecialVersion.HideHintNotice">Set the PCL_DISABLE_DEBUG_HINT environment variable to any value to hide this notice.</sys:String>
+    <sys:String x:Key="Legal.FirstRun.Accept">I have read and agree</sys:String>
+    <sys:String x:Key="Legal.FirstRun.Decline">Disagree and exit</sys:String>
+    <sys:String x:Key="Legal.FirstRun.Title">Terms and Privacy</sys:String>
     <sys:String x:Key="Main.SpecialVersion.IUnderstand">Continue Anyway</sys:String>
     <sys:String x:Key="Main.SpecialVersion.OpenDownloadPageAndExit">Get Stable Release and Exit</sys:String>
     <sys:String x:Key="Main.SpecialVersion.Title">Development Build</sys:String>
