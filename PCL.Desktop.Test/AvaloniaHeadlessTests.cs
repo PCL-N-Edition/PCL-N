@@ -1142,6 +1142,44 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void ModAnimation_TimerOnlyRunsWhileAnimationsAreActive()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            ModAnimation.ResetForTesting();
+            Assert.IsFalse(ModAnimation.IsTimerRunningForTesting);
+
+            double value = 0d;
+            ModAnimation.AniStart(
+                ModAnimation.AaDouble(
+                    delta => value += delta,
+                    1d,
+                    32,
+                    ease: new ModAnimation.AniEaseLinear()),
+                "ModAnimation Timer Lifetime");
+
+            Assert.IsTrue(ModAnimation.IsTimerRunningForTesting);
+            ModAnimation.AdvanceUntilIdleForTesting();
+            Assert.AreEqual(1d, value, 0.001d);
+            Assert.IsFalse(ModAnimation.IsTimerRunningForTesting);
+
+            ModAnimation.AniStart(
+                ModAnimation.AaDouble(
+                    delta => value += delta,
+                    1d,
+                    32,
+                    ease: new ModAnimation.AniEaseLinear()),
+                "ModAnimation Timer Restart");
+            Assert.IsTrue(ModAnimation.IsTimerRunningForTesting);
+
+            ModAnimation.AniStop("ModAnimation Timer Restart");
+            Assert.IsFalse(ModAnimation.IsTimerRunningForTesting);
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void ModAnimation_AaScaleUsesWpfSymmetricMarginDelta()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

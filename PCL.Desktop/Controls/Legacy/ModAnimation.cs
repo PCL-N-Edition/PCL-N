@@ -21,8 +21,11 @@ namespace PCL.Desktop.Controls.Legacy;
 public static partial class ModAnimation
 {
     private static readonly Dictionary<string, AniGroupEntry> AniGroups = [];
+    private static readonly List<AniGroupEntry> ActiveAniGroups = [];
+    private static readonly List<AniGroupEntry> PendingAniGroups = [];
     private static readonly Stopwatch AniClock = new();
     private static DispatcherTimer? _aniTimer;
+    private static bool _isAdvancingGroups;
     private static double _aniLastTick;
     private static TimeSpan _frameInterval = TimeSpan.FromMilliseconds(16d);
 
@@ -43,14 +46,20 @@ public static partial class ModAnimation
         if (data.Count == 0)
             return;
 
-        EnsureTimer();
         if (string.IsNullOrEmpty(name))
             name = Guid.NewGuid().ToString("N");
         else
             AniStop(name);
 
-        AniGroups[name] = new AniGroupEntry(data);
-        if (refreshTime)
+        AniGroupEntry entry = new(name, data);
+        AniGroups[name] = entry;
+        if (_isAdvancingGroups)
+            PendingAniGroups.Add(entry);
+        else
+            ActiveAniGroups.Add(entry);
+
+        StartTimer();
+        if (refreshTime && _aniTimer?.IsEnabled == true)
             _aniLastTick = AniClock.Elapsed.TotalMilliseconds;
     }
 
@@ -62,7 +71,12 @@ public static partial class ModAnimation
         if (string.IsNullOrEmpty(name))
             return;
 
-        AniGroups.Remove(name);
+        if (!AniGroups.Remove(name, out AniGroupEntry? entry))
+            return;
+
+        if (!_isAdvancingGroups)
+            ActiveAniGroups.Remove(entry);
+        StopTimerIfIdle();
     }
 
     public static void AdvanceForTesting(int deltaTick = 16, int count = 1)
@@ -89,6 +103,9 @@ public static partial class ModAnimation
     public static void ResetForTesting()
     {
         AniGroups.Clear();
+        ActiveAniGroups.Clear();
+        PendingAniGroups.Clear();
+        _isAdvancingGroups = false;
         _aniTimer?.Stop();
         _aniTimer = null;
         _aniLastTick = 0d;
@@ -105,23 +122,49 @@ public static partial class ModAnimation
         try
         {
             deltaTick = (int)Math.Round(Math.Clamp(deltaTick * aniSpeed, 0d, 100000d));
-            foreach (KeyValuePair<string, AniGroupEntry> pair in AniGroups.ToArray())
+            _isAdvancingGroups = true;
+            int frameGroupCount = ActiveAniGroups.Count;
+            int index = 0;
+            while (index < frameGroupCount)
             {
-                AniGroupEntry entry = pair.Value;
+                AniGroupEntry entry = ActiveAniGroups[index];
                 AdvanceGroup(entry, deltaTick);
 
                 if (entry.Data.Count == 0 &&
-                    AniGroups.TryGetValue(pair.Key, out AniGroupEntry? current) &&
+                    AniGroups.TryGetValue(entry.Name, out AniGroupEntry? current) &&
                     ReferenceEquals(current, entry))
                 {
-                    AniGroups.Remove(pair.Key);
+                    AniGroups.Remove(entry.Name);
                 }
+
+                if (entry.Data.Count == 0 ||
+                    !AniGroups.TryGetValue(entry.Name, out current) ||
+                    !ReferenceEquals(current, entry))
+                {
+                    ActiveAniGroups.RemoveAt(index);
+                    frameGroupCount--;
+                    continue;
+                }
+
+                index++;
             }
         }
         catch (Exception ex)
         {
             // Never let a single frame kill the timer (AaCode re-entrancy / index OOR).
             PortableLog.Error(ex, "Animation", "动画帧推进失败，已跳过本帧。");
+        }
+        finally
+        {
+            _isAdvancingGroups = false;
+            if (PendingAniGroups.Count > 0)
+            {
+                ActiveAniGroups.AddRange(PendingAniGroups);
+                PendingAniGroups.Clear();
+            }
+
+            RemoveInactiveGroups();
+            StopTimerIfIdle();
         }
     }
 
@@ -1135,8 +1178,6 @@ public static partial class ModAnimation
         if (_aniTimer is not null)
             return;
 
-        AniClock.Restart();
-        _aniLastTick = 0d;
         _aniTimer = new DispatcherTimer
         {
             Interval = _frameInterval
@@ -1150,11 +1191,48 @@ public static partial class ModAnimation
                 PortableLog.RealTime("Animation", $"动画帧；Delta={delta:0.###}ms；活动组={AniGroups.Count}；目标间隔={_frameInterval.TotalMilliseconds:0.###}ms。");
             AniTimer((int)Math.Round(delta));
         };
-        _aniTimer.Start();
     }
 
-    private sealed class AniGroupEntry(List<AniData> data)
+    private static void StartTimer()
     {
+        EnsureTimer();
+        if (_aniTimer?.IsEnabled == true)
+            return;
+
+        AniClock.Restart();
+        _aniLastTick = 0d;
+        _aniTimer?.Start();
+    }
+
+    private static void StopTimerIfIdle()
+    {
+        if (_isAdvancingGroups || AniGroups.Count > 0 || _aniTimer?.IsEnabled != true)
+            return;
+
+        _aniTimer.Stop();
+        AniClock.Reset();
+        _aniLastTick = 0d;
+    }
+
+    private static void RemoveInactiveGroups()
+    {
+        for (int index = ActiveAniGroups.Count - 1; index >= 0; index--)
+        {
+            AniGroupEntry entry = ActiveAniGroups[index];
+            if (!AniGroups.TryGetValue(entry.Name, out AniGroupEntry? current) ||
+                !ReferenceEquals(current, entry))
+            {
+                ActiveAniGroups.RemoveAt(index);
+            }
+        }
+    }
+
+    internal static bool IsTimerRunningForTesting => _aniTimer?.IsEnabled == true;
+
+    private sealed class AniGroupEntry(string name, List<AniData> data)
+    {
+        public string Name { get; } = name;
+
         public List<AniData> Data { get; } = data;
 
         /// <summary>True while <see cref="AdvanceGroup"/> is running on this entry.</summary>
