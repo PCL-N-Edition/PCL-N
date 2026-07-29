@@ -15,10 +15,10 @@ param(
     # Explicit source tag, e.g. v0.17.0. Empty = resolve by -Channel.
     [string]$Tag = '',
 
+    # Latest  = newest git tag matching ^v\d+\.\d+(\.\d+)? (default for host publish)
     # Stable  = GitHub releases/latest tag_name (formal release notes)
-    # Latest  = newest git tag matching ^v\d+\.\d+(\.\d+)? (source contracts)
     [ValidateSet('Stable', 'Latest')]
-    [string]$Channel = 'Stable',
+    [string]$Channel = 'Latest',
 
     [string]$Repo = 'PCL-N-Edition/PCL.Plugin',
     [string]$PluginRoot = '',
@@ -52,16 +52,18 @@ function Resolve-PluginSourceTag {
         [string]$Channel
     )
 
-    if ($Channel -eq 'Stable') {
-        $tag = & gh api "repos/$Repository/releases/latest" --jq '.tag_name' 2>$null
-        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($tag)) {
-            Write-Host "Resolved Stable channel via GitHub Release: $($tag.Trim())"
-            return $tag.Trim()
-        }
-        Write-Warning "No GitHub Release for Stable channel; falling back to latest git tag."
+    # Prefer GitHub releases/latest for both Stable and Latest (host default = Latest).
+    # Falls back to newest semver git tag when no formal release exists.
+    $releaseTag = & gh api "repos/$Repository/releases/latest" --jq '.tag_name' 2>$null
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($releaseTag)) {
+        $chosenRelease = $releaseTag.Trim()
+        Write-Host "Resolved $Channel channel via GitHub releases/latest: $chosenRelease"
+        return $chosenRelease
     }
 
-    # Prefer semver-ish tags (v0.17.0); API returns newest-first by commit date for tags list.
+    Write-Warning "No GitHub Release latest for $Channel channel; falling back to newest git tag."
+
+    # Prefer semver-ish tags (v0.18.0); API returns newest-first by commit date for tags list.
     $tagsJson = & gh api "repos/$Repository/tags?per_page=30" 2>$null
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tagsJson)) {
         throw "Could not list tags for $Repository. Pass -Tag or ensure gh is authenticated for the private repo."
@@ -85,7 +87,7 @@ function Resolve-PluginSourceTag {
     } -Descending
 
     $chosen = $sorted | Select-Object -First 1
-    Write-Host "Resolved Latest channel via git tag: $chosen"
+    Write-Host "Resolved $Channel channel via git tag: $chosen"
     return $chosen
 }
 

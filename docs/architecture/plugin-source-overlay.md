@@ -21,14 +21,14 @@ main 合入
 
 DLL 上传**不是**注入前置条件。GitHub Release 主要用于：
 
-- 给 `apply-plugin-overlay -Channel Stable` 解析 `releases/latest` 的 **tag 名**
+- 给 `apply-plugin-overlay -Channel Latest`（默认）解析 `releases/latest` 的 **tag 名**
 - 给人看的更新说明
 
 ## Pipeline
 
 ```
-scripts/apply-plugin-overlay.ps1 [-Tag vX.Y.Z] [-Channel Stable|Latest]
-  ├─ resolve source tag (Stable=Release latest, Latest=newest v* git tag)
+scripts/apply-plugin-overlay.ps1 [-Tag vX.Y.Z] [-Channel Latest|Stable]
+  ├─ resolve source tag (default Latest = GitHub releases/latest, else newest v* git tag)
   ├─ clone/checkout PCL.Plugin/ at that **source** ref
   ├─ require host-overlay/manifest.json + msbuild targets
   ├─ copy host-overlay/rewrite/** → host worktree (dirtines tracked files)
@@ -59,7 +59,7 @@ Host hooks that stay in the body (empty without overlay):
 
 ```powershell
 # Latest formal release tag (GitHub Release → tag source)
-.\scripts\apply-plugin-overlay.ps1 -Channel Stable
+.\scripts\apply-plugin-overlay.ps1 -Channel Latest
 
 # Newest v* git tag (may be newer than a formal Release)
 .\scripts\apply-plugin-overlay.ps1 -Channel Latest
@@ -78,5 +78,5 @@ Requires [PCL-N-Plugin-SDK](https://github.com/PCL-N-Edition/PCL-N-Plugin-SDK) u
 `reusable-build.yml` optional:
 
 - `include_plugin: true` — run overlay + `-p:PclWithPlugin=true`
-- `plugin_tag` — pin; empty uses Stable channel resolution
+- `plugin_tag` — pin; empty uses **Latest** channel (`releases/latest`)
 - secret `PLUGIN_REPO_TOKEN` when needed

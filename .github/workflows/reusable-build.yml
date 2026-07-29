@@ -39,7 +39,7 @@ on:
         default: false
         type: boolean
       plugin_tag:
-        description: PCL.Plugin source tag for sidecar build (empty = Stable channel)
+        description: PCL.Plugin source tag for sidecar build (empty = Latest channel / newest v* tag)
         required: false
         default: ""
         type: string
@@ -127,7 +127,8 @@ jobs:
           GH_TOKEN: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
         run: |
           $tag = '${{ inputs.plugin_tag }}'.Trim()
-          $args = @{ Channel = 'Stable'; SkipRewrite = $true }
+          # Default Latest = newest v* plugin tag (releases/latest after formal plugin GH Release).
+          $args = @{ Channel = 'Latest'; SkipRewrite = $true }
           if ($tag) { $args['Tag'] = $tag }
           & ./scripts/apply-plugin-overlay.ps1 @args
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

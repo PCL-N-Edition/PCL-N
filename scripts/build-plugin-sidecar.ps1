@@ -21,7 +21,7 @@ if (-not (Test-Path $sdkRoot)) {
 }
 
 if (-not $SkipFetch -or -not (Test-Path $sidecarProject)) {
-    $overlay = @{ Channel = 'Stable'; SkipRewrite = $true }
+    $overlay = @{ Channel = 'Latest'; SkipRewrite = $true }
     if ($PluginTag) { $overlay['Tag'] = $PluginTag }
     if ($SkipFetch) { $overlay['SkipFetch'] = $true }
     # Fetch plugin source tag only; do not rewrite host for in-process compile.

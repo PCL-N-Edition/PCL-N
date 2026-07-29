@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
 if (-not $SkipOverlay) {
-    $overlayArgs = @{ Channel = 'Stable' }
+    $overlayArgs = @{ Channel = 'Latest' }
     if (-not [string]::IsNullOrWhiteSpace($Tag)) { $overlayArgs['Tag'] = $Tag }
     if ($SkipFetch) { $overlayArgs['SkipFetch'] = $true }
     & (Join-Path $PSScriptRoot 'apply-plugin-overlay.ps1') @overlayArgs

@@ -19,7 +19,7 @@
 .\scripts\build-desktop.ps1 -WithPlugin -Publish -Aot -Runtime win-x64
 
 # Optional: fetch plugin tag source first (no host rewrite required for sidecar)
-.\scripts\apply-plugin-overlay.ps1 -Channel Stable -SkipRewrite
+.\scripts\apply-plugin-overlay.ps1 -Channel Latest -SkipRewrite
 ```
 
 Design: [docs/architecture/plugin-sidecar-ipc.md](../docs/architecture/plugin-sidecar-ipc.md).
