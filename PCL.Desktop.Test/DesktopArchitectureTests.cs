@@ -592,7 +592,10 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(mainWindow, "LauncherUpdateCoordinator.Current.StartAutomaticUpdateOnceAsync()");
         StringAssert.Contains(
             mainWindow,
-            "TransparencyLevelHint = [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None]");
+            "? [WindowTransparencyLevel.Transparent]");
+        StringAssert.Contains(
+            mainWindow,
+            ": [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None]");
         Assert.IsFalse(mainWindow.Contains(
             "TransparencyLevelHint = [WindowTransparencyLevel.None]",
             StringComparison.Ordinal));
