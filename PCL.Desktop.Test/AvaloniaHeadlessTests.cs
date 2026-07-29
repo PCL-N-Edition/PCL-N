@@ -13501,7 +13501,7 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
-    public void MainWindow_NavigationToggleUsesMeasuredAnimatedWidth()
+    public void MainWindow_NavigationToggleCommitsMeasuredWidthWithoutLayoutTimer()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
 
@@ -13518,17 +13518,9 @@ public sealed class AvaloniaHeadlessTests
                 FindVisual<MyListItem>(window, "BtnTitleSelect1")!.Title = "下载资源与游戏版本管理";
 
                 Click(window, toggle);
-                double expandedTarget = GetPrivateDouble(window, "_navAnimTarget");
-                Assert.IsTrue(expandedTarget > 138d);
-
-                AdvanceNavigationAnimation(window);
-                Assert.AreEqual(expandedTarget, navLayer.Width, 0.5d);
+                Assert.IsTrue(navLayer.Width > 138d);
 
                 Click(window, toggle);
-                double collapsedTarget = GetPrivateDouble(window, "_navAnimTarget");
-                Assert.AreEqual(50d, collapsedTarget, 0.01d);
-
-                AdvanceNavigationAnimation(window);
                 Assert.AreEqual(50d, navLayer.Width, 0.5d);
             }
             finally
@@ -14287,11 +14279,6 @@ public sealed class AvaloniaHeadlessTests
         root.GetVisualDescendants()
             .OfType<T>()
             .FirstOrDefault(control => name is null || string.Equals(control.Name, name, StringComparison.Ordinal));
-
-    private static void AdvanceNavigationAnimation(MainWindow window)
-    {
-        InvokePrivateTick(window, "NavAnimTimer_Tick", 14);
-    }
 
     private static void AdvancePageChangeAnimation(MainWindow window)
     {

@@ -40,6 +40,7 @@ using PCL.Core.Logging;
 using PCL.Domain.Minecraft.Launch;
 using PCL.Desktop.Composition;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Controls.Motion;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Community;
 using PCL.Desktop.Hosting;
@@ -77,11 +78,9 @@ public partial class MainWindow : Window, IDisposable
     private TranslateTransform? _showAnimationTranslate;
     private bool _showAnimationStarted;
     private bool _isNavExpanded;
-    private DispatcherTimer? _navAnimTimer;
     private double _navExpandedWidth = 200d;
-    private double _navAnimStart;
-    private double _navAnimTarget;
-    private int _navAnimElapsed;
+    private readonly List<IDisposable> navMotionScopes = [];
+    private int navMotionGeneration;
     private NavigationRouteId? _currentNavRoute;
     private NavigationRouteId? _pendingNavRoute;
     private bool _isMainWindowOpened;
@@ -711,16 +710,9 @@ public partial class MainWindow : Window, IDisposable
         if (_isNavExpanded)
             _navExpandedWidth = MeasureNavExpandedWidth(navLayer);
 
-        _navAnimStart = GetCurrentNavWidth(navLayer);
-        _navAnimTarget = _isNavExpanded ? _navExpandedWidth : NavCollapsedWidth;
-        _navAnimElapsed = 0;
-        _navAnimTimer?.Stop();
-        _navAnimTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(16)
-        };
-        _navAnimTimer.Tick += NavAnimTimer_Tick;
-        _navAnimTimer.Start();
+        double targetWidth = _isNavExpanded ? _navExpandedWidth : NavCollapsedWidth;
+        BeginNavLayoutTransition(navLayer);
+        SetNavWidth(navLayer, targetWidth);
     }
 
     private void PanMainLeft_SizeChanged(object? sender, SizeChangedEventArgs e)
@@ -1139,25 +1131,64 @@ public partial class MainWindow : Window, IDisposable
         return navLayer.Bounds.Width > 0d ? navLayer.Bounds.Width : NavCollapsedWidth;
     }
 
-    private void NavAnimTimer_Tick(object? sender, EventArgs e)
+    private void BeginNavLayoutTransition(Control navLayer)
     {
-        if (this.FindControl<Control>("PanNavLayer") is not { } navLayer)
-        {
-            _navAnimTimer?.Stop();
-            _navAnimTimer = null;
+        ClearNavLayoutTransition();
+        int generation = ++navMotionGeneration;
+        if (!ControlVisualHelpers.ShouldAnimate(navLayer))
             return;
+
+        TimeSpan duration = TimeSpan.FromMilliseconds(NavAnimDuration);
+        AddNavMotionScope(CompositionMotion.EnableLayoutTransition(
+            navLayer,
+            duration,
+            animateOffset: false,
+            animateSize: true));
+
+        if (this.FindControl<Control>("PanMain") is { } main)
+        {
+            AddNavMotionScope(CompositionMotion.EnableLayoutTransition(
+                main,
+                duration,
+                animateOffset: true,
+                animateSize: true));
         }
 
-        _navAnimElapsed += 16;
-        double progress = Math.Min(1d, (double)_navAnimElapsed / NavAnimDuration);
-        double current = _navAnimStart + (_navAnimTarget - _navAnimStart) * EaseOutCubic(progress);
-        SetNavWidth(navLayer, current);
-        if (progress < 1d)
-            return;
+        if (this.FindControl<Control>("PanHint") is { } hint)
+        {
+            AddNavMotionScope(CompositionMotion.EnableLayoutTransition(
+                hint,
+                duration,
+                animateOffset: true,
+                animateSize: false));
+        }
 
-        _navAnimTimer?.Stop();
-        _navAnimTimer = null;
-        SetNavWidth(navLayer, _navAnimTarget);
+        UnhandledExceptionGuard.Observe(
+            CompleteNavLayoutTransition(generation),
+            "MainWindow.NavigationLayoutTransition");
+    }
+
+    private void AddNavMotionScope(IDisposable? scope)
+    {
+        if (scope is not null)
+            navMotionScopes.Add(scope);
+    }
+
+    private async Task CompleteNavLayoutTransition(int generation)
+    {
+        await Task.Delay(NavAnimDuration + 50).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (generation == navMotionGeneration)
+                ClearNavLayoutTransition();
+        });
+    }
+
+    private void ClearNavLayoutTransition()
+    {
+        foreach (IDisposable scope in navMotionScopes)
+            scope.Dispose();
+        navMotionScopes.Clear();
     }
 
     private void SelectNavPage(NavigationRouteId route, bool animate)
@@ -5050,6 +5081,7 @@ public partial class MainWindow : Window, IDisposable
         _titleLogoBitmap?.Dispose();
         _titleLogoBitmap = null;
         _taskUiCoalescer.Dispose();
+        ClearNavLayoutTransition();
         DisposeTrackedTasks();
         _launchCancellation?.Cancel();
         _launchCancellation?.Dispose();

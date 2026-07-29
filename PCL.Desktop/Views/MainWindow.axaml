@@ -183,7 +183,7 @@
 
                 <Border x:Name="PanNavLayer" Grid.Row="1" Grid.Column="0" Width="48" MinWidth="48"
 
-                        VerticalAlignment="Stretch"
+                        VerticalAlignment="Stretch" ClipToBounds="True"
 
                         Background="{DynamicResource ColorBrushSemiTransparent}" ZIndex="1">
 
