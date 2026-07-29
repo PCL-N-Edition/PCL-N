@@ -7593,6 +7593,7 @@ public sealed class AvaloniaHeadlessTests
                     Assert.IsTrue(page.FindControl<MyHint>("HintServerLoginLock")!.IsVisible);
 
                     page.FindControl<MySlider>("SliderRamCustom")!.Value = 33;
+                    Assert.IsFalse(ModAnimation.AniIsRun("VersionSetup Ram Grid"));
                     Assert.IsTrue(page.FindControl<TextBlock>("LabRamGame")!.Text!.Contains("可用 8.0 GB", StringComparison.Ordinal));
                     Assert.IsTrue(page.FindControl<MyHint>("HintRamTooHigh")!.IsVisible);
 

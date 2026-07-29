@@ -13,6 +13,8 @@ using PCL.Application.Instances;
 using PCL.Application.Launching;
 using PCL.Application.Settings;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Controls.Motion;
+using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Domain.Minecraft.Java;
@@ -36,6 +38,10 @@ public partial class PageInstanceSetupRight : MyPageRight
     private int _ramTextLeft = 2;
     private int _ramTextRight = 1;
     private int _javaLoadVersion;
+    private readonly List<IDisposable> ramMotionScopes = [];
+    private int ramMotionGeneration;
+
+    private const int RamMotionDurationMs = 280;
 
     public PageInstanceSetupRight()
         : this(new DefaultSystemInfoProvider())
@@ -62,7 +68,11 @@ public partial class PageInstanceSetupRight : MyPageRight
                 WireControls();
             }, DispatcherPriority.Background);
         };
-        DetachedFromVisualTree += (_, _) => _ramRefreshTimer.Stop();
+        DetachedFromVisualTree += (_, _) =>
+        {
+            _ramRefreshTimer.Stop();
+            ClearRamLayoutTransition();
+        };
         if (this.FindControl<Grid>("PanRamDisplay") is { } ramDisplay)
             ramDisplay.SizeChanged += (_, _) => RefreshRamText();
         if (this.FindControl<Avalonia.Controls.Shapes.Rectangle>("RectRamUsed") is { } ramUsed)
@@ -150,6 +160,7 @@ public partial class PageInstanceSetupRight : MyPageRight
     {
         _ramRefreshTimer.Stop();
         _ramRefreshTimer.Tick -= RamRefreshTimer_Tick;
+        ClearRamLayoutTransition();
         base.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -507,39 +518,66 @@ public partial class PageInstanceSetupRight : MyPageRight
         if (panRamDisplay.ColumnDefinitions.Count >= 3)
         {
             if (showAnim)
-            {
-                ModAnimation.AniStart(
-                    new[]
-                    {
-                        ModAnimation.AaGridLengthWidth(
-                            panRamDisplay.ColumnDefinitions[0],
-                            ramUsed - panRamDisplay.ColumnDefinitions[0].Width.Value,
-                            800,
-                            ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Strong)),
-                        ModAnimation.AaGridLengthWidth(
-                            panRamDisplay.ColumnDefinitions[1],
-                            ramGameActual - panRamDisplay.ColumnDefinitions[1].Width.Value,
-                            800,
-                            ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Strong)),
-                        ModAnimation.AaGridLengthWidth(
-                            panRamDisplay.ColumnDefinitions[2],
-                            ramEmpty - panRamDisplay.ColumnDefinitions[2].Width.Value,
-                            800,
-                            ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Strong))
-                    },
-                    "VersionSetup Ram Grid");
-            }
+                BeginRamLayoutTransition(panRamDisplay);
             else
-            {
-                SetRamColumn(panRamDisplay.ColumnDefinitions[0], ramUsed);
-                SetRamColumn(panRamDisplay.ColumnDefinitions[1], ramGameActual);
-                SetRamColumn(panRamDisplay.ColumnDefinitions[2], ramEmpty);
-            }
+                ClearRamLayoutTransition();
+
+            SetRamColumn(panRamDisplay.ColumnDefinitions[0], ramUsed);
+            SetRamColumn(panRamDisplay.ColumnDefinitions[1], ramGameActual);
+            SetRamColumn(panRamDisplay.ColumnDefinitions[2], ramEmpty);
         }
 
         // Immediate + deferred — same anti-flicker pattern as global Setup.Launch.
         RefreshRamText();
         Dispatcher.UIThread.Post(RefreshRamText, DispatcherPriority.Loaded);
+    }
+
+    private void BeginRamLayoutTransition(Control ramDisplay)
+    {
+        ClearRamLayoutTransition();
+        int generation = ++ramMotionGeneration;
+        if (!ControlVisualHelpers.ShouldAnimate(ramDisplay))
+            return;
+
+        TimeSpan duration = TimeSpan.FromMilliseconds(RamMotionDurationMs);
+        AddRamMotionScope("RectRamUsed", duration);
+        AddRamMotionScope("RectRamGame", duration);
+        AddRamMotionScope("RectRamEmpty", duration);
+
+        UnhandledExceptionGuard.Observe(
+            CompleteRamLayoutTransition(generation),
+            "PageInstanceSetupRight.RamLayoutTransition");
+    }
+
+    private void AddRamMotionScope(string name, TimeSpan duration)
+    {
+        if (this.FindControl<Control>(name) is not { } segment)
+            return;
+
+        IDisposable? scope = CompositionMotion.EnableLayoutTransition(
+            segment,
+            duration,
+            animateOffset: true,
+            animateSize: true);
+        if (scope is not null)
+            ramMotionScopes.Add(scope);
+    }
+
+    private async Task CompleteRamLayoutTransition(int generation)
+    {
+        await Task.Delay(RamMotionDurationMs + 50).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (generation == ramMotionGeneration)
+                ClearRamLayoutTransition();
+        });
+    }
+
+    private void ClearRamLayoutTransition()
+    {
+        foreach (IDisposable scope in ramMotionScopes)
+            scope.Dispose();
+        ramMotionScopes.Clear();
     }
 
     private (LaunchMemoryProfile Profile, int ModCount) GetMemoryProfile()
