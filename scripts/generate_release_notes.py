@@ -33,8 +33,8 @@ GPG_FOOTER = """\
 PACKAGE_RE = re.compile(
     r"^PCL_N_(?P<config>Release|Beta)_"
     r"(?P<rid>win-x64|win-arm64|linux-x64|linux-arm64|osx-x64|osx-arm64)_"
-    r"(?P<runtime>SelfContained|NoRuntime)_"
-    r"(?P<plugin>WithPlugin|NoPlugin)"
+    r"(?P<runtime>SelfContained|NoRuntime)"
+    r"(?:_(?P<plugin>WithPlugin|NoPlugin))?"
     r"\.(?P<ext>zip|tar\.gz)$"
 )
 
@@ -261,7 +261,7 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
         key=lambda t: (
             rid_rank(t[0].group("rid")),
             0 if t[0].group("runtime") == "SelfContained" else 1,
-            0 if t[0].group("plugin") == "WithPlugin" else 1,
+            0 if (t[0].group("plugin") or "WithPlugin") == "WithPlugin" else 1,
             t[1].name,
         )
     )
@@ -272,7 +272,9 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
         for m, a in packages:
             rid = m.group("rid")
             runtime = m.group("runtime")
-            plugin = m.group("plugin")
+            # Current packages always embed PCL.Plugin and therefore omit the
+            # historical _WithPlugin suffix.
+            plugin = m.group("plugin") or "WithPlugin"
             file_cell = md_link(a.name, a.browser_url or None)
             sig = sig_by_package.get(a.name)
             if sig and sig.browser_url:

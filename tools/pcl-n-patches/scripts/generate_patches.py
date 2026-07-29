@@ -44,9 +44,7 @@ BINARY_NAMES = {
 RUNTIME_IDS = list(BINARY_NAMES.keys())
 RUNTIME_VARIANTS = [
     "SelfContained_WithPlugin",
-    "SelfContained_NoPlugin",
     "NoRuntime_WithPlugin",
-    "NoRuntime_NoPlugin",
 ]
 
 
@@ -238,25 +236,40 @@ def extract_binary(archive: Path, binary_name: str, dest: Path) -> None:
     if dest.exists():
         dest.unlink()
 
+    suffix = ".exe" if binary_name.lower().endswith(".exe") else ""
+    aliases = {
+        binary_name.casefold(),
+        f"PCL.Desktop{suffix}".casefold(),
+        f"PCL-N{suffix}".casefold(),
+        f"PCL N{suffix}".casefold(),
+    }
+
+    def is_launcher(path: str) -> bool:
+        return Path(path).name.casefold() in aliases
+
     if archive.suffix == ".zip" or archive.name.endswith(".zip"):
         with zipfile.ZipFile(archive) as zf:
-            # Prefer exact name; else first matching basename
-            candidates = [n for n in zf.namelist() if Path(n).name == binary_name]
+            # ProductBinaryName changed over time. Patch generation operates on
+            # the launcher payload bytes, so accept known historical host names.
+            candidates = [n for n in zf.namelist() if is_launcher(n)]
             if not candidates:
-                candidates = [n for n in zf.namelist() if Path(n).name.lower() == binary_name.lower()]
-            if not candidates:
-                raise FileNotFoundError(f"{binary_name} not in {archive.name}: {zf.namelist()[:20]}")
+                raise FileNotFoundError(
+                    f"launcher binary ({', '.join(sorted(aliases))}) not in "
+                    f"{archive.name}: {zf.namelist()[:20]}"
+                )
             with zf.open(candidates[0]) as src, dest.open("wb") as out:
                 shutil.copyfileobj(src, out)
         return
 
     # tar.gz
     with tarfile.open(archive, mode="r:*") as tf:
-        members = [m for m in tf.getmembers() if Path(m.name).name == binary_name]
+        members = [m for m in tf.getmembers() if m.isfile() and is_launcher(m.name)]
         if not members:
-            members = [m for m in tf.getmembers() if Path(m.name).name.lower() == binary_name.lower()]
-        if not members:
-            raise FileNotFoundError(f"{binary_name} not in {archive.name}")
+            names = [m.name for m in tf.getmembers() if m.isfile()][:20]
+            raise FileNotFoundError(
+                f"launcher binary ({', '.join(sorted(aliases))}) not in "
+                f"{archive.name}: {names}"
+            )
         f = tf.extractfile(members[0])
         if f is None:
             raise FileNotFoundError(f"cannot extract {members[0].name}")
@@ -522,6 +535,13 @@ def main() -> int:
             "variantsSkipped": skip_count,
         },
     }
+
+    if history and patch_count == 0:
+        log(
+            "ERROR: patchable history was available but no patches were generated. "
+            "Refusing to publish an empty patch index."
+        )
+        return 2
     (args.out_dir / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     log(f"Done. patches={patch_count} → {args.out_dir / 'index.json'}")
     return 0
