@@ -2896,8 +2896,16 @@ public sealed class AvaloniaHeadlessTests
                     ?? throw new InvalidOperationException("SelectNavPage was not found.");
                 selectNavPage.Invoke(window, [communityNav.Tag, true]);
 
+                Assert.IsTrue(ModAnimation.AniIsRun("FrmMain PageChangeRight"));
+                Assert.IsNull(FindVisual<PageCommunityRight>(window));
                 ModAnimation.AdvanceForTesting(16, 3);
                 Assert.IsTrue(right.Opacity < 1d);
+
+                ModAnimation.AdvanceForTesting(16, 4);
+                PageCommunityRight preparedPage = FindVisual<PageCommunityRight>(window)!;
+                Assert.IsNotNull(preparedPage);
+                Assert.IsTrue(preparedPage.Bounds.Width > 0d);
+                Assert.AreEqual(0d, right.Opacity, 0.01d);
 
                 AdvancePageChangeAnimation(window);
                 Assert.AreEqual(1d, right.Opacity, 0.01d);
@@ -4922,7 +4930,7 @@ public sealed class AvaloniaHeadlessTests
 
                 InvokePrivateMethod(window, "SelectNavPage", settings, true);
                 InvokePrivateMethod(window, "SelectNavPage", settings, true);
-                Assert.AreEqual(before, GetPrivateField<int>(window, "_registeredPageRequestId"));
+                Assert.AreEqual(before + 1, GetPrivateField<int>(window, "_registeredPageRequestId"));
 
                 AdvancePageChangeAnimation(window);
                 Assert.AreEqual(before + 1, GetPrivateField<int>(window, "_registeredPageRequestId"));
