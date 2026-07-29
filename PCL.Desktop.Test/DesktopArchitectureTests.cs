@@ -626,6 +626,57 @@ public sealed class DesktopArchitectureTests
     }
 
     [TestMethod]
+    public void StartupWindowHandoff_DoesNotBlockFirstFrameOrLeaveExplicitShutdownEnabled()
+    {
+        string desktopRoot = FindDesktopProjectRoot();
+        string app = File.ReadAllText(Path.Combine(desktopRoot, "App.axaml.cs"));
+        string mainWindow = File.ReadAllText(Path.Combine(desktopRoot, "Views", "MainWindow.axaml.cs"));
+
+        int showMainStart = app.IndexOf(
+            "private void ShowMainWindow",
+            StringComparison.Ordinal);
+        int splashDismissStart = app.IndexOf(
+            "private void DismissSplash",
+            showMainStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(showMainStart >= 0 && splashDismissStart > showMainStart);
+        string showMain = app[showMainStart..splashDismissStart];
+
+        int switchLifetime = showMain.IndexOf(
+            "desktop.ShutdownMode = ShutdownMode.OnMainWindowClose",
+            StringComparison.Ordinal);
+        int showWindow = showMain.IndexOf(
+            "mainWindow.Show()",
+            StringComparison.Ordinal);
+        Assert.IsTrue(
+            switchLifetime >= 0 && showWindow > switchLifetime,
+            "The real shell must own shutdown before Window.Show can dispatch a re-entrant close.");
+        StringAssert.Contains(showMain, "mainWindow.Opened += opened");
+        StringAssert.Contains(app, "HandleSplashClosing(desktop)");
+        StringAssert.Contains(app, "Volatile.Read(ref _startupShutdownRequested)");
+
+        int openedStart = mainWindow.IndexOf(
+            "private void OnMainWindowOpened",
+            StringComparison.Ordinal);
+        int noticesStart = mainWindow.IndexOf(
+            "private void MaybeShowFirstRunDialogs",
+            openedStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(openedStart >= 0 && noticesStart > openedStart);
+        string opened = mainWindow[openedStart..noticesStart];
+        int animation = opened.IndexOf("StartShowAnimation()", StringComparison.Ordinal);
+        int update = opened.IndexOf(
+            "Task.Run(() => LauncherUpdateCoordinator.Current.StartAutomaticUpdateOnceAsync())",
+            StringComparison.Ordinal);
+        Assert.IsTrue(
+            animation >= 0 && update > animation,
+            "The first-frame animation must start before update work is moved off the UI thread.");
+
+        StringAssert.Contains(mainWindow, "Task.Run(() =>");
+        StringAssert.Contains(mainWindow, "\"MainWindow.CloseCleanup\"");
+    }
+
+    [TestMethod]
     public void DesktopHost_InitializesBuiltinModulesOnly()
     {
         string desktopHost = File.ReadAllText(Path.Combine(

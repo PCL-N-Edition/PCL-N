@@ -593,10 +593,29 @@ public partial class MainWindow : Window, IDisposable
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
-        CancelAllTrackedTasks();
-        _launchCancellation?.Cancel();
-        _minecraftAiRepairAdvisor.StopLocalServer();
-        this.FindControl<MediaElement>("VideoBack")?.Stop();
+        CancellationTokenSource[] trackedCancellations = _taskCancellations.Values.ToArray();
+        CancellationTokenSource? launchCancellation = _launchCancellation;
+        MediaElement? backgroundVideo = this.FindControl<MediaElement>("VideoBack");
+
+        // Cancellation callbacks and native media/model shutdown may block. Do
+        // not run them inside Avalonia's synchronous Closing dispatch.
+        UnhandledExceptionGuard.Observe(
+            Task.Run(() =>
+            {
+                foreach (CancellationTokenSource cancellation in trackedCancellations)
+                {
+                    try { cancellation.Cancel(); }
+                    catch (ObjectDisposedException) { }
+                }
+
+                try { launchCancellation?.Cancel(); }
+                catch (ObjectDisposedException) { }
+
+                _minecraftAiRepairAdvisor.StopLocalServer();
+                backgroundVideo?.Stop();
+            }),
+            "MainWindow.CloseCleanup");
+        DesktopFileLog.Info("Window", "主窗口关闭清理已转入后台；关闭事件可以立即返回。");
     }
 
     private void FormMain_Activated(object? sender, EventArgs e)
@@ -1495,10 +1514,16 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        _ = LauncherUpdateCoordinator.Current.StartAutomaticUpdateOnceAsync();
         StartShowAnimation();
+        // The coordinator performs synchronous settings/lock work before its
+        // first incomplete await. Keep that work off the UI thread so the
+        // initial opacity animation and Window.Show() cannot be starved.
+        UnhandledExceptionGuard.Observe(
+            Task.Run(() => LauncherUpdateCoordinator.Current.StartAutomaticUpdateOnceAsync()),
+            "LauncherUpdateCoordinator.AutomaticStartup");
         // First-run chain: community welcome → special build notice (no EULA gate).
         Dispatcher.UIThread.Post(MaybeShowFirstRunDialogs, DispatcherPriority.Background);
+        DesktopFileLog.Info("Window", "主窗口首帧任务已排队；显现动画与后台更新检查均已启动。");
     }
 
     private void MaybeShowFirstRunDialogs()
@@ -3143,12 +3168,6 @@ public partial class MainWindow : Window, IDisposable
         {
             _taskCancellations.Remove(taskId);
         }
-    }
-
-    private void CancelAllTrackedTasks()
-    {
-        foreach (CancellationTokenSource cancellation in _taskCancellations.Values)
-            cancellation.Cancel();
     }
 
     private void DisposeTrackedTasks()

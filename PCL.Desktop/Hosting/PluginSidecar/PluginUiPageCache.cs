@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using PCL.Core.Logging;
 
 namespace PCL.Desktop.Hosting.PluginSidecar;
@@ -90,9 +91,11 @@ internal static class PluginUiPageCache
 
         int ok = 0;
         int fail = 0;
+        Stopwatch totalClock = Stopwatch.StartNew();
         foreach (string pageId in unique)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Stopwatch pageClock = Stopwatch.StartNew();
             try
             {
                 PluginSidecarResult page = await client.UiGetPageAsync(pageId, cancellationToken)
@@ -114,10 +117,28 @@ internal static class PluginUiPageCache
                 fail++;
                 PortableLog.Warn("PluginSidecar", $"预加载页面失败 {pageId}：{ex.Message}");
             }
+            finally
+            {
+                pageClock.Stop();
+                if (pageClock.Elapsed >= TimeSpan.FromMilliseconds(500))
+                {
+                    PortableLog.Info(
+                        "PluginSidecar",
+                        $"插件页面预加载耗时：{pageId}={pageClock.Elapsed.TotalMilliseconds:0}ms。");
+                }
+                else
+                {
+                    PortableLog.Debug(
+                        "PluginSidecar",
+                        $"插件页面预加载耗时：{pageId}={pageClock.Elapsed.TotalMilliseconds:0}ms。");
+                }
+            }
         }
 
+        totalClock.Stop();
         PortableLog.Info(
             "PluginSidecar",
-            $"插件页面预加载完成：ok={ok} fail={fail} total={unique.Count}。");
+            $"插件页面预加载完成：ok={ok} fail={fail} total={unique.Count}；" +
+            $"elapsed={totalClock.Elapsed.TotalMilliseconds:0}ms。");
     }
 }

@@ -28,6 +28,7 @@ public sealed partial class App : Avalonia.Application
 
     private SplashWindow? _splashWindow;
     private int _splashDismissed;
+    private int _startupShutdownRequested;
 
     internal static SingleInstanceCoordinator? SingleInstanceCoordinator { get; set; }
 
@@ -66,6 +67,7 @@ public sealed partial class App : Avalonia.Application
 
                     desktop.Exit += (_, _) =>
                     {
+                        DesktopFileLog.Info("Startup", "桌面生命周期正在退出；开始释放后台运行时。");
                         try
                         {
                             DesktopHost.ShutdownOptionalRuntime();
@@ -83,6 +85,8 @@ public sealed partial class App : Avalonia.Application
                         {
                             // ignore
                         }
+
+                        DesktopFileLog.Info("Startup", "桌面生命周期退出清理完成。");
                     };
                     bool showSplash = settings.GetBooleanOption(
                         "UiLauncherLogo",
@@ -92,6 +96,7 @@ public sealed partial class App : Avalonia.Application
                     if (showSplash)
                     {
                         _splashWindow = new SplashWindow();
+                        _splashWindow.Closing += (_, _) => HandleSplashClosing(desktop);
                         desktop.MainWindow = _splashWindow;
                         _splashWindow.Show();
                         DesktopFileLog.Info("Startup", "启动图标已显示；等待插件功能就绪或确认不可用。");
@@ -138,9 +143,13 @@ public sealed partial class App : Avalonia.Application
         bool fadeSplash)
     {
         await WaitForPluginOptionalRuntimeAsync("main").ConfigureAwait(false);
+        if (Volatile.Read(ref _startupShutdownRequested) != 0)
+            return;
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            if (Volatile.Read(ref _startupShutdownRequested) != 0)
+                return;
             ShowMainWindow(desktop, fadeSplash);
         });
     }
@@ -151,9 +160,14 @@ public sealed partial class App : Avalonia.Application
         bool hadSplash)
     {
         await WaitForPluginOptionalRuntimeAsync("oobe").ConfigureAwait(false);
+        if (Volatile.Read(ref _startupShutdownRequested) != 0)
+            return;
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            if (Volatile.Read(ref _startupShutdownRequested) != 0)
+                return;
+
             FirstRunWizardWindow wizard = new(plan);
             wizard.PrepareCentered();
 
@@ -233,6 +247,7 @@ public sealed partial class App : Avalonia.Application
 
             // Show OOBE first (still under splash if Topmost), then start intro, then dismiss splash.
             desktop.MainWindow = wizard;
+            desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
             if (!wizard.IsVisible)
                 wizard.Show();
 
@@ -259,8 +274,6 @@ public sealed partial class App : Avalonia.Application
                 };
                 safety.Start();
             }
-
-            desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
 
             DesktopFileLog.Info(
                 "Startup",
@@ -299,6 +312,16 @@ public sealed partial class App : Avalonia.Application
         MainWindow mainWindow = new();
         DesktopFileLog.Info("Startup", "主窗口创建完成。");
 
+        EventHandler? opened = null;
+        opened = (_, _) =>
+        {
+            mainWindow.Opened -= opened;
+            // Window.Show() may pump native messages and must not be the only
+            // route that can reach splash cleanup.
+            DismissSplash(fade: fadeSplash);
+        };
+        mainWindow.Opened += opened;
+
         SingleInstanceCoordinator?.ActivationRequested += (_, _) =>
             Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
         if (SingleInstanceCoordinator?.ConsumePendingActivation() == true)
@@ -306,18 +329,44 @@ public sealed partial class App : Avalonia.Application
 
         // Show main first so lifetime always has a real shell window.
         desktop.MainWindow = mainWindow;
+        // A close request can be dispatched re-entrantly by Window.Show().
+        desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
         if (!mainWindow.IsVisible)
             mainWindow.Show();
 
-        // Always dismiss splash — do not rely solely on Opened (may have already fired).
+        // Fallback for hosts where Opened fired before the handler was observed.
         DismissSplash(fade: fadeSplash);
 
         // Hard guarantee: if fade path failed or Opened race left splash up, force close next frame.
         Dispatcher.UIThread.Post(
             () => DismissSplash(fade: false),
             DispatcherPriority.Background);
+    }
 
-        desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
+    private void HandleSplashClosing(IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        // Programmatic splash dismissal sets _splashDismissed first. A close
+        // before that point is a real user exit request.
+        if (Volatile.Read(ref _splashDismissed) != 0 ||
+            Interlocked.Exchange(ref _startupShutdownRequested, 1) != 0)
+        {
+            return;
+        }
+
+        DesktopFileLog.Info("Startup", "启动阶段收到关闭请求；取消进入主界面并退出进程。");
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                try
+                {
+                    desktop.Shutdown(0);
+                }
+                catch (Exception ex)
+                {
+                    DesktopFileLog.Warn("Startup", "启动阶段退出失败。", ex);
+                }
+            },
+            DispatcherPriority.Send);
     }
 
     /// <summary>
