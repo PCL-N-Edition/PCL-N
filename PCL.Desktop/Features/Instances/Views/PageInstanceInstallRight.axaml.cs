@@ -200,7 +200,7 @@ public partial class PageInstanceInstallRight : MyPageRight
             return;
 
         _isLoadingMinecraftVersions = true;
-        SetMinecraftVersionListMessage("Minecraft", "正在获取版本列表，请稍候。");
+        SetMinecraftVersionListLoading();
         try
         {
             IReadOnlyList<MinecraftVersionManifestEntry> versions = await _installService
@@ -402,6 +402,20 @@ public partial class PageInstanceInstallRight : MyPageRight
             Margin = new Thickness(25d, 38d, 23d, 16d)
         });
         panel.Children.Add(card);
+    }
+
+    private void SetMinecraftVersionListLoading()
+    {
+        if (this.FindControl<StackPanel>("PanMinecraft") is not { } panel)
+            return;
+
+        panel.Children.Clear();
+        panel.Children.Add(new MyLoading
+        {
+            Text = "正在获取 Minecraft 版本列表",
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            Margin = new Thickness(0d, 28d, 0d, 18d)
+        });
     }
 
     private static MinecraftVersionView[] BuildMinecraftVersionViews(IReadOnlyList<MinecraftVersionManifestEntry> versions)

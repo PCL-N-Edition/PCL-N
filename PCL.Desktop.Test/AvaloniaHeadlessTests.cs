@@ -4761,6 +4761,11 @@ public sealed class AvaloniaHeadlessTests
                 Assert.IsTrue(fabricCard.IsSwapped);
                 Assert.IsFalse(fabricCard.MainSwap.IsVisible);
                 Assert.AreEqual("正在获取版本列表", page.FindControl<TextBlock>("LabFabric")!.Text);
+                MyLoading loader = page.FindControl<StackPanel>("PanFabric")!.Children
+                    .OfType<MyLoading>()
+                    .Single();
+                Assert.AreEqual("正在获取版本列表", loader.Text);
+                Assert.AreEqual(MyLoading.MyLoadingState.Run, loader.State.LoadingState);
             }
             finally
             {

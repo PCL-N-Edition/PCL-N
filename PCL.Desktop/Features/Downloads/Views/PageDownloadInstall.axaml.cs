@@ -1088,7 +1088,7 @@ public partial class PageDownloadInstall : MyPageRight
             return true;
         }
 
-        SetLoaderVersionPanelMessage(name, "正在获取版本列表", "请稍候。");
+        SetLoaderVersionPanelLoading(name);
         try
         {
             if (!_loaderVersionLoads.TryGetValue(key, out Task<IReadOnlyList<MinecraftLoaderVersionEntry>>? load))
@@ -1128,7 +1128,7 @@ public partial class PageDownloadInstall : MyPageRight
             return true;
         }
 
-        SetLoaderVersionPanelMessage(name, "正在获取版本列表", "请稍候。");
+        SetLoaderVersionPanelLoading(name);
         try
         {
             if (!_addonVersionLoads.TryGetValue(key, out Task<IReadOnlyList<MinecraftInstallAddonVersionEntry>>? load))
@@ -1248,6 +1248,20 @@ public partial class PageDownloadInstall : MyPageRight
             Logo = TryGetLoaderLogo(name),
             LogoScale = 0.82d,
             Height = 42d
+        });
+    }
+
+    private void SetLoaderVersionPanelLoading(string name)
+    {
+        if (this.FindControl<StackPanel>("Pan" + name) is not { } panel)
+            return;
+
+        panel.Children.Clear();
+        panel.Children.Add(new MyLoading
+        {
+            Text = "正在获取版本列表",
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            Margin = new Thickness(0d, 8d, 0d, 2d)
         });
     }
 
