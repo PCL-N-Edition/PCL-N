@@ -8,6 +8,7 @@ param(
     [string]$Runtime,
     [string]$OutputZip = '',
     [string]$PluginTag = '',
+    [bool]$SelfContained = $true,
     [switch]$SkipFetch
 )
 
@@ -26,6 +27,7 @@ $mapConfig = if ($Configuration -in @('Beta', 'CI')) { 'Release' } else { $Confi
     -Runtime $Runtime `
     -Output $stage `
     -PluginTag $PluginTag `
+    -SelfContained:$SelfContained `
     -SkipFetch:$SkipFetch `
     -Publish
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -34,6 +36,31 @@ $exeName = if ($Runtime.StartsWith('win-')) { 'PCL.Plugin.Sidecar.exe' } else { 
 $exePath = Join-Path $stage $exeName
 if (-not (Test-Path -LiteralPath $exePath)) {
     throw "Sidecar executable missing after publish: $exePath"
+}
+
+# Symbols are useful in CI artifacts, but the embedded runtime payload must not
+# carry managed or native NuGet PDBs (Skia/HarfBuzz alone exceed 100 MB raw).
+$symbols = @(Get-ChildItem -LiteralPath $stage -Recurse -File -Filter '*.pdb')
+$symbolBytes = ($symbols | Measure-Object -Property Length -Sum).Sum
+foreach ($symbol in $symbols) {
+    Remove-Item -LiteralPath $symbol.FullName -Force
+}
+if ($symbols.Count -gt 0) {
+    Write-Host "Removed $($symbols.Count) sidecar symbols ($([math]::Round($symbolBytes / 1MB, 1)) MB raw)."
+}
+
+# VideoLAN.LibVLC.Windows defaults to copying every native architecture for
+# non-RID project references. Keep only the distribution matching this payload.
+$libVlcRoot = Join-Path $stage 'libvlc'
+$expectedVlcDirectory = if ($Runtime -in @('win-x64', 'win-x86', 'win-arm64')) { $Runtime } else { '' }
+if (Test-Path -LiteralPath $libVlcRoot) {
+    foreach ($directory in @(Get-ChildItem -LiteralPath $libVlcRoot -Directory)) {
+        if ([string]::IsNullOrWhiteSpace($expectedVlcDirectory) -or
+            -not [string]::Equals($directory.Name, $expectedVlcDirectory, [StringComparison]::OrdinalIgnoreCase)) {
+            Write-Host "Removing non-target LibVLC runtime: $($directory.Name)"
+            Remove-Item -LiteralPath $directory.FullName -Recurse -Force
+        }
+    }
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputZip)) {
@@ -61,5 +88,6 @@ if (-not (Test-Path -LiteralPath $OutputZip) -or ((Get-Item $OutputZip).Length -
 }
 
 Write-Host "Sidecar zip: $OutputZip ($([math]::Round((Get-Item $OutputZip).Length / 1MB, 1)) MB)"
+Write-Host "Sidecar runtime: $(if ($SelfContained) { 'included' } else { 'not included (.NET 10 required)' })"
 Write-Host "Host embed: -p:PclPluginSidecarZipPath=$OutputZip"
 exit 0

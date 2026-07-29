@@ -72,8 +72,8 @@ RID_LABEL = {
     "osx-arm64": "macOS Apple Silicon",
 }
 RUNTIME_LABEL = {
-    "SelfContained": "自带运行时",
-    "NoRuntime": "需本机 .NET",
+    "SelfContained": "插件自带运行时",
+    "NoRuntime": "插件使用本机 .NET",
 }
 PLUGIN_LABEL = {
     "WithPlugin": "内嵌插件",
@@ -294,8 +294,8 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
     lines.append("<details>")
     lines.append("<summary>安装包命名与选型说明</summary>")
     lines.append("")
-    lines.append("- **SelfContained / 自带运行时**：体积较大，无需单独安装 .NET，推荐大多数用户。")
-    lines.append("- **NoRuntime / 需本机 .NET**：体积较小，需已安装匹配的 .NET 运行时。")
+    lines.append("- **SelfContained / 插件自带运行时**：NativeAOT 本体附带插件 CoreCLR，插件可离线运行，推荐大多数用户。")
+    lines.append("- **NoRuntime / 插件使用本机 .NET**：NativeAOT 本体不携带插件 CoreCLR；启动器本体可直接运行，使用插件时需已安装匹配的 .NET 运行时。")
     lines.append("- **WithPlugin / 内嵌插件**：所有发布包均内嵌 PCL.Plugin。")
     lines.append("- **文件**列可直接下载安装包；**校验**列为对应的 OpenPGP 分离签名（`.asc`）。")
     lines.append("")

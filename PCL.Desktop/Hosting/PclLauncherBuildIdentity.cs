@@ -11,7 +11,8 @@ internal static class PclLauncherBuildIdentity
 
     private static LauncherBuildIdentity Create()
     {
-        // Host-only packages: SelfContained | NoRuntime (no plugin SKU axis).
+        // NativeAOT host packages differ only in whether the plugin sidecar
+        // embeds CoreCLR (SelfContained) or uses an installed runtime (NoRuntime).
         string runtime = PclBuildInfo.RuntimeVariant.StartsWith("NoRuntime", StringComparison.OrdinalIgnoreCase)
             ? "NoRuntime"
             : "SelfContained";

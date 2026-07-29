@@ -22,12 +22,14 @@ on:
         required: true
         type: string
       self_contained:
+        description: Include CoreCLR with the plugin sidecar (the host is always NativeAOT)
         required: true
         type: boolean
       runtime_variant:
+        description: Plugin sidecar runtime variant (SelfContained or NoRuntime)
         required: true
         type: string
-      # Embed CoreCLR plugin sidecar zip into the host single-file binary (opaque payload; not in-process IL).
+      # Embed CoreCLR plugin sidecar zip into the NativeAOT host (opaque payload; not in-process IL).
       # Extracted at runtime into the launcher data/config directory.
       embed_plugin_sidecar:
         required: false
@@ -205,10 +207,12 @@ jobs:
         shell: pwsh
         run: |
           $zip = Join-Path $env:GITHUB_WORKSPACE "artifacts/PCL.Plugin.Sidecar.${{ inputs.runtime_id }}.zip"
+          $selfContained = [System.Convert]::ToBoolean('${{ inputs.self_contained }}')
           & ./scripts/pack-plugin-sidecar-zip.ps1 `
             -Configuration '${{ inputs.configuration }}' `
             -Runtime '${{ inputs.runtime_id }}' `
             -OutputZip $zip `
+            -SelfContained:$selfContained `
             -SkipFetch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path -LiteralPath $zip)) { throw "Sidecar zip missing: $zip" }
@@ -341,7 +345,9 @@ jobs:
           fi
 
           # Single-node publish reduces MSB4166 crashes.
-          # NETSDK1176: EnableCompressionInSingleFile is only valid for self-contained.
+          # The launcher host is always NativeAOT. The SelfContained/NoRuntime
+          # variant now describes whether the embedded plugin sidecar carries
+          # CoreCLR; it never changes the host compilation model.
           # Host stays free of in-process plugin IL; optional opaque sidecar zip is embedded.
           sidecar_zip="${{ steps.sidecar_zip.outputs.path }}"
           sidecar_args=()
@@ -352,21 +358,56 @@ jobs:
             echo "No plugin sidecar zip — host will run without embedded plugins."
           fi
 
+          native_stage="$RUNNER_TEMP/pcln-native-${{ inputs.runtime_id }}"
+          native_zip="$RUNNER_TEMP/PCL.NativeRuntime.${{ inputs.runtime_id }}.zip"
+          rm -rf "$native_stage" "$PUBLISH_DIR" "$native_zip"
+          mkdir -p "$native_stage" "$PUBLISH_DIR"
+
+          # Pass 1 discovers the exact RID-specific dynamic native payload.
           dotnet publish PCL.Desktop/PCL.Desktop.csproj \
             -c "${{ inputs.configuration }}" \
             -r "${{ inputs.runtime_id }}" \
-            --self-contained "${{ inputs.self_contained }}" \
+            --self-contained true \
             -m:1 \
             -nodeReuse:false \
             -p:Platform="${{ inputs.architecture }}" \
-            -p:PublishAot=false \
-            -p:PublishTrimmed=false \
-            -p:PublishSingleFile=true \
-            -p:EnableCompressionInSingleFile="${{ inputs.self_contained }}" \
-            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:PublishAot=true \
+            -p:PublishTrimmed=true \
+            -p:PublishSingleFile=false \
             -p:PclRuntimeVariant="${{ inputs.runtime_variant }}" \
             -p:PclHpatchzPath="$PCL_HPATCHZ_PATH" \
             -p:PclWriteSecret=1 \
+            -p:PclPluginSidecarZipPath= \
+            -p:PclNativeRuntimeZipPath= \
+            -p:DebugType=None \
+            -p:DebugSymbols=false \
+            -p:DeleteExistingFiles=true \
+            ${version_args[@]+"${version_args[@]}"} \
+            -warnaserror:CA1416 \
+            -o "$native_stage"
+
+          python scripts/pack_native_runtime.py \
+            "$native_stage" \
+            "$native_zip" \
+            --binary "${{ inputs.binary_name }}"
+
+          # Pass 2 embeds the native payload and optional CoreCLR sidecar into
+          # the NativeAOT executable. The final artifact remains compatible
+          # with the existing atomic single-executable updater.
+          dotnet publish PCL.Desktop/PCL.Desktop.csproj \
+            -c "${{ inputs.configuration }}" \
+            -r "${{ inputs.runtime_id }}" \
+            --self-contained true \
+            -m:1 \
+            -nodeReuse:false \
+            -p:Platform="${{ inputs.architecture }}" \
+            -p:PublishAot=true \
+            -p:PublishTrimmed=true \
+            -p:PublishSingleFile=false \
+            -p:PclRuntimeVariant="${{ inputs.runtime_variant }}" \
+            -p:PclHpatchzPath="$PCL_HPATCHZ_PATH" \
+            -p:PclWriteSecret=1 \
+            -p:PclNativeRuntimeZipPath="$native_zip" \
             -p:DebugType=None \
             -p:DebugSymbols=false \
             -p:DeleteExistingFiles=true \
@@ -385,12 +426,20 @@ jobs:
           }
 
           find "$PUBLISH_DIR" -type f \( -name '*.pdb' -o -name '*.xml' -o -name '*.dbg' \) -delete
+          # RenameProductHostBinary can leave the managed-identity host beside
+          # the product-named AOT executable in publish output. It is byte-for-byte
+          # redundant and must not be distributed.
+          find "$PUBLISH_DIR" -maxdepth 1 -type f \( -name 'PCL.Desktop' -o -name 'PCL.Desktop.exe' \) -delete
+          # The dynamic native libraries are embedded by the second AOT pass
+          # and installed beside the executable before Avalonia starts.
+          find "$PUBLISH_DIR" -mindepth 1 -maxdepth 1 ! -name '${{ inputs.binary_name }}' -exec rm -rf {} +
           file_count=$(find "$PUBLISH_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')
           if [[ "$file_count" != "1" ]]; then
-            echo "::error::Expected one portable Avalonia binary, found $file_count files."
+            echo "::error::Expected one self-extracting NativeAOT executable, found $file_count files."
             find "$PUBLISH_DIR" -maxdepth 2 -print
             exit 1
           fi
+          echo "Self-extracting NativeAOT artifact validated."
 
           chmod +x "$binary" || true
 
@@ -442,7 +491,11 @@ jobs:
           plist="$contents/Info.plist"
 
           mkdir -p "$contents/MacOS" "$resources" "$iconset"
-          mv "$PUBLISH_DIR/${{ inputs.binary_name }}" "$executable"
+          shopt -s dotglob nullglob
+          for item in "$PUBLISH_DIR"/*; do
+            [[ "$item" == "$app" ]] && continue
+            mv "$item" "$contents/MacOS/"
+          done
           chmod +x "$executable"
 
           for size in 16 32 128 256 512; do

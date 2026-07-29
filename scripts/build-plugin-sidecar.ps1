@@ -7,6 +7,7 @@ param(
     [string]$Runtime = '',
     [string]$Output = '',
     [string]$PluginTag = '',
+    [bool]$SelfContained = $true,
     [switch]$SkipFetch,
     [switch]$Publish
 )
@@ -42,6 +43,7 @@ $common = @(
     '-c', $Configuration,
     "-p:PclNRoot=$repoRoot",
     "-p:PclNPluginSdkRoot=$sdkRoot",
+    '-p:PclPluginHeadless=true',
     '-m:1',
     '--nologo'
 )
@@ -50,12 +52,15 @@ if ($Publish) {
     if ([string]::IsNullOrWhiteSpace($Runtime)) {
         throw "Publish requires -Runtime (e.g. win-x64)."
     }
+    $selfContainedValue = $SelfContained.ToString().ToLowerInvariant()
     & dotnet publish @common `
         -r $Runtime `
-        --self-contained true `
+        --self-contained $selfContainedValue `
         -p:PublishAot=false `
         -p:PublishTrimmed=false `
         -p:PublishSingleFile=false `
+        -p:DebugType=None `
+        -p:DebugSymbols=false `
         -o $Output
 } else {
     & dotnet build @common
@@ -66,5 +71,6 @@ if ($Publish) {
 }
 
 Write-Host "Sidecar output: $Output"
+Write-Host "Sidecar runtime: $(if ($SelfContained) { 'self-contained CoreCLR' } else { 'framework-dependent (.NET 10 required)' })"
 Write-Host "Host resolves: {appBase}/sidecar/PCL.Plugin.Sidecar(.exe) or PCL_PLUGIN_SIDECAR_PATH"
 exit $LASTEXITCODE

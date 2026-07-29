@@ -15,7 +15,8 @@ public sealed record LauncherBuildIdentity(
     public static string NormalizeRuntimeVariant(string? value)
     {
         string text = value?.Trim() ?? string.Empty;
-        // Host-only packages: SelfContained | NoRuntime (legacy *_{With,No}Plugin collapse to runtime).
+        // The host is always NativeAOT. This variant records whether the
+        // out-of-process plugin sidecar carries its own CoreCLR runtime.
         return text.StartsWith("NoRuntime", StringComparison.OrdinalIgnoreCase)
             ? "NoRuntime"
             : "SelfContained";

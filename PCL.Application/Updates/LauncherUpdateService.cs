@@ -429,7 +429,8 @@ public sealed class LauncherUpdateService : IDisposable
         string normalizedCurrent = NormalizeVersion(identity.Version);
         string normalizedTarget = NormalizeVersion(targetIndex.Index.TargetVersion ?? targetTag);
         List<LoadedPatchIndex> indexes = [targetIndex];
-        // Patch graph uses host-only variants (SelfContained / NoRuntime).
+        // Patch graph preserves the plugin sidecar runtime choice
+        // (SelfContained / NoRuntime); the host itself is always NativeAOT.
         bool canPatchCurrentBuild = true;
         List<LauncherUpdatePatchStep> path = FindPatchPath(indexes, targetIdentity, normalizedCurrent, normalizedTarget);
 
@@ -664,7 +665,8 @@ public sealed class LauncherUpdateService : IDisposable
             StringComparison.OrdinalIgnoreCase)
             ? "NoRuntime"
             : "SelfContained";
-        // New packages drop the WithPlugin/NoPlugin suffix; keep identity on SelfContained/NoRuntime.
+        // New packages drop the WithPlugin/NoPlugin suffix. SelfContained /
+        // NoRuntime now describes the plugin sidecar runtime payload.
         return identity with { RuntimeVariant = runtime };
     }
 

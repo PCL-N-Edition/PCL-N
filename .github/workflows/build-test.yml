@@ -129,10 +129,13 @@ jobs:
             chmod +x "$bin" || true
             if [[ "$name" == *"_win-"* ]]; then
               package="dist/${name}.zip"
-              (cd "$dir" && zip -9 "../../${package}" "$package_source")
-            else
+              (cd "$dir" && zip -9 -r "../../${package}" .)
+            elif [[ "$package_source" == "PCL N.app" ]]; then
               package="dist/${name}.tar.gz"
               tar -C "$dir" -czf "$package" "$package_source"
+            else
+              package="dist/${name}.tar.gz"
+              tar -C "$dir" -czf "$package" .
             fi
             gpg --detach-sign --armor "$package"
             gpg --detach-sign --armor --output "$package.binary.asc" "$bin"

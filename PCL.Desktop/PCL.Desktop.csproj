@@ -23,7 +23,15 @@
     <PublishTrimmed>true</PublishTrimmed>
     <TrimMode>link</TrimMode>
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
-    <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
+    <!-- NativeAOT production policy: prefer a compact portable executable.
+         Keep size-optimized LINQ disabled because it can penalize hot iterator
+         pipelines disproportionately; the rest of the program remains whole-
+         program optimized for size.
+         Do not use IlcInstructionSet=native for public artifacts because the
+         runner CPU is not the minimum CPU supported by each RID. -->
+    <OptimizationPreference>Size</OptimizationPreference>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <UseSizeOptimizedLinq>false</UseSizeOptimizedLinq>
     <EnableAotAnalyzer>true</EnableAotAnalyzer>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
@@ -32,12 +40,15 @@
     <!-- HotSpot switches native thread contexts during JNI_CreateJavaVM. Windows CET shadow stacks
          reject those continuations and terminate the isolated host with FAST_FAIL_INVALID_CONTROL_STACK. -->
     <CETCompat Condition="$([MSBuild]::IsOSPlatform('Windows'))">false</CETCompat>
+    <!-- Whether the embedded CoreCLR plugin sidecar carries its runtime.
+         The desktop host itself is always self-contained NativeAOT in releases. -->
     <PclRuntimeVariant Condition="'$(PclRuntimeVariant)' == ''">SelfContained</PclRuntimeVariant>
     <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
     <PclHpatchzPath Condition="'$(PclHpatchzPath)' != ''">$([System.IO.Path]::GetFullPath('$(PclHpatchzPath)'))</PclHpatchzPath>
     <!-- Opaque CoreCLR sidecar zip embedded into the host single-file binary (not in-process plugin IL). -->
     <PclPluginSidecarZipPath Condition="'$(PclPluginSidecarZipPath)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_PLUGIN_SIDECAR_ZIP'))</PclPluginSidecarZipPath>
     <PclPluginSidecarZipPath Condition="'$(PclPluginSidecarZipPath)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginSidecarZipPath)'))</PclPluginSidecarZipPath>
+    <PclNativeRuntimeZipPath Condition="'$(PclNativeRuntimeZipPath)' != ''">$([System.IO.Path]::GetFullPath('$(PclNativeRuntimeZipPath)'))</PclNativeRuntimeZipPath>
 
     <!-- CI secret pre-write (PCL_WRITE_SECRET=1 embeds values into PclEmbeddedSecrets). -->
     <PclWriteSecret Condition="'$(PclWriteSecret)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_WRITE_SECRET'))</PclWriteSecret>
@@ -152,6 +163,10 @@
     <EmbeddedResource Include="$(PclPluginSidecarZipPath)"
                       Condition="'$(PclPluginSidecarZipPath)' != '' and Exists('$(PclPluginSidecarZipPath)')">
       <LogicalName>PCL.Desktop.Embedded.PluginSidecar.zip</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(PclNativeRuntimeZipPath)"
+                      Condition="'$(PclNativeRuntimeZipPath)' != '' and Exists('$(PclNativeRuntimeZipPath)')">
+      <LogicalName>PCL.Desktop.Embedded.NativeRuntime.zip</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>

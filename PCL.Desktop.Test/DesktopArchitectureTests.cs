@@ -683,13 +683,18 @@ public sealed class DesktopArchitectureTests
 
         StringAssert.Contains(reusable, "PCL.Desktop/PCL.Desktop.csproj");
         StringAssert.Contains(reusable, "binary_name:");
-        StringAssert.Contains(reusable, "PublishSingleFile=true");
+        StringAssert.Contains(reusable, "PublishAot=true");
+        StringAssert.Contains(reusable, "PublishTrimmed=true");
+        StringAssert.Contains(reusable, "PublishSingleFile=false");
+        StringAssert.Contains(reusable, "pack_native_runtime.py");
+        StringAssert.Contains(reusable, "PclNativeRuntimeZipPath");
         // Desktop ProjectReference → external/Jvm.NET; CI must materialize the submodule.
         StringAssert.Contains(reusable, "submodules: recursive");
         // Opaque sidecar zip may be embedded; in-process private plugin IL must not be.
         StringAssert.Contains(reusable, "embed_plugin_sidecar");
         StringAssert.Contains(reusable, "PclPluginSidecarZipPath");
         StringAssert.Contains(reusable, "pack-plugin-sidecar-zip.ps1");
+        StringAssert.Contains(reusable, "-SelfContained:$selfContained");
         // Private PCL.Plugin requires PAT-backed checkout. Tag resolution stays on
         // authenticated git data and does not consume the GitHub API quota.
         StringAssert.Contains(reusable, "repository: PCL-N-Edition/PCL.Plugin");

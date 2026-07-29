@@ -27,6 +27,11 @@ internal static class Program
         {
             if (LauncherUpdateBootstrap.TryRunUpdateHelper(args, out int updateExitCode))
                 return updateExitCode;
+
+            // NativeAOT cannot bundle dynamic Skia/LibVLC libraries into the
+            // operating-system image. Install the signed, RID-specific payload
+            // before Avalonia or any native-backed feature is initialized.
+            PclEmbeddedNativeRuntime.EnsureInstalled();
             args = LauncherUpdateBootstrap.ProcessStartupCleanup(args);
 
             // Catch process-wide crashes as early as possible.

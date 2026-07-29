@@ -114,10 +114,10 @@ jobs:
             tar -C artifact -czf "dist/${base}.tar.gz" "PCL N.app"
           elif [[ "${{ matrix.target.package }}" == "zip" ]]; then
             chmod +x "artifact/${{ matrix.target.binary_name }}" || true
-            (cd artifact && zip -9 "../dist/${base}.zip" "${{ matrix.target.binary_name }}")
+            (cd artifact && zip -9 -r "../dist/${base}.zip" .)
           else
             chmod +x "artifact/${{ matrix.target.binary_name }}"
-            tar -C artifact -czf "dist/${base}.tar.gz" "${{ matrix.target.binary_name }}"
+            tar -C artifact -czf "dist/${base}.tar.gz" .
           fi
 
       - name: Import GPG key

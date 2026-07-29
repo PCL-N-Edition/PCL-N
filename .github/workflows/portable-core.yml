@@ -151,7 +151,15 @@ jobs:
             echo "rid=linux-x64" >> "$GITHUB_OUTPUT"
           fi
       - name: Publish Avalonia desktop portable shell
-        run: dotnet publish PCL.Desktop/PCL.Desktop.csproj -c Release -r ${{ steps.runtime.outputs.rid }} -p:PublishAot=false -warnaserror:CA1416
+        run: >
+          dotnet publish PCL.Desktop/PCL.Desktop.csproj
+          -c Release
+          -r ${{ steps.runtime.outputs.rid }}
+          --self-contained true
+          -p:PublishAot=true
+          -p:PublishTrimmed=true
+          -p:PublishSingleFile=false
+          -warnaserror:CA1416
       - name: Validate Avalonia desktop portable shell
         shell: bash
         run: |
@@ -160,6 +168,7 @@ jobs:
 
   desktop-single-file:
     name: single-file (${{ matrix.rid }}, ${{ matrix.runtime_label }})
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
       matrix:
@@ -286,22 +295,49 @@ jobs:
       - name: Publish portable single-file binary
         shell: bash
         run: |
+          native_stage="$RUNNER_TEMP/pcln-native-${{ matrix.rid }}"
+          native_zip="$RUNNER_TEMP/PCL.NativeRuntime.${{ matrix.rid }}.zip"
+          rm -rf "$native_stage" "$PUBLISH_DIR" "$native_zip"
+          mkdir -p "$native_stage" "$PUBLISH_DIR"
+
           dotnet publish PCL.Desktop/PCL.Desktop.csproj \
             -c Release \
             -r "${{ matrix.rid }}" \
-            --self-contained "${{ matrix.self_contained }}" \
+            --self-contained true \
             -p:Platform="${{ matrix.platform }}" \
-            -p:PublishAot=false \
-            -p:PublishTrimmed=false \
-            -p:PublishSingleFile=true \
-            -p:EnableCompressionInSingleFile="${{ matrix.self_contained }}" \
-            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:PublishAot=true \
+            -p:PublishTrimmed=true \
+            -p:PublishSingleFile=false \
             -p:PclRuntimeVariant="${{ matrix.runtime_variant }}" \
             -p:DebugType=None \
             -p:DebugSymbols=false \
             -p:DeleteExistingFiles=true \
             -warnaserror:CA1416 \
+            -o "$native_stage"
+
+          python scripts/pack_native_runtime.py \
+            "$native_stage" \
+            "$native_zip" \
+            --binary "${{ matrix.binary_name }}"
+
+          dotnet publish PCL.Desktop/PCL.Desktop.csproj \
+            -c Release \
+            -r "${{ matrix.rid }}" \
+            --self-contained true \
+            -p:Platform="${{ matrix.platform }}" \
+            -p:PublishAot=true \
+            -p:PublishTrimmed=true \
+            -p:PublishSingleFile=false \
+            -p:PclRuntimeVariant="${{ matrix.runtime_variant }}" \
+            -p:PclNativeRuntimeZipPath="$native_zip" \
+            -p:DebugType=None \
+            -p:DebugSymbols=false \
+            -p:DeleteExistingFiles=true \
+            -warnaserror:CA1416 \
             -o "$PUBLISH_DIR"
+
+          find "$PUBLISH_DIR" -type f \( -name '*.pdb' -o -name '*.xml' -o -name '*.dbg' \) -delete
+          find "$PUBLISH_DIR" -mindepth 1 -maxdepth 1 ! -name '${{ matrix.binary_name }}' -exec rm -rf {} +
       - name: Validate single-file output
         shell: bash
         run: |
