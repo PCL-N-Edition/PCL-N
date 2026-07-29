@@ -31,7 +31,7 @@ jobs:
           - { runner: windows-latest, runtime_id: win-x64, architecture: x64, binary_name: PCL-N-Edition.exe }
           - { runner: windows-latest, runtime_id: win-arm64, architecture: ARM64, binary_name: PCL-N-Edition.exe }
           - { runner: ubuntu-latest, runtime_id: linux-x64, architecture: x64, binary_name: PCL-N-Edition }
-          - { runner: ubuntu-latest, runtime_id: linux-arm64, architecture: ARM64, binary_name: PCL-N-Edition }
+          - { runner: ubuntu-24.04-arm, runtime_id: linux-arm64, architecture: ARM64, binary_name: PCL-N-Edition }
           - { runner: macos-latest, runtime_id: osx-x64, architecture: x64, binary_name: PCL-N-Edition }
           - { runner: macos-latest, runtime_id: osx-arm64, architecture: ARM64, binary_name: PCL-N-Edition }
         runtime:

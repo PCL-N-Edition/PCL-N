@@ -44,7 +44,7 @@ jobs:
             architecture: x64
             binary_name: PCL-N-Edition
           - configuration: CI
-            runner: ubuntu-latest
+            runner: ubuntu-24.04-arm
             runtime_id: linux-arm64
             architecture: ARM64
             binary_name: PCL-N-Edition
