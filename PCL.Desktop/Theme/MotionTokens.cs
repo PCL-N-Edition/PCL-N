@@ -28,10 +28,10 @@ internal static class MotionTokens
     public const int PageEnterOpacityMs = 120;
 
     /// <summary>Page content enter vertical travel duration (no overshoot).</summary>
-    public const int PageEnterSlideMs = 220;
+    public const int PageEnterSlideMs = 240;
 
     /// <summary>Stagger between animated children on page enter.</summary>
-    public const int PageStaggerMs = 12;
+    public const int PageStaggerMs = 14;
 
     /// <summary>Initial translate offset (px) before page enter settles.</summary>
     public const double PageEnterOffsetY = -10d;
@@ -46,7 +46,7 @@ internal static class MotionTokens
     public const int ReducedMotionFadeMs = 160;
 
     /// <summary>Maximum number of children that receive staggered page enter.</summary>
-    public const int PageEnterMaxChildren = 5;
+    public const int PageEnterMaxChildren = 36;
 
     /// <summary>List rows that receive entrance stagger.</summary>
     public const int ListEnterMaxChildren = 30;

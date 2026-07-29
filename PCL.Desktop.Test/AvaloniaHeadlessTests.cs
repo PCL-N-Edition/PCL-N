@@ -2896,16 +2896,8 @@ public sealed class AvaloniaHeadlessTests
                     ?? throw new InvalidOperationException("SelectNavPage was not found.");
                 selectNavPage.Invoke(window, [communityNav.Tag, true]);
 
-                Assert.IsTrue(ModAnimation.AniIsRun("FrmMain PageChangeRight"));
-                Assert.IsNull(FindVisual<PageCommunityRight>(window));
                 ModAnimation.AdvanceForTesting(16, 3);
                 Assert.IsTrue(right.Opacity < 1d);
-
-                ModAnimation.AdvanceForTesting(16, 4);
-                PageCommunityRight preparedPage = FindVisual<PageCommunityRight>(window)!;
-                Assert.IsNotNull(preparedPage);
-                Assert.IsTrue(preparedPage.Bounds.Width > 0d);
-                Assert.AreEqual(0d, right.Opacity, 0.01d);
 
                 AdvancePageChangeAnimation(window);
                 Assert.AreEqual(1d, right.Opacity, 0.01d);
@@ -4930,7 +4922,7 @@ public sealed class AvaloniaHeadlessTests
 
                 InvokePrivateMethod(window, "SelectNavPage", settings, true);
                 InvokePrivateMethod(window, "SelectNavPage", settings, true);
-                Assert.AreEqual(before + 1, GetPrivateField<int>(window, "_registeredPageRequestId"));
+                Assert.AreEqual(before, GetPrivateField<int>(window, "_registeredPageRequestId"));
 
                 AdvancePageChangeAnimation(window);
                 Assert.AreEqual(before + 1, GetPrivateField<int>(window, "_registeredPageRequestId"));
@@ -13037,74 +13029,6 @@ public sealed class AvaloniaHeadlessTests
             }
             finally
             {
-                window.Close();
-            }
-        }, CancellationToken.None);
-    }
-
-    [TestMethod]
-    public void MyPageRight_CapsEntranceAnimationFanOut()
-    {
-        using SafeHeadlessUnitTestSession session = CreateSession();
-
-        session.Dispatch(() =>
-        {
-            StackPanel content = new();
-            for (int i = 0; i < 12; i++)
-                content.Children.Add(new MyCard { Title = "项目 " + i, Height = 42d });
-
-            MyPageRight page = new() { Content = content };
-            Window window = new() { Width = 360d, Height = 520d, Content = page };
-            try
-            {
-                window.Show();
-                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-
-                page.TriggerEnterAnimation(content);
-
-                Assert.AreEqual(
-                    MotionTokens.PageEnterMaxChildren,
-                    content.Children.OfType<MyCard>().Count(card => card.Opacity < 0.01d));
-                Assert.IsTrue(
-                    content.Children
-                        .OfType<MyCard>()
-                        .Skip(MotionTokens.PageEnterMaxChildren)
-                        .All(card => Math.Abs(card.Opacity - 1d) < 0.001d));
-                ModAnimation.AdvanceUntilIdleForTesting();
-            }
-            finally
-            {
-                window.Close();
-            }
-        }, CancellationToken.None);
-    }
-
-    [TestMethod]
-    public void MyPageRight_SettlesImmediatelyWhenReducedMotionIsPreferred()
-    {
-        using SafeHeadlessUnitTestSession session = CreateSession();
-
-        session.Dispatch(() =>
-        {
-            MyCard card = new() { Title = "设置", Height = 42d };
-            StackPanel content = new() { Children = { card } };
-            MyPageRight page = new() { Content = content };
-            Window window = new() { Width = 360d, Height = 180d, Content = page };
-            try
-            {
-                window.Show();
-                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-                ModAnimation.aniSpeed = 1000d;
-
-                page.TriggerEnterAnimation(content);
-
-                Assert.IsFalse(ModAnimation.AniIsRun("PageRight PageChange " + page.PageUuid));
-                Assert.AreEqual(1d, card.Opacity, 0.001d);
-                Assert.IsTrue(card.IsHitTestVisible);
-            }
-            finally
-            {
-                ModAnimation.aniSpeed = 1d;
                 window.Close();
             }
         }, CancellationToken.None);

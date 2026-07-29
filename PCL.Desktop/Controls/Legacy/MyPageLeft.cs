@@ -24,14 +24,6 @@ public class MyPageLeft : Grid
 
     public void TriggerShowAnimation()
     {
-        string animationKey = $"PageLeft PageChange {_uuid}";
-        if (!ControlVisualHelpers.ShouldAnimate(this))
-        {
-            ModAnimation.AniStop(animationKey);
-            SetShowAnimationFinalState();
-            return;
-        }
-
         if (AnimatedControl is null)
         {
             RenderTransformOrigin = new RelativePoint(0.5d, 0.5d, RelativeUnit.Relative);
@@ -49,14 +41,12 @@ public class MyPageLeft : Grid
                         ease: new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)),
                     ModAnimation.AaOpacity(this, 1d, MotionTokens.PageEnterOpacityMs)
                 },
-                animationKey);
+                $"PageLeft PageChange {_uuid}");
             return;
         }
 
         List<ModAnimation.AniData> animations = [];
-        List<MyListItem> suspendedListItems = [];
         int delay = 0;
-        int animatedCount = 0;
         foreach (Control control in GetAllAnimControls(AnimatedControl, ignoreInvisibility: true))
         {
             if (!control.IsVisible)
@@ -68,22 +58,10 @@ public class MyPageLeft : Grid
                 continue;
             }
 
-            if (animatedCount >= MotionTokens.PageEnterMaxChildren)
-            {
-                control.Opacity = control is TextBlock ? 0.55d : 1d;
-                control.RenderTransform = new TranslateTransform();
-                if (control is MyListItem settledItem)
-                    settledItem.isMouseOverAnimationEnabled = true;
-                continue;
-            }
-
             control.Opacity = 0d;
             control.RenderTransform = new TranslateTransform(-14d, 0d);
             if (control is MyListItem listItem)
-            {
                 listItem.isMouseOverAnimationEnabled = false;
-                suspendedListItems.Add(listItem);
-            }
             animations.Add(ModAnimation.AaOpacity(
                 control,
                 control is TextBlock ? 0.55d : 1d,
@@ -96,47 +74,25 @@ public class MyPageLeft : Grid
                 MotionTokens.PageEnterSlideMs,
                 delay,
                 new ModAnimation.AniEaseOutFluent()));
-            delay += MotionTokens.PageStaggerMs;
-            animatedCount++;
-        }
-
-        if (suspendedListItems.Count > 0)
-        {
-            animations.Add(ModAnimation.AaCode(() =>
+            if (control is MyListItem)
             {
-                foreach (MyListItem item in suspendedListItems)
-                {
-                    item.isMouseOverAnimationEnabled = true;
-                    item.RefreshColor(this, EventArgs.Empty);
-                }
-            }, after: true));
+                MyListItem animatedListItem = (MyListItem)control;
+                animations.Add(ModAnimation.AaCode(
+                    () =>
+                    {
+                        animatedListItem.isMouseOverAnimationEnabled = true;
+                        animatedListItem.RefreshColor(this, EventArgs.Empty);
+                    },
+                    delay + MotionTokens.PageEnterSlideMs));
+            }
+            delay += MotionTokens.PageStaggerMs;
         }
 
-        ModAnimation.AniStart(animations, animationKey);
+        ModAnimation.AniStart(animations, $"PageLeft PageChange {_uuid}");
     }
 
     public void TriggerHideAnimation()
     {
-        string animationKey = $"PageLeft PageChange {_uuid}";
-        if (!ControlVisualHelpers.ShouldAnimate(this))
-        {
-            ModAnimation.AniStop(animationKey);
-            if (AnimatedControl is null)
-            {
-                Opacity = 0d;
-                return;
-            }
-
-            foreach (Control control in GetAllAnimControls(AnimatedControl))
-            {
-                control.Opacity = 0d;
-                control.IsHitTestVisible = false;
-                if (control.RenderTransform is TranslateTransform translate)
-                    translate.X = -6d;
-            }
-            return;
-        }
-
         if (AnimatedControl is null)
         {
             RenderTransformOrigin = new RelativePoint(0.5d, 0.5d, RelativeUnit.Relative);
@@ -153,52 +109,21 @@ public class MyPageLeft : Grid
                         ease: new ModAnimation.AniEaseInFluent(ModAnimation.AniEasePower.Weak)),
                     ModAnimation.AaOpacity(this, -Opacity, 80, 30)
                 },
-                animationKey);
+                $"PageLeft PageChange {_uuid}");
             return;
         }
 
         List<Control> controls = GetAllAnimControls(AnimatedControl).ToList();
         List<ModAnimation.AniData> animations = [];
-        int animatedCount = Math.Min(controls.Count, MotionTokens.PageEnterMaxChildren);
         for (int i = 0; i < controls.Count; i++)
         {
             Control control = controls[i];
-            control.IsHitTestVisible = false;
-            if (i >= animatedCount)
-            {
-                control.Opacity = 0d;
-                continue;
-            }
-
-            int delay = animatedCount == 0 ? 0 : (int)Math.Round(70d / animatedCount * i);
+            int delay = controls.Count == 0 ? 0 : (int)Math.Round(70d / controls.Count * i);
             animations.Add(ModAnimation.AaOpacity(control, -control.Opacity, 50, delay));
             animations.Add(ModAnimation.AaTranslateX(control, -6d, 50, delay));
         }
 
-        ModAnimation.AniStart(animations, animationKey);
-    }
-
-    private void SetShowAnimationFinalState()
-    {
-        if (AnimatedControl is null)
-        {
-            Opacity = 1d;
-            RenderTransformOrigin = new RelativePoint(0.5d, 0.5d, RelativeUnit.Relative);
-            RenderTransform = new ScaleTransform(1d, 1d);
-            return;
-        }
-
-        foreach (Control control in GetAllAnimControls(AnimatedControl, ignoreInvisibility: true))
-        {
-            if (!control.IsVisible)
-                continue;
-
-            control.Opacity = control is TextBlock ? 0.55d : 1d;
-            control.IsHitTestVisible = true;
-            control.RenderTransform = new TranslateTransform();
-            if (control is MyListItem listItem)
-                listItem.isMouseOverAnimationEnabled = true;
-        }
+        ModAnimation.AniStart(animations, $"PageLeft PageChange {_uuid}");
     }
 
     private static double GetScaleX(Control control) =>

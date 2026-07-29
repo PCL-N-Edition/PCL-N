@@ -1318,7 +1318,7 @@ public partial class MainWindow : Window, IDisposable
             CreateTextPlaceholder(pageTitle, "页面暂时无法打开。\n\n详细信息：" + exception.Message)));
     }
 
-    private void ApplyRegisteredMainPage(DesktopMainPage page, bool keepRightPaneHidden = false)
+    private void ApplyRegisteredMainPage(DesktopMainPage page)
     {
         _titleInnerBackAction = null;
         _taskSessionStore.IsTaskManagerVisible = false;
@@ -1352,7 +1352,7 @@ public partial class MainWindow : Window, IDisposable
 
         RefreshBackToTopBinding();
         page.Activated?.Invoke();
-        rightHost.Opacity = keepRightPaneHidden ? 0d : 1d;
+        rightHost.Opacity = 1d;
     }
 
     private void RegisterCurrentPageSurface(Control page)
@@ -5717,87 +5717,9 @@ public partial class MainWindow : Window, IDisposable
     private void BeginPageChangeAnimation(NavigationRouteId route)
     {
         _pendingNavRoute = route;
-        NavigationPageDescriptor? descriptor = FindNavigationPage(route);
-        if (descriptor is null)
-        {
-            _pendingNavRoute = null;
-            return;
-        }
-
-        int requestId = ++_registeredPageRequestId;
-        PageCreateContext context = new(descriptor.Route.Value, DesktopHost.Current.Services, _desktopPageContext);
-        ValueTask<DesktopMainPage> createTask;
-        try
-        {
-            createTask = _pageAdapter.CreateMainPageAsync(descriptor.Provider, context, CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            StartPreparedPageChange(
-                route,
-                CreatePageCreationError(descriptor.Title, ex),
-                requestId);
-            return;
-        }
-
-        if (createTask.IsCompletedSuccessfully)
-        {
-            StartPreparedPageChange(route, createTask.Result, requestId);
-            return;
-        }
-
-        UnhandledExceptionGuard.Observe(
-            CompletePreparedPageChange(createTask.AsTask(), route, requestId, descriptor.Title),
-            "MainWindow.PreparePageChange");
-    }
-
-    private async Task CompletePreparedPageChange(
-        Task<DesktopMainPage> createTask,
-        NavigationRouteId route,
-        int requestId,
-        string pageTitle)
-    {
-        DesktopMainPage? page = null;
-        Exception? creationError = null;
-        try
-        {
-            page = await createTask.ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            creationError = ex;
-        }
-
-        await Dispatcher.UIThread.InvokeAsync(() =>
-        {
-            DesktopMainPage preparedPage = page ?? CreatePageCreationError(
-                pageTitle,
-                creationError ?? new InvalidOperationException("页面创建未返回结果。"));
-            StartPreparedPageChange(route, preparedPage, requestId);
-        });
-    }
-
-    private void StartPreparedPageChange(
-        NavigationRouteId route,
-        DesktopMainPage page,
-        int requestId)
-    {
-        if (requestId != _registeredPageRequestId ||
-            _pendingNavRoute is not NavigationRouteId pendingRoute ||
-            !pendingRoute.Equals(route.Value))
-        {
-            return;
-        }
-
         if (this.FindControl<Control>("PanMainRight") is not { } right)
         {
-            ApplyPreparedPage(route, page, keepRightPaneHidden: false);
-            return;
-        }
-
-        if (!ControlVisualHelpers.ShouldAnimate(right))
-        {
-            ApplyPreparedPage(route, page, keepRightPaneHidden: false);
+            ApplyPagePlaceholder(route);
             return;
         }
 
@@ -5807,16 +5729,9 @@ public partial class MainWindow : Window, IDisposable
                 ModAnimation.AaOpacity(right, -right.Opacity, MotionTokens.NavCrossfadeOutMs),
                 ModAnimation.AaCode(() =>
                 {
-                    if (requestId != _registeredPageRequestId)
-                        return;
-
+                    ApplyPagePlaceholder(route);
                     right.Opacity = 0d;
-                    ApplyPreparedPage(route, page, keepRightPaneHidden: true);
-                    right.UpdateLayout();
                 }, after: true),
-                // Leave the newly attached visual tree hidden for one render turn.
-                // This keeps first Measure/Arrange and binding evaluation out of fade-in.
-                ModAnimation.AaCode(static () => { }, 16, after: true),
                 ModAnimation.AaOpacity(right, 1d, MotionTokens.NavCrossfadeInMs),
                 // Always force full opacity when the sequence finishes — guards against
                 // mid-animation AniStop / nested page swaps leaving the right pane gray.
@@ -5824,21 +5739,6 @@ public partial class MainWindow : Window, IDisposable
             },
             "FrmMain PageChangeRight");
     }
-
-    private void ApplyPreparedPage(
-        NavigationRouteId route,
-        DesktopMainPage page,
-        bool keepRightPaneHidden)
-    {
-        _currentNavRoute = route;
-        _pendingNavRoute = null;
-        ApplyRegisteredMainPage(page, keepRightPaneHidden);
-    }
-
-    private static DesktopMainPage CreatePageCreationError(string pageTitle, Exception exception) =>
-        new(
-            null,
-            CreateTextPlaceholder(pageTitle, "页面暂时无法打开。\n\n详细信息：" + exception.Message));
 
     private IEnumerable<MyListItem> GetNavItems()
     {

@@ -250,7 +250,6 @@ public class MyPageRight : ContentControl, IDisposable
     public void TriggerEnterAnimation(params Control?[] elements)
     {
         Control[] realElements = elements.OfType<Control>().ToArray();
-        string animationKey = "PageRight PageChange " + PageUuid;
         foreach (Control element in realElements)
         {
             element.IsVisible = true;
@@ -260,32 +259,6 @@ public class MyPageRight : ContentControl, IDisposable
                 if (control.RenderTransform is TranslateTransform)
                     control.RenderTransform = null;
             }
-        }
-
-        if (!ControlVisualHelpers.ShouldAnimate(this))
-        {
-            ModAnimation.AniStop(animationKey);
-            foreach (Control element in realElements)
-            {
-                foreach (Control control in GetAllAnimControls(element, ignoreInvisibility: true))
-                {
-                    control.Opacity = 1d;
-                    control.IsHitTestVisible = true;
-                    if (control.RenderTransform is TranslateTransform translate)
-                    {
-                        translate.X = 0d;
-                        translate.Y = 0d;
-                    }
-
-                    if (control is MyExtraTextButton extraTextButton)
-                        extraTextButton.Show = true;
-                }
-            }
-
-            if (GetFirstScrollBar(realElements)?.RenderTransform is TranslateTransform scrollTransform)
-                scrollTransform.X = 0d;
-            PageOnEnterAnimationFinished();
-            return;
         }
 
         List<ModAnimation.AniData> animations = [];
@@ -346,22 +319,12 @@ public class MyPageRight : ContentControl, IDisposable
         }
 
         animations.Add(ModAnimation.AaCode(PageOnEnterAnimationFinished, after: true));
-        ModAnimation.AniStart(animations, animationKey, true);
+        ModAnimation.AniStart(animations, "PageRight PageChange " + PageUuid, true);
     }
 
     public void TriggerExitAnimation(params Control?[] elements)
     {
         Control[] realElements = elements.OfType<Control>().ToArray();
-        string animationKey = "PageRight PageChange " + PageUuid;
-        if (!ControlVisualHelpers.ShouldAnimate(this))
-        {
-            ModAnimation.AniStop(animationKey);
-            foreach (Control element in realElements)
-                element.IsVisible = false;
-            PageOnExitAnimationFinished();
-            return;
-        }
-
         List<ModAnimation.AniData> animations = [];
         int delay = 0;
         int animatedCount = 0;
@@ -410,7 +373,7 @@ public class MyPageRight : ContentControl, IDisposable
                 element.IsVisible = false;
             PageOnExitAnimationFinished();
         }, after: true));
-        ModAnimation.AniStart(animations, animationKey);
+        ModAnimation.AniStart(animations, "PageRight PageChange " + PageUuid);
     }
 
     private void PageOnEnterAnimationFinished()
