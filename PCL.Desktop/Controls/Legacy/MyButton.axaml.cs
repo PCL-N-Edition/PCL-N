@@ -348,6 +348,14 @@ public partial class MyButton : Border
         if (_foregroundBorder is null || _label is null)
             return;
 
+        // A page can opt into experimental chrome while the classic hover/attach
+        // color animation is still running. Stop those writers before assigning
+        // the experimental palette, otherwise the stale animation can make the
+        // label disappear until the next pointer event refreshes it.
+        ModAnimation.AniStop("MyButton Color " + Uuid);
+        ModAnimation.AniStop("MyButton TextColor " + Uuid);
+        ModAnimation.AniStop("MyButton Background " + Uuid);
+
         bool dark = AvaloniaThemeManager.IsDarkMode;
         bool hover = IsEnabled && IsPointerOver;
         Color surface;

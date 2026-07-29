@@ -5036,6 +5036,53 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void MyButton_ExperimentalStyleCancelsClassicTextColorAnimation()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            MyButton button = new()
+            {
+                Text = "应用更改",
+                Width = 160d
+            };
+            Window window = new()
+            {
+                Width = 240d,
+                Height = 100d,
+                Content = new Border
+                {
+                    Padding = new Thickness(20d),
+                    Child = button
+                }
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                Assert.IsTrue(ModAnimation.AniIsRun("MyButton TextColor " + button.Uuid));
+                button.UseExperimentalStyle = true;
+
+                Assert.IsFalse(ModAnimation.AniIsRun("MyButton TextColor " + button.Uuid));
+                ModAnimation.AdvanceUntilIdleForTesting();
+                Color expected = AvaloniaThemeManager.IsDarkMode
+                    ? Color.Parse("#FFF2F2F7")
+                    : Color.Parse("#FF1C1C1E");
+                Assert.AreEqual(
+                    expected,
+                    ((SolidColorBrush)button.FindControl<TextBlock>("LabText")!.Foreground!).Color);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MainWindow_TaskManagerReturnsToExactInstanceSubPage()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -12373,12 +12420,14 @@ public sealed class AvaloniaHeadlessTests
 
                 Assert.AreEqual("搜索组件", textBox.HintText);
                 Assert.AreEqual("forge", textBox.Text);
+                Assert.AreEqual(new Thickness(34d, 0d, 40d, 0d), textBox.Padding);
                 Assert.AreEqual(1d, clear.Opacity, 0.01d);
                 Assert.IsTrue(clear.IsHitTestVisible);
                 Assert.IsFalse(search.IsVisible);
 
                 searchBox.SearchButtonVisibility = true;
                 Assert.IsTrue(search.IsVisible);
+                Assert.AreEqual(new Thickness(34d, 0d, 76d, 0d), textBox.Padding);
                 Assert.AreEqual(new Thickness(0d, 0d, 70d, 0d), clear.Margin);
 
                 Click(window, search);
