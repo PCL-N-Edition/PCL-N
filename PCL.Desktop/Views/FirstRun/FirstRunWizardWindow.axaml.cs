@@ -85,7 +85,15 @@ public sealed partial class FirstRunWizardWindow : Window
     /// <summary>Raised when OOBE finishes successfully.</summary>
     public event EventHandler? Completed;
 
+    /// <summary>
+    /// Raised once intro expand has begun (or skipped). Host should dismiss splash only after this
+    /// so the logo handoff does not flicker.
+    /// </summary>
+    public event EventHandler? IntroStarted;
+
     public OobeRunPlan Plan => _plan;
+
+    public bool HasIntroStarted => _introStarted;
 
     public bool ShouldRestartAfterComplete => _plan.RestartAfterComplete;
 
@@ -316,9 +324,19 @@ public sealed partial class FirstRunWizardWindow : Window
 
         _introStarted = true;
         WindowStartupLocation = WindowStartupLocation.Manual;
+        // Keep bubble at splash size for the first frames so splash can release without a gap.
         Width = TargetWidth;
         Height = TargetHeight;
         ApplyBubbleFrame(SplashSize, SplashSize, SplashSize / 2d, shadowProgress: 0d);
+
+        try
+        {
+            IntroStarted?.Invoke(this, EventArgs.Empty);
+        }
+        catch
+        {
+            // host dismiss must not break intro
+        }
 
         // Plans that skip Welcome still expand chrome, then land on first step.
         if (!_plan.Steps.Contains(OobeStepId.Welcome))

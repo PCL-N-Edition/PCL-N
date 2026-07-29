@@ -27,6 +27,7 @@ public sealed partial class App : Avalonia.Application
     private static readonly TimeSpan PluginWarmupTimeout = TimeSpan.FromSeconds(25);
 
     private SplashWindow? _splashWindow;
+    private int _splashDismissed;
 
     internal static SingleInstanceCoordinator? SingleInstanceCoordinator { get; set; }
 
@@ -60,8 +61,7 @@ public sealed partial class App : Avalonia.Application
 
                 if (!skipShell)
                 {
-                    // Critical: while splash is the only window, closing it must NOT exit the process
-                    // (Avalonia default OnLastWindowClose caused flash-quit after OOBE/main handoff).
+                    // While splash is the only window, closing it must not exit the process.
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
                     desktop.Exit += (_, _) =>
@@ -74,11 +74,9 @@ public sealed partial class App : Avalonia.Application
                         LauncherSettingDefaults.GetBoolean("UiLauncherLogo"));
                     bool runOobe = FirstRunWizardWindow.NeedsWizard(settings);
 
-                    // Always show splash (when enabled) while plugin platform is probed.
                     if (showSplash)
                     {
                         _splashWindow = new SplashWindow();
-                        // Keep a MainWindow reference so the lifetime has an owner during warm-up.
                         desktop.MainWindow = _splashWindow;
                         _splashWindow.Show();
                         DesktopFileLog.Info("Startup", "启动图标已显示；等待插件功能就绪或确认不可用。");
@@ -115,9 +113,6 @@ public sealed partial class App : Avalonia.Application
         return !string.IsNullOrWhiteSpace(getEnvironmentVariable("PCL_DISABLE_DESKTOP_SHELL"));
     }
 
-    /// <summary>
-    /// Splash-time gate: load plugin sidecar until ready / not present / failed / timeout, then open main shell.
-    /// </summary>
     private async Task EnterMainShellAfterPluginReadyAsync(
         IClassicDesktopStyleApplicationLifetime desktop,
         bool fadeSplash)
@@ -127,13 +122,9 @@ public sealed partial class App : Avalonia.Application
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             ShowMainWindow(desktop, fadeSplash);
-            desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
         });
     }
 
-    /// <summary>
-    /// Splash-time gate before OOBE so online/plugin pages can use a warmed sidecar.
-    /// </summary>
     private async Task EnterOobeAfterPluginReadyAsync(
         IClassicDesktopStyleApplicationLifetime desktop,
         OobeRunPlan plan,
@@ -146,7 +137,6 @@ public sealed partial class App : Avalonia.Application
             FirstRunWizardWindow wizard = new(plan);
             wizard.PrepareCentered();
 
-            // Capture splash geometry BEFORE showing/closing so we never end up with zero windows.
             PixelRect? splashBounds = null;
             if (hadSplash && _splashWindow is { } splashMeasure)
             {
@@ -164,34 +154,23 @@ public sealed partial class App : Avalonia.Application
                 }
             }
 
-            desktop.MainWindow = wizard;
-            if (splashBounds is { } bounds)
-                wizard.PrepareFromSplash(bounds);
-
-            // Show the next window first, then close splash — order matters.
-            if (!wizard.IsVisible)
-                wizard.Show();
-
-            if (_splashWindow is { } splash)
+            // Dismiss splash only after OOBE intro is ready (avoids icon flicker).
+            void OnIntroStarted(object? sender, EventArgs e)
             {
-                try
-                {
-                    splash.Hide();
-                    splash.Close();
-                }
-                catch (Exception ex)
-                {
-                    DesktopFileLog.Warn("Startup", "关闭 Splash 失败。", ex);
-                }
-
-                _splashWindow = null;
+                wizard.IntroStarted -= OnIntroStarted;
+                // Next frame: wizard has painted the logo at splash size.
+                Dispatcher.UIThread.Post(
+                    () => DismissSplash(fade: false),
+                    DispatcherPriority.Render);
             }
 
-            if (splashBounds is null)
-                Dispatcher.UIThread.Post(wizard.StartIntroAnimation, DispatcherPriority.Loaded);
+            wizard.IntroStarted += OnIntroStarted;
 
             wizard.Completed += (_, _) =>
             {
+                // Safety: never leave splash orphaned after OOBE.
+                DismissSplash(fade: false);
+
                 bool restart = wizard.ShouldRestartAfterComplete;
                 try
                 {
@@ -208,10 +187,38 @@ public sealed partial class App : Avalonia.Application
                     else
                     {
                         ShowMainWindow(desktop, fadeSplash: false);
-                        desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
                     }
                 }
             };
+
+            // Show OOBE first (still under splash if Topmost), then start intro, then dismiss splash.
+            desktop.MainWindow = wizard;
+            if (!wizard.IsVisible)
+                wizard.Show();
+
+            if (splashBounds is { } bounds)
+                wizard.PrepareFromSplash(bounds);
+            else
+                Dispatcher.UIThread.Post(wizard.StartIntroAnimation, DispatcherPriority.Loaded);
+
+            // If intro already started synchronously, release splash on next render.
+            if (wizard.HasIntroStarted)
+            {
+                Dispatcher.UIThread.Post(
+                    () => DismissSplash(fade: false),
+                    DispatcherPriority.Render);
+            }
+            else
+            {
+                // Safety net if IntroStarted never fires.
+                DispatcherTimer safety = new() { Interval = TimeSpan.FromMilliseconds(900) };
+                safety.Tick += (_, _) =>
+                {
+                    safety.Stop();
+                    DismissSplash(fade: false);
+                };
+                safety.Start();
+            }
 
             desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
 
@@ -257,35 +264,71 @@ public sealed partial class App : Avalonia.Application
         if (SingleInstanceCoordinator?.ConsumePendingActivation() == true)
             Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
 
-        // Assign + show main BEFORE closing splash so the process never has zero windows.
+        // Show main first so lifetime always has a real shell window.
         desktop.MainWindow = mainWindow;
         if (!mainWindow.IsVisible)
             mainWindow.Show();
 
-        if (fadeSplash && _splashWindow is { } splashFade)
-        {
-            mainWindow.Opened += (_, _) =>
-            {
-                try { splashFade.CloseWithFade(TimeSpan.FromMilliseconds(400)); }
-                catch { try { splashFade.Close(); } catch { /* ignore */ } }
-                if (ReferenceEquals(_splashWindow, splashFade))
-                    _splashWindow = null;
-            };
-            // If already opened, fade immediately.
-            if (mainWindow.IsLoaded)
-            {
-                try { splashFade.CloseWithFade(TimeSpan.FromMilliseconds(400)); }
-                catch { try { splashFade.Close(); } catch { /* ignore */ } }
-                _splashWindow = null;
-            }
-        }
-        else if (_splashWindow is { } splash)
-        {
-            try { splash.Close(); } catch { /* ignore */ }
-            _splashWindow = null;
-        }
+        // Always dismiss splash — do not rely solely on Opened (may have already fired).
+        DismissSplash(fade: fadeSplash);
+
+        // Hard guarantee: if fade path failed or Opened race left splash up, force close next frame.
+        Dispatcher.UIThread.Post(
+            () => DismissSplash(fade: false),
+            DispatcherPriority.Background);
 
         desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
+    }
+
+    /// <summary>
+    /// Close splash once. Safe to call multiple times.
+    /// </summary>
+    private void DismissSplash(bool fade)
+    {
+        if (Interlocked.Exchange(ref _splashDismissed, 1) == 1)
+        {
+            // Already dismissed once — still force-close any leftover reference without fade.
+            SplashWindow? leftover = _splashWindow;
+            _splashWindow = null;
+            if (leftover is not null)
+            {
+                try
+                {
+                    leftover.Hide();
+                    leftover.Close();
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            return;
+        }
+
+        SplashWindow? splash = _splashWindow;
+        _splashWindow = null;
+        if (splash is null)
+            return;
+
+        try
+        {
+            if (fade)
+            {
+                splash.CloseWithFade(TimeSpan.FromMilliseconds(280));
+                DesktopFileLog.Info("Startup", "Splash 已开始淡出关闭。");
+                return;
+            }
+
+            splash.Hide();
+            splash.Close();
+            DesktopFileLog.Info("Startup", "Splash 已立即关闭。");
+        }
+        catch (Exception ex)
+        {
+            DesktopFileLog.Warn("Startup", "关闭 Splash 失败，尝试强制 Close。", ex);
+            try { splash.Close(); } catch { /* ignore */ }
+        }
     }
 
     /// <summary>Relaunch this host after OOBE so path overrides and migrated settings take effect.</summary>
