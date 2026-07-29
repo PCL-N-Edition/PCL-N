@@ -145,7 +145,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # After full builds are on the prerelease, generate Patch from every prior version → this tag.
+  # After full builds are on the prerelease, generate direct patches from the
+  # recent rollback window. Older clients can chain indexes or use a full package.
   generate-patches:
     name: Generate version patches
     needs: [publish-assets]
@@ -154,8 +155,8 @@ jobs:
     with:
       target_tag: ${{ github.event.release.tag_name || inputs.tag_name }}
       configuration: Beta
-      max_from_versions: 30
-      hop_interval: 30
+      max_from_versions: 10
+      hop_interval: 10
       include_prerelease_history: true
     secrets:
       PATCHES_REPO_TOKEN: ${{ secrets.PATCHES_REPO_TOKEN }}

@@ -117,7 +117,7 @@ jobs:
         working-directory: tools/pcl-n-patches
         run: python scripts/bootstrap_hdiffpatch.py
 
-      - name: Generate patches (every prior version → target)
+      - name: Generate patches (recent predecessors → target)
         working-directory: tools/pcl-n-patches
         run: |
           set -eo pipefail
