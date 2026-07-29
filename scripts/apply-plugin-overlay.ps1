@@ -4,7 +4,7 @@
 #
 # Release product of PCL.Plugin is a git tag whose tree contains host-overlay/.
 # This script:
-#   1) Resolves a source tag from the public repository's v* git tags
+#   1) Resolves a source tag from the private repository's v* git tags
 #   2) Checks out that tag's SOURCE into PCL.Plugin/
 #   3) Applies host-overlay/rewrite/** onto the host worktree
 #   4) Leaves the tree ready for: dotnet build -p:PclWithPlugin=true
@@ -46,13 +46,37 @@ if ([string]::IsNullOrWhiteSpace($PluginRoot)) {
 $PluginRoot = [System.IO.Path]::GetFullPath($PluginRoot)
 $statePath = Join-Path $repoRoot '.pcl-plugin-overlay.state.json'
 
+function Ensure-GitHubToken {
+    if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+        return
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:PCL_PLUGIN_TOKEN)) {
+        $env:GH_TOKEN = $env:PCL_PLUGIN_TOKEN
+        return
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) {
+        $env:GH_TOKEN = $env:GITHUB_TOKEN
+    }
+}
+
+function Get-AuthenticatedGitHubUrl {
+    param([string]$Repository)
+
+    Ensure-GitHubToken
+    if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+        # x-access-token works for PATs and GITHUB_TOKEN when the token can read the repo.
+        return "https://x-access-token:$($env:GH_TOKEN)@github.com/$Repository.git"
+    }
+    return "https://github.com/$Repository.git"
+}
+
 function Resolve-PluginSourceTag {
     param(
         [string]$Repository,
         [string]$Channel
     )
 
-    $url = "https://github.com/$Repository.git"
+    $url = Get-AuthenticatedGitHubUrl -Repository $Repository
     $remoteLines = & git ls-remote --tags --refs $url 2>$null
     $names = @()
     if ($LASTEXITCODE -eq 0 -and $remoteLines) {
@@ -73,7 +97,7 @@ function Resolve-PluginSourceTag {
         $versionTags = @($names[0])
     }
     if ($versionTags.Count -eq 0) {
-        throw "Could not list public v* tags for $Repository. Pass -Tag or verify that the repository is reachable."
+        throw "Could not list private v* tags for $Repository. Pass -Tag or set PCL_PLUGIN_TOKEN/GH_TOKEN with contents:read access."
     }
 
     $sorted = $versionTags | Sort-Object {
@@ -128,13 +152,13 @@ function Ensure-PluginSources {
         return
     }
 
-    $url = "https://github.com/$Repository.git"
+    $url = Get-AuthenticatedGitHubUrl -Repository $Repository
     Write-Host "Cloning source https://github.com/$Repository.git @ $Ref -> $Root"
     & git clone --depth 1 --branch $Ref $url $Root
     if ($LASTEXITCODE -ne 0) {
         & git clone $url $Root
         if ($LASTEXITCODE -ne 0) {
-            throw "git clone failed for public repository $Repository."
+            throw "git clone failed for private repository $Repository. Set PCL_PLUGIN_TOKEN or GH_TOKEN with contents:read access."
         }
         Push-Location $Root
         try {
