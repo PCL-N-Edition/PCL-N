@@ -175,6 +175,22 @@ internal sealed class PluginSidecarResult
     [JsonPropertyName("pickFolderTitle")]
     public string? PickFolderTitle { get; set; }
 
+    /// <summary>Host should show a confirm dialog, then re-invoke the same action with boolValue=true if accepted.</summary>
+    [JsonPropertyName("confirmRequired")]
+    public bool ConfirmRequired { get; set; }
+
+    [JsonPropertyName("confirmTitle")]
+    public string? ConfirmTitle { get; set; }
+
+    [JsonPropertyName("confirmBody")]
+    public string? ConfirmBody { get; set; }
+
+    [JsonPropertyName("confirmPrimary")]
+    public string? ConfirmPrimary { get; set; }
+
+    [JsonPropertyName("confirmSecondary")]
+    public string? ConfirmSecondary { get; set; }
+
     /// <summary>Host should re-fetch ui.manifest and inject newly visible pages.</summary>
     [JsonPropertyName("refreshNavigation")]
     public bool RefreshNavigation { get; set; }

@@ -715,7 +715,34 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                     progress: progress)
                 .ConfigureAwait(true);
 
-            if (result.PickFolder)
+            if (result.ConfirmRequired)
+            {
+                bool accepted = await DesktopHostNotifications.Instance.ConfirmAsync(
+                        result.ConfirmTitle ?? "确认",
+                        result.ConfirmBody ?? result.Message ?? "是否继续？",
+                        result.ConfirmPrimary ?? "确定",
+                        result.ConfirmSecondary ?? "取消",
+                        isWarn: true)
+                    .ConfigureAwait(true);
+                if (!accepted)
+                {
+                    hostTask?.Fail("已取消", canceled: true);
+                    DesktopHostNotifications.Instance.ShowInformation("已取消操作。");
+                    return;
+                }
+
+                // Re-invoke with boolValue=true so sidecar treats this as user-confirmed consent.
+                result = await client.UiInvokeActionAsync(
+                        _pageId,
+                        actionId,
+                        value: value,
+                        boolValue: true,
+                        packagePath: packagePath,
+                        pluginId: pluginId,
+                        progress: progress)
+                    .ConfigureAwait(true);
+            }
+            else if (result.PickFolder)
             {
                 string? path = await PickFolderAsync(result.PickFolderTitle).ConfigureAwait(true);
                 if (string.IsNullOrWhiteSpace(path))
