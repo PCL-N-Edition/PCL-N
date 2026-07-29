@@ -60,6 +60,10 @@ public sealed partial class App : Avalonia.Application
 
                 if (!skipShell)
                 {
+                    // Critical: while splash is the only window, closing it must NOT exit the process
+                    // (Avalonia default OnLastWindowClose caused flash-quit after OOBE/main handoff).
+                    desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
                     desktop.Exit += (_, _) =>
                     {
                         DesktopHost.ShutdownOptionalRuntime();
@@ -74,6 +78,8 @@ public sealed partial class App : Avalonia.Application
                     if (showSplash)
                     {
                         _splashWindow = new SplashWindow();
+                        // Keep a MainWindow reference so the lifetime has an owner during warm-up.
+                        desktop.MainWindow = _splashWindow;
                         _splashWindow.Show();
                         DesktopFileLog.Info("Startup", "启动图标已显示；等待插件功能就绪或确认不可用。");
                     }
@@ -121,6 +127,7 @@ public sealed partial class App : Avalonia.Application
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             ShowMainWindow(desktop, fadeSplash);
+            desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
         });
     }
 
@@ -138,7 +145,50 @@ public sealed partial class App : Avalonia.Application
         {
             FirstRunWizardWindow wizard = new(plan);
             wizard.PrepareCentered();
+
+            // Capture splash geometry BEFORE showing/closing so we never end up with zero windows.
+            PixelRect? splashBounds = null;
+            if (hadSplash && _splashWindow is { } splashMeasure)
+            {
+                try
+                {
+                    PixelPoint pos = splashMeasure.Position;
+                    double scale = splashMeasure.RenderScaling > 0 ? splashMeasure.RenderScaling : 1;
+                    int w = (int)Math.Round(Math.Max(splashMeasure.Bounds.Width, 136) * scale);
+                    int h = (int)Math.Round(Math.Max(splashMeasure.Bounds.Height, 136) * scale);
+                    splashBounds = new PixelRect(pos.X, pos.Y, w, h);
+                }
+                catch (Exception ex)
+                {
+                    DesktopFileLog.Warn("Startup", "读取 Splash 位置失败。", ex);
+                }
+            }
+
             desktop.MainWindow = wizard;
+            if (splashBounds is { } bounds)
+                wizard.PrepareFromSplash(bounds);
+
+            // Show the next window first, then close splash — order matters.
+            if (!wizard.IsVisible)
+                wizard.Show();
+
+            if (_splashWindow is { } splash)
+            {
+                try
+                {
+                    splash.Hide();
+                    splash.Close();
+                }
+                catch (Exception ex)
+                {
+                    DesktopFileLog.Warn("Startup", "关闭 Splash 失败。", ex);
+                }
+
+                _splashWindow = null;
+            }
+
+            if (splashBounds is null)
+                Dispatcher.UIThread.Post(wizard.StartIntroAnimation, DispatcherPriority.Loaded);
 
             wizard.Completed += (_, _) =>
             {
@@ -158,44 +208,16 @@ public sealed partial class App : Avalonia.Application
                     else
                     {
                         ShowMainWindow(desktop, fadeSplash: false);
+                        desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
                     }
                 }
             };
 
-            if (hadSplash && _splashWindow is { } splash)
-            {
-                try
-                {
-                    PixelPoint pos = splash.Position;
-                    double scale = splash.RenderScaling > 0 ? splash.RenderScaling : 1;
-                    int w = (int)Math.Round(Math.Max(splash.Bounds.Width, 136) * scale);
-                    int h = (int)Math.Round(Math.Max(splash.Bounds.Height, 136) * scale);
-                    splash.Hide();
-                    splash.Close();
-                    _splashWindow = null;
-                    wizard.PrepareFromSplash(new PixelRect(pos.X, pos.Y, w, h));
-                }
-                catch (Exception ex)
-                {
-                    DesktopFileLog.Warn("Startup", "OOBE 与 Splash 衔接失败，使用居中开场。", ex);
-                    _splashWindow?.Close();
-                    _splashWindow = null;
-                    wizard.StartIntroAnimation();
-                }
-            }
-            else
-            {
-                _splashWindow?.Close();
-                _splashWindow = null;
-                Dispatcher.UIThread.Post(wizard.StartIntroAnimation, DispatcherPriority.Loaded);
-            }
-
-            if (!wizard.IsVisible)
-                wizard.Show();
+            desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
 
             DesktopFileLog.Info(
                 "Startup",
-                $"OOBE 已创建；Kind={plan.Kind}；Reason={plan.Reason}；Steps={string.Join('>', plan.Steps)}；Restart={plan.RestartAfterComplete}。");
+                $"OOBE 已创建并显示；Kind={plan.Kind}；Reason={plan.Reason}；Steps={string.Join('>', plan.Steps)}；Restart={plan.RestartAfterComplete}。");
         });
     }
 
@@ -229,19 +251,41 @@ public sealed partial class App : Avalonia.Application
     {
         MainWindow mainWindow = new();
         DesktopFileLog.Info("Startup", "主窗口创建完成。");
-        if (fadeSplash)
-            mainWindow.Opened += (_, _) => _splashWindow?.CloseWithFade(TimeSpan.FromMilliseconds(400));
-        else
-            _splashWindow?.Close();
 
         SingleInstanceCoordinator?.ActivationRequested += (_, _) =>
             Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
         if (SingleInstanceCoordinator?.ConsumePendingActivation() == true)
             Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
 
+        // Assign + show main BEFORE closing splash so the process never has zero windows.
         desktop.MainWindow = mainWindow;
         if (!mainWindow.IsVisible)
             mainWindow.Show();
+
+        if (fadeSplash && _splashWindow is { } splashFade)
+        {
+            mainWindow.Opened += (_, _) =>
+            {
+                try { splashFade.CloseWithFade(TimeSpan.FromMilliseconds(400)); }
+                catch { try { splashFade.Close(); } catch { /* ignore */ } }
+                if (ReferenceEquals(_splashWindow, splashFade))
+                    _splashWindow = null;
+            };
+            // If already opened, fade immediately.
+            if (mainWindow.IsLoaded)
+            {
+                try { splashFade.CloseWithFade(TimeSpan.FromMilliseconds(400)); }
+                catch { try { splashFade.Close(); } catch { /* ignore */ } }
+                _splashWindow = null;
+            }
+        }
+        else if (_splashWindow is { } splash)
+        {
+            try { splash.Close(); } catch { /* ignore */ }
+            _splashWindow = null;
+        }
+
+        desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
     }
 
     /// <summary>Relaunch this host after OOBE so path overrides and migrated settings take effect.</summary>
