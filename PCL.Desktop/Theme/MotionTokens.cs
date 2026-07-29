@@ -45,6 +45,15 @@ internal static class MotionTokens
     /// <summary>Reduced-motion cross-fade only.</summary>
     public const int ReducedMotionFadeMs = 160;
 
+    /// <summary>OOBE page fade-out duration.</summary>
+    public const int OobeStepExitMs = 140;
+
+    /// <summary>OOBE page settle duration.</summary>
+    public const int OobeStepEnterMs = 240;
+
+    /// <summary>Horizontal distance used to preserve forward/backward direction in OOBE.</summary>
+    public const double OobeStepOffsetX = 24d;
+
     /// <summary>Maximum number of children that receive staggered page enter.</summary>
     public const int PageEnterMaxChildren = 36;
 

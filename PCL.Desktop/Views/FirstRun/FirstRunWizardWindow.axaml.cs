@@ -16,6 +16,7 @@ using PCL.Desktop.Hosting.PluginSidecar;
 using PCL.Desktop.Legal;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Paths;
+using PCL.Desktop.Theme;
 
 namespace PCL.Desktop.Views.FirstRun;
 
@@ -39,6 +40,7 @@ public sealed partial class FirstRunWizardWindow : Window
     private const double BubbleEndWidth = TargetWidth - BubbleMargin * 2d;
     private const double BubbleEndHeight = TargetHeight - BubbleMargin * 2d;
     private const double SurfaceCorner = 12d;
+    private const string StepTransitionAnimationKey = "OOBE Step Transition";
 
     private readonly OobeRunPlan _plan;
     private readonly Stopwatch _clock = new();
@@ -431,7 +433,7 @@ public sealed partial class FirstRunWizardWindow : Window
                 {
                     _timer?.Stop();
                     _phase = Phase.Done;
-                    GoToNextStep(animate: false);
+                    GoToNextStep(animate: true);
                 }
                 break;
         }
@@ -508,16 +510,11 @@ public sealed partial class FirstRunWizardWindow : Window
     private void ShowStepAt(int index, bool animate)
     {
         index = Math.Clamp(index, 0, _plan.Steps.Count - 1);
+        int previousIndex = _stepIndex;
+        Grid? outgoing = GetPageForStep(_step);
         _stepIndex = index;
         OobeStepId step = _plan.Steps[index];
         _step = step;
-
-        SetPageVisible(_pageWelcome, step == OobeStepId.Welcome);
-        SetPageVisible(_pageLegal, step is OobeStepId.Terms or OobeStepId.Privacy);
-        SetPageVisible(_pageData, step == OobeStepId.DataPaths);
-        SetPageVisible(_pageOnline, step == OobeStepId.Online);
-        SetPageVisible(_pageTelemetry, step == OobeStepId.Telemetry);
-        SetPageVisible(_pageFinish, step == OobeStepId.Finish);
 
         switch (step)
         {
@@ -553,24 +550,11 @@ public sealed partial class FirstRunWizardWindow : Window
                 break;
         }
 
-        if (animate)
-        {
-            Grid? active = step switch
-            {
-                OobeStepId.Terms or OobeStepId.Privacy => _pageLegal,
-                OobeStepId.DataPaths => _pageData,
-                OobeStepId.Online => _pageOnline,
-                OobeStepId.Telemetry => _pageTelemetry,
-                OobeStepId.Finish => _pageFinish,
-                OobeStepId.Welcome => _pageWelcome,
-                _ => null
-            };
-            if (active is not null)
-            {
-                active.Opacity = 0.55;
-                Dispatcher.UIThread.Post(() => active.Opacity = 1, DispatcherPriority.Render);
-            }
-        }
+        Grid? incoming = GetPageForStep(step);
+        if (animate && incoming is not null && ControlVisualHelpers.ShouldAnimate(this))
+            AnimateStepTransition(outgoing, incoming, index >= previousIndex ? 1d : -1d);
+        else
+            CompleteStepTransition(outgoing, incoming);
     }
 
     private bool CanGoPrevious()
@@ -596,13 +580,132 @@ public sealed partial class FirstRunWizardWindow : Window
             next.Text = AvaloniaLocalizationManager.GetText("Oobe.Nav.Next", "下一页");
     }
 
-    private static void SetPageVisible(Grid? page, bool visible)
+    private Grid? GetPageForStep(OobeStepId step) =>
+        step switch
+        {
+            OobeStepId.Terms or OobeStepId.Privacy => _pageLegal,
+            OobeStepId.DataPaths => _pageData,
+            OobeStepId.Online => _pageOnline,
+            OobeStepId.Telemetry => _pageTelemetry,
+            OobeStepId.Finish => _pageFinish,
+            OobeStepId.Welcome => _pageWelcome,
+            _ => null
+        };
+
+    private IEnumerable<Grid> GetStepPages()
     {
-        if (page is null)
+        Grid?[] pages = [_pageWelcome, _pageLegal, _pageData, _pageOnline, _pageTelemetry, _pageFinish];
+        foreach (Grid? page in pages)
+        {
+            if (page is not null)
+                yield return page;
+        }
+    }
+
+    private void AnimateStepTransition(Grid? outgoing, Grid incoming, double direction)
+    {
+        ModAnimation.AniStop(StepTransitionAnimationKey);
+        foreach (Grid page in GetStepPages())
+        {
+            if (!ReferenceEquals(page, outgoing) && !ReferenceEquals(page, incoming))
+                SetPageRestState(page, visible: false);
+        }
+
+        if (ReferenceEquals(outgoing, incoming))
+        {
+            incoming.IsVisible = true;
+            incoming.IsHitTestVisible = false;
+            incoming.Opacity = 0.38d;
+            TranslateTransform sameTransform = EnsurePageTranslate(incoming);
+            sameTransform.X = direction * MotionTokens.OobeStepOffsetX * 0.6d;
+            ModAnimation.AniStart(
+                new List<ModAnimation.AniData>
+                {
+                    ModAnimation.AaOpacity(
+                        incoming,
+                        1d - incoming.Opacity,
+                        MotionTokens.OobeStepEnterMs,
+                        ease: new ModAnimation.AniEaseOutFluent()),
+                    ModAnimation.AaTranslateX(
+                        incoming,
+                        -sameTransform.X,
+                        MotionTokens.OobeStepEnterMs,
+                        ease: new ModAnimation.AniEaseOutFluent()),
+                    ModAnimation.AaCode(
+                        () => CompleteStepTransition(outgoing, incoming),
+                        after: true)
+                },
+                StepTransitionAnimationKey);
             return;
+        }
+
+        incoming.IsVisible = true;
+        incoming.IsHitTestVisible = false;
+        incoming.Opacity = 0d;
+        TranslateTransform incomingTransform = EnsurePageTranslate(incoming);
+        incomingTransform.X = direction * MotionTokens.OobeStepOffsetX;
+
+        List<ModAnimation.AniData> animations =
+        [
+            ModAnimation.AaOpacity(
+                incoming,
+                1d,
+                MotionTokens.OobeStepEnterMs,
+                ease: new ModAnimation.AniEaseOutFluent()),
+            ModAnimation.AaTranslateX(
+                incoming,
+                -incomingTransform.X,
+                MotionTokens.OobeStepEnterMs,
+                ease: new ModAnimation.AniEaseOutFluent())
+        ];
+
+        if (outgoing is not null)
+        {
+            outgoing.IsVisible = true;
+            outgoing.IsHitTestVisible = false;
+            TranslateTransform outgoingTransform = EnsurePageTranslate(outgoing);
+            double outgoingTarget = -direction * MotionTokens.OobeStepOffsetX * 0.5d;
+            animations.Add(ModAnimation.AaOpacity(
+                outgoing,
+                -outgoing.Opacity,
+                MotionTokens.OobeStepExitMs,
+                ease: new ModAnimation.AniEaseOutFluent()));
+            animations.Add(ModAnimation.AaTranslateX(
+                outgoing,
+                outgoingTarget - outgoingTransform.X,
+                MotionTokens.OobeStepExitMs,
+                ease: new ModAnimation.AniEaseOutFluent()));
+        }
+
+        animations.Add(ModAnimation.AaCode(
+            () => CompleteStepTransition(outgoing, incoming),
+            after: true));
+        ModAnimation.AniStart(animations, StepTransitionAnimationKey);
+    }
+
+    private void CompleteStepTransition(Grid? outgoing, Grid? incoming)
+    {
+        ModAnimation.AniStop(StepTransitionAnimationKey);
+        foreach (Grid page in GetStepPages())
+            SetPageRestState(page, ReferenceEquals(page, incoming));
+    }
+
+    private static TranslateTransform EnsurePageTranslate(Grid page)
+    {
+        if (page.RenderTransform is TranslateTransform translate)
+            return translate;
+
+        translate = new TranslateTransform();
+        page.RenderTransform = translate;
+        return translate;
+    }
+
+    private static void SetPageRestState(Grid page, bool visible)
+    {
         page.IsVisible = visible;
-        page.Opacity = visible ? 1 : 0;
+        page.Opacity = visible ? 1d : 0d;
         page.IsHitTestVisible = visible;
+        EnsurePageTranslate(page).X = 0d;
     }
 
     private void SeedPathFieldsIfEmpty()

@@ -37,6 +37,7 @@ using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Tasks.Views;
 using PCL.Desktop.Localization;
+using PCL.Desktop.Views.FirstRun;
 using PCL.Domain.Minecraft.Java;
 using PCL.UI.Abstractions.Navigation;
 
@@ -46,6 +47,56 @@ namespace PCL.Desktop.Test;
 [DoNotParallelize]
 public sealed class AvaloniaHeadlessTests
 {
+    [TestMethod]
+    public void FirstRunWizardWindow_AnimatesDirectionalInterruptibleStepChanges()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            FirstRunWizardWindow wizard = new(new OobeRunPlan(
+                OobeRunKind.Full,
+                [OobeStepId.Welcome, OobeStepId.Terms, OobeStepId.Privacy, OobeStepId.Finish],
+                "test",
+                RestartAfterComplete: false,
+                Reason: "headless"));
+            SetPrivateField(wizard, "_introStarted", true);
+
+            try
+            {
+                wizard.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                InvokePrivateMethod(wizard, "ShowStepAt", 1, true);
+                Grid legal = wizard.FindControl<Grid>("PageLegal")!;
+                Assert.IsTrue(legal.IsVisible);
+                Assert.IsFalse(legal.IsHitTestVisible);
+                Assert.IsTrue(ModAnimation.AniIsRun("OOBE Step Transition"));
+                Assert.IsGreaterThan(0d, ((TranslateTransform)legal.RenderTransform!).X);
+
+                ModAnimation.AdvanceUntilIdleForTesting();
+                Assert.AreEqual(1d, legal.Opacity, 0.001d);
+                Assert.AreEqual(0d, ((TranslateTransform)legal.RenderTransform!).X, 0.001d);
+                Assert.IsTrue(legal.IsHitTestVisible);
+
+                InvokePrivateMethod(wizard, "ShowStepAt", 2, true);
+                InvokePrivateMethod(wizard, "ShowStepAt", 1, true);
+                Assert.IsTrue(ModAnimation.AniIsRun("OOBE Step Transition"));
+                Assert.IsLessThan(0d, ((TranslateTransform)legal.RenderTransform!).X);
+
+                ModAnimation.AdvanceUntilIdleForTesting();
+                Assert.AreEqual(1d, legal.Opacity, 0.001d);
+                Assert.AreEqual(0d, ((TranslateTransform)legal.RenderTransform!).X, 0.001d);
+                Assert.AreEqual(OobeStepId.Terms, GetPrivateField<OobeStepId>(wizard, "_step"));
+            }
+            finally
+            {
+                wizard.Close();
+                ModAnimation.ResetForTesting();
+            }
+        }, CancellationToken.None);
+    }
+
     [TestMethod]
     public void MinecraftPlayerPreview_RendersAndSwitchesAllSevenViews()
     {
