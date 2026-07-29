@@ -1442,9 +1442,18 @@ public sealed class AvaloniaHeadlessTests
                 Assert.AreEqual("legacy-tag", item.Tag);
                 Assert.IsNotNull(item.Inlines);
                 Assert.AreEqual(0d, inlineButton.Opacity);
+                Assert.AreEqual(35d, item.ColumnDefinitions[5].Width.Value, 0.001d);
+                Assert.IsFalse(inlineButton.IsHitTestVisible);
+                Assert.AreEqual(
+                    MotionTokens.ListActionOffsetX,
+                    ((TranslateTransform)inlineButton.RenderTransform!).X,
+                    0.001d);
                 MoveTo(window, item);
                 ModAnimation.AdvanceUntilIdleForTesting();
                 Assert.IsTrue(inlineButton.Opacity > 0d);
+                Assert.AreEqual(35d, item.ColumnDefinitions[5].Width.Value, 0.001d);
+                Assert.IsTrue(inlineButton.IsHitTestVisible);
+                Assert.AreEqual(0d, ((TranslateTransform)inlineButton.RenderTransform!).X, 0.001d);
                 Assert.IsTrue(contentHandlerRaised);
 
                 Click(window, item);
@@ -1452,6 +1461,15 @@ public sealed class AvaloniaHeadlessTests
                 Assert.IsTrue(checkedRaised);
                 Assert.IsTrue(changedRaised);
                 Assert.AreEqual("刷新", Avalonia.Controls.ToolTip.GetTip(inlineButton));
+
+                window.MouseMove(new Point(1d, 1d), RawInputModifiers.None);
+                ModAnimation.AdvanceUntilIdleForTesting();
+                Assert.AreEqual(35d, item.ColumnDefinitions[5].Width.Value, 0.001d);
+                Assert.IsFalse(inlineButton.IsHitTestVisible);
+                Assert.AreEqual(
+                    MotionTokens.ListActionOffsetX,
+                    ((TranslateTransform)inlineButton.RenderTransform!).X,
+                    0.001d);
             }
             finally
             {

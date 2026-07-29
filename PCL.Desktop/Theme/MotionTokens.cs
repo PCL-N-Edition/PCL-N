@@ -63,6 +63,9 @@ internal static class MotionTokens
     /// <summary>List multi-selection indicator settle duration (critically damped).</summary>
     public const int ListSelectionIndicatorMs = 180;
 
+    /// <summary>Horizontal travel used by list-row action buttons.</summary>
+    public const double ListActionOffsetX = 8d;
+
     /// <summary>Selection action bar enter duration.</summary>
     public const int ListSelectionBarEnterMs = 220;
 

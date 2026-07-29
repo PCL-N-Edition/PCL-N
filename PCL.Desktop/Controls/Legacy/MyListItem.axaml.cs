@@ -165,8 +165,7 @@ public partial class MyListItem : Grid, IMyRadio
         this.GetObservable(MinPaddingRightProperty).Subscribe(_ =>
         {
             RefreshLayoutMetrics();
-            if (_buttonStack is not null && !IsPointerOver)
-                SetRightPaddingWidth(MinPaddingRight);
+            SetRightPaddingWidth(GetReservedRightPadding());
         });
         this.GetObservable(TypeProperty).Subscribe(_ =>
         {
@@ -748,18 +747,20 @@ public partial class MyListItem : Grid, IMyRadio
             if (stateNew is "MouseDown" or "MouseOver")
             {
                 Border rect = EnsureRectBack();
-                SetRightPaddingWidth(GetExpandedPaddingRight());
                 rect.Background = FindBrush(stateNew == "MouseDown" ? "ColorBrush6" : "ColorBrushBg1", "#bee0eafd");
                 rect.Opacity = 1d;
                 rect.RenderTransform = IsScaleAnimationEnabled ? new ScaleTransform(1d, 1d) : null;
                 RenderTransform = new ScaleTransform(1d, 1d);
                 SetButtonStackOpacity(1d);
+                SetButtonStackOffset(0d);
+                SetButtonStackHitTesting(true);
             }
             else
             {
                 RenderTransform = new ScaleTransform(1d, 1d);
                 SetButtonStackOpacity(0d);
-                SetRightPaddingWidth(MinPaddingRight);
+                SetButtonStackOffset(MotionTokens.ListActionOffsetX);
+                SetButtonStackHitTesting(false);
                 if (_rectBack is not null)
                 {
                     _rectBack.Background = FindBrush("ColorBrush7", "#e0eafd");
@@ -777,16 +778,18 @@ public partial class MyListItem : Grid, IMyRadio
             Border rect = EnsureRectBack();
             if (_buttonStack is not null)
             {
+                _buttonStack.IsHitTestVisible = true;
                 animations.Add(ModAnimation.AaOpacity(
                     _buttonStack,
                     1d - _buttonStack.Opacity,
                     (int)Math.Round(time * 0.7d),
                     (int)Math.Round(time * 0.3d)));
-                animations.Add(ModAnimation.AaDouble(
-                    value => SetRightPaddingWidth(GetRightPaddingWidth() + value),
-                    GetExpandedPaddingRight() - GetRightPaddingWidth(),
+                animations.Add(ModAnimation.AaTranslateX(
+                    _buttonStack,
+                    -GetButtonStackOffset(),
+                    (int)Math.Round(time * 0.7d),
                     (int)Math.Round(time * 0.3d),
-                    (int)Math.Round(time * 0.7d)));
+                    new ModAnimation.AniEaseOutFluent()));
             }
             animations.Add(ModAnimation.AaColor(
                 rect,
@@ -812,11 +815,13 @@ public partial class MyListItem : Grid, IMyRadio
         {
             if (_buttonStack is not null)
             {
+                _buttonStack.IsHitTestVisible = false;
                 animations.Add(ModAnimation.AaOpacity(_buttonStack, -_buttonStack.Opacity, (int)Math.Round(time * 0.4d)));
-                animations.Add(ModAnimation.AaDouble(
-                    value => SetRightPaddingWidth(GetRightPaddingWidth() + value),
-                    MinPaddingRight - GetRightPaddingWidth(),
-                    (int)Math.Round(time * 0.4d)));
+                animations.Add(ModAnimation.AaTranslateX(
+                    _buttonStack,
+                    MotionTokens.ListActionOffsetX - GetButtonStackOffset(),
+                    (int)Math.Round(time * 0.4d),
+                    ease: new ModAnimation.AniEaseOutFluent()));
             }
             if (_rectBack is not null)
             {
@@ -827,7 +832,7 @@ public partial class MyListItem : Grid, IMyRadio
                     animations.Add(ModAnimation.AaScaleTransform(
                         this,
                         1d - GetScaleX(this),
-                        time * 3,
+                        time,
                         ease: new ModAnimation.AniEaseOutFluent()));
                     animations.Add(ModAnimation.AaScaleTransform(
                         _rectBack,
@@ -851,7 +856,10 @@ public partial class MyListItem : Grid, IMyRadio
         }
 
         if (Buttons.Count == 0)
+        {
+            SetRightPaddingWidth(MinPaddingRight);
             return;
+        }
 
         if (Buttons.Count == 1)
         {
@@ -859,6 +867,7 @@ public partial class MyListItem : Grid, IMyRadio
             PrepareButton(button);
             _buttonStack = button;
             Children.Add(button);
+            SetRightPaddingWidth(GetReservedRightPadding());
             return;
         }
 
@@ -869,7 +878,8 @@ public partial class MyListItem : Grid, IMyRadio
             Orientation = Avalonia.Layout.Orientation.Horizontal,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            IsHitTestVisible = true
+            IsHitTestVisible = false,
+            RenderTransform = new TranslateTransform(MotionTokens.ListActionOffsetX, 0d)
         };
         foreach (MyIconButton button in Buttons)
         {
@@ -884,6 +894,7 @@ public partial class MyListItem : Grid, IMyRadio
         Grid.SetRowSpan(stack, 10);
         _buttonStack = stack;
         Children.Add(stack);
+        SetRightPaddingWidth(GetReservedRightPadding());
     }
 
     private static void PrepareButton(MyIconButton button)
@@ -893,9 +904,11 @@ public partial class MyListItem : Grid, IMyRadio
         if (double.IsNaN(button.Width))
             button.Width = 25d;
         button.Opacity = 0d;
+        button.IsHitTestVisible = false;
         button.Margin = new Thickness(0d, 0d, 5d, 0d);
         button.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
         button.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+        button.RenderTransform = new TranslateTransform(MotionTokens.ListActionOffsetX, 0d);
         Grid.SetColumnSpan(button, 10);
         Grid.SetRowSpan(button, 10);
     }
@@ -906,8 +919,22 @@ public partial class MyListItem : Grid, IMyRadio
             _buttonStack.Opacity = opacity;
     }
 
-    private double GetRightPaddingWidth() =>
-        ColumnDefinitions.Count > 5 ? ColumnDefinitions[5].Width.Value : MinPaddingRight;
+    private void SetButtonStackOffset(double offset)
+    {
+        if (_buttonStack?.RenderTransform is TranslateTransform translate)
+            translate.X = offset;
+    }
+
+    private double GetButtonStackOffset() =>
+        _buttonStack?.RenderTransform is TranslateTransform translate
+            ? translate.X
+            : 0d;
+
+    private void SetButtonStackHitTesting(bool isEnabled)
+    {
+        if (_buttonStack is not null)
+            _buttonStack.IsHitTestVisible = isEnabled;
+    }
 
     private void SetRightPaddingWidth(double value)
     {
@@ -917,6 +944,9 @@ public partial class MyListItem : Grid, IMyRadio
 
     private double GetExpandedPaddingRight() =>
         Math.Max(MinPaddingRight, 5d + Buttons.Count * 25d);
+
+    private double GetReservedRightPadding() =>
+        Buttons.Count == 0 ? MinPaddingRight : GetExpandedPaddingRight();
 
     private void ApplyForegroundBrush()
     {
