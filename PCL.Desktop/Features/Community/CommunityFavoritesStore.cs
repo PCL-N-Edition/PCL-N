@@ -855,8 +855,7 @@ public sealed class CommunityFavoritesStore
 
     private static string CreateDefaultPath()
     {
-        DefaultPlatformPathProvider paths = new();
-        return Path.Combine(paths.ApplicationDataDirectory, "PCL-N", "community-favorites.json");
+        return Path.Combine(PCL.Desktop.Paths.LauncherPathLayout.ResolveDataDirectory(), "community-favorites.json");
     }
 
     private static void ReplaceWithRetry(string temporaryPath, string targetPath)

@@ -560,8 +560,9 @@ internal sealed class MinecraftLaunchCoordinator
         }
 
         request.Log?.Invoke("未找到兼容 Java，开始自动下载 Java " + versionLabel + "…");
-        DefaultPlatformPathProvider paths = new();
-        string runtimeRoot = JavaRuntimeInstaller.GetDefaultRuntimeRoot(paths);
+        string runtimeRoot = Path.Combine(
+            PCL.Desktop.Paths.LauncherPathLayout.ResolveDataDirectory(),
+            "runtime");
         using HttpJavaRuntimeMetadataProvider metadata = new();
         JavaRuntimeInstaller installer = new(metadata);
         Progress<JavaRuntimeInstallProgress> progress = new(update =>

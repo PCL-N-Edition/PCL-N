@@ -185,6 +185,54 @@ internal static class LauncherPathLayout
         Path.Combine(ResolveDataDirectory(document), "launcher-settings.json");
 
     /// <summary>
+    /// Parent directory used by APIs that nest a <c>PCL-N</c> segment themselves
+    /// (e.g. <c>DefaultSecureStorage</c>). When the data dir is already <c>…/PCL-N</c>, returns its parent.
+    /// </summary>
+    public static string ResolveLegacyApplicationDataRoot(LauncherPathOverrideDocument? document = null)
+    {
+        string data = ResolveDataDirectory(document);
+        string leaf = Path.GetFileName(data.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.Equals(leaf, "PCL-N", StringComparison.OrdinalIgnoreCase))
+        {
+            string? parent = Path.GetDirectoryName(data);
+            if (!string.IsNullOrWhiteSpace(parent))
+                return parent;
+        }
+
+        return data;
+    }
+
+    /// <summary>Safe log root: data/Logs, or host/Logs, or TEMP/PCL-N/Logs — never throws.</summary>
+    public static string ResolveLogDirectory()
+    {
+        try
+        {
+            string dir = Path.Combine(ResolveDataDirectory(), "Logs");
+            if (TryEnsureDirectory(dir))
+                return dir;
+        }
+        catch
+        {
+            // fall through
+        }
+
+        try
+        {
+            string dir = Path.Combine(GetHostDirectory(), "Logs");
+            if (TryEnsureDirectory(dir))
+                return dir;
+        }
+        catch
+        {
+            // fall through
+        }
+
+        string temp = Path.Combine(Path.GetTempPath(), "PCL-N", "Logs");
+        try { Directory.CreateDirectory(temp); } catch { /* ignore */ }
+        return temp;
+    }
+
+    /// <summary>
     /// Persist chosen roots and copy existing data/cache into the new locations when they differ.
     /// </summary>
     public static LauncherPathMigrationResult ApplyAndMigrate(string? dataDirectory, string? cacheDirectory)

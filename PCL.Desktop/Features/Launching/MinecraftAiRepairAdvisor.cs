@@ -48,8 +48,7 @@ internal static class MinecraftAiApiCredentialStore
 
     private static DefaultSecureStorage CreateStorage()
     {
-        DefaultPlatformPathProvider paths = new();
-        return new DefaultSecureStorage(paths.ApplicationDataDirectory);
+        return new DefaultSecureStorage(PCL.Desktop.Paths.LauncherPathLayout.ResolveLegacyApplicationDataRoot());
     }
 }
 
@@ -287,10 +286,8 @@ internal sealed class MinecraftAiRepairAdvisor : IDisposable
         int downloadThreadLimit = 8,
         ICommunityResourceCatalog? communityCatalog = null)
     {
-        DefaultPlatformPathProvider paths = new();
         _rootDirectory = rootDirectory ?? Path.Combine(
-            paths.ApplicationDataDirectory,
-            "PCL-N",
+            PCL.Desktop.Paths.LauncherPathLayout.ResolveDataDirectory(),
             "AI",
             "MinecraftRepair");
         _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromMinutes(30) };

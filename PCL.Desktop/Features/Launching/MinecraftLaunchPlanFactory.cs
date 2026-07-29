@@ -333,8 +333,7 @@ internal static class MinecraftLaunchPlanFactory
 
     private static string GetAuthlibInjectorCachePath()
     {
-        DefaultPlatformPathProvider paths = new();
-        return Path.Combine(paths.ApplicationDataDirectory, "PCL-N", "authlib-injector.jar");
+        return Path.Combine(PCL.Desktop.Paths.LauncherPathLayout.ResolveDataDirectory(), "authlib-injector.jar");
     }
 
     private static ProcessStartInfo CreateShellStartInfo(string command, string workingDirectory)

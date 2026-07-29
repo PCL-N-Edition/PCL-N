@@ -1027,8 +1027,9 @@ public partial class MainWindow
         JavaRuntimeAcquisitionDecision acquisition = JavaRuntimeAcquisitionPlanner.Plan(requirement, profile.HasForge);
         if (!acquisition.CanAutoDownload || string.IsNullOrWhiteSpace(acquisition.DownloadComponent))
             return new MinecraftRepairExecutionResult("该版本的 Java 要求不能由启动器安全自动下载。", true);
-        DefaultPlatformPathProvider paths = new();
-        string runtimeRoot = JavaRuntimeInstaller.GetDefaultRuntimeRoot(paths);
+        string runtimeRoot = Path.Combine(
+            PCL.Desktop.Paths.LauncherPathLayout.ResolveDataDirectory(),
+            "runtime");
         HashSet<string> existingRuntimeDirectories = Directory.Exists(runtimeRoot)
             ? Directory.EnumerateDirectories(runtimeRoot).Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);

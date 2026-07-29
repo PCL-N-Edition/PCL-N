@@ -192,8 +192,7 @@ internal static class AuthlibJarPatcher
 
     private static string GetCacheDirectory()
     {
-        DefaultPlatformPathProvider paths = new();
-        return Path.Combine(paths.ApplicationDataDirectory, "PCL-N", "patched-authlib");
+        return Path.Combine(PCL.Desktop.Paths.LauncherPathLayout.ResolveDataDirectory(), "patched-authlib");
     }
 
     private static string ReplacePathToken(string arguments, string oldPath, string newPath)

@@ -147,8 +147,8 @@ internal static class ThirdPartyCredentialStore
 
     private static DefaultSecureStorage CreateStorage()
     {
-        DefaultPlatformPathProvider paths = new();
-        return new DefaultSecureStorage(paths.ApplicationDataDirectory);
+        // DefaultSecureStorage nests "PCL-N" under this root.
+        return new DefaultSecureStorage(PCL.Desktop.Paths.LauncherPathLayout.ResolveLegacyApplicationDataRoot());
     }
 }
 

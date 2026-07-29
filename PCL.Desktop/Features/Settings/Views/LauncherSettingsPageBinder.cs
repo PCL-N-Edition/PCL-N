@@ -663,15 +663,43 @@ internal static class LauncherSettingsPageBinder
 
     internal static string CreateDataDirectory()
     {
-        string settingsDirectory = Path.GetDirectoryName(CreateSettingsPath()) ?? AppContext.BaseDirectory;
-        Directory.CreateDirectory(settingsDirectory);
-        return settingsDirectory;
+        try
+        {
+            string settingsDirectory = Path.GetDirectoryName(CreateSettingsPath())
+                ?? LauncherPathLayout.GetHostDirectory();
+            Directory.CreateDirectory(settingsDirectory);
+            return settingsDirectory;
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Warn("Settings", "CreateDataDirectory 失败，回退宿主目录：" + ex.Message);
+            string fallback = LauncherPathLayout.GetHostDirectory();
+            try { Directory.CreateDirectory(fallback); } catch { /* ignore */ }
+            return fallback;
+        }
     }
 
     internal static string CreateCacheDirectory()
     {
-        string cache = LauncherPathLayout.ResolveCacheDirectory();
-        Directory.CreateDirectory(cache);
+        string cache;
+        try
+        {
+            cache = LauncherPathLayout.ResolveCacheDirectory();
+        }
+        catch
+        {
+            cache = Path.Combine(Path.GetTempPath(), "PCL-N", "cache");
+        }
+
+        try
+        {
+            Directory.CreateDirectory(cache);
+        }
+        catch
+        {
+            cache = Path.Combine(Path.GetTempPath(), "PCL-N", "cache");
+            try { Directory.CreateDirectory(cache); } catch { /* ignore */ }
+        }
         return cache;
     }
 

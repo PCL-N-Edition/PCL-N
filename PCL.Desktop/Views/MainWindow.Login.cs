@@ -1832,8 +1832,7 @@ public partial class MainWindow
         if (!string.IsNullOrWhiteSpace(overridePath))
             return overridePath;
 
-        DefaultPlatformPathProvider paths = new();
-        return Path.Combine(paths.ApplicationDataDirectory, "PCL-N", "launch-profiles.json");
+        return Path.Combine(PCL.Desktop.Paths.LauncherPathLayout.ResolveDataDirectory(), "launch-profiles.json");
     }
 
     private static LoginProfileInfo ToLoginProfileInfo(LaunchProfile profile)

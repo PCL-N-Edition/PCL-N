@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using PCL.Core.Logging;
 using PCL.Desktop.Features.Settings.Views;
+using PCL.Desktop.Paths;
 
 namespace PCL.Desktop.Diagnostics;
 
@@ -19,11 +20,21 @@ public static class DesktopFileLog
     private static readonly HashSet<string> InitializedFiles = new(
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private static bool _subscribed;
+    private static string? _pinnedLogPath;
 
-    public static string CurrentLogPath => Path.Combine(
-        LauncherSettingsPageBinder.CreateDataDirectory(),
-        "Logs",
-        SessionFileName);
+    public static string CurrentLogPath
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(_pinnedLogPath))
+                return _pinnedLogPath!;
+
+            // Always follow LauncherPathLayout (custom data root), never force C: AppData alone.
+            string path = Path.Combine(LauncherPathLayout.ResolveLogDirectory(), SessionFileName);
+            _pinnedLogPath = path;
+            return path;
+        }
+    }
 
     public static PortableLogLevel Level => PortableLog.MaximumLevel;
 
@@ -35,6 +46,8 @@ public static class DesktopFileLog
     public static void Initialize(PortableLogLevel level = PortableLogLevel.Info)
     {
         ConfigureLevel(level);
+        // Re-resolve log root after path layout is ready (custom data may differ from first touch).
+        _pinnedLogPath = null;
         string path = CurrentLogPath;
         lock (WriteLock)
         {
@@ -54,6 +67,7 @@ public static class DesktopFileLog
                 ?.InformationalVersion ?? "unknown";
             WriteCore(path, PortableLogLevel.Info, "Session", $"========== PCL N 会话开始（PID {Environment.ProcessId}） ==========");
             WriteCore(path, PortableLogLevel.Info, "Startup", $"PCL N {version}；进程：{Environment.ProcessPath ?? "unknown"}");
+            WriteCore(path, PortableLogLevel.Info, "Paths", $"日志目录={Path.GetDirectoryName(path)}；数据={LauncherPathLayout.ResolveDataDirectory()}");
             WriteCore(
                 path,
                 PortableLogLevel.Info,
