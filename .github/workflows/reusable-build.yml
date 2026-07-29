@@ -27,8 +27,13 @@ on:
       runtime_variant:
         required: true
         type: string
-      # Ship CoreCLR plugin sidecar next to the host (host stays free of plugin IL / AOT-capable).
-      # Default false = host-only public packages.
+      # Embed CoreCLR plugin sidecar zip into the host single-file binary (opaque payload; not in-process IL).
+      # Extracted at runtime into the launcher data/config directory.
+      embed_plugin_sidecar:
+        required: false
+        default: true
+        type: boolean
+      # Legacy alias kept for older callers; prefer embed_plugin_sidecar.
       include_plugin:
         required: false
         default: false
@@ -108,7 +113,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Checkout PCL-N-Plugin-SDK (sidecar build)
-        if: ${{ inputs.include_plugin }}
+        if: ${{ inputs.embed_plugin_sidecar || inputs.include_plugin }}
         uses: actions/checkout@v6
         with:
           repository: PCL-N-Edition/PCL-N-Plugin-SDK
@@ -116,7 +121,7 @@ jobs:
           token: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
 
       - name: Fetch PCL.Plugin source tag (no host rewrite)
-        if: ${{ inputs.include_plugin }}
+        if: ${{ inputs.embed_plugin_sidecar || inputs.include_plugin }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
@@ -126,6 +131,25 @@ jobs:
           if ($tag) { $args['Tag'] = $tag }
           & ./scripts/apply-plugin-overlay.ps1 @args
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Pack plugin sidecar zip for host embed
+        if: ${{ inputs.embed_plugin_sidecar || inputs.include_plugin }}
+        id: sidecar_zip
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
+        run: |
+          $zip = Join-Path $env:GITHUB_WORKSPACE "artifacts/PCL.Plugin.Sidecar.${{ inputs.runtime_id }}.zip"
+          & ./scripts/pack-plugin-sidecar-zip.ps1 `
+            -Configuration '${{ inputs.configuration }}' `
+            -Runtime '${{ inputs.runtime_id }}' `
+            -OutputZip $zip `
+            -PluginTag '${{ inputs.plugin_tag }}' `
+            -SkipFetch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path -LiteralPath $zip)) { throw "Sidecar zip missing: $zip" }
+          "path=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Sidecar zip ready: $zip"
 
       - name: Resolve Microsoft Client ID secret
         id: ms_client
@@ -246,7 +270,16 @@ jobs:
 
           # Single-node publish reduces MSB4166 crashes.
           # NETSDK1176: EnableCompressionInSingleFile is only valid for self-contained.
-          # Host stays free of plugin IL (AOT-capable path). Sidecar is staged separately when enabled.
+          # Host stays free of in-process plugin IL; optional opaque sidecar zip is embedded.
+          sidecar_zip="${{ steps.sidecar_zip.outputs.path }}"
+          sidecar_args=()
+          if [[ -n "${sidecar_zip}" && -f "${sidecar_zip}" ]]; then
+            sidecar_args+=(-p:PclPluginSidecarZipPath="${sidecar_zip}")
+            echo "Embedding plugin sidecar zip: ${sidecar_zip}"
+          else
+            echo "No plugin sidecar zip — host will run without embedded plugins."
+          fi
+
           dotnet publish PCL.Desktop/PCL.Desktop.csproj \
             -c "${{ inputs.configuration }}" \
             -r "${{ inputs.runtime_id }}" \
@@ -265,29 +298,10 @@ jobs:
             -p:DebugType=None \
             -p:DebugSymbols=false \
             -p:DeleteExistingFiles=true \
+            ${sidecar_args[@]+"${sidecar_args[@]}"} \
             ${version_args[@]+"${version_args[@]}"} \
             -warnaserror:CA1416 \
             -o "$PUBLISH_DIR"
-
-      - name: Stage plugin sidecar next to host
-        if: ${{ inputs.include_plugin }}
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
-        run: |
-          $out = Join-Path $env:PUBLISH_DIR 'sidecar'
-          & ./scripts/build-plugin-sidecar.ps1 `
-            -Configuration '${{ inputs.configuration }}' `
-            -Runtime '${{ inputs.runtime_id }}' `
-            -Publish `
-            -SkipFetch `
-            -Output $out
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $exe = if ($IsWindows -or $env:RUNNER_OS -eq 'Windows') { 'PCL.Plugin.Sidecar.exe' } else { 'PCL.Plugin.Sidecar' }
-          if (-not (Test-Path -LiteralPath (Join-Path $out $exe))) {
-            throw "Sidecar executable missing after publish: $out\$exe"
-          }
-          Write-Host "Sidecar staged at $out"
 
       - name: Validate Avalonia artifact
         shell: bash

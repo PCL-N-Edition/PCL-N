@@ -92,15 +92,32 @@ internal static class Program
             if (args.Contains("--validate-secrets", StringComparer.OrdinalIgnoreCase))
                 return PclEmbeddedSecrets.Count > 0 ? 0 : 2;
 
-            // OOBE: --oobe forces full flow; content version bumps drive short update flow.
+            // OOBE: --oobe forces full flow; --oobe-resume after config-dir restart;
+            // content version bumps drive short update flow.
             OobeConfiguration.ApplyCommandLine(args);
-            if (OobeConfiguration.ForceFullFromCommandLine)
+            if (OobeConfiguration.ResumeFromCommandLine)
+                DesktopFileLog.Info("OOBE", "检测到 --oobe-resume，将进入 Welcome → 在线配置。");
+            else if (OobeConfiguration.ForceFullFromCommandLine)
                 DesktopFileLog.Info("OOBE", "检测到 --oobe，将强制完整 OOBE。");
 
             using SingleInstanceCoordinator singleInstance = SingleInstanceCoordinator.Create();
             DesktopFileLog.Info("SingleInstance", $"单实例检查完成；Primary={singleInstance.IsPrimaryInstance}。");
             if (!singleInstance.IsPrimaryInstance)
-                return singleInstance.SignalExistingInstance();
+            {
+                // Secondary exits immediately (no splash). If primary is a headless zombie holding
+                // the mutex, the user only sees a flash — surface a recoverable hint.
+                int code = singleInstance.SignalExistingInstance();
+                try
+                {
+                    ShowSecondaryInstanceHint();
+                }
+                catch
+                {
+                    // ignore UI failures on secondary path
+                }
+
+                return code;
+            }
 
             App.SingleInstanceCoordinator = singleInstance;
             singleInstance.StartListening();
@@ -135,7 +152,7 @@ internal static class Program
                 "路径映射备份位置：%LocalAppData%\\PCL-N\\pcln-paths.json\n" +
                 "日志：数据目录\\Logs 或 %LocalAppData%\\PCL-N\\Logs";
             if (OperatingSystem.IsWindows())
-                ShowWindowsMessageBox(text);
+                ShowWindowsMessageBox(text, "PCL N 启动失败");
             else
                 Console.Error.WriteLine(text);
         }
@@ -145,9 +162,21 @@ internal static class Program
         }
     }
 
+    private static void ShowSecondaryInstanceHint()
+    {
+        string text =
+            "已有 PCL N 实例在运行（或残留进程占用了单实例锁）。\n\n" +
+            "• 若主窗口未出现：请打开任务管理器，结束 PCL-N-Edition 与 PCL.Plugin.Sidecar 后重试。\n" +
+            "• 正常多开会被拒绝；请使用已打开的窗口。";
+        if (OperatingSystem.IsWindows())
+            ShowWindowsMessageBox(text, "PCL N 已在运行");
+        else
+            Console.Error.WriteLine(text);
+    }
+
     [SupportedOSPlatform("windows")]
-    private static void ShowWindowsMessageBox(string text) =>
-        _ = MessageBoxW(IntPtr.Zero, text, "PCL N 启动失败", 0x00000010);
+    private static void ShowWindowsMessageBox(string text, string caption) =>
+        _ = MessageBoxW(IntPtr.Zero, text, caption, 0x00000040);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     [SupportedOSPlatform("windows")]

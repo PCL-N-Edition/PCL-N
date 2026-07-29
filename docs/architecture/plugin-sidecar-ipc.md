@@ -79,9 +79,24 @@ No host UI code required for new pages — only sidecar data.
 
 ## Packaging
 
-```powershell
-.\scripts\build-desktop.ps1 -WithPlugin -SkipPluginFetch
-# host bin/.../sidecar/ + inject on launch
+Release host is a **single-file** binary. The CoreCLR sidecar is packaged as an **opaque zip** and embedded:
+
+```text
+PCL.Desktop.Embedded.PluginSidecar.zip
+  → extracted to {data}/runtime/sidecar/{hash}/PCL.Plugin.Sidecar(.exe)
 ```
 
-CI `include_plugin: true` stages `sidecar/` next to host without compiling plugin into Desktop.
+```powershell
+# Local: pack zip then build/publish host with embed
+.\scripts\pack-plugin-sidecar-zip.ps1 -Runtime win-x64 -SkipFetch -OutputZip artifacts\sidecar.zip
+dotnet publish PCL.Desktop -c Release -r win-x64 -p:PclPluginSidecarZipPath=artifacts\sidecar.zip ...
+```
+
+Dev multi-file layout still works: `{app}/sidecar/` or repo `PCL.Plugin.Sidecar/bin/...`.
+
+CI (`reusable-build.yml`): `embed_plugin_sidecar: true` (default) packs the zip and passes `-p:PclPluginSidecarZipPath=...` so the public zip/tar stays **one host exe** while still shipping plugins.
+
+### OOBE path restart
+
+1. User sets data/cache on OOBE DataPaths → host writes `pcln-paths.json` and restarts with `--oobe-resume`.
+2. Next process extracts embedded sidecar into the **new** data dir, connects plugin (splash), then OOBE **Welcome → Online → Finish**.

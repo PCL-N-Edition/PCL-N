@@ -35,6 +35,9 @@
     <PclRuntimeVariant Condition="'$(PclRuntimeVariant)' == ''">SelfContained</PclRuntimeVariant>
     <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
     <PclHpatchzPath Condition="'$(PclHpatchzPath)' != ''">$([System.IO.Path]::GetFullPath('$(PclHpatchzPath)'))</PclHpatchzPath>
+    <!-- Opaque CoreCLR sidecar zip embedded into the host single-file binary (not in-process plugin IL). -->
+    <PclPluginSidecarZipPath Condition="'$(PclPluginSidecarZipPath)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_PLUGIN_SIDECAR_ZIP'))</PclPluginSidecarZipPath>
+    <PclPluginSidecarZipPath Condition="'$(PclPluginSidecarZipPath)' != ''">$([System.IO.Path]::GetFullPath('$(PclPluginSidecarZipPath)'))</PclPluginSidecarZipPath>
 
     <!-- CI secret pre-write (PCL_WRITE_SECRET=1 embeds values into PclEmbeddedSecrets). -->
     <PclWriteSecret Condition="'$(PclWriteSecret)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_WRITE_SECRET'))</PclWriteSecret>
@@ -144,6 +147,11 @@
     <EmbeddedResource Include="$(PclHpatchzPath)"
                       Condition="'$(PclHpatchzPath)' != '' and Exists('$(PclHpatchzPath)')">
       <LogicalName>PCL.Desktop.Embedded.hpatchz</LogicalName>
+    </EmbeddedResource>
+    <!-- Multi-file sidecar payload: extracted at runtime into {data}/runtime/sidecar/{hash}/ -->
+    <EmbeddedResource Include="$(PclPluginSidecarZipPath)"
+                      Condition="'$(PclPluginSidecarZipPath)' != '' and Exists('$(PclPluginSidecarZipPath)')">
+      <LogicalName>PCL.Desktop.Embedded.PluginSidecar.zip</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>

@@ -86,6 +86,12 @@ public sealed partial class FirstRunWizardWindow : Window
     public event EventHandler? Completed;
 
     /// <summary>
+    /// Raised after config paths are applied mid-wizard; host should relaunch with
+    /// <see cref="RestartArguments"/> so the sidecar can extract into the new data root.
+    /// </summary>
+    public event EventHandler? PathRestartRequested;
+
+    /// <summary>
     /// Raised once intro expand has begun (or skipped). Host should dismiss splash only after this
     /// so the logo handoff does not flicker.
     /// </summary>
@@ -96,6 +102,9 @@ public sealed partial class FirstRunWizardWindow : Window
     public bool HasIntroStarted => _introStarted;
 
     public bool ShouldRestartAfterComplete => _plan.RestartAfterComplete;
+
+    /// <summary>CLI args for the next process when <see cref="PathRestartRequested"/> fires.</summary>
+    public IReadOnlyList<string> RestartArguments { get; private set; } = [];
 
     private enum Phase
     {
@@ -234,16 +243,28 @@ public sealed partial class FirstRunWizardWindow : Window
     private void ApplyWelcomeCopyForPlan()
     {
         bool update = _plan.Kind == OobeRunKind.Update;
+        bool resume = _plan.Kind == OobeRunKind.Resume;
         if (this.FindControl<TextBlock>("LabWelcome") is { } lab)
         {
-            lab.Text = update
-                ? AvaloniaLocalizationManager.GetText("Oobe.Welcome.UpdateTitle", "PCL N Edition 已更新")
-                : AvaloniaLocalizationManager.GetText("Oobe.Welcome.Title", "欢迎使用 PCL N Edition");
+            lab.Text = resume
+                ? AvaloniaLocalizationManager.GetText(
+                    "Oobe.Welcome.ResumeTitle",
+                    "配置目录已就绪")
+                : update
+                    ? AvaloniaLocalizationManager.GetText("Oobe.Welcome.UpdateTitle", "PCL N Edition 已更新")
+                    : AvaloniaLocalizationManager.GetText("Oobe.Welcome.Title", "欢迎使用 PCL N Edition");
+        }
+
+        if (this.FindControl<TextBlock>("LabWelcomeDetail") is { } detail && resume)
+        {
+            detail.Text = AvaloniaLocalizationManager.GetText(
+                "Oobe.Welcome.ResumeDetail",
+                "插件已连接到你的配置目录。下一步将进行在线服务配置。");
         }
 
         if (_btnStart is not null)
         {
-            _btnStart.Text = update
+            _btnStart.Text = resume || update
                 ? AvaloniaLocalizationManager.GetText("Oobe.Welcome.Continue", "继续")
                 : AvaloniaLocalizationManager.GetText("Oobe.Welcome.Start", "开始配置");
         }
@@ -793,7 +814,35 @@ public sealed partial class FirstRunWizardWindow : Window
 
     private void BtnDataPrev_Click(object? sender, EventArgs e) => GoToPreviousStep(animate: true);
 
-    private void BtnDataNext_Click(object? sender, EventArgs e) => GoToNextStep(animate: true);
+    private void BtnDataNext_Click(object? sender, EventArgs e)
+    {
+        // Apply config dirs now, then restart with --oobe-resume so the next process
+        // extracts the embedded plugin into the chosen data directory before Welcome → Online.
+        try
+        {
+            string dataPath = _txtDataPath?.Text?.Trim() ?? LauncherPathLayout.GetDefaultDataDirectory();
+            string cachePath = _txtCachePath?.Text?.Trim() ?? LauncherPathLayout.GetDefaultCacheDirectory();
+            LauncherPathLayout.ApplyAndMigrate(dataPath, cachePath);
+            _visitedDataPaths = true;
+
+            LauncherSettingsPageBinder.UpdateSettings(current =>
+            {
+                current.SetTextOption("OobeDataDirectory", LauncherPathLayout.ResolveDataDirectory());
+                current.SetTextOption("OobeCacheDirectory", LauncherPathLayout.ResolveCacheDirectory());
+                return current;
+            });
+
+            OobeConfiguration.WriteResumeMarker();
+            RestartArguments = [OobeConfiguration.ResumeArgument];
+            PathRestartRequested?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex)
+        {
+            PCL.Core.Logging.PortableLog.Warn("OOBE", "应用配置目录并重启失败：" + ex.Message);
+            // Fall back to in-process next step so the user is not stuck.
+            GoToNextStep(animate: true);
+        }
+    }
 
     private void BtnOnlinePrev_Click(object? sender, EventArgs e) => GoToPreviousStep(animate: true);
 
@@ -813,13 +862,16 @@ public sealed partial class FirstRunWizardWindow : Window
 
         try
         {
-            if (_visitedDataPaths || _plan.Steps.Contains(OobeStepId.DataPaths))
+            // Paths may already be applied at DataPaths → restart; re-apply only if still needed.
+            if (_visitedDataPaths && _plan.Steps.Contains(OobeStepId.DataPaths) &&
+                _plan.Kind != OobeRunKind.Resume)
             {
                 string dataPath = _txtDataPath?.Text?.Trim() ?? LauncherPathLayout.GetDefaultDataDirectory();
                 string cachePath = _txtCachePath?.Text?.Trim() ?? LauncherPathLayout.GetDefaultCacheDirectory();
                 LauncherPathLayout.ApplyAndMigrate(dataPath, cachePath);
             }
 
+            OobeConfiguration.MarkCompleted(_plan.ContentVersion);
             LauncherSettingsPageBinder.UpdateSettings(current =>
             {
                 if (_plan.Steps.Contains(OobeStepId.Terms) || _plan.Steps.Contains(OobeStepId.Privacy))
@@ -829,8 +881,6 @@ public sealed partial class FirstRunWizardWindow : Window
                         EmbeddedLegalDocuments.DocumentVersion);
                 }
 
-                current.SetTextOption(SettingsKeyCompletedVersion, _plan.ContentVersion);
-                current.SetTextOption(SettingsKeyCompletedVersionLegacy, _plan.ContentVersion);
                 current.SetTextOption("OobeDataDirectory", LauncherPathLayout.ResolveDataDirectory());
                 current.SetTextOption("OobeCacheDirectory", LauncherPathLayout.ResolveCacheDirectory());
                 current.SetTextOption("OobeLastRunKind", _plan.Kind.ToString());

@@ -47,21 +47,44 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
     /// <summary>Try start sidecar if binary exists; never throws into shell init.</summary>
     public async Task<bool> TryStartAsync(CancellationToken cancellationToken = default)
     {
+        PluginSidecarClient? staleClient = null;
+        Process? staleProcess = null;
         lock (_gate)
         {
             if (_client is { IsConnected: true } && _process is { HasExited: false })
                 return true;
 
-            // Allow retry after failed start or crashed process.
-            if (_process is not null || _client is not null)
+            // Allow retry after failed start, crashed process, or broken pipe (id desync).
+            staleClient = _client;
+            staleProcess = _process;
+            _client = null;
+            _process = null;
+        }
+
+        if (staleClient is not null || staleProcess is not null)
+        {
+            try
             {
-                _client = null;
-                try { _process?.Dispose(); } catch { /* ignore */ }
-                _process = null;
+                if (staleClient is not null)
+                    await staleClient.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // ignore
+            }
+
+            if (staleProcess is not null)
+            {
+                TryKill(staleProcess);
+                try { staleProcess.Dispose(); } catch { /* ignore */ }
             }
         }
 
-        string? executable = PluginSidecarPaths.ResolveExecutable();
+        // Previous sessions can leave orphan sidecars that hold no pipe to us but confuse users.
+        KillOrphanSidecars();
+
+        string? executable = await PluginSidecarPaths.ResolveExecutableAsync(cancellationToken)
+            .ConfigureAwait(false);
         if (executable is null)
         {
             PortableLog.Info("PluginSidecar", "Sidecar binary not found; plugin platform disabled.");
@@ -244,6 +267,33 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
         }
     }
 
+    internal static void KillOrphanSidecars()
+    {
+        try
+        {
+            foreach (Process orphan in Process.GetProcessesByName("PCL.Plugin.Sidecar"))
+            {
+                try
+                {
+                    if (!orphan.HasExited)
+                        orphan.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // ignore
+                }
+                finally
+                {
+                    orphan.Dispose();
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         PluginSidecarClient? client;
@@ -260,15 +310,22 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
         {
             try
             {
-                using CancellationTokenSource cts = new(TimeSpan.FromSeconds(2));
+                using CancellationTokenSource cts = new(TimeSpan.FromMilliseconds(500));
                 await client.ShutdownAsync(cts.Token).ConfigureAwait(false);
+            }
+            catch
+            {
+                // ignore — always dispose/kill below
+            }
+
+            try
+            {
+                await client.DisposeAsync().ConfigureAwait(false);
             }
             catch
             {
                 // ignore
             }
-
-            await client.DisposeAsync().ConfigureAwait(false);
         }
 
         if (process is not null)
@@ -277,7 +334,8 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
             {
                 if (!process.HasExited)
                 {
-                    if (!process.WaitForExit(1500))
+                    // Do not hang host exit on a wedged sidecar.
+                    if (!process.WaitForExit(400))
                         TryKill(process);
                 }
             }
@@ -286,7 +344,10 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
                 TryKill(process);
             }
 
-            process.Dispose();
+            try { process.Dispose(); } catch { /* ignore */ }
         }
+
+        // Sweep any orphaned sidecars from previous sessions (same user).
+        KillOrphanSidecars();
     }
 }

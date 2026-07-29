@@ -89,7 +89,9 @@ internal static partial class DesktopHost
         {
             PluginUiPageCache.Clear();
 
-            string? executable = PluginSidecarPaths.ResolveExecutable();
+            // Extract embedded sidecar into config/data dir first (single-file host release path).
+            PclEmbeddedPluginSidecar.InvalidateCache();
+            string? executable = await PluginSidecarPaths.ResolveExecutableAsync().ConfigureAwait(false);
             if (executable is null)
             {
                 PluginOptionalRuntimeResult missing = new(
@@ -144,7 +146,38 @@ internal static partial class DesktopHost
             _feedbackHandlerRegistration = null;
             _pnpHandlerRegistration?.Dispose();
             _pnpHandlerRegistration = null;
-            PluginSidecarSupervisor.Instance.DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+            // Never block Avalonia Exit indefinitely — a wedged pipe was leaving a zombie host
+            // with no window, so the next launch looked like a splash flash-quit (second instance).
+            Task dispose = PluginSidecarSupervisor.Instance.DisposeAsync().AsTask();
+            if (!dispose.Wait(TimeSpan.FromSeconds(2)))
+            {
+                PortableLog.Warn("DesktopHost", "Plugin sidecar shutdown timed out; forcing process sweep.");
+                try
+                {
+                    foreach (System.Diagnostics.Process orphan in
+                             System.Diagnostics.Process.GetProcessesByName("PCL.Plugin.Sidecar"))
+                    {
+                        try
+                        {
+                            if (!orphan.HasExited)
+                                orphan.Kill(entireProcessTree: true);
+                        }
+                        catch
+                        {
+                            // ignore
+                        }
+                        finally
+                        {
+                            orphan.Dispose();
+                        }
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
         }
         catch (Exception ex)
         {

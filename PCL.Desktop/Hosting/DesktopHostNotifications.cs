@@ -4,6 +4,7 @@
 
 using System.Collections.Concurrent;
 using PCL.Application.Hosting.RuntimeExtensions;
+using PCL.Core.Logging;
 
 namespace PCL.Desktop.Hosting;
 
@@ -82,7 +83,12 @@ internal sealed class DesktopHostNotifications : IHostNotifications
         Func<string, string, string, string, string, bool, Task<int>>? handler = _choiceHandler;
         if (handler is null)
         {
+            // Main window not attached yet (or detached): do not silently treat as "cancel",
+            // which made install permission prompts look like a freeze with no dialog.
             _captured.Enqueue($"[choice-unhandled] {title}: {markdown}");
+            PortableLog.Warn(
+                "HostNotifications",
+                "确认对话框处理器未挂接，无法显示：" + title);
             return Task.FromResult(0);
         }
 

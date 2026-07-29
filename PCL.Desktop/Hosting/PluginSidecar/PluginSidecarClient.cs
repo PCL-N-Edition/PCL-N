@@ -1,6 +1,8 @@
 // Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using PCL.Core.Logging;
+
 namespace PCL.Desktop.Hosting.PluginSidecar;
 
 /// <summary>AOT-safe RPC client for the plugin sidecar process.</summary>
@@ -9,8 +11,16 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
     private Stream? _stream;
     private int _nextId;
+    private int _disposed;
+    private int _broken;
 
-    public bool IsConnected => _stream is { CanRead: true, CanWrite: true };
+    public bool IsConnected =>
+        _stream is { CanRead: true, CanWrite: true } &&
+        _disposed == 0 &&
+        _broken == 0;
+
+    /// <summary>True when the pipe desynced and must be restarted (not merely disposed).</summary>
+    public bool IsBroken => _broken != 0;
 
     public async Task ConnectAsync(Stream stream, CancellationToken cancellationToken = default)
     {
@@ -19,6 +29,7 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
         try
         {
             _stream = stream;
+            Volatile.Write(ref _broken, 0);
         }
         finally
         {
@@ -150,9 +161,18 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
+        if (_disposed != 0)
+            throw new ObjectDisposedException(nameof(PluginSidecarClient));
+        if (_broken != 0)
+            throw new InvalidOperationException("插件侧车连接已损坏，请刷新页面或重启启动器以重建连接。");
+
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        bool wroteRequest = false;
         try
         {
+            if (_broken != 0 || _disposed != 0)
+                throw new InvalidOperationException("插件侧车连接不可用。");
+
             Stream stream = _stream ?? throw new InvalidOperationException("Sidecar client is not connected.");
             string id = Interlocked.Increment(ref _nextId).ToString(System.Globalization.CultureInfo.InvariantCulture);
             PluginSidecarRequest request = new()
@@ -168,7 +188,12 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
                     PluginSidecarJsonContext.Default.PluginSidecarRequest,
                     cancellationToken)
                 .ConfigureAwait(false);
+            wroteRequest = true;
 
+            // Tolerate stray/out-of-order frames (stale progress after cancel, half-dead peer)
+            // without permanently poisoning every subsequent refresh with "expected N got M".
+            const int maxSkips = 16;
+            int skips = 0;
             while (true)
             {
                 PluginSidecarResponse? response = await PluginSidecarFraming.ReadAsync(
@@ -178,13 +203,39 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
                     .ConfigureAwait(false);
 
                 if (response is null)
+                {
+                    MarkBroken();
                     throw new InvalidOperationException("Empty sidecar response.");
+                }
+
                 if (!string.Equals(response.Id, id, StringComparison.Ordinal))
-                    throw new InvalidOperationException($"Sidecar response id mismatch: expected {id}, got {response.Id}.");
+                {
+                    skips++;
+                    PortableLog.Warn(
+                        "PluginSidecar",
+                        $"忽略错序响应帧：expected {id}, got {response.Id}（skip {skips}/{maxSkips}）。");
+                    if (skips >= maxSkips)
+                    {
+                        MarkBroken();
+                        throw new InvalidOperationException(
+                            $"插件侧车传输异常：expected {id}, got {response.Id}。" +
+                            "连接已标记为损坏；请刷新插件页或重启启动器。若仍无法启动，请在任务管理器结束 PCL-N-Edition 与 PCL.Plugin.Sidecar。");
+                    }
+
+                    continue;
+                }
 
                 if (response.Progress is not null && response.Result is null && response.Error is null)
                 {
-                    progress?.Report(response.Progress);
+                    try
+                    {
+                        progress?.Report(response.Progress);
+                    }
+                    catch (Exception ex)
+                    {
+                        PortableLog.Warn("PluginSidecar", "进度回调异常（已忽略）：" + ex.Message);
+                    }
+
                     continue;
                 }
 
@@ -193,27 +244,113 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
                 return response.Result ?? new PluginSidecarResult { Ok = true };
             }
         }
+        catch (OperationCanceledException) when (wroteRequest)
+        {
+            // Half-finished RPC desyncs the pipe — force reconnect on next use.
+            MarkBroken();
+            throw;
+        }
+        catch (IOException)
+        {
+            MarkBroken();
+            throw;
+        }
+        catch (ObjectDisposedException)
+        {
+            MarkBroken();
+            throw;
+        }
         finally
         {
-            _gate.Release();
+            try
+            {
+                _gate.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+                // shutting down
+            }
+        }
+    }
+
+    private void MarkBroken()
+    {
+        if (Interlocked.Exchange(ref _broken, 1) == 1)
+            return;
+
+        Stream? stream = _stream;
+        _stream = null;
+        if (stream is null)
+            return;
+
+        try
+        {
+            stream.Dispose();
+        }
+        catch
+        {
+            // ignore
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        await _gate.WaitAsync().ConfigureAwait(false);
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+
         try
         {
-            if (_stream is not null)
+            // Bounded wait so host Exit cannot hang forever on a wedged pipe.
+            if (!await _gate.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false))
             {
-                await _stream.DisposeAsync().ConfigureAwait(false);
+                try
+                {
+                    if (_stream is not null)
+                        await _stream.DisposeAsync().ConfigureAwait(false);
+                }
+                catch
+                {
+                    // ignore
+                }
+
                 _stream = null;
+                return;
             }
+
+            try
+            {
+                if (_stream is not null)
+                {
+                    await _stream.DisposeAsync().ConfigureAwait(false);
+                    _stream = null;
+                }
+            }
+            finally
+            {
+                try
+                {
+                    _gate.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // ignore
+                }
+            }
+        }
+        catch
+        {
+            // ignore dispose races
         }
         finally
         {
-            _gate.Release();
-            _gate.Dispose();
+            try
+            {
+                _gate.Dispose();
+            }
+            catch
+            {
+                // ignore
+            }
         }
     }
 }

@@ -686,14 +686,17 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "PublishSingleFile=true");
         // Desktop ProjectReference → external/Jvm.NET; CI must materialize the submodule.
         StringAssert.Contains(reusable, "submodules: recursive");
-        // Host body never downloads or embeds private plugin IL.
+        // Opaque sidecar zip may be embedded; in-process private plugin IL must not be.
+        StringAssert.Contains(reusable, "embed_plugin_sidecar");
+        StringAssert.Contains(reusable, "PclPluginSidecarZipPath");
+        StringAssert.Contains(reusable, "pack-plugin-sidecar-zip.ps1");
         Assert.IsFalse(reusable.Contains("PCL-N-Edition/PCL.Plugin", StringComparison.Ordinal));
         Assert.IsFalse(reusable.Contains("PclPluginAssembly", StringComparison.Ordinal));
         Assert.IsFalse(reusable.Contains("gh release download", StringComparison.Ordinal));
         foreach (string workflow in new[] { ci, stable, beta })
         {
             Assert.IsFalse(workflow.Contains("resolve-plugin-version:", StringComparison.Ordinal));
-            Assert.IsFalse(workflow.Contains("include_plugin: true", StringComparison.Ordinal));
+            // Product packages embed sidecar inside the host; never ship a NoPlugin SKU name.
             Assert.IsFalse(workflow.Contains("NoPlugin", StringComparison.Ordinal));
             Assert.IsFalse(workflow.Contains("WithPlugin", StringComparison.Ordinal));
         }

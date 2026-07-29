@@ -66,8 +66,23 @@ public sealed partial class App : Avalonia.Application
 
                     desktop.Exit += (_, _) =>
                     {
-                        DesktopHost.ShutdownOptionalRuntime();
-                        LauncherUpdateCoordinator.Current.Dispose();
+                        try
+                        {
+                            DesktopHost.ShutdownOptionalRuntime();
+                        }
+                        catch (Exception ex)
+                        {
+                            DesktopFileLog.Warn("Startup", "退出时关闭插件侧车失败。", ex);
+                        }
+
+                        try
+                        {
+                            LauncherUpdateCoordinator.Current.Dispose();
+                        }
+                        catch
+                        {
+                            // ignore
+                        }
                     };
                     bool showSplash = settings.GetBooleanOption(
                         "UiLauncherLogo",
@@ -166,6 +181,23 @@ public sealed partial class App : Avalonia.Application
 
             wizard.IntroStarted += OnIntroStarted;
 
+            // Mid-OOBE: config directory applied → relaunch with --oobe-resume (Welcome → Online).
+            wizard.PathRestartRequested += (_, _) =>
+            {
+                DismissSplash(fade: false);
+                try
+                {
+                    // Drop the single-instance mutex before spawn so the new process can become primary.
+                    ReleaseSingleInstanceLock();
+                    RestartLauncherProcess(wizard.RestartArguments);
+                }
+                finally
+                {
+                    try { wizard.Close(); } catch { /* ignore */ }
+                    desktop.Shutdown(0);
+                }
+            };
+
             wizard.Completed += (_, _) =>
             {
                 // Safety: never leave splash orphaned after OOBE.
@@ -175,7 +207,10 @@ public sealed partial class App : Avalonia.Application
                 try
                 {
                     if (restart)
+                    {
+                        ReleaseSingleInstanceLock();
                         RestartLauncherProcess();
+                    }
                 }
                 finally
                 {
@@ -331,8 +366,22 @@ public sealed partial class App : Avalonia.Application
         }
     }
 
+    private static void ReleaseSingleInstanceLock()
+    {
+        try
+        {
+            SingleInstanceCoordinator? coordinator = SingleInstanceCoordinator;
+            SingleInstanceCoordinator = null;
+            coordinator?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            DesktopFileLog.Warn("OOBE", "释放单实例锁失败。", ex);
+        }
+    }
+
     /// <summary>Relaunch this host after OOBE so path overrides and migrated settings take effect.</summary>
-    private static void RestartLauncherProcess()
+    private static void RestartLauncherProcess(IReadOnlyList<string>? arguments = null)
     {
         string? exe = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe))
@@ -355,13 +404,26 @@ public sealed partial class App : Avalonia.Application
 
         try
         {
-            Process.Start(new ProcessStartInfo
+            ProcessStartInfo start = new()
             {
                 FileName = exe,
                 UseShellExecute = true,
                 WorkingDirectory = Path.GetDirectoryName(exe) ?? Environment.CurrentDirectory
-            });
-            DesktopFileLog.Info("OOBE", "OOBE 完成，已请求重启启动器：" + exe);
+            };
+            if (arguments is { Count: > 0 })
+            {
+                // UseShellExecute does not support ArgumentList on all hosts — join args safely.
+                start.Arguments = string.Join(
+                    ' ',
+                    arguments.Select(static a =>
+                        a.Contains(' ', StringComparison.Ordinal) ? "\"" + a.Replace("\"", "\\\"") + "\"" : a));
+            }
+
+            Process.Start(start);
+            DesktopFileLog.Info(
+                "OOBE",
+                "已请求重启启动器：" + exe +
+                (arguments is { Count: > 0 } ? " " + start.Arguments : string.Empty));
         }
         catch (Exception ex)
         {

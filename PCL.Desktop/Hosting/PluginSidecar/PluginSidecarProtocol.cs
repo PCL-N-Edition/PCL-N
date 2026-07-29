@@ -191,6 +191,10 @@ internal sealed class PluginSidecarResult
     [JsonPropertyName("confirmSecondary")]
     public string? ConfirmSecondary { get; set; }
 
+    /// <summary>Plugin id for confirm follow-up (install → approve).</summary>
+    [JsonPropertyName("followUpPluginId")]
+    public string? FollowUpPluginId { get; set; }
+
     /// <summary>Host should re-fetch ui.manifest and inject newly visible pages.</summary>
     [JsonPropertyName("refreshNavigation")]
     public bool RefreshNavigation { get; set; }

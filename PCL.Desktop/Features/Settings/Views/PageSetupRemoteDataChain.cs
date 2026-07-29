@@ -87,7 +87,8 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                 ShowPageMessage(
                     "插件侧车未运行，无法配置插件。\n\n" +
                     "常见原因：发行包未附带 PCL.Plugin.Sidecar（应在启动器目录的 sidecar\\ 下），" +
-                    "或侧车启动失败。开发构建请先编译 PCL.Plugin.Sidecar，并确认日志中有 “Starting sidecar”。",
+                    "或侧车启动失败。开发构建请先编译 PCL.Plugin.Sidecar，并确认日志中有 “Starting sidecar”。\n\n" +
+                    "若刚关闭过启动器却无法刷新：请在任务管理器结束残留的 PCL-N-Edition / PCL.Plugin.Sidecar 后再开。",
                     warn: true);
                 return;
             }
@@ -109,6 +110,33 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         }
         catch (Exception ex)
         {
+            // Broken pipe after id desync: one reconnect attempt before surfacing the error.
+            if (ex.Message.Contains("传输异常", StringComparison.Ordinal) ||
+                ex.Message.Contains("连接已损坏", StringComparison.Ordinal) ||
+                ex.Message.Contains("expected", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    PluginUiPageCache.Invalidate(_pageId);
+                    bool restarted = await PluginSidecarSupervisor.Instance.TryStartAsync().ConfigureAwait(true);
+                    if (restarted && PluginSidecarSupervisor.Instance.Client is { } retry)
+                    {
+                        PluginSidecarResult page = await retry.UiGetPageAsync(_pageId).ConfigureAwait(true);
+                        if (page.Ok && page.Root is not null)
+                        {
+                            PluginUiPageCache.SetRoot(_pageId, page.Root);
+                            ApplyRoot(page.Root);
+                            return;
+                        }
+                    }
+                }
+                catch (Exception retryEx)
+                {
+                    ShowPageMessage("加载失败（重连后仍失败）：" + retryEx.Message, warn: true);
+                    return;
+                }
+            }
+
             ShowPageMessage("加载失败：" + ex.Message, warn: true);
         }
     }
@@ -717,6 +745,11 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
             if (result.ConfirmRequired)
             {
+                hostTask?.Report(new HostBackgroundTaskProgress(
+                    "等待确认",
+                    "请在弹窗中确认必要权限…",
+                    0.95));
+
                 bool accepted = await DesktopHostNotifications.Instance.ConfirmAsync(
                         result.ConfirmTitle ?? "确认",
                         result.ConfirmBody ?? result.Message ?? "是否继续？",
@@ -727,18 +760,40 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                 if (!accepted)
                 {
                     hostTask?.Fail("已取消", canceled: true);
-                    DesktopHostNotifications.Instance.ShowInformation("已取消操作。");
+                    // Still refresh so install-without-consent (pending) is visible in 已安装.
+                    if (!string.IsNullOrWhiteSpace(result.FollowUpPluginId) ||
+                        !string.IsNullOrWhiteSpace(result.Message))
+                    {
+                        PluginUiPageCache.Invalidate(_pageId);
+                        DesktopHostNotifications.Instance.ShowInformation(
+                            result.Message is { Length: > 0 } msg
+                                ? msg + "（已跳过权限确认，可稍后在「已安装」中启用。）"
+                                : "已取消权限确认。插件可能已下载，可在「已安装」中查看。");
+                        await RefreshAsync(forceNetwork: true).ConfigureAwait(true);
+                    }
+                    else
+                    {
+                        DesktopHostNotifications.Instance.ShowInformation("已取消操作。");
+                    }
+
                     return;
                 }
 
                 // Re-invoke with boolValue=true so sidecar treats this as user-confirmed consent.
+                // Install→approve uses FollowUpPluginId (no package path) so we do not re-install.
+                string? followPluginId = !string.IsNullOrWhiteSpace(result.FollowUpPluginId)
+                    ? result.FollowUpPluginId
+                    : pluginId;
+                string? followPackage = string.IsNullOrWhiteSpace(result.FollowUpPluginId)
+                    ? packagePath
+                    : null;
                 result = await client.UiInvokeActionAsync(
                         _pageId,
                         actionId,
                         value: value,
                         boolValue: true,
-                        packagePath: packagePath,
-                        pluginId: pluginId,
+                        packagePath: followPackage,
+                        pluginId: followPluginId,
                         progress: progress)
                     .ConfigureAwait(true);
             }

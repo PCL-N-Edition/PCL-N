@@ -7,6 +7,7 @@ using PCL.Application.Settings;
 using PCL.Core.Logging;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Legal;
+using PCL.Desktop.Paths;
 
 namespace PCL.Desktop.Views.FirstRun;
 
@@ -25,11 +26,16 @@ internal static class OobeConfiguration
     public const string SettingsKeyCompletedVersionLegacy = "UiFirstRunWizardVersion";
 
     public const string ForceArgument = "--oobe";
+    /// <summary>Resume OOBE after config-dir restart: Welcome → Online → Finish.</summary>
+    public const string ResumeArgument = "--oobe-resume";
     public const string DisableEnvironmentVariable = "PCL_DISABLE_FIRST_RUN";
+    public const string SettingsKeyPendingResume = "UiOobePendingResume";
+    public const string ResumeMarkerFileName = "oobe-resume.flag";
 
     private static readonly object Gate = new();
     private static OobeManifest? _resolved;
     private static bool _forceFullFromArgs;
+    private static bool _resumeFromArgs;
 
     /// <summary>Bump when shipping OOBE content that returning users should see (even as a short flow).</summary>
     public const string DefaultContentVersion = "1";
@@ -52,24 +58,46 @@ internal static class OobeConfiguration
         }
     }
 
+    /// <summary>True when this process was started with <see cref="ResumeArgument"/>.</summary>
+    public static bool ResumeFromCommandLine
+    {
+        get
+        {
+            lock (Gate)
+                return _resumeFromArgs;
+        }
+    }
+
     /// <summary>Parse CLI; call once from <see cref="Program.Main"/> before UI starts.</summary>
     public static void ApplyCommandLine(IReadOnlyList<string> args)
     {
         ArgumentNullException.ThrowIfNull(args);
         bool force = false;
+        bool resume = false;
         foreach (string arg in args)
         {
+            if (string.Equals(arg, ResumeArgument, StringComparison.OrdinalIgnoreCase) ||
+                arg.StartsWith(ResumeArgument + "=", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(arg, "/oobe-resume", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(arg, "-oobe-resume", StringComparison.OrdinalIgnoreCase))
+            {
+                resume = true;
+                continue;
+            }
+
             if (string.Equals(arg, ForceArgument, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(arg, "/oobe", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(arg, "-oobe", StringComparison.OrdinalIgnoreCase))
             {
                 force = true;
-                break;
             }
         }
 
         lock (Gate)
-            _forceFullFromArgs = force;
+        {
+            _forceFullFromArgs = force && !resume;
+            _resumeFromArgs = resume;
+        }
     }
 
     public static void ResetForTests()
@@ -78,8 +106,84 @@ internal static class OobeConfiguration
         {
             _resolved = null;
             _forceFullFromArgs = false;
+            _resumeFromArgs = false;
         }
     }
+
+    /// <summary>Write resume marker under the active data directory (survives if CLI is dropped).</summary>
+    public static void WriteResumeMarker()
+    {
+        try
+        {
+            string path = Path.Combine(LauncherPathLayout.ResolveDataDirectory(), ResumeMarkerFileName);
+            File.WriteAllText(path, "welcome-online");
+            LauncherSettingsPageBinder.UpdateSettings(current =>
+            {
+                current.SetTextOption(SettingsKeyPendingResume, "welcome-online");
+                return current;
+            });
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Warn("OOBE", "写入 OOBE resume 标记失败：" + ex.Message);
+        }
+    }
+
+    public static void ClearResumeMarker()
+    {
+        try
+        {
+            string path = Path.Combine(LauncherPathLayout.ResolveDataDirectory(), ResumeMarkerFileName);
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        try
+        {
+            LauncherSettingsPageBinder.UpdateSettings(current =>
+            {
+                current.SetTextOption(SettingsKeyPendingResume, string.Empty);
+                return current;
+            });
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    public static bool HasPendingResume(LauncherSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (ResumeFromCommandLine)
+            return true;
+
+        string pending = settings.GetTextOption(SettingsKeyPendingResume, string.Empty);
+        if (!string.IsNullOrWhiteSpace(pending))
+            return true;
+
+        try
+        {
+            string path = Path.Combine(LauncherPathLayout.ResolveDataDirectory(), ResumeMarkerFileName);
+            return File.Exists(path);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Default post-path-restart steps: welcome, then online configuration.</summary>
+    public static IReadOnlyList<OobeStepId> DefaultResumeSteps { get; } =
+    [
+        OobeStepId.Welcome,
+        OobeStepId.Online,
+        OobeStepId.Finish
+    ];
 
     public static bool IsDisabledByEnvironment() =>
         !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(DisableEnvironmentVariable));
@@ -103,7 +207,7 @@ internal static class OobeConfiguration
         ArgumentNullException.ThrowIfNull(settings);
         if (IsDisabledByEnvironment())
             return false;
-        if (ForceFullFromCommandLine)
+        if (ForceFullFromCommandLine || HasPendingResume(settings))
             return true;
 
         string completed = ReadCompletedVersion(settings);
@@ -114,13 +218,24 @@ internal static class OobeConfiguration
     }
 
     /// <summary>
-    /// Resolve run mode: full install/force vs short update flow.
+    /// Resolve run mode: full install/force vs short update flow vs post-path resume.
     /// </summary>
     public static OobeRunPlan CreateRunPlan(LauncherSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
         OobeManifest manifest = Current;
         string completed = ReadCompletedVersion(settings);
+
+        // After config-dir apply + process restart: connect plugin first (App), then Welcome → Online.
+        if (HasPendingResume(settings))
+        {
+            return new OobeRunPlan(
+                OobeRunKind.Resume,
+                DefaultResumeSteps,
+                manifest.ContentVersion,
+                RestartAfterComplete: false,
+                Reason: ResumeFromCommandLine ? "command-line --oobe-resume" : "pending-resume-marker");
+        }
 
         if (ForceFullFromCommandLine)
         {
@@ -198,10 +313,12 @@ internal static class OobeConfiguration
         if (string.IsNullOrWhiteSpace(contentVersion))
             contentVersion = Current.ContentVersion;
 
+        ClearResumeMarker();
         LauncherSettingsPageBinder.UpdateSettings(current =>
         {
             current.SetTextOption(SettingsKeyCompletedVersion, contentVersion);
             current.SetTextOption(SettingsKeyCompletedVersionLegacy, contentVersion);
+            current.SetTextOption(SettingsKeyPendingResume, string.Empty);
             return current;
         });
     }
@@ -352,7 +469,9 @@ public enum OobeStepId
 public enum OobeRunKind
 {
     Full,
-    Update
+    Update,
+    /// <summary>After path apply + process restart: Welcome → Online → Finish.</summary>
+    Resume
 }
 
 public sealed record OobeRunPlan(
