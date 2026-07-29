@@ -26,9 +26,40 @@ Host-only builds can stay AOT-friendly (`PublishAot` / trim analyzers).
 
 - CI smoke: `portable-core.yml` → `desktop-native-aot` publishes host-only AOT on win/linux/mac.
 - Local: `.\scripts\build-desktop.ps1 -Publish -Aot ...`
-- **WithPlugin builds force CoreCLR** (Harmony / collectible ALC for `.pnp`); do not combine with `-Aot`.
+- In-process source-overlay builds force CoreCLR (Harmony / collectible ALC for `.pnp`); do not combine them with `-Aot`.
 
-Release pipelines still use CoreCLR single-file until the AOT matrix is promoted for all RIDs (VLC/native deps remain multi-file next to the AOT host).
+Release pipelines publish a self-contained Native AOT host for every supported RID. The
+plugin product remains a separate CoreCLR sidecar embedded as an opaque archive and
+extracted under the configured data directory.
+
+### Optimization and CPU policy
+
+The production host favors responsiveness without raising its minimum CPU requirement:
+
+```xml
+<PublishAot>true</PublishAot>
+<Optimize>true</Optimize>
+<OptimizationPreference>Speed</OptimizationPreference>
+<IlcPgoOptimize>false</IlcPgoOptimize>
+```
+
+`Speed` keeps the Native AOT speed-oriented compiler path. Framework MIBC PGO is disabled
+to avoid its large contribution to executable size. Public RID artifacts must not set
+`IlcInstructionSet=native` or an AVX2-only baseline because the CI runner CPU is not the
+minimum CPU supported by that RID.
+
+CPU-heavy routines may instead use runtime multi-version dispatch:
+
+```text
+x64 with AVX2 → AVX2 implementation
+ARM64         → AdvSimd implementation
+older x64     → SSE2 implementation
+other CPUs    → scalar implementation
+```
+
+Every accelerated routine must retain and test the scalar fallback. SIMD is appropriate
+for measured byte, hash, compression, image, or patch loops; it cannot improve network,
+disk, process startup, or IPC waiting.
 
 ## Migration notes
 

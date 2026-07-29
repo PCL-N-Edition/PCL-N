@@ -18,6 +18,26 @@ ui.getPage   → root node tree         → PageSetupRemoteDataChain
 ui.invokeAction → result              → refresh / pick file|folder / openUrl / toast / refreshNavigation
 ```
 
+### Startup performance contract
+
+The first window may wait for sidecar process startup, handshake, `runtime.init`, and one
+`ui.manifest` request. It **must not** wait for `ui.getPage` bodies.
+
+```text
+sidecar ready
+  → fetch manifest once
+  → register navigation
+  → host is ready and first window opens
+  → fetch a page body only when that page is opened
+  → cache the returned root for the rest of the session
+```
+
+Remote pages use the host's generic `MyLoading` animation while the first body request is
+running. Do not reintroduce splash-time page preloading: online account and marketplace
+pages can each contain network work, and protocol v3 serializes calls on one connection.
+Preloading those bodies previously added about eight seconds to the measured first-window
+path and monopolized every other sidecar request.
+
 ### Node kinds
 
 `card` | `stack` | `list` | `row` | `toolbar` | `text` | `muted` | `hint` | `button` | `checkbox` | `textbox` | `select` | `settingsGroup` | `settingsCell`
@@ -53,6 +73,38 @@ Final frame has `result` or `error`. Host maps progress into the task manager.
 ### Protocol version
 
 **3** (data-chain). Legacy catalog.* RPCs remain for file-drop install.
+
+## Transport and performance
+
+Protocol v3 already provides:
+
+- one persistent connection for the process lifetime;
+- Windows named pipe and Unix domain socket transports;
+- a four-byte big-endian payload length followed by UTF-8 JSON;
+- source-generated `System.Text.Json` metadata, compatible with Native AOT;
+- a single writer/read owner, so frames cannot interleave;
+- no `WriteThrough` option on the control channel.
+
+The primary optimization rule is to reduce calls and payload copies before tuning CPU
+instructions. Page roots are low-frequency control messages, so replacing the current
+framing with `System.IO.Pipelines` alone would not fix observed startup latency.
+
+### Protocol v4 boundary
+
+The following changes require a coordinated host **and** `PCL.Plugin.Sidecar` protocol
+upgrade. They must not be introduced unilaterally while protocol v3 packages are supported.
+
+| Need | Protocol v4 direction |
+|------|-----------------------|
+| Concurrent long actions | dedicated read loop, bounded write queue, request-id multiplexing and cancel frames |
+| High-frequency progress/logs | coalesced snapshots or batches every 16–50 ms |
+| Stable compact event payloads | fixed binary event headers; keep source-generated JSON for low-frequency control |
+| Payloads above 1 MiB | pass a file path/handle when data already exists on disk; otherwise evaluate shared memory |
+| Backpressure | bounded channels; requests/errors never dropped, stale progress may be replaced |
+
+Any v4 work must include cross-process compatibility tests, malformed-frame limits,
+cancellation/desynchronization tests, and benchmarks proving that the extra complexity
+reduces allocation or latency.
 
 ## Host types
 
