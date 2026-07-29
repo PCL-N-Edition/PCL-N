@@ -161,8 +161,7 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
-        if (_disposed != 0)
-            throw new ObjectDisposedException(nameof(PluginSidecarClient));
+        ObjectDisposedException.ThrowIf(_disposed != 0, nameof(PluginSidecarClient));
         if (_broken != 0)
             throw new InvalidOperationException("插件侧车连接已损坏，请刷新页面或重启启动器以重建连接。");
 
