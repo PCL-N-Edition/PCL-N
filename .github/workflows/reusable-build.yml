@@ -120,18 +120,67 @@ jobs:
           path: PCL-N-Plugin-SDK
           token: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
 
-      - name: Fetch PCL.Plugin source tag (no host rewrite)
+      # Private PCL.Plugin is not readable via default GITHUB_TOKEN + gh api.
+      # Prefer actions/checkout (same as SDK) + local tag resolution for Latest.
+      - name: Checkout PCL.Plugin source
         if: ${{ inputs.embed_plugin_sidecar || inputs.include_plugin }}
+        uses: actions/checkout@v6
+        with:
+          repository: PCL-N-Edition/PCL.Plugin
+          path: PCL.Plugin
+          token: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
+          fetch-depth: 0
+
+      - name: Pin PCL.Plugin to Latest release tag
+        if: ${{ inputs.embed_plugin_sidecar || inputs.include_plugin }}
+        id: plugin_ref
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
+          GITHUB_TOKEN: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
         run: |
+          $ErrorActionPreference = 'Stop'
+          $pluginRoot = Join-Path $env:GITHUB_WORKSPACE 'PCL.Plugin'
+          if (-not (Test-Path -LiteralPath (Join-Path $pluginRoot 'PCL.Plugin.csproj'))) {
+            throw "PCL.Plugin checkout missing PCL.Plugin.csproj. Ensure PLUGIN_REPO_TOKEN can read PCL-N-Edition/PCL.Plugin (private)."
+          }
+
           $tag = '${{ inputs.plugin_tag }}'.Trim()
-          # Default Latest = newest v* plugin tag (releases/latest after formal plugin GH Release).
-          $args = @{ Channel = 'Latest'; SkipRewrite = $true }
-          if ($tag) { $args['Tag'] = $tag }
-          & ./scripts/apply-plugin-overlay.ps1 @args
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not $tag) {
+            # 1) GitHub releases/latest when token can see the private repo
+            try {
+              $rel = & gh api 'repos/PCL-N-Edition/PCL.Plugin/releases/latest' --jq '.tag_name' 2>$null
+              if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($rel)) {
+                $tag = $rel.Trim()
+                Write-Host "Resolved plugin tag via releases/latest: $tag"
+              }
+            } catch {
+              Write-Host "gh releases/latest unavailable; using local git tags."
+            }
+          }
+
+          if (-not $tag) {
+            & git -C $pluginRoot fetch --tags --force origin 2>$null | Out-Null
+            $names = @(& git -C $pluginRoot tag -l 'v*')
+            if ($names.Count -eq 0) {
+              throw "No v* tags in PCL.Plugin checkout. Pass plugin_tag or fix PLUGIN_REPO_TOKEN access."
+            }
+            $tag = @(
+              $names | Sort-Object {
+                $t = $_ -replace '^v', '' -replace '-.*$', ''
+                try { [version]$t } catch { [version]'0.0.0' }
+              } -Descending
+            ) | Select-Object -First 1
+            Write-Host "Resolved plugin tag via git tags: $tag"
+          }
+
+          & git -C $pluginRoot checkout --force $tag
+          if ($LASTEXITCODE -ne 0) { throw "git checkout $tag failed in PCL.Plugin" }
+          & git -C $pluginRoot reset --hard $tag
+          if ($LASTEXITCODE -ne 0) { throw "git reset --hard $tag failed in PCL.Plugin" }
+
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Pinned PCL.Plugin @ $tag"
 
       - name: Pack plugin sidecar zip for host embed
         if: ${{ inputs.embed_plugin_sidecar || inputs.include_plugin }}
@@ -141,16 +190,16 @@ jobs:
           GH_TOKEN: ${{ secrets.PLUGIN_REPO_TOKEN || github.token }}
         run: |
           $zip = Join-Path $env:GITHUB_WORKSPACE "artifacts/PCL.Plugin.Sidecar.${{ inputs.runtime_id }}.zip"
+          # Sources already pinned under PCL.Plugin/ — do not re-fetch via gh.
           & ./scripts/pack-plugin-sidecar-zip.ps1 `
             -Configuration '${{ inputs.configuration }}' `
             -Runtime '${{ inputs.runtime_id }}' `
             -OutputZip $zip `
-            -PluginTag '${{ inputs.plugin_tag }}' `
             -SkipFetch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path -LiteralPath $zip)) { throw "Sidecar zip missing: $zip" }
           "path=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Host "Sidecar zip ready: $zip"
+          Write-Host "Sidecar zip ready: $zip (plugin ${{ steps.plugin_ref.outputs.tag }})"
 
       - name: Resolve Microsoft Client ID secret
         id: ms_client

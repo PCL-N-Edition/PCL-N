@@ -46,14 +46,34 @@ if ([string]::IsNullOrWhiteSpace($PluginRoot)) {
 $PluginRoot = [System.IO.Path]::GetFullPath($PluginRoot)
 $statePath = Join-Path $repoRoot '.pcl-plugin-overlay.state.json'
 
+function Ensure-GitHubToken {
+    if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+        return
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) {
+        $env:GH_TOKEN = $env:GITHUB_TOKEN
+    }
+}
+
+function Get-AuthenticatedGitHubUrl {
+    param([string]$Repository)
+    Ensure-GitHubToken
+    if (-not [string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+        # x-access-token works for PATs and GITHUB_TOKEN when the token can read the repo.
+        return "https://x-access-token:$($env:GH_TOKEN)@github.com/$Repository.git"
+    }
+    return "https://github.com/$Repository.git"
+}
+
 function Resolve-PluginSourceTag {
     param(
         [string]$Repository,
         [string]$Channel
     )
 
+    Ensure-GitHubToken
+
     # Prefer GitHub releases/latest for both Stable and Latest (host default = Latest).
-    # Falls back to newest semver git tag when no formal release exists.
     $releaseTag = & gh api "repos/$Repository/releases/latest" --jq '.tag_name' 2>$null
     if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($releaseTag)) {
         $chosenRelease = $releaseTag.Trim()
@@ -61,15 +81,28 @@ function Resolve-PluginSourceTag {
         return $chosenRelease
     }
 
-    Write-Warning "No GitHub Release latest for $Channel channel; falling back to newest git tag."
+    Write-Warning "No GitHub Release latest for $Channel channel; trying git tags (gh may lack private-repo access)."
 
-    # Prefer semver-ish tags (v0.18.0); API returns newest-first by commit date for tags list.
-    $tagsJson = & gh api "repos/$Repository/tags?per_page=30" 2>$null
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tagsJson)) {
-        throw "Could not list tags for $Repository. Pass -Tag or ensure gh is authenticated for the private repo."
+    # Prefer authenticated git ls-remote (works with PLUGIN_REPO_TOKEN when gh api is blocked).
+    $url = Get-AuthenticatedGitHubUrl -Repository $Repository
+    $remoteLines = & git ls-remote --tags --refs $url 2>$null
+    $names = @()
+    if ($LASTEXITCODE -eq 0 -and $remoteLines) {
+        foreach ($line in @($remoteLines)) {
+            if ($line -match 'refs/tags/(\S+)\s*$') {
+                $names += $Matches[1]
+            }
+        }
     }
 
-    $names = $tagsJson | ConvertFrom-Json | ForEach-Object { $_.name }
+    if ($names.Count -eq 0) {
+        # Last resort: public/unauth gh tags list
+        $tagsJson = & gh api "repos/$Repository/tags?per_page=30" 2>$null
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($tagsJson)) {
+            $names = @($tagsJson | ConvertFrom-Json | ForEach-Object { $_.name })
+        }
+    }
+
     $versionTags = @(
         $names | Where-Object { $_ -match '^v\d+\.\d+(\.\d+)?(-.+)?' }
     )
@@ -77,10 +110,9 @@ function Resolve-PluginSourceTag {
         $versionTags = @($names[0])
     }
     if ($versionTags.Count -eq 0) {
-        throw "No tags found on $Repository. Pass -Tag explicitly."
+        throw "Could not list tags for $Repository. Pass -Tag, set GH_TOKEN/PLUGIN_REPO_TOKEN for the private repo, or checkout PCL.Plugin first."
     }
 
-    # Sort by [version] when possible
     $sorted = $versionTags | Sort-Object {
         $t = $_ -replace '^v', '' -replace '-.*$', ''
         try { [version]$t } catch { [version]'0.0.0' }
@@ -133,12 +165,14 @@ function Ensure-PluginSources {
         return
     }
 
-    $url = "https://github.com/$Repository.git"
-    Write-Host "Cloning source $url @ $Ref -> $Root"
+    $url = Get-AuthenticatedGitHubUrl -Repository $Repository
+    Write-Host "Cloning source https://github.com/$Repository.git @ $Ref -> $Root"
     & git clone --depth 1 --branch $Ref $url $Root
     if ($LASTEXITCODE -ne 0) {
         & git clone $url $Root
-        if ($LASTEXITCODE -ne 0) { throw "git clone failed for $url" }
+        if ($LASTEXITCODE -ne 0) {
+            throw "git clone failed for $Repository. For private repos set GH_TOKEN or PLUGIN_REPO_TOKEN with contents:read."
+        }
         Push-Location $Root
         try {
             & git checkout --force $Ref
