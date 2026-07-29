@@ -32,8 +32,10 @@ internal static class DesktopRenderBootstrap
         builder = builder.With(new SkiaOptions
         {
             MaxGpuResourceSizeBytes = disableGpu ? 32L * 1024 * 1024 : GpuResourceBudgetBytes,
-            // Opacity save-layers are correct but expensive; UI motion uses Opacity heavily.
-            UseOpacitySaveLayer = false
+            // Cocoa composites the whole transparent top-level through Skia.
+            // Without a save-layer, nested translucent brushes can be flattened
+            // as opaque. Other platforms retain the lighter rendering path.
+            UseOpacitySaveLayer = OperatingSystem.IsMacOS()
         });
 
         if (OperatingSystem.IsWindows())

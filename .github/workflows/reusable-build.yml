@@ -489,6 +489,7 @@ jobs:
           executable="$contents/MacOS/${{ inputs.binary_name }}"
           resources="$contents/Resources"
           iconset="$RUNNER_TEMP/PCL-N.iconset"
+          mac_icon="$RUNNER_TEMP/PCL-N-macos.png"
           plist="$contents/Info.plist"
 
           mkdir -p "$contents/MacOS" "$resources" "$iconset"
@@ -499,11 +500,15 @@ jobs:
           done
           chmod +x "$executable"
 
+          # Preserve the PCL artwork pixel-for-pixel while presenting it inside
+          # the white rounded application tile expected by modern macOS.
+          swift scripts/generate-macos-icon.swift \
+            PCL.Desktop/Assets/icon.png "$mac_icon"
           for size in 16 32 128 256 512; do
             double=$((size * 2))
-            sips -z "$size" "$size" PCL.Desktop/Assets/icon.png \
+            sips -z "$size" "$size" "$mac_icon" \
               --out "$iconset/icon_${size}x${size}.png" >/dev/null
-            sips -z "$double" "$double" PCL.Desktop/Assets/icon.png \
+            sips -z "$double" "$double" "$mac_icon" \
               --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
           done
           iconutil -c icns "$iconset" -o "$resources/PCL-N.icns"

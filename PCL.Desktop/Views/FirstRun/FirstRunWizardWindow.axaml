@@ -13,6 +13,7 @@
         Title="PCL N Edition"
         Icon="avares://PCL.Desktop/Assets/icon.png"
         Background="Transparent"
+        TransparencyBackgroundFallback="Transparent"
         WindowDecorations="None"
         WindowStartupLocation="Manual"
         TransparencyLevelHint="Transparent">

@@ -8,7 +8,9 @@
         Topmost="True"
         WindowDecorations="None"
         WindowStartupLocation="CenterScreen"
-        Background="Transparent">
+        Background="Transparent"
+        TransparencyBackgroundFallback="Transparent"
+        TransparencyLevelHint="Transparent">
     <Image x:Name="SplashIcon"
            Source="avares://PCL.Desktop/Assets/icon.png"
            Width="112"

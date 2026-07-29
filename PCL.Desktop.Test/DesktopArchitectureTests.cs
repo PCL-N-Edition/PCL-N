@@ -677,6 +677,76 @@ public sealed class DesktopArchitectureTests
     }
 
     [TestMethod]
+    public void MacOsShell_UsesNativeChromeTransparentCompositionAndPlatformIcon()
+    {
+        string desktopRoot = FindDesktopProjectRoot();
+        string repositoryRoot = Directory.GetParent(desktopRoot)!.FullName;
+        string chrome = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Platform",
+            "MacOsWindowChrome.cs"));
+        string render = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Platform",
+            "DesktopRenderBootstrap.cs"));
+        string mainWindowXaml = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Views",
+            "MainWindow.axaml"));
+        string mainWindow = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Views",
+            "MainWindow.axaml.cs"));
+        string splashWindow = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Views",
+            "SplashWindow.axaml"));
+        string firstRunWindow = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Views",
+            "FirstRun",
+            "FirstRunWizardWindow.axaml"));
+        string workflow = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            ".github",
+            "workflows",
+            "reusable-build.yml"));
+        string iconGenerator = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "scripts",
+            "generate-macos-icon.swift"));
+
+        StringAssert.Contains(chrome, "window.WindowDecorations = WindowDecorations.Full");
+        StringAssert.Contains(chrome, "window.ExtendClientAreaToDecorationsHint = true");
+        StringAssert.Contains(chrome, "window.ExtendClientAreaTitleBarHeightHint = TitleBarHeight");
+        StringAssert.Contains(chrome, "BackButtonInset = 92d");
+        Assert.IsFalse(File.Exists(Path.Combine(
+            desktopRoot,
+            "Platform",
+            "MacOsTrafficLights.cs")));
+
+        StringAssert.Contains(render, "UseOpacitySaveLayer = OperatingSystem.IsMacOS()");
+        StringAssert.Contains(mainWindowXaml, "TransparencyBackgroundFallback=\"Transparent\"");
+        StringAssert.Contains(mainWindowXaml, "TransparencyLevelHint=\"Transparent\"");
+        StringAssert.Contains(splashWindow, "TransparencyBackgroundFallback=\"Transparent\"");
+        StringAssert.Contains(splashWindow, "TransparencyLevelHint=\"Transparent\"");
+        StringAssert.Contains(firstRunWindow, "TransparencyBackgroundFallback=\"Transparent\"");
+        StringAssert.Contains(firstRunWindow, "TransparencyLevelHint=\"Transparent\"");
+        StringAssert.Contains(mainWindow, "OperatingSystem.IsMacOS()");
+        StringAssert.Contains(mainWindow, "? [WindowTransparencyLevel.Transparent]");
+        StringAssert.Contains(mainWindow, "if (OperatingSystem.IsMacOS())");
+        Assert.IsFalse(mainWindowXaml.Contains(
+            "Icon=\"avares://PCL.Desktop/Assets/icon.png\"",
+            StringComparison.Ordinal));
+
+        StringAssert.Contains(workflow, "swift scripts/generate-macos-icon.swift");
+        StringAssert.Contains(workflow, "PCL-N-macos.png");
+        StringAssert.Contains(iconGenerator, "NSBezierPath(roundedRect:");
+        StringAssert.Contains(iconGenerator, "NSColor.white.setFill()");
+        StringAssert.Contains(iconGenerator, "let logoRect = NSRect(x: 218, y: 218, width: 588, height: 588)");
+    }
+
+    [TestMethod]
     public void DesktopHost_InitializesBuiltinModulesOnly()
     {
         string desktopHost = File.ReadAllText(Path.Combine(

@@ -3,61 +3,45 @@
 
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Layout;
-using Avalonia.Media;
-using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Diagnostics;
 
 namespace PCL.Desktop.Platform;
 
 /// <summary>
 /// Applies macOS-specific caption chrome to the borderless main window:
-/// traffic lights on the left, content inset, and system-like window operations.
+/// native traffic lights on the left and content insets for the extended title area.
 /// </summary>
 internal static class MacOsWindowChrome
 {
-    /// <summary>Horizontal space reserved for traffic lights + padding.</summary>
-    public const double TrafficLightInset = 78d;
+    /// <summary>Horizontal space reserved for the native traffic lights and their hit targets.</summary>
+    public const double TrafficLightInset = 88d;
+
+    /// <summary>Back navigation starts after the native traffic-light hit region.</summary>
+    public const double BackButtonInset = 92d;
+
+    public const double TitleBarHeight = 52d;
 
     public static bool IsActivePlatform => OperatingSystem.IsMacOS();
 
-    public static MacOsTrafficLights? Apply(Window window)
+    public static void Apply(Window window)
     {
         if (!IsActivePlatform)
-            return null;
+            return;
 
-        // Keep a borderless client surface but host traffic lights ourselves so
-        // the existing frosted title bar + custom shadow still work.
-        window.WindowDecorations = WindowDecorations.None;
-        window.ExtendClientAreaToDecorationsHint = false;
+        // Let AppKit own the traffic lights. Custom replicas cannot reproduce
+        // native minimize/zoom/full-screen behavior and their hit regions vary
+        // with scale. Extending the client area preserves PCL's colored title
+        // material underneath the system controls.
+        window.WindowDecorations = WindowDecorations.Full;
+        window.ExtendClientAreaToDecorationsHint = true;
+        window.ExtendClientAreaTitleBarHeightHint = TitleBarHeight;
 
         HideWindowsCaptionButtons(window);
-        MacOsTrafficLights lights = EnsureTrafficLights(window);
         ApplyTitleContentInset(window, TrafficLightInset);
-        return lights;
-    }
-
-    public static void WireWindowEvents(Window window, MacOsTrafficLights lights)
-    {
-        lights.CloseRequested += (_, _) => window.Close();
-        lights.MinimizeRequested += (_, _) => window.WindowState = WindowState.Minimized;
-        lights.ZoomRequested += (_, _) =>
-        {
-            if (!window.CanResize)
-                return;
-            window.WindowState = window.WindowState == WindowState.Maximized
-                ? WindowState.Normal
-                : WindowState.Maximized;
-        };
-        lights.FullScreenRequested += (_, _) =>
-        {
-            window.WindowState = window.WindowState == WindowState.FullScreen
-                ? WindowState.Normal
-                : WindowState.FullScreen;
-        };
-
-        window.Activated += (_, _) => lights.SetWindowActive(true);
-        window.Deactivated += (_, _) => lights.SetWindowActive(false);
-        lights.SetWindowActive(window.IsActive);
+        window.Opened += (_, _) => DesktopFileLog.Info(
+            "Window",
+            $"macOS 原生窗口装饰已启用；Extended={window.IsExtendedIntoWindowDecorations}；" +
+            $"Transparency={window.ActualTransparencyLevel}。");
     }
 
     private static void HideWindowsCaptionButtons(Window window)
@@ -69,26 +53,6 @@ internal static class MacOsWindowChrome
         }
     }
 
-    private static MacOsTrafficLights EnsureTrafficLights(Window window)
-    {
-        if (window.FindControl<MacOsTrafficLights>("PanMacTrafficLights") is { } existing)
-            return existing;
-
-        if (window.FindControl<Grid>("PanTitle") is not { } title)
-            throw new InvalidOperationException("PanTitle is required for macOS chrome.");
-
-        MacOsTrafficLights lights = new()
-        {
-            Name = "PanMacTrafficLights",
-            ZIndex = 20,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        // Insert above custom caption buttons so hit-testing wins.
-        title.Children.Add(lights);
-        return lights;
-    }
-
     private static void ApplyTitleContentInset(Window window, double inset)
     {
         if (window.FindControl<Grid>("PanTitleLeft") is { } titleLeft)
@@ -98,16 +62,17 @@ internal static class MacOsWindowChrome
 
         if (window.FindControl<Grid>("PanTitleInner") is { } titleInner)
         {
-            // Back button + label must clear the traffic lights.
-            titleInner.Margin = new Thickness(inset - 16d, 0, 0, 0);
+            // Native traffic lights have a larger hit region than their 12 px
+            // discs. Keep the back affordance wholly outside that region.
+            titleInner.Margin = new Thickness(0);
             if (window.FindControl<Control>("BtnTitleInner") is { } back)
-                back.Margin = new Thickness(12, 0, 0, 0);
+                back.Margin = new Thickness(BackButtonInset, 0, 0, 0);
             if (window.FindControl<TextBlock>("LabTitleInner") is { } label)
-                label.Margin = new Thickness(47, 1, 60, 0);
+                label.Margin = new Thickness(BackButtonInset + 35d, 1, 60, 0);
         }
 
-        // Slightly taller title feel on macOS; keep layout stable.
+        // Match the native macOS title-bar vertical rhythm.
         if (window.FindControl<Control>("PanTitle") is { } title)
-            title.Height = 52;
+            title.Height = TitleBarHeight;
     }
 }

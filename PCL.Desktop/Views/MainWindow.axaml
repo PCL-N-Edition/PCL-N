@@ -18,9 +18,10 @@
 
     DragDrop.AllowDrop="True" Topmost="False" Title="Plain Craft Launcher N Edition " MinHeight="470" MinWidth="810"
 
-     Icon="avares://PCL.Desktop/Assets/icon.png"
-
-    Background="Transparent" Width="850" Height="500"
+    Background="Transparent"
+    TransparencyBackgroundFallback="Transparent"
+    TransparencyLevelHint="Transparent"
+    Width="850" Height="500"
 
     WindowStartupLocation="CenterScreen" WindowDecorations="None" >
 
@@ -373,4 +374,3 @@
     </Grid>
 
 </Window>
-

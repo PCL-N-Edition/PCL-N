@@ -448,16 +448,12 @@ public partial class MainWindow : Window, IDisposable
             this.FindControl<MyIconButton>(name)?.RefreshAnim();
     }
 
-    private MacOsTrafficLights? _macTrafficLights;
-
     private void ApplyMacOsChromeIfNeeded()
     {
         if (!MacOsWindowChrome.IsActivePlatform)
             return;
 
-        _macTrafficLights = MacOsWindowChrome.Apply(this);
-        if (_macTrafficLights is not null)
-            MacOsWindowChrome.WireWindowEvents(this, _macTrafficLights);
+        MacOsWindowChrome.Apply(this);
     }
 
     private void FormMain_KeyDown(object? sender, KeyEventArgs e)
@@ -511,13 +507,6 @@ public partial class MainWindow : Window, IDisposable
     {
         if (IsTextInputEventSource(e.Source))
             return;
-
-        // Do not start a window drag when pressing traffic lights.
-        if (e.Source is Visual visual &&
-            visual.FindAncestorOfType<MacOsTrafficLights>() is not null)
-        {
-            return;
-        }
 
         double titleHeight = OperatingSystem.IsMacOS() ? 52d : 48d;
         if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed &&
@@ -1058,6 +1047,12 @@ public partial class MainWindow : Window, IDisposable
 
     private void SetWindowIcon()
     {
+        // On macOS the bundle's CFBundleIconFile is the application identity.
+        // Setting a per-window source icon would replace the framed .icns with
+        // the raw cross-platform artwork in the Dock and app switcher.
+        if (OperatingSystem.IsMacOS())
+            return;
+
         try
         {
             using Stream iconStream = Avalonia.Platform.AssetLoader.Open(
@@ -5264,10 +5259,14 @@ public partial class MainWindow : Window, IDisposable
         ModAnimation.Configure(
             settings.GetIntegerOption("UiAniFPS", LauncherSettingDefaults.GetInteger("UiAniFPS")) + 1,
             settings.GetIntegerOption("SystemDebugAnim", LauncherSettingDefaults.GetInteger("SystemDebugAnim")));
-        // Keep per-pixel alpha for the rounded transparent margin and shadow. Native
-        // acrylic is intentionally not requested because it tints the whole borderless
-        // surface; None remains a fallback for compositors without alpha support.
-        TransparencyLevelHint = [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None];
+        // Keep per-pixel alpha for the rounded transparent margin and shadow.
+        // Cocoa supports Transparent but not the other material levels; do not
+        // negotiate down to an opaque None surface there. The explicit
+        // transparent fallback also avoids Avalonia's default white fallback.
+        TransparencyBackgroundFallback = Brushes.Transparent;
+        TransparencyLevelHint = OperatingSystem.IsMacOS()
+            ? [WindowTransparencyLevel.Transparent]
+            : [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None];
         ApplyFormBackground(settings);
         ApplyTitleAppearance(settings);
         ApplyBackgroundAppearance(settings);
