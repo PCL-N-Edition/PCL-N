@@ -85,12 +85,6 @@ on:
         required: false
       LOBBY_DEFAULT_SECRET:
         required: false
-      # PAT for private PCL.Plugin (contents:read). Prefer PCL_PLUGIN_TOKEN (repo secret name in use).
-      PCL_PLUGIN_TOKEN:
-        required: false
-      # Legacy alias — prefer PCL_PLUGIN_TOKEN.
-      PLUGIN_REPO_TOKEN:
-        required: false
 jobs:
   build:
     name: ${{ inputs.runtime_id }} / ${{ inputs.runtime_variant }}
@@ -115,15 +109,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Private PCL.Plugin is NOT visible to the default GITHUB_TOKEN (GitHub returns 404).
-      # Embed requires repo secret PCL_PLUGIN_TOKEN (PAT) with contents:read on PCL.Plugin.
+      # PCL.Plugin and its SDK are public release inputs. Keep this path independent
+      # from repository PATs so publishing cannot fail when an optional token expires.
       - name: Plan plugin sidecar embed
         id: plugin_plan
         shell: bash
         env:
           WANT_EMBED: ${{ inputs.embed_plugin_sidecar || inputs.include_plugin }}
-          HAS_PLUGIN_TOKEN: ${{ secrets.PCL_PLUGIN_TOKEN != '' || secrets.PLUGIN_REPO_TOKEN != '' }}
-          CHANNEL: ${{ inputs.channel }}
         run: |
           set -euo pipefail
           if [[ "${WANT_EMBED}" != "true" ]]; then
@@ -131,66 +123,40 @@ jobs:
             echo "Plugin embed disabled for this job."
             exit 0
           fi
-          if [[ "${HAS_PLUGIN_TOKEN}" != "true" ]]; then
-            if [[ "${CHANNEL}" == "ci" || "${CHANNEL}" == "dev" || -z "${CHANNEL}" ]]; then
-              echo "::warning::PCL_PLUGIN_TOKEN is not set; building host-only (no embedded sidecar). Add a PAT with read access to PCL-N-Edition/PCL.Plugin as secret PCL_PLUGIN_TOKEN."
-              echo "enabled=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            echo "::error::PCL_PLUGIN_TOKEN is required to embed private PCL.Plugin for channel=${CHANNEL}."
-            echo "Create a fine-grained PAT (contents:read on PCL-N-Edition/PCL.Plugin) and add it as repository secret PCL_PLUGIN_TOKEN."
-            exit 1
-          fi
           echo "enabled=true" >> "$GITHUB_OUTPUT"
-          echo "Plugin embed enabled (PCL_PLUGIN_TOKEN present)."
+          echo "Plugin embed enabled from public source tags."
 
       - name: Checkout PCL-N-Plugin-SDK (sidecar build)
         if: ${{ steps.plugin_plan.outputs.enabled == 'true' }}
-        uses: actions/checkout@v6
-        with:
-          repository: PCL-N-Edition/PCL-N-Plugin-SDK
-          path: PCL-N-Plugin-SDK
-          token: ${{ secrets.PCL_PLUGIN_TOKEN || secrets.PLUGIN_REPO_TOKEN }}
+        shell: bash
+        run: >-
+          git clone --depth 1
+          https://github.com/PCL-N-Edition/PCL-N-Plugin-SDK.git
+          PCL-N-Plugin-SDK
 
       - name: Checkout PCL.Plugin source
         if: ${{ steps.plugin_plan.outputs.enabled == 'true' }}
         id: plugin_checkout
         continue-on-error: ${{ inputs.channel == 'ci' || inputs.channel == 'dev' || inputs.channel == '' }}
-        uses: actions/checkout@v6
-        with:
-          repository: PCL-N-Edition/PCL.Plugin
-          path: PCL.Plugin
-          token: ${{ secrets.PCL_PLUGIN_TOKEN || secrets.PLUGIN_REPO_TOKEN }}
-          fetch-depth: 0
+        shell: bash
+        run: >-
+          git clone --filter=blob:none
+          https://github.com/PCL-N-Edition/PCL.Plugin.git
+          PCL.Plugin
 
       - name: Pin PCL.Plugin to Latest release tag
         if: ${{ steps.plugin_plan.outputs.enabled == 'true' && steps.plugin_checkout.conclusion == 'success' }}
         id: plugin_ref
         continue-on-error: ${{ inputs.channel == 'ci' || inputs.channel == 'dev' || inputs.channel == '' }}
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.PCL_PLUGIN_TOKEN || secrets.PLUGIN_REPO_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.PCL_PLUGIN_TOKEN || secrets.PLUGIN_REPO_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           $pluginRoot = Join-Path $env:GITHUB_WORKSPACE 'PCL.Plugin'
           if (-not (Test-Path -LiteralPath (Join-Path $pluginRoot 'PCL.Plugin.csproj'))) {
-            throw "PCL.Plugin checkout missing PCL.Plugin.csproj. Check PCL_PLUGIN_TOKEN scopes for PCL-N-Edition/PCL.Plugin."
+            throw "Public PCL.Plugin checkout is missing PCL.Plugin.csproj."
           }
 
           $tag = '${{ inputs.plugin_tag }}'.Trim()
-          if (-not $tag) {
-            try {
-              $rel = & gh api 'repos/PCL-N-Edition/PCL.Plugin/releases/latest' --jq '.tag_name' 2>$null
-              if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($rel)) {
-                $tag = $rel.Trim()
-                Write-Host "Resolved plugin tag via releases/latest: $tag"
-              }
-            } catch {
-              Write-Host "gh releases/latest unavailable; using local git tags."
-            }
-          }
-
           if (-not $tag) {
             & git -C $pluginRoot fetch --tags --force origin 2>$null | Out-Null
             $names = @(& git -C $pluginRoot tag -l 'v*')
@@ -219,8 +185,6 @@ jobs:
         id: sidecar_zip
         continue-on-error: ${{ inputs.channel == 'ci' || inputs.channel == 'dev' || inputs.channel == '' }}
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.PCL_PLUGIN_TOKEN || secrets.PLUGIN_REPO_TOKEN }}
         run: |
           $zip = Join-Path $env:GITHUB_WORKSPACE "artifacts/PCL.Plugin.Sidecar.${{ inputs.runtime_id }}.zip"
           & ./scripts/pack-plugin-sidecar-zip.ps1 `
@@ -238,7 +202,7 @@ jobs:
         shell: bash
         run: |
           echo "::error::Failed to embed PCL.Plugin sidecar for channel=${{ inputs.channel }}."
-          echo "Ensure PCL_PLUGIN_TOKEN can clone PCL-N-Edition/PCL.Plugin and that a release/tag exists (latest)."
+          echo "Ensure the public PCL.Plugin and SDK repositories are reachable and that a v* plugin tag exists."
           exit 1
 
       - name: Resolve Microsoft Client ID secret
