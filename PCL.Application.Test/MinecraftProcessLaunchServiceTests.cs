@@ -65,6 +65,23 @@ public sealed class MinecraftProcessLaunchServiceTests
         AssertFormatException(["-cp"]);
     }
 
+    [TestMethod]
+    public void AddExecutableBits_PreservesAccessAndEnablesReadableScopes()
+    {
+        UnixFileMode original =
+            UnixFileMode.UserRead |
+            UnixFileMode.UserWrite |
+            UnixFileMode.GroupRead |
+            UnixFileMode.OtherRead;
+
+        UnixFileMode executable = MinecraftProcessLaunchService.AddExecutableBits(original);
+
+        Assert.IsTrue(executable.HasFlag(UnixFileMode.UserExecute));
+        Assert.IsTrue(executable.HasFlag(UnixFileMode.GroupExecute));
+        Assert.IsTrue(executable.HasFlag(UnixFileMode.OtherExecute));
+        Assert.IsTrue(executable.HasFlag(UnixFileMode.UserWrite));
+    }
+
     private static void AssertFormatException(IReadOnlyList<string> arguments)
     {
         try

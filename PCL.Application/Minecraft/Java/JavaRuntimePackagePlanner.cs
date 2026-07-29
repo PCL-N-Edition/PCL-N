@@ -65,7 +65,15 @@ public static class JavaRuntimePackagePlanner
                 continue;
 
             string targetPath = ResolveTargetPath(targetDirectory, fileProperty.Name);
-            files.Add(new JavaRuntimeDownloadFile(fileProperty.Name, targetPath, url, sha1, size));
+            bool executable = fileProperty.Value.TryGetProperty("executable", out JsonElement executableElement) &&
+                              executableElement.ValueKind is JsonValueKind.True;
+            files.Add(new JavaRuntimeDownloadFile(
+                fileProperty.Name,
+                targetPath,
+                url,
+                sha1,
+                size,
+                executable));
         }
 
         return new JavaRuntimeDownloadPlan(

@@ -4,6 +4,7 @@
 
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using PCL.Application.Launching;
 using PCL.Platform.Abstractions.Java;
 using PCL.Platform.Abstractions.Paths;
 
@@ -73,6 +74,7 @@ public sealed class JavaRuntimeInstaller
                 !string.IsNullOrWhiteSpace(file.Sha1) &&
                 string.Equals(await ComputeSha1Async(file.TargetPath, cancellationToken).ConfigureAwait(false), file.Sha1, StringComparison.OrdinalIgnoreCase))
             {
+                ApplyExecutableMode(file);
                 completed++;
                 progress?.Report(new JavaRuntimeInstallProgress(
                     "校验已有文件",
@@ -151,6 +153,28 @@ public sealed class JavaRuntimeInstaller
         if (File.Exists(file.TargetPath))
             File.Delete(file.TargetPath);
         File.Move(tempPath, file.TargetPath);
+        ApplyExecutableMode(file);
+    }
+
+    private static void ApplyExecutableMode(JavaRuntimeDownloadFile file)
+    {
+        if (!(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD()) ||
+            !file.Executable)
+            return;
+
+        try
+        {
+            UnixFileMode current = File.GetUnixFileMode(file.TargetPath);
+            UnixFileMode executable = MinecraftProcessLaunchService.AddExecutableBits(current);
+            if (executable != current)
+                File.SetUnixFileMode(file.TargetPath, executable);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                "无法为 Java 运行时文件授予执行权限：" + file.RelativePath,
+                ex);
+        }
     }
 
     private static async Task<string> ComputeSha1Async(string path, CancellationToken cancellationToken)

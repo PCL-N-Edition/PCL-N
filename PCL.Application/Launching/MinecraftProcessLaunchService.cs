@@ -183,6 +183,7 @@ public static class MinecraftProcessLaunchService
                 HasOptiFine = request.HasOptiFine
             });
 
+        EnsureMacOsJavaExecutable(request.JavaExecutablePath);
         ProcessStartInfo startInfo = new()
         {
             FileName = request.JavaExecutablePath,
@@ -585,6 +586,44 @@ public static class MinecraftProcessLaunchService
 
     private static StringComparer GetPathComparer() =>
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    internal static UnixFileMode AddExecutableBits(UnixFileMode current)
+    {
+        UnixFileMode result = current | UnixFileMode.UserExecute;
+        if (current.HasFlag(UnixFileMode.GroupRead))
+            result |= UnixFileMode.GroupExecute;
+        if (current.HasFlag(UnixFileMode.OtherRead))
+            result |= UnixFileMode.OtherExecute;
+        return result;
+    }
+
+    private static void EnsureMacOsJavaExecutable(string javaExecutablePath)
+    {
+        if (!OperatingSystem.IsMacOS() ||
+            !Path.IsPathRooted(javaExecutablePath) ||
+            !File.Exists(javaExecutablePath))
+        {
+            return;
+        }
+
+        try
+        {
+            UnixFileMode current = File.GetUnixFileMode(javaExecutablePath);
+            UnixFileMode executable = AddExecutableBits(current);
+            if (executable == current)
+                return;
+
+            File.SetUnixFileMode(javaExecutablePath, executable);
+            PortableLog.Info("LaunchPlan", "已修复 macOS Java 可执行权限：" + javaExecutablePath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new UnauthorizedAccessException(
+                "macOS 无法为 Java 授予执行权限，请将 Java 安装到当前账户可写的位置：" +
+                javaExecutablePath,
+                ex);
+        }
+    }
 
     private static List<string> CreateJvmPrefixArguments(MinecraftProcessLaunchRequest request)
     {

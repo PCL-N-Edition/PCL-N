@@ -70,6 +70,7 @@ public sealed class JavaRuntimePackagePlannerTests
         Assert.AreEqual("bin/java", plan.Files[0].RelativePath);
         Assert.AreEqual("0123456789abcdef0123456789abcdef01234567", plan.Files[0].Sha1);
         Assert.AreEqual(1234L, plan.Files[0].Size);
+        Assert.IsTrue(plan.Files[0].Executable);
     }
 
     [TestMethod]
@@ -143,6 +144,7 @@ public sealed class JavaRuntimePackagePlannerTests
         {
           "files": {
             "bin/java": {
+              "executable": true,
               "downloads": {
                 "raw": {
                   "url": "https://piston-data.mojang.com/bin/java",

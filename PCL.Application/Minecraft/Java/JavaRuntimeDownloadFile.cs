@@ -9,4 +9,5 @@ public sealed record JavaRuntimeDownloadFile(
     string TargetPath,
     string Url,
     string Sha1,
-    long Size);
+    long Size,
+    bool Executable = false);
