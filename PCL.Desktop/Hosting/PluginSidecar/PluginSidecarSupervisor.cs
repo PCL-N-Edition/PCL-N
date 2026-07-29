@@ -120,6 +120,7 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
                 FileName = executable,
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                RedirectStandardError = true,
                 WorkingDirectory = Path.GetDirectoryName(executable) ?? Environment.CurrentDirectory,
                 ArgumentList =
                 {
@@ -142,6 +143,12 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
             }
 
             _process = process;
+            process.ErrorDataReceived += static (_, eventArgs) =>
+            {
+                if (!string.IsNullOrWhiteSpace(eventArgs.Data))
+                    PortableLog.Warn("PluginSidecar", eventArgs.Data);
+            };
+            process.BeginErrorReadLine();
 
             // Connect as client after a short delay so the server can listen.
             PluginSidecarClient client = new();

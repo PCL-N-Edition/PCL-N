@@ -87,7 +87,9 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                 ShowPageMessage(
                     "插件侧车未运行，无法配置插件。\n\n" +
                     "常见原因：发行包未附带 PCL.Plugin.Sidecar（应在启动器目录的 sidecar\\ 下），" +
-                    "或侧车启动失败。开发构建请先编译 PCL.Plugin.Sidecar，并确认日志中有 “Starting sidecar”。\n\n" +
+                    "或侧车启动失败；若下载的是 NoRuntime 版本，请先安装 .NET 10 Runtime。" +
+                    "\n" +
+                    "开发构建请先编译 PCL.Plugin.Sidecar，并确认日志中有 “Starting sidecar”。\n\n" +
                     "若刚关闭过启动器却无法刷新：请在任务管理器结束残留的 PCL-N-Edition / PCL.Plugin.Sidecar 后再开。",
                     warn: true);
                 return;
