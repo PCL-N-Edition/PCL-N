@@ -2,10 +2,13 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Avalonia;
 using Avalonia.Fonts.Inter;
 using Avalonia.Platform;
 using PCL.Application.Settings;
+using PCL.Core.Logging;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Settings.Views;
@@ -20,15 +23,15 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        if (LauncherUpdateBootstrap.TryRunUpdateHelper(args, out int updateExitCode))
-            return updateExitCode;
-        args = LauncherUpdateBootstrap.ProcessStartupCleanup(args);
-
-        // Catch process-wide crashes as early as possible.
-        UnhandledExceptionGuard.Install();
-
         try
         {
+            if (LauncherUpdateBootstrap.TryRunUpdateHelper(args, out int updateExitCode))
+                return updateExitCode;
+            args = LauncherUpdateBootstrap.ProcessStartupCleanup(args);
+
+            // Catch process-wide crashes as early as possible.
+            UnhandledExceptionGuard.Install();
+
             // The experimental JVM host is deliberately handled before settings, single-instance,
             // or Avalonia are initialized. It is a game process, not another launcher UI.
             if (MinecraftJvmHostProcessLauncher.TryGetRequestPath(args, out string jvmHostRequestPath))
@@ -38,21 +41,49 @@ internal static class Program
 
             // Apply CI-embedded secrets (MS client id, etc.) before any auth/UI code runs.
             PclEmbeddedSecrets.ApplyToEnvironment();
-            // Path layout must resolve next to the real executable before any settings I/O.
-            LauncherSettings startupSettings = LauncherSettingsPageBinder.LoadSettings();
-            DesktopFileLog.Initialize(DesktopFileLog.LevelFromSetting(startupSettings.GetIntegerOption(
-                "SystemLogLevel",
-                LauncherSettingDefaults.GetInteger("SystemLogLevel"))));
-            DesktopTraceLogBridge.Install();
-            DesktopFileLog.Info(
-                "Startup",
-                $"进程入口已执行；参数数量={args.Length}；日志级别={DesktopFileLog.Level}；" +
-                $"启动器目录={GetLauncherDirectory()}；BaseDirectory={AppContext.BaseDirectory}；" +
-                $"路径覆盖={PCL.Desktop.Paths.LauncherPathLayout.OverrideFilePath}；" +
-                $"数据目录={PCL.Desktop.Paths.LauncherPathLayout.ResolveDataDirectory()}；" +
-                $"设置文件={LauncherSettingsPageBinder.CreateSettingsPath()}；" +
-                $"工作目录={Environment.CurrentDirectory}。");
-            DesktopFileLog.Debug("Startup", "命令行参数：" + string.Join(' ', args));
+
+            // Missing/deleted pcln-paths.json must never abort startup — fall back to defaults.
+            LauncherSettings startupSettings;
+            try
+            {
+                startupSettings = LauncherSettingsPageBinder.LoadSettings();
+            }
+            catch (Exception settingsEx)
+            {
+                try
+                {
+                    DesktopFileLog.Initialize(PortableLogLevel.Info);
+                    DesktopFileLog.Warn("Startup", "读取设置失败，使用空设置继续：" + settingsEx.Message, settingsEx);
+                }
+                catch
+                {
+                    // ignore
+                }
+
+                startupSettings = new LauncherSettings();
+            }
+
+            try
+            {
+                DesktopFileLog.Initialize(DesktopFileLog.LevelFromSetting(startupSettings.GetIntegerOption(
+                    "SystemLogLevel",
+                    LauncherSettingDefaults.GetInteger("SystemLogLevel"))));
+                DesktopTraceLogBridge.Install();
+                DesktopFileLog.Info(
+                    "Startup",
+                    $"进程入口已执行；参数数量={args.Length}；日志级别={DesktopFileLog.Level}；" +
+                    $"启动器目录={GetLauncherDirectory()}；BaseDirectory={AppContext.BaseDirectory}；" +
+                    $"路径覆盖={PCL.Desktop.Paths.LauncherPathLayout.OverrideFilePath}；" +
+                    $"数据目录={PCL.Desktop.Paths.LauncherPathLayout.ResolveDataDirectory()}；" +
+                    $"设置文件={LauncherSettingsPageBinder.CreateSettingsPath()}；" +
+                    $"工作目录={Environment.CurrentDirectory}。");
+                DesktopFileLog.Debug("Startup", "命令行参数：" + string.Join(' ', args));
+            }
+            catch (Exception logEx)
+            {
+                // Logging must never prevent launch.
+                System.Diagnostics.Debug.WriteLine("[Startup] log init failed: " + logEx);
+            }
 
             if (args.Contains("--validate-environment", StringComparer.OrdinalIgnoreCase))
                 return ValidateEnvironment();
@@ -78,10 +109,49 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            UnhandledExceptionGuard.Report(ex, "Program.Main", canContinue: false);
+            try
+            {
+                UnhandledExceptionGuard.Report(ex, "Program.Main", canContinue: false);
+            }
+            catch
+            {
+                // ignore
+            }
+
+            // Last resort: visible message when Avalonia never starts (looks like a silent flash-quit).
+            ShowEarlyFailureMessage(ex);
             return 1;
         }
     }
+
+    private static void ShowEarlyFailureMessage(Exception ex)
+    {
+        try
+        {
+            string text =
+                "PCL N 启动失败，但已尽量避免静默闪退。\n\n" +
+                ex.GetType().Name + ": " + ex.Message + "\n\n" +
+                "若你删除了 pcln-paths.json，程序应回退到默认配置目录，而不是退出。\n" +
+                "路径映射备份位置：%LocalAppData%\\PCL-N\\pcln-paths.json\n" +
+                "日志：数据目录\\Logs 或 %LocalAppData%\\PCL-N\\Logs";
+            if (OperatingSystem.IsWindows())
+                ShowWindowsMessageBox(text);
+            else
+                Console.Error.WriteLine(text);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void ShowWindowsMessageBox(string text) =>
+        _ = MessageBoxW(IntPtr.Zero, text, "PCL N 启动失败", 0x00000010);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    [SupportedOSPlatform("windows")]
+    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 
     public static AppBuilder BuildAvaloniaApp()
     {

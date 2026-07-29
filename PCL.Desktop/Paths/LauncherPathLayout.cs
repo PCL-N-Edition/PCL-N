@@ -100,42 +100,36 @@ internal static class LauncherPathLayout
     public static void Save(LauncherPathOverrideDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
-        string path = ResolveOverrideFilePath();
+        string primary = Path.Combine(GetHostDirectory(), FileName);
         try
         {
-            string? dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrWhiteSpace(dir))
-                Directory.CreateDirectory(dir);
-
             string json = JsonSerializer.Serialize(
                 document,
                 LauncherPathLayoutJsonContext.Default.LauncherPathOverrideDocument);
-            File.WriteAllText(path, json);
 
-            // Also mirror next to AppContext.BaseDirectory when it differs (single-file extract vs real exe).
-            try
+            // Write to every known location so deleting only the exe-side file does not lose the mapping.
+            foreach (string path in EnumerateWriteTargets(primary))
             {
-                string baseMirror = Path.Combine(Path.GetFullPath(AppContext.BaseDirectory), FileName);
-                if (!PathsEqual(baseMirror, path))
+                try
                 {
-                    string? baseDir = Path.GetDirectoryName(baseMirror);
-                    if (!string.IsNullOrWhiteSpace(baseDir))
-                        Directory.CreateDirectory(baseDir);
-                    File.WriteAllText(baseMirror, json);
+                    string? dir = Path.GetDirectoryName(path);
+                    if (!string.IsNullOrWhiteSpace(dir))
+                        Directory.CreateDirectory(dir);
+                    File.WriteAllText(path, json);
                 }
-            }
-            catch
-            {
-                // mirror is best-effort
+                catch (Exception mirrorEx)
+                {
+                    PortableLog.Warn("Paths", $"写入路径覆盖失败（{path}）：{mirrorEx.Message}");
+                }
             }
 
             lock (Gate)
             {
                 _cachedDocument = Clone(document);
-                _cachedOverrideFilePath = path;
+                _cachedOverrideFilePath = primary;
             }
 
-            PortableLog.Info("Paths", "已写入路径覆盖：" + path);
+            PortableLog.Info("Paths", "已写入路径覆盖（含系统备份）：" + primary);
         }
         catch (Exception ex)
         {
@@ -285,10 +279,8 @@ internal static class LauncherPathLayout
                 return _cachedOverrideFilePath!;
         }
 
-        // Prefer existing file near the real executable, then BaseDirectory, then host dir.
-        foreach (string dir in EnumerateHostCandidateDirectories())
+        foreach (string candidate in EnumerateOverrideCandidateFiles())
         {
-            string candidate = Path.Combine(dir, FileName);
             if (File.Exists(candidate))
             {
                 lock (Gate)
@@ -301,6 +293,51 @@ internal static class LauncherPathLayout
         lock (Gate)
             _cachedOverrideFilePath = primary;
         return primary;
+    }
+
+    /// <summary>
+    /// Search order for path mapping:
+    /// 1) real exe directory
+    /// 2) AppContext.BaseDirectory / cwd
+    /// 3) %LocalAppData%/PCL-N and %AppData%/PCL-N backups (survive deleting only the exe-side json)
+    /// </summary>
+    private static IEnumerable<string> EnumerateOverrideCandidateFiles()
+    {
+        foreach (string dir in EnumerateHostCandidateDirectories())
+            yield return Path.Combine(dir, FileName);
+
+        foreach (string backupDir in EnumerateSystemBackupDirectories())
+            yield return Path.Combine(backupDir, FileName);
+    }
+
+    private static HashSet<string> EnumerateWriteTargets(string primary)
+    {
+        HashSet<string> seen = new(OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal);
+        void Add(string? p)
+        {
+            if (string.IsNullOrWhiteSpace(p))
+                return;
+            try { seen.Add(Path.GetFullPath(p)); } catch { /* skip */ }
+        }
+
+        Add(primary);
+        try { Add(Path.Combine(Path.GetFullPath(AppContext.BaseDirectory), FileName)); } catch { /* skip */ }
+        foreach (string backupDir in EnumerateSystemBackupDirectories())
+            Add(Path.Combine(backupDir, FileName));
+        return seen;
+    }
+
+    private static IEnumerable<string> EnumerateSystemBackupDirectories()
+    {
+        // Always under the *system* profile folders so a missing exe-side json can still recover.
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PCL-N");
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "PCL-N");
     }
 
     private static HashSet<string> EnumerateHostCandidateDirectories()
@@ -334,9 +371,8 @@ internal static class LauncherPathLayout
 
     private static LauncherPathOverrideDocument LoadCore()
     {
-        foreach (string dir in EnumerateHostCandidateDirectories())
+        foreach (string path in EnumerateOverrideCandidateFiles())
         {
-            string path = Path.Combine(dir, FileName);
             if (!File.Exists(path))
                 continue;
 
@@ -352,6 +388,23 @@ internal static class LauncherPathLayout
                     PortableLog.Info("Paths", "已加载路径覆盖：" + path);
                     lock (Gate)
                         _cachedOverrideFilePath = path;
+
+                    // If exe-side file was deleted, restore it from backup so next launches stay stable.
+                    try
+                    {
+                        string hostCopy = Path.Combine(GetHostDirectory(), FileName);
+                        if (!File.Exists(hostCopy) && !PathsEqual(hostCopy, path))
+                        {
+                            Directory.CreateDirectory(GetHostDirectory());
+                            File.WriteAllText(hostCopy, json);
+                            PortableLog.Info("Paths", "已从备份恢复 exe 旁路径覆盖：" + hostCopy);
+                        }
+                    }
+                    catch
+                    {
+                        // best-effort restore
+                    }
+
                     return doc;
                 }
             }
@@ -361,6 +414,7 @@ internal static class LauncherPathLayout
             }
         }
 
+        // No mapping file → clean defaults. Never throw.
         return new LauncherPathOverrideDocument();
     }
 
