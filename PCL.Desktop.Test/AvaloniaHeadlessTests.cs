@@ -7677,12 +7677,16 @@ public sealed class AvaloniaHeadlessTests
         {
             string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
             Directory.CreateDirectory(versionDirectory);
+            Directory.CreateDirectory(System.IO.Path.Combine(versionDirectory, "mods"));
             Directory.CreateDirectory(System.IO.Path.Combine(versionDirectory, "resourcepacks"));
             Directory.CreateDirectory(System.IO.Path.Combine(versionDirectory, "shaderpacks", "Folder Shader"));
             Directory.CreateDirectory(System.IO.Path.Combine(versionDirectory, "saves", "World One"));
             Directory.CreateDirectory(System.IO.Path.Combine(versionDirectory, "custom [folder]"));
             File.WriteAllText(System.IO.Path.Combine(versionDirectory, "options.txt"), "settings");
+            File.WriteAllText(System.IO.Path.Combine(versionDirectory, "mods", "Keep Mod.jar"), "mod");
+            File.WriteAllText(System.IO.Path.Combine(versionDirectory, "mods", "Skip Mod.jar"), "mod");
             File.WriteAllText(System.IO.Path.Combine(versionDirectory, "resourcepacks", "Pack [A].zip"), "pack");
+            File.WriteAllText(System.IO.Path.Combine(versionDirectory, "resourcepacks", "Pack B.zip"), "pack");
             File.WriteAllText(System.IO.Path.Combine(versionDirectory, "shaderpacks", "Shader.zip"), "shader");
             File.WriteAllText(System.IO.Path.Combine(versionDirectory, "shaderpacks", "Shader.zip.txt"), "config");
             File.WriteAllText(System.IO.Path.Combine(versionDirectory, "shaderpacks", "Folder Shader", "shader.properties"), "config");
@@ -7734,10 +7738,26 @@ public sealed class AvaloniaHeadlessTests
                         DisplayText(page.FindControl<MyCheckBox>("CheckOptionsOptions")!.FindControl<TextBlock>("LabText")!),
                         "键位、音量、视频设置等");
 
+                    StackPanel mods = page.FindControl<StackPanel>("PanOptionsModFiles")!;
+                    Dictionary<string, MyCheckBox> modOptions = mods.Children
+                        .OfType<MyCheckBox>()
+                        .ToDictionary(
+                            static checkBox => ((ExportOption)checkBox.Tag!).Title,
+                            StringComparer.Ordinal);
+                    Assert.AreEqual(2, modOptions.Count);
+                    modOptions["Skip Mod.jar"].Checked = false;
+
                     StackPanel resourcePacks = page.FindControl<StackPanel>("PanOptionsResourcePacks")!;
-                    MyCheckBox resourcePack = resourcePacks.Children.OfType<MyCheckBox>().Single();
-                    Assert.AreEqual("Pack [A].zip", ((ExportOption)resourcePack.Tag!).Title);
-                    Assert.AreEqual("resourcepacks/Pack [[]A[]].zip", ((ExportOption)resourcePack.Tag!).Rules);
+                    Dictionary<string, MyCheckBox> resourcePackOptions = resourcePacks.Children
+                        .OfType<MyCheckBox>()
+                        .ToDictionary(
+                            static checkBox => ((ExportOption)checkBox.Tag!).Title,
+                            StringComparer.Ordinal);
+                    Assert.AreEqual(2, resourcePackOptions.Count);
+                    Assert.AreEqual(
+                        "resourcepacks/Pack [[]A[]].zip",
+                        ((ExportOption)resourcePackOptions["Pack [A].zip"].Tag!).Rules);
+                    resourcePackOptions["Pack B.zip"].Checked = false;
 
                     StackPanel shaderPacks = page.FindControl<StackPanel>("PanOptionsShaderPacks")!;
                     Dictionary<string, ExportOption> shaderOptions = shaderPacks.Children
@@ -7770,7 +7790,11 @@ public sealed class AvaloniaHeadlessTests
                     Assert.IsNotNull(exportRequest);
                     Assert.AreEqual("1.20.1", exportRequest!.PackageName);
                     CollectionAssert.Contains(exportRequest.Rules.ToList(), "options.txt");
+                    CollectionAssert.Contains(exportRequest.Rules.ToList(), "mods/Keep Mod.jar");
+                    CollectionAssert.DoesNotContain(exportRequest.Rules.ToList(), "mods/Skip Mod.jar");
+                    CollectionAssert.DoesNotContain(exportRequest.Rules.ToList(), "mods/");
                     CollectionAssert.Contains(exportRequest.Rules.ToList(), "resourcepacks/Pack [[]A[]].zip");
+                    CollectionAssert.DoesNotContain(exportRequest.Rules.ToList(), "resourcepacks/Pack B.zip");
                     CollectionAssert.Contains(exportRequest.Rules.ToList(), "shaderpacks/Shader.zip");
                     CollectionAssert.Contains(exportRequest.Rules.ToList(), "shaderpacks/Shader.zip.txt");
                     CollectionAssert.Contains(exportRequest.Rules.ToList(), "shaderpacks/Folder Shader/");

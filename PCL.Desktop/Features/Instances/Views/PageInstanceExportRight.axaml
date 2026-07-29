@@ -83,12 +83,14 @@
                                     Description="{DynamicResource Instance.Export.Option.Mod.Desc}"
                                     TitleResourceKey="Instance.Export.Option.Mod"
                                     DescriptionResourceKey="Instance.Export.Option.Mod.Desc"
-                                    Rules="mods/|!mods/*.disabled|!mods/*.old|!mods/.connector/|coremods/|lib/|!mods/mcef-libraries/|!mods/mcef-cache/"
+                                    Rules="coremods/|lib/"
+                                    ShowRules="mods/|coremods/|lib/"
                                     DefaultChecked="True"
                                     RequireModLoader="True" />
                             </legacy:MyCheckBox.Tag>
                         </legacy:MyCheckBox>
                         <StackPanel Margin="30,0,0,0" x:Name="PanOptionsMod">
+                            <StackPanel x:Name="PanOptionsModFiles" />
                             <legacy:MyCheckBox>
                                 <legacy:MyCheckBox.Tag>
                                     <views:ExportOption

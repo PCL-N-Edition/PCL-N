@@ -151,7 +151,10 @@ public partial class PageInstanceExportRight : MyPageRight
     private void WireWpfCopiedControls()
     {
         if (this.FindControl<MyExtraTextButton>("BtnExport") is { } exportButton)
+        {
+            exportButton.Show = true;
             exportButton.Click += (_, _) => StartExport();
+        }
         if (this.FindControl<MyButton>("BtnAdvancedImport") is { } importButton)
             importButton.Click += (_, _) => ImportConfigRequested?.Invoke(this, EventArgs.Empty);
         if (this.FindControl<MyButton>("BtnAdvancedExport") is { } exportConfigButton)
@@ -251,12 +254,55 @@ public partial class PageInstanceExportRight : MyPageRight
 
     private void ReloadAllSubOptions()
     {
+        ReloadModOptions();
         ReloadSubOptions("PanOptionsResourcePacks", acceptCompressedFile: true, acceptFolder: true,
             "resourcepacks", "texturepacks");
         ReloadSubOptions("PanOptionsSaves", acceptCompressedFile: false, acceptFolder: true, "saves");
         ReloadSubOptions("PanOptionsShaderPacks", acceptCompressedFile: true, acceptFolder: true, "shaderpacks");
         ReloadOtherFolders();
     }
+
+    private void ReloadModOptions()
+    {
+        if (this.FindControl<StackPanel>("PanOptionsModFiles") is not { } panel)
+            return;
+
+        panel.Children.Clear();
+        string modsPath = Path.Combine(_gameDirectory, "mods");
+        if (!Directory.Exists(modsPath))
+            return;
+
+        try
+        {
+            IEnumerable<FileSystemInfo> entries = Directory
+                .EnumerateFileSystemEntries(modsPath, "*", SearchOption.TopDirectoryOnly)
+                .Select(static path => Directory.Exists(path)
+                    ? (FileSystemInfo)new DirectoryInfo(path)
+                    : new FileInfo(path))
+                .Where(static entry => !IsExcludedModEntry(entry.Name))
+                .OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase);
+
+            foreach (FileSystemInfo entry in entries)
+            {
+                bool isDirectory = entry is DirectoryInfo;
+                bool isDisabled = !isDirectory &&
+                                  (entry.Name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase) ||
+                                   entry.Name.EndsWith(".old", StringComparison.OrdinalIgnoreCase));
+                panel.Children.Add(CreateDynamicOption(
+                    entry.Name,
+                    EscapeRulePath("mods", entry.Name) + (isDirectory ? "/" : string.Empty),
+                    defaultChecked: !isDisabled));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static bool IsExcludedModEntry(string name) =>
+        name.Equals(".connector", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("mcef-libraries", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("mcef-cache", StringComparison.OrdinalIgnoreCase);
 
     private void ReloadSubOptions(
         string panelName,
@@ -572,7 +618,7 @@ public partial class PageInstanceExportRight : MyPageRight
         if (option.RequireModLoaderOrOptiFine && !_hasOptiFine && !_hasModLoader)
             return false;
 
-        string? showRules = option.Rules ?? option.ShowRules;
+        string? showRules = option.ShowRules ?? option.Rules;
         if (string.IsNullOrWhiteSpace(showRules))
             return true;
 
