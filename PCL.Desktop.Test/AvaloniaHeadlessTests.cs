@@ -8079,6 +8079,85 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void InstancePages_RecognizeMergedNeoForgeArgumentsAndExposeModsForExport()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-merged-neoforge-ui-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "Avaritia-Extreme-World");
+            string modsDirectory = System.IO.Path.Combine(versionDirectory, "mods");
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "Avaritia-Extreme-World.json");
+            Directory.CreateDirectory(modsDirectory);
+            File.WriteAllText(System.IO.Path.Combine(modsDirectory, "Avaritia.jar"), "mod");
+            File.WriteAllText(
+                jsonPath,
+                """
+                {
+                  "id": "Avaritia-Extreme-World",
+                  "clientVersion": "1.21.1",
+                  "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+                  "arguments": {
+                    "game": [
+                      "--fml.neoForgeVersion", "21.1.242",
+                      "--fml.fmlVersion", "4.0.43",
+                      "--fml.mcVersion", "1.21.1",
+                      "--launchTarget", "forgeclient"
+                    ]
+                  },
+                  "libraries": [
+                    { "name": "net.neoforged.fancymodloader:loader:4.0.43" }
+                  ]
+                }
+                """);
+            LaunchInstanceInfo instance = new("Avaritia-Extreme-World", jsonPath, versionDirectory);
+
+            session.Dispatch(() =>
+            {
+                PageInstanceInstallRight installPage = new();
+                PageInstanceExportRight exportPage = new();
+                Window window = new() { Width = 720, Height = 480, Content = installPage };
+                try
+                {
+                    window.Show();
+                    installPage.SetInstance(instance);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    Assert.AreEqual("1.21.1", installPage.FindControl<TextBlock>("LabMinecraft")!.Text);
+                    Assert.AreEqual("21.1.242", installPage.FindControl<TextBlock>("LabNeoForge")!.Text);
+                    StringAssert.Contains(
+                        installPage.FindControl<MyListItem>("ItemSelect")!.Info,
+                        "NeoForge 21.1.242");
+
+                    window.Content = exportPage;
+                    exportPage.SetInstance(instance);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    Assert.IsTrue(exportPage.FindControl<MyCheckBox>("CheckOptionsMod")!.IsVisible);
+                    MyCheckBox modOption = exportPage.FindControl<StackPanel>("PanOptionsModFiles")!
+                        .Children
+                        .OfType<MyCheckBox>()
+                        .Single();
+                    Assert.AreEqual("Avaritia.jar", ((ExportOption)modOption.Tag!).Title);
+                    Assert.AreEqual("mods/Avaritia.jar", ((ExportOption)modOption.Tag!).Rules);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void PageInstanceInstallRight_SelectsMinecraftVersionInCopiedWpfList()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

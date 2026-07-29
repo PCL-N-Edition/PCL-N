@@ -177,6 +177,19 @@ internal static partial class MinecraftVersionJsonInspector
             }
         }
 
+        string? neoForgeVersion = FindArgumentValue(argumentValues, "--fml.neoForgeVersion");
+        if (!string.IsNullOrWhiteSpace(neoForgeVersion))
+            yield return "net.neoforged:neoforge:" + neoForgeVersion;
+
+        string? forgeVersion = FindArgumentValue(argumentValues, "--fml.forgeVersion");
+        if (!string.IsNullOrWhiteSpace(forgeVersion))
+        {
+            string? minecraftVersion = FindArgumentValue(argumentValues, "--fml.mcVersion");
+            yield return string.IsNullOrWhiteSpace(minecraftVersion)
+                ? "net.minecraftforge:forge:" + forgeVersion
+                : $"net.minecraftforge:forge:{minecraftVersion}-{forgeVersion}";
+        }
+
         foreach (string argument in argumentValues)
             yield return argument;
     }
@@ -281,14 +294,43 @@ internal static partial class MinecraftVersionJsonInspector
             FindMinecraftVersion(node.Id));
 
     private static string? FindFmlMinecraftVersion(IReadOnlyList<string> arguments)
+        => FindMinecraftVersion(FindArgumentValue(arguments, "--fml.mcVersion"));
+
+    private static string? FindArgumentValue(IReadOnlyList<string> arguments, string option)
     {
-        for (int index = 0; index < arguments.Count - 1; index++)
+        for (int index = 0; index < arguments.Count; index++)
         {
-            if (string.Equals(arguments[index], "--fml.mcVersion", StringComparison.OrdinalIgnoreCase))
-                return FindMinecraftVersion(arguments[index + 1]);
+            string argument = arguments[index].Trim();
+            if (string.Equals(argument, option, StringComparison.OrdinalIgnoreCase))
+            {
+                return index + 1 < arguments.Count
+                    ? TrimArgumentValue(arguments[index + 1])
+                    : null;
+            }
+
+            if (!argument.StartsWith(option, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            string remainder = argument[option.Length..];
+            if (remainder.Length == 0 ||
+                (remainder[0] != '=' && !char.IsWhiteSpace(remainder[0])))
+            {
+                continue;
+            }
+
+            return TrimArgumentValue(remainder.TrimStart('=', ' ', '\t'));
         }
 
         return null;
+    }
+
+    private static string? TrimArgumentValue(string value)
+    {
+        string trimmed = value.Trim().Trim('"');
+        int separator = trimmed.IndexOfAny([' ', '\t', '\r', '\n']);
+        return (separator >= 0 ? trimmed[..separator] : trimmed).Trim('"') is { Length: > 0 } result
+            ? result
+            : null;
     }
 
     private static string? FindLabyModMinecraftVersion(IEnumerable<string> arguments)

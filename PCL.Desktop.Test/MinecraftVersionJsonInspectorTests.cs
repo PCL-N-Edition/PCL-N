@@ -155,6 +155,58 @@ public sealed class MinecraftVersionJsonInspectorTests
         }
     }
 
+    [TestMethod]
+    public void Inspector_NormalizesMergedNeoForgeFmlArguments()
+    {
+        string root = CreateTemporaryRoot("pcl-inspector-merged-neoforge-");
+        string versionDirectory = Path.Combine(root, "versions", "Merged NeoForge Pack");
+        string jsonPath = Path.Combine(versionDirectory, "Merged NeoForge Pack.json");
+
+        try
+        {
+            Directory.CreateDirectory(versionDirectory);
+            File.WriteAllText(
+                jsonPath,
+                """
+                {
+                  "id": "Merged NeoForge Pack",
+                  "clientVersion": "1.21.1",
+                  "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+                  "arguments": {
+                    "game": [
+                      "--fml.neoForgeVersion", "21.1.242",
+                      "--fml.fmlVersion", "4.0.43",
+                      "--fml.mcVersion", "1.21.1",
+                      "--launchTarget", "forgeclient"
+                    ]
+                  },
+                  "libraries": [
+                    { "name": "net.neoforged.fancymodloader:loader:4.0.43" }
+                  ]
+                }
+                """);
+            LaunchInstanceInfo instance = new("Merged NeoForge Pack", jsonPath, versionDirectory);
+
+            MinecraftVersionJsonInfo info = MinecraftVersionJsonInspector.Read(instance);
+
+            Assert.AreEqual("1.21.1", info.MinecraftVersionId);
+            CollectionAssert.Contains(
+                info.LoaderEntries.ToList(),
+                "net.neoforged:neoforge:21.1.242");
+            Assert.AreEqual(
+                "21.1.242",
+                MinecraftLoaderLibraryDetector.DetectVersion(
+                    info.LoaderEntries,
+                    "net.neoforged:neoforge:"));
+            Assert.IsTrue(InstanceDisplayHelper.IsModable(instance));
+            Assert.IsTrue(MinecraftLaunchCoordinator.BuildLaunchProfile(instance).HasForge);
+        }
+        finally
+        {
+            DeleteTemporaryRoot(root);
+        }
+    }
+
     private static void AssertLoaderProfile(string name, MinecraftLaunchProfile profile)
     {
         switch (name)
