@@ -83,7 +83,7 @@ function Resolve-PluginSourceTag {
 
     Write-Warning "No GitHub Release latest for $Channel channel; trying git tags (gh may lack private-repo access)."
 
-    # Prefer authenticated git ls-remote (works with PLUGIN_REPO_TOKEN when gh api is blocked).
+    # Prefer authenticated git ls-remote (works with PCL_PLUGIN_TOKEN / GH_TOKEN when gh api is blocked).
     $url = Get-AuthenticatedGitHubUrl -Repository $Repository
     $remoteLines = & git ls-remote --tags --refs $url 2>$null
     $names = @()
@@ -110,7 +110,7 @@ function Resolve-PluginSourceTag {
         $versionTags = @($names[0])
     }
     if ($versionTags.Count -eq 0) {
-        throw "Could not list tags for $Repository. Pass -Tag, set GH_TOKEN/PLUGIN_REPO_TOKEN for the private repo, or checkout PCL.Plugin first."
+        throw "Could not list tags for $Repository. Pass -Tag, set GH_TOKEN/PCL_PLUGIN_TOKEN for the private repo, or checkout PCL.Plugin first."
     }
 
     $sorted = $versionTags | Sort-Object {
@@ -171,7 +171,7 @@ function Ensure-PluginSources {
     if ($LASTEXITCODE -ne 0) {
         & git clone $url $Root
         if ($LASTEXITCODE -ne 0) {
-            throw "git clone failed for $Repository. For private repos set GH_TOKEN or PLUGIN_REPO_TOKEN with contents:read."
+            throw "git clone failed for $Repository. For private repos set GH_TOKEN or PCL_PLUGIN_TOKEN with contents:read."
         }
         Push-Location $Root
         try {

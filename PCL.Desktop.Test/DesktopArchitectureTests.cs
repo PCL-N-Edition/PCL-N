@@ -690,9 +690,9 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "embed_plugin_sidecar");
         StringAssert.Contains(reusable, "PclPluginSidecarZipPath");
         StringAssert.Contains(reusable, "pack-plugin-sidecar-zip.ps1");
-        // Private PCL.Plugin requires PLUGIN_REPO_TOKEN + checkout (not bare gh api).
+        // Private PCL.Plugin requires PCL_PLUGIN_TOKEN + checkout (not bare gh api).
         StringAssert.Contains(reusable, "repository: PCL-N-Edition/PCL.Plugin");
-        StringAssert.Contains(reusable, "PLUGIN_REPO_TOKEN");
+        StringAssert.Contains(reusable, "PCL_PLUGIN_TOKEN");
         StringAssert.Contains(reusable, "Plan plugin sidecar embed");
         Assert.IsFalse(reusable.Contains("PCL-N-Edition/PCL.Plugin", StringComparison.Ordinal));
         Assert.IsFalse(reusable.Contains("PclPluginAssembly", StringComparison.Ordinal));

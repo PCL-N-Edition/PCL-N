@@ -79,4 +79,4 @@ Requires [PCL-N-Plugin-SDK](https://github.com/PCL-N-Edition/PCL-N-Plugin-SDK) u
 
 - `include_plugin: true` — run overlay + `-p:PclWithPlugin=true`
 - `plugin_tag` — pin; empty uses **Latest** channel (`releases/latest`)
-- secret `PLUGIN_REPO_TOKEN` when needed
+- secret `PCL_PLUGIN_TOKEN` when needed (private PCL.Plugin read PAT)
