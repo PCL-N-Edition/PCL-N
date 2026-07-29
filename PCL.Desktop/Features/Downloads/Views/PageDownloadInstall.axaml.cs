@@ -221,6 +221,45 @@ public partial class PageDownloadInstall : MyPageRight
         await OpenAddonCardAsync(addonKind).ConfigureAwait(true);
     }
 
+    public async Task<bool> ApplyExistingInstallSelection(
+        string gameVersion,
+        string installName,
+        string minecraftRootDirectory,
+        MinecraftLoaderKind? loaderKind,
+        string? loaderVersion,
+        string? currentOptiFineVersion = null)
+    {
+        await FocusVersionAsync(
+                gameVersion,
+                installName,
+                preserveInstallNameOnLoaderSelect: true,
+                minecraftRootDirectory: minecraftRootDirectory,
+                replaceExistingVersion: true)
+            .ConfigureAwait(true);
+        if (_selectedVersion is null)
+            return false;
+
+        ResetSelectedLoader();
+        if (loaderKind is { } kind && !string.IsNullOrWhiteSpace(loaderVersion))
+        {
+            MinecraftLoaderVersionEntry loader = new(kind, loaderVersion, true);
+            _loaderVersionCache[(kind, _selectedVersion.Id)] = [loader];
+            _selectedLoaderKind = kind;
+            _selectedLoaderVersion = loader;
+            if (kind == MinecraftLoaderKind.Forge && !string.IsNullOrWhiteSpace(currentOptiFineVersion))
+            {
+                _selectedOptiFineAddon = new MinecraftLoaderVersionEntry(
+                    MinecraftLoaderKind.OptiFine,
+                    currentOptiFineVersion,
+                    true);
+            }
+        }
+
+        ReloadSelectedLoaderCards();
+        StartSelectedInstall();
+        return true;
+    }
+
     public async Task OpenAddonCardAsync(MinecraftInstallAddonKind kind)
     {
         if (_selectedVersion is null)

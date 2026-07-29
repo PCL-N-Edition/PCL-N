@@ -7838,7 +7838,17 @@ public sealed class AvaloniaHeadlessTests
 
             session.Dispatch(() =>
             {
-                PageInstanceInstallRight page = new();
+                PageInstanceInstallRight page = new(
+                    new MinecraftVanillaInstallService(),
+                    new FakeMinecraftLoaderMetadataService());
+                Dictionary<(MinecraftLoaderKind Kind, string GameVersion), IReadOnlyList<MinecraftLoaderVersionEntry>> cache =
+                    GetPrivateField<Dictionary<(MinecraftLoaderKind Kind, string GameVersion), IReadOnlyList<MinecraftLoaderVersionEntry>>>(
+                        page,
+                        "_loaderVersionCache");
+                cache[(MinecraftLoaderKind.Fabric, "1.20.1")] =
+                [
+                    new MinecraftLoaderVersionEntry(MinecraftLoaderKind.Fabric, "0.16.14", true)
+                ];
                 Window window = new()
                 {
                     Width = 720,
@@ -7872,30 +7882,28 @@ public sealed class AvaloniaHeadlessTests
 
                     Assert.AreEqual(instance, modifyRequest?.Instance);
                     Assert.AreEqual("1.20.1", modifyRequest?.MinecraftVersionId);
-                    Assert.IsNull(modifyRequest?.LoaderKind);
+                    Assert.AreEqual(MinecraftLoaderKind.Fabric, modifyRequest?.LoaderKind);
+                    Assert.AreEqual("0.16.10", modifyRequest?.LoaderVersion);
+                    Assert.IsTrue(modifyRequest?.ApplySelection);
 
                     modifyRequest = null;
                     Click(window, page.FindControl<MyCard>("CardFabric")!);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    Assert.IsNull(modifyRequest);
+                    Assert.IsFalse(page.FindControl<MyCard>("CardFabric")!.IsSwapped);
 
-                    Assert.AreEqual(instance, modifyRequest?.Instance);
-                    Assert.AreEqual("1.20.1", modifyRequest?.MinecraftVersionId);
-                    Assert.AreEqual(MinecraftLoaderKind.Fabric, modifyRequest?.LoaderKind);
+                    MyListItem fabricVersion = page.GetVisualDescendants()
+                        .OfType<MyListItem>()
+                        .First(item => item.Title == "0.16.14");
+                    Click(window, fabricVersion);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                     Assert.IsTrue(page.FindControl<MyCard>("CardFabric")!.IsSwapped);
+                    Assert.AreEqual("0.16.14", page.FindControl<TextBlock>("LabFabric")!.Text);
 
-                    foreach ((string cardName, MinecraftLoaderKind kind) in new[]
-                             {
-                                 ("Forge", MinecraftLoaderKind.Forge),
-                                 ("NeoForge", MinecraftLoaderKind.NeoForge),
-                                 ("Quilt", MinecraftLoaderKind.Quilt),
-                                 ("LabyMod", MinecraftLoaderKind.LabyMod),
-                                 ("OptiFine", MinecraftLoaderKind.OptiFine)
-                             })
-                    {
-                        modifyRequest = null;
-                        Click(window, page.FindControl<MyCard>("Card" + cardName)!);
-                        Assert.AreEqual(kind, modifyRequest?.LoaderKind, cardName);
-                        Assert.IsTrue(page.FindControl<MyCard>("Card" + cardName)!.IsSwapped, cardName);
-                    }
+                    Click(window, page.FindControl<MyExtraTextButton>("BtnSelectStart")!);
+                    Assert.AreEqual(MinecraftLoaderKind.Fabric, modifyRequest?.LoaderKind);
+                    Assert.AreEqual("0.16.14", modifyRequest?.LoaderVersion);
+                    Assert.IsTrue(modifyRequest?.ApplySelection);
 
                     modifyRequest = null;
                     Assert.IsTrue(page.FindControl<MyCard>("CardFabricApi")!.IsVisible);

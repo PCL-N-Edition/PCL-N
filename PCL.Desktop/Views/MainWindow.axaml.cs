@@ -2758,6 +2758,25 @@ public partial class MainWindow : Window, IDisposable
             : request.MinecraftVersionId;
         string minecraftRoot = MinecraftLaunchPlanFactory.GetMinecraftRootFromInstance(instance);
         PageDownloadInstall installPage = ActivateDownloadInstallPage(animate: true);
+        if (request.ApplySelection)
+        {
+            bool started = await installPage.ApplyExistingInstallSelection(
+                    versionId,
+                    instance.Name,
+                    minecraftRoot,
+                    request.LoaderKind,
+                    request.LoaderVersion,
+                    request.CurrentOptiFineVersion)
+                .ConfigureAwait(true);
+            if (!started)
+            {
+                ShowTextDialog(
+                    "无法应用组件更改",
+                    $"未能在版本清单中找到 Minecraft {versionId}，组件更改尚未执行。");
+            }
+            return;
+        }
+
         if (request.AddonKind is { } addonKind &&
             request.CurrentLoaderKind is { } currentLoaderKind &&
             !string.IsNullOrWhiteSpace(request.CurrentLoaderVersion))
