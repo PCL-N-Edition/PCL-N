@@ -6,6 +6,8 @@ using System.Reflection;
 using System.Globalization;
 using System.Runtime;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics.Arm;
+using System.Runtime.Intrinsics.X86;
 using System.Text;
 using PCL.Core.Logging;
 using PCL.Desktop.Features.Settings.Views;
@@ -77,7 +79,8 @@ public static class DesktopFileLog
                 path,
                 PortableLogLevel.Info,
                 "Runtime",
-                $"{RuntimeInformation.FrameworkDescription}；CPU：{Environment.ProcessorCount}；GC：{(GCSettings.IsServerGC ? "Server" : "Workstation")}");
+                $"{RuntimeInformation.FrameworkDescription}；CPU：{Environment.ProcessorCount}；" +
+                $"GC：{(GCSettings.IsServerGC ? "Server" : "Workstation")}；SIMD：{DescribeSimdPath()}");
             WriteCore(
                 path,
                 PortableLogLevel.Info,
@@ -86,6 +89,12 @@ public static class DesktopFileLog
             WriteCore(path, PortableLogLevel.Info, "Display", DescribeDesktopSession());
         }
     }
+
+    private static string DescribeSimdPath() =>
+        Avx2.IsSupported ? "AVX2-256" :
+        AdvSimd.IsSupported ? "AdvSimd-128" :
+        Sse2.IsSupported ? "SSE2-128" :
+        "Scalar";
 
     public static void ConfigureLevel(PortableLogLevel level)
     {

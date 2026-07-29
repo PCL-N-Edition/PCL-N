@@ -23,14 +23,15 @@
     <PublishTrimmed>true</PublishTrimmed>
     <TrimMode>link</TrimMode>
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
-    <!-- NativeAOT production policy: prefer a compact portable executable.
-         Keep size-optimized LINQ disabled because it can penalize hot iterator
-         pipelines disproportionately; the rest of the program remains whole-
-         program optimized for size.
+    <!-- NativeAOT production policy: optimize the launcher for responsiveness.
+         Framework MIBC PGO is intentionally disabled: speed optimization remains enabled,
+         while avoiding the large framework-profile contribution to executable
+         size. Hot code performs runtime ISA dispatch instead of raising the
+         minimum CPU required by a public RID artifact.
          Do not use IlcInstructionSet=native for public artifacts because the
          runner CPU is not the minimum CPU supported by each RID. -->
-    <OptimizationPreference>Size</OptimizationPreference>
-    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <OptimizationPreference>Speed</OptimizationPreference>
+    <IlcPgoOptimize>false</IlcPgoOptimize>
     <UseSizeOptimizedLinq>false</UseSizeOptimizedLinq>
     <EnableAotAnalyzer>true</EnableAotAnalyzer>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>

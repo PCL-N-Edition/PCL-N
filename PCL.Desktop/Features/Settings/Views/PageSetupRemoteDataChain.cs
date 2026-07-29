@@ -26,7 +26,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
     private readonly string _pageId;
     private readonly StackPanel _panMain;
-    private readonly TextBlock _status;
+    private readonly MyLoading _loading;
     private readonly Dictionary<string, Func<string?>> _fields = new(StringComparer.OrdinalIgnoreCase);
     private int _listAnimSeq;
 
@@ -34,7 +34,12 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pageId);
         _pageId = pageId;
-        _status = CreateMuted("正在从插件侧车加载页面…", 13);
+        _loading = new MyLoading
+        {
+            Text = "正在加载",
+            Margin = new Thickness(20, 20, 20, 17),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
         _panMain = new StackPanel
         {
             Margin = new Thickness(25, 25, 25, 10),
@@ -49,7 +54,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         PanScroll = scroll;
         Content = scroll;
 
-        // Splash preloads roots — open instantly without the loading line when possible.
+        // Reuse a root already fetched during this session; otherwise load on demand.
         if (PluginUiPageCache.TryGetRoot(_pageId, out PluginUiNodeDto? cached) && cached is not null)
         {
             ApplyRoot(cached);
@@ -63,7 +68,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             return;
         }
 
-        _panMain.Children.Add(_status);
+        _panMain.Children.Add(_loading);
         RefreshPage();
     }
 

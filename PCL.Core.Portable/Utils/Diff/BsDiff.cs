@@ -48,10 +48,13 @@ IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 */
 
-using System;
-using System.IO;
-using System.Threading.Tasks;
+using System.Buffers;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.Arm;
+using System.Runtime.Intrinsics.X86;
 using ICSharpCode.SharpZipLib.BZip2;
+using PCL.Core.Logging;
 
 namespace PCL.Core.Utils.Diff;
 
@@ -64,6 +67,13 @@ public class BsDiff : IBinaryDiff
 	private const int HeaderCtrlIndex = 8;
 	private const int HeaderDiffIndex = 16;
 	private const int HeaderNewSizeIndex = 24;
+	private const int IoBufferSize = 128 * 1024;
+
+	private static readonly string ByteAdditionPath =
+		Avx2.IsSupported ? "AVX2-256" :
+		AdvSimd.IsSupported ? "AdvSimd-128" :
+		Sse2.IsSupported ? "SSE2-128" :
+		"Scalar";
 
 	/*
 File format:
@@ -121,52 +131,140 @@ extra block; seek forwards in oldfile by z bytes".
 			
 			var ret = new byte[newLen];
 
-			long newDataPos = 0;
-			long oldDataPos = 0;
-			while (newDataPos < newLen)
+			byte[] ioBuffer = ArrayPool<byte>.Shared.Rent(IoBufferSize);
+			try
 			{
-				var addRange = ReadInt64(ctrlReader.ReadBytes(8));
-				var copyRange = ReadInt64(ctrlReader.ReadBytes(8));
-				var seekPos = ReadInt64(ctrlReader.ReadBytes(8));
+				PortableLog.Debug("BsDiff", $"开始应用补丁；字节合并路径={ByteAdditionPath}。");
+				long newDataPos = 0;
+				long oldDataPos = 0;
+				while (newDataPos < newLen)
+				{
+					var addRange = ReadInt64(ctrlReader.ReadBytes(8));
+					var copyRange = ReadInt64(ctrlReader.ReadBytes(8));
+					var seekPos = ReadInt64(ctrlReader.ReadBytes(8));
 
-				// 新加入的
-				if (newDataPos + addRange > newLen)
+					if (addRange < 0 || copyRange < 0)
+						throw new InvalidDataException("Control range is negative");
+
+					// 将差异块批量读入复用缓冲区；重叠旧数据用运行时 ISA 分派做模 256 相加。
+					if (newDataPos + addRange > newLen)
 						throw new InvalidDataException(
 							$"Add range overflows, want add {addRange}, but only have {newLen - newDataPos} left");
 
-				for (long i = 0; i < addRange; i++)
-				{
-					var readedByte = diffReader.ReadByte();
-					if (oldDataPos + i < originData.Length)
-						ret[newDataPos + i] = (byte)(readedByte + originData[oldDataPos + i]);
-					else
-						ret[newDataPos + i] = readedByte;
-				}
+					ApplyAddRange(
+						diffReader.BaseStream,
+						originData,
+						ret,
+						oldDataPos,
+						newDataPos,
+						addRange,
+						ioBuffer);
 
-				newDataPos += addRange;
-				oldDataPos += addRange;
+					newDataPos += addRange;
+					oldDataPos += addRange;
 
-				// 原有的
-				if (newDataPos + copyRange > newLen)
+					// Extra 块无需逐字节读取，直接填充目标区间。
+					if (newDataPos + copyRange > newLen)
 						throw new InvalidDataException(
 							$"Copy range overflows, want copy {copyRange}, but only have {newLen - newDataPos} left");
 
-				for (var i = 0; i < copyRange; i++)
-				{
-					ret[newDataPos + i] = extraReader.ReadByte();
-				}
+					extraReader.BaseStream.ReadExactly(ret.AsSpan(
+						checked((int)newDataPos),
+						checked((int)copyRange)));
+					newDataPos += copyRange;
 
-				newDataPos += copyRange;
-
-				// 原有的切换到指定位置继续读取
-				oldDataPos += seekPos;
-				if (oldDataPos > originData.Length)
+					// 原有的切换到指定位置继续读取。
+					oldDataPos += seekPos;
+					if (oldDataPos > originData.Length)
 						throw new InvalidDataException(
 						$"Old data pos overflows, current old data length = {originData.Length}, but want {oldDataPos}");
+				}
+
+				return ret;
+			}
+			finally
+			{
+				ArrayPool<byte>.Shared.Return(ioBuffer);
+			}
+		});
+	}
+
+	private static void ApplyAddRange(
+		Stream diffStream,
+		byte[] originData,
+		byte[] targetData,
+		long oldDataPos,
+		long newDataPos,
+		long count,
+		byte[] ioBuffer)
+	{
+		long processed = 0;
+		while (processed < count)
+		{
+			int chunkLength = (int)Math.Min(ioBuffer.Length, count - processed);
+			Span<byte> diffChunk = ioBuffer.AsSpan(0, chunkLength);
+			diffStream.ReadExactly(diffChunk);
+
+			Span<byte> targetChunk = targetData.AsSpan(
+				checked((int)(newDataPos + processed)),
+				chunkLength);
+			diffChunk.CopyTo(targetChunk);
+
+			long sourceStart = checked(oldDataPos + processed);
+			long sourceEnd = checked(sourceStart + chunkLength);
+			long overlapStart = Math.Max(sourceStart, 0);
+			long overlapEnd = Math.Min(sourceEnd, originData.LongLength);
+			if (overlapStart < overlapEnd)
+			{
+				int chunkOffset = checked((int)(overlapStart - sourceStart));
+				int originOffset = checked((int)overlapStart);
+				int overlapLength = checked((int)(overlapEnd - overlapStart));
+				AddModulo256(
+					diffChunk.Slice(chunkOffset, overlapLength),
+					originData.AsSpan(originOffset, overlapLength),
+					targetChunk.Slice(chunkOffset, overlapLength));
 			}
 
-			return ret;
-		});
+			processed += chunkLength;
+		}
+	}
+
+	private static void AddModulo256(
+		ReadOnlySpan<byte> left,
+		ReadOnlySpan<byte> right,
+		Span<byte> destination)
+	{
+		int offset = 0;
+		if (Avx2.IsSupported)
+		{
+			ReadOnlySpan<Vector256<byte>> leftVectors = MemoryMarshal.Cast<byte, Vector256<byte>>(left);
+			ReadOnlySpan<Vector256<byte>> rightVectors = MemoryMarshal.Cast<byte, Vector256<byte>>(right);
+			Span<Vector256<byte>> destinationVectors = MemoryMarshal.Cast<byte, Vector256<byte>>(destination);
+			for (int index = 0; index < leftVectors.Length; index++)
+				destinationVectors[index] = Avx2.Add(leftVectors[index], rightVectors[index]);
+			offset = leftVectors.Length * Vector256<byte>.Count;
+		}
+		else if (AdvSimd.IsSupported)
+		{
+			ReadOnlySpan<Vector128<byte>> leftVectors = MemoryMarshal.Cast<byte, Vector128<byte>>(left);
+			ReadOnlySpan<Vector128<byte>> rightVectors = MemoryMarshal.Cast<byte, Vector128<byte>>(right);
+			Span<Vector128<byte>> destinationVectors = MemoryMarshal.Cast<byte, Vector128<byte>>(destination);
+			for (int index = 0; index < leftVectors.Length; index++)
+				destinationVectors[index] = AdvSimd.Add(leftVectors[index], rightVectors[index]);
+			offset = leftVectors.Length * Vector128<byte>.Count;
+		}
+		else if (Sse2.IsSupported)
+		{
+			ReadOnlySpan<Vector128<byte>> leftVectors = MemoryMarshal.Cast<byte, Vector128<byte>>(left);
+			ReadOnlySpan<Vector128<byte>> rightVectors = MemoryMarshal.Cast<byte, Vector128<byte>>(right);
+			Span<Vector128<byte>> destinationVectors = MemoryMarshal.Cast<byte, Vector128<byte>>(destination);
+			for (int index = 0; index < leftVectors.Length; index++)
+				destinationVectors[index] = Sse2.Add(leftVectors[index], rightVectors[index]);
+			offset = leftVectors.Length * Vector128<byte>.Count;
+		}
+
+		for (; offset < left.Length; offset++)
+			destination[offset] = unchecked((byte)(left[offset] + right[offset]));
 	}
 
 	public Task<byte[]> MakeAsync(byte[] originData, byte[] newData)

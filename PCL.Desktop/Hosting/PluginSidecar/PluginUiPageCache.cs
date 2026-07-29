@@ -2,14 +2,10 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Collections.Concurrent;
-using System.Diagnostics;
-using PCL.Core.Logging;
-
 namespace PCL.Desktop.Hosting.PluginSidecar;
 
 /// <summary>
-/// Prefetches sidecar UI data-chain page roots during splash so settings pages
-/// open without a visible "正在加载" state.
+/// Caches sidecar UI data-chain roots after a page is requested.
 /// </summary>
 internal static class PluginUiPageCache
 {
@@ -71,74 +67,5 @@ internal static class PluginUiPageCache
     {
         Roots.Clear();
         Failures.Clear();
-    }
-
-    /// <summary>
-    /// Fetch and cache every listed page. Runs after sidecar hello during splash.
-    /// </summary>
-    public static async Task PreloadAsync(
-        PluginSidecarClient client,
-        IEnumerable<string> pageIds,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(client);
-        ArgumentNullException.ThrowIfNull(pageIds);
-
-        List<string> unique = pageIds
-            .Where(static id => !string.IsNullOrWhiteSpace(id))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        int ok = 0;
-        int fail = 0;
-        Stopwatch totalClock = Stopwatch.StartNew();
-        foreach (string pageId in unique)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            Stopwatch pageClock = Stopwatch.StartNew();
-            try
-            {
-                PluginSidecarResult page = await client.UiGetPageAsync(pageId, cancellationToken)
-                    .ConfigureAwait(false);
-                if (page.Ok && page.Root is not null)
-                {
-                    SetRoot(pageId, page.Root);
-                    ok++;
-                }
-                else
-                {
-                    Failures[pageId] = page.Message ?? "页面为空。";
-                    fail++;
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                Failures[pageId] = ex.Message;
-                fail++;
-                PortableLog.Warn("PluginSidecar", $"预加载页面失败 {pageId}：{ex.Message}");
-            }
-            finally
-            {
-                pageClock.Stop();
-                if (pageClock.Elapsed >= TimeSpan.FromMilliseconds(500))
-                {
-                    PortableLog.Info(
-                        "PluginSidecar",
-                        $"插件页面预加载耗时：{pageId}={pageClock.Elapsed.TotalMilliseconds:0}ms。");
-                }
-                else
-                {
-                    PortableLog.Debug(
-                        "PluginSidecar",
-                        $"插件页面预加载耗时：{pageId}={pageClock.Elapsed.TotalMilliseconds:0}ms。");
-                }
-            }
-        }
-
-        totalClock.Stop();
-        PortableLog.Info(
-            "PluginSidecar",
-            $"插件页面预加载完成：ok={ok} fail={fail} total={unique.Count}；" +
-            $"elapsed={totalClock.Elapsed.TotalMilliseconds:0}ms。");
     }
 }

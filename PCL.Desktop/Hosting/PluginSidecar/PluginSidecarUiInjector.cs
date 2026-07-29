@@ -55,15 +55,10 @@ internal static class PluginSidecarUiInjector
             }
         }
 
-        List<string> preloadIds = [];
         foreach (PluginUiPageDto page in manifest.Pages ?? [])
         {
             if (string.IsNullOrWhiteSpace(page.Id) || InjectedPageIds.Contains(page.Id))
-            {
-                if (!string.IsNullOrWhiteSpace(page.Id))
-                    preloadIds.Add(page.Id);
                 continue;
-            }
 
             string pageId = page.Id;
             try
@@ -81,23 +76,16 @@ internal static class PluginSidecarUiInjector
                     PageFactory = () => new PageSetupRemoteDataChain(pageId)
                 });
                 InjectedPageIds.Add(page.Id);
-                preloadIds.Add(page.Id);
             }
             catch (InvalidOperationException)
             {
                 InjectedPageIds.Add(page.Id);
-                preloadIds.Add(page.Id);
             }
         }
 
-        // OOBE online step is not a settings sidebar page but still uses data-chain.
-        preloadIds.Add("pcl.oobe.online");
-
         PortableLog.Info(
             "PluginSidecar",
-            $"UI data-chain injected groups={InjectedGroupIds.Count} pages={InjectedPageIds.Count}；开始预加载页面正文…");
-
-        await PluginUiPageCache.PreloadAsync(client, preloadIds, cancellationToken).ConfigureAwait(false);
+            $"UI data-chain injected groups={InjectedGroupIds.Count} pages={InjectedPageIds.Count}；页面正文改为按需加载。");
 
         Dispatcher.UIThread.Post(() => SettingsNavigationChanged?.Invoke());
     }

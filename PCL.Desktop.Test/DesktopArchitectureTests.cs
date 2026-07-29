@@ -750,6 +750,58 @@ public sealed class DesktopArchitectureTests
     }
 
     [TestMethod]
+    public void Build_UsesSpeedAotWithRuntimeInstructionDispatch()
+    {
+        string desktopRoot = FindDesktopProjectRoot();
+        string project = File.ReadAllText(Path.Combine(desktopRoot, "PCL.Desktop.csproj"));
+        string fileLog = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Diagnostics",
+            "DesktopFileLog.cs"));
+
+        StringAssert.Contains(project, "<OptimizationPreference>Speed</OptimizationPreference>");
+        StringAssert.Contains(project, "<IlcPgoOptimize>false</IlcPgoOptimize>");
+        Assert.IsFalse(project.Contains(
+            "<OptimizationPreference>Size</OptimizationPreference>",
+            StringComparison.Ordinal));
+        Assert.IsFalse(project.Contains("<IlcInstructionSet>", StringComparison.Ordinal));
+
+        StringAssert.Contains(fileLog, "Avx2.IsSupported");
+        StringAssert.Contains(fileLog, "AdvSimd.IsSupported");
+        StringAssert.Contains(fileLog, "Sse2.IsSupported");
+    }
+
+    [TestMethod]
+    public void Startup_DoesNotBlockOnPluginPageBodies()
+    {
+        string desktopRoot = FindDesktopProjectRoot();
+        string injector = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Hosting",
+            "PluginSidecar",
+            "PluginSidecarUiInjector.cs"));
+        string cache = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Hosting",
+            "PluginSidecar",
+            "PluginUiPageCache.cs"));
+        string remotePage = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Features",
+            "Settings",
+            "Views",
+            "PageSetupRemoteDataChain.cs"));
+
+        StringAssert.Contains(injector, "页面正文改为按需加载");
+        Assert.IsFalse(injector.Contains("PreloadAsync", StringComparison.Ordinal));
+        Assert.IsFalse(cache.Contains("PreloadAsync", StringComparison.Ordinal));
+        StringAssert.Contains(remotePage, "_loading = new MyLoading");
+        Assert.IsFalse(remotePage.Contains(
+            "正在从插件侧车加载页面",
+            StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void DesktopHost_InitializesBuiltinModulesOnly()
     {
         string desktopHost = File.ReadAllText(Path.Combine(

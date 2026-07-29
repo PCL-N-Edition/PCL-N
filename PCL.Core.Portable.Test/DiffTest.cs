@@ -2,9 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
-using System;
-using System.IO;
-using System.Threading.Tasks;
+using ICSharpCode.SharpZipLib.BZip2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using PCL.Core.Utils.Diff;
 
@@ -69,5 +67,53 @@ public class DiffTest
         byte[] applied = await diff.ApplyAsync([1, 2, 3], patch);
 
         CollectionAssert.AreEqual(Array.Empty<byte>(), applied);
+    }
+
+    [TestMethod]
+    public async Task TestBsDiffAppliesLargeVectorizedDiffBlock()
+    {
+        const int length = 512 * 1024 + 13;
+        byte[] origin = new byte[length];
+        byte[] expected = new byte[length];
+        byte[] delta = new byte[length];
+        Random random = new(20260729);
+        random.NextBytes(origin);
+        random.NextBytes(expected);
+        for (int index = 0; index < length; index++)
+            delta[index] = unchecked((byte)(expected[index] - origin[index]));
+
+        byte[] patch = BuildAddPatch(delta);
+        byte[] applied = await new BsDiff().ApplyAsync(origin, patch);
+
+        CollectionAssert.AreEqual(expected, applied);
+    }
+
+    private static byte[] BuildAddPatch(byte[] delta)
+    {
+        byte[] control = new byte[24];
+        BitConverter.TryWriteBytes(control.AsSpan(0, 8), (long)delta.Length);
+        byte[] compressedControl = Compress(control);
+        byte[] compressedDelta = Compress(delta);
+        byte[] compressedExtra = Compress([]);
+
+        using MemoryStream patch = new();
+        using BinaryWriter writer = new(patch);
+        writer.Write(0x3034464649445342L);
+        writer.Write((long)compressedControl.Length);
+        writer.Write((long)compressedDelta.Length);
+        writer.Write((long)delta.Length);
+        writer.Write(compressedControl);
+        writer.Write(compressedDelta);
+        writer.Write(compressedExtra);
+        writer.Flush();
+        return patch.ToArray();
+    }
+
+    private static byte[] Compress(byte[] data)
+    {
+        using MemoryStream stream = new();
+        using (BZip2OutputStream output = new(stream))
+            output.Write(data);
+        return stream.ToArray();
     }
 }
