@@ -54,25 +54,41 @@ public static class MinecraftLoaderVersionJsonBuilder
         ArgumentException.ThrowIfNullOrWhiteSpace(gameVersion);
         ArgumentException.ThrowIfNullOrWhiteSpace(loaderVersion);
 
-        string loaderName = kind switch
+        return kind switch
         {
-            MinecraftLoaderKind.Fabric => "fabric-loader",
-            MinecraftLoaderKind.LegacyFabric => "legacy-fabric-loader",
-            MinecraftLoaderKind.Quilt => "quilt-loader",
-            MinecraftLoaderKind.LabyMod => "labymod",
-            MinecraftLoaderKind.LiteLoader => "liteloader",
-            _ => kind.ToString().ToLowerInvariant()
+            MinecraftLoaderKind.Fabric =>
+                $"{gameVersion}-Fabric_{loaderVersion.Replace("+build", string.Empty, StringComparison.Ordinal)}",
+            MinecraftLoaderKind.LegacyFabric => $"{gameVersion}-LegacyFabric_{loaderVersion}",
+            MinecraftLoaderKind.Quilt => $"{gameVersion}-Quilt_{loaderVersion}",
+            MinecraftLoaderKind.LabyMod => CreateLabyModVersionId(gameVersion, loaderVersion),
+            MinecraftLoaderKind.LiteLoader => $"{gameVersion}-LiteLoader",
+            MinecraftLoaderKind.Forge => $"{gameVersion}-Forge_{loaderVersion}",
+            MinecraftLoaderKind.NeoForge => $"{gameVersion}-NeoForge_{loaderVersion}",
+            MinecraftLoaderKind.Cleanroom => $"{gameVersion}-Cleanroom_{loaderVersion}",
+            MinecraftLoaderKind.OptiFine => $"{gameVersion}-OptiFine_{NormalizeOptiFineVersion(gameVersion, loaderVersion)}",
+            _ => $"{gameVersion}-{kind}_{loaderVersion}"
         };
-        if (kind == MinecraftLoaderKind.LabyMod)
-        {
-            string[] parts = loaderVersion.Split('+', 3, StringSplitOptions.TrimEntries);
-            if (parts.Length == 3)
-                return $"{loaderName}-{parts[2]}-{gameVersion}";
-        }
+    }
 
-        if (kind == MinecraftLoaderKind.LiteLoader)
-            return $"{gameVersion}-LiteLoader";
-        return $"{loaderName}-{loaderVersion}-{gameVersion}";
+    private static string CreateLabyModVersionId(string gameVersion, string loaderVersion)
+    {
+        string[] parts = loaderVersion.Split('+', 3, StringSplitOptions.TrimEntries);
+        if (parts.Length != 3 || parts.Any(string.IsNullOrWhiteSpace))
+            return $"{gameVersion}-LabyMod_{loaderVersion}";
+
+        string channel = parts[0].Equals("snapshot", StringComparison.OrdinalIgnoreCase)
+            ? "Snapshot"
+            : "Production";
+        return $"{gameVersion}-LabyMod_{parts[1]}_{channel}";
+    }
+
+    private static string NormalizeOptiFineVersion(string gameVersion, string loaderVersion)
+    {
+        string prefix = gameVersion + "_";
+        string version = loaderVersion.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? loaderVersion[prefix.Length..]
+            : loaderVersion;
+        return version.Replace(' ', '_');
     }
 
     private static JsonArray CreateLibraries(MinecraftLoaderInstallMetadata loader)
