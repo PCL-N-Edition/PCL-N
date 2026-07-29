@@ -158,16 +158,22 @@ public class MediaElement : Image, IDisposable
 
     private static string? ResolveLibVlcDirectory()
     {
-        if (!OperatingSystem.IsWindows())
-            return null;
-
         string architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch
         {
             System.Runtime.InteropServices.Architecture.Arm64 => "win-arm64",
             System.Runtime.InteropServices.Architecture.X86 => "win-x86",
             _ => "win-x64"
         };
-        IEnumerable<string> roots = [AppContext.BaseDirectory];
+        string runtimeIdentifier = OperatingSystem.IsWindows()
+            ? architecture
+            : OperatingSystem.IsMacOS()
+                ? architecture.Replace("win-", "osx-", StringComparison.Ordinal)
+                : architecture.Replace("win-", "linux-", StringComparison.Ordinal);
+        IEnumerable<string> roots =
+        [
+            PCL.Desktop.Hosting.PclEmbeddedNativeRuntime.InstalledDirectory ?? string.Empty,
+            AppContext.BaseDirectory
+        ];
         if (AppContext.GetData("NATIVE_DLL_SEARCH_DIRECTORIES") is string nativeDirectories)
         {
             roots = roots.Concat(nativeDirectories.Split(
@@ -175,11 +181,32 @@ public class MediaElement : Image, IDisposable
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         }
 
-        foreach (string root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+        string libraryName = OperatingSystem.IsWindows()
+            ? "libvlc.dll"
+            : OperatingSystem.IsMacOS()
+                ? "libvlc.dylib"
+                : "libvlc.so";
+        foreach (string root in roots
+                     .Where(static root => !string.IsNullOrWhiteSpace(root))
+                     .Distinct(OperatingSystem.IsWindows()
+                         ? StringComparer.OrdinalIgnoreCase
+                         : StringComparer.Ordinal))
         {
-            string candidate = Path.Combine(root, "libvlc", architecture);
-            if (File.Exists(Path.Combine(candidate, "libvlc.dll")))
-                return candidate;
+            string[] candidates =
+            [
+                Path.Combine(root, "libvlc", runtimeIdentifier),
+                Path.Combine(root, "libvlc", architecture),
+                Path.Combine(root, "libvlc"),
+                root
+            ];
+            foreach (string candidate in candidates.Distinct(
+                         OperatingSystem.IsWindows()
+                             ? StringComparer.OrdinalIgnoreCase
+                             : StringComparer.Ordinal))
+            {
+                if (File.Exists(Path.Combine(candidate, libraryName)))
+                    return candidate;
+            }
         }
         return null;
     }

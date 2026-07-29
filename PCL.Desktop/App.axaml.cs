@@ -104,16 +104,21 @@ public sealed partial class App : Avalonia.Application
                     if (runOobe)
                     {
                         OobeRunPlan plan = OobeConfiguration.CreateRunPlan(settings);
-                        _ = EnterOobeAfterPluginReadyAsync(desktop, plan, showSplash);
+                        UnhandledExceptionGuard.Observe(
+                            EnterOobeAfterPluginReadyAsync(desktop, plan, showSplash),
+                            "App.EnterOobeAfterPluginReadyAsync");
                     }
                     else
                     {
-                        _ = EnterMainShellAfterPluginReadyAsync(desktop, showSplash);
+                        UnhandledExceptionGuard.Observe(
+                            EnterMainShellAfterPluginReadyAsync(desktop, showSplash),
+                            "App.EnterMainShellAfterPluginReadyAsync");
                     }
                 }
             }
 
             base.OnFrameworkInitializationCompleted();
+            UnhandledExceptionGuard.NotifyUiReady();
         }
         catch (Exception ex)
         {

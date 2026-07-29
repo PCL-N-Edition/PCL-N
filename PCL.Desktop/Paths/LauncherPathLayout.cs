@@ -10,8 +10,8 @@ namespace PCL.Desktop.Paths;
 
 /// <summary>
 /// Optional portable path overrides for launcher data / cache (OOBE + advanced setups).
-/// <c>pcln-paths.json</c> is resolved next to the host executable (not AppContext.BaseDirectory,
-/// which may be a temp extract folder on C: for single-file / some host modes).
+/// <c>pcln-paths.json</c> has one canonical location under the platform-local
+/// application-data directory. It is never created next to the launcher executable.
 /// </summary>
 internal static class LauncherPathLayout
 {
@@ -19,7 +19,6 @@ internal static class LauncherPathLayout
 
     private static readonly object Gate = new();
     private static LauncherPathOverrideDocument? _cachedDocument;
-    private static string? _cachedOverrideFilePath;
 
     public static string OverrideFilePath => ResolveOverrideFilePath();
 
@@ -91,45 +90,25 @@ internal static class LauncherPathLayout
     public static void InvalidateCache()
     {
         lock (Gate)
-        {
             _cachedDocument = null;
-            _cachedOverrideFilePath = null;
-        }
     }
 
     public static void Save(LauncherPathOverrideDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
-        string primary = Path.Combine(GetHostDirectory(), FileName);
+        string primary = ResolveOverrideFilePath();
         try
         {
             string json = JsonSerializer.Serialize(
                 document,
                 LauncherPathLayoutJsonContext.Default.LauncherPathOverrideDocument);
-
-            // Write to every known location so deleting only the exe-side file does not lose the mapping.
-            foreach (string path in EnumerateWriteTargets(primary))
-            {
-                try
-                {
-                    string? dir = Path.GetDirectoryName(path);
-                    if (!string.IsNullOrWhiteSpace(dir))
-                        Directory.CreateDirectory(dir);
-                    File.WriteAllText(path, json);
-                }
-                catch (Exception mirrorEx)
-                {
-                    PortableLog.Warn("Paths", $"写入路径覆盖失败（{path}）：{mirrorEx.Message}");
-                }
-            }
+            WriteOverrideFile(primary, json);
+            CleanupLegacyOverrideFiles(primary);
 
             lock (Gate)
-            {
                 _cachedDocument = Clone(document);
-                _cachedOverrideFilePath = primary;
-            }
 
-            PortableLog.Info("Paths", "已写入路径覆盖（含系统备份）：" + primary);
+            PortableLog.Info("Paths", "已写入 LocalAppData 路径覆盖：" + primary);
         }
         catch (Exception ex)
         {
@@ -196,7 +175,7 @@ internal static class LauncherPathLayout
         return data;
     }
 
-    /// <summary>Safe log root: data/Logs, or host/Logs, or TEMP/PCL-N/Logs — never throws.</summary>
+    /// <summary>Safe log root: data/Logs, LocalAppData/PCL-N/Logs, or TEMP/PCL-N/Logs — never throws.</summary>
     public static string ResolveLogDirectory()
     {
         try
@@ -212,9 +191,13 @@ internal static class LauncherPathLayout
 
         try
         {
-            string dir = Path.Combine(GetHostDirectory(), "Logs");
-            if (TryEnsureDirectory(dir))
-                return dir;
+            string localRoot = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrWhiteSpace(localRoot))
+            {
+                string dir = Path.Combine(localRoot, "PCL-N", "Logs");
+                if (TryEnsureDirectory(dir))
+                    return dir;
+            }
         }
         catch
         {
@@ -273,71 +256,24 @@ internal static class LauncherPathLayout
 
     private static string ResolveOverrideFilePath()
     {
-        lock (Gate)
-        {
-            if (!string.IsNullOrWhiteSpace(_cachedOverrideFilePath))
-                return _cachedOverrideFilePath!;
-        }
-
-        foreach (string candidate in EnumerateOverrideCandidateFiles())
-        {
-            if (File.Exists(candidate))
-            {
-                lock (Gate)
-                    _cachedOverrideFilePath = candidate;
-                return candidate;
-            }
-        }
-
-        string primary = Path.Combine(GetHostDirectory(), FileName);
-        lock (Gate)
-            _cachedOverrideFilePath = primary;
-        return primary;
+        string root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrWhiteSpace(root))
+            root = new DefaultPlatformPathProvider().ApplicationDataDirectory;
+        return Path.GetFullPath(Path.Combine(root, "PCL-N", FileName));
     }
 
     /// <summary>
-    /// Search order for path mapping:
-    /// 1) real exe directory
-    /// 2) AppContext.BaseDirectory / cwd
-    /// 3) %LocalAppData%/PCL-N and %AppData%/PCL-N backups (survive deleting only the exe-side json)
+    /// Legacy locations are read once during upgrade, copied to LocalAppData,
+    /// and then deleted. They are never regular lookup or write targets.
     /// </summary>
-    private static IEnumerable<string> EnumerateOverrideCandidateFiles()
+    private static IEnumerable<string> EnumerateLegacyOverrideCandidateFiles()
     {
         foreach (string dir in EnumerateHostCandidateDirectories())
             yield return Path.Combine(dir, FileName);
 
-        foreach (string backupDir in EnumerateSystemBackupDirectories())
-            yield return Path.Combine(backupDir, FileName);
-    }
-
-    private static HashSet<string> EnumerateWriteTargets(string primary)
-    {
-        HashSet<string> seen = new(OperatingSystem.IsWindows()
-            ? StringComparer.OrdinalIgnoreCase
-            : StringComparer.Ordinal);
-        void Add(string? p)
-        {
-            if (string.IsNullOrWhiteSpace(p))
-                return;
-            try { seen.Add(Path.GetFullPath(p)); } catch { /* skip */ }
-        }
-
-        Add(primary);
-        try { Add(Path.Combine(Path.GetFullPath(AppContext.BaseDirectory), FileName)); } catch { /* skip */ }
-        foreach (string backupDir in EnumerateSystemBackupDirectories())
-            Add(Path.Combine(backupDir, FileName));
-        return seen;
-    }
-
-    private static IEnumerable<string> EnumerateSystemBackupDirectories()
-    {
-        // Always under the *system* profile folders so a missing exe-side json can still recover.
-        yield return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PCL-N");
-        yield return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "PCL-N");
+        string roamingRoot = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (!string.IsNullOrWhiteSpace(roamingRoot))
+            yield return Path.Combine(roamingRoot, "PCL-N", FileName);
     }
 
     private static HashSet<string> EnumerateHostCandidateDirectories()
@@ -371,51 +307,110 @@ internal static class LauncherPathLayout
 
     private static LauncherPathOverrideDocument LoadCore()
     {
-        foreach (string path in EnumerateOverrideCandidateFiles())
+        string primary = ResolveOverrideFilePath();
+        if (TryReadOverrideFile(primary, out LauncherPathOverrideDocument? primaryDocument, out _))
         {
-            if (!File.Exists(path))
+            CleanupLegacyOverrideFiles(primary);
+            PortableLog.Info("Paths", "已加载 LocalAppData 路径覆盖：" + primary);
+            return primaryDocument!;
+        }
+
+        foreach (string path in EnumerateLegacyOverrideCandidateFiles()
+                     .Where(path => !PathsEqual(path, primary))
+                     .Distinct(OperatingSystem.IsWindows()
+                         ? StringComparer.OrdinalIgnoreCase
+                         : StringComparer.Ordinal))
+        {
+            if (!TryReadOverrideFile(path, out LauncherPathOverrideDocument? document, out string? json))
                 continue;
 
             try
             {
-                string json = File.ReadAllText(path);
-                LauncherPathOverrideDocument? doc =
-                    JsonSerializer.Deserialize(
-                        json,
-                        LauncherPathLayoutJsonContext.Default.LauncherPathOverrideDocument);
-                if (doc is not null)
-                {
-                    PortableLog.Info("Paths", "已加载路径覆盖：" + path);
-                    lock (Gate)
-                        _cachedOverrideFilePath = path;
-
-                    // If exe-side file was deleted, restore it from backup so next launches stay stable.
-                    try
-                    {
-                        string hostCopy = Path.Combine(GetHostDirectory(), FileName);
-                        if (!File.Exists(hostCopy) && !PathsEqual(hostCopy, path))
-                        {
-                            Directory.CreateDirectory(GetHostDirectory());
-                            File.WriteAllText(hostCopy, json);
-                            PortableLog.Info("Paths", "已从备份恢复 exe 旁路径覆盖：" + hostCopy);
-                        }
-                    }
-                    catch
-                    {
-                        // best-effort restore
-                    }
-
-                    return doc;
-                }
+                WriteOverrideFile(primary, json!);
+                CleanupLegacyOverrideFiles(primary);
+                PortableLog.Info("Paths", $"已将旧路径覆盖迁移到 LocalAppData：{path} → {primary}");
             }
             catch (Exception ex)
             {
-                PortableLog.Warn("Paths", $"读取路径覆盖失败（{path}）：" + ex.Message);
+                PortableLog.Warn("Paths", "迁移旧路径覆盖失败，继续使用本次读取结果：" + ex.Message);
             }
+
+            return document!;
         }
 
         // No mapping file → clean defaults. Never throw.
         return new LauncherPathOverrideDocument();
+    }
+
+    private static bool TryReadOverrideFile(
+        string path,
+        out LauncherPathOverrideDocument? document,
+        out string? json)
+    {
+        document = null;
+        json = null;
+        if (!File.Exists(path))
+            return false;
+
+        try
+        {
+            json = File.ReadAllText(path);
+            document = JsonSerializer.Deserialize(
+                json,
+                LauncherPathLayoutJsonContext.Default.LauncherPathOverrideDocument);
+            return document is not null;
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Warn("Paths", $"读取路径覆盖失败（{path}）：" + ex.Message);
+            return false;
+        }
+    }
+
+    private static void WriteOverrideFile(string path, string json)
+    {
+        string? directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+
+        string temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            File.WriteAllText(temporary, json);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(temporary))
+                    File.Delete(temporary);
+            }
+            catch
+            {
+                // Best effort.
+            }
+        }
+    }
+
+    private static void CleanupLegacyOverrideFiles(string primary)
+    {
+        foreach (string path in EnumerateLegacyOverrideCandidateFiles()
+                     .Where(path => !PathsEqual(path, primary))
+                     .Distinct(OperatingSystem.IsWindows()
+                         ? StringComparer.OrdinalIgnoreCase
+                         : StringComparer.Ordinal))
+        {
+            try
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                PortableLog.Warn("Paths", $"清理旧路径覆盖失败（{path}）：" + ex.Message);
+            }
+        }
     }
 
     private static bool TryNormalizeExistingOrCreatableDirectory(string raw, out string fullPath)

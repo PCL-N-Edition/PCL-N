@@ -657,7 +657,7 @@ internal static class LauncherSettingsPageBinder
         if (!string.IsNullOrWhiteSpace(overridePath))
             return Path.GetFullPath(overridePath);
 
-        // OOBE / portable path layout (pcln-paths.json next to host binary).
+        // OOBE / portable path layout (pcln-paths.json only under LocalAppData/PCL-N).
         return LauncherPathLayout.ResolveSettingsFilePath();
     }
 

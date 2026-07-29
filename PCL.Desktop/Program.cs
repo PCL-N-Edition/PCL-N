@@ -23,10 +23,15 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        bool completedNormally = false;
+        UnhandledExceptionGuard.Install();
         try
         {
             if (LauncherUpdateBootstrap.TryRunUpdateHelper(args, out int updateExitCode))
+            {
+                completedNormally = true;
                 return updateExitCode;
+            }
 
             // NativeAOT cannot bundle dynamic Skia/LibVLC libraries into the
             // operating-system image. Install the signed, RID-specific payload
@@ -34,13 +39,14 @@ internal static class Program
             PclEmbeddedNativeRuntime.EnsureInstalled();
             args = LauncherUpdateBootstrap.ProcessStartupCleanup(args);
 
-            // Catch process-wide crashes as early as possible.
-            UnhandledExceptionGuard.Install();
-
             // The experimental JVM host is deliberately handled before settings, single-instance,
             // or Avalonia are initialized. It is a game process, not another launcher UI.
             if (MinecraftJvmHostProcessLauncher.TryGetRequestPath(args, out string jvmHostRequestPath))
-                return MinecraftJvmHostEntryPoint.Run(jvmHostRequestPath);
+            {
+                int jvmHostExitCode = MinecraftJvmHostEntryPoint.Run(jvmHostRequestPath);
+                completedNormally = true;
+                return jvmHostExitCode;
+            }
 
             SetLauncherWorkingDirectory();
 
@@ -91,11 +97,23 @@ internal static class Program
             }
 
             if (args.Contains("--validate-environment", StringComparer.OrdinalIgnoreCase))
-                return ValidateEnvironment();
+            {
+                int validationExitCode = ValidateEnvironment();
+                completedNormally = true;
+                return validationExitCode;
+            }
             if (args.Contains("--validate-assets", StringComparer.OrdinalIgnoreCase))
-                return ValidateAssets();
+            {
+                int validationExitCode = ValidateAssets();
+                completedNormally = true;
+                return validationExitCode;
+            }
             if (args.Contains("--validate-secrets", StringComparer.OrdinalIgnoreCase))
-                return PclEmbeddedSecrets.Count > 0 ? 0 : 2;
+            {
+                int validationExitCode = PclEmbeddedSecrets.Count > 0 ? 0 : 2;
+                completedNormally = true;
+                return validationExitCode;
+            }
 
             // OOBE: --oobe forces full flow; --oobe-resume after config-dir restart;
             // content version bumps drive short update flow.
@@ -121,12 +139,14 @@ internal static class Program
                     // ignore UI failures on secondary path
                 }
 
+                completedNormally = true;
                 return code;
             }
 
             App.SingleInstanceCoordinator = singleInstance;
             singleInstance.StartListening();
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            completedNormally = true;
             return 0;
         }
         catch (Exception ex)
@@ -144,6 +164,10 @@ internal static class Program
             ShowEarlyFailureMessage(ex);
             return 1;
         }
+        finally
+        {
+            UnhandledExceptionGuard.CompleteSession(completedNormally);
+        }
     }
 
     private static void ShowEarlyFailureMessage(Exception ex)
@@ -154,7 +178,7 @@ internal static class Program
                 "PCL N 启动失败，但已尽量避免静默闪退。\n\n" +
                 ex.GetType().Name + ": " + ex.Message + "\n\n" +
                 "若你删除了 pcln-paths.json，程序应回退到默认配置目录，而不是退出。\n" +
-                "路径映射备份位置：%LocalAppData%\\PCL-N\\pcln-paths.json\n" +
+                "路径映射位置：%LocalAppData%\\PCL-N\\pcln-paths.json\n" +
                 "日志：数据目录\\Logs 或 %LocalAppData%\\PCL-N\\Logs";
             if (OperatingSystem.IsWindows())
                 ShowWindowsMessageBox(text, "PCL N 启动失败");

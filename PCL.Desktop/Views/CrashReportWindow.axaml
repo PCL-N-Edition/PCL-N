@@ -17,12 +17,14 @@
     <Border Background="#FF2D2D30" Padding="20">
         <Grid RowDefinitions="Auto,Auto,*,Auto">
             <TextBlock Grid.Row="0"
+                       x:Name="TxtHeading"
                        Text="启动器遇到未捕获的异常"
                        FontSize="18"
                        FontWeight="Bold"
                        Foreground="#FFF3F3F3"
                        Margin="0,0,0,8" />
             <TextBlock Grid.Row="1"
+                       x:Name="TxtDescription"
                        Text="程序已尽量拦截该错误，以免直接闪退。请将下方信息提交到 GitHub Issue，便于我们修复。"
                        TextWrapping="Wrap"
                        Foreground="#FFD0D0D0"

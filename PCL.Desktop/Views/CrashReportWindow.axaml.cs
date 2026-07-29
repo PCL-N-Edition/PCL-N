@@ -31,7 +31,9 @@ public sealed partial class CrashReportWindow : Window
         string report,
         bool canContinue,
         string issuesUrl,
-        string issuesNewUrl)
+        string issuesNewUrl,
+        string? heading = null,
+        string? description = null)
     {
         _exception = exception ?? throw new ArgumentNullException(nameof(exception));
         _report = report ?? string.Empty;
@@ -49,6 +51,18 @@ public sealed partial class CrashReportWindow : Window
 
         if (this.FindControl<Button>("BtnContinue") is { } cont)
             cont.IsVisible = canContinue;
+
+        if (!string.IsNullOrWhiteSpace(heading) &&
+            this.FindControl<TextBlock>("TxtHeading") is { } headingBlock)
+        {
+            headingBlock.Text = heading;
+        }
+
+        if (!string.IsNullOrWhiteSpace(description) &&
+            this.FindControl<TextBlock>("TxtDescription") is { } descriptionBlock)
+        {
+            descriptionBlock.Text = description;
+        }
 
         Title = "PCL N — " + ShortTypeName(_exception);
     }

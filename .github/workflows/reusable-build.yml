@@ -431,7 +431,8 @@ jobs:
           # redundant and must not be distributed.
           find "$PUBLISH_DIR" -maxdepth 1 -type f \( -name 'PCL.Desktop' -o -name 'PCL.Desktop.exe' \) -delete
           # The dynamic native libraries are embedded by the second AOT pass
-          # and installed beside the executable before Avalonia starts.
+          # and installed under the OOBE-selected launcher data directory
+          # before Avalonia starts.
           find "$PUBLISH_DIR" -mindepth 1 -maxdepth 1 ! -name '${{ inputs.binary_name }}' -exec rm -rf {} +
           file_count=$(find "$PUBLISH_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')
           if [[ "$file_count" != "1" ]]; then
