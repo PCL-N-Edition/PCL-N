@@ -1231,6 +1231,49 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void ModAnimation_ApplicationExitStopsAndRejectsAnimations()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            try
+            {
+                ModAnimation.ResetForTesting();
+                ModAnimation.AniStart(
+                    ModAnimation.AaDouble(
+                        _ => { },
+                        1d,
+                        10_000,
+                        ease: new ModAnimation.AniEaseLinear()),
+                    "ModAnimation Exit Guard");
+
+                Assert.IsTrue(ModAnimation.IsTimerRunningForTesting);
+                Assert.IsTrue(ModAnimation.AniIsRun("ModAnimation Exit Guard"));
+
+                ModAnimation.ShutdownForApplicationExit();
+
+                Assert.IsFalse(ModAnimation.IsTimerRunningForTesting);
+                Assert.IsFalse(ModAnimation.AniIsRun("ModAnimation Exit Guard"));
+
+                ModAnimation.AniStart(
+                    ModAnimation.AaDouble(
+                        _ => { },
+                        1d,
+                        32,
+                        ease: new ModAnimation.AniEaseLinear()),
+                    "ModAnimation Late Exit Callback");
+                Assert.IsFalse(ModAnimation.IsTimerRunningForTesting);
+                Assert.IsFalse(ModAnimation.AniIsRun("ModAnimation Late Exit Callback"));
+            }
+            finally
+            {
+                ModAnimation.ResetForTesting();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void ModAnimation_AaScaleUsesWpfSymmetricMarginDelta()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

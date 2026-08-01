@@ -26,6 +26,7 @@ public static partial class ModAnimation
     private static readonly Stopwatch AniClock = new();
     private static DispatcherTimer? _aniTimer;
     private static bool _isAdvancingGroups;
+    private static bool _applicationExitStarted;
     private static double _aniLastTick;
     private static TimeSpan _frameInterval = TimeSpan.FromMilliseconds(16d);
 
@@ -37,11 +38,17 @@ public static partial class ModAnimation
 
     public static void AniStart()
     {
+        if (_applicationExitStarted)
+            return;
+
         EnsureTimer();
     }
 
     public static void AniStart(IList aniGroup, string name = "", bool refreshTime = false)
     {
+        if (_applicationExitStarted)
+            return;
+
         List<AniData> data = aniGroup.OfType<AniData>().ToList();
         if (data.Count == 0)
             return;
@@ -106,12 +113,28 @@ public static partial class ModAnimation
         ActiveAniGroups.Clear();
         PendingAniGroups.Clear();
         _isAdvancingGroups = false;
+        _applicationExitStarted = false;
         _aniTimer?.Stop();
         _aniTimer = null;
         _aniLastTick = 0d;
         AniControlEnabled = 0;
         aniSpeed = 1d;
         _frameInterval = TimeSpan.FromMilliseconds(16d);
+    }
+
+    /// <summary>
+    /// Stops the process-wide animation dispatcher during application shutdown and rejects
+    /// any late animation scheduled by window/page teardown callbacks.
+    /// </summary>
+    internal static void ShutdownForApplicationExit()
+    {
+        _applicationExitStarted = true;
+        AniGroups.Clear();
+        ActiveAniGroups.Clear();
+        PendingAniGroups.Clear();
+        _aniTimer?.Stop();
+        AniClock.Reset();
+        _aniLastTick = 0d;
     }
 
     public static void AniTimer(int deltaTick)

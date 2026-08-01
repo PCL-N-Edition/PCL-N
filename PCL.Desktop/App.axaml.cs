@@ -65,8 +65,11 @@ public sealed partial class App : Avalonia.Application
                     // While splash is the only window, closing it must not exit the process.
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-                    desktop.Exit += (_, _) =>
+                    desktop.Exit += (_, args) =>
                     {
+                        DesktopProcessExitGuard.Arm(args.ApplicationExitCode);
+                        ReleaseSingleInstanceLock();
+                        PCL.Desktop.Controls.Legacy.ModAnimation.ShutdownForApplicationExit();
                         DesktopFileLog.Info("Startup", "桌面生命周期正在退出；开始释放后台运行时。");
                         try
                         {
