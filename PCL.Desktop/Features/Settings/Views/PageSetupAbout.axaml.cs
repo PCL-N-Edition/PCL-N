@@ -8,6 +8,9 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Hosting;
+using PCL.Desktop.Legal;
+using PCL.Desktop.Localization;
+using PCL.Desktop.Telemetry;
 
 #pragma warning disable CA1822, CS0067
 
@@ -21,6 +24,7 @@ public partial class PageSetupAbout : MyPageRight, ISettingsPageInteractionSourc
     {
         AvaloniaXamlLoader.Load(this);
         PanScroll = PanBack;
+        LauncherSettingsPageBinder.Attach(this);
         ApplyMetadata();
         AttachedToVisualTree += (_, _) => ApplyMetadata();
     }
@@ -83,6 +87,45 @@ public partial class PageSetupAbout : MyPageRight, ISettingsPageInteractionSourc
     {
         OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs("https://github.com/PCL-Community/PCL-CE"));
     }
+
+    private void BtnTerms_Click(object? sender, EventArgs e) =>
+        MessageRequested?.Invoke(
+            this,
+            new SettingsMessageRequestedEventArgs(
+                Text("Setup.About.Telemetry.Terms", "用户服务协议"),
+                EmbeddedLegalDocuments.LoadTermsMarkdown(),
+                Text("Common.Action.Close", "关闭")));
+
+    private void BtnPrivacy_Click(object? sender, EventArgs e) =>
+        MessageRequested?.Invoke(
+            this,
+            new SettingsMessageRequestedEventArgs(
+                Text("Setup.About.Telemetry.Privacy", "隐私保护协议"),
+                EmbeddedLegalDocuments.LoadPrivacyMarkdown(),
+                Text("Common.Action.Close", "关闭")));
+
+    private void BtnTelemetryClear_Click(object? sender, EventArgs e)
+    {
+        LauncherTelemetry.ClearPendingExperienceData();
+        MessageRequested?.Invoke(
+            this,
+            new SettingsMessageRequestedEventArgs(
+                Text("Setup.About.Telemetry.Cleared.Title", "已清除"),
+                Text("Setup.About.Telemetry.Cleared.Message", "待上传的体验计划数据已清除。")));
+    }
+
+    private void BtnTelemetryResetId_Click(object? sender, EventArgs e)
+    {
+        LauncherTelemetry.ResetAnonymousId();
+        MessageRequested?.Invoke(
+            this,
+            new SettingsMessageRequestedEventArgs(
+                Text("Setup.About.Telemetry.Reset.Title", "匿名标识已重置"),
+                Text("Setup.About.Telemetry.Reset.Message", "旧匿名标识已删除；若体验计划仍开启，已生成不关联旧记录的新标识。")));
+    }
+
+    private static string Text(string key, string fallback) =>
+        AvaloniaLocalizationManager.GetText(key, fallback);
 
     private void BtnMetadataUrl_Click(object? sender, EventArgs e)
     {

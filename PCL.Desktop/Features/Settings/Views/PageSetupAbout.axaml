@@ -207,6 +207,26 @@
                     <TextBlock
                         Margin="0,12,0,4"
                         FontWeight="Bold"
+                        Text="{DynamicResource Setup.About.Telemetry.Essential.Title}"
+                        TextWrapping="Wrap" />
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        LineHeight="17"
+                        Text="{DynamicResource Setup.About.Telemetry.Essential.Text}"
+                        TextWrapping="Wrap" />
+                    <legacy:MyCheckBox
+                        Margin="0,4,0,4"
+                        Tag="TelemetryExperienceProgram"
+                        Text="{DynamicResource Setup.About.Telemetry.Experience.Toggle}" />
+                    <TextBlock
+                        Margin="0,0,0,2"
+                        LineHeight="17"
+                        Opacity="0.75"
+                        Text="{DynamicResource Setup.About.Telemetry.Experience.Text}"
+                        TextWrapping="Wrap" />
+                    <TextBlock
+                        Margin="0,12,0,4"
+                        FontWeight="Bold"
                         Text="{DynamicResource Setup.About.Legal.OtherInfo}"
                         TextWrapping="Wrap" />
                     <TextBlock
@@ -214,18 +234,36 @@
                         LineHeight="17"
                         Text="{DynamicResource Setup.About.Legal.CopyrightText}"
                         TextWrapping="Wrap" />
-                    <StackPanel
-                        Height="35"
+                    <WrapPanel
                         Margin="0,12,0,0"
-                        HorizontalAlignment="Left"
-                        Orientation="Horizontal">
+                        HorizontalAlignment="Left">
                         <legacy:MyButton
-                            Margin="0,0,20,0"
+                            Margin="0,0,10,8"
+                            Padding="13,0"
+                            Text="{DynamicResource Setup.About.Telemetry.Terms}"
+                            Click="BtnTerms_Click" />
+                        <legacy:MyButton
+                            Margin="0,0,10,8"
+                            Padding="13,0"
+                            Text="{DynamicResource Setup.About.Telemetry.Privacy}"
+                            Click="BtnPrivacy_Click" />
+                        <legacy:MyButton
+                            Margin="0,0,10,8"
+                            Padding="13,0"
+                            Text="{DynamicResource Setup.About.Telemetry.Clear}"
+                            Click="BtnTelemetryClear_Click" />
+                        <legacy:MyButton
+                            Margin="0,0,10,8"
+                            Padding="13,0"
+                            Text="{DynamicResource Setup.About.Telemetry.ResetId}"
+                            Click="BtnTelemetryResetId_Click" />
+                        <legacy:MyButton
+                            Margin="0,0,10,8"
                             ColorType="Highlight"
                             Padding="13,0"
                             Text="{DynamicResource Setup.About.Legal.CommunitySource}"
                             Click="BtnSourceCode_Click" />
-                    </StackPanel>
+                    </WrapPanel>
                 </StackPanel>
             </legacy:MyCard>
             <legacy:MyCard

@@ -190,7 +190,7 @@
                     </Grid>
                 </Grid>
 
-                <!-- 6: Telemetry placeholder -->
+                <!-- 6: Mandatory service data and optional experience program -->
                 <Grid x:Name="PageTelemetry" IsVisible="False" Opacity="0" IsHitTestVisible="False" Margin="32,24,32,22">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -202,17 +202,41 @@
                                FontSize="24" FontWeight="SemiBold"
                                Margin="0,0,0,14"
                                Foreground="{DynamicResource ColorBrush1}" />
-                    <StackPanel Grid.Row="1" Spacing="12" VerticalAlignment="Center">
-                        <TextBlock x:Name="LabTelemetryBody"
-                                   Text="暂无遥测内容"
-                                   FontSize="18" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center"
-                                   Foreground="{DynamicResource ColorBrush1}" />
-                        <TextBlock Text="当前版本尚未启用遥测或诊断数据上报。后续若引入相关功能，将在此页提供开关与说明。"
-                                   Opacity="0.65" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="520"
-                                   HorizontalAlignment="Center"
-                                   Foreground="{DynamicResource ColorBrush1}" />
-                    </StackPanel>
+                    <legacy:MyScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="0,0,10,0" Spacing="10">
+                            <Border Padding="14,12" CornerRadius="10" Background="{DynamicResource ColorBrushHalfWhite}">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="{DynamicResource Oobe.Telemetry.Essential.Title}"
+                                               FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource ColorBrush1}" />
+                                    <TextBlock Text="{DynamicResource Oobe.Telemetry.Essential.Intro}"
+                                               TextWrapping="Wrap" Opacity="0.78"
+                                               Foreground="{DynamicResource ColorBrush1}" />
+                                    <TextBlock Text="{DynamicResource Oobe.Telemetry.Essential.Items}"
+                                               TextWrapping="Wrap" LineHeight="18"
+                                               Foreground="{DynamicResource ColorBrush1}" />
+                                    <TextBlock Text="{DynamicResource Oobe.Telemetry.Essential.Excludes}"
+                                               TextWrapping="Wrap" Opacity="0.72"
+                                               Foreground="{DynamicResource ColorBrush1}" />
+                                </StackPanel>
+                            </Border>
+                            <Border Padding="14,12" CornerRadius="10" Background="{DynamicResource ColorBrushHalfWhite}">
+                                <StackPanel Spacing="7">
+                                    <legacy:MyCheckBox x:Name="CheckExperienceProgram"
+                                                       Text="{DynamicResource Oobe.Telemetry.Experience.Toggle}" />
+                                    <TextBlock Text="{DynamicResource Oobe.Telemetry.Experience.Intro}"
+                                               TextWrapping="Wrap" Opacity="0.78"
+                                               Foreground="{DynamicResource ColorBrush1}" />
+                                    <TextBlock Text="{DynamicResource Oobe.Telemetry.Experience.Items}"
+                                               TextWrapping="Wrap" LineHeight="18"
+                                               Foreground="{DynamicResource ColorBrush1}" />
+                                    <TextBlock Text="{DynamicResource Oobe.Telemetry.Experience.Withdraw}"
+                                               TextWrapping="Wrap" Opacity="0.72"
+                                               Foreground="{DynamicResource ColorBrush1}" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </legacy:MyScrollViewer>
                     <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="0,12,0,0">
                         <legacy:MyButton x:Name="BtnTelemetryPrev" Grid.Column="1"
                                          ColorType="Normal" UseExperimentalStyle="True"

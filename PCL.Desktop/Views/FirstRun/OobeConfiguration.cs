@@ -26,7 +26,7 @@ internal static class OobeConfiguration
     public const string SettingsKeyCompletedVersionLegacy = "UiFirstRunWizardVersion";
 
     public const string ForceArgument = "--oobe";
-    /// <summary>Resume OOBE after config-dir restart: Welcome → Online → Finish.</summary>
+    /// <summary>Resume OOBE after config-dir restart: Welcome → Online → Telemetry → Finish.</summary>
     public const string ResumeArgument = "--oobe-resume";
     public const string DisableEnvironmentVariable = "PCL_DISABLE_FIRST_RUN";
     public const string SettingsKeyPendingResume = "UiOobePendingResume";
@@ -38,7 +38,7 @@ internal static class OobeConfiguration
     private static bool _resumeFromArgs;
 
     /// <summary>Bump when shipping OOBE content that returning users should see (even as a short flow).</summary>
-    public const string DefaultContentVersion = "1";
+    public const string DefaultContentVersion = "2";
 
     public static OobeManifest Current
     {
@@ -182,6 +182,7 @@ internal static class OobeConfiguration
     [
         OobeStepId.Welcome,
         OobeStepId.Online,
+        OobeStepId.Telemetry,
         OobeStepId.Finish
     ];
 
@@ -494,10 +495,13 @@ internal sealed class OobeManifest
         OobeStepId.Finish
     ];
 
-    /// <summary>Post-update default: intro + outro only (middle pages opt-in via config).</summary>
+    /// <summary>Post-update default re-presents changed legal and telemetry terms.</summary>
     public static IReadOnlyList<OobeStepId> DefaultUpdateSteps { get; } =
     [
         OobeStepId.Welcome,
+        OobeStepId.Terms,
+        OobeStepId.Privacy,
+        OobeStepId.Telemetry,
         OobeStepId.Finish
     ];
 
