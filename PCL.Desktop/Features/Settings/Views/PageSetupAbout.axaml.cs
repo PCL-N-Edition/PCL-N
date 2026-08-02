@@ -11,6 +11,7 @@ using PCL.Desktop.Hosting;
 using PCL.Desktop.Legal;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Telemetry;
+using PCL.Core.Logging;
 
 #pragma warning disable CA1822, CS0067
 
@@ -18,15 +19,30 @@ namespace PCL.Desktop.Features.Settings.Views;
 
 public partial class PageSetupAbout : MyPageRight, ISettingsPageInteractionSource
 {
-    private int _logoClickCount;
+    private static readonly LauncherSponsorService DefaultSponsorService = new();
 
-    public PageSetupAbout()
+    private readonly LauncherSponsorService _sponsorService;
+    private int _logoClickCount;
+    private bool _sponsorsLoaded;
+    private Task? _sponsorLoadTask;
+
+    public PageSetupAbout() : this(DefaultSponsorService, autoLoadSponsors: true)
     {
+    }
+
+    internal PageSetupAbout(LauncherSponsorService sponsorService, bool autoLoadSponsors)
+    {
+        _sponsorService = sponsorService;
         AvaloniaXamlLoader.Load(this);
         PanScroll = PanBack;
         LauncherSettingsPageBinder.Attach(this);
         ApplyMetadata();
-        AttachedToVisualTree += (_, _) => ApplyMetadata();
+        AttachedToVisualTree += (_, _) =>
+        {
+            ApplyMetadata();
+            if (autoLoadSponsors)
+                _ = EnsureSponsorsLoadedAsync(forceRefresh: false);
+        };
     }
 
     public event EventHandler<SettingsPathRequestedEventArgs>? OpenPathRequested;
@@ -62,6 +78,9 @@ public partial class PageSetupAbout : MyPageRight, ISettingsPageInteractionSourc
     {
         OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(PclMetadata.Current.Sponsor));
     }
+
+    private async void BtnSponsorsRefresh_Click(object? sender, EventArgs e) =>
+        await EnsureSponsorsLoadedAsync(forceRefresh: true).ConfigureAwait(true);
 
     private void BtnSourceCode_Click(object? sender, EventArgs e)
     {
@@ -126,6 +145,75 @@ public partial class PageSetupAbout : MyPageRight, ISettingsPageInteractionSourc
 
     private static string Text(string key, string fallback) =>
         AvaloniaLocalizationManager.GetText(key, fallback);
+
+    internal Task RefreshSponsorsAsync() => EnsureSponsorsLoadedAsync(forceRefresh: true);
+
+    private Task EnsureSponsorsLoadedAsync(bool forceRefresh)
+    {
+        if (!forceRefresh && _sponsorsLoaded)
+            return Task.CompletedTask;
+        return _sponsorLoadTask ??= LoadSponsorsCoreAsync();
+    }
+
+    private async Task LoadSponsorsCoreAsync()
+    {
+        MyLoading? loading = this.FindControl<MyLoading>("LoadSponsors");
+        StackPanel? resultPanel = this.FindControl<StackPanel>("PanSponsorsResult");
+        StackPanel? errorPanel = this.FindControl<StackPanel>("PanSponsorsError");
+        if (loading is not null)
+        {
+            loading.IsVisible = true;
+            loading.State.LoadingState = MyLoading.MyLoadingState.Run;
+        }
+        if (resultPanel is not null)
+            resultPanel.IsVisible = false;
+        if (errorPanel is not null)
+            errorPanel.IsVisible = false;
+
+        try
+        {
+            LauncherSponsorSnapshot snapshot = await _sponsorService.FetchAsync().ConfigureAwait(true);
+            _sponsorsLoaded = true;
+            if (this.FindControl<ItemsControl>("SponsorList") is { } list)
+                list.ItemsSource = snapshot.Sponsors;
+            if (this.FindControl<TextBlock>("LabSponsorsEmpty") is { } empty)
+                empty.IsVisible = snapshot.Sponsors.Count == 0;
+            if (this.FindControl<TextBlock>("LabSponsorsSummary") is { } summary)
+            {
+                string template = Text(
+                    "Setup.About.Sponsors.Summary",
+                    "感谢来自爱发电的 {0} 位赞助者，名单实时更新。");
+                summary.Text = string.Format(
+                    System.Globalization.CultureInfo.CurrentCulture,
+                    template,
+                    snapshot.TotalCount);
+                if (snapshot.IsStale)
+                {
+                    summary.Text += " " + Text(
+                        "Setup.About.Sponsors.Stale",
+                        "当前显示最近一次成功获取的名单。");
+                }
+            }
+            if (resultPanel is not null)
+                resultPanel.IsVisible = true;
+        }
+        catch (Exception ex)
+        {
+            _sponsorsLoaded = false;
+            PortableLog.Warn(ex, "Sponsors", "无法从在线服务加载爱发电赞助者名单。");
+            if (errorPanel is not null)
+                errorPanel.IsVisible = true;
+        }
+        finally
+        {
+            if (loading is not null)
+            {
+                loading.State.LoadingState = MyLoading.MyLoadingState.Stop;
+                loading.IsVisible = false;
+            }
+            _sponsorLoadTask = null;
+        }
+    }
 
     private void BtnMetadataUrl_Click(object? sender, EventArgs e)
     {

@@ -36,6 +36,7 @@ using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Tasks.Views;
+using PCL.Desktop.Hosting;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Views.FirstRun;
 using PCL.Domain.Minecraft.Java;
@@ -6508,9 +6509,33 @@ public sealed class AvaloniaHeadlessTests
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
 
-        session.Dispatch(() =>
+        session.Dispatch(async () =>
         {
-            PageSetupAbout page = new();
+            using HttpClient sponsorClient = new(new StubHttpMessageHandler(request =>
+            {
+                Assert.AreEqual("https://api.test/v1/sponsors", request.RequestUri?.AbsoluteUri);
+                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {
+                          "sponsors": [
+                            { "name": "Alice", "isActive": true },
+                            { "name": "Bob", "isActive": false }
+                          ],
+                          "totalCount": 2,
+                          "generatedAt": "2026-08-03T00:00:00Z",
+                          "stale": false
+                        }
+                        """,
+                        System.Text.Encoding.UTF8,
+                        "application/json")
+                };
+            }));
+            using LauncherSponsorService sponsorService = new(
+                sponsorClient,
+                new Uri("https://api.test/v1/sponsors"));
+            PageSetupAbout page = new(sponsorService, autoLoadSponsors: false);
             Window window = new() { Width = 900, Height = 640, Content = page };
             string? openedUrl = null;
             page.OpenUrlRequested += (_, args) => openedUrl = args.Url;
@@ -6518,6 +6543,8 @@ public sealed class AvaloniaHeadlessTests
             {
                 window.Show();
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                await page.RefreshSponsorsAsync();
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
                 MyListItem about = page.FindControl<MyListItem>("ItemAboutPcl")!;
                 Assert.IsFalse(string.IsNullOrWhiteSpace(about.Info));
@@ -6526,6 +6553,17 @@ public sealed class AvaloniaHeadlessTests
                     about.Info.Any(static ch => char.IsDigit(ch)),
                     "About metadata should include a display version number.");
                 Assert.AreEqual(6, page.FindControl<ItemsControl>("LicenseList")!.Items.Count);
+
+                StackPanel cards = page.FindControl<StackPanel>("PanMain")!;
+                int thanksIndex = cards.Children.IndexOf(page.FindControl<MyCard>("CardSpecialThanks")!);
+                int sponsorsIndex = cards.Children.IndexOf(page.FindControl<MyCard>("CardSponsors")!);
+                int legalIndex = cards.Children.IndexOf(page.FindControl<MyCard>("CardLegal")!);
+                Assert.IsGreaterThan(thanksIndex, sponsorsIndex);
+                Assert.IsGreaterThan(sponsorsIndex, legalIndex);
+                Assert.AreEqual(2, page.FindControl<ItemsControl>("SponsorList")!.Items.Count);
+                StringAssert.Contains(page.FindControl<TextBlock>("LabSponsorsSummary")!.Text, "2");
+                Assert.IsFalse(page.FindControl<MyLoading>("LoadSponsors")!.IsVisible);
+                Assert.IsFalse(page.FindControl<StackPanel>("PanSponsorsError")!.IsVisible);
 
                 MyButton sponsor = page.FindControl<MyButton>("BtnCommunityHome")!;
                 Assert.AreEqual(

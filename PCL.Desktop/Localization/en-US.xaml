@@ -602,6 +602,15 @@
     <sys:String x:Key="Setup.About.SpecialThanks.OpenMcmod">Visit Website</sys:String>
     <sys:String x:Key="Setup.About.SpecialThanks.SponsorMirror">Support the Mirror</sys:String>
     <sys:String x:Key="Setup.About.SpecialThanks.Title">Special thanks</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Description">Thank you to everyone supporting continued PCL N development. A lightning mark indicates an active sponsor.</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Empty">There are no sponsors to show yet.</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Error">The sponsor list is temporarily unavailable. Thank you to everyone supporting us.</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Loading">Loading sponsors</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Retry">Try Again</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Stale">Showing the most recently retrieved sponsor list.</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Summary">Thank you to {0} sponsors on Afdian. This list updates live.</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Support">Support Us on Afdian</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Title">Sponsors</sys:String>
     <sys:String x:Key="Setup.About.SponsorCommunityAuthor">Support the Developer</sys:String>
     <sys:String x:Key="Setup.About.SponsorOriginalAuthor">Support the Original Author</sys:String>
     <sys:String x:Key="Setup.About.Title">About</sys:String>

@@ -103,7 +103,7 @@
                         Click="BtnSourceCode_Click" />
                 </Grid>
             </legacy:MyCard>
-            <legacy:MyCard Margin="0,0,0,15" Title="{DynamicResource Setup.About.SpecialThanks.Title}">
+            <legacy:MyCard x:Name="CardSpecialThanks" Margin="0,0,0,15" Title="{DynamicResource Setup.About.SpecialThanks.Title}">
                 <Grid Margin="21,40,21,16">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="45" />
@@ -188,8 +188,103 @@
                     </Image>
                 </Grid>
             </legacy:MyCard>
-
-<legacy:MyCard
+            <legacy:MyCard
+                x:Name="CardSponsors"
+                Margin="0,0,0,15"
+                Title="{DynamicResource Setup.About.Sponsors.Title}">
+                <StackPanel Margin="25,40,23,18">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock
+                            x:Name="LabSponsorsSummary"
+                            Grid.Column="0"
+                            Margin="0,0,16,10"
+                            Opacity="0.78"
+                            Text="{DynamicResource Setup.About.Sponsors.Description}"
+                            TextWrapping="Wrap" />
+                        <legacy:MyButton
+                            x:Name="BtnSponsorsSupport"
+                            Grid.Column="1"
+                            Height="32"
+                            Padding="13,0"
+                            Text="{DynamicResource Setup.About.Sponsors.Support}"
+                            Click="BtnCommunityHome_Click" />
+                    </Grid>
+                    <legacy:MyLoading
+                        x:Name="LoadSponsors"
+                        Margin="0,8,0,8"
+                        HorizontalAlignment="Center"
+                        AutoRun="False"
+                        Text="{DynamicResource Setup.About.Sponsors.Loading}" />
+                    <StackPanel x:Name="PanSponsorsResult" IsVisible="False">
+                        <ItemsControl x:Name="SponsorList">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="hosting:LauncherSponsor">
+                                    <Border
+                                        MaxWidth="240"
+                                        Margin="0,0,8,8"
+                                        Padding="10,7"
+                                        Background="{DynamicResource ColorBrushHalfWhite}"
+                                        CornerRadius="8">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock
+                                                Width="24"
+                                                Margin="0,0,4,0"
+                                                Foreground="{DynamicResource ColorBrush3}"
+                                                FontWeight="Bold"
+                                                Text="{CompiledBinding Initial}"
+                                                TextAlignment="Center" />
+                                            <TextBlock
+                                                MaxWidth="170"
+                                                VerticalAlignment="Center"
+                                                Text="{CompiledBinding Name}"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock
+                                                Margin="5,0,0,0"
+                                                VerticalAlignment="Center"
+                                                Foreground="{DynamicResource ColorBrush3}"
+                                                IsVisible="{CompiledBinding IsActive}"
+                                                Text="⚡" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock
+                            x:Name="LabSponsorsEmpty"
+                            Margin="0,6,0,6"
+                            HorizontalAlignment="Center"
+                            IsVisible="False"
+                            Opacity="0.7"
+                            Text="{DynamicResource Setup.About.Sponsors.Empty}" />
+                    </StackPanel>
+                    <StackPanel
+                        x:Name="PanSponsorsError"
+                        Margin="0,5,0,0"
+                        HorizontalAlignment="Center"
+                        IsVisible="False">
+                        <TextBlock
+                            Margin="0,0,0,8"
+                            HorizontalAlignment="Center"
+                            Opacity="0.72"
+                            Text="{DynamicResource Setup.About.Sponsors.Error}"
+                            TextWrapping="Wrap" />
+                        <legacy:MyButton
+                            x:Name="BtnSponsorsRefresh"
+                            Height="32"
+                            HorizontalAlignment="Center"
+                            Padding="16,0"
+                            Text="{DynamicResource Setup.About.Sponsors.Retry}"
+                            Click="BtnSponsorsRefresh_Click" />
+                    </StackPanel>
+                </StackPanel>
+            </legacy:MyCard>
+            <legacy:MyCard
+                x:Name="CardLegal"
                 Margin="0,0,0,15"
                 CanSwap="True"
                 Title="{DynamicResource Setup.About.Legal.Title}">

@@ -602,6 +602,15 @@
     <sys:String x:Key="Setup.About.SpecialThanks.OpenMcmod">访问网站</sys:String>
     <sys:String x:Key="Setup.About.SpecialThanks.SponsorMirror">赞助镜像服务</sys:String>
     <sys:String x:Key="Setup.About.SpecialThanks.Title">特别鸣谢</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Description">感谢每一位支持 PCL N 持续开发的赞助者。闪电标记表示当前正在赞助。</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Empty">暂时没有可展示的赞助者。</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Error">暂时无法获取赞助者名单，感谢所有支持者。</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Loading">正在获取赞助者名单</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Retry">重新加载</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Stale">当前显示最近一次成功获取的名单。</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Summary">感谢来自爱发电的 {0} 位赞助者，名单实时更新。</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Support">在爱发电支持我们</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Title">赞助者</sys:String>
     <sys:String x:Key="Setup.About.SponsorCommunityAuthor">赞助开发者</sys:String>
     <sys:String x:Key="Setup.About.SponsorOriginalAuthor">赞助原作者</sys:String>
     <sys:String x:Key="Setup.About.Title">关于</sys:String>

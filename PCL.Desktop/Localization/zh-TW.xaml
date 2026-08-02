@@ -602,6 +602,15 @@
     <sys:String x:Key="Setup.About.SpecialThanks.OpenMcmod">訪問網站</sys:String>
     <sys:String x:Key="Setup.About.SpecialThanks.SponsorMirror">贊助映象服務</sys:String>
     <sys:String x:Key="Setup.About.SpecialThanks.Title">特別鳴謝</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Description">感謝每一位支持 PCL N 持續開發的贊助者。閃電標記表示目前正在贊助。</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Empty">暫時沒有可顯示的贊助者。</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Error">暫時無法取得贊助者名單，感謝所有支持者。</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Loading">正在取得贊助者名單</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Retry">重新載入</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Stale">目前顯示最近一次成功取得的名單。</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Summary">感謝來自愛發電的 {0} 位贊助者，名單即時更新。</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Support">在愛發電支持我們</sys:String>
+    <sys:String x:Key="Setup.About.Sponsors.Title">贊助者</sys:String>
     <sys:String x:Key="Setup.About.SponsorCommunityAuthor">贊助開發者</sys:String>
     <sys:String x:Key="Setup.About.SponsorOriginalAuthor">贊助原作者</sys:String>
     <sys:String x:Key="Setup.About.Title">關於</sys:String>
