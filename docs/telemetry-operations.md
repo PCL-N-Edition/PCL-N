@@ -4,14 +4,14 @@
 
 ## 1. Sentry
 
-在同一 Sentry Organization 中创建两个 **.NET** Project：
+创建两个 **.NET** Project（可在同一 Organization；若需要不同保存期限，建议拆分 Organization）：
 
 | Project slug | GitHub Actions Secret | 接收内容 |
 |---|---|---|
 | `pcl-essential-diagnostics` | `SENTRY_ESSENTIAL_DSN` | 仅 `critical_failure` 最小信号；无消息、堆栈、面包屑、用户、请求、路径、日志或匿名 ID |
 | `pcl-desktop` | `SENTRY_DSN` | 仅体验计划用户的清理后异常、Tracing 与 Release Health |
 
-两个 Project 都应在 **Settings → Security & Privacy** 中关闭 IP 地址保存并开启服务端敏感字段清洗。`pcl-essential-diagnostics` 的保留期设为 30 天；`pcl-desktop` 设为 90 天或更短。不要启用 Session Replay、附件、Minidump 或源码局部变量采集。
+在 **Organization Settings → Security & Privacy** 中开启 IP 地址清洗和默认敏感字段清洗，并在两个 Project 的 Security & Privacy 中补充项目级规则。不要假设 Sentry Cloud 一定提供 Project 级保存期限：若同一 Organization 只能使用统一期限，统一设为不超过 30 天最简单；如确需让 `pcl-desktop` 保留至 90 天，请拆分 Organization 或建立可靠的定期删除流程。不要启用 Session Replay、附件、Minidump 或源码局部变量采集。
 
 ### Essential Project
 
