@@ -106,6 +106,17 @@ public sealed class PclEmbeddedNativeRuntimeTests
         }
     }
 
+    [TestMethod]
+    public void GetNativeLibraryAliases_MatchesUnixPInvokeNames()
+    {
+        CollectionAssert.IsSubsetOf(
+            new[] { "libSkiaSharp.so", "libSkiaSharp", "SkiaSharp" },
+            PclEmbeddedNativeRuntime.GetNativeLibraryAliases("/runtime/libSkiaSharp.so"));
+        CollectionAssert.IsSubsetOf(
+            new[] { "libHarfBuzzSharp.so.0", "libHarfBuzzSharp", "HarfBuzzSharp" },
+            PclEmbeddedNativeRuntime.GetNativeLibraryAliases("/runtime/libHarfBuzzSharp.so.0"));
+    }
+
     private static byte[] CreatePayload(params (string Path, string Content)[] files)
     {
         using MemoryStream stream = new();

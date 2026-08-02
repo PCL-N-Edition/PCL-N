@@ -40,6 +40,22 @@ def main() -> int:
         files.append((relative, path))
     files.sort(key=lambda item: item[0].casefold())
 
+    # Avalonia cannot create its render interface without both native modules.
+    # Fail the release build here instead of producing a one-file artifact that
+    # only crashes when a user starts it on the target platform.
+    packed_names = {path.name.casefold() for _, path in files}
+    required_stems = ("libskiasharp", "libharfbuzzsharp")
+    missing = [
+        stem
+        for stem in required_stems
+        if not any(name == stem or name.startswith(stem + ".") for name in packed_names)
+    ]
+    if missing:
+        raise SystemExit(
+            "NativeAOT runtime payload is missing required rendering libraries: "
+            + ", ".join(missing)
+        )
+
     output.parent.mkdir(parents=True, exist_ok=True)
     output.unlink(missing_ok=True)
     with zipfile.ZipFile(

@@ -128,6 +128,12 @@ internal static class Program
                 completedNormally = true;
                 return validationExitCode;
             }
+            if (args.Contains("--validate-native-runtime", StringComparer.OrdinalIgnoreCase))
+            {
+                int validationExitCode = ValidateNativeRuntime();
+                completedNormally = true;
+                return validationExitCode;
+            }
             if (args.Contains("--validate-secrets", StringComparer.OrdinalIgnoreCase))
             {
                 int validationExitCode = PclEmbeddedSecrets.Count > 0 ? 0 : 2;
@@ -364,6 +370,22 @@ internal static class Program
                ValidateResource(assetLoader, "avares://PCL.Desktop/Assets/Legacy/icon.png")
             ? 0
             : 1;
+    }
+
+    private static int ValidateNativeRuntime()
+    {
+        try
+        {
+            // This is the first SkiaSharp call made by Avalonia's render bootstrap and
+            // reproduces the Linux startup failure when libSkiaSharp cannot be resolved.
+            _ = SkiaSharp.SKImageInfo.PlatformColorType;
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("Native rendering runtime validation failed: " + ex);
+            return 2;
+        }
     }
 
     private static bool ValidateResource(StandardAssetLoader assetLoader, string resourceUri)

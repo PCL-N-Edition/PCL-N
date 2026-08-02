@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.IO.Compression;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using PCL.Core.Logging;
@@ -25,6 +26,9 @@ internal static class PclEmbeddedNativeRuntime
     private const string ExtractDirectoryPrefix = ".pcln-extract-";
     private static readonly object ActivationGate = new();
     private static readonly List<IntPtr> LoadedLibraries = [];
+    private static readonly Dictionary<string, IntPtr> LoadedLibraryHandles =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<Assembly> ResolverAssemblies = [];
     private static string? _installedDirectory;
 
     /// <summary>
@@ -150,7 +154,10 @@ internal static class PclEmbeddedNativeRuntime
             {
                 try
                 {
-                    LoadedLibraries.Add(NativeLibrary.Load(library));
+                    IntPtr handle = NativeLibrary.Load(library);
+                    LoadedLibraries.Add(handle);
+                    foreach (string alias in GetNativeLibraryAliases(library))
+                        LoadedLibraryHandles.TryAdd(alias, handle);
                 }
                 catch (Exception ex)
                 {
@@ -160,8 +167,77 @@ internal static class PclEmbeddedNativeRuntime
                 }
             }
 
+            // NativeAOT resolves P/Invoke names relative to the executable's directory.
+            // Preloading an absolute Unix .so is not enough: a later import of
+            // "libSkiaSharp" may still issue a fresh lookup beside the executable.
+            // Return the already loaded handle explicitly for the assemblies that own
+            // Avalonia's native imports so an extracted one-file release works on Unix.
+            RegisterResolver(typeof(SkiaSharp.SKImageInfo).Assembly);
+            RegisterResolver(typeof(HarfBuzzSharp.Blob).Assembly);
+
             _installedDirectory = fullInstallDirectory;
         }
+    }
+
+    private static void RegisterResolver(Assembly assembly)
+    {
+        if (!ResolverAssemblies.Add(assembly))
+            return;
+
+        NativeLibrary.SetDllImportResolver(assembly, ResolveEmbeddedLibrary);
+    }
+
+    private static IntPtr ResolveEmbeddedLibrary(
+        string libraryName,
+        Assembly assembly,
+        DllImportSearchPath? searchPath)
+    {
+        _ = assembly;
+        _ = searchPath;
+        lock (ActivationGate)
+        {
+            foreach (string alias in GetNativeLibraryAliases(libraryName))
+            {
+                if (LoadedLibraryHandles.TryGetValue(alias, out IntPtr handle))
+                    return handle;
+            }
+        }
+
+        // Zero asks the runtime to continue with its ordinary probing rules.
+        return IntPtr.Zero;
+    }
+
+    internal static string[] GetNativeLibraryAliases(string path)
+    {
+        string fileName = Path.GetFileName(path);
+        if (string.IsNullOrWhiteSpace(fileName))
+            return [];
+
+        HashSet<string> aliases = new(StringComparer.OrdinalIgnoreCase)
+        {
+            fileName
+        };
+
+        string withoutVersion = fileName;
+        int soIndex = withoutVersion.IndexOf(".so", StringComparison.OrdinalIgnoreCase);
+        if (soIndex >= 0)
+            withoutVersion = withoutVersion[..soIndex];
+        else if (withoutVersion.EndsWith(".dylib", StringComparison.OrdinalIgnoreCase))
+            withoutVersion = withoutVersion[..^".dylib".Length];
+        else if (withoutVersion.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            withoutVersion = withoutVersion[..^".dll".Length];
+
+        if (withoutVersion.Length > 0)
+        {
+            aliases.Add(withoutVersion);
+            if (withoutVersion.StartsWith("lib", StringComparison.OrdinalIgnoreCase) &&
+                withoutVersion.Length > 3)
+            {
+                aliases.Add(withoutVersion[3..]);
+            }
+        }
+
+        return aliases.ToArray();
     }
 
     private static IEnumerable<string> EnumerateNativeSearchDirectories(string installDirectory)
