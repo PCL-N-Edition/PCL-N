@@ -211,6 +211,10 @@ public sealed class LauncherUpdateServiceTests
             UpdateChannel.CI,
             identity,
             currentCommitSha: remoteCommit);
+        LauncherUpdateCheckResult currentReleaseBuild = await service.CheckAsync(
+            UpdateChannel.CI,
+            new LauncherBuildIdentity("1.2.1 release", "win-x64", "NoRuntime", "Release"),
+            currentCommitSha: remoteCommit);
 
         Assert.IsTrue(oldBuild.Success);
         Assert.IsTrue(oldBuild.IsUpdateAvailable);
@@ -220,6 +224,114 @@ public sealed class LauncherUpdateServiceTests
         Assert.AreEqual("SelfContained", oldBuild.Package?.RuntimeVariant);
         Assert.IsTrue(currentBuild.Success);
         Assert.IsFalse(currentBuild.IsUpdateAvailable);
+        Assert.IsTrue(currentReleaseBuild.Success);
+        Assert.IsFalse(currentReleaseBuild.IsUpdateAvailable);
+    }
+
+    [TestMethod]
+    [DataRow(UpdateChannel.Beta, "1.1.0 ci", "CI", "v1.2.0-beta")]
+    [DataRow(UpdateChannel.Release, "1.2.0 beta", "Beta", "v1.2.0-release")]
+    [DataRow(UpdateChannel.Release, "1.1.0 ci", "CI", "v1.2.0-release")]
+    public async Task CheckAsync_SuppressesCrossChannelPromotionFromSameCommit(
+        UpdateChannel targetChannel,
+        string currentVersion,
+        string currentConfiguration,
+        string targetTag)
+    {
+        const string remoteCommit = "1234567890abcdef1234567890abcdef12345678";
+        string targetConfiguration = targetChannel == UpdateChannel.Release ? "Release" : "Beta";
+        RoutingHandler handler = new(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/releases.atom", StringComparison.Ordinal))
+                return XmlResponse(ReleaseFeed(targetTag));
+            if (path.EndsWith("/releases/latest", StringComparison.Ordinal))
+                return Redirect($"https://github.test/owner/repo/releases/tag/{targetTag}");
+            if (path.EndsWith(
+                    $"PCL_N_{targetConfiguration}_win-x64_NoRuntime.build.json",
+                    StringComparison.Ordinal))
+            {
+                return JsonResponse($$"""
+                    {
+                      "formatVersion": 1,
+                      "channel": "{{targetConfiguration}}",
+                      "commit": "{{remoteCommit}}",
+                      "ref": "refs/tags/{{targetTag}}",
+                      "tag": "{{targetTag}}",
+                      "runId": "42",
+                      "artifact": "PCL_N_{{targetConfiguration}}_win-x64_NoRuntime",
+                      "builtAt": "2026-08-03T00:00:00Z"
+                    }
+                    """);
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using LauncherUpdateService service = new(new HttpClient(handler), "owner", "repo");
+        LauncherBuildIdentity identity = new(currentVersion, "win-x64", "NoRuntime", currentConfiguration);
+
+        LauncherUpdateCheckResult sameCommit = await service.CheckAsync(
+            targetChannel,
+            identity,
+            currentCommitSha: remoteCommit);
+        LauncherUpdateCheckResult olderCommit = await service.CheckAsync(
+            targetChannel,
+            identity,
+            currentCommitSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+        Assert.IsTrue(sameCommit.Success, sameCommit.ErrorMessage);
+        Assert.IsFalse(sameCommit.IsUpdateAvailable);
+        Assert.AreEqual(remoteCommit, sameCommit.RemoteCommitSha);
+        Assert.IsTrue(olderCommit.Success, olderCommit.ErrorMessage);
+        Assert.IsTrue(olderCommit.IsUpdateAvailable);
+    }
+
+    [TestMethod]
+    public async Task CheckAsync_FallsBackToVersionComparisonForLegacyReleaseWithoutBuildMetadata()
+    {
+        RoutingHandler handler = new(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/releases.atom", StringComparison.Ordinal))
+                return XmlResponse(ReleaseFeed("v1.2.0-beta"));
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using LauncherUpdateService service = new(new HttpClient(handler), "owner", "repo");
+
+        LauncherUpdateCheckResult result = await service.CheckAsync(
+            UpdateChannel.Beta,
+            new LauncherBuildIdentity("1.1.0 ci", "win-x64", "NoRuntime", "CI"),
+            currentCommitSha: "1234567890abcdef1234567890abcdef12345678");
+
+        Assert.IsTrue(result.Success, result.ErrorMessage);
+        Assert.IsTrue(result.IsUpdateAvailable);
+        Assert.IsNull(result.RemoteCommitSha);
+    }
+
+    [TestMethod]
+    public async Task CheckAsync_UsesReleaseNotesCommitWhenLegacyMetadataIsMissing()
+    {
+        const string commit = "1234567890abcdef1234567890abcdef12345678";
+        RoutingHandler handler = new(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/releases.atom", StringComparison.Ordinal))
+            {
+                return XmlResponse(ReleaseFeed(
+                    "v1.2.0-beta",
+                    $"<pre><code>commit: {commit}</code></pre>"));
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using LauncherUpdateService service = new(new HttpClient(handler), "owner", "repo");
+
+        LauncherUpdateCheckResult result = await service.CheckAsync(
+            UpdateChannel.Beta,
+            new LauncherBuildIdentity("1.1.0 ci", "win-x64", "NoRuntime", "CI"),
+            currentCommitSha: commit);
+
+        Assert.IsTrue(result.Success, result.ErrorMessage);
+        Assert.IsFalse(result.IsUpdateAvailable);
+        Assert.AreEqual(commit, result.RemoteCommitSha);
     }
 
     [TestMethod]

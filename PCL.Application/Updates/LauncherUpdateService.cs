@@ -126,13 +126,26 @@ public sealed class LauncherUpdateService : IDisposable
 
         string remoteVersion = NormalizeVersion(release.Tag);
         string localVersion = NormalizeVersion(identity.Version);
-        bool isNewer = CompareVersions(remoteVersion, localVersion) > 0;
-        LauncherUpdatePackage package = await ResolveUpdatePackageAsync(
-                release.Tag,
+        LauncherUpdatePackage fallbackPackage = BuildFullPackage(release.Tag, channel, identity);
+        LauncherBuildMetadataDto? metadata = await TryLoadVersionedMetadataAsync(
+                fallbackPackage,
                 channel,
-                identity,
+                release.Tag,
                 cancellationToken)
             .ConfigureAwait(false);
+        string remoteCommit = NormalizeCommit(metadata?.Commit ?? ExtractCommitSha(release.Notes, release.Title));
+        bool isSameSourceCommit = AreKnownCommitsEqual(currentCommitSha, remoteCommit);
+        bool isVersionNewer = CompareVersions(remoteVersion, localVersion) > 0;
+        bool isNewer = isVersionNewer && !isSameSourceCommit;
+        LauncherUpdatePackage package = isNewer
+            ? await ResolveUpdatePackageAsync(release.Tag, channel, identity, cancellationToken).ConfigureAwait(false)
+            : fallbackPackage;
+        if (isVersionNewer && isSameSourceCommit)
+        {
+            PortableLog.Info(
+                "Update",
+                $"目标 {channel} {remoteVersion} 与当前构建来自同一提交 {remoteCommit}，忽略跨通道版本升级。");
+        }
         string htmlUrl = release.HtmlUrl
             ?? $"https://github.com/{_owner}/{_repo}/releases/tag/{Uri.EscapeDataString(release.Tag)}";
         LauncherUpdateCheckResult result = new(
@@ -147,7 +160,7 @@ public sealed class LauncherUpdateService : IDisposable
             ErrorMessage: null,
             Channel: channel,
             SupportsPatches: package.UsesPatch,
-            RemoteCommitSha: ExtractCommitSha(release.Notes, release.Title),
+            RemoteCommitSha: remoteCommit.Length > 0 ? remoteCommit : null,
             PublishedAt: release.Updated,
             Package: package);
         PortableLog.Info("Update", $"更新检查完成；通道={channel}；最新版本={remoteVersion}；有更新={isNewer}。");
@@ -160,7 +173,7 @@ public sealed class LauncherUpdateService : IDisposable
         CancellationToken cancellationToken)
     {
         LauncherUpdatePackage package = BuildFullPackage(CiRollingTag, UpdateChannel.CI, identity);
-        LauncherCiMetadataDto? metadata = await TryLoadCiMetadataAsync(package, cancellationToken)
+        LauncherBuildMetadataDto? metadata = await TryLoadCiMetadataAsync(package, cancellationToken)
             .ConfigureAwait(false);
 
         // Release Atom is useful for display text, but it can lag behind a rolling release edit.
@@ -205,7 +218,7 @@ public sealed class LauncherUpdateService : IDisposable
         bool hasAsset = !string.IsNullOrWhiteSpace(assetUrl);
 
         bool isNewer;
-        if (remoteCommitNorm.Length > 0 && localCommit.Length > 0)
+        if (IsValidCommit(remoteCommitNorm) && IsValidCommit(localCommit))
             isNewer = !CommitsMatch(localCommit, remoteCommitNorm);
         else if (remoteCommitNorm.Length > 0 && localCommit.Length == 0)
             isNewer = hasAsset;
@@ -236,13 +249,46 @@ public sealed class LauncherUpdateService : IDisposable
         return result;
     }
 
-    private async Task<LauncherCiMetadataDto?> TryLoadCiMetadataAsync(
+    private async Task<LauncherBuildMetadataDto?> TryLoadVersionedMetadataAsync(
         LauncherUpdatePackage package,
+        UpdateChannel channel,
+        string releaseTag,
+        CancellationToken cancellationToken)
+    {
+        string expectedChannel = channel == UpdateChannel.Release ? "Release" : "Beta";
+        return await TryLoadBuildMetadataAsync(
+                package,
+                expectedChannel,
+                releaseTag,
+                ".build.json",
+                requireVersionedFormat: true,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<LauncherBuildMetadataDto?> TryLoadCiMetadataAsync(
+        LauncherUpdatePackage package,
+        CancellationToken cancellationToken)
+        => await TryLoadBuildMetadataAsync(
+                package,
+                "CI",
+                CiRollingTag,
+                ".ci.json",
+                requireVersionedFormat: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    private async Task<LauncherBuildMetadataDto?> TryLoadBuildMetadataAsync(
+        LauncherUpdatePackage package,
+        string expectedChannel,
+        string expectedTag,
+        string metadataSuffix,
+        bool requireVersionedFormat,
         CancellationToken cancellationToken)
     {
         string artifact = GetPackageStem(package.TargetAssetName);
-        string metadataAsset = artifact + ".ci.json";
-        string url = BuildReleaseAssetUrl(CiRollingTag, metadataAsset) +
+        string metadataAsset = artifact + metadataSuffix;
+        string url = BuildReleaseAssetUrl(expectedTag, metadataAsset) +
                      $"?check={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
         try
         {
@@ -250,25 +296,26 @@ public sealed class LauncherUpdateService : IDisposable
                 .ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                PortableLog.Debug("Update", $"CI 构建元数据不可用：{metadataAsset}；HTTP={(int)response.StatusCode}。");
+                PortableLog.Debug("Update", $"构建元数据不可用：{metadataAsset}；HTTP={(int)response.StatusCode}。");
                 return null;
             }
 
             await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            LauncherCiMetadataDto? metadata = await JsonSerializer.DeserializeAsync(
+            LauncherBuildMetadataDto? metadata = await JsonSerializer.DeserializeAsync(
                     stream,
-                    LauncherUpdateJsonContext.Default.LauncherCiMetadataDto,
+                    LauncherUpdateJsonContext.Default.LauncherBuildMetadataDto,
                     cancellationToken)
                 .ConfigureAwait(false);
             string commit = NormalizeCommit(metadata?.Commit);
             if (metadata is null ||
-                !string.Equals(metadata.Channel, "CI", StringComparison.OrdinalIgnoreCase) ||
+                (requireVersionedFormat && metadata.FormatVersion != 1) ||
+                !string.Equals(metadata.Channel, expectedChannel, StringComparison.OrdinalIgnoreCase) ||
+                (requireVersionedFormat && !string.Equals(metadata.Tag, expectedTag, StringComparison.Ordinal)) ||
                 !string.Equals(metadata.Artifact, artifact, StringComparison.Ordinal) ||
-                metadata.SupportsPatches ||
-                commit.Length is < 7 or > 40 ||
-                !commit.All(Uri.IsHexDigit))
+                (string.Equals(expectedChannel, "CI", StringComparison.Ordinal) && metadata.SupportsPatches) ||
+                !IsValidCommit(commit))
             {
-                PortableLog.Warn("Update", $"CI 构建元数据无效或与当前平台不匹配：{metadataAsset}。");
+                PortableLog.Warn("Update", $"构建元数据无效或与目标发布不匹配：{metadataAsset}。");
                 return null;
             }
 
@@ -277,7 +324,7 @@ public sealed class LauncherUpdateService : IDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            PortableLog.Warn(ex, "Update", $"读取 CI 构建元数据失败：{metadataAsset}。");
+            PortableLog.Warn(ex, "Update", $"读取构建元数据失败：{metadataAsset}。");
             return null;
         }
     }
@@ -824,6 +871,16 @@ public sealed class LauncherUpdateService : IDisposable
 
     private static string NormalizeCommit(string? sha) =>
         string.IsNullOrWhiteSpace(sha) ? string.Empty : sha.Trim().ToLowerInvariant();
+
+    private static bool IsValidCommit(string commit) =>
+        commit.Length is >= 7 and <= 40 && commit.All(Uri.IsHexDigit);
+
+    private static bool AreKnownCommitsEqual(string? currentCommit, string? remoteCommit)
+    {
+        string current = NormalizeCommit(currentCommit);
+        string remote = NormalizeCommit(remoteCommit);
+        return IsValidCommit(current) && IsValidCommit(remote) && CommitsMatch(current, remote);
+    }
 
     private static bool CommitsMatch(string a, string b)
     {
