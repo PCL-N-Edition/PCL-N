@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -46,37 +47,41 @@ public sealed class FileSystemJavaLocator : IJavaLocator
         _searchRoots = searchRoots?.Where(static root => !string.IsNullOrWhiteSpace(root)).ToArray();
     }
 
-    public ValueTask<IReadOnlyList<JavaRuntimeCandidate>> FindAllAsync(CancellationToken cancellationToken)
+    public async ValueTask<IReadOnlyList<JavaRuntimeCandidate>> FindAllAsync(CancellationToken cancellationToken)
     {
-        Dictionary<string, JavaRuntimeCandidate> candidates = new(GetPathComparer());
+        string[] javaHomes = EnumerateJavaHomes(cancellationToken).ToArray();
+        ConcurrentDictionary<string, JavaRuntimeCandidate> candidates = new(GetPathComparer());
 
-        foreach (string javaHome in EnumerateJavaHomes(cancellationToken))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            JavaRuntimeCandidate? candidate = TryCreateCandidate(javaHome);
-            if (candidate is null)
-                continue;
-
-            // Prefer a real JDK home over a PATH/javapath shim for the same major version path key.
-            string key = candidate.Installation.JavaExecutablePath;
-            if (candidates.TryGetValue(key, out JavaRuntimeCandidate? existing))
+        await Parallel.ForEachAsync(
+            javaHomes,
+            new ParallelOptions
             {
-                if (IsBetterCandidate(candidate, existing))
-                    candidates[key] = candidate;
-                continue;
-            }
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 2, 6)
+            },
+            (javaHome, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                JavaRuntimeCandidate? candidate = TryCreateCandidate(javaHome);
+                if (candidate is not null)
+                {
+                    // Prefer a real JDK home over a PATH/javapath shim for the same executable.
+                    candidates.AddOrUpdate(
+                        candidate.Installation.JavaExecutablePath,
+                        candidate,
+                        (_, existing) => IsBetterCandidate(candidate, existing) ? candidate : existing);
+                }
 
-            candidates[key] = candidate;
-        }
+                return ValueTask.CompletedTask;
+            }).ConfigureAwait(false);
 
         // Also index by java home so shim + real home don't both win confusingly later.
-        return ValueTask.FromResult<IReadOnlyList<JavaRuntimeCandidate>>(
-            candidates.Values
-                .GroupBy(static c => Path.GetFullPath(c.Installation.JavaHome), GetPathComparer())
-                .Select(static group => group.OrderByDescending(static c => c.Installation.MajorVersion)
-                    .ThenBy(static c => c.Installation.IsJre)
-                    .First())
-                .ToArray());
+        return candidates.Values
+            .GroupBy(static c => Path.GetFullPath(c.Installation.JavaHome), GetPathComparer())
+            .Select(static group => group.OrderByDescending(static c => c.Installation.MajorVersion)
+                .ThenBy(static c => c.Installation.IsJre)
+                .First())
+            .ToArray();
     }
 
     private static bool IsBetterCandidate(JavaRuntimeCandidate candidate, JavaRuntimeCandidate existing)
@@ -90,32 +95,67 @@ public sealed class FileSystemJavaLocator : IJavaLocator
 
     private IEnumerable<string> EnumerateJavaHomes(CancellationToken cancellationToken)
     {
-        IEnumerable<string> roots = _searchRoots ?? EnumerateDefaultSearchRoots();
-        foreach (string root in roots)
+        IEnumerable<JavaSearchRoot> roots = _searchRoots is null
+            ? EnumerateDefaultSearchRoots()
+            : _searchRoots.Select(static path => new JavaSearchRoot(path, ExpandChildren: true));
+        HashSet<string> seenRoots = new(GetPathComparer());
+        HashSet<string> seenHomes = new(GetPathComparer());
+        foreach (JavaSearchRoot root in roots)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (string javaHome in ExpandRoot(root))
-                yield return javaHome;
+            string normalizedRoot;
+            try
+            {
+                normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root.Path));
+            }
+            catch (Exception) when (IsPathException())
+            {
+                continue;
+            }
+
+            if (!seenRoots.Add(normalizedRoot))
+                continue;
+
+            if (!root.ExpandChildren)
+            {
+                string? directHome = ResolveJavaHome(normalizedRoot);
+                if (directHome is not null)
+                {
+                    string normalizedHome = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directHome));
+                    if (seenHomes.Add(normalizedHome))
+                        yield return normalizedHome;
+                }
+                continue;
+            }
+
+            foreach (string javaHome in ExpandRoot(normalizedRoot, cancellationToken))
+            {
+                string normalizedHome = Path.TrimEndingDirectorySeparator(Path.GetFullPath(javaHome));
+                if (seenHomes.Add(normalizedHome))
+                    yield return normalizedHome;
+            }
         }
     }
 
-    private static IEnumerable<string> EnumerateDefaultSearchRoots()
+    private static IEnumerable<JavaSearchRoot> EnumerateDefaultSearchRoots()
     {
         string? javaHome = Environment.GetEnvironmentVariable("JAVA_HOME");
         if (!string.IsNullOrWhiteSpace(javaHome))
-            yield return javaHome;
+            yield return new JavaSearchRoot(javaHome, ExpandChildren: false);
 
         foreach (string pathEntry in EnumeratePathEntries())
-            yield return pathEntry;
+            // PATH entries are executable lookup directories, not installation roots.
+            // Descending two levels into every PATH entry was the largest cold-scan cost.
+            yield return new JavaSearchRoot(pathEntry, ExpandChildren: false);
 
         // PCL-managed Mojang runtimes downloaded by the launcher.
         foreach (string runtimeRoot in EnumerateManagedRuntimeRoots())
-            yield return runtimeRoot;
+            yield return new JavaSearchRoot(runtimeRoot, ExpandChildren: true);
 
         if (OperatingSystem.IsWindows())
         {
             foreach (string registryHome in EnumerateWindowsRegistryJavaHomes())
-                yield return registryHome;
+                yield return new JavaSearchRoot(registryHome, ExpandChildren: false);
 
             foreach (string root in EnumerateExisting(
                          Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
@@ -129,54 +169,56 @@ public sealed class FileSystemJavaLocator : IJavaLocator
                          @"C:\Java",
                          @"D:\Java"))
             {
-                yield return Path.Combine(root, "Java");
-                yield return Path.Combine(root, "Eclipse Adoptium");
-                yield return Path.Combine(root, "AdoptOpenJDK");
-                yield return Path.Combine(root, "Microsoft");
-                yield return Path.Combine(root, "Zulu");
-                yield return Path.Combine(root, "Azul");
-                yield return Path.Combine(root, "zulu");
-                yield return Path.Combine(root, "BellSoft");
-                yield return Path.Combine(root, "Amazon Corretto");
-                yield return Path.Combine(root, "GraalVM");
-                yield return Path.Combine(root, "graalvm");
-                yield return Path.Combine(root, "Liberica");
-                yield return Path.Combine(root, "Semeru");
-                yield return Path.Combine(root, "Dragonwell");
-                yield return Path.Combine(root, "Common Files", "Oracle", "Java");
+                yield return Expanded(Path.Combine(root, "Java"));
+                yield return Expanded(Path.Combine(root, "Eclipse Adoptium"));
+                yield return Expanded(Path.Combine(root, "AdoptOpenJDK"));
+                yield return Expanded(Path.Combine(root, "Microsoft"));
+                yield return Expanded(Path.Combine(root, "Zulu"));
+                yield return Expanded(Path.Combine(root, "Azul"));
+                yield return Expanded(Path.Combine(root, "zulu"));
+                yield return Expanded(Path.Combine(root, "BellSoft"));
+                yield return Expanded(Path.Combine(root, "Amazon Corretto"));
+                yield return Expanded(Path.Combine(root, "GraalVM"));
+                yield return Expanded(Path.Combine(root, "graalvm"));
+                yield return Expanded(Path.Combine(root, "Liberica"));
+                yield return Expanded(Path.Combine(root, "Semeru"));
+                yield return Expanded(Path.Combine(root, "Dragonwell"));
+                yield return Expanded(Path.Combine(root, "Common Files", "Oracle", "Java"));
                 // Scoop / portable layouts often live under user profile.
-                yield return Path.Combine(root, "scoop", "apps", "temurin-jdk", "current");
-                yield return Path.Combine(root, "scoop", "apps", "zulu-jdk", "current");
-                yield return Path.Combine(root, "scoop", "apps", "graalvm-jdk", "current");
+                yield return Expanded(Path.Combine(root, "scoop", "apps", "temurin-jdk", "current"));
+                yield return Expanded(Path.Combine(root, "scoop", "apps", "zulu-jdk", "current"));
+                yield return Expanded(Path.Combine(root, "scoop", "apps", "graalvm-jdk", "current"));
             }
 
             // Azul / GraalVM installers may only register under their own HKLM keys.
             foreach (string vendorRoot in EnumerateWindowsVendorProgramRoots())
-                yield return vendorRoot;
+                yield return Expanded(vendorRoot);
         }
         else if (OperatingSystem.IsMacOS())
         {
-            yield return "/Library/Java/JavaVirtualMachines";
-            yield return Path.Combine(GetHomeDirectory(), "Library", "Java", "JavaVirtualMachines");
-            yield return "/opt/homebrew/opt/openjdk";
-            yield return "/usr/local/opt/openjdk";
-            yield return "/Library/Java/JavaVirtualMachines/graalvm-ce-java17/Contents/Home";
-            yield return "/opt/homebrew/opt/openjdk@21";
-            yield return "/opt/homebrew/opt/openjdk@17";
-            yield return Path.Combine(GetHomeDirectory(), ".sdkman", "candidates", "java");
+            yield return Expanded("/Library/Java/JavaVirtualMachines");
+            yield return Expanded(Path.Combine(GetHomeDirectory(), "Library", "Java", "JavaVirtualMachines"));
+            yield return Expanded("/opt/homebrew/opt/openjdk");
+            yield return Expanded("/usr/local/opt/openjdk");
+            yield return Expanded("/Library/Java/JavaVirtualMachines/graalvm-ce-java17/Contents/Home");
+            yield return Expanded("/opt/homebrew/opt/openjdk@21");
+            yield return Expanded("/opt/homebrew/opt/openjdk@17");
+            yield return Expanded(Path.Combine(GetHomeDirectory(), ".sdkman", "candidates", "java"));
         }
         else
         {
-            yield return "/usr/lib/jvm";
-            yield return "/usr/java";
-            yield return "/opt/java";
-            yield return "/opt/jdk";
-            yield return "/opt/graalvm";
-            yield return "/usr/lib/jvm/zulu-openjdk";
-            yield return Path.Combine(GetHomeDirectory(), ".sdkman", "candidates", "java");
-            yield return Path.Combine(GetHomeDirectory(), ".jdks");
+            yield return Expanded("/usr/lib/jvm");
+            yield return Expanded("/usr/java");
+            yield return Expanded("/opt/java");
+            yield return Expanded("/opt/jdk");
+            yield return Expanded("/opt/graalvm");
+            yield return Expanded("/usr/lib/jvm/zulu-openjdk");
+            yield return Expanded(Path.Combine(GetHomeDirectory(), ".sdkman", "candidates", "java"));
+            yield return Expanded(Path.Combine(GetHomeDirectory(), ".jdks"));
         }
     }
+
+    private static JavaSearchRoot Expanded(string path) => new(path, ExpandChildren: true);
 
     [SupportedOSPlatform("windows")]
     private static IEnumerable<string> EnumerateWindowsVendorProgramRoots()
@@ -267,7 +309,7 @@ public sealed class FileSystemJavaLocator : IJavaLocator
         }
     }
 
-    private static IEnumerable<string> ExpandRoot(string root)
+    private static IEnumerable<string> ExpandRoot(string root, CancellationToken cancellationToken)
     {
         string normalizedRoot;
         try
@@ -281,21 +323,32 @@ public sealed class FileSystemJavaLocator : IJavaLocator
 
         string? directHome = ResolveJavaHome(normalizedRoot);
         if (directHome is not null)
+        {
             yield return directHome;
+            // A resolved Java home contains large bin/lib/legal trees. Walking below it
+            // can never discover a different installation and dominated scan time.
+            yield break;
+        }
 
         if (!Directory.Exists(normalizedRoot))
             yield break;
 
         foreach (string child in SafeEnumerateDirectories(normalizedRoot))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             string? childHome = ResolveJavaHome(child);
             if (childHome is not null)
+            {
                 yield return childHome;
+                // Do not descend into an already identified JDK/JRE.
+                continue;
+            }
 
             // One extra level for vendor trees like Program Files\Java\jdk-21.0.10
             // and Program Files\Eclipse Adoptium\jdk-17.0.x-hotspot.
             foreach (string grandChild in SafeEnumerateDirectories(child))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 string? grandChildHome = ResolveJavaHome(grandChild);
                 if (grandChildHome is not null)
                     yield return grandChildHome;
@@ -641,6 +694,8 @@ public sealed class FileSystemJavaLocator : IJavaLocator
         ? string.Equals(fileName, "java.exe", StringComparison.OrdinalIgnoreCase) ||
           string.Equals(fileName, "javaw.exe", StringComparison.OrdinalIgnoreCase)
         : string.Equals(fileName, "java", StringComparison.Ordinal);
+
+    private readonly record struct JavaSearchRoot(string Path, bool ExpandChildren);
 
     private static StringComparer GetPathComparer() =>
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;

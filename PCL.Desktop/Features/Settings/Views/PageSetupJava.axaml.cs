@@ -20,6 +20,7 @@ namespace PCL.Desktop.Features.Settings.Views;
 public partial class PageSetupJava : MyPageRight, IRefreshableSettingsPage, ISettingsPageInteractionSource
 {
     private List<JavaRuntimeCandidate> _javaCandidates = [];
+    private int _forceRefreshNextLoad;
     private bool _loaderInitialized;
 
     public PageSetupJava()
@@ -44,9 +45,9 @@ public partial class PageSetupJava : MyPageRight, IRefreshableSettingsPage, ISet
             return;
 
         panLoad.Text = GetPlatformText(
-            "正在扫描 Windows 注册表、Program Files、JAVA_HOME 与 PATH 中的 Java",
-            "正在扫描 /Library/Java、Homebrew、JAVA_HOME 与 PATH 中的 Java",
-            "正在扫描 /usr/lib/jvm、SDKMAN、JAVA_HOME 与 PATH 中的 Java");
+            "正在加载 Java 缓存，必要时扫描注册表、Program Files、JAVA_HOME 与 PATH",
+            "正在加载 Java 缓存，必要时扫描 /Library/Java、Homebrew、JAVA_HOME 与 PATH",
+            "正在加载 Java 缓存，必要时扫描 /usr/lib/jvm、SDKMAN、JAVA_HOME 与 PATH");
 
         _loaderInitialized = true;
         PageLoaderInit(
@@ -68,6 +69,7 @@ public partial class PageSetupJava : MyPageRight, IRefreshableSettingsPage, ISet
 
     public void RefreshPage()
     {
+        Interlocked.Exchange(ref _forceRefreshNextLoad, 1);
         HideJavaContent();
         PageLoaderRestart();
     }
@@ -75,9 +77,15 @@ public partial class PageSetupJava : MyPageRight, IRefreshableSettingsPage, ISet
     private async Task LoadJavaListAsync(CancellationToken cancellationToken)
     {
         LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+        bool forceRefresh = Interlocked.Exchange(ref _forceRefreshNextLoad, 0) == 1;
         // Same catalog as launch so Settings selection matches what 启动游戏 uses.
         IReadOnlyList<JavaRuntimeCandidate> catalog = await Task.Run(
-                () => JavaRuntimeCatalog.LoadAsync(settings, cancellationToken).GetAwaiter().GetResult(),
+                () => JavaRuntimeCatalog.LoadAsync(
+                        settings,
+                        forceRefresh,
+                        cancellationToken)
+                    .GetAwaiter()
+                    .GetResult(),
                 cancellationToken)
             .ConfigureAwait(true);
         _javaCandidates = catalog.ToList();

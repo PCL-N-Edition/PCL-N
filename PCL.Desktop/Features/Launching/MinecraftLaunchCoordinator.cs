@@ -490,10 +490,6 @@ internal sealed class MinecraftLaunchCoordinator
             return PreferJavaExecutable(instanceJava, launchForceConsole);
         }
 
-        // Load the same catalog Settings uses (custom roots + disabled flags).
-        IReadOnlyList<JavaRuntimeCandidate> catalog =
-            await JavaRuntimeCatalog.LoadAsync(request.Settings, cancellationToken).ConfigureAwait(false);
-
         JavaRequirementResolution requirement = JavaRuntimeRequirementResolver.Resolve(profile);
         if (!requirement.Success)
         {
@@ -515,6 +511,11 @@ internal sealed class MinecraftLaunchCoordinator
             request.Log?.Invoke("使用设置中选定的 Java：" + resolvedGlobal);
             return PreferJavaExecutable(resolvedGlobal, launchForceConsole);
         }
+
+        // Only auto-selection needs discovery. Explicit instance/global paths above avoid
+        // touching the scanner entirely, while automatic selection prefers its verified cache.
+        IReadOnlyList<JavaRuntimeCandidate> catalog =
+            await JavaRuntimeCatalog.LoadAsync(request.Settings, cancellationToken).ConfigureAwait(false);
 
         // 3) Auto-select from Settings catalog by version range
         JavaRuntimeCandidate? best = JavaRuntimeCatalog.SelectBest(catalog, requirement.Range);
@@ -589,7 +590,11 @@ internal sealed class MinecraftLaunchCoordinator
 
         // Re-scan catalog so the new runtime is preferred next time.
         IReadOnlyList<JavaRuntimeCandidate> catalog =
-            await JavaRuntimeCatalog.LoadAsync(request.Settings, cancellationToken).ConfigureAwait(false);
+            await JavaRuntimeCatalog.LoadAsync(
+                    request.Settings,
+                    forceRefresh: true,
+                    cancellationToken)
+                .ConfigureAwait(false);
         JavaRequirementResolution requirement = JavaRuntimeRequirementResolver.Resolve(profile);
         if (requirement.Success)
         {

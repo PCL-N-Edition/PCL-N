@@ -53,6 +53,31 @@ public sealed class FileSystemJavaLocatorTests
         Assert.IsTrue(installation.IsJre);
     }
 
+    [TestMethod]
+    public async Task FindAllAsync_ShouldNotWalkInsideResolvedJavaHome()
+    {
+        using TemporaryJavaHome javaHome = TemporaryJavaHome.Create(
+            """
+            JAVA_VERSION="21.0.5"
+            IMPLEMENTOR="OpenJDK"
+            OS_ARCH="amd64"
+            """,
+            includeJavac: true);
+        string embedded = Path.Combine(javaHome.Directory, "embedded-runtime");
+        string embeddedBin = Path.Combine(embedded, "bin");
+        Directory.CreateDirectory(embeddedBin);
+        File.WriteAllText(
+            Path.Combine(embeddedBin, OperatingSystem.IsWindows() ? "java.exe" : "java"),
+            string.Empty);
+        File.WriteAllText(Path.Combine(embedded, "release"), "JAVA_VERSION=\"17.0.11\"");
+
+        IReadOnlyList<JavaRuntimeCandidate> candidates = await new FileSystemJavaLocator([javaHome.Directory])
+            .FindAllAsync(CancellationToken.None);
+
+        Assert.HasCount(1, candidates);
+        Assert.AreEqual(javaHome.Directory, candidates[0].Installation.JavaHome);
+    }
+
     private sealed class TemporaryJavaHome : IDisposable
     {
         private TemporaryJavaHome(string directory, string javaExecutablePath)

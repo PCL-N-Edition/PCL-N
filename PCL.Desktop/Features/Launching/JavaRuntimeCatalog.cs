@@ -2,8 +2,13 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using PCL.Application.Minecraft.Launch;
 using PCL.Application.Settings;
+using PCL.Core.Logging;
 using PCL.Domain.Minecraft.Java;
 using PCL.Domain.Minecraft.Launch;
 using PCL.Platform.Java;
@@ -16,31 +21,39 @@ namespace PCL.Desktop.Features.Launching;
 /// </summary>
 internal static class JavaRuntimeCatalog
 {
+    private static readonly ConcurrentDictionary<string, JavaRuntimeCatalogCache> CacheStores =
+        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+
     public static async Task<IReadOnlyList<JavaRuntimeCandidate>> LoadAsync(
         LauncherSettings settings,
+        bool forceRefresh,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        long startedAt = Stopwatch.GetTimestamp();
 
         string[] customRoots = ReadCustomJavaRoots(settings);
-        List<JavaRuntimeCandidate> candidates = [];
-
-        IReadOnlyList<JavaRuntimeCandidate> autoCandidates =
-            await new FileSystemJavaLocator().FindAllAsync(cancellationToken).ConfigureAwait(false);
-        candidates.AddRange(autoCandidates);
-
-        if (customRoots.Length > 0)
-        {
-            IReadOnlyList<JavaRuntimeCandidate> manualCandidates =
-                await new FileSystemJavaLocator(customRoots).FindAllAsync(cancellationToken).ConfigureAwait(false);
-            candidates.AddRange(manualCandidates.Select(static candidate => candidate with
-            {
-                Source = JavaSource.ManualAdded
-            }));
-        }
+        string cachePath = Path.Combine(
+            PCL.Desktop.Paths.LauncherPathLayout.ResolveCacheDirectory(),
+            "java",
+            "runtimes-v1.json");
+        JavaRuntimeCatalogCache cache = CacheStores.GetOrAdd(
+            cachePath,
+            static path => new JavaRuntimeCatalogCache(path));
+        JavaRuntimeCatalogLoadResult loaded = await cache.GetOrScanAsync(
+                CreateFingerprint(customRoots),
+                forceRefresh,
+                token => ScanAsync(customRoots, token),
+                cancellationToken)
+            .ConfigureAwait(false);
+        PortableLog.Info(
+            "Java",
+            loaded.FromCache
+                ? $"已从缓存加载 {loaded.Candidates.Count} 个 Java，耗时 {(long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds} ms。"
+                : $"Java 扫描完成并已更新缓存，共 {loaded.Candidates.Count} 个候选项，耗时 {(long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds} ms。");
 
         Dictionary<string, JavaRuntimeCandidate> merged = new(GetPathComparer());
-        foreach (JavaRuntimeCandidate candidate in candidates)
+        foreach (JavaRuntimeCandidate candidate in loaded.Candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
             string key = candidate.Installation.JavaExecutablePath;
@@ -66,6 +79,68 @@ internal static class JavaRuntimeCatalog
             .ThenBy(static c => c.Installation.Brand.ToString(), StringComparer.OrdinalIgnoreCase)
             .ThenBy(static c => c.Installation.JavaHome, GetPathComparer())
             .ToArray();
+    }
+
+    public static Task<IReadOnlyList<JavaRuntimeCandidate>> LoadAsync(
+        LauncherSettings settings,
+        CancellationToken cancellationToken = default) =>
+        LoadAsync(settings, forceRefresh: false, cancellationToken);
+
+    private static async Task<IReadOnlyList<JavaRuntimeCandidate>> ScanAsync(
+        string[] customRoots,
+        CancellationToken cancellationToken)
+    {
+        Task<IReadOnlyList<JavaRuntimeCandidate>> automatic =
+            new FileSystemJavaLocator().FindAllAsync(cancellationToken).AsTask();
+        Task<IReadOnlyList<JavaRuntimeCandidate>> manual = customRoots.Length == 0
+            ? Task.FromResult<IReadOnlyList<JavaRuntimeCandidate>>([])
+            : new FileSystemJavaLocator(customRoots).FindAllAsync(cancellationToken).AsTask();
+        await Task.WhenAll(automatic, manual).ConfigureAwait(false);
+
+        Dictionary<string, JavaRuntimeCandidate> merged = new(GetPathComparer());
+        foreach (JavaRuntimeCandidate candidate in automatic.Result)
+            merged[candidate.Installation.JavaExecutablePath] = candidate;
+        foreach (JavaRuntimeCandidate candidate in manual.Result)
+        {
+            JavaRuntimeCandidate manualCandidate = candidate with { Source = JavaSource.ManualAdded };
+            merged[manualCandidate.Installation.JavaExecutablePath] = manualCandidate;
+        }
+
+        return merged.Values.ToArray();
+    }
+
+    private static string CreateFingerprint(IEnumerable<string> customRoots)
+    {
+        StringBuilder value = new()
+        {
+            Capacity = 1024
+        };
+        value.Append(Environment.OSVersion.Platform).Append('|')
+            .Append(System.Runtime.InteropServices.RuntimeInformation.OSArchitecture).Append('|')
+            .Append(Environment.GetEnvironmentVariable("JAVA_HOME")).Append('|')
+            .Append(Environment.GetEnvironmentVariable("PATH"));
+
+        foreach (string root in customRoots.OrderBy(static root => root, GetPathComparer()))
+            value.Append('\n').Append(root).Append('|').Append(GetDirectoryStamp(root));
+
+        string managedRuntimeRoot = Path.Combine(
+            PCL.Desktop.Paths.LauncherPathLayout.ResolveDataDirectory(),
+            "runtime");
+        value.Append('\n').Append(managedRuntimeRoot).Append('|').Append(GetDirectoryStamp(managedRuntimeRoot));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
+    }
+
+    private static long GetDirectoryStamp(string path)
+    {
+        try
+        {
+            DirectoryInfo directory = new(path);
+            return directory.Exists ? directory.LastWriteTimeUtc.Ticks : 0L;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return 0L;
+        }
     }
 
     public static JavaRuntimeCandidate? SelectBest(
