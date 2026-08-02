@@ -496,7 +496,6 @@
     <sys:String x:Key="Oobe.Online.Unavailable">插件侧车未运行，暂时无法登录在线账户。可跳过本页，稍后在「设置 → 在线」中连接。</sys:String>
     <sys:String x:Key="Oobe.Online.Unavailable.Detail">在线服务由 Plugin 提供；打包完整发行版后，此页将显示登录与云同步入口。</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Title">遥测与数据收集</sys:String>
-    <sys:String x:Key="Oobe.Telemetry.Empty">暂无遥测内容</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Title">基本服务数据（必须）</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Intro">为提供更新、下载、安全校验与故障恢复，启动器会处理维持服务所必需的最少数据，此部分不能关闭，也不用于产品画像或广告。</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Items">• 请求标识、启动器版本/通道、平台/架构、协议与 API 版本&#x0a;• 用户主动发起的更新、下载和在线服务请求产生的时间、状态与网络元数据&#x0a;• 安全校验结果（不含令牌）&#x0a;• 严重故障阶段、规范化类别与不可逆指纹</sys:String>

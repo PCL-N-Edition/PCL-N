@@ -496,7 +496,6 @@
     <sys:String x:Key="Oobe.Online.Unavailable">外掛側車未執行，暫時無法登入線上帳戶。可略過本頁，稍後在「設定 → 線上」連線。</sys:String>
     <sys:String x:Key="Oobe.Online.Unavailable.Detail">線上服務由 Plugin 提供；完整發行版會在此顯示登入與雲端同步入口。</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Title">遙測與資料收集</sys:String>
-    <sys:String x:Key="Oobe.Telemetry.Empty">暫無遙測內容</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Title">基本服務資料（必須）</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Intro">為提供更新、下載、安全驗證與故障復原，啟動器會處理維持服務所必需的最少資料，此部分不能關閉，也不用於產品側寫或廣告。</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Items">• 請求識別、啟動器版本/通道、平台/架構、協定與 API 版本&#x0a;• 使用者主動發起的更新、下載和線上服務請求所產生的時間、狀態與網路中繼資料&#x0a;• 安全驗證結果（不含權杖）&#x0a;• 嚴重故障階段、正規化類別與不可逆指紋</sys:String>

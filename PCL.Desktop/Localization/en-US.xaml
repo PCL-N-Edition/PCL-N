@@ -496,7 +496,6 @@
     <sys:String x:Key="Oobe.Online.Unavailable">Plugin sidecar is not running, so online sign-in is unavailable. You can skip this step and connect later in Settings → Online.</sys:String>
     <sys:String x:Key="Oobe.Online.Unavailable.Detail">Online services are provided by the Plugin. Full packages show login and cloud sync here.</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Title">Telemetry &amp; data collection</sys:String>
-    <sys:String x:Key="Oobe.Telemetry.Empty">No telemetry yet</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Title">Basic service data (required)</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Intro">The launcher processes the minimum data needed for updates, downloads, security checks, and fault recovery. This cannot be disabled and is never used for advertising or product profiling.</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Items">• Request ID, launcher version/channel, platform/architecture, protocol and API version&#x0a;• Time, status, and network metadata naturally produced by update, download, and online requests you initiate&#x0a;• Security validation outcomes (never tokens)&#x0a;• Critical failure stage, normalized category, and irreversible fingerprint</sys:String>
