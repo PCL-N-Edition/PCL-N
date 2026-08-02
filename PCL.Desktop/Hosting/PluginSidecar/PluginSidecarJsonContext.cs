@@ -11,6 +11,8 @@ namespace PCL.Desktop.Hosting.PluginSidecar;
     WriteIndented = false)]
 [JsonSerializable(typeof(PluginSidecarRequest))]
 [JsonSerializable(typeof(PluginSidecarResponse))]
+[JsonSerializable(typeof(PluginSidecarV4Request))]
+[JsonSerializable(typeof(PluginSidecarV4Response))]
 [JsonSerializable(typeof(PluginSidecarParams))]
 [JsonSerializable(typeof(PluginSidecarResult))]
 [JsonSerializable(typeof(PluginSidecarError))]

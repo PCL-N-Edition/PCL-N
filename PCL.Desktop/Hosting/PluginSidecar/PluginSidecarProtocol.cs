@@ -28,6 +28,12 @@ internal static class PluginSidecarMethods
     public const string FeedbackSubmit = "feedback.submit";
 }
 
+internal static class PluginSidecarProtocolVersions
+{
+    public const int Legacy = 3;
+    public const int Current = 4;
+}
+
 internal sealed class PluginSidecarRequest
 {
     [JsonPropertyName("id")]
@@ -56,6 +62,26 @@ internal sealed class PluginSidecarResponse
     public PluginSidecarProgress? Progress { get; set; }
 }
 
+/// <summary>Protocol v4 request payload. The request id lives in the fixed binary frame header.</summary>
+internal sealed class PluginSidecarV4Request
+{
+    [JsonPropertyName("method")]
+    public string Method { get; set; } = "";
+
+    [JsonPropertyName("params")]
+    public PluginSidecarParams? Params { get; set; }
+}
+
+/// <summary>Protocol v4 response payload. Progress uses a compact binary frame.</summary>
+internal sealed class PluginSidecarV4Response
+{
+    [JsonPropertyName("result")]
+    public PluginSidecarResult? Result { get; set; }
+
+    [JsonPropertyName("error")]
+    public PluginSidecarError? Error { get; set; }
+}
+
 internal sealed class PluginSidecarProgress
 {
     [JsonPropertyName("stage")]
@@ -79,6 +105,12 @@ internal sealed class PluginSidecarProgress
 
 internal sealed class PluginSidecarParams
 {
+    [JsonPropertyName("minimumProtocolVersion")]
+    public int? MinimumProtocolVersion { get; set; }
+
+    [JsonPropertyName("maximumProtocolVersion")]
+    public int? MaximumProtocolVersion { get; set; }
+
     [JsonPropertyName("token")]
     public string? Token { get; set; }
 

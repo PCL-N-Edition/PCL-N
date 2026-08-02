@@ -20,14 +20,16 @@ ui.invokeAction → result              → refresh / pick file|folder / openUrl
 
 ### Startup performance contract
 
-The first window may wait for sidecar process startup, handshake, `runtime.init`, and one
-`ui.manifest` request. It **must not** wait for `ui.getPage` bodies.
+The first window does **not** wait for the sidecar process, handshake, `runtime.init`,
+`ui.manifest`, or any `ui.getPage` body. Optional-runtime warmup begins in parallel with
+shell initialization and injects plugin navigation when ready.
 
 ```text
-sidecar ready
+host shell ready
+  → first window opens and splash closes
+  → sidecar handshake/runtime.init continues in the background
   → fetch manifest once
   → register navigation
-  → host is ready and first window opens
   → fetch a page body only when that page is opened
   → cache the returned root for the rest of the session
 ```
@@ -72,11 +74,17 @@ Final frame has `result` or `error`. Host maps progress into the task manager.
 
 ### Protocol version
 
-**3** (data-chain). Legacy catalog.* RPCs remain for file-drop install.
+**4** (multiplexed transport + data-chain). Legacy `catalog.*` RPCs remain for
+file-drop install. `system.hello` is deliberately exchanged with the v3 frame:
+
+- a v4 host advertises `minimumProtocolVersion=3` and `maximumProtocolVersion=4`;
+- a v4 sidecar selects the highest common version;
+- new host + old sidecar and old host + new sidecar both remain on v3;
+- only peers that select v4 switch the established connection to v4 framing.
 
 ## Transport and performance
 
-Protocol v3 already provides:
+The compatibility handshake still provides the protocol v3 transport:
 
 - one persistent connection for the process lifetime;
 - Windows named pipe and Unix domain socket transports;
@@ -89,22 +97,47 @@ The primary optimization rule is to reduce calls and payload copies before tunin
 instructions. Page roots are low-frequency control messages, so replacing the current
 framing with `System.IO.Pipelines` alone would not fix observed startup latency.
 
-### Protocol v4 boundary
+### Protocol v4 transport
 
-The following changes require a coordinated host **and** `PCL.Plugin.Sidecar` protocol
-upgrade. They must not be introduced unilaterally while protocol v3 packages are supported.
+After negotiation, both processes wrap the existing stream in `PipeReader` / `PipeWriter`
+and use one dedicated read loop plus one dedicated write loop. The fixed big-endian header
+is 20 bytes:
 
-| Need | Protocol v4 direction |
-|------|-----------------------|
-| Concurrent long actions | dedicated read loop, bounded write queue, request-id multiplexing and cancel frames |
-| High-frequency progress/logs | coalesced snapshots or batches every 16–50 ms |
-| Stable compact event payloads | fixed binary event headers; keep source-generated JSON for low-frequency control |
-| Payloads above 1 MiB | pass a file path/handle when data already exists on disk; otherwise evaluate shared memory |
-| Backpressure | bounded channels; requests/errors never dropped, stale progress may be replaced |
+```text
+payloadLength:u32 | protocolVersion:u16 | messageType:u16 |
+flags:u32 | requestId:u64
+```
 
-Any v4 work must include cross-process compatibility tests, malformed-frame limits,
-cancellation/desynchronization tests, and benchmarks proving that the extra complexity
-reduces allocation or latency.
+Low-frequency request and response payloads remain source-generated JSON. Request IDs are
+not repeated inside JSON. Progress is a compact binary frame and is coalesced to at most
+one snapshot per 33 ms per active action.
+
+| Concern | v4 behavior |
+|---------|-------------|
+| Concurrent long actions | responses are routed through a pending-request map by `requestId` |
+| Cancellation | caller cancellation sends a `Cancel` frame; cancelling one call does not poison the connection |
+| Write integrity | every frame passes through a single bounded writer channel |
+| Backpressure | host and sidecar accept at most 128 pending calls; writer queues hold 256 frames |
+| Overload | sidecar returns a structured `429` response instead of growing memory without a bound |
+| Progress overload | stale progress may be dropped; requests, final results and errors wait for capacity |
+| Inline payload limit | 1 MiB, rejected from the header before payload allocation |
+| Existing large data | `.pnp` packages and other disk-backed objects are passed by path |
+| Windows pipe access | the server uses `CurrentUserOnly` with 64 KiB input/output buffers |
+| Unix access | the domain socket is restricted to user read/write permissions |
+
+Shared memory is intentionally not created yet: no current RPC needs to copy a payload over
+1 MiB, because package operations already pass a path. Add a shared-memory data plane only
+when a measured non-file payload crosses that boundary.
+
+Regression coverage:
+
+- host transport tests force a later response to complete before an earlier simulated slow
+  call, proving that the v3 head-of-line lock is gone;
+- host cancellation is followed by `health.ping`, proving the stream remains synchronized;
+- sidecar tests launch a separate process and cover v3 fallback, v4 multiplexing, cancel
+  frames and malformed oversized frame rejection;
+- the frame writer reuses an `ArrayBufferWriter<byte>` per write loop and JSON metadata is
+  generated at build time, avoiding the former per-frame header array and reflection path.
 
 ## Host types
 
