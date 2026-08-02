@@ -50,10 +50,28 @@ internal sealed class LauncherTelemetry : IEssentialServiceReporter, IExperience
         ArgumentNullException.ThrowIfNull(settings);
         lock (Gate)
         {
-            Instance.EnsureEssentialClient();
-            Instance.ApplyConsentCore(settings);
-            Instance._initialized = true;
-            Instance._startupOperation ??= Instance.StartOperationCore("launcher.startup", "app.startup");
+            try
+            {
+                Instance.EnsureEssentialClient();
+                Instance.ApplyConsentCore(settings);
+                Instance._initialized = true;
+                Instance._startupOperation ??= Instance.StartOperationCore("launcher.startup", "app.startup");
+            }
+            catch (Exception ex)
+            {
+                // Telemetry is diagnostic infrastructure. A bad DSN or SDK option must
+                // never prevent the launcher window from being created.
+                PortableLog.Warn(ex, "Telemetry", "遥测初始化失败，已禁用本次会话的遥测。启动器将继续运行。");
+                try
+                {
+                    Instance.StopExperienceClients();
+                }
+                catch (Exception cleanupEx)
+                {
+                    PortableLog.Warn(cleanupEx, "Telemetry", "清理初始化失败的遥测客户端时发生异常，已忽略。");
+                }
+                Instance._initialized = true;
+            }
         }
     }
 
@@ -64,7 +82,14 @@ internal sealed class LauncherTelemetry : IEssentialServiceReporter, IExperience
         {
             if (!Instance._initialized)
                 return;
-            Instance.ApplyConsentCore(settings);
+            try
+            {
+                Instance.ApplyConsentCore(settings);
+            }
+            catch (Exception ex)
+            {
+                PortableLog.Warn(ex, "Telemetry", "应用遥测设置失败，已保留启动器运行状态。");
+            }
         }
     }
 
@@ -206,6 +231,30 @@ internal sealed class LauncherTelemetry : IEssentialServiceReporter, IExperience
         if (string.IsNullOrWhiteSpace(dsn))
             return;
 
+        try
+        {
+            SentryOptions options = CreateEssentialSentryOptions(dsn);
+            _essentialOptions = options;
+            _essentialClient = new SentryClient(options);
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                _essentialClient?.Dispose();
+            }
+            catch
+            {
+                // The client never became usable; disposal is best effort.
+            }
+            _essentialClient = null;
+            _essentialOptions = null;
+            PortableLog.Warn(ex, "Telemetry", "基本故障遥测初始化失败；本次会话将继续但不上报基本故障数据。");
+        }
+    }
+
+    internal static SentryOptions CreateEssentialSentryOptions(string dsn)
+    {
         SentryOptions options = new()
         {
             Dsn = dsn,
@@ -213,7 +262,7 @@ internal sealed class LauncherTelemetry : IEssentialServiceReporter, IExperience
             Environment = TelemetryDataPolicy.ReleaseChannel,
             SendDefaultPii = false,
             MaxBreadcrumbs = 0,
-            MaxCacheItems = 0,
+            CacheDirectoryPath = null,
             AutoSessionTracking = false,
             TracesSampleRate = 0,
             ShutdownTimeout = TimeSpan.Zero,
@@ -225,8 +274,7 @@ internal sealed class LauncherTelemetry : IEssentialServiceReporter, IExperience
         options.DisableUnobservedTaskExceptionCapture();
         options.DisableAppDomainProcessExitFlush();
         options.SetBeforeSend(ScrubEssentialEvent);
-        _essentialOptions = options;
-        _essentialClient = new SentryClient(options);
+        return options;
     }
 
     private void ApplyConsentCore(LauncherSettings settings)
@@ -262,29 +310,7 @@ internal sealed class LauncherTelemetry : IEssentialServiceReporter, IExperience
         string sentryDsn = ReadConfiguration("PCL_SENTRY_DSN", "SENTRY_DSN");
         if (!string.IsNullOrWhiteSpace(sentryDsn))
         {
-            SentryOptions options = new()
-            {
-                Dsn = sentryDsn,
-                Release = TelemetryDataPolicy.Release,
-                Environment = TelemetryDataPolicy.ReleaseChannel,
-                IsGlobalModeEnabled = true,
-                SendDefaultPii = false,
-                IsEnvironmentUser = false,
-                MaxBreadcrumbs = 50,
-                MaxCacheItems = 0,
-                AutoSessionTracking = true,
-                TracesSampleRate = 1.0,
-                ShutdownTimeout = TimeSpan.Zero,
-                FlushTimeout = TimeSpan.FromSeconds(2),
-                CaptureFailedRequests = false,
-                DisableSentryHttpMessageHandler = true,
-                CacheDirectoryPath = null
-            };
-            options.DisableAppDomainUnhandledExceptionCapture();
-            options.DisableUnobservedTaskExceptionCapture();
-            options.DisableAppDomainProcessExitFlush();
-            options.SetBeforeSend(ScrubExperienceEvent);
-            options.SetBeforeSendTransaction(static transaction => transaction);
+            SentryOptions options = CreateExperienceSentryOptions(sentryDsn);
             _experienceSentry = SentrySdk.Init(options);
         }
 
@@ -299,6 +325,33 @@ internal sealed class LauncherTelemetry : IEssentialServiceReporter, IExperience
         {
             _postHog = new PostHogExperienceClient(postHogToken, EnsureTrailingSlash(host), anonymousId);
         }
+    }
+
+    internal static SentryOptions CreateExperienceSentryOptions(string dsn)
+    {
+        SentryOptions options = new()
+        {
+            Dsn = dsn,
+            Release = TelemetryDataPolicy.Release,
+            Environment = TelemetryDataPolicy.ReleaseChannel,
+            IsGlobalModeEnabled = true,
+            SendDefaultPii = false,
+            IsEnvironmentUser = false,
+            MaxBreadcrumbs = 50,
+            CacheDirectoryPath = null,
+            AutoSessionTracking = true,
+            TracesSampleRate = 1.0,
+            ShutdownTimeout = TimeSpan.Zero,
+            FlushTimeout = TimeSpan.FromSeconds(2),
+            CaptureFailedRequests = false,
+            DisableSentryHttpMessageHandler = true
+        };
+        options.DisableAppDomainUnhandledExceptionCapture();
+        options.DisableUnobservedTaskExceptionCapture();
+        options.DisableAppDomainProcessExitFlush();
+        options.SetBeforeSend(ScrubExperienceEvent);
+        options.SetBeforeSendTransaction(static transaction => transaction);
+        return options;
     }
 
     private void StopExperienceClients()

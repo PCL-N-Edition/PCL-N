@@ -18,6 +18,37 @@ public sealed class TelemetryPolicyTests
     }
 
     [TestMethod]
+    public void SentryClientsDisableDiskCacheWithoutInvalidZeroLimit()
+    {
+        const string dsn = "https://0123456789abcdef0123456789abcdef@example.com/1";
+
+        Sentry.SentryOptions essential = LauncherTelemetry.CreateEssentialSentryOptions(dsn);
+        Sentry.SentryOptions experience = LauncherTelemetry.CreateExperienceSentryOptions(dsn);
+
+        Assert.IsNull(essential.CacheDirectoryPath);
+        Assert.IsNull(experience.CacheDirectoryPath);
+        Assert.IsGreaterThanOrEqualTo(1, essential.MaxCacheItems);
+        Assert.IsGreaterThanOrEqualTo(1, experience.MaxCacheItems);
+    }
+
+    [TestMethod]
+    public void InvalidEssentialDsnDoesNotBreakLauncherInitialization()
+    {
+        const string variable = "PCL_SENTRY_ESSENTIAL_DSN";
+        string? previous = Environment.GetEnvironmentVariable(variable);
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, "not-a-valid-dsn");
+            LauncherTelemetry.Initialize(new LauncherSettings());
+        }
+        finally
+        {
+            LauncherTelemetry.Shutdown();
+            Environment.SetEnvironmentVariable(variable, previous);
+        }
+    }
+
+    [TestMethod]
     public void FailureFingerprintDoesNotDependOnExceptionMessage()
     {
         string first = TelemetryDataPolicy.CreateFailureFingerprint(
