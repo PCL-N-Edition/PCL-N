@@ -102,6 +102,15 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
     public Task<PluginSidecarResult> RuntimeStatusAsync(CancellationToken cancellationToken = default) =>
         CallAsync(PluginSidecarMethods.RuntimeStatus, null, cancellationToken);
 
+    public Task<PluginSidecarResult> SyncHostStateAsync(
+        PluginSidecarHostInstance[] instances,
+        PluginSidecarGameSession[] sessions,
+        CancellationToken cancellationToken = default) =>
+        CallAsync(
+            PluginSidecarMethods.HostSyncState,
+            new PluginSidecarParams { Instances = instances, Sessions = sessions },
+            cancellationToken);
+
     public Task<PluginSidecarResult> UiManifestAsync(CancellationToken cancellationToken = default) =>
         CallAsync(PluginSidecarMethods.UiManifest, null, cancellationToken);
 

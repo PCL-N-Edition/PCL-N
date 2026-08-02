@@ -10,6 +10,7 @@ using Avalonia.Threading;
 using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Hosting.PluginSidecar;
 
@@ -28,6 +29,8 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
     private readonly StackPanel _panMain;
     private readonly MyLoading _loading;
     private readonly Dictionary<string, Func<string?>> _fields = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _liveRefreshCancellation;
+    private long _revision;
     private int _listAnimSeq;
 
     public PageSetupRemoteDataChain(string pageId)
@@ -53,6 +56,8 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         };
         PanScroll = scroll;
         Content = scroll;
+        AttachedToVisualTree += (_, _) => StartLiveRefresh();
+        DetachedFromVisualTree += (_, _) => StopLiveRefresh();
 
         // Reuse a root already fetched during this session; otherwise load on demand.
         if (PluginUiPageCache.TryGetRoot(_pageId, out PluginUiNodeDto? cached) && cached is not null)
@@ -113,6 +118,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             }
 
             PluginUiPageCache.SetRoot(_pageId, page.Root);
+            _revision = page.Revision;
             ApplyRoot(page.Root);
         }
         catch (Exception ex)
@@ -132,6 +138,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                         if (page.Ok && page.Root is not null)
                         {
                             PluginUiPageCache.SetRoot(_pageId, page.Root);
+                            _revision = page.Revision;
                             ApplyRoot(page.Root);
                             return;
                         }
@@ -167,14 +174,77 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         _panMain.Children.Add(RenderNode(root));
     }
 
+    private void StartLiveRefresh()
+    {
+        if (_liveRefreshCancellation is not null)
+            return;
+        _liveRefreshCancellation = new CancellationTokenSource();
+        UnhandledExceptionGuard.Observe(
+            PollLiveContentAsync(_liveRefreshCancellation.Token),
+            $"PluginUi.LiveRefresh.{_pageId}");
+    }
+
+    private void StopLiveRefresh()
+    {
+        CancellationTokenSource? cancellation = _liveRefreshCancellation;
+        _liveRefreshCancellation = null;
+        if (cancellation is null)
+            return;
+        cancellation.Cancel();
+        cancellation.Dispose();
+    }
+
+    private async Task PollLiveContentAsync(CancellationToken cancellationToken)
+    {
+        // Dynamic plugin pages can update from background room/session events. Poll only
+        // while this page is attached; revision avoids rebuilding an unchanged visual tree.
+        using PeriodicTimer timer = new(TimeSpan.FromMilliseconds(750));
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!PluginSidecarSupervisor.Instance.IsAvailable ||
+                PluginSidecarSupervisor.Instance.Client is not { } client)
+            {
+                continue;
+            }
+
+            PluginSidecarResult page;
+            try
+            {
+                page = await client.UiGetPageAsync(_pageId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (!page.Ok || page.Root is null || page.Revision == 0 || page.Revision == _revision)
+                continue;
+
+            _revision = page.Revision;
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                PluginUiPageCache.SetRoot(_pageId, page.Root);
+                ApplyRoot(page.Root);
+            }, DispatcherPriority.Background, cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(page.NavigateRoute))
+                await DesktopHostNavigation.Instance.NavigateAsync(page.NavigateRoute, cancellationToken)
+                    .ConfigureAwait(false);
+        }
+    }
+
     private Control RenderNode(PluginUiNodeDto node)
     {
         string kind = node.Kind ?? "stack";
-        return kind.ToLowerInvariant() switch
+        Control control = kind.ToLowerInvariant() switch
         {
             "card" => RenderCard(node),
             "toolbar" => RenderToolbar(node),
-            "text" => CreateBodyText(node.Text ?? "", enabled: node.Enabled),
+            "text" => RenderText(node),
             "muted" => CreateMuted(node.Text ?? ""),
             "hint" => new MyHint
             {
@@ -191,7 +261,33 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             "row" => RenderRow(node),
             "settingsgroup" => RenderSettingsGroup(node),
             "settingscell" => RenderSettingsCell(node),
+            "markdown" => new MyMarkdownViewer { Markdown = node.Text ?? "" },
+            "progress" => RenderProgress(node),
+            "slider" => RenderSlider(node),
+            "spacer" => new Border { MinHeight = Math.Max(0, node.Number ?? 8) },
             _ => CreateMuted($"未知节点: {kind}")
+        };
+        ApplyCommon(control, node);
+        return control;
+    }
+
+    private static TextBlock RenderText(PluginUiNodeDto node)
+    {
+        (double size, FontWeight weight, double opacity) = node.Style?.ToLowerInvariant() switch
+        {
+            "caption" => (12, FontWeight.Normal, 0.68),
+            "subtitle" => (16, FontWeight.SemiBold, 0.92),
+            "title" => (20, FontWeight.SemiBold, 1),
+            "heading" => (26, FontWeight.Bold, 1),
+            _ => (14, FontWeight.Normal, 0.9)
+        };
+        return new TextBlock
+        {
+            Text = node.Text ?? "",
+            FontSize = size,
+            FontWeight = weight,
+            Opacity = opacity,
+            TextWrapping = TextWrapping.Wrap
         };
     }
 
@@ -215,7 +311,13 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
     private StackPanel RenderStack(PluginUiNodeDto node)
     {
-        StackPanel panel = new() { Spacing = 0 };
+        StackPanel panel = new()
+        {
+            Spacing = node.Spacing ?? 0,
+            Orientation = string.Equals(node.Orientation, "horizontal", StringComparison.OrdinalIgnoreCase)
+                ? Orientation.Horizontal
+                : Orientation.Vertical
+        };
         if (!string.IsNullOrWhiteSpace(node.Title))
             panel.Children.Add(CreateSectionTitle(node.Title!));
 
@@ -485,7 +587,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             Margin = new Thickness(0, 0, 8, 6),
             VerticalAlignment = VerticalAlignment.Center,
             IsEnabled = node.Enabled,
-            ColorType = ResolveButtonColor(node.ActionId, label)
+            ColorType = ResolveButtonColor(node.ActionId, label, node.Style)
         };
         string? actionId = node.ActionId;
         string? meta = node.Meta;
@@ -504,8 +606,14 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         return button;
     }
 
-    private static MyButton.ColorState ResolveButtonColor(string? actionId, string label)
+    private static MyButton.ColorState ResolveButtonColor(string? actionId, string label, string? style = null)
     {
+        if (string.Equals(style, "primary", StringComparison.OrdinalIgnoreCase))
+            return MyButton.ColorState.Highlight;
+        if (string.Equals(style, "danger", StringComparison.OrdinalIgnoreCase))
+            return MyButton.ColorState.Red;
+        if (string.Equals(style, "subtle", StringComparison.OrdinalIgnoreCase))
+            return MyButton.ColorState.Gray;
         if (actionId is "catalog.uninstall" || label.Contains("卸载", StringComparison.Ordinal))
             return MyButton.ColorState.Red;
         if (actionId is "catalog.disable" || label is "禁用")
@@ -563,12 +671,32 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             HintText = node.Placeholder ?? "",
             MinWidth = 220,
             Height = 32,
-            MaxLength = 200,
+            MaxLength = node.Multiline ? 8000 : 200,
+            AcceptsReturn = node.Multiline,
+            TextWrapping = node.Multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
+            PasswordChar = node.Password ? '*' : '\0',
             IsEnabled = node.Enabled,
             UseExperimentalStyle = false
         };
         if (!string.IsNullOrWhiteSpace(node.Id))
             _fields[node.Id!] = () => box.Text;
+
+        if (!string.IsNullOrWhiteSpace(node.ActionId) && !string.IsNullOrWhiteSpace(node.Meta))
+        {
+            string actionId = node.ActionId!;
+            string elementId = node.Meta!;
+            CancellationTokenSource? debounce = null;
+            box.PropertyChanged += (_, args) =>
+            {
+                if (args.Property != TextBox.TextProperty)
+                    return;
+                debounce?.Cancel();
+                debounce?.Dispose();
+                debounce = new CancellationTokenSource();
+                CancellationToken token = debounce.Token;
+                _ = SendTextChangeAsync(actionId, elementId, box.Text ?? "", token);
+            };
+        }
 
         panel.Children.Add(box);
         return panel;
@@ -625,6 +753,11 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
                 string? value = ResolveFieldValue(valueField);
                 string? pluginId = ResolveFieldValue(metaField) ?? staticMeta;
+                if (string.Equals(actionId, "pclui.value", StringComparison.Ordinal) &&
+                    combo.SelectedItem is SelectOptionItem selectedItem)
+                {
+                    value = selectedItem.Value;
+                }
                 if (!string.IsNullOrWhiteSpace(node.Id) &&
                     string.Equals(metaField, node.Id, StringComparison.OrdinalIgnoreCase) &&
                     combo.SelectedItem is SelectOptionItem current)
@@ -642,6 +775,90 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
         panel.Children.Add(combo);
         return panel;
+    }
+
+    private static StackPanel RenderProgress(PluginUiNodeDto node)
+    {
+        StackPanel panel = new() { Spacing = 5 };
+        if (!string.IsNullOrWhiteSpace(node.Text))
+            panel.Children.Add(CreateFieldLabel(node.Text!));
+        panel.Children.Add(new ProgressBar
+        {
+            Minimum = 0,
+            Maximum = 1,
+            Value = Math.Clamp(node.Number ?? 0, 0, 1),
+            Height = 5
+        });
+        return panel;
+    }
+
+    private StackPanel RenderSlider(PluginUiNodeDto node)
+    {
+        int minimum = (int)Math.Round(node.Minimum ?? 0);
+        int maximum = Math.Max(minimum + 1, (int)Math.Round(node.Maximum ?? 100));
+        MySlider slider = new()
+        {
+            MaxValue = maximum - minimum,
+            Value = Math.Clamp((int)Math.Round(node.Number ?? minimum), minimum, maximum) - minimum,
+            ValueByKey = (uint)Math.Max(1, (int)Math.Round(node.Step ?? 1)),
+            MinWidth = 140,
+            IsEnabled = node.Enabled
+        };
+        if (!string.IsNullOrWhiteSpace(node.ActionId) && !string.IsNullOrWhiteSpace(node.Meta))
+        {
+            string actionId = node.ActionId!;
+            string elementId = node.Meta!;
+            slider.Change += async (_, user) =>
+            {
+                if (!user)
+                    return;
+                await InvokeAsync(
+                        actionId,
+                        pluginId: elementId,
+                        value: (slider.Value + minimum).ToString(System.Globalization.CultureInfo.InvariantCulture))
+                    .ConfigureAwait(true);
+            };
+        }
+
+        StackPanel panel = new() { Spacing = 5 };
+        if (!string.IsNullOrWhiteSpace(node.Title))
+            panel.Children.Add(CreateFieldLabel(node.Title!));
+        panel.Children.Add(slider);
+        return panel;
+    }
+
+    private static void ApplyCommon(Control control, PluginUiNodeDto node)
+    {
+        control.IsVisible = node.Visible;
+        control.IsEnabled = node.Enabled;
+        if (node.Margin is { Length: >= 4 } margin)
+            control.Margin = new Thickness(margin[0], margin[1], margin[2], margin[3]);
+        if (node.Width is { } width)
+            control.Width = width;
+        if (node.MinWidth is { } minWidth)
+            control.MinWidth = minWidth;
+        if (node.MaxWidth is { } maxWidth)
+            control.MaxWidth = maxWidth;
+    }
+
+    private async Task SendTextChangeAsync(
+        string actionId,
+        string elementId,
+        string value,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(80, cancellationToken).ConfigureAwait(false);
+            await Dispatcher.UIThread.InvokeAsync(
+                () => InvokeAsync(actionId, pluginId: elementId, value: value),
+                DispatcherPriority.Background,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer keystroke superseded this value.
+        }
     }
 
     private static TextBlock CreateSectionTitle(string text) =>
@@ -847,6 +1064,12 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                 await DesktopHostUriLauncher.Instance.OpenAsync(uri).ConfigureAwait(true);
             }
 
+            if (!string.IsNullOrWhiteSpace(result.NavigateRoute))
+            {
+                await DesktopHostNavigation.Instance.NavigateAsync(result.NavigateRoute)
+                    .ConfigureAwait(true);
+            }
+
             if (!string.IsNullOrWhiteSpace(result.Message))
             {
                 if (!result.Ok)
@@ -885,12 +1108,14 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
             if (result.Root is not null)
             {
+                _revision = result.Revision;
                 PluginUiPageCache.SetRoot(_pageId, result.Root);
                 ApplyRoot(result.Root);
                 return;
             }
 
-            if (result.RefreshPage || result.Ok)
+            if (result.RefreshPage ||
+                (result.Ok && !actionId.StartsWith("pclui.", StringComparison.Ordinal)))
             {
                 PluginUiPageCache.Invalidate(_pageId);
                 await RefreshAsync(forceNetwork: true).ConfigureAwait(true);

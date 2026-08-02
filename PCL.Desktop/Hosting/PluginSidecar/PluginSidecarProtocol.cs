@@ -13,6 +13,7 @@ internal static class PluginSidecarMethods
     public const string HealthPing = "health.ping";
     public const string RuntimeInit = "runtime.init";
     public const string RuntimeStatus = "runtime.status";
+    public const string HostSyncState = "host.syncState";
     public const string CatalogList = "catalog.list";
     public const string CatalogInstallPnp = "catalog.installPnp";
     public const string CatalogSetEnabled = "catalog.setEnabled";
@@ -152,6 +153,57 @@ internal sealed class PluginSidecarParams
 
     [JsonPropertyName("description")]
     public string? Description { get; set; }
+
+    [JsonPropertyName("instances")]
+    public PluginSidecarHostInstance[]? Instances { get; set; }
+
+    [JsonPropertyName("sessions")]
+    public PluginSidecarGameSession[]? Sessions { get; set; }
+}
+
+internal sealed class PluginSidecarHostInstance
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("instanceDirectory")]
+    public string InstanceDirectory { get; set; } = "";
+
+    [JsonPropertyName("versionJsonPath")]
+    public string? VersionJsonPath { get; set; }
+}
+
+internal sealed class PluginSidecarGameSession
+{
+    [JsonPropertyName("sessionId")]
+    public Guid SessionId { get; set; }
+
+    [JsonPropertyName("instanceId")]
+    public string InstanceId { get; set; } = "";
+
+    [JsonPropertyName("processId")]
+    public int ProcessId { get; set; }
+
+    [JsonPropertyName("state")]
+    public int State { get; set; }
+
+    [JsonPropertyName("startedAt")]
+    public DateTimeOffset StartedAt { get; set; }
+
+    [JsonPropertyName("endedAt")]
+    public DateTimeOffset? EndedAt { get; set; }
+
+    [JsonPropertyName("exitCode")]
+    public int? ExitCode { get; set; }
+
+    [JsonPropertyName("lastSequence")]
+    public long LastSequence { get; set; }
+
+    [JsonPropertyName("lanAddress")]
+    public string? LanAddress { get; set; }
 }
 
 internal sealed class PluginSidecarResult
@@ -188,6 +240,12 @@ internal sealed class PluginSidecarResult
 
     [JsonPropertyName("root")]
     public PluginUiNodeDto? Root { get; set; }
+
+    [JsonPropertyName("revision")]
+    public long Revision { get; set; }
+
+    [JsonPropertyName("navigateRoute")]
+    public string? NavigateRoute { get; set; }
 
     [JsonPropertyName("refreshPage")]
     public bool RefreshPage { get; set; }
@@ -332,6 +390,9 @@ internal sealed class PluginUiPageDto
     [JsonPropertyName("groupId")]
     public string? GroupId { get; set; }
 
+    [JsonPropertyName("surface")]
+    public string Surface { get; set; } = "settings";
+
     [JsonPropertyName("title")]
     public string Title { get; set; } = "";
 
@@ -372,6 +433,48 @@ internal sealed class PluginUiNodeDto
 
     [JsonPropertyName("enabled")]
     public bool Enabled { get; set; } = true;
+
+    [JsonPropertyName("visible")]
+    public bool Visible { get; set; } = true;
+
+    [JsonPropertyName("style")]
+    public string? Style { get; set; }
+
+    [JsonPropertyName("orientation")]
+    public string? Orientation { get; set; }
+
+    [JsonPropertyName("spacing")]
+    public double? Spacing { get; set; }
+
+    [JsonPropertyName("width")]
+    public double? Width { get; set; }
+
+    [JsonPropertyName("minWidth")]
+    public double? MinWidth { get; set; }
+
+    [JsonPropertyName("maxWidth")]
+    public double? MaxWidth { get; set; }
+
+    [JsonPropertyName("margin")]
+    public double[]? Margin { get; set; }
+
+    [JsonPropertyName("number")]
+    public double? Number { get; set; }
+
+    [JsonPropertyName("minimum")]
+    public double? Minimum { get; set; }
+
+    [JsonPropertyName("maximum")]
+    public double? Maximum { get; set; }
+
+    [JsonPropertyName("step")]
+    public double? Step { get; set; }
+
+    [JsonPropertyName("multiline")]
+    public bool Multiline { get; set; }
+
+    [JsonPropertyName("password")]
+    public bool Password { get; set; }
 
     [JsonPropertyName("children")]
     public PluginUiNodeDto[]? Children { get; set; }

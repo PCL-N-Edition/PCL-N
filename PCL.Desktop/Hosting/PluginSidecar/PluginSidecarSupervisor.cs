@@ -175,6 +175,12 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
             lock (_gate)
                 _client = client;
 
+            if (client.ProtocolVersion >= PluginSidecarProtocolVersions.Current)
+            {
+                await PluginSidecarHostStateBridge.AttachAndSynchronizeAsync(client, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             PortableLog.Info(
                 "PluginSidecar",
                 $"Sidecar ready (protocol={hello.ProtocolVersion}, version={hello.SidecarVersion ?? "?"}).");

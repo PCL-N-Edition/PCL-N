@@ -5,6 +5,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Pipelines;
 using System.IO.Pipes;
+using System.Text.Json;
 using PCL.Desktop.Hosting.PluginSidecar;
 
 namespace PCL.Desktop.Test;
@@ -12,6 +13,48 @@ namespace PCL.Desktop.Test;
 [TestClass]
 public sealed class PluginSidecarProtocolTests
 {
+    [TestMethod]
+    public void HostStatePayload_RoundTripsWithAotJsonContext()
+    {
+        Guid sessionId = Guid.NewGuid();
+        PluginSidecarParams source = new()
+        {
+            Instances =
+            [
+                new PluginSidecarHostInstance
+                {
+                    Id = "fixture",
+                    Name = "Fixture",
+                    InstanceDirectory = "minecraft/fixture"
+                }
+            ],
+            Sessions =
+            [
+                new PluginSidecarGameSession
+                {
+                    SessionId = sessionId,
+                    InstanceId = "fixture",
+                    ProcessId = 42,
+                    State = 1,
+                    StartedAt = DateTimeOffset.UtcNow,
+                    LastSequence = 7,
+                    LanAddress = "127.0.0.1:25565"
+                }
+            ]
+        };
+
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(
+            source,
+            PluginSidecarJsonContext.Default.PluginSidecarParams);
+        PluginSidecarParams? restored = JsonSerializer.Deserialize(
+            json,
+            PluginSidecarJsonContext.Default.PluginSidecarParams);
+
+        Assert.AreEqual("fixture", restored?.Instances?.Single().Id);
+        Assert.AreEqual(sessionId, restored?.Sessions?.Single().SessionId);
+        Assert.AreEqual("127.0.0.1:25565", restored?.Sessions?.Single().LanAddress);
+    }
+
     [TestMethod]
     public void SidecarPathResolver_PrefersCurrentHostPayload()
     {
