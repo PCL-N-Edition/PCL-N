@@ -25,6 +25,10 @@ internal static class LauncherSettingsPageBinder
 {
     private const string SettingsPathOverrideEnvironmentVariable = "PCLN_LAUNCHER_SETTINGS_PATH";
     private static readonly ConditionalWeakTable<MyPageRight, BindingState> BindingStates = new();
+    private static readonly object SettingsCacheSync = new();
+    private static string? _cachedSettingsPath;
+    private static SettingsFileStamp _cachedSettingsStamp;
+    private static LauncherSettings? _cachedSettings;
 
     internal static IReadOnlyList<ColorTheme> ThemeOrder => ThemeAvailabilityPolicy.GetAvailableThemes();
 
@@ -430,7 +434,7 @@ internal static class LauncherSettingsPageBinder
         state.IsApplying = true;
         try
         {
-            LauncherSettings settings = LoadSettings();
+            LauncherSettings settings = LoadSettingsCore(forceRefresh: true);
             state.RestoreControlDefaults();
             ApplySettings(page, settings);
             state.SettingsApplied?.Invoke(settings);
@@ -560,7 +564,9 @@ internal static class LauncherSettingsPageBinder
         }
     }
 
-    internal static LauncherSettings LoadSettings()
+    internal static LauncherSettings LoadSettings() => LoadSettingsCore(forceRefresh: false);
+
+    private static LauncherSettings LoadSettingsCore(bool forceRefresh)
     {
         string path;
         try
@@ -574,6 +580,10 @@ internal static class LauncherSettingsPageBinder
             return new LauncherSettings().NormalizeOptionDictionaries();
         }
 
+        SettingsFileStamp currentStamp = GetSettingsFileStamp(path);
+        if (!forceRefresh && TryGetCachedSettings(path, currentStamp, out LauncherSettings? cached))
+            return cached;
+
         try
         {
             string? dir = Path.GetDirectoryName(path);
@@ -582,6 +592,8 @@ internal static class LauncherSettingsPageBinder
 
             using LauncherSettingsStore store = new(path);
             LauncherSettings settings = store.LoadAsync().AsTask().GetAwaiter().GetResult().Settings;
+            settings = settings.NormalizeOptionDictionaries();
+            CacheSettings(path, GetSettingsFileStamp(path), settings);
             PortableLog.Debug(
                 "Settings",
                 $"设置读取完成；Path={path}；Bool={settings.BooleanOptions.Count}；Int={settings.IntegerOptions.Count}；Text={settings.TextOptions.Count}。");
@@ -590,7 +602,9 @@ internal static class LauncherSettingsPageBinder
         catch (Exception ex)
         {
             PortableLog.Error(ex, "Settings", $"读取启动器设置失败（已回退空设置）：{path}");
-            return new LauncherSettings().NormalizeOptionDictionaries();
+            LauncherSettings fallback = new LauncherSettings().NormalizeOptionDictionaries();
+            CacheSettings(path, GetSettingsFileStamp(path), fallback);
+            return fallback.NormalizeOptionDictionaries();
         }
     }
 
@@ -599,14 +613,16 @@ internal static class LauncherSettingsPageBinder
         string settingsPath = CreateSettingsPath();
         try
         {
+            LauncherSettings snapshot = settings.NormalizeOptionDictionaries();
             using LauncherSettingsStore store = new(settingsPath);
-            store.SaveAsync(settings).AsTask().GetAwaiter().GetResult();
+            store.SaveAsync(snapshot).AsTask().GetAwaiter().GetResult();
+            CacheSettings(settingsPath, GetSettingsFileStamp(settingsPath), snapshot);
             PortableLog.Debug(
                 "Settings",
-                $"设置保存完成；Path={settingsPath}；Bool={settings.BooleanOptions.Count}；Int={settings.IntegerOptions.Count}；Text={settings.TextOptions.Count}。");
+                $"设置保存完成；Path={settingsPath}；Bool={snapshot.BooleanOptions.Count}；Int={snapshot.IntegerOptions.Count}；Text={snapshot.TextOptions.Count}。");
             // Session stores (folders/instances) persist without re-entering UI chrome updates.
             if (notify)
-                SettingsChanged?.Invoke(settings);
+                SettingsChanged?.Invoke(snapshot.NormalizeOptionDictionaries());
         }
         catch (Exception ex)
         {
@@ -615,7 +631,7 @@ internal static class LauncherSettingsPageBinder
         }
     }
 
-    internal static void NotifySettingsChanged() => SettingsChanged?.Invoke(LoadSettings());
+    internal static void NotifySettingsChanged() => SettingsChanged?.Invoke(LoadSettingsCore(forceRefresh: true));
 
     internal static void SaveIntegerOption(string key, int value)
     {
@@ -637,6 +653,8 @@ internal static class LauncherSettingsPageBinder
         {
             using LauncherSettingsStore store = new(settingsPath);
             LauncherSettings settings = store.UpdateAsync(update).AsTask().GetAwaiter().GetResult();
+            settings = settings.NormalizeOptionDictionaries();
+            CacheSettings(settingsPath, GetSettingsFileStamp(settingsPath), settings);
             PortableLog.Debug(
                 "Settings",
                 $"设置事务更新完成；Path={settingsPath}；Bool={settings.BooleanOptions.Count}；Int={settings.IntegerOptions.Count}；Text={settings.TextOptions.Count}。");
@@ -650,6 +668,62 @@ internal static class LauncherSettingsPageBinder
             throw;
         }
     }
+
+    private static bool TryGetCachedSettings(
+        string settingsPath,
+        SettingsFileStamp currentStamp,
+        out LauncherSettings settings)
+    {
+        lock (SettingsCacheSync)
+        {
+            if (_cachedSettings is not null &&
+                PathsEqual(_cachedSettingsPath, settingsPath) &&
+                _cachedSettingsStamp == currentStamp)
+            {
+                settings = _cachedSettings.NormalizeOptionDictionaries();
+                return true;
+            }
+        }
+
+        settings = null!;
+        return false;
+    }
+
+    private static void CacheSettings(
+        string settingsPath,
+        SettingsFileStamp stamp,
+        LauncherSettings settings)
+    {
+        lock (SettingsCacheSync)
+        {
+            _cachedSettingsPath = Path.GetFullPath(settingsPath);
+            _cachedSettingsStamp = stamp;
+            _cachedSettings = settings.NormalizeOptionDictionaries();
+        }
+    }
+
+    private static SettingsFileStamp GetSettingsFileStamp(string settingsPath)
+    {
+        try
+        {
+            FileInfo file = new(settingsPath);
+            return file.Exists
+                ? new SettingsFileStamp(file.LastWriteTimeUtc.Ticks, file.Length)
+                : default;
+        }
+        catch
+        {
+            return default;
+        }
+    }
+
+    private static bool PathsEqual(string? left, string right) =>
+        left is not null && string.Equals(
+            Path.GetFullPath(left),
+            Path.GetFullPath(right),
+            OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
 
     internal static string CreateSettingsPath()
     {
@@ -739,6 +813,8 @@ internal static class LauncherSettingsPageBinder
         if (comboBox.ItemCount > 0)
             comboBox.SelectedIndex = Math.Clamp(index, 0, comboBox.ItemCount - 1);
     }
+
+    private readonly record struct SettingsFileStamp(long LastWriteTimeUtcTicks, long Length);
 
     /// <summary>
     /// Populate light/dark theme color combos with real <see cref="MyComboBoxItem"/>s

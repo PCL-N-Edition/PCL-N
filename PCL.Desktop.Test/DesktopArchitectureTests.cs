@@ -802,6 +802,51 @@ public sealed class DesktopArchitectureTests
     }
 
     [TestMethod]
+    public void Startup_DoesNotWaitForPluginRuntimeBeforeShowingFirstWindow()
+    {
+        string desktopRoot = FindDesktopProjectRoot();
+        string app = File.ReadAllText(Path.Combine(desktopRoot, "App.axaml.cs"));
+        string optionalHost = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Hosting",
+            "DesktopHost.Optional.cs"));
+
+        Assert.IsFalse(app.Contains("EnterMainShellAfterPluginReadyAsync", StringComparison.Ordinal));
+        Assert.IsFalse(app.Contains("EnterOobeAfterPluginReadyAsync", StringComparison.Ordinal));
+        Assert.IsFalse(app.Contains("WaitForPluginOptionalRuntimeAsync", StringComparison.Ordinal));
+        StringAssert.Contains(app, "ShowMainWindow(desktop, fadeSplash);");
+        StringAssert.Contains(app, "ObservePluginOptionalRuntimeAsync(\"main\")");
+        StringAssert.Contains(optionalHost, "first shell never wait for it");
+    }
+
+    [TestMethod]
+    public void Startup_SettingsArePrimedBeforeAvaloniaAndUiReadsUseTheSnapshotCache()
+    {
+        string desktopRoot = FindDesktopProjectRoot();
+        string program = File.ReadAllText(Path.Combine(desktopRoot, "Program.cs"));
+        string binder = File.ReadAllText(Path.Combine(
+            desktopRoot,
+            "Features",
+            "Settings",
+            "Views",
+            "LauncherSettingsPageBinder.cs"));
+
+        int initialLoad = program.IndexOf(
+            "startupSettings = LauncherSettingsPageBinder.LoadSettings();",
+            StringComparison.Ordinal);
+        int avaloniaStart = program.IndexOf(
+            "BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);",
+            StringComparison.Ordinal);
+        Assert.IsTrue(initialLoad >= 0 && initialLoad < avaloniaStart);
+
+        int cacheLookup = binder.IndexOf("TryGetCachedSettings(path, currentStamp", StringComparison.Ordinal);
+        int asyncStoreLoad = binder.IndexOf("store.LoadAsync().AsTask().GetAwaiter().GetResult()", StringComparison.Ordinal);
+        Assert.IsTrue(cacheLookup >= 0 && cacheLookup < asyncStoreLoad);
+        StringAssert.Contains(binder, "settings.NormalizeOptionDictionaries()");
+        StringAssert.Contains(binder, "CacheSettings(settingsPath, GetSettingsFileStamp(settingsPath)");
+    }
+
+    [TestMethod]
     public void DesktopHost_InitializesBuiltinModulesOnly()
     {
         string desktopHost = File.ReadAllText(Path.Combine(

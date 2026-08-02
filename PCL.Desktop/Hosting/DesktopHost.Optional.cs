@@ -12,7 +12,7 @@ namespace PCL.Desktop.Hosting;
 /// <summary>
 /// Host optional runtime: out-of-process plugin sidecar (AOT-safe).
 /// Plugin settings pages are NOT hardcoded — they are injected via UI data-chain after sidecar starts.
-/// Splash/startup waits on <see cref="EnsureOptionalRuntimeReadyAsync"/> before entering the main shell.
+/// Warmup starts with the desktop host, but the splash and first shell never wait for it.
 /// </summary>
 internal static partial class DesktopHost
 {
@@ -20,7 +20,7 @@ internal static partial class DesktopHost
     private static IDisposable? _feedbackHandlerRegistration;
     private static Task<PluginOptionalRuntimeResult>? _optionalRuntimeTask;
 
-    /// <summary>Outcome of the splash-time plugin warm-start (available after task completes).</summary>
+    /// <summary>Outcome of the background plugin warm-start (available after task completes).</summary>
     public static PluginOptionalRuntimeResult? OptionalRuntimeResult { get; private set; }
 
     static partial void RegisterOptionalModules(PclHostBuilder builder)
@@ -31,7 +31,7 @@ internal static partial class DesktopHost
 
     static partial void InitializeOptionalRuntime(IPclHost host)
     {
-        // Start during DesktopHost.Initialize (splash still visible). Callers await Ensure*.
+        // Start during DesktopHost.Initialize; UI callers observe or await only when they need plugin data.
         _optionalRuntimeTask = WarmOptionalRuntimeAsync(host);
     }
 

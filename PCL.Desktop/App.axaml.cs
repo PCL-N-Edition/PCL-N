@@ -23,7 +23,7 @@ namespace PCL.Desktop;
 
 public sealed partial class App : Avalonia.Application
 {
-    /// <summary>Max time to wait on splash for plugin sidecar (missing/fail still proceeds).</summary>
+    /// <summary>Max time to observe background plugin warmup before logging a timeout.</summary>
     private static readonly TimeSpan PluginWarmupTimeout = TimeSpan.FromSeconds(25);
 
     private SplashWindow? _splashWindow;
@@ -102,25 +102,25 @@ public sealed partial class App : Avalonia.Application
                         _splashWindow.Closing += (_, _) => HandleSplashClosing(desktop);
                         desktop.MainWindow = _splashWindow;
                         _splashWindow.Show();
-                        DesktopFileLog.Info("Startup", "启动图标已显示；等待插件功能就绪或确认不可用。");
+                        DesktopFileLog.Info("Startup", "启动图标已显示；插件功能在后台加载，首窗不会等待。");
                     }
                     else
                     {
-                        DesktopFileLog.Info("Startup", "启动图标已关闭；仍等待插件功能就绪或确认不可用后再进入主页。");
+                        DesktopFileLog.Info("Startup", "启动图标已关闭；插件功能在后台加载，立即进入首窗。");
                     }
 
                     if (runOobe)
                     {
                         OobeRunPlan plan = OobeConfiguration.CreateRunPlan(settings);
                         UnhandledExceptionGuard.Observe(
-                            EnterOobeAfterPluginReadyAsync(desktop, plan, showSplash),
-                            "App.EnterOobeAfterPluginReadyAsync");
+                            EnterOobeAsync(desktop, plan, showSplash),
+                            "App.EnterOobeAsync");
                     }
                     else
                     {
                         UnhandledExceptionGuard.Observe(
-                            EnterMainShellAfterPluginReadyAsync(desktop, showSplash),
-                            "App.EnterMainShellAfterPluginReadyAsync");
+                            EnterMainShellAsync(desktop, showSplash),
+                            "App.EnterMainShellAsync");
                     }
                 }
             }
@@ -141,11 +141,10 @@ public sealed partial class App : Avalonia.Application
         return !string.IsNullOrWhiteSpace(getEnvironmentVariable("PCL_DISABLE_DESKTOP_SHELL"));
     }
 
-    private async Task EnterMainShellAfterPluginReadyAsync(
+    private async Task EnterMainShellAsync(
         IClassicDesktopStyleApplicationLifetime desktop,
         bool fadeSplash)
     {
-        await WaitForPluginOptionalRuntimeAsync("main").ConfigureAwait(false);
         if (Volatile.Read(ref _startupShutdownRequested) != 0)
             return;
 
@@ -155,14 +154,17 @@ public sealed partial class App : Avalonia.Application
                 return;
             ShowMainWindow(desktop, fadeSplash);
         });
+
+        UnhandledExceptionGuard.Observe(
+            ObservePluginOptionalRuntimeAsync("main"),
+            "App.ObservePluginOptionalRuntimeAsync(main)");
     }
 
-    private async Task EnterOobeAfterPluginReadyAsync(
+    private async Task EnterOobeAsync(
         IClassicDesktopStyleApplicationLifetime desktop,
         OobeRunPlan plan,
         bool hadSplash)
     {
-        await WaitForPluginOptionalRuntimeAsync("oobe").ConfigureAwait(false);
         if (Volatile.Read(ref _startupShutdownRequested) != 0)
             return;
 
@@ -282,11 +284,17 @@ public sealed partial class App : Avalonia.Application
                 "Startup",
                 $"OOBE 已创建并显示；Kind={plan.Kind}；Reason={plan.Reason}；Steps={string.Join('>', plan.Steps)}；Restart={plan.RestartAfterComplete}。");
         });
+
+        UnhandledExceptionGuard.Observe(
+            ObservePluginOptionalRuntimeAsync("oobe"),
+            "App.ObservePluginOptionalRuntimeAsync(oobe)");
     }
 
-    private static async Task WaitForPluginOptionalRuntimeAsync(string phase)
+    private static async Task ObservePluginOptionalRuntimeAsync(string phase)
     {
-        DesktopFileLog.Info("Startup", $"[{phase}] 插件侧车探测开始（超时 {PluginWarmupTimeout.TotalSeconds:0}s）。");
+        DesktopFileLog.Info(
+            "Startup",
+            $"[{phase}] 后台插件侧车探测开始（日志超时 {PluginWarmupTimeout.TotalSeconds:0}s；不阻塞首窗）。");
         try
         {
             PluginOptionalRuntimeResult result = await DesktopHost
@@ -296,17 +304,17 @@ public sealed partial class App : Avalonia.Application
 
             DesktopFileLog.Info(
                 "Startup",
-                $"[{phase}] 插件侧车探测结束：Status={result.Status}；{result.Message}");
+                $"[{phase}] 后台插件侧车探测结束：Status={result.Status}；{result.Message}");
         }
         catch (TimeoutException)
         {
             DesktopFileLog.Warn(
                 "Startup",
-                $"[{phase}] 插件侧车在 {PluginWarmupTimeout.TotalSeconds:0}s 内未完成，继续进入后续界面。");
+                $"[{phase}] 插件侧车在 {PluginWarmupTimeout.TotalSeconds:0}s 内未完成；首窗已显示，插件页将在就绪后注入。");
         }
         catch (Exception ex)
         {
-            DesktopFileLog.Warn("Startup", $"[{phase}] 插件侧车等待异常，继续进入后续界面。", ex);
+            DesktopFileLog.Warn("Startup", $"[{phase}] 后台插件侧车等待异常；主界面不受影响。", ex);
         }
     }
 
