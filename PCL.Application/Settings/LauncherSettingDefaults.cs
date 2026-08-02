@@ -45,7 +45,8 @@ public static class LauncherSettingDefaults
         ["ExperimentalJvmLifecycleHost"] = false,
         ["ExperimentalHomepageUi"] = false,
         ["ExperimentalLaunchShortcuts"] = false,
-        ["ExperimentalMinecraftAiRepair"] = false
+        ["ExperimentalMinecraftAiRepair"] = false,
+        ["TelemetryExperienceProgram"] = false
     };
 
     private static readonly Dictionary<string, int> IntegerDefaults = new(StringComparer.OrdinalIgnoreCase)

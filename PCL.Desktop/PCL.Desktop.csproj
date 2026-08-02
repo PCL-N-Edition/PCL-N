@@ -60,6 +60,9 @@
     <PclLittleSkinRedirectUri Condition="'$(PclLittleSkinRedirectUri)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_LITTLESKIN_REDIRECT_URI'))</PclLittleSkinRedirectUri>
     <PclCurseForgeApiKey Condition="'$(PclCurseForgeApiKey)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_CURSEFORGE_API_KEY'))</PclCurseForgeApiKey>
     <PclSentryDsn Condition="'$(PclSentryDsn)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_SENTRY_DSN'))</PclSentryDsn>
+    <PclSentryEssentialDsn Condition="'$(PclSentryEssentialDsn)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_SENTRY_ESSENTIAL_DSN'))</PclSentryEssentialDsn>
+    <PclPostHogProjectToken Condition="'$(PclPostHogProjectToken)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_POSTHOG_PROJECT_TOKEN'))</PclPostHogProjectToken>
+    <PclPostHogHost Condition="'$(PclPostHogHost)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_POSTHOG_HOST'))</PclPostHogHost>
     <PclNaidClientId Condition="'$(PclNaidClientId)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_NAID_CLIENT_ID'))</PclNaidClientId>
     <PclNaidClientSecret Condition="'$(PclNaidClientSecret)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_NAID_CLIENT_SECRET'))</PclNaidClientSecret>
     <PclLinkServerRoot Condition="'$(PclLinkServerRoot)' == ''">$([System.Environment]::GetEnvironmentVariable('PCL_LINK_SERVER_ROOT'))</PclLinkServerRoot>
@@ -108,6 +111,9 @@
     <CompilerVisibleProperty Include="PclLittleSkinRedirectUri" />
     <CompilerVisibleProperty Include="PclCurseForgeApiKey" />
     <CompilerVisibleProperty Include="PclSentryDsn" />
+    <CompilerVisibleProperty Include="PclSentryEssentialDsn" />
+    <CompilerVisibleProperty Include="PclPostHogProjectToken" />
+    <CompilerVisibleProperty Include="PclPostHogHost" />
     <CompilerVisibleProperty Include="PclNaidClientId" />
     <CompilerVisibleProperty Include="PclNaidClientSecret" />
     <CompilerVisibleProperty Include="PclLinkServerRoot" />
@@ -124,6 +130,7 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="FluentValidation" Version="12.1.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.6" />
+    <PackageReference Include="Sentry" Version="6.8.0" />
     <ProjectReference Include="../external/Jvm.NET/src/Jvm.NET/Jvm.NET.csproj" />
     <PackageReference Include="LibVLCSharp" Version="3.10.0" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23.1"

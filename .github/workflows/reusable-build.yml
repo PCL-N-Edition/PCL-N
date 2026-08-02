@@ -79,6 +79,12 @@ on:
         required: false
       SENTRY_DSN:
         required: false
+      SENTRY_ESSENTIAL_DSN:
+        required: false
+      POSTHOG_PROJECT_TOKEN:
+        required: false
+      POSTHOG_HOST:
+        required: false
       NAID_CLIENT_ID:
         required: false
       NAID_CLIENT_SECRET:
@@ -328,6 +334,9 @@ jobs:
           PCL_LITTLESKIN_REDIRECT_URI: ${{ secrets.LITTLESKIN_REDIRECT_URI }}
           PCL_CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
           PCL_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          PCL_SENTRY_ESSENTIAL_DSN: ${{ secrets.SENTRY_ESSENTIAL_DSN }}
+          PCL_POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          PCL_POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
           PCL_NAID_CLIENT_ID: ${{ secrets.NAID_CLIENT_ID }}
           PCL_NAID_CLIENT_SECRET: ${{ secrets.NAID_CLIENT_SECRET }}
           PCL_LINK_SERVER_ROOT: ${{ secrets.LINK_SERVER_ROOTS }}
