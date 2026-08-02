@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Avalonia;
@@ -53,7 +54,26 @@ internal static class Program
             // Apply CI-embedded secrets (MS client id, etc.) before any auth/UI code runs.
             PclEmbeddedSecrets.ApplyToEnvironment();
 
-            // Missing/deleted pcln-paths.json must never abort startup — fall back to defaults.
+            // pcln-paths.json is the durable marker that OOBE has selected the launcher's
+            // data layout. If it is absent, start a clean OOBE process instead of silently
+            // creating default data and accidentally reusing a partially initialized tree.
+            // Explicit OOBE/resume and command-line validation modes must never relaunch.
+            _ = PCL.Desktop.Paths.LauncherPathLayout.Load(); // also migrates a legacy mapping
+            if (ShouldRestartIntoOobe(
+                    File.Exists(PCL.Desktop.Paths.LauncherPathLayout.OverrideFilePath),
+                    args))
+            {
+                if (TryRestartLauncher([OobeConfiguration.ForceArgument]))
+                {
+                    completedNormally = true;
+                    return 0;
+                }
+
+                // A locked-down platform may reject process creation. Preserve first-run
+                // correctness by continuing in this process with the same explicit mode.
+                args = [.. args, OobeConfiguration.ForceArgument];
+            }
+
             LauncherSettings startupSettings;
             try
             {
@@ -245,6 +265,83 @@ internal static class Program
 
     internal static string GetLauncherDirectory() =>
         PCL.Desktop.Paths.LauncherPathLayout.GetHostDirectory();
+
+    internal static bool ShouldRestartIntoOobe(bool pathMappingExists, IReadOnlyList<string> args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        if (pathMappingExists ||
+            args.Contains(OobeConfiguration.ForceArgument, StringComparer.OrdinalIgnoreCase) ||
+            args.Contains(OobeConfiguration.ResumeArgument, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !args.Any(static argument =>
+            argument.StartsWith("--validate-", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TryRestartLauncher(IReadOnlyList<string> arguments)
+    {
+        string? processPath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(processPath) || !File.Exists(processPath))
+            return false;
+
+        try
+        {
+            ProcessStartInfo start = new()
+            {
+                FileName = processPath,
+                UseShellExecute = true,
+                WorkingDirectory = GetLauncherDirectory()
+            };
+
+            // Framework-dependent debug runs execute through dotnet; keep the managed entry
+            // assembly before launcher arguments. Published/apphost builds need only arguments.
+            if (string.Equals(
+                    Path.GetFileNameWithoutExtension(processPath),
+                    "dotnet",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+#pragma warning disable IL3000 // Framework-dependent debug path only; NativeAOT never executes this branch.
+                string entryAssembly = typeof(Program).Assembly.Location;
+#pragma warning restore IL3000
+                if (!string.IsNullOrWhiteSpace(entryAssembly))
+                    start.ArgumentList.Add(entryAssembly);
+            }
+
+            foreach (string argument in arguments)
+                start.ArgumentList.Add(argument);
+
+            if (Process.Start(start) is null)
+                return false;
+
+            try
+            {
+                DesktopFileLog.Info(
+                    "OOBE",
+                    $"未找到路径映射文件，已请求以 {OobeConfiguration.ForceArgument} 重启启动器。");
+            }
+            catch
+            {
+                // Logging is not initialized yet on the clean first-run path.
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                DesktopFileLog.Warn("OOBE", "全新运行重启失败，将在当前进程进入 OOBE。", ex);
+            }
+            catch
+            {
+                // Logging is best effort at this stage.
+            }
+
+            return false;
+        }
+    }
 
     private static void SetLauncherWorkingDirectory()
     {

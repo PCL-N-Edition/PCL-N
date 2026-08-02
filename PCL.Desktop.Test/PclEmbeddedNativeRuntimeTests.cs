@@ -11,6 +11,16 @@ namespace PCL.Desktop.Test;
 public sealed class PclEmbeddedNativeRuntimeTests
 {
     [TestMethod]
+    public void MissingPathMapping_RestartsIntoFullOobeOnlyForNormalStartup()
+    {
+        Assert.IsTrue(Program.ShouldRestartIntoOobe(pathMappingExists: false, []));
+        Assert.IsFalse(Program.ShouldRestartIntoOobe(pathMappingExists: true, []));
+        Assert.IsFalse(Program.ShouldRestartIntoOobe(pathMappingExists: false, ["--oobe"]));
+        Assert.IsFalse(Program.ShouldRestartIntoOobe(pathMappingExists: false, ["--oobe-resume"]));
+        Assert.IsFalse(Program.ShouldRestartIntoOobe(pathMappingExists: false, ["--validate-assets"]));
+    }
+
+    [TestMethod]
     public void LauncherPathOverride_HasSingleLocalApplicationDataLocation()
     {
         string localApplicationData = Environment.GetFolderPath(
