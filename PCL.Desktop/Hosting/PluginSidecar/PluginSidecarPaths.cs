@@ -13,9 +13,12 @@ internal static class PluginSidecarPaths
     /// <summary>
     /// Resolve sidecar executable path. Order:
     /// 1) PCL_PLUGIN_SIDECAR_PATH env
-    /// 2) Extracted embedded payload under config/data dir
-    /// 3) {hostDir}/sidecar/… and {base}/sidecar/…
-    /// 4) dev: repo PCL.Plugin/PCL.Plugin.Sidecar/bin/...
+    /// 2) {hostDir}/sidecar/… and {base}/sidecar/…
+    /// 3) dev: repo PCL.Plugin/PCL.Plugin.Sidecar/bin/...
+    /// Embedded payloads are resolved only by <see cref="ResolveExecutableAsync"/>,
+    /// where the payload hash is tied to the current host binary. Never scan old
+    /// extraction directories here: doing so can silently start an incompatible
+    /// sidecar left by an earlier launcher version.
     /// </summary>
     public static string? ResolveExecutable()
     {
@@ -23,30 +26,13 @@ internal static class PluginSidecarPaths
         if (!string.IsNullOrWhiteSpace(env) && File.Exists(env))
             return Path.GetFullPath(env);
 
-        // Prefer payload already extracted into the active configuration directory.
-        try
-        {
-            string dataRoot = LauncherPathLayout.ResolveDataDirectory();
-            string runtimeRoot = Path.Combine(
-                dataRoot,
-                PclEmbeddedPluginSidecar.RelativeRuntimeFolder.Replace('/', Path.DirectorySeparatorChar));
-            if (Directory.Exists(runtimeRoot))
-            {
-                foreach (string dir in Directory.EnumerateDirectories(runtimeRoot))
-                {
-                    string candidate = Path.Combine(dir, ExecutableFileName);
-                    if (File.Exists(candidate) && File.Exists(Path.Combine(dir, ".extracted")))
-                        return Path.GetFullPath(candidate);
-                }
-            }
-        }
-        catch
-        {
-            // fall through
-        }
-
         string hostDir = LauncherPathLayout.GetHostDirectory();
         string baseDir = AppContext.BaseDirectory;
+        return ResolveLooseExecutable(hostDir, baseDir);
+    }
+
+    internal static string? ResolveLooseExecutable(string hostDir, string baseDir)
+    {
         string[] candidates =
         [
             Path.Combine(hostDir, "sidecar", ExecutableFileName),

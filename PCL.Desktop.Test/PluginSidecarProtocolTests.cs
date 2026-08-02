@@ -13,6 +13,30 @@ namespace PCL.Desktop.Test;
 public sealed class PluginSidecarProtocolTests
 {
     [TestMethod]
+    public void SidecarPathResolver_PrefersCurrentHostPayload()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcln-sidecar-path-" + Guid.NewGuid().ToString("N"));
+        string hostDir = Path.Combine(root, "host");
+        string baseDir = Path.Combine(root, "base");
+        string expected = Path.Combine(hostDir, "sidecar", PluginSidecarPaths.ExecutableFileName);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(expected)!);
+            Directory.CreateDirectory(baseDir);
+            File.WriteAllBytes(expected, []);
+
+            Assert.AreEqual(
+                Path.GetFullPath(expected),
+                PluginSidecarPaths.ResolveLooseExecutable(hostDir, baseDir));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ProtocolV4Frame_RoundTripsJsonPayload()
     {
         Pipe pipe = new();
