@@ -42,6 +42,7 @@ using PCL.Desktop.Composition;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Controls.Motion;
 using PCL.Desktop.Diagnostics;
+using PCL.Desktop.Telemetry;
 using PCL.Desktop.Features.Community;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Legal;
@@ -1229,6 +1230,12 @@ public partial class MainWindow : Window, IDisposable
             return;
 
         DesktopFileLog.Info("Navigation", $"打开 {descriptor.Title}（{route.Value}）。");
+        LauncherTelemetry.CaptureEvent(
+            "page_opened",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["page"] = TelemetryDataPolicy.NormalizeName(route.Value)
+            });
 
         selected.Checked = true;
         foreach (MyListItem item in GetNavItems())
@@ -1269,6 +1276,9 @@ public partial class MainWindow : Window, IDisposable
         _currentNavRoute = descriptor.Route;
         _pendingNavRoute = null;
         int requestId = ++_registeredPageRequestId;
+        TelemetryOperation pageLoad = LauncherTelemetry.StartOperation(
+            "page.load." + TelemetryDataPolicy.NormalizeName(descriptor.Route.Value),
+            "page.load");
         PageCreateContext context = new(descriptor.Route.Value, DesktopHost.Current.Services, _desktopPageContext);
         ValueTask<DesktopMainPage> createTask;
         try
@@ -1277,6 +1287,8 @@ public partial class MainWindow : Window, IDisposable
         }
         catch (Exception ex)
         {
+            pageLoad.Fail(ex);
+            LauncherTelemetry.CaptureException(ex, "page.load");
             ApplyPageCreationError(descriptor.Title, ex);
             return;
         }
@@ -1284,28 +1296,36 @@ public partial class MainWindow : Window, IDisposable
         if (createTask.IsCompletedSuccessfully)
         {
             ApplyRegisteredMainPage(createTask.Result);
+            pageLoad.Complete();
             return;
         }
 
         ApplyRegisteredMainPage(CreateLoadingMainPage(descriptor.Title));
-        _ = CompleteRegisteredPageAsync(createTask.AsTask(), requestId, descriptor.Title);
+        _ = CompleteRegisteredPageAsync(createTask.AsTask(), requestId, descriptor.Title, pageLoad);
     }
 
     private async Task CompleteRegisteredPageAsync(
         Task<DesktopMainPage> createTask,
         int requestId,
-        string pageTitle)
+        string pageTitle,
+        TelemetryOperation pageLoad)
     {
         try
         {
             DesktopMainPage page = await createTask.ConfigureAwait(true);
             if (requestId != _registeredPageRequestId)
+            {
+                pageLoad.Cancel();
                 return;
+            }
 
             ApplyRegisteredMainPage(page);
+            pageLoad.Complete();
         }
         catch (Exception ex)
         {
+            pageLoad.Fail(ex);
+            LauncherTelemetry.CaptureException(ex, "page.load");
             if (requestId == _registeredPageRequestId)
                 ApplyPageCreationError(pageTitle, ex);
         }
@@ -5292,6 +5312,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void ApplyRuntimeSettings(LauncherSettings settings)
     {
+        LauncherTelemetry.ApplySettings(settings);
         DesktopFileLog.ConfigureLevel(DesktopFileLog.LevelFromSetting(settings.GetIntegerOption(
             "SystemLogLevel",
             LauncherSettingDefaults.GetInteger("SystemLogLevel"))));

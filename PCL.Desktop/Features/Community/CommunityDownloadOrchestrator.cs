@@ -10,6 +10,7 @@ using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Shared;
+using PCL.Desktop.Telemetry;
 
 namespace PCL.Desktop.Features.Community;
 
@@ -26,6 +27,17 @@ internal static class CommunityDownloadOrchestrator
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(host);
+
+        using TelemetryOperation downloadOperation = LauncherTelemetry.StartOperation(
+            "community.download",
+            "download.file");
+        LauncherTelemetry.CaptureEvent(
+            "download_started",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["category"] = request.Category.ToString(),
+                ["source"] = request.Entry.Source.ToString()
+            });
 
         LaunchInstanceInfo? instance = host.GetSelectedInstance();
         string taskId = host.CreateTaskId(request.Entry.ProjectId);
@@ -72,6 +84,10 @@ internal static class CommunityDownloadOrchestrator
             file ??= selectedVersion is { Files.Count: > 0 } ? selectedVersion.Files[0] : null;
             if (file is null)
             {
+                downloadOperation.Fail(new InvalidOperationException("No compatible download file."));
+                LauncherTelemetry.CaptureEvent(
+                    "download_failed",
+                    new Dictionary<string, string>(StringComparer.Ordinal) { ["stage"] = "resolve_file" });
                 DesktopFileLog.Warn("CommunityDownload", $"未找到符合筛选条件的文件：{request.Entry.Title}");
                 host.TrackTaskFailed(taskId, taskTitle, "未找到匹配当前筛选条件的版本文件。", false);
                 host.ShowHint("下载失败：未找到可下载的文件", true);
@@ -100,6 +116,8 @@ internal static class CommunityDownloadOrchestrator
                 string? picked = await host.PickSaveAsPathAsync(request.Entry.Title, file.FileName).ConfigureAwait(true);
                 if (picked is null)
                 {
+                    downloadOperation.Cancel();
+                    LauncherTelemetry.CaptureEvent("download_cancelled");
                     host.TrackTaskFailed(taskId, taskTitle, "已取消另存为。", true);
                     host.ShowHint("已取消另存为", false);
                     return;
@@ -187,15 +205,34 @@ internal static class CommunityDownloadOrchestrator
                 : request.Category == CommunityResourceCategory.World
                     ? "世界安装完成：" + Path.GetFileName(completedPath)
                     : "下载完成：" + Path.GetFileName(completedPath), false);
+            downloadOperation.Complete();
+            LauncherTelemetry.CaptureEvent(
+                "download_completed",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["category"] = request.Category.ToString(),
+                    ["dependency_count"] = dependencyCount.ToString(CultureInfo.InvariantCulture)
+                });
         }
         catch (OperationCanceledException)
         {
+            downloadOperation.Cancel();
+            LauncherTelemetry.CaptureEvent("download_cancelled");
             DesktopFileLog.Warn("CommunityDownload", $"社区资源下载已取消：{request.Entry.Title}");
             host.TrackTaskFailed(taskId, taskTitle, "下载已取消。", true);
             host.ShowHint("下载已取消", false);
         }
         catch (Exception ex)
         {
+            downloadOperation.Fail(ex);
+            LauncherTelemetry.CaptureException(ex, "download.file");
+            LauncherTelemetry.CaptureEvent(
+                "download_failed",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["category"] = request.Category.ToString(),
+                    ["failure_category"] = TelemetryDataPolicy.NormalizeName(ex.GetType().Name)
+                });
             DesktopFileLog.Error("CommunityDownload", $"社区资源下载失败：{request.Entry.Title}", ex);
             host.TrackTaskFailed(taskId, taskTitle, ex.Message, false);
             host.ShowHint("下载失败：" + host.TruncateHint(ex.Message), true);

@@ -15,6 +15,7 @@ using PCL.Application.Settings;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Shared;
 using PCL.Desktop.Localization;
+using PCL.Desktop.Telemetry;
 using PCL.Domain.Minecraft.Java;
 using PCL.Domain.Minecraft.Launch;
 using PCL.Core.Logging;
@@ -102,6 +103,7 @@ internal sealed class MinecraftLaunchCoordinator
             "Launch",
             $"启动请求：实例目录={request.Instance.InstanceDirectory}；MinecraftRoot={request.MinecraftRootDirectory}；" +
             $"服务器={request.ServerAddress ?? "(无)"}；世界={request.WorldName ?? "(无)"}；优先官方源={request.PreferOfficialSource}。");
+        TelemetryOperation? currentPhase = null;
 
         try
         {
@@ -120,6 +122,7 @@ internal sealed class MinecraftLaunchCoordinator
 
         // Login stage owns all online session work (validate / refresh / silent re-auth).
         // Downstream stages must use the returned profile so launch args carry a fresh token.
+        currentPhase = LauncherTelemetry.StartOperation("game.authenticate", "game.authenticate");
         LoginProfileInfo profile = await RunStageWithHeartbeatAsync(
                 request,
                 StageName("Minecraft.Launch.Stage.Login", "登录"),
@@ -142,10 +145,13 @@ internal sealed class MinecraftLaunchCoordinator
                 },
                 cancellationToken)
             .ConfigureAwait(false);
+        currentPhase.Complete();
+        currentPhase = null;
         method = FormatLoginMethod(profile);
         completed += MinecraftLaunchStages.Login;
         Report(request, StageName("Minecraft.Launch.Stage.Login", "登录"), completed, method: method);
 
+        currentPhase = LauncherTelemetry.StartOperation("game.prepare", "game.prepare");
         Report(request, StageName("Minecraft.Launch.Stage.CompleteFiles", "补全文件"), completed, method: method);
         await CompleteFilesAsync(request, completed, method, cancellationToken).ConfigureAwait(false);
         completed += MinecraftLaunchStages.CompleteFiles;
@@ -171,6 +177,8 @@ internal sealed class MinecraftLaunchCoordinator
         Report(request, StageName("Minecraft.Launch.Stage.ExtractNatives", "解压 Natives"), completed, method: method);
         completed += MinecraftLaunchStages.ExtractNatives;
         Report(request, StageName("Minecraft.Launch.Stage.ExtractNatives", "解压 Natives"), completed, method: method);
+        currentPhase.Complete();
+        currentPhase = null;
 
         Report(request, StageName("Minecraft.Launch.Stage.PreLaunch", "预启动处理"), completed, method: method);
         EnsureWorkingDirectory(plan.StartInfo.WorkingDirectory);
@@ -293,11 +301,13 @@ internal sealed class MinecraftLaunchCoordinator
         }
         catch (OperationCanceledException)
         {
+            currentPhase?.Cancel();
             PortableLog.Warn("Launch", $"实例 {request.Instance.Name} 的启动已取消；最后进度={MinecraftLaunchStages.ProgressAt(completed):P0}。");
             throw;
         }
         catch (Exception ex)
         {
+            currentPhase?.Fail(ex);
             PortableLog.Error(ex, "Launch", $"实例 {request.Instance.Name} 启动失败；最后进度={MinecraftLaunchStages.ProgressAt(completed):P0}。");
             throw;
         }

@@ -18,6 +18,7 @@ using PCL.Desktop.Views.FirstRun;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Application.Settings;
 using PCL.Desktop.Diagnostics;
+using PCL.Desktop.Telemetry;
 
 namespace PCL.Desktop;
 
@@ -42,6 +43,9 @@ public sealed partial class App : Avalonia.Application
         try
         {
             LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+            bool runOobe = FirstRunWizardWindow.NeedsWizard(settings);
+            if (!runOobe)
+                LauncherTelemetry.Initialize(settings);
             DesktopFileLog.Initialize(DesktopFileLog.LevelFromSetting(settings.GetIntegerOption(
                 "SystemLogLevel",
                 LauncherSettingDefaults.GetInteger("SystemLogLevel"))));
@@ -89,13 +93,13 @@ public sealed partial class App : Avalonia.Application
                             // ignore
                         }
 
+                        LauncherTelemetry.Shutdown();
+
                         DesktopFileLog.Info("Startup", "桌面生命周期退出清理完成。");
                     };
                     bool showSplash = settings.GetBooleanOption(
                         "UiLauncherLogo",
                         LauncherSettingDefaults.GetBoolean("UiLauncherLogo"));
-                    bool runOobe = FirstRunWizardWindow.NeedsWizard(settings);
-
                     if (showSplash)
                     {
                         _splashWindow = new SplashWindow();
@@ -230,6 +234,7 @@ public sealed partial class App : Avalonia.Application
                 bool restart = wizard.ShouldRestartAfterComplete;
                 try
                 {
+                    LauncherTelemetry.Initialize(LauncherSettingsPageBinder.LoadSettings());
                     if (restart)
                     {
                         ReleaseSingleInstanceLock();
@@ -292,6 +297,9 @@ public sealed partial class App : Avalonia.Application
 
     private static async Task ObservePluginOptionalRuntimeAsync(string phase)
     {
+        using TelemetryOperation operation = LauncherTelemetry.StartOperation(
+            "plugin.load",
+            "plugin.load");
         DesktopFileLog.Info(
             "Startup",
             $"[{phase}] 后台插件侧车探测开始（日志超时 {PluginWarmupTimeout.TotalSeconds:0}s；不阻塞首窗）。");
@@ -308,12 +316,15 @@ public sealed partial class App : Avalonia.Application
         }
         catch (TimeoutException)
         {
+            operation.Cancel();
             DesktopFileLog.Warn(
                 "Startup",
                 $"[{phase}] 插件侧车在 {PluginWarmupTimeout.TotalSeconds:0}s 内未完成；首窗已显示，插件页将在就绪后注入。");
         }
         catch (Exception ex)
         {
+            operation.Fail(ex);
+            LauncherTelemetry.CaptureException(ex, "plugin.load");
             DesktopFileLog.Warn("Startup", $"[{phase}] 后台插件侧车等待异常；主界面不受影响。", ex);
         }
     }
@@ -330,6 +341,7 @@ public sealed partial class App : Avalonia.Application
             // Window.Show() may pump native messages and must not be the only
             // route that can reach splash cleanup.
             DismissSplash(fade: fadeSplash);
+            LauncherTelemetry.MarkStartupReady();
         };
         mainWindow.Opened += opened;
 

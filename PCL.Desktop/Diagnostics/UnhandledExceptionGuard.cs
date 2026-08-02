@@ -14,6 +14,7 @@ using Avalonia.Threading;
 using PCL.Core.Logging;
 using PCL.Desktop.Paths;
 using PCL.Desktop.Views;
+using PCL.Desktop.Telemetry;
 
 namespace PCL.Desktop.Diagnostics;
 
@@ -259,6 +260,8 @@ internal static class UnhandledExceptionGuard
             {
                 // Logging must never throw out of the guard.
             }
+
+            LauncherTelemetry.ReportUnhandledException(exception, source, canContinue);
 
             ShowCrashUi(exception, report, canContinue);
         }

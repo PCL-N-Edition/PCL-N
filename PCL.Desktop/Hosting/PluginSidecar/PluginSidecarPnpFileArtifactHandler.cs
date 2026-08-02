@@ -3,6 +3,7 @@
 
 using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Core.Logging;
+using PCL.Desktop.Telemetry;
 
 namespace PCL.Desktop.Hosting.PluginSidecar;
 
@@ -44,6 +45,7 @@ internal sealed class PluginSidecarPnpFileArtifactHandler : IHostFileArtifactHan
         {
             PluginSidecarResult result = await client.InstallPnpAsync(filePath, cancellationToken)
                 .ConfigureAwait(false);
+            LauncherTelemetry.CaptureEvent(result.Ok ? "plugin_installed" : "plugin_install_failed");
             PortableLog.Info("PluginSidecar", "Install .pnp: " + (result.Message ?? result.Ok.ToString()));
             return new HostFileArtifactResult(
                 Id,
@@ -54,6 +56,8 @@ internal sealed class PluginSidecarPnpFileArtifactHandler : IHostFileArtifactHan
         }
         catch (Exception ex)
         {
+            LauncherTelemetry.CaptureException(ex, "plugin.install");
+            LauncherTelemetry.CaptureEvent("plugin_install_failed");
             PortableLog.Warn("PluginSidecar", "Install .pnp failed: " + ex.Message);
             return new HostFileArtifactResult(
                 Id,

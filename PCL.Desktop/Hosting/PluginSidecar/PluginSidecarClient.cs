@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.IO.Pipelines;
 using System.Threading.Channels;
 using PCL.Core.Logging;
+using PCL.Desktop.Telemetry;
 
 namespace PCL.Desktop.Hosting.PluginSidecar;
 
@@ -151,14 +152,20 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
             new PluginSidecarParams { PackagePath = packagePath },
             cancellationToken);
 
-    public Task<PluginSidecarResult> SetEnabledAsync(
+    public async Task<PluginSidecarResult> SetEnabledAsync(
         string pluginId,
         bool enabled,
-        CancellationToken cancellationToken = default) =>
-        CallAsync(
-            PluginSidecarMethods.CatalogSetEnabled,
-            new PluginSidecarParams { PluginId = pluginId, Enabled = enabled },
-            cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        PluginSidecarResult result = await CallAsync(
+                PluginSidecarMethods.CatalogSetEnabled,
+                new PluginSidecarParams { PluginId = pluginId, Enabled = enabled },
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (result.Ok)
+            LauncherTelemetry.CaptureEvent(enabled ? "plugin_enabled" : "plugin_disabled");
+        return result;
+    }
 
     public Task<PluginSidecarResult> UninstallAsync(
         string pluginId,
@@ -198,7 +205,7 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
         CancellationToken cancellationToken = default) =>
         CallAsync(method, parameters, progress: null, cancellationToken);
 
-    public Task<PluginSidecarResult> CallAsync(
+    public async Task<PluginSidecarResult> CallAsync(
         string method,
         PluginSidecarParams? parameters,
         IProgress<PluginSidecarProgress>? progress,
@@ -209,9 +216,27 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
         if (_broken != 0)
             throw new InvalidOperationException("插件侧车连接已损坏，请刷新页面或重启启动器以重建连接。");
 
-        return ProtocolVersion >= PluginSidecarProtocolVersions.Current
-            ? CallV4Async(method, parameters, progress, cancellationToken)
-            : CallLegacyAsync(method, parameters, progress, cancellationToken);
+        using TelemetryOperation operation = LauncherTelemetry.StartOperation(
+            "sidecar." + TelemetryDataPolicy.NormalizeName(method),
+            "ipc.request");
+        try
+        {
+            return await (ProtocolVersion >= PluginSidecarProtocolVersions.Current
+                    ? CallV4Async(method, parameters, progress, cancellationToken)
+                    : CallLegacyAsync(method, parameters, progress, cancellationToken))
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            operation.Cancel();
+            throw;
+        }
+        catch (Exception ex)
+        {
+            operation.Fail(ex);
+            LauncherTelemetry.CaptureException(ex, "ipc.request");
+            throw;
+        }
     }
 
     private async Task<PluginSidecarResult> CallV4Async(
