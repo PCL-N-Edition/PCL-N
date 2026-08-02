@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: true
+      source_commit:
+        description: Exact source commit used to build the release assets
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       tag_name:
@@ -26,6 +31,11 @@ on:
         required: false
         type: boolean
         default: true
+      source_commit:
+        description: Optional source commit override (defaults to the tag target)
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -61,11 +71,16 @@ jobs:
           if [[ "${{ inputs.cleanup_legacy }}" == "true" ]]; then
             EXTRA+=(--cleanup-legacy)
           fi
+          SOURCE_COMMIT="${{ inputs.source_commit }}"
+          if [[ -z "$SOURCE_COMMIT" ]]; then
+            SOURCE_COMMIT="$(git rev-list -n 1 "${{ inputs.tag_name }}")"
+          fi
           python scripts/generate_release_notes.py \
             --repo "${{ github.repository }}" \
             --tag "${{ inputs.tag_name }}" \
             --repo-root "${{ github.workspace }}" \
             -o RELEASE_NOTES.md \
+            --source-commit "$SOURCE_COMMIT" \
             --publish \
             ${EXTRA[@]+"${EXTRA[@]}"}
           echo "---- RELEASE_NOTES.md (preview) ----"

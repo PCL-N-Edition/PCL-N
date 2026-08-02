@@ -80,6 +80,7 @@ jobs:
             --tag "${{ github.event.release.tag_name || inputs.tag_name }}" \
             --repo-root "${{ github.workspace }}" \
             -o RELEASE_NOTES.md \
+            --source-commit "${{ github.sha }}" \
             --publish \
             --skip-inventory
 
@@ -145,6 +146,26 @@ jobs:
           fi
           gpg --detach-sign --armor --output "$asset.binary.asc" "$binary"
 
+      # Additive metadata: new launchers use it to suppress same-commit channel
+      # promotions. Existing launchers keep using the unchanged package names.
+      - name: Write prerelease build identity
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          base="PCL_N_Beta_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}"
+          jq -n \
+            --arg channel "Beta" \
+            --arg commit "$GITHUB_SHA" \
+            --arg ref "$GITHUB_REF" \
+            --arg tag "$RELEASE_TAG" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg artifact "$base" \
+            --arg builtAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{formatVersion: 1, channel: $channel, commit: $commit, ref: $ref, tag: $tag, runId: $runId, artifact: $artifact, builtAt: $builtAt}' \
+            > "dist/${base}.build.json"
+
       - name: Upload Avalonia assets to prerelease
         uses: softprops/action-gh-release@v2.5.0
         with:
@@ -178,3 +199,4 @@ jobs:
     with:
       tag_name: ${{ github.event.release.tag_name || inputs.tag_name }}
       cleanup_legacy: true
+      source_commit: ${{ github.sha }}

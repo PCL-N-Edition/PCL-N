@@ -30,6 +30,10 @@ GPG_FOOTER = """\
 公钥指纹 `81D9430A309B84272D518584EDF4453F0BBB862E`
 """
 
+BUILD_IDENTITY_START = "<!-- pcln-build-identity:start -->"
+BUILD_IDENTITY_END = "<!-- pcln-build-identity:end -->"
+COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
+
 PACKAGE_RE = re.compile(
     r"^PCL_N_(?P<config>Release|Beta)_"
     r"(?P<rid>win-x64|win-arm64|linux-x64|linux-arm64|osx-x64|osx-arm64)_"
@@ -189,6 +193,34 @@ def strip_gpg_footer(text: str) -> str:
     return "\n".join(lines[:cut]).rstrip() + "\n"
 
 
+def strip_build_identity(text: str) -> str:
+    """Remove a previously generated build-identity block before recomposing notes."""
+    pattern = re.compile(
+        re.escape(BUILD_IDENTITY_START) + r".*?" + re.escape(BUILD_IDENTITY_END),
+        re.DOTALL,
+    )
+    return pattern.sub("", text).rstrip() + "\n"
+
+
+def build_identity(source_commit: str | None) -> str:
+    if not source_commit:
+        return ""
+    return "\n".join(
+        [
+            BUILD_IDENTITY_START,
+            "<details>",
+            "<summary>构建身份</summary>",
+            "",
+            "```text",
+            f"commit: {source_commit}",
+            "```",
+            "",
+            "</details>",
+            BUILD_IDENTITY_END,
+        ]
+    )
+
+
 def md_link(label: str, url: str | None) -> str:
     """Markdown link; falls back to code span when URL is missing."""
     if url:
@@ -213,6 +245,10 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
     for a in assets:
         if a.name.endswith(".asc"):
             sig_by_package[a.name[: -len(".asc")]] = a
+            continue
+        if a.name.endswith(".build.json"):
+            # Machine-readable source identity is consumed by the launcher and
+            # intentionally omitted from the human-facing inventory.
             continue
         m = PACKAGE_RE.match(a.name)
         if m:
@@ -405,8 +441,14 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
     return "\n".join(lines)
 
 
-def compose_notes(changelog: str, inventory: str) -> str:
-    parts = [changelog.rstrip(), "", inventory.rstrip(), "", GPG_FOOTER.strip(), ""]
+def compose_notes(changelog: str, inventory: str, source_commit: str | None = None) -> str:
+    parts = [changelog.rstrip()]
+    identity = build_identity(source_commit)
+    if identity:
+        parts.extend(["", identity])
+    if inventory:
+        parts.extend(["", inventory.rstrip()])
+    parts.extend(["", GPG_FOOTER.strip(), ""])
     return "\n".join(parts)
 
 
@@ -484,6 +526,11 @@ def main() -> int:
     )
     parser.add_argument("--publish", action="store_true", help="PATCH the GitHub release body")
     parser.add_argument(
+        "--source-commit",
+        default="",
+        help="Exact source commit used to build the release assets",
+    )
+    parser.add_argument(
         "--cleanup-legacy",
         action="store_true",
         help="Delete ambiguous legacy patch/manifest assets when structured ones exist",
@@ -495,11 +542,17 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    source_commit = args.source_commit.strip().lower()
+    if source_commit and not COMMIT_RE.fullmatch(source_commit):
+        parser.error("--source-commit must be a 7-40 character hexadecimal Git commit")
+
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     repo_root = args.repo_root.resolve()
 
     if args.changelog_file:
-        changelog = strip_gpg_footer(args.changelog_file.read_text(encoding="utf-8"))
+        changelog = strip_build_identity(
+            strip_gpg_footer(args.changelog_file.read_text(encoding="utf-8"))
+        )
     else:
         tmp = args.output.with_suffix(".cliff.md")
         try:
@@ -512,7 +565,7 @@ def main() -> int:
                 # Keep everything before inventory heading if re-running
                 if "## 📦 发布清单" in body:
                     body = body.split("## 📦 发布清单", 1)[0]
-                changelog = strip_gpg_footer(body).rstrip() + "\n"
+                changelog = strip_build_identity(strip_gpg_footer(body)).rstrip() + "\n"
                 if not changelog.strip():
                     changelog = f"## {args.tag.lstrip('v')} 更新一览\n\n*(changelog unavailable — install git-cliff)*\n"
             except Exception as exc:  # noqa: BLE001
@@ -536,12 +589,10 @@ def main() -> int:
         log(f"Assets after cleanup: {len(assets)}")
 
     if args.skip_inventory:
-        notes = compose_notes(changelog, "")
-        # compose_notes with empty inventory still adds blank — fix:
-        notes = changelog.rstrip() + "\n\n" + GPG_FOOTER.strip() + "\n"
+        notes = compose_notes(changelog, "", source_commit)
     else:
         inventory = build_inventory(assets, args.tag)
-        notes = compose_notes(changelog, inventory)
+        notes = compose_notes(changelog, inventory, source_commit)
 
     args.output.write_text(notes, encoding="utf-8")
     log(f"Wrote {args.output} ({len(notes)} chars)")
