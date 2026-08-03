@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Downloads.Views;
 using PCL.Desktop.Hosting;
+using PCL.Desktop.Shell;
 using PCL.UI.Abstractions.Navigation;
 
 namespace PCL.Desktop.Features.Downloads;
@@ -39,10 +40,16 @@ internal sealed class DownloadFeatureModule : IDesktopFeatureModule
 /// <summary>Owns download left rail + current right page (host-scoped page cache).</summary>
 public sealed class DownloadFeatureSurface
 {
+    private readonly ExperimentalUiProfileSource _profileSource;
     private object? _hostToken;
     private PageDownloadLeft? _left;
     private Func<PageDownloadInstall>? _installFactory;
     private EventHandler<DownloadPageChangedEventArgs>? _pageChanged;
+
+    public DownloadFeatureSurface(ExperimentalUiProfileSource profileSource)
+    {
+        _profileSource = profileSource;
+    }
 
     public PageDownloadLeft? Left => _left;
 
@@ -77,12 +84,17 @@ public sealed class DownloadFeatureSurface
 
         MyPageRight rightPage = _left.GetOrCreateCurrentPage();
         PageDownloadLeft left = _left;
+        bool experimental = _profileSource.RefreshFromSettings().Download ==
+                            DownloadInstallLayout.FullPageSidebar;
+        if (rightPage is PageDownloadInstall layoutPage)
+            layoutPage.SetExperimentalLayout(experimental);
         return new DesktopMainPage(
-            left,
+            experimental ? null : left,
             rightPage,
             Activated: () =>
             {
-                left.TriggerShowAnimation();
+                if (!experimental)
+                    left.TriggerShowAnimation();
                 if (rightPage is PageDownloadInstall installPage)
                 {
                     if (!installPage.HasPendingFocusedNavigation)

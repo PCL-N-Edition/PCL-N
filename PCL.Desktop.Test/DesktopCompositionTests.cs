@@ -141,7 +141,7 @@ public sealed class DesktopCompositionTests
     }
 
     [TestMethod]
-    public void ExperimentalUiProfile_FromHomepageFlag_EnablesFullPageVersionSettings()
+    public void ExperimentalUiProfile_FromHomepageFlag_EnablesFullPageSurfaces()
     {
         ExperimentalUiProfile on = ExperimentalUiProfile.FromHomepageFlag(true);
         Assert.IsTrue(on.HomepageUi);
@@ -149,9 +149,11 @@ public sealed class DesktopCompositionTests
         Assert.AreEqual(LaunchHomeLayout.FullPage, on.LaunchHome);
         Assert.AreEqual(InstanceSelectLayout.FullPageSidebar, on.Select);
         Assert.AreEqual(InstanceManageLayout.FullPageSidebar, on.Manage);
+        Assert.AreEqual(DownloadInstallLayout.FullPageSidebar, on.Download);
 
         ExperimentalUiProfile off = ExperimentalUiProfile.FromHomepageFlag(false);
         Assert.AreEqual(InstanceManageLayout.ClassicSplit, off.Manage);
+        Assert.AreEqual(DownloadInstallLayout.ClassicSplit, off.Download);
         Assert.AreEqual(ExperimentalUiProfile.Classic, off);
     }
 

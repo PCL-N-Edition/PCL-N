@@ -33,6 +33,12 @@ public enum InstanceManageLayout
     FullPageSidebar = 1
 }
 
+public enum DownloadInstallLayout
+{
+    ClassicSplit = 0,
+    FullPageSidebar = 1
+}
+
 /// <summary>
 /// Presentation-only profile. Business stores must not branch on View types.
 /// </summary>
@@ -41,14 +47,16 @@ public sealed record ExperimentalUiProfile(
     ChromeStyle Chrome,
     LaunchHomeLayout LaunchHome,
     InstanceSelectLayout Select,
-    InstanceManageLayout Manage)
+    InstanceManageLayout Manage,
+    DownloadInstallLayout Download)
 {
     public static ExperimentalUiProfile Classic { get; } = new(
         HomepageUi: false,
         Chrome: ChromeStyle.Classic,
         LaunchHome: LaunchHomeLayout.Split,
         Select: InstanceSelectLayout.LeftRight,
-        Manage: InstanceManageLayout.ClassicSplit);
+        Manage: InstanceManageLayout.ClassicSplit,
+        Download: DownloadInstallLayout.ClassicSplit);
 
     public static ExperimentalUiProfile FromHomepageFlag(bool homepageUi) =>
         homepageUi
@@ -57,7 +65,8 @@ public sealed record ExperimentalUiProfile(
                 Chrome: ChromeStyle.Glass,
                 LaunchHome: LaunchHomeLayout.FullPage,
                 Select: InstanceSelectLayout.FullPageSidebar,
-                Manage: InstanceManageLayout.FullPageSidebar)
+                Manage: InstanceManageLayout.FullPageSidebar,
+                Download: DownloadInstallLayout.FullPageSidebar)
             : Classic;
 }
 

@@ -1,7 +1,135 @@
 <legacy:MyPageRight
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:legacy="using:PCL.Desktop.Controls.Legacy" x:Class="PCL.Desktop.Features.Downloads.Views.PageDownloadInstall">
+    xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
+    x:Class="PCL.Desktop.Features.Downloads.Views.PageDownloadInstall"
+    Background="Transparent"
+    ClipToBounds="True">
+    <Grid x:Name="PanRoot" ColumnDefinitions="*" ClipToBounds="True">
+        <Border x:Name="PanFilterSidebar"
+                Grid.Column="0"
+                IsVisible="False"
+                Background="{DynamicResource ColorBrushBackgroundTransparentSidebar}"
+                BorderBrush="{DynamicResource ColorBrushGray6}"
+                BorderThickness="0,0,1,0"
+                ClipToBounds="True">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <StackPanel Margin="18,18,14,12" Spacing="4">
+                    <Grid ColumnDefinitions="Auto,*">
+                        <Border Width="32" Height="32"
+                                Background="{DynamicResource ColorBrushHalfWhite}"
+                                BorderBrush="{DynamicResource ColorBrushGray6}"
+                                BorderThickness="1"
+                                CornerRadius="10">
+                            <legacy:SvgIcon Icon="lucide/download"
+                                            Width="16" Height="16"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            IconBrush="{DynamicResource ColorBrush3}" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="10,-1,0,0" Spacing="0">
+                            <TextBlock Text="{DynamicResource Download.Install.Experimental.Title}"
+                                       FontSize="17"
+                                       FontWeight="SemiBold"
+                                       LetterSpacing="-0.18"
+                                       Foreground="{DynamicResource ColorBrush1}" />
+                            <TextBlock Text="{DynamicResource Download.Install.Experimental.Subtitle}"
+                                       Margin="0,2,0,0"
+                                       FontSize="11.5"
+                                       Foreground="{DynamicResource ColorBrushGray2}" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+
+                <legacy:MyScrollViewer Grid.Row="1"
+                                       HorizontalScrollBarVisibility="Disabled"
+                                       VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="PanEmbeddedFilters" Margin="9,0,9,18" Spacing="0">
+                        <TextBlock Text="{DynamicResource Download.Install.Experimental.FilterTitle}"
+                                   Margin="10,5,6,5"
+                                   FontSize="11.5"
+                                   FontWeight="SemiBold"
+                                   LetterSpacing="0.25"
+                                   Opacity="0.58" />
+                        <legacy:MyListItem x:Name="ExpFilterAll"
+                                           Checked="True"
+                                           IsScaleAnimationEnabled="False"
+                                           Type="RadioBox"
+                                           Check="EmbeddedFilterCheck"
+                                           Tag="0"
+                                           MinPaddingRight="24"
+                                           Height="38"
+                                           Title="{DynamicResource Download.Left.Filter.VersionType.All}"
+                                           SvgIcon="lucide/layers"
+                                           LogoScale="0.88" />
+                        <legacy:MyListItem x:Name="ExpFilterRelease"
+                                           IsScaleAnimationEnabled="False"
+                                           Type="RadioBox"
+                                           Check="EmbeddedFilterCheck"
+                                           Tag="1"
+                                           MinPaddingRight="24"
+                                           Height="38"
+                                           Title="{DynamicResource Download.Left.Filter.VersionType.Release}"
+                                           SvgIcon="lucide/badge-check"
+                                           LogoScale="0.88" />
+                        <legacy:MyListItem x:Name="ExpFilterSnapshot"
+                                           IsScaleAnimationEnabled="False"
+                                           Type="RadioBox"
+                                           Check="EmbeddedFilterCheck"
+                                           Tag="2"
+                                           MinPaddingRight="24"
+                                           Height="38"
+                                           Title="{DynamicResource Download.Left.Filter.VersionType.Snapshot}"
+                                           SvgIcon="lucide/flask-conical"
+                                           LogoScale="0.88" />
+                        <legacy:MyListItem x:Name="ExpFilterBeforeRelease"
+                                           IsScaleAnimationEnabled="False"
+                                           Type="RadioBox"
+                                           Check="EmbeddedFilterCheck"
+                                           Tag="3"
+                                           MinPaddingRight="24"
+                                           Height="38"
+                                           Title="{DynamicResource Download.Left.Filter.VersionType.BeforRelease}"
+                                           SvgIcon="lucide/rocket"
+                                           LogoScale="0.88" />
+                        <legacy:MyListItem x:Name="ExpFilterAprilFools"
+                                           IsScaleAnimationEnabled="False"
+                                           Type="RadioBox"
+                                           Check="EmbeddedFilterCheck"
+                                           Tag="4"
+                                           MinPaddingRight="24"
+                                           Height="38"
+                                           Title="{DynamicResource Download.Left.Filter.VersionType.AprilFools}"
+                                           SvgIcon="lucide/sparkles"
+                                           LogoScale="0.88" />
+                    </StackPanel>
+                </legacy:MyScrollViewer>
+
+                <Border Grid.Row="2"
+                        Margin="12,0,12,16"
+                        Padding="12,11"
+                        Background="{DynamicResource ColorBrushHalfWhite}"
+                        BorderBrush="{DynamicResource ColorBrushGray6}"
+                        BorderThickness="1"
+                        CornerRadius="12">
+                    <Grid ColumnDefinitions="Auto,*">
+                        <legacy:SvgIcon Icon="lucide/shield-check"
+                                        Width="15" Height="15"
+                                        Margin="0,1,9,0"
+                                        VerticalAlignment="Top"
+                                        IconBrush="{DynamicResource ColorBrush3}" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{DynamicResource Download.Install.Experimental.SafetyHint}"
+                                   FontSize="11"
+                                   LineHeight="15"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource ColorBrushGray2}" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid x:Name="PanContentRoot" Grid.Column="0">
     <Grid>
         <Grid x:Name="PanAllBack">
             <Grid.RowDefinitions>
@@ -400,6 +528,18 @@
                                  HorizontalAlignment="Right" VerticalAlignment="Bottom"
                                  Margin="0,0,25,20" LogoScale="0.95"
                                  SvgIcon="lucide/download" />
+        <legacy:MyButton x:Name="BtnStartExperimental"
+                         IsVisible="False"
+                         Height="44"
+                         MinWidth="164"
+                         Padding="22,0"
+                         CornerRadius="12"
+                         UseExperimentalStyle="True"
+                         ColorType="Highlight"
+                         Text="{DynamicResource Download.Install.StartDownload}"
+                         HorizontalAlignment="Right"
+                         VerticalAlignment="Bottom"
+                         Margin="0,0,28,24" />
         <legacy:MyCard HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40,0"
                       x:Name="PanLoad" UseAnimation="False">
             <legacy:MyLoading Margin="20,20,20,17" x:Name="LoadMinecraft" HorizontalAlignment="Center"
@@ -418,6 +558,8 @@
             <legacy:MyLoading IsVisible="False" x:Name="LoadLabyMod" HasAnimation="False" />
             <legacy:MyLoading IsVisible="False" x:Name="LoadOptiFabric" HasAnimation="False" />
         </legacy:MyCard>
+        </Grid>
+    </Grid>
     </Grid>
 </legacy:MyPageRight>
 

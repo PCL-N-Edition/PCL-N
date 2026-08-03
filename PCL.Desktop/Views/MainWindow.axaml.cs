@@ -1992,6 +1992,7 @@ public partial class MainWindow : Window, IDisposable
 
     private DesktopMainPage CreateDownloadMainPage()
     {
+        ApplyExperimentalChrome(IsExperimentalHomepageUiEnabled());
         _downloadSurface.Configure(
             this,
             CreateDownloadInstallPage,

@@ -76,6 +76,8 @@ public partial class PageDownloadInstall : MyPageRight
     private bool _isInSelectPage;
     private bool _isUpdatingSelectName;
     private bool _keepSelectPageOnNextEnter;
+    private bool _experimentalLayout;
+    private bool _isSyncingEmbeddedFilter;
 
     public PageDownloadInstall()
         : this(new MinecraftVanillaInstallService(), new MinecraftLoaderMetadataService(), new MinecraftInstallAddonMetadataService())
@@ -109,8 +111,11 @@ public partial class PageDownloadInstall : MyPageRight
         PanScroll = this.FindControl<MyScrollViewer>("PanBack");
 
         InitializeWpfCopiedControls();
+        SizeChanged += (_, _) => ApplyResponsiveLayout();
         AttachedToVisualTree += (_, _) =>
         {
+            ApplyResponsiveLayout();
+            ApplyExperimentalChrome();
             if (_versions.Count == 0 && !_isLoading)
                 _ = RefreshVersionsAsync();
         };
@@ -119,6 +124,25 @@ public partial class PageDownloadInstall : MyPageRight
     public event EventHandler<DownloadInstallRequest>? InstallRequested;
 
     public bool HasPendingFocusedNavigation => _keepSelectPageOnNextEnter;
+
+    public bool IsExperimentalLayout => _experimentalLayout;
+
+    /// <summary>
+    /// Uses the shared experimental homepage switch to replace the classic split rail with an
+    /// embedded, responsive install sidebar. This is presentation-only; install state is retained
+    /// when the user turns the experiment off again.
+    /// </summary>
+    public void SetExperimentalLayout(bool enabled)
+    {
+        _experimentalLayout = enabled;
+        if (this.FindControl<Border>("PanFilterSidebar") is { } sidebar)
+            sidebar.IsVisible = enabled;
+
+        ApplyResponsiveLayout();
+        SyncEmbeddedFilterSelection();
+        ApplySelectPageState(_isInSelectPage);
+        ApplyExperimentalChrome();
+    }
 
     public async Task FocusVersionAsync(
         string versionId,
@@ -307,6 +331,7 @@ public partial class PageDownloadInstall : MyPageRight
         if (!_keepSelectPageOnNextEnter)
             ExitSelectPage();
         _filter = filter;
+        SyncEmbeddedFilterSelection();
         if (_versions.Count > 0)
             ReloadVersionList();
     }
@@ -389,6 +414,10 @@ public partial class PageDownloadInstall : MyPageRight
     public new void PageOnEnter()
     {
         base.PageOnEnter();
+        ApplyResponsiveLayout();
+        ApplyExperimentalChrome();
+        if (_experimentalLayout && this.FindControl<StackPanel>("PanEmbeddedFilters") is { } filters)
+            ControlVisualHelpers.AnimateListEntrance(filters, "Download Experimental Filters");
         bool keepSelectPage = _keepSelectPageOnNextEnter;
         _keepSelectPageOnNextEnter = false;
         if (_isInSelectPage && !keepSelectPage)
@@ -404,6 +433,13 @@ public partial class PageDownloadInstall : MyPageRight
         {
             startButton.Show = false;
             startButton.Click += (_, _) => StartSelectedInstall();
+        }
+
+        if (this.FindControl<MyButton>("BtnStartExperimental") is { } experimentalStartButton)
+        {
+            experimentalStartButton.IsVisible = false;
+            experimentalStartButton.IsEnabled = false;
+            experimentalStartButton.Click += (_, _) => StartSelectedInstall();
         }
 
         if (this.FindControl<MySearchBar>("TextSearchVersion") is { } searchBar)
@@ -430,7 +466,142 @@ public partial class PageDownloadInstall : MyPageRight
         HideAllHints();
         ApplySelectPageState(isSelectPage: false);
         SetLoadingVisible(false);
+        SyncEmbeddedFilterSelection();
     }
+
+    private void EmbeddedFilterCheck(object senderRaw, RouteEventArgs e)
+    {
+        if (_isSyncingEmbeddedFilter || senderRaw is not MyListItem { Checked: true } item)
+            return;
+
+        if (!int.TryParse(Convert.ToString(item.Tag, CultureInfo.InvariantCulture), out int rawFilter) ||
+            !Enum.IsDefined(typeof(DownloadVersionFilter), rawFilter))
+        {
+            return;
+        }
+
+        ApplyVersionFilter((DownloadVersionFilter)rawFilter);
+    }
+
+    private void SyncEmbeddedFilterSelection()
+    {
+        _isSyncingEmbeddedFilter = true;
+        try
+        {
+            (string Name, DownloadVersionFilter Filter)[] filters =
+            [
+                ("ExpFilterAll", DownloadVersionFilter.All),
+                ("ExpFilterRelease", DownloadVersionFilter.Release),
+                ("ExpFilterSnapshot", DownloadVersionFilter.Snapshot),
+                ("ExpFilterBeforeRelease", DownloadVersionFilter.BeforeRelease),
+                ("ExpFilterAprilFools", DownloadVersionFilter.AprilFools)
+            ];
+            foreach ((string name, DownloadVersionFilter filter) in filters)
+            {
+                this.FindControl<MyListItem>(name)?.SetChecked(
+                    filter == _filter,
+                    user: false,
+                    animate: false);
+            }
+        }
+        finally
+        {
+            _isSyncingEmbeddedFilter = false;
+        }
+    }
+
+    private void ApplyResponsiveLayout()
+    {
+        Grid? root = this.FindControl<Grid>("PanRoot");
+        Grid? content = this.FindControl<Grid>("PanContentRoot");
+        if (root is null || content is null)
+            return;
+
+        root.ColumnDefinitions.Clear();
+        if (_experimentalLayout)
+        {
+            root.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(GetSidebarWidth(), GridUnitType.Pixel)));
+            root.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1d, GridUnitType.Star)));
+            Grid.SetColumn(content, 1);
+            content.MaxWidth = 1360d;
+            content.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+        }
+        else
+        {
+            root.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(1d, GridUnitType.Star)));
+            Grid.SetColumn(content, 0);
+            content.MaxWidth = double.PositiveInfinity;
+            content.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+        }
+
+        double contentEdge = GetContentEdge();
+        if (this.FindControl<MySearchBar>("TextSearchVersion") is { } search)
+            search.Margin = new Thickness(contentEdge, _experimentalLayout ? 14d : 10d, contentEdge, 0d);
+        if (this.FindControl<Grid>("PanAllBack") is { RowDefinitions.Count: > 0 } allBack)
+        {
+            allBack.RowDefinitions[0].Height = new GridLength(
+                _isInSelectPage ? 0d : _experimentalLayout ? 64d : 54d,
+                GridUnitType.Pixel);
+        }
+
+        if (this.FindControl<Grid>("PanInner") is { } inner)
+        {
+            inner.Margin = _isInSelectPage
+                ? new Thickness(contentEdge, _experimentalLayout ? 14d : 10d, contentEdge, _experimentalLayout ? 54d : 40d)
+                : new Thickness(contentEdge, _experimentalLayout ? 14d : 10d, contentEdge, _experimentalLayout ? 32d : 25d);
+        }
+
+        if (this.FindControl<MyButton>("BtnStartExperimental") is { } experimentalStart)
+            experimentalStart.Margin = new Thickness(0d, 0d, contentEdge, 24d);
+    }
+
+    private double GetSidebarWidth()
+    {
+        double width = this.FindControl<Grid>("PanRoot")?.Bounds.Width ?? Bounds.Width;
+        if (width <= 0d)
+            return 220d;
+
+        return Math.Clamp(204d + ((width - 820d) * 0.04d), 204d, 244d);
+    }
+
+    private double GetContentEdge()
+    {
+        if (!_experimentalLayout)
+            return 25d;
+
+        double width = this.FindControl<Grid>("PanRoot")?.Bounds.Width ?? Bounds.Width;
+        double contentWidth = Math.Max(0d, width - GetSidebarWidth());
+        return Math.Clamp(24d + ((contentWidth - 680d) * 0.025d), 24d, 38d);
+    }
+
+    private void ApplyExperimentalChrome()
+    {
+        ExperimentalControlChrome.ApplyDeferred(this, _experimentalLayout);
+        CornerRadius radius = new(_experimentalLayout ? 14d : 8d);
+        foreach (MyCard card in this.GetVisualDescendants().OfType<MyCard>())
+            card.CornerRadius = radius;
+    }
+
+    private void SetStartButtonVisible(bool visible)
+    {
+        if (this.FindControl<MyExtraTextButton>("BtnStart") is { } classicButton)
+            classicButton.Show = visible && !_experimentalLayout;
+        if (this.FindControl<MyButton>("BtnStartExperimental") is { } experimentalButton)
+            experimentalButton.IsVisible = visible && _experimentalLayout;
+    }
+
+    private void SetStartButtonEnabled(bool enabled)
+    {
+        if (this.FindControl<MyExtraTextButton>("BtnStart") is { } classicButton)
+            classicButton.IsEnabled = enabled;
+        if (this.FindControl<MyButton>("BtnStartExperimental") is { } experimentalButton)
+            experimentalButton.IsEnabled = enabled;
+    }
+
+    private bool IsStartButtonEnabled() =>
+        _experimentalLayout
+            ? this.FindControl<MyButton>("BtnStartExperimental") is { IsEnabled: true }
+            : this.FindControl<MyExtraTextButton>("BtnStart") is { IsEnabled: true };
 
     private void ReloadVersionList()
     {
@@ -446,6 +617,7 @@ public partial class PageDownloadInstall : MyPageRight
                 "没有找到匹配的版本",
                 "可以清空搜索词，或在左侧切换到“全部版本”后再试。"));
             ControlVisualHelpers.AnimateListEntrance(panel, "Download Version List");
+            ApplyExperimentalChrome();
             return;
         }
 
@@ -454,6 +626,7 @@ public partial class PageDownloadInstall : MyPageRight
         AddOtherVersionsCard(panel, categories);
         ApplyRenderedFilters();
         ControlVisualHelpers.AnimateListEntrance(panel, "Download Version List");
+        ApplyExperimentalChrome();
     }
 
     private bool TryFindVersion(string versionId, out MinecraftVersionManifestEntry version)
@@ -755,11 +928,8 @@ public partial class PageDownloadInstall : MyPageRight
         BeginLoaderVersionPreload();
         HideAllHints();
 
-        if (this.FindControl<MyExtraTextButton>("BtnStart") is { } button)
-        {
-            button.IsEnabled = IsValidInstallName(this.FindControl<MyTextBox>("TextSelectName")?.Text);
-            button.Show = true;
-        }
+        SetStartButtonEnabled(IsValidInstallName(this.FindControl<MyTextBox>("TextSelectName")?.Text));
+        SetStartButtonVisible(true);
 
         Control? panMinecraft = this.FindControl<Control>("PanMinecraft");
         Control? panSelect = this.FindControl<Control>("PanSelect");
@@ -1187,6 +1357,7 @@ public partial class PageDownloadInstall : MyPageRight
             panel.Children.Add(item);
         }
         ControlVisualHelpers.AnimateListEntrance(panel, "Download Addon List " + name);
+        ApplyExperimentalChrome();
     }
 
     private void SelectAddonVersion(DownloadAddonDescriptor addon, MinecraftInstallAddonVersionEntry version)
@@ -1215,6 +1386,7 @@ public partial class PageDownloadInstall : MyPageRight
         foreach (MinecraftLoaderVersionEntry version in versions)
             panel.Children.Add(CreateLoaderVersionItem(kind, version));
         ControlVisualHelpers.AnimateListEntrance(panel, "Download Loader List " + name);
+        ApplyExperimentalChrome();
     }
 
     private MyListItem CreateLoaderVersionItem(MinecraftLoaderKind kind, MinecraftLoaderVersionEntry version)
@@ -1362,16 +1534,19 @@ public partial class PageDownloadInstall : MyPageRight
 
     private void ApplySelectPageState(bool isSelectPage, bool beforeEnterAnimation = false)
     {
+        double contentEdge = GetContentEdge();
         if (this.FindControl<Control>("TextSearchVersion") is { } search)
             search.IsVisible = !isSelectPage;
 
         if (this.FindControl<Grid>("PanAllBack") is { RowDefinitions.Count: > 0 } allBack)
-            allBack.RowDefinitions[0].Height = new GridLength(isSelectPage ? 0d : 54d, GridUnitType.Pixel);
+            allBack.RowDefinitions[0].Height = new GridLength(
+                isSelectPage ? 0d : _experimentalLayout ? 64d : 54d,
+                GridUnitType.Pixel);
 
         if (this.FindControl<Grid>("PanInner") is { } inner)
             inner.Margin = isSelectPage
-                ? new Thickness(25d, 10d, 25d, 40d)
-                : new Thickness(25d, 10d, 25d, 25d);
+                ? new Thickness(contentEdge, _experimentalLayout ? 14d : 10d, contentEdge, _experimentalLayout ? 54d : 40d)
+                : new Thickness(contentEdge, _experimentalLayout ? 14d : 10d, contentEdge, _experimentalLayout ? 32d : 25d);
 
         if (isSelectPage && this.FindControl<MyScrollViewer>("PanBack") is { } scroll)
             scroll.ScrollToHome();
@@ -1393,20 +1568,24 @@ public partial class PageDownloadInstall : MyPageRight
                 transform.X = 40d;
         }
 
-        if (this.FindControl<MyExtraTextButton>("BtnStart") is { } button)
-            button.Show = isSelectPage;
+        SetStartButtonVisible(isSelectPage && !_isLoading);
     }
 
     private void PrepareExitSelectPageAnimationState()
     {
+        double contentEdge = GetContentEdge();
         if (this.FindControl<Control>("TextSearchVersion") is { } search)
             search.IsVisible = true;
 
         if (this.FindControl<Grid>("PanAllBack") is { RowDefinitions.Count: > 0 } allBack)
-            allBack.RowDefinitions[0].Height = new GridLength(54d, GridUnitType.Pixel);
+            allBack.RowDefinitions[0].Height = new GridLength(_experimentalLayout ? 64d : 54d, GridUnitType.Pixel);
 
         if (this.FindControl<Grid>("PanInner") is { } inner)
-            inner.Margin = new Thickness(25d, 10d, 25d, 25d);
+            inner.Margin = new Thickness(
+                contentEdge,
+                _experimentalLayout ? 14d : 10d,
+                contentEdge,
+                _experimentalLayout ? 32d : 25d);
 
         if (this.FindControl<Control>("PanSelect") is { } select)
             select.IsHitTestVisible = false;
@@ -1417,8 +1596,7 @@ public partial class PageDownloadInstall : MyPageRight
             minecraft.IsHitTestVisible = true;
         }
 
-        if (this.FindControl<MyExtraTextButton>("BtnStart") is { } button)
-            button.Show = false;
+        SetStartButtonVisible(false);
 
         SetScrollHitTestVisible(false);
         if (this.FindControl<MyScrollViewer>("PanBack") is { } scroll)
@@ -1446,8 +1624,8 @@ public partial class PageDownloadInstall : MyPageRight
             content.IsHitTestVisible = !visible;
         }
 
-        if (this.FindControl<MyExtraTextButton>("BtnStart") is { } startButton && visible)
-            startButton.Show = false;
+        if (visible)
+            SetStartButtonVisible(false);
     }
 
     private static bool TryGetTranslate(Control? control, out TranslateTransform transform)
@@ -1490,6 +1668,7 @@ public partial class PageDownloadInstall : MyPageRight
 
         panel.Children.Clear();
         panel.Children.Add(CreateMessageCard("Minecraft", message));
+        ApplyExperimentalChrome();
     }
 
     private static MyCard CreateMessageCard(string title, string message)
@@ -1574,7 +1753,7 @@ public partial class PageDownloadInstall : MyPageRight
 
     private void TextSelectName_KeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && this.FindControl<MyExtraTextButton>("BtnStart") is { IsEnabled: true })
+        if (e.Key == Key.Enter && IsStartButtonEnabled())
             StartSelectedInstall();
     }
 
@@ -1651,8 +1830,7 @@ public partial class PageDownloadInstall : MyPageRight
                 : "版本名称不能包含 \\ / : * ? \" < > |，也不能为空。";
         }
 
-        if (this.FindControl<MyExtraTextButton>("BtnStart") is { } button)
-            button.IsEnabled = isValid;
+        SetStartButtonEnabled(isValid);
     }
 
     private bool TryGetInstallName(out string installName)

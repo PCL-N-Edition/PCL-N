@@ -3576,6 +3576,72 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageDownloadInstall_ExperimentalLayoutUsesEmbeddedSidebarAndRollsBack()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            PageDownloadInstall page = new(
+                new MinecraftVanillaInstallService(),
+                new FakeMinecraftLoaderMetadataService(),
+                new FakeMinecraftInstallAddonMetadataService());
+            SetPrivateField(
+                page,
+                "_versions",
+                new[]
+                {
+                    new MinecraftVersionManifestEntry(
+                        "1.21.1",
+                        "release",
+                        "https://example.invalid/1.21.1.json",
+                        DateTimeOffset.Parse("2024-08-08T00:00:00Z"))
+                });
+            page.SetExperimentalLayout(true);
+            Window window = new()
+            {
+                Width = 1180,
+                Height = 720,
+                Content = page
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                Grid root = page.FindControl<Grid>("PanRoot")!;
+                Grid content = page.FindControl<Grid>("PanContentRoot")!;
+                Assert.IsTrue(page.IsExperimentalLayout);
+                Assert.IsTrue(page.FindControl<Border>("PanFilterSidebar")!.IsVisible);
+                Assert.AreEqual(2, root.ColumnDefinitions.Count);
+                Assert.AreEqual(1, Grid.GetColumn(content));
+                Assert.IsTrue(page.FindControl<MyButton>("BtnStartExperimental")!.UseExperimentalStyle);
+
+                page.ApplyVersionFilter(DownloadVersionFilter.Release);
+                Assert.IsTrue(page.FindControl<MyListItem>("ExpFilterRelease")!.Checked);
+                Assert.IsFalse(page.FindControl<MyListItem>("ExpFilterAll")!.Checked);
+
+                page.SetExperimentalLayout(false);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                Assert.IsFalse(page.IsExperimentalLayout);
+                Assert.IsFalse(page.FindControl<Border>("PanFilterSidebar")!.IsVisible);
+                Assert.AreEqual(1, root.ColumnDefinitions.Count);
+                Assert.AreEqual(0, Grid.GetColumn(content));
+                Assert.IsFalse(page.FindControl<MyButton>("BtnStartExperimental")!.UseExperimentalStyle);
+                Assert.AreEqual(
+                    new Thickness(25d, 10d, 25d, 25d),
+                    page.FindControl<Grid>("PanInner")!.Margin);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void PageDownloadInstall_FiltersAndSelectsVanillaVersion()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

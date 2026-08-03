@@ -47,6 +47,10 @@
     <sys:String x:Key="Download.Install.Compat.IncompatibleWithLoader">与 {0} 不兼容</sys:String>
     <sys:String x:Key="Download.Install.SearchVersion">搜索 Minecraft 版本</sys:String>
     <sys:String x:Key="Download.Install.StartDownload">开始下载</sys:String>
+    <sys:String x:Key="Download.Install.Experimental.Title">安装 Minecraft</sys:String>
+    <sys:String x:Key="Download.Install.Experimental.Subtitle">选择版本并配置组件</sys:String>
+    <sys:String x:Key="Download.Install.Experimental.FilterTitle">版本类型</sys:String>
+    <sys:String x:Key="Download.Install.Experimental.SafetyHint">安装前会检查游戏版本、加载器与附加组件的兼容性。</sys:String>
     <sys:String x:Key="Download.Install.State.CanAdd">可安装</sys:String>
     <sys:String x:Key="Download.Install.Warning.FabricApi">建议同时安装 Fabric API；大多数 Fabric 模组需要它才能运行。</sys:String>
     <sys:String x:Key="Download.Install.Warning.LegacyFabricApi">建议同时安装 Legacy Fabric API；大多数 Legacy Fabric 模组需要它才能运行。</sys:String>

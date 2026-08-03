@@ -47,6 +47,10 @@
     <sys:String x:Key="Download.Install.Compat.IncompatibleWithLoader">Incompatible with {0}</sys:String>
     <sys:String x:Key="Download.Install.SearchVersion">Search Minecraft versions</sys:String>
     <sys:String x:Key="Download.Install.StartDownload">Download</sys:String>
+    <sys:String x:Key="Download.Install.Experimental.Title">Install Minecraft</sys:String>
+    <sys:String x:Key="Download.Install.Experimental.Subtitle">Choose a version and components</sys:String>
+    <sys:String x:Key="Download.Install.Experimental.FilterTitle">Version type</sys:String>
+    <sys:String x:Key="Download.Install.Experimental.SafetyHint">Compatibility between the game, loader, and add-ons is checked before installation.</sys:String>
     <sys:String x:Key="Download.Install.State.CanAdd">Available</sys:String>
     <sys:String x:Key="Download.Install.Warning.FabricApi">Install Fabric API as well. Most Fabric mods won’t work without it.</sys:String>
     <sys:String x:Key="Download.Install.Warning.LegacyFabricApi">Install Legacy Fabric API as well. Most Legacy Fabric mods won’t work without it.</sys:String>
