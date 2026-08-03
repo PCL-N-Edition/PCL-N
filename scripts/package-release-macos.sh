@@ -15,7 +15,21 @@ base_name="$3"
 app="$artifact_dir/PCL N.app"
 binary="$app/Contents/MacOS/PCL-N-Edition"
 
-test -d "$app"
+if [[ ! -d "$app" ]]; then
+  echo "macOS app bundle not found at: $app" >&2
+  echo "Artifact tree:" >&2
+  find "$artifact_dir" -maxdepth 4 -print >&2 || true
+  exit 1
+fi
+
+if [[ ! -f "$binary" ]]; then
+  echo "Launcher binary not found at: $binary" >&2
+  find "$app" -maxdepth 4 -print >&2 || true
+  exit 1
+fi
+
+# Artifact upload/download may drop the executable bit.
+chmod +x "$binary"
 test -x "$binary"
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"

@@ -1081,6 +1081,9 @@
     <sys:String x:Key="Setup.Update.Prompt.Downloaded.Later">稍後</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Downloaded.Title">更新已下載</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.NoChangelog">此版本沒有提供更新日誌。</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.PackageManaged.Message">目前使用 {0} 安裝。為避免破壞應用程式簽章或系統套件資料庫，PCL N 不會直接取代其中的程式檔案。請從下載頁安裝對應平台的新版本。</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.PackageManaged.OpenDownload">開啟下載頁</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.PackageManaged.Title">需要安裝新的軟體套件</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.SkipVersion">跳過版本</sys:String>
     <sys:String x:Key="Setup.Update.RestartAndInstall">重啟並安裝</sys:String>
     <sys:String x:Key="Setup.Update.Skipped">已跳過此版本更新。</sys:String>

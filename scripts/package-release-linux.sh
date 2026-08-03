@@ -55,6 +55,8 @@ tar -C "$artifact_dir" -czf "$output_dir/${base_name}_Portable.tar.gz" .
 make_launcher_wrapper() {
   local path="$1"
   local install_kind="$2"
+  # Parent dirs (e.g. deb_root/usr/bin) are not created by install -Dm on the binary alone.
+  mkdir -p "$(dirname "$path")"
   cat >"$path" <<EOF
 #!/bin/sh
 export PCL_N_INSTALL_KIND=$install_kind

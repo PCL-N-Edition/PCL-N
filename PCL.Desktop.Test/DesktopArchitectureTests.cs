@@ -872,15 +872,20 @@ public sealed class DesktopArchitectureTests
             ?? throw new DirectoryNotFoundException("Could not locate repository root.");
         string workflowRoot = Path.Combine(repoRoot, ".github", "workflows");
         string reusable = File.ReadAllText(Path.Combine(workflowRoot, "reusable-build.yml"));
+        string publishAssets = File.ReadAllText(Path.Combine(workflowRoot, "reusable-publish-release-assets.yml"));
         string ci = File.ReadAllText(Path.Combine(workflowRoot, "build-test.yml"));
         string stable = File.ReadAllText(Path.Combine(workflowRoot, "release-stable_publish.yml"));
         string beta = File.ReadAllText(Path.Combine(workflowRoot, "release-beta_publish.yml"));
         string patches = File.ReadAllText(Path.Combine(workflowRoot, "generate-launcher-patches.yml"));
+        string packageMacos = File.ReadAllText(Path.Combine(repoRoot, "scripts", "package-release-macos.sh"));
+        string packageLinux = File.ReadAllText(Path.Combine(repoRoot, "scripts", "package-release-linux.sh"));
+        string packageWindows = File.ReadAllText(Path.Combine(repoRoot, "scripts", "package-release-windows.ps1"));
 
         foreach (string runtime in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" })
         {
             StringAssert.Contains(stable, runtime);
             StringAssert.Contains(beta, runtime);
+            StringAssert.Contains(publishAssets, runtime);
         }
 
         StringAssert.Contains(stable, "include_prerelease_history: true");
@@ -900,6 +905,8 @@ public sealed class DesktopArchitectureTests
             Assert.IsTrue(
                 workflow.Contains("PCL-N-Edition", StringComparison.Ordinal),
                 "Release matrix must publish the Avalonia desktop binary as PCL-N-Edition.");
+            // Packaging moved out of the top-level release workflows into a reusable job.
+            StringAssert.Contains(workflow, "reusable-publish-release-assets.yml");
         }
 
         StringAssert.Contains(reusable, "PCL.Desktop/PCL.Desktop.csproj");
@@ -925,23 +932,33 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "Plan plugin sidecar embed");
         Assert.IsFalse(reusable.Contains("PclPluginAssembly", StringComparison.Ordinal));
         Assert.IsFalse(reusable.Contains("gh release download", StringComparison.Ordinal));
-        foreach (string workflow in new[] { ci, stable, beta })
+        foreach (string workflow in new[] { ci, stable, beta, publishAssets })
         {
             Assert.IsFalse(workflow.Contains("resolve-plugin-version:", StringComparison.Ordinal));
             // Product packages embed sidecar inside the host; never ship a NoPlugin SKU name.
             Assert.IsFalse(workflow.Contains("NoPlugin", StringComparison.Ordinal));
             Assert.IsFalse(workflow.Contains("WithPlugin", StringComparison.Ordinal));
         }
+        // Build still creates the macOS app bundle; packaging scripts turn it into
+        // tar.gz + DMG / deb / rpm / AppImage / MSI / Inno installers.
         StringAssert.Contains(reusable, "app=\"$PUBLISH_DIR/PCL N.app\"");
         StringAssert.Contains(reusable, "contents=\"$app/Contents\"");
         StringAssert.Contains(reusable, "CFBundlePackageType");
         StringAssert.Contains(reusable, "codesign --verify --deep --strict");
-        StringAssert.Contains(stable, "binary=\"artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}\"");
-        StringAssert.Contains(beta, "binary=\"artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}\"");
-        StringAssert.Contains(stable, "chmod +x \"$binary\"");
-        StringAssert.Contains(beta, "chmod +x \"$binary\"");
-        StringAssert.Contains(stable, "tar -C artifact -czf \"dist/${base}.tar.gz\" \"PCL N.app\"");
-        StringAssert.Contains(beta, "tar -C artifact -czf \"dist/${base}.tar.gz\" \"PCL N.app\"");
+        StringAssert.Contains(publishAssets, "package-release-macos.sh");
+        StringAssert.Contains(publishAssets, "package-release-linux.sh");
+        StringAssert.Contains(publishAssets, "package-release-windows.ps1");
+        StringAssert.Contains(publishAssets, "binary=\"artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}\"");
+        StringAssert.Contains(packageMacos, "PCL N.app");
+        StringAssert.Contains(packageMacos, "tar -C");
+        StringAssert.Contains(packageMacos, "hdiutil create");
+        StringAssert.Contains(packageMacos, "chmod +x");
+        StringAssert.Contains(packageLinux, "mkdir -p \"$(dirname \"$path\")\"");
+        StringAssert.Contains(packageLinux, "_Installer.deb");
+        StringAssert.Contains(packageLinux, "_Installer.rpm");
+        StringAssert.Contains(packageLinux, "_Installer.AppImage");
+        StringAssert.Contains(packageWindows, "PCLN.wxs");
+        StringAssert.Contains(packageWindows, "PCLN.iss");
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");
         foreach (string runtime in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" })
