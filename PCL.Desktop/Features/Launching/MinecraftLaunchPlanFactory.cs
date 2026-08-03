@@ -43,9 +43,11 @@ internal static class MinecraftLaunchPlanFactory
                 LauncherSettingsPageBinder.LoadSettings,
                 cancellationToken)
             .ConfigureAwait(false);
-        bool useJvmHost = settings.GetBooleanOption(
-            LauncherSettingKeys.ExperimentalJvmLifecycleHost,
-            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalJvmLifecycleHost.Value));
+        bool useJvmHost = ShouldUseJvmHostForProfile(
+            settings.GetBooleanOption(
+                LauncherSettingKeys.ExperimentalJvmLifecycleHost,
+                LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalJvmLifecycleHost.Value)),
+            profile.Kind);
         int windowType = GetIntegerOption(settings, LauncherSettingKeys.LaunchArgumentWindowType, 1);
         (int width, int height) = GetWindowSize(settings);
         (string? authlibPath, string? authlibServer, string? authlibMetadata) =
@@ -53,8 +55,8 @@ internal static class MinecraftLaunchPlanFactory
         int javaMajorVersion = await ResolveJavaMajorVersionAsync(javaExecutablePath, cancellationToken)
             .ConfigureAwait(false);
 
-        // Traditional launch: authlib-injector javaagent only (via AuthlibInjectorPath).
-        // Host mode: no agent; session bridge + ASM authlib jar patch at Host entry.
+        // Compatibility path: standard third-party javaagent via AuthlibInjectorPath.
+        // Eligible host identities use the session bridge and ASM authlib patch instead.
         return await MinecraftProcessLaunchService.CreatePlanAsync(
             new MinecraftProcessLaunchRequest
             {
@@ -298,6 +300,19 @@ internal static class MinecraftLaunchPlanFactory
         return string.Empty;
     }
 
+    internal static bool ShouldUseJvmHostForProfile(
+        bool experimentalJvmHostEnabled,
+        LaunchLoginProfileKind profileKind)
+    {
+        // LittleSkin and N Cloud issue standard Yggdrasil sessions whose texture and
+        // join-server behavior must be handled by the compatibility agent. The embedded
+        // host's local session bridge is intentionally not used for these providers.
+        return experimentalJvmHostEnabled &&
+               profileKind is not (
+                   LaunchLoginProfileKind.LittleSkin or
+                   LaunchLoginProfileKind.NCloud);
+    }
+
     private static async Task<int> ResolveJavaMajorVersionAsync(
         string javaExecutablePath,
         CancellationToken cancellationToken)
@@ -321,8 +336,8 @@ internal static class MinecraftLaunchPlanFactory
         string metadata = await service.GetServerMetadataAsync(authServer, cancellationToken)
             .ConfigureAwait(false);
 
-        // Host mode takes over third-party (session bridge + ASM authlib patch) — no javaagent.
-        // Traditional process launch keeps depending on authlib-injector.
+        // Host mode takes over compatible generic third-party accounts. LittleSkin and
+        // N Cloud are excluded before this method and always keep the standard agent path.
         if (useJvmHost)
             return (null, authServer, metadata);
 

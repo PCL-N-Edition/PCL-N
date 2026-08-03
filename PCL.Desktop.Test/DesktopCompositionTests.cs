@@ -158,6 +158,23 @@ public sealed class DesktopCompositionTests
     }
 
     [TestMethod]
+    public void MinecraftLaunchPlanFactory_KeepsLittleSkinAndNCloudOnCompatibilityAgent()
+    {
+        Assert.IsFalse(MinecraftLaunchPlanFactory.ShouldUseJvmHostForProfile(
+            experimentalJvmHostEnabled: true,
+            LaunchLoginProfileKind.LittleSkin));
+        Assert.IsFalse(MinecraftLaunchPlanFactory.ShouldUseJvmHostForProfile(
+            experimentalJvmHostEnabled: true,
+            LaunchLoginProfileKind.NCloud));
+        Assert.IsTrue(MinecraftLaunchPlanFactory.ShouldUseJvmHostForProfile(
+            experimentalJvmHostEnabled: true,
+            LaunchLoginProfileKind.ThirdParty));
+        Assert.IsFalse(MinecraftLaunchPlanFactory.ShouldUseJvmHostForProfile(
+            experimentalJvmHostEnabled: false,
+            LaunchLoginProfileKind.ThirdParty));
+    }
+
+    [TestMethod]
     public void InstancesSelectSurface_PrefersCurrentInstanceMinecraftRoot()
     {
         string root = Path.Combine(
