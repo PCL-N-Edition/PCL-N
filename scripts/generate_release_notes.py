@@ -34,12 +34,16 @@ BUILD_IDENTITY_START = "<!-- pcln-build-identity:start -->"
 BUILD_IDENTITY_END = "<!-- pcln-build-identity:end -->"
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 
+# Current packaging (native installers + portable + updater archives):
+#   PCL_N_{Release|Beta}_{rid}_{SelfContained|NoRuntime}[_{WithPlugin|NoPlugin}][_{Installer|Portable}].{ext}
+#   ext: zip | tar.gz | msi | exe | dmg | deb | rpm | AppImage
 PACKAGE_RE = re.compile(
-    r"^PCL_N_(?P<config>Release|Beta)_"
+    r"^PCL_N_(?P<config>Release|Beta|CI)_"
     r"(?P<rid>win-x64|win-arm64|linux-x64|linux-arm64|osx-x64|osx-arm64)_"
     r"(?P<runtime>SelfContained|NoRuntime)"
     r"(?:_(?P<plugin>WithPlugin|NoPlugin))?"
-    r"\.(?P<ext>zip|tar\.gz)$"
+    r"(?:_(?P<kind>Installer|Portable))?"
+    r"\.(?P<ext>zip|tar\.gz|msi|exe|dmg|deb|rpm|AppImage)$"
 )
 
 # Unique patch names produced by generate_patches.py
@@ -83,6 +87,31 @@ PLUGIN_LABEL = {
     "WithPlugin": "内嵌插件",
     "NoPlugin": "不含插件",
 }
+KIND_LABEL = {
+    "Installer": "系统安装包",
+    "Portable": "便携版",
+    None: "更新归档",
+    "": "更新归档",
+}
+EXT_LABEL = {
+    "zip": "ZIP",
+    "tar.gz": "TAR.GZ",
+    "msi": "MSI",
+    "exe": "EXE",
+    "dmg": "DMG",
+    "deb": "DEB",
+    "rpm": "RPM",
+    "AppImage": "AppImage",
+}
+
+
+def package_kind_rank(kind: str | None) -> int:
+    # Prefer installers, then portable, then updater archives in the inventory.
+    if kind == "Installer":
+        return 0
+    if kind == "Portable":
+        return 1
+    return 2
 
 
 @dataclass
@@ -283,9 +312,9 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
     lines.append("### 完整安装包")
     lines.append("")
     lines.append(
-        "| 平台 | 运行时 | 插件 | 大小 | 文件 | 校验 |"
+        "| 平台 | 运行时 | 类型 | 格式 | 大小 | 文件 | 校验 |"
     )
-    lines.append("| --- | --- | --- | ---: | --- | :---: |")
+    lines.append("| --- | --- | --- | --- | ---: | --- | :---: |")
 
     def rid_rank(rid: str) -> int:
         try:
@@ -297,20 +326,20 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
         key=lambda t: (
             rid_rank(t[0].group("rid")),
             0 if t[0].group("runtime") == "SelfContained" else 1,
-            0 if (t[0].group("plugin") or "WithPlugin") == "WithPlugin" else 1,
+            package_kind_rank(t[0].group("kind")),
+            t[0].group("ext"),
             t[1].name,
         )
     )
 
     if not packages:
-        lines.append("| — | — | — | — | *（尚未上传完整包）* | — |")
+        lines.append("| — | — | — | — | — | *（尚未上传完整包）* | — |")
     else:
         for m, a in packages:
             rid = m.group("rid")
             runtime = m.group("runtime")
-            # Current packages always embed PCL.Plugin and therefore omit the
-            # historical _WithPlugin suffix.
-            plugin = m.group("plugin") or "WithPlugin"
+            kind = m.group("kind")
+            ext = m.group("ext")
             file_cell = md_link(a.name, a.browser_url or None)
             sig = sig_by_package.get(a.name)
             if sig and sig.browser_url:
@@ -322,7 +351,8 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
             lines.append(
                 f"| {RID_LABEL.get(rid, rid)} "
                 f"| {RUNTIME_LABEL.get(runtime, runtime)} "
-                f"| {PLUGIN_LABEL.get(plugin, plugin)} "
+                f"| {KIND_LABEL.get(kind, kind or '更新归档')} "
+                f"| {EXT_LABEL.get(ext, ext)} "
                 f"| {human_size(a.size)} "
                 f"| {file_cell} "
                 f"| {verify_cell} |"
@@ -332,10 +362,13 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
     lines.append("<details>")
     lines.append("<summary>安装包命名与选型说明</summary>")
     lines.append("")
+    lines.append("- **系统安装包 (`_Installer.*`)**：Windows MSI/EXE、macOS DMG、Linux DEB/RPM/AppImage；写入系统标准目录，受包管理器/签名保护。")
+    lines.append("- **便携版 (`_Portable.*`)**：单文件/可移动目录，可放在任意可写路径。")
+    lines.append("- **更新归档 (`.zip` / `.tar.gz`)**：启动器增量/完整更新使用的规范归档；与安装包内容同源。")
     lines.append("- **SelfContained / 插件自带运行时**：NativeAOT 本体附带插件 CoreCLR，插件可离线运行，推荐大多数用户。")
     lines.append("- **NoRuntime / 插件使用本机 .NET**：NativeAOT 本体不携带插件 CoreCLR；启动器本体可直接运行，使用插件时需已安装匹配的 .NET 运行时。")
-    lines.append("- **WithPlugin / 内嵌插件**：所有发布包均内嵌 PCL.Plugin。")
-    lines.append("- **文件**列可直接下载安装包；**校验**列为对应的 OpenPGP 分离签名（`.asc`）。")
+    lines.append("- 当前发布包均内嵌 PCL.Plugin；历史版本可能带 `_WithPlugin` / `_NoPlugin` 后缀。")
+    lines.append("- **文件**列可直接下载；**校验**列为 OpenPGP 分离签名（`.asc`）。")
     lines.append("")
     lines.append("</details>")
     lines.append("")
