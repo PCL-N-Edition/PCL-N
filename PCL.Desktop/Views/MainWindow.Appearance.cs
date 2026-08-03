@@ -50,6 +50,31 @@ public partial class MainWindow
 
         try
         {
+            if (profile.Kind == LaunchLoginProfileKind.Microsoft &&
+                !string.IsNullOrWhiteSpace(profile.RefreshToken))
+            {
+                try
+                {
+                    profile = await RefreshMicrosoftAppearanceProfileAsync(
+                            profile,
+                            "刷新 Microsoft 外观凭据",
+                            cancellationToken)
+                        .ConfigureAwait(true);
+                    page.SetModel(CreateFallbackAppearanceModel(profile));
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    PortableLog.Warn(
+                        exception,
+                        "MicrosoftAppearance",
+                        "打开外观页时刷新正版登录状态失败，继续使用已保存的皮肤预览。");
+                }
+            }
+
             SkinAppearancePageModel model = await BuildAppearanceModelAsync(
                     profile,
                     cancellationToken)

@@ -132,6 +132,21 @@ public sealed class SkinAppearanceTests
     }
 
     [TestMethod]
+    public async Task MinecraftPlayerPreview_KeepsSkinWhenCapeDownloadFails()
+    {
+        byte[] expectedSkin = [1, 2, 3];
+        (byte[]? skin, byte[]? cape) = await MinecraftPlayerPreview.LoadTextureBytesAsync(
+            "https://textures.example/skin.png",
+            "https://textures.example/cape.png",
+            address => address.Contains("cape", StringComparison.Ordinal)
+                ? Task.FromException<byte[]?>(new HttpRequestException("cape failed"))
+                : Task.FromResult<byte[]?>(expectedSkin));
+
+        CollectionAssert.AreEqual(expectedSkin, skin);
+        Assert.IsNull(cape);
+    }
+
+    [TestMethod]
     public async Task SkinAppearanceHistoryStore_DeduplicatesAndKeepsNewestEntry()
     {
         string directory = Path.Combine(

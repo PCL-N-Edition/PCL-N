@@ -295,72 +295,31 @@ public partial class MainWindow
         string fallbackAddress,
         string action)
     {
-        if (string.IsNullOrWhiteSpace(profile.AccessToken))
-        {
-            ShowTextDialog(action, "当前正版档案缺少访问令牌，请先重新登录后再更换皮肤。", "知道了");
-            return null;
-        }
-
         try
         {
-            await RecordProfileTextureSnapshotAsync(profile).ConfigureAwait(true);
-            HandleStatusMessage("正在上传皮肤…");
-            using MultipartFormDataContent content = new();
-            content.Add(new StringContent(isSlim ? "slim" : "classic"), "variant");
-            ByteArrayContent fileContent = new(bytes);
-            fileContent.Headers.ContentType =
-                new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
-            content.Add(fileContent, "file", fileName);
-
-            using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(2) };
-            using HttpRequestMessage request = new(
-                HttpMethod.Post,
-                "https://api.minecraftservices.com/minecraft/profile/skins")
+            profile = await RefreshMicrosoftAppearanceProfileAsync(
+                    profile,
+                    "刷新 Microsoft 外观凭据",
+                    CancellationToken.None)
+                .ConfigureAwait(true);
+            if (!MinecraftLaunchPlanFactory.IsAccessTokenUsable(profile.AccessToken))
             {
-                Content = content
-            };
-            request.Headers.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", profile.AccessToken);
-            request.Headers.TryAddWithoutValidation("Accept", "*/*");
-            using HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(true);
-            string body = await response.Content.ReadAsStringAsync().ConfigureAwait(true);
-            if (!response.IsSuccessStatusCode)
-            {
-                ShowTextDialog(action, "皮肤上传失败。\n\n" + body, "知道了");
+                ShowTextDialog(
+                    action,
+                    "当前正版档案的访问令牌缺失或已过期，请先重新登录后再更换皮肤。",
+                    "知道了");
                 return null;
             }
 
-            string? skinUrl = null;
-            using (JsonDocument document = JsonDocument.Parse(body))
-            {
-                if (document.RootElement.TryGetProperty("skins", out JsonElement skins) &&
-                    skins.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (JsonElement skin in skins.EnumerateArray())
-                    {
-                        if (skin.ValueKind != JsonValueKind.Object)
-                            continue;
-                        string state = skin.TryGetProperty("state", out JsonElement stateElement)
-                            ? stateElement.GetString() ?? string.Empty
-                            : string.Empty;
-                        string? url = skin.TryGetProperty("url", out JsonElement urlElement)
-                            ? urlElement.GetString()
-                            : null;
-                        if (string.Equals(state, "ACTIVE", StringComparison.OrdinalIgnoreCase) &&
-                            !string.IsNullOrWhiteSpace(url))
-                        {
-                            skinUrl = url;
-                            break;
-                        }
-
-                        skinUrl ??= url;
-                    }
-                }
-            }
+            await RecordProfileTextureSnapshotAsync(profile).ConfigureAwait(true);
+            HandleStatusMessage("正在上传皮肤…");
+            MinecraftSkinUploadResult upload = await _minecraftSkinService
+                .UploadAsync(profile.AccessToken, bytes, fileName, isSlim)
+                .ConfigureAwait(true);
 
             LoginProfileInfo updated = profile with
             {
-                SkinAddress = skinUrl ?? fallbackAddress
+                SkinAddress = upload.SkinAddress ?? fallbackAddress
             };
             ReplaceLoginProfile(profile, updated);
             _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
@@ -371,9 +330,34 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
+            PortableLog.Warn(exception, "MicrosoftAppearance", "更换正版皮肤失败。");
             ShowTextDialog(action, "皮肤上传失败。\n\n详细信息：" + exception.Message, "知道了");
             return null;
         }
+    }
+
+    private async Task<LoginProfileInfo> RefreshMicrosoftAppearanceProfileAsync(
+        LoginProfileInfo requestedProfile,
+        string saveAction,
+        CancellationToken cancellationToken)
+    {
+        LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
+        if (profile.Kind != LaunchLoginProfileKind.Microsoft ||
+            string.IsNullOrWhiteSpace(profile.RefreshToken))
+        {
+            return profile;
+        }
+
+        LoginProfileInfo refreshed = await RefreshLaunchProfileAsync(profile, cancellationToken)
+            .ConfigureAwait(true);
+        if (refreshed == profile)
+            return profile;
+
+        ReplaceLoginProfile(profile, refreshed);
+        _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, refreshed);
+        _launchLoginSurface.ProfileSkinPage?.SetProfile(refreshed);
+        SaveProfilesInBackground(saveAction);
+        return refreshed;
     }
 
     private void OpenProfileSecurityPage(LoginProfileInfo? profile)

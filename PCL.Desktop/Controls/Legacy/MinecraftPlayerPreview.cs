@@ -8,6 +8,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using PCL.Core.Logging;
 using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Controls.Legacy;
@@ -656,36 +657,72 @@ public sealed class MinecraftPlayerPreview : Grid
         int version = Interlocked.Increment(ref _loadVersion);
         string skinAddress = SkinAddress.Trim();
         string capeAddress = CapeAddress.Trim();
-        Task<byte[]?> skinTask = string.IsNullOrWhiteSpace(skinAddress)
-            ? Task.FromResult<byte[]?>(null)
-            : MySkin.LoadSkinBytesAsync(skinAddress);
-        Task<byte[]?> capeTask = string.IsNullOrWhiteSpace(capeAddress)
-            ? Task.FromResult<byte[]?>(null)
-            : MySkin.LoadSkinBytesAsync(capeAddress);
-
-        byte[]?[] bytes;
-        try
-        {
-            bytes = await Task.WhenAll(skinTask, capeTask).ConfigureAwait(false);
-        }
-        catch
-        {
-            bytes = [null, null];
-        }
+        (byte[]? skinBytes, byte[]? capeBytes) = await LoadTextureBytesAsync(
+                skinAddress,
+                capeAddress,
+                MySkin.LoadSkinBytesAsync)
+            .ConfigureAwait(false);
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (version != _loadVersion)
                 return;
 
-            Bitmap? nextSkin = CreateBitmap(bytes[0]);
-            Bitmap? nextCape = CreateBitmap(bytes[1]);
+            Bitmap? nextSkin = CreateBitmap(skinBytes);
+            Bitmap? nextCape = CreateBitmap(capeBytes);
             DisposeBitmaps();
             _skin = nextSkin;
             _cape = nextCape;
             _renderer.InvalidateVisual();
         });
     }
+
+    internal static async Task<(byte[]? Skin, byte[]? Cape)> LoadTextureBytesAsync(
+        string skinAddress,
+        string capeAddress,
+        Func<string, Task<byte[]?>> loader)
+    {
+        ArgumentNullException.ThrowIfNull(loader);
+        Task<byte[]?> skinTask = LoadTextureBytesOrNullAsync(
+            skinAddress,
+            "皮肤",
+            loader);
+        Task<byte[]?> capeTask = LoadTextureBytesOrNullAsync(
+            capeAddress,
+            "披风",
+            loader);
+        await Task.WhenAll(skinTask, capeTask).ConfigureAwait(false);
+        return (
+            await skinTask.ConfigureAwait(false),
+            await capeTask.ConfigureAwait(false));
+    }
+
+    private static async Task<byte[]?> LoadTextureBytesOrNullAsync(
+        string address,
+        string kind,
+        Func<string, Task<byte[]?>> loader)
+    {
+        if (string.IsNullOrWhiteSpace(address))
+            return null;
+
+        try
+        {
+            return await loader(address).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            PortableLog.Warn(
+                exception,
+                "SkinPreview",
+                $"加载{kind}失败；地址={SanitizeTextureAddress(address)}。");
+            return null;
+        }
+    }
+
+    private static string SanitizeTextureAddress(string address) =>
+        Uri.TryCreate(address, UriKind.Absolute, out Uri? uri)
+            ? uri.GetLeftPart(UriPartial.Path)
+            : Path.GetFileName(address);
 
     private static Bitmap? CreateBitmap(byte[]? bytes)
     {
