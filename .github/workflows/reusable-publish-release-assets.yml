@@ -1,0 +1,235 @@
+name: Package and publish launcher assets
+
+permissions:
+  contents: write
+
+on:
+  workflow_call:
+    inputs:
+      configuration:
+        description: Release or Beta
+        required: true
+        type: string
+      channel:
+        description: release or beta
+        required: true
+        type: string
+      tag_name:
+        required: true
+        type: string
+    secrets:
+      GPG_PRIVATE_KEY:
+        required: true
+      GPG_PASSPHRASE:
+        required: true
+
+jobs:
+  package-assets:
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { runner: windows-latest, runtime_id: win-x64, architecture: x64, platform: windows, binary_name: PCL-N-Edition.exe }
+          - { runner: windows-latest, runtime_id: win-arm64, architecture: arm64, platform: windows, binary_name: PCL-N-Edition.exe }
+          - { runner: ubuntu-latest, runtime_id: linux-x64, architecture: x64, platform: linux, binary_name: PCL-N-Edition, appimage_arch: x86_64 }
+          - { runner: ubuntu-24.04-arm, runtime_id: linux-arm64, architecture: arm64, platform: linux, binary_name: PCL-N-Edition, appimage_arch: aarch64 }
+          - { runner: macos-latest, runtime_id: osx-x64, architecture: x64, platform: macos, binary_name: PCL-N-Edition }
+          - { runner: macos-latest, runtime_id: osx-arm64, architecture: arm64, platform: macos, binary_name: PCL-N-Edition }
+        runtime_variant: [SelfContained, NoRuntime]
+    runs-on: ${{ matrix.target.runner }}
+    env:
+      BASE_NAME: PCL_N_${{ inputs.configuration }}_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}
+      ARTIFACT_NAME: PCL_N_${{ inputs.configuration }}_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download launcher build
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: artifact
+
+      - name: Install Windows packaging tools
+        if: ${{ matrix.target.platform == 'windows' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet tool install --global wix --version '6.*'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          choco install innosetup --no-progress -y
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          wix --version
+
+      - name: Install Linux packaging tools
+        if: ${{ matrix.target.platform == 'linux' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y rpm desktop-file-utils
+          tool="$RUNNER_TEMP/appimagetool-${{ matrix.target.appimage_arch }}.AppImage"
+          curl --fail --location --retry 4 \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.target.appimage_arch }}.AppImage" \
+            --output "$tool"
+          chmod +x "$tool"
+          echo "APPIMAGETOOL=$tool" >> "$GITHUB_ENV"
+
+      - name: Package Windows assets
+        if: ${{ matrix.target.platform == 'windows' }}
+        shell: pwsh
+        run: |
+          ./scripts/package-release-windows.ps1 `
+            -ArtifactDirectory artifact `
+            -OutputDirectory package-output `
+            -BaseName $env:BASE_NAME `
+            -Version '${{ inputs.tag_name }}' `
+            -Architecture '${{ matrix.target.architecture }}'
+
+      - name: Package macOS assets
+        if: ${{ matrix.target.platform == 'macos' }}
+        shell: bash
+        run: |
+          chmod +x scripts/package-release-macos.sh
+          scripts/package-release-macos.sh artifact package-output "$BASE_NAME"
+
+      - name: Package Linux assets
+        if: ${{ matrix.target.platform == 'linux' }}
+        shell: bash
+        run: |
+          chmod +x scripts/package-release-linux.sh
+          scripts/package-release-linux.sh \
+            artifact package-output "$BASE_NAME" '${{ inputs.tag_name }}' '${{ matrix.target.architecture }}'
+
+      - name: Preserve the raw launcher for binary signature compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "signing/$BASE_NAME"
+          binary="artifact/${{ matrix.target.binary_name }}"
+          if [[ "${{ matrix.target.platform }}" == "macos" ]]; then
+            binary="artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"
+          fi
+          test -s "$binary"
+          cp "$binary" "signing/$BASE_NAME/${{ matrix.target.binary_name }}"
+
+      - name: Validate packaged assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          find package-output -maxdepth 1 -type f -print
+          test -n "$(find package-output -maxdepth 1 -type f -print -quit)"
+          if find package-output -type f \( -name '*.pdb' -o -name '*.dbg' \) -print -quit | grep -q .; then
+            echo "::error::Debug symbols must not be distributed."
+            exit 1
+          fi
+
+      - name: Upload packaged assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: PCL_N_Packages_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}
+          path: |
+            package-output
+            signing
+          if-no-files-found: error
+
+  publish-assets:
+    permissions:
+      contents: write
+    needs: [package-assets]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download all packaged assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: PCL_N_Packages_*
+          path: packaged
+          merge-multiple: true
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Sign packages and write update compatibility metadata
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find packaged/package-output -maxdepth 1 -type f -exec cp {} dist/ \;
+
+          # Every user-selectable installer and portable package gets its own
+          # detached signature. No package is modified after this point.
+          while IFS= read -r -d '' asset; do
+            gpg --detach-sign --armor "$asset"
+          done < <(find dist -maxdepth 1 -type f -print0)
+
+          # Existing launchers expect a signature over the final replacement
+          # executable next to the unchanged canonical zip/tar.gz package.
+          while IFS= read -r -d '' binary; do
+            base="$(basename "$(dirname "$binary")")"
+            if [[ "$base" == *'_win-'* ]]; then
+              canonical="dist/${base}.zip"
+            else
+              canonical="dist/${base}.tar.gz"
+            fi
+            test -s "$canonical"
+            gpg --detach-sign --armor --output "${canonical}.binary.asc" "$binary"
+            jq -n \
+              --arg channel "${{ inputs.configuration }}" \
+              --arg commit "$GITHUB_SHA" \
+              --arg ref "$GITHUB_REF" \
+              --arg tag "$RELEASE_TAG" \
+              --arg runId "$GITHUB_RUN_ID" \
+              --arg artifact "$base" \
+              --arg builtAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              '{formatVersion: 1, channel: $channel, commit: $commit, ref: $ref, tag: $tag, runId: $runId, artifact: $artifact, builtAt: $builtAt}' \
+              > "dist/${base}.build.json"
+          done < <(find packaged/signing -mindepth 2 -maxdepth 2 -type f -print0)
+
+          find dist -maxdepth 1 -type f -printf '%f\n' | sort
+
+      - name: Upload all assets to the existing release
+        uses: softprops/action-gh-release@v2.5.0
+        with:
+          tag_name: ${{ inputs.tag_name }}
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish static website download catalog
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          catalog_dir="$RUNNER_TEMP/pcln-download-catalog"
+          rm -rf "$catalog_dir"
+          if git fetch origin download-catalog:refs/remotes/origin/download-catalog; then
+            git worktree add --detach "$catalog_dir" refs/remotes/origin/download-catalog
+          else
+            git worktree add --detach "$catalog_dir" HEAD
+            git -C "$catalog_dir" switch --orphan download-catalog
+            git -C "$catalog_dir" rm -rf . || true
+          fi
+
+          python scripts/update_download_catalog.py \
+            --file "$catalog_dir/downloads.json" \
+            --tag "$RELEASE_TAG" \
+            --channel '${{ inputs.channel }}' \
+            --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git -C "$catalog_dir" config user.name github-actions[bot]
+          git -C "$catalog_dir" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C "$catalog_dir" add downloads.json
+          if git -C "$catalog_dir" diff --cached --quiet; then
+            echo "Download catalog is already current."
+          else
+            git -C "$catalog_dir" commit -m "chore(downloads): publish $RELEASE_TAG"
+            git -C "$catalog_dir" push origin HEAD:download-catalog
+          fi

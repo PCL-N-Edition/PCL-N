@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=PCL N
+Comment=Next-generation cross-platform Minecraft launcher
+Exec=pcl-n
+Icon=pcl-n
+Terminal=false
+Categories=Game;
+StartupNotify=true

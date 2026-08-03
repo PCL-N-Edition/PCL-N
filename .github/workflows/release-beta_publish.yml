@@ -88,91 +88,14 @@ jobs:
     permissions:
       contents: write
     needs: [build]
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      # softprops/action-gh-release finalizes the Release after every upload.
-      # Serializing only this matrix avoids concurrent finalization races while
-      # keeping the expensive cross-platform builds fully parallel.
-      max-parallel: 1
-      matrix:
-        target:
-          - { runtime_id: win-x64, binary_name: PCL-N-Edition.exe, package: zip }
-          - { runtime_id: win-arm64, binary_name: PCL-N-Edition.exe, package: zip }
-          - { runtime_id: linux-x64, binary_name: PCL-N-Edition, package: tar }
-          - { runtime_id: linux-arm64, binary_name: PCL-N-Edition, package: tar }
-          - { runtime_id: osx-x64, binary_name: PCL-N-Edition, package: tar }
-          - { runtime_id: osx-arm64, binary_name: PCL-N-Edition, package: tar }
-        runtime_variant: [SelfContained, NoRuntime]
-    steps:
-      - name: Download Avalonia artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: PCL_N_Beta_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}
-          path: artifact
-
-      - name: Package prerelease asset
-        shell: bash
-        run: |
-          base="PCL_N_Beta_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}"
-          mkdir -p dist
-          if [[ "${{ matrix.target.runtime_id }}" == osx-* ]]; then
-            binary="artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"
-            chmod +x "$binary"
-            test -x "$binary"
-            tar -C artifact -czf "dist/${base}.tar.gz" "PCL N.app"
-          elif [[ "${{ matrix.target.package }}" == "zip" ]]; then
-            chmod +x "artifact/${{ matrix.target.binary_name }}" || true
-            (cd artifact && zip -9 -r "../dist/${base}.zip" .)
-          else
-            chmod +x "artifact/${{ matrix.target.binary_name }}"
-            tar -C artifact -czf "dist/${base}.tar.gz" .
-          fi
-
-      - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v6
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.GPG_PASSPHRASE }}
-
-      - name: Sign prerelease asset
-        shell: bash
-        run: |
-          asset=$(find dist -maxdepth 1 -type f | head -n 1)
-          gpg --detach-sign --armor "$asset"
-          binary="artifact/${{ matrix.target.binary_name }}"
-          if [[ "${{ matrix.target.runtime_id }}" == osx-* ]]; then
-            binary="artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"
-          fi
-          gpg --detach-sign --armor --output "$asset.binary.asc" "$binary"
-
-      # Additive metadata: new launchers use it to suppress same-commit channel
-      # promotions. Existing launchers keep using the unchanged package names.
-      - name: Write prerelease build identity
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag_name }}
-        run: |
-          set -euo pipefail
-          base="PCL_N_Beta_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}"
-          jq -n \
-            --arg channel "Beta" \
-            --arg commit "$GITHUB_SHA" \
-            --arg ref "$GITHUB_REF" \
-            --arg tag "$RELEASE_TAG" \
-            --arg runId "$GITHUB_RUN_ID" \
-            --arg artifact "$base" \
-            --arg builtAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{formatVersion: 1, channel: $channel, commit: $commit, ref: $ref, tag: $tag, runId: $runId, artifact: $artifact, builtAt: $builtAt}' \
-            > "dist/${base}.build.json"
-
-      - name: Upload Avalonia assets to prerelease
-        uses: softprops/action-gh-release@v2.5.0
-        with:
-          tag_name: ${{ github.event.release.tag_name || inputs.tag_name }}
-          files: dist/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    uses: ./.github/workflows/reusable-publish-release-assets.yml
+    with:
+      configuration: Beta
+      channel: beta
+      tag_name: ${{ github.event.release.tag_name || inputs.tag_name }}
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
   # After full builds are on the prerelease, generate direct patches from the
   # recent rollback window. Older clients can chain indexes or use a full package.
