@@ -63,6 +63,7 @@ public static class ExperimentalControlChrome
                 // Nested fields keep their host chrome (combo editable slot / search box).
                 if (textBox.TemplatedParent is MyComboBox ||
                     textBox.FindAncestorOfType<MySearchBox>() is not null ||
+                    textBox.FindAncestorOfType<MySearchBar>() is not null ||
                     textBox.FindAncestorOfType<MyComboBox>() is not null)
                 {
                     textBox.UseExperimentalStyle = false;

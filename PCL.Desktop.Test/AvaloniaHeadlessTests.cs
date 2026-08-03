@@ -12677,8 +12677,17 @@ public sealed class AvaloniaHeadlessTests
                 MyIconButton clear = searchBar.FindControl<MyIconButton>("BtnClear")!;
                 Assert.AreEqual("搜索版本", textBox.HintText);
                 Assert.AreEqual("1.20", textBox.Text);
+                Assert.AreEqual(new Thickness(30d, 0d, 36d, 0d), textBox.Padding);
                 Assert.AreEqual(1d, clear.Opacity, 0.01d);
                 Assert.IsTrue(clear.IsHitTestVisible);
+
+                ExperimentalControlChrome.Apply(searchBar, enabled: true);
+
+                Assert.IsFalse(textBox.UseExperimentalStyle);
+                Assert.AreEqual(
+                    new Thickness(30d, 0d, 36d, 0d),
+                    textBox.Padding,
+                    "Experimental chrome must preserve the icon-safe search padding.");
 
                 Click(window, clear);
 
