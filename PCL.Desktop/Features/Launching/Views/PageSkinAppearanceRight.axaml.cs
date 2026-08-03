@@ -191,6 +191,7 @@ public partial class PageSkinAppearanceRight : MyPageRight
             SkinAddress = card.SkinAddress,
             CapeAddress = card.CapeAddress ?? string.Empty,
             IsSlim = card.IsSlim,
+            View = isCapeTrack ? MinecraftPlayerView.Back : MinecraftPlayerView.Front,
             HorizontalAlignment = HorizontalAlignment.Center
         };
         TextBlock title = new()

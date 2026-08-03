@@ -147,6 +147,61 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageSkinAppearanceRight_DefaultsSkinsToFrontAndCapesToBack()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            LoginProfileInfo profile = new(
+                "Player",
+                "Microsoft 正版",
+                LaunchLoginProfileKind.Microsoft,
+                "0123456789abcdef0123456789abcdef");
+            PageSkinAppearanceRight page = new();
+            page.SetModel(new SkinAppearancePageModel(
+                profile,
+                new SkinAppearanceCard("Current", "Current", string.Empty, null, false),
+                [new SkinAppearanceCard("Skin", "History", string.Empty, null, false)],
+                [new SkinAppearanceCard("Cape", "Owned", string.Empty, string.Empty, false)]));
+            Window window = new()
+            {
+                Width = 1080,
+                Height = 720,
+                Content = page
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                Assert.AreEqual(
+                    MinecraftPlayerView.Front,
+                    page.FindControl<MinecraftPlayerPreview>("CurrentPlayer")!.View);
+                Assert.AreEqual(
+                    MinecraftPlayerView.Front,
+                    page.FindControl<StackPanel>("PanSkins")!
+                        .GetVisualDescendants()
+                        .OfType<MinecraftPlayerPreview>()
+                        .Single()
+                        .View);
+                Assert.AreEqual(
+                    MinecraftPlayerView.Back,
+                    page.FindControl<StackPanel>("PanCapes")!
+                        .GetVisualDescendants()
+                        .OfType<MinecraftPlayerPreview>()
+                        .Single()
+                        .View);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MyMsgColor_LoadsColorPickerTemplateAndRendersContent()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

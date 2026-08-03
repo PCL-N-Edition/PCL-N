@@ -40,6 +40,7 @@
                           RowSpacing="4">
                         <legacy:MinecraftPlayerPreview x:Name="CurrentPlayer"
                                                        Grid.Row="0"
+                                                       View="Front"
                                                        HorizontalAlignment="Stretch"
                                                        VerticalAlignment="Stretch" />
                         <TextBlock x:Name="LabProfileName"
