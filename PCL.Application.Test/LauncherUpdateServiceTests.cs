@@ -95,6 +95,45 @@ public sealed class LauncherUpdateServiceTests
     }
 
     [TestMethod]
+    public void InstallationContext_LeavesPortableAndWindowsInstallerUpdateable()
+    {
+        LauncherInstallationContext portable = LauncherInstallationContext.Detect(
+            @"D:\Apps\PCL-N-Edition.exe", null, null, null);
+        LauncherInstallationContext installed = LauncherInstallationContext.Detect(
+            @"C:\Users\Player\AppData\Local\Programs\PCL N\PCL-N-Edition.exe",
+            null,
+            null,
+            "windows-msi");
+
+        Assert.AreEqual(LauncherInstallationKind.Portable, portable.Kind);
+        Assert.IsTrue(portable.SupportsInPlaceUpdate);
+        Assert.AreEqual(LauncherInstallationKind.WindowsInstaller, installed.Kind);
+        Assert.IsTrue(installed.SupportsInPlaceUpdate);
+    }
+
+    [TestMethod]
+    public void InstallationContext_ProtectsSignedAndPackageManagedPayloads()
+    {
+        LauncherInstallationContext mac = LauncherInstallationContext.Detect(
+            "/Applications/PCL N.app/Contents/MacOS/PCL-N-Edition", null, null, null);
+        LauncherInstallationContext deb = LauncherInstallationContext.Detect(
+            "/opt/pcl-n/PCL-N-Edition", "deb", null, null);
+        LauncherInstallationContext rpm = LauncherInstallationContext.Detect(
+            "/opt/pcl-n/PCL-N-Edition", "rpm", null, null);
+        LauncherInstallationContext appImage = LauncherInstallationContext.Detect(
+            "/tmp/.mount_pcln/usr/bin/PCL-N-Edition", null, "/home/player/PCL-N.AppImage", null);
+
+        Assert.AreEqual(LauncherInstallationKind.MacApplicationBundle, mac.Kind);
+        Assert.AreEqual(LauncherInstallationKind.DebianPackage, deb.Kind);
+        Assert.AreEqual(LauncherInstallationKind.RpmPackage, rpm.Kind);
+        Assert.AreEqual(LauncherInstallationKind.AppImage, appImage.Kind);
+        Assert.IsFalse(mac.SupportsInPlaceUpdate);
+        Assert.IsFalse(deb.SupportsInPlaceUpdate);
+        Assert.IsFalse(rpm.SupportsInPlaceUpdate);
+        Assert.IsFalse(appImage.SupportsInPlaceUpdate);
+    }
+
+    [TestMethod]
     public void CompareVersions_TreatsDisplayAndTagReleaseAsEqual()
     {
         // Local DisplayVersion is "1.1.8 release"; remote tag normalizes to "1.1.8-release".

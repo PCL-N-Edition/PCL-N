@@ -1,6 +1,7 @@
 // Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Diagnostics;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using PCL.Application.Settings;
@@ -155,6 +156,12 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
 
             string currentExecutable = Environment.ProcessPath
                 ?? throw new InvalidOperationException("无法确定当前启动器文件位置。");
+            LauncherInstallationContext installation = LauncherInstallationContext.Detect(currentExecutable);
+            if (!installation.SupportsInPlaceUpdate)
+            {
+                throw new InvalidOperationException(
+                    $"当前使用 {installation.DisplayName} 安装，不能安全地原地替换程序文件；请安装对应平台的新包。");
+            }
             string? hpatchz = await PclEmbeddedUpdateTool.GetHpatchzPathAsync(cancellationToken).ConfigureAwait(false);
             PreparedLauncherUpdate prepared = await _installer.PrepareAsync(
                     package,
@@ -232,9 +239,18 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
             return;
 
         await _updateFlowGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        bool operationActivated = false;
         try
         {
+            LauncherInstallationContext installation = LauncherInstallationContext.Detect();
+            if (!installation.SupportsInPlaceUpdate)
+            {
+                await PromptPackageManagedUpdateAsync(result, installation, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
             SetUpdateOperationActive(true);
+            operationActivated = true;
             switch (mode)
             {
                 case 0:
@@ -272,7 +288,8 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
         }
         finally
         {
-            SetUpdateOperationActive(false);
+            if (operationActivated)
+                SetUpdateOperationActive(false);
             _updateFlowGate.Release();
         }
     }
@@ -400,6 +417,55 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
             Text("Setup.Update.Prompt.SkipVersion", "跳过版本"),
             isWarn: false,
             cancellationToken);
+
+    private async Task PromptPackageManagedUpdateAsync(
+        LauncherUpdateCheckResult result,
+        LauncherInstallationContext installation,
+        CancellationToken cancellationToken)
+    {
+        string message = Text(
+                "Setup.Update.Prompt.PackageManaged.Message",
+                "当前使用 {0} 安装。为避免破坏应用签名或系统包数据库，PCL N 不会直接替换其中的程序文件。请从下载页安装对应平台的新版本。")
+            .Replace("{0}", installation.DisplayName, StringComparison.Ordinal);
+        int choice = await DesktopHostNotifications.Instance.ChoiceAsync(
+                Text("Setup.Update.Prompt.PackageManaged.Title", "需要安装新的软件包"),
+                $"{BuildChangelog(result)}\n\n---\n\n{message}",
+                Text("Setup.Update.Prompt.PackageManaged.OpenDownload", "打开下载页"),
+                Text("Setup.Update.Prompt.Downloaded.Later", "稍后"),
+                Text("Setup.Update.Prompt.SkipVersion", "跳过版本"),
+                isWarn: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+        PortableLog.Info(
+            "Update",
+            $"系统包更新提示选择={choice}；安装类型={installation.Kind}；目标={UpdateIdentity(result)}。");
+        switch (choice)
+        {
+            case 1:
+                ClearSkippedVersion(result);
+                OpenDownloadPage();
+                break;
+            case 3:
+                SkipVersion(result);
+                break;
+        }
+    }
+
+    private static void OpenDownloadPage()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://pcln.top/download",
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Warn(ex, "Update", "无法打开 PCL N 下载页。");
+        }
+    }
 
     private async Task PromptDownloadedUpdateAsync(
         LauncherUpdateCheckResult result,

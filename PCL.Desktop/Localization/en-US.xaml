@@ -1081,6 +1081,9 @@
     <sys:String x:Key="Setup.Update.Prompt.Downloaded.Later">Later</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Downloaded.Title">Update downloaded</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.NoChangelog">No changelog was provided for this version.</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.PackageManaged.Message">This copy was installed using {0}. To preserve the application signature and system package database, PCL N will not replace files inside it. Install the new package for this platform from the download page.</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.PackageManaged.OpenDownload">Open download page</sys:String>
+    <sys:String x:Key="Setup.Update.Prompt.PackageManaged.Title">A new package is required</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.SkipVersion">Skip version</sys:String>
     <sys:String x:Key="Setup.Update.RestartAndInstall">Restart and install</sys:String>
     <sys:String x:Key="Setup.Update.Skipped">This version has been skipped.</sys:String>
