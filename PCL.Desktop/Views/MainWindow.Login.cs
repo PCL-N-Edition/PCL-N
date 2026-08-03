@@ -743,7 +743,7 @@ public partial class MainWindow
                     "lucide/boxes"),
                 CreateProfileTypeItem(
                     "第三方登录",
-                    "使用自定义 Authlib-Injector 兼容认证服务器登录。",
+                    "使用自定义 Yggdrasil 兼容认证服务器登录。",
                     "lucide/network"),
                 CreateProfileTypeItem(
                     useNCloud ? "N Cloud 在线账户" : "离线登录",
@@ -1188,7 +1188,7 @@ public partial class MainWindow
                 authServer: result.AuthServer);
             LoginProfileInfo profile = new(
                 result.Username,
-                $"Authlib-Injector · {result.AuthServerDisplayName}",
+                result.AuthServerDisplayName,
                 LaunchLoginProfileKind.ThirdParty,
                 result.Uuid,
                 SvgIcon: "lucide/key-round",

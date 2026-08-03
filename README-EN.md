@@ -30,7 +30,7 @@ Feedback and contributions are welcome!
 - **Cross-platform desktop shell**: `PCL.Desktop` on Avalonia, with win / linux / osx builds for x64 and arm64
 - **Modular core**: portable core, domain model, application services, platform abstractions, and UI abstractions
 - **Launch & instances**: version install, Java selection, launch argument planning, instance metadata and export
-- **Accounts**: Microsoft, offline, and third-party / Authlib-Injector login flows
+- **Accounts**: Microsoft, offline, and third-party authentication flows
 - **Downloads & assets**: client / asset / library download planning and task management
 - **Plugin host**: built-in HostModule bridge and third-party `.pnp` plugin runtime (signature verification, isolated loading)
 - **Release flavors**: SelfContained and NoRuntime artifacts; release packages are GPG-signed

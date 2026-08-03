@@ -292,6 +292,6 @@ public sealed class ThirdPartyAuthService(HttpClient? httpClient = null)
         if (Uri.TryCreate(authServer, UriKind.Absolute, out Uri? uri))
             return uri.Host;
 
-        return "Authlib-Injector";
+        return "第三方认证";
     }
 }

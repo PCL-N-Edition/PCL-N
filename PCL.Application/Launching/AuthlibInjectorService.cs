@@ -40,10 +40,10 @@ public sealed class AuthlibInjectorService
 
         byte[] content = await DownloadArtifactAsync(artifact, cancellationToken).ConfigureAwait(false);
         if (!IsSha256Match(content, artifact.Sha256))
-            throw new InvalidDataException("Authlib-Injector 下载文件校验失败。");
+            throw new InvalidDataException("第三方认证组件下载文件校验失败。");
 
         Directory.CreateDirectory(Path.GetDirectoryName(fullTargetPath)
-                                  ?? throw new InvalidOperationException("Authlib-Injector 缓存路径没有父目录。"));
+                                  ?? throw new InvalidOperationException("第三方认证组件缓存路径没有父目录。"));
         string temporaryPath = fullTargetPath + "." + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".tmp";
         await File.WriteAllBytesAsync(temporaryPath, content, cancellationToken).ConfigureAwait(false);
         File.Move(temporaryPath, fullTargetPath, overwrite: true);
@@ -115,7 +115,7 @@ public sealed class AuthlibInjectorService
             }
         }
 
-        throw new HttpRequestException("无法获取 Authlib-Injector 下载信息。", new AggregateException(errors));
+        throw new HttpRequestException("无法获取第三方认证组件下载信息。", new AggregateException(errors));
     }
 
     private async Task<byte[]> DownloadArtifactAsync(AuthlibArtifact artifact, CancellationToken cancellationToken)
@@ -141,7 +141,7 @@ public sealed class AuthlibInjectorService
             }
         }
 
-        throw new HttpRequestException("无法下载 Authlib-Injector。", new AggregateException(errors));
+        throw new HttpRequestException("无法下载第三方认证组件。", new AggregateException(errors));
     }
 
     private static AuthlibArtifact ParseArtifact(string json)
@@ -149,9 +149,9 @@ public sealed class AuthlibInjectorService
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
         string downloadUrl = root.GetProperty("download_url").GetString()
-                             ?? throw new JsonException("Authlib-Injector 元数据缺少 download_url。");
+                             ?? throw new JsonException("第三方认证组件元数据缺少 download_url。");
         string sha256 = root.GetProperty("checksums").GetProperty("sha256").GetString()
-                        ?? throw new JsonException("Authlib-Injector 元数据缺少 checksums.sha256。");
+                        ?? throw new JsonException("第三方认证组件元数据缺少 checksums.sha256。");
         return new AuthlibArtifact(downloadUrl, sha256);
     }
 

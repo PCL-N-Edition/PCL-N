@@ -256,7 +256,7 @@ public static class MinecraftProcessLaunchService
             ["${auth_access_token}"] = request.AccessToken,
             ["${clientid}"] = Guid.NewGuid().ToString("N"),
             ["${auth_xuid}"] = "0",
-            // Microsoft → msa; Authlib-Injector third-party → mojang (Yggdrasil); offline → legacy.
+            // Microsoft → msa; third-party Yggdrasil → mojang; offline → legacy.
             ["${user_type}"] = request.JvmHostIdentityMode switch
             {
                 MinecraftJvmHostIdentityMode.ThirdParty => "mojang",

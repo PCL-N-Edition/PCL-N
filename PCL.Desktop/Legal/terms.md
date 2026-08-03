@@ -17,7 +17,7 @@
 ## 二、服务内容
 
 1. PCL N 主要提供：Minecraft 实例与版本管理、游戏与加载器安装、Java 环境选择、启动参数配置、正版与第三方账户登录、资源与整合包管理、本地诊断，以及通过 **进程外插件宿主（sidecar）** 运行 `.pnp` 插件等功能。
-2. 部分功能依赖 Microsoft / Xbox / Minecraft、GitHub、Modrinth、CurseForge、Authlib-Injector / LittleSkin、内容分发与更新通道、N Cloud 等第三方服务；其可用性与规则由相应提供者决定。
+2. 部分功能依赖 Microsoft / Xbox / Minecraft、GitHub、Modrinth、CurseForge、LittleSkin、其他第三方认证服务、内容分发与更新通道、N Cloud 等第三方服务；其可用性与规则由相应提供者决定。
 3. 本软件可提供正式版、测试版、预览版、CI/Debug 等构建。非正式版本可能存在未完成功能、兼容性不足或数据格式变更，不建议用于不可恢复的重要数据。
 4. 插件默认不以内嵌 IL 方式注入启动器本体（AOT 宿主）；插件在独立进程中通过受控 IPC 与宿主协作。具体能力以插件清单声明及你的授权为准。
 
@@ -31,7 +31,7 @@
 ## 四、账户与认证
 
 1. 离线账户仅用于本地启动，不代表你拥有 Minecraft 正版授权。你应自行遵守适用法律及 Minecraft 相关协议。
-2. 使用 Microsoft、LittleSkin、Authlib-Injector 或其他认证方式时，须同时遵守对应服务的协议与隐私规则。
+2. 使用 Microsoft、LittleSkin 或其他第三方认证方式时，须同时遵守对应服务的协议与隐私规则。
 3. 本软件及插件**不得**要求你向插件开发者提供 Microsoft / Xbox / Minecraft 密码、短信验证码、长期令牌或恢复密钥。
 4. 启用 N Cloud 后，账户绑定、桌面设备会话与云端数据适用 N Cloud 相关协议。
 5. 因你泄露凭据、使用不安全设备或安装恶意软件造成的损失，由责任方依法承担。发现异常应立即撤销设备授权并修改相关账户安全设置。

@@ -363,7 +363,7 @@
     <sys:String x:Key="Instance.Setup.Server.HttpWarning">HTTP sends sign-in data without transport encryption and may expose your credentials.&#x0a;Use HTTPS unless the server specifically requires HTTP.</sys:String>
     <sys:String x:Key="Instance.Setup.Server.LockLoginMethod">Lock Login Method</sys:String>
     <sys:String x:Key="Instance.Setup.Server.LoginLockHint">The login method for this instance is locked. Use the required method to launch Minecraft.</sys:String>
-    <sys:String x:Key="Instance.Setup.Server.LoginMethod.AuthOnly">Third-party account only (Authlib-Injector)</sys:String>
+    <sys:String x:Key="Instance.Setup.Server.LoginMethod.AuthOnly">Third-party account only</sys:String>
     <sys:String x:Key="Instance.Setup.Server.LoginMethod.MicrosoftOnly">Microsoft account only</sys:String>
     <sys:String x:Key="Instance.Setup.Server.LoginMethod.MicrosoftOrAuth">Microsoft or third-party account</sys:String>
     <sys:String x:Key="Instance.Setup.Server.LoginMethod.Unlimited">Any login method</sys:String>
@@ -386,7 +386,7 @@
     <sys:String x:Key="Launch.Account.LoginDialog.Title">Sign In to Microsoft</sys:String>
     <sys:String x:Key="Launch.Account.Type.Microsoft">Microsoft account</sys:String>
     <sys:String x:Key="Launch.Account.Type.Offline">Offline account</sys:String>
-    <sys:String x:Key="Launch.Account.Type.ThirdParty">Third-party account</sys:String>
+    <sys:String x:Key="Launch.Account.Type.ThirdParty">Third-party</sys:String>
     <sys:String x:Key="Launch.Home.Button.Launch">Play</sys:String>
     <sys:String x:Key="Launch.Home.Button.Download">Install game</sys:String>
     <sys:String x:Key="Launch.Home.Button.Loading">Loading…</sys:String>
@@ -882,14 +882,14 @@
     <sys:String x:Key="Launch.Experimental.Account.NoVersion">You can sign in first; without a local version you will be guided to install.</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Title">Jvm.NET lifecycle host</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Enable">Use the Jvm.NET host to control the Minecraft lifecycle</sys:String>
-    <sys:String x:Key="Setup.Experimental.JvmHost.Summary">Minecraft runs inside an isolated PCL N host process. Third-party authentication no longer loads authlib-injector, and custom offline skins use the same session bridge to reach the game.</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Summary">Minecraft runs inside an isolated PCL N host process. Supported third-party authentication and offline skins use a local session bridge; LittleSkin and N Cloud automatically use the compatibility launch path.</sys:String>
     <sys:String x:Key="Setup.Experimental.Benefits.Title">Benefits</sys:String>
     <sys:String x:Key="Setup.Experimental.Risks.Title">Risks and limitations</sys:String>
-    <sys:String x:Key="Setup.Experimental.JvmHost.Benefits">• Records JVM initialization, main-class invocation, Minecraft bootstrap, and window subsystem lifecycle nodes.&#10;• Third-party authentication does not load an extra authlib-injector JAR into the game.&#10;• Offline profiles can use local or borrowed skins in-game.&#10;• JVM crashes stay isolated in the host process instead of taking down the launcher.</sys:String>
-    <sys:String x:Key="Setup.Experimental.JvmHost.Risks">• Embedding the JVM and transforming authlib bytecode can conflict with some Java builds, mods, or authentication servers.&#10;• Adds a small amount of startup time and memory usage.&#10;• PCL N verifies and transforms third-party texture signatures, so behavior is not identical to authlib-injector.&#10;• A host or loopback-bridge failure aborts that game launch.</sys:String>
-    <sys:String x:Key="Setup.Experimental.JvmHost.Scope">The authentication and skin bridge listens only on 127.0.0.1 and ends with the game host. Disabling this option immediately restores the normal Java process and authlib-injector path.</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Benefits">• Records JVM initialization, main-class invocation, Minecraft bootstrap, and window subsystem lifecycle nodes.&#10;• Supported third-party accounts do not load an extra authentication agent into the game.&#10;• Offline profiles can use local or borrowed skins in-game.&#10;• JVM crashes stay isolated in the host process instead of taking down the launcher.</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Risks">• Embedding the JVM and transforming authlib bytecode can conflict with some Java builds, mods, or authentication servers.&#10;• Adds a small amount of startup time and memory usage.&#10;• PCL N verifies and transforms third-party texture signatures, so behavior may differ from the standard compatibility path.&#10;• A host or loopback-bridge failure aborts that game launch.</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Scope">The authentication and skin bridge listens only on 127.0.0.1 and ends with the game host. LittleSkin and N Cloud always use the standard compatibility path; disabling this option restores the normal Java process for every account.</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Title">Enable the Jvm.NET lifecycle host</sys:String>
-    <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Message">Benefits: richer JVM and Minecraft lifecycle logs; no authlib-injector for third-party authentication; local offline skins work in-game; a host crash does not take down the launcher.&#10;&#10;Risks: this feature embeds a JVM in an isolated process and transforms authlib bytecode. It can conflict with some Java builds, mods, or authentication servers; it adds some startup time and memory; authentication and skins pass through a 127.0.0.1 bridge for this game session; PCL N verifies and then transforms third-party texture signatures, which is not identical to authlib-injector. Disable the option to restore the traditional launch path if anything fails.&#10;&#10;Each host runs one JVM and exits with the game. Do you understand the risks and want to continue?</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Message">Benefits: richer JVM and Minecraft lifecycle logs; supported third-party authentication can use the local session bridge; local offline skins work in-game; a host crash does not take down the launcher. LittleSkin and N Cloud automatically use the standard compatibility path.&#10;&#10;Risks: this feature embeds a JVM in an isolated process and transforms authlib bytecode. It can conflict with some Java builds, mods, or authentication servers; it adds some startup time and memory; authentication and skins pass through a 127.0.0.1 bridge for this game session; PCL N verifies and then transforms third-party texture signatures, so behavior may differ from the standard compatibility path. Disable the option to restore the traditional launch path if anything fails.&#10;&#10;Each host runs one JVM and exits with the game. Do you understand the risks and want to continue?</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Enable">Understand risks and enable</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Title">Minecraft AI error repair</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Enable">Analyze Minecraft crashes with a local model or OpenAI-compatible API and assist repair</sys:String>

@@ -10761,7 +10761,7 @@ public sealed class AvaloniaHeadlessTests
             PageLoginProfileSkin page = new();
             page.SetProfile(new LoginProfileInfo(
                 "Alex",
-                "Authlib-Injector · LittleSkin",
+                "littleskin.cn",
                 LaunchLoginProfileKind.ThirdParty,
                 Uuid: "0123456789abcdef0123456789abcdef",
                 AuthServer: "https://littleskin.cn/api/yggdrasil"));

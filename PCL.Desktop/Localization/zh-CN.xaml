@@ -363,7 +363,7 @@
     <sys:String x:Key="Instance.Setup.Server.HttpWarning">HTTP 不提供传输加密，登录凭据可能以明文发送。&#x0a;除非服务器明确要求，否则应使用 HTTPS。</sys:String>
     <sys:String x:Key="Instance.Setup.Server.LockLoginMethod">锁定登录方式</sys:String>
     <sys:String x:Key="Instance.Setup.Server.LoginLockHint">此版本的登录方式已锁定。请使用指定方式启动 Minecraft。</sys:String>
-    <sys:String x:Key="Instance.Setup.Server.LoginMethod.AuthOnly">仅第三方账户（Authlib-Injector）</sys:String>
+    <sys:String x:Key="Instance.Setup.Server.LoginMethod.AuthOnly">仅第三方账户</sys:String>
     <sys:String x:Key="Instance.Setup.Server.LoginMethod.MicrosoftOnly">仅 Microsoft 账户</sys:String>
     <sys:String x:Key="Instance.Setup.Server.LoginMethod.MicrosoftOrAuth">Microsoft 或第三方账户</sys:String>
     <sys:String x:Key="Instance.Setup.Server.LoginMethod.Unlimited">不限登录方式</sys:String>
@@ -386,7 +386,7 @@
     <sys:String x:Key="Launch.Account.LoginDialog.Title">登录 Microsoft 账户</sys:String>
     <sys:String x:Key="Launch.Account.Type.Microsoft">Microsoft 账户</sys:String>
     <sys:String x:Key="Launch.Account.Type.Offline">离线账户</sys:String>
-    <sys:String x:Key="Launch.Account.Type.ThirdParty">第三方账户</sys:String>
+    <sys:String x:Key="Launch.Account.Type.ThirdParty">第三方</sys:String>
     <sys:String x:Key="Launch.Home.Button.Launch">启动游戏</sys:String>
     <sys:String x:Key="Launch.Home.Button.Download">下载游戏</sys:String>
     <sys:String x:Key="Launch.Home.Button.Loading">正在加载…</sys:String>
@@ -882,14 +882,14 @@
     <sys:String x:Key="Launch.Experimental.Account.NoVersion">可以先登录账户；没有本地版本时会引导你安装游戏。</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Title">Jvm.NET 生命周期 Host</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Enable">使用 Jvm.NET Host 接管 Minecraft 生命周期</sys:String>
-    <sys:String x:Key="Setup.Experimental.JvmHost.Summary">启用后，Minecraft 会运行在独立的 PCL N Host 进程内。第三方认证不再加载 authlib-injector，离线档案的自定义皮肤也会通过同一套会话桥接进入游戏。</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Summary">启用后，Minecraft 会运行在独立的 PCL N Host 进程内。受支持的第三方认证与离线皮肤会通过本地会话桥接；LittleSkin 和 N Cloud 自动使用兼容启动链路。</sys:String>
     <sys:String x:Key="Setup.Experimental.Benefits.Title">优势</sys:String>
     <sys:String x:Key="Setup.Experimental.Risks.Title">危害与限制</sys:String>
-    <sys:String x:Key="Setup.Experimental.JvmHost.Benefits">• 可记录 JVM 初始化、主类调用、Minecraft 启动与窗口组件等生命周期节点。&#10;• 第三方认证无需向游戏加载额外的 authlib-injector JAR。&#10;• 离线档案可在游戏内使用本地或借用的皮肤。&#10;• JVM 崩溃被隔离在 Host 进程，不会直接拖垮启动器。</sys:String>
-    <sys:String x:Key="Setup.Experimental.JvmHost.Risks">• 需要内嵌 JVM 与受控的 authlib 字节码转换，可能与部分 Java、模组或认证服务器不兼容。&#10;• 会增加少量启动耗时与内存占用。&#10;• 第三方纹理签名由 PCL N 验证后转换，行为不与 authlib-injector 完全相同。&#10;• Host 或本地桥接异常会直接导致本次游戏启动失败。</sys:String>
-    <sys:String x:Key="Setup.Experimental.JvmHost.Scope">认证与皮肤桥接仅监听 127.0.0.1，并随游戏 Host 退出；设置关闭后立即回到传统 Java 进程与 authlib-injector 链路。</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Benefits">• 可记录 JVM 初始化、主类调用、Minecraft 启动与窗口组件等生命周期节点。&#10;• 受支持的第三方账户无需向游戏加载额外的认证代理。&#10;• 离线档案可在游戏内使用本地或借用的皮肤。&#10;• JVM 崩溃被隔离在 Host 进程，不会直接拖垮启动器。</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Risks">• 需要内嵌 JVM 与受控的 authlib 字节码转换，可能与部分 Java、模组或认证服务器不兼容。&#10;• 会增加少量启动耗时与内存占用。&#10;• 第三方纹理签名由 PCL N 验证后转换，行为可能与标准兼容链路不同。&#10;• Host 或本地桥接异常会直接导致本次游戏启动失败。</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Scope">认证与皮肤桥接仅监听 127.0.0.1，并随游戏 Host 退出；LittleSkin 与 N Cloud 始终自动使用标准兼容链路，关闭设置后所有账户都回到传统 Java 进程。</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Title">启用 Jvm.NET 生命周期 Host</sys:String>
-    <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Message">优势：可获得更完整的 JVM 与 Minecraft 生命周期日志；第三方认证不再加载 authlib-injector；离线档案可在游戏内使用本地皮肤；Host 崩溃不会拖垮启动器。&#10;&#10;危害：该功能会在独立进程内嵌 JVM 并修改 authlib 字节码，可能与部分 Java、模组或认证服务器不兼容；会增加少量启动耗时与内存；认证和皮肤在本次游戏会话中经过 127.0.0.1 本地桥接；第三方纹理签名由 PCL N 验证后再转换，行为与 authlib-injector 并不完全相同。遇到问题请关闭此选项回到传统启动链路。&#10;&#10;每个 Host 只运行一个 JVM，退出游戏后会一并结束。是否理解风险并继续？</sys:String>
+    <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Message">优势：可获得更完整的 JVM 与 Minecraft 生命周期日志；受支持的第三方认证可使用本地会话桥接；离线档案可在游戏内使用本地皮肤；Host 崩溃不会拖垮启动器。LittleSkin 与 N Cloud 会自动使用标准兼容链路。&#10;&#10;危害：该功能会在独立进程内嵌 JVM 并修改 authlib 字节码，可能与部分 Java、模组或认证服务器不兼容；会增加少量启动耗时与内存；认证和皮肤在本次游戏会话中经过 127.0.0.1 本地桥接；第三方纹理签名由 PCL N 验证后再转换，行为可能与标准兼容链路不同。遇到问题请关闭此选项回到传统启动链路。&#10;&#10;每个 Host 只运行一个 JVM，退出游戏后会一并结束。是否理解风险并继续？</sys:String>
     <sys:String x:Key="Setup.Experimental.JvmHost.Confirm.Enable">理解风险并启用</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Title">Minecraft AI 错误修复</sys:String>
     <sys:String x:Key="Setup.Experimental.AiRepair.Enable">使用本地模型或 OpenAI 兼容 API 分析 Minecraft 崩溃并辅助修复</sys:String>

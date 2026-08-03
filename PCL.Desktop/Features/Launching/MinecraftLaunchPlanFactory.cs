@@ -55,7 +55,7 @@ internal static class MinecraftLaunchPlanFactory
         int javaMajorVersion = await ResolveJavaMajorVersionAsync(javaExecutablePath, cancellationToken)
             .ConfigureAwait(false);
 
-        // Compatibility path: standard third-party javaagent via AuthlibInjectorPath.
+        // Compatibility path: standard third-party authentication agent.
         // Eligible host identities use the session bridge and ASM authlib patch instead.
         return await MinecraftProcessLaunchService.CreatePlanAsync(
             new MinecraftProcessLaunchRequest

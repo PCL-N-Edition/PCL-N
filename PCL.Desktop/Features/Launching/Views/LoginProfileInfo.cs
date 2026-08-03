@@ -2,8 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
-using PCL.Application.Settings;
-using PCL.Desktop.Features.Settings.Views;
+using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Launching.Views;
 
@@ -22,51 +21,50 @@ public sealed record LoginProfileInfo(
     string ProviderAccessToken = "",
     long ProviderTokenExpiresAtUnix = 0)
 {
-    private const string AuthlibInjectorPrefix = "Authlib-Injector · ";
-
-    /// <summary>
-    /// Profile subtitle for UI. When experimental Jvm.NET host is on, third-party auth
-    /// no longer loads authlib-injector, so hide that badge from the account chrome.
-    /// </summary>
-    public string DisplayInfo => FormatDisplayInfo(Info, Kind);
+    public string DisplayInfo => FormatDisplayInfo(Info, Kind, AuthServer);
 
     public bool UsesYggdrasil =>
         Kind is LaunchLoginProfileKind.ThirdParty or
             LaunchLoginProfileKind.LittleSkin or
             LaunchLoginProfileKind.NCloud;
 
-    public static string FormatDisplayInfo(string info, LaunchLoginProfileKind kind)
+    public static string FormatDisplayInfo(
+        string info,
+        LaunchLoginProfileKind kind,
+        string? authServer = null)
     {
-        if (kind != LaunchLoginProfileKind.ThirdParty || string.IsNullOrWhiteSpace(info))
+        if (kind != LaunchLoginProfileKind.ThirdParty)
             return info;
 
-        if (!IsJvmHostExperimentalEnabled())
-            return info;
-
-        if (info.StartsWith(AuthlibInjectorPrefix, StringComparison.OrdinalIgnoreCase))
-            return info[AuthlibInjectorPrefix.Length..].Trim();
-        if (info.StartsWith("Authlib-Injector", StringComparison.OrdinalIgnoreCase))
+        string baseName = AvaloniaLocalizationManager.GetText(
+            "Launch.Account.Type.ThirdParty",
+            "第三方");
+        string serverLabel = GetServerLabel(authServer);
+        if (string.IsNullOrWhiteSpace(serverLabel))
         {
-            string rest = info["Authlib-Injector".Length..].TrimStart(' ', '·', '-', ':');
-            return string.IsNullOrWhiteSpace(rest) ? info : rest;
+            serverLabel = info?.Trim() ?? string.Empty;
+            int separator = serverLabel.LastIndexOf('·');
+            if (separator >= 0 && separator + 1 < serverLabel.Length)
+                serverLabel = serverLabel[(separator + 1)..].Trim();
         }
 
-        return info;
+        return string.IsNullOrWhiteSpace(serverLabel) ||
+               string.Equals(serverLabel, baseName, StringComparison.OrdinalIgnoreCase)
+            ? baseName
+            : baseName + " · " + serverLabel;
     }
 
-    private static bool IsJvmHostExperimentalEnabled()
+    private static string GetServerLabel(string? authServer)
     {
-        try
-        {
-            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            return settings.GetBooleanOption(
-                LauncherSettingKeys.ExperimentalJvmLifecycleHost,
-                LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalJvmLifecycleHost.Value));
-        }
-        catch
-        {
-            return false;
-        }
+        if (string.IsNullOrWhiteSpace(authServer))
+            return string.Empty;
+
+        string normalized = authServer.Trim();
+        if (!normalized.Contains("://", StringComparison.Ordinal))
+            normalized = "https://" + normalized;
+        return Uri.TryCreate(normalized, UriKind.Absolute, out Uri? uri)
+            ? uri.Host
+            : authServer.Trim().TrimEnd('/');
     }
 
     /// <summary>True when a skin texture can be shown (remote, local, or offline default).</summary>

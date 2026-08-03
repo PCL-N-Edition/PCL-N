@@ -103,7 +103,7 @@
 根据你使用的功能，数据可能直接发往：
 
 1. Microsoft / Xbox / Minecraft 服务（正版登录与档案）；
-2. 你选择的 Authlib-Injector、LittleSkin 等认证服务；
+2. 你选择的 LittleSkin 等第三方认证服务；
 3. Mojang、Modrinth、CurseForge、GitHub 等资源/更新来源；
 4. CDN 或网络基础设施；
 5. N Cloud（Supabase 认证与业务 API 等，详见 N Cloud 隐私协议）。

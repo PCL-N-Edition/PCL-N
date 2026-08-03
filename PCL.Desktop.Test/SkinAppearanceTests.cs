@@ -15,6 +15,21 @@ namespace PCL.Desktop.Test;
 public sealed class SkinAppearanceTests
 {
     [TestMethod]
+    public void ThirdPartyProfileBadge_UsesProviderHostWithoutImplementationBrand()
+    {
+        LoginProfileInfo profile = new(
+            "Player",
+            "legacy provider badge · LittleSkin",
+            LaunchLoginProfileKind.ThirdParty,
+            AuthServer: "https://littleskin.cn/api/yggdrasil");
+
+        Assert.IsTrue(
+            profile.DisplayInfo.EndsWith(" · littleskin.cn", StringComparison.Ordinal));
+        Assert.IsFalse(
+            profile.DisplayInfo.Contains("legacy provider badge", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
     public void NCloudStorageTexture_IsRecognizedAsMinecraftSkin()
     {
         Assert.IsTrue(AsyncLogoLoader.LooksLikeMinecraftSkinAddress(
