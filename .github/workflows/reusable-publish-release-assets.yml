@@ -122,6 +122,17 @@ jobs:
             echo "::error::Debug symbols must not be distributed."
             exit 1
           fi
+          # Ensure AppImages stay executable in the package artifact (mode may
+          # still be lost after GitHub download — website documents chmod +x).
+          while IFS= read -r -d '' appimage; do
+            chmod a+x "$appimage"
+            if [[ ! -x "$appimage" ]]; then
+              echo "::error::AppImage is not executable: $appimage"
+              ls -la "$appimage"
+              exit 1
+            fi
+            echo "AppImage OK: $(basename "$appimage") mode=$(stat -c '%a' "$appimage" 2>/dev/null || stat -f '%Lp' "$appimage")"
+          done < <(find package-output -maxdepth 1 -type f -name '*.AppImage' -print0)
 
       - name: Upload packaged assets
         uses: actions/upload-artifact@v4
@@ -162,13 +173,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          find packaged/package-output -maxdepth 1 -type f -exec cp {} dist/ \;
+          # Preserve mode bits (esp. AppImage +x) when staging for upload.
+          find packaged/package-output -maxdepth 1 -type f -exec cp -a {} dist/ \;
+          chmod a+x dist/*.AppImage 2>/dev/null || true
 
           # Every user-selectable installer and portable package gets its own
           # detached signature. No package is modified after this point.
           while IFS= read -r -d '' asset; do
             gpg --detach-sign --armor "$asset"
-          done < <(find dist -maxdepth 1 -type f -print0)
+          done < <(find dist -maxdepth 1 -type f ! -name '*.asc' -print0)
 
           # Existing launchers expect a signature over the final replacement
           # executable next to the unchanged canonical zip/tar.gz package.

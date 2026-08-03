@@ -363,6 +363,7 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
     lines.append("<summary>安装包命名与选型说明</summary>")
     lines.append("")
     lines.append("- **系统安装包 (`_Installer.*`)**：Windows MSI/EXE、macOS DMG、Linux DEB/RPM/AppImage；写入系统标准目录，受包管理器/签名保护。")
+    lines.append("- **AppImage**：浏览器/GitHub 下载不会保留可执行位，首次运行前请 `chmod +x *.AppImage`。")
     lines.append("- **便携版 (`_Portable.*`)**：单文件/可移动目录，可放在任意可写路径。")
     lines.append("- **更新归档 (`.zip` / `.tar.gz`)**：启动器增量/完整更新使用的规范归档；与安装包内容同源。")
     lines.append("- **SelfContained / 插件自带运行时**：NativeAOT 本体附带插件 CoreCLR，插件可离线运行，推荐大多数用户。")

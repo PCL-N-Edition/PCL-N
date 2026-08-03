@@ -146,15 +146,27 @@ if [[ -z "$appimagetool" ]]; then
   echo "appimagetool is required (set APPIMAGETOOL or add it to PATH)." >&2
   exit 1
 fi
+appimage_out="$output_dir/${base_name}_Installer.AppImage"
 ARCH="$appimage_arch" "$appimagetool" --appimage-extract-and-run \
-  "$app_dir" "$output_dir/${base_name}_Installer.AppImage"
-chmod +x "$output_dir/${base_name}_Installer.AppImage"
+  "$app_dir" "$appimage_out"
+# GitHub Releases / browser downloads drop Unix mode bits, but keep the
+# artifact executable on the runner so local CI/smoke and tar-based
+# redistributions preserve the bit when possible.
+chmod a+x "$appimage_out"
+if [[ ! -x "$appimage_out" ]]; then
+  echo "AppImage is not executable after packaging: $appimage_out" >&2
+  ls -la "$appimage_out" >&2 || true
+  exit 1
+fi
+# ELF AppImages must be type-2 (offset header); reject empty/corrupt output.
+test -s "$appimage_out"
+file "$appimage_out" || true
 
 for package in \
   "$output_dir/${base_name}.tar.gz" \
   "$output_dir/${base_name}_Portable.tar.gz" \
   "$output_dir/${base_name}_Installer.deb" \
   "$output_dir/${base_name}_Installer.rpm" \
-  "$output_dir/${base_name}_Installer.AppImage"; do
+  "$appimage_out"; do
   test -s "$package"
 done
