@@ -101,16 +101,19 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
         _pipeName = "pcl-n-plugin-" + Guid.NewGuid().ToString("N");
         _token = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
 
+        // macOS AF_UNIX sun_path is ~104 bytes; platform temp dirs can be very long.
+        string unixSocketDirectory = OperatingSystem.IsWindows()
+            ? platformPaths.TemporaryDirectory
+            : "/tmp";
         string pipePath = OperatingSystem.IsWindows()
             ? @"\\.\pipe\" + _pipeName
-            : Path.Combine(platformPaths.TemporaryDirectory, _pipeName + ".sock");
+            : Path.Combine(unixSocketDirectory, _pipeName + ".sock");
 
         try
         {
             if (!OperatingSystem.IsWindows())
             {
-                // Ensure parent dir for UDS path
-                Directory.CreateDirectory(platformPaths.TemporaryDirectory);
+                Directory.CreateDirectory(unixSocketDirectory);
                 if (File.Exists(pipePath))
                     File.Delete(pipePath);
             }
@@ -214,8 +217,10 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
                     return pipe;
                 }
 
-                // Unix domain socket
-                string path = Path.Combine(Path.GetTempPath(), pipeName + ".sock");
+                // Unix domain socket (prefer /tmp so paths stay under macOS sun_path limit)
+                string path = Path.Combine(
+                    OperatingSystem.IsMacOS() || OperatingSystem.IsLinux() ? "/tmp" : Path.GetTempPath(),
+                    pipeName + ".sock");
                 System.Net.Sockets.Socket socket = new(
                     System.Net.Sockets.AddressFamily.Unix,
                     System.Net.Sockets.SocketType.Stream,
