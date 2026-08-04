@@ -20,8 +20,9 @@ namespace PCL.Desktop.Diagnostics;
 
 /// <summary>
 /// Captures every managed unhandled-exception channel available to Avalonia/NativeAOT.
-/// Native fail-fast, access violations, signals and forced termination cannot safely run
-/// managed handlers, so a process-session marker reports those on the next launch.
+/// Native fail-fast, access violations, and fatal signals are handled by
+/// <see cref="NativeCrashGuard"/> (minidump / crash note) plus a process-session marker
+/// that surfaces a recoverable report on the next launch.
 /// </summary>
 internal static class UnhandledExceptionGuard
 {
@@ -46,6 +47,8 @@ internal static class UnhandledExceptionGuard
 
         AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        // Native dump/note first so paths exist before the session marker is written.
+        NativeCrashGuard.Install();
         StartCrashSession();
     }
 
@@ -107,8 +110,8 @@ internal static class UnhandledExceptionGuard
                     canContinue: true,
                     heading: "检测到上次异常退出",
                     description:
-                        "上次启动器进程没有完成正常关闭。可能是原生崩溃、FailFast、系统强制结束或断电；" +
-                        "本次启动可以继续，请提交下方报告以便定位。"),
+                        "上次启动器进程没有完成正常关闭。可能是原生崩溃（已尽量写入 minidump / 崩溃笔记）、" +
+                        "FailFast、系统强制结束或断电；本次启动可以继续，请提交下方报告与 Crashes 目录中的 native-* 文件以便定位。"),
                 DispatcherPriority.Background);
         }
         catch
@@ -184,10 +187,29 @@ internal static class UnhandledExceptionGuard
             "没有捕获到可安全执行的托管异常处理回调。常见原因包括原生库崩溃、" +
             "Environment.FailFast、StackOverflow、操作系统信号、任务管理器强制结束或断电。");
         sb.AppendLine();
+        sb.AppendLine(
+            "若启用了 NativeCrashGuard，Windows 会尽量写入 `.dmp` minidump，" +
+            "Linux/macOS 会写入 `native-*.txt` 崩溃笔记（信号与 PID）。");
+        sb.AppendLine();
         sb.AppendLine("### 上次会话");
         sb.AppendLine("```text");
         sb.AppendLine(previousSession.Trim());
         sb.AppendLine("```");
+
+        string? nativeDump = TryReadSessionValue(previousSession, "nativeDump");
+        IReadOnlyList<string> recentNative = NativeCrashGuard.FindRecentNativeArtifacts(
+            TimeSpan.FromDays(7),
+            maxCount: 5);
+        if (!string.IsNullOrWhiteSpace(nativeDump) || recentNative.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("### 原生崩溃产物");
+            if (!string.IsNullOrWhiteSpace(nativeDump))
+                sb.AppendLine("- Session marker nativeDump: `" + nativeDump + "`");
+            foreach (string path in recentNative)
+                sb.AppendLine("- Recent: `" + path + "`");
+        }
+
         sb.AppendLine();
         sb.AppendLine("### 本次检测环境");
         sb.AppendLine("- PCL N: " + GetVersion());
@@ -461,6 +483,17 @@ internal static class UnhandledExceptionGuard
                 "nativeAot=" + (!RuntimeFeature.IsDynamicCodeSupported ? "yes" : "no"));
             File.WriteAllText(markerPath, markerContent, new UTF8Encoding(false));
             _sessionMarkerPath = markerPath;
+            NativeCrashGuard.AttachSessionMarker(markerPath);
+            try
+            {
+                string? prepared = NativeCrashGuard.PreparedDumpPath ?? NativeCrashGuard.PreparedNotePath;
+                if (!string.IsNullOrWhiteSpace(prepared))
+                    DesktopFileLog.Info("Crash", "NativeCrashGuard 已安装；产物路径预置为 " + prepared);
+            }
+            catch
+            {
+                // ignore
+            }
         }
         catch (Exception ex)
         {

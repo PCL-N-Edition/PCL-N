@@ -31,5 +31,24 @@ public sealed class UnhandledExceptionGuardTests
         StringAssert.Contains(report, "原生库崩溃");
         StringAssert.Contains(report, "pid=123");
         StringAssert.Contains(report, "nativeAot=yes");
+        StringAssert.Contains(report, "NativeCrashGuard");
+    }
+
+    [TestMethod]
+    public void AbnormalExitReport_IncludesNativeDumpFromSessionMarker()
+    {
+        string report = UnhandledExceptionGuard.BuildAbnormalExitReport(
+            "format=pcln-crash-session-v1\npid=9\nnativeDump=C:\\logs\\native-test.dmp");
+
+        StringAssert.Contains(report, "原生崩溃产物");
+        StringAssert.Contains(report, "native-test.dmp");
+    }
+
+    [TestMethod]
+    public void NativeCrashGuard_FindRecentArtifacts_DoesNotThrowOnMissingDirectory()
+    {
+        IReadOnlyList<string> artifacts =
+            NativeCrashGuard.FindRecentNativeArtifacts(TimeSpan.FromMinutes(1));
+        Assert.IsNotNull(artifacts);
     }
 }
