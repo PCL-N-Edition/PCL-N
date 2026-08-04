@@ -49,6 +49,40 @@ jobs:
           name: ${{ env.ARTIFACT_NAME }}
           path: artifact
 
+      # Capture the replacement executable before packaging mutates / frees the tree.
+      # macOS packaging moves the .app to save disk for hdiutil.
+      - name: Preserve the raw launcher for binary signature compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "signing/$BASE_NAME"
+          binary="artifact/${{ matrix.target.binary_name }}"
+          if [[ "${{ matrix.target.platform }}" == "macos" ]]; then
+            binary="artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"
+          fi
+          test -s "$binary"
+          cp "$binary" "signing/$BASE_NAME/${{ matrix.target.binary_name }}"
+          ls -la "signing/$BASE_NAME"
+
+      - name: Free disk space (macOS packaging)
+        if: ${{ matrix.target.platform == 'macos' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Disk before cleanup:"
+          df -h
+          # Packaging only needs the downloaded artifact + scripts; reclaim runner bloat.
+          sudo rm -rf \
+            /usr/local/share/boost \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/share/dotnet \
+            /usr/local/.ghcup \
+            /Library/Developer/CoreSimulator \
+            "$HOME/Library/Developer/CoreSimulator" \
+            "$HOME/Library/Caches"/* 2>/dev/null || true
+          echo "Disk after cleanup:"
+          df -h
+
       - name: Install Windows packaging tools
         if: ${{ matrix.target.platform == 'windows' }}
         shell: pwsh
@@ -99,18 +133,6 @@ jobs:
           chmod +x scripts/package-release-linux.sh
           scripts/package-release-linux.sh \
             artifact package-output "$BASE_NAME" '${{ inputs.tag_name }}' '${{ matrix.target.architecture }}'
-
-      - name: Preserve the raw launcher for binary signature compatibility
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "signing/$BASE_NAME"
-          binary="artifact/${{ matrix.target.binary_name }}"
-          if [[ "${{ matrix.target.platform }}" == "macos" ]]; then
-            binary="artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"
-          fi
-          test -s "$binary"
-          cp "$binary" "signing/$BASE_NAME/${{ matrix.target.binary_name }}"
 
       - name: Validate packaged assets
         shell: bash
