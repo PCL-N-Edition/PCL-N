@@ -35,41 +35,35 @@ mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
 
 echo "Disk before packaging:"
-df -h "$artifact_dir" "$output_dir" /var/folders 2>/dev/null || df -h
+df -h || true
 
-# Keep the canonical archive unchanged for launchers using the existing updater.
-# Create tar.gz while the app still lives under artifact_dir.
+# Canonical archive for the updater (created before we move the .app).
 tar -C "$artifact_dir" -czf "$output_dir/${base_name}.tar.gz" "PCL N.app"
 test -s "$output_dir/${base_name}.tar.gz"
 echo "Created ${base_name}.tar.gz ($(du -h "$output_dir/${base_name}.tar.gz" | awk '{print $1}'))"
 
-# Stage DMG contents without a second full copy of the .app (ditto doubles disk use
-# and hdiutil needs another temporary image — that exhausted GHA macOS arm64 runners).
+# Staging for DMG contents. Prefer move over ditto to avoid a second full copy of
+# large SelfContained bundles (GHA macOS runners previously hit ENOSPC on arm64).
 dmg_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/pcln-dmg.XXXXXX")"
+mount_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/pcln-mnt.XXXXXX")"
+rw_dmg=""
 cleanup() {
-  # Detach any leftover volume mounts for this staging tree.
-  if [[ -n "${dmg_mount:-}" && -d "$dmg_mount" ]]; then
-    hdiutil detach "$dmg_mount" -force >/dev/null 2>&1 || true
+  if [[ -n "${mount_dir:-}" && -d "$mount_dir" ]]; then
+    hdiutil detach "$mount_dir" -force >/dev/null 2>&1 || true
   fi
-  rm -rf "$dmg_root" "${rw_dmg:-}" 2>/dev/null || true
+  rm -rf "${dmg_root:-}" "${mount_dir:-}" ${rw_dmg:+"$rw_dmg"} 2>/dev/null || true
 }
 trap cleanup EXIT
 
-# Move (not copy) the app into the staging folder after tar.gz is safe.
 mv "$app" "$dmg_root/PCL N.app"
 ln -s /Applications "$dmg_root/Applications"
-
-# Drop empty artifact residue so hdiutil has more free space.
+# Drop leftover artifact files so hdiutil has more free space.
 find "$artifact_dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
 
 echo "Disk before hdiutil:"
-df -h "$dmg_root" "$output_dir" 2>/dev/null || df -h
+df -h || true
 
-# Size a sparse RW image with headroom, copy once into the mounted volume, then
-# convert to compressed UDZO. This avoids hdiutil -srcfolder holding multiple
-# full-size intermediates at once.
 app_mb="$(du -sm "$dmg_root" | awk '{print $1}')"
-# +64 MiB headroom for catalog + Applications link + filesystem overhead.
 image_mb=$((app_mb + 64))
 if (( image_mb < 80 )); then
   image_mb=80
@@ -79,33 +73,37 @@ rw_dmg="$output_dir/${base_name}.rw.dmg"
 final_dmg="$output_dir/${base_name}_Installer.dmg"
 rm -f "$rw_dmg" "$final_dmg"
 
+# Sized RW image + explicit mountpoint (volume names with spaces break path parsing).
 hdiutil create \
   -size "${image_mb}m" \
   -fs HFS+ \
-  -volname "PCL N" \
+  -volname "PCLN" \
   -ov \
   "$rw_dmg"
 
-dmg_mount="$(hdiutil attach -readwrite -noverify -noautoopen "$rw_dmg" | awk 'END{print $NF}')"
-if [[ -z "$dmg_mount" || ! -d "$dmg_mount" ]]; then
-  echo "Failed to attach temporary DMG." >&2
-  exit 1
-fi
+hdiutil attach \
+  -readwrite \
+  -noverify \
+  -noautoopen \
+  -mountpoint "$mount_dir" \
+  "$rw_dmg"
 
-# Single copy into the mounted volume (source is then deletable).
-ditto "$dmg_root/PCL N.app" "$dmg_mount/PCL N.app"
-ln -sf /Applications "$dmg_mount/Applications"
+test -d "$mount_dir"
+ditto "$dmg_root/PCL N.app" "$mount_dir/PCL N.app"
+ln -sf /Applications "$mount_dir/Applications"
 sync
 
-hdiutil detach "$dmg_mount"
-dmg_mount=""
+hdiutil detach "$mount_dir"
+# Prevent cleanup from double-detaching a gone mount.
+rmdir "$mount_dir" 2>/dev/null || true
+mount_dir=""
 
-# Free the staging tree before convert (convert needs room for compressed output).
+# Free staging before convert so UDZO compression has room.
 rm -rf "$dmg_root"
 dmg_root=""
 
 echo "Disk before convert:"
-df -h "$output_dir" 2>/dev/null || df -h
+df -h || true
 
 hdiutil convert "$rw_dmg" \
   -format UDZO \
@@ -119,4 +117,4 @@ rw_dmg=""
 test -s "$final_dmg"
 echo "Created $(basename "$final_dmg") ($(du -h "$final_dmg" | awk '{print $1}'))"
 echo "Disk after packaging:"
-df -h "$output_dir" 2>/dev/null || df -h
+df -h || true
