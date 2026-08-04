@@ -355,12 +355,10 @@ internal static class MinecraftLaunchPlanFactory
         if (!string.IsNullOrWhiteSpace(authServer))
             return AuthlibInjectorService.NormalizeAuthServer(authServer);
 
-        string apiBase = Environment.GetEnvironmentVariable("PCLN_PLUGIN_API_URL");
-        if (string.IsNullOrWhiteSpace(apiBase))
-        {
-            apiBase =
-                "https://vtvhtscdvfnuttwapzxu.supabase.co/functions/v1/plugin-center-api/v1/";
-        }
+        string? envBase = Environment.GetEnvironmentVariable("PCLN_PLUGIN_API_URL");
+        string apiBase = string.IsNullOrWhiteSpace(envBase)
+            ? "https://vtvhtscdvfnuttwapzxu.supabase.co/functions/v1/plugin-center-api/v1/"
+            : envBase;
 
         if (!apiBase.EndsWith('/'))
             apiBase += "/";
