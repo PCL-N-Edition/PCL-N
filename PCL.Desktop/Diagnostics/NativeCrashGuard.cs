@@ -63,7 +63,9 @@ internal static unsafe class NativeCrashGuard
             string directory = Path.Combine(LauncherPathLayout.ResolveLogDirectory(), "Crashes");
             Directory.CreateDirectory(directory);
             string stamp =
-                DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss-fff") +
+                DateTimeOffset.Now.ToString(
+                    "yyyyMMdd-HHmmss-fff",
+                    System.Globalization.CultureInfo.InvariantCulture) +
                 "-p" + Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
             if (OperatingSystem.IsWindows())
