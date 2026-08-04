@@ -47,4 +47,7 @@ internal static partial class SetupPageRegistry
     [SetupPage(SetupPageSubType.Experimental, "实验性功能")]
     private static PageSetupExperimental CreateExperimentalPage() => new();
 
+    [SetupPage(SetupPageSubType.Compatibility, "兼容性")]
+    private static PageSetupCompatibility CreateCompatibilityPage() => new();
+
 }

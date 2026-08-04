@@ -81,15 +81,14 @@ public sealed class TelemetryPolicyTests
     }
 
     [TestMethod]
-    public void UpdatedUsersSeeLegalAndTelemetryBeforeFinish()
+    public void UpdatedUsersSeeWelcomeCompatAndFinishOnly()
     {
+        // Version upgrades re-run a short OOBE (self-check), not the full first-install legal flow.
         CollectionAssert.AreEqual(
             new[]
             {
                 OobeStepId.Welcome,
-                OobeStepId.Terms,
-                OobeStepId.Privacy,
-                OobeStepId.Telemetry,
+                OobeStepId.Compatibility,
                 OobeStepId.Finish
             },
             OobeManifest.DefaultUpdateSteps.ToArray());

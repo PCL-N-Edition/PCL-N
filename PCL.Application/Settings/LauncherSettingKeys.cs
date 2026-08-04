@@ -40,6 +40,11 @@ public static class LauncherSettingKeys
 
     public static readonly SettingKey SystemUpdateSkippedTarget = new("SystemUpdateSkippedTarget");
 
+    public static readonly SettingKey SystemDisableHardwareAcceleration = new("SystemDisableHardwareAcceleration");
+
+    /// <summary>Disable decorative UI animations when compositor/GPU timers misbehave.</summary>
+    public static readonly SettingKey SystemDisableUiAnimations = new("SystemDisableUiAnimations");
+
     public static readonly SettingKey ExperimentalJvmLifecycleHost = new("ExperimentalJvmLifecycleHost");
 
     public static readonly SettingKey ExperimentalHomepageUi = new("ExperimentalHomepageUi");

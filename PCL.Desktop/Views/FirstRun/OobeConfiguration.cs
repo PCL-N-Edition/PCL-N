@@ -38,7 +38,7 @@ internal static class OobeConfiguration
     private static bool _resumeFromArgs;
 
     /// <summary>Bump when shipping OOBE content that returning users should see (even as a short flow).</summary>
-    public const string DefaultContentVersion = "2";
+    public const string DefaultContentVersion = "4";
 
     public static OobeManifest Current
     {
@@ -181,6 +181,7 @@ internal static class OobeConfiguration
     public static IReadOnlyList<OobeStepId> DefaultResumeSteps { get; } =
     [
         OobeStepId.Welcome,
+        OobeStepId.Compatibility,
         OobeStepId.Online,
         OobeStepId.Telemetry,
         OobeStepId.Finish
@@ -445,6 +446,12 @@ internal static class OobeConfiguration
             case "privacy-telemetry":
                 step = OobeStepId.Telemetry;
                 return true;
+            case "compat":
+            case "compatibility":
+            case "self-check":
+            case "selfcheck":
+                step = OobeStepId.Compatibility;
+                return true;
             case "finish":
             case "done":
             case "complete":
@@ -459,6 +466,8 @@ internal static class OobeConfiguration
 public enum OobeStepId
 {
     Welcome,
+    /// <summary>Dependency self-check + compatibility toggles.</summary>
+    Compatibility,
     Terms,
     Privacy,
     DataPaths,
@@ -487,6 +496,7 @@ internal sealed class OobeManifest
     public static IReadOnlyList<OobeStepId> DefaultFullSteps { get; } =
     [
         OobeStepId.Welcome,
+        OobeStepId.Compatibility,
         OobeStepId.Terms,
         OobeStepId.Privacy,
         OobeStepId.DataPaths,
@@ -495,13 +505,11 @@ internal sealed class OobeManifest
         OobeStepId.Finish
     ];
 
-    /// <summary>Post-update default re-presents changed legal and telemetry terms.</summary>
+    /// <summary>Post-update short flow: welcome, dependency self-check, finish.</summary>
     public static IReadOnlyList<OobeStepId> DefaultUpdateSteps { get; } =
     [
         OobeStepId.Welcome,
-        OobeStepId.Terms,
-        OobeStepId.Privacy,
-        OobeStepId.Telemetry,
+        OobeStepId.Compatibility,
         OobeStepId.Finish
     ];
 

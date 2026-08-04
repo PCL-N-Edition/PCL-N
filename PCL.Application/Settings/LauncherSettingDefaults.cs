@@ -9,6 +9,8 @@ public static class LauncherSettingDefaults
     private static readonly Dictionary<string, bool> BooleanDefaults = new(StringComparer.OrdinalIgnoreCase)
     {
         ["SystemDisableHardwareAcceleration"] = false,
+        // Disable UI motion when compositor/GPU timers misbehave (OOBE / page transitions).
+        ["SystemDisableUiAnimations"] = false,
         ["SystemNetEnableDoH"] = true,
         ["SystemDebugMode"] = false,
         ["SystemDebugDelay"] = false,

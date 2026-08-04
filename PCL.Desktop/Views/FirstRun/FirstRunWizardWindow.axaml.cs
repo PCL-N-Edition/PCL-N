@@ -13,6 +13,7 @@ using Avalonia.VisualTree;
 using PCL.Application.Settings;
 using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Hosting.PluginSidecar;
 using PCL.Desktop.Legal;
@@ -88,11 +89,20 @@ public sealed partial class FirstRunWizardWindow : Window
     private TranslateTransform? _iconTranslate;
     private TranslateTransform? _finishIconTranslate;
     private Grid? _pageWelcome;
+    private Grid? _pageCompat;
     private Grid? _pageLegal;
     private Grid? _pageData;
     private Grid? _pageOnline;
     private Grid? _pageTelemetry;
     private Grid? _pageFinish;
+    private StackPanel? _panCompatItems;
+    private TextBlock? _labCompatSummary;
+    private MyHint? _hintCompatBlocked;
+    private MyCheckBox? _checkCompatDisableGpu;
+    private MyCheckBox? _checkCompatDisableAnimations;
+    private MyButton? _btnCompatNext;
+    private MyButton? _btnCompatExit;
+    private CompatibilityReport? _compatReport;
     private MyMarkdownViewer? _labLegalMarkdown;
     private MyScrollViewer? _panLegalScroll;
     private MyScrollViewer? _panLegalFallbackScroll;
@@ -217,11 +227,19 @@ public sealed partial class FirstRunWizardWindow : Window
     {
         _panBubble = this.FindControl<Border>("PanBubble");
         _pageWelcome = this.FindControl<Grid>("PageWelcome");
+        _pageCompat = this.FindControl<Grid>("PageCompat");
         _pageLegal = this.FindControl<Grid>("PageLegal");
         _pageData = this.FindControl<Grid>("PageData");
         _pageOnline = this.FindControl<Grid>("PageOnline");
         _pageTelemetry = this.FindControl<Grid>("PageTelemetry");
         _pageFinish = this.FindControl<Grid>("PageFinish");
+        _panCompatItems = this.FindControl<StackPanel>("PanCompatItems");
+        _labCompatSummary = this.FindControl<TextBlock>("LabCompatSummary");
+        _hintCompatBlocked = this.FindControl<MyHint>("HintCompatBlocked");
+        _checkCompatDisableGpu = this.FindControl<MyCheckBox>("CheckCompatDisableGpu");
+        _checkCompatDisableAnimations = this.FindControl<MyCheckBox>("CheckCompatDisableAnimations");
+        _btnCompatNext = this.FindControl<MyButton>("BtnCompatNext");
+        _btnCompatExit = this.FindControl<MyButton>("BtnCompatExit");
         _heroIcon = this.FindControl<Image>("HeroIcon");
         _finishIcon = this.FindControl<Image>("FinishIcon");
         _welcomePanel = this.FindControl<StackPanel>("WelcomePanel");
@@ -527,19 +545,76 @@ public sealed partial class FirstRunWizardWindow : Window
     private void ScheduleWelcomeExitSafety(int generation)
     {
         int delayMs = WelcomeFadeDurationMs + WelcomeFadeSafetyMarginMs;
+
+        // DispatcherTimer can stall on some Linux GPU/compositor paths. Always pair it
+        // with a Task.Delay hard guarantee that posts back to the UI thread.
         DispatcherTimer safety = new() { Interval = TimeSpan.FromMilliseconds(delayMs) };
         safety.Tick += (_, _) =>
         {
             safety.Stop();
-            if (generation != _welcomeExitGeneration || !_welcomeExitPending)
-                return;
-
-            PortableLog.Warn(
-                "OOBE",
-                $"Welcome fade 未在时限内完成，执行 safety exit；gen={generation}；phase={_phase}");
-            CompleteWelcomeExit(generation, reason: "fade-safety");
+            CompleteWelcomeExitIfPending(generation, reason: "fade-safety-timer");
         };
         safety.Start();
+
+        _ = RunHardUiTimeoutAsync(
+            delayMs + 80,
+            () => CompleteWelcomeExitIfPending(generation, reason: "fade-safety-task"));
+    }
+
+    private void CompleteWelcomeExitIfPending(int generation, string reason)
+    {
+        if (generation != _welcomeExitGeneration || !_welcomeExitPending)
+            return;
+
+        PortableLog.Warn(
+            "OOBE",
+            $"Welcome 退出兜底触发；reason={reason}；gen={generation}；phase={_phase}");
+        CompleteWelcomeExit(generation, reason: reason);
+    }
+
+    /// <summary>
+    /// Forces the bubble chrome into its final “expanded” frame so the user can leave
+    /// Welcome even if the intro phase timer never finished (Linux compositor stalls).
+    /// </summary>
+    private void ForceSettleIntroChrome()
+    {
+        _timer?.Stop();
+        _phase = Phase.Done;
+        ApplyBubbleFrame(BubbleEndWidth, BubbleEndHeight, SurfaceCorner, shadowProgress: 1d);
+        if (_welcomePanel is not null)
+        {
+            _welcomePanel.Opacity = 1d;
+            _welcomePanel.IsHitTestVisible = true;
+        }
+
+        if (_heroIcon is not null)
+            _heroIcon.Opacity = 1d;
+
+        if (_iconTranslate is not null)
+        {
+            double targetX = -Math.Min(BubbleEndWidth * 0.22, 170);
+            _iconTranslate.X = targetX;
+        }
+
+        _stepIndex = Math.Max(0, IndexOfStep(OobeStepId.Welcome));
+        _step = OobeStepId.Welcome;
+        _introStarted = true;
+    }
+
+    /// <summary>
+    /// Hard UI timeout that does not depend solely on <see cref="DispatcherTimer"/> advancing.
+    /// </summary>
+    private static async Task RunHardUiTimeoutAsync(int delayMs, Action action)
+    {
+        try
+        {
+            await Task.Delay(Math.Max(1, delayMs)).ConfigureAwait(false);
+            await Dispatcher.UIThread.InvokeAsync(action).GetTask().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Warn("OOBE", "硬超时回调失败：" + ex.Message);
+        }
     }
 
     private void TickExpandBubble(double eased)
@@ -663,6 +738,9 @@ public sealed partial class FirstRunWizardWindow : Window
     {
         switch (step)
         {
+            case OobeStepId.Compatibility:
+                ConfigureCompatibilityPage();
+                break;
             case OobeStepId.Terms:
                 ConfigureLegalPage(isPrivacy: false);
                 break;
@@ -722,6 +800,7 @@ public sealed partial class FirstRunWizardWindow : Window
     private Grid? GetPageForStep(OobeStepId step) =>
         step switch
         {
+            OobeStepId.Compatibility => _pageCompat,
             OobeStepId.Terms or OobeStepId.Privacy => _pageLegal,
             OobeStepId.DataPaths => _pageData,
             OobeStepId.Online => _pageOnline,
@@ -733,13 +812,194 @@ public sealed partial class FirstRunWizardWindow : Window
 
     private IEnumerable<Grid> GetStepPages()
     {
-        Grid?[] pages = [_pageWelcome, _pageLegal, _pageData, _pageOnline, _pageTelemetry, _pageFinish];
+        Grid?[] pages =
+        [
+            _pageWelcome, _pageCompat, _pageLegal, _pageData, _pageOnline, _pageTelemetry, _pageFinish
+        ];
         foreach (Grid? page in pages)
         {
             if (page is not null)
                 yield return page;
         }
     }
+
+    private void ConfigureCompatibilityPage()
+    {
+        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+        if (_checkCompatDisableGpu is not null)
+        {
+            _checkCompatDisableGpu.Checked = settings.GetBooleanOption(
+                "SystemDisableHardwareAcceleration",
+                LauncherSettingDefaults.GetBoolean("SystemDisableHardwareAcceleration"));
+        }
+
+        if (_checkCompatDisableAnimations is not null)
+        {
+            _checkCompatDisableAnimations.Checked = settings.GetBooleanOption(
+                "SystemDisableUiAnimations",
+                LauncherSettingDefaults.GetBoolean("SystemDisableUiAnimations"));
+        }
+
+        RunAndBindCompatibilityReport();
+        ConfigureNavButtons(
+            this.FindControl<MyButton>("BtnCompatPrev"),
+            _btnCompatNext,
+            canPrev: CanGoPrevious());
+    }
+
+    private void RunAndBindCompatibilityReport()
+    {
+        _compatReport = LauncherCompatibilityProbe.Run();
+        CompatibilityReport report = _compatReport;
+
+        if (_labCompatSummary is not null)
+        {
+            if (report.CanRun)
+            {
+                string template = AvaloniaLocalizationManager.GetText(
+                    "Oobe.Compat.Summary.Ok",
+                    "检测完成：{0} 项正常，{1} 项需注意。你可以调整下方兼容性选项后继续。");
+                try
+                {
+                    _labCompatSummary.Text = string.Format(
+                        System.Globalization.CultureInfo.CurrentCulture,
+                        template,
+                        report.OkCount,
+                        report.IssueCount);
+                }
+                catch (FormatException)
+                {
+                    _labCompatSummary.Text =
+                        $"检测完成：{report.OkCount} 项正常，{report.IssueCount} 项需注意。你可以调整下方兼容性选项后继续。";
+                }
+            }
+            else
+            {
+                _labCompatSummary.Text = AvaloniaLocalizationManager.GetText(
+                    "Oobe.Compat.Summary.Blocked",
+                    "检测发现无法替代的必要依赖故障。本软件在此环境下不可用。");
+            }
+        }
+
+        if (_hintCompatBlocked is not null)
+            _hintCompatBlocked.IsVisible = !report.CanRun;
+
+        if (_btnCompatNext is not null)
+            _btnCompatNext.IsVisible = report.CanRun;
+        if (_btnCompatExit is not null)
+            _btnCompatExit.IsVisible = !report.CanRun;
+
+        if (_panCompatItems is null)
+            return;
+
+        _panCompatItems.Children.Clear();
+        foreach (CompatibilityCheckItem item in report.Items)
+            _panCompatItems.Children.Add(CreateCompatResultCard(item));
+    }
+
+    private static Border CreateCompatResultCard(CompatibilityCheckItem item)
+    {
+        string badge = LauncherCompatibilityProbe.StatusLabel(item.Status);
+        string color = item.Status switch
+        {
+            CompatibilityStatus.Ok => "#FF2E7D32",
+            CompatibilityStatus.Degraded => "#FFF9A825",
+            CompatibilityStatus.Unavailable => "#FFEF6C00",
+            _ => "#FFC62828"
+        };
+
+        return new Border
+        {
+            Padding = new Thickness(12, 10),
+            CornerRadius = new CornerRadius(10),
+            Background = new SolidColorBrush(Color.Parse("#14FFFFFF")),
+            Child = new StackPanel
+            {
+                Spacing = 4,
+                Children =
+                {
+                    new DockPanel
+                    {
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = badge,
+                                FontSize = 12,
+                                FontWeight = FontWeight.SemiBold,
+                                Foreground = new SolidColorBrush(Color.Parse(color)),
+                                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                                [DockPanel.DockProperty] = Dock.Right
+                            },
+                            new TextBlock
+                            {
+                                Text = item.Title + (item.IsRequired ? " · 必要" : " · 可选"),
+                                FontWeight = FontWeight.SemiBold,
+                                TextWrapping = TextWrapping.Wrap,
+                                Foreground = new SolidColorBrush(Color.Parse("#FF1C1C1E"))
+                            }
+                        }
+                    },
+                    new TextBlock
+                    {
+                        Text = item.Detail,
+                        Opacity = 0.78,
+                        FontSize = 13,
+                        TextWrapping = TextWrapping.Wrap,
+                        Foreground = new SolidColorBrush(Color.Parse("#FF1C1C1E"))
+                    }
+                }
+            }
+        };
+    }
+
+    private void PersistCompatibilityToggles()
+    {
+        bool disableGpu = _checkCompatDisableGpu?.Checked == true;
+        bool disableAnim = _checkCompatDisableAnimations?.Checked == true;
+        LauncherSettingsPageBinder.UpdateSettings(current =>
+        {
+            current.SetBooleanOption("SystemDisableHardwareAcceleration", disableGpu);
+            current.SetBooleanOption("SystemDisableUiAnimations", disableAnim);
+            return current;
+        });
+
+        // Animations can take effect immediately; GPU path needs process restart.
+        try
+        {
+            ModAnimation.AniControlEnabled = disableAnim ? 1 : 0;
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private void BtnCompatRefresh_Click(object? sender, EventArgs e)
+    {
+        PersistCompatibilityToggles();
+        RunAndBindCompatibilityReport();
+    }
+
+    private void BtnCompatPrev_Click(object? sender, EventArgs e)
+    {
+        PersistCompatibilityToggles();
+        GoToPreviousStep(animate: true);
+    }
+
+    private void BtnCompatNext_Click(object? sender, EventArgs e)
+    {
+        PersistCompatibilityToggles();
+        if (_compatReport is { CanRun: false })
+        {
+            PortableLog.Warn("OOBE", "兼容性自检未通过，阻止进入后续步骤。");
+            return;
+        }
+
+        GoToNextStep(animate: true);
+    }
+
+    private void BtnCompatExit_Click(object? sender, EventArgs e) => ShutdownHost();
 
     private void AnimateStepTransition(Grid? outgoing, Grid incoming, double direction, int generation)
     {
@@ -873,6 +1133,12 @@ public sealed partial class FirstRunWizardWindow : Window
             EnsureStepTransitionSettled(generation, outgoing, incoming, fromSafety: true);
         };
         safety.Start();
+
+        // Linux GPU/timer stalls can leave DispatcherTimer idle while the window still
+        // paints a half-transition. Task.Delay + UI post is the hard closed path.
+        _ = RunHardUiTimeoutAsync(
+            delayMs + 80,
+            () => EnsureStepTransitionSettled(generation, outgoing, incoming, fromSafety: true));
     }
 
     /// <summary>
@@ -888,8 +1154,18 @@ public sealed partial class FirstRunWizardWindow : Window
         if (generation != _stepTransitionGeneration)
             return;
 
-        if (IsStepTransitionSettled(incoming))
+        // Force complete while in-flight, or when the page is visible but not interactive
+        // (opacity/transform may look “done” while hit-testing is still disabled).
+        if (IsStepTransitionSettled(incoming) && !_isStepTransitioning)
             return;
+
+        if (fromSafety)
+        {
+            PortableLog.Warn(
+                "OOBE",
+                $"步骤切换兜底 settle；gen={generation}；from={_pendingTransitionFrom}；to={_pendingTransitionTo}；" +
+                DescribePage(incoming));
+        }
 
         CompleteStepTransition(
             outgoing,
@@ -1185,9 +1461,15 @@ public sealed partial class FirstRunWizardWindow : Window
 
     private void BtnStartSetup_Click(object? sender, EventArgs e)
     {
-        if (_phase is Phase.ExpandBubble or Phase.SettleIcon or Phase.RevealWelcome or Phase.FadeWelcomeOut)
-            return;
         if (_welcomeExitPending)
+            return;
+
+        // Intro chrome may still be animating when the user clicks. Force the final
+        // expanded frame so we never ignore “开始配置” during Expand/Reveal.
+        if (_phase is Phase.ExpandBubble or Phase.SettleIcon or Phase.RevealWelcome)
+            ForceSettleIntroChrome();
+
+        if (_phase is Phase.FadeWelcomeOut)
             return;
 
         if (_welcomePanel is not null)
@@ -1200,9 +1482,10 @@ public sealed partial class FirstRunWizardWindow : Window
 
         int generation = ++_welcomeExitGeneration;
         _welcomeExitPending = true;
-        BeginPhase(Phase.FadeWelcomeOut, durationMs: WelcomeFadeDurationMs);
-        // Welcome fade also must not leave the wizard stranded if the intro timer stalls.
-        ScheduleWelcomeExitSafety(generation);
+
+        // Product path: settle navigation immediately. Fade is optional polish only —
+        // Linux timer/compositor stalls previously left a blank card after Welcome.
+        CompleteWelcomeExit(generation, reason: "click-immediate");
     }
 
     private void BtnLegalDisagree_Click(object? sender, EventArgs e) => ShutdownHost();

@@ -53,6 +53,20 @@ public sealed partial class App : Avalonia.Application
             AvaloniaThemeManager.Apply(settings);
             AvaloniaLocalizationManager.InitializeFromSettings(settings);
             DesktopFileLog.Info("Startup", $"主题与语言初始化完成；语言={AvaloniaLocalizationManager.CurrentLanguageCode}。");
+
+            // Apply compatibility animation kill-switch before any animated shell mounts.
+            try
+            {
+                bool disableAnim = settings.GetBooleanOption(
+                    "SystemDisableUiAnimations",
+                    LauncherSettingDefaults.GetBoolean("SystemDisableUiAnimations"));
+                PCL.Desktop.Controls.Legacy.ModAnimation.AniControlEnabled = disableAnim ? 1 : 0;
+            }
+            catch
+            {
+                // ignore
+            }
+
             DesktopHost.Initialize();
             DesktopFileLog.Info("DesktopHost", $"桌面宿主初始化完成；模块数={DesktopHost.Current.ModuleIds.Count}。");
             DesktopCompositionRoot.Initialize();
@@ -116,6 +130,19 @@ public sealed partial class App : Avalonia.Application
                     if (runOobe)
                     {
                         OobeRunPlan plan = OobeConfiguration.CreateRunPlan(settings);
+                        // Full self-check as soon as we know this session is OOBE-bound.
+                        try
+                        {
+                            CompatibilityReport probe = LauncherCompatibilityProbe.Run(settings);
+                            DesktopFileLog.Info(
+                                "Compat",
+                                $"OOBE 启动前自检：canRun={probe.CanRun}；ok={probe.OkCount}；issues={probe.IssueCount}。");
+                        }
+                        catch (Exception probeEx)
+                        {
+                            DesktopFileLog.Warn("Compat", "OOBE 启动前自检失败。", probeEx);
+                        }
+
                         UnhandledExceptionGuard.Observe(
                             EnterOobeAsync(desktop, plan, showSplash),
                             "App.EnterOobeAsync");

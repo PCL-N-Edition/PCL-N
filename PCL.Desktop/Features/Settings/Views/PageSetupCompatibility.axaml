@@ -1,0 +1,46 @@
+<legacy:MyPageRight
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:legacy="using:PCL.Desktop.Controls.Legacy"
+    x:Class="PCL.Desktop.Features.Settings.Views.PageSetupCompatibility">
+    <legacy:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
+        <StackPanel Margin="25,10">
+            <legacy:MyHint Margin="0,15,0,0"
+                           Theme="Blue"
+                           Text="{DynamicResource Setup.Compat.Intro}" />
+
+            <legacy:MyCard Margin="0,15" Title="{DynamicResource Setup.Compat.Options.Title}">
+                <StackPanel Margin="25,40,25,18" Spacing="12">
+                    <legacy:MyCheckBox x:Name="CheckSystemDisableHardwareAcceleration"
+                                       Tag="SystemDisableHardwareAcceleration"
+                                       Text="{DynamicResource Setup.Misc.System.DisableHardwareAcceleration}"
+                                       Change="CheckDisableGpu_OnChange" />
+                    <TextBlock Text="{DynamicResource Setup.Compat.Options.Gpu.Hint}"
+                               TextWrapping="Wrap" Opacity="0.78" />
+                    <legacy:MyCheckBox x:Name="CheckSystemDisableUiAnimations"
+                                       Tag="SystemDisableUiAnimations"
+                                       Text="{DynamicResource Setup.Compat.Options.Animations}"
+                                       Change="CheckDisableAnimations_OnChange" />
+                    <TextBlock Text="{DynamicResource Setup.Compat.Options.Animations.Hint}"
+                               TextWrapping="Wrap" Opacity="0.78" />
+                </StackPanel>
+            </legacy:MyCard>
+
+            <legacy:MyCard Margin="0,0,0,15" Title="{DynamicResource Setup.Compat.Probe.Title}">
+                <StackPanel Margin="25,40,25,18" Spacing="12">
+                    <TextBlock x:Name="LabProbeSummary"
+                               TextWrapping="Wrap"
+                               Opacity="0.86" />
+                    <legacy:MyButton x:Name="BtnRunProbe"
+                                     ColorType="Highlight"
+                                     UseExperimentalStyle="True"
+                                     HorizontalAlignment="Left"
+                                     MinWidth="140" Height="36" Padding="16,0"
+                                     Text="{DynamicResource Setup.Compat.Probe.Run}"
+                                     Click="BtnRunProbe_Click" />
+                    <StackPanel x:Name="PanProbeItems" Spacing="8" />
+                </StackPanel>
+            </legacy:MyCard>
+        </StackPanel>
+    </legacy:MyScrollViewer>
+</legacy:MyPageRight>
