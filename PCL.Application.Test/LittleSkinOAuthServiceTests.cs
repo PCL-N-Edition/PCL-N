@@ -28,12 +28,14 @@ public sealed class LittleSkinOAuthServiceTests
         StringAssert.Contains(url, "response_type=code");
         StringAssert.Contains(url, "client_id=client-id");
         StringAssert.Contains(url, "state=state-token");
+        StringAssert.Contains(url, "openid");
         StringAssert.Contains(url, "Player.ReadWrite");
         StringAssert.Contains(url, "Closet.Read");
         StringAssert.Contains(url, "Yggdrasil.PlayerProfiles.Read");
         StringAssert.Contains(url, "Yggdrasil.MinecraftToken.Create");
         Assert.DoesNotContain("Yggdrasil.Server.Join", url);
         Assert.DoesNotContain("Closet.ReadWrite", url);
+        Assert.DoesNotContain("Yggdrasil.PlayerProfiles.Select", url);
     }
 
     [TestMethod]
@@ -119,6 +121,53 @@ public sealed class LittleSkinOAuthServiceTests
         Assert.AreEqual("minecraft-token", session.AccessToken);
         Assert.AreEqual("minecraft-client-token", session.ClientToken);
         Assert.HasCount(3, requests);
+    }
+
+    [TestMethod]
+    public async Task GetProfilesAsync_FallsBackToPlayersAndPublicUuidLookup()
+    {
+        using HttpClient client = new(new DelegateHandler(async request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/session/minecraft/profile", StringComparison.Ordinal) &&
+                !path.Contains("/profile/", StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.Forbidden)
+                {
+                    Content = new StringContent(
+                        """
+                        {"error":"ForbiddenOperationException","errorMessage":"Invalid access token, please re-login."}
+                        """)
+                };
+            }
+
+            if (path == "/api/players")
+            {
+                return Json(
+                    """
+                    [{"pid":7,"name":"Alice","tid_skin":1,"tid_cape":0}]
+                    """);
+            }
+
+            if (path.Contains("/profiles/minecraft/Alice", StringComparison.Ordinal) ||
+                path.Contains("/lookup/name/Alice", StringComparison.Ordinal))
+            {
+                return Json(
+                    """
+                    {"id":"0123456789abcdef0123456789abcdef","name":"Alice"}
+                    """);
+            }
+
+            await Task.CompletedTask;
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+        LittleSkinOAuthService service = new(client);
+
+        IReadOnlyList<LittleSkinProfile> profiles = await service.GetProfilesAsync("oauth-access");
+
+        Assert.HasCount(1, profiles);
+        Assert.AreEqual("Alice", profiles[0].Username);
+        Assert.AreEqual("0123456789abcdef0123456789abcdef", profiles[0].Uuid);
     }
 
     [TestMethod]

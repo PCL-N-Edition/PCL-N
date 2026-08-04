@@ -110,8 +110,13 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     private const string AuthorizationEndpoint = "https://littleskin.cn/oauth/authorize";
     private const string TokenEndpoint = "https://littleskin.cn/oauth/token";
     private const string ApiRoot = "https://littleskin.cn/api/";
+    private const string YggdrasilApiRoot = "https://littleskin.cn/api/yggdrasil/";
+    /// <summary>
+    /// OAuth scopes for login + closet. <c>PlayerProfiles.Read</c> lists every role;
+    /// must not be combined with <c>PlayerProfiles.Select</c> (server rejects both).
+    /// </summary>
     private const string RequestedScopes =
-        "offline_access User.Read Player.ReadWrite Closet.Read " +
+        "openid offline_access User.Read Player.ReadWrite Closet.Read " +
         "Yggdrasil.PlayerProfiles.Read Yggdrasil.MinecraftToken.Create";
     private const int MaximumClosetPages = 50;
 
@@ -217,28 +222,79 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
         string accessToken,
         CancellationToken cancellationToken = default)
     {
-        string body = await SendBearerAsync(
-                HttpMethod.Get,
-                new Uri(ApiRoot + "yggdrasil/sessionserver/session/minecraft/profile"),
-                accessToken,
-                content: null,
-                "获取 LittleSkin 角色档案失败",
-                cancellationToken)
-            .ConfigureAwait(false);
-        using JsonDocument document = JsonDocument.Parse(body);
-        if (document.RootElement.ValueKind != JsonValueKind.Array)
-            throw new InvalidDataException("LittleSkin 角色档案响应不是数组。");
+        ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
 
-        List<LittleSkinProfile> profiles = [];
-        foreach (JsonElement entry in document.RootElement.EnumerateArray())
+        // Preferred: OAuth-gated Yggdrasil list (requires Yggdrasil.PlayerProfiles.Read).
+        Exception? yggdrasilFailure = null;
+        try
         {
-            string uuid = ReadString(entry, "id");
-            string name = ReadString(entry, "name");
-            if (!string.IsNullOrWhiteSpace(uuid) && !string.IsNullOrWhiteSpace(name))
-                profiles.Add(new LittleSkinProfile(name, NormalizeUuid(uuid)));
+            string body = await SendBearerAsync(
+                    HttpMethod.Get,
+                    new Uri(YggdrasilApiRoot + "sessionserver/session/minecraft/profile"),
+                    accessToken,
+                    content: null,
+                    "获取 LittleSkin 角色档案失败",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            IReadOnlyList<LittleSkinProfile> fromYggdrasil = ParseProfileArray(body);
+            if (fromYggdrasil.Count > 0)
+                return fromYggdrasil;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidDataException or JsonException)
+        {
+            yggdrasilFailure = ex;
+            PortableLog.Warn(
+                "LittleSkinAuth",
+                "Yggdrasil 角色档案接口失败，回退到 /api/players + 公开 UUID 解析：" + ex.Message);
         }
 
-        return profiles;
+        // Fallback: Passport-scoped player list + public name→UUID lookup.
+        // Some OAuth tokens work for Laravel /api/* but not the Express Yggdrasil gateway.
+        try
+        {
+            IReadOnlyList<LittleSkinPlayer> players = await GetPlayersAsync(accessToken, cancellationToken)
+                .ConfigureAwait(false);
+            List<LittleSkinProfile> resolved = [];
+            foreach (LittleSkinPlayer player in players)
+            {
+                if (string.IsNullOrWhiteSpace(player.Username))
+                    continue;
+                string? uuid = await TryResolveUuidByNameAsync(player.Username, cancellationToken)
+                    .ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(uuid))
+                {
+                    PortableLog.Warn(
+                        "LittleSkinAuth",
+                        $"无法解析角色 UUID：name={player.Username}；pid={player.PlayerId}。");
+                    continue;
+                }
+
+                resolved.Add(new LittleSkinProfile(player.Username, uuid));
+            }
+
+            if (resolved.Count > 0)
+                return resolved;
+
+            if (players.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "LittleSkin 账户下没有角色。请先在 littleskin.cn 创建至少一个角色后再登录。");
+            }
+
+            throw new InvalidDataException(
+                "已读取到 LittleSkin 角色列表，但无法解析任何角色的 UUID。");
+        }
+        catch (Exception fallbackEx) when (yggdrasilFailure is not null &&
+                                          fallbackEx is not InvalidOperationException)
+        {
+            throw new HttpRequestException(
+                "获取 LittleSkin 角色档案失败：" + yggdrasilFailure.Message +
+                "；回退路径也失败：" + fallbackEx.Message,
+                fallbackEx);
+        }
+
+        // Unreachable: try always returns or throws.
+        throw new InvalidOperationException("获取 LittleSkin 角色档案失败。");
     }
 
     public async Task<LittleSkinMinecraftSession> CreateMinecraftSessionAsync(
@@ -248,16 +304,35 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(uuid);
         string normalizedUuid = NormalizeUuid(uuid);
-        string payload =
-            "{\"uuid\":\"" + JsonEncodedText.Encode(normalizedUuid) + "\"}";
-        string body = await SendBearerAsync(
-                HttpMethod.Post,
-                new Uri(ApiRoot + "yggdrasil/authserver/oauth"),
-                accessToken,
-                new StringContent(payload, Encoding.UTF8, "application/json"),
-                "获取 LittleSkin Minecraft 令牌失败",
-                cancellationToken)
-            .ConfigureAwait(false);
+        string dashedUuid = FormatUuidDashed(normalizedUuid);
+        static string BuildUuidPayload(string value) =>
+            "{\"uuid\":\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("\"", "\\\"", StringComparison.Ordinal) + "\"}";
+
+        // Docs use undashed UUID; retry dashed if the gateway rejects the first form.
+        string body;
+        try
+        {
+            body = await SendBearerAsync(
+                    HttpMethod.Post,
+                    new Uri(YggdrasilApiRoot + "authserver/oauth"),
+                    accessToken,
+                    new StringContent(BuildUuidPayload(normalizedUuid), Encoding.UTF8, "application/json"),
+                    "获取 LittleSkin Minecraft 令牌失败",
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (HttpRequestException) when (!string.Equals(normalizedUuid, dashedUuid, StringComparison.Ordinal))
+        {
+            body = await SendBearerAsync(
+                    HttpMethod.Post,
+                    new Uri(YggdrasilApiRoot + "authserver/oauth"),
+                    accessToken,
+                    new StringContent(BuildUuidPayload(dashedUuid), Encoding.UTF8, "application/json"),
+                    "获取 LittleSkin Minecraft 令牌失败",
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
         using JsonDocument document = JsonDocument.Parse(body);
         JsonElement root = document.RootElement;
         JsonElement selected = root.TryGetProperty("selectedProfile", out JsonElement value)
@@ -448,13 +523,17 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
         try
         {
             using JsonDocument document = JsonDocument.Parse(body);
+            JsonElement root = document.RootElement;
             detail = FirstNonEmpty(
-                ReadString(document.RootElement, "error_description"),
-                ReadString(document.RootElement, "message"),
-                ReadString(document.RootElement, "error"));
+                ReadString(root, "errorMessage"),
+                ReadString(root, "error_description"),
+                ReadString(root, "message"),
+                ReadString(root, "error"));
         }
         catch (JsonException)
         {
+            if (!string.IsNullOrWhiteSpace(body) && body.Length <= 240 && body[0] is not '<')
+                detail = body.Trim();
         }
 
         string message = string.IsNullOrWhiteSpace(detail)
@@ -462,6 +541,75 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
             : $"{operation}：{detail}";
         PortableLog.Error("LittleSkinAuth", message);
         throw new HttpRequestException(message, null, response.StatusCode);
+    }
+
+    private static IReadOnlyList<LittleSkinProfile> ParseProfileArray(string body)
+    {
+        using JsonDocument document = JsonDocument.Parse(body);
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("LittleSkin 角色档案响应不是数组。");
+
+        List<LittleSkinProfile> profiles = [];
+        foreach (JsonElement entry in document.RootElement.EnumerateArray())
+        {
+            string uuid = ReadString(entry, "id");
+            string name = ReadString(entry, "name");
+            if (!string.IsNullOrWhiteSpace(uuid) && !string.IsNullOrWhiteSpace(name))
+                profiles.Add(new LittleSkinProfile(name, NormalizeUuid(uuid)));
+        }
+
+        return profiles;
+    }
+
+    private async Task<string?> TryResolveUuidByNameAsync(
+        string username,
+        CancellationToken cancellationToken)
+    {
+        // Public Yggdrasil name lookup (no OAuth).
+        string[] paths =
+        [
+            YggdrasilApiRoot + "api/users/profiles/minecraft/" + Uri.EscapeDataString(username),
+            YggdrasilApiRoot + "minecraftservices/minecraft/profile/lookup/name/" +
+            Uri.EscapeDataString(username)
+        ];
+
+        foreach (string path in paths)
+        {
+            try
+            {
+                using HttpRequestMessage request = new(HttpMethod.Get, path);
+                request.Headers.TryAddWithoutValidation("Accept", "application/json");
+                using HttpResponseMessage response = await _client
+                    .SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                    continue;
+                string body = await response.Content.ReadAsStringAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                using JsonDocument document = JsonDocument.Parse(body);
+                string uuid = ReadString(document.RootElement, "id");
+                if (!string.IsNullOrWhiteSpace(uuid))
+                    return NormalizeUuid(uuid);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidDataException)
+            {
+                // try next path
+            }
+        }
+
+        return null;
+    }
+
+    private static string FormatUuidDashed(string undashed)
+    {
+        string id = NormalizeUuid(undashed);
+        if (id.Length != 32)
+            return id;
+        return id.Substring(0, 8) + "-" +
+               id.Substring(8, 4) + "-" +
+               id.Substring(12, 4) + "-" +
+               id.Substring(16, 4) + "-" +
+               id.Substring(20, 12);
     }
 
     private static string ReadClosetItemName(JsonElement entry)
