@@ -9,7 +9,9 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using PCL.Application.Settings;
+using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Hosting.PluginSidecar;
@@ -42,6 +44,10 @@ public sealed partial class FirstRunWizardWindow : Window
     private const double BubbleEndHeight = TargetHeight - BubbleMargin * 2d;
     private const double SurfaceCorner = 12d;
     private const string StepTransitionAnimationKey = "OOBE Step Transition";
+    private const double StepTranslateTolerance = 0.5d;
+    private const int StepTransitionSafetyMarginMs = 200;
+    private const int WelcomeFadeDurationMs = 320;
+    private const int WelcomeFadeSafetyMarginMs = 200;
 
     private readonly OobeRunPlan _plan;
     private readonly Stopwatch _clock = new();
@@ -56,6 +62,23 @@ public sealed partial class FirstRunWizardWindow : Window
     private bool _finishLayoutApplied;
     private bool _completing;
     private bool _visitedDataPaths;
+
+    /// <summary>
+    /// Bumped at the start of every step navigation. All completion/safety/exception
+    /// callbacks capture this value and bail if it no longer matches (stale race).
+    /// </summary>
+    private int _stepTransitionGeneration;
+    private bool _isStepTransitioning;
+    private Grid? _pendingTransitionIncoming;
+    private Grid? _pendingTransitionOutgoing;
+    private OobeStepId _pendingTransitionFrom;
+    private OobeStepId _pendingTransitionTo;
+    private bool _pendingTransitionAnimate;
+    private readonly Stopwatch _pendingTransitionClock = new();
+
+    /// <summary>Bumped when leaving Welcome so fade-safety cannot double-navigate.</summary>
+    private int _welcomeExitGeneration;
+    private bool _welcomeExitPending;
 
     private Border? _panBubble;
     private Image? _heroIcon;
@@ -72,6 +95,8 @@ public sealed partial class FirstRunWizardWindow : Window
     private Grid? _pageFinish;
     private MyMarkdownViewer? _labLegalMarkdown;
     private MyScrollViewer? _panLegalScroll;
+    private MyScrollViewer? _panLegalFallbackScroll;
+    private TextBlock? _labLegalFallback;
     private MyTextBox? _txtDataPath;
     private MyTextBox? _txtCachePath;
     private ContentControl? _hostOnlinePlugin;
@@ -203,6 +228,8 @@ public sealed partial class FirstRunWizardWindow : Window
         _finishPanel = this.FindControl<StackPanel>("FinishPanel");
         _labLegalMarkdown = this.FindControl<MyMarkdownViewer>("LabLegalMarkdown");
         _panLegalScroll = this.FindControl<MyScrollViewer>("PanLegalScroll");
+        _panLegalFallbackScroll = this.FindControl<MyScrollViewer>("PanLegalFallbackScroll");
+        _labLegalFallback = this.FindControl<TextBlock>("LabLegalFallback");
         _txtDataPath = this.FindControl<MyTextBox>("TxtDataPath");
         _txtCachePath = this.FindControl<MyTextBox>("TxtCachePath");
         _hostOnlinePlugin = this.FindControl<ContentControl>("HostOnlinePlugin");
@@ -442,13 +469,77 @@ public sealed partial class FirstRunWizardWindow : Window
             case Phase.FadeWelcomeOut:
                 TickFadeWelcomeOut(eased);
                 if (t >= 1d)
-                {
-                    _timer?.Stop();
-                    _phase = Phase.Done;
-                    GoToNextStep(animate: true);
-                }
+                    CompleteWelcomeExit(_welcomeExitGeneration, reason: "fade-complete");
                 break;
         }
+    }
+
+    private void FinalizeWelcomeExit()
+    {
+        if (_pageWelcome is not null)
+            SetPageRestState(_pageWelcome, visible: false);
+        if (_heroIcon is not null)
+            _heroIcon.Opacity = 0d;
+        if (_welcomePanel is not null)
+        {
+            _welcomePanel.Opacity = 0d;
+            _welcomePanel.IsHitTestVisible = false;
+        }
+    }
+
+    /// <summary>
+    /// Converges Welcome fade then navigates to the first content step without a second animation.
+    /// Generation-scoped so fade-complete and fade-safety cannot double-navigate.
+    /// </summary>
+    private void CompleteWelcomeExit(int generation, string reason)
+    {
+        if (generation != _welcomeExitGeneration || !_welcomeExitPending)
+            return;
+
+        _welcomeExitPending = false;
+        _timer?.Stop();
+        _phase = Phase.Done;
+
+        FinalizeWelcomeExit();
+        PortableLog.Debug("OOBE", $"welcome-exit reason={reason} gen={generation}");
+
+        try
+        {
+            GoToNextStep(animate: false);
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "OOBE", "离开 Welcome 进入下一步失败。");
+            try
+            {
+                int next = Math.Clamp(_stepIndex + 1, 0, _plan.Steps.Count - 1);
+                if (_plan.Steps[next] == OobeStepId.Welcome && next + 1 < _plan.Steps.Count)
+                    next++;
+                ShowStepAt(next, animate: false);
+            }
+            catch (Exception inner)
+            {
+                PortableLog.Error(inner, "OOBE", "Welcome 退出后的兜底导航也失败。");
+            }
+        }
+    }
+
+    private void ScheduleWelcomeExitSafety(int generation)
+    {
+        int delayMs = WelcomeFadeDurationMs + WelcomeFadeSafetyMarginMs;
+        DispatcherTimer safety = new() { Interval = TimeSpan.FromMilliseconds(delayMs) };
+        safety.Tick += (_, _) =>
+        {
+            safety.Stop();
+            if (generation != _welcomeExitGeneration || !_welcomeExitPending)
+                return;
+
+            PortableLog.Warn(
+                "OOBE",
+                $"Welcome fade 未在时限内完成，执行 safety exit；gen={generation}；phase={_phase}");
+            CompleteWelcomeExit(generation, reason: "fade-safety");
+        };
+        safety.Start();
     }
 
     private void TickExpandBubble(double eased)
@@ -523,11 +614,53 @@ public sealed partial class FirstRunWizardWindow : Window
     {
         index = Math.Clamp(index, 0, _plan.Steps.Count - 1);
         int previousIndex = _stepIndex;
-        Grid? outgoing = GetPageForStep(_step);
+        OobeStepId fromStep = _step;
+        Grid? outgoing = GetPageForStep(fromStep);
+
+        // Invalidate in-flight transition at navigation request (not at animation start).
+        // AniStop does not run after-callbacks — generation makes late completes no-ops.
+        int generation = ++_stepTransitionGeneration;
+        ModAnimation.AniStop(StepTransitionAnimationKey);
+        _isStepTransitioning = false;
+        _pendingTransitionIncoming = null;
+        _pendingTransitionOutgoing = null;
+
         _stepIndex = index;
         OobeStepId step = _plan.Steps[index];
         _step = step;
 
+        try
+        {
+            PrepareStep(step);
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "OOBE", $"准备步骤失败：{step}（index={index}）。");
+        }
+
+        Grid? incoming = GetPageForStep(step);
+        if (incoming is null)
+        {
+            PortableLog.Warn("OOBE", $"步骤 {step} 无对应页面控件。");
+            return;
+        }
+
+        bool useAnimation = animate && ControlVisualHelpers.ShouldAnimate(this);
+        _pendingTransitionFrom = fromStep;
+        _pendingTransitionTo = step;
+        _pendingTransitionAnimate = useAnimation;
+        _pendingTransitionClock.Restart();
+
+        LogStepTransition("enter", generation, fromStep, step, useAnimation, incoming);
+
+        if (useAnimation)
+            AnimateStepTransition(outgoing, incoming, index >= previousIndex ? 1d : -1d, generation);
+        else
+            CompleteStepTransition(outgoing, incoming, generation, reason: "instant");
+    }
+
+    private void PrepareStep(OobeStepId step)
+    {
         switch (step)
         {
             case OobeStepId.Terms:
@@ -561,12 +694,6 @@ public sealed partial class FirstRunWizardWindow : Window
                 ApplyFinishLayout();
                 break;
         }
-
-        Grid? incoming = GetPageForStep(step);
-        if (animate && incoming is not null && ControlVisualHelpers.ShouldAnimate(this))
-            AnimateStepTransition(outgoing, incoming, index >= previousIndex ? 1d : -1d);
-        else
-            CompleteStepTransition(outgoing, incoming);
     }
 
     private bool CanGoPrevious()
@@ -614,14 +741,18 @@ public sealed partial class FirstRunWizardWindow : Window
         }
     }
 
-    private void AnimateStepTransition(Grid? outgoing, Grid incoming, double direction)
+    private void AnimateStepTransition(Grid? outgoing, Grid incoming, double direction, int generation)
     {
-        ModAnimation.AniStop(StepTransitionAnimationKey);
+        // Only touch known step page shells — never walk arbitrary visual children.
         foreach (Grid page in GetStepPages())
         {
             if (!ReferenceEquals(page, outgoing) && !ReferenceEquals(page, incoming))
                 SetPageRestState(page, visible: false);
         }
+
+        _isStepTransitioning = true;
+        _pendingTransitionOutgoing = outgoing;
+        _pendingTransitionIncoming = incoming;
 
         if (ReferenceEquals(outgoing, incoming))
         {
@@ -644,10 +775,11 @@ public sealed partial class FirstRunWizardWindow : Window
                         MotionTokens.OobeStepEnterMs,
                         ease: new ModAnimation.AniEaseOutFluent()),
                     ModAnimation.AaCode(
-                        () => CompleteStepTransition(outgoing, incoming),
+                        () => CompleteStepTransition(outgoing, incoming, generation, reason: "animation"),
                         after: true)
                 },
                 StepTransitionAnimationKey);
+            ScheduleStepTransitionSafety(generation, outgoing, incoming);
             return;
         }
 
@@ -657,6 +789,7 @@ public sealed partial class FirstRunWizardWindow : Window
         TranslateTransform incomingTransform = EnsurePageTranslate(incoming);
         incomingTransform.X = direction * MotionTokens.OobeStepOffsetX;
 
+        // Exit + enter run in the same group (parallel timers).
         List<ModAnimation.AniData> animations =
         [
             ModAnimation.AaOpacity(
@@ -690,16 +823,163 @@ public sealed partial class FirstRunWizardWindow : Window
         }
 
         animations.Add(ModAnimation.AaCode(
-            () => CompleteStepTransition(outgoing, incoming),
+            () => CompleteStepTransition(outgoing, incoming, generation, reason: "animation"),
             after: true));
         ModAnimation.AniStart(animations, StepTransitionAnimationKey);
+        ScheduleStepTransitionSafety(generation, outgoing, incoming);
     }
 
-    private void CompleteStepTransition(Grid? outgoing, Grid? incoming)
+    /// <summary>
+    /// Forces the active step page into its final visible state.
+    /// Generation is checked before any UI mutation so a stale callback cannot hide the current page.
+    /// </summary>
+    private void CompleteStepTransition(Grid? outgoing, Grid? incoming, int generation, string reason)
     {
+        // Must be first — never mutate UI for an obsolete navigation.
+        if (generation != _stepTransitionGeneration)
+            return;
+
         ModAnimation.AniStop(StepTransitionAnimationKey);
+        _isStepTransitioning = false;
+        _pendingTransitionIncoming = null;
+        _pendingTransitionOutgoing = null;
+
+        // Known step shells only (background/buttons live inside each page, not as siblings of stages).
         foreach (Grid page in GetStepPages())
             SetPageRestState(page, ReferenceEquals(page, incoming));
+
+        LogStepTransition(
+            reason == "safety" ? "safety-forced-complete" : "complete",
+            generation,
+            _pendingTransitionFrom,
+            _pendingTransitionTo,
+            _pendingTransitionAnimate,
+            incoming,
+            reason);
+    }
+
+    private void ScheduleStepTransitionSafety(int generation, Grid? outgoing, Grid incoming)
+    {
+        // Parallel exit+enter: wall clock is max(duration), not sum.
+        int delayMs = Math.Max(MotionTokens.OobeStepEnterMs, MotionTokens.OobeStepExitMs)
+                      + StepTransitionSafetyMarginMs;
+        DispatcherTimer safety = new()
+        {
+            Interval = TimeSpan.FromMilliseconds(delayMs)
+        };
+        safety.Tick += (_, _) =>
+        {
+            safety.Stop();
+            EnsureStepTransitionSettled(generation, outgoing, incoming, fromSafety: true);
+        };
+        safety.Start();
+    }
+
+    /// <summary>
+    /// If the incoming page has not converged to its rest state, force completion.
+    /// Driven by final properties — not only whether the animation group is still registered.
+    /// </summary>
+    private void EnsureStepTransitionSettled(
+        int generation,
+        Grid? outgoing,
+        Grid incoming,
+        bool fromSafety)
+    {
+        if (generation != _stepTransitionGeneration)
+            return;
+
+        if (IsStepTransitionSettled(incoming))
+            return;
+
+        CompleteStepTransition(
+            outgoing,
+            incoming,
+            generation,
+            reason: fromSafety ? "safety" : "ensure");
+    }
+
+    /// <summary>Test hook: run safety settle for the latest transition without waiting for the timer.</summary>
+    internal void EnsurePendingStepTransitionSettledForTesting()
+    {
+        if (_pendingTransitionIncoming is not { } incoming)
+            return;
+        EnsureStepTransitionSettled(
+            _stepTransitionGeneration,
+            _pendingTransitionOutgoing,
+            incoming,
+            fromSafety: true);
+    }
+
+    /// <summary>Test hook: invoke CompleteStepTransition with an explicit generation (stale-callback tests).</summary>
+    internal void CompleteStepTransitionForTesting(Grid? outgoing, Grid? incoming, int generation, string reason) =>
+        CompleteStepTransition(outgoing, incoming, generation, reason);
+
+    internal int StepTransitionGenerationForTesting => _stepTransitionGeneration;
+
+    private static bool IsStepTransitionSettled(Grid incoming) =>
+        incoming.IsVisible &&
+        incoming.IsHitTestVisible &&
+        incoming.Opacity >= 0.99d &&
+        IsTransitionTransformAtRest(incoming);
+
+    private static bool IsTransitionTransformAtRest(Grid page) =>
+        Math.Abs(GetPageTranslateX(page)) <= StepTranslateTolerance;
+
+    private static double GetPageTranslateX(Grid page) =>
+        page.RenderTransform is TranslateTransform translate ? translate.X : 0d;
+
+    private void LogStepTransition(
+        string phase,
+        int generation,
+        OobeStepId from,
+        OobeStepId to,
+        bool animate,
+        Grid? incoming,
+        string? reason = null)
+    {
+        try
+        {
+            bool isSafety = phase.Contains("safety", StringComparison.OrdinalIgnoreCase);
+            bool isComplete = phase.Contains("complete", StringComparison.OrdinalIgnoreCase);
+            string page = incoming is null ? "incoming=null" : DescribePage(incoming);
+            string message =
+                $"OOBE transition {phase}:" +
+                $" generation={generation}" +
+                $" from={from}" +
+                $" to={to}" +
+                $" animate={animate}" +
+                $" currentStep={_step}" +
+                $" transitioning={_isStepTransitioning}" +
+                $" animationRunning={ModAnimation.AniIsRun(StepTransitionAnimationKey)}" +
+                $" animationGroup={StepTransitionAnimationKey}" +
+                $" elapsedMs={_pendingTransitionClock.ElapsedMilliseconds}" +
+                (reason is null ? string.Empty : $" reason={reason}") +
+                $" {page}";
+
+            if (isSafety)
+                PortableLog.Warn("OOBE", message);
+            else if (isComplete)
+                PortableLog.Debug("OOBE", message);
+            else
+                PortableLog.Info("OOBE", message);
+        }
+        catch
+        {
+            // Diagnostics must never break navigation.
+        }
+    }
+
+    private static string DescribePage(Grid page)
+    {
+        double x = GetPageTranslateX(page);
+        return
+            $"visible={page.IsVisible}" +
+            $" opacity={page.Opacity:0.###}" +
+            $" hit={page.IsHitTestVisible}" +
+            $" transformX={x:0.###}" +
+            $" attachedToVisualTree={page.IsAttachedToVisualTree()}" +
+            $" bounds={page.Bounds.Width:0}x{page.Bounds.Height:0}" +
+            $" isEnabled={page.IsEnabled}";
     }
 
     private static TranslateTransform EnsurePageTranslate(Grid page)
@@ -730,10 +1010,68 @@ public sealed partial class FirstRunWizardWindow : Window
 
     private void ConfigureLegalPage(bool isPrivacy)
     {
+        try
+        {
+            ConfigureLegalPageCore(isPrivacy);
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "OOBE", "ConfigureLegalPage 失败。");
+            ApplyLegalFallback(isPrivacy);
+        }
+    }
+
+    private void ConfigureLegalPageCore(bool isPrivacy)
+    {
+        ShowLegalMarkdownSurface();
         if (_labLegalMarkdown is not null)
             _labLegalMarkdown.Markdown = isPrivacy ? _privacyMarkdown : _termsMarkdown;
         _panLegalScroll?.ScrollToHome();
+        ConfigureLegalNavButtons(isPrivacy);
+    }
 
+    private void ApplyLegalFallback(bool isPrivacy)
+    {
+        // Never re-enter the Markdown pipeline — use the plain TextBlock surface only.
+        string text = AvaloniaLocalizationManager.GetText(
+            "Oobe.Legal.GenericFallback",
+            "无法显示完整服务条款。你仍可返回、退出，或继续配置。完整条款可稍后在应用内查看。");
+
+        if (_labLegalFallback is not null)
+            _labLegalFallback.Text = text;
+
+        if (_panLegalScroll is not null)
+            _panLegalScroll.IsVisible = false;
+        if (_labLegalMarkdown is not null)
+            _labLegalMarkdown.IsVisible = false;
+        if (_panLegalFallbackScroll is not null)
+        {
+            _panLegalFallbackScroll.IsVisible = true;
+            _panLegalFallbackScroll.ScrollToHome();
+        }
+
+        try
+        {
+            ConfigureLegalNavButtons(isPrivacy);
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Error(ex, "OOBE", "Legal fallback 配置导航按钮失败。");
+        }
+    }
+
+    private void ShowLegalMarkdownSurface()
+    {
+        if (_panLegalFallbackScroll is not null)
+            _panLegalFallbackScroll.IsVisible = false;
+        if (_panLegalScroll is not null)
+            _panLegalScroll.IsVisible = true;
+        if (_labLegalMarkdown is not null)
+            _labLegalMarkdown.IsVisible = true;
+    }
+
+    private void ConfigureLegalNavButtons(bool isPrivacy)
+    {
         if (_btnLegalDisagree is not null)
         {
             _btnLegalDisagree.Text = isPrivacy
@@ -751,7 +1089,6 @@ public sealed partial class FirstRunWizardWindow : Window
         if (_btnLegalNext is not null)
         {
             bool lastLegal = isPrivacy || IndexOfStep(OobeStepId.Privacy) < 0;
-            // "同意条款" only when this is the last legal step before non-legal content / finish.
             bool nextIsNonLegal = true;
             if (_stepIndex + 1 < _plan.Steps.Count)
             {
@@ -850,6 +1187,8 @@ public sealed partial class FirstRunWizardWindow : Window
     {
         if (_phase is Phase.ExpandBubble or Phase.SettleIcon or Phase.RevealWelcome or Phase.FadeWelcomeOut)
             return;
+        if (_welcomeExitPending)
+            return;
 
         if (_welcomePanel is not null)
             _welcomePanel.IsHitTestVisible = false;
@@ -859,7 +1198,11 @@ public sealed partial class FirstRunWizardWindow : Window
         if (_plan.Steps.Contains(OobeStepId.Online))
             _ = PluginSidecarSupervisor.Instance.TryStartAsync();
 
-        BeginPhase(Phase.FadeWelcomeOut, durationMs: 320);
+        int generation = ++_welcomeExitGeneration;
+        _welcomeExitPending = true;
+        BeginPhase(Phase.FadeWelcomeOut, durationMs: WelcomeFadeDurationMs);
+        // Welcome fade also must not leave the wizard stranded if the intro timer stalls.
+        ScheduleWelcomeExitSafety(generation);
     }
 
     private void BtnLegalDisagree_Click(object? sender, EventArgs e) => ShutdownHost();
@@ -953,7 +1296,7 @@ public sealed partial class FirstRunWizardWindow : Window
         }
         catch (Exception ex)
         {
-            PCL.Core.Logging.PortableLog.Warn("OOBE", "应用配置目录并重启失败：" + ex.Message);
+            PortableLog.Warn("OOBE", "应用配置目录并重启失败：" + ex.Message);
             // Fall back to in-process next step so the user is not stuck.
             GoToNextStep(animate: true);
         }
@@ -1028,7 +1371,7 @@ public sealed partial class FirstRunWizardWindow : Window
                 _btnFinish.IsEnabled = true;
             try
             {
-                PCL.Core.Logging.PortableLog.Warn("OOBE", "完成配置失败：" + ex.Message);
+                PortableLog.Warn("OOBE", "完成配置失败：" + ex.Message);
             }
             catch
             {

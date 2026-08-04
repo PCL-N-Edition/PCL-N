@@ -70,14 +70,28 @@
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <legacy:MyScrollViewer Grid.Row="0" x:Name="PanLegalScroll"
-                                           Margin="0,-4,0,16" Padding="2,0,8,0"
-                                           VerticalScrollBarVisibility="Auto"
-                                           HorizontalScrollBarVisibility="Disabled">
-                        <legacy:MyMarkdownViewer x:Name="LabLegalMarkdown"
-                                                 VerticalAlignment="Top" FontSize="15"
-                                                 Foreground="{DynamicResource ColorBrush1}" />
-                    </legacy:MyScrollViewer>
+                    <Grid Grid.Row="0" Margin="0,-4,0,16">
+                        <legacy:MyScrollViewer x:Name="PanLegalScroll"
+                                               Padding="2,0,8,0"
+                                               VerticalScrollBarVisibility="Auto"
+                                               HorizontalScrollBarVisibility="Disabled">
+                            <legacy:MyMarkdownViewer x:Name="LabLegalMarkdown"
+                                                     VerticalAlignment="Top" FontSize="15"
+                                                     Foreground="{DynamicResource ColorBrush1}" />
+                        </legacy:MyScrollViewer>
+                        <!-- Shown when Markdown assignment/render fails; never re-enters MD pipeline. -->
+                        <legacy:MyScrollViewer x:Name="PanLegalFallbackScroll"
+                                               IsVisible="False"
+                                               Padding="2,0,8,0"
+                                               VerticalScrollBarVisibility="Auto"
+                                               HorizontalScrollBarVisibility="Disabled">
+                            <TextBlock x:Name="LabLegalFallback"
+                                       TextWrapping="Wrap"
+                                       FontSize="15"
+                                       LineHeight="22"
+                                       Foreground="{DynamicResource ColorBrush1}" />
+                        </legacy:MyScrollViewer>
+                    </Grid>
                     <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,4,0,0">
                         <legacy:MyButton x:Name="BtnLegalDisagree" Grid.Column="1"
                                          ColorType="Red" UseExperimentalStyle="True"
