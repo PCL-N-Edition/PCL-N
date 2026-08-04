@@ -430,6 +430,45 @@ jobs:
           fi
           scripts/assemble-release-layout.sh "${assemble_args[@]}"
 
+          # Windows portable channel: single-file NativeAOT with embedded native/sidecar.
+          # Installers keep the expanded scatter tree; portable is a separate exe asset.
+          if [[ "${{ inputs.runtime_id }}" == win-* ]]; then
+            portable_stage="$RUNNER_TEMP/pcln-portable-${{ inputs.runtime_id }}"
+            rm -rf "$portable_stage"
+            mkdir -p "$portable_stage"
+            sidecar_args=()
+            if [[ -n "$sidecar_zip" ]]; then
+              sidecar_args+=(-p:PclPluginSidecarZipPath="${sidecar_zip}")
+            fi
+            dotnet publish PCL.Desktop/PCL.Desktop.csproj \
+              -c "${{ inputs.configuration }}" \
+              -r "${{ inputs.runtime_id }}" \
+              --self-contained true \
+              -m:1 \
+              -nodeReuse:false \
+              -p:Platform="${{ inputs.architecture }}" \
+              -p:PublishAot=true \
+              -p:PublishTrimmed=true \
+              -p:PublishSingleFile=false \
+              -p:PclRuntimeVariant="${{ inputs.runtime_variant }}" \
+              -p:PclHpatchzPath="$PCL_HPATCHZ_PATH" \
+              -p:PclWriteSecret=1 \
+              -p:PclNativeRuntimeZipPath="$native_zip" \
+              -p:DebugType=None \
+              -p:DebugSymbols=false \
+              -p:DeleteExistingFiles=true \
+              ${sidecar_args[@]+"${sidecar_args[@]}"} \
+              ${version_args[@]+"${version_args[@]}"} \
+              -warnaserror:CA1416 \
+              -o "$portable_stage"
+            portable_bin="$portable_stage/${{ inputs.binary_name }}"
+            test -s "$portable_bin"
+            # Keep product scatter entry as C launcher; portable is a sibling asset.
+            cp -f "$portable_bin" "$PUBLISH_DIR/PCL-N-Portable.exe"
+            find "$portable_stage" -type f \( -name '*.pdb' -o -name '*.xml' \) -delete || true
+            echo "Built single-file portable host: $PUBLISH_DIR/PCL-N-Portable.exe"
+          fi
+
       - name: Validate scatter layout artifact
         shell: bash
         run: |
@@ -467,6 +506,13 @@ jobs:
 
           find "$PUBLISH_DIR" -type f \( -name '*.pdb' -o -name '*.xml' -o -name '*.dbg' \) -delete
           find "$PUBLISH_DIR" -type f \( -name 'PCL.Desktop' -o -name 'PCL.Desktop.exe' \) -delete
+
+          if [[ "${{ inputs.runtime_id }}" == win-* ]]; then
+            test -s "$PUBLISH_DIR/PCL-N-Portable.exe" || {
+              echo "::error::Windows single-file portable binary is missing (PCL-N-Portable.exe)."
+              exit 1
+            }
+          fi
 
           file_count=$(find "$PUBLISH_DIR" -type f | wc -l | tr -d ' ')
           if [[ "$file_count" -lt 5 ]]; then
@@ -513,6 +559,14 @@ jobs:
               fi
               echo "Embedded secrets validation passed (host execute)."
             fi
+
+            if [[ -f "$PUBLISH_DIR/PCL-N-Portable.exe" ]]; then
+              if ! "$PUBLISH_DIR/PCL-N-Portable.exe" --validate-native-runtime; then
+                echo "::error::Portable single-file host cannot load its embedded native runtime."
+                exit 1
+              fi
+              echo "Portable single-file native runtime validation passed."
+            fi
           else
             echo "Skipping host execution for cross-arch RID '$rid' on ${{ runner.os }}/${{ runner.arch }}."
             if [[ "${{ inputs.require_ms_client_id }}" == "true" ]]; then
@@ -537,6 +591,11 @@ jobs:
           shopt -s dotglob nullglob
           for item in "$PUBLISH_DIR"/*; do
             [[ "$item" == "$app" ]] && continue
+            # Portable single-file is Windows-only; never stuff it into the .app.
+            base="$(basename "$item")"
+            if [[ "$base" == "PCL-N-Portable.exe" || "$base" == "PCL-N-Portable" ]]; then
+              continue
+            fi
             mv "$item" "$contents/MacOS/"
           done
           chmod +x "$executable"

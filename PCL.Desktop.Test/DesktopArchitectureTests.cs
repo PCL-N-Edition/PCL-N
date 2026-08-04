@@ -916,11 +916,13 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "PublishSingleFile=false");
         StringAssert.Contains(reusable, "pack_native_runtime.py");
         StringAssert.Contains(reusable, "PclNativeRuntimeZipPath");
-        // Fully-expanded scatter: C launcher + host/ + native/ (no zip, no single-file embed).
+        // Install: fully-expanded scatter (C launcher + host/ + native/).
+        // Portable (Windows): separate single-file AOT with embeds (PCL-N-Portable.exe).
         StringAssert.Contains(reusable, "assemble-release-layout.sh");
         StringAssert.Contains(reusable, "build-native-bootstrap.sh");
         StringAssert.Contains(reusable, "Scatter layout validated");
         StringAssert.Contains(reusable, "must not contain .zip files");
+        StringAssert.Contains(reusable, "PCL-N-Portable.exe");
         // Desktop ProjectReference → external/Jvm.NET; CI must materialize the submodule.
         StringAssert.Contains(reusable, "submodules: recursive");
         // Opaque sidecar zip may ship beside the host; in-process private plugin IL must not be.
@@ -965,7 +967,8 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(packageWindows, "PCLN.wxs");
         StringAssert.Contains(packageWindows, "PCLN.iss");
         StringAssert.Contains(packageWindows, "PayloadDir");
-        StringAssert.Contains(packageWindows, "_Portable.zip");
+        StringAssert.Contains(packageWindows, "_Portable.exe");
+        StringAssert.Contains(packageWindows, "PCL-N-Portable.exe");
         StringAssert.Contains(packageLinux, "/opt/pcl-n");
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");

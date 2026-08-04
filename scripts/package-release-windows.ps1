@@ -1,10 +1,10 @@
 # Copyright (c) 2026 PCL N contributors.
 # Licensed under the Apache License, Version 2.0.
 #
-# Packages multi-file (scatter) Windows artifacts:
-#   - canonical .zip of the full tree
-#   - portable .zip (same tree; not a single-file exe)
-#   - MSI / Inno installers that install the whole tree under Programs\PCL N
+# Packages Windows release assets:
+#   - Install/canonical: fully-expanded scatter tree (C launcher entry + host/native/sidecar)
+#   - Portable: single-file AOT exe (PCL-N-Portable.exe → *_Portable.exe)
+#   - MSI / Inno install the scatter tree only (not the portable single-file)
 
 [CmdletBinding()]
 param(
@@ -47,9 +47,10 @@ $nativeFiles = @(Get-ChildItem -LiteralPath $nativeDir -Recurse -File -ErrorActi
 if ($nativeFiles.Count -lt 1) {
     throw "native/ tree is empty under scatter artifact."
 }
-$zipLeft = @(Get-ChildItem -LiteralPath $artifact -Recurse -File -Filter '*.zip' -ErrorAction SilentlyContinue)
-if ($zipLeft.Count -gt 0) {
-    throw "Scatter artifact must not contain .zip files (found $($zipLeft.Count)); expand at assemble time."
+
+$portableSource = Join-Path $artifact 'PCL-N-Portable.exe'
+if (-not (Test-Path -LiteralPath $portableSource -PathType Leaf)) {
+    throw "Single-file portable binary is missing: $portableSource"
 }
 
 $match = [regex]::Match($Version, '(?<!\d)(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?')
@@ -63,14 +64,28 @@ $working = Join-Path ([System.IO.Path]::GetTempPath()) ("pcln-package-" + [guid]
 New-Item -ItemType Directory -Force -Path $working | Out-Null
 
 try {
-    # Canonical + portable are both multi-file archives (no single-file Portable.exe).
-    $canonical = Join-Path $output "${BaseName}.zip"
-    $portable = Join-Path $output "${BaseName}_Portable.zip"
-    foreach ($zipPath in @($canonical, $portable)) {
-        if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+    # Scatter tree for installers/canonical zip — exclude the portable single-file asset.
+    $scatter = Join-Path $working 'scatter'
+    New-Item -ItemType Directory -Force -Path $scatter | Out-Null
+    Get-ChildItem -LiteralPath $artifact -Force | ForEach-Object {
+        if ($_.Name -eq 'PCL-N-Portable.exe') {
+            return
+        }
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $scatter $_.Name) -Recurse -Force
     }
-    Compress-Archive -Path (Join-Path $artifact '*') -DestinationPath $canonical -CompressionLevel Optimal
-    Copy-Item -LiteralPath $canonical -Destination $portable
+
+    $zipLeft = @(Get-ChildItem -LiteralPath $scatter -Recurse -File -Filter '*.zip' -ErrorAction SilentlyContinue)
+    if ($zipLeft.Count -gt 0) {
+        throw "Scatter install tree must not contain .zip files (found $($zipLeft.Count))."
+    }
+
+    $canonical = Join-Path $output "${BaseName}.zip"
+    if (Test-Path -LiteralPath $canonical) { Remove-Item -LiteralPath $canonical -Force }
+    Compress-Archive -Path (Join-Path $scatter '*') -DestinationPath $canonical -CompressionLevel Optimal
+
+    # Portable remains a single-file exe for users who want one binary.
+    $portable = Join-Path $output "${BaseName}_Portable.exe"
+    Copy-Item -LiteralPath $portableSource -Destination $portable -Force
 
     $msiMarker = Join-Path $working 'msi-install-kind'
     $exeMarker = Join-Path $working 'exe-install-kind'
@@ -83,7 +98,7 @@ try {
     & $wix.Source build $wixSource `
         -arch $Architecture `
         -d "ProductVersion=$productVersion" `
-        -d "PayloadDir=$artifact" `
+        -d "PayloadDir=$scatter" `
         -d "InstallKindMarker=$msiMarker" `
         -pdbtype none `
         -out $msi
@@ -104,7 +119,7 @@ try {
     $outputBaseName = "${BaseName}_Installer"
     & $iscc `
         "/DProductVersion=$productVersion" `
-        "/DPayloadDir=$artifact" `
+        "/DPayloadDir=$scatter" `
         "/DInstallKindMarker=$exeMarker" `
         "/DOutputDirectory=$output" `
         "/DOutputBaseName=$outputBaseName" `
