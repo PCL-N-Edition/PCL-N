@@ -1,0 +1,10 @@
+# Local C builds (binaries are produced by build.ps1 / CI, not committed)
+*.exe
+*.obj
+*.o
+*.pdb
+*.ilk
+*.iobj
+*.ipdb
+payload.zip
+_pcln_payload/

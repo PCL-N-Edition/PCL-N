@@ -62,6 +62,9 @@ internal static class UnhandledExceptionGuard
         if (!completedNormally || Interlocked.Exchange(ref _sessionCompleted, 1) == 1)
             return;
 
+        // Tell the out-of-process C watcher this exit was intentional.
+        ExternalCrashHandler.SignalCleanExit();
+
         string? marker = _sessionMarkerPath;
         if (string.IsNullOrWhiteSpace(marker))
             return;
@@ -190,6 +193,8 @@ internal static class UnhandledExceptionGuard
         sb.AppendLine(
             "若启用了 NativeCrashGuard，Windows 会尽量写入 `.dmp` minidump，" +
             "Linux/macOS 会写入 `native-*.txt` 崩溃笔记（信号与 PID）。");
+        sb.AppendLine(
+            "若打包了 `pcln-crash-handler`，进程外 C 监视器还会在主进程消失后写入 `watchdog-*.md` 并弹窗提示。");
         sb.AppendLine();
         sb.AppendLine("### 上次会话");
         sb.AppendLine("```text");
@@ -484,6 +489,8 @@ internal static class UnhandledExceptionGuard
             File.WriteAllText(markerPath, markerContent, new UTF8Encoding(false));
             _sessionMarkerPath = markerPath;
             NativeCrashGuard.AttachSessionMarker(markerPath);
+            // Out-of-process C companion: survives host SEGV and can show a native dialog.
+            ExternalCrashHandler.TryStart(markerPath);
             try
             {
                 string? prepared = NativeCrashGuard.PreparedDumpPath ?? NativeCrashGuard.PreparedNotePath;

@@ -9,8 +9,10 @@ using PCL.Desktop.Paths;
 namespace PCL.Desktop.Hosting.PluginSidecar;
 
 /// <summary>
-/// Extracts the CoreCLR plugin sidecar payload embedded in the host single-file binary
-/// into the launcher configuration/data directory (writable, survives single-file temp extract).
+/// Resolves the CoreCLR plugin sidecar executable.
+/// Preferred path: C <c>pcln-launcher</c> installs <c>sidecar.zip</c> and sets
+/// <c>PCL_PLUGIN_SIDECAR_DIR</c> / <c>PCL_PLUGIN_SIDECAR_EXE</c>.
+/// Fallback: extract the zip embedded in the host (dev / no bootstrap).
 /// </summary>
 internal static class PclEmbeddedPluginSidecar
 {
@@ -28,6 +30,27 @@ internal static class PclEmbeddedPluginSidecar
     {
         if (!string.IsNullOrWhiteSpace(_cachedExecutable) && File.Exists(_cachedExecutable))
             return _cachedExecutable;
+
+        // C bootstrap may pre-extract the sidecar tree and pass env.
+        string? preExe = Environment.GetEnvironmentVariable("PCL_PLUGIN_SIDECAR_EXE");
+        if (!string.IsNullOrWhiteSpace(preExe) && File.Exists(preExe))
+        {
+            _cachedExecutable = preExe;
+            PortableLog.Info("PluginSidecar", "使用 C launcher 指定的侧车：" + preExe);
+            return preExe;
+        }
+
+        string? preDir = Environment.GetEnvironmentVariable("PCL_PLUGIN_SIDECAR_DIR");
+        if (!string.IsNullOrWhiteSpace(preDir) && Directory.Exists(preDir))
+        {
+            string candidate = Path.Combine(preDir, PluginSidecarPaths.ExecutableFileName);
+            if (File.Exists(candidate))
+            {
+                _cachedExecutable = candidate;
+                PortableLog.Info("PluginSidecar", "使用 C launcher 预解压的侧车目录：" + candidate);
+                return candidate;
+            }
+        }
 
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try

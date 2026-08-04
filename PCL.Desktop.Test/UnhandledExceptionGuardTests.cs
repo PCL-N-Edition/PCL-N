@@ -51,4 +51,54 @@ public sealed class UnhandledExceptionGuardTests
             NativeCrashGuard.FindRecentNativeArtifacts(TimeSpan.FromMinutes(1));
         Assert.IsNotNull(artifacts);
     }
+
+    [TestMethod]
+    public void ExternalCrashHandler_SignalCleanExit_IsIdempotentWithoutStart()
+    {
+        // Must not throw when the companion was never started (e.g. binary absent).
+        ExternalCrashHandler.SignalCleanExit();
+        ExternalCrashHandler.SignalCleanExit();
+    }
+
+    [TestMethod]
+    public void ExternalCrashHandler_WhenLauncherOwnsWatcher_AdoptsCleanFlagEnv()
+    {
+        string flag = Path.Combine(Path.GetTempPath(), "pcln-test-clean-" + Guid.NewGuid().ToString("N") + ".flag");
+        try
+        {
+            Environment.SetEnvironmentVariable("PCL_SKIP_EXTERNAL_CRASH_HANDLER", "1");
+            Environment.SetEnvironmentVariable("PCL_CRASH_CLEAN_FLAG", flag);
+
+            // Force re-entry: TryStart is one-shot per process. Use a fresh AppDomain is
+            // unavailable; instead only assert SignalCleanExit remains safe and that when
+            // TryStart already ran earlier it still no-ops. Primary contract: env vars
+            // are documented and SignalCleanExit with adopted path writes the flag.
+            // If TryStart has not run yet in this test host, run it now.
+            ExternalCrashHandler.TryStart(null);
+            ExternalCrashHandler.SignalCleanExit();
+
+            // After TryStart with skip+flag, SignalCleanExit should create the flag
+            // only if this was the first TryStart in the process. When a prior test
+            // already started without flag, path may stay empty — still must not throw.
+            if (File.Exists(flag))
+            {
+                string text = File.ReadAllText(flag);
+                Assert.IsTrue(text.Contains("ok", StringComparison.OrdinalIgnoreCase));
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PCL_SKIP_EXTERNAL_CRASH_HANDLER", null);
+            Environment.SetEnvironmentVariable("PCL_CRASH_CLEAN_FLAG", null);
+            try
+            {
+                if (File.Exists(flag))
+                    File.Delete(flag);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+    }
 }

@@ -11,9 +11,10 @@ using PCL.Desktop.Paths;
 namespace PCL.Desktop.Hosting;
 
 /// <summary>
-/// Installs the RID-specific native libraries embedded in the NativeAOT host.
-/// The payload lives under the OOBE-selected launcher data directory so opening
-/// a single-file launcher never litters or requires write access to the host directory.
+/// Activates RID-specific native libraries for the host process.
+/// Preferred path: C <c>pcln-launcher</c> installs the zip into the data directory
+/// (same layout as historically done here) and sets <c>PCL_NATIVE_RUNTIME_DIR</c>.
+/// Fallback: extract the zip embedded in the NativeAOT host (dev / no bootstrap).
 /// </summary>
 internal static class PclEmbeddedNativeRuntime
 {
@@ -46,6 +47,18 @@ internal static class PclEmbeddedNativeRuntime
 
     public static void EnsureInstalled()
     {
+        // C bootstrap (pcln-launcher) may pre-extract native libs and pass the directory.
+        string? preextracted = Environment.GetEnvironmentVariable("PCL_NATIVE_RUNTIME_DIR");
+        if (!string.IsNullOrWhiteSpace(preextracted) &&
+            Directory.Exists(preextracted))
+        {
+            Activate(preextracted);
+            PortableLog.Info(
+                "NativeRuntime",
+                "使用 C launcher 预解压的原生运行时：" + Path.GetFullPath(preextracted));
+            return;
+        }
+
         using Stream? resource = typeof(PclEmbeddedNativeRuntime).Assembly
             .GetManifestResourceStream(ResourceName);
         if (resource is null)
