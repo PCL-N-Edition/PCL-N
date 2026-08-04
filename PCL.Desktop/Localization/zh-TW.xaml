@@ -491,6 +491,7 @@
     <sys:String x:Key="Oobe.Legal.Disagree">不同意</sys:String>
     <sys:String x:Key="Oobe.Legal.DisagreeExit">不同意並退出</sys:String>
     <sys:String x:Key="Oobe.Legal.Agree">同意條款</sys:String>
+    <sys:String x:Key="Oobe.Legal.GenericFallback">無法顯示完整服務條款。你仍可返回、退出，或繼續設定。完整條款可稍後在應用程式內查看。</sys:String>
     <sys:String x:Key="Oobe.Nav.Previous">上一頁</sys:String>
     <sys:String x:Key="Oobe.Nav.Next">下一頁</sys:String>
     <sys:String x:Key="Oobe.Data.Title">啟動器資料設定</sys:String>
