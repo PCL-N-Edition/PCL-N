@@ -99,6 +99,273 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void FirstRunWizardWindow_WelcomeExitSettlesNextStepWithoutAnimation()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            FirstRunWizardWindow wizard = new(new OobeRunPlan(
+                OobeRunKind.Full,
+                [OobeStepId.Welcome, OobeStepId.Terms, OobeStepId.Privacy, OobeStepId.Finish],
+                "test",
+                RestartAfterComplete: false,
+                Reason: "headless-welcome-exit"));
+            SetPrivateField(wizard, "_introStarted", true);
+
+            try
+            {
+                wizard.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                // Simulate end of FadeWelcomeOut: welcome hidden, then instant next step.
+                InvokePrivateMethod(wizard, "FinalizeWelcomeExit");
+                InvokePrivateMethod(wizard, "GoToNextStep", false);
+
+                Grid welcome = wizard.FindControl<Grid>("PageWelcome")!;
+                Grid legal = wizard.FindControl<Grid>("PageLegal")!;
+                Assert.IsFalse(welcome.IsVisible);
+                Assert.IsTrue(legal.IsVisible);
+                Assert.IsTrue(legal.IsHitTestVisible);
+                Assert.AreEqual(1d, legal.Opacity, 0.001d);
+                Assert.AreEqual(OobeStepId.Terms, GetPrivateField<OobeStepId>(wizard, "_step"));
+                Assert.IsFalse(ModAnimation.AniIsRun("OOBE Step Transition"));
+            }
+            finally
+            {
+                wizard.Close();
+                ModAnimation.ResetForTesting();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void FirstRunWizardWindow_SafetyCompletesWhenAnimationNeverAdvances()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            FirstRunWizardWindow wizard = new(new OobeRunPlan(
+                OobeRunKind.Full,
+                [OobeStepId.Welcome, OobeStepId.Terms, OobeStepId.Privacy, OobeStepId.Finish],
+                "test",
+                RestartAfterComplete: false,
+                Reason: "headless-safety"));
+            SetPrivateField(wizard, "_introStarted", true);
+
+            try
+            {
+                wizard.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                InvokePrivateMethod(wizard, "ShowStepAt", 1, true);
+                Grid legal = wizard.FindControl<Grid>("PageLegal")!;
+                Assert.IsTrue(ModAnimation.AniIsRun("OOBE Step Transition"));
+                Assert.IsFalse(legal.IsHitTestVisible);
+                Assert.IsTrue(legal.Opacity < 0.99d || Math.Abs(((TranslateTransform)legal.RenderTransform!).X) > 0.5d);
+
+                // Do NOT advance ModAnimation — only the fail-safe settle path.
+                wizard.EnsurePendingStepTransitionSettledForTesting();
+
+                Assert.IsFalse(ModAnimation.AniIsRun("OOBE Step Transition"));
+                Assert.IsTrue(legal.IsVisible);
+                Assert.IsTrue(legal.IsHitTestVisible);
+                Assert.AreEqual(1d, legal.Opacity, 0.001d);
+                Assert.AreEqual(0d, ((TranslateTransform)legal.RenderTransform!).X, 0.001d);
+                Assert.AreEqual(OobeStepId.Terms, GetPrivateField<OobeStepId>(wizard, "_step"));
+            }
+            finally
+            {
+                wizard.Close();
+                ModAnimation.ResetForTesting();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void FirstRunWizardWindow_RapidStepInterruptLeavesFinalPageSettled()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            FirstRunWizardWindow wizard = new(new OobeRunPlan(
+                OobeRunKind.Full,
+                [OobeStepId.Welcome, OobeStepId.Terms, OobeStepId.Privacy, OobeStepId.DataPaths, OobeStepId.Finish],
+                "test",
+                RestartAfterComplete: false,
+                Reason: "headless-interrupt"));
+            SetPrivateField(wizard, "_introStarted", true);
+
+            try
+            {
+                wizard.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                InvokePrivateMethod(wizard, "ShowStepAt", 1, true); // Terms
+                InvokePrivateMethod(wizard, "ShowStepAt", 2, true); // Privacy
+                InvokePrivateMethod(wizard, "ShowStepAt", 1, true); // Terms again mid-flight
+
+                // Final generation must win even if animations never finish.
+                wizard.EnsurePendingStepTransitionSettledForTesting();
+
+                Grid legal = wizard.FindControl<Grid>("PageLegal")!;
+                Grid data = wizard.FindControl<Grid>("PageData")!;
+                Assert.AreEqual(OobeStepId.Terms, GetPrivateField<OobeStepId>(wizard, "_step"));
+                Assert.IsTrue(legal.IsVisible);
+                Assert.IsTrue(legal.IsHitTestVisible);
+                Assert.AreEqual(1d, legal.Opacity, 0.001d);
+                Assert.IsFalse(data.IsVisible);
+            }
+            finally
+            {
+                wizard.Close();
+                ModAnimation.ResetForTesting();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void FirstRunWizardWindow_StaleGenerationCompleteDoesNotMutateCurrentPage()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            FirstRunWizardWindow wizard = new(new OobeRunPlan(
+                OobeRunKind.Full,
+                [OobeStepId.Welcome, OobeStepId.Terms, OobeStepId.Privacy, OobeStepId.Finish],
+                "test",
+                RestartAfterComplete: false,
+                Reason: "headless-stale-gen"));
+            SetPrivateField(wizard, "_introStarted", true);
+
+            try
+            {
+                wizard.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                InvokePrivateMethod(wizard, "ShowStepAt", 1, true); // Terms
+                int staleGeneration = wizard.StepTransitionGenerationForTesting;
+                Grid welcome = wizard.FindControl<Grid>("PageWelcome")!;
+                Grid legal = wizard.FindControl<Grid>("PageLegal")!;
+
+                InvokePrivateMethod(wizard, "ShowStepAt", 2, false); // Privacy, instant
+                Assert.AreEqual(OobeStepId.Privacy, GetPrivateField<OobeStepId>(wizard, "_step"));
+                Assert.IsTrue(legal.IsVisible);
+                Assert.AreEqual(1d, legal.Opacity, 0.001d);
+
+                // Late callback from the previous Terms transition must not hide Privacy/Legal.
+                wizard.CompleteStepTransitionForTesting(welcome, legal, staleGeneration, "stale");
+                Assert.AreEqual(OobeStepId.Privacy, GetPrivateField<OobeStepId>(wizard, "_step"));
+                Assert.IsTrue(legal.IsVisible);
+                Assert.IsTrue(legal.IsHitTestVisible);
+                Assert.AreEqual(1d, legal.Opacity, 0.001d);
+                Assert.IsFalse(welcome.IsVisible);
+            }
+            finally
+            {
+                wizard.Close();
+                ModAnimation.ResetForTesting();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void FirstRunWizardWindow_CompleteIsIdempotentWhenSafetyAndAnimationBothFire()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            FirstRunWizardWindow wizard = new(new OobeRunPlan(
+                OobeRunKind.Full,
+                [OobeStepId.Welcome, OobeStepId.Terms, OobeStepId.Finish],
+                "test",
+                RestartAfterComplete: false,
+                Reason: "headless-idempotent"));
+            SetPrivateField(wizard, "_introStarted", true);
+
+            try
+            {
+                wizard.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                InvokePrivateMethod(wizard, "ShowStepAt", 1, true);
+                int generation = wizard.StepTransitionGenerationForTesting;
+                Grid legal = wizard.FindControl<Grid>("PageLegal")!;
+                Grid welcome = wizard.FindControl<Grid>("PageWelcome")!;
+
+                ModAnimation.AdvanceUntilIdleForTesting();
+                Assert.AreEqual(1d, legal.Opacity, 0.001d);
+
+                // Safety / second complete with same generation must not throw or flip visibility.
+                wizard.CompleteStepTransitionForTesting(welcome, legal, generation, "safety");
+                wizard.CompleteStepTransitionForTesting(welcome, legal, generation, "animation");
+
+                Assert.IsTrue(legal.IsVisible);
+                Assert.IsTrue(legal.IsHitTestVisible);
+                Assert.AreEqual(1d, legal.Opacity, 0.001d);
+                Assert.IsFalse(welcome.IsVisible);
+            }
+            finally
+            {
+                wizard.Close();
+                ModAnimation.ResetForTesting();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public void FirstRunWizardWindow_LegalFallbackShowsPlainTextAndButtons()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            FirstRunWizardWindow wizard = new(new OobeRunPlan(
+                OobeRunKind.Full,
+                [OobeStepId.Welcome, OobeStepId.Terms, OobeStepId.Finish],
+                "test",
+                RestartAfterComplete: false,
+                Reason: "headless-legal-fallback"));
+            SetPrivateField(wizard, "_introStarted", true);
+
+            try
+            {
+                wizard.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                InvokePrivateMethod(wizard, "ApplyLegalFallback", false);
+                InvokePrivateMethod(wizard, "ShowStepAt", 1, false);
+
+                MyScrollViewer? mdScroll = wizard.FindControl<MyScrollViewer>("PanLegalScroll");
+                MyScrollViewer? fallbackScroll = wizard.FindControl<MyScrollViewer>("PanLegalFallbackScroll");
+                TextBlock? fallback = wizard.FindControl<TextBlock>("LabLegalFallback");
+                MyButton disagree = wizard.FindControl<MyButton>("BtnLegalDisagree")!;
+                MyButton next = wizard.FindControl<MyButton>("BtnLegalNext")!;
+                Grid legal = wizard.FindControl<Grid>("PageLegal")!;
+
+                Assert.IsTrue(legal.IsVisible);
+                Assert.IsTrue(legal.IsHitTestVisible);
+                Assert.IsNotNull(fallbackScroll);
+                Assert.IsTrue(fallbackScroll!.IsVisible);
+                Assert.IsNotNull(fallback);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(fallback!.Text));
+                Assert.IsTrue(mdScroll is null || !mdScroll.IsVisible);
+                Assert.IsTrue(disagree.IsVisible || disagree.IsEffectivelyVisible);
+                Assert.IsTrue(next.IsVisible || next.IsEffectivelyVisible);
+            }
+            finally
+            {
+                wizard.Close();
+                ModAnimation.ResetForTesting();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MinecraftPlayerPreview_RendersAndSwitchesAllSevenViews()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
