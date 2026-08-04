@@ -220,6 +220,29 @@ public sealed class LittleSkinOAuthServiceTests
     }
 
     [TestMethod]
+    public async Task RequestDeviceCode_InvalidClient_ThrowsFriendlyMessage()
+    {
+        using HttpClient client = new(new DelegateHandler(_ =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent(
+                    """{"error":"invalid_client","error_description":"Client authentication failed"}""")
+            })));
+        LittleSkinOAuthService service = new(client);
+        LittleSkinOAuthConfiguration configuration = new(
+            "client-id",
+            string.Empty,
+            new Uri(LittleSkinOAuthService.DeviceFlowRedirectUri));
+
+        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.RequestDeviceCodeAsync(configuration));
+
+        StringAssert.Contains(ex.Message, "申请暂未通过");
+        StringAssert.Contains(ex.Message, "第三方登录");
+        StringAssert.Contains(ex.Message, "invalid_client");
+    }
+
+    [TestMethod]
     public async Task RefreshOAuthToken_PrefersOpenEndpointForDeviceTokens()
     {
         using HttpClient client = new(new DelegateHandler(async request =>

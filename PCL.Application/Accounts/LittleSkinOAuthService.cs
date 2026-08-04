@@ -141,6 +141,12 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     /// <summary>Device-flow callback URL required when applying for device-code whitelist.</summary>
     public const string DeviceFlowRedirectUri = "https://open.littleskin.cn/oauth/callback";
 
+    /// <summary>
+    /// Shown when LittleSkin returns <c>invalid_client</c> (app not on device-code whitelist).
+    /// </summary>
+    public const string InvalidClientUserMessage =
+        "LittleSkin OAuth 设备代码流申请暂未通过（invalid_client）。请改用「第三方登录」输入 Yggdrasil 地址与账号密码。";
+
     private const string AuthorizationEndpoint = "https://littleskin.cn/oauth/authorize";
     private const string PassportTokenEndpoint = "https://littleskin.cn/oauth/token";
     private const string DeviceCodeEndpoint = "https://open.littleskin.cn/oauth/device_code";
@@ -234,6 +240,7 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
             .ConfigureAwait(false);
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         string? requestId = TryGetRequestId(response);
+        ThrowIfInvalidClient(body, requestId);
         EnsureSuccess(response, body, "申请 LittleSkin 设备代码失败", requestId);
 
         using JsonDocument document = JsonDocument.Parse(body);
@@ -323,6 +330,7 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
                 continue;
             }
 
+            ThrowIfInvalidClient(body, requestId);
             EnsureSuccess(response, body, "LittleSkin 设备授权失败", requestId);
         }
 
@@ -656,6 +664,18 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
         return body;
     }
 
+    private static void ThrowIfInvalidClient(string body, string? requestId = null)
+    {
+        if (!string.Equals(TryReadOAuthError(body), "invalid_client", StringComparison.Ordinal))
+            return;
+
+        string message = InvalidClientUserMessage;
+        if (!string.IsNullOrWhiteSpace(requestId))
+            message += " 请求 ID：" + requestId;
+        PortableLog.Warn("LittleSkinAuth", message);
+        throw new InvalidOperationException(message);
+    }
+
     private static void EnsureSuccess(
         HttpResponseMessage response,
         string body,
@@ -664,6 +684,9 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     {
         if (response.IsSuccessStatusCode)
             return;
+
+        ThrowIfInvalidClient(body, requestId);
+
         string detail = string.Empty;
         try
         {

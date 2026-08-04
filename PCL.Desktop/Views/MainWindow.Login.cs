@@ -1612,8 +1612,20 @@ public partial class MainWindow
         {
             if (dialog?.Parent is not null)
                 dialog.CloseLikeWpf();
-            _launchRight?.AppendLog("LittleSkin OAuth 登录失败：" + exception.Message);
-            ShowTextDialog("LittleSkin 登录失败", exception.Message, "知道了");
+            string message = exception.Message;
+            bool invalidClient =
+                message.Contains("invalid_client", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains(
+                    LittleSkinOAuthService.InvalidClientUserMessage,
+                    StringComparison.Ordinal);
+            if (invalidClient)
+                message = LittleSkinOAuthService.InvalidClientUserMessage;
+
+            _launchRight?.AppendLog("LittleSkin OAuth 登录失败：" + message);
+            ShowTextDialog(
+                invalidClient ? "LittleSkin 暂不可用" : "LittleSkin 登录失败",
+                message,
+                "知道了");
         }
         finally
         {
