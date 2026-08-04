@@ -1479,6 +1479,9 @@ public partial class MainWindow
         PageLoginLittleSkin page,
         ILaunchHomeSurface launchPage)
     {
+        // Official launcher path: Device Authorization Grant + Yggdrasil OAuth APIs
+        // https://manual.littlesk.in/advanced/oauth2/device-authorization-grant
+        // https://manual.littlesk.in/advanced/api
         LittleSkinOAuthConfiguration configuration;
         try
         {
@@ -1491,7 +1494,11 @@ public partial class MainWindow
             ShowTextDialog(
                 "LittleSkin OAuth 配置缺失",
                 exception.Message +
-                "\n\n授权代码流需要在 LittleSkin OAuth 应用中登记回调地址，并为构建提供客户端 ID 与 Secret。",
+                "\n\n启动器使用设备代码流（Device Authorization Grant）：" +
+                "\n1. 在 littleskin.cn/user/oauth/manage 创建应用" +
+                "\n2. 回调 URL 设为 https://open.littleskin.cn/oauth/callback" +
+                "\n3. 申请设备代码流白名单（含 Yggdrasil.PlayerProfiles.Read、Yggdrasil.MinecraftToken.Create）" +
+                "\n4. 配置环境变量 PCL_LITTLESKIN_CLIENT_ID",
                 "知道了");
             return;
         }
@@ -1503,42 +1510,41 @@ public partial class MainWindow
         MyMsgLogin? dialog = null;
         try
         {
-            using LittleSkinOAuthCallbackListener callbackListener = new(configuration.RedirectUri);
-            callbackListener.Start();
-            string state = LittleSkinOAuthCallbackListener.CreateState();
-            LittleSkinAuthorizationRequest authorization =
-                _littleSkinOAuthService.CreateAuthorizationRequest(configuration, state);
+            _launchRight?.AppendLog("正在申请 LittleSkin 设备授权码（OAuth 2 设备代码流）。");
+            page.UpdateProgress(0.04d);
+            LittleSkinDeviceCodeInfo deviceCode = await _littleSkinOAuthService
+                .RequestDeviceCodeAsync(configuration, cancellationToken)
+                .ConfigureAwait(true);
+            page.UpdateProgress(0.08d);
+
+            string website = string.IsNullOrWhiteSpace(deviceCode.VerificationUriComplete)
+                ? deviceCode.VerificationUri
+                : deviceCode.VerificationUriComplete;
             dialog = new MyMsgLogin
             {
                 Title = "LittleSkin OAuth 登录",
                 Caption =
-                    "已在浏览器中打开 LittleSkin 授权页面。\n\n" +
-                    "授权后浏览器会自动返回 PCL N；启动器不会接触你的 LittleSkin 密码。",
-                Website = authorization.AuthorizationUri.AbsoluteUri,
-                ShowCopyCodeAction = false
+                    $"请在浏览器中打开授权页，并输入授权码完成登录。\n\n" +
+                    $"授权码：{deviceCode.UserCode}\n\n" +
+                    "授权后启动器会自动继续；不会接触你的 LittleSkin 密码。",
+                UserCode = deviceCode.UserCode,
+                Website = website
             };
             ShowLoginDialog(dialog, () => _littleSkinLoginCancellation?.Cancel());
-            OpenExternalUrl(authorization.AuthorizationUri.AbsoluteUri);
-            _launchRight?.AppendLog("正在等待 LittleSkin OAuth 授权回调。");
-            page.UpdateProgress(0.08d);
+            await PrepareLoginDialogAsync(dialog).ConfigureAwait(true);
+            _launchRight?.AppendLog("正在等待 LittleSkin 设备授权完成。");
 
-            LittleSkinAuthorizationCallback callback = await callbackListener
-                .WaitForCallbackAsync(state, cancellationToken)
-                .ConfigureAwait(true);
-            if (!string.IsNullOrWhiteSpace(callback.Error))
-            {
-                throw new InvalidOperationException(
-                    callback.ErrorDescription ?? callback.Error ?? "LittleSkin 授权被拒绝。");
-            }
-
-            page.UpdateProgress(0.22d);
+            Progress<double> progress = new(value => page.UpdateProgress(0.08d + value * 0.3d));
             LittleSkinOAuthTokens tokens = await _littleSkinOAuthService
-                .ExchangeAuthorizationCodeAsync(
+                .WaitForDeviceAuthorizationAsync(
                     configuration,
-                    callback.Code!,
+                    deviceCode,
+                    progress,
                     cancellationToken)
                 .ConfigureAwait(true);
-            page.UpdateProgress(0.38d);
+            page.UpdateProgress(0.42d);
+
+            // API: GET …/sessionserver/session/minecraft/profile (Yggdrasil.PlayerProfiles.Read)
             IReadOnlyList<LittleSkinProfile> profiles = await _littleSkinOAuthService
                 .GetProfilesAsync(tokens.AccessToken, cancellationToken)
                 .ConfigureAwait(true);
@@ -1559,6 +1565,7 @@ public partial class MainWindow
 
             LittleSkinProfile selected = profiles[index];
             page.UpdateProgress(0.62d);
+            // API: POST …/authserver/oauth  {"uuid":"<undashed>"} (Yggdrasil.MinecraftToken.Create)
             LittleSkinMinecraftSession session = await _littleSkinOAuthService
                 .CreateMinecraftSessionAsync(
                     tokens.AccessToken,

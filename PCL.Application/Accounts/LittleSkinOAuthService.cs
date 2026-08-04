@@ -2,8 +2,8 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Globalization;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using PCL.Core.IO.Net;
@@ -13,6 +13,7 @@ namespace PCL.Application.Accounts;
 
 public sealed record LittleSkinOAuthConfiguration(
     string ClientId,
+    /// <summary>Required for authorization-code exchange only; device flow uses public client id.</summary>
     string ClientSecret,
     Uri RedirectUri);
 
@@ -20,10 +21,20 @@ public sealed record LittleSkinAuthorizationRequest(
     Uri AuthorizationUri,
     string State);
 
+/// <summary>Device authorization grant (RFC 8628) pair from open.littleskin.cn.</summary>
+public sealed record LittleSkinDeviceCodeInfo(
+    string UserCode,
+    string DeviceCode,
+    string VerificationUri,
+    string VerificationUriComplete,
+    int ExpiresInSeconds,
+    int IntervalSeconds);
+
 public sealed record LittleSkinOAuthTokens(
     string AccessToken,
     string RefreshToken,
-    DateTimeOffset ExpiresAt);
+    DateTimeOffset ExpiresAt,
+    string? IdToken = null);
 
 public sealed record LittleSkinProfile(
     string Username,
@@ -59,6 +70,16 @@ public interface ILittleSkinOAuthService
     LittleSkinAuthorizationRequest CreateAuthorizationRequest(
         LittleSkinOAuthConfiguration configuration,
         string state);
+
+    Task<LittleSkinDeviceCodeInfo> RequestDeviceCodeAsync(
+        LittleSkinOAuthConfiguration configuration,
+        CancellationToken cancellationToken = default);
+
+    Task<LittleSkinOAuthTokens> WaitForDeviceAuthorizationAsync(
+        LittleSkinOAuthConfiguration configuration,
+        LittleSkinDeviceCodeInfo deviceCode,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default);
 
     Task<LittleSkinOAuthTokens> ExchangeAuthorizationCodeAsync(
         LittleSkinOAuthConfiguration configuration,
@@ -97,9 +118,19 @@ public interface ILittleSkinOAuthService
 }
 
 /// <summary>
-/// LittleSkin OAuth authorization-code and Blessing Skin/Yggdrasil Connect API client.
-/// OAuth access tokens are used only for LittleSkin APIs; Minecraft receives the
-/// dedicated Yggdrasil token returned by <c>/api/yggdrasil/authserver/oauth</c>.
+/// LittleSkin OAuth 2 client per
+/// <see href="https://manual.littlesk.in/advanced/oauth2/">OAuth 2</see> and
+/// <see href="https://manual.littlesk.in/advanced/api">LittleSkin API</see>.
+/// <para>
+/// Desktop launchers should use the <b>device authorization grant</b>
+/// (<c>open.littleskin.cn</c>). After obtaining a Bearer access token:
+/// </para>
+/// <list type="number">
+/// <item><c>GET …/sessionserver/session/minecraft/profile</c> (scope <c>Yggdrasil.PlayerProfiles.Read</c>)</item>
+/// <item><c>POST …/authserver/oauth</c> (scope <c>Yggdrasil.MinecraftToken.Create</c>)</item>
+/// </list>
+/// OAuth access tokens are only for LittleSkin APIs; Minecraft receives the Yggdrasil
+/// access token from step 2.
 /// </summary>
 public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
 {
@@ -107,17 +138,25 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     public const string DefaultRedirectUri =
         "http://127.0.0.1:17342/oauth/littleskin/callback";
 
+    /// <summary>Device-flow callback URL required when applying for device-code whitelist.</summary>
+    public const string DeviceFlowRedirectUri = "https://open.littleskin.cn/oauth/callback";
+
     private const string AuthorizationEndpoint = "https://littleskin.cn/oauth/authorize";
-    private const string TokenEndpoint = "https://littleskin.cn/oauth/token";
+    private const string PassportTokenEndpoint = "https://littleskin.cn/oauth/token";
+    private const string DeviceCodeEndpoint = "https://open.littleskin.cn/oauth/device_code";
+    private const string OpenTokenEndpoint = "https://open.littleskin.cn/oauth/token";
     private const string ApiRoot = "https://littleskin.cn/api/";
     private const string YggdrasilApiRoot = "https://littleskin.cn/api/yggdrasil/";
+
     /// <summary>
-    /// OAuth scopes for login + closet. <c>PlayerProfiles.Read</c> lists every role;
-    /// must not be combined with <c>PlayerProfiles.Select</c> (server rejects both).
+    /// Scopes for launcher OAuth2 login + wardrobe APIs.
+    /// Must not combine <c>PlayerProfiles.Read</c> with <c>PlayerProfiles.Select</c>.
     /// </summary>
-    private const string RequestedScopes =
-        "openid offline_access User.Read Player.ReadWrite Closet.Read " +
+    public const string RequestedScopes =
+        "openid offline_access " +
+        "User.Read Player.ReadWrite Closet.Read " +
         "Yggdrasil.PlayerProfiles.Read Yggdrasil.MinecraftToken.Create";
+
     private const int MaximumClosetPages = 50;
 
     private readonly HttpClient _client;
@@ -145,15 +184,12 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
             Environment.GetEnvironmentVariable("LITTLESKIN_REDIRECT_URI"),
             DefaultRedirectUri);
 
-        List<string> missing = [];
         if (string.IsNullOrWhiteSpace(clientId))
-            missing.Add("PCL_LITTLESKIN_CLIENT_ID");
-        if (string.IsNullOrWhiteSpace(clientSecret))
-            missing.Add("PCL_LITTLESKIN_CLIENT_SECRET");
-        if (missing.Count > 0)
         {
             throw new InvalidOperationException(
-                "缺少 LittleSkin OAuth 配置：" + string.Join("、", missing) + "。");
+                "缺少 LittleSkin OAuth 配置：PCL_LITTLESKIN_CLIENT_ID。" +
+                "桌面启动器使用设备代码流，仅需 Client ID（须在 LittleSkin 申请设备代码流白名单，" +
+                "回调 URL 设为 https://open.littleskin.cn/oauth/callback）。");
         }
 
         if (!Uri.TryCreate(redirect, UriKind.Absolute, out Uri? redirectUri))
@@ -177,6 +213,122 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
         return new LittleSkinAuthorizationRequest(new Uri(url), state);
     }
 
+    public async Task<LittleSkinDeviceCodeInfo> RequestDeviceCodeAsync(
+        LittleSkinOAuthConfiguration configuration,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        using FormUrlEncodedContent form = new(
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["client_id"] = configuration.ClientId,
+                ["scope"] = RequestedScopes
+            });
+        using HttpRequestMessage request = new(HttpMethod.Post, DeviceCodeEndpoint)
+        {
+            Content = form
+        };
+        request.Headers.TryAddWithoutValidation("Accept", "application/json");
+        using HttpResponseMessage response = await _client
+            .SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken)
+            .ConfigureAwait(false);
+        string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        string? requestId = TryGetRequestId(response);
+        EnsureSuccess(response, body, "申请 LittleSkin 设备代码失败", requestId);
+
+        using JsonDocument document = JsonDocument.Parse(body);
+        JsonElement root = document.RootElement;
+        string userCode = ReadString(root, "user_code");
+        string deviceCode = ReadString(root, "device_code");
+        string verificationUri = ReadString(root, "verification_uri");
+        string verificationUriComplete = FirstNonEmpty(
+            ReadString(root, "verification_uri_complete"),
+            verificationUri);
+        int expiresIn = (int)Math.Clamp(ReadInt64(root, "expires_in", 300), 30, int.MaxValue);
+        int interval = (int)Math.Clamp(ReadInt64(root, "interval", 5), 1, 120);
+        if (string.IsNullOrWhiteSpace(userCode) ||
+            string.IsNullOrWhiteSpace(deviceCode) ||
+            string.IsNullOrWhiteSpace(verificationUri))
+        {
+            throw new InvalidDataException("LittleSkin 设备代码响应缺少必要字段。");
+        }
+
+        PortableLog.Info(
+            "LittleSkinAuth",
+            $"设备代码已申请；user_code={userCode}；expires_in={expiresIn}s。");
+        return new LittleSkinDeviceCodeInfo(
+            userCode,
+            deviceCode,
+            verificationUri,
+            verificationUriComplete,
+            expiresIn,
+            interval);
+    }
+
+    public async Task<LittleSkinOAuthTokens> WaitForDeviceAuthorizationAsync(
+        LittleSkinOAuthConfiguration configuration,
+        LittleSkinDeviceCodeInfo deviceCode,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(deviceCode);
+
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(deviceCode.ExpiresInSeconds);
+        int intervalMs = Math.Max(1000, deviceCode.IntervalSeconds * 1000);
+        double started = Environment.TickCount64;
+        double totalMs = Math.Max(1, deviceCode.ExpiresInSeconds * 1000d);
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            progress?.Report(Math.Clamp((Environment.TickCount64 - started) / totalMs * 0.55d, 0d, 0.55d));
+
+            using FormUrlEncodedContent form = new(
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code",
+                    ["client_id"] = configuration.ClientId,
+                    ["device_code"] = deviceCode.DeviceCode
+                });
+            using HttpRequestMessage request = new(HttpMethod.Post, OpenTokenEndpoint)
+            {
+                Content = form
+            };
+            request.Headers.TryAddWithoutValidation("Accept", "application/json");
+            using HttpResponseMessage response = await _client
+                .SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken)
+                .ConfigureAwait(false);
+            string body = await response.Content.ReadAsStringAsync(cancellationToken)
+                .ConfigureAwait(false);
+            string? requestId = TryGetRequestId(response);
+
+            if (response.IsSuccessStatusCode)
+            {
+                progress?.Report(0.6d);
+                return ParseTokenResponse(body, fallbackRefreshToken: string.Empty, requireRefreshToken: true);
+            }
+
+            string error = TryReadOAuthError(body);
+            if (string.Equals(error, "authorization_pending", StringComparison.Ordinal))
+            {
+                await Task.Delay(intervalMs, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            if (string.Equals(error, "slow_down", StringComparison.Ordinal))
+            {
+                intervalMs = Math.Min(intervalMs + 5000, 60_000);
+                await Task.Delay(intervalMs, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            EnsureSuccess(response, body, "LittleSkin 设备授权失败", requestId);
+        }
+
+        throw new TimeoutException("LittleSkin 设备授权超时，请重新发起登录。");
+    }
+
     public Task<LittleSkinOAuthTokens> ExchangeAuthorizationCodeAsync(
         LittleSkinOAuthConfiguration configuration,
         string code,
@@ -184,7 +336,14 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
+        if (string.IsNullOrWhiteSpace(configuration.ClientSecret))
+        {
+            throw new InvalidOperationException(
+                "授权代码流需要 PCL_LITTLESKIN_CLIENT_SECRET。桌面启动器请使用设备代码流。");
+        }
+
         return RequestTokensAsync(
+            PassportTokenEndpoint,
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["grant_type"] = "authorization_code",
@@ -195,108 +354,91 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
             },
             fallbackRefreshToken: string.Empty,
             "兑换 LittleSkin OAuth 授权码失败",
+            requireRefreshToken: true,
             cancellationToken);
     }
 
-    public Task<LittleSkinOAuthTokens> RefreshOAuthTokenAsync(
+    public async Task<LittleSkinOAuthTokens> RefreshOAuthTokenAsync(
         LittleSkinOAuthConfiguration configuration,
         string refreshToken,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentException.ThrowIfNullOrWhiteSpace(refreshToken);
-        return RequestTokensAsync(
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["grant_type"] = "refresh_token",
-                ["client_id"] = configuration.ClientId,
-                ["client_secret"] = configuration.ClientSecret,
-                ["refresh_token"] = refreshToken
-            },
-            refreshToken,
-            "刷新 LittleSkin OAuth 令牌失败",
-            cancellationToken);
+
+        // Device-flow tokens (primary for launchers) refresh on open.littleskin.cn.
+        try
+        {
+            return await RequestTokensAsync(
+                    OpenTokenEndpoint,
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["grant_type"] = "refresh_token",
+                        ["client_id"] = configuration.ClientId,
+                        ["refresh_token"] = refreshToken
+                    },
+                    refreshToken,
+                    "刷新 LittleSkin OAuth 令牌失败",
+                    requireRefreshToken: false,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (HttpRequestException) when (!string.IsNullOrWhiteSpace(configuration.ClientSecret))
+        {
+            // Legacy authorization-code tokens refresh on littleskin.cn with client_secret.
+            return await RequestTokensAsync(
+                    PassportTokenEndpoint,
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["grant_type"] = "refresh_token",
+                        ["client_id"] = configuration.ClientId,
+                        ["client_secret"] = configuration.ClientSecret,
+                        ["refresh_token"] = refreshToken
+                    },
+                    refreshToken,
+                    "刷新 LittleSkin OAuth 令牌失败",
+                    requireRefreshToken: false,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 
+    /// <summary>
+    /// GET https://littleskin.cn/api/yggdrasil/sessionserver/session/minecraft/profile
+    /// Requires <c>Yggdrasil.PlayerProfiles.Read</c>.
+    /// </summary>
     public async Task<IReadOnlyList<LittleSkinProfile>> GetProfilesAsync(
         string accessToken,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
+        string body = await SendBearerAsync(
+                HttpMethod.Get,
+                new Uri(YggdrasilApiRoot + "sessionserver/session/minecraft/profile"),
+                accessToken,
+                content: null,
+                "获取 LittleSkin 角色档案失败",
+                cancellationToken)
+            .ConfigureAwait(false);
 
-        // Preferred: OAuth-gated Yggdrasil list (requires Yggdrasil.PlayerProfiles.Read).
-        Exception? yggdrasilFailure = null;
-        try
-        {
-            string body = await SendBearerAsync(
-                    HttpMethod.Get,
-                    new Uri(YggdrasilApiRoot + "sessionserver/session/minecraft/profile"),
-                    accessToken,
-                    content: null,
-                    "获取 LittleSkin 角色档案失败",
-                    cancellationToken)
-                .ConfigureAwait(false);
-            IReadOnlyList<LittleSkinProfile> fromYggdrasil = ParseProfileArray(body);
-            if (fromYggdrasil.Count > 0)
-                return fromYggdrasil;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or InvalidDataException or JsonException)
-        {
-            yggdrasilFailure = ex;
-            PortableLog.Warn(
-                "LittleSkinAuth",
-                "Yggdrasil 角色档案接口失败，回退到 /api/players + 公开 UUID 解析：" + ex.Message);
-        }
-
-        // Fallback: Passport-scoped player list + public name→UUID lookup.
-        // Some OAuth tokens work for Laravel /api/* but not the Express Yggdrasil gateway.
-        try
-        {
-            IReadOnlyList<LittleSkinPlayer> players = await GetPlayersAsync(accessToken, cancellationToken)
-                .ConfigureAwait(false);
-            List<LittleSkinProfile> resolved = [];
-            foreach (LittleSkinPlayer player in players)
-            {
-                if (string.IsNullOrWhiteSpace(player.Username))
-                    continue;
-                string? uuid = await TryResolveUuidByNameAsync(player.Username, cancellationToken)
-                    .ConfigureAwait(false);
-                if (string.IsNullOrWhiteSpace(uuid))
-                {
-                    PortableLog.Warn(
-                        "LittleSkinAuth",
-                        $"无法解析角色 UUID：name={player.Username}；pid={player.PlayerId}。");
-                    continue;
-                }
-
-                resolved.Add(new LittleSkinProfile(player.Username, uuid));
-            }
-
-            if (resolved.Count > 0)
-                return resolved;
-
-            if (players.Count == 0)
-            {
-                throw new InvalidOperationException(
-                    "LittleSkin 账户下没有角色。请先在 littleskin.cn 创建至少一个角色后再登录。");
-            }
-
-            throw new InvalidDataException(
-                "已读取到 LittleSkin 角色列表，但无法解析任何角色的 UUID。");
-        }
-        catch (Exception fallbackEx) when (yggdrasilFailure is not null &&
-                                          fallbackEx is not InvalidOperationException)
+        // Unauthorized resource may return HTTP 200 with code=403.
+        if (TryReadApiErrorCode(body, out int code) && code == 403)
         {
             throw new HttpRequestException(
-                "获取 LittleSkin 角色档案失败：" + yggdrasilFailure.Message +
-                "；回退路径也失败：" + fallbackEx.Message,
-                fallbackEx);
+                "获取 LittleSkin 角色档案失败：访问令牌缺少 Yggdrasil.PlayerProfiles.Read 权限，请重新授权。",
+                null,
+                HttpStatusCode.Forbidden);
         }
 
-        // Unreachable: try always returns or throws.
-        throw new InvalidOperationException("获取 LittleSkin 角色档案失败。");
+        IReadOnlyList<LittleSkinProfile> profiles = ParseProfileArray(body);
+        PortableLog.Info("LittleSkinAuth", $"角色档案列表已加载；count={profiles.Count}。");
+        return profiles;
     }
 
+    /// <summary>
+    /// POST https://littleskin.cn/api/yggdrasil/authserver/oauth
+    /// Body: <c>{"uuid":"&lt;undashed&gt;"}</c>. Requires <c>Yggdrasil.MinecraftToken.Create</c>.
+    /// </summary>
     public async Task<LittleSkinMinecraftSession> CreateMinecraftSessionAsync(
         string accessToken,
         string uuid,
@@ -304,35 +446,17 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(uuid);
         string normalizedUuid = NormalizeUuid(uuid);
-        string dashedUuid = FormatUuidDashed(normalizedUuid);
-        static string BuildUuidPayload(string value) =>
-            "{\"uuid\":\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal)
-                .Replace("\"", "\\\"", StringComparison.Ordinal) + "\"}";
+        string payload =
+            "{\"uuid\":\"" + EscapeJsonString(normalizedUuid) + "\"}";
+        string body = await SendBearerAsync(
+                HttpMethod.Post,
+                new Uri(YggdrasilApiRoot + "authserver/oauth"),
+                accessToken,
+                new StringContent(payload, Encoding.UTF8, "application/json"),
+                "获取 LittleSkin Minecraft 令牌失败",
+                cancellationToken)
+            .ConfigureAwait(false);
 
-        // Docs use undashed UUID; retry dashed if the gateway rejects the first form.
-        string body;
-        try
-        {
-            body = await SendBearerAsync(
-                    HttpMethod.Post,
-                    new Uri(YggdrasilApiRoot + "authserver/oauth"),
-                    accessToken,
-                    new StringContent(BuildUuidPayload(normalizedUuid), Encoding.UTF8, "application/json"),
-                    "获取 LittleSkin Minecraft 令牌失败",
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (HttpRequestException) when (!string.Equals(normalizedUuid, dashedUuid, StringComparison.Ordinal))
-        {
-            body = await SendBearerAsync(
-                    HttpMethod.Post,
-                    new Uri(YggdrasilApiRoot + "authserver/oauth"),
-                    accessToken,
-                    new StringContent(BuildUuidPayload(dashedUuid), Encoding.UTF8, "application/json"),
-                    "获取 LittleSkin Minecraft 令牌失败",
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
         using JsonDocument document = JsonDocument.Parse(body);
         JsonElement root = document.RootElement;
         JsonElement selected = root.TryGetProperty("selectedProfile", out JsonElement value)
@@ -448,7 +572,7 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
         using FormUrlEncodedContent content = new(
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                [field] = textureId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                [field] = textureId.ToString(CultureInfo.InvariantCulture)
             });
         _ = await SendBearerAsync(
                 HttpMethod.Put,
@@ -466,27 +590,46 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     }
 
     private async Task<LittleSkinOAuthTokens> RequestTokensAsync(
+        string endpoint,
         Dictionary<string, string> form,
         string fallbackRefreshToken,
         string operation,
+        bool requireRefreshToken,
         CancellationToken cancellationToken)
     {
+        using HttpRequestMessage request = new(HttpMethod.Post, endpoint)
+        {
+            Content = new FormUrlEncodedContent(form)
+        };
+        request.Headers.TryAddWithoutValidation("Accept", "application/json");
         using HttpResponseMessage response = await _client
-            .PostAsync(TokenEndpoint, new FormUrlEncodedContent(form), cancellationToken)
+            .SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken)
             .ConfigureAwait(false);
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        EnsureSuccess(response, body, operation);
+        EnsureSuccess(response, body, operation, TryGetRequestId(response));
+        return ParseTokenResponse(body, fallbackRefreshToken, requireRefreshToken);
+    }
+
+    private static LittleSkinOAuthTokens ParseTokenResponse(
+        string body,
+        string fallbackRefreshToken,
+        bool requireRefreshToken)
+    {
         using JsonDocument document = JsonDocument.Parse(body);
         JsonElement root = document.RootElement;
         string accessToken = ReadString(root, "access_token");
         string refreshToken = FirstNonEmpty(ReadString(root, "refresh_token"), fallbackRefreshToken);
+        string idToken = ReadString(root, "id_token");
         int expiresIn = (int)Math.Clamp(ReadInt64(root, "expires_in", 259200), 1, int.MaxValue);
-        if (string.IsNullOrWhiteSpace(accessToken) || string.IsNullOrWhiteSpace(refreshToken))
-            throw new InvalidDataException("LittleSkin OAuth 响应缺少访问令牌或刷新令牌。");
+        if (string.IsNullOrWhiteSpace(accessToken))
+            throw new InvalidDataException("LittleSkin OAuth 响应缺少访问令牌。");
+        if (requireRefreshToken && string.IsNullOrWhiteSpace(refreshToken))
+            throw new InvalidDataException("LittleSkin OAuth 响应缺少刷新令牌（请申请 offline_access 权限）。");
         return new LittleSkinOAuthTokens(
             accessToken,
             refreshToken,
-            DateTimeOffset.UtcNow.AddSeconds(expiresIn));
+            DateTimeOffset.UtcNow.AddSeconds(expiresIn),
+            string.IsNullOrWhiteSpace(idToken) ? null : idToken);
     }
 
     private async Task<string> SendBearerAsync(
@@ -502,20 +645,22 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
         {
             Content = content
         };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        // Docs: Authorization: Bearer {{access_token}} + Accept: application/json
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + accessToken.Trim());
         request.Headers.TryAddWithoutValidation("Accept", "application/json");
         using HttpResponseMessage response = await _client
             .SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken)
             .ConfigureAwait(false);
         string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        EnsureSuccess(response, body, operation);
+        EnsureSuccess(response, body, operation, TryGetRequestId(response));
         return body;
     }
 
     private static void EnsureSuccess(
         HttpResponseMessage response,
         string body,
-        string operation)
+        string operation,
+        string? requestId = null)
     {
         if (response.IsSuccessStatusCode)
             return;
@@ -539,11 +684,56 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
         string message = string.IsNullOrWhiteSpace(detail)
             ? $"{operation}（HTTP {(int)response.StatusCode}）。"
             : $"{operation}：{detail}";
+        if (!string.IsNullOrWhiteSpace(requestId))
+            message += " 请求 ID：" + requestId;
         PortableLog.Error("LittleSkinAuth", message);
         throw new HttpRequestException(message, null, response.StatusCode);
     }
 
-    private static IReadOnlyList<LittleSkinProfile> ParseProfileArray(string body)
+    private static string? TryGetRequestId(HttpResponseMessage response)
+    {
+        if (response.Headers.TryGetValues("X-Yggdralt-Req-ID", out IEnumerable<string>? values))
+            return values.FirstOrDefault();
+        if (response.Headers.TryGetValues("X-Yggdrasil-Req-ID", out values))
+            return values.FirstOrDefault();
+        return null;
+    }
+
+    private static string TryReadOAuthError(string body)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(body);
+            return ReadString(document.RootElement, "error");
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static bool TryReadApiErrorCode(string body, out int code)
+    {
+        code = 0;
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(body);
+            if (!TryReadInt64(document.RootElement, "code", out long value) ||
+                value is < int.MinValue or > int.MaxValue)
+            {
+                return false;
+            }
+
+            code = (int)value;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static List<LittleSkinProfile> ParseProfileArray(string body)
     {
         using JsonDocument document = JsonDocument.Parse(body);
         if (document.RootElement.ValueKind != JsonValueKind.Array)
@@ -561,57 +751,6 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
         return profiles;
     }
 
-    private async Task<string?> TryResolveUuidByNameAsync(
-        string username,
-        CancellationToken cancellationToken)
-    {
-        // Public Yggdrasil name lookup (no OAuth).
-        string[] paths =
-        [
-            YggdrasilApiRoot + "api/users/profiles/minecraft/" + Uri.EscapeDataString(username),
-            YggdrasilApiRoot + "minecraftservices/minecraft/profile/lookup/name/" +
-            Uri.EscapeDataString(username)
-        ];
-
-        foreach (string path in paths)
-        {
-            try
-            {
-                using HttpRequestMessage request = new(HttpMethod.Get, path);
-                request.Headers.TryAddWithoutValidation("Accept", "application/json");
-                using HttpResponseMessage response = await _client
-                    .SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken)
-                    .ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
-                    continue;
-                string body = await response.Content.ReadAsStringAsync(cancellationToken)
-                    .ConfigureAwait(false);
-                using JsonDocument document = JsonDocument.Parse(body);
-                string uuid = ReadString(document.RootElement, "id");
-                if (!string.IsNullOrWhiteSpace(uuid))
-                    return NormalizeUuid(uuid);
-            }
-            catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidDataException)
-            {
-                // try next path
-            }
-        }
-
-        return null;
-    }
-
-    private static string FormatUuidDashed(string undashed)
-    {
-        string id = NormalizeUuid(undashed);
-        if (id.Length != 32)
-            return id;
-        return id.Substring(0, 8) + "-" +
-               id.Substring(8, 4) + "-" +
-               id.Substring(12, 4) + "-" +
-               id.Substring(16, 4) + "-" +
-               id.Substring(20, 12);
-    }
-
     private static string ReadClosetItemName(JsonElement entry)
     {
         if (entry.TryGetProperty("pivot", out JsonElement pivot) &&
@@ -627,6 +766,10 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
 
     private static string NormalizeUuid(string uuid) =>
         new(uuid.Where(static character => character is not ('-' or ' ')).ToArray());
+
+    private static string EscapeJsonString(string value) =>
+        value.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
 
     private static bool IsTextureHash(string hash) =>
         hash.Length == 64 &&
@@ -662,8 +805,8 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
             JsonValueKind.Number => property.TryGetInt64(out value),
             JsonValueKind.String => long.TryParse(
                 property.GetString(),
-                System.Globalization.NumberStyles.Integer,
-                System.Globalization.CultureInfo.InvariantCulture,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
                 out value),
             _ => false
         };

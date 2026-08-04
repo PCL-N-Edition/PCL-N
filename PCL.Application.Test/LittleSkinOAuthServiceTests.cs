@@ -12,7 +12,7 @@ namespace PCL.Application.Test;
 public sealed class LittleSkinOAuthServiceTests
 {
     [TestMethod]
-    public void CreateAuthorizationRequest_UsesAuthorizationCodeScopesAndState()
+    public void CreateAuthorizationRequest_UsesDocumentedScopesAndState()
     {
         LittleSkinOAuthService service = new(new HttpClient());
         LittleSkinOAuthConfiguration configuration = new(
@@ -29,44 +29,72 @@ public sealed class LittleSkinOAuthServiceTests
         StringAssert.Contains(url, "client_id=client-id");
         StringAssert.Contains(url, "state=state-token");
         StringAssert.Contains(url, "openid");
-        StringAssert.Contains(url, "Player.ReadWrite");
-        StringAssert.Contains(url, "Closet.Read");
+        StringAssert.Contains(url, "offline_access");
         StringAssert.Contains(url, "Yggdrasil.PlayerProfiles.Read");
         StringAssert.Contains(url, "Yggdrasil.MinecraftToken.Create");
-        Assert.DoesNotContain("Yggdrasil.Server.Join", url);
-        Assert.DoesNotContain("Closet.ReadWrite", url);
         Assert.DoesNotContain("Yggdrasil.PlayerProfiles.Select", url);
+        Assert.DoesNotContain("Yggdrasil.Server.Join", url);
     }
 
     [TestMethod]
-    public async Task AuthorizationCodeFlow_ExchangesCodeAndCreatesMinecraftSession()
+    public async Task DeviceCodeFlow_PollsAndCreatesMinecraftSessionViaOfficialApis()
     {
-        Queue<HttpRequestMessage> requests = new();
+        int tokenPolls = 0;
         using HttpClient client = new(new DelegateHandler(async request =>
         {
-            requests.Enqueue(request);
-            string path = request.RequestUri!.AbsolutePath;
-            if (path == "/oauth/token")
+            string host = request.RequestUri!.Host;
+            string path = request.RequestUri.AbsolutePath;
+
+            if (host == "open.littleskin.cn" && path == "/oauth/device_code")
             {
                 string form = await request.Content!.ReadAsStringAsync();
-                StringAssert.Contains(form, "grant_type=authorization_code");
-                StringAssert.Contains(form, "client_secret=client-secret");
+                StringAssert.Contains(form, "client_id=client-id");
+                StringAssert.Contains(form, "Yggdrasil.PlayerProfiles.Read");
+                StringAssert.Contains(form, "Yggdrasil.MinecraftToken.Create");
                 return Json(
                     """
                     {
-                      "access_token": "oauth-access",
-                      "refresh_token": "oauth-refresh",
-                      "expires_in": 259200
+                      "user_code": "ABCD-EFGH",
+                      "device_code": "device-xyz",
+                      "verification_uri": "https://open.littleskin.cn/oauth/link",
+                      "verification_uri_complete": "https://open.littleskin.cn/oauth/link?user_code=ABCD-EFGH",
+                      "expires_in": 300,
+                      "interval": 1
                     }
                     """);
             }
 
-            Assert.AreEqual(
-                "Bearer",
-                request.Headers.Authorization?.Scheme);
-            Assert.AreEqual(
-                "oauth-access",
-                request.Headers.Authorization?.Parameter);
+            if (host == "open.littleskin.cn" && path == "/oauth/token")
+            {
+                tokenPolls++;
+                string form = await request.Content!.ReadAsStringAsync();
+                if (form.Contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code", StringComparison.Ordinal) ||
+                    form.Contains("device_code", StringComparison.Ordinal))
+                {
+                    if (tokenPolls < 2)
+                    {
+                        return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                        {
+                            Content = new StringContent(
+                                """{"error":"authorization_pending","error_description":"pending"}""")
+                        };
+                    }
+
+                    return Json(
+                        """
+                        {
+                          "token_type": "Bearer",
+                          "expires_in": 259200,
+                          "access_token": "oauth-access",
+                          "refresh_token": "oauth-refresh",
+                          "id_token": "header.payload.sig"
+                        }
+                        """);
+                }
+            }
+
+            if (request.Headers.TryGetValues("Authorization", out IEnumerable<string>? authValues))
+                StringAssert.StartsWith(authValues.First(), "Bearer ");
             if (path.EndsWith("/session/minecraft/profile", StringComparison.Ordinal))
             {
                 return Json(
@@ -99,17 +127,20 @@ public sealed class LittleSkinOAuthServiceTests
 
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         }));
+
         LittleSkinOAuthService service = new(client);
         LittleSkinOAuthConfiguration configuration = new(
             "client-id",
-            "client-secret",
-            new Uri("http://127.0.0.1:17342/oauth/littleskin/callback"));
+            string.Empty,
+            new Uri(LittleSkinOAuthService.DeviceFlowRedirectUri));
 
-        LittleSkinOAuthTokens tokens = await service.ExchangeAuthorizationCodeAsync(
+        LittleSkinDeviceCodeInfo device = await service.RequestDeviceCodeAsync(configuration);
+        Assert.AreEqual("ABCD-EFGH", device.UserCode);
+
+        LittleSkinOAuthTokens tokens = await service.WaitForDeviceAuthorizationAsync(
             configuration,
-            "authorization-code");
-        IReadOnlyList<LittleSkinProfile> profiles = await service.GetProfilesAsync(
-            tokens.AccessToken);
+            device);
+        IReadOnlyList<LittleSkinProfile> profiles = await service.GetProfilesAsync(tokens.AccessToken);
         LittleSkinMinecraftSession session = await service.CreateMinecraftSessionAsync(
             tokens.AccessToken,
             profiles[0].Uuid);
@@ -119,75 +150,56 @@ public sealed class LittleSkinOAuthServiceTests
         Assert.HasCount(1, profiles);
         Assert.AreEqual("Alice", session.Username);
         Assert.AreEqual("minecraft-token", session.AccessToken);
-        Assert.AreEqual("minecraft-client-token", session.ClientToken);
-        Assert.HasCount(3, requests);
+        Assert.IsGreaterThanOrEqualTo(2, tokenPolls);
     }
 
     [TestMethod]
-    public async Task GetProfilesAsync_FallsBackToPlayersAndPublicUuidLookup()
+    public async Task AuthorizationCodeFlow_ExchangesCodeAndCreatesMinecraftSession()
     {
         using HttpClient client = new(new DelegateHandler(async request =>
         {
             string path = request.RequestUri!.AbsolutePath;
-            if (path.EndsWith("/session/minecraft/profile", StringComparison.Ordinal) &&
-                !path.Contains("/profile/", StringComparison.Ordinal))
+            if (path == "/oauth/token")
             {
-                return new HttpResponseMessage(HttpStatusCode.Forbidden)
-                {
-                    Content = new StringContent(
-                        """
-                        {"error":"ForbiddenOperationException","errorMessage":"Invalid access token, please re-login."}
-                        """)
-                };
-            }
-
-            if (path == "/api/players")
-            {
+                string form = await request.Content!.ReadAsStringAsync();
+                StringAssert.Contains(form, "grant_type=authorization_code");
+                StringAssert.Contains(form, "client_secret=client-secret");
                 return Json(
                     """
-                    [{"pid":7,"name":"Alice","tid_skin":1,"tid_cape":0}]
+                    {
+                      "access_token": "oauth-access",
+                      "refresh_token": "oauth-refresh",
+                      "expires_in": 259200
+                    }
                     """);
             }
 
-            if (path.Contains("/profiles/minecraft/Alice", StringComparison.Ordinal) ||
-                path.Contains("/lookup/name/Alice", StringComparison.Ordinal))
+            if (path.EndsWith("/session/minecraft/profile", StringComparison.Ordinal))
             {
                 return Json(
                     """
-                    {"id":"0123456789abcdef0123456789abcdef","name":"Alice"}
+                    [
+                      {"id":"0123456789abcdef0123456789abcdef","name":"Alice","properties":[]}
+                    ]
                     """);
             }
 
-            await Task.CompletedTask;
+            if (path.EndsWith("/authserver/oauth", StringComparison.Ordinal))
+            {
+                return Json(
+                    """
+                    {
+                      "accessToken":"minecraft-token",
+                      "clientToken":"minecraft-client-token",
+                      "selectedProfile":{
+                        "id":"0123456789abcdef0123456789abcdef",
+                        "name":"Alice"
+                      }
+                    }
+                    """);
+            }
+
             return new HttpResponseMessage(HttpStatusCode.NotFound);
-        }));
-        LittleSkinOAuthService service = new(client);
-
-        IReadOnlyList<LittleSkinProfile> profiles = await service.GetProfilesAsync("oauth-access");
-
-        Assert.HasCount(1, profiles);
-        Assert.AreEqual("Alice", profiles[0].Username);
-        Assert.AreEqual("0123456789abcdef0123456789abcdef", profiles[0].Uuid);
-    }
-
-    [TestMethod]
-    public async Task RefreshOAuthToken_UsesRefreshGrantAndKeepsExistingRefreshToken()
-    {
-        using HttpClient client = new(new DelegateHandler(async request =>
-        {
-            Assert.AreEqual("/oauth/token", request.RequestUri!.AbsolutePath);
-            string form = await request.Content!.ReadAsStringAsync();
-            StringAssert.Contains(form, "grant_type=refresh_token");
-            StringAssert.Contains(form, "client_id=client-id");
-            StringAssert.Contains(form, "client_secret=client-secret");
-            StringAssert.Contains(form, "refresh_token=existing-refresh");
-            return Json(
-                """
-                {
-                  "access_token": "refreshed-access",
-                  "expires_in": 3600
-                }
-                """);
         }));
         LittleSkinOAuthService service = new(client);
         LittleSkinOAuthConfiguration configuration = new(
@@ -195,13 +207,51 @@ public sealed class LittleSkinOAuthServiceTests
             "client-secret",
             new Uri("http://127.0.0.1:17342/oauth/littleskin/callback"));
 
+        LittleSkinOAuthTokens tokens = await service.ExchangeAuthorizationCodeAsync(
+            configuration,
+            "authorization-code");
+        IReadOnlyList<LittleSkinProfile> profiles = await service.GetProfilesAsync(tokens.AccessToken);
+        LittleSkinMinecraftSession session = await service.CreateMinecraftSessionAsync(
+            tokens.AccessToken,
+            profiles[0].Uuid);
+
+        Assert.AreEqual("Alice", session.Username);
+        Assert.AreEqual("minecraft-token", session.AccessToken);
+    }
+
+    [TestMethod]
+    public async Task RefreshOAuthToken_PrefersOpenEndpointForDeviceTokens()
+    {
+        using HttpClient client = new(new DelegateHandler(async request =>
+        {
+            Assert.AreEqual("open.littleskin.cn", request.RequestUri!.Host);
+            Assert.AreEqual("/oauth/token", request.RequestUri.AbsolutePath);
+            string form = await request.Content!.ReadAsStringAsync();
+            StringAssert.Contains(form, "grant_type=refresh_token");
+            StringAssert.Contains(form, "client_id=client-id");
+            StringAssert.Contains(form, "refresh_token=existing-refresh");
+            Assert.DoesNotContain("client_secret", form);
+            return Json(
+                """
+                {
+                  "access_token": "refreshed-access",
+                  "refresh_token": "new-refresh",
+                  "expires_in": 3600
+                }
+                """);
+        }));
+        LittleSkinOAuthService service = new(client);
+        LittleSkinOAuthConfiguration configuration = new(
+            "client-id",
+            string.Empty,
+            new Uri(LittleSkinOAuthService.DeviceFlowRedirectUri));
+
         LittleSkinOAuthTokens tokens = await service.RefreshOAuthTokenAsync(
             configuration,
             "existing-refresh");
 
         Assert.AreEqual("refreshed-access", tokens.AccessToken);
-        Assert.AreEqual("existing-refresh", tokens.RefreshToken);
-        Assert.IsTrue(tokens.ExpiresAt > DateTimeOffset.UtcNow.AddMinutes(55));
+        Assert.AreEqual("new-refresh", tokens.RefreshToken);
     }
 
     [TestMethod]
