@@ -257,7 +257,13 @@ public partial class MySkin : Grid
 
     private static async Task<string?> ResolveTextureUrlFromSessionProfileAsync(Uri profileUri)
     {
-        using HttpResponseMessage response = await SkinClient.GetAsync(profileUri, CancellationToken.None).ConfigureAwait(false);
+        // Session profile endpoints return JSON; default SkinClient Accept prefers images and
+        // can cause some Authlib/N Cloud servers to reject or return non-JSON payloads.
+        using HttpRequestMessage request = new(HttpMethod.Get, profileUri);
+        request.Headers.TryAddWithoutValidation("Accept", "application/json");
+        using HttpResponseMessage response = await SkinClient
+            .SendAsync(request, CancellationToken.None)
+            .ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
             return null;
 

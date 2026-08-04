@@ -684,13 +684,26 @@ public partial class MainWindow
                         profile,
                         CancellationToken.None)
                     .ConfigureAwait(true);
+                MinecraftProfileTextures textures = await MinecraftProfileTextureResolver
+                    .ResolveAsync(refreshed)
+                    .ConfigureAwait(true);
+                if (!string.IsNullOrWhiteSpace(textures.SkinAddress) &&
+                    !textures.SkinAddress.Contains(
+                        "/session/minecraft/profile/",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    refreshed = refreshed with { SkinAddress = textures.SkinAddress };
+                }
+
                 ReplaceLoginProfile(profile, refreshed);
                 _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, refreshed);
                 page.SetProfile(refreshed);
                 SaveProfilesInBackground("刷新 N Cloud 外观");
                 ShowTextDialog(
                     "外观已刷新",
-                    "已从 N Cloud 重新获取当前皮肤。",
+                    string.IsNullOrWhiteSpace(textures.CapeAddress)
+                        ? "已从 N Cloud 重新获取当前皮肤。"
+                        : "已从 N Cloud 重新获取当前皮肤与披风。",
                     "知道了");
                 return;
             }
@@ -712,50 +725,63 @@ public partial class MainWindow
 
     private void ShowProfileTypeSelector(ILaunchHomeSurface launchPage)
     {
-        bool useNCloud =
+        // Offline is always available. N Cloud is single-account: hide when a
+        // profile already exists; only offer when online service is signed in.
+        bool hasNCloudProfile = _loginProfiles.Any(
+            static profile => profile.Kind == LaunchLoginProfileKind.NCloud);
+        bool offerNCloud =
+            !hasNCloudProfile &&
             HostOnlineMinecraftAccountProvider.Current?.IsAuthenticated == true;
+
+        List<MyListItem> items =
+        [
+            CreateProfileTypeItem(
+                "Microsoft 登录",
+                "使用正版 Microsoft 账户登录，适合已购买 Minecraft 的玩家。",
+                "lucide/shield-check"),
+            CreateProfileTypeItem(
+                "LittleSkin 登录",
+                "通过浏览器 OAuth 授权，可直接管理 LittleSkin 角色、皮肤与披风。",
+                "lucide/boxes"),
+            CreateProfileTypeItem(
+                "第三方登录",
+                "使用自定义 Yggdrasil 兼容认证服务器登录。",
+                "lucide/network"),
+            CreateProfileTypeItem(
+                "离线登录",
+                "创建本地离线档案。联机服务器可能不会接受此档案。",
+                "lucide/link-2-off")
+        ];
+        List<PageLaunchLeft.LaunchLoginPageType> targets =
+        [
+            PageLaunchLeft.LaunchLoginPageType.Ms,
+            PageLaunchLeft.LaunchLoginPageType.LittleSkin,
+            PageLaunchLeft.LaunchLoginPageType.Auth,
+            PageLaunchLeft.LaunchLoginPageType.Offline
+        ];
+
+        if (offerNCloud)
+        {
+            items.Add(CreateProfileTypeItem(
+                "N Cloud 在线账户",
+                "使用已登录的在线服务账户；每个启动器仅支持一个 N Cloud 档案。",
+                "lucide/cloud"));
+            targets.Add(PageLaunchLeft.LaunchLoginPageType.NCloud);
+        }
+
         MyMsgSelect dialog = new();
-        dialog.Configure(
-            "选择账户类型",
-            [
-                CreateProfileTypeItem(
-                    "Microsoft 登录",
-                    "使用正版 Microsoft 账户登录，适合已购买 Minecraft 的玩家。",
-                    "lucide/shield-check"),
-                CreateProfileTypeItem(
-                    "LittleSkin 登录",
-                    "通过浏览器 OAuth 授权，可直接管理 LittleSkin 角色、皮肤与披风。",
-                    "lucide/boxes"),
-                CreateProfileTypeItem(
-                    "第三方登录",
-                    "使用自定义 Yggdrasil 兼容认证服务器登录。",
-                    "lucide/network"),
-                CreateProfileTypeItem(
-                    useNCloud ? "N Cloud 在线账户" : "离线登录",
-                    useNCloud
-                        ? "使用已登录的在线服务账户；支持云端皮肤与在线会话。"
-                        : "创建本地离线档案。联机服务器可能不会接受此档案。",
-                    useNCloud ? "lucide/cloud" : "lucide/link-2-off")
-            ]);
+        dialog.Configure("选择账户类型", items);
         ShowSelectionDialog(dialog, selectedIndex =>
         {
-            if (selectedIndex is not int index)
-                return;
-
-            PageLaunchLeft.LaunchLoginPageType? target = index switch
+            if (selectedIndex is not int index ||
+                index < 0 ||
+                index >= targets.Count)
             {
-                0 => PageLaunchLeft.LaunchLoginPageType.Ms,
-                1 => PageLaunchLeft.LaunchLoginPageType.LittleSkin,
-                2 => PageLaunchLeft.LaunchLoginPageType.Auth,
-                3 => useNCloud
-                    ? PageLaunchLeft.LaunchLoginPageType.NCloud
-                    : PageLaunchLeft.LaunchLoginPageType.Offline,
-                _ => null
-            };
-            if (target is null)
                 return;
+            }
 
-            launchPage.RefreshPage(anim: true, target.Value);
+            PageLaunchLeft.LaunchLoginPageType target = targets[index];
+            launchPage.RefreshPage(anim: true, target);
             _launchRight?.AppendLog($"正在创建{dialog.Items[index].Title}档案。");
         });
     }
@@ -1237,6 +1263,10 @@ public partial class MainWindow
 
     private void AddOrUpdateLoginProfile(LoginProfileInfo profile)
     {
+        // Enforce single N Cloud account per launcher install.
+        if (profile.Kind == LaunchLoginProfileKind.NCloud)
+            _loginProfiles.RemoveAll(static existing => existing.Kind == LaunchLoginProfileKind.NCloud);
+
         int existingIndex = _loginProfiles.FindIndex(existing => IsSameProfile(existing, profile));
         if (existingIndex >= 0)
             _loginProfiles.RemoveAt(existingIndex);
@@ -1420,6 +1450,12 @@ public partial class MainWindow
     {
         try
         {
+            if (_loginProfiles.Any(static existing => existing.Kind == LaunchLoginProfileKind.NCloud))
+            {
+                throw new InvalidOperationException(
+                    "已存在 N Cloud 账户档案。每个启动器仅允许一个 N Cloud 账户；请先删除现有档案后再登录。");
+            }
+
             await DesktopHost.EnsureOptionalRuntimeReadyAsync().ConfigureAwait(true);
             IHostOnlineMinecraftAccountProvider? provider =
                 HostOnlineMinecraftAccountProvider.Current;
@@ -1440,17 +1476,46 @@ public partial class MainWindow
             HostOnlineMinecraftSession session = await provider
                 .CreateSessionAsync()
                 .ConfigureAwait(true);
-            page.UpdateProgress(0.8d);
+            page.UpdateProgress(0.55d);
+
+            string authServer = AuthlibInjectorService.NormalizeAuthServer(session.AuthServer);
+            string? skinAddress = string.IsNullOrWhiteSpace(session.SkinAddress)
+                ? null
+                : session.SkinAddress.Trim();
             LoginProfileInfo profile = new(
                 session.Username,
                 "N Cloud 在线账户",
                 LaunchLoginProfileKind.NCloud,
                 session.Uuid,
                 SvgIcon: "lucide/cloud",
-                SkinAddress: session.SkinAddress,
-                AuthServer: session.AuthServer,
+                SkinAddress: skinAddress,
+                AuthServer: authServer,
                 AccessToken: session.AccessToken,
                 ClientToken: session.ClientToken);
+
+            // Resolve skin/cape texture URLs from the Yggdrasil session profile.
+            MinecraftProfileTextures textures = await MinecraftProfileTextureResolver
+                .ResolveAsync(profile)
+                .ConfigureAwait(true);
+            if (!string.IsNullOrWhiteSpace(textures.SkinAddress) &&
+                !textures.SkinAddress.Contains(
+                    "/session/minecraft/profile/",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                profile = profile with { SkinAddress = textures.SkinAddress };
+            }
+            else if (string.IsNullOrWhiteSpace(profile.SkinAddress))
+            {
+                profile = profile with
+                {
+                    SkinAddress = MySkin.ResolveSkinAddress(
+                        skinAddress: null,
+                        uuid: profile.Uuid,
+                        authServer: profile.AuthServer)
+                };
+            }
+
+            page.UpdateProgress(0.85d);
             AddOrUpdateLoginProfile(profile);
             _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, profile);
             _launchLoginSurface.ProfileSkinPage?.SetProfile(profile);

@@ -44,6 +44,7 @@ using PCL.Desktop.Controls.Motion;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Telemetry;
 using PCL.Desktop.Features.Community;
+using PCL.Desktop.Features.Launching.Appearance;
 using PCL.Desktop.Hosting;
 using PCL.Desktop.Legal;
 using PCL.Desktop.Localization;
@@ -4081,15 +4082,37 @@ public partial class MainWindow : Window, IDisposable
                 .CreateSessionAsync(cancellationToken)
                 .ConfigureAwait(false);
             Report("N Cloud 会话已刷新。");
-            return profile with
+            string authServer = AuthlibInjectorService.NormalizeAuthServer(session.AuthServer);
+            LoginProfileInfo nCloudProfile = profile with
             {
                 Username = session.Username,
                 Uuid = session.Uuid,
                 AccessToken = session.AccessToken,
                 ClientToken = session.ClientToken,
-                AuthServer = session.AuthServer,
+                AuthServer = authServer,
                 SkinAddress = session.SkinAddress ?? profile.SkinAddress
             };
+
+            // Prefer concrete texture PNG from the Yggdrasil session profile (skin + cape source).
+            try
+            {
+                MinecraftProfileTextures textures = await MinecraftProfileTextureResolver
+                    .ResolveAsync(nCloudProfile, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(textures.SkinAddress) &&
+                    !textures.SkinAddress.Contains(
+                        "/session/minecraft/profile/",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    nCloudProfile = nCloudProfile with { SkinAddress = textures.SkinAddress };
+                }
+            }
+            catch
+            {
+                // Keep session fields; appearance page will re-resolve.
+            }
+
+            return nCloudProfile;
         }
 
         if (profile.Kind != LaunchLoginProfileKind.Microsoft ||
