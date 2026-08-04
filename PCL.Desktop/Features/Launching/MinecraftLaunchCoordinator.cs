@@ -206,11 +206,22 @@ internal sealed class MinecraftLaunchCoordinator
         cancellationToken.ThrowIfCancellationRequested();
         // Normalize FileName before logging so the UI shows the real executable used.
         NormalizeJavaExecutableForLaunch(plan.StartInfo);
+        string launchArgs = plan.StartInfo.Arguments ?? string.Empty;
+        bool hasAuthlibAgent = launchArgs.Contains("-javaagent:", StringComparison.OrdinalIgnoreCase) &&
+                               launchArgs.Contains("authlib", StringComparison.OrdinalIgnoreCase);
+        if (request.Profile.Kind is LaunchLoginProfileKind.NCloud or LaunchLoginProfileKind.LittleSkin)
+        {
+            request.Log?.Invoke(
+                hasAuthlibAgent
+                    ? "Authlib Injector 已写入启动参数（外置登录 / 皮肤）。"
+                    : "警告：未检测到 Authlib Injector 启动参数，游戏内皮肤可能无法加载。");
+        }
+
         request.Log?.Invoke(
             "启动 Java：" + plan.StartInfo.FileName +
             "\n工作目录：" + plan.StartInfo.WorkingDirectory +
             "\nNatives：" + plan.NativesDirectory +
-            "\n参数预览：" + Truncate(plan.StartInfo.Arguments ?? string.Empty, 240));
+            "\n参数预览：" + Truncate(launchArgs, 240));
 
         Process? launchedProcess = null;
         Guid launchedSessionId = Guid.Empty;

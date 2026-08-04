@@ -4082,7 +4082,8 @@ public partial class MainWindow : Window, IDisposable
                 .CreateSessionAsync(cancellationToken)
                 .ConfigureAwait(false);
             Report("N Cloud 会话已刷新。");
-            string authServer = AuthlibInjectorService.NormalizeAuthServer(session.AuthServer);
+            string authServer = MinecraftLaunchPlanFactory.ResolveNCloudAuthServer(
+                session.AuthServer ?? profile.AuthServer);
             LoginProfileInfo nCloudProfile = profile with
             {
                 Username = session.Username,

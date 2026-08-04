@@ -1478,7 +1478,7 @@ public partial class MainWindow
                 .ConfigureAwait(true);
             page.UpdateProgress(0.55d);
 
-            string authServer = AuthlibInjectorService.NormalizeAuthServer(session.AuthServer);
+            string authServer = MinecraftLaunchPlanFactory.ResolveNCloudAuthServer(session.AuthServer);
             string? skinAddress = string.IsNullOrWhiteSpace(session.SkinAddress)
                 ? null
                 : session.SkinAddress.Trim();

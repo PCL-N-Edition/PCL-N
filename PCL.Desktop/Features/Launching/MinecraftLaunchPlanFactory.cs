@@ -55,6 +55,29 @@ internal static class MinecraftLaunchPlanFactory
         int javaMajorVersion = await ResolveJavaMajorVersionAsync(javaExecutablePath, cancellationToken)
             .ConfigureAwait(false);
 
+        if (profile.Kind is LaunchLoginProfileKind.NCloud or LaunchLoginProfileKind.LittleSkin)
+        {
+            // These providers must never launch against Mojang sessionserver alone —
+            // skins, capes, and join-server checks all depend on Authlib Injector.
+            if (string.IsNullOrWhiteSpace(authlibPath) || string.IsNullOrWhiteSpace(authlibServer))
+            {
+                throw new InvalidOperationException(
+                    profile.Kind == LaunchLoginProfileKind.NCloud
+                        ? "N Cloud 启动需要 Authlib Injector，但档案缺少可用的认证服务器或注入组件未能准备。请重新登录 N Cloud 后重试。"
+                        : "LittleSkin 启动需要 Authlib Injector，但档案缺少可用的认证服务器或注入组件未能准备。请重新登录后重试。");
+            }
+
+            PortableLog.Info(
+                "LaunchPlan",
+                $"已为 {profile.Kind} 启用 Authlib Injector；server={authlibServer}；agent={authlibPath}。");
+        }
+        else if (!string.IsNullOrWhiteSpace(authlibPath) && !string.IsNullOrWhiteSpace(authlibServer))
+        {
+            PortableLog.Info(
+                "LaunchPlan",
+                $"已启用 Authlib Injector；server={authlibServer}。");
+        }
+
         // Compatibility path: standard third-party authentication agent.
         // Eligible host identities use the session bridge and ASM authlib patch instead.
         return await MinecraftProcessLaunchService.CreatePlanAsync(
@@ -323,26 +346,92 @@ internal static class MinecraftLaunchPlanFactory
         return candidates.Count > 0 ? candidates[0].Installation.MajorVersion : 17;
     }
 
+    /// <summary>
+    /// Public N Cloud Yggdrasil root used when a saved profile omitted AuthServer.
+    /// Matches <c>PCLN_PLUGIN_API_URL</c> + <c>yggdrasil</c>.
+    /// </summary>
+    internal static string ResolveNCloudAuthServer(string? authServer)
+    {
+        if (!string.IsNullOrWhiteSpace(authServer))
+            return AuthlibInjectorService.NormalizeAuthServer(authServer);
+
+        string apiBase = Environment.GetEnvironmentVariable("PCLN_PLUGIN_API_URL");
+        if (string.IsNullOrWhiteSpace(apiBase))
+        {
+            apiBase =
+                "https://vtvhtscdvfnuttwapzxu.supabase.co/functions/v1/plugin-center-api/v1/";
+        }
+
+        if (!apiBase.EndsWith('/'))
+            apiBase += "/";
+        return AuthlibInjectorService.NormalizeAuthServer(apiBase + "yggdrasil");
+    }
+
     private static async Task<(string? Path, string? Server, string? Metadata)> ResolveAuthlibLaunchOptionsAsync(
         LoginProfileInfo profile,
         bool useJvmHost,
         CancellationToken cancellationToken)
     {
-        if (!profile.UsesYggdrasil || string.IsNullOrWhiteSpace(profile.AuthServer))
+        bool requiresAgent =
+            profile.Kind is LaunchLoginProfileKind.NCloud or LaunchLoginProfileKind.LittleSkin;
+
+        if (!profile.UsesYggdrasil)
             return (null, null, null);
 
+        string? rawAuthServer = profile.AuthServer;
+        if (string.IsNullOrWhiteSpace(rawAuthServer))
+        {
+            if (profile.Kind == LaunchLoginProfileKind.NCloud)
+            {
+                rawAuthServer = ResolveNCloudAuthServer(null);
+                PortableLog.Warn(
+                    "LaunchPlan",
+                    "N Cloud 档案缺少 AuthServer，已回退到默认 Yggdrasil 根：" + rawAuthServer);
+            }
+            else if (requiresAgent)
+            {
+                throw new InvalidOperationException(
+                    "LittleSkin 档案缺少认证服务器地址（AuthServer），无法注入 Authlib。请重新登录。");
+            }
+            else
+            {
+                return (null, null, null);
+            }
+        }
+
         AuthlibInjectorService service = new();
-        string authServer = AuthlibInjectorService.NormalizeAuthServer(profile.AuthServer);
-        string metadata = await service.GetServerMetadataAsync(authServer, cancellationToken)
-            .ConfigureAwait(false);
+        string authServer = AuthlibInjectorService.NormalizeAuthServer(rawAuthServer);
+        string metadata;
+        try
+        {
+            metadata = await service.GetServerMetadataAsync(authServer, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (requiresAgent && ex is not OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                $"无法读取 Authlib 认证服务器元数据：{authServer}。N Cloud / 外置登录皮肤依赖该地址可用。",
+                ex);
+        }
 
         // Host mode takes over compatible generic third-party accounts. LittleSkin and
         // N Cloud are excluded before this method and always keep the standard agent path.
         if (useJvmHost)
             return (null, authServer, metadata);
 
-        string authlibPath = await service.EnsureAsync(GetAuthlibInjectorCachePath(), cancellationToken)
-            .ConfigureAwait(false);
+        string authlibPath;
+        try
+        {
+            authlibPath = await service.EnsureAsync(GetAuthlibInjectorCachePath(), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (requiresAgent && ex is not OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                "无法准备 Authlib Injector 组件。请检查网络后重试，否则游戏内将无法加载外置皮肤。",
+                ex);
+        }
+
         return (authlibPath, authServer, metadata);
     }
 

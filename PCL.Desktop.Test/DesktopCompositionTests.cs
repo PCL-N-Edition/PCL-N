@@ -175,6 +175,18 @@ public sealed class DesktopCompositionTests
     }
 
     [TestMethod]
+    public void MinecraftLaunchPlanFactory_ResolvesDefaultNCloudYggdrasilRoot()
+    {
+        string withServer = MinecraftLaunchPlanFactory.ResolveNCloudAuthServer(
+            "https://example.test/v1/yggdrasil/authserver");
+        Assert.AreEqual("https://example.test/v1/yggdrasil", withServer);
+
+        string fallback = MinecraftLaunchPlanFactory.ResolveNCloudAuthServer(null);
+        StringAssert.EndsWith(fallback, "/yggdrasil");
+        StringAssert.Contains(fallback, "plugin-center-api");
+    }
+
+    [TestMethod]
     public void InstancesSelectSurface_PrefersCurrentInstanceMinecraftRoot()
     {
         string root = Path.Combine(
