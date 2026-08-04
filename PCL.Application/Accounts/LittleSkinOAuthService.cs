@@ -438,7 +438,7 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
                 HttpStatusCode.Forbidden);
         }
 
-        IReadOnlyList<LittleSkinProfile> profiles = ParseProfileArray(body);
+        List<LittleSkinProfile> profiles = ParseProfileArray(body);
         PortableLog.Info("LittleSkinAuth", $"角色档案列表已加载；count={profiles.Count}。");
         return profiles;
     }
