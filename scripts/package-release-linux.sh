@@ -16,9 +16,21 @@ base_name="$3"
 version_input="$4"
 architecture="$5"
 binary="$artifact_dir/PCL-N-Edition"
+host_bin="$artifact_dir/host/PCL-N-Host"
+native_dir="$artifact_dir/native"
 
 test -s "$binary"
-chmod +x "$binary"
+test -s "$host_bin"
+test -d "$native_dir"
+test "$(find "$native_dir" -type f | wc -l | tr -d ' ')" -ge 1
+if find "$artifact_dir" -type f -name '*.zip' | grep -q .; then
+  echo "Scatter artifact must not contain .zip files:" >&2
+  find "$artifact_dir" -type f -name '*.zip' -print >&2
+  exit 1
+fi
+chmod +x "$binary" "$host_bin" || true
+# Preserve +x on any other scatter binaries (crash handler, etc.).
+find "$artifact_dir" -type f \( -name 'PCL-N-*' -o -name 'pcln-*' \) -exec chmod +x {} + 2>/dev/null || true
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
 
@@ -65,9 +77,10 @@ EOF
   chmod 0755 "$path"
 }
 
-# Debian package: direct loose-file installation into /opt with a stable /usr/bin entry point.
+# Debian: install full scatter tree under /opt/pcl-n (entry remains PCL-N-Edition).
 deb_root="$work/deb"
-install -Dm0755 "$binary" "$deb_root/opt/pcl-n/PCL-N-Edition"
+mkdir -p "$deb_root/opt/pcl-n"
+cp -a "$artifact_dir"/. "$deb_root/opt/pcl-n/"
 make_launcher_wrapper "$deb_root/usr/bin/pcl-n" deb
 install -Dm0644 "$repo_root/installer/linux/pcl-n.desktop" "$deb_root/usr/share/applications/pcl-n.desktop"
 install -Dm0644 "$repo_root/PCL.Desktop/Assets/icon.png" "$deb_root/usr/share/icons/hicolor/256x256/apps/pcl-n.png"
@@ -86,10 +99,11 @@ Description: Next-generation cross-platform Minecraft launcher
 EOF
 dpkg-deb --build --root-owner-group "$deb_root" "$output_dir/${base_name}_Installer.deb"
 
-# RPM package with the same direct /opt layout.
+# RPM with the same scatter tree under /opt/pcl-n.
 rpm_top="$work/rpmbuild"
 mkdir -p "$rpm_top"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-install -m0755 "$binary" "$rpm_top/SOURCES/PCL-N-Edition"
+# Stage tree as a tarball for %setup-free install.
+tar -C "$artifact_dir" -czf "$rpm_top/SOURCES/pcl-n-payload.tar.gz" .
 make_launcher_wrapper "$rpm_top/SOURCES/pcl-n" rpm
 install -m0644 "$repo_root/installer/linux/pcl-n.desktop" "$rpm_top/SOURCES/pcl-n.desktop"
 install -m0644 "$repo_root/PCL.Desktop/Assets/icon.png" "$rpm_top/SOURCES/pcl-n.png"
@@ -101,6 +115,10 @@ Summary: Next-generation cross-platform Minecraft launcher
 License: Apache-2.0
 URL: https://pcln.top/
 BuildArch: __ARCH__
+Source0: pcl-n-payload.tar.gz
+Source1: pcl-n
+Source2: pcl-n.desktop
+Source3: pcl-n.png
 
 %description
 PCL N is a next-generation cross-platform Minecraft launcher.
@@ -110,13 +128,13 @@ mkdir -p %{buildroot}/opt/pcl-n
 mkdir -p %{buildroot}/usr/bin
 mkdir -p %{buildroot}/usr/share/applications
 mkdir -p %{buildroot}/usr/share/icons/hicolor/256x256/apps
-install -m0755 %{_sourcedir}/PCL-N-Edition %{buildroot}/opt/pcl-n/PCL-N-Edition
-install -m0755 %{_sourcedir}/pcl-n %{buildroot}/usr/bin/pcl-n
-install -m0644 %{_sourcedir}/pcl-n.desktop %{buildroot}/usr/share/applications/pcl-n.desktop
-install -m0644 %{_sourcedir}/pcl-n.png %{buildroot}/usr/share/icons/hicolor/256x256/apps/pcl-n.png
+tar -C %{buildroot}/opt/pcl-n -xzf %{SOURCE0}
+install -m0755 %{SOURCE1} %{buildroot}/usr/bin/pcl-n
+install -m0644 %{SOURCE2} %{buildroot}/usr/share/applications/pcl-n.desktop
+install -m0644 %{SOURCE3} %{buildroot}/usr/share/icons/hicolor/256x256/apps/pcl-n.png
 
 %files
-/opt/pcl-n/PCL-N-Edition
+/opt/pcl-n
 /usr/bin/pcl-n
 /usr/share/applications/pcl-n.desktop
 /usr/share/icons/hicolor/256x256/apps/pcl-n.png
@@ -127,17 +145,17 @@ rpm_file="$(find "$rpm_top/RPMS" -type f -name '*.rpm' -print -quit)"
 test -n "$rpm_file"
 cp "$rpm_file" "$output_dir/${base_name}_Installer.rpm"
 
-# AppImage AppDir. APPIMAGE/APPDIR are supplied by the type-2 runtime, and
-# PCL_N_INSTALL_KIND prevents the launcher from replacing its read-only payload.
+# AppImage AppDir: full scatter tree under usr/lib/pcl-n, entry via AppRun.
 app_dir="$work/PCL-N.AppDir"
-install -Dm0755 "$binary" "$app_dir/usr/bin/PCL-N-Edition"
+mkdir -p "$app_dir/usr/lib/pcl-n"
+cp -a "$artifact_dir"/. "$app_dir/usr/lib/pcl-n/"
 install -Dm0644 "$repo_root/installer/linux/pcl-n.desktop" "$app_dir/pcl-n.desktop"
 install -Dm0644 "$repo_root/PCL.Desktop/Assets/icon.png" "$app_dir/pcl-n.png"
 ln -s pcl-n.png "$app_dir/.DirIcon"
 cat >"$app_dir/AppRun" <<'EOF'
 #!/bin/sh
 export PCL_N_INSTALL_KIND=appimage
-exec "$APPDIR/usr/bin/PCL-N-Edition" "$@"
+exec "$APPDIR/usr/lib/pcl-n/PCL-N-Edition" "$@"
 EOF
 chmod 0755 "$app_dir/AppRun"
 

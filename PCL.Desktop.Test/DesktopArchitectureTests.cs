@@ -916,9 +916,14 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "PublishSingleFile=false");
         StringAssert.Contains(reusable, "pack_native_runtime.py");
         StringAssert.Contains(reusable, "PclNativeRuntimeZipPath");
+        // Fully-expanded scatter: C launcher + host/ + native/ (no zip, no single-file embed).
+        StringAssert.Contains(reusable, "assemble-release-layout.sh");
+        StringAssert.Contains(reusable, "build-native-bootstrap.sh");
+        StringAssert.Contains(reusable, "Scatter layout validated");
+        StringAssert.Contains(reusable, "must not contain .zip files");
         // Desktop ProjectReference → external/Jvm.NET; CI must materialize the submodule.
         StringAssert.Contains(reusable, "submodules: recursive");
-        // Opaque sidecar zip may be embedded; in-process private plugin IL must not be.
+        // Opaque sidecar zip may ship beside the host; in-process private plugin IL must not be.
         StringAssert.Contains(reusable, "embed_plugin_sidecar");
         StringAssert.Contains(reusable, "PclPluginSidecarZipPath");
         StringAssert.Contains(reusable, "pack-plugin-sidecar-zip.ps1");
@@ -935,7 +940,7 @@ public sealed class DesktopArchitectureTests
         foreach (string workflow in new[] { ci, stable, beta, publishAssets })
         {
             Assert.IsFalse(workflow.Contains("resolve-plugin-version:", StringComparison.Ordinal));
-            // Product packages embed sidecar inside the host; never ship a NoPlugin SKU name.
+            // Product packages use scatter sidecar payload; never ship a NoPlugin SKU name.
             Assert.IsFalse(workflow.Contains("NoPlugin", StringComparison.Ordinal));
             Assert.IsFalse(workflow.Contains("WithPlugin", StringComparison.Ordinal));
         }
@@ -959,6 +964,9 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(packageLinux, "_Installer.AppImage");
         StringAssert.Contains(packageWindows, "PCLN.wxs");
         StringAssert.Contains(packageWindows, "PCLN.iss");
+        StringAssert.Contains(packageWindows, "PayloadDir");
+        StringAssert.Contains(packageWindows, "_Portable.zip");
+        StringAssert.Contains(packageLinux, "/opt/pcl-n");
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");
         foreach (string runtime in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" })

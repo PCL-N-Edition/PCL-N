@@ -10,8 +10,8 @@ namespace PCL.Desktop.Hosting.PluginSidecar;
 
 /// <summary>
 /// Resolves the CoreCLR plugin sidecar executable.
-/// Preferred path: C <c>pcln-launcher</c> installs <c>sidecar.zip</c> and sets
-/// <c>PCL_PLUGIN_SIDECAR_DIR</c> / <c>PCL_PLUGIN_SIDECAR_EXE</c>.
+/// Preferred path: C <c>pcln-launcher</c> points at the expanded <c>sidecar/</c> tree
+/// via <c>PCL_PLUGIN_SIDECAR_DIR</c> / <c>PCL_PLUGIN_SIDECAR_EXE</c> (release scatter).
 /// Fallback: extract the zip embedded in the host (dev / no bootstrap).
 /// </summary>
 internal static class PclEmbeddedPluginSidecar

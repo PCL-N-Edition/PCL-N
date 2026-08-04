@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Windows MSI for multi-file (scatter) layout.
+  PayloadDir is the published artifact root containing PCL-N-Edition.exe + host/ + zips.
+-->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
       Id="PclN.Launcher"
@@ -13,26 +17,43 @@
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsFolder" Name="Programs">
-        <Directory Id="INSTALLFOLDER" Name="PCL N">
-          <Component Id="LauncherComponent" Guid="*">
-            <File Id="LauncherExecutable" Source="$(var.SourceExecutable)" KeyPath="yes">
-              <Shortcut
-                  Id="ApplicationStartMenuShortcut"
-                  Directory="ProgramMenuFolder"
-                  Name="PCL N"
-                  WorkingDirectory="INSTALLFOLDER"
-                  Advertise="no" />
-            </File>
-            <File Id="InstallKindMarker" Source="$(var.InstallKindMarker)" />
-            <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
-          </Component>
-        </Directory>
+        <Directory Id="INSTALLFOLDER" Name="PCL N" />
       </Directory>
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder" />
+
+    <!-- Harvest entire scatter layout into INSTALLFOLDER (WiX Files, toolset 5+). -->
+    <ComponentGroup Id="ScatterPayload" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PayloadDir)\**" />
+    </ComponentGroup>
+
+    <ComponentGroup Id="InstallMarkers" Directory="INSTALLFOLDER">
+      <Component Id="InstallKindMarker" Guid="*">
+        <File Id="InstallKindMarkerFile" Source="$(var.InstallKindMarker)" KeyPath="yes" />
+      </Component>
+      <Component Id="StartMenuShortcut" Guid="*">
+        <Shortcut
+            Id="ApplicationStartMenuShortcut"
+            Directory="ProgramMenuFolder"
+            Name="PCL N"
+            Target="[INSTALLFOLDER]PCL-N-Edition.exe"
+            WorkingDirectory="INSTALLFOLDER"
+            Advertise="no" />
+        <RegistryValue
+            Root="HKCU"
+            Key="Software\PCL N"
+            Name="InstallDir"
+            Type="string"
+            Value="[INSTALLFOLDER]"
+            KeyPath="yes" />
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      </Component>
+    </ComponentGroup>
+
     <Feature Id="MainFeature" Title="PCL N" Level="1">
-      <ComponentRef Id="LauncherComponent" />
+      <ComponentGroupRef Id="ScatterPayload" />
+      <ComponentGroupRef Id="InstallMarkers" />
     </Feature>
   </Package>
 </Wix>

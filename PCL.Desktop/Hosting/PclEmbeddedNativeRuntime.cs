@@ -12,8 +12,8 @@ namespace PCL.Desktop.Hosting;
 
 /// <summary>
 /// Activates RID-specific native libraries for the host process.
-/// Preferred path: C <c>pcln-launcher</c> installs the zip into the data directory
-/// (same layout as historically done here) and sets <c>PCL_NATIVE_RUNTIME_DIR</c>.
+/// Preferred path: C <c>pcln-launcher</c> points <c>PCL_NATIVE_RUNTIME_DIR</c> at the
+/// fully-expanded <c>native/</c> tree shipped next to the product entry (release scatter).
 /// Fallback: extract the zip embedded in the NativeAOT host (dev / no bootstrap).
 /// </summary>
 internal static class PclEmbeddedNativeRuntime

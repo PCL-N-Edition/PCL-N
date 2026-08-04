@@ -29,8 +29,8 @@ on:
         description: Plugin sidecar runtime variant (SelfContained or NoRuntime)
         required: true
         type: string
-      # Embed CoreCLR plugin sidecar zip into the NativeAOT host (opaque payload; not in-process IL).
-      # Extracted at runtime into the launcher data/config directory.
+      # Ship CoreCLR plugin sidecar zip in the scatter layout (opaque payload; not in-process IL).
+      # Installed by C launcher into the OOBE data directory; host reads PCL_PLUGIN_SIDECAR_*.
       embed_plugin_sidecar:
         required: false
         default: true
@@ -354,25 +354,23 @@ jobs:
           fi
 
           # Single-node publish reduces MSB4166 crashes.
-          # The launcher host is always NativeAOT. The SelfContained/NoRuntime
-          # variant now describes whether the embedded plugin sidecar carries
-          # CoreCLR; it never changes the host compilation model.
-          # Host stays free of in-process plugin IL; optional opaque sidecar zip is embedded.
+          # Host is NativeAOT without embedded native/sidecar zips (scatter layout).
+          # SelfContained/NoRuntime still describes the plugin sidecar CoreCLR payload.
           sidecar_zip="${{ steps.sidecar_zip.outputs.path }}"
-          sidecar_args=()
           if [[ -n "${sidecar_zip}" && -f "${sidecar_zip}" ]]; then
-            sidecar_args+=(-p:PclPluginSidecarZipPath="${sidecar_zip}")
-            echo "Embedding plugin sidecar zip: ${sidecar_zip}"
+            echo "Plugin sidecar zip for scatter payload: ${sidecar_zip}"
           else
-            echo "No plugin sidecar zip — host will run without embedded plugins."
+            echo "No plugin sidecar zip — scatter layout will omit sidecar.zip."
+            sidecar_zip=""
           fi
 
           native_stage="$RUNNER_TEMP/pcln-native-${{ inputs.runtime_id }}"
           native_zip="$RUNNER_TEMP/PCL.NativeRuntime.${{ inputs.runtime_id }}.zip"
-          rm -rf "$native_stage" "$PUBLISH_DIR" "$native_zip"
-          mkdir -p "$native_stage" "$PUBLISH_DIR"
+          host_stage="$RUNNER_TEMP/pcln-host-${{ inputs.runtime_id }}"
+          rm -rf "$native_stage" "$host_stage" "$PUBLISH_DIR" "$native_zip"
+          mkdir -p "$native_stage" "$host_stage" "$PUBLISH_DIR"
 
-          # Pass 1 discovers the exact RID-specific dynamic native payload.
+          # Pass 1: publish AOT host and harvest RID-specific native DLLs (no embed).
           dotnet publish PCL.Desktop/PCL.Desktop.csproj \
             -c "${{ inputs.configuration }}" \
             -r "${{ inputs.runtime_id }}" \
@@ -395,66 +393,91 @@ jobs:
             -warnaserror:CA1416 \
             -o "$native_stage"
 
-          python scripts/pack_native_runtime.py \
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          "$PY" scripts/pack_native_runtime.py \
             "$native_stage" \
             "$native_zip" \
             --binary "${{ inputs.binary_name }}"
 
-          # Pass 2 embeds the native payload and optional CoreCLR sidecar into
-          # the NativeAOT executable. The final artifact remains compatible
-          # with the existing atomic single-executable updater.
-          dotnet publish PCL.Desktop/PCL.Desktop.csproj \
-            -c "${{ inputs.configuration }}" \
-            -r "${{ inputs.runtime_id }}" \
-            --self-contained true \
-            -m:1 \
-            -nodeReuse:false \
-            -p:Platform="${{ inputs.architecture }}" \
-            -p:PublishAot=true \
-            -p:PublishTrimmed=true \
-            -p:PublishSingleFile=false \
-            -p:PclRuntimeVariant="${{ inputs.runtime_variant }}" \
-            -p:PclHpatchzPath="$PCL_HPATCHZ_PATH" \
-            -p:PclWriteSecret=1 \
-            -p:PclNativeRuntimeZipPath="$native_zip" \
-            -p:DebugType=None \
-            -p:DebugSymbols=false \
-            -p:DeleteExistingFiles=true \
-            ${sidecar_args[@]+"${sidecar_args[@]}"} \
-            ${version_args[@]+"${version_args[@]}"} \
-            -warnaserror:CA1416 \
-            -o "$PUBLISH_DIR"
+          # Host binary only (same product publish identity; no second embed pass).
+          host_bin="$native_stage/${{ inputs.binary_name }}"
+          test -s "$host_bin"
+          cp -f "$host_bin" "$host_stage/${{ inputs.binary_name }}"
 
-      - name: Validate Avalonia artifact
+          # C bootstrap: entry stays PCL-N-Edition; deps as scatter files.
+          chmod +x scripts/build-native-bootstrap.sh scripts/assemble-release-layout.sh
+          scripts/build-native-bootstrap.sh
+          if [[ -f "$PWD/native/pcln-launcher/pcln-launcher.exe" ]]; then
+            PCLN_LAUNCHER_BIN="$PWD/native/pcln-launcher/pcln-launcher.exe"
+            PCLN_CRASH_BIN="$PWD/native/pcln-crash-handler/pcln-crash-handler.exe"
+          else
+            PCLN_LAUNCHER_BIN="$PWD/native/pcln-launcher/pcln-launcher"
+            PCLN_CRASH_BIN="$PWD/native/pcln-crash-handler/pcln-crash-handler"
+          fi
+          test -s "$PCLN_LAUNCHER_BIN"
+          test -s "$PCLN_CRASH_BIN"
+
+          assemble_args=(
+            --out "$PUBLISH_DIR"
+            --host "$host_stage/${{ inputs.binary_name }}"
+            --product-name "${{ inputs.binary_name }}"
+            --native-zip "$native_zip"
+            --launcher "$PCLN_LAUNCHER_BIN"
+            --crash "$PCLN_CRASH_BIN"
+          )
+          if [[ -n "$sidecar_zip" ]]; then
+            assemble_args+=(--sidecar-zip "$sidecar_zip")
+          fi
+          scripts/assemble-release-layout.sh "${assemble_args[@]}"
+
+      - name: Validate scatter layout artifact
         shell: bash
         run: |
+          set -euo pipefail
           binary="$PUBLISH_DIR/${{ inputs.binary_name }}"
           test -s "$binary" || {
-            echo "::error file=$binary::Published Avalonia launcher executable is missing."
+            echo "::error file=$binary::Product entry (C launcher) is missing."
             exit 1
           }
-
-          find "$PUBLISH_DIR" -type f \( -name '*.pdb' -o -name '*.xml' -o -name '*.dbg' \) -delete
-          # RenameProductHostBinary can leave the managed-identity host beside
-          # the product-named AOT executable in publish output. It is byte-for-byte
-          # redundant and must not be distributed.
-          find "$PUBLISH_DIR" -maxdepth 1 -type f \( -name 'PCL.Desktop' -o -name 'PCL.Desktop.exe' \) -delete
-          # The dynamic native libraries are embedded by the second AOT pass
-          # and installed under the OOBE-selected launcher data directory
-          # before Avalonia starts.
-          find "$PUBLISH_DIR" -mindepth 1 -maxdepth 1 ! -name '${{ inputs.binary_name }}' -exec rm -rf {} +
-          file_count=$(find "$PUBLISH_DIR" -maxdepth 1 -type f | wc -l | tr -d ' ')
-          if [[ "$file_count" != "1" ]]; then
-            echo "::error::Expected one self-extracting NativeAOT executable, found $file_count files."
-            find "$PUBLISH_DIR" -maxdepth 2 -print
+          if [[ "${{ inputs.binary_name }}" == *.exe ]]; then
+            host_bin="$PUBLISH_DIR/host/PCL-N-Host.exe"
+          else
+            host_bin="$PUBLISH_DIR/host/PCL-N-Host"
+          fi
+          test -s "$host_bin" || {
+            echo "::error file=$host_bin::AOT host binary is missing from scatter layout."
+            exit 1
+          }
+          test -d "$PUBLISH_DIR/native" || {
+            echo "::error::Fully-expanded native/ tree missing from scatter layout."
+            exit 1
+          }
+          native_files=$(find "$PUBLISH_DIR/native" -type f | wc -l | tr -d ' ')
+          if [[ "$native_files" -lt 1 ]]; then
+            echo "::error::native/ tree is empty."
             exit 1
           fi
-          echo "Self-extracting NativeAOT artifact validated."
+          # No runtime zips in the published product tree.
+          if find "$PUBLISH_DIR" -type f -name '*.zip' | grep -q .; then
+            echo "::error::Published scatter layout must not contain .zip files (fully expanded)."
+            find "$PUBLISH_DIR" -type f -name '*.zip' -print
+            exit 1
+          fi
+          test -f "$PUBLISH_DIR/pcln-layout"
 
-          chmod +x "$binary" || true
+          find "$PUBLISH_DIR" -type f \( -name '*.pdb' -o -name '*.xml' -o -name '*.dbg' \) -delete
+          find "$PUBLISH_DIR" -type f \( -name 'PCL.Desktop' -o -name 'PCL.Desktop.exe' \) -delete
 
-          # Execute the artifact when RID matches this runner. Cross-arch binaries
-          # (for example win-arm64 on windows-latest x64) cannot be smoke-tested.
+          file_count=$(find "$PUBLISH_DIR" -type f | wc -l | tr -d ' ')
+          if [[ "$file_count" -lt 5 ]]; then
+            echo "::error::Expected fully-expanded multi-file scatter layout, found $file_count files."
+            find "$PUBLISH_DIR" -maxdepth 3 -print
+            exit 1
+          fi
+          echo "Scatter layout validated ($file_count files, native=$native_files). Entry=$binary Host=$host_bin"
+
+          chmod +x "$binary" "$host_bin" || true
+
           rid="${{ inputs.runtime_id }}"
           need_os=""
           need_arch=""
@@ -475,23 +498,24 @@ jobs:
           fi
 
           if [[ "$can_execute" == "true" ]]; then
-            if ! "$binary" --validate-native-runtime; then
-              echo "::error::Published binary cannot load its embedded Skia/HarfBuzz runtime."
+            export PCL_NATIVE_RUNTIME_DIR="$PUBLISH_DIR/native"
+            export PCL_SKIP_EXTERNAL_CRASH_HANDLER=1
+            if ! "$host_bin" --validate-native-runtime; then
+              echo "::error::AOT host cannot load expanded native/ runtime (Skia/HarfBuzz)."
               exit 1
             fi
-            echo "Embedded native rendering runtime validation passed."
+            echo "Expanded native runtime validation passed."
 
             if [[ "${{ inputs.require_ms_client_id }}" == "true" ]]; then
-              if ! "$binary" --validate-secrets; then
-                echo "::error::Published binary is missing embedded secrets (PCL_WRITE_SECRET / CLIENT_ID)."
+              if ! "$host_bin" --validate-secrets; then
+                echo "::error::AOT host is missing embedded secrets (PCL_WRITE_SECRET / CLIENT_ID)."
                 exit 1
               fi
-              echo "Embedded secrets validation passed (native execute)."
+              echo "Embedded secrets validation passed (host execute)."
             fi
           else
-            echo "Skipping native runtime execution for cross-arch RID '$rid' on ${{ runner.os }}/${{ runner.arch }}."
+            echo "Skipping host execution for cross-arch RID '$rid' on ${{ runner.os }}/${{ runner.arch }}."
             if [[ "${{ inputs.require_ms_client_id }}" == "true" ]]; then
-              echo "Skipping native --validate-secrets for cross-arch RID '$rid' on ${{ runner.os }}/${{ runner.arch }}."
               echo "Secret presence was already enforced at build time (require_ms_client_id + PCL_WRITE_SECRET)."
             fi
           fi

@@ -312,9 +312,60 @@ static void resolve_children(void)
 }
 
 /*
- * Port of AOT EnsureInstalled / EnsureExtracted: install dep zips into the
- * same data directory as LauncherPathLayout.ResolveDataDirectory.
+ * Resolve native/sidecar paths for the host.
+ *
+ * Release scatter layout is fully expanded next to the product entry:
+ *   native/  sidecar/  host/  crash/
+ * No runtime zip extract — CI/installers already expanded the trees.
+ *
+ * Optional legacy fallback: native-runtime.zip / sidecar.zip still install into
+ * LauncherPathLayout data directory (content-addressed) when present.
  */
+static void resolve_sidecar_exe(const char *dir)
+{
+#if defined(_WIN32)
+    const char *exeName = "PCL.Plugin.Sidecar.exe";
+#else
+    const char *exeName = "PCL.Plugin.Sidecar";
+#endif
+    path_join(g_sidecar_exe, sizeof(g_sidecar_exe), dir, exeName);
+    if (file_exists(g_sidecar_exe))
+        return;
+    /* Shallow search one level down (nested zip root). */
+#if defined(_WIN32)
+    {
+        char pattern[PCLN_MAX];
+        WIN32_FIND_DATAA fd;
+        HANDLE h;
+        snprintf(pattern, sizeof(pattern), "%s\\*", dir);
+        h = FindFirstFileA(pattern, &fd);
+        if (h == INVALID_HANDLE_VALUE)
+        {
+            g_sidecar_exe[0] = 0;
+            return;
+        }
+        do
+        {
+            char sub[PCLN_MAX], cand[PCLN_MAX];
+            if (fd.cFileName[0] == '.')
+                continue;
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+                continue;
+            snprintf(sub, sizeof(sub), "%s\\%s", dir, fd.cFileName);
+            path_join(cand, sizeof(cand), sub, exeName);
+            if (file_exists(cand))
+            {
+                strncpy(g_sidecar_exe, cand, sizeof(g_sidecar_exe) - 1);
+                FindClose(h);
+                return;
+            }
+        } while (FindNextFileA(h, &fd));
+        FindClose(h);
+    }
+#endif
+    g_sidecar_exe[0] = 0;
+}
+
 static void install_aot_dependencies(void)
 {
     char err[320];
@@ -331,7 +382,14 @@ static void install_aot_dependencies(void)
     if (!g_data_dir[0])
         die("数据目录未解析");
 
-    /* Prefer zips beside payload / launcher (same artifacts AOT used to embed). */
+    path_join(nativeTree, sizeof(nativeTree), g_extract_root, "native");
+    if (!dir_exists(nativeTree))
+        path_join(nativeTree, sizeof(nativeTree), g_self_dir, "native");
+
+    path_join(sidecarTree, sizeof(sidecarTree), g_extract_root, "sidecar");
+    if (!dir_exists(sidecarTree))
+        path_join(sidecarTree, sizeof(sidecarTree), g_self_dir, "sidecar");
+
     path_join(nativeZip, sizeof(nativeZip), g_extract_root, "native-runtime.zip");
     if (!file_exists(nativeZip))
         path_join(nativeZip, sizeof(nativeZip), g_self_dir, "native-runtime.zip");
@@ -340,10 +398,13 @@ static void install_aot_dependencies(void)
     if (!file_exists(sidecarZip))
         path_join(sidecarZip, sizeof(sidecarZip), g_self_dir, "sidecar.zip");
 
-    path_join(nativeTree, sizeof(nativeTree), g_extract_root, "native");
-    path_join(sidecarTree, sizeof(sidecarTree), g_extract_root, "sidecar");
-
-    if (file_exists(nativeZip))
+    /* Fully-expanded scatter: use trees in place (no copy / no unzip). */
+    if (dir_exists(nativeTree))
+    {
+        strncpy(g_native_dir, nativeTree, sizeof(g_native_dir) - 1);
+        g_native_dir[sizeof(g_native_dir) - 1] = 0;
+    }
+    else if (file_exists(nativeZip))
     {
         if (pcln_install_native_runtime_zip(
                 nativeZip, g_data_dir, rid,
@@ -355,26 +416,14 @@ static void install_aot_dependencies(void)
             die(msg);
         }
     }
-    else if (dir_exists(nativeTree))
-    {
-        int rc = pcln_install_native_runtime_dir(
-            nativeTree, g_data_dir, rid,
-            g_native_dir, sizeof(g_native_dir),
-            err, sizeof(err));
-        if (rc < 0)
-        {
-            char msg[512];
-            snprintf(msg, sizeof(msg), "安装 native/ 目录失败：%s", err);
-            die(msg);
-        }
-        if (rc == 1)
-        {
-            /* Source missing mid-race — use tree directly. */
-            strncpy(g_native_dir, nativeTree, sizeof(g_native_dir) - 1);
-        }
-    }
 
-    if (file_exists(sidecarZip))
+    if (dir_exists(sidecarTree))
+    {
+        strncpy(g_sidecar_dir, sidecarTree, sizeof(g_sidecar_dir) - 1);
+        g_sidecar_dir[sizeof(g_sidecar_dir) - 1] = 0;
+        resolve_sidecar_exe(g_sidecar_dir);
+    }
+    else if (file_exists(sidecarZip))
     {
         if (pcln_install_sidecar_zip(
                 sidecarZip, g_data_dir,
@@ -386,17 +435,6 @@ static void install_aot_dependencies(void)
             snprintf(msg, sizeof(msg), "安装 sidecar.zip 失败：%s", err);
             die(msg);
         }
-    }
-    else if (dir_exists(sidecarTree))
-    {
-        strncpy(g_sidecar_dir, sidecarTree, sizeof(g_sidecar_dir) - 1);
-#if defined(_WIN32)
-        path_join(g_sidecar_exe, sizeof(g_sidecar_exe), g_sidecar_dir, "PCL.Plugin.Sidecar.exe");
-#else
-        path_join(g_sidecar_exe, sizeof(g_sidecar_exe), g_sidecar_dir, "PCL.Plugin.Sidecar");
-#endif
-        if (!file_exists(g_sidecar_exe))
-            g_sidecar_exe[0] = 0;
     }
 }
 

@@ -23,7 +23,8 @@ CloseApplications=yes
 RestartApplications=no
 
 [Files]
-Source: "{#SourceExecutable}"; DestDir: "{app}"; DestName: "PCL-N-Edition.exe"; Flags: ignoreversion
+; Multi-file scatter layout (launcher + host + dep zips). User entry stays PCL-N-Edition.exe.
+Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#InstallKindMarker}"; DestDir: "{app}"; DestName: "pcln-install-kind"; Flags: ignoreversion
 
 [Icons]

@@ -14,6 +14,8 @@ output_dir="$2"
 base_name="$3"
 app="$artifact_dir/PCL N.app"
 binary="$app/Contents/MacOS/PCL-N-Edition"
+host_bin="$app/Contents/MacOS/host/PCL-N-Host"
+native_dir="$app/Contents/MacOS/native"
 
 if [[ ! -d "$app" ]]; then
   echo "macOS app bundle not found at: $app" >&2
@@ -23,13 +25,28 @@ if [[ ! -d "$app" ]]; then
 fi
 
 if [[ ! -f "$binary" ]]; then
-  echo "Launcher binary not found at: $binary" >&2
-  find "$app" -maxdepth 4 -print >&2 || true
+  echo "Product entry not found at: $binary" >&2
+  find "$app" -maxdepth 5 -print >&2 || true
+  exit 1
+fi
+if [[ ! -f "$host_bin" ]]; then
+  echo "Scatter AOT host not found at: $host_bin" >&2
+  find "$app" -maxdepth 5 -print >&2 || true
+  exit 1
+fi
+if [[ ! -d "$native_dir" ]]; then
+  echo "Expanded native/ tree not found at: $native_dir" >&2
+  exit 1
+fi
+if find "$app/Contents/MacOS" -type f -name '*.zip' | grep -q .; then
+  echo "App bundle must not contain .zip files (fully expanded scatter):" >&2
+  find "$app/Contents/MacOS" -type f -name '*.zip' -print >&2
   exit 1
 fi
 
 # Artifact upload/download may drop the executable bit.
-chmod +x "$binary"
+chmod +x "$binary" "$host_bin" || true
+find "$app/Contents/MacOS" -type f \( -name 'PCL-N-*' -o -name 'pcln-*' \) -exec chmod +x {} + 2>/dev/null || true
 test -x "$binary"
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
