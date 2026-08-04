@@ -200,6 +200,27 @@ public partial class MainWindow
                 }
             }
 
+            // Auth / account failures need the user to reconnect — never download multi-GB AI models.
+            if (aiEnabled &&
+                fault.Code is MinecraftLaunchFaultCode.AuthenticationFailed
+                    or MinecraftLaunchFaultCode.SessionServiceUnavailable)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    context.LaunchPage.ShowRepairWorkflow(
+                        AvaloniaLocalizationManager.GetText("Crash.Repair.Title", "需要重新登录"),
+                        AvaloniaLocalizationManager.GetText(
+                            "Crash.Repair.Stage.Account",
+                            "账户认证失败，请在设置中重新连接在线服务账户"),
+                        1d,
+                        fault.Code.ToString(),
+                        context.Instance);
+                    _launchRight?.AppendLog(
+                        "启动失败属于账户认证问题，已跳过 AI 修复模型下载。请打开「设置 → 在线 → 账户」连接 PCL N 在线服务。");
+                });
+                return;
+            }
+
             if (aiEnabled)
             {
                 string conventionalSuggestion = IsAutomaticallyExecutableRepair(conventionalAction)

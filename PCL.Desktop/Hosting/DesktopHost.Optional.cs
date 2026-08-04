@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using PCL.Application.Accounts;
 using PCL.Application.Hosting;
 using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Core.Logging;
@@ -18,6 +19,7 @@ internal static partial class DesktopHost
 {
     private static IDisposable? _pnpHandlerRegistration;
     private static IDisposable? _feedbackHandlerRegistration;
+    private static IDisposable? _onlineMinecraftAccountRegistration;
     private static Task<PluginOptionalRuntimeResult>? _optionalRuntimeTask;
 
     /// <summary>Outcome of the background plugin warm-start (available after task completes).</summary>
@@ -118,11 +120,15 @@ internal static partial class DesktopHost
                 new PluginSidecarPnpFileArtifactHandler());
             _feedbackHandlerRegistration ??= RuntimeExtensionHostAccess.Current.FeedbackSubmission.Register(
                 new PluginSidecarFeedbackSubmissionHandler());
+            // N Cloud launch/login reads HostOnlineMinecraftAccountProvider in the host process.
+            // Credentials live in the sidecar — bridge via IPC (do not rely on sidecar-local Register).
+            _onlineMinecraftAccountRegistration ??= HostOnlineMinecraftAccountProvider.Register(
+                new PluginSidecarOnlineMinecraftAccountProvider());
             await PluginSidecarUiInjector.InjectAsync(host).ConfigureAwait(false);
 
             PluginOptionalRuntimeResult ready = new(
                 PluginOptionalRuntimeStatus.Ready,
-                "Plugin sidecar started; UI data-chain + feedback bridge ready.");
+                "Plugin sidecar started; UI data-chain + feedback + N Cloud bridge ready.");
             OptionalRuntimeResult = ready;
             PortableLog.Info("DesktopHost", ready.Message);
             return ready;
@@ -144,6 +150,8 @@ internal static partial class DesktopHost
         {
             _feedbackHandlerRegistration?.Dispose();
             _feedbackHandlerRegistration = null;
+            _onlineMinecraftAccountRegistration?.Dispose();
+            _onlineMinecraftAccountRegistration = null;
             _pnpHandlerRegistration?.Dispose();
             _pnpHandlerRegistration = null;
 

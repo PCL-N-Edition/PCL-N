@@ -199,6 +199,38 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
             },
             cancellationToken);
 
+    public Task<PluginSidecarResult> NCloudMinecraftSessionAsync(
+        CancellationToken cancellationToken = default) =>
+        CallAsync(PluginSidecarMethods.NCloudMinecraftSession, null, cancellationToken);
+
+    public Task<PluginSidecarResult> NCloudSkinUploadAsync(
+        string pngBase64,
+        bool isSlim,
+        CancellationToken cancellationToken = default) =>
+        CallAsync(
+            PluginSidecarMethods.NCloudSkinUpload,
+            new PluginSidecarParams
+            {
+                PngBase64 = pngBase64,
+                IsSlim = isSlim
+            },
+            cancellationToken);
+
+    public Task<PluginSidecarResult> NCloudSkinReferenceAsync(
+        string siteId,
+        string textureId,
+        bool isSlim,
+        CancellationToken cancellationToken = default) =>
+        CallAsync(
+            PluginSidecarMethods.NCloudSkinReference,
+            new PluginSidecarParams
+            {
+                SiteId = siteId,
+                TextureId = textureId,
+                IsSlim = isSlim
+            },
+            cancellationToken);
+
     public Task<PluginSidecarResult> CallAsync(
         string method,
         PluginSidecarParams? parameters,

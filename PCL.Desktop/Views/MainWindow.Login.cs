@@ -19,6 +19,7 @@ using PCL.Application.Settings;
 using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
+using PCL.Desktop.Hosting;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Launching.Appearance;
 using PCL.Desktop.Features.Launching.Views;
@@ -1419,12 +1420,19 @@ public partial class MainWindow
     {
         try
         {
+            await DesktopHost.EnsureOptionalRuntimeReadyAsync().ConfigureAwait(true);
             IHostOnlineMinecraftAccountProvider? provider =
                 HostOnlineMinecraftAccountProvider.Current;
-            if (provider?.IsAuthenticated != true)
+            if (provider is null)
             {
                 throw new InvalidOperationException(
-                    "当前没有已登录的 PCL N 在线服务账户，请先在设置中连接账户。");
+                    "插件侧车未就绪，无法创建 N Cloud 会话。请稍后重试或重启启动器。");
+            }
+
+            if (!provider.IsAuthenticated)
+            {
+                throw new InvalidOperationException(
+                    "当前没有已登录的 PCL N 在线服务账户，请先在「设置 → 在线 → 账户」中连接。");
             }
 
             _launchRight?.AppendLog("正在创建 N Cloud 在线会话。");

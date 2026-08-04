@@ -210,7 +210,21 @@ public static class MinecraftLaunchFaultAnalyzer
         {
             return MinecraftLaunchFaultCode.GraphicsInitializationFailed;
         }
-        if (ContainsAny(text, "invalid credentials", "invalid token", "forbiddenoperationexception", "authenticationexception", "http 401", "http 403"))
+        if (ContainsAny(
+                text,
+                "invalid credentials",
+                "invalid token",
+                "forbiddenoperationexception",
+                "authenticationexception",
+                "http 401",
+                "http 403",
+                "n cloud 档案需要已登录",
+                "n cloud 档案需要已登录的在线服务账户",
+                "没有已登录的 pcl n 在线服务账户",
+                "请在设置中重新连接账户",
+                "请在设置 → 在线 → 账户",
+                "在线服务账户",
+                "重新连接账户"))
             return MinecraftLaunchFaultCode.AuthenticationFailed;
         if (ContainsAny(text, "sessionserver", "hasjoined", "joinserver", "http 503", "service unavailable") &&
             ContainsAny(text, "session", "auth", "profile"))

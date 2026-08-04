@@ -49,6 +49,19 @@ public sealed class MinecraftLaunchFaultAnalyzerTests
     }
 
     [TestMethod]
+    public void Analyze_ClassifiesNCloudMissingOnlineAccountAsAuthenticationFailed()
+    {
+        MinecraftLaunchFaultReport report = MinecraftLaunchFaultAnalyzer.Analyze(
+            new InvalidOperationException(
+                "N Cloud 档案需要已登录的在线服务账户。请在设置中重新连接账户。"),
+            "LaunchCoordinator");
+
+        Assert.AreEqual(MinecraftLaunchFaultCode.AuthenticationFailed, report.Code);
+        Assert.AreEqual("Authentication", report.Subsystem);
+        CollectionAssert.Contains(report.AllowedActions, MinecraftRepairActionKind.RefreshAccount);
+    }
+
+    [TestMethod]
     [DataRow("Open J9 is not supported by this version", MinecraftLaunchFaultCode.JavaRuntimeIncompatible)]
     [DataRow("because module java.base does not export sun.security.util", MinecraftLaunchFaultCode.JavaRuntimeIncompatible)]
     [DataRow("java.lang.ClassNotFoundException: jdk.nashorn.api.scripting.NashornScriptEngineFactory", MinecraftLaunchFaultCode.JavaRuntimeIncompatible)]

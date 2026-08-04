@@ -4060,12 +4060,21 @@ public partial class MainWindow : Window, IDisposable
         if (profile.Kind == LaunchLoginProfileKind.NCloud)
         {
             Report("正在刷新 N Cloud 会话…");
+            // N Cloud credentials live in the plugin sidecar; wait for host↔sidecar bridge.
+            await DesktopHost.EnsureOptionalRuntimeReadyAsync(cancellationToken)
+                .ConfigureAwait(false);
             IHostOnlineMinecraftAccountProvider? provider =
                 HostOnlineMinecraftAccountProvider.Current;
-            if (provider?.IsAuthenticated != true)
+            if (provider is null)
             {
                 throw new InvalidOperationException(
-                    "N Cloud 档案需要已登录的在线服务账户。请在设置中重新连接账户。");
+                    "N Cloud 需要插件侧车提供在线账户能力。侧车未就绪，请稍后重试或重启启动器。");
+            }
+
+            if (!provider.IsAuthenticated)
+            {
+                throw new InvalidOperationException(
+                    "N Cloud 档案需要已登录的在线服务账户。请在设置 → 在线 → 账户中连接 PCL N 在线服务。");
             }
 
             HostOnlineMinecraftSession session = await provider

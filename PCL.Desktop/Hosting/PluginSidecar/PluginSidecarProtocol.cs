@@ -27,6 +27,10 @@ internal static class PluginSidecarMethods
     public const string FeedbackSession = "feedback.session";
     public const string FeedbackCatalog = "feedback.catalog";
     public const string FeedbackSubmit = "feedback.submit";
+    /// <summary>Create a Minecraft session via the sidecar OnlineAccountService (device pairing).</summary>
+    public const string NCloudMinecraftSession = "ncloud.minecraftSession";
+    public const string NCloudSkinUpload = "ncloud.skinUpload";
+    public const string NCloudSkinReference = "ncloud.skinReference";
 }
 
 internal static class PluginSidecarProtocolVersions
@@ -153,6 +157,19 @@ internal sealed class PluginSidecarParams
 
     [JsonPropertyName("description")]
     public string? Description { get; set; }
+
+    /// <summary>Base64 PNG bytes for N Cloud skin upload.</summary>
+    [JsonPropertyName("pngBase64")]
+    public string? PngBase64 { get; set; }
+
+    [JsonPropertyName("isSlim")]
+    public bool? IsSlim { get; set; }
+
+    [JsonPropertyName("siteId")]
+    public string? SiteId { get; set; }
+
+    [JsonPropertyName("textureId")]
+    public string? TextureId { get; set; }
 
     [JsonPropertyName("instances")]
     public PluginSidecarHostInstance[]? Instances { get; set; }
@@ -317,6 +334,36 @@ internal sealed class PluginSidecarResult
 
     [JsonPropertyName("repository")]
     public string? Repository { get; set; }
+
+    [JsonPropertyName("minecraftUsername")]
+    public string? MinecraftUsername { get; set; }
+
+    [JsonPropertyName("minecraftUuid")]
+    public string? MinecraftUuid { get; set; }
+
+    [JsonPropertyName("minecraftAccessToken")]
+    public string? MinecraftAccessToken { get; set; }
+
+    [JsonPropertyName("minecraftClientToken")]
+    public string? MinecraftClientToken { get; set; }
+
+    [JsonPropertyName("minecraftAuthServer")]
+    public string? MinecraftAuthServer { get; set; }
+
+    [JsonPropertyName("minecraftSkinAddress")]
+    public string? MinecraftSkinAddress { get; set; }
+
+    [JsonPropertyName("skinAddress")]
+    public string? SkinAddress { get; set; }
+
+    [JsonPropertyName("skinIsSlim")]
+    public bool SkinIsSlim { get; set; }
+
+    [JsonPropertyName("skinSourceKind")]
+    public string? SkinSourceKind { get; set; }
+
+    [JsonPropertyName("skinSha1")]
+    public string? SkinSha1 { get; set; }
 }
 
 internal sealed class PluginSidecarIssueCategoryDto

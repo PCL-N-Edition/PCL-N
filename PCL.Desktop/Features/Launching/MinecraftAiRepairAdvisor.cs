@@ -1444,7 +1444,29 @@ internal sealed class MinecraftAiRepairAdvisor : IDisposable
             return;
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+        string? directory = Path.GetDirectoryName(targetPath);
+        Directory.CreateDirectory(directory!);
+        // Gemma GGUF is multi-GB; fail closed when the target volume is nearly full.
+        try
+        {
+            DriveInfo drive = new(Path.GetPathRoot(Path.GetFullPath(targetPath)) ?? directory!);
+            const long reserveBytes = 2L * 1024 * 1024 * 1024; // 2 GiB headroom
+            if (drive.IsReady && drive.AvailableFreeSpace < reserveBytes)
+            {
+                throw new IOException(
+                    $"磁盘空间不足：可用 {FormatBytes(drive.AvailableFreeSpace)}，" +
+                    $"下载 {displayName} 至少需要约 {FormatBytes(reserveBytes)} 空闲空间（目标 {drive.Name}）。");
+            }
+        }
+        catch (IOException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Warn(ex, "MinecraftRepairAI", "无法检测磁盘可用空间，将继续尝试下载。");
+        }
+
         DownloadTransferResult result = await _downloadService.DownloadAsync(
                 new DownloadRequest
                 {
