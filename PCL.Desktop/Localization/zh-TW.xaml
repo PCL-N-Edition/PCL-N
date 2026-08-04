@@ -942,6 +942,7 @@
     <sys:String x:Key="Crash.Repair.Title">正在修補 Minecraft</sys:String>
     <sys:String x:Key="Crash.Repair.Stage.Parse">解析 Minecraft 異常</sys:String>
     <sys:String x:Key="Crash.Repair.Stage.Execute">正在執行修復</sys:String>
+    <sys:String x:Key="Crash.Repair.Stage.Account">帳戶認證失敗，請在設定中重新連線線上服務帳戶</sys:String>
     <sys:String x:Key="Crash.Model.Title">正在呼叫模型</sys:String>
     <sys:String x:Key="Crash.Model.Stage.Prepare">準備 AI 修復模型</sys:String>
     <sys:String x:Key="Crash.Repair.Stage.Restart">修復完成，正在重新啟動 Minecraft</sys:String>

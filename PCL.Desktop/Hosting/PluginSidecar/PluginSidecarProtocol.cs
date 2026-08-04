@@ -27,7 +27,7 @@ internal static class PluginSidecarMethods
     public const string FeedbackSession = "feedback.session";
     public const string FeedbackCatalog = "feedback.catalog";
     public const string FeedbackSubmit = "feedback.submit";
-    /// <summary>Create a Minecraft session via the sidecar OnlineAccountService (device pairing).</summary>
+    /// <summary>Create a Minecraft session via the sidecar online account bridge (device pairing).</summary>
     public const string NCloudMinecraftSession = "ncloud.minecraftSession";
     public const string NCloudSkinUpload = "ncloud.skinUpload";
     public const string NCloudSkinReference = "ncloud.skinReference";

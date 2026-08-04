@@ -942,6 +942,7 @@
     <sys:String x:Key="Crash.Repair.Title">Repairing Minecraft</sys:String>
     <sys:String x:Key="Crash.Repair.Stage.Parse">Analyzing the Minecraft failure</sys:String>
     <sys:String x:Key="Crash.Repair.Stage.Execute">Applying repair</sys:String>
+    <sys:String x:Key="Crash.Repair.Stage.Account">Account authentication failed; reconnect the online service account in Settings</sys:String>
     <sys:String x:Key="Crash.Model.Title">Calling repair model</sys:String>
     <sys:String x:Key="Crash.Model.Stage.Prepare">Preparing AI repair model</sys:String>
     <sys:String x:Key="Crash.Repair.Stage.Restart">Repair complete; restarting Minecraft</sys:String>
