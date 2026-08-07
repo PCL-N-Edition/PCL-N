@@ -21,7 +21,18 @@ public sealed class MyMarkdownViewer : TextBlock
     private static readonly Regex BulletRegex = new(@"^(?<indent>\s*)[-+*]\s+(?<text>.*)$");
     private static readonly Regex OrderedRegex = new(@"^(?<indent>\s*)(?<number>\d+)[.)]\s+(?<text>.*)$");
     private static readonly Regex LinkRegex = new(@"\A(?<image>!)?\[(?<label>[^\]]*)\]\((?<url>[^)]+)\)");
-    private static readonly FontFamily MonospaceFont = new("Cascadia Mono, Consolas, monospace");
+    private static readonly FontFamily MonospaceFont = CreateMonospaceFontFamily();
+
+    private static FontFamily CreateMonospaceFontFamily()
+    {
+        // Platform-specific monospace font fallback chain
+        string fontChain = OperatingSystem.IsWindows()
+            ? "Cascadia Mono, Consolas, monospace"
+            : OperatingSystem.IsMacOS()
+                ? "Menlo, Monaco, Consolas, monospace"
+                : "Noto Sans Mono, DejaVu Sans Mono, Liberation Mono, Consolas, monospace";
+        return new FontFamily(fontChain);
+    }
 
     public static readonly StyledProperty<string> MarkdownProperty =
         AvaloniaProperty.Register<MyMarkdownViewer, string>(nameof(Markdown), string.Empty);

@@ -139,6 +139,11 @@
     <!-- This package only ships an x86-64 Mach-O binary; never embed it in an ARM64 app. -->
     <PackageReference Include="VideoLAN.LibVLC.Mac" Version="3.1.3.1"
                       Condition="'$(RuntimeIdentifier)' == 'osx-x64' OR ('$(RuntimeIdentifier)' == '' AND $([System.String]::Copy('$(NETCoreSdkRuntimeIdentifier)').StartsWith('osx-x64')))" />
+    <!-- Linux native runtime dependencies for SkiaSharp and HarfBuzzSharp -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4"
+                      Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('linux-'))" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" Version="8.3.1.3"
+                      Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('linux-'))" />
     <PackageReference Include="Wacton.Unicolour" Version="6.4.0" />
   </ItemGroup>
   <ItemGroup>

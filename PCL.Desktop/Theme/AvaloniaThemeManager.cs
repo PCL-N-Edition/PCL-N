@@ -20,7 +20,7 @@ public static class AvaloniaThemeManager
     private const string SettingsPathOverrideEnvironmentVariable = "PCLN_LAUNCHER_SETTINGS_PATH";
     private const string WindowsDefaultFontFamily = "Microsoft YaHei UI, Segoe UI, Arial";
     private const string MacOsDefaultFontFamily = "PingFang SC, Hiragino Sans GB, Helvetica Neue, Arial";
-    private const string LinuxDefaultFontFamily = "Noto Sans CJK SC, Noto Sans SC, WenQuanYi Micro Hei, DejaVu Sans";
+    private const string LinuxDefaultFontFamily = "Noto Sans CJK SC, Noto Sans SC, WenQuanYi Micro Hei, DejaVu Sans, Liberation Sans, FreeSans, sans-serif";
     private static bool _platformThemeHooked;
 
     public static LauncherSettings CurrentSettings { get; private set; } = new();
@@ -201,23 +201,46 @@ public static class AvaloniaThemeManager
     {
         string fontName = settings.GetTextOption("UiFont").Trim();
         if (string.IsNullOrEmpty(fontName))
-            return new FontFamily(GetDefaultLaunchFontFamilyName());
+            return CreateFontFamilyWithFallback(GetDefaultLaunchFontFamilyName());
 
         // FontFamily construction does not fail when the named family is absent.
         // Settings copied from Windows therefore used to leave Linux with a
         // non-rendering font. Fall back to the platform chain when no installed
         // family matches the configured single-family name.
         if (!fontName.Contains(',') && !IsInstalledFont(fontName))
-            return new FontFamily(GetDefaultLaunchFontFamilyName());
+            return CreateFontFamilyWithFallback(GetDefaultLaunchFontFamilyName());
 
         try
         {
-            return new FontFamily(fontName);
+            return CreateFontFamilyWithFallback(fontName);
         }
         catch (ArgumentException)
         {
-            return new FontFamily(GetDefaultLaunchFontFamilyName());
+            return CreateFontFamilyWithFallback(GetDefaultLaunchFontFamilyName());
         }
+    }
+
+    /// <summary>
+    /// Creates a FontFamily with platform-specific fallback to prevent
+    /// "Could not create glyphTypeface" crashes on Linux when primary fonts are missing.
+    /// </summary>
+    private static FontFamily CreateFontFamilyWithFallback(string primaryFont)
+    {
+        if (!OperatingSystem.IsLinux())
+            return new FontFamily(primaryFont);
+
+        // On Linux, always append a comprehensive fallback chain to prevent
+        // HarfBuzz glyph creation failures when the primary font is unavailable.
+        string fallbackChain = GetDefaultLaunchFontFamilyName();
+        if (primaryFont.Contains(','))
+        {
+            // Primary already has fallbacks; ensure it ends with the platform default.
+            if (!primaryFont.Contains("sans-serif", StringComparison.OrdinalIgnoreCase))
+                return new FontFamily(primaryFont + ", " + fallbackChain);
+            return new FontFamily(primaryFont);
+        }
+
+        return new FontFamily(primaryFont + ", " + fallbackChain);
     }
 
     internal static string GetDefaultLaunchFontFamilyName()

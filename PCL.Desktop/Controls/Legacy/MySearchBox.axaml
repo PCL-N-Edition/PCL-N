@@ -7,23 +7,33 @@
               xmlns:svgIcon="using:PCL.Desktop.Controls.Legacy"
               Height="40">
     <Grid>
-        <local:MyTextBox HasBackground="False" x:Name="TextBox" BorderThickness="0" Padding="34,0,40,0" MaxLength="50"
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Border Grid.Column="0" Width="34" Padding="12,0,0,0">
+            <svgIcon:SvgIcon Width="14" Height="14" IsHitTestVisible="False"
+                             IconBrush="{DynamicResource ColorBrush1}" Icon="lucide/search"
+                             HorizontalAlignment="Left"
+                             VerticalAlignment="Center" />
+        </Border>
+        <local:MyTextBox Grid.Column="1" HasBackground="False" x:Name="TextBox" BorderThickness="0" Padding="0" MaxLength="50"
                          FontSize="13.5"
                          VerticalContentAlignment="Center"
                          VerticalAlignment="Stretch"
                          TextChanged="Text_TextChanged" />
-        <svgIcon:SvgIcon Width="14" Height="14" Margin="12,0,0,0" IsHitTestVisible="False"
-                         IconBrush="{DynamicResource ColorBrush1}" Icon="lucide/search"
-                         HorizontalAlignment="Left"
-                         VerticalAlignment="Center" />
-        <local:MyIconButton x:Name="BtnClear" Click="BtnClear_Click" IsHitTestVisible="False" Opacity="0" Width="24" Height="24"
-                            Margin="0,0,10,0"
-                            LogoScale="0.75"
-                            SvgIcon="lucide/x"
-                            HorizontalAlignment="Right"
-                            VerticalAlignment="Center"
-                            Theme="Black" />
-        <local:MyButton x:Name="BtnSearch" Click="BtnSearch_Click" IsVisible="False" Margin="0,4,4,4" Text="{DynamicResource Common.Action.Search}" Width="60"
-                        ColorType="Highlight" HorizontalAlignment="Right" VerticalAlignment="Center" />
+        <Border Grid.Column="2" Width="40" Padding="0,0,10,0">
+            <Grid>
+                <local:MyIconButton x:Name="BtnClear" Click="BtnClear_Click" IsHitTestVisible="False" Opacity="0" Width="24" Height="24"
+                                    LogoScale="0.75"
+                                    SvgIcon="lucide/x"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    Theme="Black" />
+                <local:MyButton x:Name="BtnSearch" Click="BtnSearch_Click" IsVisible="False" Margin="0,4,4,4" Text="{DynamicResource Common.Action.Search}" Width="60"
+                                ColorType="Highlight" HorizontalAlignment="Right" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
     </Grid>
 </local:MyCard>

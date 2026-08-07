@@ -40,6 +40,22 @@ def main() -> int:
         files.append((relative, path))
     files.sort(key=lambda item: item[0].casefold())
 
+    # Linux Mint and other Debian/Ubuntu-based distributions may have
+    # different library naming conventions. Ensure we capture all variants.
+    linux_native_dirs = [
+        root / "runtimes" / "linux-x64" / "native",
+        root / "runtimes" / "linux-arm64" / "native",
+    ]
+    for native_dir in linux_native_dirs:
+        if native_dir.exists():
+            for path in native_dir.rglob("*"):
+                if not path.is_file():
+                    continue
+                relative = path.relative_to(root).as_posix()
+                if any(relative == existing for existing, _ in files):
+                    continue
+                files.append((relative, path))
+
     # Avalonia cannot create its render interface without both native modules.
     # Fail the release build here instead of producing a one-file artifact that
     # only crashes when a user starts it on the target platform.

@@ -60,11 +60,14 @@ public partial class PageDownloadInstall : MyPageRight
     private readonly Dictionary<(MinecraftInstallAddonKind Kind, string GameVersion), Task<IReadOnlyList<MinecraftInstallAddonVersionEntry>>> _addonVersionLoads = [];
     private readonly Dictionary<(MinecraftInstallAddonKind Kind, string GameVersion), string> _addonVersionErrors = [];
     private readonly Dictionary<MinecraftInstallAddonKind, MinecraftInstallAddonVersionEntry> _selectedAddons = [];
+    private readonly Dictionary<string, DispatcherTimer> _versionLoadTimers = [];
+    private readonly Dictionary<string, int> _versionLoadIndices = [];
     private IReadOnlyList<MinecraftVersionManifestEntry> _versions = [];
     private DownloadVersionFilter _filter = DownloadVersionFilter.All;
     private string _searchText = string.Empty;
     private readonly DispatcherTimer _searchFilterTimer;
     private MinecraftVersionManifestEntry? _selectedVersion;
+    private bool _isInitialLoading = true;
     private MinecraftLoaderKind? _selectedLoaderKind;
     private MinecraftLoaderVersionEntry? _selectedLoaderVersion;
     private MinecraftLoaderVersionEntry? _selectedOptiFineAddon;
@@ -119,6 +122,10 @@ public partial class PageDownloadInstall : MyPageRight
             if (_versions.Count == 0 && !_isLoading)
                 _ = RefreshVersionsAsync();
         };
+        DetachedFromVisualTree += (_, _) => CleanupVersionLoadTimers();
+
+        if (PanScroll is not null)
+            PanScroll.ScrollChanged += PanScroll_ScrollChanged;
     }
 
     public event EventHandler<DownloadInstallRequest>? InstallRequested;
@@ -605,11 +612,14 @@ public partial class PageDownloadInstall : MyPageRight
 
     private void ReloadVersionList()
     {
+        CleanupVersionLoadTimers();
+
         StackPanel? panel = this.FindControl<StackPanel>("PanMinecraft");
         if (panel is null)
             return;
 
         IReadOnlyList<DownloadVersionView> visible = BuildVersionViews(_versions);
+
         panel.Children.Clear();
         if (visible.Count == 0)
         {
@@ -621,12 +631,25 @@ public partial class PageDownloadInstall : MyPageRight
             return;
         }
 
+        _isInitialLoading = true;
+
         Dictionary<MinecraftVersionCategory, List<DownloadVersionView>> categories = CreateVersionDictionary(visible);
         AddLatestVersionCard(panel, categories);
         AddOtherVersionsCard(panel, categories);
         ApplyRenderedFilters();
         ControlVisualHelpers.AnimateListEntrance(panel, "Download Version List");
         ApplyExperimentalChrome();
+
+        DispatcherTimer initialTimer = new()
+        {
+            Interval = TimeSpan.FromMilliseconds(500)
+        };
+        initialTimer.Tick += (_, _) =>
+        {
+            initialTimer.Stop();
+            _isInitialLoading = false;
+        };
+        initialTimer.Start();
     }
 
     private bool TryFindVersion(string versionId, out MinecraftVersionManifestEntry version)
@@ -782,6 +805,8 @@ public partial class PageDownloadInstall : MyPageRight
         bool filterable,
         Thickness margin)
     {
+        string cacheKey = $"{title}_{filterable}";
+
         StackPanel stack = new()
         {
             Margin = new Thickness(20d, MyCard.SwapedHeight, 18d, 0d),
@@ -802,12 +827,102 @@ public partial class PageDownloadInstall : MyPageRight
             if (target.Tag is not IReadOnlyList<DownloadVersionView> entries)
                 return;
 
-            foreach (DownloadVersionView version in entries)
-                target.Children.Add(CreateVersionItem(version, filterable));
+            int batchSize = CalculateBatchSize();
+            int currentIndex = 0;
+
+            void LoadBatch()
+            {
+                int endIndex = Math.Min(currentIndex + batchSize, entries.Count);
+                for (int i = currentIndex; i < endIndex; i++)
+                {
+                    MyListItem item = CreateVersionItem(entries[i], filterable);
+                    target.Children.Add(item);
+                }
+                currentIndex = endIndex;
+
+                if (currentIndex >= entries.Count && _versionLoadTimers.TryGetValue(cacheKey, out DispatcherTimer? timer))
+                {
+                    timer.Stop();
+                    _versionLoadTimers.Remove(cacheKey);
+                    _versionLoadIndices.Remove(cacheKey);
+                }
+            }
+
+            if (entries.Count <= batchSize)
+            {
+                LoadBatch();
+            }
+            else
+            {
+                DispatcherTimer loadTimer = new()
+                {
+                    Interval = TimeSpan.FromMilliseconds(16)
+                };
+                loadTimer.Tick += (_, _) => LoadBatch();
+                _versionLoadTimers[cacheKey] = loadTimer;
+                _versionLoadIndices[cacheKey] = 0;
+                loadTimer.Start();
+
+                LoadBatch();
+            }
         }
 
         MyCard.StackInstall(ref stack, Install);
         return card;
+    }
+
+    private int CalculateBatchSize()
+    {
+        int itemCount = _versions.Count;
+        if (itemCount < 50)
+            return itemCount;
+        if (itemCount < 200)
+            return 20;
+        if (itemCount < 500)
+            return 15;
+        return 10;
+    }
+
+    private void CleanupVersionLoadTimers()
+    {
+        foreach (DispatcherTimer timer in _versionLoadTimers.Values)
+            timer.Stop();
+        _versionLoadTimers.Clear();
+        _versionLoadIndices.Clear();
+    }
+
+    private void PanScroll_ScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (PanScroll is null || _isInitialLoading)
+            return;
+
+        double viewportHeight = PanScroll.Bounds.Height;
+        double scrollOffset = PanScroll.Offset.Y;
+
+        double preloadThreshold = viewportHeight * 0.5;
+
+        StackPanel? panel = this.FindControl<StackPanel>("PanMinecraft");
+        if (panel is null)
+            return;
+
+        foreach (MyCard card in panel.Children.OfType<MyCard>())
+        {
+            if (card.IsSwapped && card.SwapControl is StackPanel stack && stack.Tag is not null)
+            {
+                double cardTop = card.TranslatePoint(new Point(0, 0), this)?.Y ?? 0;
+                double cardBottom = cardTop + card.Bounds.Height;
+
+                if (cardTop <= scrollOffset + viewportHeight + preloadThreshold &&
+                    cardBottom >= scrollOffset - preloadThreshold)
+                {
+                    string cacheKey = $"Card_{card.Title}_{card.GetHashCode()}";
+                    if (!_versionLoadTimers.ContainsKey(cacheKey))
+                    {
+                        card.IsSwapped = false;
+                    }
+                }
+            }
+        }
     }
 
     private MyListItem CreateVersionItem(DownloadVersionView version, bool filterable)

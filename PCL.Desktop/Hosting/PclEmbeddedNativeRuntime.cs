@@ -163,7 +163,10 @@ internal static class PclEmbeddedNativeRuntime
                 .ToArray();
             ConfigureNativeSearchDirectories(searchDirectories);
 
-            foreach (string library in EnumerateTopLevelNativeLibraries(fullInstallDirectory))
+            // Load all native libraries, including nested runtime directories
+            // for Linux distributions like Linux Mint that may have different
+            // library layouts or dependencies.
+            foreach (string library in EnumerateAllNativeLibraries(fullInstallDirectory))
             {
                 try
                 {
@@ -174,9 +177,21 @@ internal static class PclEmbeddedNativeRuntime
                 }
                 catch (Exception ex)
                 {
-                    throw new DllNotFoundException(
-                        $"无法从 OOBE 数据目录加载 NativeAOT 原生库：{library}",
-                        ex);
+                    // On Linux, some libraries may have unresolved dependencies
+                    // that are satisfied by other libraries in the same directory.
+                    // Log but don't fail immediately - the resolver may still work.
+                    if (OperatingSystem.IsLinux())
+                    {
+                        PortableLog.Warn(
+                            "NativeRuntime",
+                            $"Linux 原生库预加载失败（可能依赖其他库）：{library} - {ex.Message}");
+                    }
+                    else
+                    {
+                        throw new DllNotFoundException(
+                            $"无法从 OOBE 数据目录加载 NativeAOT 原生库：{library}",
+                            ex);
+                    }
                 }
             }
 
@@ -277,6 +292,45 @@ internal static class PclEmbeddedNativeRuntime
             .Where(IsNativeLibraryForCurrentPlatform)
             .OrderBy(GetNativeLibraryLoadPriority)
             .ThenBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Enumerates all native libraries including those in nested directories
+    /// (e.g., runtimes/linux-x64/native/) for Linux distributions.
+    /// </summary>
+    private static IEnumerable<string> EnumerateAllNativeLibraries(string installDirectory)
+    {
+        // First yield top-level libraries
+        foreach (string library in EnumerateTopLevelNativeLibraries(installDirectory))
+        {
+            yield return library;
+        }
+
+        // Then search nested runtime directories for Linux-specific libraries
+        if (OperatingSystem.IsLinux())
+        {
+            string rid = RuntimeInformation.RuntimeIdentifier;
+            string[] runtimePaths =
+            [
+                Path.Combine(installDirectory, "runtimes", rid, "native"),
+                Path.Combine(installDirectory, "runtimes", "linux-x64", "native"),
+                Path.Combine(installDirectory, "runtimes", "linux-arm64", "native"),
+            ];
+
+            foreach (string runtimePath in runtimePaths)
+            {
+                if (!Directory.Exists(runtimePath))
+                    continue;
+
+                foreach (string library in Directory.EnumerateFiles(runtimePath, "*", SearchOption.AllDirectories)
+                    .Where(IsNativeLibraryForCurrentPlatform)
+                    .OrderBy(GetNativeLibraryLoadPriority)
+                    .ThenBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+                {
+                    yield return library;
+                }
+            }
+        }
     }
 
     private static bool IsNativeLibraryForCurrentPlatform(string path)

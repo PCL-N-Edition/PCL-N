@@ -12,10 +12,6 @@ namespace PCL.Desktop.Controls.Legacy;
 #pragma warning disable CA1711
 public partial class MySearchBox : MyCard
 {
-    private const double TextLeftPadding = 34d;
-    private const double TextRightPadding = 40d;
-    private const double TextRightPaddingWithSearchButton = 76d;
-
     public delegate void SearchEventHandler(object sender, EventArgs e);
 
     public delegate void TextChangedEventHandler(object sender, EventArgs e);
@@ -66,7 +62,6 @@ public partial class MySearchBox : MyCard
         this.GetObservable(ToolTipProperty).Subscribe(tip => Avalonia.Controls.ToolTip.SetTip(this, tip));
         AttachedToVisualTree += (_, _) =>
         {
-            ApplyTextBoxPadding(SearchButtonVisibility);
             _textBox?.Focus();
             UpdateClearButtonState(animate: false);
         };
@@ -143,23 +138,10 @@ public partial class MySearchBox : MyCard
 
     private void ApplySearchButtonVisibility(bool isVisible)
     {
-        ApplyTextBoxPadding(isVisible);
         if (_clearButton is not null)
             _clearButton.Margin = new Thickness(0d, 0d, isVisible ? 70d : 10d, 0d);
         if (_searchButton is not null)
             _searchButton.IsVisible = isVisible;
-    }
-
-    private void ApplyTextBoxPadding(bool hasSearchButton)
-    {
-        if (_textBox is null)
-            return;
-
-        _textBox.Padding = new Thickness(
-            TextLeftPadding,
-            0d,
-            hasSearchButton ? TextRightPaddingWithSearchButton : TextRightPadding,
-            0d);
     }
 
     private void UpdateClearButtonState(bool animate)
