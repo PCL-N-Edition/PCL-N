@@ -7,6 +7,10 @@ name: Build (CI)
 permissions:
   contents: read
 
+concurrency:
+  group: pcln-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [dev]
