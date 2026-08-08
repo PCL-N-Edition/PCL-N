@@ -25,7 +25,7 @@
 #  include <unistd.h>
 #endif
 
-#define PCLN_PATH 1024
+#define PCLN_PATH 2048
 #define PCLN_HASH 72
 
 static void set_err(char *err, size_t errLen, const char *msg)

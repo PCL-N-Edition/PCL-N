@@ -39,7 +39,7 @@
 #  include <unistd.h>
 #endif
 
-#define PCLN_MAX 1024
+#define PCLN_MAX 2048
 
 static char g_self_dir[PCLN_MAX];
 static char g_payload_zip[PCLN_MAX];
