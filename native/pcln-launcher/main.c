@@ -474,7 +474,15 @@ static pid_t spawn_process(const char *path, char *const argv[])
 
 static void configure_host_env(void)
 {
+    char bootstrapPid[32];
     set_env("PCL_LAUNCHER_BOOTSTRAP", "1");
+    set_env("PCL_LAUNCHER_ROOT", g_self_dir);
+#if defined(_WIN32)
+    snprintf(bootstrapPid, sizeof(bootstrapPid), "%lu", (unsigned long)GetCurrentProcessId());
+#else
+    snprintf(bootstrapPid, sizeof(bootstrapPid), "%d", (int)getpid());
+#endif
+    set_env("PCL_LAUNCHER_BOOTSTRAP_PID", bootstrapPid);
     set_env("PCL_SKIP_EXTERNAL_CRASH_HANDLER", "1");
     if (g_clean_flag[0])
         set_env("PCL_CRASH_CLEAN_FLAG", g_clean_flag);
@@ -519,6 +527,82 @@ static void configure_host_env(void)
 #endif
 }
 
+#if defined(_WIN32)
+/* Append one argument using the CommandLineToArgvW/CreateProcess quoting rules. */
+static int append_windows_arg(char *command, size_t capacity, const char *arg)
+{
+    size_t used = strlen(command);
+    size_t slashes = 0;
+    const char *p;
+    int quote = !*arg || strpbrk(arg, " \t\"") != NULL;
+    if (used + 2 >= capacity)
+        return -1;
+    command[used++] = ' ';
+    if (quote)
+        command[used++] = '"';
+    for (p = arg; *p; p++)
+    {
+        if (*p == '\\')
+        {
+            slashes++;
+            continue;
+        }
+        if (*p == '"')
+        {
+            size_t count = slashes * 2 + 1;
+            while (count-- > 0)
+            {
+                if (used + 1 >= capacity)
+                    return -1;
+                command[used++] = '\\';
+            }
+            if (used + 1 >= capacity)
+                return -1;
+            command[used++] = '"';
+            slashes = 0;
+            continue;
+        }
+        while (slashes > 0)
+        {
+            slashes--;
+            if (used + 1 >= capacity)
+                return -1;
+            command[used++] = '\\';
+        }
+        slashes = 0;
+        if (used + 1 >= capacity)
+            return -1;
+        command[used++] = *p;
+    }
+    if (quote)
+    {
+        while (slashes > 0)
+        {
+            slashes--;
+            if (used + 2 >= capacity)
+                return -1;
+            command[used++] = '\\';
+            command[used++] = '\\';
+        }
+        if (used + 1 >= capacity)
+            return -1;
+        command[used++] = '"';
+    }
+    else
+    {
+        while (slashes > 0)
+        {
+            slashes--;
+            if (used + 1 >= capacity)
+                return -1;
+            command[used++] = '\\';
+        }
+    }
+    command[used] = 0;
+    return 0;
+}
+#endif
+
 /* Allocate clean-flag path before spawn so host inherits PCL_CRASH_CLEAN_FLAG. */
 static void prepare_clean_flag_path(void)
 {
@@ -547,9 +631,6 @@ static void write_clean_flag(void)
 
 int main(int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
-
     resolve_self_dir();
     /* Same root as host LauncherPathLayout.ResolveDataDirectory — all extracts go here. */
     if (pcln_resolve_data_directory(g_data_dir, sizeof(g_data_dir)) != 0)
@@ -575,7 +656,7 @@ int main(int argc, char **argv)
     {
         PROCESS_INFORMATION hostPi, crashPi;
         DWORD hostExit = 1;
-        char hostCmd[PCLN_MAX * 2];
+        char hostCmd[PCLN_MAX * 8];
         char crashCmd[PCLN_MAX * 2];
         int hasCrash = file_exists(g_crash_path);
 
@@ -584,6 +665,12 @@ int main(int argc, char **argv)
 
         /* Start host first so we know its PID for the crash watcher. */
         snprintf(hostCmd, sizeof(hostCmd), "\"%s\"", g_host_path);
+        {
+            int argi;
+            for (argi = 1; argi < argc; argi++)
+                if (append_windows_arg(hostCmd, sizeof(hostCmd), argv[argi]) != 0)
+                    die("启动参数过长");
+        }
         if (spawn_process(g_host_path, hostCmd, &hostPi) != 0)
             die("无法启动 AOT 主机进程");
 
@@ -626,11 +713,21 @@ int main(int argc, char **argv)
         pid_t hostPid, crashPid = -1;
         int status = 0;
         char pidStr[32];
-        char *hostArgv[] = { g_host_path, NULL };
+        char **hostArgv;
         char *crashArgv[12];
         int ai = 0;
 
+        hostArgv = (char **)calloc((size_t)argc + 1, sizeof(char *));
+        if (!hostArgv)
+            die("cannot allocate host arguments");
+        hostArgv[0] = g_host_path;
+        {
+            int argi;
+            for (argi = 1; argi < argc; argi++)
+                hostArgv[argi] = argv[argi];
+        }
         hostPid = spawn_process(g_host_path, hostArgv);
+        free(hostArgv);
         if (hostPid < 0)
             die("fork host failed");
 

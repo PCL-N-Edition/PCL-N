@@ -8,19 +8,19 @@ using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using PCL.Core.App;
 using PCL.Core.Logging;
+using PCL.Application.Online;
 
 namespace PCL.Application.Updates;
 
 /// <summary>
-/// Checks GitHub for a newer PCL N desktop build without using the rate-limited
-/// REST API. The complete release body comes from the Atom feed and is converted
-/// locally from GitHub's rendered HTML to Markdown.
+/// Checks GitHub's non-rate-limited Atom surface for release discovery, while
+/// package and patch distribution use the Cloudflare/R2 update gateway.
 ///
 /// Sources:
 /// <list type="bullet">
 /// <item>Atom feed: https://github.com/{owner}/{repo}/releases.atom</item>
 /// <item>Latest redirect: https://github.com/{owner}/{repo}/releases/latest</item>
-/// <item>Download URLs built by convention (no assets listing API)</item>
+/// <item>Download gateway: https://api.pcln.top/v1/updates/releases/{tag}/{asset}</item>
 /// </list>
 /// </summary>
 public sealed class LauncherUpdateService : IDisposable
@@ -46,19 +46,18 @@ public sealed class LauncherUpdateService : IDisposable
     private readonly bool _ownsClient;
     private readonly string _owner;
     private readonly string _repo;
+    private readonly string _distributionBaseUrl;
     private bool _disposed;
 
     public LauncherUpdateService(HttpClient? httpClient = null, string? owner = null, string? repo = null)
     {
         if (httpClient is null)
         {
+            // The same handler discovers GitHub releases and authenticates Cloudflare update requests.
             // Do not follow redirects automatically so we can read Location for /releases/latest.
-            HttpClientHandler handler = new()
-            {
-                AllowAutoRedirect = false,
-                AutomaticDecompression = DecompressionMethods.All
-            };
-            _httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+            _httpClient = PclnApiHttpClientFactory.Create(
+                allowAutoRedirect: false,
+                timeout: TimeSpan.FromSeconds(30));
             _ownsClient = true;
         }
         else
@@ -69,6 +68,13 @@ public sealed class LauncherUpdateService : IDisposable
 
         _owner = string.IsNullOrWhiteSpace(owner) ? DefaultOwner : owner.Trim();
         _repo = string.IsNullOrWhiteSpace(repo) ? DefaultRepo : repo.Trim();
+        string? configuredDistribution = Environment.GetEnvironmentVariable("PCLN_UPDATE_DISTRIBUTION_BASE_URL");
+        _distributionBaseUrl = !string.IsNullOrWhiteSpace(configuredDistribution)
+            ? configuredDistribution.TrimEnd('/')
+            : string.Equals(_owner, DefaultOwner, StringComparison.OrdinalIgnoreCase) &&
+              string.Equals(_repo, DefaultRepo, StringComparison.OrdinalIgnoreCase)
+                ? "https://api.pcln.top/v1/updates/releases"
+                : $"https://github.com/{_owner}/{_repo}/releases/download";
 
         if (_httpClient.DefaultRequestHeaders.UserAgent.Count == 0)
             _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PCL-N", "1.0"));
@@ -175,6 +181,15 @@ public sealed class LauncherUpdateService : IDisposable
         LauncherUpdatePackage package = BuildFullPackage(CiRollingTag, UpdateChannel.CI, identity);
         LauncherBuildMetadataDto? metadata = await TryLoadCiMetadataAsync(package, cancellationToken)
             .ConfigureAwait(false);
+        if (metadata is not null)
+        {
+            string packageSha256 = NormalizeSha256(metadata.PackageSha256);
+            package = package with
+            {
+                FullPackageSha256 = IsValidSha256(packageSha256) ? packageSha256 : null,
+                FullPackageSize = metadata.PackageSize is > 0 ? metadata.PackageSize : null
+            };
+        }
 
         // Release Atom is useful for display text, but it can lag behind a rolling release edit.
         // CI identity therefore comes from the per-artifact .ci.json uploaded in the same job.
@@ -510,14 +525,15 @@ public sealed class LauncherUpdateService : IDisposable
             : null;
         bool patchNotWorthwhile = path.Count > 0 &&
             ((fullPackageBytes is > 0 && patchBytes >= fullPackageBytes.Value) ||
-             (fullPackageBytes is null && targetVariant.TargetSize > 0 && patchBytes >= targetVariant.TargetSize * 0.9));
+             (fullPackageBytes is null && targetVariant.TargetArchiveSize > 0 &&
+              patchBytes >= targetVariant.TargetArchiveSize));
         if (patchNotWorthwhile)
         {
             PortableLog.Info(
                 "Update",
                 fullPackageBytes is > 0
                     ? $"补丁链大小 {patchBytes} 不小于完整包 {fullPackageBytes.Value}，改用完整包。"
-                    : $"补丁链大小 {patchBytes} 不小于目标文件的 90%，改用完整包。");
+                    : $"补丁链大小 {patchBytes} 不小于完整包索引大小 {targetVariant.TargetArchiveSize}，改用完整包。");
             path = [];
         }
 
@@ -552,30 +568,33 @@ public sealed class LauncherUpdateService : IDisposable
     {
         foreach (string asset in new[] { "patch-index.json", "index.json" })
         {
-            string url = BuildReleaseAssetUrl(tag, asset);
-            using HttpResponseMessage response = await GetFollowingRedirectsAsync(url, cancellationToken).ConfigureAwait(false);
-            if (response.StatusCode == HttpStatusCode.NotFound)
-                continue;
-            if (!response.IsSuccessStatusCode)
+            string[] urls = [BuildReleaseAssetUrl(tag, asset), BuildGitHubReleaseAssetUrl(tag, asset)];
+            foreach (string url in urls.Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                PortableLog.Debug("Update", $"补丁索引不可用：{url}；HTTP={(int)response.StatusCode}。");
-                continue;
-            }
+                using HttpResponseMessage response = await GetFollowingRedirectsAsync(url, cancellationToken).ConfigureAwait(false);
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                    continue;
+                if (!response.IsSuccessStatusCode)
+                {
+                    PortableLog.Debug("Update", $"补丁索引不可用：{url}；HTTP={(int)response.StatusCode}。");
+                    continue;
+                }
 
-            try
-            {
-                await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                LauncherPatchIndexDto? index = await JsonSerializer.DeserializeAsync(
-                        stream,
-                        LauncherUpdateJsonContext.Default.LauncherPatchIndexDto,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                if (index is not null && index.FormatVersion is 1 or 2 && index.Variants is { Count: > 0 })
-                    return new LoadedPatchIndex(tag, index);
-            }
-            catch (JsonException ex)
-            {
-                PortableLog.Warn(ex, "Update", $"补丁索引格式无效：{url}。");
+                try
+                {
+                    await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                    LauncherPatchIndexDto? index = await JsonSerializer.DeserializeAsync(
+                            stream,
+                            LauncherUpdateJsonContext.Default.LauncherPatchIndexDto,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    if (index is not null && index.FormatVersion is >= 1 and <= 3 && index.Variants is { Count: > 0 })
+                        return new LoadedPatchIndex(tag, index);
+                }
+                catch (JsonException ex)
+                {
+                    PortableLog.Warn(ex, "Update", $"补丁索引格式无效：{url}。");
+                }
             }
         }
 
@@ -601,7 +620,10 @@ public sealed class LauncherUpdateService : IDisposable
             string edgeTarget = NormalizeVersion(loaded.Index.TargetVersion!);
             foreach (LauncherPatchDto patch in variant.Patches)
             {
-                if (!string.Equals(patch.Algorithm, "hdiffpatch", StringComparison.OrdinalIgnoreCase) ||
+                bool supportedAlgorithm =
+                    string.Equals(patch.Algorithm, "hdiffpatch", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(patch.Algorithm, "hdiffpatch-scatter-v1", StringComparison.OrdinalIgnoreCase);
+                if (!supportedAlgorithm ||
                     string.IsNullOrWhiteSpace(patch.FromVersion) ||
                     string.IsNullOrWhiteSpace(patch.FileName) ||
                     string.IsNullOrWhiteSpace(patch.Sha256) ||
@@ -628,7 +650,10 @@ public sealed class LauncherUpdateService : IDisposable
                         patch.FromSha256!,
                         patch.FromSize,
                         variant.TargetSha256!,
-                        variant.TargetSize));
+                        variant.TargetSize,
+                        patch.Algorithm!,
+                        patch.FromManifestSha256,
+                        patch.TargetManifestSha256));
                 if (!edges.TryGetValue(from, out List<PatchEdge>? list))
                 {
                     list = [];
@@ -638,22 +663,54 @@ public sealed class LauncherUpdateService : IDisposable
             }
         }
 
-        Queue<(string Version, List<LauncherUpdatePatchStep> Steps)> queue = new();
-        HashSet<string> visited = new(StringComparer.OrdinalIgnoreCase) { currentVersion };
-        queue.Enqueue((currentVersion, []));
-        while (queue.Count > 0)
+        List<LauncherUpdatePatchStep> scatter = FindCheapestPatchPath(
+            edges,
+            currentVersion,
+            targetVersion,
+            scatterBundle: true);
+        List<LauncherUpdatePatchStep> legacy = FindCheapestPatchPath(
+            edges,
+            currentVersion,
+            targetVersion,
+            scatterBundle: false);
+        if (scatter.Count == 0)
+            return legacy;
+        if (legacy.Count == 0)
+            return scatter;
+        return scatter.Sum(static step => step.Size) <= legacy.Sum(static step => step.Size)
+            ? scatter
+            : legacy;
+    }
+
+    private static List<LauncherUpdatePatchStep> FindCheapestPatchPath(
+        IReadOnlyDictionary<string, List<PatchEdge>> edges,
+        string currentVersion,
+        string targetVersion,
+        bool scatterBundle)
+    {
+        PriorityQueue<(string Version, List<LauncherUpdatePatchStep> Steps), long> queue = new();
+        Dictionary<string, long> best = new(StringComparer.OrdinalIgnoreCase)
         {
-            (string version, List<LauncherUpdatePatchStep> steps) = queue.Dequeue();
-            if (string.Equals(version, targetVersion, StringComparison.OrdinalIgnoreCase))
-                return steps;
-            if (!edges.TryGetValue(version, out List<PatchEdge>? next))
+            [currentVersion] = 0
+        };
+        queue.Enqueue((currentVersion, []), 0);
+        while (queue.TryDequeue(out (string Version, List<LauncherUpdatePatchStep> Steps) state, out long cost))
+        {
+            if (best.TryGetValue(state.Version, out long known) && cost > known)
                 continue;
-            foreach (PatchEdge edge in next.OrderBy(static edge => edge.Step.Size))
+            if (string.Equals(state.Version, targetVersion, StringComparison.OrdinalIgnoreCase))
+                return state.Steps;
+            if (!edges.TryGetValue(state.Version, out List<PatchEdge>? next))
+                continue;
+            foreach (PatchEdge edge in next.Where(edge => edge.Step.IsScatterBundle == scatterBundle))
             {
-                if (!visited.Add(edge.ToVersion))
+                if (edge.Step.Size <= 0 || cost > long.MaxValue - edge.Step.Size)
                     continue;
-                List<LauncherUpdatePatchStep> branch = [.. steps, edge.Step];
-                queue.Enqueue((edge.ToVersion, branch));
+                long nextCost = cost + edge.Step.Size;
+                if (best.TryGetValue(edge.ToVersion, out long previous) && previous <= nextCost)
+                    continue;
+                best[edge.ToVersion] = nextCost;
+                queue.Enqueue((edge.ToVersion, [.. state.Steps, edge.Step]), nextCost);
             }
         }
 
@@ -723,6 +780,9 @@ public sealed class LauncherUpdateService : IDisposable
             : Path.GetFileNameWithoutExtension(assetName);
 
     private string BuildReleaseAssetUrl(string tag, string assetName) =>
+        $"{_distributionBaseUrl}/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(assetName)}";
+
+    private string BuildGitHubReleaseAssetUrl(string tag, string assetName) =>
         $"https://github.com/{_owner}/{_repo}/releases/download/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(assetName)}";
 
     private static string DefaultBinaryName(string runtimeId) =>
@@ -871,6 +931,12 @@ public sealed class LauncherUpdateService : IDisposable
 
     private static string NormalizeCommit(string? sha) =>
         string.IsNullOrWhiteSpace(sha) ? string.Empty : sha.Trim().ToLowerInvariant();
+
+    private static string NormalizeSha256(string? sha) =>
+        string.IsNullOrWhiteSpace(sha) ? string.Empty : sha.Trim().ToLowerInvariant();
+
+    private static bool IsValidSha256(string sha) =>
+        sha.Length == 64 && sha.All(Uri.IsHexDigit);
 
     private static bool IsValidCommit(string commit) =>
         commit.Length is >= 7 and <= 40 && commit.All(Uri.IsHexDigit);

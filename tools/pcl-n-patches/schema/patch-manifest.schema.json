@@ -6,19 +6,45 @@
   "additionalProperties": false,
   "required": ["formatVersion", "targetVersion", "targetTag", "generatedAt", "sourceRepo", "variants"],
   "properties": {
-    "formatVersion": { "type": "integer", "const": 1 },
+    "formatVersion": { "type": "integer", "const": 3 },
     "targetVersion": { "type": "string", "minLength": 1 },
     "targetTag": { "type": "string", "minLength": 1 },
     "generatedAt": { "type": "string", "format": "date-time" },
     "sourceRepo": { "type": "string", "minLength": 1 },
     "patchRepo": { "type": "string" },
-    "algorithmDefault": { "type": "string", "enum": ["hdiffpatch"] },
+    "algorithmDefault": { "type": "string", "enum": ["hdiffpatch-scatter-v1"] },
+    "strategy": { "$ref": "#/$defs/strategy" },
     "variants": {
       "type": "array",
       "items": { "$ref": "#/$defs/variant" }
-    }
+    },
+    "stats": { "$ref": "#/$defs/stats" }
   },
   "$defs": {
+    "strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxDirectFromVersions", "hopInterval", "upgradeMode", "selectedFromTags", "hopAnchorTags"],
+      "properties": {
+        "maxDirectFromVersions": { "type": "integer", "minimum": 1 },
+        "hopInterval": { "type": "integer", "minimum": 1 },
+        "upgradeMode": { "type": "string", "const": "multi-hop" },
+        "description": { "type": "string" },
+        "selectedFromTags": { "type": "array", "items": { "type": "string" } },
+        "hopAnchorTags": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["historyVersionsAvailable", "historyVersionsSelected", "patchesGenerated", "variantsSkipped"],
+      "properties": {
+        "historyVersionsAvailable": { "type": "integer", "minimum": 0 },
+        "historyVersionsSelected": { "type": "integer", "minimum": 0 },
+        "patchesGenerated": { "type": "integer", "minimum": 0 },
+        "variantsSkipped": { "type": "integer", "minimum": 0 }
+      }
+    },
     "variant": {
       "type": "object",
       "additionalProperties": false,
@@ -30,6 +56,9 @@
         "targetBinaryName",
         "targetSha256",
         "targetSize",
+        "targetArchiveSize",
+        "targetManifestSha256",
+        "targetFileCount",
         "patches"
       ],
       "properties": {
@@ -40,6 +69,9 @@
         "targetBinaryName": { "type": "string" },
         "targetSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "targetSize": { "type": "integer", "minimum": 1 },
+        "targetArchiveSize": { "type": "integer", "minimum": 1 },
+        "targetManifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "targetFileCount": { "type": "integer", "minimum": 1 },
         "patches": {
           "type": "array",
           "items": { "$ref": "#/$defs/patch" }
@@ -53,21 +85,29 @@
         "fromVersion",
         "fromTag",
         "algorithm",
+        "layout",
         "fileName",
         "sha256",
         "size",
         "fromSha256",
-        "fromSize"
+        "fromSize",
+        "fromManifestSha256",
+        "targetManifestSha256",
+        "operationCount"
       ],
       "properties": {
         "fromVersion": { "type": "string" },
         "fromTag": { "type": "string" },
-        "algorithm": { "type": "string", "enum": ["hdiffpatch"] },
+        "algorithm": { "type": "string", "enum": ["hdiffpatch-scatter-v1"] },
+        "layout": { "type": "string", "const": "scatter" },
         "fileName": { "type": "string" },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "size": { "type": "integer", "minimum": 1 },
         "fromSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "fromSize": { "type": "integer", "minimum": 1 },
+        "fromManifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "targetManifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "operationCount": { "type": "integer", "minimum": 1 },
         "compressionRatio": { "type": "number", "minimum": 0, "maximum": 1 },
         "downloadUrl": { "type": "string", "format": "uri" }
       }

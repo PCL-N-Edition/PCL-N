@@ -11,6 +11,8 @@ namespace PCL.Application.Updates;
 [JsonSerializable(typeof(GitHubAssetDto))]
 [JsonSerializable(typeof(LauncherBuildMetadataDto))]
 [JsonSerializable(typeof(LauncherPatchIndexDto))]
+[JsonSerializable(typeof(LauncherScatterPatchManifest))]
+[JsonSerializable(typeof(LauncherInstallPlan))]
 internal sealed partial class LauncherUpdateJsonContext : JsonSerializerContext;
 
 internal sealed class LauncherBuildMetadataDto
@@ -28,6 +30,10 @@ internal sealed class LauncherBuildMetadataDto
     public string? RunId { get; set; }
 
     public string? Artifact { get; set; }
+
+    public string? PackageSha256 { get; set; }
+
+    public long? PackageSize { get; set; }
 
     public bool SupportsPatches { get; set; }
 
@@ -115,6 +121,12 @@ internal sealed class LauncherPatchVariantDto
 
     public long TargetSize { get; set; }
 
+    public long TargetArchiveSize { get; set; }
+
+    public string? TargetManifestSha256 { get; set; }
+
+    public int TargetFileCount { get; set; }
+
     public List<LauncherPatchDto>? Patches { get; set; }
 }
 
@@ -137,4 +149,12 @@ internal sealed class LauncherPatchDto
     public string? FromSha256 { get; set; }
 
     public long FromSize { get; set; }
+
+    public string? Layout { get; set; }
+
+    public string? FromManifestSha256 { get; set; }
+
+    public string? TargetManifestSha256 { get; set; }
+
+    public int OperationCount { get; set; }
 }

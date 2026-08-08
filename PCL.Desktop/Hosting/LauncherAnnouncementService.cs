@@ -148,7 +148,7 @@ internal sealed partial class LauncherAnnouncementService
     private static Uri ResolveEndpoint()
     {
         string root = Environment.GetEnvironmentVariable("PCLN_PLUGIN_API_URL")?.Trim() ??
-                      "https://vtvhtscdvfnuttwapzxu.supabase.co/functions/v1/plugin-center-api/v1/";
+                      "https://api.pcln.top/v1/";
         if (!root.EndsWith('/')) root += "/";
         return new Uri(new Uri(root, UriKind.Absolute), "announcements");
     }

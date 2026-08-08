@@ -357,7 +357,7 @@ internal static class MinecraftLaunchPlanFactory
 
         string? envBase = Environment.GetEnvironmentVariable("PCLN_PLUGIN_API_URL");
         string apiBase = string.IsNullOrWhiteSpace(envBase)
-            ? "https://vtvhtscdvfnuttwapzxu.supabase.co/functions/v1/plugin-center-api/v1/"
+            ? "https://api.pcln.top/v1/"
             : envBase;
 
         if (!apiBase.EndsWith('/'))

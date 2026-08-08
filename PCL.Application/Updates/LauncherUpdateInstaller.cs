@@ -6,12 +6,13 @@ using System.Formats.Tar;
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using PCL.Application.Online;
 using PCL.Core.Logging;
 
 namespace PCL.Application.Updates;
 
 /// <summary>Downloads, verifies and stages a launcher binary, then replaces it after exit.</summary>
-public sealed class LauncherUpdateInstaller : IDisposable
+public sealed partial class LauncherUpdateInstaller : IDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly bool _ownsClient;
@@ -29,14 +30,9 @@ public sealed class LauncherUpdateInstaller : IDisposable
         _gpgVerifier = gpgVerifier;
         if (httpClient is null)
         {
-            _httpClient = new HttpClient(new HttpClientHandler
-            {
-                AllowAutoRedirect = true,
-                AutomaticDecompression = System.Net.DecompressionMethods.All
-            })
-            {
-                Timeout = TimeSpan.FromMinutes(20)
-            };
+            _httpClient = PclnApiHttpClientFactory.Create(
+                allowAutoRedirect: true,
+                timeout: TimeSpan.FromMinutes(20));
             _ownsClient = true;
         }
         else
@@ -70,19 +66,34 @@ public sealed class LauncherUpdateInstaller : IDisposable
             SanitizeFileName(package.TargetVersion) + "-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(workDirectory);
         string? preparedBinary = null;
+        PreparedTreePayload? preparedTree = null;
         bool usedPatch = false;
 
         if (package.PatchSteps.Count > 0 && !string.IsNullOrWhiteSpace(hpatchzPath) && File.Exists(hpatchzPath))
         {
             try
             {
-                preparedBinary = await ApplyPatchChainAsync(
-                        package,
-                        currentPath,
-                        hpatchzPath,
-                        workDirectory,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                if (package.PatchSteps.All(static step => step.IsScatterBundle))
+                {
+                    preparedTree = await ApplyScatterPatchChainAsync(
+                            package,
+                            currentPath,
+                            hpatchzPath,
+                            workDirectory,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    preparedBinary = preparedTree.StagedEntryPath;
+                }
+                else
+                {
+                    preparedBinary = await ApplyPatchChainAsync(
+                            package,
+                            currentPath,
+                            hpatchzPath,
+                            workDirectory,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
                 await VerifyDetachedSignatureAsync(
                         preparedBinary,
                         package.TargetBinarySignatureUrl,
@@ -98,6 +109,7 @@ public sealed class LauncherUpdateInstaller : IDisposable
             catch (Exception ex)
             {
                 preparedBinary = null;
+                preparedTree = null;
                 PortableLog.Warn(ex, "Update", "补丁应用或校验失败，将自动回退完整包。");
                 Report(LauncherUpdateStage.FallingBack, 0, "补丁不可用，正在改用完整包…");
             }
@@ -110,8 +122,14 @@ public sealed class LauncherUpdateInstaller : IDisposable
 
         if (preparedBinary is null)
         {
-            preparedBinary = await DownloadAndExtractFullPackageAsync(package, workDirectory, cancellationToken)
+            PreparedFullPayload fullPayload = await DownloadAndExtractFullPayloadAsync(
+                    package,
+                    currentPath,
+                    workDirectory,
+                    cancellationToken)
                 .ConfigureAwait(false);
+            preparedTree = fullPayload.Tree;
+            preparedBinary = fullPayload.EntryPath;
             await VerifyDetachedSignatureAsync(
                     preparedBinary,
                     package.TargetBinarySignatureUrl,
@@ -121,6 +139,24 @@ public sealed class LauncherUpdateInstaller : IDisposable
         }
 
         await VerifyTargetAsync(preparedBinary, package.TargetSha256, cancellationToken).ConfigureAwait(false);
+        if (preparedTree is not null)
+        {
+            Report(LauncherUpdateStage.Ready, 1, "散包更新已下载并逐文件校验完成。");
+            PortableLog.Info(
+                "Update",
+                $"散包更新已就绪；目标={package.TargetVersion}；方式={(usedPatch ? "PatchZip" : "Full")}；" +
+                $"暂存={preparedTree.StagedRoot}。");
+            return new PreparedLauncherUpdate(
+                package,
+                preparedTree.InstalledEntryPath,
+                preparedTree.StagedHelperPath,
+                workDirectory,
+                usedPatch,
+                preparedTree.StagedRoot,
+                preparedTree.InstallPlanPath,
+                preparedTree.InstalledEntryPath);
+        }
+
         string verifiedBinarySha256 = await CalculateSha256Async(preparedBinary, cancellationToken).ConfigureAwait(false);
         string stagedPath = BuildStagedPath(currentPath, package.TargetVersion);
         File.Copy(preparedBinary, stagedPath, overwrite: true);
@@ -152,7 +188,8 @@ public sealed class LauncherUpdateInstaller : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(update);
-        if (!File.Exists(update.StagedExecutablePath))
+        if (!File.Exists(update.StagedExecutablePath) ||
+            (!string.IsNullOrWhiteSpace(update.InstallPlanPath) && !File.Exists(update.InstallPlanPath)))
             throw new FileNotFoundException("已下载的启动器更新不存在。", update.StagedExecutablePath);
 
         Directory.CreateDirectory(update.WorkDirectory);
@@ -417,6 +454,17 @@ public sealed class LauncherUpdateInstaller : IDisposable
             WindowStyle = ProcessWindowStyle.Hidden,
             WorkingDirectory = Path.GetDirectoryName(update.CurrentExecutablePath) ?? Environment.CurrentDirectory
         };
+        if (!string.IsNullOrWhiteSpace(update.InstallPlanPath))
+        {
+            startInfo.ArgumentList.Add("--pcln-apply-tree-update");
+            startInfo.ArgumentList.Add(processId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            startInfo.ArgumentList.Add(update.CurrentExecutablePath);
+            startInfo.ArgumentList.Add(update.InstallPlanPath);
+            startInfo.ArgumentList.Add(update.WorkDirectory);
+            startInfo.ArgumentList.Add(restartAfterInstall ? "1" : "0");
+            return startInfo;
+        }
+
         startInfo.ArgumentList.Add("--pcln-apply-update");
         startInfo.ArgumentList.Add(processId.ToString(System.Globalization.CultureInfo.InvariantCulture));
         startInfo.ArgumentList.Add(update.CurrentExecutablePath);
@@ -491,7 +539,10 @@ public sealed record PreparedLauncherUpdate(
     string CurrentExecutablePath,
     string StagedExecutablePath,
     string WorkDirectory,
-    bool UsedPatch);
+    bool UsedPatch,
+    string? StagedInstallDirectory = null,
+    string? InstallPlanPath = null,
+    string? InstalledEntryPath = null);
 
 public sealed record LauncherUpdateProgress(
     LauncherUpdateStage Stage,
