@@ -53,12 +53,14 @@ internal static unsafe class NativeCrashGuard
         if (Interlocked.Exchange(ref _installed, 1) == 1)
             return;
 
+        if (System.Diagnostics.Debugger.IsAttached)
+            return;
+
         try
         {
             bool isMac = OperatingSystem.IsMacOS();
-            // open(2) flags differ between Linux and Darwin.
-            _openWriteCreateTruncFlags = isMac ? 0x601 : 577; // O_WRONLY|O_CREAT|O_TRUNC
-            _openWriteAppendFlags = isMac ? 0x009 : 0x401; // O_WRONLY|O_APPEND
+            _openWriteCreateTruncFlags = isMac ? 0x601 : 577;
+            _openWriteAppendFlags = isMac ? 0x009 : 0x401;
 
             string directory = Path.Combine(LauncherPathLayout.ResolveLogDirectory(), "Crashes");
             Directory.CreateDirectory(directory);
@@ -83,7 +85,6 @@ internal static unsafe class NativeCrashGuard
         }
         catch
         {
-            // Never block startup on crash-guard installation.
         }
     }
 

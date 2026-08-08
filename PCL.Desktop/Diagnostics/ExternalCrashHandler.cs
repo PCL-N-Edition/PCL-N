@@ -92,6 +92,7 @@ internal static class ExternalCrashHandler
                 FileName = binary,
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
                 WorkingDirectory = Path.GetDirectoryName(binary) ?? AppContext.BaseDirectory
             };
             start.ArgumentList.Add("--parent-pid");

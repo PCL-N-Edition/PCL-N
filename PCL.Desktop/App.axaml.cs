@@ -511,16 +511,15 @@ public sealed partial class App : Avalonia.Application
             ProcessStartInfo start = new()
             {
                 FileName = exe,
-                UseShellExecute = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
                 WorkingDirectory = Path.GetDirectoryName(exe) ?? Environment.CurrentDirectory
             };
             if (arguments is { Count: > 0 })
             {
-                // UseShellExecute does not support ArgumentList on all hosts — join args safely.
-                start.Arguments = string.Join(
-                    ' ',
-                    arguments.Select(static a =>
-                        a.Contains(' ', StringComparison.Ordinal) ? "\"" + a.Replace("\"", "\\\"") + "\"" : a));
+                foreach (string argument in arguments)
+                    start.ArgumentList.Add(argument);
             }
 
             Process.Start(start);

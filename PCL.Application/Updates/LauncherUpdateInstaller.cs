@@ -414,6 +414,7 @@ public sealed class LauncherUpdateInstaller : IDisposable
         {
             UseShellExecute = false,
             CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
             WorkingDirectory = Path.GetDirectoryName(update.CurrentExecutablePath) ?? Environment.CurrentDirectory
         };
         startInfo.ArgumentList.Add("--pcln-apply-update");

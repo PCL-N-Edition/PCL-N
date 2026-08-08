@@ -122,6 +122,7 @@ internal static class MinecraftJvmHostProcessLauncher
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
             CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
             RedirectStandardInput = false,
             RedirectStandardOutput = false,
             RedirectStandardError = false

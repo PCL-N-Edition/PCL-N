@@ -297,7 +297,9 @@ internal static class Program
             ProcessStartInfo start = new()
             {
                 FileName = processPath,
-                UseShellExecute = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
                 WorkingDirectory = GetLauncherDirectory()
             };
 
