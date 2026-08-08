@@ -183,46 +183,7 @@ jobs:
           ls -la dist
           test -n "$(ls -A dist/*.zip 2>/dev/null)" || { echo "No CI zips produced"; exit 1; }
 
-      - name: Publish / replace rolling ci-latest release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          TAG="ci-latest"
-          TITLE="CI ${{ github.sha }}"
-          NOTES="$(cat <<'EOF'
-          Rolling CI build from the **dev** branch workflow.
-
-          ```
-          commit: ${{ github.sha }}
-          ref: ${{ github.ref }}
-          run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          ```
-
-          - **Channel:** CI (full package only)
-          - **Patches:** not generated for CI builds
-          EOF
-          )"
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" \
-              --title "$TITLE" \
-              --prerelease \
-              --target "${{ github.sha }}" \
-              --notes "$NOTES"
-          else
-            gh release create "$TAG" \
-              --title "$TITLE" \
-              --prerelease \
-              --target "${{ github.sha }}" \
-              --notes "$NOTES"
-          fi
-
-          # Full package only — never attach .hdiff patches here.
-          gh release upload "$TAG" dist/* --clobber
-
-      - name: Mirror rolling CI assets to Cloudflare R2
+      - name: Publish rolling CI assets to Cloudflare R2
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -248,4 +209,7 @@ jobs:
           done < <(find dist -maxdepth 1 -type f -name '*.ci.json' -print0 | sort -z)
           npx --yes wrangler@4.120.0 r2 object put \
             "pcln-releases/releases/ci-latest/ci-channel.json" \
+            --file dist/ci-channel.json --remote
+          npx --yes wrangler@4.120.0 r2 object put \
+            "pcln-releases/channels/ci.json" \
             --file dist/ci-channel.json --remote

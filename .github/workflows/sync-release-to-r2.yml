@@ -33,6 +33,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Import GPG key for signed block maps
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
       - name: Validate credentials and tag
         shell: bash
         run: |
@@ -69,7 +74,89 @@ jobs:
             npx --yes wrangler@4.120.0 r2 object put \
               "pcln-releases/releases/${RELEASE_TAG}/${name}" \
               --file "asset/$name" --remote
-            rm -f "asset/$name"
           done
           test "$selected" -gt 0
           echo "Synced $selected update assets for $RELEASE_TAG."
+
+      - name: Generate and publish Cloudflare block maps for the legacy release
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf block-dist
+          mkdir -p block-dist
+          configuration=""
+          while IFS= read -r -d '' archive; do
+            name="$(basename "$archive")"
+            if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_((win|linux|osx)-(x64|arm64))_(SelfContained|NoRuntime)\.(zip|tar\.gz)$ ]]; then
+              continue
+            fi
+            configuration="${BASH_REMATCH[1]}"
+            python scripts/generate_update_blockmap.py \
+              --archive "$archive" \
+              --output block-dist \
+              --target-tag "$RELEASE_TAG" \
+              --target-version "${RELEASE_TAG#v}" \
+              --runtime-id "${BASH_REMATCH[2]}" \
+              --runtime-variant "${BASH_REMATCH[5]}" \
+              --configuration "$configuration"
+          done < <(find asset -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0)
+          test -n "$configuration"
+
+          while IFS= read -r -d '' map; do
+            gpg --detach-sign --armor "$map"
+            cp -a "$map" "$map.asc" asset/
+          done < <(find block-dist/manifests -maxdepth 1 -type f -name '*.blockmap.json' -print0)
+
+          export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
+          npx --yes wrangler@4.120.0 --version
+          find block-dist/block -type f -print0 | xargs -0 -r -P 6 -I '{}' \
+            bash -c '
+              set -euo pipefail
+              block="$1"
+              relative="${block#block-dist/}"
+              npx --yes wrangler@4.120.0 r2 object put \
+                "pcln-releases/${relative}" --file "$block" --remote
+            ' _ '{}'
+          while IFS= read -r -d '' map; do
+            name="$(basename "$map")"
+            npx --yes wrangler@4.120.0 r2 object put \
+              "pcln-releases/releases/${RELEASE_TAG}/${name}" \
+              --file "$map" --remote
+          done < <(find asset -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.json.asc' \) -print0)
+
+          channel="$(tr '[:upper:]' '[:lower:]' <<< "$configuration")"
+          commit="$(jq -r 'select(.commit != null) | .commit' asset/*.build.json 2>/dev/null | head -n 1 || true)"
+          [[ "$commit" =~ ^[0-9a-fA-F]{7,40}$ ]] || commit="$GITHUB_SHA"
+          published_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq -n \
+            --arg tag "$RELEASE_TAG" \
+            --arg version "${RELEASE_TAG#v}" \
+            --arg channel "$channel" \
+            --arg commitSha "${commit,,}" \
+            --arg publishedAt "$published_at" \
+            --arg manifestKey "releases/${RELEASE_TAG}" \
+            '{formatVersion: 1, tag: $tag, version: $version, channel: $channel, commitSha: $commitSha, publishedAt: $publishedAt, manifestKey: $manifestKey}' \
+            > channel.json
+
+          rm -f block-catalog.previous.json
+          npx --yes wrangler@4.120.0 r2 object get \
+            "pcln-releases/block/catalog.json" \
+            --file block-catalog.previous.json --remote || rm -f block-catalog.previous.json
+          python scripts/update_update_block_catalog.py \
+            --catalog block-catalog.previous.json \
+            --manifest-dir block-dist/manifests \
+            --asset-dir asset \
+            --tag "$RELEASE_TAG" \
+            --channel "$channel" \
+            --published-at "$published_at" \
+            --output block-catalog.next.json \
+            --delete-list obsolete-r2-objects.txt
+          xargs -r -P 6 -I '{}' \
+            npx --yes wrangler@4.120.0 r2 object delete \
+              "pcln-releases/{}" --remote --force < obsolete-r2-objects.txt
+          npx --yes wrangler@4.120.0 r2 object put \
+            "pcln-releases/block/catalog.json" \
+            --file block-catalog.next.json --remote
+          npx --yes wrangler@4.120.0 r2 object put \
+            "pcln-releases/channels/${channel}.json" \
+            --file channel.json --remote

@@ -19,7 +19,8 @@ on:
         default: false
 
 concurrency:
-  group: release-beta-${{ github.event.release.tag_name || inputs.tag_name }}
+  # Serializes the shared R2 block catalog with stable publishes as well.
+  group: release-publish-cloudflare
   cancel-in-progress: false
 
 jobs:
@@ -104,7 +105,8 @@ jobs:
   generate-patches:
     name: Generate version patches
     needs: [publish-assets]
-    if: ${{ always() && needs.publish-assets.result == 'success' && (github.event.release.tag_name || inputs.tag_name) != 'ci-latest' && !(github.event_name == 'workflow_dispatch' && inputs.skip_patches) }}
+    # Cloudflare block maps supersede release-to-release patch ZIPs from 1.4.3 onward.
+    if: ${{ false }}
     uses: ./.github/workflows/generate-launcher-patches.yml
     with:
       target_tag: ${{ github.event.release.tag_name || inputs.tag_name }}

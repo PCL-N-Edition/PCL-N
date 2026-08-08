@@ -82,6 +82,19 @@ class GenerateScatterPatchTests(unittest.TestCase):
 
         self.assertEqual([recent], selected)
 
+    def test_patch_history_never_crosses_1_4_3_baseline(self):
+        anchor = datetime(2026, 8, 9, tzinfo=timezone.utc)
+        old = generate_patches.ReleaseInfo("v1.4.2", "1.4.2", True, anchor, {})
+        baseline = generate_patches.ReleaseInfo("v1.4.3-beta", "1.4.3-beta", True, anchor, {})
+        newer = generate_patches.ReleaseInfo("v1.4.4", "1.4.4", True, anchor, {})
+
+        selected = generate_patches.filter_release_history_by_minimum(
+            [old, baseline, newer],
+            "1.4.3",
+        )
+
+        self.assertEqual([baseline, newer], selected)
+
     def test_default_patch_window_keeps_three_recent_versions(self):
         anchor = datetime(2026, 8, 9, tzinfo=timezone.utc)
         history = [

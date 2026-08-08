@@ -194,6 +194,16 @@ def filter_release_history_by_age(
     ]
 
 
+def filter_release_history_by_minimum(
+    history: list[ReleaseInfo],
+    minimum_version: str,
+) -> list[ReleaseInfo]:
+    minimum = version_key(minimum_version)
+    if minimum[0] != 0:
+        raise ValueError(f"minimum patch version is not semver-like: {minimum_version}")
+    return [release for release in history if version_key(release.tag) >= minimum]
+
+
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -624,6 +634,11 @@ def main() -> int:
         default=14,
         help="Ignore predecessor releases older than this rollback window (default: 14).",
     )
+    parser.add_argument(
+        "--min-from-version",
+        default="1.4.3",
+        help="Never generate a patch whose source is older than this version (default: 1.4.3).",
+    )
     args = parser.parse_args()
     if not 0 < args.max_patch_ratio <= 1:
         parser.error("--max-patch-ratio must be greater than 0 and at most 1")
@@ -673,6 +688,13 @@ def main() -> int:
         r for r in releases
         if is_patchable(r) and version_key(r.tag) < version_key(target.tag)
     ]
+    try:
+        history_before_retention = filter_release_history_by_minimum(
+            history_before_retention,
+            args.min_from_version,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     if not args.include_prerelease_history and not target.prerelease:
         history_before_retention = [
             r for r in history_before_retention
@@ -692,6 +714,7 @@ def main() -> int:
         hop_interval=args.hop_interval,
     )
     strategy["maxHistoryAgeDays"] = args.max_history_age_days
+    strategy["minimumFromVersion"] = normalize_version(args.min_from_version)
     strategy["maxPatchRatio"] = args.max_patch_ratio
     strategy["maxTotalPatchRatio"] = args.max_total_patch_ratio
     log(

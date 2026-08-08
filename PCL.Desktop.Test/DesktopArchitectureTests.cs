@@ -961,10 +961,16 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(publishAssets, "binary=\"artifact/scatter/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}\"");
         StringAssert.Contains(publishAssets, "dist/updates");
         StringAssert.Contains(publishAssets, "dist/downloads");
-        StringAssert.Contains(publishAssets, "R2 only receives dist/updates");
+        StringAssert.Contains(publishAssets, "GitHub receives dist/downloads only");
+        StringAssert.Contains(publishAssets, "generate_update_blockmap.py");
+        StringAssert.Contains(publishAssets, "block-dist/block");
+        StringAssert.Contains(publishAssets, "pcln-releases/channels/${{ inputs.channel }}.json");
+        StringAssert.Contains(publishAssets, "files: dist/downloads/*");
+        Assert.IsFalse(publishAssets.Contains("dist/updates/*", StringComparison.Ordinal));
         StringAssert.Contains(patches, "--max-patch-ratio 0.35");
         StringAssert.Contains(patches, "--max-total-patch-ratio 0.50");
         StringAssert.Contains(patches, "--max-history-age-days 14");
+        StringAssert.Contains(patches, "--min-from-version 1.4.3");
         StringAssert.Contains(patches, "obsolete-patch-assets.txt");
         StringAssert.Contains(packageMacos, "PCL N.app");
         StringAssert.Contains(packageMacos, "package_update_archive.py");
@@ -985,6 +991,8 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(packageLinux, "/opt/pcl-n");
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");
+        StringAssert.Contains(ci, "pcln-releases/channels/ci.json");
+        Assert.IsFalse(ci.Contains("gh release upload", StringComparison.Ordinal));
         foreach (string runtime in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" })
             StringAssert.Contains(ci, runtime);
         StringAssert.Contains(beta, "github.event.release.tag_name != 'ci-latest'");

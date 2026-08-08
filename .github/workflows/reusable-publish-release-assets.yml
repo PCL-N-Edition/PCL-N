@@ -206,8 +206,8 @@ jobs:
           mkdir -p dist/updates dist/downloads
 
           # Keep updater scatter archives physically separate from user-facing
-          # installers and single-file portable packages. GitHub receives both;
-          # R2 only receives dist/updates.
+          # installers and single-file portable packages. Since 1.4.3, updater
+          # assets are Cloudflare-only; GitHub receives dist/downloads only.
           while IFS= read -r -d '' asset; do
             name="$(basename "$asset")"
             if [[ "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)$ ]]; then
@@ -218,6 +218,27 @@ jobs:
             cp -a "$asset" "$destination"
           done < <(find packaged/package-output -maxdepth 1 -type f -print0)
           chmod a+x dist/downloads/*.AppImage 2>/dev/null || true
+
+          # Cloudflare updater v2: content-defined blocks are global and
+          # content-addressed. Only small signed block maps are release assets.
+          rm -rf block-dist
+          mkdir -p block-dist
+          while IFS= read -r -d '' archive; do
+            name="$(basename "$archive")"
+            if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_((win|linux|osx)-(x64|arm64))_(SelfContained|NoRuntime)\.(zip|tar\.gz)$ ]]; then
+              echo "::error::Cannot derive block-map identity from $name"
+              exit 1
+            fi
+            python scripts/generate_update_blockmap.py \
+              --archive "$archive" \
+              --output block-dist \
+              --target-tag "$RELEASE_TAG" \
+              --target-version "${RELEASE_TAG#v}" \
+              --runtime-id "${BASH_REMATCH[2]}" \
+              --runtime-variant "${BASH_REMATCH[5]}" \
+              --configuration "${BASH_REMATCH[1]}"
+          done < <(find dist/updates -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0)
+          find block-dist/manifests -maxdepth 1 -type f -name '*.blockmap.json' -exec cp -a {} dist/updates/ \;
 
           # Every user-selectable installer and portable package gets its own
           # detached signature. No package is modified after this point.
@@ -253,17 +274,46 @@ jobs:
           echo "Download assets:"
           find dist/downloads -maxdepth 1 -type f -printf '  %f\n' | (sort || true)
 
-      - name: Upload all assets to the existing release
+          mkdir -p channel-dist
+          jq -n \
+            --arg tag "$RELEASE_TAG" \
+            --arg version "${RELEASE_TAG#v}" \
+            --arg channel '${{ inputs.channel }}' \
+            --arg commitSha "$GITHUB_SHA" \
+            --arg publishedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg manifestKey "releases/${RELEASE_TAG}" \
+            '{formatVersion: 1, tag: $tag, version: $version, channel: $channel, commitSha: $commitSha, publishedAt: $publishedAt, manifestKey: $manifestKey}' \
+            > "channel-dist/${{ inputs.channel }}.json"
+
+      - name: Upload content-addressed blocks to Cloudflare R2
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
+          npx --yes wrangler@4.120.0 --version
+          export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
+          find block-dist/block -type f -print0 | xargs -0 -r -P 6 -I '{}' \
+            bash -c '
+              set -euo pipefail
+              block="$1"
+              relative="${block#block-dist/}"
+              npx --yes wrangler@4.120.0 r2 object put \
+                "pcln-releases/${relative}" --file "$block" --remote
+            ' _ '{}'
+
+      - name: Upload user download assets to the existing GitHub release
         uses: softprops/action-gh-release@v2.5.0
         with:
           tag_name: ${{ inputs.tag_name }}
-          files: |
-            dist/updates/*
-            dist/downloads/*
+          files: dist/downloads/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Mirror release assets to Cloudflare R2
+      - name: Publish updater assets and channel marker to Cloudflare R2
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -273,10 +323,11 @@ jobs:
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
+
           while IFS= read -r -d '' asset; do
             name="$(basename "$asset")"
             if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)(\.asc|\.binary\.asc)?$ &&
-                  ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.build\.json$ ]]; then
+                  ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(build|blockmap)\.json(\.asc)?$ ]]; then
               echo "::error::Unexpected file in updater staging directory: $name"
               exit 1
             fi
@@ -284,6 +335,35 @@ jobs:
               "pcln-releases/releases/${RELEASE_TAG}/${name}" \
               --file "$asset" --remote
           done < <(find dist/updates -maxdepth 1 -type f -print0)
+
+          # Mark-and-sweep only objects recorded in our catalog. Shared blocks
+          # stay alive while any release inside the 14-day rollback window uses them.
+          rm -f block-catalog.previous.json block-catalog.next.json obsolete-r2-objects.txt
+          npx --yes wrangler@4.120.0 r2 object get \
+            "pcln-releases/block/catalog.json" \
+            --file block-catalog.previous.json --remote || rm -f block-catalog.previous.json
+          python scripts/update_update_block_catalog.py \
+            --catalog block-catalog.previous.json \
+            --manifest-dir block-dist/manifests \
+            --asset-dir dist/updates \
+            --tag "$RELEASE_TAG" \
+            --channel '${{ inputs.channel }}' \
+            --published-at "$(jq -r .publishedAt 'channel-dist/${{ inputs.channel }}.json')" \
+            --output block-catalog.next.json \
+            --delete-list obsolete-r2-objects.txt
+          export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
+          xargs -r -P 6 -I '{}' \
+            npx --yes wrangler@4.120.0 r2 object delete \
+              "pcln-releases/{}" --remote --force < obsolete-r2-objects.txt
+          npx --yes wrangler@4.120.0 r2 object put \
+            "pcln-releases/block/catalog.json" \
+            --file block-catalog.next.json --remote
+
+          # Publish the channel pointer last: clients can only discover this
+          # version after every signed map, archive and binary signature exists.
+          npx --yes wrangler@4.120.0 r2 object put \
+            "pcln-releases/channels/${{ inputs.channel }}.json" \
+            --file "channel-dist/${{ inputs.channel }}.json" --remote
 
       - name: Publish static website download catalog
         shell: bash

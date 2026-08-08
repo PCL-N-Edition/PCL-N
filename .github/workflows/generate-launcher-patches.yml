@@ -148,6 +148,7 @@ jobs:
             --max-patch-ratio 0.35 \
             --max-total-patch-ratio 0.50 \
             --max-history-age-days 14 \
+            --min-from-version 1.4.3 \
             --tools-dir "${{ github.workspace }}/tools/pcl-n-patches/tools/hdiffpatch" \
             ${EXTRA[@]+"${EXTRA[@]}"}
 
