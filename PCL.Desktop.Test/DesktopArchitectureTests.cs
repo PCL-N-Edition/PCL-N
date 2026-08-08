@@ -917,12 +917,15 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "pack_native_runtime.py");
         StringAssert.Contains(reusable, "PclNativeRuntimeZipPath");
         // Install: fully-expanded scatter (C launcher + host/ + native/).
-        // Portable (Windows): separate single-file AOT with embeds (PCL-N-Portable.exe).
+        // Portable (Windows): separate single-file AOT with embeds under portable/.
         StringAssert.Contains(reusable, "assemble-release-layout.sh");
         StringAssert.Contains(reusable, "build-native-bootstrap.sh");
         StringAssert.Contains(reusable, "Scatter layout validated");
         StringAssert.Contains(reusable, "must not contain .zip files");
-        StringAssert.Contains(reusable, "PCL-N-Portable.exe");
+        StringAssert.Contains(reusable, "PUBLISH_DIR: artifact/scatter");
+        StringAssert.Contains(reusable, "PORTABLE_DIR: artifact/portable");
+        StringAssert.Contains(ci, "build_portable: false");
+        Assert.IsFalse(reusable.Contains("$PUBLISH_DIR/PCL-N-Portable.exe", StringComparison.Ordinal));
         // Desktop ProjectReference → external/Jvm.NET; CI must materialize the submodule.
         StringAssert.Contains(reusable, "submodules: recursive");
         // Opaque sidecar zip may ship beside the host; in-process private plugin IL must not be.
@@ -955,9 +958,9 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(publishAssets, "package-release-macos.sh");
         StringAssert.Contains(publishAssets, "package-release-linux.sh");
         StringAssert.Contains(publishAssets, "package-release-windows.ps1");
-        StringAssert.Contains(publishAssets, "binary=\"artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}\"");
+        StringAssert.Contains(publishAssets, "binary=\"artifact/scatter/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}\"");
         StringAssert.Contains(packageMacos, "PCL N.app");
-        StringAssert.Contains(packageMacos, "tar -C");
+        StringAssert.Contains(packageMacos, "package_update_archive.py");
         StringAssert.Contains(packageMacos, "hdiutil create");
         StringAssert.Contains(packageMacos, "chmod +x");
         StringAssert.Contains(packageLinux, "mkdir -p \"$(dirname \"$path\")\"");
@@ -968,7 +971,10 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(packageWindows, "PCLN.iss");
         StringAssert.Contains(packageWindows, "PayloadDir");
         StringAssert.Contains(packageWindows, "_Portable.exe");
-        StringAssert.Contains(packageWindows, "PCL-N-Portable.exe");
+        StringAssert.Contains(packageWindows, "PortableDirectory");
+        StringAssert.Contains(packageWindows, "package_update_archive.py");
+        Assert.IsFalse(packageLinux.Contains("_Portable.tar.gz\"", StringComparison.Ordinal));
+        StringAssert.Contains(ci, "package_update_archive.py");
         StringAssert.Contains(packageLinux, "/opt/pcl-n");
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");

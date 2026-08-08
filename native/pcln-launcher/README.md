@@ -57,4 +57,4 @@ CI：`scripts/assemble-release-layout.sh` 在打包前展开全部依赖。
 ## Windows 便携包（单文件）
 
 安装包 / 规范 zip 使用上面的散包布局。  
-**便携包**单独发布为 `*_Portable.exe`：内嵌 native + sidecar 的单文件 NativeAOT（构建产物名 `PCL-N-Portable.exe`），不经过 C launcher。
+**便携包**单独发布为 `*_Portable.exe`：内嵌 native + sidecar 的单文件 NativeAOT（内部构建产物位于 `portable/PCL-N-Edition.exe`），不经过 C launcher，也绝不会进入 `scatter/` 更新包。

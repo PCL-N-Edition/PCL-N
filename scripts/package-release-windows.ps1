@@ -3,13 +3,16 @@
 #
 # Packages Windows release assets:
 #   - Install/canonical: fully-expanded scatter tree (C launcher entry + host/native/sidecar)
-#   - Portable: single-file AOT exe (PCL-N-Portable.exe → *_Portable.exe)
+#   - Portable: separate single-file AOT build product (portable/PCL-N-Edition.exe)
 #   - MSI / Inno install the scatter tree only (not the portable single-file)
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$ArtifactDirectory,
+
+    [Parameter(Mandatory = $true)]
+    [string]$PortableDirectory,
 
     [Parameter(Mandatory = $true)]
     [string]$OutputDirectory,
@@ -30,6 +33,7 @@ Set-StrictMode -Version Latest
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $artifact = (Resolve-Path -LiteralPath $ArtifactDirectory).Path
+$portableArtifact = (Resolve-Path -LiteralPath $PortableDirectory).Path
 $output = [System.IO.Path]::GetFullPath($OutputDirectory)
 $sourceExecutable = Join-Path $artifact 'PCL-N-Edition.exe'
 if (-not (Test-Path -LiteralPath $sourceExecutable -PathType Leaf)) {
@@ -48,7 +52,7 @@ if ($nativeFiles.Count -lt 1) {
     throw "native/ tree is empty under scatter artifact."
 }
 
-$portableSource = Join-Path $artifact 'PCL-N-Portable.exe'
+$portableSource = Join-Path $portableArtifact 'PCL-N-Edition.exe'
 if (-not (Test-Path -LiteralPath $portableSource -PathType Leaf)) {
     throw "Single-file portable binary is missing: $portableSource"
 }
@@ -64,24 +68,21 @@ $working = Join-Path ([System.IO.Path]::GetTempPath()) ("pcln-package-" + [guid]
 New-Item -ItemType Directory -Force -Path $working | Out-Null
 
 try {
-    # Scatter tree for installers/canonical zip — exclude the portable single-file asset.
-    $scatter = Join-Path $working 'scatter'
-    New-Item -ItemType Directory -Force -Path $scatter | Out-Null
-    Get-ChildItem -LiteralPath $artifact -Force | ForEach-Object {
-        if ($_.Name -eq 'PCL-N-Portable.exe') {
-            return
-        }
-        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $scatter $_.Name) -Recurse -Force
-    }
-
+    # The build contract keeps scatter and portable products physically separate.
+    # Installers can read the immutable scatter tree directly without a 100+ MiB copy.
+    $scatter = $artifact
     $zipLeft = @(Get-ChildItem -LiteralPath $scatter -Recurse -File -Filter '*.zip' -ErrorAction SilentlyContinue)
     if ($zipLeft.Count -gt 0) {
         throw "Scatter install tree must not contain .zip files (found $($zipLeft.Count))."
     }
 
     $canonical = Join-Path $output "${BaseName}.zip"
-    if (Test-Path -LiteralPath $canonical) { Remove-Item -LiteralPath $canonical -Force }
-    Compress-Archive -Path (Join-Path $scatter '*') -DestinationPath $canonical -CompressionLevel Optimal
+    $python = (Get-Command python -ErrorAction Stop).Source
+    & $python (Join-Path $repoRoot 'scripts/package_update_archive.py') `
+        --artifact $scatter `
+        --output $canonical `
+        --platform windows
+    if ($LASTEXITCODE -ne 0) { throw "Canonical update archive failed with exit code $LASTEXITCODE." }
 
     # Portable remains a single-file exe for users who want one binary.
     $portable = Join-Path $output "${BaseName}_Portable.exe"

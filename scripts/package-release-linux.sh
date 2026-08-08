@@ -60,9 +60,12 @@ esac
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# Keep the canonical archive unchanged for launchers using the existing updater.
-tar -C "$artifact_dir" -czf "$output_dir/${base_name}.tar.gz" .
-tar -C "$artifact_dir" -czf "$output_dir/${base_name}_Portable.tar.gz" .
+# The canonical tar.gz is both the updater payload and the portable Linux
+# distribution. Do not publish a byte-identical *_Portable.tar.gz alias.
+python3 "$repo_root/scripts/package_update_archive.py" \
+  --artifact "$artifact_dir" \
+  --output "$output_dir/${base_name}.tar.gz" \
+  --platform linux
 
 make_launcher_wrapper() {
   local path="$1"
@@ -182,7 +185,6 @@ file "$appimage_out" || true
 
 for package in \
   "$output_dir/${base_name}.tar.gz" \
-  "$output_dir/${base_name}_Portable.tar.gz" \
   "$output_dir/${base_name}_Installer.deb" \
   "$output_dir/${base_name}_Installer.rpm" \
   "$appimage_out"; do

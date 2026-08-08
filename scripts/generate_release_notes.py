@@ -364,7 +364,7 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
     lines.append("")
     lines.append("- **系统安装包 (`_Installer.*`)**：Windows MSI/EXE、macOS DMG、Linux DEB/RPM/AppImage；写入系统标准目录，受包管理器/签名保护。")
     lines.append("- **AppImage**：浏览器/GitHub 下载不会保留可执行位，首次运行前请 `chmod +x *.AppImage`。")
-    lines.append("- **便携版 (`_Portable.*`)**：单文件/可移动目录，可放在任意可写路径。")
+    lines.append("- **便携版**：Windows 使用独立的 `_Portable.exe`；Linux 的规范 `.tar.gz` 同时就是便携包，避免上传两个内容完全相同的归档。")
     lines.append("- **更新归档 (`.zip` / `.tar.gz`)**：启动器增量/完整更新使用的规范归档；与安装包内容同源。")
     lines.append("- **SelfContained / 插件自带运行时**：NativeAOT 本体附带插件 CoreCLR，插件可离线运行，推荐大多数用户。")
     lines.append("- **NoRuntime / 插件使用本机 .NET**：NativeAOT 本体不携带插件 CoreCLR；启动器本体可直接运行，使用插件时需已安装匹配的 .NET 运行时。")
@@ -392,7 +392,7 @@ def build_inventory(assets: list[Asset], tag: str) -> str:
         )
         lines.append(
             f"共 **{len(unique_patches)}** 个补丁文件"
-            f"（约 {human_size(total_size)}，另含 `.sha256` 校验文件）。"
+            f"（约 {human_size(total_size)}；SHA-256 已写入受签名保护的补丁清单）。"
         )
         if index_name:
             idx = by_name[index_name]

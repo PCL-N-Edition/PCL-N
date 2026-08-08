@@ -12,6 +12,7 @@ fi
 artifact_dir="$(cd "$1" && pwd)"
 output_dir="$2"
 base_name="$3"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 app="$artifact_dir/PCL N.app"
 binary="$app/Contents/MacOS/PCL-N-Edition"
 host_bin="$app/Contents/MacOS/host/PCL-N-Host"
@@ -55,7 +56,10 @@ echo "Disk before packaging:"
 df -h || true
 
 # Canonical archive for the updater (created before we move the .app).
-tar -C "$artifact_dir" -czf "$output_dir/${base_name}.tar.gz" "PCL N.app"
+python3 "$repo_root/scripts/package_update_archive.py" \
+  --artifact "$artifact_dir" \
+  --output "$output_dir/${base_name}.tar.gz" \
+  --platform macos
 test -s "$output_dir/${base_name}.tar.gz"
 echo "Created ${base_name}.tar.gz ($(du -h "$output_dir/${base_name}.tar.gz" | awk '{print $1}'))"
 

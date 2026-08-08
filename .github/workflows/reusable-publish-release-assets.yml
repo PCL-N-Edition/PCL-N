@@ -47,6 +47,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Download launcher build
         uses: actions/download-artifact@v4
         with:
@@ -60,9 +64,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "signing/$BASE_NAME"
-          binary="artifact/${{ matrix.target.binary_name }}"
+          binary="artifact/scatter/${{ matrix.target.binary_name }}"
           if [[ "${{ matrix.target.platform }}" == "macos" ]]; then
-            binary="artifact/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"
+            binary="artifact/scatter/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}"
           fi
           test -s "$binary"
           cp "$binary" "signing/$BASE_NAME/${{ matrix.target.binary_name }}"
@@ -117,7 +121,8 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/package-release-windows.ps1 `
-            -ArtifactDirectory artifact `
+            -ArtifactDirectory artifact/scatter `
+            -PortableDirectory artifact/portable `
             -OutputDirectory package-output `
             -BaseName $env:BASE_NAME `
             -Version '${{ inputs.tag_name }}' `
@@ -128,7 +133,7 @@ jobs:
         shell: bash
         run: |
           chmod +x scripts/package-release-macos.sh
-          scripts/package-release-macos.sh artifact package-output "$BASE_NAME"
+          scripts/package-release-macos.sh artifact/scatter package-output "$BASE_NAME"
 
       - name: Package Linux assets
         if: ${{ matrix.target.platform == 'linux' }}
@@ -136,7 +141,7 @@ jobs:
         run: |
           chmod +x scripts/package-release-linux.sh
           scripts/package-release-linux.sh \
-            artifact package-output "$BASE_NAME" '${{ inputs.tag_name }}' '${{ matrix.target.architecture }}'
+            artifact/scatter package-output "$BASE_NAME" '${{ inputs.tag_name }}' '${{ matrix.target.architecture }}'
 
       - name: Validate packaged assets
         shell: bash
