@@ -1,0 +1,75 @@
+name: Sync release update files to R2
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing GitHub Release tag
+        required: true
+        type: string
+      include_legacy_patches:
+        description: Also copy legacy .hdiff assets (large)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-release-r2-${{ inputs.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RELEASE_TAG: ${{ inputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate credentials and tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+      - name: Download and upload update assets
+        shell: bash
+        env:
+          INCLUDE_LEGACY_PATCHES: ${{ inputs.include_legacy_patches }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          selected=0
+          for name in "${assets[@]}"; do
+            copy=false
+            case "$name" in
+              patch-index.json|patch-manifest-*.json|*.patch.zip|*.patch.zip.sha256) copy=true ;;
+              PCL_N_*.build.json|PCL_N_*.ci.json) copy=true ;;
+              *.hdiff|*.hdiff.sha256)
+                [[ "$INCLUDE_LEGACY_PATCHES" == "true" ]] && copy=true
+                ;;
+            esac
+            if [[ "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)(\.asc|\.binary\.asc)?$ ]]; then
+              copy=true
+            fi
+            [[ "$copy" == "true" ]] || continue
+            selected=$((selected + 1))
+            rm -f "asset/$name"
+            mkdir -p asset
+            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --pattern "$name" --dir asset --clobber
+            npx --yes wrangler@4.120.0 r2 object put \
+              "pcln-releases/releases/${RELEASE_TAG}/${name}" \
+              --file "asset/$name" --remote
+            rm -f "asset/$name"
+          done
+          test "$selected" -gt 0
+          echo "Synced $selected update assets for $RELEASE_TAG."
