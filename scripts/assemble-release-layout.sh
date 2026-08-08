@@ -130,5 +130,5 @@ find "$out" -type f -name '*.zip' -delete 2>/dev/null || true
 printf 'pcln-scatter-v2-expanded\n' >"$out/pcln-layout"
 
 echo "Assembled fully-expanded scatter layout in $out:"
-find "$out" -type f | sort | head -n 80
+find "$out" -type f | sort | head -n 80 || true
 echo "(file count: $(find "$out" -type f | wc -l | tr -d ' '))"
