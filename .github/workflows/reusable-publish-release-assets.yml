@@ -23,9 +23,9 @@ on:
       GPG_PASSPHRASE:
         required: true
       CLOUDFLARE_API_TOKEN:
-        required: false
+        required: true
       CLOUDFLARE_ACCOUNT_ID:
-        required: false
+        required: true
 
 jobs:
   package-assets:
@@ -250,10 +250,8 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag_name }}
         run: |
           set -euo pipefail
-          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
-            echo "Cloudflare credentials are not configured; the gateway will lazily cache GitHub assets."
-            exit 0
-          fi
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
           while IFS= read -r -d '' asset; do
             name="$(basename "$asset")"
             if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)(\.asc|\.binary\.asc)?$ &&

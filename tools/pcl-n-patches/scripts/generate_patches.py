@@ -7,7 +7,8 @@ Strategy (default):
   • Multi-hop for older builds: clients chain patches across releases, e.g. 1→11→21
     (each hop is a “last-10” edge published when that intermediate release was built)
 
-Per runtime variant (RID × SelfContained|NoRuntime × WithPlugin|NoPlugin).
+Per runtime variant (RID × SelfContained|NoRuntime). The plugin sidecar is part
+of the scatter tree rather than a package-name variant.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -42,10 +44,20 @@ BINARY_NAMES = {
 }
 
 RUNTIME_IDS = list(BINARY_NAMES.keys())
+# Match publish matrix (plugin is opaque scatter sidecar, not a SKU suffix).
 RUNTIME_VARIANTS = [
-    "SelfContained_WithPlugin",
-    "NoRuntime_WithPlugin",
+    "SelfContained",
+    "NoRuntime",
 ]
+
+# Files ignored when inventorying a scatter install tree.
+IGNORE_NAME_PREFIXES = (".",)
+IGNORE_NAMES = {
+    "pcln-install-kind",
+    ".pcln-old",
+    ".pcln-new",
+}
+IGNORE_SUFFIXES = (".pcln-old", ".pcln-new", ".update")
 
 
 @dataclass
@@ -231,50 +243,227 @@ def pick_asset(release: ReleaseInfo, configuration: str, rid: str, variant: str)
     return None
 
 
-def extract_binary(archive: Path, binary_name: str, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
+def _should_ignore_rel(rel: str) -> bool:
+    name = Path(rel).name
+    if name in IGNORE_NAMES:
+        return True
+    if name.startswith(IGNORE_NAME_PREFIXES) and name not in {"pcln-layout"}:
+        # Keep pcln-layout; ignore other dotfiles / staged update helpers.
+        if name == "pcln-layout":
+            return False
+        return True
+    if any(name.endswith(suf) for suf in IGNORE_SUFFIXES):
+        return True
+    if "/.pcln" in rel.replace("\\", "/") or rel.replace("\\", "/").startswith(".pcln"):
+        return True
+    return False
+
+
+def extract_tree(archive: Path, dest: Path) -> None:
+    """Extract full release package into dest (scatter layout preferred)."""
     if dest.exists():
-        dest.unlink()
-
-    suffix = ".exe" if binary_name.lower().endswith(".exe") else ""
-    aliases = {
-        binary_name.casefold(),
-        f"PCL.Desktop{suffix}".casefold(),
-        f"PCL-N{suffix}".casefold(),
-        f"PCL N{suffix}".casefold(),
-    }
-
-    def is_launcher(path: str) -> bool:
-        return Path(path).name.casefold() in aliases
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True, exist_ok=True)
 
     if archive.suffix == ".zip" or archive.name.endswith(".zip"):
         with zipfile.ZipFile(archive) as zf:
-            # ProductBinaryName changed over time. Patch generation operates on
-            # the launcher payload bytes, so accept known historical host names.
-            candidates = [n for n in zf.namelist() if is_launcher(n)]
-            if not candidates:
-                raise FileNotFoundError(
-                    f"launcher binary ({', '.join(sorted(aliases))}) not in "
-                    f"{archive.name}: {zf.namelist()[:20]}"
-                )
-            with zf.open(candidates[0]) as src, dest.open("wb") as out:
-                shutil.copyfileobj(src, out)
-        return
+            for entry in zf.infolist():
+                candidate = (dest / entry.filename).resolve()
+                if not candidate.is_relative_to(dest.resolve()):
+                    raise ValueError(f"zip entry escapes package root: {entry.filename}")
+            zf.extractall(dest)
+    else:
+        with tarfile.open(archive, mode="r:*") as tf:
+            tf.extractall(dest, filter="data")
 
-    # tar.gz
-    with tarfile.open(archive, mode="r:*") as tf:
-        members = [m for m in tf.getmembers() if m.isfile() and is_launcher(m.name)]
-        if not members:
-            names = [m.name for m in tf.getmembers() if m.isfile()][:20]
-            raise FileNotFoundError(
-                f"launcher binary ({', '.join(sorted(aliases))}) not in "
-                f"{archive.name}: {names}"
+    # If archive is a single top-level folder (e.g. "PCL N.app" is multi — leave).
+    # Flatten one directory when it clearly is the package root with pcln-layout / host.
+    children = [p for p in dest.iterdir() if p.name not in {".", ".."}]
+    if len(children) == 1 and children[0].is_dir():
+        only = children[0]
+        marker = only / "pcln-layout"
+        host = only / "host"
+        entry = list(only.glob("PCL-N-Edition*"))
+        mac_entry = only / "Contents" / "MacOS" / "PCL-N-Edition"
+        if marker.is_file() or host.is_dir() or entry or mac_entry.is_file():
+            for item in only.iterdir():
+                target = dest / item.name
+                if target.exists():
+                    if target.is_dir():
+                        shutil.rmtree(target)
+                    else:
+                        target.unlink()
+                shutil.move(str(item), str(target))
+            only.rmdir()
+
+
+def inventory_tree(root: Path) -> dict[str, tuple[str, int]]:
+    """relative posix path -> (sha256 hex, size)."""
+    inv: dict[str, tuple[str, int]] = {}
+    root = root.resolve()
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if _should_ignore_rel(rel):
+            continue
+        inv[rel] = (sha256_file(path), path.stat().st_size)
+    if not inv:
+        raise FileNotFoundError(f"empty inventory under {root}")
+    return inv
+
+
+def manifest_sha256(inv: dict[str, tuple[str, int]]) -> str:
+    lines = [f"{p}\t{h}\t{s}" for p, (h, s) in sorted(inv.items())]
+    blob = ("\n".join(lines) + "\n").encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
+def binary_relative_path(rid: str) -> Path:
+    if rid.startswith("osx-"):
+        return Path("Contents") / "MacOS" / "PCL-N-Edition"
+    return Path(BINARY_NAMES.get(rid, "PCL-N-Edition"))
+
+
+def safe_patch_member(rel: str) -> str:
+    # Do not encode the path by replacing separators: a/b and a__b would
+    # otherwise collide.  The readable suffix is diagnostic only; the digest
+    # is the stable, collision-resistant identity used inside the bundle.
+    normalized = rel.replace("\\", "/")
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    suffix = Path(normalized).suffix[:16]
+    return digest + suffix
+
+
+def build_scatter_patch_zip(
+    hdiffz: Path,
+    from_root: Path,
+    to_root: Path,
+    from_inv: dict[str, tuple[str, int]],
+    to_inv: dict[str, tuple[str, int]],
+    zip_path: Path,
+    from_version: str,
+    to_version: str,
+) -> tuple[dict, int]:
+    """
+    Build a patches.zip with files.json + per-file hdiffs/blobs.
+    Returns (files_json_dict, zip_size).
+    """
+    work = zip_path.parent / (zip_path.stem + ".work")
+    if work.exists():
+        shutil.rmtree(work)
+    patches_dir = work / "patches"
+    blobs_dir = work / "blobs"
+    patches_dir.mkdir(parents=True)
+    blobs_dir.mkdir(parents=True)
+
+    ops: list[dict] = []
+    all_paths = sorted(set(from_inv) | set(to_inv))
+    for rel in all_paths:
+        in_from = rel in from_inv
+        in_to = rel in to_inv
+        if in_from and in_to:
+            fh, fs = from_inv[rel]
+            th, ts = to_inv[rel]
+            if fh == th:
+                continue
+            patch_member = f"patches/{safe_patch_member(rel)}.hdiff"
+            patch_file = work / patch_member
+            run_hdiff(hdiffz, from_root / rel, to_root / rel, patch_file)
+            patch_size = patch_file.stat().st_size
+            # A compressed per-file delta can be larger than the target file
+            # (already-compressed archives are the common case). Store the new
+            # file instead so a scatter update never pays that penalty.
+            if patch_size >= ts:
+                patch_file.unlink()
+                blob_member = f"blobs/{safe_patch_member(rel)}"
+                blob_file = work / blob_member
+                shutil.copy2(to_root / rel, blob_file)
+                ops.append(
+                    {
+                        "path": rel,
+                        "op": "replace",
+                        "blob": blob_member,
+                        "blobSha256": th,
+                        "blobSize": ts,
+                        "fromSha256": fh,
+                        "toSha256": th,
+                        "fromSize": fs,
+                        "toSize": ts,
+                    }
+                )
+            else:
+                ops.append(
+                    {
+                        "path": rel,
+                        "op": "hdiff",
+                        "patch": patch_member,
+                        "patchSha256": sha256_file(patch_file),
+                        "patchSize": patch_size,
+                        "fromSha256": fh,
+                        "toSha256": th,
+                        "fromSize": fs,
+                        "toSize": ts,
+                    }
+                )
+        elif in_to:
+            th, ts = to_inv[rel]
+            blob_member = f"blobs/{safe_patch_member(rel)}"
+            blob_file = work / blob_member
+            blob_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(to_root / rel, blob_file)
+            ops.append(
+                {
+                    "path": rel,
+                    "op": "add",
+                    "blob": blob_member,
+                    "blobSha256": th,
+                    "blobSize": ts,
+                    "toSha256": th,
+                    "toSize": ts,
+                }
             )
-        f = tf.extractfile(members[0])
-        if f is None:
-            raise FileNotFoundError(f"cannot extract {members[0].name}")
-        with dest.open("wb") as out:
-            shutil.copyfileobj(f, out)
+        else:
+            fh, fs = from_inv[rel]
+            ops.append(
+                {
+                    "path": rel,
+                    "op": "delete",
+                    "fromSha256": fh,
+                    "fromSize": fs,
+                }
+            )
+
+    files_json = {
+        "formatVersion": 1,
+        "layout": "scatter",
+        "fromVersion": from_version,
+        "toVersion": to_version,
+        "fromManifestSha256": manifest_sha256(from_inv),
+        "toManifestSha256": manifest_sha256(to_inv),
+        "ops": ops,
+        "targetFiles": [
+            {
+                "path": p,
+                "sha256": h,
+                "size": s,
+                "unixMode": stat.S_IMODE((to_root / p).stat().st_mode),
+            }
+            for p, (h, s) in sorted(to_inv.items())
+        ],
+    }
+    (work / "files.json").write_text(
+        json.dumps(files_json, indent=2) + "\n", encoding="utf-8"
+    )
+
+    if zip_path.exists():
+        zip_path.unlink()
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for path in work.rglob("*"):
+            if path.is_file():
+                zf.write(path, path.relative_to(work).as_posix())
+    shutil.rmtree(work, ignore_errors=True)
+    return files_json, zip_path.stat().st_size
 
 
 def find_hdiffz(tools_dir: Path) -> Path:
@@ -426,11 +615,19 @@ def main() -> int:
             if not t_archive.is_file():
                 log(f"  download target {t_name}")
                 download_file(t_url, t_archive, token)
-            t_bin = cache_dir / "bin" / target.tag / rid / variant / binary_name
+            t_root = cache_dir / "tree" / target.tag / rid / variant
+            if not t_root.is_dir() or not any(t_root.iterdir()):
+                extract_tree(t_archive, t_root)
+            t_bin = t_root / binary_relative_path(rid)
             if not t_bin.is_file():
-                extract_binary(t_archive, binary_name, t_bin)
+                raise FileNotFoundError(
+                    f"target package {t_name} has no root entry {binary_name}"
+                )
+            t_inv = inventory_tree(t_root)
+            t_manifest_sha = manifest_sha256(t_inv)
             t_sha = sha256_file(t_bin)
             t_size = t_bin.stat().st_size
+            t_archive_size = t_archive.stat().st_size
 
             patches_meta: list[dict] = []
             for from_rel in history:
@@ -449,56 +646,80 @@ def main() -> int:
                     if not f_archive.is_file():
                         log(f"  download from {from_rel.tag}: {f_name}")
                         download_file(f_url, f_archive, token)
-                    f_bin = cache_dir / "bin" / from_rel.tag / rid / variant / binary_name
+                    f_root = cache_dir / "tree" / from_rel.tag / rid / variant
+                    if not f_root.is_dir() or not any(f_root.iterdir()):
+                        extract_tree(f_archive, f_root)
+                    f_bin = f_root / binary_relative_path(rid)
                     if not f_bin.is_file():
-                        extract_binary(f_archive, binary_name, f_bin)
+                        raise FileNotFoundError(
+                            f"source package {f_name} has no root entry {binary_name}"
+                        )
                 except Exception as exc:  # noqa: BLE001
                     log(f"  skip {from_rel.tag}: {exc}")
                     continue
 
+                f_inv = inventory_tree(f_root)
+                f_manifest_sha = manifest_sha256(f_inv)
                 f_sha = sha256_file(f_bin)
                 f_size = f_bin.stat().st_size
-                if f_sha == t_sha:
-                    log(f"  skip {from_rel.tag}: identical binary")
+                if f_manifest_sha == t_manifest_sha:
+                    log(f"  skip {from_rel.tag}: identical package tree")
                     continue
 
                 # Include rid + variant in the basename so softprops/action-gh-release
                 # (which flattens paths) does not collide across matrix dimensions.
                 patch_name = (
                     f"{rid}__{variant}__"
-                    f"{normalize_version(from_rel.tag)}-to-{normalize_version(target.tag)}.hdiff"
+                    f"{normalize_version(from_rel.tag)}-to-{normalize_version(target.tag)}.patch.zip"
                 )
                 patch_rel = Path("patches") / rid / variant / patch_name
                 patch_path = args.out_dir / patch_rel
                 try:
-                    run_hdiff(hdiffz, f_bin, t_bin, patch_path)
+                    files_manifest, p_size = build_scatter_patch_zip(
+                        hdiffz,
+                        f_root,
+                        t_root,
+                        f_inv,
+                        t_inv,
+                        patch_path,
+                        normalize_version(from_rel.tag),
+                        normalize_version(target.tag),
+                    )
                 except Exception as exc:  # noqa: BLE001
-                    log(f"  hdiff failed {from_rel.tag}: {exc}")
+                    log(f"  scatter patch failed {from_rel.tag}: {exc}")
                     continue
 
-                p_size = patch_path.stat().st_size
                 p_sha = sha256_file(patch_path)
-                (patch_path.with_suffix(patch_path.suffix + ".sha256")).write_text(
+                checksum_path = patch_path.with_suffix(patch_path.suffix + ".sha256")
+                checksum_path.write_text(
                     f"{p_sha}  {patch_name}\n", encoding="utf-8"
                 )
 
-                if args.skip_if_patch_larger_than_full and p_size >= t_size:
-                    log(f"  drop {from_rel.tag}: patch {p_size} >= full {t_size}")
+                if args.skip_if_patch_larger_than_full and p_size >= t_archive_size:
+                    log(
+                        f"  drop {from_rel.tag}: patch bundle {p_size} "
+                        f">= full archive {t_archive_size}"
+                    )
                     patch_path.unlink(missing_ok=True)
+                    checksum_path.unlink(missing_ok=True)
                     continue
 
-                ratio = round(p_size / t_size, 4) if t_size else 1.0
+                ratio = round(p_size / t_archive_size, 4) if t_archive_size else 1.0
                 log(f"  OK {from_rel.tag} → {target.tag}: {p_size} bytes ({ratio:.1%} of full)")
                 patches_meta.append(
                     {
                         "fromVersion": normalize_version(from_rel.tag),
                         "fromTag": from_rel.tag,
-                        "algorithm": "hdiffpatch",
+                        "algorithm": "hdiffpatch-scatter-v1",
+                        "layout": "scatter",
                         "fileName": patch_rel.as_posix(),
                         "sha256": p_sha,
                         "size": p_size,
                         "fromSha256": f_sha,
                         "fromSize": f_size,
+                        "fromManifestSha256": files_manifest["fromManifestSha256"],
+                        "targetManifestSha256": files_manifest["toManifestSha256"],
+                        "operationCount": len(files_manifest["ops"]),
                         "compressionRatio": ratio,
                     }
                 )
@@ -512,6 +733,9 @@ def main() -> int:
                 "targetBinaryName": binary_name,
                 "targetSha256": t_sha,
                 "targetSize": t_size,
+                "targetArchiveSize": t_archive_size,
+                "targetManifestSha256": t_manifest_sha,
+                "targetFileCount": len(t_inv),
                 "patches": patches_meta,
             }
             all_variants_manifest.append(variant_manifest)
@@ -520,12 +744,12 @@ def main() -> int:
             man_path.write_text(json.dumps(variant_manifest, indent=2) + "\n", encoding="utf-8")
 
     index = {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "targetVersion": normalize_version(target.tag),
         "targetTag": target.tag,
         "generatedAt": generated_at,
         "sourceRepo": args.source_repo,
-        "algorithmDefault": "hdiffpatch",
+        "algorithmDefault": "hdiffpatch-scatter-v1",
         "strategy": strategy,
         "variants": all_variants_manifest,
         "stats": {
