@@ -26,6 +26,9 @@
     <EmbeddedResource Include="../GPG-PUBLIC-KEY.asc">
       <LogicalName>PCL.Application.Updates.PclNReleasePublicKey.asc</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Online/Certificates/pcln-api-client.pfx"
+                      Condition="Exists('Online/Certificates/pcln-api-client.pfx')"
+                      LogicalName="PCL.Application.Online.PclnApiClient.pfx" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\PCL.Core.Portable\PCL.Core.Portable.csproj" />

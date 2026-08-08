@@ -9,6 +9,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace PCL.Application.Test;
 
@@ -44,6 +45,38 @@ public sealed class LauncherUpdateServiceTests
                     directory,
                     "1"
                 },
+                startInfo.ArgumentList.ToArray());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void CreateReplacementProcess_UsesTreeInstallPlanForScatterPayload()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "PCL-N-tree-update-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string current = Path.Combine(directory, "PCL-N-Edition.exe");
+            string staged = Path.Combine(directory, "tree", "host", "PCL-N-Host.exe");
+            string plan = Path.Combine(directory, "install-plan.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(staged)!);
+            File.WriteAllText(current, "old");
+            File.WriteAllText(staged, "new helper");
+            File.WriteAllText(plan, "{}");
+            LauncherUpdatePackage package = new(
+                "2.0.0", "v2.0.0", "https://example.test/update.zip", "update.zip",
+                "PCL-N-Edition.exe", null, null, [], "win-x64", "SelfContained", "Release");
+            PreparedLauncherUpdate prepared = new(
+                package, current, staged, directory, false, Path.Combine(directory, "tree"), plan, current);
+
+            ProcessStartInfo startInfo = LauncherUpdateInstaller.CreateReplacementProcess(prepared, 321, false);
+
+            CollectionAssert.AreEqual(
+                new[] { "--pcln-apply-tree-update", "321", current, plan, directory, "0" },
                 startInfo.ArgumentList.ToArray());
         }
         finally
@@ -232,6 +265,8 @@ public sealed class LauncherUpdateServiceTests
                       "ref": "refs/heads/dev",
                       "runId": "42",
                       "artifact": "PCL_N_CI_win-x64_SelfContained",
+                      "packageSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "packageSize": 123456,
                       "supportsPatches": false,
                       "builtAt": "2026-07-16T15:00:00Z"
                     }
@@ -261,6 +296,8 @@ public sealed class LauncherUpdateServiceTests
         Assert.IsFalse(oldBuild.SupportsPatches);
         Assert.AreEqual("PCL_N_CI_win-x64_SelfContained.zip", oldBuild.Package?.TargetAssetName);
         Assert.AreEqual("SelfContained", oldBuild.Package?.RuntimeVariant);
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBuild.Package?.FullPackageSha256);
+        Assert.AreEqual(123456, oldBuild.Package?.FullPackageSize);
         Assert.IsTrue(currentBuild.Success);
         Assert.IsFalse(currentBuild.IsUpdateAvailable);
         Assert.IsTrue(currentReleaseBuild.Success);
@@ -528,6 +565,72 @@ public sealed class LauncherUpdateServiceTests
     }
 
     [TestMethod]
+    public async Task Installer_RebuildsAndVerifiesScatterPatchBundle()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-scatter-update-test-" + Guid.NewGuid().ToString("N"));
+        string installRoot = Path.Combine(root, "install");
+        Directory.CreateDirectory(Path.Combine(installRoot, "host"));
+        try
+        {
+            byte[] oldEntry = Encoding.UTF8.GetBytes("old launcher");
+            byte[] oldHost = Encoding.UTF8.GetBytes("old host");
+            byte[] newEntry = Encoding.UTF8.GetBytes("new launcher");
+            byte[] newHost = Encoding.UTF8.GetBytes("new host");
+            byte[] native = Encoding.UTF8.GetBytes("native payload");
+            await File.WriteAllBytesAsync(Path.Combine(installRoot, "PCL-N-Edition.exe"), oldEntry);
+            await File.WriteAllBytesAsync(Path.Combine(installRoot, "host", "PCL-N-Host.exe"), oldHost);
+            await File.WriteAllTextAsync(Path.Combine(installRoot, "pcln-layout"), "pcln-scatter-v2-expanded\n");
+
+            Dictionary<string, byte[]> sourceFiles = new(StringComparer.Ordinal)
+            {
+                ["PCL-N-Edition.exe"] = oldEntry,
+                ["host/PCL-N-Host.exe"] = oldHost,
+                ["pcln-layout"] = Encoding.UTF8.GetBytes("pcln-scatter-v2-expanded\n")
+            };
+            Dictionary<string, byte[]> targetFiles = new(StringComparer.Ordinal)
+            {
+                ["PCL-N-Edition.exe"] = newEntry,
+                ["host/PCL-N-Host.exe"] = newHost,
+                ["native/runtime.bin"] = native,
+                ["pcln-layout"] = sourceFiles["pcln-layout"]
+            };
+            byte[] bundle = CreateScatterReplaceBundle(sourceFiles, targetFiles);
+            string bundleSha = Convert.ToHexStringLower(SHA256.HashData(bundle));
+            string targetEntrySha = Convert.ToHexStringLower(SHA256.HashData(newEntry));
+            using HttpClient client = new(new RoutingHandler(_ => BytesResponse(bundle)));
+            using LauncherUpdateInstaller installer = new(client, new AcceptAllGpgVerifier());
+            string hpatchz = Path.Combine(root, "hpatchz.exe");
+            await File.WriteAllTextAsync(hpatchz, "unused");
+            LauncherUpdatePackage package = new(
+                "2.0.0", "v2.0.0", "https://download.test/full.zip", "full.zip",
+                "PCL-N-Edition.exe", targetEntrySha, newEntry.Length,
+                [new LauncherUpdatePatchStep(
+                    "1.0.0", "2.0.0", "https://download.test/update.patch.zip", bundleSha, bundle.Length,
+                    Convert.ToHexStringLower(SHA256.HashData(oldEntry)), oldEntry.Length,
+                    targetEntrySha, newEntry.Length, "hdiffpatch-scatter-v1")],
+                "win-x64", "SelfContained", "Release", null, "https://download.test/binary.asc");
+
+            PreparedLauncherUpdate prepared = await installer.PrepareAsync(
+                package,
+                Path.Combine(installRoot, "host", "PCL-N-Host.exe"),
+                hpatchz);
+
+            Assert.IsTrue(prepared.UsedPatch);
+            Assert.IsNotNull(prepared.InstallPlanPath);
+            Assert.AreEqual(Path.Combine(installRoot, "PCL-N-Edition.exe"), prepared.CurrentExecutablePath);
+            CollectionAssert.AreEqual(newHost, await File.ReadAllBytesAsync(prepared.StagedExecutablePath));
+            CollectionAssert.AreEqual(
+                native,
+                await File.ReadAllBytesAsync(Path.Combine(prepared.StagedInstallDirectory!, "native", "runtime.bin")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task GpgVerifier_AcceptsPinnedReleaseKeySignature()
     {
         const string signatureText = """
@@ -646,6 +749,80 @@ public sealed class LauncherUpdateServiceTests
             ZipArchiveEntry entry = archive.CreateEntry(name);
             using Stream target = entry.Open();
             target.Write(content);
+        }
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateScatterReplaceBundle(
+        IReadOnlyDictionary<string, byte[]> sourceFiles,
+        IReadOnlyDictionary<string, byte[]> targetFiles)
+    {
+        static string Hash(byte[] value) => Convert.ToHexStringLower(SHA256.HashData(value));
+        static string ManifestHash(IReadOnlyDictionary<string, byte[]> files)
+        {
+            string canonical = string.Concat(files.OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => $"{pair.Key}\t{Hash(pair.Value)}\t{pair.Value.Length}\n"));
+            return Hash(Encoding.UTF8.GetBytes(canonical));
+        }
+
+        List<LauncherScatterPatchOperation> operations = [];
+        Dictionary<string, byte[]> blobs = new(StringComparer.Ordinal);
+        int blobIndex = 0;
+        foreach ((string path, byte[] target) in targetFiles)
+        {
+            if (sourceFiles.TryGetValue(path, out byte[]? source) && source.AsSpan().SequenceEqual(target))
+                continue;
+            string member = $"blobs/{blobIndex++:D4}";
+            blobs[member] = target;
+            operations.Add(new LauncherScatterPatchOperation
+            {
+                Path = path,
+                Op = sourceFiles.ContainsKey(path) ? "replace" : "add",
+                Blob = member,
+                BlobSha256 = Hash(target),
+                BlobSize = target.Length,
+                FromSha256 = sourceFiles.TryGetValue(path, out source) ? Hash(source) : null,
+                FromSize = source?.Length ?? 0,
+                ToSha256 = Hash(target),
+                ToSize = target.Length
+            });
+        }
+        LauncherScatterPatchManifest manifest = new()
+        {
+            FormatVersion = 1,
+            Layout = "scatter",
+            FromVersion = "1.0.0",
+            ToVersion = "2.0.0",
+            FromManifestSha256 = ManifestHash(sourceFiles),
+            ToManifestSha256 = ManifestHash(targetFiles),
+            Ops = operations,
+            TargetFiles = targetFiles.OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => new LauncherUpdateFileEntry
+                {
+                    Path = pair.Key,
+                    Sha256 = Hash(pair.Value),
+                    Size = pair.Value.Length
+                })
+                .ToList()
+        };
+
+        using MemoryStream stream = new();
+        using (ZipArchive archive = new(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            ZipArchiveEntry manifestEntry = archive.CreateEntry("files.json");
+            using (Stream target = manifestEntry.Open())
+            {
+                JsonSerializer.Serialize(
+                    target,
+                    manifest,
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            }
+            foreach ((string member, byte[] content) in blobs)
+            {
+                ZipArchiveEntry entry = archive.CreateEntry(member);
+                using Stream target = entry.Open();
+                target.Write(content);
+            }
         }
         return stream.ToArray();
     }

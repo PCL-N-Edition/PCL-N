@@ -40,7 +40,16 @@ public sealed record LauncherUpdatePatchStep(
     string FromSha256,
     long FromSize,
     string TargetSha256,
-    long TargetSize);
+    long TargetSize,
+    string Algorithm = "hdiffpatch",
+    string? FromManifestSha256 = null,
+    string? TargetManifestSha256 = null)
+{
+    public bool IsScatterBundle => string.Equals(
+        Algorithm,
+        "hdiffpatch-scatter-v1",
+        StringComparison.OrdinalIgnoreCase);
+}
 
 /// <summary>Download and verification plan for a launcher update.</summary>
 public sealed record LauncherUpdatePackage(
@@ -56,7 +65,86 @@ public sealed record LauncherUpdatePackage(
     string RuntimeVariant,
     string Configuration,
     string? FullPackageSignatureUrl = null,
-    string? TargetBinarySignatureUrl = null)
+    string? TargetBinarySignatureUrl = null,
+    string? FullPackageSha256 = null,
+    long? FullPackageSize = null)
 {
     public bool UsesPatch => PatchSteps.Count > 0;
+}
+
+/// <summary>Self-contained per-file patch bundle manifest (<c>files.json</c>).</summary>
+public sealed class LauncherScatterPatchManifest
+{
+    public int FormatVersion { get; set; }
+
+    public string? Layout { get; set; }
+
+    public string? FromVersion { get; set; }
+
+    public string? ToVersion { get; set; }
+
+    public string? FromManifestSha256 { get; set; }
+
+    public string? ToManifestSha256 { get; set; }
+
+    public List<LauncherScatterPatchOperation> Ops { get; set; } = [];
+
+    public List<LauncherUpdateFileEntry> TargetFiles { get; set; } = [];
+}
+
+public sealed class LauncherScatterPatchOperation
+{
+    public string? Path { get; set; }
+
+    public string? Op { get; set; }
+
+    public string? Patch { get; set; }
+
+    public string? Blob { get; set; }
+
+    public string? PatchSha256 { get; set; }
+
+    public long PatchSize { get; set; }
+
+    public string? BlobSha256 { get; set; }
+
+    public long BlobSize { get; set; }
+
+    public string? FromSha256 { get; set; }
+
+    public long FromSize { get; set; }
+
+    public string? ToSha256 { get; set; }
+
+    public long ToSize { get; set; }
+}
+
+public sealed class LauncherUpdateFileEntry
+{
+    public string? Path { get; set; }
+
+    public string? Sha256 { get; set; }
+
+    public long Size { get; set; }
+
+    public int? UnixMode { get; set; }
+}
+
+/// <summary>
+/// Verified local hand-off from the managed installer to the update helper.
+/// Absolute paths are accepted only after the helper validates their roots.
+/// </summary>
+public sealed class LauncherInstallPlan
+{
+    public int FormatVersion { get; set; }
+
+    public string? InstallRoot { get; set; }
+
+    public string? EntryRelativePath { get; set; }
+
+    public string? StagedRoot { get; set; }
+
+    public List<LauncherUpdateFileEntry> Files { get; set; } = [];
+
+    public List<string> DeletePaths { get; set; } = [];
 }

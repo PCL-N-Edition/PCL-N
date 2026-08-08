@@ -97,6 +97,11 @@ on:
       # Release and beta channels fail before checkout when this secret is absent.
       PCL_PLUGIN_TOKEN:
         required: false
+      # Cloudflare API Shield client certificate in PKCS#12 form. The PFX must
+      # use an empty password because the published launcher cannot carry a
+      # separate decryption secret.
+      PCLN_API_CLIENT_PFX_BASE64:
+        required: false
 jobs:
   build:
     name: ${{ inputs.runtime_id }} / ${{ inputs.runtime_variant }}
@@ -120,6 +125,21 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
+
+      - name: Restore Cloudflare API mTLS client certificate
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: pwsh
+        env:
+          PCLN_API_CLIENT_PFX_BASE64: ${{ secrets.PCLN_API_CLIENT_PFX_BASE64 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:PCLN_API_CLIENT_PFX_BASE64)) {
+            throw 'PCLN_API_CLIENT_PFX_BASE64 is required for launcher builds that use the Cloudflare update channel.'
+          }
+          $output = Join-Path $env:GITHUB_WORKSPACE 'PCL.Application/Online/Certificates/pcln-api-client.pfx'
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $output) | Out-Null
+          [IO.File]::WriteAllBytes($output, [Convert]::FromBase64String($env:PCLN_API_CLIENT_PFX_BASE64))
+          if ((Get-Item -LiteralPath $output).Length -lt 512) { throw 'Decoded Cloudflare API client certificate is invalid.' }
 
       # Private PCL.Plugin is not visible to the repository GITHUB_TOKEN.
       # Release and beta builds must use PCL_PLUGIN_TOKEN; CI/dev may build host-only
