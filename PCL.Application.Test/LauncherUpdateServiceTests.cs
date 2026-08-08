@@ -572,25 +572,28 @@ public sealed class LauncherUpdateServiceTests
         Directory.CreateDirectory(Path.Combine(installRoot, "host"));
         try
         {
+            string entryName = OperatingSystem.IsWindows() ? "PCL-N-Edition.exe" : "PCL-N-Edition";
+            string helperName = OperatingSystem.IsWindows() ? "PCL-N-Host.exe" : "PCL-N-Host";
+            string helperRelativePath = "host/" + helperName;
             byte[] oldEntry = Encoding.UTF8.GetBytes("old launcher");
             byte[] oldHost = Encoding.UTF8.GetBytes("old host");
             byte[] newEntry = Encoding.UTF8.GetBytes("new launcher");
             byte[] newHost = Encoding.UTF8.GetBytes("new host");
             byte[] native = Encoding.UTF8.GetBytes("native payload");
-            await File.WriteAllBytesAsync(Path.Combine(installRoot, "PCL-N-Edition.exe"), oldEntry);
-            await File.WriteAllBytesAsync(Path.Combine(installRoot, "host", "PCL-N-Host.exe"), oldHost);
+            await File.WriteAllBytesAsync(Path.Combine(installRoot, entryName), oldEntry);
+            await File.WriteAllBytesAsync(Path.Combine(installRoot, "host", helperName), oldHost);
             await File.WriteAllTextAsync(Path.Combine(installRoot, "pcln-layout"), "pcln-scatter-v2-expanded\n");
 
             Dictionary<string, byte[]> sourceFiles = new(StringComparer.Ordinal)
             {
-                ["PCL-N-Edition.exe"] = oldEntry,
-                ["host/PCL-N-Host.exe"] = oldHost,
+                [entryName] = oldEntry,
+                [helperRelativePath] = oldHost,
                 ["pcln-layout"] = Encoding.UTF8.GetBytes("pcln-scatter-v2-expanded\n")
             };
             Dictionary<string, byte[]> targetFiles = new(StringComparer.Ordinal)
             {
-                ["PCL-N-Edition.exe"] = newEntry,
-                ["host/PCL-N-Host.exe"] = newHost,
+                [entryName] = newEntry,
+                [helperRelativePath] = newHost,
                 ["native/runtime.bin"] = native,
                 ["pcln-layout"] = sourceFiles["pcln-layout"]
             };
@@ -603,7 +606,7 @@ public sealed class LauncherUpdateServiceTests
             await File.WriteAllTextAsync(hpatchz, "unused");
             LauncherUpdatePackage package = new(
                 "2.0.0", "v2.0.0", "https://download.test/full.zip", "full.zip",
-                "PCL-N-Edition.exe", targetEntrySha, newEntry.Length,
+                entryName, targetEntrySha, newEntry.Length,
                 [new LauncherUpdatePatchStep(
                     "1.0.0", "2.0.0", "https://download.test/update.patch.zip", bundleSha, bundle.Length,
                     Convert.ToHexStringLower(SHA256.HashData(oldEntry)), oldEntry.Length,
@@ -612,12 +615,12 @@ public sealed class LauncherUpdateServiceTests
 
             PreparedLauncherUpdate prepared = await installer.PrepareAsync(
                 package,
-                Path.Combine(installRoot, "host", "PCL-N-Host.exe"),
+                Path.Combine(installRoot, "host", helperName),
                 hpatchz);
 
             Assert.IsTrue(prepared.UsedPatch);
             Assert.IsNotNull(prepared.InstallPlanPath);
-            Assert.AreEqual(Path.Combine(installRoot, "PCL-N-Edition.exe"), prepared.CurrentExecutablePath);
+            Assert.AreEqual(Path.Combine(installRoot, entryName), prepared.CurrentExecutablePath);
             CollectionAssert.AreEqual(newHost, await File.ReadAllBytesAsync(prepared.StagedExecutablePath));
             CollectionAssert.AreEqual(
                 native,
