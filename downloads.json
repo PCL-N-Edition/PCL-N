@@ -1,8 +1,17 @@
 {
   "schemaVersion": 1,
   "retentionDays": 14,
-  "generatedAt": "2026-08-04T12:10:24Z",
+  "generatedAt": "2026-08-08T08:24:31Z",
   "versions": [
+    {
+      "id": "v1.4.3-beta",
+      "label": "1.4.3 Beta",
+      "tag": "v1.4.3-beta",
+      "channel": "beta",
+      "packaging": "v2",
+      "supportsPluginChoice": false,
+      "publishedAt": "2026-08-08T08:24:31Z"
+    },
     {
       "id": "v1.4.2-beta",
       "label": "1.4.2 Beta",
