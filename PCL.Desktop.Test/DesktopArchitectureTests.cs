@@ -962,6 +962,10 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(publishAssets, "dist/updates");
         StringAssert.Contains(publishAssets, "dist/downloads");
         StringAssert.Contains(publishAssets, "R2 only receives dist/updates");
+        StringAssert.Contains(patches, "--max-patch-ratio 0.35");
+        StringAssert.Contains(patches, "--max-total-patch-ratio 0.50");
+        StringAssert.Contains(patches, "--max-history-age-days 14");
+        StringAssert.Contains(patches, "obsolete-patch-assets.txt");
         StringAssert.Contains(packageMacos, "PCL N.app");
         StringAssert.Contains(packageMacos, "package_update_archive.py");
         StringAssert.Contains(packageMacos, "hdiutil create");

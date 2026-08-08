@@ -9,12 +9,14 @@ Canonical standalone repo (optional mirror): `PCL-N-Patches`.
 
 1. `release-stable_publish.yml` / `release-beta_publish.yml` builds and uploads full assets  
 2. Job **`generate-patches`** (workflow call → `generate-launcher-patches.yml`) runs after `publish-assets`  
-   - Default strategy: **last 10 versions** get a direct patch; older clients multi-hop with stride 10 (e.g. `1→11→21`).  
+   - Only releases inside the **14-day rollback window** are considered.
+   - At most the **last 3 versions** get a direct patch; clients may chain 3-version hops while retained, otherwise they use a full package.
 3. Downloads historical + target assets from this repo’s Releases  
 4. For each RID × variant, generates `from → to` scatter `.patch.zip` bundles
    - incompatible single-file/scatter transitions use the full package;
-   - bundles at or above 80% of the full package are not published.
-5. Uploads `index.json` + patches onto **the same release tag**  
+   - a bundle must be below 35% of the full package;
+   - all patches for one RID/variant together may consume at most 50% of that full package, with newest predecessors taking priority.
+5. Replaces `index.json` + patches on **the same release tag**, then deletes obsolete patch assets from GitHub and R2
 6. Optionally mirrors to `PCL-N-Patches` when `PATCHES_REPO_TOKEN` is set  
 
 **CI channel (`ci-latest` from `build-test.yml`) never runs this pipeline.** Rolling CI only ships canonical scatter archives.

@@ -30,6 +30,9 @@
         "hopInterval": { "type": "integer", "minimum": 1 },
         "upgradeMode": { "type": "string", "const": "multi-hop" },
         "description": { "type": "string" },
+        "maxHistoryAgeDays": { "type": "integer", "minimum": 1 },
+        "maxPatchRatio": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "maxTotalPatchRatio": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
         "selectedFromTags": { "type": "array", "items": { "type": "string" } },
         "hopAnchorTags": { "type": "array", "items": { "type": "string" } }
       }
@@ -40,12 +43,17 @@
       "required": ["historyVersionsAvailable", "historyVersionsSelected", "patchesGenerated", "variantsSkipped"],
       "properties": {
         "historyVersionsAvailable": { "type": "integer", "minimum": 0 },
+        "historyVersionsBeforeRetention": { "type": "integer", "minimum": 0 },
         "historyVersionsSelected": { "type": "integer", "minimum": 0 },
         "patchesGenerated": { "type": "integer", "minimum": 0 },
         "variantsSkipped": { "type": "integer", "minimum": 0 },
         "incompatibleLayoutsSkipped": { "type": "integer", "minimum": 0 },
         "inefficientPatchesSkipped": { "type": "integer", "minimum": 0 },
-        "maxPatchRatio": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+        "storageBudgetPatchesSkipped": { "type": "integer", "minimum": 0 },
+        "patchBytesPublished": { "type": "integer", "minimum": 0 },
+        "maxPatchRatio": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "maxTotalPatchRatio": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "maxHistoryAgeDays": { "type": "integer", "minimum": 1 }
       }
     },
     "variant": {

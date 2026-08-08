@@ -7,6 +7,7 @@ import tarfile
 import tempfile
 import unittest
 import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -46,6 +47,55 @@ class GenerateScatterPatchTests(unittest.TestCase):
         self.assertTrue(generate_patches.patch_is_worth_shipping(79, 100, 0.80))
         self.assertFalse(generate_patches.patch_is_worth_shipping(80, 100, 0.80))
         self.assertFalse(generate_patches.patch_is_worth_shipping(101, 100, 1.0))
+
+    def test_patch_storage_budget_prioritizes_newest_versions(self):
+        candidates = [
+            {"fromTag": "v1.0.0", "size": 20},
+            {"fromTag": "v1.1.0", "size": 30},
+            {"fromTag": "v1.2.0", "size": 40},
+        ]
+
+        kept, dropped, used = generate_patches.select_patch_metadata_with_budget(
+            candidates,
+            full_size=100,
+            max_total_ratio=0.50,
+        )
+
+        self.assertEqual(["v1.2.0"], [item["fromTag"] for item in kept])
+        self.assertEqual({"v1.0.0", "v1.1.0"}, {item["fromTag"] for item in dropped})
+        self.assertEqual(40, used)
+
+    def test_patch_history_is_limited_to_two_week_rollback_window(self):
+        anchor = datetime(2026, 8, 9, tzinfo=timezone.utc)
+        recent = generate_patches.ReleaseInfo(
+            "v1.2.0", "1.2.0", True, anchor - timedelta(days=13), {}
+        )
+        expired = generate_patches.ReleaseInfo(
+            "v1.1.0", "1.1.0", True, anchor - timedelta(days=15), {}
+        )
+
+        selected = generate_patches.filter_release_history_by_age(
+            [expired, recent],
+            anchor=anchor,
+            max_age_days=14,
+        )
+
+        self.assertEqual([recent], selected)
+
+    def test_default_patch_window_keeps_three_recent_versions(self):
+        anchor = datetime(2026, 8, 9, tzinfo=timezone.utc)
+        history = [
+            generate_patches.ReleaseInfo(
+                f"v1.0.{index}", f"1.0.{index}", True, anchor, {}
+            )
+            for index in range(6)
+        ]
+
+        selected, strategy = generate_patches.select_from_versions(history)
+
+        self.assertEqual(["v1.0.3", "v1.0.4", "v1.0.5"], [item.tag for item in selected])
+        self.assertEqual(3, strategy["maxDirectFromVersions"])
+        self.assertEqual(3, strategy["hopInterval"])
 
     def test_extract_tree_normalizes_macos_app_root(self):
         with tempfile.TemporaryDirectory() as temporary:

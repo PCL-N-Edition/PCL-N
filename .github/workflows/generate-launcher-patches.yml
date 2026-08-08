@@ -15,15 +15,15 @@ on:
         required: true
         type: string
       max_from_versions:
-        description: Direct patches from the last N versions (default 10)
+        description: Direct patches from the last N versions (default 3)
         required: false
         type: number
-        default: 10
+        default: 3
       hop_interval:
-        description: Multi-hop planning stride for clients (e.g. 1→11→21 when 10)
+        description: Multi-hop planning stride for clients (e.g. 1→4→7 when 3)
         required: false
         type: number
-        default: 10
+        default: 3
       include_prerelease_history:
         required: false
         type: boolean
@@ -56,12 +56,12 @@ on:
       max_from_versions:
         description: Direct patches from the last N versions
         required: false
-        default: "10"
+        default: "3"
         type: string
       hop_interval:
-        description: Hop interval for multi-hop upgrades (1→11→21)
+        description: Hop interval for multi-hop upgrades (1→4→7)
         required: false
-        default: "10"
+        default: "3"
         type: string
       include_prerelease_history:
         required: false
@@ -143,9 +143,11 @@ jobs:
             --source-repo "${SOURCE_REPO}" \
             --target-tag "${TARGET_TAG}" \
             --out-dir "${{ github.workspace }}/patch-artifacts/${TARGET_TAG}" \
-            --max-from-versions "${MAX_FROM:-10}" \
-            --hop-interval "${HOP_INTERVAL:-10}" \
-            --max-patch-ratio 0.80 \
+            --max-from-versions "${MAX_FROM:-3}" \
+            --hop-interval "${HOP_INTERVAL:-3}" \
+            --max-patch-ratio 0.35 \
+            --max-total-patch-ratio 0.50 \
+            --max-history-age-days 14 \
             --tools-dir "${{ github.workspace }}/tools/pcl-n-patches/tools/hdiffpatch" \
             ${EXTRA[@]+"${EXTRA[@]}"}
 
@@ -167,7 +169,9 @@ jobs:
               f"target={data.get('targetTag')} patches={stats.get('patchesGenerated')} "
               f"history={stats.get('historyVersionsSelected')}/{stats.get('historyVersionsAvailable')} "
               f"layout_skips={stats.get('incompatibleLayoutsSkipped', 0)} "
-              f"size_skips={stats.get('inefficientPatchesSkipped', 0)}"
+              f"size_skips={stats.get('inefficientPatchesSkipped', 0)} "
+              f"budget_skips={stats.get('storageBudgetPatchesSkipped', 0)} "
+              f"patch_bytes={stats.get('patchBytesPublished', 0)}"
           )
           variants = data.get("variants") or []
           print(f"variants_with_target={len(variants)}")
@@ -219,10 +223,34 @@ jobs:
             gpg --detach-sign --armor "$asset"
           done < <(find "$STAGE" -maxdepth 1 -type f ! -name '*.asc' -print0)
 
+          # `--clobber` only replaces equal names. Compute and delete old patch
+          # objects that the new, smaller plan no longer references; otherwise
+          # every regeneration leaks obsolete multi-gigabyte bundles.
+          : > "${{ github.workspace }}/obsolete-patch-assets.txt"
+          mapfile -t existing_assets < <(
+            gh release view "${TARGET_TAG}" --repo "${SOURCE_REPO}" \
+              --json assets --jq '.assets[].name'
+          )
+          for name in "${existing_assets[@]}"; do
+            case "$name" in
+              patch-index.json|patch-index.json.asc|index.json|index.json.asc|patch-manifest-*|*.patch.zip|*.patch.zip.asc|*.patch.zip.sha256|*.patch.zip.sha256.asc|*.hdiff|*.hdiff.sha256)
+                if [[ ! -f "$STAGE/$name" ]]; then
+                  printf '%s\n' "$name" >> "${{ github.workspace }}/obsolete-patch-assets.txt"
+                fi
+                ;;
+            esac
+          done
+
           count="$(find "$STAGE" -type f | wc -l)"
           echo "Uploading ${count} patch artifacts to ${TARGET_TAG}"
           test "$count" -ge 1
           gh release upload "${TARGET_TAG}" "$STAGE"/* --clobber --repo "${SOURCE_REPO}"
+
+          while IFS= read -r name; do
+            [[ -n "$name" ]] || continue
+            echo "Deleting obsolete GitHub patch asset: $name"
+            gh release delete-asset "${TARGET_TAG}" "$name" --yes --repo "${SOURCE_REPO}"
+          done < "${{ github.workspace }}/obsolete-patch-assets.txt"
 
       - name: Mirror patch bundle to Cloudflare R2
         shell: bash
@@ -240,6 +268,13 @@ jobs:
               "pcln-releases/releases/${TARGET_TAG}/${name}" \
               --file "$asset" --remote
           done < <(find "$STAGE" -maxdepth 1 -type f -print0)
+
+          while IFS= read -r name; do
+            [[ -n "$name" ]] || continue
+            echo "Deleting obsolete R2 patch object: $name"
+            npx --yes wrangler@4.120.0 r2 object delete \
+              "pcln-releases/releases/${TARGET_TAG}/${name}" --remote --force
+          done < "${{ github.workspace }}/obsolete-patch-assets.txt"
 
       # Optional mirror to dedicated patches repo when PATCHES_REPO_TOKEN is configured.
       - name: Mirror to PCL-N-Patches repository

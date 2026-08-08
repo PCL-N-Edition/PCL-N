@@ -3,9 +3,9 @@
 Generate binary patches from selected prior PCL-N release versions to a target tag.
 
 Strategy (default):
-  • Direct: only the last ``max_from_versions`` (default **10**) predecessors → target
-  • Multi-hop for older builds: clients chain patches across releases, e.g. 1→11→21
-    (each hop is a “last-10” edge published when that intermediate release was built)
+  • Direct: only the last ``max_from_versions`` (default **3**) predecessors → target
+  • Multi-hop inside the retained window: clients chain patches across releases,
+    e.g. 1→4→7 (each hop is a last-N edge from an intermediate release)
 
 Per runtime variant (RID × SelfContained|NoRuntime). The plugin sidecar is part
 of the scatter tree rather than a package-name variant.
@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 BINARY_NAMES = {
@@ -65,6 +65,7 @@ class ReleaseInfo:
     tag: str
     version: str
     prerelease: bool
+    published_at: datetime | None
     assets: dict[str, str]  # name -> download_url
 
 
@@ -113,15 +114,15 @@ def version_key(tag: str) -> tuple:
 def select_from_versions(
     history_asc: list[ReleaseInfo],
     *,
-    max_direct: int = 10,
-    hop_interval: int = 10,
+    max_direct: int = 3,
+    hop_interval: int = 3,
 ) -> tuple[list[ReleaseInfo], dict]:
     """
     Choose which prior versions get a direct patch *to the target*.
 
-    Only the last ``max_direct`` predecessors (default 10) receive a patch to
+    Only the last ``max_direct`` predecessors (default 3) receive a patch to
     this target. Older clients upgrade by multi-hop across intermediate
-    releases, e.g. 1→11→21 (each edge was published when that intermediate
+    releases, e.g. 1→4→7 (each edge was published when that intermediate
     release was built with its own last-N window).
 
     ``hop_interval`` is recorded for clients as the recommended planning
@@ -144,7 +145,7 @@ def select_from_versions(
         "upgradeMode": "multi-hop",
         "description": (
             f"Only the last {max_direct} versions get a direct patch to this "
-            f"release. Older builds should chain patches (e.g. 1→11→21 with "
+            f"release. Older builds should chain patches (e.g. 1→4→7 with "
             f"hopInterval={hop_interval}) using indexes from intermediate releases, "
             f"or fall back to a full download."
         ),
@@ -152,6 +153,45 @@ def select_from_versions(
         "hopAnchorTags": hop_tags,
     }
     return selected, strategy
+
+
+def select_patch_metadata_with_budget(
+    candidates: list[dict],
+    *,
+    full_size: int,
+    max_total_ratio: float,
+) -> tuple[list[dict], list[dict], int]:
+    """Keep newest useful patches without exceeding one variant's R2 budget."""
+    budget = max(0, int(full_size * max_total_ratio))
+    used = 0
+    kept: list[dict] = []
+    dropped: list[dict] = []
+    for patch in sorted(
+        candidates,
+        key=lambda item: version_key(str(item.get("fromTag") or item.get("fromVersion") or "")),
+        reverse=True,
+    ):
+        size = int(patch.get("size") or 0)
+        if size <= 0 or used + size > budget:
+            dropped.append(patch)
+            continue
+        kept.append(patch)
+        used += size
+    kept.sort(key=lambda item: version_key(str(item.get("fromTag") or item.get("fromVersion") or "")))
+    return kept, dropped, used
+
+
+def filter_release_history_by_age(
+    history: list[ReleaseInfo],
+    *,
+    anchor: datetime,
+    max_age_days: int,
+) -> list[ReleaseInfo]:
+    cutoff = anchor - timedelta(days=max_age_days)
+    return [
+        release for release in history
+        if release.published_at is None or release.published_at >= cutoff
+    ]
 
 
 def sha256_file(path: Path) -> str:
@@ -201,6 +241,11 @@ def list_releases(repo: str, token: str | None) -> list[ReleaseInfo]:
                     tag=tag,
                     version=normalize_version(tag),
                     prerelease=bool(item.get("prerelease")),
+                    published_at=(
+                        datetime.fromisoformat(item["published_at"].replace("Z", "+00:00"))
+                        if item.get("published_at")
+                        else None
+                    ),
                     assets=assets,
                 )
             )
@@ -529,7 +574,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Generate HDiff patches to a target PCL-N version "
-            "(default: last 10 versions; older clients multi-hop e.g. 1→11→21)"
+            "(default: last 3 versions inside a 14-day rollback window)"
         )
     )
     parser.add_argument("--source-repo", default="MuXue1230-owo/PCL-N")
@@ -540,16 +585,16 @@ def main() -> int:
     parser.add_argument(
         "--max-from-versions",
         type=int,
-        default=10,
-        help="Max recent versions with a direct patch to target (default: 10)",
+        default=3,
+        help="Max recent versions with a direct patch to target (default: 3)",
     )
     parser.add_argument(
         "--hop-interval",
         type=int,
-        default=10,
+        default=3,
         help=(
-            "Client multi-hop planning stride (e.g. 1→11→21 when N=10). "
-            "Recorded in index strategy metadata (default: 10)"
+            "Client multi-hop planning stride (e.g. 1→4→7 when N=3). "
+            "Recorded in index strategy metadata (default: 3)"
         ),
     )
     parser.add_argument("--rids", nargs="*", default=RUNTIME_IDS)
@@ -558,15 +603,34 @@ def main() -> int:
     parser.add_argument(
         "--max-patch-ratio",
         type=float,
-        default=0.80,
+        default=0.35,
         help=(
             "Publish a patch only when it is smaller than this fraction of the "
-            "full package (default: 0.80)."
+            "full package (default: 0.35)."
         ),
+    )
+    parser.add_argument(
+        "--max-total-patch-ratio",
+        type=float,
+        default=0.50,
+        help=(
+            "Maximum combined patch storage per target variant as a fraction of "
+            "its full package (default: 0.50). Newest patches win the budget."
+        ),
+    )
+    parser.add_argument(
+        "--max-history-age-days",
+        type=int,
+        default=14,
+        help="Ignore predecessor releases older than this rollback window (default: 14).",
     )
     args = parser.parse_args()
     if not 0 < args.max_patch_ratio <= 1:
         parser.error("--max-patch-ratio must be greater than 0 and at most 1")
+    if not 0 < args.max_total_patch_ratio <= 1:
+        parser.error("--max-total-patch-ratio must be greater than 0 and at most 1")
+    if args.max_history_age_days < 1:
+        parser.error("--max-history-age-days must be at least 1")
 
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     root = Path(__file__).resolve().parents[1]
@@ -605,22 +669,36 @@ def main() -> int:
         key = version_key(rel.tag)
         return key[0] == 0  # semver-like only
 
-    history_all = [
+    history_before_retention = [
         r for r in releases
         if is_patchable(r) and version_key(r.tag) < version_key(target.tag)
     ]
     if not args.include_prerelease_history and not target.prerelease:
-        history_all = [r for r in history_all if not r.prerelease and version_key(r.tag)[4] == 0]
+        history_before_retention = [
+            r for r in history_before_retention
+            if not r.prerelease and version_key(r.tag)[4] == 0
+        ]
+
+    retention_anchor = target.published_at or datetime.now(timezone.utc)
+    history_all = filter_release_history_by_age(
+        history_before_retention,
+        anchor=retention_anchor,
+        max_age_days=args.max_history_age_days,
+    )
 
     history, strategy = select_from_versions(
         history_all,
         max_direct=args.max_from_versions,
         hop_interval=args.hop_interval,
     )
+    strategy["maxHistoryAgeDays"] = args.max_history_age_days
+    strategy["maxPatchRatio"] = args.max_patch_ratio
+    strategy["maxTotalPatchRatio"] = args.max_total_patch_ratio
     log(
         f"Target: {target.tag}  |  patchable history: {len(history_all)}  |  "
         f"selected from: {len(history)}  "
-        f"(max_direct={args.max_from_versions}, hop_interval={args.hop_interval})"
+        f"(retention={args.max_history_age_days}d, max_direct={args.max_from_versions}, "
+        f"hop_interval={args.hop_interval})"
     )
     log(f"  from tags: {', '.join(r.tag for r in history) or '(none)'}")
 
@@ -631,6 +709,8 @@ def main() -> int:
     skip_count = 0
     incompatible_layout_count = 0
     inefficient_patch_count = 0
+    storage_budget_patch_count = 0
+    published_patch_bytes = 0
 
     for rid in args.rids:
         binary_name = BINARY_NAMES.get(rid, "PCL-N-Edition.exe" if rid.startswith("win") else "PCL-N-Edition")
@@ -667,7 +747,7 @@ def main() -> int:
             target_layout = package_layout(t_root, rid)
 
             patches_meta: list[dict] = []
-            for from_rel in history:
+            for from_rel in reversed(history):
                 from_cfg = configuration_for_tag(from_rel.tag, from_rel.prerelease)
                 from_asset = pick_asset(from_rel, from_cfg, rid, variant)
                 if from_asset is None:
@@ -767,7 +847,20 @@ def main() -> int:
                         "compressionRatio": ratio,
                     }
                 )
-                patch_count += 1
+            patches_meta, over_budget, variant_patch_bytes = select_patch_metadata_with_budget(
+                patches_meta,
+                full_size=t_archive_size,
+                max_total_ratio=args.max_total_patch_ratio,
+            )
+            for dropped in over_budget:
+                (args.out_dir / dropped["fileName"]).unlink(missing_ok=True)
+                log(
+                    f"  drop {dropped['fromTag']}: variant patch storage budget "
+                    f"would exceed {args.max_total_patch_ratio:.0%} of the full package"
+                )
+            storage_budget_patch_count += len(over_budget)
+            patch_count += len(patches_meta)
+            published_patch_bytes += variant_patch_bytes
 
             variant_manifest = {
                 "runtimeId": rid,
@@ -798,12 +891,17 @@ def main() -> int:
         "variants": all_variants_manifest,
         "stats": {
             "historyVersionsAvailable": len(history_all),
+            "historyVersionsBeforeRetention": len(history_before_retention),
             "historyVersionsSelected": len(history),
             "patchesGenerated": patch_count,
             "variantsSkipped": skip_count,
             "incompatibleLayoutsSkipped": incompatible_layout_count,
             "inefficientPatchesSkipped": inefficient_patch_count,
+            "storageBudgetPatchesSkipped": storage_budget_patch_count,
+            "patchBytesPublished": published_patch_bytes,
             "maxPatchRatio": args.max_patch_ratio,
+            "maxTotalPatchRatio": args.max_total_patch_ratio,
+            "maxHistoryAgeDays": args.max_history_age_days,
         },
     }
 
