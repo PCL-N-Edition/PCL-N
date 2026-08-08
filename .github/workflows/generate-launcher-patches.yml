@@ -145,6 +145,7 @@ jobs:
             --out-dir "${{ github.workspace }}/patch-artifacts/${TARGET_TAG}" \
             --max-from-versions "${MAX_FROM:-10}" \
             --hop-interval "${HOP_INTERVAL:-10}" \
+            --max-patch-ratio 0.80 \
             --tools-dir "${{ github.workspace }}/tools/pcl-n-patches/tools/hdiffpatch" \
             ${EXTRA[@]+"${EXTRA[@]}"}
 
@@ -162,7 +163,12 @@ jobs:
           p = pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "patch-artifacts" / os.environ["TARGET_TAG"] / "index.json"
           data = json.loads(p.read_text(encoding="utf-8"))
           stats = data.get("stats") or {}
-          print(f"target={data.get('targetTag')} patches={stats.get('patchesGenerated')} history={stats.get('historyVersions')}")
+          print(
+              f"target={data.get('targetTag')} patches={stats.get('patchesGenerated')} "
+              f"history={stats.get('historyVersionsSelected')}/{stats.get('historyVersionsAvailable')} "
+              f"layout_skips={stats.get('incompatibleLayoutsSkipped', 0)} "
+              f"size_skips={stats.get('inefficientPatchesSkipped', 0)}"
+          )
           variants = data.get("variants") or []
           print(f"variants_with_target={len(variants)}")
           for v in variants[:12]:
@@ -203,7 +209,7 @@ jobs:
             # Filenames already include rid__variant__from-to.patch.zip.
             while IFS= read -r -d '' f; do
               cp -f "$f" "$STAGE/$(basename "$f")"
-            done < <(find "$ROOT/patches" -type f \( -name '*.patch.zip' -o -name '*.sha256' -o -name '*.hdiff' \) -print0)
+            done < <(find "$ROOT/patches" -type f -name '*.patch.zip' -print0)
           fi
 
           # The bundle signature anchors files.json and every per-file payload.

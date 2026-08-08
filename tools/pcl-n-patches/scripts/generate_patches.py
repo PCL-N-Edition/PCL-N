@@ -325,6 +325,30 @@ def binary_relative_path(rid: str) -> Path:
     return Path(BINARY_NAMES.get(rid, "PCL-N-Edition"))
 
 
+def package_layout(root: Path, rid: str) -> str:
+    """Return the on-disk update layout contract for compatibility checks."""
+    marker_candidates = [root / "pcln-layout"]
+    if rid.startswith("osx-"):
+        marker_candidates.insert(0, root / "Contents" / "MacOS" / "pcln-layout")
+    for marker in marker_candidates:
+        if marker.is_file():
+            value = marker.read_text(encoding="utf-8", errors="replace").strip()
+            return value or "scatter-unknown"
+
+    files = [path for path in root.rglob("*") if path.is_file()]
+    binary = root / binary_relative_path(rid)
+    if binary.is_file() and len(files) == 1:
+        return "legacy-single-file"
+    return "legacy-multifile"
+
+
+def patch_is_worth_shipping(patch_size: int, full_size: int, max_ratio: float) -> bool:
+    """Require a material download saving over the canonical full package."""
+    if patch_size < 0 or full_size <= 0:
+        return False
+    return patch_size < full_size and (patch_size / full_size) < max_ratio
+
+
 def safe_patch_member(rel: str) -> str:
     # Do not encode the path by replacing separators: a/b and a__b would
     # otherwise collide.  The readable suffix is diagnostic only; the digest
@@ -531,8 +555,18 @@ def main() -> int:
     parser.add_argument("--rids", nargs="*", default=RUNTIME_IDS)
     parser.add_argument("--variants", nargs="*", default=RUNTIME_VARIANTS)
     parser.add_argument("--include-prerelease-history", action="store_true")
-    parser.add_argument("--skip-if-patch-larger-than-full", action="store_true", default=True)
+    parser.add_argument(
+        "--max-patch-ratio",
+        type=float,
+        default=0.80,
+        help=(
+            "Publish a patch only when it is smaller than this fraction of the "
+            "full package (default: 0.80)."
+        ),
+    )
     args = parser.parse_args()
+    if not 0 < args.max_patch_ratio <= 1:
+        parser.error("--max-patch-ratio must be greater than 0 and at most 1")
 
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     root = Path(__file__).resolve().parents[1]
@@ -595,6 +629,8 @@ def main() -> int:
     all_variants_manifest: list[dict] = []
     patch_count = 0
     skip_count = 0
+    incompatible_layout_count = 0
+    inefficient_patch_count = 0
 
     for rid in args.rids:
         binary_name = BINARY_NAMES.get(rid, "PCL-N-Edition.exe" if rid.startswith("win") else "PCL-N-Edition")
@@ -628,6 +664,7 @@ def main() -> int:
             t_sha = sha256_file(t_bin)
             t_size = t_bin.stat().st_size
             t_archive_size = t_archive.stat().st_size
+            target_layout = package_layout(t_root, rid)
 
             patches_meta: list[dict] = []
             for from_rel in history:
@@ -662,6 +699,14 @@ def main() -> int:
                 f_manifest_sha = manifest_sha256(f_inv)
                 f_sha = sha256_file(f_bin)
                 f_size = f_bin.stat().st_size
+                source_layout = package_layout(f_root, rid)
+                if source_layout != target_layout:
+                    log(
+                        f"  skip {from_rel.tag}: incompatible package layout "
+                        f"{source_layout!r} → {target_layout!r}; client must use full package"
+                    )
+                    incompatible_layout_count += 1
+                    continue
                 if f_manifest_sha == t_manifest_sha:
                     log(f"  skip {from_rel.tag}: identical package tree")
                     continue
@@ -689,22 +734,21 @@ def main() -> int:
                     log(f"  scatter patch failed {from_rel.tag}: {exc}")
                     continue
 
-                p_sha = sha256_file(patch_path)
-                checksum_path = patch_path.with_suffix(patch_path.suffix + ".sha256")
-                checksum_path.write_text(
-                    f"{p_sha}  {patch_name}\n", encoding="utf-8"
-                )
-
-                if args.skip_if_patch_larger_than_full and p_size >= t_archive_size:
+                ratio = p_size / t_archive_size if t_archive_size else 1.0
+                if not patch_is_worth_shipping(
+                    p_size, t_archive_size, args.max_patch_ratio
+                ):
                     log(
-                        f"  drop {from_rel.tag}: patch bundle {p_size} "
-                        f">= full archive {t_archive_size}"
+                        f"  drop {from_rel.tag}: patch bundle {p_size} ({ratio:.1%}) "
+                        f"does not beat full archive by the required "
+                        f"{(1 - args.max_patch_ratio):.0%}"
                     )
                     patch_path.unlink(missing_ok=True)
-                    checksum_path.unlink(missing_ok=True)
+                    inefficient_patch_count += 1
                     continue
 
-                ratio = round(p_size / t_archive_size, 4) if t_archive_size else 1.0
+                p_sha = sha256_file(patch_path)
+                ratio = round(ratio, 4)
                 log(f"  OK {from_rel.tag} → {target.tag}: {p_size} bytes ({ratio:.1%} of full)")
                 patches_meta.append(
                     {
@@ -757,15 +801,17 @@ def main() -> int:
             "historyVersionsSelected": len(history),
             "patchesGenerated": patch_count,
             "variantsSkipped": skip_count,
+            "incompatibleLayoutsSkipped": incompatible_layout_count,
+            "inefficientPatchesSkipped": inefficient_patch_count,
+            "maxPatchRatio": args.max_patch_ratio,
         },
     }
 
     if history and patch_count == 0:
         log(
-            "ERROR: patchable history was available but no patches were generated. "
-            "Refusing to publish an empty patch index."
+            "No beneficial compatible patches were generated; publishing an empty "
+            "patch index so clients cleanly fall back to the full package."
         )
-        return 2
     (args.out_dir / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     log(f"Done. patches={patch_count} → {args.out_dir / 'index.json'}")
     return 0

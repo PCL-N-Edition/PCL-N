@@ -20,6 +20,33 @@ SPEC.loader.exec_module(generate_patches)
 
 
 class GenerateScatterPatchTests(unittest.TestCase):
+    def test_layout_contract_distinguishes_legacy_and_scatter_packages(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            legacy = root / "legacy"
+            scatter = root / "scatter"
+            legacy.mkdir()
+            scatter.mkdir()
+            (legacy / "PCL-N-Edition.exe").write_bytes(b"single-file")
+            (scatter / "PCL-N-Edition.exe").write_bytes(b"bootstrap")
+            (scatter / "pcln-layout").write_text(
+                "pcln-scatter-v2-expanded\n", encoding="utf-8"
+            )
+
+            self.assertEqual(
+                "legacy-single-file",
+                generate_patches.package_layout(legacy, "win-x64"),
+            )
+            self.assertEqual(
+                "pcln-scatter-v2-expanded",
+                generate_patches.package_layout(scatter, "win-x64"),
+            )
+
+    def test_patch_requires_material_savings(self):
+        self.assertTrue(generate_patches.patch_is_worth_shipping(79, 100, 0.80))
+        self.assertFalse(generate_patches.patch_is_worth_shipping(80, 100, 0.80))
+        self.assertFalse(generate_patches.patch_is_worth_shipping(101, 100, 1.0))
+
     def test_extract_tree_normalizes_macos_app_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

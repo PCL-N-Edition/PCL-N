@@ -42,7 +42,10 @@
         "historyVersionsAvailable": { "type": "integer", "minimum": 0 },
         "historyVersionsSelected": { "type": "integer", "minimum": 0 },
         "patchesGenerated": { "type": "integer", "minimum": 0 },
-        "variantsSkipped": { "type": "integer", "minimum": 0 }
+        "variantsSkipped": { "type": "integer", "minimum": 0 },
+        "incompatibleLayoutsSkipped": { "type": "integer", "minimum": 0 },
+        "inefficientPatchesSkipped": { "type": "integer", "minimum": 0 },
+        "maxPatchRatio": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
       }
     },
     "variant": {

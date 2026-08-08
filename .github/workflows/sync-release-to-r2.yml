@@ -51,7 +51,7 @@ jobs:
           for name in "${assets[@]}"; do
             copy=false
             case "$name" in
-              patch-index.json|patch-index.json.asc|patch-manifest-*.json|patch-manifest-*.json.asc|*.patch.zip|*.patch.zip.sha256|*.patch.zip.asc|ci-channel.json) copy=true ;;
+              patch-index.json|patch-index.json.asc|patch-manifest-*.json|patch-manifest-*.json.asc|*.patch.zip|*.patch.zip.asc|ci-channel.json) copy=true ;;
               PCL_N_*.build.json|PCL_N_*.ci.json) copy=true ;;
               *.hdiff|*.hdiff.sha256)
                 [[ "$INCLUDE_LEGACY_PATCHES" == "true" ]] && copy=true
