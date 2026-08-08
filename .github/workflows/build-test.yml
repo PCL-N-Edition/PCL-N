@@ -139,18 +139,34 @@ jobs:
             fi
             gpg --detach-sign --armor "$package"
             gpg --detach-sign --armor --output "$package.binary.asc" "$bin"
+            package_sha256="$(sha256sum "$package" | awk '{print $1}')"
+            package_size="$(stat -c '%s' "$package")"
             cat > "dist/${name}.ci.json" <<EOF
           {
+            "formatVersion": 1,
             "channel": "CI",
             "commit": "${{ github.sha }}",
             "ref": "${{ github.ref }}",
             "runId": "${{ github.run_id }}",
             "artifact": "${name}",
+            "packageSha256": "${package_sha256}",
+            "packageSize": ${package_size},
             "supportsPatches": false,
             "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
           done
+          cat > dist/ci-channel.json <<EOF
+          {
+            "formatVersion": 1,
+            "tag": "ci-latest",
+            "version": "ci-${GITHUB_SHA:0:7}",
+            "channel": "ci",
+            "commitSha": "${{ github.sha }}",
+            "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "manifestKey": "releases/ci-latest/ci-channel.json"
+          }
+          EOF
           ls -la dist
           test -n "$(ls -A dist/*.zip 2>/dev/null)" || { echo "No CI zips produced"; exit 1; }
 
@@ -200,13 +216,23 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
-            echo "Cloudflare credentials are not configured; the gateway will lazily cache CI assets."
-            exit 0
-          fi
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
+          # Replace packages and signatures first, then per-RID metadata. The
+          # channel marker is uploaded last so readers never observe a new SHA
+          # before all files for that build are available.
           while IFS= read -r -d '' asset; do
             name="$(basename "$asset")"
             npx --yes wrangler@4.120.0 r2 object put \
               "pcln-releases/releases/ci-latest/${name}" \
               --file "$asset" --remote
-          done < <(find dist -maxdepth 1 -type f -print0)
+          done < <(find dist -maxdepth 1 -type f ! -name '*.ci.json' ! -name 'ci-channel.json' -print0 | sort -z)
+          while IFS= read -r -d '' asset; do
+            name="$(basename "$asset")"
+            npx --yes wrangler@4.120.0 r2 object put \
+              "pcln-releases/releases/ci-latest/${name}" \
+              --file "$asset" --remote
+          done < <(find dist -maxdepth 1 -type f -name '*.ci.json' -print0 | sort -z)
+          npx --yes wrangler@4.120.0 r2 object put \
+            "pcln-releases/releases/ci-latest/ci-channel.json" \
+            --file dist/ci-channel.json --remote

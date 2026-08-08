@@ -51,13 +51,13 @@ jobs:
           for name in "${assets[@]}"; do
             copy=false
             case "$name" in
-              patch-index.json|patch-manifest-*.json|*.patch.zip|*.patch.zip.sha256) copy=true ;;
+              patch-index.json|patch-index.json.asc|patch-manifest-*.json|patch-manifest-*.json.asc|*.patch.zip|*.patch.zip.sha256|*.patch.zip.asc|ci-channel.json) copy=true ;;
               PCL_N_*.build.json|PCL_N_*.ci.json) copy=true ;;
               *.hdiff|*.hdiff.sha256)
                 [[ "$INCLUDE_LEGACY_PATCHES" == "true" ]] && copy=true
                 ;;
             esac
-            if [[ "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)(\.asc|\.binary\.asc)?$ ]]; then
+            if [[ "$name" =~ ^PCL_N_(Release|Beta|CI)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)(\.asc|\.binary\.asc)?$ ]]; then
               copy=true
             fi
             [[ "$copy" == "true" ]] || continue
