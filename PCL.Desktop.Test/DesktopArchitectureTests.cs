@@ -959,6 +959,9 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(publishAssets, "package-release-linux.sh");
         StringAssert.Contains(publishAssets, "package-release-windows.ps1");
         StringAssert.Contains(publishAssets, "binary=\"artifact/scatter/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}\"");
+        StringAssert.Contains(publishAssets, "dist/updates");
+        StringAssert.Contains(publishAssets, "dist/downloads");
+        StringAssert.Contains(publishAssets, "R2 only receives dist/updates");
         StringAssert.Contains(packageMacos, "PCL N.app");
         StringAssert.Contains(packageMacos, "package_update_archive.py");
         StringAssert.Contains(packageMacos, "hdiutil create");

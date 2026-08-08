@@ -18,6 +18,7 @@
 - 归档内容是可直接展开的散包，不能嵌套 ZIP、PDB/DBG 或 Windows 单文件便携版。
 - `SelfContained` 与 `NoRuntime` 描述插件 sidecar 是否携带 .NET 运行时；主程序始终是 NativeAOT。
 - CI 使用覆盖式 `ci-latest`：每次成功构建上传完整更新归档、签名和 `.ci.json`，通过提交 SHA 判断更新，不生成跨版本补丁。
+- 正式发布在流水线中将散包更新文件放入 `dist/updates`，将安装包与单文件便携版放入 `dist/downloads`；GitHub 同时分发两类文件，Cloudflare R2 只保存更新器需要的前一类。
 - Beta/Release 可以附带 `patch-index.json`。缺少索引、布局不兼容、变体不匹配、校验信息无效或补丁不划算时，客户端必须自动使用完整包。
 
 ## 兼容性约束

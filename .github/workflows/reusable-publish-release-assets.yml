@@ -203,25 +203,36 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag_name }}
         run: |
           set -euo pipefail
-          mkdir -p dist
-          # Preserve mode bits (esp. AppImage +x) when staging for upload.
-          find packaged/package-output -maxdepth 1 -type f -exec cp -a {} dist/ \;
-          chmod a+x dist/*.AppImage 2>/dev/null || true
+          mkdir -p dist/updates dist/downloads
+
+          # Keep updater scatter archives physically separate from user-facing
+          # installers and single-file portable packages. GitHub receives both;
+          # R2 only receives dist/updates.
+          while IFS= read -r -d '' asset; do
+            name="$(basename "$asset")"
+            if [[ "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)$ ]]; then
+              destination="dist/updates/$name"
+            else
+              destination="dist/downloads/$name"
+            fi
+            cp -a "$asset" "$destination"
+          done < <(find packaged/package-output -maxdepth 1 -type f -print0)
+          chmod a+x dist/downloads/*.AppImage 2>/dev/null || true
 
           # Every user-selectable installer and portable package gets its own
           # detached signature. No package is modified after this point.
           while IFS= read -r -d '' asset; do
             gpg --detach-sign --armor "$asset"
-          done < <(find dist -maxdepth 1 -type f ! -name '*.asc' -print0)
+          done < <(find dist -mindepth 2 -maxdepth 2 -type f ! -name '*.asc' -print0)
 
           # Existing launchers expect a signature over the final replacement
           # executable next to the unchanged canonical zip/tar.gz package.
           while IFS= read -r -d '' binary; do
             base="$(basename "$(dirname "$binary")")"
             if [[ "$base" == *'_win-'* ]]; then
-              canonical="dist/${base}.zip"
+              canonical="dist/updates/${base}.zip"
             else
-              canonical="dist/${base}.tar.gz"
+              canonical="dist/updates/${base}.tar.gz"
             fi
             test -s "$canonical"
             gpg --detach-sign --armor --output "${canonical}.binary.asc" "$binary"
@@ -234,16 +245,21 @@ jobs:
               --arg artifact "$base" \
               --arg builtAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               '{formatVersion: 1, channel: $channel, commit: $commit, ref: $ref, tag: $tag, runId: $runId, artifact: $artifact, builtAt: $builtAt}' \
-              > "dist/${base}.build.json"
+              > "dist/updates/${base}.build.json"
           done < <(find packaged/signing -mindepth 2 -maxdepth 2 -type f -print0)
 
-          find dist -maxdepth 1 -type f -printf '%f\n' | (sort || true)
+          echo "Updater assets:"
+          find dist/updates -maxdepth 1 -type f -printf '  %f\n' | (sort || true)
+          echo "Download assets:"
+          find dist/downloads -maxdepth 1 -type f -printf '  %f\n' | (sort || true)
 
       - name: Upload all assets to the existing release
         uses: softprops/action-gh-release@v2.5.0
         with:
           tag_name: ${{ inputs.tag_name }}
-          files: dist/*
+          files: |
+            dist/updates/*
+            dist/downloads/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -261,12 +277,13 @@ jobs:
             name="$(basename "$asset")"
             if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)(\.asc|\.binary\.asc)?$ &&
                   ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.build\.json$ ]]; then
-              continue
+              echo "::error::Unexpected file in updater staging directory: $name"
+              exit 1
             fi
             npx --yes wrangler@4.120.0 r2 object put \
               "pcln-releases/releases/${RELEASE_TAG}/${name}" \
               --file "$asset" --remote
-          done < <(find dist -maxdepth 1 -type f -print0)
+          done < <(find dist/updates -maxdepth 1 -type f -print0)
 
       - name: Publish static website download catalog
         shell: bash
