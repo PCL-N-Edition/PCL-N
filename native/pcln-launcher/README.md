@@ -54,6 +54,8 @@ pcln-launcher (= PCL-N-Edition)
 
 CI：`scripts/assemble-release-layout.sh` 在打包前展开全部依赖。
 
+Windows 下 launcher 与 crash-handler 均使用 GUI 子系统，正常启动和后台监视不会创建 CMD 窗口；launcher 拉起两个子进程时也显式使用 `CREATE_NO_WINDOW`。
+
 ## Windows 便携包（单文件）
 
 安装包 / 规范 zip 使用上面的散包布局。  

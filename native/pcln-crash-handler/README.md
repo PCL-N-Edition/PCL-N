@@ -40,6 +40,8 @@ chmod +x build.sh && ./build.sh
 - Windows: `pcln-crash-handler.exe`
 - Unix: `pcln-crash-handler`
 
+Windows 产物使用 GUI 子系统：正常轮询完全静默，仅在确认异常退出后显示原生错误对话框，不会在启动器启动时闪现 CMD 窗口。
+
 ## 谁来拉起
 
 | 路径 | 行为 |

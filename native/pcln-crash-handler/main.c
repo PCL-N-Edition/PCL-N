@@ -12,8 +12,8 @@
  *       --crash-dir <Logs/Crashes> --clean-flag <path>
  *
  * Build (examples):
- *   Windows (MSVC): cl /O2 /Fe:pcln-crash-handler.exe main.c
- *   Windows (MinGW): gcc -O2 -o pcln-crash-handler.exe main.c
+ *   Windows (MSVC): cl /O2 /Fe:pcln-crash-handler.exe main.c /link /SUBSYSTEM:WINDOWS
+ *   Windows (MinGW): gcc -O2 -mwindows -o pcln-crash-handler.exe main.c
  *   Linux/macOS:    cc -O2 -o pcln-crash-handler main.c
  */
 
@@ -199,7 +199,7 @@ static int parse_args(int argc, char **argv)
     return 0;
 }
 
-int main(int argc, char **argv)
+static int pcln_main(int argc, char **argv)
 {
     int rc = parse_args(argc, argv);
     if (rc == 2)
@@ -248,3 +248,55 @@ int main(int argc, char **argv)
     notify_user(report_path);
     return 1;
 }
+
+#if defined(_WIN32)
+/* Keep the watchdog silent while it polls. Native dialogs are still shown on
+ * an actual crash, but Windows must not allocate a console for normal starts. */
+int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, int show_command)
+{
+    LPWSTR *wide_argv;
+    char **argv;
+    int argc = 0;
+    int result = 1;
+    int index;
+    (void)instance;
+    (void)previous;
+    (void)command_line;
+    (void)show_command;
+
+    wide_argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!wide_argv || argc <= 0)
+        return 2;
+    argv = (char **)calloc((size_t)argc + 1, sizeof(char *));
+    if (!argv)
+    {
+        LocalFree(wide_argv);
+        return 2;
+    }
+    for (index = 0; index < argc; index++)
+    {
+        int length = WideCharToMultiByte(CP_ACP, 0, wide_argv[index], -1, NULL, 0, NULL, NULL);
+        if (length <= 0 || !(argv[index] = (char *)malloc((size_t)length)) ||
+            !WideCharToMultiByte(CP_ACP, 0, wide_argv[index], -1, argv[index], length, NULL, NULL))
+        {
+            while (index >= 0)
+                free(argv[index--]);
+            free(argv);
+            LocalFree(wide_argv);
+            return 2;
+        }
+    }
+
+    result = pcln_main(argc, argv);
+    for (index = 0; index < argc; index++)
+        free(argv[index]);
+    free(argv);
+    LocalFree(wide_argv);
+    return result;
+}
+#else
+int main(int argc, char **argv)
+{
+    return pcln_main(argc, argv);
+}
+#endif

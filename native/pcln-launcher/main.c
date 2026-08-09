@@ -31,6 +31,7 @@
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
 #  include <shlobj.h>
+#  include <shellapi.h>
 #else
 #  include <errno.h>
 #  include <sys/stat.h>
@@ -450,7 +451,7 @@ static int spawn_process(const char *path, char *cmdline, PROCESS_INFORMATION *p
     ZeroMemory(&si, sizeof(si));
     si.cb = sizeof(si);
     ZeroMemory(pi, sizeof(*pi));
-    if (!CreateProcessA(path, cmdline, NULL, NULL, FALSE, 0, NULL, g_extract_root, &si, pi))
+    if (!CreateProcessA(path, cmdline, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, g_extract_root, &si, pi))
         return -1;
     return 0;
 }
@@ -629,7 +630,7 @@ static void write_clean_flag(void)
     fclose(f);
 }
 
-int main(int argc, char **argv)
+static int pcln_main(int argc, char **argv)
 {
     resolve_self_dir();
     /* Same root as host LauncherPathLayout.ResolveDataDirectory — all extracts go here. */
@@ -765,3 +766,56 @@ int main(int argc, char **argv)
     }
 #endif
 }
+
+#if defined(_WIN32)
+/* Windows release binaries use the GUI subsystem so Explorer never creates a
+ * transient console. Convert the canonical Unicode command line back to the
+ * ANSI argv contract used by the existing Win32 A-path implementation. */
+int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous, LPSTR command_line, int show_command)
+{
+    LPWSTR *wide_argv;
+    char **argv;
+    int argc = 0;
+    int result = 1;
+    int index;
+    (void)instance;
+    (void)previous;
+    (void)command_line;
+    (void)show_command;
+
+    wide_argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!wide_argv || argc <= 0)
+        die("无法解析启动参数");
+    argv = (char **)calloc((size_t)argc + 1, sizeof(char *));
+    if (!argv)
+    {
+        LocalFree(wide_argv);
+        die("无法分配启动参数");
+    }
+    for (index = 0; index < argc; index++)
+    {
+        int length = WideCharToMultiByte(CP_ACP, 0, wide_argv[index], -1, NULL, 0, NULL, NULL);
+        if (length <= 0 || !(argv[index] = (char *)malloc((size_t)length)) ||
+            !WideCharToMultiByte(CP_ACP, 0, wide_argv[index], -1, argv[index], length, NULL, NULL))
+        {
+            while (index >= 0)
+                free(argv[index--]);
+            free(argv);
+            LocalFree(wide_argv);
+            die("无法转换启动参数");
+        }
+    }
+
+    result = pcln_main(argc, argv);
+    for (index = 0; index < argc; index++)
+        free(argv[index]);
+    free(argv);
+    LocalFree(wide_argv);
+    return result;
+}
+#else
+int main(int argc, char **argv)
+{
+    return pcln_main(argc, argv);
+}
+#endif

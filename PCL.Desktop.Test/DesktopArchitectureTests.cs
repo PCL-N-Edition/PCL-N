@@ -834,6 +834,40 @@ public sealed class DesktopArchitectureTests
     }
 
     [TestMethod]
+    public void NativeWindowsHelpersUseGuiSubsystemWithoutConsoleChildren()
+    {
+        string repositoryRoot = Directory.GetParent(FindDesktopProjectRoot())!.FullName;
+        string launcherSource = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "native",
+            "pcln-launcher",
+            "main.c"));
+        string launcherBuild = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "native",
+            "pcln-launcher",
+            "build.ps1"));
+        string crashSource = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "native",
+            "pcln-crash-handler",
+            "main.c"));
+        string crashBuild = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "native",
+            "pcln-crash-handler",
+            "build.ps1"));
+
+        StringAssert.Contains(launcherSource, "int WINAPI WinMain(");
+        StringAssert.Contains(launcherSource, "CREATE_NO_WINDOW");
+        StringAssert.Contains(crashSource, "int WINAPI WinMain(");
+        StringAssert.Contains(launcherBuild, "/SUBSYSTEM:WINDOWS");
+        StringAssert.Contains(launcherBuild, "-mwindows");
+        StringAssert.Contains(crashBuild, "/SUBSYSTEM:WINDOWS");
+        StringAssert.Contains(crashBuild, "-mwindows");
+    }
+
+    [TestMethod]
     public void Startup_SettingsArePrimedBeforeAvaloniaAndUiReadsUseTheSnapshotCache()
     {
         string desktopRoot = FindDesktopProjectRoot();

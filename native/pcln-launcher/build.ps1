@@ -10,11 +10,11 @@ $libs = @("user32.lib", "shell32.lib")
 
 function Invoke-Cl([string]$vcvars) {
     # Expand args inside cmd so PowerShell does not swallow them.
-    $clLine = "cl /nologo /O2 /utf-8 /Fe:pcln-launcher.exe main.c zip_store.c sha256.c install.c user32.lib shell32.lib"
+    $clLine = "cl /nologo /O2 /utf-8 /Fe:pcln-launcher.exe main.c zip_store.c sha256.c install.c user32.lib shell32.lib /link /SUBSYSTEM:WINDOWS"
     if ($vcvars) {
-        cmd /c "`"$vcvars`" && cd /d `"$here`" && $clLine"
+        cmd /c "`"$vcvars`" && cd /d `"$here`" && $clLine" | ForEach-Object { Write-Host $_ }
     } else {
-        cmd /c "cd /d `"$here`" && $clLine"
+        cmd /c "cd /d `"$here`" && $clLine" | ForEach-Object { Write-Host $_ }
     }
     return $LASTEXITCODE
 }
@@ -45,7 +45,7 @@ if ($cl) {
 
 $gcc = Get-Command gcc -ErrorAction SilentlyContinue
 if ($gcc) {
-    & gcc -O2 -o $out @sources
+    & gcc -O2 -mwindows -o $out @sources -luser32 -lshell32
     if ($LASTEXITCODE -eq 0) {
         Write-Host "Built $out (gcc)"
         exit 0

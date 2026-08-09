@@ -12,7 +12,7 @@ if (Test-Path $vswhere) {
     if ($install) {
         $bat = Join-Path $install "VC\Auxiliary\Build\vcvars64.bat"
         if (Test-Path $bat) {
-            cmd /c "`"$bat`" && cd /d `"$here`" && cl /nologo /O2 /utf-8 /Fe:pcln-crash-handler.exe main.c user32.lib shell32.lib"
+            cmd /c "`"$bat`" && cd /d `"$here`" && cl /nologo /O2 /utf-8 /Fe:pcln-crash-handler.exe main.c user32.lib shell32.lib /link /SUBSYSTEM:WINDOWS"
             if ($LASTEXITCODE -eq 0 -and (Test-Path $out)) {
                 Write-Host "Built $out (MSVC)"
                 exit 0
@@ -23,7 +23,7 @@ if (Test-Path $vswhere) {
 
 $cl = Get-Command cl -ErrorAction SilentlyContinue
 if ($cl) {
-    & cl /nologo /O2 /utf-8 /Fe:$out main.c user32.lib shell32.lib
+    & cl /nologo /O2 /utf-8 /Fe:$out main.c user32.lib shell32.lib /link /SUBSYSTEM:WINDOWS
     if ($LASTEXITCODE -eq 0) {
         Write-Host "Built $out (MSVC)"
         exit 0
@@ -32,7 +32,7 @@ if ($cl) {
 
 $gcc = Get-Command gcc -ErrorAction SilentlyContinue
 if ($gcc) {
-    & gcc -O2 -o $out main.c
+    & gcc -O2 -mwindows -o $out main.c -luser32 -lshell32
     if ($LASTEXITCODE -eq 0) {
         Write-Host "Built $out (gcc)"
         exit 0
@@ -41,7 +41,7 @@ if ($gcc) {
 
 $clang = Get-Command clang -ErrorAction SilentlyContinue
 if ($clang) {
-    & clang -O2 -o $out main.c
+    & clang -O2 -mwindows -o $out main.c -luser32 -lshell32
     if ($LASTEXITCODE -eq 0) {
         Write-Host "Built $out (clang)"
         exit 0
