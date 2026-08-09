@@ -28,6 +28,7 @@ pcln-crash-handler \
 ```powershell
 # Windows
 ./build.ps1
+./build.ps1 -Architecture arm64
 ```
 
 ```bash

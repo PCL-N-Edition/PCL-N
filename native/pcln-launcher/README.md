@@ -50,6 +50,10 @@ pcln-launcher (= PCL-N-Edition)
 ```powershell
 ./build.ps1
 ./../pcln-crash-handler/build.ps1
+
+# Windows ARM64（从 x64 开发者工具交叉编译）
+./build.ps1 -Architecture arm64
+./../pcln-crash-handler/build.ps1 -Architecture arm64
 ```
 
 CI：`scripts/assemble-release-layout.sh` 在打包前展开全部依赖。

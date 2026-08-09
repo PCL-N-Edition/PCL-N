@@ -19,6 +19,7 @@ if [[ "${OS:-}" == "Windows_NT" ]]; then
 fi
 
 if [[ "$is_windows" -eq 1 ]]; then
+  native_arch="${PCLN_NATIVE_ARCH:-x64}"
   if command -v powershell.exe >/dev/null 2>&1; then
     PS=(powershell.exe -NoProfile -ExecutionPolicy Bypass -File)
   elif command -v pwsh >/dev/null 2>&1; then
@@ -27,8 +28,8 @@ if [[ "$is_windows" -eq 1 ]]; then
     echo "PowerShell is required to build native bootstrap on Windows." >&2
     exit 1
   fi
-  "${PS[@]}" "$launcher_dir/build.ps1"
-  "${PS[@]}" "$crash_dir/build.ps1"
+  "${PS[@]}" "$launcher_dir/build.ps1" -Architecture "$native_arch"
+  "${PS[@]}" "$crash_dir/build.ps1" -Architecture "$native_arch"
   launcher_bin="$launcher_dir/pcln-launcher.exe"
   crash_bin="$crash_dir/pcln-crash-handler.exe"
 else

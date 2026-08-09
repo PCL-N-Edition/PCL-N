@@ -433,7 +433,7 @@ jobs:
 
           # C bootstrap: entry stays PCL-N-Edition; deps as scatter files.
           chmod +x scripts/build-native-bootstrap.sh scripts/assemble-release-layout.sh
-          scripts/build-native-bootstrap.sh
+          PCLN_NATIVE_ARCH='${{ inputs.architecture }}' scripts/build-native-bootstrap.sh
           if [[ -f "$PWD/native/pcln-launcher/pcln-launcher.exe" ]]; then
             PCLN_LAUNCHER_BIN="$PWD/native/pcln-launcher/pcln-launcher.exe"
             PCLN_CRASH_BIN="$PWD/native/pcln-crash-handler/pcln-crash-handler.exe"
@@ -443,6 +443,11 @@ jobs:
           fi
           test -s "$PCLN_LAUNCHER_BIN"
           test -s "$PCLN_CRASH_BIN"
+          if [[ "${{ inputs.runtime_id }}" == win-* ]]; then
+            python scripts/verify_windows_pe.py \
+              --architecture "$(printf '%s' '${{ inputs.architecture }}' | tr '[:upper:]' '[:lower:]')" \
+              "$PCLN_LAUNCHER_BIN" "$PCLN_CRASH_BIN"
+          fi
 
           assemble_args=(
             --out "$PUBLISH_DIR"

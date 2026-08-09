@@ -857,6 +857,11 @@ public sealed class DesktopArchitectureTests
             "native",
             "pcln-crash-handler",
             "build.ps1"));
+        string reusableBuild = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            ".github",
+            "workflows",
+            "reusable-build.yml"));
 
         StringAssert.Contains(launcherSource, "int WINAPI WinMain(");
         StringAssert.Contains(launcherSource, "CREATE_NO_WINDOW");
@@ -865,6 +870,8 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(launcherBuild, "-mwindows");
         StringAssert.Contains(crashBuild, "/SUBSYSTEM:WINDOWS");
         StringAssert.Contains(crashBuild, "-mwindows");
+        StringAssert.Contains(reusableBuild, "PCLN_NATIVE_ARCH='${{ inputs.architecture }}'");
+        StringAssert.Contains(reusableBuild, "verify_windows_pe.py");
     }
 
     [TestMethod]
