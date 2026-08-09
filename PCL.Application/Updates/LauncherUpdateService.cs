@@ -180,7 +180,14 @@ public sealed partial class LauncherUpdateService : IDisposable
     public static string ResolveRuntimeId()
     {
         if (OperatingSystem.IsWindows())
-            return Environment.Is64BitProcess ? "win-x64" : "win-x86";
+        {
+            return System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch
+            {
+                System.Runtime.InteropServices.Architecture.Arm64 => "win-arm64",
+                System.Runtime.InteropServices.Architecture.X86 => "win-x86",
+                _ => "win-x64"
+            };
+        }
         if (OperatingSystem.IsLinux())
             return System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
                 is System.Runtime.InteropServices.Architecture.Arm64

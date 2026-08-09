@@ -90,17 +90,16 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
         {
             try
             {
-                preparedTree = await TryPrepareBlockPayloadAsync(
+                PreparedBlockPayload blockPayload = await TryPrepareBlockPayloadAsync(
                         package,
                         currentPath,
                         workDirectory,
                         blockCacheDirectory,
                         cancellationToken)
-                    .ConfigureAwait(false);
-                if (preparedTree is null)
-                    throw new InvalidDataException(
-                        $"Cloudflare 未提供此构建所需的签名分块清单：{package.BlockMapUrl}");
-                preparedBinary = preparedTree.StagedEntryPath;
+                    .ConfigureAwait(false) ?? throw new InvalidDataException(
+                    $"Cloudflare 未提供此构建所需的签名分块清单：{package.BlockMapUrl}");
+                preparedTree = blockPayload.Tree;
+                preparedBinary = blockPayload.EntryPath;
                 await VerifyDetachedSignatureAsync(
                         preparedBinary,
                         package.TargetBinarySignatureUrl,
@@ -229,7 +228,13 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
         PortableLog.Info(
             "Update",
             $"启动器更新已就绪；目标={package.TargetVersion}；方式={(usedBlockMap ? "Blocks" : usedPatch ? "Patch" : "Full")}；暂存={stagedPath}。");
-        return new PreparedLauncherUpdate(package, currentPath, stagedPath, workDirectory, usedPatch);
+        return new PreparedLauncherUpdate(
+            package,
+            currentPath,
+            stagedPath,
+            workDirectory,
+            usedPatch,
+            UsedBlockMap: usedBlockMap);
     }
 
     public void ScheduleInstallAndRestart(PreparedLauncherUpdate update, int processId)

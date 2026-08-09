@@ -236,6 +236,55 @@ public sealed class LauncherUpdateServiceTests
     }
 
     [TestMethod]
+    public async Task CheckAsync_SingleFileBuildSelectsPortableBlockMap()
+    {
+        RoutingHandler handler = new(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/v1/updates/channels/beta", StringComparison.Ordinal))
+            {
+                return JsonResponse("""
+                    {
+                      "tag": "v1.4.4-beta",
+                      "version": "1.4.4-beta",
+                      "channel": "beta",
+                      "commitSha": "1234567890abcdef1234567890abcdef12345678",
+                      "publishedAt": "2026-08-09T08:00:00Z",
+                      "manifestKey": "releases/v1.4.4-beta"
+                    }
+                    """);
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using LauncherUpdateService service = new(new HttpClient(handler));
+
+        LauncherUpdateCheckResult result = await service.CheckAsync(
+            UpdateChannel.Beta,
+            new LauncherBuildIdentity(
+                "1.4.3-beta",
+                "win-x64",
+                "NoRuntime",
+                "Beta")
+            {
+                DistributionLayout = LauncherDistributionLayout.SingleFile
+            },
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+        Assert.IsTrue(result.Success);
+        Assert.IsTrue(result.IsUpdateAvailable);
+        Assert.IsNotNull(result.Package);
+        Assert.AreEqual("PCL_N_Beta_win-x64_NoRuntime_Portable.exe", result.Package.TargetAssetName);
+        Assert.AreEqual("PCL-N-Edition.exe", result.Package.TargetBinaryName);
+        StringAssert.EndsWith(
+            result.Package.BlockMapUrl!,
+            "/v1.4.4-beta/PCL_N_Beta_win-x64_NoRuntime_Portable.blockmap.json");
+        StringAssert.EndsWith(
+            result.Package.TargetBinarySignatureUrl!,
+            "/v1.4.4-beta/PCL_N_Beta_win-x64_NoRuntime_Portable.exe.asc");
+        Assert.AreEqual(0, result.Package.PatchSteps.Count);
+    }
+
+    [TestMethod]
     public void InstallationContext_LeavesPortableAndWindowsInstallerUpdateable()
     {
         LauncherInstallationContext portable = LauncherInstallationContext.Detect(

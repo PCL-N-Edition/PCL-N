@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a signed-manifest-ready content-addressed block map for a scatter update archive."""
+"""Build signed content-addressed block maps for scatter and single-file updates."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from pathlib import Path
 
 FORMAT_VERSION = 1
 LAYOUT = "pcln-blockmap-v1"
+FILE_LAYOUT = "pcln-blockmap-file-v1"
 ALGORITHM = "pcln-fastcdc-v1"
 COMPRESSION = "gzip"
 MIN_CHUNK = 256 * 1024
@@ -246,25 +247,109 @@ def build_blockmap(
     return manifest_path
 
 
+def build_file_blockmap(
+    source: Path,
+    output_root: Path,
+    *,
+    target_asset_name: str,
+    entry_name: str,
+    target_tag: str,
+    target_version: str,
+    runtime_id: str,
+    runtime_variant: str,
+    configuration: str,
+) -> Path:
+    source = source.resolve()
+    output_root = output_root.resolve()
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    if not target_asset_name or Path(target_asset_name).name != target_asset_name:
+        raise ValueError("target asset name must be a file name")
+    normalized_entry = entry_name.replace("\\", "/").strip("/")
+    if not normalized_entry or any(part in {"", ".", ".."} for part in normalized_entry.split("/")):
+        raise ValueError("entry name must be a safe relative path")
+
+    output_root.mkdir(parents=True, exist_ok=True)
+    sha256, size, chunks, created_blocks, created_bytes = chunk_file(source, output_root)
+    entries = [
+        {
+            "path": normalized_entry,
+            "sha256": sha256,
+            "size": size,
+            "unixMode": stat.S_IMODE(source.stat().st_mode),
+            "chunks": chunks,
+        }
+    ]
+    manifest = {
+        "formatVersion": FORMAT_VERSION,
+        "layout": FILE_LAYOUT,
+        "algorithm": ALGORITHM,
+        "compression": COMPRESSION,
+        "blockBasePath": "/v1/updates/block",
+        "targetTag": target_tag,
+        "targetVersion": target_version,
+        "runtimeId": runtime_id,
+        "runtimeVariant": runtime_variant,
+        "configuration": configuration,
+        "targetAssetName": target_asset_name,
+        "targetManifestSha256": _manifest_sha256(entries),
+        "targetFiles": entries,
+        "stats": {
+            "fileCount": 1,
+            "blockReferences": len(chunks),
+            "referencedCompressedBytes": sum(chunk["compressedSize"] for chunk in chunks),
+            "newUniqueBlocks": created_blocks,
+            "newUniqueCompressedBytes": created_bytes,
+            "chunkMin": MIN_CHUNK,
+            "chunkAverage": AVG_CHUNK,
+            "chunkMax": MAX_CHUNK,
+        },
+    }
+    stem = target_asset_name[:-4] if target_asset_name.lower().endswith(".exe") else Path(target_asset_name).stem
+    manifest_path = output_root / "manifests" / f"{stem}.blockmap.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return manifest_path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--archive", required=True, type=Path)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--archive", type=Path)
+    source.add_argument("--file", type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--target-asset-name")
+    parser.add_argument("--entry-name")
     parser.add_argument("--target-tag", required=True)
     parser.add_argument("--target-version", required=True)
     parser.add_argument("--runtime-id", required=True)
     parser.add_argument("--runtime-variant", required=True, choices=("SelfContained", "NoRuntime"))
     parser.add_argument("--configuration", required=True, choices=("Release", "Beta", "CI"))
     args = parser.parse_args()
-    manifest = build_blockmap(
-        args.archive,
-        args.output,
-        target_tag=args.target_tag,
-        target_version=args.target_version,
-        runtime_id=args.runtime_id,
-        runtime_variant=args.runtime_variant,
-        configuration=args.configuration,
-    )
+    if args.file is not None:
+        if not args.target_asset_name or not args.entry_name:
+            parser.error("--file requires --target-asset-name and --entry-name")
+        manifest = build_file_blockmap(
+            args.file,
+            args.output,
+            target_asset_name=args.target_asset_name,
+            entry_name=args.entry_name,
+            target_tag=args.target_tag,
+            target_version=args.target_version,
+            runtime_id=args.runtime_id,
+            runtime_variant=args.runtime_variant,
+            configuration=args.configuration,
+        )
+    else:
+        manifest = build_blockmap(
+            args.archive,
+            args.output,
+            target_tag=args.target_tag,
+            target_version=args.target_version,
+            runtime_id=args.runtime_id,
+            runtime_variant=args.runtime_variant,
+            configuration=args.configuration,
+        )
     print(f"Created block map: {manifest}")
     return 0
 

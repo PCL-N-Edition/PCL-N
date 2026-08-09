@@ -238,6 +238,27 @@ jobs:
               --runtime-variant "${BASH_REMATCH[5]}" \
               --configuration "${BASH_REMATCH[1]}"
           done < <(find dist/updates -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0)
+
+          # Windows portable executables remain one file after updating. Give
+          # each one a separate one-file block map instead of pointing it at
+          # the expanded scatter archive with the same RID/runtime variant.
+          while IFS= read -r -d '' portable; do
+            name="$(basename "$portable")"
+            if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_((win)-(x64|arm64))_(SelfContained|NoRuntime)_Portable\.exe$ ]]; then
+              echo "::error::Cannot derive portable block-map identity from $name"
+              exit 1
+            fi
+            python scripts/generate_update_blockmap.py \
+              --file "$portable" \
+              --target-asset-name "$name" \
+              --entry-name PCL-N-Edition.exe \
+              --output block-dist \
+              --target-tag "$RELEASE_TAG" \
+              --target-version "${RELEASE_TAG#v}" \
+              --runtime-id "${BASH_REMATCH[2]}" \
+              --runtime-variant "${BASH_REMATCH[5]}" \
+              --configuration "${BASH_REMATCH[1]}"
+          done < <(find dist/downloads -maxdepth 1 -type f -name '*_Portable.exe' -print0)
           find block-dist/manifests -maxdepth 1 -type f -name '*.blockmap.json' -exec cp -a {} dist/updates/ \;
 
           # Every user-selectable installer and portable package gets its own
@@ -282,6 +303,7 @@ jobs:
               cp -a "$asset" "dist/r2-updates/$name"
             fi
           done < <(find dist/updates -maxdepth 1 -type f -print0)
+          find dist/downloads -maxdepth 1 -type f -name '*_Portable.exe.asc' -exec cp -a {} dist/r2-updates/ \;
           test -n "$(find dist/r2-updates -maxdepth 1 -type f -name '*.blockmap.json' -print -quit)"
           if find dist/r2-updates -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print -quit | grep -q .; then
             echo "::error::Canonical updater archive leaked into R2 staging"
@@ -346,7 +368,8 @@ jobs:
           while IFS= read -r -d '' asset; do
             name="$(basename "$asset")"
             if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)\.binary\.asc$ &&
-                  ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(build|blockmap)\.json(\.asc)?$ ]]; then
+                  ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(build|blockmap)\.json(\.asc)?$ &&
+                  ! "$name" =~ ^PCL_N_(Release|Beta)_win-(x64|arm64)_(SelfContained|NoRuntime)_Portable\.(exe\.asc|blockmap\.json(\.asc)?)$ ]]; then
               echo "::error::Unexpected file in updater staging directory: $name"
               exit 1
             fi

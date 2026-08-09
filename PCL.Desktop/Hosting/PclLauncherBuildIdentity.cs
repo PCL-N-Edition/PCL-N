@@ -16,10 +16,18 @@ internal static class PclLauncherBuildIdentity
         string runtime = PclBuildInfo.RuntimeVariant.StartsWith("NoRuntime", StringComparison.OrdinalIgnoreCase)
             ? "NoRuntime"
             : "SelfContained";
+        LauncherInstallationContext installation = LauncherInstallationContext.Detect();
+        LauncherDistributionLayout layout = OperatingSystem.IsWindows() &&
+                                            installation.Kind == LauncherInstallationKind.Portable
+            ? LauncherDistributionLayout.SingleFile
+            : LauncherDistributionLayout.Scatter;
         return new LauncherBuildIdentity(
             PclMetadata.Current.DisplayVersion,
             LauncherUpdateService.ResolveRuntimeId(),
             runtime,
-            PclMetadata.Current.UpdateConfiguration);
+            PclMetadata.Current.UpdateConfiguration)
+        {
+            DistributionLayout = layout
+        };
     }
 }

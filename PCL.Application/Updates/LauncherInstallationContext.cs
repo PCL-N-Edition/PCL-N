@@ -7,13 +7,13 @@ namespace PCL.Application.Updates;
 public enum LauncherInstallationKind
 {
     Portable,
-    Scatter,
     WindowsInstaller,
     MacApplicationBundle,
     DebianPackage,
     RpmPackage,
     AppImage,
-    LinuxPackage
+    LinuxPackage,
+    Scatter
 }
 
 /// <summary>

@@ -19,6 +19,12 @@ public sealed partial class LauncherUpdateService
         CancellationToken cancellationToken)
     {
         LauncherUpdatePackage fallback = BuildFullPackage(targetTag, channel, identity);
+        if (identity.DistributionLayout == LauncherDistributionLayout.SingleFile)
+        {
+            // Portable executables have their own signed one-file block map.
+            // Scatter patch indexes must never be applied to this layout.
+            return fallback;
+        }
         if (IsBeforeBlockUpdaterBaseline(identity.Version))
         {
             PortableLog.Info(
@@ -308,8 +314,13 @@ public sealed partial class LauncherUpdateService
         string resolvedRuntimeVariant = channel is UpdateChannel.CI or UpdateChannel.Dev
             ? "SelfContained"
             : targetIdentity.NormalizedRuntimeVariant;
-        string assetName = $"PCL_N_{config}_{identity.RuntimeId}_{variant}.{ext}";
+        bool singleFile = identity.DistributionLayout == LauncherDistributionLayout.SingleFile &&
+                          identity.RuntimeId.StartsWith("win-", StringComparison.OrdinalIgnoreCase);
+        string assetName = singleFile
+            ? $"PCL_N_{config}_{identity.RuntimeId}_{variant}_Portable.exe"
+            : $"PCL_N_{config}_{identity.RuntimeId}_{variant}.{ext}";
         bool supportsBlockMap = _cloudflareOnly;
+        string signatureUrl = BuildReleaseAssetUrl(tag, assetName + ".asc");
         return new LauncherUpdatePackage(
             NormalizeVersion(tag),
             tag,
@@ -322,8 +333,8 @@ public sealed partial class LauncherUpdateService
             identity.RuntimeId,
             resolvedRuntimeVariant,
             config,
-            BuildReleaseAssetUrl(tag, assetName + ".asc"),
-            BuildReleaseAssetUrl(tag, assetName + ".binary.asc"),
+            signatureUrl,
+            singleFile ? signatureUrl : BuildReleaseAssetUrl(tag, assetName + ".binary.asc"),
             BlockMapUrl: supportsBlockMap
                 ? BuildReleaseAssetUrl(tag, GetPackageStem(assetName) + ".blockmap.json")
                 : null,

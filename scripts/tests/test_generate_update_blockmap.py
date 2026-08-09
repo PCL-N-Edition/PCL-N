@@ -82,6 +82,36 @@ class GenerateUpdateBlockmapTests(unittest.TestCase):
                 )
                 self.assertEqual(files[entry["path"]], reconstructed)
 
+    def test_file_manifest_reconstructs_single_portable_executable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "PCL_N_Beta_win-x64_NoRuntime_Portable.exe"
+            payload = (bytes(range(251)) * 12000) + b"portable-tail"
+            source.write_bytes(payload)
+            output = root / "block-output"
+
+            manifest_path = blockmap.build_file_blockmap(
+                source,
+                output,
+                target_asset_name=source.name,
+                entry_name="PCL-N-Edition.exe",
+                target_tag="v1.4.4-beta",
+                target_version="1.4.4-beta",
+                runtime_id="win-x64",
+                runtime_variant="NoRuntime",
+                configuration="Beta",
+            )
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual("pcln-blockmap-file-v1", manifest["layout"])
+            self.assertEqual(source.name, manifest["targetAssetName"])
+            self.assertEqual(["PCL-N-Edition.exe"], [entry["path"] for entry in manifest["targetFiles"]])
+            reconstructed = b"".join(
+                gzip.decompress((output / chunk["path"]).read_bytes())
+                for chunk in manifest["targetFiles"][0]["chunks"]
+            )
+            self.assertEqual(payload, reconstructed)
+
 
 if __name__ == "__main__":
     unittest.main()

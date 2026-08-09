@@ -36,7 +36,10 @@ def _read_current_blocks(manifest_dir: Path) -> set[str]:
         raise ValueError("no block maps found")
     for path in manifests:
         value = json.loads(path.read_text(encoding="utf-8"))
-        if value.get("formatVersion") != 1 or value.get("layout") != "pcln-blockmap-v1":
+        if value.get("formatVersion") != 1 or value.get("layout") not in {
+            "pcln-blockmap-v1",
+            "pcln-blockmap-file-v1",
+        }:
             raise ValueError(f"invalid block map: {path}")
         for file in value.get("targetFiles") or []:
             for chunk in file.get("chunks") or []:

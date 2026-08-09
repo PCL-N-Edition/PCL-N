@@ -3,6 +3,12 @@
 
 namespace PCL.Application.Updates;
 
+public enum LauncherDistributionLayout
+{
+    Scatter,
+    SingleFile
+}
+
 /// <summary>Identity stamped into the launcher build and used to select an update asset.</summary>
 public sealed record LauncherBuildIdentity(
     string Version,
@@ -10,6 +16,8 @@ public sealed record LauncherBuildIdentity(
     string RuntimeVariant,
     string Configuration)
 {
+    public LauncherDistributionLayout DistributionLayout { get; init; } = LauncherDistributionLayout.Scatter;
+
     public string NormalizedRuntimeVariant => NormalizeRuntimeVariant(RuntimeVariant);
 
     public static string NormalizeRuntimeVariant(string? value)

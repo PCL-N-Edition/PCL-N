@@ -14,12 +14,13 @@
 ## 发布产物契约
 
 - Windows 更新归档：`PCL_N_<Channel>_<RID>_<Variant>.zip`
+- Windows 单文件更新：`PCL_N_<Channel>_<RID>_<Variant>_Portable.exe`，使用独立的 `pcln-blockmap-file-v1` 分块图，重建后仍只替换当前单个可执行文件。
 - Linux/macOS 更新归档：`PCL_N_<Channel>_<RID>_<Variant>.tar.gz`
 - 归档内容是可直接展开的散包，不能嵌套 ZIP、PDB/DBG 或 Windows 单文件便携版。
 - `SelfContained` 与 `NoRuntime` 描述插件 sidecar 是否携带 .NET 运行时；主程序始终是 NativeAOT。
-- CI 使用覆盖式 `ci-latest`：每次成功构建用新的签名分块图、`.ci.json` 与 `channels/ci.json` 覆盖上次索引，通过提交 SHA 判断更新；上一轮 CI 独占块立即回收，共享块继续保留，不更新 GitHub Release，也不生成跨版本补丁。
+- CI 使用覆盖式 `ci-latest`：每次成功构建用新的签名单文件分块图、`.ci.json` 与 `channels/ci.json` 覆盖上次索引，通过提交 SHA 判断更新；上一轮 CI 独占块立即回收，共享块继续保留，不更新 GitHub Release，也不生成跨版本补丁。散包布局不允许选择或安装 CI 更新。
 - 正式发布在流水线中仅把签名分块图、构建元数据和最终程序签名放入 `dist/r2-updates`，将安装包与单文件便携版放入 `dist/downloads`；完整散包归档仅在 runner 上临时用于分块，不进入 R2 或 GitHub Release。
-- CI/Beta/Release 为每个散包生成 `<asset-stem>.blockmap.json` 及独立 GPG 签名。原始块使用 SHA-256 内容寻址并保存为 `block/<sha256[0:2]>/<sha256>`；HTTP 路径固定为 `/v1/updates/block/<sha256[0:2]>/<sha256>`。
+- Beta/Release 为每个散包和 Windows 单文件分别生成 `<asset-stem>.blockmap.json` 及独立 GPG 签名；CI 只为 Windows 单文件提供可安装的滚动更新。原始块使用 SHA-256 内容寻址并保存为 `block/<sha256[0:2]>/<sha256>`；HTTP 路径固定为 `/v1/updates/block/<sha256[0:2]>/<sha256>`。
 - 分块采用 `pcln-fastcdc-v1`（256 KiB / 1 MiB / 2 MiB），R2 保存确定性 gzip 内容，本地缓存保存通过 SHA-256 校验后的原始块。
 - 客户端先直接复用未变化文件，再对已安装散包建立本地块索引，只下载仍缺失的块；重组后逐文件校验、校验整树清单并验证最终入口程序的 GPG 签名。
 - 1.4.3 是 Cloudflare 分块协议基线。不得为 1.4.3 以前的源版本生成补丁；这类版本只能获取完整包。旧 `patch-index.json` 仅作为过渡兼容，不再由新发布流生成。
@@ -28,6 +29,7 @@
 
 - 1.4.3 及更新客户端的更新发现与载荷只允许访问 `api.pcln.top`，Cloudflare/R2 缺失对象必须明确失败，不得回退 GitHub。
 - 1.4.3 及更新客户端收到带分块图的更新计划后，签名图或任一块不可用都必须终止该次自动更新，不得请求逻辑包 URL 对应的完整归档。
+- 更新身份必须包含散包或单文件布局；两种布局的分块图、入口和签名不得交叉使用。单文件可执行文件即使被用户重命名，也必须以规范入口重建后替换原路径。
 - 现有旧版 GitHub 更新资产可保留两周回退窗口，但后续发布不得再写入 GitHub 更新源。
 - 分块图、每个原始块、每个重建文件、整树清单和最终重建程序都必须依次通过 GPG/SHA-256 校验后才能进入安装阶段。
 - 不要在页面代码中直接创建更新服务或安装器；桌面端由统一协调器管理检查、下载、提示、重启和退出安装。

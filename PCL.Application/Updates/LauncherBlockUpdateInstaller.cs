@@ -12,10 +12,11 @@ namespace PCL.Application.Updates;
 public sealed partial class LauncherUpdateInstaller
 {
     private const string BlockMapLayout = "pcln-blockmap-v1";
+    private const string SingleFileBlockMapLayout = "pcln-blockmap-file-v1";
     private const string BlockCompression = "gzip";
     private const string BlockBasePath = "/v1/updates/block";
 
-    private async Task<PreparedTreePayload?> TryPrepareBlockPayloadAsync(
+    private async Task<PreparedBlockPayload?> TryPrepareBlockPayloadAsync(
         LauncherUpdatePackage package,
         string currentExecutablePath,
         string workDirectory,
@@ -201,8 +202,20 @@ public sealed partial class LauncherUpdateInstaller
             "Update",
             $"分块更新重建完成；本地完整文件={exactLocalFiles.Count}；本地分块={localBlocks.Count}；" +
             $"缓存分块={verifiedCache.Count - missingBlocks.Count}；下载分块={missingBlocks.Count}。");
-        return await PrepareTreePayloadAsync(targetRoot, currentExecutablePath, workDirectory, cancellationToken)
+        if (string.Equals(map.Layout, SingleFileBlockMapLayout, StringComparison.Ordinal))
+        {
+            LauncherUpdateBlockFile only = targetFiles.Values.Single();
+            string entry = ResolveSafeRelativePath(targetRoot, only.Path!);
+            return new PreparedBlockPayload(entry, null);
+        }
+
+        PreparedTreePayload tree = await PrepareTreePayloadAsync(
+                targetRoot,
+                currentExecutablePath,
+                workDirectory,
+                cancellationToken)
             .ConfigureAwait(false);
+        return new PreparedBlockPayload(tree.StagedEntryPath, tree);
     }
 
     private static Dictionary<string, LauncherUpdateBlockFile> ValidateBlockMap(
@@ -210,7 +223,7 @@ public sealed partial class LauncherUpdateInstaller
         LauncherUpdatePackage package)
     {
         if (map.FormatVersion != 1 ||
-            !string.Equals(map.Layout, BlockMapLayout, StringComparison.Ordinal) ||
+            map.Layout is not (BlockMapLayout or SingleFileBlockMapLayout) ||
             !string.Equals(map.Algorithm, LauncherUpdateChunker.Algorithm, StringComparison.Ordinal) ||
             !string.Equals(map.Compression, BlockCompression, StringComparison.Ordinal) ||
             !string.Equals(map.BlockBasePath, BlockBasePath, StringComparison.Ordinal) ||
@@ -264,6 +277,11 @@ public sealed partial class LauncherUpdateInstaller
             }
             if (chunkBytes != file.Size)
                 throw new InvalidDataException($"分块大小总和与文件不一致：{file.Path}。");
+        }
+        if (string.Equals(map.Layout, SingleFileBlockMapLayout, StringComparison.Ordinal) &&
+            (files.Count != 1 || !files.ContainsKey(package.TargetBinaryName)))
+        {
+            throw new InvalidDataException("单文件分块清单没有唯一的产品入口。");
         }
         return files;
     }
@@ -457,4 +475,6 @@ public sealed partial class LauncherUpdateInstaller
     }
 
     private sealed record LocalBlockSource(string Path, long Offset, int Size);
+
+    private sealed record PreparedBlockPayload(string EntryPath, PreparedTreePayload? Tree);
 }

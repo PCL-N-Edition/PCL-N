@@ -979,7 +979,7 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(reusable, "must not contain .zip files");
         StringAssert.Contains(reusable, "PUBLISH_DIR: artifact/scatter");
         StringAssert.Contains(reusable, "PORTABLE_DIR: artifact/portable");
-        StringAssert.Contains(ci, "build_portable: false");
+        StringAssert.Contains(ci, "build_portable: ${{ github.event_name != 'pull_request' && startsWith(matrix.runtime_id, 'win-') }}");
         Assert.IsFalse(reusable.Contains("$PUBLISH_DIR/PCL-N-Portable.exe", StringComparison.Ordinal));
         // Desktop ProjectReference → external/Jvm.NET; CI must materialize the submodule.
         StringAssert.Contains(reusable, "submodules: recursive");
@@ -1043,15 +1043,16 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(packageWindows, "PortableDirectory");
         StringAssert.Contains(packageWindows, "package_update_archive.py");
         Assert.IsFalse(packageLinux.Contains("_Portable.tar.gz\"", StringComparison.Ordinal));
-        StringAssert.Contains(ci, "package_update_archive.py");
         StringAssert.Contains(ci, "generate_update_blockmap.py");
-        StringAssert.Contains(ci, "dist/archives");
+        StringAssert.Contains(ci, "--target-asset-name \"$portable_name\"");
+        StringAssert.Contains(publishAssets, "--target-asset-name \"$name\"");
         StringAssert.Contains(ci, "dist/r2-metadata");
         StringAssert.Contains(ci, "--tag ci-latest");
         StringAssert.Contains(ci, "--channel ci");
         StringAssert.Contains(ci, "block-dist/block");
         StringAssert.Contains(packageLinux, "/opt/pcl-n");
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
+        Assert.IsFalse(ci.Contains("--archive \"$package\"", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");
         StringAssert.Contains(ci, "pcln-releases/channels/ci.json");
         Assert.IsFalse(ci.Contains("gh release upload", StringComparison.Ordinal));
