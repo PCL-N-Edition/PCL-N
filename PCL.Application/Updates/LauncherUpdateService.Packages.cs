@@ -10,6 +10,8 @@ namespace PCL.Application.Updates;
 
 public sealed partial class LauncherUpdateService
 {
+    private const string BlockUpdaterMinimumVersion = "1.4.3";
+
     private async Task<LauncherUpdatePackage> ResolveUpdatePackageAsync(
         string targetTag,
         UpdateChannel channel,
@@ -17,6 +19,13 @@ public sealed partial class LauncherUpdateService
         CancellationToken cancellationToken)
     {
         LauncherUpdatePackage fallback = BuildFullPackage(targetTag, channel, identity);
+        if (IsBeforeBlockUpdaterBaseline(identity.Version))
+        {
+            PortableLog.Info(
+                "Update",
+                $"当前版本 {identity.Version} 早于 Cloudflare 分块更新基线 {BlockUpdaterMinimumVersion}，仅允许下载完整包。");
+            return fallback with { BlockMapUrl = null, BlockMapSignatureUrl = null };
+        }
         LauncherBuildIdentity targetIdentity = ResolvePublishedIdentity(identity);
         LoadedPatchIndex? targetIndex = await TryLoadPatchIndexAsync(targetTag, cancellationToken).ConfigureAwait(false);
         if (targetIndex is null)
@@ -105,7 +114,9 @@ public sealed partial class LauncherUpdateService
             targetIdentity.NormalizedRuntimeVariant,
             LauncherBuildIdentity.NormalizeConfiguration(targetVariant.Configuration),
             fullUrl + ".asc",
-            fullUrl + ".binary.asc");
+            fullUrl + ".binary.asc",
+            BlockMapUrl: BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.json"),
+            BlockMapSignatureUrl: BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.json.asc"));
     }
 
     private async Task<LoadedPatchIndex?> TryLoadPatchIndexAsync(
@@ -114,7 +125,9 @@ public sealed partial class LauncherUpdateService
     {
         foreach (string asset in new[] { "patch-index.json", "index.json" })
         {
-            string[] urls = [BuildReleaseAssetUrl(tag, asset), BuildGitHubReleaseAssetUrl(tag, asset)];
+            string[] urls = _cloudflareOnly
+                ? [BuildReleaseAssetUrl(tag, asset)]
+                : [BuildReleaseAssetUrl(tag, asset), BuildGitHubReleaseAssetUrl(tag, asset)];
             foreach (string url in urls.Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 using HttpResponseMessage response = await GetFollowingRedirectsAsync(url, cancellationToken).ConfigureAwait(false);
@@ -292,6 +305,7 @@ public sealed partial class LauncherUpdateService
             ? "SelfContained"
             : targetIdentity.NormalizedRuntimeVariant;
         string assetName = $"PCL_N_{config}_{identity.RuntimeId}_{variant}.{ext}";
+        bool supportsBlockMap = channel is UpdateChannel.Release or UpdateChannel.Beta;
         return new LauncherUpdatePackage(
             NormalizeVersion(tag),
             tag,
@@ -305,7 +319,13 @@ public sealed partial class LauncherUpdateService
             resolvedRuntimeVariant,
             config,
             BuildReleaseAssetUrl(tag, assetName + ".asc"),
-            BuildReleaseAssetUrl(tag, assetName + ".binary.asc"));
+            BuildReleaseAssetUrl(tag, assetName + ".binary.asc"),
+            BlockMapUrl: supportsBlockMap
+                ? BuildReleaseAssetUrl(tag, GetPackageStem(assetName) + ".blockmap.json")
+                : null,
+            BlockMapSignatureUrl: supportsBlockMap
+                ? BuildReleaseAssetUrl(tag, GetPackageStem(assetName) + ".blockmap.json.asc")
+                : null);
     }
 
     private static LauncherBuildIdentity ResolvePublishedIdentity(LauncherBuildIdentity identity)
@@ -325,6 +345,13 @@ public sealed partial class LauncherUpdateService
             ? assetName[..^7]
             : Path.GetFileNameWithoutExtension(assetName);
 
+    private static bool IsBeforeBlockUpdaterBaseline(string version)
+    {
+        return !Version.TryParse(GetVersionCore(NormalizeVersion(version)), out Version? current) ||
+               !Version.TryParse(BlockUpdaterMinimumVersion, out Version? minimum) ||
+               current.CompareTo(minimum) < 0;
+    }
+
     private string BuildReleaseAssetUrl(string tag, string assetName) =>
         $"{_distributionBaseUrl}/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(assetName)}";
 
@@ -338,4 +365,3 @@ public sealed partial class LauncherUpdateService
 
     private sealed record PatchEdge(string FromVersion, string ToVersion, LauncherUpdatePatchStep Step);
 }
-

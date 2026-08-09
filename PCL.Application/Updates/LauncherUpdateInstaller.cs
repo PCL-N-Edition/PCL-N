@@ -46,11 +46,27 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
 
     public event EventHandler<LauncherUpdateProgress>? ProgressChanged;
 
-    public async Task<PreparedLauncherUpdate> PrepareAsync(
+    public Task<PreparedLauncherUpdate> PrepareAsync(
         LauncherUpdatePackage package,
         string currentExecutablePath,
         string? hpatchzPath = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        PrepareCoreAsync(package, currentExecutablePath, hpatchzPath, null, cancellationToken);
+
+    internal Task<PreparedLauncherUpdate> PrepareWithBlockCacheAsync(
+        LauncherUpdatePackage package,
+        string currentExecutablePath,
+        string? hpatchzPath,
+        string blockCacheDirectory,
+        CancellationToken cancellationToken) =>
+        PrepareCoreAsync(package, currentExecutablePath, hpatchzPath, blockCacheDirectory, cancellationToken);
+
+    private async Task<PreparedLauncherUpdate> PrepareCoreAsync(
+        LauncherUpdatePackage package,
+        string currentExecutablePath,
+        string? hpatchzPath,
+        string? blockCacheDirectory,
+        CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(package);
@@ -68,8 +84,51 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
         string? preparedBinary = null;
         PreparedTreePayload? preparedTree = null;
         bool usedPatch = false;
+        bool usedBlockMap = false;
 
-        if (package.PatchSteps.Count > 0 && !string.IsNullOrWhiteSpace(hpatchzPath) && File.Exists(hpatchzPath))
+        if (package.SupportsBlockMap)
+        {
+            try
+            {
+                preparedTree = await TryPrepareBlockPayloadAsync(
+                        package,
+                        currentPath,
+                        workDirectory,
+                        blockCacheDirectory,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (preparedTree is not null)
+                {
+                    preparedBinary = preparedTree.StagedEntryPath;
+                    await VerifyDetachedSignatureAsync(
+                            preparedBinary,
+                            package.TargetBinarySignatureUrl,
+                            required: true,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    usedBlockMap = true;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                preparedBinary = null;
+                preparedTree = null;
+                PortableLog.Warn(ex, "Update", "分块更新重建或校验失败，将尝试兼容更新方式。");
+                Report(
+                    LauncherUpdateStage.FallingBack,
+                    0,
+                    $"分块更新不可用，正在尝试兼容更新方式（{ex.Message}）…");
+            }
+        }
+
+        if (preparedBinary is null &&
+            package.PatchSteps.Count > 0 &&
+            !string.IsNullOrWhiteSpace(hpatchzPath) &&
+            File.Exists(hpatchzPath))
         {
             try
             {
@@ -114,7 +173,7 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
                 Report(LauncherUpdateStage.FallingBack, 0, "补丁不可用，正在改用完整包…");
             }
         }
-        else if (package.PatchSteps.Count > 0)
+        else if (preparedBinary is null && package.PatchSteps.Count > 0)
         {
             PortableLog.Warn("Update", "当前构建未内置 hpatchz，将自动回退完整包。");
             Report(LauncherUpdateStage.FallingBack, 0, "补丁工具不可用，正在改用完整包…");
@@ -144,7 +203,7 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
             Report(LauncherUpdateStage.Ready, 1, "散包更新已下载并逐文件校验完成。");
             PortableLog.Info(
                 "Update",
-                $"散包更新已就绪；目标={package.TargetVersion}；方式={(usedPatch ? "PatchZip" : "Full")}；" +
+                $"散包更新已就绪；目标={package.TargetVersion}；方式={(usedBlockMap ? "Blocks" : usedPatch ? "PatchZip" : "Full")}；" +
                 $"暂存={preparedTree.StagedRoot}。");
             return new PreparedLauncherUpdate(
                 package,
@@ -154,7 +213,8 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
                 usedPatch,
                 preparedTree.StagedRoot,
                 preparedTree.InstallPlanPath,
-                preparedTree.InstalledEntryPath);
+                preparedTree.InstalledEntryPath,
+                usedBlockMap);
         }
 
         string verifiedBinarySha256 = await CalculateSha256Async(preparedBinary, cancellationToken).ConfigureAwait(false);
@@ -170,7 +230,7 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
         Report(LauncherUpdateStage.Ready, 1, "更新已下载并通过校验。");
         PortableLog.Info(
             "Update",
-            $"启动器更新已就绪；目标={package.TargetVersion}；方式={(usedPatch ? "Patch" : "Full")}；暂存={stagedPath}。");
+            $"启动器更新已就绪；目标={package.TargetVersion}；方式={(usedBlockMap ? "Blocks" : usedPatch ? "Patch" : "Full")}；暂存={stagedPath}。");
         return new PreparedLauncherUpdate(package, currentPath, stagedPath, workDirectory, usedPatch);
     }
 
@@ -542,7 +602,8 @@ public sealed record PreparedLauncherUpdate(
     bool UsedPatch,
     string? StagedInstallDirectory = null,
     string? InstallPlanPath = null,
-    string? InstalledEntryPath = null);
+    string? InstalledEntryPath = null,
+    bool UsedBlockMap = false);
 
 public sealed record LauncherUpdateProgress(
     LauncherUpdateStage Stage,
@@ -551,6 +612,9 @@ public sealed record LauncherUpdateProgress(
 
 public enum LauncherUpdateStage
 {
+    IndexingLocalBlocks,
+    DownloadingBlocks,
+    RebuildingFromBlocks,
     DownloadingPatch,
     ApplyingPatch,
     FallingBack,

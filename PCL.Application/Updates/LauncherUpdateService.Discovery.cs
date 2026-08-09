@@ -24,6 +24,103 @@ public sealed partial class LauncherUpdateService
         "<[^>]+>",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private async Task<LauncherUpdateCheckResult> CheckCloudflareChannelAsync(
+        UpdateChannel channel,
+        LauncherBuildIdentity identity,
+        string? currentCommitSha,
+        CancellationToken cancellationToken)
+    {
+        string channelName = channel is UpdateChannel.CI or UpdateChannel.Dev
+            ? "ci"
+            : channel == UpdateChannel.Beta ? "beta" : "release";
+        string url = $"{_channelBaseUrl}/{channelName}?check={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+        LauncherChannelReleaseDto marker;
+        try
+        {
+            using HttpResponseMessage response = await GetFollowingRedirectsAsync(url, cancellationToken)
+                .ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return LauncherUpdateCheckResult.Failed($"Cloudflare 尚未发布 {channelName} 通道更新。");
+            if (!response.IsSuccessStatusCode)
+                return LauncherUpdateCheckResult.Failed($"Cloudflare 更新通道不可用 ({(int)response.StatusCode})。");
+            await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            marker = await JsonSerializer.DeserializeAsync(
+                    stream,
+                    LauncherUpdateJsonContext.Default.LauncherChannelReleaseDto,
+                    cancellationToken)
+                .ConfigureAwait(false)
+                ?? throw new InvalidDataException("Cloudflare 更新通道返回了空清单。");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Warn(ex, "Update", "读取 Cloudflare 更新通道失败。");
+            return LauncherUpdateCheckResult.Failed($"无法读取 Cloudflare 更新通道：{ex.Message}");
+        }
+
+        if (string.IsNullOrWhiteSpace(marker.Tag) ||
+            string.IsNullOrWhiteSpace(marker.Version) ||
+            !string.Equals(marker.Channel, channelName, StringComparison.OrdinalIgnoreCase) ||
+            marker.PublishedAt is null)
+        {
+            return LauncherUpdateCheckResult.Failed("Cloudflare 更新通道清单无效。");
+        }
+
+        UpdateChannel packageChannel = channel is UpdateChannel.CI or UpdateChannel.Dev
+            ? UpdateChannel.CI
+            : channel;
+        LauncherUpdatePackage fallbackPackage = BuildFullPackage(marker.Tag, packageChannel, identity);
+        LauncherBuildMetadataDto? metadata = channel is UpdateChannel.CI or UpdateChannel.Dev
+            ? await TryLoadCiMetadataAsync(fallbackPackage, cancellationToken).ConfigureAwait(false)
+            : await TryLoadVersionedMetadataAsync(fallbackPackage, channel, marker.Tag, cancellationToken)
+                .ConfigureAwait(false);
+        string remoteCommit = NormalizeCommit(marker.CommitSha ?? metadata?.Commit);
+        string localCommit = NormalizeCommit(currentCommitSha);
+        string remoteVersion = NormalizeVersion(marker.Version);
+        string localVersion = NormalizeVersion(identity.Version);
+        bool isCi = channel is UpdateChannel.CI or UpdateChannel.Dev;
+        bool sameCommit = AreKnownCommitsEqual(localCommit, remoteCommit);
+        bool isNewer = isCi
+            ? IsValidCommit(remoteCommit) && (!IsValidCommit(localCommit) || !sameCommit)
+            : CompareVersions(remoteVersion, localVersion) > 0 && !sameCommit;
+        LauncherUpdatePackage package = isNewer && !isCi
+            ? await ResolveUpdatePackageAsync(marker.Tag, channel, identity, cancellationToken).ConfigureAwait(false)
+            : fallbackPackage;
+        if (metadata is not null)
+        {
+            string packageSha256 = NormalizeSha256(metadata.PackageSha256);
+            package = package with
+            {
+                FullPackageSha256 = IsValidSha256(packageSha256) ? packageSha256 : package.FullPackageSha256,
+                FullPackageSize = metadata.PackageSize is > 0 ? metadata.PackageSize : package.FullPackageSize
+            };
+        }
+
+        LauncherUpdateCheckResult result = new(
+            Success: true,
+            IsUpdateAvailable: isNewer,
+            CurrentVersion: localVersion,
+            LatestVersion: remoteVersion,
+            ReleaseName: marker.Tag,
+            ReleaseNotes: null,
+            ReleaseUrl: "https://pcln.top/download",
+            PreferredAssetUrl: package.FullPackageUrl,
+            ErrorMessage: null,
+            Channel: channel,
+            SupportsPatches: package.UsesPatch,
+            RemoteCommitSha: IsValidCommit(remoteCommit) ? remoteCommit : null,
+            PublishedAt: marker.PublishedAt,
+            Package: package);
+        PortableLog.Info(
+            "Update",
+            $"Cloudflare 更新检查完成；通道={channelName}；最新={remoteVersion}；有更新={isNewer}；" +
+            $"远端提交={(remoteCommit.Length > 0 ? remoteCommit : "(无)")}。");
+        return result;
+    }
+
     private async Task<LauncherUpdateCheckResult> CheckCiAsync(
         LauncherBuildIdentity identity,
         string? currentCommitSha,
@@ -530,4 +627,3 @@ public sealed partial class LauncherUpdateService
         DateTimeOffset? Updated);
 
 }
-

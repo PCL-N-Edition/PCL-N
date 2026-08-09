@@ -11,6 +11,7 @@ using PCL.Core.Logging;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Telemetry;
+using PCL.Desktop.Paths;
 
 namespace PCL.Desktop.Hosting;
 
@@ -163,10 +164,11 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
                     $"当前使用 {installation.DisplayName} 安装，不能安全地原地替换程序文件；请安装对应平台的新包。");
             }
             string? hpatchz = await PclEmbeddedUpdateTool.GetHpatchzPathAsync(cancellationToken).ConfigureAwait(false);
-            PreparedLauncherUpdate prepared = await _installer.PrepareAsync(
+            PreparedLauncherUpdate prepared = await _installer.PrepareWithBlockCacheAsync(
                     package,
                     currentExecutable,
                     hpatchz,
+                    Path.Combine(LauncherPathLayout.ResolveCacheDirectory(), "LauncherUpdates", "block"),
                     cancellationToken)
                 .ConfigureAwait(false);
             lock (_sync)
@@ -176,7 +178,9 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
                 "update_download_completed",
                 new Dictionary<string, string>(StringComparer.Ordinal)
                 {
-                    ["package_type"] = prepared.Package.UsesPatch ? "patch" : "full"
+                    ["package_type"] = prepared.UsedBlockMap
+                        ? "blocks"
+                        : prepared.UsedPatch ? "patch" : "full"
                 });
             return prepared;
         }

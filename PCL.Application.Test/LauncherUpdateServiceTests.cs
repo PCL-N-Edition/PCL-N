@@ -128,6 +128,62 @@ public sealed class LauncherUpdateServiceTests
     }
 
     [TestMethod]
+    public async Task CheckAsync_ProductionChannelUsesCloudflareWithoutGitHubFallback()
+    {
+        bool requestedGitHub = false;
+        RoutingHandler handler = new(request =>
+        {
+            string host = request.RequestUri!.Host;
+            string path = request.RequestUri.AbsolutePath;
+            if (host.Contains("github", StringComparison.OrdinalIgnoreCase))
+            {
+                requestedGitHub = true;
+                return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+            }
+            if (path.EndsWith("/v1/updates/channels/beta", StringComparison.Ordinal))
+            {
+                return JsonResponse("""
+                    {
+                      "tag": "v1.4.4-beta",
+                      "version": "1.4.4-beta",
+                      "channel": "beta",
+                      "commitSha": "1234567890abcdef1234567890abcdef12345678",
+                      "publishedAt": "2026-08-09T08:00:00Z",
+                      "manifestKey": "releases/v1.4.4-beta"
+                    }
+                    """);
+            }
+            if (path.EndsWith(".build.json", StringComparison.Ordinal))
+            {
+                return JsonResponse("""
+                    {
+                      "formatVersion": 1,
+                      "channel": "Beta",
+                      "commit": "1234567890abcdef1234567890abcdef12345678",
+                      "tag": "v1.4.4-beta",
+                      "artifact": "PCL_N_Beta_win-x64_SelfContained",
+                      "builtAt": "2026-08-09T08:00:00Z"
+                    }
+                    """);
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using LauncherUpdateService service = new(new HttpClient(handler));
+
+        LauncherUpdateCheckResult result = await service.CheckAsync(
+            UpdateChannel.Beta,
+            new LauncherBuildIdentity("1.4.3-beta", "win-x64", "SelfContained", "Beta"),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+        Assert.IsTrue(result.Success);
+        Assert.IsTrue(result.IsUpdateAvailable);
+        Assert.IsFalse(requestedGitHub);
+        Assert.IsNotNull(result.Package);
+        Assert.IsTrue(result.Package.SupportsBlockMap);
+        StringAssert.StartsWith(result.Package.BlockMapUrl!, "https://api.pcln.top/v1/updates/releases/");
+    }
+
+    [TestMethod]
     public void InstallationContext_LeavesPortableAndWindowsInstallerUpdateable()
     {
         LauncherInstallationContext portable = LauncherInstallationContext.Detect(
@@ -423,15 +479,15 @@ public sealed class LauncherUpdateServiceTests
             if (path.EndsWith("/releases.atom", StringComparison.Ordinal))
             {
                 return XmlResponse(ReleaseFeed(
-                    "v1.2.0-release",
+                    "v1.4.5-release",
                     "<h2>Complete changelog</h2><ul><li>First fix</li><li>Second fix</li></ul>"));
             }
             if (path.EndsWith("/releases/latest", StringComparison.Ordinal))
-                return Redirect("https://github.test/owner/repo/releases/tag/v1.2.0-release");
-            if (path.Contains("/v1.2.0-release/patch-index.json", StringComparison.Ordinal))
-                return JsonResponse(PatchIndex("1.2.0-release", "v1.2.0-release", "v1.1.0-release", "v1.1.0-release", 40, "target-sha", "from-11", ["v1.1.0-release"]));
-            if (path.Contains("/v1.1.0-release/patch-index.json", StringComparison.Ordinal))
-                return JsonResponse(PatchIndex("1.1.0-release", "v1.1.0-release", "1.0.0-release", "v1.0.0-release", 30, "from-11", "from-10", []));
+                return Redirect("https://github.test/owner/repo/releases/tag/v1.4.5-release");
+            if (path.Contains("/v1.4.5-release/patch-index.json", StringComparison.Ordinal))
+                return JsonResponse(PatchIndex("1.4.5-release", "v1.4.5-release", "1.4.4-release", "v1.4.4-release", 40, "target-sha", "from-144", ["v1.4.4-release"]));
+            if (path.Contains("/v1.4.4-release/patch-index.json", StringComparison.Ordinal))
+                return JsonResponse(PatchIndex("1.4.4-release", "v1.4.4-release", "1.4.3-release", "v1.4.3-release", 30, "from-144", "from-143", []));
             if (path.EndsWith("PCL_N_Release_win-x64_NoRuntime.zip", StringComparison.Ordinal))
                 return BytesResponse(new byte[1000]);
             return new HttpResponseMessage(HttpStatusCode.NotFound);
@@ -441,7 +497,7 @@ public sealed class LauncherUpdateServiceTests
 
         LauncherUpdateCheckResult result = await service.CheckAsync(
             UpdateChannel.Release,
-            new LauncherBuildIdentity("1.0.0 release", "win-x64", "NoRuntime", "Release"));
+            new LauncherBuildIdentity("1.4.3 release", "win-x64", "NoRuntime", "Release"));
 
         Assert.IsTrue(result.Success);
         Assert.IsTrue(result.IsUpdateAvailable);
@@ -450,9 +506,9 @@ public sealed class LauncherUpdateServiceTests
         Assert.AreEqual("## Complete changelog\n\n- First fix\n- Second fix", result.ReleaseNotes);
         Assert.AreEqual("PCL_N_Release_win-x64_NoRuntime.zip", result.Package.TargetAssetName);
         Assert.AreEqual(2, result.Package.PatchSteps.Count);
-        Assert.AreEqual("1.1.0-release", result.Package.PatchSteps[0].TargetVersion);
-        Assert.AreEqual("1.2.0-release", result.Package.PatchSteps[1].TargetVersion);
-        Assert.IsTrue(result.Package.PatchSteps[0].DownloadUrl.EndsWith("win-x64__NoRuntime__1.0.0-release-to-1.1.0-release.hdiff", StringComparison.Ordinal));
+        Assert.AreEqual("1.4.4-release", result.Package.PatchSteps[0].TargetVersion);
+        Assert.AreEqual("1.4.5-release", result.Package.PatchSteps[1].TargetVersion);
+        Assert.IsTrue(result.Package.PatchSteps[0].DownloadUrl.EndsWith("win-x64__NoRuntime__1.4.3-release-to-1.4.4-release.hdiff", StringComparison.Ordinal));
     }
 
     [TestMethod]

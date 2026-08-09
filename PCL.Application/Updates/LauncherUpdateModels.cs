@@ -67,9 +67,60 @@ public sealed record LauncherUpdatePackage(
     string? FullPackageSignatureUrl = null,
     string? TargetBinarySignatureUrl = null,
     string? FullPackageSha256 = null,
-    long? FullPackageSize = null)
+    long? FullPackageSize = null,
+    string? BlockMapUrl = null,
+    string? BlockMapSignatureUrl = null)
 {
     public bool UsesPatch => PatchSteps.Count > 0;
+
+    public bool SupportsBlockMap => !string.IsNullOrWhiteSpace(BlockMapUrl) &&
+                                    !string.IsNullOrWhiteSpace(BlockMapSignatureUrl);
+}
+
+/// <summary>Signed content-addressed reconstruction map for Cloudflare updater v2.</summary>
+public sealed class LauncherUpdateBlockMap
+{
+    public int FormatVersion { get; set; }
+
+    public string? Layout { get; set; }
+
+    public string? Algorithm { get; set; }
+
+    public string? Compression { get; set; }
+
+    public string? BlockBasePath { get; set; }
+
+    public string? TargetTag { get; set; }
+
+    public string? TargetVersion { get; set; }
+
+    public string? RuntimeId { get; set; }
+
+    public string? RuntimeVariant { get; set; }
+
+    public string? Configuration { get; set; }
+
+    public string? TargetAssetName { get; set; }
+
+    public string? TargetManifestSha256 { get; set; }
+
+    public List<LauncherUpdateBlockFile> TargetFiles { get; set; } = [];
+}
+
+public sealed class LauncherUpdateBlockFile : LauncherUpdateFileEntry
+{
+    public List<LauncherUpdateBlock> Chunks { get; set; } = [];
+}
+
+public sealed class LauncherUpdateBlock
+{
+    public string? Sha256 { get; set; }
+
+    public long Size { get; set; }
+
+    public long CompressedSize { get; set; }
+
+    public string? Path { get; set; }
 }
 
 /// <summary>Self-contained per-file patch bundle manifest (<c>files.json</c>).</summary>
@@ -119,7 +170,7 @@ public sealed class LauncherScatterPatchOperation
     public long ToSize { get; set; }
 }
 
-public sealed class LauncherUpdateFileEntry
+public class LauncherUpdateFileEntry
 {
     public string? Path { get; set; }
 

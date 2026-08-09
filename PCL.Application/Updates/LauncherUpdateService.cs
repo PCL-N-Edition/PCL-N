@@ -9,13 +9,12 @@ using PCL.Application.Online;
 namespace PCL.Application.Updates;
 
 /// <summary>
-/// Checks GitHub's non-rate-limited Atom surface for release discovery, while
-/// package and patch distribution use the Cloudflare/R2 update gateway.
+/// Checks the authenticated Cloudflare update channel and downloads signed
+/// package metadata and content-addressed blocks from R2.
 ///
 /// Sources:
 /// <list type="bullet">
-/// <item>Atom feed: https://github.com/{owner}/{repo}/releases.atom</item>
-/// <item>Latest redirect: https://github.com/{owner}/{repo}/releases/latest</item>
+/// <item>Channel discovery: https://api.pcln.top/v1/updates/channels/{channel}</item>
 /// <item>Download gateway: https://api.pcln.top/v1/updates/releases/{tag}/{asset}</item>
 /// </list>
 /// </summary>
@@ -31,14 +30,15 @@ public sealed partial class LauncherUpdateService : IDisposable
     private readonly string _owner;
     private readonly string _repo;
     private readonly string _distributionBaseUrl;
+    private readonly string _channelBaseUrl;
+    private readonly bool _cloudflareOnly;
     private bool _disposed;
 
     public LauncherUpdateService(HttpClient? httpClient = null, string? owner = null, string? repo = null)
     {
         if (httpClient is null)
         {
-            // The same handler discovers GitHub releases and authenticates Cloudflare update requests.
-            // Do not follow redirects automatically so we can read Location for /releases/latest.
+            // The embedded client certificate authenticates all Cloudflare update requests.
             _httpClient = PclnApiHttpClientFactory.Create(
                 allowAutoRedirect: false,
                 timeout: TimeSpan.FromSeconds(30));
@@ -59,12 +59,16 @@ public sealed partial class LauncherUpdateService : IDisposable
               string.Equals(_repo, DefaultRepo, StringComparison.OrdinalIgnoreCase)
                 ? "https://api.pcln.top/v1/updates/releases"
                 : $"https://github.com/{_owner}/{_repo}/releases/download";
+        _cloudflareOnly = Uri.TryCreate(_distributionBaseUrl, UriKind.Absolute, out Uri? distributionUri) &&
+                          !string.Equals(distributionUri.Host, "github.com", StringComparison.OrdinalIgnoreCase);
+        _channelBaseUrl = _distributionBaseUrl.EndsWith("/releases", StringComparison.OrdinalIgnoreCase)
+            ? _distributionBaseUrl[..^"/releases".Length] + "/channels"
+            : _distributionBaseUrl.TrimEnd('/') + "/channels";
 
         if (_httpClient.DefaultRequestHeaders.UserAgent.Count == 0)
             _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PCL-N", "1.0"));
-        // All discovery requests use HTML or Atom and do not consume REST API quota.
         if (_httpClient.DefaultRequestHeaders.Accept.Count == 0)
-            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/atom+xml"));
+            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
     public async Task<LauncherUpdateCheckResult> CheckAsync(
@@ -97,6 +101,10 @@ public sealed partial class LauncherUpdateService : IDisposable
         PortableLog.Debug(
             "Update",
             $"更新身份：Repository={_owner}/{_repo}；RuntimeId={identity.RuntimeId}；RuntimeVariant={identity.NormalizedRuntimeVariant}；BuildConfiguration={identity.Configuration}；CurrentCommit={currentCommitSha ?? "(无)"}。");
+
+        if (_cloudflareOnly)
+            return await CheckCloudflareChannelAsync(channel, identity, currentCommitSha, cancellationToken)
+                .ConfigureAwait(false);
 
         if (channel is UpdateChannel.CI or UpdateChannel.Dev)
             return await CheckCiAsync(identity, currentCommitSha, cancellationToken)
