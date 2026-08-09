@@ -189,6 +189,63 @@ public sealed class LauncherUpdateBlockTests
         }
     }
 
+    [TestMethod]
+    public async Task Installer_DoesNotDownloadFullArchiveWhenRequiredBlockMapIsMissing()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcln-block-required-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string entryName = OperatingSystem.IsWindows() ? "PCL-N-Edition.exe" : "PCL-N-Edition";
+        string currentExecutable = Path.Combine(root, entryName);
+        await File.WriteAllTextAsync(currentExecutable, "current launcher");
+        int fullArchiveRequests = 0;
+        try
+        {
+            using HttpClient client = new(new RoutingHandler(request =>
+            {
+                string path = request.RequestUri!.AbsolutePath;
+                if (path.EndsWith(".blockmap.json", StringComparison.Ordinal))
+                    return new HttpResponseMessage(HttpStatusCode.NotFound);
+                if (path.EndsWith(".zip", StringComparison.Ordinal))
+                {
+                    Interlocked.Increment(ref fullArchiveRequests);
+                    return BytesResponse(Zip(entryName, Encoding.UTF8.GetBytes("replacement")), "application/zip");
+                }
+                return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+            }));
+            using LauncherUpdateInstaller installer = new(client, new AcceptAllGpgVerifier());
+            LauncherUpdatePackage package = new(
+                "2.0.0-beta",
+                "v2.0.0-beta",
+                "https://api.test/v1/updates/releases/v2.0.0-beta/PCL_N_Beta_win-x64_SelfContained.zip",
+                "PCL_N_Beta_win-x64_SelfContained.zip",
+                entryName,
+                null,
+                null,
+                [],
+                "win-x64",
+                "SelfContained",
+                "Beta",
+                BlockMapUrl: "https://api.test/v1/updates/releases/v2.0.0-beta/PCL_N_Beta_win-x64_SelfContained.blockmap.json",
+                BlockMapSignatureUrl: "https://api.test/map.asc");
+
+            InvalidOperationException error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                installer.PrepareWithBlockCacheAsync(
+                    package,
+                    currentExecutable,
+                    null,
+                    Path.Combine(root, "cache"),
+                    CancellationToken.None));
+
+            StringAssert.Contains(error.Message, "未执行不安全的整包回退");
+            Assert.AreEqual(0, fullArchiveRequests);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static LauncherUpdateBlockFile CreateBlockFile(string path, byte[] content)
     {
         string sha256 = Hash(content);

@@ -115,8 +115,12 @@ public sealed partial class LauncherUpdateService
             LauncherBuildIdentity.NormalizeConfiguration(targetVariant.Configuration),
             fullUrl + ".asc",
             fullUrl + ".binary.asc",
-            BlockMapUrl: BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.json"),
-            BlockMapSignatureUrl: BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.json.asc"));
+            BlockMapUrl: _cloudflareOnly
+                ? BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.json")
+                : null,
+            BlockMapSignatureUrl: _cloudflareOnly
+                ? BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.json.asc")
+                : null);
     }
 
     private async Task<LoadedPatchIndex?> TryLoadPatchIndexAsync(
@@ -305,7 +309,7 @@ public sealed partial class LauncherUpdateService
             ? "SelfContained"
             : targetIdentity.NormalizedRuntimeVariant;
         string assetName = $"PCL_N_{config}_{identity.RuntimeId}_{variant}.{ext}";
-        bool supportsBlockMap = channel is UpdateChannel.Release or UpdateChannel.Beta;
+        bool supportsBlockMap = _cloudflareOnly;
         return new LauncherUpdatePackage(
             NormalizeVersion(tag),
             tag,

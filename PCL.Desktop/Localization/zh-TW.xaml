@@ -1091,8 +1091,8 @@
     <sys:String x:Key="Setup.Update.DownloadAndInstall">下載並安裝</sys:String>
     <sys:String x:Key="Setup.Update.DownloadNow">下載</sys:String>
     <sys:String x:Key="Setup.Update.Error.NetworkFailed">無法獲取最新版本資訊。請檢查網路連線後重試。</sys:String>
-    <sys:String x:Key="Setup.Update.FullOnly.CI">CI 通道不生成增量補丁，將下載完整包。</sys:String>
-    <sys:String x:Key="Setup.Update.FullOnly.NoApplicablePatch">當前安裝版本沒有適用的增量補丁，將下載完整包。</sys:String>
+    <sys:String x:Key="Setup.Update.FullOnly.CI">CI 通道使用內容定址分塊更新，只會下載本機缺少的分塊。</sys:String>
+    <sys:String x:Key="Setup.Update.FullOnly.NoApplicablePatch">目前安裝版本沒有適用的舊式補丁，將改用內容定址分塊更新。</sys:String>
     <sys:String x:Key="Setup.Update.Latest">PCL N 已是最新版本</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadAndInstall">下載並安裝</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadOnly">僅下載</sys:String>

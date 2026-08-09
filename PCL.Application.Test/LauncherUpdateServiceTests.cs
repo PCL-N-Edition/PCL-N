@@ -184,6 +184,58 @@ public sealed class LauncherUpdateServiceTests
     }
 
     [TestMethod]
+    public async Task CheckAsync_ProductionCiUsesRollingBlockMap()
+    {
+        RoutingHandler handler = new(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/v1/updates/channels/ci", StringComparison.Ordinal))
+            {
+                return JsonResponse("""
+                    {
+                      "tag": "ci-latest",
+                      "version": "ci-1234567",
+                      "channel": "ci",
+                      "commitSha": "1234567890abcdef1234567890abcdef12345678",
+                      "publishedAt": "2026-08-09T08:00:00Z",
+                      "manifestKey": "releases/ci-latest/ci-channel.json"
+                    }
+                    """);
+            }
+            if (path.EndsWith(".ci.json", StringComparison.Ordinal))
+            {
+                return JsonResponse("""
+                    {
+                      "formatVersion": 1,
+                      "channel": "CI",
+                      "commit": "1234567890abcdef1234567890abcdef12345678",
+                      "artifact": "PCL_N_CI_win-x64_SelfContained",
+                      "supportsPatches": false,
+                      "builtAt": "2026-08-09T08:00:00Z"
+                    }
+                    """);
+            }
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using LauncherUpdateService service = new(new HttpClient(handler));
+
+        LauncherUpdateCheckResult result = await service.CheckAsync(
+            UpdateChannel.CI,
+            new LauncherBuildIdentity("1.4.3-beta", "win-x64", "SelfContained", "CI"),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+        Assert.IsTrue(result.Success);
+        Assert.IsTrue(result.IsUpdateAvailable);
+        Assert.AreEqual("ci-1234567", result.LatestVersion);
+        Assert.IsNotNull(result.Package);
+        Assert.AreEqual("ci-latest", result.Package.TargetVersion);
+        Assert.IsTrue(result.Package.SupportsBlockMap);
+        StringAssert.EndsWith(
+            result.Package.BlockMapUrl!,
+            "/ci-latest/PCL_N_CI_win-x64_SelfContained.blockmap.json");
+    }
+
+    [TestMethod]
     public void InstallationContext_LeavesPortableAndWindowsInstallerUpdateable()
     {
         LauncherInstallationContext portable = LauncherInstallationContext.Detect(

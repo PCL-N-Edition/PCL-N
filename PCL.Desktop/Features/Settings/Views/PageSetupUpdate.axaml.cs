@@ -541,13 +541,13 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             {
                 guide += "\n\n" + AvaloniaLocalizationManager.GetText(
                     "Setup.Update.FullOnly.CI",
-                    "CI 通道不生成增量补丁，将下载完整包。");
+                    "CI 通道使用内容寻址分块更新，只会下载本地缺少的分块。");
             }
             else if (!result.SupportsPatches)
             {
                 guide += "\n\n" + AvaloniaLocalizationManager.GetText(
                     "Setup.Update.FullOnly.NoApplicablePatch",
-                    "当前安装版本没有适用的增量补丁，将下载完整包。");
+                    "当前安装版本没有适用的旧式补丁，将改用内容寻址分块更新。");
             }
             changelog.Text = guide;
         }

@@ -97,17 +97,16 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
                         blockCacheDirectory,
                         cancellationToken)
                     .ConfigureAwait(false);
-                if (preparedTree is not null)
-                {
-                    preparedBinary = preparedTree.StagedEntryPath;
-                    await VerifyDetachedSignatureAsync(
-                            preparedBinary,
-                            package.TargetBinarySignatureUrl,
-                            required: true,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                    usedBlockMap = true;
-                }
+                if (preparedTree is null)
+                    throw new InvalidDataException("Cloudflare 未提供此构建所需的签名分块清单。");
+                preparedBinary = preparedTree.StagedEntryPath;
+                await VerifyDetachedSignatureAsync(
+                        preparedBinary,
+                        package.TargetBinarySignatureUrl,
+                        required: true,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                usedBlockMap = true;
             }
             catch (OperationCanceledException)
             {
@@ -115,13 +114,10 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
             }
             catch (Exception ex)
             {
-                preparedBinary = null;
-                preparedTree = null;
-                PortableLog.Warn(ex, "Update", "分块更新重建或校验失败，将尝试兼容更新方式。");
-                Report(
-                    LauncherUpdateStage.FallingBack,
-                    0,
-                    $"分块更新不可用，正在尝试兼容更新方式（{ex.Message}）…");
+                PortableLog.Error(ex, "Update", "分块更新重建或校验失败；已禁止回退整包。");
+                throw new InvalidOperationException(
+                    "分块更新失败，未执行不安全的整包回退。请稍后重试或手动下载安装包。",
+                    ex);
             }
         }
 

@@ -1091,8 +1091,8 @@
     <sys:String x:Key="Setup.Update.DownloadAndInstall">Download and install</sys:String>
     <sys:String x:Key="Setup.Update.DownloadNow">Download</sys:String>
     <sys:String x:Key="Setup.Update.Error.NetworkFailed">Couldn’t get the latest version information. Check your connection and try again.</sys:String>
-    <sys:String x:Key="Setup.Update.FullOnly.CI">The CI channel does not generate incremental patches. The full package will be downloaded.</sys:String>
-    <sys:String x:Key="Setup.Update.FullOnly.NoApplicablePatch">No incremental patch applies to the installed build. The full package will be downloaded.</sys:String>
+    <sys:String x:Key="Setup.Update.FullOnly.CI">The CI channel uses content-addressed blocks and downloads only blocks missing locally.</sys:String>
+    <sys:String x:Key="Setup.Update.FullOnly.NoApplicablePatch">No legacy patch applies to this build, so content-addressed blocks will be used.</sys:String>
     <sys:String x:Key="Setup.Update.Latest">PCL N Is Up to Date</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadAndInstall">Download and install</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadOnly">Download only</sys:String>
