@@ -86,6 +86,11 @@ jobs:
     name: Publish ci-latest (no patches)
     needs: [build]
     if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/dev' || github.event_name == 'workflow_dispatch') }}
+    concurrency:
+      # The rolling CI pointer shares one global block catalog with Beta and
+      # Release. Serialize only the publishing job; builds may still run in parallel.
+      group: release-publish-cloudflare
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: write
