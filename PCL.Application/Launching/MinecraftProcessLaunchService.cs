@@ -46,6 +46,7 @@ public sealed record MinecraftProcessLaunchRequest
     public string? WorldName { get; init; }
     public string LauncherName { get; init; } = "PCL-N";
     public string VersionType { get; init; } = "PCL-N";
+    public bool UseSystemGlfw { get; init; }
 }
 
 public sealed record MinecraftProcessLaunchPlan(
@@ -100,10 +101,16 @@ public static class MinecraftProcessLaunchService
         string nativesDirectory = ResolveNativesDirectory(instanceDirectory, request.VersionId);
 
         MinecraftArgumentRuleContext ruleContext = CreateRuleContext();
-        List<MinecraftLibraryToken> libraries = ResolveLibraries(versionJson, inheritedVersionJsons, minecraftRoot, instanceDirectory);
-        PortableLog.Debug(
+        List<MinecraftLibraryToken> libraries = ResolveLibraries(versionJson, inheritedVersionJsons, minecraftRoot, instanceDirectory, request.UseSystemGlfw);
+        PortableLog.Info(
             "LaunchPlan",
             $"版本图解析完成：MainClass={mainClass}；继承层数={inheritedVersions.Count}；库数量={libraries.Count}；游戏目录={gameDirectory}。");
+        if (request.UseSystemGlfw)
+        {
+            PortableLog.Info("LaunchPlan", "已启用使用系统 GLFW 选项，正在检查 GLFW 库处理...");
+            int glfwLibraryCount = libraries.Count(lib => lib.NameWithoutVersion?.Contains("glfw", StringComparison.OrdinalIgnoreCase) == true);
+            PortableLog.Info("LaunchPlan", $"检测到 {glfwLibraryCount} 个 GLFW 相关库");
+        }
 
         // Extract both legacy IsNatives classifiers and modern artifact natives (name ends with :natives-os).
         // Modern natives stay on the classpath; we still pre-extract DLLs so -Djava.library.path is usable.
@@ -156,7 +163,7 @@ public static class MinecraftProcessLaunchService
                     NativesDirectory = nativesDirectory,
                     JavaMajorVersion = request.JavaMajorVersion,
                     PreferredIpStack = request.PreferredIpStack,
-                    PrefixArguments = CreateJvmPrefixArguments(request),
+                    PrefixArguments = CreateJvmPrefixArguments(request, nativesDirectory),
                     UseModernArguments = HasArguments(versionJson, inheritedVersionJsons, "jvm")
                 },
                 ModernGame = HasArguments(versionJson, inheritedVersionJsons, "game")
@@ -191,6 +198,11 @@ public static class MinecraftProcessLaunchService
             WorkingDirectory = gameDirectory,
             UseShellExecute = false
         };
+
+        if (OperatingSystem.IsLinux())
+        {
+            SetupLinuxEnvironment(startInfo, request.UseSystemGlfw);
+        }
             PortableLog.Info(
                 "LaunchPlan",
                 $"进程启动计划已生成；版本={request.VersionId}；Classpath={classpath.Entries.Count}；Natives={nativeArchives.Length}；主类={mainClass}。");
@@ -338,12 +350,13 @@ public static class MinecraftProcessLaunchService
         JsonObject versionJson,
         IReadOnlyList<JsonObject> inheritedVersionJsons,
         string minecraftRoot,
-        string instanceDirectory)
+        string instanceDirectory,
+        bool useSystemGlfw)
     {
         List<MinecraftLibraryToken> result = [];
-        AddResolvedLibraries(result, versionJson, minecraftRoot, instanceDirectory);
+        AddResolvedLibraries(result, versionJson, minecraftRoot, instanceDirectory, useSystemGlfw);
         foreach (JsonObject inheritedVersionJson in inheritedVersionJsons)
-            AddResolvedLibraries(result, inheritedVersionJson, minecraftRoot, instanceDirectory);
+            AddResolvedLibraries(result, inheritedVersionJson, minecraftRoot, instanceDirectory, useSystemGlfw);
 
         List<MinecraftLibraryToken> deduplicated = [];
         HashSet<string> seen = new(GetPathComparer());
@@ -360,7 +373,8 @@ public static class MinecraftProcessLaunchService
         List<MinecraftLibraryToken> target,
         JsonObject versionJson,
         string minecraftRoot,
-        string instanceDirectory)
+        string instanceDirectory,
+        bool useSystemGlfw)
     {
         target.AddRange(MinecraftLibraryResolver.Resolve(
             new MinecraftLibraryResolutionRequest
@@ -371,7 +385,8 @@ public static class MinecraftProcessLaunchService
                 OperatingSystem = GetLibraryOperatingSystem(),
                 Is64BitArchitecture = Environment.Is64BitOperatingSystem,
                 IsArm64Architecture = RuntimeInformation.OSArchitecture == Architecture.Arm64,
-                OperatingSystemVersion = Environment.OSVersion.VersionString
+                OperatingSystemVersion = Environment.OSVersion.VersionString,
+                UseSystemGlfw = useSystemGlfw
             }));
     }
 
@@ -587,6 +602,55 @@ public static class MinecraftProcessLaunchService
     private static StringComparer GetPathComparer() =>
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
+    private static string GetSystemLibraryPaths()
+    {
+        List<string> paths = [];
+
+        string[] standardPaths =
+        [
+            "/usr/lib",
+            "/usr/local/lib",
+            "/lib/x86_64-linux-gnu",
+            "/lib/aarch64-linux-gnu"
+        ];
+
+        foreach (string path in standardPaths)
+        {
+            if (Directory.Exists(path))
+                paths.Add(path);
+        }
+
+        return paths.Count == 0 ? string.Empty : string.Join(Path.PathSeparator, paths);
+    }
+
+    private static void SetupLinuxEnvironment(ProcessStartInfo startInfo, bool useSystemGlfw)
+    {
+        bool isWayland = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE")?.Equals("wayland", StringComparison.OrdinalIgnoreCase) == true;
+
+        if (isWayland)
+        {
+            PortableLog.Info("LaunchPlan", "检测到 Wayland 环境，将强制使用 X11 后端以确保窗口正常显示");
+            startInfo.Environment["GDK_BACKEND"] = "x11";
+            startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
+            startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
+        }
+
+        if (useSystemGlfw)
+        {
+            string systemLibPaths = GetSystemLibraryPaths();
+            if (!string.IsNullOrEmpty(systemLibPaths))
+            {
+                string currentLdPath = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH") ?? string.Empty;
+                string newLdPath = string.IsNullOrEmpty(currentLdPath)
+                    ? systemLibPaths
+                    : systemLibPaths + Path.PathSeparator + currentLdPath;
+
+                startInfo.Environment["LD_LIBRARY_PATH"] = newLdPath;
+                PortableLog.Info("LaunchPlan", $"已设置 LD_LIBRARY_PATH: {newLdPath}");
+            }
+        }
+    }
+
     internal static UnixFileMode AddExecutableBits(UnixFileMode current)
     {
         UnixFileMode result = current | UnixFileMode.UserExecute;
@@ -625,20 +689,33 @@ public static class MinecraftProcessLaunchService
         }
     }
 
-    private static List<string> CreateJvmPrefixArguments(MinecraftProcessLaunchRequest request)
+    private static List<string> CreateJvmPrefixArguments(MinecraftProcessLaunchRequest request, string nativesDirectory)
     {
+        List<string> prefix = [];
+
+        if (request.UseSystemGlfw && OperatingSystem.IsLinux())
+        {
+            PortableLog.Info("LaunchPlan", "使用系统 GLFW，将添加系统库路径到 JVM 参数");
+            string systemLibPaths = GetSystemLibraryPaths();
+            if (!string.IsNullOrEmpty(systemLibPaths))
+            {
+                prefix.Add("-Djava.library.path=" + Quote(nativesDirectory) + Path.PathSeparator + systemLibPaths);
+                prefix.Add("-Dorg.lwjgl.glfw.libname=glfw.3");
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(request.AuthlibInjectorPath) ||
             string.IsNullOrWhiteSpace(request.AuthlibServer))
         {
-            return [];
+            return prefix;
         }
 
         // Separate JVM options so Jvm.NET host / ParseCommandLine keep each flag intact.
-        List<string> prefix =
+        prefix.AddRange(
         [
             "-javaagent:" + Quote(request.AuthlibInjectorPath) + "=" + request.AuthlibServer,
             "-Dauthlibinjector.side=client"
-        ];
+        ]);
         if (!string.IsNullOrWhiteSpace(request.AuthlibPrefetchedMetadata))
         {
             prefix.Add(

@@ -77,4 +77,6 @@ public sealed record InstanceMetadata
     public bool UseDebugLog4j2Config { get; init; }
 
     public bool DisableLwjglUnsafeAgent { get; init; }
+
+    public bool UseSystemGlfw { get; init; }
 }

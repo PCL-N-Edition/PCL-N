@@ -75,6 +75,8 @@ public static class LauncherSettingKeys
 
     public static readonly SettingKey ExperimentalMinecraftAiReasoningEffort = new("ExperimentalMinecraftAiReasoningEffort");
 
+    public static readonly SettingKey LaunchUseSystemGlfw = new("LaunchUseSystemGlfw");
+
     public static SettingKey JavaDisabled(string javaExecutablePath)
     {
         if (string.IsNullOrWhiteSpace(javaExecutablePath))

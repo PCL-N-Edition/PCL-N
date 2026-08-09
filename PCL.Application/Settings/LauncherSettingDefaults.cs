@@ -41,6 +41,7 @@ public static class LauncherSettingDefaults
         ["LaunchAdvanceGraphicCard"] = true,
         ["LaunchAdvanceNoJavaw"] = false,
         ["LaunchAdvanceDisableLwjglUnsafeAgent"] = false,
+        ["LaunchUseSystemGlfw"] = false,
         ["LaunchAutoRepairGame"] = true,
         ["ToolDownloadClipboard"] = false,
         ["UiHideNEditionHint"] = false,

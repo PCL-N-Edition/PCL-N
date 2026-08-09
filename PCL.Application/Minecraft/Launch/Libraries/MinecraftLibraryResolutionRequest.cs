@@ -15,4 +15,5 @@ public sealed record MinecraftLibraryResolutionRequest
     public bool Is64BitArchitecture { get; init; }
     public bool IsArm64Architecture { get; init; }
     public string OperatingSystemVersion { get; init; } = string.Empty;
+    public bool UseSystemGlfw { get; init; }
 }

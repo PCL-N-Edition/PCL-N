@@ -128,7 +128,11 @@ internal static class MinecraftLaunchPlanFactory
                 LauncherName = "PCL-N",
                 VersionType = FirstNonEmpty(
                     metadata.CustomInfo,
-                    settings.GetTextOption("LaunchArgumentInfo", LauncherSettingDefaults.GetText("LaunchArgumentInfo"))) ?? "PCL-N"
+                    settings.GetTextOption("LaunchArgumentInfo", LauncherSettingDefaults.GetText("LaunchArgumentInfo"))) ?? "PCL-N",
+                UseSystemGlfw = metadata.UseSystemGlfw ||
+                    settings.GetBooleanOption(
+                        LauncherSettingKeys.LaunchUseSystemGlfw.Value,
+                        LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.LaunchUseSystemGlfw.Value))
             },
             cancellationToken).ConfigureAwait(false);
     }

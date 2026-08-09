@@ -710,6 +710,8 @@
     <sys:String x:Key="Setup.Launch.Advanced.DisableJlw.ToolTip">Java Launch Wrapper 可帮助旧版 Java 从含中文字符的路径启动。&#x0a;仅在被反作弊软件拦截或引发其他问题时关闭。</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.DisableLwjglUnsafeAgent">禁用 LWJGL Unsafe Agent</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.DisableLwjglUnsafeAgent.ToolTip">Minecraft 26.1 使用 LWJGL 3.4.1，其基于 FFM 的原生内存访问在 JDK 25 及更高版本上可能出现严重性能问题。PCL 会启用 LWJGL Unsafe Agent 以规避此问题。&#x0a;仅在排查故障时临时关闭。此选项只对 LWJGL 3.4.1 生效。</sys:String>
+    <sys:String x:Key="Setup.Launch.Advanced.UseSystemGlfw">使用系统 GLFW</sys:String>
+    <sys:String x:Key="Setup.Launch.Advanced.UseSystemGlfw.ToolTip">使用系统安装的 GLFW 库而非 Minecraft 自带的版本。&#x0a;&#x0a;适用于 Linux 系统，需要系统已安装 GLFW 3.x 开发库。可以解决某些 GLFW 相关的启动问题，或与系统其他应用共享 GPU 资源。&#x0a;&#x0a;注意：如果系统未安装 GLFW 或版本不兼容，游戏可能无法启动。</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.DisableRw">禁用 RetroWrapper</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.DisableRw.ToolTip">RetroWrapper 用于改善 Minecraft 1.5.x 及更早版本的兼容性与使用体验。</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.GameTail">附加游戏参数</sys:String>

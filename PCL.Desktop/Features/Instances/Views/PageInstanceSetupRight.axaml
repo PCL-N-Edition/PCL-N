@@ -377,6 +377,11 @@
                                           x:Name="CheckAdvanceDisableLwjglUnsafeAgent"
                                           Tag="VersionAdvanceDisableLwjglUnsafeAgent"
                                           ToolTip.Tip="{DynamicResource Setup.Launch.Advanced.DisableLwjglUnsafeAgent.ToolTip}" />
+                        <legacy:MyCheckBox Height="28"
+                                          Text="{DynamicResource Setup.Launch.Advanced.UseSystemGlfw}"
+                                          x:Name="CheckUseSystemGlfw"
+                                          Tag="VersionUseSystemGlfw"
+                                          ToolTip.Tip="{DynamicResource Setup.Launch.Advanced.UseSystemGlfw.ToolTip}" />
                     </StackPanel>
                 </Grid>
             </legacy:MyCard>

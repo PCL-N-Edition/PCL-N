@@ -710,6 +710,8 @@
     <sys:String x:Key="Setup.Launch.Advanced.DisableJlw.ToolTip">Java Launch Wrapper helps older Java versions start from paths containing Chinese characters.&#x0a;Turn it off only when anti-cheat software blocks it or it causes another problem.</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.DisableLwjglUnsafeAgent">Disable LWJGL Unsafe Agent</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.DisableLwjglUnsafeAgent.ToolTip">Minecraft 26.1 uses LWJGL 3.4.1, whose FFM-based native memory access can perform poorly on JDK 25 or later. PCL enables LWJGL Unsafe Agent to avoid this issue.&#x0a;Disable it temporarily only when troubleshooting. This option applies only to LWJGL 3.4.1.</sys:String>
+    <sys:String x:Key="Setup.Launch.Advanced.UseSystemGlfw">Use system GLFW</sys:String>
+    <sys:String x:Key="Setup.Launch.Advanced.UseSystemGlfw.ToolTip">Use the system-installed GLFW library instead of the version bundled with Minecraft.&#x0a;&#x0a;For Linux systems only. Requires GLFW 3.x development libraries installed on the system. Can resolve certain GLFW-related launch issues or share GPU resources with other system applications.&#x0a;&#x0a;Note: If GLFW is not installed on the system or is incompatible, the game may fail to start.</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.DisableRw">Disable RetroWrapper</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.DisableRw.ToolTip">RetroWrapper improves compatibility and usability for Minecraft 1.5.x and earlier.</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.GameTail">Additional game arguments</sys:String>

@@ -170,7 +170,15 @@ public static class MinecraftLibraryResolver
 
                 MinecraftLibraryToken? nativeToken = ResolveNative(library, originalName, rootUrl, minecraftRoot, request, isLocal);
                 if (nativeToken is not null)
+                {
+                    if (request.UseSystemGlfw && IsGlfwLibrary(originalName))
+                    {
+                        PortableLog.Info("MinecraftLibrary", $"使用系统 GLFW，标记为非natives库：{originalName}");
+                        result.Add(nativeToken with { IsNatives = false });
+                        continue;
+                    }
                     result.Add(nativeToken);
+                }
             }
             catch (InvalidDataException exception)
             {
@@ -631,6 +639,16 @@ public static class MinecraftLibraryResolver
         List<string> nameParts = [.. parts];
         nameParts.RemoveAt(2);
         return string.Join(':', nameParts);
+    }
+
+    private static bool IsGlfwLibrary(string libraryName)
+    {
+        string? nameWithoutVersion = GetNameWithoutVersion(libraryName);
+        if (string.IsNullOrWhiteSpace(nameWithoutVersion))
+            return false;
+
+        return nameWithoutVersion.Equals("org.lwjgl:lwjgl-glfw", StringComparison.Ordinal) ||
+               nameWithoutVersion.Equals("org.lwjgl.lwjgl:lwjgl-glfw", StringComparison.Ordinal);
     }
 
     private static string? EmptyToNull(string? value) =>
