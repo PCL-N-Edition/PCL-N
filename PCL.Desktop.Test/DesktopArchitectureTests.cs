@@ -820,6 +820,20 @@ public sealed class DesktopArchitectureTests
     }
 
     [TestMethod]
+    public void Startup_RunsUpdateHelperBeforeCrashAndNativeInitialization()
+    {
+        string program = File.ReadAllText(Path.Combine(FindDesktopProjectRoot(), "Program.cs"));
+        int updateHelper = program.IndexOf(
+            "LauncherUpdateBootstrap.TryRunUpdateHelper(args",
+            StringComparison.Ordinal);
+        int crashGuard = program.IndexOf("UnhandledExceptionGuard.Install();", StringComparison.Ordinal);
+        int nativeRuntime = program.IndexOf("PclEmbeddedNativeRuntime.EnsureInstalled();", StringComparison.Ordinal);
+
+        Assert.IsTrue(updateHelper >= 0 && updateHelper < crashGuard);
+        Assert.IsTrue(updateHelper < nativeRuntime);
+    }
+
+    [TestMethod]
     public void Startup_SettingsArePrimedBeforeAvaloniaAndUiReadsUseTheSnapshotCache()
     {
         string desktopRoot = FindDesktopProjectRoot();

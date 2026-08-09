@@ -24,16 +24,18 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // The verified update helper must run before crash reporting, telemetry,
+        // Avalonia, or native-runtime setup. A scatter helper is launched from
+        // the staged tree but inherits the old launcher's native-library paths;
+        // initializing those services here would image-map files from the live
+        // install and make the helper lock the very files it needs to replace.
+        if (LauncherUpdateBootstrap.TryRunUpdateHelper(args, out int updateExitCode))
+            return updateExitCode;
+
         bool completedNormally = false;
         UnhandledExceptionGuard.Install();
         try
         {
-            if (LauncherUpdateBootstrap.TryRunUpdateHelper(args, out int updateExitCode))
-            {
-                completedNormally = true;
-                return updateExitCode;
-            }
-
             // NativeAOT cannot bundle dynamic Skia/LibVLC libraries into the
             // operating-system image. Install the signed, RID-specific payload
             // before Avalonia or any native-backed feature is initialized.

@@ -29,6 +29,7 @@ internal static class LauncherUpdateBootstrap
     public static bool TryRunUpdateHelper(string[] args, out int exitCode)
     {
         exitCode = 0;
+        string? workDirectory = null;
         bool isLegacy = args.Length == 6 && string.Equals(args[0], ApplyCommand, StringComparison.Ordinal);
         bool isTree = args.Length == 6 && string.Equals(args[0], ApplyTreeCommand, StringComparison.Ordinal);
         if (!isLegacy && !isTree)
@@ -39,7 +40,7 @@ internal static class LauncherUpdateBootstrap
             int oldProcessId = int.Parse(args[1], CultureInfo.InvariantCulture);
             string current = Path.GetFullPath(args[2]);
             string stagedOrPlan = Path.GetFullPath(args[3]);
-            string workDirectory = Path.GetFullPath(args[4]);
+            workDirectory = Path.GetFullPath(args[4]);
             bool restart = args[5] == "1";
             if (isTree)
             {
@@ -65,10 +66,29 @@ internal static class LauncherUpdateBootstrap
         catch (Exception exception)
         {
             Console.Error.WriteLine("PCL N update helper failed: " + exception);
+            WriteUpdateFailureLog(workDirectory, exception);
             exitCode = 1;
         }
 
         return true;
+    }
+
+    private static void WriteUpdateFailureLog(string? workDirectory, Exception exception)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(workDirectory) || !IsSafeUpdateWorkDirectory(workDirectory))
+                return;
+
+            Directory.CreateDirectory(workDirectory);
+            File.WriteAllText(
+                Path.Combine(workDirectory, "update-error.log"),
+                $"{DateTimeOffset.Now:O}{Environment.NewLine}{exception}{Environment.NewLine}");
+        }
+        catch
+        {
+            // The update exception remains the primary failure. Diagnostics are best-effort.
+        }
     }
 
     public static string[] ProcessStartupCleanup(string[] args)
