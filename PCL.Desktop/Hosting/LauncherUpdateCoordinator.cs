@@ -193,6 +193,11 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
         catch (Exception ex)
         {
             operation.Fail(ex);
+            PortableLog.Error(
+                ex,
+                "Update",
+                $"启动器更新下载失败；目标={package.TargetTag}；RID={package.RuntimeId}；" +
+                $"运行时变体={package.RuntimeVariant}；配置={package.Configuration}。");
             LauncherTelemetry.CaptureException(ex, "update.download");
             LauncherTelemetry.CaptureEvent("update_download_failed");
             throw;

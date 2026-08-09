@@ -23,14 +23,19 @@ public sealed partial class LauncherUpdateInstaller
         CancellationToken cancellationToken)
     {
         string mapPath = Path.Combine(workDirectory, "target.blockmap.json");
-        using (HttpResponseMessage response = await _httpClient.GetAsync(
-                   package.BlockMapUrl,
-                   HttpCompletionOption.ResponseHeadersRead,
+        using (HttpResponseMessage response = await GetUpdateResponseAsync(
+                   package.BlockMapUrl!,
+                   retryNotFound: true,
                    cancellationToken).ConfigureAwait(false))
         {
             if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                PortableLog.Error(
+                    "Update",
+                    $"Cloudflare 未提供此构建所需的签名分块清单；URL={package.BlockMapUrl}。");
                 return null;
-            response.EnsureSuccessStatusCode();
+            }
+            EnsureUpdateResponseSuccess(response, package.BlockMapUrl!);
             if (response.Content.Headers.ContentLength is > 16 * 1024 * 1024)
                 throw new InvalidDataException("分块更新清单异常过大。");
             await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -374,12 +379,13 @@ public sealed partial class LauncherUpdateInstaller
         {
             Path = $"{blockBasePath.TrimEnd('/')}/{block.Sha256![..2]}/{block.Sha256}"
         };
-        using HttpResponseMessage response = await _httpClient.GetAsync(
-                builder.Uri,
-                HttpCompletionOption.ResponseHeadersRead,
+        string blockUrl = builder.Uri.AbsoluteUri;
+        using HttpResponseMessage response = await GetUpdateResponseAsync(
+                blockUrl,
+                retryNotFound: true,
                 cancellationToken)
             .ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        EnsureUpdateResponseSuccess(response, blockUrl);
         if (response.Content.Headers.ContentLength is long contentLength && contentLength != block.CompressedSize)
             throw new InvalidDataException($"更新分块压缩大小不一致：{block.Sha256}。");
 

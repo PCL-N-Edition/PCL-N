@@ -62,7 +62,7 @@ public sealed class LauncherUpdateBlockTests
     }
 
     [TestMethod]
-    public async Task Installer_ReusesLocalBlocksAndDownloadsOnlyMissingBlock()
+    public async Task Installer_RetriesTransientBlock404AndDownloadsOnlyMissingBlock()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcln-block-update-" + Guid.NewGuid().ToString("N"));
         string installRoot = Path.Combine(root, "install");
@@ -130,8 +130,10 @@ public sealed class LauncherUpdateBlockTests
                     return BytesResponse([1], "application/pgp-signature");
                 if (path.StartsWith("/v1/updates/block/", StringComparison.Ordinal))
                 {
-                    Interlocked.Increment(ref blockRequests);
+                    int requestNumber = Interlocked.Increment(ref blockRequests);
                     requestedBlockPath = path;
+                    if (requestNumber == 1)
+                        return new HttpResponseMessage(HttpStatusCode.NotFound);
                     return path == $"/v1/updates/block/{newHostSha[..2]}/{newHostSha}"
                         ? BytesResponse(newHostCompressed, "application/gzip")
                         : new HttpResponseMessage(HttpStatusCode.NotFound);
@@ -175,7 +177,7 @@ public sealed class LauncherUpdateBlockTests
                 prepared.UsedBlockMap,
                 $"{blockFailure}；blockRequests={blockRequests}；requested={requestedBlockPath}");
             Assert.IsFalse(prepared.UsedPatch);
-            Assert.AreEqual(1, blockRequests);
+            Assert.AreEqual(2, blockRequests);
             Assert.AreEqual($"/v1/updates/block/{newHostSha[..2]}/{newHostSha}", requestedBlockPath);
             CollectionAssert.AreEqual(newHost, await File.ReadAllBytesAsync(prepared.StagedExecutablePath));
             CollectionAssert.AreEqual(
@@ -237,6 +239,7 @@ public sealed class LauncherUpdateBlockTests
                     CancellationToken.None));
 
             StringAssert.Contains(error.Message, "未执行不安全的整包回退");
+            StringAssert.Contains(error.Message, package.BlockMapUrl!);
             Assert.AreEqual(0, fullArchiveRequests);
         }
         finally

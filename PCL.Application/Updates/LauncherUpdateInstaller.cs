@@ -98,7 +98,8 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
                         cancellationToken)
                     .ConfigureAwait(false);
                 if (preparedTree is null)
-                    throw new InvalidDataException("Cloudflare 未提供此构建所需的签名分块清单。");
+                    throw new InvalidDataException(
+                        $"Cloudflare 未提供此构建所需的签名分块清单：{package.BlockMapUrl}");
                 preparedBinary = preparedTree.StagedEntryPath;
                 await VerifyDetachedSignatureAsync(
                         preparedBinary,
@@ -116,7 +117,8 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
             {
                 PortableLog.Error(ex, "Update", "分块更新重建或校验失败；已禁止回退整包。");
                 throw new InvalidOperationException(
-                    "分块更新失败，未执行不安全的整包回退。请稍后重试或手动下载安装包。",
+                    "分块更新失败，未执行不安全的整包回退。" +
+                    $"失败原因：{ex.GetBaseException().Message}。请稍后重试或手动下载安装包。",
                     ex);
             }
         }
@@ -348,9 +350,9 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
             return false;
         }
 
-        using HttpResponseMessage response = await _httpClient.GetAsync(
+        using HttpResponseMessage response = await GetUpdateResponseAsync(
                 signatureUrl,
-                HttpCompletionOption.ResponseHeadersRead,
+                retryNotFound: required,
                 cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound && !required)
@@ -358,7 +360,7 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
             PortableLog.Debug("Update", $"目标程序没有独立 GPG 签名，沿用已校验的完整包签名：{signatureUrl}");
             return false;
         }
-        response.EnsureSuccessStatusCode();
+        EnsureUpdateResponseSuccess(response, signatureUrl);
         Report(LauncherUpdateStage.VerifyingSignature, 0, "正在验证发布者 GPG 签名…");
         await using Stream content = File.OpenRead(contentPath);
         await using Stream signature = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -375,12 +377,12 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
         int itemCount,
         CancellationToken cancellationToken)
     {
-        using HttpResponseMessage response = await _httpClient.GetAsync(
+        using HttpResponseMessage response = await GetUpdateResponseAsync(
                 url,
-                HttpCompletionOption.ResponseHeadersRead,
+                retryNotFound: true,
                 cancellationToken)
             .ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        EnsureUpdateResponseSuccess(response, url);
         long? total = response.Content.Headers.ContentLength;
         await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         await using FileStream target = new(destination, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 128, true);
