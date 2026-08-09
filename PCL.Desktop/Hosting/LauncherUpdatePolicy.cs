@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using PCL.Application.Settings;
+using PCL.Application.Updates;
 using PCL.Core.App;
 
 namespace PCL.Desktop.Hosting;
@@ -12,7 +13,10 @@ internal readonly record struct LauncherUpdatePolicy(UpdateChannel Channel, int 
     public const string ChannelSettingKey = "SystemUpdateChannel";
     public const string ModeSettingKey = "SystemUpdateMode";
 
-    public static LauncherUpdatePolicy Resolve(LauncherSettings settings, string buildConfiguration)
+    public static LauncherUpdatePolicy Resolve(
+        LauncherSettings settings,
+        string buildConfiguration,
+        LauncherInstallationContext? installation = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
@@ -25,6 +29,13 @@ internal readonly record struct LauncherUpdatePolicy(UpdateChannel Channel, int 
         int channelIndex = settings.TryGetIntegerOption(ChannelSettingKey, out int configuredChannel)
             ? Math.Clamp(configuredChannel, 0, 2)
             : defaultChannel;
+        installation ??= LauncherInstallationContext.Detect();
+        if (channelIndex == 2 && !installation.SupportsCiChannel)
+        {
+            channelIndex = buildConfiguration.Trim().ToUpperInvariant() is "BETA" or "CI" or "DEV"
+                ? 1
+                : 0;
+        }
         int mode = Math.Clamp(
             settings.GetIntegerOption(
                 ModeSettingKey,

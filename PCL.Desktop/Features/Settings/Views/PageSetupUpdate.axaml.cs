@@ -33,6 +33,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     private bool _autoCheckScheduled;
     private int _lastUpdateChannel;
     private readonly LauncherUpdateCoordinator _updateCoordinator = LauncherUpdateCoordinator.Current;
+    private readonly LauncherInstallationContext _installation = LauncherInstallationContext.Detect();
     private LauncherUpdateCheckResult? _availableUpdate;
     private PreparedLauncherUpdate? _preparedUpdate;
     private bool _isPreparingUpdate;
@@ -106,6 +107,16 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             };
             channel.RefreshSelectionDisplay();
         }
+        if (!_installation.SupportsCiChannel &&
+            this.FindControl<MyComboBox>("ComboSystemUpdateChannel") is { SelectedIndex: 2 } scatterChannel)
+        {
+            int fallback = PclLauncherBuildIdentity.Current.Configuration is "Beta" or "CI" ? 1 : 0;
+            scatterChannel.SelectedIndex = fallback;
+            scatterChannel.RefreshSelectionDisplay();
+            LauncherSettingsPageBinder.SaveIntegerOption(
+                LauncherUpdatePolicy.ChannelSettingKey,
+                fallback);
+        }
         SyncChannelBaselineFromUi();
         _channelUserArmed = false;
         _isInitializing = false;
@@ -127,6 +138,16 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             ApplyItemLabel(channel, 0, "Setup.Update.Channel.Release", "正式版");
             ApplyItemLabel(channel, 1, "Setup.Update.Channel.Beta", "测试版");
             ApplyItemLabel(channel, 2, "Setup.Update.Channel.CI", "CI 通道");
+            if (channel.Items[2] is MyComboBoxItem ciItem)
+            {
+                ciItem.IsEnabled = _installation.SupportsCiChannel;
+                if (!_installation.SupportsCiChannel)
+                {
+                    ciItem.ToolTip = AvaloniaLocalizationManager.GetText(
+                        "Setup.Update.Channel.CI.Scatter.Disabled",
+                        "散包版不能更新到 CI 版本；请使用正式版或测试版通道。");
+                }
+            }
             if (channel.SelectedIndex < 0 && channel.ItemCount > 0)
                 channel.SelectedIndex = LauncherSettingDefaults.GetInteger("SystemUpdateChannel", 0);
             channel.RefreshSelectionDisplay();
@@ -336,6 +357,29 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             return;
 
         int selectedIndex = combo.SelectedIndex;
+
+        if (selectedIndex == 2 && !_installation.SupportsCiChannel)
+        {
+            _channelUserArmed = false;
+            _isRevertingChannel = true;
+            try
+            {
+                combo.SelectedIndex = Math.Clamp(_lastUpdateChannel, 0, 1);
+            }
+            finally
+            {
+                _isRevertingChannel = false;
+            }
+            MessageRequested?.Invoke(
+                this,
+                new SettingsMessageRequestedEventArgs(
+                    AvaloniaLocalizationManager.GetText("Setup.Update.Channel.Title", "更新通道"),
+                    AvaloniaLocalizationManager.GetText(
+                        "Setup.Update.Channel.CI.Scatter.Disabled",
+                        "散包版不能更新到 CI 版本；请使用正式版或测试版通道。"),
+                    AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
+            return;
+        }
 
         // Programmatic re-bind from settings binder — not a user action.
         if (!_channelUserArmed)

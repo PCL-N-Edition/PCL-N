@@ -7,6 +7,7 @@ namespace PCL.Application.Updates;
 public enum LauncherInstallationKind
 {
     Portable,
+    Scatter,
     WindowsInstaller,
     MacApplicationBundle,
     DebianPackage,
@@ -28,19 +29,28 @@ public sealed record LauncherInstallationContext(
     public const string InstallKindEnvironmentVariable = "PCL_N_INSTALL_KIND";
     public const string InstallKindMarkerFileName = "pcln-install-kind";
 
+    /// <summary>
+    /// CI is a rolling developer channel for the Windows single-file build.
+    /// Expanded scatter layouts deliberately stay on versioned Release/Beta
+    /// updates so a CI build cannot replace an installed file tree.
+    /// </summary>
+    public bool SupportsCiChannel => Kind == LauncherInstallationKind.Portable;
+
     public static LauncherInstallationContext Detect(string? executablePath = null)
     {
         string path = executablePath ?? Environment.ProcessPath ?? string.Empty;
+        string? launcherRoot = Environment.GetEnvironmentVariable("PCL_LAUNCHER_ROOT");
         string? marker = null;
-        if (!string.IsNullOrWhiteSpace(path))
+        foreach (string directory in CandidateMarkerDirectories(path, launcherRoot))
         {
             try
             {
-                string markerPath = Path.Combine(
-                    Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty,
-                    InstallKindMarkerFileName);
+                string markerPath = Path.Combine(directory, InstallKindMarkerFileName);
                 if (File.Exists(markerPath))
+                {
                     marker = File.ReadAllText(markerPath).Trim();
+                    break;
+                }
             }
             catch (IOException)
             {
@@ -56,14 +66,16 @@ public sealed record LauncherInstallationContext(
             path,
             Environment.GetEnvironmentVariable(InstallKindEnvironmentVariable),
             Environment.GetEnvironmentVariable("APPIMAGE"),
-            marker);
+            marker,
+            launcherRoot);
     }
 
     internal static LauncherInstallationContext Detect(
         string executablePath,
         string? environmentKind,
         string? appImagePath,
-        string? markerKind)
+        string? markerKind,
+        string? launcherRoot = null)
     {
         string declaredKind = FirstNonEmpty(environmentKind, markerKind).ToLowerInvariant();
         if (!string.IsNullOrWhiteSpace(appImagePath) || declaredKind == "appimage")
@@ -84,7 +96,50 @@ public sealed record LauncherInstallationContext(
             return Package(LauncherInstallationKind.LinuxPackage, "Linux package");
         }
 
+        if (IsScatterRoot(launcherRoot) ||
+            IsScatterRoot(Path.GetDirectoryName(executablePath)) ||
+            IsScatterRoot(Path.GetDirectoryName(Path.GetDirectoryName(executablePath))))
+        {
+            return new(LauncherInstallationKind.Scatter, true, "Scatter");
+        }
+
         return new(LauncherInstallationKind.Portable, true, "Portable");
+    }
+
+    private static IEnumerable<string> CandidateMarkerDirectories(string executablePath, string? launcherRoot)
+    {
+        HashSet<string> yielded = OperatingSystem.IsWindows()
+            ? new(StringComparer.OrdinalIgnoreCase)
+            : new(StringComparer.Ordinal);
+        foreach (string? candidate in new[]
+                 {
+                     launcherRoot,
+                     Path.GetDirectoryName(executablePath),
+                     Path.GetDirectoryName(Path.GetDirectoryName(executablePath))
+                 })
+        {
+            if (string.IsNullOrWhiteSpace(candidate))
+                continue;
+            string fullPath;
+            try { fullPath = Path.GetFullPath(candidate); }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                continue;
+            }
+            if (yielded.Add(fullPath))
+                yield return fullPath;
+        }
+    }
+
+    private static bool IsScatterRoot(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+        try { return File.Exists(Path.Combine(Path.GetFullPath(path), "pcln-layout")); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
 
     private static LauncherInstallationContext Package(LauncherInstallationKind kind, string displayName) =>

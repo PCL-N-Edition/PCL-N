@@ -250,6 +250,33 @@ public sealed class LauncherUpdateServiceTests
         Assert.IsTrue(portable.SupportsInPlaceUpdate);
         Assert.AreEqual(LauncherInstallationKind.WindowsInstaller, installed.Kind);
         Assert.IsTrue(installed.SupportsInPlaceUpdate);
+        Assert.IsTrue(portable.SupportsCiChannel);
+        Assert.IsFalse(installed.SupportsCiChannel);
+    }
+
+    [TestMethod]
+    public void InstallationContext_DetectsExpandedScatterFromLauncherRoot()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcln-install-context-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "pcln-layout"), "pcln-scatter-v2-expanded\n");
+            LauncherInstallationContext scatter = LauncherInstallationContext.Detect(
+                Path.Combine(root, "host", "PCL-N-Host.exe"),
+                null,
+                null,
+                null,
+                root);
+
+            Assert.AreEqual(LauncherInstallationKind.Scatter, scatter.Kind);
+            Assert.IsTrue(scatter.SupportsInPlaceUpdate);
+            Assert.IsFalse(scatter.SupportsCiChannel);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [TestMethod]

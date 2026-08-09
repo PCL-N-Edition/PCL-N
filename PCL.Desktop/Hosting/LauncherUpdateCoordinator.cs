@@ -95,6 +95,12 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
         UpdateChannel channel,
         CancellationToken cancellationToken = default)
     {
+        LauncherInstallationContext installation = LauncherInstallationContext.Detect();
+        if (channel is UpdateChannel.CI or UpdateChannel.Dev && !installation.SupportsCiChannel)
+        {
+            PortableLog.Warn("Update", $"已拒绝散包检查 CI 更新；安装类型={installation.Kind}。");
+            return LauncherUpdateCheckResult.Failed("散包版不支持更新到 CI 版本；请选择正式版或测试版通道。");
+        }
         using TelemetryOperation operation = LauncherTelemetry.StartOperation(
             "launcher.update_check",
             "ipc.request");
@@ -158,6 +164,11 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
             string currentExecutable = Environment.ProcessPath
                 ?? throw new InvalidOperationException("无法确定当前启动器文件位置。");
             LauncherInstallationContext installation = LauncherInstallationContext.Detect(currentExecutable);
+            if (string.Equals(package.Configuration, "CI", StringComparison.OrdinalIgnoreCase) &&
+                !installation.SupportsCiChannel)
+            {
+                throw new InvalidOperationException("散包版不支持更新到 CI 版本；请选择正式版或测试版通道。");
+            }
             if (!installation.SupportsInPlaceUpdate)
             {
                 throw new InvalidOperationException(
@@ -246,6 +257,13 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
         ArgumentNullException.ThrowIfNull(result);
         if (!result.IsUpdateAvailable || result.Package is not { } package)
             return;
+
+        LauncherInstallationContext currentInstallation = LauncherInstallationContext.Detect();
+        if (result.Channel is UpdateChannel.CI or UpdateChannel.Dev && !currentInstallation.SupportsCiChannel)
+        {
+            PortableLog.Warn("Update", $"已拒绝向散包应用 CI 更新；安装类型={currentInstallation.Kind}。");
+            return;
+        }
 
         await _updateFlowGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         bool operationActivated = false;

@@ -1079,6 +1079,7 @@
     <sys:String x:Key="Setup.Update.Channel.Beta.Warning.Message">即將切換到測試版通道。&#x0a;&#x0a;測試版可能包含尚未完成的功能，穩定性也可能較低。返回正式版時，可能需要等待更新的穩定版本或手動安裝。</sys:String>
     <sys:String x:Key="Setup.Update.Channel.CI">CI</sys:String>
     <sys:String x:Key="Setup.Update.Channel.CI.ToolTip">由近期 CI 生成的開發構建，可能不穩定，且只提供完整下載。</sys:String>
+    <sys:String x:Key="Setup.Update.Channel.CI.Scatter.Disabled">散包版不能更新至 CI 版本；請使用正式版或測試版通道。</sys:String>
     <sys:String x:Key="Setup.Update.Channel.Common.Warning.Confirm">繼續</sys:String>
     <sys:String x:Key="Setup.Update.Channel.Common.Warning.Title">切換通道前</sys:String>
     <sys:String x:Key="Setup.Update.Channel.Dev.Warning.Message">即將切換到 CI 通道。&#x0a;&#x0a;CI 構建可能非常不穩定，甚至無法啟動。返回正式版或測試版時，可能需要手動安裝對應版本。</sys:String>

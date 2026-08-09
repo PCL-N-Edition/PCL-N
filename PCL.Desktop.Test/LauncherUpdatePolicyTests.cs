@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using PCL.Application.Settings;
+using PCL.Application.Updates;
 using PCL.Core.App;
 using PCL.Desktop.Hosting;
 
@@ -48,5 +49,23 @@ public sealed class LauncherUpdatePolicyTests
 
         Assert.AreEqual(UpdateChannel.CI, policy.Channel);
         Assert.AreEqual(0, policy.Mode);
+    }
+
+    [TestMethod]
+    [DataRow("Release", UpdateChannel.Release)]
+    [DataRow("Beta", UpdateChannel.Beta)]
+    [DataRow("CI", UpdateChannel.Beta)]
+    public void Resolve_ScatterBuildCannotUseCiChannel(string configuration, UpdateChannel expected)
+    {
+        LauncherSettings settings = new();
+        settings.SetIntegerOption(LauncherUpdatePolicy.ChannelSettingKey, 2);
+        LauncherInstallationContext scatter = new(
+            LauncherInstallationKind.Scatter,
+            SupportsInPlaceUpdate: true,
+            DisplayName: "Scatter");
+
+        LauncherUpdatePolicy policy = LauncherUpdatePolicy.Resolve(settings, configuration, scatter);
+
+        Assert.AreEqual(expected, policy.Channel);
     }
 }
