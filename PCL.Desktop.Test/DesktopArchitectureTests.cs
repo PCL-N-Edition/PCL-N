@@ -960,6 +960,7 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(publishAssets, "package-release-windows.ps1");
         StringAssert.Contains(publishAssets, "binary=\"artifact/scatter/PCL N.app/Contents/MacOS/${{ matrix.target.binary_name }}\"");
         StringAssert.Contains(publishAssets, "dist/updates");
+        StringAssert.Contains(publishAssets, "dist/r2-updates");
         StringAssert.Contains(publishAssets, "dist/downloads");
         StringAssert.Contains(publishAssets, "GitHub receives dist/downloads only");
         StringAssert.Contains(publishAssets, "generate_update_blockmap.py");
@@ -988,6 +989,12 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(packageWindows, "package_update_archive.py");
         Assert.IsFalse(packageLinux.Contains("_Portable.tar.gz\"", StringComparison.Ordinal));
         StringAssert.Contains(ci, "package_update_archive.py");
+        StringAssert.Contains(ci, "generate_update_blockmap.py");
+        StringAssert.Contains(ci, "dist/archives");
+        StringAssert.Contains(ci, "dist/r2-metadata");
+        StringAssert.Contains(ci, "--tag ci-latest");
+        StringAssert.Contains(ci, "--channel ci");
+        StringAssert.Contains(ci, "block-dist/block");
         StringAssert.Contains(packageLinux, "/opt/pcl-n");
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");

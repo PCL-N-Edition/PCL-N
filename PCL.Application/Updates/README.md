@@ -6,10 +6,10 @@
 
 1. `LauncherUpdateService` 根据更新通道检查新版本，并返回一个不可变的 `LauncherUpdateCheckResult`。
 2. `LauncherUpdateService.Discovery` 从要求 mTLS 的 Cloudflare 通道端点发现 Release、Beta 或滚动 CI 构建。
-3. `LauncherUpdateService.Packages` 选择当前 RID 和运行时变体对应的完整包；1.4.3 及更新版本优先使用已签名的内容寻址分块图。
+3. `LauncherUpdateService.Packages` 选择当前 RID 和运行时变体对应的逻辑更新包；1.4.3 及更新版本必须使用已签名的内容寻址分块图。
 4. `LauncherUpdateService.Transport` 统一处理元数据请求、安全重定向和内容长度探测。
 5. `LauncherUpdateInstaller` 下载、校验并准备更新；`LauncherBlockUpdateInstaller` 查找本地重复块、下载缺块并重组文件；`LauncherScatterUpdateInstaller` 负责散包清单与替换计划。
-6. 安装前由 `LauncherGpgVerifier` 校验发布签名；失败或无法安全原地更新时必须保留当前程序并回退到完整包或手动安装提示。
+6. 安装前由 `LauncherGpgVerifier` 校验发布签名；分块缺失、重建失败或无法安全原地更新时必须保留当前程序并提示手动安装，不得静默回退完整包。
 
 ## 发布产物契约
 
@@ -17,9 +17,9 @@
 - Linux/macOS 更新归档：`PCL_N_<Channel>_<RID>_<Variant>.tar.gz`
 - 归档内容是可直接展开的散包，不能嵌套 ZIP、PDB/DBG 或 Windows 单文件便携版。
 - `SelfContained` 与 `NoRuntime` 描述插件 sidecar 是否携带 .NET 运行时；主程序始终是 NativeAOT。
-- CI 使用覆盖式 `ci-latest`：每次成功构建覆盖 R2 中的完整更新归档、签名、`.ci.json` 与 `channels/ci.json`，通过提交 SHA 判断更新，不更新 GitHub Release，也不生成跨版本补丁。
-- 正式发布在流水线中将散包更新文件放入 `dist/updates`，将安装包与单文件便携版放入 `dist/downloads`；Cloudflare R2 接收前者，GitHub Release 只接收后者。
-- Beta/Release 为每个散包生成 `<asset-stem>.blockmap.json` 及独立 GPG 签名。原始块使用 SHA-256 内容寻址并保存为 `block/<sha256[0:2]>/<sha256>`；HTTP 路径固定为 `/v1/updates/block/<sha256[0:2]>/<sha256>`。
+- CI 使用覆盖式 `ci-latest`：每次成功构建用新的签名分块图、`.ci.json` 与 `channels/ci.json` 覆盖上次索引，通过提交 SHA 判断更新；上一轮 CI 独占块立即回收，共享块继续保留，不更新 GitHub Release，也不生成跨版本补丁。
+- 正式发布在流水线中仅把签名分块图、构建元数据和最终程序签名放入 `dist/r2-updates`，将安装包与单文件便携版放入 `dist/downloads`；完整散包归档仅在 runner 上临时用于分块，不进入 R2 或 GitHub Release。
+- CI/Beta/Release 为每个散包生成 `<asset-stem>.blockmap.json` 及独立 GPG 签名。原始块使用 SHA-256 内容寻址并保存为 `block/<sha256[0:2]>/<sha256>`；HTTP 路径固定为 `/v1/updates/block/<sha256[0:2]>/<sha256>`。
 - 分块采用 `pcln-fastcdc-v1`（256 KiB / 1 MiB / 2 MiB），R2 保存确定性 gzip 内容，本地缓存保存通过 SHA-256 校验后的原始块。
 - 客户端先直接复用未变化文件，再对已安装散包建立本地块索引，只下载仍缺失的块；重组后逐文件校验、校验整树清单并验证最终入口程序的 GPG 签名。
 - 1.4.3 是 Cloudflare 分块协议基线。不得为 1.4.3 以前的源版本生成补丁；这类版本只能获取完整包。旧 `patch-index.json` 仅作为过渡兼容，不再由新发布流生成。
@@ -27,6 +27,7 @@
 ## 兼容性约束
 
 - 1.4.3 及更新客户端的更新发现与载荷只允许访问 `api.pcln.top`，Cloudflare/R2 缺失对象必须明确失败，不得回退 GitHub。
+- 1.4.3 及更新客户端收到带分块图的更新计划后，签名图或任一块不可用都必须终止该次自动更新，不得请求逻辑包 URL 对应的完整归档。
 - 现有旧版 GitHub 更新资产可保留两周回退窗口，但后续发布不得再写入 GitHub 更新源。
 - 分块图、每个原始块、每个重建文件、整树清单和最终重建程序都必须依次通过 GPG/SHA-256 校验后才能进入安装阶段。
 - 不要在页面代码中直接创建更新服务或安装器；桌面端由统一协调器管理检查、下载、提示、重启和退出安装。
@@ -35,4 +36,4 @@
 
 - 发布发现、包选择、传输、重建和安装分别修改，避免一个改动同时跨越全部阶段。
 - 修改协议或资产命名时，同时更新生成脚本、JSON 上下文、客户端兼容逻辑和定向测试。
-- CI 更新归档与版本补丁是两种独立能力；禁用 CI 补丁不能移除 CI 完整更新归档。
+- CI 滚动分块与版本补丁是两种独立能力；CI 只发布 `ci-latest` 分块，不保留历史整包或生成版本补丁。

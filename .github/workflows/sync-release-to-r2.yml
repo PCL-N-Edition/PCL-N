@@ -45,38 +45,48 @@ jobs:
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
-      - name: Download and upload update assets
+      - name: Download legacy archives and stage compact R2 metadata
         shell: bash
         env:
           INCLUDE_LEGACY_PATCHES: ${{ inputs.include_legacy_patches }}
         run: |
           set -euo pipefail
+          rm -rf asset r2-asset
+          mkdir -p asset r2-asset
           mapfile -t assets < <(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
           selected=0
           for name in "${assets[@]}"; do
-            copy=false
+            download=false
+            upload=false
             case "$name" in
-              patch-index.json|patch-index.json.asc|patch-manifest-*.json|patch-manifest-*.json.asc|*.patch.zip|*.patch.zip.asc|ci-channel.json) copy=true ;;
-              PCL_N_*.build.json|PCL_N_*.ci.json) copy=true ;;
+              patch-index.json|patch-index.json.asc|patch-manifest-*.json|patch-manifest-*.json.asc|*.patch.zip|*.patch.zip.asc|ci-channel.json)
+                download=true; upload=true ;;
+              PCL_N_*.build.json|PCL_N_*.ci.json)
+                download=true; upload=true ;;
               *.hdiff|*.hdiff.sha256)
-                [[ "$INCLUDE_LEGACY_PATCHES" == "true" ]] && copy=true
+                if [[ "$INCLUDE_LEGACY_PATCHES" == "true" ]]; then
+                  download=true; upload=true
+                fi
                 ;;
             esac
             if [[ "$name" =~ ^PCL_N_(Release|Beta|CI)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)(\.asc|\.binary\.asc)?$ ]]; then
-              copy=true
+              download=true
+              [[ "$name" == *.binary.asc ]] && upload=true
             fi
-            [[ "$copy" == "true" ]] || continue
+            [[ "$download" == "true" ]] || continue
             selected=$((selected + 1))
             rm -f "asset/$name"
-            mkdir -p asset
             gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
               --pattern "$name" --dir asset --clobber
-            npx --yes wrangler@4.120.0 r2 object put \
-              "pcln-releases/releases/${RELEASE_TAG}/${name}" \
-              --file "asset/$name" --remote
+            if [[ "$upload" == "true" ]]; then
+              cp -a "asset/$name" "r2-asset/$name"
+              npx --yes wrangler@4.120.0 r2 object put \
+                "pcln-releases/releases/${RELEASE_TAG}/${name}" \
+                --file "r2-asset/$name" --remote
+            fi
           done
           test "$selected" -gt 0
-          echo "Synced $selected update assets for $RELEASE_TAG."
+          echo "Downloaded $selected legacy assets for block conversion."
 
       - name: Generate and publish Cloudflare block maps for the legacy release
         shell: bash
@@ -104,7 +114,7 @@ jobs:
 
           while IFS= read -r -d '' map; do
             gpg --detach-sign --armor "$map"
-            cp -a "$map" "$map.asc" asset/
+            cp -a "$map" "$map.asc" r2-asset/
           done < <(find block-dist/manifests -maxdepth 1 -type f -name '*.blockmap.json' -print0)
 
           export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
@@ -122,7 +132,19 @@ jobs:
             npx --yes wrangler@4.120.0 r2 object put \
               "pcln-releases/releases/${RELEASE_TAG}/${name}" \
               --file "$map" --remote
-          done < <(find asset -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.json.asc' \) -print0)
+          done < <(find r2-asset -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.json.asc' \) -print0)
+
+          # The legacy archives were conversion inputs only. Remove any
+          # canonical copies previously stored under this release tag.
+          while IFS= read -r -d '' archive; do
+            name="$(basename "$archive")"
+            printf 'releases/%s/%s\nreleases/%s/%s.asc\n' \
+              "$RELEASE_TAG" "$name" "$RELEASE_TAG" "$name"
+          done < <(find asset -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0) \
+            | xargs -r -P 6 -I '{}' sh -c '
+                npx --yes wrangler@4.120.0 r2 object delete \
+                  "pcln-releases/$1" --remote --force || true
+              ' _ '{}'
 
           channel="$(tr '[:upper:]' '[:lower:]' <<< "$configuration")"
           commit="$(jq -r 'select(.commit != null) | .commit' asset/*.build.json 2>/dev/null | head -n 1 || true)"
@@ -145,7 +167,7 @@ jobs:
           python scripts/update_update_block_catalog.py \
             --catalog block-catalog.previous.json \
             --manifest-dir block-dist/manifests \
-            --asset-dir asset \
+            --asset-dir r2-asset \
             --tag "$RELEASE_TAG" \
             --channel "$channel" \
             --published-at "$published_at" \

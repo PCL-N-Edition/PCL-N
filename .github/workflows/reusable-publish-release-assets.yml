@@ -269,8 +269,27 @@ jobs:
               > "dist/updates/${base}.build.json"
           done < <(find packaged/signing -mindepth 2 -maxdepth 2 -type f -print0)
 
+          # Canonical updater archives are only temporary block-generation
+          # inputs. R2 receives compact metadata/signatures and global blocks;
+          # it never stores another copy of the complete scatter archive.
+          rm -rf dist/r2-updates
+          mkdir -p dist/r2-updates
+          while IFS= read -r -d '' asset; do
+            name="$(basename "$asset")"
+            if [[ "$name" =~ \.blockmap\.json(\.asc)?$ ||
+                  "$name" =~ \.build\.json$ ||
+                  "$name" =~ \.(zip|tar\.gz)\.binary\.asc$ ]]; then
+              cp -a "$asset" "dist/r2-updates/$name"
+            fi
+          done < <(find dist/updates -maxdepth 1 -type f -print0)
+          test -n "$(find dist/r2-updates -maxdepth 1 -type f -name '*.blockmap.json' -print -quit)"
+          if find dist/r2-updates -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print -quit | grep -q .; then
+            echo "::error::Canonical updater archive leaked into R2 staging"
+            exit 1
+          fi
+
           echo "Updater assets:"
-          find dist/updates -maxdepth 1 -type f -printf '  %f\n' | (sort || true)
+          find dist/r2-updates -maxdepth 1 -type f -printf '  %f\n' | (sort || true)
           echo "Download assets:"
           find dist/downloads -maxdepth 1 -type f -printf '  %f\n' | (sort || true)
 
@@ -326,7 +345,7 @@ jobs:
 
           while IFS= read -r -d '' asset; do
             name="$(basename "$asset")"
-            if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)(\.asc|\.binary\.asc)?$ &&
+            if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(zip|tar\.gz)\.binary\.asc$ &&
                   ! "$name" =~ ^PCL_N_(Release|Beta)_(win|linux|osx)-(x64|arm64)_(SelfContained|NoRuntime)\.(build|blockmap)\.json(\.asc)?$ ]]; then
               echo "::error::Unexpected file in updater staging directory: $name"
               exit 1
@@ -334,7 +353,19 @@ jobs:
             npx --yes wrangler@4.120.0 r2 object put \
               "pcln-releases/releases/${RELEASE_TAG}/${name}" \
               --file "$asset" --remote
-          done < <(find dist/updates -maxdepth 1 -type f -print0)
+          done < <(find dist/r2-updates -maxdepth 1 -type f -print0)
+
+          # Remove canonical archives written by an earlier version of this
+          # workflow. The operation is idempotent and limited to this tag.
+          while IFS= read -r -d '' archive; do
+            name="$(basename "$archive")"
+            printf 'releases/%s/%s\nreleases/%s/%s.asc\n' \
+              "$RELEASE_TAG" "$name" "$RELEASE_TAG" "$name"
+          done < <(find dist/updates -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0) \
+            | xargs -r -P 6 -I '{}' sh -c '
+                npx --yes wrangler@4.120.0 r2 object delete \
+                  "pcln-releases/$1" --remote --force || true
+              ' _ '{}'
 
           # Mark-and-sweep only objects recorded in our catalog. Shared blocks
           # stay alive while any release inside the 14-day rollback window uses them.
@@ -345,7 +376,7 @@ jobs:
           python scripts/update_update_block_catalog.py \
             --catalog block-catalog.previous.json \
             --manifest-dir block-dist/manifests \
-            --asset-dir dist/updates \
+            --asset-dir dist/r2-updates \
             --tag "$RELEASE_TAG" \
             --channel '${{ inputs.channel }}' \
             --published-at "$(jq -r .publishedAt 'channel-dist/${{ inputs.channel }}.json')" \
@@ -360,7 +391,7 @@ jobs:
             --file block-catalog.next.json --remote
 
           # Publish the channel pointer last: clients can only discover this
-          # version after every signed map, archive and binary signature exists.
+          # version after every signed map, block and binary signature exists.
           npx --yes wrangler@4.120.0 r2 object put \
             "pcln-releases/channels/${{ inputs.channel }}.json" \
             --file "channel-dist/${{ inputs.channel }}.json" --remote

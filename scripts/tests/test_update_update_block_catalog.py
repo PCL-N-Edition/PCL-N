@@ -46,6 +46,45 @@ class UpdateBlockCatalogTests(unittest.TestCase):
         self.assertNotIn(f"block/{shared[:2]}/{shared}", deletions)
         self.assertIn("releases/v1.4.3-beta/old.blockmap.json", deletions)
 
+    def test_ci_latest_replacement_deletes_only_previous_unique_blocks(self):
+        shared = "d" * 64
+        previous_only = "e" * 64
+        current_only = "f" * 64
+        previous = {
+            "formatVersion": 1,
+            "releases": [
+                {
+                    "tag": "ci-latest",
+                    "channel": "ci",
+                    "publishedAt": "2026-08-09T00:00:00Z",
+                    "blocks": [shared, previous_only],
+                    "objects": [
+                        "releases/ci-latest/ci-channel.json",
+                        "releases/ci-latest/old.blockmap.json",
+                    ],
+                }
+            ],
+        }
+
+        result, deletions = catalog_module.update_catalog(
+            previous,
+            tag="ci-latest",
+            channel="ci",
+            published_at="2026-08-09T01:00:00Z",
+            blocks={shared, current_only},
+            objects=[
+                "releases/ci-latest/ci-channel.json",
+                "releases/ci-latest/new.blockmap.json",
+            ],
+            now=datetime(2026, 8, 9, 1, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(["ci-latest"], [entry["tag"] for entry in result["releases"]])
+        self.assertIn(f"block/{previous_only[:2]}/{previous_only}", deletions)
+        self.assertNotIn(f"block/{shared[:2]}/{shared}", deletions)
+        self.assertIn("releases/ci-latest/old.blockmap.json", deletions)
+        self.assertNotIn("releases/ci-latest/ci-channel.json", deletions)
+
 
 if __name__ == "__main__":
     unittest.main()

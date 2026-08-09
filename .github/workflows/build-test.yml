@@ -1,7 +1,7 @@
 name: Build (CI)
 
 # Builds on every push/PR. On push to dev (not PR), publishes a rolling
-# "ci-latest" GitHub Release for the launcher CI update channel.
+# rolling "ci-latest" block set for the launcher CI update channel in R2.
 # Intentionally does NOT generate version patches.
 
 permissions:
@@ -81,7 +81,7 @@ jobs:
       channel: ci
     secrets: inherit
 
-  # Rolling CI package for the "CI" update channel. Full binaries only — never patches.
+  # Rolling CI package for the "CI" update channel. Content-addressed blocks only — never patches.
   publish-ci-rolling:
     name: Publish ci-latest (no patches)
     needs: [build]
@@ -118,7 +118,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist
+          rm -rf dist block-dist
+          mkdir -p dist/archives dist/r2-metadata block-dist
           # artifacts/<artifact-name>/{scatter,portable}; only scatter is an update.
           for dir in artifacts/PCL_N_CI_*; do
             [[ -d "$dir" ]] || continue
@@ -142,19 +143,31 @@ jobs:
             fi
             chmod +x "$bin" || true
             if [[ "$name" == *"_win-"* ]]; then
-              package="dist/${name}.zip"
+              package="dist/archives/${name}.zip"
             else
-              package="dist/${name}.tar.gz"
+              package="dist/archives/${name}.tar.gz"
             fi
             python scripts/package_update_archive.py \
               --artifact "$scatter" \
               --output "$package" \
               --platform "$platform"
-            gpg --detach-sign --armor "$package"
-            gpg --detach-sign --armor --output "$package.binary.asc" "$bin"
+            if [[ ! "$name" =~ ^PCL_N_CI_((win|linux|osx)-(x64|arm64))_SelfContained$ ]]; then
+              echo "::error::Cannot derive CI block-map identity from $name"
+              exit 1
+            fi
+            python scripts/generate_update_blockmap.py \
+              --archive "$package" \
+              --output block-dist \
+              --target-tag ci-latest \
+              --target-version ci-latest \
+              --runtime-id "${BASH_REMATCH[1]}" \
+              --runtime-variant SelfContained \
+              --configuration CI
+            gpg --detach-sign --armor \
+              --output "dist/r2-metadata/$(basename "$package").binary.asc" "$bin"
             package_sha256="$(sha256sum "$package" | awk '{print $1}')"
             package_size="$(stat -c '%s' "$package")"
-            cat > "dist/${name}.ci.json" <<EOF
+            cat > "dist/r2-metadata/${name}.ci.json" <<EOF
           {
             "formatVersion": 1,
             "channel": "CI",
@@ -169,7 +182,11 @@ jobs:
           }
           EOF
           done
-          cat > dist/ci-channel.json <<EOF
+          while IFS= read -r -d '' map; do
+            gpg --detach-sign --armor "$map"
+            cp -a "$map" "$map.asc" dist/r2-metadata/
+          done < <(find block-dist/manifests -maxdepth 1 -type f -name '*.blockmap.json' -print0)
+          cat > dist/r2-metadata/ci-channel.json <<EOF
           {
             "formatVersion": 1,
             "tag": "ci-latest",
@@ -180,8 +197,10 @@ jobs:
             "manifestKey": "releases/ci-latest/ci-channel.json"
           }
           EOF
-          ls -la dist
-          test -n "$(ls -A dist/*.zip 2>/dev/null)" || { echo "No CI zips produced"; exit 1; }
+          find dist/r2-metadata -maxdepth 1 -type f -printf '  %f\n' | sort
+          test -n "$(find block-dist/manifests -maxdepth 1 -type f -name '*.blockmap.json' -print -quit)" || {
+            echo "No CI block maps produced"; exit 1;
+          }
 
       - name: Publish rolling CI assets to Cloudflare R2
         shell: bash
@@ -192,24 +211,70 @@ jobs:
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
-          # Replace packages and signatures first, then per-RID metadata. The
-          # channel marker is uploaded last so readers never observe a new SHA
-          # before all files for that build are available.
+          npx --yes wrangler@4.120.0 --version
+          export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
+          # Upload immutable blocks first. Canonical archives in dist/archives
+          # are temporary and intentionally never leave the runner.
+          find block-dist/block -type f -print0 | xargs -0 -r -P 6 -I '{}' \
+            bash -c '
+              set -euo pipefail
+              block="$1"
+              relative="${block#block-dist/}"
+              npx --yes wrangler@4.120.0 r2 object put \
+                "pcln-releases/${relative}" --file "$block" --remote
+            ' _ '{}'
+
+          # Publish maps and signatures before moving the discoverable marker.
           while IFS= read -r -d '' asset; do
             name="$(basename "$asset")"
+            if [[ ! "$name" =~ ^PCL_N_CI_(win|linux|osx)-(x64|arm64)_SelfContained\.(zip|tar\.gz)\.binary\.asc$ &&
+                  ! "$name" =~ ^PCL_N_CI_(win|linux|osx)-(x64|arm64)_SelfContained\.(ci|blockmap)\.json(\.asc)?$ ]]; then
+              echo "::error::Unexpected CI updater metadata: $name"
+              exit 1
+            fi
             npx --yes wrangler@4.120.0 r2 object put \
               "pcln-releases/releases/ci-latest/${name}" \
               --file "$asset" --remote
-          done < <(find dist -maxdepth 1 -type f ! -name '*.ci.json' ! -name 'ci-channel.json' -print0 | sort -z)
-          while IFS= read -r -d '' asset; do
-            name="$(basename "$asset")"
-            npx --yes wrangler@4.120.0 r2 object put \
-              "pcln-releases/releases/ci-latest/${name}" \
-              --file "$asset" --remote
-          done < <(find dist -maxdepth 1 -type f -name '*.ci.json' -print0 | sort -z)
+          done < <(find dist/r2-metadata -maxdepth 1 -type f ! -name 'ci-channel.json' -print0 | sort -z)
+
+          # Purge full rolling archives left by the pre-block CI publisher.
+          while IFS= read -r -d '' archive; do
+            name="$(basename "$archive")"
+            printf 'releases/ci-latest/%s\nreleases/ci-latest/%s.asc\n' "$name" "$name"
+          done < <(find dist/archives -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0) \
+            | xargs -r -P 6 -I '{}' sh -c '
+                npx --yes wrangler@4.120.0 r2 object delete \
+                  "pcln-releases/$1" --remote --force || true
+              ' _ '{}'
+
+          # ci-latest is replaced in-place. Catalog replacement immediately
+          # removes blocks unique to the preceding CI build while preserving
+          # blocks shared by Beta/Release or the new CI build.
+          rm -f block-catalog.previous.json block-catalog.next.json obsolete-r2-objects.txt
+          npx --yes wrangler@4.120.0 r2 object get \
+            "pcln-releases/block/catalog.json" \
+            --file block-catalog.previous.json --remote || rm -f block-catalog.previous.json
+          python scripts/update_update_block_catalog.py \
+            --catalog block-catalog.previous.json \
+            --manifest-dir block-dist/manifests \
+            --asset-dir dist/r2-metadata \
+            --tag ci-latest \
+            --channel ci \
+            --published-at "$(jq -r .publishedAt dist/r2-metadata/ci-channel.json)" \
+            --output block-catalog.next.json \
+            --delete-list obsolete-r2-objects.txt
+          xargs -r -P 6 -I '{}' \
+            npx --yes wrangler@4.120.0 r2 object delete \
+              "pcln-releases/{}" --remote --force < obsolete-r2-objects.txt
+          npx --yes wrangler@4.120.0 r2 object put \
+            "pcln-releases/block/catalog.json" \
+            --file block-catalog.next.json --remote
+
+          # Publish both markers last so a client never observes the new SHA
+          # before all signed maps and blocks are reachable.
           npx --yes wrangler@4.120.0 r2 object put \
             "pcln-releases/releases/ci-latest/ci-channel.json" \
-            --file dist/ci-channel.json --remote
+            --file dist/r2-metadata/ci-channel.json --remote
           npx --yes wrangler@4.120.0 r2 object put \
             "pcln-releases/channels/ci.json" \
-            --file dist/ci-channel.json --remote
+            --file dist/r2-metadata/ci-channel.json --remote

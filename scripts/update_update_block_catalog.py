@@ -126,7 +126,7 @@ def main() -> int:
     parser.add_argument("--manifest-dir", required=True, type=Path)
     parser.add_argument("--asset-dir", required=True, type=Path)
     parser.add_argument("--tag", required=True)
-    parser.add_argument("--channel", required=True, choices=("release", "beta"))
+    parser.add_argument("--channel", required=True, choices=("release", "beta", "ci"))
     parser.add_argument("--published-at", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--delete-list", required=True, type=Path)
