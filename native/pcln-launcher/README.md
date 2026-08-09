@@ -58,7 +58,9 @@ pcln-launcher (= PCL-N-Edition)
 
 CI：`scripts/assemble-release-layout.sh` 在打包前展开全部依赖。
 
-Windows 下 launcher 与 crash-handler 均使用 GUI 子系统，正常启动和后台监视不会创建 CMD 窗口；launcher 拉起两个子进程时也显式使用 `CREATE_NO_WINDOW`。
+Windows 下 launcher 与 crash-handler 均使用 GUI 子系统，正常启动和后台监视不会弹出 CMD 窗口；launcher 拉起两个子进程时也显式使用 `CREATE_NO_WINDOW`。
+
+Windows 构建会把 `PCL.Desktop/Assets/icon.ico` 作为资源链入 launcher（`pcln-launcher.rc`），这样安装后的 `PCL-N-Edition.exe` 与快捷方式显示品牌图标。
 
 ## Windows 便携包（单文件）
 

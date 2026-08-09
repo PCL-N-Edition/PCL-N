@@ -1,0 +1,5 @@
+// Application icon for the Windows product entry (PCL-N-Edition.exe).
+// Linked into pcln-launcher so shortcuts / Explorer show the brand icon.
+// Path is relative to this .rc file.
+
+1 ICON "../../PCL.Desktop/Assets/icon.ico"

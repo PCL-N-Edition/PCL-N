@@ -546,16 +546,19 @@ public partial class PageDownloadInstall : MyPageRight
             search.Margin = new Thickness(contentEdge, _experimentalLayout ? 14d : 10d, contentEdge, 0d);
         if (this.FindControl<Grid>("PanAllBack") is { RowDefinitions.Count: > 0 } allBack)
         {
+            // SearchBar height 44 + top margin 10/14. Keep the row tight so the first card sits close below.
             allBack.RowDefinitions[0].Height = new GridLength(
-                _isInSelectPage ? 0d : _experimentalLayout ? 64d : 54d,
+                _isInSelectPage ? 0d : _experimentalLayout ? 58d : 54d,
                 GridUnitType.Pixel);
         }
 
         if (this.FindControl<Grid>("PanInner") is { } inner)
         {
+            // List page: no extra top gap under the search row (first card supplies its own spacing).
+            // Select page: modest top inset because the search row is collapsed.
             inner.Margin = _isInSelectPage
                 ? new Thickness(contentEdge, _experimentalLayout ? 14d : 10d, contentEdge, _experimentalLayout ? 54d : 40d)
-                : new Thickness(contentEdge, _experimentalLayout ? 14d : 10d, contentEdge, _experimentalLayout ? 32d : 25d);
+                : new Thickness(contentEdge, 0d, contentEdge, _experimentalLayout ? 32d : 25d);
         }
 
         if (this.FindControl<MyButton>("BtnStartExperimental") is { } experimentalStart)
@@ -737,7 +740,7 @@ public partial class PageDownloadInstall : MyPageRight
                         FormatReleaseTime(latestInCategory.ReleaseTime))
                 }],
                 filterable: false,
-                margin: new Thickness(0d, 15d, 0d, 15d)));
+                margin: new Thickness(0d, 8d, 0d, 15d)));
             return;
         }
 
@@ -776,7 +779,7 @@ public partial class PageDownloadInstall : MyPageRight
             ResourceText("Download.Version.Latest.Title", "最新版本"),
             latest,
             filterable: false,
-            margin: new Thickness(0d, 15d, 0d, 15d)));
+            margin: new Thickness(0d, 8d, 0d, 15d)));
     }
 
     private void AddOtherVersionsCard(
@@ -1655,13 +1658,13 @@ public partial class PageDownloadInstall : MyPageRight
 
         if (this.FindControl<Grid>("PanAllBack") is { RowDefinitions.Count: > 0 } allBack)
             allBack.RowDefinitions[0].Height = new GridLength(
-                isSelectPage ? 0d : _experimentalLayout ? 64d : 54d,
+                isSelectPage ? 0d : _experimentalLayout ? 58d : 54d,
                 GridUnitType.Pixel);
 
         if (this.FindControl<Grid>("PanInner") is { } inner)
             inner.Margin = isSelectPage
                 ? new Thickness(contentEdge, _experimentalLayout ? 14d : 10d, contentEdge, _experimentalLayout ? 54d : 40d)
-                : new Thickness(contentEdge, _experimentalLayout ? 14d : 10d, contentEdge, _experimentalLayout ? 32d : 25d);
+                : new Thickness(contentEdge, 0d, contentEdge, _experimentalLayout ? 32d : 25d);
 
         if (isSelectPage && this.FindControl<MyScrollViewer>("PanBack") is { } scroll)
             scroll.ScrollToHome();
@@ -1693,12 +1696,12 @@ public partial class PageDownloadInstall : MyPageRight
             search.IsVisible = true;
 
         if (this.FindControl<Grid>("PanAllBack") is { RowDefinitions.Count: > 0 } allBack)
-            allBack.RowDefinitions[0].Height = new GridLength(_experimentalLayout ? 64d : 54d, GridUnitType.Pixel);
+            allBack.RowDefinitions[0].Height = new GridLength(_experimentalLayout ? 58d : 54d, GridUnitType.Pixel);
 
         if (this.FindControl<Grid>("PanInner") is { } inner)
             inner.Margin = new Thickness(
                 contentEdge,
-                _experimentalLayout ? 14d : 10d,
+                0d,
                 contentEdge,
                 _experimentalLayout ? 32d : 25d);
 
