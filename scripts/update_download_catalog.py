@@ -68,7 +68,7 @@ def update_catalog(
             )
 
     cutoff = published_at - dt.timedelta(days=RETENTION_DAYS)
-    retained: list[dict[str, Any]] = []
+    valid_versions: list[tuple[dict[str, Any], dt.datetime]] = []
     for item in versions:
         if item.get("tag") == tag:
             continue
@@ -76,10 +76,34 @@ def update_catalog(
         if not isinstance(timestamp, str):
             continue
         try:
-            if parse_timestamp(timestamp) >= cutoff:
-                retained.append(item)
-        except ValueError:
+            item_channel = str(item.get("channel") or "")
+            if item_channel not in ("release", "beta"):
+                continue
+            parse_version(str(item["tag"]))
+            valid_versions.append((item, parse_timestamp(timestamp)))
+        except (KeyError, TypeError, ValueError):
             continue
+
+    # Keep the newest entry of every other channel even after the 14-day
+    # rollback window. Otherwise publishing a beta would make an older but
+    # still-current stable release disappear from the public download page.
+    latest_by_channel: dict[str, dict[str, Any]] = {}
+    for item, timestamp in valid_versions:
+        item_channel = str(item["channel"])
+        current = latest_by_channel.get(item_channel)
+        if current is None or (
+            parse_version(str(item["tag"])), timestamp
+        ) > (
+            parse_version(str(current["tag"])),
+            parse_timestamp(str(current["publishedAt"])),
+        ):
+            latest_by_channel[item_channel] = item
+
+    retained = [
+        item
+        for item, timestamp in valid_versions
+        if timestamp >= cutoff or latest_by_channel.get(str(item["channel"])) is item
+    ]
 
     retained.append(
         {

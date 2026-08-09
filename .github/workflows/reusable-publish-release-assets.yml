@@ -396,33 +396,26 @@ jobs:
             "pcln-releases/channels/${{ inputs.channel }}.json" \
             --file "channel-dist/${{ inputs.channel }}.json" --remote
 
-      - name: Publish static website download catalog
+      - name: Publish Cloudflare website download catalog
         shell: bash
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           RELEASE_TAG: ${{ inputs.tag_name }}
         run: |
           set -euo pipefail
-          catalog_dir="$RUNNER_TEMP/pcln-download-catalog"
-          rm -rf "$catalog_dir"
-          if git fetch origin download-catalog:refs/remotes/origin/download-catalog; then
-            git worktree add --detach "$catalog_dir" refs/remotes/origin/download-catalog
-          else
-            git worktree add --detach "$catalog_dir" HEAD
-            git -C "$catalog_dir" switch --orphan download-catalog
-            git -C "$catalog_dir" rm -rf . || true
-          fi
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
+          catalog="$RUNNER_TEMP/launcher-releases.json"
+          npx --yes wrangler@4.120.0 r2 object get \
+            "pcln-releases/website/launcher-releases.json" \
+            --file "$catalog" --remote || printf '{"schemaVersion":1,"versions":[]}\n' > "$catalog"
 
           python scripts/update_download_catalog.py \
-            --file "$catalog_dir/downloads.json" \
+            --file "$catalog" \
             --tag "$RELEASE_TAG" \
             --channel '${{ inputs.channel }}' \
             --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          git -C "$catalog_dir" config user.name github-actions[bot]
-          git -C "$catalog_dir" config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git -C "$catalog_dir" add downloads.json
-          if git -C "$catalog_dir" diff --cached --quiet; then
-            echo "Download catalog is already current."
-          else
-            git -C "$catalog_dir" commit -m "chore(downloads): publish $RELEASE_TAG"
-            git -C "$catalog_dir" push origin HEAD:download-catalog
-          fi
+          npx --yes wrangler@4.120.0 r2 object put \
+            "pcln-releases/website/launcher-releases.json" \
+            --file "$catalog" --content-type "application/json; charset=utf-8" --remote
