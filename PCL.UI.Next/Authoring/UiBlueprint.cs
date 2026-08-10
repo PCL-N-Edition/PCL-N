@@ -5,6 +5,7 @@ namespace PCL.UI.Next;
 
 /// <summary>
 /// Immutable compiled UI graph (architecture §20). Built once; instantiated many times.
+/// Public accessors return copies / spans — the backing arrays are not exposed for mutation.
 /// </summary>
 public sealed class UiBlueprint
 {
@@ -12,27 +13,35 @@ public sealed class UiBlueprint
         string name,
         BlueprintNode[] nodes,
         BlueprintBinding[] bindings,
-        int rootIndex)
+        int rootIndex,
+        BlueprintDependencyIndex dependencyIndex)
     {
         Name = name;
         NodesCore = nodes;
         BindingsCore = bindings;
         RootIndex = rootIndex;
+        DependencyIndex = dependencyIndex;
     }
 
     public string Name { get; }
-
-    public IReadOnlyList<BlueprintNode> Nodes => NodesCore;
-
-    public IReadOnlyList<BlueprintBinding> Bindings => BindingsCore;
 
     public int RootIndex { get; }
 
     public int NodeCount => NodesCore.Length;
 
+    public int BindingCount => BindingsCore.Length;
+
+    /// <summary>Node by index (struct copy — cannot mutate the compiled graph).</summary>
+    public BlueprintNode GetNode(int index) => NodesCore[index];
+
+    /// <summary>Binding by index (struct copy).</summary>
+    public BlueprintBinding GetBinding(int index) => BindingsCore[index];
+
     internal BlueprintNode[] NodesCore { get; }
 
     internal BlueprintBinding[] BindingsCore { get; }
+
+    public BlueprintDependencyIndex DependencyIndex { get; }
 }
 
 /// <summary>One static node in a blueprint graph (sibling/child via indices).</summary>
@@ -57,7 +66,6 @@ public readonly struct BlueprintNode
         ParentIndex = parentIndex;
         FirstChildIndex = firstChildIndex;
         NextSiblingIndex = nextSiblingIndex;
-        // Defensive copy so callers cannot mutate the compiled graph.
         _styleClassIds = styleClassIds.Length == 0
             ? Array.Empty<int>()
             : (int[])styleClassIds.Clone();
@@ -73,23 +81,13 @@ public readonly struct BlueprintNode
     public int ParentIndex { get; }
     public int FirstChildIndex { get; }
     public int NextSiblingIndex { get; }
-
-    /// <summary>Style class ids; immutable view over a private array.</summary>
     public ReadOnlySpan<int> StyleClassIds => _styleClassIds;
-
     public UiBehavior Behaviors { get; }
     public int CommandId { get; }
     public string? StaticText { get; }
-
-    /// <summary>For <see cref="UiNodeKind.If"/>: root index of true template (-1 none).</summary>
     public int TrueBranchRoot { get; }
-
-    /// <summary>For <see cref="UiNodeKind.If"/>: root index of false template (-1 none).</summary>
     public int FalseBranchRoot { get; }
-
-    /// <summary>Index into <see cref="UiBlueprint.Bindings"/> for the condition (-1 none).</summary>
     public int ConditionBindingIndex { get; }
-
     public bool IsStructural => Kind == UiNodeKind.If;
 }
 
@@ -119,12 +117,8 @@ public readonly struct BlueprintBinding
 
     public int BindingId { get; }
     public int NodeIndex { get; }
-
-    /// <summary>First dependency slice (compat).</summary>
     public int DependencySlice => _dependencySlices[0];
-
     public ReadOnlySpan<int> DependencySlices => _dependencySlices;
-
     public BlueprintBindingKind Kind { get; }
     public Func<PresentationStore, string>? ReadString { get; }
     public Func<PresentationStore, bool>? ReadBool { get; }

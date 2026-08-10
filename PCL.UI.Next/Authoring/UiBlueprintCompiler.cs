@@ -39,7 +39,9 @@ public static class UiBlueprintCompiler
                 d.ConditionBindingIndex);
         }
 
-        return new UiBlueprint(name, nodes, bindings.ToArray(), rootIndex);
+        BlueprintBinding[] bindingArray = bindings.ToArray();
+        BlueprintDependencyIndex dependencyIndex = BlueprintDependencyIndex.Build(bindingArray);
+        return new UiBlueprint(name, nodes, bindingArray, rootIndex, dependencyIndex);
     }
 
     private static int Emit(

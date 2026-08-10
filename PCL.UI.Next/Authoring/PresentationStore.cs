@@ -19,11 +19,16 @@ public sealed class PresentationStore
         if (_slices.TryGetValue(sliceId, out Slice existing))
         {
             _slices[sliceId] = new Slice(value, existing.Version + 1);
+            SliceChanged?.Invoke(sliceId);
             return;
         }
 
         _slices[sliceId] = new Slice(value, 1);
+        SliceChanged?.Invoke(sliceId);
     }
+
+    /// <summary>Raised after a slice version advances (for reactive frame scheduling).</summary>
+    public event Action<int>? SliceChanged;
 
     public T Get<T>(int sliceId)
     {

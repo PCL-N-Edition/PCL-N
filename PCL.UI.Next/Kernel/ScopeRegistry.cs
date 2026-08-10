@@ -5,7 +5,8 @@ namespace PCL.UI.Next;
 
 /// <summary>
 /// Hierarchical UiScope allocator. Disposing a scope destroys owned entities via callback
-/// and invalidates the scope generation for async safety.
+/// and invalidates the scope generation for async safety. Owned resources can register
+/// for immediate disposal notification via <see cref="RegisterDisposeHandler"/>.
 /// </summary>
 public sealed class ScopeRegistry
 {
@@ -15,6 +16,7 @@ public sealed class ScopeRegistry
     private bool[] _alive = new bool[InitialCapacity];
     private UiScopeId[] _parents = new UiScopeId[InitialCapacity];
     private List<int>?[] _children = new List<int>?[InitialCapacity];
+    private List<Action<UiScopeId>>?[] _disposeHandlers = new List<Action<UiScopeId>>?[InitialCapacity];
     private readonly Stack<int> _free = new();
     private int _highWater = 1;
     private int _aliveCount;
@@ -28,6 +30,7 @@ public sealed class ScopeRegistry
         _alive[index] = true;
         _parents[index] = UiScopeId.None;
         EnsureChildList(index).Clear();
+        ClearHandlers(index);
         _aliveCount++;
         return new UiScopeId(index, generation);
     }
@@ -42,6 +45,7 @@ public sealed class ScopeRegistry
         _alive[index] = true;
         _parents[index] = parent;
         EnsureChildList(index).Clear();
+        ClearHandlers(index);
         EnsureChildList(parent.Index).Add(index);
         _aliveCount++;
         return new UiScopeId(index, generation);
@@ -67,15 +71,29 @@ public sealed class ScopeRegistry
     }
 
     /// <summary>
-    /// Disposes scope and descendants (children first). Invokes
-    /// <paramref name="onDispose"/> once per disposed scope before invalidating it.
+    /// Registers a handler invoked when this scope is disposed (before the slot is invalidated).
+    /// Returns an <see cref="IDisposable"/> that removes the handler if still registered.
+    /// </summary>
+    public IDisposable RegisterDisposeHandler(UiScopeId scope, Action<UiScopeId> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        if (!IsAlive(scope))
+            throw new InvalidOperationException("Scope is not alive: " + scope);
+
+        List<Action<UiScopeId>> list = EnsureHandlers(scope.Index);
+        list.Add(handler);
+        return new DisposeHandlerRegistration(this, scope, handler);
+    }
+
+    /// <summary>
+    /// Disposes scope and descendants (children first). Invokes registered dispose handlers
+    /// and optional <paramref name="onDispose"/> once per disposed scope before invalidating it.
     /// </summary>
     public bool Dispose(UiScopeId scope, Action<UiScopeId>? onDispose = null)
     {
         if (!IsAlive(scope))
             return false;
 
-        // Collect post-order list of scopes.
         List<UiScopeId> order = [];
         CollectSubtreePostOrder(scope, order);
 
@@ -83,6 +101,9 @@ public sealed class ScopeRegistry
         {
             if (!IsAlive(current))
                 continue;
+
+            // Owned-resource handlers first (BlueprintInstance, future Animation, NativeHost…).
+            InvokeHandlers(current);
             onDispose?.Invoke(current);
             InvalidateSlot(current.Index);
         }
@@ -101,6 +122,19 @@ public sealed class ScopeRegistry
             if (_alive[childIndex])
                 destination.Add(new UiScopeId(childIndex, _generations[childIndex]));
         }
+    }
+
+    private void InvokeHandlers(UiScopeId scope)
+    {
+        List<Action<UiScopeId>>? list = _disposeHandlers[scope.Index];
+        if (list is null || list.Count == 0)
+            return;
+
+        // Copy so handlers may unregister during dispose.
+        Action<UiScopeId>[] snapshot = list.ToArray();
+        list.Clear();
+        foreach (Action<UiScopeId> handler in snapshot)
+            handler(scope);
     }
 
     private void CollectSubtreePostOrder(UiScopeId root, List<UiScopeId> order)
@@ -126,6 +160,21 @@ public sealed class ScopeRegistry
         return list;
     }
 
+    private List<Action<UiScopeId>> EnsureHandlers(int index)
+    {
+        List<Action<UiScopeId>>? list = _disposeHandlers[index];
+        if (list is not null)
+            return list;
+        list = [];
+        _disposeHandlers[index] = list;
+        return list;
+    }
+
+    private void ClearHandlers(int index)
+    {
+        _disposeHandlers[index]?.Clear();
+    }
+
     private void InvalidateSlot(int index)
     {
         UiScopeId parent = _parents[index];
@@ -135,6 +184,7 @@ public sealed class ScopeRegistry
         _alive[index] = false;
         _parents[index] = UiScopeId.None;
         _children[index]?.Clear();
+        ClearHandlers(index);
         uint nextGen = unchecked(_generations[index] + 1);
         if (nextGen == 0)
             nextGen = 1;
@@ -175,5 +225,37 @@ public sealed class ScopeRegistry
         Array.Resize(ref _alive, newCapacity);
         Array.Resize(ref _parents, newCapacity);
         Array.Resize(ref _children, newCapacity);
+        Array.Resize(ref _disposeHandlers, newCapacity);
+    }
+
+    private bool TryUnregisterHandler(UiScopeId scope, Action<UiScopeId> handler)
+    {
+        if (scope.Index <= 0 || scope.Index >= _highWater)
+            return false;
+        List<Action<UiScopeId>>? list = _disposeHandlers[scope.Index];
+        return list is not null && list.Remove(handler);
+    }
+
+    private sealed class DisposeHandlerRegistration : IDisposable
+    {
+        private ScopeRegistry? _owner;
+        private readonly UiScopeId _scope;
+        private readonly Action<UiScopeId> _handler;
+
+        public DisposeHandlerRegistration(ScopeRegistry owner, UiScopeId scope, Action<UiScopeId> handler)
+        {
+            _owner = owner;
+            _scope = scope;
+            _handler = handler;
+        }
+
+        public void Dispose()
+        {
+            ScopeRegistry? owner = _owner;
+            if (owner is null)
+                return;
+            _owner = null;
+            owner.TryUnregisterHandler(_scope, _handler);
+        }
     }
 }

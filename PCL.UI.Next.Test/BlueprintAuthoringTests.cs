@@ -26,7 +26,7 @@ public sealed class BlueprintAuthoringTests
         UiBlueprint bp = Ui.Compile(tree, "Home");
         Assert.AreEqual("Home", bp.Name);
         Assert.IsTrue(bp.NodeCount >= 3);
-        Assert.AreEqual(UiNodeKind.Column, bp.Nodes[bp.RootIndex].Kind);
+        Assert.AreEqual(UiNodeKind.Column, bp.GetNode(bp.RootIndex).Kind);
     }
 
     [TestMethod]
@@ -249,14 +249,13 @@ public sealed class BlueprintAuthoringTests
     public void Blueprint_StyleClassIds_AreImmutable()
     {
         UiBlueprint bp = Ui.Compile(Ui.Text("x").Class(UiClass.Body));
-        ReadOnlySpan<int> ids = bp.Nodes[bp.RootIndex].StyleClassIds;
+        ReadOnlySpan<int> ids = bp.GetNode(bp.RootIndex).StyleClassIds;
         Assert.AreEqual(1, ids.Length);
-        // Span over private array — no public mutator; re-compile would be needed to change.
         Assert.AreEqual(UiClass.Body.Id, ids[0]);
     }
 
     [TestMethod]
-    public void ScopeDispose_PrunesBlueprintInstance()
+    public void ScopeDispose_UnregistersBlueprintInstanceImmediately()
     {
         UiWorld world = new(new DeterministicUiClock());
         UiScopeId root = world.CreateRootScope();
@@ -269,10 +268,55 @@ public sealed class BlueprintAuthoringTests
         BlueprintInstance live = inst.Instantiate(Ui.Compile(Ui.Text().BindText(title)), page);
         Assert.AreEqual(1, inst.Instances.Count);
 
+        // True scope ownership: no UpdateAll required.
         world.DisposeScope(page);
-        inst.UpdateAll();
         Assert.AreEqual(0, inst.Instances.Count);
         Assert.IsFalse(live.IsAlive);
+    }
+
+    [TestMethod]
+    public void Pipeline_BindingUpdateRunsWithoutManualUpdate()
+    {
+        UiWorld world = new(new DeterministicUiClock());
+        UiScopeId scope = world.CreateRootScope();
+        var store = new PresentationStore();
+        store.Set(TitleSlice, "before");
+        var inst = new BlueprintInstantiator(world, store); // registers BlueprintRuntimeSystem
+
+        UiSelector<string> title = UiSelectors.String(TitleSelectorId, TitleSlice, s => s.Get<string>(TitleSlice));
+        BlueprintInstance live = inst.Instantiate(Ui.Compile(Ui.Text().BindText(title)), scope);
+        Assert.AreEqual("before", world.Components.Get<TextContent>(live.RootEntity).Value);
+
+        store.Set(TitleSlice, "after"); // schedules reactive frame
+        Assert.IsTrue(world.Scheduler.NeedsFrame);
+        Assert.IsTrue(world.Update());
+        Assert.AreEqual("after", world.Components.Get<TextContent>(live.RootEntity).Value);
+    }
+
+    [TestMethod]
+    public void DependencyIndex_OnlyTouchesAffectedBindings()
+    {
+        UiWorld world = new(new DeterministicUiClock());
+        UiScopeId scope = world.CreateRootScope();
+        var store = new PresentationStore();
+        store.Set(TitleSlice, "t");
+        store.Set(UserSlice, "u");
+        var inst = new BlueprintInstantiator(world, store, registerPipelineSystem: false);
+
+        UiSelector<string> t = UiSelectors.String(TitleSelectorId, TitleSlice, s => s.Get<string>(TitleSlice));
+        UiSelector<string> u = UiSelectors.String(UserSelectorId, UserSlice, s => s.Get<string>(UserSlice));
+        UiBlueprint bp = Ui.Compile(Ui.Column(Ui.Text().BindText(t), Ui.Text().BindText(u)));
+        Assert.IsTrue(bp.DependencyIndex.TryGetPropertyBindings(TitleSlice, out ReadOnlySpan<int> titleBindings));
+        Assert.AreEqual(1, titleBindings.Length);
+        Assert.IsTrue(bp.DependencyIndex.TryGetPropertyBindings(UserSlice, out ReadOnlySpan<int> userBindings));
+        Assert.AreEqual(1, userBindings.Length);
+
+        BlueprintInstance live = inst.Instantiate(bp, scope);
+        store.Set(UserSlice, "u2");
+        inst.Update(live);
+        // Both texts still correct; dispatch only needed UserSlice binding.
+        Assert.AreEqual("t", GetMountedTexts(world, live)[0]);
+        Assert.AreEqual("u2", GetMountedTexts(world, live)[1]);
     }
 
     [TestMethod]
@@ -309,5 +353,23 @@ public sealed class BlueprintAuthoringTests
         if (!world.Entities.IsAlive(text))
             return null;
         return world.Components.Pool<TextContent>().Get(text).Value;
+    }
+
+    private static List<string?> GetMountedTexts(UiWorld world, BlueprintInstance live)
+    {
+        List<string?> result = [];
+        for (int i = 0; i < live.Blueprint.NodeCount; i++)
+        {
+            UiEntity e = live.EntityAt(i);
+            if (!world.Entities.IsAlive(e))
+                continue;
+            if (world.Components.TryGet(e, out NodeKindComponent k) && k.Kind == UiNodeKind.Text &&
+                world.Components.TryGet(e, out TextContent text))
+            {
+                result.Add(text.Value);
+            }
+        }
+
+        return result;
     }
 }
