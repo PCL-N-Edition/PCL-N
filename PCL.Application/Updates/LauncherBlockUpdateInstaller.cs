@@ -98,13 +98,26 @@ public sealed partial class LauncherUpdateInstaller
             new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = 6 },
             async (block, token) =>
             {
-                await DownloadBlockAsync(
+                // Protocol v2: try VCDIFF from local source window first; any failure
+                // falls through to the immutable full gzip block (never fatal alone).
+                bool materialised = await TryMaterialiseBlockFromDeltaAsync(
                         package.BlockMapUrl!,
-                        map.BlockBasePath!,
                         cacheRoot,
                         block,
+                        localBlocks,
                         token)
                     .ConfigureAwait(false);
+                if (!materialised)
+                {
+                    await DownloadBlockAsync(
+                            package.BlockMapUrl!,
+                            map.BlockBasePath!,
+                            cacheRoot,
+                            block,
+                            token)
+                        .ConfigureAwait(false);
+                }
+
                 lock (verifiedCache)
                     verifiedCache.Add(block.Sha256!);
                 int completed = Interlocked.Increment(ref downloaded);
@@ -516,6 +529,98 @@ public sealed partial class LauncherUpdateInstaller
         }
         try { File.Delete(path); } catch (IOException) { }
         return false;
+    }
+
+    private async Task<bool> TryMaterialiseBlockFromDeltaAsync(
+        string blockMapUrl,
+        string cacheRoot,
+        LauncherUpdateBlock block,
+        IReadOnlyDictionary<string, LocalBlockSource> localBlocks,
+        CancellationToken cancellationToken)
+    {
+        if (block.Deltas is not { Count: > 0 } || string.IsNullOrWhiteSpace(block.Sha256))
+            return false;
+
+        foreach (LauncherUpdateBlockDelta delta in block.Deltas)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!string.Equals(delta.Algorithm, LauncherUpdateVcdiff.Algorithm, StringComparison.Ordinal) ||
+                string.IsNullOrWhiteSpace(delta.Path) ||
+                string.IsNullOrWhiteSpace(delta.SourceSha256))
+            {
+                continue;
+            }
+
+            try
+            {
+                byte[]? sourceWindow = await LauncherUpdateLocalBlockIndex.TryReadSourceWindowAsync(
+                        delta.SourceChunks,
+                        delta.SourceSha256,
+                        delta.SourceSize,
+                        localBlocks,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (sourceWindow is null)
+                    continue;
+
+                byte[] deltaBytes = await DownloadDeltaBytesAsync(blockMapUrl, delta, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!LauncherUpdateVcdiff.TryDecode(deltaBytes, sourceWindow, out byte[] target) ||
+                    target.LongLength != block.Size)
+                {
+                    PortableLog.Debug("Update", $"VCDIFF 解码失败，回退 full block：{block.Sha256}");
+                    continue;
+                }
+
+                string actual = Convert.ToHexStringLower(SHA256.HashData(target));
+                if (!string.Equals(actual, block.Sha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    PortableLog.Debug("Update", $"VCDIFF 目标校验失败，回退 full block：{block.Sha256}");
+                    continue;
+                }
+
+                string destination = GetBlockCachePath(cacheRoot, block.Sha256);
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                string temporary = destination + ".tmp-" + Guid.NewGuid().ToString("N");
+                await File.WriteAllBytesAsync(temporary, target, cancellationToken).ConfigureAwait(false);
+                File.Move(temporary, destination, overwrite: true);
+                PortableLog.Info("Update", $"已用 VCDIFF 重建分块：{block.Sha256}");
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
+                                           or HttpRequestException or NotSupportedException)
+            {
+                PortableLog.Debug("Update", $"VCDIFF 路径异常，回退 full block：{block.Sha256}；{ex.Message}");
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<byte[]> DownloadDeltaBytesAsync(
+        string blockMapUrl,
+        LauncherUpdateBlockDelta delta,
+        CancellationToken cancellationToken)
+    {
+        Uri mapUri = new(blockMapUrl, UriKind.Absolute);
+        string relative = delta.Path!.Replace('\\', '/').TrimStart('/');
+        UriBuilder builder = new(mapUri.Scheme, mapUri.Host, mapUri.Port)
+        {
+            Path = "/v1/updates/" + relative
+        };
+        string deltaUrl = builder.Uri.AbsoluteUri;
+        using HttpResponseMessage response = await GetUpdateResponseAsync(
+                deltaUrl,
+                retryNotFound: true,
+                cancellationToken)
+            .ConfigureAwait(false);
+        EnsureUpdateResponseSuccess(response, deltaUrl);
+        if (response.Content.Headers.ContentLength is long length && length != delta.Size)
+            throw new InvalidDataException($"VCDIFF 大小不一致：{delta.Path}");
+        byte[] bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        if (bytes.LongLength != delta.Size)
+            throw new InvalidDataException($"VCDIFF 实际大小不一致：{delta.Path}");
+        return bytes;
     }
 
     private async Task DownloadBlockAsync(
