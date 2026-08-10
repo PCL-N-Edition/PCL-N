@@ -5,8 +5,9 @@
 1. **Releases never ship a `NoPlugin` SKU.** Artifacts are host-only: `SelfContained` / `NoRuntime`, unless a pipeline explicitly enables source-overlay inject.
 2. **Default host body contains no plugin product code.**  
    No embed of `PCL.Plugin` IL, no `LoadFromStream` plugin loader.
-3. **Plugin product is an out-of-process CoreCLR sidecar** (see [plugin-sidecar-ipc.md](./plugin-sidecar-ipc.md)): host stays AOT-capable; `PCL.Plugin.Sidecar` owns ALC / Harmony / market.
-4. Legacy in-process source-overlay (`PclWithPlugin=true`) is deprecated for product packages.
+3. **Plugin product is an out-of-process CoreCLR sidecar** (see [plugin-sidecar-ipc.md](./plugin-sidecar-ipc.md)): host stays AOT-capable; `PCL.Plugin.Sidecar` owns ALC / Harmony / market / DirectInject & IndirectInject.
+4. **Sidecar Release binaries are obfuscated (Obfuscar) and ship without PDBs or a host symbol table.** DirectInject targets host methods by assembly/type/method names (or optional local `PCLN_HOST_SYMBOLS_PATH` for debug only).
+5. Legacy in-process source-overlay (`PclWithPlugin=true`) is for debug / special builds, not store AOT packages.
 
 Privileged platform / marketplace / `.pnp` products run in the sidecar process only.
 

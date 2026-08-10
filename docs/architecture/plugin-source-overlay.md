@@ -12,17 +12,29 @@
 
 ```
 main 合入
-  → bump PCL.Plugin.csproj Version
+  → bump PCL.Plugin.csproj Version (e.g. 0.20.0)
   → push main
   → annotated tag vX.Y.Z + push tag
   → GitHub Release（changelog / releases/latest 发现用）
   → release.yml：校验 host-overlay + build/test + 宿主 source-overlay 冒烟编译
+  → 宿主 CI/本地：build-plugin-sidecar.ps1 -Publish（Release、无 PDB、Obfuscar）
 ```
 
-DLL 上传**不是**注入前置条件。GitHub Release 主要用于：
+### 产品策略（v0.20+）
+
+| 项 | 策略 |
+|----|------|
+| 宿主符号表 | **不**随 PCL.Plugin 发布（无嵌入 `host-symbols.json`） |
+| 调试符号 | Release **不**附带 PDB |
+| Sidecar 二进制 | Release publish 对 `PCL.Plugin*.dll` 做 **Obfuscar** 混淆 |
+| DirectInject | 使用 `Target(assembly,type,method)`；`TargetSymbol` 仅本地 `PCLN_HOST_SYMBOLS_PATH` 调试 |
+
+DLL 上传**不是** source-overlay 注入前置条件。GitHub Release 主要用于：
 
 - 给 `apply-plugin-overlay -Channel Latest`（默认）解析 `releases/latest` 的 **tag 名**
 - 给人看的更新说明
+
+AOT 宿主嵌入的是 **混淆后的 sidecar zip**（见 `scripts/pack-plugin-sidecar-zip.ps1`）。
 
 ## Pipeline
 
