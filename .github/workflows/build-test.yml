@@ -104,12 +104,13 @@ jobs:
         run: |
           set -euo pipefail
           tmp="$(mktemp -d)"
+          export PYTHONPATH="${GITHUB_WORKSPACE}/scripts${PYTHONPATH:+:$PYTHONPATH}"
           python - <<PY
-          from pathlib import Path
-          import generate_update_blockmap as b
           import sys
+          from pathlib import Path
           sys.path.insert(0, "scripts")
-          root = Path("$tmp")
+          import generate_update_blockmap as b
+          root = Path(r"""$tmp""")
           sample = root / "sample.bin"
           sample.write_bytes(b"pcln-v2-validate-" * 8000)
           maps = b.build_file_blockmap(
@@ -125,11 +126,13 @@ jobs:
           )
           print("maps", [m.name for m in maps])
           PY
-          PYTHONPATH=scripts python scripts/validate_update_release.py \
+          python scripts/validate_update_release.py \
             --manifest-dir "$tmp/dist/manifests" \
             --local-root "$tmp/dist"
       - name: Benchmark gate (synthetic 1.4.3→1.4.4 corpus)
-        run: PYTHONPATH=scripts python scripts/benchmark_update_v2.py
+        run: |
+          export PYTHONPATH="${GITHUB_WORKSPACE}/scripts${PYTHONPATH:+:$PYTHONPATH}"
+          python scripts/benchmark_update_v2.py
 
   # Rolling CI package for the "CI" update channel. Content-addressed blocks only — never patches.
   publish-ci-rolling:
