@@ -32,6 +32,8 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
     private PreparedLauncherUpdate? _preparedUpdate;
     private PreparedLauncherUpdate? _installOnExit;
     private LauncherUpdateProgress? _latestProgress;
+    private CancellationTokenSource? _activeUpdateCts;
+    private string? _activeUpdateVersion;
     private bool _updateOperationActive;
     private int _installScheduled;
     private bool _disposed;
@@ -76,6 +78,36 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
                 return _updateOperationActive &&
                        _latestProgress is { Stage: not LauncherUpdateStage.Ready };
             }
+        }
+    }
+
+    /// <summary>Target version string while an update download/install flow is active.</summary>
+    public string? ActiveUpdateVersion
+    {
+        get
+        {
+            lock (_sync)
+                return _activeUpdateVersion;
+        }
+    }
+
+    /// <summary>Cancels the in-flight prepare/download if one is running.</summary>
+    public bool TryCancelActiveUpdate()
+    {
+        CancellationTokenSource? cts;
+        lock (_sync)
+            cts = _activeUpdateCts;
+        if (cts is null)
+            return false;
+        try
+        {
+            cts.Cancel();
+            PortableLog.Info("Update", "用户取消了进行中的启动器更新。");
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
         }
     }
 
@@ -267,6 +299,7 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
 
         await _updateFlowGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         bool operationActivated = false;
+        CancellationTokenSource? linkedCts = null;
         try
         {
             LauncherInstallationContext installation = LauncherInstallationContext.Detect();
@@ -276,24 +309,32 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
                 return;
             }
 
+            linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            lock (_sync)
+            {
+                _activeUpdateCts = linkedCts;
+                _activeUpdateVersion = package.TargetVersion;
+            }
+
             SetUpdateOperationActive(true);
             operationActivated = true;
+            CancellationToken flowToken = linkedCts.Token;
             switch (mode)
             {
                 case 0:
                     ClearSkippedVersion(result);
-                    InstallAndRestart(await PrepareAsync(package, cancellationToken).ConfigureAwait(false));
+                    InstallAndRestart(await PrepareAsync(package, flowToken).ConfigureAwait(false));
                     return;
                 case 1:
                 {
                     ClearSkippedVersion(result);
-                    PreparedLauncherUpdate prepared = await PrepareAsync(package, cancellationToken).ConfigureAwait(false);
-                    await PromptDownloadedUpdateAsync(result, prepared, cancellationToken).ConfigureAwait(false);
+                    PreparedLauncherUpdate prepared = await PrepareAsync(package, flowToken).ConfigureAwait(false);
+                    await PromptDownloadedUpdateAsync(result, prepared, flowToken).ConfigureAwait(false);
                     return;
                 }
                 case 2:
                 {
-                    int choice = await PromptAvailableUpdateAsync(result, cancellationToken).ConfigureAwait(false);
+                    int choice = await PromptAvailableUpdateAsync(result, flowToken).ConfigureAwait(false);
                     PortableLog.Info("Update", $"更新提示选择={choice}；目标={UpdateIdentity(result)}。");
                     if (choice == 3)
                     {
@@ -304,17 +345,29 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
                         return;
 
                     ClearSkippedVersion(result);
-                    PreparedLauncherUpdate prepared = await PrepareAsync(package, cancellationToken).ConfigureAwait(false);
+                    PreparedLauncherUpdate prepared = await PrepareAsync(package, flowToken).ConfigureAwait(false);
                     if (choice == 2)
                         InstallAndRestart(prepared);
                     else
-                        await PromptDownloadedUpdateAsync(result, prepared, cancellationToken).ConfigureAwait(false);
+                        await PromptDownloadedUpdateAsync(result, prepared, flowToken).ConfigureAwait(false);
                     return;
                 }
             }
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Task-manager cancel of the download/install flow — not app shutdown.
+            PortableLog.Info("Update", "启动器更新流程已取消。");
+        }
         finally
         {
+            lock (_sync)
+            {
+                if (ReferenceEquals(_activeUpdateCts, linkedCts))
+                    _activeUpdateCts = null;
+                _activeUpdateVersion = null;
+            }
+            linkedCts?.Dispose();
             if (operationActivated)
                 SetUpdateOperationActive(false);
             _updateFlowGate.Release();

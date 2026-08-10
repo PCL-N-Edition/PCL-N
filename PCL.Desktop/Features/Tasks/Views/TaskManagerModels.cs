@@ -28,7 +28,12 @@ public sealed record TaskManagerEntrySnapshot(
     string? ErrorMessage = null,
     int ActiveThreads = 0,
     int ThreadLimit = 1,
-    IReadOnlyList<TaskManagerSubTaskSnapshot>? Steps = null);
+    IReadOnlyList<TaskManagerSubTaskSnapshot>? Steps = null,
+    /// <summary>
+    /// When false, the task card hides the top-right close/cancel control
+    /// (e.g. launcher self-update cannot be aborted mid-download).
+    /// </summary>
+    bool CanCancel = true);
 
 public sealed record TaskManagerSubTaskSnapshot(
     string Name,

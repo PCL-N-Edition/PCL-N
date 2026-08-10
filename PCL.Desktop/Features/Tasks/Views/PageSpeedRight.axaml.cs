@@ -50,7 +50,9 @@ public partial class PageSpeedRight : MyPageRight
             card.State = snapshot.State;
             card.Card.Title = snapshot.Title;
             bool isActive = snapshot.State is TaskManagerTaskState.Waiting or TaskManagerTaskState.Running;
-            card.CancelButton.IsVisible = isActive || snapshot.State is TaskManagerTaskState.Failed or TaskManagerTaskState.Canceled;
+            // Some tasks (e.g. launcher self-update) cannot be aborted mid-download.
+            card.CancelButton.IsVisible = snapshot.CanCancel &&
+                                         (isActive || snapshot.State is TaskManagerTaskState.Failed or TaskManagerTaskState.Canceled);
             card.CancelButton.ToolTip = isActive ? "取消任务" : "移除任务";
             UpdateContentRows(card, snapshot);
         });

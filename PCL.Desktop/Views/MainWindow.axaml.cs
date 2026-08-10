@@ -262,6 +262,7 @@ public partial class MainWindow : Window, IDisposable
         DesktopHostNotifications.Instance.Attach(OnHostNotification);
         DesktopHostNotifications.Instance.AttachChoice(OnHostChoiceAsync);
         DesktopHostBackgroundTasks.Instance.Attach(BeginHostBackgroundTask);
+        AttachLauncherUpdateTaskBridge();
         DesktopHost.Current.Navigation.Changed += NavigationRegistryChanged;
         DesktopHostNavigation.Instance.Attach(NavigateToHostRoute);
         _ = LoadProfilesAsync();
@@ -5141,6 +5142,7 @@ public partial class MainWindow : Window, IDisposable
         DesktopHostNotifications.Instance.Detach(OnHostNotification);
         DesktopHostNotifications.Instance.DetachChoice(OnHostChoiceAsync);
         DesktopHostBackgroundTasks.Instance.Detach();
+        DetachLauncherUpdateTaskBridge();
         DesktopHost.Current.Navigation.Changed -= NavigationRegistryChanged;
         DesktopHostNavigation.Instance.Detach(NavigateToHostRoute);
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
