@@ -163,4 +163,29 @@ public sealed class LauncherUpdateLocalBlockIndexTests
     {
         Assert.IsFalse(LauncherUpdateVcdiff.TryDecode([1, 2, 3, 4], [], out _));
     }
+
+    [TestMethod]
+    public void Vcdiff_DecodesPythonPublisherSample()
+    {
+        // Sample produced by scripts/pcln_vcdiff.py encode (RFC 3284, no secondary compression).
+        string sampleDir = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "..",
+            "scripts",
+            "tests"));
+        string deltaPath = Path.Combine(sampleDir, "_vcdiff_sample.bin");
+        string sourcePath = Path.Combine(sampleDir, "_vcdiff_source.bin");
+        string targetPath = Path.Combine(sampleDir, "_vcdiff_target.bin");
+        if (!File.Exists(deltaPath) || !File.Exists(sourcePath) || !File.Exists(targetPath))
+            Assert.Inconclusive("Python VCDIFF sample files not generated; run scripts/pcln_vcdiff sample once.");
+
+        byte[] delta = File.ReadAllBytes(deltaPath);
+        byte[] source = File.ReadAllBytes(sourcePath);
+        byte[] expected = File.ReadAllBytes(targetPath);
+        Assert.IsTrue(LauncherUpdateVcdiff.TryDecode(delta, source, out byte[] actual), "VCDIFF decode failed");
+        CollectionAssert.AreEqual(expected, actual);
+    }
 }

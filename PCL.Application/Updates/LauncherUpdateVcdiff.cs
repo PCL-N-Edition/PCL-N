@@ -133,9 +133,37 @@ internal static class LauncherUpdateVcdiff
 
             byte code = inst[instPos++];
             CodeEntry entry = DefaultCodeTable[code];
-            Execute(entry.Type1, entry.Size1, entry.Mode1, source, target, ref here, data, ref dataPos, addr, ref addrPos, cache);
+            Execute(
+                entry.Type1,
+                entry.Size1,
+                entry.Mode1,
+                source,
+                target,
+                ref here,
+                data,
+                ref dataPos,
+                inst,
+                ref instPos,
+                addr,
+                ref addrPos,
+                cache);
             if (entry.Type2 != InstType.Noop)
-                Execute(entry.Type2, entry.Size2, entry.Mode2, source, target, ref here, data, ref dataPos, addr, ref addrPos, cache);
+            {
+                Execute(
+                    entry.Type2,
+                    entry.Size2,
+                    entry.Mode2,
+                    source,
+                    target,
+                    ref here,
+                    data,
+                    ref dataPos,
+                    inst,
+                    ref instPos,
+                    addr,
+                    ref addrPos,
+                    cache);
+            }
         }
 
         if (here != targetLen)
@@ -152,6 +180,8 @@ internal static class LauncherUpdateVcdiff
         ref int here,
         ReadOnlySpan<byte> data,
         ref int dataPos,
+        ReadOnlySpan<byte> inst,
+        ref int instPos,
         ReadOnlySpan<byte> addr,
         ref int addrPos,
         AddressCache cache)
@@ -159,12 +189,9 @@ internal static class LauncherUpdateVcdiff
         if (type == InstType.Noop)
             return;
 
+        // RFC 3284: size 0 means a following integer in the instruction stream.
         if (size == 0)
-        {
-            size = type is InstType.Add or InstType.Run
-                ? ReadInt(data, ref dataPos)
-                : ReadInt(addr, ref addrPos);
-        }
+            size = ReadInt(inst, ref instPos);
 
         switch (type)
         {

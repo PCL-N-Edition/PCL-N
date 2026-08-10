@@ -206,7 +206,7 @@ jobs:
           export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
           # Upload immutable blocks first. CI publishes only Windows single-file
           # maps; expanded scatter build products never leave artifact storage.
-          find block-dist/block -type f -print0 | xargs -0 -r -P 6 -I '{}' \
+          find block-dist/block block-dist/delta -type f 2>/dev/null -print0 | xargs -0 -r -P 6 -I '{}' \
             bash -c '
               set -euo pipefail
               block="$1"

@@ -45,5 +45,26 @@ Use `--profile v1|v2|both` to control emission. CAS blocks are shared by content
 hash across profiles. The public mTLS endpoint remains `/v1/updates/block/ab/…`.
 New clients prefer `.blockmap.v2.json` and fall back to `.blockmap.json`.
 
+### VCDIFF (protocol v2)
+
+Pass up to two previous maps for source windows:
+
+```bash
+python scripts/generate_update_blockmap.py --file … --profile both \
+  --previous-blockmap previous/PCL_N_….blockmap.v2.json \
+  --previous-blockmap previous2/PCL_N_….blockmap.v2.json
+```
+
+For each new target chunk the publisher:
+
+1. Picks ≤3 source windows from the same relative path (±1 old chunks, ≤4 MiB)
+2. Encodes RFC 3284 VCDIFF (`scripts/pcln_vcdiff.py`)
+3. Admits when `delta ≤ 0.7 × full.gz` **and** saves ≥ 16 KiB
+4. Stores at most **2** deltas under `delta/v2/<hh>/<target>/<sourceWindowSha>.vcdiff`
+5. Emits nested `full` + `deltas[]` on v2 chunk entries
+
+Without `--previous-blockmap`, v2 maps still emit nested `full` only when deltas run;
+current dual-publish keeps flat chunk fields for compatibility.
+
 GitHub Release is only for installers and portable downloads; updater maps and
 blocks are published to Cloudflare R2.

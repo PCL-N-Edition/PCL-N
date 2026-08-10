@@ -17,11 +17,18 @@ import hashlib
 import json
 import shutil
 import stat
+import sys
 import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from pcln_vcdiff import attach_v2_deltas  # noqa: E402
 
 
 UINT64_MASK = (1 << 64) - 1
@@ -223,6 +230,21 @@ def _resolve_profiles(profile_arg: str) -> list[dict[str, Any]]:
     return [PROFILES[key]]
 
 
+def _load_previous_maps(paths: list[Path] | None) -> list[dict[str, Any]]:
+    maps: list[dict[str, Any]] = []
+    if not paths:
+        return maps
+    for path in paths:
+        path = path.resolve()
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or not isinstance(value.get("targetFiles"), list):
+            raise ValueError(f"invalid previous blockmap: {path}")
+        maps.append(value)
+    return maps
+
+
 def _write_manifest(
     *,
     profile: dict[str, Any],
@@ -240,6 +262,7 @@ def _write_manifest(
     referenced_compressed_bytes: int,
     created_blocks: int,
     created_bytes: int,
+    delta_stats: dict[str, int] | None = None,
 ) -> Path:
     manifest: dict[str, Any] = {
         "formatVersion": profile["format_version"],
@@ -272,6 +295,9 @@ def _write_manifest(
             "avg": profile["avg"],
             "max": profile["max"],
         }
+    if delta_stats:
+        manifest["stats"]["deltaCandidates"] = delta_stats.get("candidates", 0)
+        manifest["stats"]["deltasAccepted"] = delta_stats.get("accepted", 0)
     manifest_path = output_root / "manifests" / f"{stem}{profile['suffix']}"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -288,6 +314,7 @@ def build_blockmap(
     runtime_variant: str,
     configuration: str,
     profiles: list[dict[str, Any]] | None = None,
+    previous_maps: list[dict[str, Any]] | None = None,
 ) -> list[Path]:
     archive = archive.resolve()
     output_root = output_root.resolve()
@@ -332,6 +359,23 @@ def build_blockmap(
                 referenced_compressed_bytes += sum(chunk["compressedSize"] for chunk in chunks)
                 created_blocks += new_count
                 created_bytes += new_bytes
+            delta_stats = None
+            if profile.get("name") == "v2":
+                # Always normalize v2 chunks to nested full (+ optional deltas).
+                compatible = [
+                    previous
+                    for previous in (previous_maps or [])
+                    if previous.get("algorithm") in {None, profile["algorithm"], "pcln-fastcdc-v2"}
+                ]
+                delta_stats = attach_v2_deltas(
+                    entries,
+                    output_root=output_root,
+                    previous_maps=compatible or (previous_maps or []),
+                )
+                print(
+                    f"VCDIFF stats: candidates={delta_stats.get('candidates', 0)} "
+                    f"accepted={delta_stats.get('accepted', 0)}"
+                )
             results.append(
                 _write_manifest(
                     profile=profile,
@@ -349,6 +393,7 @@ def build_blockmap(
                     referenced_compressed_bytes=referenced_compressed_bytes,
                     created_blocks=created_blocks,
                     created_bytes=created_bytes,
+                    delta_stats=delta_stats,
                 )
             )
     return results
@@ -366,6 +411,7 @@ def build_file_blockmap(
     runtime_variant: str,
     configuration: str,
     profiles: list[dict[str, Any]] | None = None,
+    previous_maps: list[dict[str, Any]] | None = None,
 ) -> list[Path]:
     source = source.resolve()
     output_root = output_root.resolve()
@@ -392,6 +438,22 @@ def build_file_blockmap(
                 "chunks": chunks,
             }
         ]
+        delta_stats = None
+        if profile.get("name") == "v2":
+            compatible = [
+                previous
+                for previous in (previous_maps or [])
+                if previous.get("algorithm") in {None, profile["algorithm"], "pcln-fastcdc-v2"}
+            ]
+            delta_stats = attach_v2_deltas(
+                entries,
+                output_root=output_root,
+                previous_maps=compatible or (previous_maps or []),
+            )
+            print(
+                f"VCDIFF stats: candidates={delta_stats.get('candidates', 0)} "
+                f"accepted={delta_stats.get('accepted', 0)}"
+            )
         results.append(
             _write_manifest(
                 profile=profile,
@@ -409,6 +471,7 @@ def build_file_blockmap(
                 referenced_compressed_bytes=sum(chunk["compressedSize"] for chunk in chunks),
                 created_blocks=created_blocks,
                 created_bytes=created_bytes,
+                delta_stats=delta_stats,
             )
         )
     return results
@@ -433,8 +496,16 @@ def main() -> int:
         choices=("v1", "v2", "both"),
         help="FastCDC profile(s) to emit (default: both)",
     )
+    parser.add_argument(
+        "--previous-blockmap",
+        action="append",
+        default=[],
+        type=Path,
+        help="Previous version blockmap(s) for VCDIFF source windows (v2 only; repeatable, max useful=2)",
+    )
     args = parser.parse_args()
     profiles = _resolve_profiles(args.profile)
+    previous_maps = _load_previous_maps(args.previous_blockmap[:2] if args.previous_blockmap else None)
     if args.file is not None:
         if not args.target_asset_name or not args.entry_name:
             parser.error("--file requires --target-asset-name and --entry-name")
@@ -449,6 +520,7 @@ def main() -> int:
             runtime_variant=args.runtime_variant,
             configuration=args.configuration,
             profiles=profiles,
+            previous_maps=previous_maps,
         )
     else:
         manifests = build_blockmap(
@@ -460,6 +532,7 @@ def main() -> int:
             runtime_variant=args.runtime_variant,
             configuration=args.configuration,
             profiles=profiles,
+            previous_maps=previous_maps,
         )
     for manifest in manifests:
         print(f"Created block map: {manifest}")

@@ -64,10 +64,12 @@ def _read_current_blocks(manifest_dir: Path) -> set[str]:
         for file in value.get("targetFiles") or []:
             for chunk in file.get("chunks") or []:
                 sha256 = str(chunk.get("sha256") or "").lower()
+                full = chunk.get("full") if isinstance(chunk.get("full"), dict) else None
+                block_path = str((full or {}).get("path") or chunk.get("path") or "")
                 expected = f"block/{sha256[:2]}/{sha256}"
                 if len(sha256) != 64 or any(ch not in "0123456789abcdef" for ch in sha256):
                     raise ValueError(f"invalid block hash in {path}")
-                if chunk.get("path") != expected:
+                if block_path != expected:
                     raise ValueError(f"invalid block path in {path}")
                 hashes.add(sha256)
     return hashes

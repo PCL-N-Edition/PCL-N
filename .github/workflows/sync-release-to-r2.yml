@@ -119,7 +119,7 @@ jobs:
 
           export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
           npx --yes wrangler@4.120.0 --version
-          find block-dist/block -type f -print0 | xargs -0 -r -P 6 -I '{}' \
+          find block-dist/block block-dist/delta -type f 2>/dev/null -print0 | xargs -0 -r -P 6 -I '{}' \
             bash -c '
               set -euo pipefail
               block="$1"
