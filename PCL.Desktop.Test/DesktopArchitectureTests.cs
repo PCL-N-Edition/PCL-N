@@ -826,11 +826,15 @@ public sealed class DesktopArchitectureTests
         int updateHelper = program.IndexOf(
             "LauncherUpdateBootstrap.TryRunUpdateHelper(args",
             StringComparison.Ordinal);
+        int bootstrapGate = program.IndexOf(
+            "LauncherBootstrapGate.TryAllowDirectStart",
+            StringComparison.Ordinal);
         int crashGuard = program.IndexOf("UnhandledExceptionGuard.Install();", StringComparison.Ordinal);
         int nativeRuntime = program.IndexOf("PclEmbeddedNativeRuntime.EnsureInstalled();", StringComparison.Ordinal);
 
         Assert.IsTrue(updateHelper >= 0 && updateHelper < crashGuard);
         Assert.IsTrue(updateHelper < nativeRuntime);
+        Assert.IsTrue(bootstrapGate > updateHelper && bootstrapGate < nativeRuntime);
     }
 
     [TestMethod]

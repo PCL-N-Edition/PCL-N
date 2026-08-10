@@ -32,6 +32,14 @@ internal static class Program
         if (LauncherUpdateBootstrap.TryRunUpdateHelper(args, out int updateExitCode))
             return updateExitCode;
 
+        // Scatter product: refuse host/PCL-N-Host without the C launcher
+        // (native PATH missing → libSkiaSharp crash). Portable / embedded / dev exempt.
+        if (!LauncherBootstrapGate.TryAllowDirectStart(args, out string bootstrapMessage))
+        {
+            ShowLauncherRequiredMessage(bootstrapMessage);
+            return 2;
+        }
+
         bool completedNormally = false;
         UnhandledExceptionGuard.Install();
         try
@@ -210,6 +218,21 @@ internal static class Program
                 "日志：数据目录\\Logs 或 %LocalAppData%\\PCL-N\\Logs";
             if (OperatingSystem.IsWindows())
                 ShowWindowsMessageBox(text, "PCL N 启动失败");
+            else
+                Console.Error.WriteLine(text);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void ShowLauncherRequiredMessage(string text)
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+                ShowWindowsMessageBox(text, "请使用启动器打开 PCL N");
             else
                 Console.Error.WriteLine(text);
         }
