@@ -3687,7 +3687,39 @@ public partial class MainWindow : Window, IDisposable
         string minecraftRoot = string.IsNullOrWhiteSpace(request.MinecraftRootDirectory)
             ? GetDefaultMinecraftRoot()
             : request.MinecraftRootDirectory;
-        Directory.CreateDirectory(minecraftRoot);
+        // AppImage / package installs may still have a stale selected root under a
+        // read-only mount (issue #63). Prefer a writable default before creating dirs.
+        if (!LaunchInstanceDiscovery.CanUseAsMinecraftRoot(minecraftRoot))
+        {
+            string fallback = GetDefaultMinecraftRoot();
+            DesktopFileLog.Warn(
+                "Install",
+                $"目标游戏目录不可写，改用可写目录：{minecraftRoot} → {fallback}");
+            minecraftRoot = fallback;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(minecraftRoot);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            string fallback = LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
+            if (string.Equals(
+                    Path.GetFullPath(minecraftRoot),
+                    Path.GetFullPath(fallback),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw;
+            }
+
+            DesktopFileLog.Warn(
+                "Install",
+                $"创建游戏目录失败，回退到当前目录：{minecraftRoot} → {fallback}",
+                ex);
+            minecraftRoot = fallback;
+            Directory.CreateDirectory(minecraftRoot);
+        }
         LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
         int downloadThreadLimit = Math.Clamp(
             settings.GetIntegerOption(LauncherSettingKeys.ToolDownloadThread, 63) + 1,
@@ -5096,17 +5128,32 @@ public partial class MainWindow : Window, IDisposable
 
     private string GetDefaultMinecraftRoot()
     {
-        if (!string.IsNullOrWhiteSpace(_launchLeft?.MinecraftRootDirectory))
+        if (!string.IsNullOrWhiteSpace(_launchLeft?.MinecraftRootDirectory) &&
+            LaunchInstanceDiscovery.CanUseAsMinecraftRoot(_launchLeft.MinecraftRootDirectory))
+        {
             return _launchLeft.MinecraftRootDirectory;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_folderStore.SelectedRoot) &&
+            LaunchInstanceDiscovery.CanUseAsMinecraftRoot(_folderStore.SelectedRoot))
+        {
+            return _folderStore.SelectedRoot;
+        }
 
         IReadOnlyList<string> roots = LaunchInstanceDiscovery.GetCandidateRoots();
         foreach (string root in roots)
         {
-            if (Directory.Exists(root))
+            if (Directory.Exists(root) && LaunchInstanceDiscovery.CanUseAsMinecraftRoot(root))
                 return root;
         }
 
-        return roots.Count > 0 ? roots[0] : LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
+        foreach (string root in roots)
+        {
+            if (LaunchInstanceDiscovery.CanUseAsMinecraftRoot(root))
+                return root;
+        }
+
+        return LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
     }
 
     private void ExtraDockViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

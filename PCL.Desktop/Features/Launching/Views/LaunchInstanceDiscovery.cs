@@ -4,6 +4,7 @@
 
 using PCL.Application.Launching;
 using PCL.Core.Logging;
+using PCL.Desktop.Paths;
 
 namespace PCL.Desktop.Features.Launching.Views;
 
@@ -150,8 +151,60 @@ public static class LaunchInstanceDiscovery
         return roots.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    public static string GetCurrentMinecraftRoot() =>
-        Path.Combine(Program.GetLauncherDirectory(), ".minecraft");
+    /// <summary>
+    /// Default "当前" game root. Prefer <c>{host}/.minecraft</c> for portable builds;
+    /// when the host directory is not writable (AppImage FUSE mounts, system packages,
+    /// Program Files, etc.) fall back to the launcher data directory so installs do not
+    /// crash with "Read-only file system" (see issue #63).
+    /// </summary>
+    public static string GetCurrentMinecraftRoot()
+    {
+        string hostDirectory = Program.GetLauncherDirectory();
+        string besideHost = Path.Combine(hostDirectory, ".minecraft");
+        if (CanUseAsMinecraftRoot(besideHost))
+            return NormalizePath(besideHost) ?? besideHost;
+
+        string underData = Path.Combine(LauncherPathLayout.ResolveDataDirectory(), ".minecraft");
+        return NormalizePath(underData) ?? underData;
+    }
+
+    /// <summary>
+    /// True when Minecraft game files can be created under <paramref name="minecraftRoot"/>
+    /// (directory already exists and is writable, or an ancestor is writable so the tree can
+    /// be created). Used to skip AppImage / package read-only mounts.
+    /// </summary>
+    public static bool CanUseAsMinecraftRoot(string? minecraftRoot)
+    {
+        if (string.IsNullOrWhiteSpace(minecraftRoot))
+            return false;
+
+        try
+        {
+            string full = Path.GetFullPath(minecraftRoot.Trim());
+
+            // AppImage always runs from a read-only FUSE mount (e.g. /tmp/.mount_…/usr/bin).
+            if (IsKnownReadOnlyPackageHost(full))
+                return false;
+
+            if (Directory.Exists(full))
+                return IsDirectoryWritable(full);
+
+            string? ancestor = Path.GetDirectoryName(full);
+            while (!string.IsNullOrWhiteSpace(ancestor))
+            {
+                if (Directory.Exists(ancestor))
+                    return IsDirectoryWritable(ancestor);
+                ancestor = Path.GetDirectoryName(ancestor);
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException
+                                       or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
 
     public static string? GetOfficialMinecraftRoot()
     {
@@ -252,5 +305,53 @@ public static class LaunchInstanceDiscovery
     {
         if (!string.IsNullOrWhiteSpace(path))
             roots.Add(path);
+    }
+
+    private static bool IsKnownReadOnlyPackageHost(string fullPath)
+    {
+        string unix = fullPath.Replace('\\', '/');
+
+        // Squashfs/FUSE mount created by AppImage runtime (issue #63).
+        // Example: /tmp/.mount_pcl_n.JkiHla/usr/bin/.minecraft
+        if (unix.Contains("/.mount_", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // System package layouts are typically root-owned and not user-writable.
+        // Use Contains so Windows GetFullPath ("C:/usr/lib/pcl-n/…") still matches
+        // in unit tests and cross-platform path probes.
+        if (unix.Contains("/usr/lib/pcl-n/", StringComparison.OrdinalIgnoreCase) ||
+            unix.Contains("/opt/pcl-n/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsDirectoryWritable(string directory)
+    {
+        string probe = Path.Combine(directory, ".pcln-write-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(probe);
+            Directory.Delete(probe);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return false;
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(probe))
+                    Directory.Delete(probe, recursive: true);
+            }
+            catch
+            {
+                // Best-effort cleanup of a partial probe.
+            }
+        }
     }
 }

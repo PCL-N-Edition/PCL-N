@@ -774,9 +774,60 @@ public sealed class AvaloniaHeadlessTests
             : System.IO.Path.GetDirectoryName(
                 System.IO.Path.GetFullPath(Environment.ProcessPath!))!;
 
-        Assert.AreEqual(
-            System.IO.Path.Combine(executableDirectory, ".minecraft"),
-            LaunchInstanceDiscovery.GetCurrentMinecraftRoot());
+        // Portable / writable host: "当前" stays next to the executable.
+        // Read-only package hosts (AppImage mount, system packages) fall back to the
+        // launcher data directory — see LaunchInstanceDiscovery_CurrentFolderIsWritable.
+        string current = LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
+        string besideHost = System.IO.Path.Combine(executableDirectory, ".minecraft");
+        if (LaunchInstanceDiscovery.CanUseAsMinecraftRoot(besideHost))
+            Assert.AreEqual(System.IO.Path.GetFullPath(besideHost), System.IO.Path.GetFullPath(current));
+        else
+            Assert.AreNotEqual(System.IO.Path.GetFullPath(besideHost), System.IO.Path.GetFullPath(current));
+    }
+
+    [TestMethod]
+    public void LaunchInstanceDiscovery_CanUseAsMinecraftRoot_RejectsAppImageMount()
+    {
+        // Issue #63: AppImage FUSE mount is always read-only.
+        Assert.IsFalse(LaunchInstanceDiscovery.CanUseAsMinecraftRoot(
+            "/tmp/.mount_pcl_n.JkiHla/usr/bin/.minecraft"));
+        Assert.IsFalse(LaunchInstanceDiscovery.CanUseAsMinecraftRoot(
+            "/tmp/.mount_pcl_n.JkiHla/usr/bin"));
+        Assert.IsFalse(LaunchInstanceDiscovery.CanUseAsMinecraftRoot(
+            "/usr/lib/pcl-n/bin/.minecraft"));
+        Assert.IsFalse(LaunchInstanceDiscovery.CanUseAsMinecraftRoot(
+            "/opt/pcl-n/.minecraft"));
+    }
+
+    [TestMethod]
+    public void LaunchInstanceDiscovery_CanUseAsMinecraftRoot_AcceptsWritableTemp()
+    {
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcln-mc-root-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Assert.IsTrue(LaunchInstanceDiscovery.CanUseAsMinecraftRoot(root));
+            System.IO.Directory.CreateDirectory(root);
+            Assert.IsTrue(LaunchInstanceDiscovery.CanUseAsMinecraftRoot(root));
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(root))
+                System.IO.Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void LaunchInstanceDiscovery_CurrentFolderIsWritable()
+    {
+        // Never return a known read-only package path as "当前" (issue #63).
+        string current = LaunchInstanceDiscovery.GetCurrentMinecraftRoot();
+        string unix = current.Replace('\\', '/');
+        Assert.IsFalse(unix.Contains("/.mount_", StringComparison.OrdinalIgnoreCase));
+        Assert.IsTrue(
+            LaunchInstanceDiscovery.CanUseAsMinecraftRoot(current),
+            "GetCurrentMinecraftRoot must resolve to a writable location: " + current);
     }
 
     [TestMethod]
