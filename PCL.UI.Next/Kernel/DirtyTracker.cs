@@ -5,6 +5,11 @@ namespace PCL.UI.Next;
 
 /// <summary>
 /// Per-entity dirty flags with per-flag active sets for reactive system dispatch.
+/// <para>
+/// TODO (hot path): replace Dictionary + HashSet + per-Collect allocations with
+/// PackedDirtySet / SparseSet / reusable scratch buffers so interactive frames can
+/// target 0 B/frame. Correctness first; do not treat this Dictionary design as final.
+/// </para>
 /// </summary>
 public sealed class DirtyTracker
 {

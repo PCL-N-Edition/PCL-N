@@ -23,14 +23,14 @@ public sealed class GenerationFuzzTests
 
         for (int i = 0; i < 2000; i++)
         {
-            int op = rng.Next(0, 5);
+            int op = rng.Next(0, 6);
             switch (op)
             {
                 case 0:
                 case 1:
                 {
                     UiEntity e = world.CreateEntity(scope);
-                    world.Components.Pool<Tag>().Set(e, new Tag { N = i });
+                    world.Set(e, new Tag { N = i });
                     live.Add(e);
                     break;
                 }
@@ -68,12 +68,31 @@ public sealed class GenerationFuzzTests
                     world.Dirty.Mark(e, UiDirtyFlags.Render | UiDirtyFlags.Transform);
                     break;
                 }
+                case 5 when dead.Count > 0:
+                {
+                    // Attack component store with stale handles.
+                    UiEntity stale = dead[rng.Next(dead.Count)];
+                    try
+                    {
+                        world.Set(stale, new Tag { N = -1 });
+                        Assert.Fail("stale Set must throw");
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // expected
+                    }
+
+                    break;
+                }
             }
 
             foreach (UiEntity e in live)
                 Assert.IsTrue(world.Entities.IsAlive(e), "live handle must stay valid");
             foreach (UiEntity e in dead)
+            {
                 Assert.IsFalse(world.Entities.IsAlive(e), "destroyed handle must stay dead");
+                Assert.IsFalse(world.Components.Has<Tag>(e), "stale handle must not retain components");
+            }
         }
     }
 

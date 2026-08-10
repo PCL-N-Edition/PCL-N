@@ -4,15 +4,11 @@
 namespace PCL.UI.Next;
 
 /// <summary>
-/// Phase-1 built-in system that drains platform events and state patches into
-/// temporary lists so generation filtering is exercised every frame.
-/// Higher phases will replace this with real input / binding systems.
+/// Drains platform events / state patches into <see cref="UiWorld.FrameBuffers"/>
+/// for subsequent systems. Buffers are cleared at the start of the matching phase.
 /// </summary>
 public sealed class DrainQueuesSystem : IUiSystem
 {
-    private readonly List<UiPlatformEvent> _events = [];
-    private readonly List<UiStatePatch> _patches = [];
-
     public UiSystemPhase Phase { get; }
 
     public string Name { get; }
@@ -20,10 +16,6 @@ public sealed class DrainQueuesSystem : IUiSystem
     public int LastEventCount { get; private set; }
 
     public int LastPatchCount { get; private set; }
-
-    public IReadOnlyList<UiPlatformEvent> LastEvents => _events;
-
-    public IReadOnlyList<UiStatePatch> LastPatches => _patches;
 
     public DrainQueuesSystem(UiSystemPhase phase)
     {
@@ -47,12 +39,12 @@ public sealed class DrainQueuesSystem : IUiSystem
         ArgumentNullException.ThrowIfNull(world);
         if (Phase == UiSystemPhase.DrainPlatformEvents)
         {
-            _events.Clear();
-            LastEventCount = world.Events.Drain(_events, world.Scopes);
+            world.FrameBuffers.ClearPlatformEvents();
+            LastEventCount = world.Events.Drain(world.FrameBuffers.PlatformEvents, world.Scopes);
             return;
         }
 
-        _patches.Clear();
-        LastPatchCount = world.Patches.Drain(_patches, world.Scopes);
+        world.FrameBuffers.ClearStatePatches();
+        LastPatchCount = world.Patches.Drain(world.FrameBuffers.StatePatches, world.Scopes);
     }
 }

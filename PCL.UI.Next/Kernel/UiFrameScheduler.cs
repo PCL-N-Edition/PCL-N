@@ -17,7 +17,8 @@ public enum UiContinuousReason : uint
 
 /// <summary>
 /// Idle / reactive / continuous frame scheduler (architecture §32).
-/// Does not pump OS frames itself — the host polls <see cref="NeedsFrame"/>.
+/// Reactive requests made during a frame schedule the <em>next</em> frame —
+/// they must not be cleared by end-of-frame acknowledge of the current frame.
 /// </summary>
 public sealed class UiFrameScheduler
 {
@@ -46,8 +47,11 @@ public sealed class UiFrameScheduler
         _continuous &= ~reason;
     }
 
-    /// <summary>Consumes the reactive flag after a frame is executed.</summary>
-    public void AcknowledgeReactiveFrame() => _reactiveRequested = false;
+    /// <summary>
+    /// Call at frame start: consumes the request that caused this frame to run.
+    /// Mid-frame <see cref="RequestReactiveFrame"/> calls remain for frame N+1.
+    /// </summary>
+    public void BeginFrame() => _reactiveRequested = false;
 
     public void Reset()
     {

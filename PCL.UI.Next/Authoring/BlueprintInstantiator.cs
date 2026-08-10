@@ -121,22 +121,22 @@ public sealed class BlueprintInstantiator
 
         map[nodeIndex] = entity;
 
-        _world.Components.Pool<BlueprintNodeRef>().Set(entity, new BlueprintNodeRef
+        _world.Set(entity, new BlueprintNodeRef
         {
             InstanceId = instanceId,
             NodeIndex = nodeIndex
         });
-        _world.Components.Pool<NodeKindComponent>().Set(entity, new NodeKindComponent { Kind = node.Kind });
+        _world.Set(entity, new NodeKindComponent { Kind = node.Kind });
         if (node.StyleClassIds.Length > 0)
-            _world.Components.Pool<StyleClassSet>().Set(entity, StyleClassSet.From(node.StyleClassIds));
+            _world.Set(entity, StyleClassSet.From(node.StyleClassIds));
         if (node.Behaviors != UiBehavior.None)
-            _world.Components.Pool<BehaviorComponent>().Set(entity, new BehaviorComponent { Flags = node.Behaviors });
+            _world.Set(entity, new BehaviorComponent { Flags = node.Behaviors });
         if (node.CommandId != 0)
-            _world.Components.Pool<CommandBindingComponent>().Set(entity, new CommandBindingComponent { CommandId = node.CommandId });
+            _world.Set(entity, new CommandBindingComponent { CommandId = node.CommandId });
         if (node.Kind is UiNodeKind.Text or UiNodeKind.Button || node.StaticText is not null)
-            _world.Components.Pool<TextContent>().Set(entity, new TextContent { Value = node.StaticText });
+            _world.Set(entity, new TextContent { Value = node.StaticText });
         if (node.Kind == UiNodeKind.If)
-            _world.Components.Pool<StructuralIfState>().Set(entity, new StructuralIfState());
+            _world.Set(entity, new StructuralIfState());
 
         _world.Dirty.Mark(entity, UiDirtyFlags.Binding | UiDirtyFlags.Style | UiDirtyFlags.Render);
         return entity;
@@ -166,10 +166,7 @@ public sealed class BlueprintInstantiator
             if (binding.Kind == BlueprintBindingKind.Text && binding.ReadString is not null)
             {
                 string value = binding.ReadString(_store);
-                if (_world.Components.Pool<TextContent>().Has(entity))
-                    _world.Components.Pool<TextContent>().Get(entity).Value = value;
-                else
-                    _world.Components.Pool<TextContent>().Add(entity, new TextContent { Value = value });
+                _world.Set(entity, new TextContent { Value = value });
                 _world.Dirty.Mark(entity, UiDirtyFlags.Binding | UiDirtyFlags.TextMeasure | UiDirtyFlags.Render);
             }
         }

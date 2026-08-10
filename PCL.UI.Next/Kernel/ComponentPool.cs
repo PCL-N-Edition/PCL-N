@@ -6,6 +6,8 @@ namespace PCL.UI.Next;
 /// <summary>
 /// Sparse-index + packed dense array component storage (architecture §10).
 /// Sparse[entity.Index] stores denseIndex+1 (0 = absent).
+/// Mutation APIs are internal — call via <see cref="ComponentStore"/> / <see cref="UiWorld"/>
+/// so entity generation is validated (prevents stale-handle orphan dense entries).
 /// </summary>
 public sealed class ComponentPool<T> where T : struct
 {
@@ -50,7 +52,12 @@ public sealed class ComponentPool<T> where T : struct
         return true;
     }
 
-    public void Add(UiEntity entity, in T component)
+    /// <summary>
+    /// Mutates storage without aliveness checks. Caller must guarantee a live entity
+    /// (e.g. after <see cref="EntityRegistry.EnsureAlive"/>). Prefer
+    /// <see cref="ComponentStore.Add{T}"/> / <see cref="UiWorld.Add{T}"/>.
+    /// </summary>
+    internal void UnsafeAdd(UiEntity entity, in T component)
     {
         if (entity.IsNone || entity.Index <= 0)
             throw new ArgumentException("Cannot add component to None entity.", nameof(entity));
@@ -66,7 +73,8 @@ public sealed class ComponentPool<T> where T : struct
         _sparse[entity.Index] = dense + 1;
     }
 
-    public void Set(UiEntity entity, in T component)
+    /// <summary>See <see cref="UnsafeAdd"/>.</summary>
+    internal void UnsafeSet(UiEntity entity, in T component)
     {
         if (TryGetDenseIndex(entity, out int dense))
         {
@@ -74,10 +82,13 @@ public sealed class ComponentPool<T> where T : struct
             return;
         }
 
-        Add(entity, in component);
+        UnsafeAdd(entity, in component);
     }
 
-    public bool Remove(UiEntity entity)
+    /// <summary>
+    /// Removes by exact entity handle (generation-sensitive). Safe for destroy paths.
+    /// </summary>
+    internal bool UnsafeRemove(UiEntity entity)
     {
         if (!TryGetDenseIndex(entity, out int dense))
             return false;
@@ -98,7 +109,7 @@ public sealed class ComponentPool<T> where T : struct
         return true;
     }
 
-    public void Clear()
+    internal void Clear()
     {
         Array.Clear(_sparse, 0, _sparse.Length);
         Array.Clear(_denseEntities, 0, _count);

@@ -4,34 +4,52 @@
 namespace PCL.UI.Next;
 
 /// <summary>
-/// Fixed-order system pipeline (architecture §34). Systems within the same phase
-/// run in registration order.
+/// Fixed-order system pipeline (architecture §34).
+/// Phase ordinal decides major order; registration order decides order within a phase.
 /// </summary>
 public sealed class SystemPipeline
 {
-    private readonly List<IUiSystem> _systems = [];
+    private readonly List<Entry> _entries = [];
+    private int _nextRegistrationIndex;
     private bool _sorted = true;
 
-    public int Count => _systems.Count;
+    public int Count => _entries.Count;
 
-    public IReadOnlyList<IUiSystem> Systems => _systems;
+    public IReadOnlyList<IUiSystem> Systems
+    {
+        get
+        {
+            EnsureSorted();
+            return _entries.ConvertAll(static e => e.System);
+        }
+    }
 
     public void Register(IUiSystem system)
     {
         ArgumentNullException.ThrowIfNull(system);
-        _systems.Add(system);
+        _entries.Add(new Entry(_nextRegistrationIndex++, system));
         _sorted = false;
     }
 
     public bool Unregister(IUiSystem system)
     {
         ArgumentNullException.ThrowIfNull(system);
-        return _systems.Remove(system);
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            if (!ReferenceEquals(_entries[i].System, system))
+                continue;
+            _entries.RemoveAt(i);
+            _sorted = false;
+            return true;
+        }
+
+        return false;
     }
 
     public void Clear()
     {
-        _systems.Clear();
+        _entries.Clear();
+        _nextRegistrationIndex = 0;
         _sorted = true;
     }
 
@@ -39,8 +57,8 @@ public sealed class SystemPipeline
     {
         ArgumentNullException.ThrowIfNull(world);
         EnsureSorted();
-        for (int i = 0; i < _systems.Count; i++)
-            _systems[i].Update(world, in frame);
+        for (int i = 0; i < _entries.Count; i++)
+            _entries[i].System.Update(world, in frame);
     }
 
     /// <summary>Runs only systems whose phase is in <paramref name="phases"/>.</summary>
@@ -48,9 +66,9 @@ public sealed class SystemPipeline
     {
         ArgumentNullException.ThrowIfNull(world);
         EnsureSorted();
-        for (int i = 0; i < _systems.Count; i++)
+        for (int i = 0; i < _entries.Count; i++)
         {
-            IUiSystem system = _systems[i];
+            IUiSystem system = _entries[i].System;
             if (!ContainsPhase(phases, system.Phase))
                 continue;
             system.Update(world, in frame);
@@ -61,10 +79,10 @@ public sealed class SystemPipeline
     {
         if (_sorted)
             return;
-        _systems.Sort(static (a, b) =>
+        _entries.Sort(static (a, b) =>
         {
-            int phase = a.Phase.CompareTo(b.Phase);
-            return phase != 0 ? phase : string.CompareOrdinal(a.Name, b.Name);
+            int phase = a.System.Phase.CompareTo(b.System.Phase);
+            return phase != 0 ? phase : a.RegistrationIndex.CompareTo(b.RegistrationIndex);
         });
         _sorted = true;
     }
@@ -78,5 +96,11 @@ public sealed class SystemPipeline
         }
 
         return false;
+    }
+
+    private readonly struct Entry(int registrationIndex, IUiSystem system)
+    {
+        public int RegistrationIndex { get; } = registrationIndex;
+        public IUiSystem System { get; } = system;
     }
 }

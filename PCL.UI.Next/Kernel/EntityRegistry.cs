@@ -56,6 +56,13 @@ public sealed class EntityRegistry
         return _alive[entity.Index] && _generations[entity.Index] == entity.Generation;
     }
 
+    /// <summary>Throws if the handle is stale or never alive (generation safety).</summary>
+    public void EnsureAlive(UiEntity entity)
+    {
+        if (!IsAlive(entity))
+            throw new InvalidOperationException("Entity is not alive: " + entity);
+    }
+
     public bool TryGetScope(UiEntity entity, out UiScopeId scope)
     {
         if (!IsAlive(entity))

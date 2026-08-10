@@ -14,18 +14,22 @@ public sealed class UiWorld
     private UiTimestamp _lastFrameTime = UiTimestamp.Zero;
     private bool _hasLastFrameTime;
 
-    public UiWorld(IUiClock? clock = null)
+    public UiWorld(IUiClock? clock = null, bool registerDefaultDrainSystems = true)
     {
         Clock = clock ?? new StopwatchUiClock();
         Entities = new EntityRegistry();
         Scopes = new ScopeRegistry();
         Hierarchy = new HierarchyStore(Entities);
-        Components = new ComponentStore();
+        Components = new ComponentStore(Entities);
         Dirty = new DirtyTracker(Entities);
         Events = new EventQueue();
         Patches = new StatePatchQueue();
+        FrameBuffers = new UiFrameBuffers();
         Systems = new SystemPipeline();
         Scheduler = new UiFrameScheduler();
+
+        if (registerDefaultDrainSystems)
+            DrainQueuesSystem.RegisterDefaults(Systems);
     }
 
     public IUiClock Clock { get; }
@@ -43,6 +47,9 @@ public sealed class UiWorld
     public EventQueue Events { get; }
 
     public StatePatchQueue Patches { get; }
+
+    /// <summary>Per-frame drained event/patch buffers for systems to consume.</summary>
+    public UiFrameBuffers FrameBuffers { get; }
 
     public SystemPipeline Systems { get; }
 
@@ -74,6 +81,15 @@ public sealed class UiWorld
         Dirty.Mark(child, UiDirtyFlags.StructuralCascade);
         Scheduler.RequestReactiveFrame();
     }
+
+    public void Add<T>(UiEntity entity, in T component) where T : struct =>
+        Components.Add(entity, in component);
+
+    public void Set<T>(UiEntity entity, in T component) where T : struct =>
+        Components.Set(entity, in component);
+
+    public bool Remove<T>(UiEntity entity) where T : struct =>
+        Components.Remove<T>(entity);
 
     public void DestroyEntity(UiEntity entity)
     {
@@ -129,12 +145,16 @@ public sealed class UiWorld
 
     /// <summary>
     /// Runs one frame when the scheduler needs work (or <paramref name="force"/> is true).
-    /// Returns false when idle and not forced.
+    /// Reactive request that triggered this frame is consumed at <em>start</em>; requests
+    /// made during systems schedule frame N+1.
     /// </summary>
     public bool Update(bool force = false)
     {
         if (!force && !Scheduler.NeedsFrame)
             return false;
+
+        // Consume the request that caused this frame before systems run.
+        Scheduler.BeginFrame();
 
         UiTimestamp now = Clock.Now;
         double delta = 0d;
@@ -146,7 +166,6 @@ public sealed class UiWorld
 
         UiFrameContext frame = new(_frameIndex, delta, now);
         Systems.Run(this, in frame);
-        Scheduler.AcknowledgeReactiveFrame();
         return true;
     }
 

@@ -32,7 +32,7 @@ public sealed class HierarchyStore
         EnsureAlive(entity);
         if (_nodes.Has(entity))
             return;
-        _nodes.Add(entity, new HierarchyNode { Depth = 0 });
+        _nodes.UnsafeAdd(entity, new HierarchyNode { Depth = 0 });
         BumpStructure();
     }
 
@@ -50,7 +50,7 @@ public sealed class HierarchyStore
 
         EnsureRoot(parent);
         if (!_nodes.Has(child))
-            _nodes.Add(child, default);
+            _nodes.UnsafeAdd(child, default);
 
         ref HierarchyNode parentNode = ref _nodes.Get(parent);
         ref HierarchyNode childNode = ref _nodes.Get(child);
@@ -182,7 +182,7 @@ public sealed class HierarchyStore
             EnumerateChildren(entity, children);
             foreach (UiEntity child in children)
                 Detach(child);
-            _nodes.Remove(entity);
+            _nodes.UnsafeRemove(entity);
             BumpStructure();
         }
     }

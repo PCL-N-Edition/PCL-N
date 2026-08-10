@@ -5,12 +5,21 @@ namespace PCL.UI.Next;
 
 /// <summary>
 /// Typed component pool registry for a <see cref="UiWorld"/>.
-/// Hot paths should cache the returned <see cref="ComponentPool{T}"/> reference.
+/// All mutations validate entity generation via <see cref="EntityRegistry"/>.
+/// Hot paths may cache <see cref="Pool{T}"/> for reads; mutations should still go through
+/// <see cref="Add{T}"/> / <see cref="Set{T}"/> unless the caller already called EnsureAlive.
 /// </summary>
 public sealed class ComponentStore
 {
+    private readonly EntityRegistry _entities;
     private readonly Dictionary<Type, IComponentPool> _pools = new();
 
+    public ComponentStore(EntityRegistry entities)
+    {
+        _entities = entities ?? throw new ArgumentNullException(nameof(entities));
+    }
+
+    /// <summary>Read-only pool access (Has/Get/TryGet/enumerate).</summary>
     public ComponentPool<T> Pool<T>() where T : struct
     {
         Type type = typeof(T);
@@ -21,6 +30,31 @@ public sealed class ComponentStore
         _pools[type] = new ComponentPoolAdapter<T>(pool);
         return pool;
     }
+
+    public void Add<T>(UiEntity entity, in T component) where T : struct
+    {
+        _entities.EnsureAlive(entity);
+        Pool<T>().UnsafeAdd(entity, in component);
+    }
+
+    public void Set<T>(UiEntity entity, in T component) where T : struct
+    {
+        _entities.EnsureAlive(entity);
+        Pool<T>().UnsafeSet(entity, in component);
+    }
+
+    public bool Remove<T>(UiEntity entity) where T : struct
+    {
+        // Removal is generation-sensitive via dense entity match; allow no-op on stale.
+        return Pool<T>().UnsafeRemove(entity);
+    }
+
+    public bool Has<T>(UiEntity entity) where T : struct => Pool<T>().Has(entity);
+
+    public ref T Get<T>(UiEntity entity) where T : struct => ref Pool<T>().Get(entity);
+
+    public bool TryGet<T>(UiEntity entity, out T component) where T : struct =>
+        Pool<T>().TryGet(entity, out component);
 
     public bool RemoveAll(UiEntity entity)
     {
@@ -48,7 +82,7 @@ public sealed class ComponentStore
 
         public ComponentPool<T> Pool { get; }
 
-        public bool Remove(UiEntity entity) => Pool.Remove(entity);
+        public bool Remove(UiEntity entity) => Pool.UnsafeRemove(entity);
 
         public void Clear() => Pool.Clear();
     }

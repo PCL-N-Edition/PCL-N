@@ -9,27 +9,43 @@ public sealed class DirtyTrackerAndPipelineTests
 {
     private sealed class CountingSystem : IUiSystem
     {
-        public CountingSystem(UiSystemPhase phase, string name)
+        public CountingSystem(UiSystemPhase phase, string name, List<string>? order = null)
         {
             Phase = phase;
             Name = name;
+            _order = order;
         }
+
+        private readonly List<string>? _order;
 
         public UiSystemPhase Phase { get; }
         public string Name { get; }
         public int Runs { get; private set; }
 
-        public void Update(UiWorld world, in UiFrameContext frame) => Runs++;
+        public void Update(UiWorld world, in UiFrameContext frame)
+        {
+            Runs++;
+            _order?.Add(Name);
+        }
+    }
+
+    private sealed class RequestReactiveSystem : IUiSystem
+    {
+        public UiSystemPhase Phase => UiSystemPhase.BindingUpdate;
+        public string Name => "request-reactive";
+
+        public void Update(UiWorld world, in UiFrameContext frame) =>
+            world.Scheduler.RequestReactiveFrame();
     }
 
     [TestMethod]
     public void DirtyTracker_MarkCollectClear()
     {
-        UiWorld world = new(new DeterministicUiClock());
+        // Skip default drain systems noise for this test.
+        UiWorld world = new(new DeterministicUiClock(), registerDefaultDrainSystems: false);
         UiScopeId scope = world.CreateRootScope();
         UiEntity entity = world.CreateEntity(scope);
 
-        // CreateEntity already marks structural cascade.
         Assert.IsTrue(world.Dirty.Any(UiDirtyFlags.Structure));
 
         List<UiEntity> dirty = [];
@@ -43,35 +59,40 @@ public sealed class DirtyTrackerAndPipelineTests
     }
 
     [TestMethod]
-    public void SystemPipeline_RunsInPhaseOrder()
+    public void Phases_RunInOrdinalOrder()
     {
-        UiWorld world = new(new DeterministicUiClock());
-        var late = new CountingSystem(UiSystemPhase.BackendCommit, "z-late");
-        var early = new CountingSystem(UiSystemPhase.DrainPlatformEvents, "a-early");
-        var mid = new CountingSystem(UiSystemPhase.LayoutMeasure, "m-mid");
-        world.Systems.Register(late);
-        world.Systems.Register(early);
-        world.Systems.Register(mid);
-
+        UiWorld world = new(new DeterministicUiClock(), registerDefaultDrainSystems: false);
         List<string> order = [];
-        world.Systems.Register(new OrderProbe(order));
-        // Re-register probes as systems that record when they run via wrapper — simpler: just Run and check counts
+        world.Systems.Register(new CountingSystem(UiSystemPhase.BackendCommit, "late", order));
+        world.Systems.Register(new CountingSystem(UiSystemPhase.DrainPlatformEvents, "early", order));
+        world.Systems.Register(new CountingSystem(UiSystemPhase.LayoutMeasure, "mid", order));
+
         world.Update(force: true);
-        Assert.AreEqual(1, early.Runs);
-        Assert.AreEqual(1, mid.Runs);
-        Assert.AreEqual(1, late.Runs);
+        CollectionAssert.AreEqual(new[] { "early", "mid", "late" }, order);
+    }
+
+    [TestMethod]
+    public void SamePhase_PreservesRegistrationOrder()
+    {
+        UiWorld world = new(new DeterministicUiClock(), registerDefaultDrainSystems: false);
+        List<string> order = [];
+        // Names deliberately reverse-alphabetical so name-sort would reverse registration order.
+        world.Systems.Register(new CountingSystem(UiSystemPhase.BindingUpdate, "z-first", order));
+        world.Systems.Register(new CountingSystem(UiSystemPhase.BindingUpdate, "a-second", order));
+        world.Systems.Register(new CountingSystem(UiSystemPhase.BindingUpdate, "m-third", order));
+
+        world.Update(force: true);
+        CollectionAssert.AreEqual(new[] { "z-first", "a-second", "m-third" }, order);
     }
 
     [TestMethod]
     public void Scheduler_IdleWithoutWork()
     {
-        UiWorld world = new(new DeterministicUiClock());
-        // CreateEntity requests a reactive frame
+        UiWorld world = new(new DeterministicUiClock(), registerDefaultDrainSystems: false);
         UiScopeId scope = world.CreateRootScope();
         world.CreateEntity(scope);
         Assert.IsTrue(world.Scheduler.NeedsFrame);
         Assert.IsTrue(world.Update());
-        // After one update reactive is acknowledged; no continuous → idle
         Assert.IsFalse(world.Scheduler.NeedsFrame);
         Assert.IsFalse(world.Update());
     }
@@ -79,7 +100,7 @@ public sealed class DirtyTrackerAndPipelineTests
     [TestMethod]
     public void Scheduler_ContinuousKeepsTicking()
     {
-        UiWorld world = new(new DeterministicUiClock());
+        UiWorld world = new(new DeterministicUiClock(), registerDefaultDrainSystems: false);
         world.Scheduler.RequestContinuousFrame(UiContinuousReason.Animation);
         Assert.IsTrue(world.Update());
         Assert.IsTrue(world.Scheduler.NeedsFrame);
@@ -88,14 +109,18 @@ public sealed class DirtyTrackerAndPipelineTests
         Assert.IsFalse(world.Scheduler.NeedsFrame);
     }
 
-    private sealed class OrderProbe : IUiSystem
+    [TestMethod]
+    public void Scheduler_MidFrameRequest_SurvivesToNextFrame()
     {
-        private readonly List<string> _order;
+        UiWorld world = new(new DeterministicUiClock(), registerDefaultDrainSystems: false);
+        world.Systems.Register(new RequestReactiveSystem());
 
-        public OrderProbe(List<string> order) => _order = order;
+        // Force frame N; system requests reactive for N+1.
+        Assert.IsTrue(world.Update(force: true));
+        Assert.IsTrue(world.Scheduler.NeedsFrame, "mid-frame RequestReactiveFrame must schedule N+1");
 
-        public UiSystemPhase Phase => UiSystemPhase.BindingUpdate;
-        public string Name => "probe";
-        public void Update(UiWorld world, in UiFrameContext frame) => _order.Add(Name);
+        Assert.IsTrue(world.Update(), "frame N+1 must run");
+        // RequestReactiveSystem runs again → still needs another frame.
+        Assert.IsTrue(world.Scheduler.NeedsFrame);
     }
 }
