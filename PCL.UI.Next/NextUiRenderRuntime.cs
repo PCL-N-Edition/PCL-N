@@ -1,8 +1,6 @@
 // Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
-using PCL.UI.Next.Ecs;
-
 namespace PCL.UI.Next;
 
 /// <summary>
@@ -28,8 +26,8 @@ public static class NextUiRenderRuntime
         };
 
     /// <summary>
-    /// Creates a host instance. Safe while unimplemented — <see cref="EcsUiRenderHost.TryStart"/>
-    /// will refuse to activate the pipeline.
+    /// Creates a host instance. Safe while unimplemented —
+    /// <see cref="UiRuntimeHost.TryStart"/> refuses to activate the pipeline.
     /// </summary>
-    public static EcsUiRenderHost CreateHost() => new();
+    public static UiRuntimeHost CreateHost(IUiClock? clock = null) => new(clock);
 }

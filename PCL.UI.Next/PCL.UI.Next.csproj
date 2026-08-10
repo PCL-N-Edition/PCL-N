@@ -21,7 +21,8 @@
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
-    <!-- Product name is intentionally PCL.UI.Next; CA1716 flags "Next" as a VB reserved word. -->
-    <NoWarn>$(NoWarn);CA1716</NoWarn>
+    <!-- Product name is intentionally PCL.UI.Next; CA1716 flags "Next" as a VB reserved word.
+         CA1711: EventQueue/StatePatchQueue/UiDirtyFlags names match architecture doc. -->
+    <NoWarn>$(NoWarn);CA1716;CA1711;CA1036;CA1512;CA1305</NoWarn>
   </PropertyGroup>
 </Project>
