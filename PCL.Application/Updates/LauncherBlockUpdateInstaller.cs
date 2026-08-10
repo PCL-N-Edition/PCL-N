@@ -66,6 +66,7 @@ public sealed partial class LauncherUpdateInstaller
                 exactLocalFiles,
                 neededHashes,
                 profile,
+                map.Algorithm ?? profile.Algorithm,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -171,6 +172,10 @@ public sealed partial class LauncherUpdateInstaller
         }
 
         await VerifyTreeAsync(targetRoot, targetFiles.Values, map.TargetManifestSha256!, cancellationToken)
+            .ConfigureAwait(false);
+        // Persist the applied map so the next update can resolve source chunks by offset
+        // without re-running FastCDC (protocol v2 LocalBlockIndex).
+        await LauncherUpdateLocalBlockIndex.SaveInstalledMapAsync(install.Root, map, cancellationToken)
             .ConfigureAwait(false);
         PortableLog.Info(
             "Update",
@@ -308,17 +313,44 @@ public sealed partial class LauncherUpdateInstaller
             long chunkBytes = 0;
             foreach (LauncherUpdateBlock block in file.Chunks)
             {
+                long compressedSize = block.ResolveCompressedSize();
+                string? fullPath = block.ResolveFullPath();
                 if (!IsSha256(block.Sha256) ||
                     block.Size < 0 || block.Size > profile.MaximumSize ||
-                    block.CompressedSize <= 0 ||
-                    block.CompressedSize > maxCompressed)
+                    compressedSize <= 0 ||
+                    compressedSize > maxCompressed ||
+                    string.IsNullOrWhiteSpace(fullPath))
                 {
                     throw new InvalidDataException($"分块更新块条目无效：{file.Path}。");
                 }
                 block.Sha256 = block.Sha256!.ToLowerInvariant();
+                // Normalize nested full representation onto flat fields for download path.
+                block.CompressedSize = compressedSize;
+                block.Path = fullPath;
                 string expectedPath = $"block/{block.Sha256[..2]}/{block.Sha256}";
                 if (!string.Equals(block.Path, expectedPath, StringComparison.Ordinal))
                     throw new InvalidDataException($"分块索引路径不规范：{block.Path}。");
+                if (block.Deltas is { Count: > 0 })
+                {
+                    if (block.Deltas.Count > 2)
+                        throw new InvalidDataException($"分块 delta 数量超过限制：{file.Path}。");
+                    foreach (LauncherUpdateBlockDelta delta in block.Deltas)
+                    {
+                        if (!string.Equals(delta.Algorithm, LauncherUpdateVcdiff.Algorithm, StringComparison.Ordinal) ||
+                            string.IsNullOrWhiteSpace(delta.Path) ||
+                            delta.Size <= 0 ||
+                            delta.SourceChunks.Count is 0 or > 8 ||
+                            !IsSha256(delta.SourceSha256) ||
+                            delta.SourceChunks.Any(static sha => !IsSha256(sha)))
+                        {
+                            throw new InvalidDataException($"分块 delta 条目无效：{file.Path}。");
+                        }
+
+                        delta.SourceSha256 = delta.SourceSha256!.ToLowerInvariant();
+                        for (int i = 0; i < delta.SourceChunks.Count; i++)
+                            delta.SourceChunks[i] = delta.SourceChunks[i].ToLowerInvariant();
+                    }
+                }
                 checked { chunkBytes += block.Size; }
                 if (++blockReferences > 1_000_000)
                     throw new InvalidDataException("分块更新清单包含过多块引用。");
@@ -395,9 +427,30 @@ public sealed partial class LauncherUpdateInstaller
         Dictionary<string, string> exactLocalFiles,
         HashSet<string> neededHashes,
         LauncherUpdateChunkProfile profile,
+        string mapAlgorithm,
         CancellationToken cancellationToken)
     {
         Dictionary<string, LocalBlockSource> result = new(StringComparer.Ordinal);
+        if (neededHashes.Count == 0)
+            return result;
+
+        // Fast path: installed.blockmap.json → path/offset without re-chunking.
+        LauncherUpdateBlockMap? installed = await LauncherUpdateLocalBlockIndex
+            .TryLoadInstalledMapAsync(install.Root, cancellationToken)
+            .ConfigureAwait(false);
+        Dictionary<string, LocalBlockSource> fromInstalled =
+            await LauncherUpdateLocalBlockIndex.TryIndexFromInstalledMapAsync(
+                    install.Root,
+                    installed,
+                    mapAlgorithm,
+                    neededHashes,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        foreach ((string sha, LocalBlockSource source) in fromInstalled)
+            result[sha] = source;
+        if (result.Count >= neededHashes.Count)
+            return result;
+
         List<string> candidates = targetFiles.Keys
             .Where(path => !exactLocalFiles.ContainsKey(path))
             .Select(path => ResolveSafeRelativePath(install.Root, path))
@@ -554,7 +607,7 @@ public sealed partial class LauncherUpdateInstaller
         }
     }
 
-    private sealed record LocalBlockSource(string Path, long Offset, int Size);
+
 
     private sealed record PreparedBlockPayload(string EntryPath, PreparedTreePayload? Tree);
 }

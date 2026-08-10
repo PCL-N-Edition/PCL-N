@@ -26,6 +26,8 @@
   - **v2** `pcln-fastcdc-v2`：128 KiB / 512 KiB / 1 MiB → `<stem>.blockmap.v2.json`（新客户端优先）
 - R2 保存确定性 gzip 内容（mtime=0, level=9），本地缓存保存通过 SHA-256 校验后的**原始**块。
 - 新客户端优先下载 v2 分块图，404 时回退 v1；本地块索引必须使用与清单相同的 FastCDC 算法。
+- **LocalBlockIndex（协议 v2）**：安装成功后写入 `{installRoot}/UpdateState/installed.blockmap.json`。下次更新优先按该图的 path/offset 解析源块，避免对整树重新 FastCDC；算法不一致或文件校验失败时回退实时分块。
+- **VCDIFF 模型**：blockmap 块条目可带 `full` + `deltas[]`（`vcdiff-rfc3284` + sourceChunks/sourceSha256）。解码失败必须回退 full gzip 块；客户端内置托管解码器，不 `Process.Start` xdelta3。
 - 客户端先直接复用未变化文件，再对已安装散包建立本地块索引，只下载仍缺失的块；重组后逐文件校验、校验整树清单并验证最终入口程序的 GPG 签名。
 - 1.4.3 是 Cloudflare 分块协议基线。不得为 1.4.3 以前的源版本生成补丁；这类版本只能获取完整包。旧 `patch-index.json` 仅作为过渡兼容，不再由新发布流生成。
 

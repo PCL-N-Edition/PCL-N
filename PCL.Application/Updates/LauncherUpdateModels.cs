@@ -141,9 +141,44 @@ public sealed class LauncherUpdateBlock
 
     public long Size { get; set; }
 
+    /// <summary>Flat full-block path (v1 / full-only v2). Prefer <see cref="Full"/> when present.</summary>
     public long CompressedSize { get; set; }
 
     public string? Path { get; set; }
+
+    /// <summary>Optional nested full representation (protocol v2 with deltas).</summary>
+    public LauncherUpdateBlockFull? Full { get; set; }
+
+    /// <summary>Optional VCDIFF representations (protocol v2). Always fall back to full.</summary>
+    public List<LauncherUpdateBlockDelta>? Deltas { get; set; }
+
+    public string? ResolveFullPath() =>
+        !string.IsNullOrWhiteSpace(Full?.Path) ? Full.Path : Path;
+
+    public long ResolveCompressedSize() =>
+        Full is { CompressedSize: > 0 } ? Full.CompressedSize : CompressedSize;
+}
+
+public sealed class LauncherUpdateBlockFull
+{
+    public string? Path { get; set; }
+
+    public long CompressedSize { get; set; }
+}
+
+public sealed class LauncherUpdateBlockDelta
+{
+    public string? Algorithm { get; set; }
+
+    public List<string> SourceChunks { get; set; } = [];
+
+    public string? SourceSha256 { get; set; }
+
+    public long SourceSize { get; set; }
+
+    public string? Path { get; set; }
+
+    public long Size { get; set; }
 }
 
 /// <summary>Self-contained per-file patch bundle manifest (<c>files.json</c>).</summary>
