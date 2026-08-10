@@ -1123,6 +1123,7 @@
     <sys:String x:Key="Setup.Update.RestartAndInstall">Restart and install</sys:String>
     <sys:String x:Key="Setup.Update.Skipped">This version has been skipped.</sys:String>
     <sys:String x:Key="Setup.Update.Task.Title">Launcher update</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Transfer">Transfer</sys:String>
     <sys:String x:Key="Setup.Update.Task.Preparing">Preparing update…</sys:String>
     <sys:String x:Key="Setup.Update.Task.Ready">Update ready</sys:String>
     <sys:String x:Key="Setup.Update.Task.ReadyDetail">Download finished and verified</sys:String>

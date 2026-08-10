@@ -1123,6 +1123,7 @@
     <sys:String x:Key="Setup.Update.RestartAndInstall">重啟並安裝</sys:String>
     <sys:String x:Key="Setup.Update.Skipped">已跳過此版本更新。</sys:String>
     <sys:String x:Key="Setup.Update.Task.Title">啟動器更新</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Transfer">傳輸</sys:String>
     <sys:String x:Key="Setup.Update.Task.Preparing">準備更新…</sys:String>
     <sys:String x:Key="Setup.Update.Task.Ready">更新已就緒</sys:String>
     <sys:String x:Key="Setup.Update.Task.ReadyDetail">下載完成並通過校驗</sys:String>
