@@ -173,6 +173,56 @@ class UploadR2CasTests(unittest.TestCase):
             upload.guess_content_type(Path("x.vcdiff")),
         )
 
+    def test_cloudflare_api_object_url_encodes_segments(self):
+        client = upload.CloudflareApiR2Client("acct", "token", "pcln-releases")
+        url = client._object_url("block/ab/deadbeef")
+        self.assertIn("/accounts/acct/r2/buckets/pcln-releases/objects/", url)
+        self.assertIn("block/ab/deadbeef", url)
+        self.assertTrue(url.startswith(upload.CF_API))
+
+    def test_cloudflare_api_put_treats_412_as_exists(self):
+        client = upload.CloudflareApiR2Client("acct", "token", "pcln-releases")
+
+        def fake_request(method, url, *, data=None, headers=None, timeout=120.0):
+            self.assertEqual("PUT", method)
+            self.assertEqual("*", (headers or {}).get("If-None-Match"))
+            return 412, b"", {}
+
+        client._request = fake_request  # type: ignore[method-assign]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "blob"
+            path.write_bytes(b"data")
+            self.assertEqual(
+                "exists",
+                client.put_file("block/aa/one", path, if_none_match=True),
+            )
+
+    def test_resolve_client_prefers_cloudflare_token(self):
+        import os
+
+        previous = {
+            key: os.environ.get(key)
+            for key in (
+                "CLOUDFLARE_API_TOKEN",
+                "CLOUDFLARE_ACCOUNT_ID",
+                "R2_ACCESS_KEY_ID",
+                "R2_SECRET_ACCESS_KEY",
+            )
+        }
+        try:
+            os.environ["CLOUDFLARE_API_TOKEN"] = "cf-token"
+            os.environ["CLOUDFLARE_ACCOUNT_ID"] = "account-id"
+            os.environ.pop("R2_ACCESS_KEY_ID", None)
+            os.environ.pop("R2_SECRET_ACCESS_KEY", None)
+            client = upload.resolve_client()
+            self.assertIsInstance(client, upload.CloudflareApiR2Client)
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
 
 if __name__ == "__main__":
     unittest.main()

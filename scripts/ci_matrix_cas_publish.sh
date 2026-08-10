@@ -17,12 +17,8 @@ MANIFEST_STAGE="${8:-blockmap-stage}"
 TARGET_VERSION="${RELEASE_TAG#v}"
 mkdir -p "$BLOCK_DIST" "$MANIFEST_STAGE"
 
-if [[ -n "${R2_ACCESS_KEY_ID:-}" && -n "${R2_SECRET_ACCESS_KEY:-}" ]]; then
-  python -m pip install --quiet 'boto3>=1.34'
-elif [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-  npx --yes wrangler@4.120.0 --version >/dev/null
-else
-  echo "::warning::No R2 credentials; generating maps only (CAS upload skipped)."
+if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+  echo "::warning::CLOUDFLARE_API_TOKEN/ACCOUNT_ID missing; generating maps only (CAS upload skipped)."
 fi
 
 PREV_ARGS=()
@@ -124,12 +120,13 @@ if [[ "${map_count:-0}" -eq 0 ]]; then
 fi
 
 # Batch CAS publish for both v1 full blocks and v2 full/delta objects.
-if [[ -n "${R2_ACCESS_KEY_ID:-}${CLOUDFLARE_API_TOKEN:-}" ]]; then
+# Auth reuses CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID (no separate R2 S3 keys).
+if [[ -n "${CLOUDFLARE_API_TOKEN:-}" && -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
   python scripts/upload_r2_cas.py upload-tree "$BLOCK_DIST" \
     --prefix block --prefix delta \
     --concurrency 24
 else
-  echo "::warning::Skipping CAS upload (no credentials on matrix job)."
+  echo "::warning::Skipping CAS upload (no Cloudflare credentials on matrix job)."
 fi
 
 # Stage manifests for the central sign/promote job (small artifact).

@@ -78,33 +78,29 @@ current dual-publish keeps flat chunk fields for compatibility.
 ### R2 CAS upload (protocol v2 §15–19)
 
 `upload_r2_cas.py` batch-uploads **v1 full blocks**, **v2 full blocks**, and **v2 deltas**
-with the same pipeline (no per-object wrangler loops):
+with the same pipeline. Auth reuses the existing Cloudflare secrets (no separate R2 S3 keys):
 
 ```bash
-# Preferred: R2 S3 API tokens
+export CLOUDFLARE_API_TOKEN=…      # already used by CI
 export CLOUDFLARE_ACCOUNT_ID=…
-export R2_ACCESS_KEY_ID=…
-export R2_SECRET_ACCESS_KEY=…
-export R2_BUCKET=pcln-releases
-pip install 'boto3>=1.34'
+export R2_BUCKET=pcln-releases     # optional, default
+
 # Immutable CAS tree (block/ + delta/)
 python scripts/upload_r2_cas.py upload-tree block-dist --prefix block --prefix delta --concurrency 24
 # Mutable release metadata (v1/v2 maps + .asc) — concurrent put-files
 python scripts/upload_r2_cas.py put-files dist/r2-updates --key-prefix releases/v1.4.8-beta --concurrency 16
 ```
 
+| Feature | Cloudflare API (default) |
+|---------|--------------------------|
+| Auth | `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` |
+| List inventory skip | yes |
+| `If-None-Match: *` | yes (412 = success when supported) |
+| Concurrency | adaptive 8–48 |
+
 Release packaging runs **matrix-local** CAS publish (`scripts/ci_matrix_cas_publish.sh`):
 each RID generates maps (with optional VCDIFF vs previous channel), uploads CAS
 directly, then the central job only signs maps and promotes the channel pointer.
-
-Behavior:
-
-| Feature | S3 mode | Wrangler fallback |
-|---------|---------|-------------------|
-| ListObjects inventory skip | yes | no (always put) |
-| `If-None-Match: *` | yes (412 = success) | n/a |
-| Concurrency | adaptive 8–48 | concurrent put pool |
-| Secrets | `R2_ACCESS_KEY_ID` + secret | `CLOUDFLARE_API_TOKEN` |
 
 Channel promotion still publishes maps/signatures first, then catalog, then `channels/*.json` last.
 Catalog GC tracks both full blocks and `delta/v2/*` objects.

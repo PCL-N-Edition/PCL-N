@@ -40,10 +40,6 @@ on:
         required: true
       CLOUDFLARE_ACCOUNT_ID:
         required: true
-      R2_ACCESS_KEY_ID:
-        required: false
-      R2_SECRET_ACCESS_KEY:
-        required: false
   # Re-run only the patch stage against an existing release (no full rebuild).
   workflow_dispatch:
     inputs:
@@ -262,20 +258,13 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: pcln-releases
         run: |
           set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
-          if [[ -n "${R2_ACCESS_KEY_ID:-}" && -n "${R2_SECRET_ACCESS_KEY:-}" ]]; then
-            python -m pip install --quiet 'boto3>=1.34'
-          else
-            test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN or R2 S3 keys required"; exit 1; }
-            npx --yes wrangler@4.120.0 --version
-          fi
           STAGE="${{ github.workspace }}/patch-upload-flat"
-          # Batch concurrent upload (S3 inventory path when keys present).
+          # Batch concurrent upload via Cloudflare API (reuses CF token).
           python scripts/upload_r2_cas.py put-files "$STAGE" \
             --key-prefix "releases/${TARGET_TAG}" \
             --concurrency 16

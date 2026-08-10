@@ -1,33 +1,39 @@
 #!/usr/bin/env python3
 """High-throughput Cloudflare R2 CAS uploader (protocol v2 §15–19).
 
-Prefers the S3-compatible API (boto3) with:
+Primary auth reuses the existing Cloudflare CI secrets:
 
-  * one ListObjectsV2 inventory for skip decisions (no per-object HEAD)
-  * PutObject with If-None-Match: * for immutable CAS creates
+  CLOUDFLARE_API_TOKEN
+  CLOUDFLARE_ACCOUNT_ID
+
+via the Cloudflare R2 HTTP API (list + concurrent put/get/delete). No separate
+R2 S3 access keys are required.
+
+Optional overrides (local/dev only):
+
+  R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY  →  boto3 S3-compatible API
+  (otherwise falls back to wrangler CLI)
+
+Features:
+
+  * one List inventory for skip decisions (no per-object HEAD)
+  * Put with If-None-Match: * for immutable CAS creates when supported
   * adaptive concurrency (default 24, range 8–48)
   * 412 PreconditionFailed treated as success (another job won the race)
-
-Falls back to ``npx wrangler r2 object …`` when S3 credentials are absent so
-existing CI secrets keep working until R2 API tokens are provisioned.
-
-Environment (S3 mode):
-
-  CLOUDFLARE_ACCOUNT_ID or R2_ACCOUNT_ID
-  R2_ACCESS_KEY_ID      (or AWS_ACCESS_KEY_ID)
-  R2_SECRET_ACCESS_KEY  (or AWS_SECRET_ACCESS_KEY)
-  R2_BUCKET             (default: pcln-releases)
-  R2_ENDPOINT           (optional override)
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +44,7 @@ DEFAULT_BUCKET = "pcln-releases"
 MIN_CONCURRENCY = 8
 DEFAULT_CONCURRENCY = 24
 MAX_CONCURRENCY = 48
+CF_API = "https://api.cloudflare.com/client/v4"
 
 
 @dataclass
@@ -85,20 +92,22 @@ class AdaptiveLimiter:
             new_value = max(MIN_CONCURRENCY, min(MAX_CONCURRENCY, self._value + delta))
             if new_value == self._value:
                 return
-            # Grow/shrink semaphore permits.
             while new_value > self._value:
                 self._sem.release()
                 self._value += 1
             while new_value < self._value:
-                # Best-effort shrink: acquire without blocking if possible.
                 if self._sem.acquire(blocking=False):
                     self._value -= 1
                 else:
                     break
 
 
+class ThrottleError(RuntimeError):
+    pass
+
+
 class R2Client:
-    """Thin wrapper over boto3 or wrangler."""
+    """Thin wrapper over Cloudflare API / boto3 / wrangler."""
 
     def list_keys(self, prefix: str) -> set[str]:
         raise NotImplementedError
@@ -119,6 +128,177 @@ class R2Client:
 
     def delete_key(self, key: str) -> None:
         raise NotImplementedError
+
+
+class CloudflareApiR2Client(R2Client):
+    """R2 via Cloudflare HTTP API using CLOUDFLARE_API_TOKEN (no S3 keys)."""
+
+    def __init__(self, account_id: str, token: str, bucket: str) -> None:
+        self.account_id = account_id
+        self.bucket = bucket
+        self._token = token
+        self._opener = urllib.request.build_opener()
+
+    def _headers(self, *, content_type: str | None = None, extra: dict[str, str] | None = None) -> dict[str, str]:
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+        }
+        if content_type:
+            headers["Content-Type"] = content_type
+        if extra:
+            headers.update(extra)
+        return headers
+
+    def _object_url(self, key: str) -> str:
+        # Encode each path segment so '/' remains a path separator for the API.
+        encoded = "/".join(urllib.parse.quote(part, safe="") for part in key.split("/"))
+        return (
+            f"{CF_API}/accounts/{self.account_id}/r2/buckets/"
+            f"{urllib.parse.quote(self.bucket, safe='')}/objects/{encoded}"
+        )
+
+    def _list_url(self) -> str:
+        return (
+            f"{CF_API}/accounts/{self.account_id}/r2/buckets/"
+            f"{urllib.parse.quote(self.bucket, safe='')}/objects"
+        )
+
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        data: bytes | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: float = 120.0,
+    ) -> tuple[int, bytes, dict[str, str]]:
+        request = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+        try:
+            with self._opener.open(request, timeout=timeout) as response:
+                body = response.read()
+                status = getattr(response, "status", 200) or 200
+                resp_headers = {k.lower(): v for k, v in response.headers.items()}
+                return int(status), body, resp_headers
+        except urllib.error.HTTPError as exc:
+            body = exc.read() if exc.fp else b""
+            resp_headers = {k.lower(): v for k, v in (exc.headers.items() if exc.headers else [])}
+            return int(exc.code), body, resp_headers
+
+    def list_keys(self, prefix: str) -> set[str]:
+        keys: set[str] = set()
+        cursor: str | None = None
+        while True:
+            query = {
+                "prefix": prefix,
+                "per_page": "1000",
+            }
+            if cursor:
+                query["cursor"] = cursor
+            url = f"{self._list_url()}?{urllib.parse.urlencode(query)}"
+            status, body, _ = self._request("GET", url, headers=self._headers())
+            if status == 429:
+                raise ThrottleError("list throttled")
+            if status >= 400:
+                raise RuntimeError(f"list objects failed HTTP {status}: {body[:400]!r}")
+            payload = json.loads(body.decode("utf-8"))
+            if not payload.get("success", True):
+                raise RuntimeError(f"list objects error: {payload.get('errors')}")
+            for item in payload.get("result") or []:
+                key = item.get("key") if isinstance(item, dict) else None
+                if isinstance(key, str) and key:
+                    keys.add(key)
+            info = payload.get("result_info") or {}
+            if not info.get("is_truncated"):
+                break
+            cursor = info.get("cursor")
+            if not cursor:
+                break
+        return keys
+
+    def put_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        if_none_match: bool,
+        content_type: str | None = None,
+    ) -> str:
+        data = path.read_bytes()
+        extra: dict[str, str] = {}
+        if if_none_match:
+            extra["If-None-Match"] = "*"
+        headers = self._headers(
+            content_type=content_type or "application/octet-stream",
+            extra=extra,
+        )
+        status, body, _ = self._request(
+            "PUT",
+            self._object_url(key),
+            data=data,
+            headers=headers,
+            timeout=300.0,
+        )
+        if status in {200, 201}:
+            return "uploaded"
+        if status == 412:
+            return "exists"
+        if status == 429:
+            raise ThrottleError(f"throttled putting {key}")
+        # Some API versions may ignore If-None-Match and still overwrite; treat
+        # unexpected 2xx/409 as soft success for CAS idempotency.
+        if status == 409:
+            return "exists"
+        raise RuntimeError(f"put {key} failed HTTP {status}: {body[:400]!r}")
+
+    def get_file(self, key: str, destination: Path) -> bool:
+        status, body, headers = self._request(
+            "GET",
+            self._object_url(key),
+            headers=self._headers(),
+            timeout=300.0,
+        )
+        if status == 404:
+            return False
+        if status == 429:
+            raise ThrottleError(f"throttled getting {key}")
+        if status >= 400:
+            # CF may wrap errors as JSON even for missing objects.
+            try:
+                payload = json.loads(body.decode("utf-8"))
+                errors = payload.get("errors") or []
+                if any(int(err.get("code", 0)) in {10007, 7003} for err in errors if isinstance(err, dict)):
+                    return False
+            except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+                pass
+            if status == 404:
+                return False
+            raise RuntimeError(f"get {key} failed HTTP {status}: {body[:400]!r}")
+        # Successful binary body (not a JSON error envelope).
+        content_type = headers.get("content-type", "")
+        if "application/json" in content_type and body[:1] == b"{":
+            try:
+                payload = json.loads(body.decode("utf-8"))
+                if payload.get("success") is False:
+                    return False
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                pass
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_suffix(destination.suffix + ".tmp")
+        temporary.write_bytes(body)
+        temporary.replace(destination)
+        return True
+
+    def delete_key(self, key: str) -> None:
+        status, body, _ = self._request(
+            "DELETE",
+            self._object_url(key),
+            headers=self._headers(),
+        )
+        if status in {200, 204, 404}:
+            return
+        if status == 429:
+            raise ThrottleError(f"throttled deleting {key}")
+        raise RuntimeError(f"delete {key} failed HTTP {status}: {body[:400]!r}")
 
 
 class BotoR2Client(R2Client):
@@ -181,7 +361,7 @@ class BotoR2Client(R2Client):
                     **extra,
                 )
             return "uploaded"
-        except Exception as exc:  # noqa: BLE001 — map botocore errors by name
+        except Exception as exc:  # noqa: BLE001
             name = type(exc).__name__
             code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
             status = getattr(exc, "response", {}).get("ResponseMetadata", {}).get("HTTPStatusCode")
@@ -207,7 +387,7 @@ class BotoR2Client(R2Client):
 
 
 class WranglerR2Client(R2Client):
-    """Compatibility fallback — no inventory, concurrent unconditional put."""
+    """Last-resort CLI fallback — concurrent put, no inventory."""
 
     def __init__(self, bucket: str) -> None:
         self.bucket = bucket
@@ -236,7 +416,6 @@ class WranglerR2Client(R2Client):
         if_none_match: bool,
         content_type: str | None = None,
     ) -> str:
-        # wrangler has no If-None-Match; overwrite is idempotent for identical CAS bytes.
         args = ["r2", "object", "put", f"{self.bucket}/{key}", "--file", str(path), "--remote"]
         if content_type:
             args.extend(["--content-type", content_type])
@@ -263,17 +442,21 @@ class WranglerR2Client(R2Client):
         self._run(["r2", "object", "delete", f"{self.bucket}/{key}", "--remote", "--force"])
 
 
-class ThrottleError(RuntimeError):
-    pass
-
-
 def resolve_client() -> R2Client:
     bucket = os.environ.get("R2_BUCKET", DEFAULT_BUCKET).strip() or DEFAULT_BUCKET
     account = (
-        os.environ.get("R2_ACCOUNT_ID")
-        or os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        or os.environ.get("R2_ACCOUNT_ID")
         or ""
     ).strip()
+    token = (os.environ.get("CLOUDFLARE_API_TOKEN") or "").strip()
+
+    # Primary: reuse existing Cloudflare CI token (no separate R2 S3 keys).
+    if token and account:
+        print(f"R2 client: Cloudflare API (account={account[:6]}… bucket={bucket})")
+        return CloudflareApiR2Client(account, token, bucket)
+
+    # Optional local/dev override via S3-compatible R2 keys.
     access = (
         os.environ.get("R2_ACCESS_KEY_ID")
         or os.environ.get("AWS_ACCESS_KEY_ID")
@@ -289,19 +472,21 @@ def resolve_client() -> R2Client:
         or os.environ.get("AWS_ENDPOINT_URL")
         or (f"https://{account}.r2.cloudflarestorage.com" if account else "")
     ).strip()
-
     if access and secret and endpoint:
         try:
+            print(f"R2 client: S3-compatible endpoint ({endpoint})")
             return BotoR2Client(bucket, endpoint, access, secret)
         except ImportError:
-            print("warning: boto3 not installed; falling back to wrangler", file=sys.stderr)
+            print("warning: boto3 not installed; trying wrangler", file=sys.stderr)
 
-    if not os.environ.get("CLOUDFLARE_API_TOKEN") and not os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
-        raise SystemExit(
-            "R2 S3 credentials (R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY) or "
-            "CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID required"
-        )
-    return WranglerR2Client(bucket)
+    if token or account:
+        print("R2 client: wrangler CLI fallback")
+        return WranglerR2Client(bucket)
+
+    raise SystemExit(
+        "CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID required "
+        "(optional override: R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY)"
+    )
 
 
 def iter_local_objects(root: Path, relative_prefixes: Iterable[str]) -> list[tuple[str, Path]]:
@@ -383,8 +568,6 @@ def upload_tree(
                     return
                 time.sleep(0.5 * attempts)
 
-    # Use a large pool; AdaptiveLimiter provides the real backpressure.
-    # Applies equally to v1 full blocks under block/ and v2 deltas under delta/.
     workers = min(MAX_CONCURRENCY, max(MIN_CONCURRENCY, concurrency))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(worker, key, path) for key, path in pending]
@@ -450,7 +633,6 @@ def put_files(
             limiter.acquire()
             started = time.monotonic()
             try:
-                # Release maps/channel markers must overwrite.
                 client.put_file(key, path, if_none_match=False, content_type=ctype)
                 stats.inc("uploaded")
                 limiter.release_success(time.monotonic() - started)
