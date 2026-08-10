@@ -331,21 +331,23 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: pcln-releases
         run: |
           set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
-          npx --yes wrangler@4.120.0 --version
-          export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
-          # CAS full blocks + optional VCDIFF deltas (protocol v2).
-          find block-dist/block block-dist/delta -type f 2>/dev/null -print0 | xargs -0 -r -P 6 -I '{}' \
-            bash -c '
-              set -euo pipefail
-              block="$1"
-              relative="${block#block-dist/}"
-              npx --yes wrangler@4.120.0 r2 object put \
-                "pcln-releases/${relative}" --file "$block" --remote
-            ' _ '{}'
+          # S3 path (preferred): R2 API token secrets. Wrangler fallback uses CLOUDFLARE_API_TOKEN.
+          if [[ -n "${R2_ACCESS_KEY_ID:-}" && -n "${R2_SECRET_ACCESS_KEY:-}" ]]; then
+            python -m pip install --quiet 'boto3>=1.34'
+          else
+            test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN or R2 S3 keys required"; exit 1; }
+            npx --yes wrangler@4.120.0 --version
+          fi
+          # Protocol v2: ListObjects inventory + If-None-Match CAS + concurrent PUT.
+          python scripts/upload_r2_cas.py upload-tree block-dist \
+            --prefix block --prefix delta \
+            --concurrency 24
 
       - name: Upload user download assets to the existing GitHub release
         uses: softprops/action-gh-release@v2.5.0
@@ -360,11 +362,19 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: pcln-releases
           RELEASE_TAG: ${{ inputs.tag_name }}
         run: |
           set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
+          if [[ -n "${R2_ACCESS_KEY_ID:-}" && -n "${R2_SECRET_ACCESS_KEY:-}" ]]; then
+            python -m pip install --quiet 'boto3>=1.34'
+          else
+            test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN or R2 S3 keys required"; exit 1; }
+            npx --yes wrangler@4.120.0 --version
+          fi
 
           while IFS= read -r -d '' asset; do
             name="$(basename "$asset")"
@@ -374,29 +384,29 @@ jobs:
               echo "::error::Unexpected file in updater staging directory: $name"
               exit 1
             fi
-            npx --yes wrangler@4.120.0 r2 object put \
-              "pcln-releases/releases/${RELEASE_TAG}/${name}" \
-              --file "$asset" --remote
           done < <(find dist/r2-updates -maxdepth 1 -type f -print0)
+
+          python scripts/upload_r2_cas.py put-files dist/r2-updates \
+            --key-prefix "releases/${RELEASE_TAG}" \
+            --concurrency 16
 
           # Remove canonical archives written by an earlier version of this
           # workflow. The operation is idempotent and limited to this tag.
+          : > obsolete-archives.txt
           while IFS= read -r -d '' archive; do
             name="$(basename "$archive")"
             printf 'releases/%s/%s\nreleases/%s/%s.asc\n' \
-              "$RELEASE_TAG" "$name" "$RELEASE_TAG" "$name"
-          done < <(find dist/updates -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0) \
-            | xargs -r -P 6 -I '{}' sh -c '
-                npx --yes wrangler@4.120.0 r2 object delete \
-                  "pcln-releases/$1" --remote --force || true
-              ' _ '{}'
+              "$RELEASE_TAG" "$name" "$RELEASE_TAG" "$name" >> obsolete-archives.txt
+          done < <(find dist/updates -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0)
+          if [[ -s obsolete-archives.txt ]]; then
+            python scripts/upload_r2_cas.py delete-list obsolete-archives.txt --concurrency 8 || true
+          fi
 
           # Mark-and-sweep only objects recorded in our catalog. Shared blocks
           # stay alive while any release inside the 14-day rollback window uses them.
           rm -f block-catalog.previous.json block-catalog.next.json obsolete-r2-objects.txt
-          npx --yes wrangler@4.120.0 r2 object get \
-            "pcln-releases/block/catalog.json" \
-            --file block-catalog.previous.json --remote || rm -f block-catalog.previous.json
+          python scripts/upload_r2_cas.py get block/catalog.json \
+            --file block-catalog.previous.json || rm -f block-catalog.previous.json
           python scripts/update_update_block_catalog.py \
             --catalog block-catalog.previous.json \
             --manifest-dir block-dist/manifests \
@@ -406,19 +416,17 @@ jobs:
             --published-at "$(jq -r .publishedAt 'channel-dist/${{ inputs.channel }}.json')" \
             --output block-catalog.next.json \
             --delete-list obsolete-r2-objects.txt
-          export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
-          xargs -r -P 6 -I '{}' \
-            npx --yes wrangler@4.120.0 r2 object delete \
-              "pcln-releases/{}" --remote --force < obsolete-r2-objects.txt
-          npx --yes wrangler@4.120.0 r2 object put \
-            "pcln-releases/block/catalog.json" \
-            --file block-catalog.next.json --remote
+          if [[ -s obsolete-r2-objects.txt ]]; then
+            python scripts/upload_r2_cas.py delete-list obsolete-r2-objects.txt --concurrency 16
+          fi
+          python scripts/upload_r2_cas.py put block/catalog.json \
+            --file block-catalog.next.json
 
           # Publish the channel pointer last: clients can only discover this
           # version after every signed map, block and binary signature exists.
-          npx --yes wrangler@4.120.0 r2 object put \
-            "pcln-releases/channels/${{ inputs.channel }}.json" \
-            --file "channel-dist/${{ inputs.channel }}.json" --remote
+          python scripts/upload_r2_cas.py put \
+            "channels/${{ inputs.channel }}.json" \
+            --file "channel-dist/${{ inputs.channel }}.json"
 
       - name: Publish Cloudflare website download catalog
         shell: bash

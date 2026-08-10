@@ -66,5 +66,30 @@ For each new target chunk the publisher:
 Without `--previous-blockmap`, v2 maps still emit nested `full` only when deltas run;
 current dual-publish keeps flat chunk fields for compatibility.
 
+### R2 CAS upload (protocol v2 §15–19)
+
+`upload_r2_cas.py` replaces per-object `wrangler r2 object put` loops:
+
+```bash
+# Preferred: R2 S3 API tokens
+export CLOUDFLARE_ACCOUNT_ID=…
+export R2_ACCESS_KEY_ID=…
+export R2_SECRET_ACCESS_KEY=…
+export R2_BUCKET=pcln-releases
+pip install 'boto3>=1.34'
+python scripts/upload_r2_cas.py upload-tree block-dist --prefix block --prefix delta --concurrency 24
+```
+
+Behavior:
+
+| Feature | S3 mode | Wrangler fallback |
+|---------|---------|-------------------|
+| ListObjects inventory skip | yes | no (always put) |
+| `If-None-Match: *` | yes (412 = success) | n/a |
+| Concurrency | adaptive 8–48 | sequential via pool |
+| Secrets | `R2_ACCESS_KEY_ID` + secret | `CLOUDFLARE_API_TOKEN` |
+
+Channel promotion still publishes maps/signatures first, then catalog, then `channels/*.json` last.
+
 GitHub Release is only for installers and portable downloads; updater maps and
 blocks are published to Cloudflare R2.
