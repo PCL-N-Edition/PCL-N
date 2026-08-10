@@ -73,8 +73,9 @@ jobs:
       binary_name: ${{ matrix.binary_name }}
       self_contained: true
       runtime_variant: SelfContained
-      # CI channel publishes all desktop RIDs: scatter blockmaps for every
-      # platform, plus Windows portable single-file blockmaps when built.
+      # CI update channel is Windows portable single-file only (scatter cannot
+      # use CI). Other RIDs still compile for verification; only win-* publish
+      # rolling blockmaps into ci-latest.
       build_portable: ${{ github.event_name != 'pull_request' && startsWith(matrix.runtime_id, 'win-') }}
       # PRs from forks cannot read secrets; only require CLIENT_ID on non-PR runs.
       require_ms_client_id: ${{ github.event_name != 'pull_request' }}
@@ -176,28 +177,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf dist block-dist archives
-          mkdir -p dist/r2-metadata block-dist archives
-          # All desktop RIDs publish scatter blockmaps into ci-latest.
-          # Windows also publishes portable single-file blockmaps when present.
-          write_ci_json() {
-            local stem="$1" sha256="$2" size="$3"
-            cat > "dist/r2-metadata/${stem}.ci.json" <<EOF
-          {
-            "formatVersion": 1,
-            "channel": "CI",
-            "commit": "${{ github.sha }}",
-            "ref": "${{ github.ref }}",
-            "runId": "${{ github.run_id }}",
-            "artifact": "${stem}",
-            "packageSha256": "${sha256}",
-            "packageSize": ${size},
-            "supportsPatches": false,
-            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
-          }
-
+          rm -rf dist block-dist
+          mkdir -p dist/r2-metadata block-dist
+          # CI channel = Windows portable single-file only (scatter clients cannot use CI).
+          # Linux/macOS CI matrix jobs are compile verification only.
           for dir in artifacts/PCL_N_CI_*; do
             [[ -d "$dir" ]] || continue
             name="$(basename "$dir")"
@@ -206,24 +189,18 @@ jobs:
               exit 1
             fi
             runtime_id="${BASH_REMATCH[1]}"
-            platform_family="${BASH_REMATCH[2]}"
-            scatter="$dir/scatter"
-            test -d "$scatter" || { echo "::error::Missing scatter tree in $dir"; exit 1; }
-
-            case "$platform_family" in
-              win) platform=windows; archive_ext=zip; entry_name=PCL-N-Edition.exe ;;
-              linux) platform=linux; archive_ext=tar.gz; entry_name=PCL-N-Edition ;;
-              osx) platform=macos; archive_ext=tar.gz; entry_name=PCL-N-Edition ;;
-              *) echo "::error::Unknown platform family $platform_family"; exit 1 ;;
-            esac
-
-            archive="archives/${name}.${archive_ext}"
-            python scripts/package_update_archive.py \
-              --artifact "$scatter" \
-              --output "$archive" \
-              --platform "$platform"
+            if [[ "$name" != PCL_N_CI_win-* ]]; then
+              echo "Skip non-Windows CI artifact for rolling channel: $name"
+              continue
+            fi
+            portable="$dir/portable/PCL-N-Edition.exe"
+            test -s "$portable" || { echo "Missing portable CI product in $dir"; exit 1; }
+            portable_name="${name}_Portable.exe"
+            portable_stem="${portable_name%.exe}"
             python scripts/generate_update_blockmap.py \
-              --archive "$archive" \
+              --file "$portable" \
+              --target-asset-name "$portable_name" \
+              --entry-name PCL-N-Edition.exe \
               --output block-dist \
               --target-tag ci-latest \
               --target-version ci-latest \
@@ -231,46 +208,25 @@ jobs:
               --runtime-variant SelfContained \
               --configuration CI \
               --profile auto
-
-            # Entry binary signature (scatter rebuild verifies product entry).
-            if [[ "$platform" == "macos" ]]; then
-              entry_bin="$scatter/PCL N.app/Contents/MacOS/$entry_name"
-            else
-              entry_bin="$scatter/$entry_name"
-            fi
-            test -s "$entry_bin" || { echo "::error::Missing scatter entry: $entry_bin"; exit 1; }
             gpg --detach-sign --armor \
-              --output "dist/r2-metadata/${name}.${archive_ext}.binary.asc" "$entry_bin"
-            archive_sha256="$(sha256sum "$archive" | awk '{print $1}')"
-            archive_size="$(stat -c '%s' "$archive")"
-            write_ci_json "$name" "$archive_sha256" "$archive_size"
-            echo "CI scatter map ready: $name (${archive_size} bytes archive for chunking only)"
-
-            # Windows portable single-file (optional sibling product).
-            portable="$dir/portable/PCL-N-Edition.exe"
-            if [[ "$platform_family" == "win" && -s "$portable" ]]; then
-              portable_name="${name}_Portable.exe"
-              portable_stem="${portable_name%.exe}"
-              python scripts/generate_update_blockmap.py \
-                --file "$portable" \
-                --target-asset-name "$portable_name" \
-                --entry-name PCL-N-Edition.exe \
-                --output block-dist \
-                --target-tag ci-latest \
-                --target-version ci-latest \
-                --runtime-id "$runtime_id" \
-                --runtime-variant SelfContained \
-                --configuration CI \
-                --profile auto
-              gpg --detach-sign --armor \
-                --output "dist/r2-metadata/${portable_name}.asc" "$portable"
-              portable_sha256="$(sha256sum "$portable" | awk '{print $1}')"
-              portable_size="$(stat -c '%s' "$portable")"
-              write_ci_json "$portable_stem" "$portable_sha256" "$portable_size"
-              echo "CI portable map ready: $portable_name"
-            fi
+              --output "dist/r2-metadata/${portable_name}.asc" "$portable"
+            portable_sha256="$(sha256sum "$portable" | awk '{print $1}')"
+            portable_size="$(stat -c '%s' "$portable")"
+            cat > "dist/r2-metadata/${portable_stem}.ci.json" <<EOF
+          {
+            "formatVersion": 1,
+            "channel": "CI",
+            "commit": "${{ github.sha }}",
+            "ref": "${{ github.ref }}",
+            "runId": "${{ github.run_id }}",
+            "artifact": "${portable_stem}",
+            "packageSha256": "${portable_sha256}",
+            "packageSize": ${portable_size},
+            "supportsPatches": false,
+            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
           done
-
           while IFS= read -r -d '' map; do
             gpg --detach-sign --armor "$map"
             cp -a "$map" "$map.asc" dist/r2-metadata/
@@ -287,11 +243,8 @@ jobs:
           }
           EOF
           find dist/r2-metadata -maxdepth 1 -type f -printf '  %f\n' | sort
-          map_count="$(find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) | wc -l | tr -d ' ')"
-          echo "Produced $map_count CI block map(s)."
-          # Expect at least one map per RID artifact (6 scatter; +2 portable when win builds present).
-          test "${map_count:-0}" -ge 6 || {
-            echo "::error::Expected CI block maps for all desktop RIDs (got $map_count)"; exit 1;
+          test -n "$(find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print -quit)" || {
+            echo "No CI block maps produced"; exit 1;
           }
 
       - name: Publish rolling CI assets to Cloudflare R2
@@ -314,8 +267,7 @@ jobs:
           # Publish maps and signatures before moving the discoverable marker.
           while IFS= read -r -d '' asset; do
             name="$(basename "$asset")"
-            if [[ ! "$name" =~ ^PCL_N_CI_(win|linux|osx)-(x64|arm64)_SelfContained(\.(zip|tar\.gz)\.binary\.asc|\.ci\.json|\.blockmap(\.v2)?\.json(\.asc)?)$ &&
-                  ! "$name" =~ ^PCL_N_CI_win-(x64|arm64)_SelfContained_Portable\.(exe\.asc|ci\.json|blockmap(\.v2)?\.json(\.asc)?)$ ]]; then
+            if [[ ! "$name" =~ ^PCL_N_CI_win-(x64|arm64)_SelfContained_Portable\.(exe\.asc|ci\.json|blockmap(\.v2)?\.json(\.asc)?)$ ]]; then
               echo "::error::Unexpected CI updater metadata: $name"
               exit 1
             fi

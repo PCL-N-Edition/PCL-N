@@ -130,8 +130,8 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
         LauncherInstallationContext installation = LauncherInstallationContext.Detect();
         if (channel is UpdateChannel.CI or UpdateChannel.Dev && !installation.SupportsCiChannel)
         {
-            PortableLog.Warn("Update", $"已拒绝检查 CI 更新；安装类型={installation.Kind}（非便携/散包）。");
-            return LauncherUpdateCheckResult.Failed("当前安装类型不支持 CI 通道；请使用正式版或测试版，或改用便携版/散包布局。");
+            PortableLog.Warn("Update", $"已拒绝检查 CI 更新；安装类型={installation.Kind}（仅便携版支持 CI）。");
+            return LauncherUpdateCheckResult.Failed("散包/安装包不支持 CI 通道；请使用 Windows 便携版，或选择正式版/测试版。");
         }
         using TelemetryOperation operation = LauncherTelemetry.StartOperation(
             "launcher.update_check",

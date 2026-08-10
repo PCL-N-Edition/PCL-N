@@ -335,7 +335,7 @@ public sealed class LauncherUpdateServiceTests
 
             Assert.AreEqual(LauncherInstallationKind.Scatter, scatter.Kind);
             Assert.IsTrue(scatter.SupportsInPlaceUpdate);
-            Assert.IsTrue(scatter.SupportsCiChannel);
+            Assert.IsFalse(scatter.SupportsCiChannel);
         }
         finally
         {
