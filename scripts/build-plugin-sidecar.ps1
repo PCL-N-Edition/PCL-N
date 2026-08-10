@@ -93,8 +93,21 @@ function Invoke-PclPluginSidecarObfuscation {
         $previousRollForward = $env:DOTNET_ROLL_FORWARD
         $env:DOTNET_ROLL_FORWARD = 'Major'
         try {
-            & dotnet tool run obfuscar.console -- $cfgPath
-            if ($LASTEXITCODE -ne 0) {
+            # Exit 137 = SIGKILL (often OOM on macos-latest osx-x64 under Rosetta).
+            $obfuscarOk = $false
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+                & dotnet tool run obfuscar.console -- $cfgPath
+                if ($LASTEXITCODE -eq 0) {
+                    $obfuscarOk = $true
+                    break
+                }
+                Write-Warning "Obfuscar attempt $attempt failed with exit code $LASTEXITCODE"
+                if ($LASTEXITCODE -ne 137 -and $LASTEXITCODE -ne 139) {
+                    break
+                }
+                Start-Sleep -Seconds (5 * $attempt)
+            }
+            if (-not $obfuscarOk) {
                 throw "Obfuscar failed with exit code $LASTEXITCODE"
             }
         }
