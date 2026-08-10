@@ -94,6 +94,12 @@ public sealed class LauncherBootstrapGateTests
             Assert.IsTrue(LauncherBootstrapGate.TryAllowDirectStart(
                 ["--validate-secrets"],
                 out _));
+            Assert.IsTrue(LauncherBootstrapGate.TryAllowDirectStart(
+                ["--validate-environment"],
+                out _));
+            Assert.IsTrue(LauncherBootstrapGate.TryAllowDirectStart(
+                ["--validate-assets"],
+                out _));
         }
         finally
         {

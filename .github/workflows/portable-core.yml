@@ -122,6 +122,9 @@ jobs:
           echo "Published file count (top-level): $file_count"
           test "$file_count" -ge 1
           # Same-arch smoke only (matrix runners match RID for these three).
+          # Host CI probes are headless; allow without C launcher bootstrap.
+          export PCL_ALLOW_DIRECT_HOST=1
+          export PCL_SKIP_EXTERNAL_CRASH_HANDLER=1
           "$binary" --validate-environment
           "$binary" --validate-assets
   desktop-portable-publish:

@@ -39,11 +39,9 @@ internal static class LauncherBootstrapGate
         }
 
         // CI / packaging probes must run the AOT host without the C launcher.
-        if (args.Contains("--validate-native-runtime", StringComparer.OrdinalIgnoreCase) ||
-            args.Contains("--validate-secrets", StringComparer.OrdinalIgnoreCase))
-        {
+        // All --validate-* flags are short-circuit probes (see Program.Main).
+        if (args.Any(static a => a.StartsWith("--validate-", StringComparison.OrdinalIgnoreCase)))
             return true;
-        }
 
         // Single-file / portable hosts embed the native runtime zip and do not use the C launcher.
         if (HasEmbeddedNativeRuntime())

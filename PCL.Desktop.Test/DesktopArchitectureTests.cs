@@ -1022,9 +1022,13 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(publishAssets, "dist/r2-updates");
         StringAssert.Contains(publishAssets, "dist/downloads");
         StringAssert.Contains(publishAssets, "GitHub receives dist/downloads only");
+        // Protocol v2: matrix CAS publish + central validate/promote (no wrangler put loops).
+        StringAssert.Contains(publishAssets, "ci_matrix_cas_publish.sh");
         StringAssert.Contains(publishAssets, "generate_update_blockmap.py");
+        StringAssert.Contains(publishAssets, "upload_r2_cas.py");
+        StringAssert.Contains(publishAssets, "validate_update_release.py");
         StringAssert.Contains(publishAssets, "block-dist/block");
-        StringAssert.Contains(publishAssets, "pcln-releases/channels/${{ inputs.channel }}.json");
+        StringAssert.Contains(publishAssets, "channels/${{ inputs.channel }}.json");
         StringAssert.Contains(publishAssets, "files: dist/downloads/*");
         Assert.IsFalse(publishAssets.Contains("dist/updates/*", StringComparison.Ordinal));
         StringAssert.Contains(patches, "--max-patch-ratio 0.35");
@@ -1053,12 +1057,13 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(ci, "dist/r2-metadata");
         StringAssert.Contains(ci, "--tag ci-latest");
         StringAssert.Contains(ci, "--channel ci");
-        StringAssert.Contains(ci, "block-dist/block");
+        StringAssert.Contains(ci, "upload_r2_cas.py");
+        StringAssert.Contains(ci, "upload-tree block-dist");
         StringAssert.Contains(packageLinux, "/opt/pcl-n");
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
         Assert.IsFalse(ci.Contains("--archive \"$package\"", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");
-        StringAssert.Contains(ci, "pcln-releases/channels/ci.json");
+        StringAssert.Contains(ci, "channels/ci.json");
         Assert.IsFalse(ci.Contains("gh release upload", StringComparison.Ordinal));
         foreach (string runtime in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" })
             StringAssert.Contains(ci, runtime);
