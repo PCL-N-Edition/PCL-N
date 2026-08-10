@@ -6,13 +6,13 @@ using Avalonia.Media;
 using Avalonia.Platform;
 using PCL.Application.Settings;
 using PCL.Desktop.Diagnostics;
+using PCL.UI.Next;
 
 namespace PCL.Desktop.Platform;
 
 /// <summary>
-/// Explicit GPU / Skia rendering bootstrap for Avalonia 12.
-/// Prefer hardware paths (ANGLE/Vulkan/GL) with software fallbacks; honor
-/// <c>SystemDisableHardwareAcceleration</c> when the user opts out.
+/// Explicit GPU / Skia platform bootstrap for Avalonia 12 (ANGLE/Vulkan/GL).
+/// Separate from the experimental ECS UI architecture in <c>PCL.UI.Next</c>.
 /// </summary>
 internal static class DesktopRenderBootstrap
 {
@@ -50,6 +50,19 @@ internal static class DesktopRenderBootstrap
             disableGpu
                 ? "渲染：已按设置关闭硬件加速（Software 优先）。"
                 : "渲染：已启用 GPU 优先路径（ANGLE/Vulkan/GL → Software 回退）；Skia GPU 缓存≈256MB。");
+
+        // Experimental ECS UI architecture (PCL.UI.Next) — not GPU backend selection.
+        bool wantEcsUi = settings.GetBooleanOption(
+            LauncherSettingKeys.ExperimentalNextRenderBackend,
+            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalNextRenderBackend.Value));
+        NextUiRenderMode uiMode = NextUiRenderRuntime.Resolve(wantEcsUi);
+        DesktopFileLog.Info("Render", "界面架构：" + NextUiRenderRuntime.Describe(uiMode) + "。");
+        if (wantEcsUi && !NextRenderAvailability.IsImplemented)
+        {
+            DesktopFileLog.Info(
+                "Render",
+                "设置中请求了基于 ECS 的新型 UI 渲染后端，但该实验项尚未实现；本进程仍使用经典控件树。");
+        }
 
         return builder;
     }
@@ -133,7 +146,7 @@ internal static class DesktopRenderBootstrap
     {
         ArgumentNullException.ThrowIfNull(visual);
         // Geometry edges only — do NOT force HighQuality bitmap filtering on the whole tree.
-        // That inherits into skin heads / pixel icons and softens them (user: 头像被抗锯齿).
+        // That inherits into skin heads / pixel icons and softens them.
         // Pixel art controls set BitmapInterpolationMode.None locally.
         RenderOptions.SetEdgeMode(visual, EdgeMode.Antialias);
     }

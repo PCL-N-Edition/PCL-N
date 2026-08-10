@@ -47,6 +47,7 @@ public static class LauncherSettingDefaults
         ["UiHideNEditionHint"] = false,
         ["ExperimentalJvmLifecycleHost"] = false,
         ["ExperimentalHomepageUi"] = false,
+        ["ExperimentalNextRenderBackend"] = false,
         ["ExperimentalLaunchShortcuts"] = false,
         ["ExperimentalMinecraftAiRepair"] = false,
         ["TelemetryExperienceProgram"] = false

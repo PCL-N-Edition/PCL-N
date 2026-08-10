@@ -9,7 +9,35 @@
                            Theme="Yellow"
                            Text="{DynamicResource Setup.Experimental.Warning}" />
 
-            <legacy:MyCard Margin="0,15" Title="{DynamicResource Setup.Experimental.HomepageUi.Title}">
+            <legacy:MyCard Margin="0,15" Title="{DynamicResource Setup.Experimental.NextRender.Title}">
+                <StackPanel Margin="25,40,25,18" Spacing="12">
+                    <legacy:MyCheckBox x:Name="CheckExperimentalNextRender"
+                                       Tag="ExperimentalNextRenderBackend"
+                                       IsEnabled="False"
+                                       Text="{DynamicResource Setup.Experimental.NextRender.Enable}"
+                                       PreviewChange="ExperimentalNextRender_OnPreviewChange" />
+                    <TextBlock Text="{DynamicResource Setup.Experimental.NextRender.Summary}"
+                               TextWrapping="Wrap" Opacity="0.82" />
+                    <Grid ColumnDefinitions="1*,18,1*">
+                        <StackPanel Grid.Column="0" Spacing="7">
+                            <TextBlock Text="{DynamicResource Setup.Experimental.Benefits.Title}" FontWeight="SemiBold" />
+                            <TextBlock Text="{DynamicResource Setup.Experimental.NextRender.Benefits}"
+                                       TextWrapping="Wrap" Opacity="0.78" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="7">
+                            <TextBlock Text="{DynamicResource Setup.Experimental.Risks.Title}" FontWeight="SemiBold" />
+                            <TextBlock Text="{DynamicResource Setup.Experimental.NextRender.Risks}"
+                                       TextWrapping="Wrap" Opacity="0.78" />
+                        </StackPanel>
+                    </Grid>
+                    <legacy:MyHint Theme="Yellow"
+                                   Text="{DynamicResource Setup.Experimental.NextRender.Unavailable}" />
+                    <legacy:MyHint Theme="Blue"
+                                   Text="{DynamicResource Setup.Experimental.NextRender.Scope}" />
+                </StackPanel>
+            </legacy:MyCard>
+
+            <legacy:MyCard Margin="0,0,0,15" Title="{DynamicResource Setup.Experimental.HomepageUi.Title}">
                 <StackPanel Margin="25,40,25,18" Spacing="12">
                     <legacy:MyCheckBox x:Name="CheckExperimentalHomepageUi"
                                        Tag="ExperimentalHomepageUi"

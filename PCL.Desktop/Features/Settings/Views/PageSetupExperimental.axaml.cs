@@ -10,6 +10,7 @@ using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Localization;
 using PCL.Platform.Abstractions.Security;
+using PCL.UI.Next;
 
 #pragma warning disable CS0067
 
@@ -22,6 +23,89 @@ public partial class PageSetupExperimental : MyPageRight, ISettingsPageInteracti
         AvaloniaXamlLoader.Load(this);
         PanScroll = PanBack;
         LauncherSettingsPageBinder.Attach(this);
+        EnforceNextRenderTogglePolicy();
+    }
+
+    /// <summary>
+    /// ECS UI render architecture is scaffolding only: keep the toggle off and disabled.
+    /// When <see cref="NextRenderAvailability.IsImplemented"/> becomes true, enable the
+    /// control and require a full launcher restart after the user confirms.
+    /// </summary>
+    private void EnforceNextRenderTogglePolicy()
+    {
+        if (this.FindControl<MyCheckBox>("CheckExperimentalNextRender") is not { } checkBox)
+            return;
+
+        // Never persist or display an enabled state while unimplemented.
+        checkBox.SetChecked(false, user: false);
+        checkBox.IsEnabled = NextRenderAvailability.CanEnable;
+
+        if (!NextRenderAvailability.CanEnable)
+        {
+            try
+            {
+                LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+                if (settings.GetBooleanOption(LauncherSettingKeys.ExperimentalNextRenderBackend, false))
+                {
+                    settings.SetBooleanOption(LauncherSettingKeys.ExperimentalNextRenderBackend, false);
+                    LauncherSettingsPageBinder.SaveSettings(settings);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                // Settings are best-effort; the checkbox remains forced off.
+            }
+        }
+    }
+
+    private void ExperimentalNextRender_OnPreviewChange(object sender, RouteEventArgs e)
+    {
+        // Hard block: never allow enabling until the ECS pipeline is implemented.
+        e.Handled = true;
+        if (sender is not MyCheckBox checkBox)
+            return;
+
+        checkBox.SetChecked(false, user: false);
+
+        if (!NextRenderAvailability.CanEnable)
+        {
+            MessageRequested?.Invoke(
+                this,
+                new SettingsMessageRequestedEventArgs(
+                    AvaloniaLocalizationManager.GetText(
+                        "Setup.Experimental.NextRender.Unavailable.Title",
+                        "暂不可用"),
+                    AvaloniaLocalizationManager.GetText(
+                        "Setup.Experimental.NextRender.Unavailable",
+                        "基于 ECS 的新型 UI 渲染后端尚未实现，暂不允许启用。启用后需要重启启动器才会生效。")));
+            return;
+        }
+
+        // Future path: confirm + remind restart, then set checked.
+        string title = AvaloniaLocalizationManager.GetText(
+            "Setup.Experimental.NextRender.Confirm.Title",
+            "启用新型渲染后端");
+        string message = AvaloniaLocalizationManager.GetText(
+            "Setup.Experimental.NextRender.Confirm.Message",
+            "将改用基于 ECS（实体-组件-系统）的实验性 UI 渲染架构，以提升界面性能。修改后必须重启启动器才会生效。是否继续？");
+
+        void Complete(bool confirmed)
+        {
+            if (confirmed)
+                checkBox.SetChecked(true, user: false);
+        }
+
+        ConfirmRequested?.Invoke(
+            this,
+            new SettingsConfirmRequestedEventArgs(
+                title,
+                message,
+                Complete,
+                primaryButton: AvaloniaLocalizationManager.GetText(
+                    "Setup.Experimental.NextRender.Confirm.Enable",
+                    "启用并稍后重启"),
+                secondaryButton: AvaloniaLocalizationManager.GetText("Common.Action.Cancel", "取消"),
+                isWarn: true));
     }
 
     public event EventHandler<SettingsPathRequestedEventArgs>? OpenPathRequested;

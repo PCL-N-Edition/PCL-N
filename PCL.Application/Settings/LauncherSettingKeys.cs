@@ -49,6 +49,12 @@ public static class LauncherSettingKeys
 
     public static readonly SettingKey ExperimentalHomepageUi = new("ExperimentalHomepageUi");
 
+    /// <summary>
+    /// Experimental ECS-based UI render architecture (PCL.UI.Next) for higher UI frame performance.
+    /// Requires a full launcher restart when implemented; currently not enableable.
+    /// </summary>
+    public static readonly SettingKey ExperimentalNextRenderBackend = new("ExperimentalNextRenderBackend");
+
     /// <summary>iOS-style shortcut dock on the experimental launch home carousel.</summary>
     public static readonly SettingKey ExperimentalLaunchShortcuts = new("ExperimentalLaunchShortcuts");
 

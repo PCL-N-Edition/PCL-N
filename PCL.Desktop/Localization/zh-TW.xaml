@@ -869,6 +869,17 @@
     <sys:String x:Key="Setup.Misc.System.Proxy.Hint">示例：http://127.0.0.1:1080/</sys:String>
     <sys:String x:Key="Setup.Misc.System.Title">系統</sys:String>
     <sys:String x:Key="Setup.Experimental.Warning">實驗性功能可能導致遊戲無法啟動、驗證異常或模組不相容。除非你願意提供完整日誌並能自行關閉回退，否則請保持預設關閉。</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Title">新型彩現後端</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Enable">採用新型彩現後端</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Summary">使用 PCL.UI.Next 中基於 ECS（實體-元件-系統）的實驗性 UI 彩現架構，重構配置、髒區傳播與繪製批處理，以提升介面幀效能。與 GPU 驅動/ANGLE/Vulkan 平台選項無關，也與主題皮膚無關。</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Benefits">資料導向更新可減少全樹重算；便於並行髒區與批繪製；長列表、動畫與複雜頁面在高峰幀更穩。</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Risks">架構重構中：控制項行為、外掛注入點與無障礙路徑可能變化；異常時可能出現配置錯亂或需回退經典路徑。</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Scope">ECS 世界與系統在行程啟動時建立，切換後必須重新啟動啟動器。目前版本尚未實作，開關不可用。</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Unavailable">尚未實作：基於 ECS 的 UI 彩現後端仍在鷹架階段，目前版本不允許啟用。實作後仍需重新啟動啟動器才會切換。</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Unavailable.Title">暫不可用</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Confirm.Title">啟用新型彩現後端</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Confirm.Message">將改用基於 ECS（實體-元件-系統）的實驗性 UI 彩現架構以提升介面效能。修改後必須重新啟動啟動器才會生效。是否繼續？</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Confirm.Enable">啟用並稍後重新啟動</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Title">實驗性使用者介面</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Enable">啟用實驗性使用者介面</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Summary">啟用後使用重構中的啟動頁、整頁版本庫、整頁版本設定、毛玻璃標題列與右下角快捷按鈕。後續功能介面也會逐步遷移到新的實驗性使用者介面。</sys:String>

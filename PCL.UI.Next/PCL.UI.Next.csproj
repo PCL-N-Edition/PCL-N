@@ -1,0 +1,27 @@
+<!--
+  Copyright (c) 2026 PCL N contributors.
+  Licensed under the Apache License, Version 2.0.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PCL.UI.Next</AssemblyName>
+    <RootNamespace>PCL.UI.Next</RootNamespace>
+    <Description>PCL N next-generation ECS UI render architecture (experimental)</Description>
+    <Company>PCL N</Company>
+    <Product>PCL.UI.Next</Product>
+    <Copyright>Copyright (c) 2026 PCL N contributors</Copyright>
+    <LangVersion>14.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsTrimmable>true</IsTrimmable>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <!-- Product name is intentionally PCL.UI.Next; CA1716 flags "Next" as a VB reserved word. -->
+    <NoWarn>$(NoWarn);CA1716</NoWarn>
+  </PropertyGroup>
+</Project>

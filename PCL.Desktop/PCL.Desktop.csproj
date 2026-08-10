@@ -192,6 +192,7 @@
     <ProjectReference Include="../PCL.Application/PCL.Application.csproj" />
     <ProjectReference Include="../PCL.Platform/PCL.Platform.csproj" />
     <ProjectReference Include="../PCL.UI.Abstractions/PCL.UI.Abstractions.csproj" />
+    <ProjectReference Include="../PCL.UI.Next/PCL.UI.Next.csproj" />
   </ItemGroup>
   <Import Project="GenerateEmbeddedSecrets.targets" />
   <!--

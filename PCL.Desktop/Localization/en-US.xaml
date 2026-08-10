@@ -869,6 +869,17 @@
     <sys:String x:Key="Setup.Misc.System.Proxy.Hint">Example: http://127.0.0.1:1080/</sys:String>
     <sys:String x:Key="Setup.Misc.System.Title">System</sys:String>
     <sys:String x:Key="Setup.Experimental.Warning">Experimental features may prevent the game from starting, break authentication, or conflict with mods. Keep them disabled unless you can provide full logs and revert the option yourself.</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Title">Next rendering backend</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Enable">Use next rendering backend</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Summary">Uses the experimental ECS (entity–component–system) UI render architecture in PCL.UI.Next to rework layout, dirty propagation, and draw batching for higher UI frame performance. Unrelated to GPU driver / ANGLE / Vulkan platform options and unrelated to themes.</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Benefits">Data-oriented updates can avoid full-tree work; enables parallel dirty work and batched draws; steadier peak frames for long lists, motion, and complex pages.</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Risks">Architecture is in flux: control behavior, plugin injection points, and accessibility paths may change; failures may mis-layout or require falling back to classic.</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Scope">The ECS world and systems are built at process start — a full launcher restart is required after toggling. Not implemented in this build; the switch stays unavailable.</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Unavailable">Not implemented yet: the ECS UI render backend is scaffolding only and cannot be enabled. When available, a launcher restart will still be required.</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Unavailable.Title">Unavailable</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Confirm.Title">Enable next rendering backend</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Confirm.Message">Switches to the experimental ECS UI render architecture for better UI performance. A full launcher restart is required for the change to take effect. Continue?</sys:String>
+    <sys:String x:Key="Setup.Experimental.NextRender.Confirm.Enable">Enable and restart later</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Title">Experimental user interface</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Enable">Enable experimental user interface</sys:String>
     <sys:String x:Key="Setup.Experimental.HomepageUi.Summary">Uses the redesigned Launch page, full-page version library, full-page version settings, frosted title bar, and glass floating actions. Other feature pages will gradually move to this experimental UI as well.</sys:String>
