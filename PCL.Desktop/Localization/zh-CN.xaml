@@ -40,6 +40,7 @@
     <sys:String x:Key="Common.Option.Auto">自动</sys:String>
     <sys:String x:Key="Common.Option.Customize">自定义</sys:String>
     <sys:String x:Key="Common.Option.Default">默认</sys:String>
+    <sys:String x:Key="Common.Task.Completed">任务已完成</sys:String>
 
     <!-- Download -->
 
@@ -1110,6 +1111,20 @@
     <sys:String x:Key="Setup.Update.Prompt.SkipVersion">跳过版本</sys:String>
     <sys:String x:Key="Setup.Update.RestartAndInstall">重启并安装</sys:String>
     <sys:String x:Key="Setup.Update.Skipped">已跳过此版本更新。</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Title">启动器更新</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Preparing">准备更新…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Ready">更新已就绪</sys:String>
+    <sys:String x:Key="Setup.Update.Task.ReadyDetail">下载完成并通过校验</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.Indexing">正在索引本地分块…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.DownloadingBlocks">正在下载更新分块…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.Rebuilding">正在重组更新包…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.DownloadingPatch">正在下载补丁…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.ApplyingPatch">正在应用补丁…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.FallingBack">补丁不可用，改用完整包…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.DownloadingFull">正在下载完整更新包…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.Extracting">正在解压…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.Verifying">正在校验…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.VerifyingSignature">正在验证签名…</sys:String>
 
     <!-- Host plugin navigation -->
     <sys:String x:Key="Plugin.Group.Online">在线</sys:String>

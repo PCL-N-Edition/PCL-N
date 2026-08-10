@@ -40,6 +40,7 @@
     <sys:String x:Key="Common.Option.Auto">Automatic</sys:String>
     <sys:String x:Key="Common.Option.Customize">Custom</sys:String>
     <sys:String x:Key="Common.Option.Default">Default</sys:String>
+    <sys:String x:Key="Common.Task.Completed">Task completed</sys:String>
 
     <!-- Download -->
 
@@ -1110,6 +1111,20 @@
     <sys:String x:Key="Setup.Update.Prompt.SkipVersion">Skip version</sys:String>
     <sys:String x:Key="Setup.Update.RestartAndInstall">Restart and install</sys:String>
     <sys:String x:Key="Setup.Update.Skipped">This version has been skipped.</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Title">Launcher update</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Preparing">Preparing update…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Ready">Update ready</sys:String>
+    <sys:String x:Key="Setup.Update.Task.ReadyDetail">Download finished and verified</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.Indexing">Indexing local blocks…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.DownloadingBlocks">Downloading update blocks…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.Rebuilding">Rebuilding package…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.DownloadingPatch">Downloading patch…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.ApplyingPatch">Applying patch…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.FallingBack">Patch unavailable; using full package…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.DownloadingFull">Downloading full package…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.Extracting">Extracting…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.Verifying">Verifying…</sys:String>
+    <sys:String x:Key="Setup.Update.Task.Stage.VerifyingSignature">Verifying signature…</sys:String>
 
     <!-- Host plugin navigation -->
     <sys:String x:Key="Plugin.Group.Online">Online</sys:String>
