@@ -468,6 +468,8 @@ def build_blockmap(
             delta_stats = None
             if profile.get("name") == "v2":
                 # Always normalize v2 chunks to nested full (+ optional deltas).
+                # Only same-algorithm previous maps may supply source windows —
+                # falling back to v1 maps makes pure-Python VCDIFF thrash for hours.
                 compatible = [
                     previous
                     for previous in (previous_maps or [])
@@ -476,11 +478,12 @@ def build_blockmap(
                 delta_stats = attach_v2_deltas(
                     entries,
                     output_root=output_root,
-                    previous_maps=compatible or (previous_maps or []),
+                    previous_maps=compatible,
                 )
                 print(
                     f"VCDIFF stats: candidates={delta_stats.get('candidates', 0)} "
-                    f"accepted={delta_stats.get('accepted', 0)}"
+                    f"accepted={delta_stats.get('accepted', 0)} "
+                    f"previous_maps={len(compatible)}"
                 )
             results.append(
                 _write_manifest(
@@ -554,11 +557,12 @@ def build_file_blockmap(
             delta_stats = attach_v2_deltas(
                 entries,
                 output_root=output_root,
-                previous_maps=compatible or (previous_maps or []),
+                previous_maps=compatible,
             )
             print(
                 f"VCDIFF stats: candidates={delta_stats.get('candidates', 0)} "
-                f"accepted={delta_stats.get('accepted', 0)}"
+                f"accepted={delta_stats.get('accepted', 0)} "
+                f"previous_maps={len(compatible)}"
             )
         results.append(
             _write_manifest(

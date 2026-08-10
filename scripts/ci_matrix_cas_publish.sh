@@ -49,6 +49,8 @@ PY
 }
 
 # Previous channel release supplies source windows for VCDIFF (N-1).
+# Only reuse **v2** maps: pairing v1 windows with v2 FastCDC makes the pure-Python
+# encoder thrash for hours on SelfContained packages and times out the matrix.
 if python scripts/upload_r2_cas.py get "channels/${CHANNEL}.json" --file "$PREV_DIR/channel.json" 2>/dev/null; then
   PREV_TAG="$(read_channel_tag "$PREV_DIR/channel.json" || true)"
   if [[ -n "${PREV_TAG:-}" && "$PREV_TAG" != "$RELEASE_TAG" ]]; then
@@ -59,15 +61,14 @@ if python scripts/upload_r2_cas.py get "channels/${CHANNEL}.json" --file "$PREV_
       stem="${stem%.zip}"
       stem="${stem%_Portable.exe}"
       stem="${stem%.exe}"
-      for suffix in blockmap.v2.json blockmap.json; do
-        key="releases/${PREV_TAG}/${stem}.${suffix}"
-        dest="$PREV_DIR/${stem}.${suffix}"
-        if python scripts/upload_r2_cas.py get "$key" --file "$dest" 2>/dev/null; then
-          PREV_ARGS+=(--previous-blockmap "$dest")
-          echo "Using previous map: $key"
-          break
-        fi
-      done
+      key="releases/${PREV_TAG}/${stem}.blockmap.v2.json"
+      dest="$PREV_DIR/${stem}.blockmap.v2.json"
+      if python scripts/upload_r2_cas.py get "$key" --file "$dest" 2>/dev/null; then
+        PREV_ARGS+=(--previous-blockmap "$dest")
+        echo "Using previous v2 map: $key"
+      else
+        echo "No previous v2 map for $stem (full blocks only)."
+      fi
     done < <(find "$PACKAGE_DIR" -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*_Portable.exe' \) -print0)
   fi
 else
