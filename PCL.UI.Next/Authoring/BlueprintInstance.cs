@@ -5,6 +5,7 @@ namespace PCL.UI.Next;
 
 /// <summary>
 /// Live instantiation of a <see cref="UiBlueprint"/> inside a <see cref="UiWorld"/>.
+/// Owned by a <see cref="UiScopeId"/> — when the scope dies, the instance is invalid.
 /// </summary>
 public sealed class BlueprintInstance
 {
@@ -13,13 +14,13 @@ public sealed class BlueprintInstance
         UiBlueprint blueprint,
         UiScopeId scope,
         UiEntity[] entitiesByNode,
-        ulong[] bindingVersions)
+        BindingStamp[] bindingStamps)
     {
         InstanceId = instanceId;
         Blueprint = blueprint;
         Scope = scope;
         EntitiesByNode = entitiesByNode;
-        BindingVersions = bindingVersions;
+        BindingStamps = bindingStamps;
     }
 
     public int InstanceId { get; }
@@ -27,6 +28,8 @@ public sealed class BlueprintInstance
     public UiBlueprint Blueprint { get; }
 
     public UiScopeId Scope { get; }
+
+    public bool IsAlive { get; internal set; } = true;
 
     public UiEntity RootEntity =>
         EntitiesByNode.Length > Blueprint.RootIndex
@@ -36,8 +39,8 @@ public sealed class BlueprintInstance
     /// <summary>Entity for each blueprint node index; <see cref="UiEntity.None"/> if not mounted.</summary>
     internal UiEntity[] EntitiesByNode { get; }
 
-    /// <summary>Last applied presentation version per binding slot.</summary>
-    internal ulong[] BindingVersions { get; }
+    /// <summary>Last successfully applied stamp per binding slot (version + entity).</summary>
+    internal BindingStamp[] BindingStamps { get; }
 
     public UiEntity EntityAt(int nodeIndex)
     {

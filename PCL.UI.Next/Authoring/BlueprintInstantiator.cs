@@ -37,13 +37,12 @@ public sealed class BlueprintInstantiator
         // Mount non-structural skeleton depth-first; If nodes mount only the active branch.
         MountNode(blueprint, blueprint.RootIndex, parentEntity: UiEntity.None, instanceId, map, scope);
 
-        ulong[] versions = new ulong[blueprint.Bindings.Count];
-        var instance = new BlueprintInstance(instanceId, blueprint, scope, map, versions);
+        BindingStamp[] stamps = new BindingStamp[blueprint.Bindings.Count];
+        var instance = new BlueprintInstance(instanceId, blueprint, scope, map, stamps);
         _instances.Add(instance);
 
-        ApplyBindings(instance, force: true);
+        // Structural first so branch entities exist before property bindings apply.
         ReconcileStructural(instance, force: true);
-        // Structural mount may create new entities that need initial property bindings.
         ApplyBindings(instance, force: true);
         return instance;
     }
@@ -51,28 +50,69 @@ public sealed class BlueprintInstantiator
     public void Destroy(BlueprintInstance instance)
     {
         ArgumentNullException.ThrowIfNull(instance);
-        if (instance.RootEntity != UiEntity.None)
+        if (!instance.IsAlive)
+        {
+            _instances.Remove(instance);
+            return;
+        }
+
+        if (instance.RootEntity != UiEntity.None && _world.Entities.IsAlive(instance.RootEntity))
             _world.DestroyEntity(instance.RootEntity);
-        for (int i = 0; i < instance.EntitiesByNode.Length; i++)
-            instance.EntitiesByNode[i] = UiEntity.None;
+        InvalidateInstance(instance);
         _instances.Remove(instance);
     }
 
     /// <summary>
-    /// Reactive update: only bindings whose dependency slice version changed, then structural If.
+    /// Reactive update: structural reconcile may remount entities, then bindings
+    /// re-apply when state version or target entity generation changed.
     /// </summary>
     public void Update(BlueprintInstance instance)
     {
         ArgumentNullException.ThrowIfNull(instance);
-        ApplyBindings(instance, force: false);
+        if (!EnsureInstanceAlive(instance))
+            return;
+
         ReconcileStructural(instance, force: false);
         ApplyBindings(instance, force: false);
     }
 
     public void UpdateAll()
     {
-        foreach (BlueprintInstance instance in _instances)
+        for (int i = _instances.Count - 1; i >= 0; i--)
+        {
+            BlueprintInstance instance = _instances[i];
+            if (!EnsureInstanceAlive(instance))
+                continue;
             Update(instance);
+        }
+    }
+
+    private bool EnsureInstanceAlive(BlueprintInstance instance)
+    {
+        if (!instance.IsAlive)
+        {
+            _instances.Remove(instance);
+            return false;
+        }
+
+        if (!_world.Scopes.IsAlive(instance.Scope))
+        {
+            // Scope disposed externally — entities already destroyed by UiWorld.
+            InvalidateInstance(instance);
+            _instances.Remove(instance);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void InvalidateInstance(BlueprintInstance instance)
+    {
+        instance.IsAlive = false;
+        for (int i = 0; i < instance.EntitiesByNode.Length; i++)
+            instance.EntitiesByNode[i] = UiEntity.None;
+        for (int i = 0; i < instance.BindingStamps.Length; i++)
+            instance.BindingStamps[i] = BindingStamp.None;
     }
 
     private void MountNode(
@@ -90,8 +130,7 @@ public sealed class BlueprintInstantiator
         if (node.Kind == UiNodeKind.If)
         {
             // Placeholder entity for the structural host; branches mount separately.
-            UiEntity host = CreateEntityForNode(blueprint, nodeIndex, instanceId, map, scope, parentEntity);
-            _ = host;
+            CreateEntityForNode(blueprint, nodeIndex, instanceId, map, scope, parentEntity);
             return;
         }
 
@@ -133,7 +172,8 @@ public sealed class BlueprintInstantiator
             _world.Set(entity, new BehaviorComponent { Flags = node.Behaviors });
         if (node.CommandId != 0)
             _world.Set(entity, new CommandBindingComponent { CommandId = node.CommandId });
-        if (node.Kind is UiNodeKind.Text or UiNodeKind.Button || node.StaticText is not null)
+        // Only real text carriers get TextContent — not Button shell entities.
+        if (node.Kind == UiNodeKind.Text || node.StaticText is not null)
             _world.Set(entity, new TextContent { Value = node.StaticText });
         if (node.Kind == UiNodeKind.If)
             _world.Set(entity, new StructuralIfState());
@@ -148,19 +188,19 @@ public sealed class BlueprintInstantiator
         for (int i = 0; i < bindings.Length; i++)
         {
             BlueprintBinding binding = bindings[i];
-            if (binding.Kind == BlueprintBindingKind.None)
+            if (binding.Kind is BlueprintBindingKind.None or BlueprintBindingKind.Condition)
                 continue;
-
-            ulong version = _store.Version(binding.DependencySlice);
-            if (!force && instance.BindingVersions[i] == version)
-                continue;
-            instance.BindingVersions[i] = version;
-
-            if (binding.Kind == BlueprintBindingKind.Condition)
-                continue; // handled by structural reconcile
 
             UiEntity entity = instance.EntitiesByNode[binding.NodeIndex];
             if (!_world.Entities.IsAlive(entity))
+            {
+                // Do not stamp success for unmounted targets — remount must re-apply.
+                continue;
+            }
+
+            ulong version = _store.CombinedVersion(binding.DependencySlices);
+            BindingStamp stamp = instance.BindingStamps[i];
+            if (!force && stamp.Matches(version, entity))
                 continue;
 
             if (binding.Kind == BlueprintBindingKind.Text && binding.ReadString is not null)
@@ -168,6 +208,7 @@ public sealed class BlueprintInstantiator
                 string value = binding.ReadString(_store);
                 _world.Set(entity, new TextContent { Value = value });
                 _world.Dirty.Mark(entity, UiDirtyFlags.Binding | UiDirtyFlags.TextMeasure | UiDirtyFlags.Render);
+                instance.BindingStamps[i] = new BindingStamp { StateVersion = version, Entity = entity };
             }
         }
     }
@@ -188,7 +229,7 @@ public sealed class BlueprintInstantiator
             if (node.ConditionBindingIndex < 0)
                 continue;
             BlueprintBinding condition = instance.Blueprint.BindingsCore[node.ConditionBindingIndex];
-            ulong version = _store.Version(condition.DependencySlice);
+            ulong version = _store.CombinedVersion(condition.DependencySlices);
 
             ref StructuralIfState state = ref _world.Components.Pool<StructuralIfState>().Get(host);
             if (!force && state.LastConditionVersion == version)
@@ -202,7 +243,6 @@ public sealed class BlueprintInstantiator
                 continue;
             }
 
-            // Tear down previous branch entities under host.
             DismountBranch(instance, nodeIndex, state.ActiveBranch);
 
             int branchRoot = desired == 1 ? node.TrueBranchRoot : node.FalseBranchRoot;
@@ -211,7 +251,6 @@ public sealed class BlueprintInstantiator
 
             state.ActiveBranch = desired;
             state.LastConditionVersion = version;
-            instance.BindingVersions[node.ConditionBindingIndex] = version;
             _world.Dirty.Mark(host, UiDirtyFlags.StructuralCascade);
             _world.Scheduler.RequestReactiveFrame();
         }
@@ -232,9 +271,39 @@ public sealed class BlueprintInstantiator
             _world.DestroyEntity(branchEntity);
 
         ClearSubtreeMap(instance, branchRoot);
+        // Invalidate stamps for any bindings under the torn-down branch.
+        InvalidateBindingStampsInSubtree(instance, branchRoot);
     }
 
-    private void ClearSubtreeMap(BlueprintInstance instance, int nodeIndex)
+    private static void InvalidateBindingStampsInSubtree(BlueprintInstance instance, int nodeIndex)
+    {
+        if (nodeIndex < 0)
+            return;
+
+        BlueprintBinding[] bindings = instance.Blueprint.BindingsCore;
+        for (int i = 0; i < bindings.Length; i++)
+        {
+            if (bindings[i].NodeIndex == nodeIndex)
+                instance.BindingStamps[i] = BindingStamp.None;
+        }
+
+        BlueprintNode node = instance.Blueprint.NodesCore[nodeIndex];
+        if (node.Kind == UiNodeKind.If)
+        {
+            InvalidateBindingStampsInSubtree(instance, node.TrueBranchRoot);
+            InvalidateBindingStampsInSubtree(instance, node.FalseBranchRoot);
+            return;
+        }
+
+        int child = node.FirstChildIndex;
+        while (child >= 0)
+        {
+            InvalidateBindingStampsInSubtree(instance, child);
+            child = instance.Blueprint.NodesCore[child].NextSiblingIndex;
+        }
+    }
+
+    private static void ClearSubtreeMap(BlueprintInstance instance, int nodeIndex)
     {
         if (nodeIndex < 0)
             return;

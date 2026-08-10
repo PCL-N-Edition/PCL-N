@@ -38,6 +38,8 @@ public sealed class UiBlueprint
 /// <summary>One static node in a blueprint graph (sibling/child via indices).</summary>
 public readonly struct BlueprintNode
 {
+    private readonly int[] _styleClassIds;
+
     public BlueprintNode(
         UiNodeKind kind,
         int parentIndex,
@@ -55,7 +57,10 @@ public readonly struct BlueprintNode
         ParentIndex = parentIndex;
         FirstChildIndex = firstChildIndex;
         NextSiblingIndex = nextSiblingIndex;
-        StyleClassIds = styleClassIds;
+        // Defensive copy so callers cannot mutate the compiled graph.
+        _styleClassIds = styleClassIds.Length == 0
+            ? Array.Empty<int>()
+            : (int[])styleClassIds.Clone();
         Behaviors = behaviors;
         CommandId = commandId;
         StaticText = staticText;
@@ -68,7 +73,10 @@ public readonly struct BlueprintNode
     public int ParentIndex { get; }
     public int FirstChildIndex { get; }
     public int NextSiblingIndex { get; }
-    public int[] StyleClassIds { get; }
+
+    /// <summary>Style class ids; immutable view over a private array.</summary>
+    public ReadOnlySpan<int> StyleClassIds => _styleClassIds;
+
     public UiBehavior Behaviors { get; }
     public int CommandId { get; }
     public string? StaticText { get; }
@@ -88,17 +96,22 @@ public readonly struct BlueprintNode
 /// <summary>Compiled binding slot (selector → node property).</summary>
 public readonly struct BlueprintBinding
 {
+    private readonly int[] _dependencySlices;
+
     public BlueprintBinding(
         int bindingId,
         int nodeIndex,
-        int dependencySlice,
+        ReadOnlySpan<int> dependencySlices,
         BlueprintBindingKind kind,
         Func<PresentationStore, string>? readString = null,
         Func<PresentationStore, bool>? readBool = null)
     {
+        if (dependencySlices.IsEmpty)
+            throw new ArgumentException("Binding requires at least one dependency slice.", nameof(dependencySlices));
+
         BindingId = bindingId;
         NodeIndex = nodeIndex;
-        DependencySlice = dependencySlice;
+        _dependencySlices = dependencySlices.ToArray();
         Kind = kind;
         ReadString = readString;
         ReadBool = readBool;
@@ -106,7 +119,12 @@ public readonly struct BlueprintBinding
 
     public int BindingId { get; }
     public int NodeIndex { get; }
-    public int DependencySlice { get; }
+
+    /// <summary>First dependency slice (compat).</summary>
+    public int DependencySlice => _dependencySlices[0];
+
+    public ReadOnlySpan<int> DependencySlices => _dependencySlices;
+
     public BlueprintBindingKind Kind { get; }
     public Func<PresentationStore, string>? ReadString { get; }
     public Func<PresentationStore, bool>? ReadBool { get; }
@@ -117,4 +135,19 @@ public enum BlueprintBindingKind : byte
     None = 0,
     Text = 1,
     Condition = 2
+}
+
+/// <summary>
+/// Applied binding stamp: state fingerprint + target entity generation.
+/// Remounts (new generation) re-apply even when state version is unchanged.
+/// </summary>
+public struct BindingStamp
+{
+    public ulong StateVersion { get; set; }
+    public UiEntity Entity { get; set; }
+
+    public static BindingStamp None => default;
+
+    public bool Matches(ulong stateVersion, UiEntity entity) =>
+        StateVersion == stateVersion && Entity == entity;
 }

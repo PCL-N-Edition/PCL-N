@@ -21,8 +21,14 @@ public struct TextContent
     public string? Value { get; set; }
 }
 
+/// <summary>
+/// Inline style classes (hot path). Phase 2: max 4 classes; more throws at authoring/runtime.
+/// Future: overflow via StyleClassStore handle.
+/// </summary>
 public struct StyleClassSet
 {
+    public const int MaxInlineCount = 4;
+
     public int Class0 { get; set; }
     public int Class1 { get; set; }
     public int Class2 { get; set; }
@@ -31,13 +37,20 @@ public struct StyleClassSet
 
     public static StyleClassSet From(ReadOnlySpan<int> ids)
     {
+        if (ids.Length > MaxInlineCount)
+        {
+            throw new ArgumentException(
+                $"StyleClassSet supports at most {MaxInlineCount} inline classes; got {ids.Length}. " +
+                "Overflow store is not implemented in Phase 2.",
+                nameof(ids));
+        }
+
         StyleClassSet set = default;
-        int n = Math.Min(4, ids.Length);
-        set.Count = (byte)n;
-        if (n > 0) set.Class0 = ids[0];
-        if (n > 1) set.Class1 = ids[1];
-        if (n > 2) set.Class2 = ids[2];
-        if (n > 3) set.Class3 = ids[3];
+        set.Count = (byte)ids.Length;
+        if (ids.Length > 0) set.Class0 = ids[0];
+        if (ids.Length > 1) set.Class1 = ids[1];
+        if (ids.Length > 2) set.Class2 = ids[2];
+        if (ids.Length > 3) set.Class3 = ids[3];
         return set;
     }
 

@@ -52,6 +52,18 @@ public sealed class PresentationStore
     public ulong Version(int sliceId) =>
         _slices.TryGetValue(sliceId, out Slice slice) ? slice.Version : 0;
 
+    /// <summary>
+    /// Combined monotonic fingerprint of all listed slices (order-sensitive).
+    /// Used by binding stamps so multi-dependency selectors invalidate correctly.
+    /// </summary>
+    public ulong CombinedVersion(ReadOnlySpan<int> dependencySlices)
+    {
+        ulong combined = 0;
+        for (int i = 0; i < dependencySlices.Length; i++)
+            combined = unchecked(combined * 31UL + Version(dependencySlices[i]));
+        return combined;
+    }
+
     private readonly struct Slice(object? value, ulong version)
     {
         public object? Value { get; } = value;

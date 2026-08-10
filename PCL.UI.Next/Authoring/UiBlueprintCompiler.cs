@@ -4,9 +4,10 @@
 namespace PCL.UI.Next;
 
 /// <summary>
-/// Phase-2 "source generator prototype": walks an authoring tree once and emits a
-/// packed blueprint + compiled binding program (no reflection, no expression trees).
-/// A future Roslyn generator can emit the same shape without the runtime walk.
+/// Source-generator-<b>compatible</b> runtime compiler prototype (not a Roslyn generator).
+/// Walks an authoring tree once and emits a packed blueprint + binding program
+/// (no reflection / expression-tree parse). A future
+/// <c>PCL.UI.Next.SourceGenerators</c> project can emit the same arrays at compile time.
 /// </summary>
 public static class UiBlueprintCompiler
 {
@@ -20,7 +21,6 @@ public static class UiBlueprintCompiler
         List<BlueprintBinding> bindings = [];
         int rootIndex = Emit(root, parentIndex: -1, drafts, bindings);
 
-        // Link next-sibling for children of each parent.
         BlueprintNode[] nodes = new BlueprintNode[drafts.Count];
         for (int i = 0; i < drafts.Count; i++)
         {
@@ -48,6 +48,13 @@ public static class UiBlueprintCompiler
         List<NodeDraft> drafts,
         List<BlueprintBinding> bindings)
     {
+        if (node.StyleClassIds.Count > StyleClassSet.MaxInlineCount)
+        {
+            throw new InvalidOperationException(
+                $"Node kind {node.Kind} declares {node.StyleClassIds.Count} style classes; " +
+                $"max is {StyleClassSet.MaxInlineCount} in Phase 2.");
+        }
+
         int index = drafts.Count;
         drafts.Add(new NodeDraft
         {
@@ -66,15 +73,12 @@ public static class UiBlueprintCompiler
 
         if (node.TextBinding is { } textSelector)
         {
-            int bindingIndex = bindings.Count;
             bindings.Add(new BlueprintBinding(
                 textSelector.Id,
                 index,
-                textSelector.DependencySlice,
+                textSelector.DependencySlices,
                 BlueprintBindingKind.Text,
                 readString: textSelector.Read));
-            // Binding targets this node; StaticText is fallback until first apply.
-            _ = bindingIndex;
         }
 
         if (node.Kind == UiNodeKind.If)
@@ -88,7 +92,7 @@ public static class UiBlueprintCompiler
             bindings.Add(new BlueprintBinding(
                 condition.Id,
                 index,
-                condition.DependencySlice,
+                condition.DependencySlices,
                 BlueprintBindingKind.Condition,
                 readBool: condition.Read));
 
