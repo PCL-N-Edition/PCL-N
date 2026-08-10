@@ -182,8 +182,22 @@ public sealed class DesktopCompositionTests
         Assert.AreEqual("https://example.test/v1/yggdrasil", withServer);
 
         string fallback = MinecraftLaunchPlanFactory.ResolveNCloudAuthServer(null);
-        StringAssert.EndsWith(fallback, "/yggdrasil");
-        StringAssert.Contains(fallback, "plugin-center-api");
+        Assert.AreEqual("https://api.pcln.top/v1/yggdrasil", fallback);
+
+        // Historical Supabase Edge roots must not be used after the Cloudflare cutover:
+        // their skinDomains omit api.pcln.top and in-game skins fail.
+        string legacyEdge = MinecraftLaunchPlanFactory.ResolveNCloudAuthServer(
+            "http://vtvhtscdvfnuttwapzxu.supabase.co/plugin-center-api/v1/yggdrasil");
+        Assert.AreEqual("https://api.pcln.top/v1/yggdrasil", legacyEdge);
+
+        string legacyFunctions = MinecraftLaunchPlanFactory.ResolveNCloudAuthServer(
+            "https://vtvhtscdvfnuttwapzxu.supabase.co/functions/v1/plugin-center-api/v1/yggdrasil");
+        Assert.AreEqual("https://api.pcln.top/v1/yggdrasil", legacyFunctions);
+
+        Assert.IsTrue(MinecraftLaunchPlanFactory.IsLegacyNCloudAuthServer(
+            "https://vtvhtscdvfnuttwapzxu.supabase.co/functions/v1/plugin-center-api/v1/yggdrasil"));
+        Assert.IsFalse(MinecraftLaunchPlanFactory.IsLegacyNCloudAuthServer(
+            "https://api.pcln.top/v1/yggdrasil"));
     }
 
     [TestMethod]

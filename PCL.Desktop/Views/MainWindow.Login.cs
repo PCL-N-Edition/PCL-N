@@ -1921,8 +1921,10 @@ public partial class MainWindow
             LaunchProfileKind.ThirdParty => LaunchLoginProfileKind.ThirdParty,
             _ => LaunchLoginProfileKind.Offline
         };
+        // Migrate empty / legacy Supabase Edge N Cloud roots to the current API so
+        // Authlib skinDomains and sessionserver match the live Cloudflare backend.
         string authServer = kind == LaunchLoginProfileKind.NCloud
-            ? AuthlibInjectorService.NormalizeAuthServer(profile.AuthServer)
+            ? MinecraftLaunchPlanFactory.ResolveNCloudAuthServer(profile.AuthServer)
             : profile.AuthServer;
         return new LoginProfileInfo(
             profile.Username,

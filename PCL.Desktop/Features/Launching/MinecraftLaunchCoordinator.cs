@@ -209,12 +209,27 @@ internal sealed class MinecraftLaunchCoordinator
         string launchArgs = plan.StartInfo.Arguments ?? string.Empty;
         bool hasAuthlibAgent = launchArgs.Contains("-javaagent:", StringComparison.OrdinalIgnoreCase) &&
                                launchArgs.Contains("authlib", StringComparison.OrdinalIgnoreCase);
+        bool hasPrefetchedApi = launchArgs.Contains(
+            "-Dauthlibinjector.yggdrasil.prefetched=",
+            StringComparison.OrdinalIgnoreCase);
         if (request.Profile.Kind is LaunchLoginProfileKind.NCloud or LaunchLoginProfileKind.LittleSkin)
         {
+            if (!hasAuthlibAgent || !hasPrefetchedApi)
+            {
+                throw new InvalidOperationException(
+                    "启动参数缺少 Authlib Injector 或预取的 Yggdrasil API 元数据，游戏内皮肤无法加载。请重新登录后重试。");
+            }
+
+            // Prefer the API URL actually embedded after -javaagent:…= (not only the profile field).
+            string? authServerFromArgs = TryExtractAuthlibServerFromArguments(launchArgs);
+            string? authServerHint = authServerFromArgs ??
+                                     (string.IsNullOrWhiteSpace(profile.AuthServer)
+                                         ? null
+                                         : profile.AuthServer.Trim());
             request.Log?.Invoke(
-                hasAuthlibAgent
-                    ? "Authlib Injector 已写入启动参数（外置登录 / 皮肤）。"
-                    : "警告：未检测到 Authlib Injector 启动参数，游戏内皮肤可能无法加载。");
+                "Authlib Injector 已写入启动参数（外置登录 / 皮肤）" +
+                (string.IsNullOrWhiteSpace(authServerHint) ? "。" : "；API=" + authServerHint + "。") +
+                (hasPrefetchedApi ? " 已附带 prefetched Yggdrasil 元数据。" : string.Empty));
         }
 
         request.Log?.Invoke(
@@ -957,6 +972,49 @@ internal sealed class MinecraftLaunchCoordinator
 
     private static string StageName(string key, string fallback) =>
         AvaloniaLocalizationManager.GetText(key, fallback);
+
+    /// <summary>
+    /// Pulls the Yggdrasil API root from <c>-javaagent:…jar=https://…</c> in the command line.
+    /// </summary>
+    private static string? TryExtractAuthlibServerFromArguments(string arguments)
+    {
+        if (string.IsNullOrWhiteSpace(arguments))
+            return null;
+
+        const string marker = "-javaagent:";
+        int agentIndex = arguments.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (agentIndex < 0)
+            return null;
+
+        int valueStart = agentIndex + marker.Length;
+        // Skip optional quotes around the jar path, then find the options separator '='.
+        if (valueStart < arguments.Length && arguments[valueStart] == '"')
+        {
+            int close = arguments.IndexOf('"', valueStart + 1);
+            if (close < 0)
+                return null;
+            if (close + 1 >= arguments.Length || arguments[close + 1] != '=')
+                return null;
+            valueStart = close + 2;
+        }
+        else
+        {
+            int equals = arguments.IndexOf('=', valueStart);
+            if (equals < 0)
+                return null;
+            valueStart = equals + 1;
+        }
+
+        int valueEnd = valueStart;
+        while (valueEnd < arguments.Length && !char.IsWhiteSpace(arguments[valueEnd]))
+            valueEnd++;
+
+        if (valueEnd <= valueStart)
+            return null;
+
+        string server = arguments[valueStart..valueEnd].Trim().Trim('"');
+        return string.IsNullOrWhiteSpace(server) ? null : server;
+    }
 
     private static string FormatThirdPartyMethod(LoginProfileInfo profile)
     {

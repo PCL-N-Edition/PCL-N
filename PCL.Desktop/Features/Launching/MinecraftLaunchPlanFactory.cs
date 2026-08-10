@@ -59,17 +59,19 @@ internal static class MinecraftLaunchPlanFactory
         {
             // These providers must never launch against Mojang sessionserver alone —
             // skins, capes, and join-server checks all depend on Authlib Injector.
-            if (string.IsNullOrWhiteSpace(authlibPath) || string.IsNullOrWhiteSpace(authlibServer))
+            if (string.IsNullOrWhiteSpace(authlibPath) ||
+                string.IsNullOrWhiteSpace(authlibServer) ||
+                string.IsNullOrWhiteSpace(authlibMetadata))
             {
                 throw new InvalidOperationException(
                     profile.Kind == LaunchLoginProfileKind.NCloud
-                        ? "N Cloud 启动需要 Authlib Injector，但档案缺少可用的认证服务器或注入组件未能准备。请重新登录 N Cloud 后重试。"
-                        : "LittleSkin 启动需要 Authlib Injector，但档案缺少可用的认证服务器或注入组件未能准备。请重新登录后重试。");
+                        ? "N Cloud 启动需要 Authlib Injector 与认证服务器元数据（API），但未能准备完整。请重新登录 N Cloud 后重试。"
+                        : "LittleSkin 启动需要 Authlib Injector 与认证服务器元数据（API），但未能准备完整。请重新登录后重试。");
             }
 
             PortableLog.Info(
                 "LaunchPlan",
-                $"已为 {profile.Kind} 启用 Authlib Injector；server={authlibServer}；agent={authlibPath}。");
+                $"已为 {profile.Kind} 启用 Authlib Injector；server={authlibServer}；agent={authlibPath}；prefetched={authlibMetadata.Length}B。");
         }
         else if (!string.IsNullOrWhiteSpace(authlibPath) && !string.IsNullOrWhiteSpace(authlibServer))
         {
@@ -351,18 +353,43 @@ internal static class MinecraftLaunchPlanFactory
     }
 
     /// <summary>
-    /// Public N Cloud Yggdrasil root used when a saved profile omitted AuthServer.
-    /// Matches <c>PCLN_PLUGIN_API_URL</c> + <c>yggdrasil</c>.
+    /// Canonical N Cloud Yggdrasil root for Authlib Injector.
+    /// Rewrites empty / legacy Supabase Edge URLs to <c>PCLN_PLUGIN_API_URL</c> (or
+    /// <c>https://api.pcln.top/v1/</c>) + <c>yggdrasil</c>. Old edge metadata only lists
+    /// <c>.supabase.co</c> skin domains, so launching against it drops in-game skins after
+    /// the Cloudflare cutover.
     /// </summary>
     internal static string ResolveNCloudAuthServer(string? authServer)
     {
-        if (!string.IsNullOrWhiteSpace(authServer))
-            return AuthlibInjectorService.NormalizeAuthServer(authServer);
+        string canonical = GetCanonicalNCloudYggdrasilRoot();
+        if (string.IsNullOrWhiteSpace(authServer))
+            return canonical;
 
+        string normalized = AuthlibInjectorService.NormalizeAuthServer(authServer);
+        if (IsLegacyNCloudAuthServer(normalized))
+            return canonical;
+
+        return normalized;
+    }
+
+    /// <summary>True when the URL is the historical Supabase Edge Function Yggdrasil root.</summary>
+    internal static bool IsLegacyNCloudAuthServer(string? authServer)
+    {
+        if (string.IsNullOrWhiteSpace(authServer))
+            return false;
+        if (!Uri.TryCreate(authServer.Trim(), UriKind.Absolute, out Uri? uri))
+            return false;
+
+        return uri.Host.EndsWith(".supabase.co", StringComparison.OrdinalIgnoreCase) &&
+               uri.AbsolutePath.Contains("plugin-center-api", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetCanonicalNCloudYggdrasilRoot()
+    {
         string? envBase = Environment.GetEnvironmentVariable("PCLN_PLUGIN_API_URL");
         string apiBase = string.IsNullOrWhiteSpace(envBase)
             ? "https://api.pcln.top/v1/"
-            : envBase;
+            : envBase.Trim();
 
         if (!apiBase.EndsWith('/'))
             apiBase += "/";
@@ -380,29 +407,44 @@ internal static class MinecraftLaunchPlanFactory
         if (!profile.UsesYggdrasil)
             return (null, null, null);
 
-        string? rawAuthServer = profile.AuthServer;
-        if (string.IsNullOrWhiteSpace(rawAuthServer))
+        string authServer;
+        if (profile.Kind == LaunchLoginProfileKind.NCloud)
         {
-            if (profile.Kind == LaunchLoginProfileKind.NCloud)
+            // Always resolve through the N Cloud helper so empty and legacy Supabase URLs
+            // become the canonical API before Authlib metadata / -javaagent is built.
+            string? previous = string.IsNullOrWhiteSpace(profile.AuthServer)
+                ? null
+                : AuthlibInjectorService.NormalizeAuthServer(profile.AuthServer);
+            authServer = ResolveNCloudAuthServer(profile.AuthServer);
+            if (string.IsNullOrWhiteSpace(previous))
             {
-                rawAuthServer = ResolveNCloudAuthServer(null);
                 PortableLog.Warn(
                     "LaunchPlan",
-                    "N Cloud 档案缺少 AuthServer，已回退到默认 Yggdrasil 根：" + rawAuthServer);
+                    "N Cloud 档案缺少 AuthServer，已回退到默认 Yggdrasil 根：" + authServer);
             }
-            else if (requiresAgent)
+            else if (!string.Equals(previous, authServer, StringComparison.OrdinalIgnoreCase))
+            {
+                PortableLog.Warn(
+                    "LaunchPlan",
+                    "N Cloud AuthServer 已从旧地址迁移：" + previous + " → " + authServer);
+            }
+        }
+        else if (string.IsNullOrWhiteSpace(profile.AuthServer))
+        {
+            if (requiresAgent)
             {
                 throw new InvalidOperationException(
                     "LittleSkin 档案缺少认证服务器地址（AuthServer），无法注入 Authlib。请重新登录。");
             }
-            else
-            {
-                return (null, null, null);
-            }
+
+            return (null, null, null);
+        }
+        else
+        {
+            authServer = AuthlibInjectorService.NormalizeAuthServer(profile.AuthServer);
         }
 
         AuthlibInjectorService service = new();
-        string authServer = AuthlibInjectorService.NormalizeAuthServer(rawAuthServer);
         string metadata;
         try
         {
@@ -414,6 +456,12 @@ internal static class MinecraftLaunchPlanFactory
             throw new InvalidOperationException(
                 $"无法读取 Authlib 认证服务器元数据：{authServer}。N Cloud / 外置登录皮肤依赖该地址可用。",
                 ex);
+        }
+
+        if (requiresAgent && string.IsNullOrWhiteSpace(metadata))
+        {
+            throw new InvalidOperationException(
+                $"Authlib 认证服务器返回了空元数据：{authServer}。无法预取 API（皮肤 / 会话）配置。");
         }
 
         // Host mode takes over compatible generic third-party accounts. LittleSkin and
@@ -432,6 +480,13 @@ internal static class MinecraftLaunchPlanFactory
             throw new InvalidOperationException(
                 "无法准备 Authlib Injector 组件。请检查网络后重试，否则游戏内将无法加载外置皮肤。",
                 ex);
+        }
+
+        if (requiresAgent)
+        {
+            PortableLog.Info(
+                "LaunchPlan",
+                $"Authlib API 已就绪：server={authServer}；prefetchedBytes={metadata.Length}；agent={authlibPath}");
         }
 
         return (authlibPath, authServer, metadata);
