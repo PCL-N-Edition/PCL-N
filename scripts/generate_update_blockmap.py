@@ -617,7 +617,7 @@ def main() -> int:
     if profile_key == "auto":
         profile_key = default_profile_arg(args.target_version, args.configuration)
         print(
-            f"profile auto → {profile_key} "
+            f"profile auto -> {profile_key} "
             f"(target={args.target_version}; last v1 dual-publish={'.'.join(map(str, LAST_V1_BLOCKMAP_VERSION))})"
         )
     profiles = _resolve_profiles(profile_key)
@@ -656,4 +656,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Windows CI runners default to cp1252; avoid UnicodeEncodeError on logs.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
     raise SystemExit(main())

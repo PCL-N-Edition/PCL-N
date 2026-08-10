@@ -4,6 +4,9 @@
 # optionally attaches VCDIFF against the previous channel release, batch-uploads
 # block/ + delta/ to R2, and stages manifests for the central sign/promote job.
 set -euo pipefail
+# Windows Git Bash + Python: force UTF-8 so log prints with arrows/CJK cannot crash.
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
 
 PACKAGE_DIR="${1:?package-output directory}"
 RELEASE_TAG="${2:?release tag e.g. v1.4.8-beta}"
