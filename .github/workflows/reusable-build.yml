@@ -578,6 +578,8 @@ jobs:
           if [[ "$can_execute" == "true" ]]; then
             export PCL_NATIVE_RUNTIME_DIR="$PUBLISH_DIR/native"
             export PCL_SKIP_EXTERNAL_CRASH_HANDLER=1
+            # Host CI probes are headless; allow without the C launcher bootstrap.
+            export PCL_ALLOW_DIRECT_HOST=1
             if ! "$host_bin" --validate-native-runtime; then
               echo "::error::AOT host cannot load expanded native/ runtime (Skia/HarfBuzz)."
               exit 1

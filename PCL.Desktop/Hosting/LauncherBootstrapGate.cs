@@ -38,8 +38,12 @@ internal static class LauncherBootstrapGate
             return true;
         }
 
-        if (args.Contains("--validate-native-runtime", StringComparer.OrdinalIgnoreCase))
+        // CI / packaging probes must run the AOT host without the C launcher.
+        if (args.Contains("--validate-native-runtime", StringComparer.OrdinalIgnoreCase) ||
+            args.Contains("--validate-secrets", StringComparer.OrdinalIgnoreCase))
+        {
             return true;
+        }
 
         // Single-file / portable hosts embed the native runtime zip and do not use the C launcher.
         if (HasEmbeddedNativeRuntime())

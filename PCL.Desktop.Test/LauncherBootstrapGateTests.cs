@@ -73,6 +73,40 @@ public sealed class LauncherBootstrapGateTests
     }
 
     [TestMethod]
+    public void TryAllowDirectStart_AllowsCiValidateFlagsWithoutBootstrap()
+    {
+        string? previousBootstrap = Environment.GetEnvironmentVariable(
+            LauncherBootstrapGate.BootstrapEnvironmentVariable);
+        string? previousAllow = Environment.GetEnvironmentVariable(
+            LauncherBootstrapGate.AllowDirectHostEnvironmentVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                LauncherBootstrapGate.BootstrapEnvironmentVariable,
+                null);
+            Environment.SetEnvironmentVariable(
+                LauncherBootstrapGate.AllowDirectHostEnvironmentVariable,
+                null);
+
+            Assert.IsTrue(LauncherBootstrapGate.TryAllowDirectStart(
+                ["--validate-native-runtime"],
+                out _));
+            Assert.IsTrue(LauncherBootstrapGate.TryAllowDirectStart(
+                ["--validate-secrets"],
+                out _));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                LauncherBootstrapGate.BootstrapEnvironmentVariable,
+                previousBootstrap);
+            Environment.SetEnvironmentVariable(
+                LauncherBootstrapGate.AllowDirectHostEnvironmentVariable,
+                previousAllow);
+        }
+    }
+
+    [TestMethod]
     public void TryAllowDirectStart_BlocksProductHostWithoutBootstrap()
     {
         string? previousBootstrap = Environment.GetEnvironmentVariable(
