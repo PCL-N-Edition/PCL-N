@@ -68,6 +68,11 @@ PROFILES: dict[str, dict[str, Any]] = {
 
 COMPRESSION = "gzip"
 
+# Last release line that still dual-publishes pcln-fastcdc-v1 maps.
+# From 1.4.8 onward only v2 is generated; older clients keep using the v1 maps
+# already published through 1.4.7 (shared CAS blocks remain in R2).
+LAST_V1_BLOCKMAP_VERSION = (1, 4, 7)
+
 
 def _splitmix64(value: int) -> int:
     value = (value + 0x9E3779B97F4A7C15) & UINT64_MASK
@@ -221,10 +226,54 @@ def _manifest_sha256(files: list[dict]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def parse_version_tuple(version: str) -> tuple[int, int, int] | None:
+    """Parse ``1.4.8-beta`` / ``v1.4.8`` → (1, 4, 8). Returns None if not semver-like."""
+    text = (version or "").strip()
+    if text.lower().startswith("v"):
+        text = text[1:]
+    core = text.split("-", 1)[0].split("+", 1)[0]
+    parts = core.split(".")
+    if len(parts) < 2:
+        return None
+    try:
+        major = int(parts[0])
+        minor = int(parts[1])
+        patch = int(parts[2]) if len(parts) >= 3 else 0
+        return (major, minor, patch)
+    except ValueError:
+        return None
+
+
+def should_emit_v1_blockmap(target_version: str, configuration: str = "") -> bool:
+    """
+    True when this release should still emit ``*.blockmap.json`` (v1).
+
+    Policy:
+      * versioned releases ≤ 1.4.7 → yes (dual publish)
+      * versioned releases ≥ 1.4.8 → no (v2 only; reuse existing 1.4.7-era v1 CAS)
+      * CI / ci-latest → no (rolling hosts already prefer v2)
+      * unparseable version → yes (safe dual default for unknown tags)
+    """
+    config = (configuration or "").strip()
+    version = (target_version or "").strip()
+    if config.upper() == "CI" or version.lower() in {"ci-latest", "ci"}:
+        return False
+    parsed = parse_version_tuple(version)
+    if parsed is None:
+        return True
+    return parsed <= LAST_V1_BLOCKMAP_VERSION
+
+
+def default_profile_arg(target_version: str, configuration: str = "") -> str:
+    return "both" if should_emit_v1_blockmap(target_version, configuration) else "v2"
+
+
 def _resolve_profiles(profile_arg: str) -> list[dict[str, Any]]:
     key = (profile_arg or "both").strip().lower()
     if key == "both":
         return [PROFILES["v1"], PROFILES["v2"]]
+    if key == "auto":
+        raise ValueError("resolve auto via default_profile_arg before _resolve_profiles")
     if key not in PROFILES:
         raise ValueError(f"unknown profile: {profile_arg}")
     return [PROFILES[key]]
@@ -492,9 +541,12 @@ def main() -> int:
     parser.add_argument("--configuration", required=True, choices=("Release", "Beta", "CI"))
     parser.add_argument(
         "--profile",
-        default="both",
-        choices=("v1", "v2", "both"),
-        help="FastCDC profile(s) to emit (default: both)",
+        default="auto",
+        choices=("v1", "v2", "both", "auto"),
+        help=(
+            "FastCDC profile(s) to emit. "
+            "auto (default): both for target ≤ 1.4.7, v2-only for ≥ 1.4.8 / CI"
+        ),
     )
     parser.add_argument(
         "--previous-blockmap",
@@ -504,7 +556,14 @@ def main() -> int:
         help="Previous version blockmap(s) for VCDIFF source windows (v2 only; repeatable, max useful=2)",
     )
     args = parser.parse_args()
-    profiles = _resolve_profiles(args.profile)
+    profile_key = args.profile
+    if profile_key == "auto":
+        profile_key = default_profile_arg(args.target_version, args.configuration)
+        print(
+            f"profile auto → {profile_key} "
+            f"(target={args.target_version}; last v1 dual-publish={'.'.join(map(str, LAST_V1_BLOCKMAP_VERSION))})"
+        )
+    profiles = _resolve_profiles(profile_key)
     previous_maps = _load_previous_maps(args.previous_blockmap[:2] if args.previous_blockmap else None)
     if args.file is not None:
         if not args.target_asset_name or not args.entry_name:

@@ -21,11 +21,12 @@
 - CI 使用覆盖式 `ci-latest`：每次成功构建用新的签名单文件分块图、`.ci.json` 与 `channels/ci.json` 覆盖上次索引，通过提交 SHA 判断更新；上一轮 CI 独占块立即回收，共享块继续保留，不更新 GitHub Release，也不生成跨版本补丁。散包布局不允许选择或安装 CI 更新。
 - 正式发布在流水线中仅把签名分块图、构建元数据和最终程序签名放入 `dist/r2-updates`，将安装包与单文件便携版放入 `dist/downloads`；完整散包归档仅在 runner 上临时用于分块，不进入 R2 或 GitHub Release。
 - Beta/Release 为每个散包和 Windows 单文件分别生成 **双分块图**（v1 + v2）及独立 GPG 签名；CI 只为 Windows 单文件提供可安装的滚动更新。原始块使用 SHA-256 内容寻址并保存为 `block/<sha256[0:2]>/<sha256>`；HTTP 路径固定为 `/v1/updates/block/<sha256[0:2]>/<sha256>`。
-- 分块算法（双发并存）：
-  - **v1** `pcln-fastcdc-v1`：256 KiB / 1 MiB / 2 MiB → `<stem>.blockmap.json`（旧客户端）
-  - **v2** `pcln-fastcdc-v2`：128 KiB / 512 KiB / 1 MiB → `<stem>.blockmap.v2.json`（新客户端优先）
+- 分块算法：
+  - **v1** `pcln-fastcdc-v1`：256 KiB / 1 MiB / 2 MiB → `<stem>.blockmap.json`
+  - **v2** `pcln-fastcdc-v2`：128 KiB / 512 KiB / 1 MiB → `<stem>.blockmap.v2.json`
+- **v1 停发策略**：≤ **1.4.7** 仍双发 v1+v2；**1.4.8 及以后**与 CI 只生成 v2。R2 上已有的 1.4.7 及更早 v1 图/块继续保留复用，不再为新版本重跑 v1 FastCDC。
 - R2 保存确定性 gzip 内容（mtime=0, level=9），本地缓存保存通过 SHA-256 校验后的**原始**块。
-- 新客户端优先下载 v2 分块图，404 时回退 v1；本地块索引必须使用与清单相同的 FastCDC 算法。
+- 新客户端优先下载 v2 分块图；目标 ≤1.4.7 时若 v2 缺失可回退 v1。目标 ≥1.4.8 不再请求 v1。本地块索引必须使用与清单相同的 FastCDC 算法。
 - **LocalBlockIndex（协议 v2）**：安装成功后写入 `{installRoot}/UpdateState/installed.blockmap.json`。下次更新优先按该图的 path/offset 解析源块，避免对整树重新 FastCDC；算法不一致或文件校验失败时回退实时分块。
 - **VCDIFF 模型**：blockmap 块条目可带 `full` + `deltas[]`（`vcdiff-rfc3284` + sourceChunks/sourceSha256）。解码失败必须回退 full gzip 块；客户端内置托管解码器，不 `Process.Start` xdelta3。
 - 客户端先直接复用未变化文件，再对已安装散包建立本地块索引，只下载仍缺失的块；重组后逐文件校验、校验整树清单并验证最终入口程序的 GPG 签名。

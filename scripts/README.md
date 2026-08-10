@@ -41,9 +41,18 @@ manifests/PCL_N_....blockmap.v2.json    # pcln-fastcdc-v2 (128K/512K/1M)
 | v1 | `pcln-fastcdc-v1` | 256 KiB / 1 MiB / 2 MiB | `.blockmap.json` |
 | v2 | `pcln-fastcdc-v2` | 128 KiB / 512 KiB / 1 MiB | `.blockmap.v2.json` |
 
-Use `--profile v1|v2|both` to control emission. CAS blocks are shared by content
-hash across profiles. The public mTLS endpoint remains `/v1/updates/block/ab/…`.
-New clients prefer `.blockmap.v2.json` and fall back to `.blockmap.json`.
+Use `--profile auto|v1|v2|both` to control emission (`auto` is the default):
+
+| Target version | Default profiles |
+|----------------|------------------|
+| ≤ **1.4.7** | `both` (v1 + v2 dual publish) |
+| ≥ **1.4.8** | `v2` only |
+| CI / `ci-latest` | `v2` only |
+
+From 1.4.8 onward v1 maps are **not** regenerated; clients keep using the v1
+maps already published through 1.4.7 (CAS blocks stay in R2). CAS blocks are
+shared by content hash across profiles. The public mTLS endpoint remains
+`/v1/updates/block/ab/…`. New clients prefer `.blockmap.v2.json`.
 
 ### VCDIFF (protocol v2)
 

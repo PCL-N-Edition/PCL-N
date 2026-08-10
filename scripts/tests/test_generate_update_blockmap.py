@@ -134,5 +134,42 @@ class GenerateUpdateBlockmapTests(unittest.TestCase):
                 self.assertEqual(payload, reconstructed)
 
 
+    def test_profile_auto_stops_v1_from_1_4_8(self):
+        self.assertTrue(blockmap.should_emit_v1_blockmap("1.4.7"))
+        self.assertTrue(blockmap.should_emit_v1_blockmap("1.4.7-beta"))
+        self.assertTrue(blockmap.should_emit_v1_blockmap("v1.4.7-beta"))
+        self.assertFalse(blockmap.should_emit_v1_blockmap("1.4.8"))
+        self.assertFalse(blockmap.should_emit_v1_blockmap("1.4.8-beta"))
+        self.assertFalse(blockmap.should_emit_v1_blockmap("v1.4.8-beta"))
+        self.assertFalse(blockmap.should_emit_v1_blockmap("ci-latest", "CI"))
+        self.assertEqual("both", blockmap.default_profile_arg("1.4.7-beta", "Beta"))
+        self.assertEqual("v2", blockmap.default_profile_arg("1.4.8-beta", "Beta"))
+        self.assertEqual("v2", blockmap.default_profile_arg("ci-latest", "CI"))
+
+    def test_build_file_blockmap_v1_4_8_emits_v2_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "PCL_N_Beta_win-x64_SelfContained_Portable.exe"
+            source.write_bytes((bytes(range(200)) * 4000) + b"tail")
+            output = root / "block-output"
+            paths = blockmap.build_file_blockmap(
+                source,
+                output,
+                target_asset_name=source.name,
+                entry_name="PCL-N-Edition.exe",
+                target_tag="v1.4.8-beta",
+                target_version="1.4.8-beta",
+                runtime_id="win-x64",
+                runtime_variant="SelfContained",
+                configuration="Beta",
+                profiles=blockmap._resolve_profiles(
+                    blockmap.default_profile_arg("1.4.8-beta", "Beta")
+                ),
+            )
+            names = {path.name for path in paths}
+            self.assertIn("PCL_N_Beta_win-x64_SelfContained_Portable.blockmap.v2.json", names)
+            self.assertNotIn("PCL_N_Beta_win-x64_SelfContained_Portable.blockmap.json", names)
+
+
 if __name__ == "__main__":
     unittest.main()

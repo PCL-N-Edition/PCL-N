@@ -12,6 +12,13 @@ public sealed partial class LauncherUpdateService
 {
     private const string BlockUpdaterMinimumVersion = "1.4.3";
 
+    /// <summary>
+    /// Last release line that dual-publishes v1 block maps.
+    /// From 1.4.8 onward only <c>.blockmap.v2.json</c> is generated; older
+    /// clients keep using v1 maps published through 1.4.7.
+    /// </summary>
+    private const string LastV1BlockMapVersion = "1.4.7";
+
     private async Task<LauncherUpdatePackage> ResolveUpdatePackageAsync(
         string targetTag,
         UpdateChannel channel,
@@ -133,10 +140,10 @@ public sealed partial class LauncherUpdateService
             BlockMapSignatureUrl: _cloudflareOnly
                 ? BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.v2.json.asc")
                 : null,
-            BlockMapFallbackUrl: _cloudflareOnly
+            BlockMapFallbackUrl: _cloudflareOnly && EmitsV1BlockMap(targetTag)
                 ? BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.json")
                 : null,
-            BlockMapFallbackSignatureUrl: _cloudflareOnly
+            BlockMapFallbackSignatureUrl: _cloudflareOnly && EmitsV1BlockMap(targetTag)
                 ? BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.json.asc")
                 : null);
     }
@@ -353,10 +360,10 @@ public sealed partial class LauncherUpdateService
             BlockMapSignatureUrl: supportsBlockMap
                 ? BuildReleaseAssetUrl(tag, GetPackageStem(assetName) + ".blockmap.v2.json.asc")
                 : null,
-            BlockMapFallbackUrl: supportsBlockMap
+            BlockMapFallbackUrl: supportsBlockMap && EmitsV1BlockMap(tag)
                 ? BuildReleaseAssetUrl(tag, GetPackageStem(assetName) + ".blockmap.json")
                 : null,
-            BlockMapFallbackSignatureUrl: supportsBlockMap
+            BlockMapFallbackSignatureUrl: supportsBlockMap && EmitsV1BlockMap(tag)
                 ? BuildReleaseAssetUrl(tag, GetPackageStem(assetName) + ".blockmap.json.asc")
                 : null);
     }
@@ -383,6 +390,29 @@ public sealed partial class LauncherUpdateService
         return !Version.TryParse(GetVersionCore(NormalizeVersion(version)), out Version? current) ||
                !Version.TryParse(BlockUpdaterMinimumVersion, out Version? minimum) ||
                current.CompareTo(minimum) < 0;
+    }
+
+    /// <summary>
+    /// Whether this target tag still ships a dual-publish v1 map.
+    /// 1.4.8+ and CI only publish v2; v1 maps stop at 1.4.7.
+    /// </summary>
+    internal static bool EmitsV1BlockMap(string tagOrVersion)
+    {
+        string normalized = NormalizeVersion(tagOrVersion);
+        if (normalized.StartsWith("ci", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "latest", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!Version.TryParse(GetVersionCore(normalized), out Version? current) ||
+            !Version.TryParse(LastV1BlockMapVersion, out Version? lastV1))
+        {
+            // Unknown tag shape: keep fallback URL so older dual-publish tags still work.
+            return true;
+        }
+
+        return current.CompareTo(lastV1) <= 0;
     }
 
     private string BuildReleaseAssetUrl(string tag, string assetName) =>

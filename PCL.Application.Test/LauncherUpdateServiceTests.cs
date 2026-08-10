@@ -233,6 +233,8 @@ public sealed class LauncherUpdateServiceTests
         StringAssert.EndsWith(
             result.Package.BlockMapUrl!,
             "/ci-latest/PCL_N_CI_win-x64_SelfContained.blockmap.v2.json");
+        Assert.IsNull(result.Package.BlockMapFallbackUrl);
+        Assert.IsNull(result.Package.BlockMapFallbackSignatureUrl);
     }
 
     [TestMethod]
@@ -279,9 +281,22 @@ public sealed class LauncherUpdateServiceTests
             result.Package.BlockMapUrl!,
             "/v1.4.4-beta/PCL_N_Beta_win-x64_NoRuntime_Portable.blockmap.v2.json");
         StringAssert.EndsWith(
+            result.Package.BlockMapFallbackUrl!,
+            "/v1.4.4-beta/PCL_N_Beta_win-x64_NoRuntime_Portable.blockmap.json");
+        StringAssert.EndsWith(
             result.Package.TargetBinarySignatureUrl!,
             "/v1.4.4-beta/PCL_N_Beta_win-x64_NoRuntime_Portable.exe.asc");
         Assert.AreEqual(0, result.Package.PatchSteps.Count);
+    }
+
+    [TestMethod]
+    public void EmitsV1BlockMap_StopsAt1_4_7()
+    {
+        Assert.IsTrue(LauncherUpdateService.EmitsV1BlockMap("v1.4.7-beta"));
+        Assert.IsTrue(LauncherUpdateService.EmitsV1BlockMap("1.4.7"));
+        Assert.IsFalse(LauncherUpdateService.EmitsV1BlockMap("1.4.8"));
+        Assert.IsFalse(LauncherUpdateService.EmitsV1BlockMap("v1.4.8-beta"));
+        Assert.IsFalse(LauncherUpdateService.EmitsV1BlockMap("ci-latest"));
     }
 
     [TestMethod]
