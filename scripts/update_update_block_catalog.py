@@ -124,6 +124,20 @@ def update_catalog(
         else:
             expired.append(entry)
 
+    deletions = _catalog_deletions_from_expired(retained, expired)
+
+    retained.sort(key=lambda entry: (_timestamp(entry["publishedAt"]), entry["tag"]))
+    result = {
+        "formatVersion": FORMAT_VERSION,
+        "retentionDays": RETENTION_DAYS,
+        "updatedAt": now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "releases": retained,
+    }
+    return result, sorted(deletions)
+
+
+def _catalog_deletions_from_expired(retained: list[dict], expired: list[dict]) -> set[str]:
+    """Keys uniquely owned by expired catalog entries (blocks, deltas, release objects)."""
     retained_hashes = {
         str(sha256)
         for entry in retained
@@ -162,11 +176,55 @@ def update_catalog(
     }
     for entry in expired:
         for object_key in entry.get("objects") or []:
-            if (isinstance(object_key, str) and object_key not in retained_objects and
-                    object_key.startswith("releases/") and ".." not in object_key):
+            if (
+                isinstance(object_key, str)
+                and object_key not in retained_objects
+                and object_key.startswith("releases/")
+                and ".." not in object_key
+            ):
                 deletions.add(object_key)
+    return deletions
 
-    retained.sort(key=lambda entry: (_timestamp(entry["publishedAt"]), entry["tag"]))
+
+def prune_catalog(
+    catalog: dict,
+    *,
+    now: datetime,
+    pin_tags: set[str] | None = None,
+) -> tuple[dict, list[str]]:
+    """
+    Drop catalog entries outside the 14-day rollback window and return keys that
+    become unreachable. Tags in pin_tags (e.g. live channel pointers) are kept
+    even when older than the window so active clients never lose CAS objects.
+    """
+    pins = {tag for tag in (pin_tags or set()) if tag}
+    cutoff = now.astimezone(timezone.utc) - timedelta(days=RETENTION_DAYS)
+    retained: list[dict] = []
+    expired: list[dict] = []
+    for entry in catalog.get("releases") or []:
+        tag = str(entry.get("tag") or "")
+        try:
+            published = _timestamp(str(entry.get("publishedAt") or ""))
+        except (TypeError, ValueError):
+            if tag in pins:
+                retained.append(entry)
+            else:
+                expired.append(entry)
+            continue
+        if tag in pins or published >= cutoff:
+            retained.append(entry)
+        else:
+            expired.append(entry)
+
+    deletions = _catalog_deletions_from_expired(retained, expired)
+
+    def _sort_key(entry: dict) -> tuple:
+        try:
+            return (_timestamp(str(entry.get("publishedAt") or "")), str(entry.get("tag") or ""))
+        except (TypeError, ValueError):
+            return (datetime.min.replace(tzinfo=timezone.utc), str(entry.get("tag") or ""))
+
+    retained.sort(key=_sort_key)
     result = {
         "formatVersion": FORMAT_VERSION,
         "retentionDays": RETENTION_DAYS,

@@ -149,6 +149,42 @@ class UpdateBlockCatalogTests(unittest.TestCase):
         self.assertNotIn(f"block/{live[:2]}/{live}", deletions)
         self.assertNotIn("block/catalog.json", deletions)
 
+    def test_prune_catalog_keeps_pinned_channel_tags_past_window(self):
+        shared = "a" * 64
+        old_only = "b" * 64
+        pinned_only = "c" * 64
+        catalog = {
+            "formatVersion": 1,
+            "releases": [
+                {
+                    "tag": "v1.4.0-beta",
+                    "channel": "beta",
+                    "publishedAt": "2026-07-01T00:00:00Z",
+                    "blocks": [shared, old_only],
+                    "deltas": [],
+                    "objects": ["releases/v1.4.0-beta/map.json"],
+                },
+                {
+                    "tag": "v1.4.4-beta",
+                    "channel": "beta",
+                    "publishedAt": "2026-07-01T00:00:00Z",
+                    "blocks": [shared, pinned_only],
+                    "deltas": [],
+                    "objects": ["releases/v1.4.4-beta/map.json"],
+                },
+            ],
+        }
+        result, deletions = catalog_module.prune_catalog(
+            catalog,
+            now=datetime(2026, 8, 9, tzinfo=timezone.utc),
+            pin_tags={"v1.4.4-beta"},
+        )
+        self.assertEqual(["v1.4.4-beta"], [entry["tag"] for entry in result["releases"]])
+        self.assertIn(f"block/{old_only[:2]}/{old_only}", deletions)
+        self.assertNotIn(f"block/{shared[:2]}/{shared}", deletions)
+        self.assertNotIn(f"block/{pinned_only[:2]}/{pinned_only}", deletions)
+        self.assertIn("releases/v1.4.0-beta/map.json", deletions)
+
 
 if __name__ == "__main__":
     unittest.main()

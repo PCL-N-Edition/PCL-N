@@ -114,6 +114,26 @@ Channel promotion order (protocol §16):
 Catalog GC tracks full blocks and `delta/v2/*`. With a prior catalog history,
 `--remote-keys` enables inventory mark-and-sweep (§19).
 
+### Standalone R2 CAS GC
+
+Without a release publish, reclaim unreferenced `block/` + `delta/v2/*` (and
+expired catalog release objects) against the live `block/catalog.json`:
+
+```bash
+export CLOUDFLARE_API_TOKEN=…
+export CLOUDFLARE_ACCOUNT_ID=…
+export R2_BUCKET=pcln-releases   # optional
+
+# Dry-run: print candidates only
+python scripts/upload_r2_cas.py gc --delete-list obsolete-r2-objects.txt
+
+# Apply: delete + write pruned catalog (pins live channels/*.json tags)
+python scripts/upload_r2_cas.py gc --apply --concurrency 16
+```
+
+Retention is 14 days; tags currently advertised by `channels/{release,beta,ci}.json`
+are always pinned so active clients keep their CAS roots.
+
 ### Compression (protocol §20)
 
 | Profile | Full-block codec |

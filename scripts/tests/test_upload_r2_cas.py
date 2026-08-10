@@ -16,7 +16,9 @@ SPEC.loader.exec_module(upload)
 class FakeClient(upload.R2Client):
     def __init__(self) -> None:
         self.keys: set[str] = set()
+        self.objects: dict[str, bytes] = {}
         self.puts: list[tuple[str, bool]] = []
+        self.deletes: list[str] = []
         self.lock = threading.Lock()
         self.fail_once: set[str] = set()
 
@@ -38,14 +40,27 @@ class FakeClient(upload.R2Client):
                 raise upload.ThrottleError("slow down")
             if if_none_match and key in self.keys:
                 return "exists"
+            data = path.read_bytes()
             self.keys.add(key)
+            self.objects[key] = data
             return "uploaded"
 
     def get_file(self, key: str, destination: Path) -> bool:
-        return False
+        data = self.objects.get(key)
+        if data is None:
+            return False
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+        return True
 
     def delete_key(self, key: str) -> None:
         self.keys.discard(key)
+        self.objects.pop(key, None)
+        self.deletes.append(key)
+
+    def put_bytes(self, key: str, data: bytes) -> None:
+        self.keys.add(key)
+        self.objects[key] = data
 
 
 class UploadR2CasTests(unittest.TestCase):
@@ -222,6 +237,59 @@ class UploadR2CasTests(unittest.TestCase):
                     os.environ.pop(key, None)
                 else:
                     os.environ[key] = value
+
+    def test_gc_unused_cas_dry_run_and_apply(self):
+        import json
+
+        live = "a" * 64
+        dead = "b" * 64
+        catalog = {
+            "formatVersion": 1,
+            "releases": [
+                {
+                    "tag": "v1.4.8-beta",
+                    "channel": "beta",
+                    "publishedAt": "2026-08-09T00:00:00Z",
+                    "blocks": [live],
+                    "deltas": [],
+                    "objects": [],
+                }
+            ],
+        }
+        client = FakeClient()
+        client.put_bytes(
+            "block/catalog.json",
+            (json.dumps(catalog) + "\n").encode("utf-8"),
+        )
+        client.put_bytes(
+            "channels/beta.json",
+            b'{"tag":"v1.4.8-beta","publishedAt":"2026-08-09T00:00:00Z"}\n',
+        )
+        client.put_bytes(f"block/{live[:2]}/{live}", b"live")
+        client.put_bytes(f"block/{dead[:2]}/{dead}", b"dead")
+        client.put_bytes(f"delta/v2/bb/{dead}/{dead}.vcdiff", b"delta")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            delete_list = Path(temporary) / "delete.txt"
+            code = upload.gc_unused_cas(
+                client,
+                apply=False,
+                concurrency=4,
+                delete_list_path=delete_list,
+            )
+            self.assertEqual(0, code)
+            listed = delete_list.read_text(encoding="utf-8")
+            self.assertIn(f"block/{dead[:2]}/{dead}", listed)
+            self.assertIn(f"delta/v2/bb/{dead}/{dead}.vcdiff", listed)
+            self.assertNotIn(f"block/{live[:2]}/{live}", listed)
+            self.assertIn(f"block/{dead[:2]}/{dead}", client.keys)
+
+            code = upload.gc_unused_cas(client, apply=True, concurrency=4)
+            self.assertEqual(0, code)
+            self.assertNotIn(f"block/{dead[:2]}/{dead}", client.keys)
+            self.assertIn(f"block/{live[:2]}/{live}", client.keys)
+            self.assertIn("block/catalog.json", client.keys)
+            self.assertIn(f"block/{dead[:2]}/{dead}", client.deletes)
 
 
 if __name__ == "__main__":
