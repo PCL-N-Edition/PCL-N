@@ -30,7 +30,13 @@ public sealed partial class LauncherUpdateService
             PortableLog.Info(
                 "Update",
                 $"当前版本 {identity.Version} 早于 Cloudflare 分块更新基线 {BlockUpdaterMinimumVersion}，仅允许下载完整包。");
-            return fallback with { BlockMapUrl = null, BlockMapSignatureUrl = null };
+            return fallback with
+            {
+                BlockMapUrl = null,
+                BlockMapSignatureUrl = null,
+                BlockMapFallbackUrl = null,
+                BlockMapFallbackSignatureUrl = null
+            };
         }
         LauncherBuildIdentity targetIdentity = ResolvePublishedIdentity(identity);
         LoadedPatchIndex? targetIndex = await TryLoadPatchIndexAsync(targetTag, cancellationToken).ConfigureAwait(false);
@@ -122,9 +128,15 @@ public sealed partial class LauncherUpdateService
             fullUrl + ".asc",
             fullUrl + ".binary.asc",
             BlockMapUrl: _cloudflareOnly
-                ? BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.json")
+                ? BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.v2.json")
                 : null,
             BlockMapSignatureUrl: _cloudflareOnly
+                ? BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.v2.json.asc")
+                : null,
+            BlockMapFallbackUrl: _cloudflareOnly
+                ? BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.json")
+                : null,
+            BlockMapFallbackSignatureUrl: _cloudflareOnly
                 ? BuildReleaseAssetUrl(targetTag, GetPackageStem(assetName) + ".blockmap.json.asc")
                 : null);
     }
@@ -336,9 +348,15 @@ public sealed partial class LauncherUpdateService
             signatureUrl,
             singleFile ? signatureUrl : BuildReleaseAssetUrl(tag, assetName + ".binary.asc"),
             BlockMapUrl: supportsBlockMap
-                ? BuildReleaseAssetUrl(tag, GetPackageStem(assetName) + ".blockmap.json")
+                ? BuildReleaseAssetUrl(tag, GetPackageStem(assetName) + ".blockmap.v2.json")
                 : null,
             BlockMapSignatureUrl: supportsBlockMap
+                ? BuildReleaseAssetUrl(tag, GetPackageStem(assetName) + ".blockmap.v2.json.asc")
+                : null,
+            BlockMapFallbackUrl: supportsBlockMap
+                ? BuildReleaseAssetUrl(tag, GetPackageStem(assetName) + ".blockmap.json")
+                : null,
+            BlockMapFallbackSignatureUrl: supportsBlockMap
                 ? BuildReleaseAssetUrl(tag, GetPackageStem(assetName) + ".blockmap.json.asc")
                 : null);
     }

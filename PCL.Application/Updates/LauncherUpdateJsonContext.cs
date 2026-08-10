@@ -13,6 +13,7 @@ namespace PCL.Application.Updates;
 [JsonSerializable(typeof(LauncherChannelReleaseDto))]
 [JsonSerializable(typeof(LauncherPatchIndexDto))]
 [JsonSerializable(typeof(LauncherUpdateBlockMap))]
+[JsonSerializable(typeof(LauncherUpdateChunkingParameters))]
 [JsonSerializable(typeof(LauncherScatterPatchManifest))]
 [JsonSerializable(typeof(LauncherInstallPlan))]
 internal sealed partial class LauncherUpdateJsonContext : JsonSerializerContext;

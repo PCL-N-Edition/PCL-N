@@ -5,23 +5,94 @@ using System.Security.Cryptography;
 
 namespace PCL.Application.Updates;
 
+/// <summary>
+/// Content-defined chunking profiles for launcher update block maps.
+/// Gear table and cut rule are shared; only size bounds / dual masks differ.
+/// </summary>
+internal sealed record LauncherUpdateChunkProfile(
+    string Algorithm,
+    int MinimumSize,
+    int AverageSize,
+    int MaximumSize,
+    ulong EarlyMask,
+    ulong LateMask)
+{
+    /// <summary>pcln-fastcdc-v1: 256 KiB / 1 MiB / 2 MiB (masks 21/19).</summary>
+    public static LauncherUpdateChunkProfile V1 { get; } = new(
+        Algorithm: "pcln-fastcdc-v1",
+        MinimumSize: 256 * 1024,
+        AverageSize: 1024 * 1024,
+        MaximumSize: 2 * 1024 * 1024,
+        EarlyMask: (1UL << 21) - 1,
+        LateMask: (1UL << 19) - 1);
+
+    /// <summary>
+    /// pcln-fastcdc-v2: 128 KiB / 512 KiB / 1 MiB (masks 20/18).
+    /// Mask spacing matches v1 relative to log2(avg).
+    /// </summary>
+    public static LauncherUpdateChunkProfile V2 { get; } = new(
+        Algorithm: "pcln-fastcdc-v2",
+        MinimumSize: 128 * 1024,
+        AverageSize: 512 * 1024,
+        MaximumSize: 1024 * 1024,
+        EarlyMask: (1UL << 20) - 1,
+        LateMask: (1UL << 18) - 1);
+
+    public static bool TryGet(string? algorithm, out LauncherUpdateChunkProfile profile)
+    {
+        if (string.Equals(algorithm, V1.Algorithm, StringComparison.Ordinal))
+        {
+            profile = V1;
+            return true;
+        }
+
+        if (string.Equals(algorithm, V2.Algorithm, StringComparison.Ordinal))
+        {
+            profile = V2;
+            return true;
+        }
+
+        profile = V1;
+        return false;
+    }
+}
+
 internal static class LauncherUpdateChunker
 {
+    /// <summary>Legacy alias for v1 algorithm id (existing callers / tests).</summary>
     internal const string Algorithm = "pcln-fastcdc-v1";
+
+    /// <summary>Legacy alias for v1 minimum chunk size.</summary>
     internal const int MinimumSize = 256 * 1024;
+
+    /// <summary>Legacy alias for v1 average chunk size.</summary>
     internal const int AverageSize = 1024 * 1024;
+
+    /// <summary>Legacy alias for v1 maximum chunk size.</summary>
     internal const int MaximumSize = 2 * 1024 * 1024;
-    private const ulong EarlyMask = (1UL << 21) - 1;
-    private const ulong LateMask = (1UL << 19) - 1;
+
+    internal const string AlgorithmV2 = "pcln-fastcdc-v2";
+    internal const string BlockMapLayoutV1 = "pcln-blockmap-v1";
+    internal const string SingleFileBlockMapLayoutV1 = "pcln-blockmap-file-v1";
+    internal const string BlockMapLayoutV2 = "pcln-blockmap-v2";
+    internal const string SingleFileBlockMapLayoutV2 = "pcln-blockmap-file-v2";
+
     private static readonly ulong[] GearTable = BuildGearTable();
+
+    internal static Task<IReadOnlyList<LauncherUpdateChunkSlice>> ChunkFileAsync(
+        string path,
+        CancellationToken cancellationToken) =>
+        ChunkFileAsync(path, LauncherUpdateChunkProfile.V1, cancellationToken);
 
     internal static async Task<IReadOnlyList<LauncherUpdateChunkSlice>> ChunkFileAsync(
         string path,
+        LauncherUpdateChunkProfile profile,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(profile);
         List<LauncherUpdateChunkSlice> chunks = [];
         byte[] readBuffer = new byte[128 * 1024];
-        byte[] chunkBuffer = new byte[MaximumSize];
+        byte[] chunkBuffer = new byte[profile.MaximumSize];
         int chunkLength = 0;
         long chunkOffset = 0;
         ulong rolling = 0;
@@ -43,10 +114,10 @@ internal static class LauncherUpdateChunker
                 byte value = readBuffer[index];
                 chunkBuffer[chunkLength++] = value;
                 rolling = unchecked((rolling << 1) + GearTable[value]);
-                if (chunkLength < MinimumSize)
+                if (chunkLength < profile.MinimumSize)
                     continue;
-                ulong mask = chunkLength < AverageSize ? EarlyMask : LateMask;
-                if ((rolling & mask) != 0 && chunkLength < MaximumSize)
+                ulong mask = chunkLength < profile.AverageSize ? profile.EarlyMask : profile.LateMask;
+                if ((rolling & mask) != 0 && chunkLength < profile.MaximumSize)
                     continue;
                 AddChunk(chunks, chunkBuffer.AsSpan(0, chunkLength), chunkOffset);
                 chunkOffset += chunkLength;

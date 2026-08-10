@@ -176,7 +176,7 @@ jobs:
           while IFS= read -r -d '' map; do
             gpg --detach-sign --armor "$map"
             cp -a "$map" "$map.asc" dist/r2-metadata/
-          done < <(find block-dist/manifests -maxdepth 1 -type f -name '*.blockmap.json' -print0)
+          done < <(find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print0)
           cat > dist/r2-metadata/ci-channel.json <<EOF
           {
             "formatVersion": 1,
@@ -189,7 +189,7 @@ jobs:
           }
           EOF
           find dist/r2-metadata -maxdepth 1 -type f -printf '  %f\n' | sort
-          test -n "$(find block-dist/manifests -maxdepth 1 -type f -name '*.blockmap.json' -print -quit)" || {
+          test -n "$(find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print -quit)" || {
             echo "No CI block maps produced"; exit 1;
           }
 
@@ -218,7 +218,7 @@ jobs:
           # Publish maps and signatures before moving the discoverable marker.
           while IFS= read -r -d '' asset; do
             name="$(basename "$asset")"
-            if [[ ! "$name" =~ ^PCL_N_CI_win-(x64|arm64)_SelfContained_Portable\.(exe\.asc|ci\.json|blockmap\.json(\.asc)?)$ ]]; then
+            if [[ ! "$name" =~ ^PCL_N_CI_win-(x64|arm64)_SelfContained_Portable\.(exe\.asc|ci\.json|blockmap(\.v2)?\.json(\.asc)?)$ ]]; then
               echo "::error::Unexpected CI updater metadata: $name"
               exit 1
             fi

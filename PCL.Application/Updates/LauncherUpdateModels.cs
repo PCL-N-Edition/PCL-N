@@ -77,7 +77,9 @@ public sealed record LauncherUpdatePackage(
     string? FullPackageSha256 = null,
     long? FullPackageSize = null,
     string? BlockMapUrl = null,
-    string? BlockMapSignatureUrl = null)
+    string? BlockMapSignatureUrl = null,
+    string? BlockMapFallbackUrl = null,
+    string? BlockMapFallbackSignatureUrl = null)
 {
     public bool UsesPatch => PatchSteps.Count > 0;
 
@@ -85,7 +87,7 @@ public sealed record LauncherUpdatePackage(
                                     !string.IsNullOrWhiteSpace(BlockMapSignatureUrl);
 }
 
-/// <summary>Signed content-addressed reconstruction map for Cloudflare updater v2.</summary>
+/// <summary>Signed content-addressed reconstruction map for Cloudflare updater.</summary>
 public sealed class LauncherUpdateBlockMap
 {
     public int FormatVersion { get; set; }
@@ -97,6 +99,9 @@ public sealed class LauncherUpdateBlockMap
     public string? Compression { get; set; }
 
     public string? BlockBasePath { get; set; }
+
+    /// <summary>Optional self-describing CDC bounds (blockmap format v2+).</summary>
+    public LauncherUpdateChunkingParameters? Chunking { get; set; }
 
     public string? TargetTag { get; set; }
 
@@ -113,6 +118,16 @@ public sealed class LauncherUpdateBlockMap
     public string? TargetManifestSha256 { get; set; }
 
     public List<LauncherUpdateBlockFile> TargetFiles { get; set; } = [];
+}
+
+/// <summary>CDC size bounds embedded in blockmap v2 (<c>chunking</c>).</summary>
+public sealed class LauncherUpdateChunkingParameters
+{
+    public int Min { get; set; }
+
+    public int Avg { get; set; }
+
+    public int Max { get; set; }
 }
 
 public sealed class LauncherUpdateBlockFile : LauncherUpdateFileEntry

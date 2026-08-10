@@ -16,27 +16,9 @@ public sealed class LauncherUpdateBlockTests
     [TestMethod]
     public async Task Chunker_MatchesReleaseGeneratorVector()
     {
-        string path = Path.Combine(Path.GetTempPath(), "pcln-chunker-" + Guid.NewGuid().ToString("N"));
+        string path = await WriteChunkerGoldenPayloadAsync().ConfigureAwait(false);
         try
         {
-            byte[] buffer = new byte[128 * 1024];
-            uint state = 123456789;
-            int remaining = 5 * 1024 * 1024 + 123;
-            await using (FileStream stream = File.Create(path))
-            {
-                while (remaining > 0)
-                {
-                    int count = Math.Min(buffer.Length, remaining);
-                    for (int index = 0; index < count; index++)
-                    {
-                        state = unchecked(state * 1664525 + 1013904223);
-                        buffer[index] = (byte)(state >> 24);
-                    }
-                    await stream.WriteAsync(buffer.AsMemory(0, count));
-                    remaining -= count;
-                }
-            }
-
             IReadOnlyList<LauncherUpdateChunkSlice> chunks = await LauncherUpdateChunker.ChunkFileAsync(
                 path,
                 CancellationToken.None);
@@ -59,6 +41,65 @@ public sealed class LauncherUpdateBlockTests
         {
             File.Delete(path);
         }
+    }
+
+    [TestMethod]
+    public async Task Chunker_V2MatchesReleaseGeneratorVector()
+    {
+        string path = await WriteChunkerGoldenPayloadAsync().ConfigureAwait(false);
+        try
+        {
+            IReadOnlyList<LauncherUpdateChunkSlice> chunks = await LauncherUpdateChunker.ChunkFileAsync(
+                path,
+                LauncherUpdateChunkProfile.V2,
+                CancellationToken.None);
+
+            CollectionAssert.AreEqual(
+                new[] { 441644, 488587, 587966, 372096, 596725, 715315, 599601, 489564, 489713, 461792 },
+                chunks.Select(static chunk => chunk.Size).ToArray());
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "1a66421d9e4e731202105990f7be9e1d479d1d7126e5e998561e6a9b5a0c4233",
+                    "d5b76bd36a4a90e36111075ec45eafe1a69b40810c8d26abed246d6d65890362",
+                    "31cf6b43722d232b66227f6d7a927628624a3ac181a90377b3f8043a13c95ba7",
+                    "e76fb10f493466c4031f96b0a2c63d6b76749e8d4d7f6a76e19c1401387de236",
+                    "90e92eb20874a71306b097c6d315648a5e0e1d4e7e15c08c698bcb82a7e75518",
+                    "c3c222a7e0352f5cc0f0742c3344c1e080140219e53b54b7fc7fb103deae0820",
+                    "8ffcc231ea1ae070b5df83bd24d640e4ca2777484886c7921042855f7e7f29f9",
+                    "3f42647f1c84bd39b27613a6b29fadba83b6516282b316a86611d977d15b9d91",
+                    "edc38a95b4a2e2e8a2b168465e8ee5ac070c794391d11334f52316721a703296",
+                    "b6e33aa5b1e408c9c709895ba3c54a39a431108cfec4444150f3635170fcf668"
+                },
+                chunks.Select(static chunk => chunk.Sha256).ToArray());
+            Assert.IsTrue(chunks.All(static chunk => chunk.Size <= LauncherUpdateChunkProfile.V2.MaximumSize));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static async Task<string> WriteChunkerGoldenPayloadAsync()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "pcln-chunker-" + Guid.NewGuid().ToString("N"));
+        byte[] buffer = new byte[128 * 1024];
+        uint state = 123456789;
+        int remaining = 5 * 1024 * 1024 + 123;
+        await using FileStream stream = File.Create(path);
+        while (remaining > 0)
+        {
+            int count = Math.Min(buffer.Length, remaining);
+            for (int index = 0; index < count; index++)
+            {
+                state = unchecked(state * 1664525 + 1013904223);
+                buffer[index] = (byte)(state >> 24);
+            }
+            await stream.WriteAsync(buffer.AsMemory(0, count));
+            remaining -= count;
+        }
+
+        return path;
     }
 
     [TestMethod]

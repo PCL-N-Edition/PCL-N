@@ -13,6 +13,8 @@ public sealed partial class LauncherUpdateInstaller
 {
     private const string BlockMapLayout = "pcln-blockmap-v1";
     private const string SingleFileBlockMapLayout = "pcln-blockmap-file-v1";
+    private const string BlockMapLayoutV2 = "pcln-blockmap-v2";
+    private const string SingleFileBlockMapLayoutV2 = "pcln-blockmap-file-v2";
     private const string BlockCompression = "gzip";
     private const string BlockBasePath = "/v1/updates/block";
 
@@ -24,38 +26,8 @@ public sealed partial class LauncherUpdateInstaller
         CancellationToken cancellationToken)
     {
         string mapPath = Path.Combine(workDirectory, "target.blockmap.json");
-        using (HttpResponseMessage response = await GetUpdateResponseAsync(
-                   package.BlockMapUrl!,
-                   retryNotFound: true,
-                   cancellationToken).ConfigureAwait(false))
-        {
-            if (response.StatusCode == HttpStatusCode.NotFound)
-            {
-                PortableLog.Error(
-                    "Update",
-                    $"Cloudflare 未提供此构建所需的签名分块清单；URL={package.BlockMapUrl}。");
-                return null;
-            }
-            EnsureUpdateResponseSuccess(response, package.BlockMapUrl!);
-            if (response.Content.Headers.ContentLength is > 16 * 1024 * 1024)
-                throw new InvalidDataException("分块更新清单异常过大。");
-            await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using FileStream target = new(
-                mapPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                64 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
-            await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
-        }
-
-        await VerifyDetachedSignatureAsync(
-                mapPath,
-                package.BlockMapSignatureUrl,
-                required: true,
-                cancellationToken)
-            .ConfigureAwait(false);
+        if (!await TryDownloadBlockMapAsync(package, mapPath, cancellationToken).ConfigureAwait(false))
+            return null;
 
         LauncherUpdateBlockMap map;
         await using (FileStream stream = new(
@@ -74,7 +46,8 @@ public sealed partial class LauncherUpdateInstaller
                 ?? throw new InvalidDataException("无法解析分块更新清单。");
         }
 
-        Dictionary<string, LauncherUpdateBlockFile> targetFiles = ValidateBlockMap(map, package);
+        (Dictionary<string, LauncherUpdateBlockFile> targetFiles, LauncherUpdateChunkProfile profile) =
+            ValidateBlockMap(map, package);
         InstallContext install = ResolveInstallContext(currentExecutablePath);
         Dictionary<string, string> exactLocalFiles = await FindExactLocalFilesAsync(
                 install,
@@ -92,6 +65,7 @@ public sealed partial class LauncherUpdateInstaller
                 targetFiles,
                 exactLocalFiles,
                 neededHashes,
+                profile,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -202,7 +176,7 @@ public sealed partial class LauncherUpdateInstaller
             "Update",
             $"分块更新重建完成；本地完整文件={exactLocalFiles.Count}；本地分块={localBlocks.Count}；" +
             $"缓存分块={verifiedCache.Count - missingBlocks.Count}；下载分块={missingBlocks.Count}。");
-        if (string.Equals(map.Layout, SingleFileBlockMapLayout, StringComparison.Ordinal))
+        if (IsSingleFileBlockMapLayout(map.Layout))
         {
             LauncherUpdateBlockFile only = targetFiles.Values.Single();
             string entry = ResolveSafeRelativePath(targetRoot, only.Path!);
@@ -218,13 +192,77 @@ public sealed partial class LauncherUpdateInstaller
         return new PreparedBlockPayload(tree.StagedEntryPath, tree);
     }
 
-    private static Dictionary<string, LauncherUpdateBlockFile> ValidateBlockMap(
-        LauncherUpdateBlockMap map,
-        LauncherUpdatePackage package)
+    /// <summary>
+    /// Prefer primary blockmap URL (v2), then optional v1 fallback when the primary is 404.
+    /// </summary>
+    private async Task<bool> TryDownloadBlockMapAsync(
+        LauncherUpdatePackage package,
+        string mapPath,
+        CancellationToken cancellationToken)
     {
-        if (map.FormatVersion != 1 ||
-            map.Layout is not (BlockMapLayout or SingleFileBlockMapLayout) ||
-            !string.Equals(map.Algorithm, LauncherUpdateChunker.Algorithm, StringComparison.Ordinal) ||
+        (string? url, string? signatureUrl)[] candidates =
+        [
+            (package.BlockMapUrl, package.BlockMapSignatureUrl),
+            (package.BlockMapFallbackUrl, package.BlockMapFallbackSignatureUrl)
+        ];
+
+        foreach ((string? url, string? signatureUrl) in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(signatureUrl))
+                continue;
+
+            using HttpResponseMessage response = await GetUpdateResponseAsync(
+                    url,
+                    retryNotFound: true,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                PortableLog.Warn("Update", $"分块清单不存在，尝试下一候选：{url}");
+                continue;
+            }
+
+            EnsureUpdateResponseSuccess(response, url);
+            if (response.Content.Headers.ContentLength is > 16 * 1024 * 1024)
+                throw new InvalidDataException("分块更新清单异常过大。");
+
+            if (File.Exists(mapPath))
+                File.Delete(mapPath);
+
+            // Close the write handle before GPG/signature verification reopens the path.
+            {
+                await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                await using FileStream target = new(
+                    mapPath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None,
+                    64 * 1024,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan);
+                await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
+            }
+
+            await VerifyDetachedSignatureAsync(
+                    mapPath,
+                    signatureUrl,
+                    required: true,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            PortableLog.Info("Update", $"已加载分块清单：{url}");
+            return true;
+        }
+
+        PortableLog.Error(
+            "Update",
+            $"Cloudflare 未提供此构建所需的签名分块清单；URL={package.BlockMapUrl}。");
+        return false;
+    }
+
+    private static (Dictionary<string, LauncherUpdateBlockFile> Files, LauncherUpdateChunkProfile Profile)
+        ValidateBlockMap(LauncherUpdateBlockMap map, LauncherUpdatePackage package)
+    {
+        if (!TryResolveBlockMapProfile(map, out LauncherUpdateChunkProfile profile) ||
             !string.Equals(map.Compression, BlockCompression, StringComparison.Ordinal) ||
             !string.Equals(map.BlockBasePath, BlockBasePath, StringComparison.Ordinal) ||
             !IsSha256(map.TargetManifestSha256) ||
@@ -232,6 +270,15 @@ public sealed partial class LauncherUpdateInstaller
         {
             throw new InvalidDataException("分块更新清单版本或必填字段无效。");
         }
+
+        if (map.Chunking is { } chunking &&
+            (chunking.Min != profile.MinimumSize ||
+             chunking.Avg != profile.AverageSize ||
+             chunking.Max != profile.MaximumSize))
+        {
+            throw new InvalidDataException("分块更新清单 chunking 参数与 algorithm 不一致。");
+        }
+
         if (!string.Equals(map.TargetTag, package.TargetTag, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(map.TargetVersion, package.TargetVersion, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(map.RuntimeId, package.RuntimeId, StringComparison.OrdinalIgnoreCase) ||
@@ -250,6 +297,7 @@ public sealed partial class LauncherUpdateInstaller
 
         Dictionary<string, LauncherUpdateBlockFile> files = new(StringComparer.OrdinalIgnoreCase);
         long blockReferences = 0;
+        long maxCompressed = profile.MaximumSize + 64L * 1024;
         foreach (LauncherUpdateBlockFile file in map.TargetFiles)
         {
             string path = NormalizeRelativePath(file.Path);
@@ -261,9 +309,9 @@ public sealed partial class LauncherUpdateInstaller
             foreach (LauncherUpdateBlock block in file.Chunks)
             {
                 if (!IsSha256(block.Sha256) ||
-                    block.Size < 0 || block.Size > LauncherUpdateChunker.MaximumSize ||
+                    block.Size < 0 || block.Size > profile.MaximumSize ||
                     block.CompressedSize <= 0 ||
-                    block.CompressedSize > LauncherUpdateChunker.MaximumSize + 64 * 1024)
+                    block.CompressedSize > maxCompressed)
                 {
                     throw new InvalidDataException($"分块更新块条目无效：{file.Path}。");
                 }
@@ -278,13 +326,42 @@ public sealed partial class LauncherUpdateInstaller
             if (chunkBytes != file.Size)
                 throw new InvalidDataException($"分块大小总和与文件不一致：{file.Path}。");
         }
-        if (string.Equals(map.Layout, SingleFileBlockMapLayout, StringComparison.Ordinal) &&
+        if (IsSingleFileBlockMapLayout(map.Layout) &&
             (files.Count != 1 || !files.ContainsKey(package.TargetBinaryName)))
         {
             throw new InvalidDataException("单文件分块清单没有唯一的产品入口。");
         }
-        return files;
+        return (files, profile);
     }
+
+    private static bool TryResolveBlockMapProfile(
+        LauncherUpdateBlockMap map,
+        out LauncherUpdateChunkProfile profile)
+    {
+        profile = LauncherUpdateChunkProfile.V1;
+        if (!LauncherUpdateChunkProfile.TryGet(map.Algorithm, out profile))
+            return false;
+
+        if (map.FormatVersion == 1 &&
+            map.Layout is BlockMapLayout or SingleFileBlockMapLayout &&
+            string.Equals(map.Algorithm, LauncherUpdateChunkProfile.V1.Algorithm, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (map.FormatVersion == 2 &&
+            map.Layout is BlockMapLayoutV2 or SingleFileBlockMapLayoutV2 &&
+            string.Equals(map.Algorithm, LauncherUpdateChunkProfile.V2.Algorithm, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsSingleFileBlockMapLayout(string? layout) =>
+        string.Equals(layout, SingleFileBlockMapLayout, StringComparison.Ordinal) ||
+        string.Equals(layout, SingleFileBlockMapLayoutV2, StringComparison.Ordinal);
 
     private static async Task<Dictionary<string, string>> FindExactLocalFilesAsync(
         InstallContext install,
@@ -317,6 +394,7 @@ public sealed partial class LauncherUpdateInstaller
         IReadOnlyDictionary<string, LauncherUpdateBlockFile> targetFiles,
         Dictionary<string, string> exactLocalFiles,
         HashSet<string> neededHashes,
+        LauncherUpdateChunkProfile profile,
         CancellationToken cancellationToken)
     {
         Dictionary<string, LocalBlockSource> result = new(StringComparer.Ordinal);
@@ -337,8 +415,10 @@ public sealed partial class LauncherUpdateInstaller
             string path = candidates[index];
             try
             {
+                // Must match the blockmap algorithm; v2 boundaries differ from v1.
                 IReadOnlyList<LauncherUpdateChunkSlice> chunks = await LauncherUpdateChunker.ChunkFileAsync(
                         path,
+                        profile,
                         cancellationToken)
                     .ConfigureAwait(false);
                 foreach (LauncherUpdateChunkSlice chunk in chunks)

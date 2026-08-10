@@ -29,17 +29,37 @@ def _read_catalog(path: Path) -> dict:
     return value
 
 
+_VALID_LAYOUTS = {
+    "pcln-blockmap-v1",
+    "pcln-blockmap-file-v1",
+    "pcln-blockmap-v2",
+    "pcln-blockmap-file-v2",
+}
+
+
+def _iter_blockmap_paths(manifest_dir: Path) -> list[Path]:
+    # Prefer explicit dual-publish names; avoid matching only one suffix.
+    found = {
+        *manifest_dir.glob("*.blockmap.json"),
+        *manifest_dir.glob("*.blockmap.v2.json"),
+    }
+    return sorted(found)
+
+
 def _read_current_blocks(manifest_dir: Path) -> set[str]:
     hashes: set[str] = set()
-    manifests = sorted(manifest_dir.glob("*.blockmap.json"))
+    manifests = _iter_blockmap_paths(manifest_dir)
     if not manifests:
         raise ValueError("no block maps found")
     for path in manifests:
         value = json.loads(path.read_text(encoding="utf-8"))
-        if value.get("formatVersion") != 1 or value.get("layout") not in {
-            "pcln-blockmap-v1",
-            "pcln-blockmap-file-v1",
-        }:
+        format_version = value.get("formatVersion")
+        layout = value.get("layout")
+        if format_version not in {1, 2} or layout not in _VALID_LAYOUTS:
+            raise ValueError(f"invalid block map: {path}")
+        if format_version == 1 and layout not in {"pcln-blockmap-v1", "pcln-blockmap-file-v1"}:
+            raise ValueError(f"invalid block map: {path}")
+        if format_version == 2 and layout not in {"pcln-blockmap-v2", "pcln-blockmap-file-v2"}:
             raise ValueError(f"invalid block map: {path}")
         for file in value.get("targetFiles") or []:
             for chunk in file.get("chunks") or []:

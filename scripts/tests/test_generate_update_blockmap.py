@@ -61,7 +61,7 @@ class GenerateUpdateBlockmapTests(unittest.TestCase):
                     package.writestr(name, content)
 
             output = root / "block-output"
-            manifest_path = blockmap.build_blockmap(
+            manifest_paths = blockmap.build_blockmap(
                 archive,
                 output,
                 target_tag="v1.4.3-beta",
@@ -70,17 +70,32 @@ class GenerateUpdateBlockmapTests(unittest.TestCase):
                 runtime_variant="NoRuntime",
                 configuration="Beta",
             )
+            self.assertEqual(2, len(manifest_paths))
+            by_suffix = {path.name: path for path in manifest_paths}
+            self.assertIn("PCL_N_Beta_win-x64_NoRuntime.blockmap.json", by_suffix)
+            self.assertIn("PCL_N_Beta_win-x64_NoRuntime.blockmap.v2.json", by_suffix)
 
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual("pcln-blockmap-v1", manifest["layout"])
-            self.assertEqual("/v1/updates/block", manifest["blockBasePath"])
-            self.assertEqual(set(files), {entry["path"] for entry in manifest["targetFiles"]})
-            for entry in manifest["targetFiles"]:
-                reconstructed = b"".join(
-                    gzip.decompress((output / chunk["path"]).read_bytes())
-                    for chunk in entry["chunks"]
-                )
-                self.assertEqual(files[entry["path"]], reconstructed)
+            for manifest_path in manifest_paths:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if manifest_path.name.endswith(".blockmap.v2.json"):
+                    self.assertEqual("pcln-blockmap-v2", manifest["layout"])
+                    self.assertEqual("pcln-fastcdc-v2", manifest["algorithm"])
+                    self.assertEqual(2, manifest["formatVersion"])
+                    self.assertEqual(
+                        {"min": 131072, "avg": 524288, "max": 1048576},
+                        manifest["chunking"],
+                    )
+                else:
+                    self.assertEqual("pcln-blockmap-v1", manifest["layout"])
+                    self.assertEqual("pcln-fastcdc-v1", manifest["algorithm"])
+                self.assertEqual("/v1/updates/block", manifest["blockBasePath"])
+                self.assertEqual(set(files), {entry["path"] for entry in manifest["targetFiles"]})
+                for entry in manifest["targetFiles"]:
+                    reconstructed = b"".join(
+                        gzip.decompress((output / chunk["path"]).read_bytes())
+                        for chunk in entry["chunks"]
+                    )
+                    self.assertEqual(files[entry["path"]], reconstructed)
 
     def test_file_manifest_reconstructs_single_portable_executable(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -90,7 +105,7 @@ class GenerateUpdateBlockmapTests(unittest.TestCase):
             source.write_bytes(payload)
             output = root / "block-output"
 
-            manifest_path = blockmap.build_file_blockmap(
+            manifest_paths = blockmap.build_file_blockmap(
                 source,
                 output,
                 target_asset_name=source.name,
@@ -101,16 +116,22 @@ class GenerateUpdateBlockmapTests(unittest.TestCase):
                 runtime_variant="NoRuntime",
                 configuration="Beta",
             )
+            self.assertEqual(2, len(manifest_paths))
 
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual("pcln-blockmap-file-v1", manifest["layout"])
-            self.assertEqual(source.name, manifest["targetAssetName"])
-            self.assertEqual(["PCL-N-Edition.exe"], [entry["path"] for entry in manifest["targetFiles"]])
-            reconstructed = b"".join(
-                gzip.decompress((output / chunk["path"]).read_bytes())
-                for chunk in manifest["targetFiles"][0]["chunks"]
-            )
-            self.assertEqual(payload, reconstructed)
+            for manifest_path in manifest_paths:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if manifest_path.name.endswith(".blockmap.v2.json"):
+                    self.assertEqual("pcln-blockmap-file-v2", manifest["layout"])
+                    self.assertEqual("pcln-fastcdc-v2", manifest["algorithm"])
+                else:
+                    self.assertEqual("pcln-blockmap-file-v1", manifest["layout"])
+                self.assertEqual(source.name, manifest["targetAssetName"])
+                self.assertEqual(["PCL-N-Edition.exe"], [entry["path"] for entry in manifest["targetFiles"]])
+                reconstructed = b"".join(
+                    gzip.decompress((output / chunk["path"]).read_bytes())
+                    for chunk in manifest["targetFiles"][0]["chunks"]
+                )
+                self.assertEqual(payload, reconstructed)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Build signed content-addressed block maps for scatter and single-file updates."""
+"""Build signed content-addressed block maps for scatter and single-file updates.
+
+Supports dual FastCDC profiles:
+
+  v1  pcln-fastcdc-v1  256 KiB / 1 MiB / 2 MiB  →  *.blockmap.json
+  v2  pcln-fastcdc-v2  128 KiB / 512 KiB / 1 MiB →  *.blockmap.v2.json
+
+Both maps share the same CAS block tree (gzip of raw chunk SHA-256 identity).
+"""
 
 from __future__ import annotations
 
@@ -13,19 +21,45 @@ import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import Any
 
 
-FORMAT_VERSION = 1
-LAYOUT = "pcln-blockmap-v1"
-FILE_LAYOUT = "pcln-blockmap-file-v1"
-ALGORITHM = "pcln-fastcdc-v1"
-COMPRESSION = "gzip"
-MIN_CHUNK = 256 * 1024
-AVG_CHUNK = 1024 * 1024
-MAX_CHUNK = 2 * 1024 * 1024
-EARLY_MASK = (1 << 21) - 1
-LATE_MASK = (1 << 19) - 1
 UINT64_MASK = (1 << 64) - 1
+
+# v1 masks: early 21 / late 19 for avg ≈ 2^20
+# v2 masks: early 20 / late 18 for avg ≈ 2^19 (same spacing)
+PROFILES: dict[str, dict[str, Any]] = {
+    "v1": {
+        "name": "v1",
+        "format_version": 1,
+        "layout": "pcln-blockmap-v1",
+        "file_layout": "pcln-blockmap-file-v1",
+        "algorithm": "pcln-fastcdc-v1",
+        "min": 256 * 1024,
+        "avg": 1024 * 1024,
+        "max": 2 * 1024 * 1024,
+        "early_mask": (1 << 21) - 1,
+        "late_mask": (1 << 19) - 1,
+        "suffix": ".blockmap.json",
+        "include_chunking": False,
+    },
+    "v2": {
+        "name": "v2",
+        "format_version": 2,
+        "layout": "pcln-blockmap-v2",
+        "file_layout": "pcln-blockmap-file-v2",
+        "algorithm": "pcln-fastcdc-v2",
+        "min": 128 * 1024,
+        "avg": 512 * 1024,
+        "max": 1024 * 1024,
+        "early_mask": (1 << 20) - 1,
+        "late_mask": (1 << 18) - 1,
+        "suffix": ".blockmap.v2.json",
+        "include_chunking": True,
+    },
+}
+
+COMPRESSION = "gzip"
 
 
 def _splitmix64(value: int) -> int:
@@ -117,7 +151,18 @@ def _flush_chunk(
     )
 
 
-def chunk_file(path: Path, output_root: Path) -> tuple[str, int, list[dict], int, int]:
+def chunk_file(
+    path: Path,
+    output_root: Path,
+    profile: dict[str, Any] | None = None,
+) -> tuple[str, int, list[dict], int, int]:
+    profile = profile or PROFILES["v1"]
+    min_chunk = int(profile["min"])
+    avg_chunk = int(profile["avg"])
+    max_chunk = int(profile["max"])
+    early_mask = int(profile["early_mask"])
+    late_mask = int(profile["late_mask"])
+
     file_hash = hashlib.sha256()
     file_size = 0
     rolling = 0
@@ -146,10 +191,10 @@ def chunk_file(path: Path, output_root: Path) -> tuple[str, int, list[dict], int
                 buffer.append(value)
                 rolling = ((rolling << 1) + GEAR_TABLE[value]) & UINT64_MASK
                 length = len(buffer)
-                if length < MIN_CHUNK:
+                if length < min_chunk:
                     continue
-                mask = EARLY_MASK if length < AVG_CHUNK else LATE_MASK
-                if (rolling & mask) == 0 or length >= MAX_CHUNK:
+                mask = early_mask if length < avg_chunk else late_mask
+                if (rolling & mask) == 0 or length >= max_chunk:
                     flush()
     flush()
     if file_size == 0:
@@ -169,6 +214,70 @@ def _manifest_sha256(files: list[dict]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _resolve_profiles(profile_arg: str) -> list[dict[str, Any]]:
+    key = (profile_arg or "both").strip().lower()
+    if key == "both":
+        return [PROFILES["v1"], PROFILES["v2"]]
+    if key not in PROFILES:
+        raise ValueError(f"unknown profile: {profile_arg}")
+    return [PROFILES[key]]
+
+
+def _write_manifest(
+    *,
+    profile: dict[str, Any],
+    layout: str,
+    entries: list[dict],
+    output_root: Path,
+    stem: str,
+    target_asset_name: str,
+    target_tag: str,
+    target_version: str,
+    runtime_id: str,
+    runtime_variant: str,
+    configuration: str,
+    total_blocks: int,
+    referenced_compressed_bytes: int,
+    created_blocks: int,
+    created_bytes: int,
+) -> Path:
+    manifest: dict[str, Any] = {
+        "formatVersion": profile["format_version"],
+        "layout": layout,
+        "algorithm": profile["algorithm"],
+        "compression": COMPRESSION,
+        "blockBasePath": "/v1/updates/block",
+        "targetTag": target_tag,
+        "targetVersion": target_version,
+        "runtimeId": runtime_id,
+        "runtimeVariant": runtime_variant,
+        "configuration": configuration,
+        "targetAssetName": target_asset_name,
+        "targetManifestSha256": _manifest_sha256(entries),
+        "targetFiles": entries,
+        "stats": {
+            "fileCount": len(entries),
+            "blockReferences": total_blocks,
+            "referencedCompressedBytes": referenced_compressed_bytes,
+            "newUniqueBlocks": created_blocks,
+            "newUniqueCompressedBytes": created_bytes,
+            "chunkMin": profile["min"],
+            "chunkAverage": profile["avg"],
+            "chunkMax": profile["max"],
+        },
+    }
+    if profile.get("include_chunking"):
+        manifest["chunking"] = {
+            "min": profile["min"],
+            "avg": profile["avg"],
+            "max": profile["max"],
+        }
+    manifest_path = output_root / "manifests" / f"{stem}{profile['suffix']}"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return manifest_path
+
+
 def build_blockmap(
     archive: Path,
     output_root: Path,
@@ -178,73 +287,71 @@ def build_blockmap(
     runtime_id: str,
     runtime_variant: str,
     configuration: str,
-) -> Path:
+    profiles: list[dict[str, Any]] | None = None,
+) -> list[Path]:
     archive = archive.resolve()
     output_root = output_root.resolve()
     if not archive.is_file():
         raise FileNotFoundError(archive)
     output_root.mkdir(parents=True, exist_ok=True)
+    selected = profiles or [PROFILES["v1"], PROFILES["v2"]]
 
     with tempfile.TemporaryDirectory(prefix="pcln-blockmap-") as temporary:
         tree = Path(temporary) / "tree"
         _safe_extract(archive, tree)
         _flatten_package_root(tree)
-        entries: list[dict] = []
-        total_blocks = 0
-        referenced_compressed_bytes = 0
-        created_blocks = 0
-        created_bytes = 0
-        for path in sorted(tree.rglob("*")):
-            if not path.is_file() or _should_ignore(path):
-                continue
-            relative = path.relative_to(tree).as_posix()
-            sha256, size, chunks, new_count, new_bytes = chunk_file(path, output_root)
-            entries.append(
-                {
-                    "path": relative,
-                    "sha256": sha256,
-                    "size": size,
-                    "unixMode": stat.S_IMODE(path.stat().st_mode),
-                    "chunks": chunks,
-                }
-            )
-            total_blocks += len(chunks)
-            referenced_compressed_bytes += sum(chunk["compressedSize"] for chunk in chunks)
-            created_blocks += new_count
-            created_bytes += new_bytes
-        if not entries:
+        file_paths = [
+            path
+            for path in sorted(tree.rglob("*"))
+            if path.is_file() and not _should_ignore(path)
+        ]
+        if not file_paths:
             raise ValueError(f"update archive has no files: {archive}")
 
-    stem = archive.name[:-7] if archive.name.endswith(".tar.gz") else archive.stem
-    manifest = {
-        "formatVersion": FORMAT_VERSION,
-        "layout": LAYOUT,
-        "algorithm": ALGORITHM,
-        "compression": COMPRESSION,
-        "blockBasePath": "/v1/updates/block",
-        "targetTag": target_tag,
-        "targetVersion": target_version,
-        "runtimeId": runtime_id,
-        "runtimeVariant": runtime_variant,
-        "configuration": configuration,
-        "targetAssetName": archive.name,
-        "targetManifestSha256": _manifest_sha256(entries),
-        "targetFiles": entries,
-        "stats": {
-            "fileCount": len(entries),
-            "blockReferences": total_blocks,
-            "referencedCompressedBytes": referenced_compressed_bytes,
-            "newUniqueBlocks": created_blocks,
-            "newUniqueCompressedBytes": created_bytes,
-            "chunkMin": MIN_CHUNK,
-            "chunkAverage": AVG_CHUNK,
-            "chunkMax": MAX_CHUNK,
-        },
-    }
-    manifest_path = output_root / "manifests" / f"{stem}.blockmap.json"
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return manifest_path
+        stem = archive.name[:-7] if archive.name.endswith(".tar.gz") else archive.stem
+        results: list[Path] = []
+        for profile in selected:
+            entries: list[dict] = []
+            total_blocks = 0
+            referenced_compressed_bytes = 0
+            created_blocks = 0
+            created_bytes = 0
+            for path in file_paths:
+                relative = path.relative_to(tree).as_posix()
+                sha256, size, chunks, new_count, new_bytes = chunk_file(path, output_root, profile)
+                entries.append(
+                    {
+                        "path": relative,
+                        "sha256": sha256,
+                        "size": size,
+                        "unixMode": stat.S_IMODE(path.stat().st_mode),
+                        "chunks": chunks,
+                    }
+                )
+                total_blocks += len(chunks)
+                referenced_compressed_bytes += sum(chunk["compressedSize"] for chunk in chunks)
+                created_blocks += new_count
+                created_bytes += new_bytes
+            results.append(
+                _write_manifest(
+                    profile=profile,
+                    layout=profile["layout"],
+                    entries=entries,
+                    output_root=output_root,
+                    stem=stem,
+                    target_asset_name=archive.name,
+                    target_tag=target_tag,
+                    target_version=target_version,
+                    runtime_id=runtime_id,
+                    runtime_variant=runtime_variant,
+                    configuration=configuration,
+                    total_blocks=total_blocks,
+                    referenced_compressed_bytes=referenced_compressed_bytes,
+                    created_blocks=created_blocks,
+                    created_bytes=created_bytes,
+                )
+            )
+    return results
 
 
 def build_file_blockmap(
@@ -258,7 +365,8 @@ def build_file_blockmap(
     runtime_id: str,
     runtime_variant: str,
     configuration: str,
-) -> Path:
+    profiles: list[dict[str, Any]] | None = None,
+) -> list[Path]:
     source = source.resolve()
     output_root = output_root.resolve()
     if not source.is_file():
@@ -270,46 +378,40 @@ def build_file_blockmap(
         raise ValueError("entry name must be a safe relative path")
 
     output_root.mkdir(parents=True, exist_ok=True)
-    sha256, size, chunks, created_blocks, created_bytes = chunk_file(source, output_root)
-    entries = [
-        {
-            "path": normalized_entry,
-            "sha256": sha256,
-            "size": size,
-            "unixMode": stat.S_IMODE(source.stat().st_mode),
-            "chunks": chunks,
-        }
-    ]
-    manifest = {
-        "formatVersion": FORMAT_VERSION,
-        "layout": FILE_LAYOUT,
-        "algorithm": ALGORITHM,
-        "compression": COMPRESSION,
-        "blockBasePath": "/v1/updates/block",
-        "targetTag": target_tag,
-        "targetVersion": target_version,
-        "runtimeId": runtime_id,
-        "runtimeVariant": runtime_variant,
-        "configuration": configuration,
-        "targetAssetName": target_asset_name,
-        "targetManifestSha256": _manifest_sha256(entries),
-        "targetFiles": entries,
-        "stats": {
-            "fileCount": 1,
-            "blockReferences": len(chunks),
-            "referencedCompressedBytes": sum(chunk["compressedSize"] for chunk in chunks),
-            "newUniqueBlocks": created_blocks,
-            "newUniqueCompressedBytes": created_bytes,
-            "chunkMin": MIN_CHUNK,
-            "chunkAverage": AVG_CHUNK,
-            "chunkMax": MAX_CHUNK,
-        },
-    }
+    selected = profiles or [PROFILES["v1"], PROFILES["v2"]]
     stem = target_asset_name[:-4] if target_asset_name.lower().endswith(".exe") else Path(target_asset_name).stem
-    manifest_path = output_root / "manifests" / f"{stem}.blockmap.json"
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return manifest_path
+    results: list[Path] = []
+    for profile in selected:
+        sha256, size, chunks, created_blocks, created_bytes = chunk_file(source, output_root, profile)
+        entries = [
+            {
+                "path": normalized_entry,
+                "sha256": sha256,
+                "size": size,
+                "unixMode": stat.S_IMODE(source.stat().st_mode),
+                "chunks": chunks,
+            }
+        ]
+        results.append(
+            _write_manifest(
+                profile=profile,
+                layout=profile["file_layout"],
+                entries=entries,
+                output_root=output_root,
+                stem=stem,
+                target_asset_name=target_asset_name,
+                target_tag=target_tag,
+                target_version=target_version,
+                runtime_id=runtime_id,
+                runtime_variant=runtime_variant,
+                configuration=configuration,
+                total_blocks=len(chunks),
+                referenced_compressed_bytes=sum(chunk["compressedSize"] for chunk in chunks),
+                created_blocks=created_blocks,
+                created_bytes=created_bytes,
+            )
+        )
+    return results
 
 
 def main() -> int:
@@ -325,11 +427,18 @@ def main() -> int:
     parser.add_argument("--runtime-id", required=True)
     parser.add_argument("--runtime-variant", required=True, choices=("SelfContained", "NoRuntime"))
     parser.add_argument("--configuration", required=True, choices=("Release", "Beta", "CI"))
+    parser.add_argument(
+        "--profile",
+        default="both",
+        choices=("v1", "v2", "both"),
+        help="FastCDC profile(s) to emit (default: both)",
+    )
     args = parser.parse_args()
+    profiles = _resolve_profiles(args.profile)
     if args.file is not None:
         if not args.target_asset_name or not args.entry_name:
             parser.error("--file requires --target-asset-name and --entry-name")
-        manifest = build_file_blockmap(
+        manifests = build_file_blockmap(
             args.file,
             args.output,
             target_asset_name=args.target_asset_name,
@@ -339,9 +448,10 @@ def main() -> int:
             runtime_id=args.runtime_id,
             runtime_variant=args.runtime_variant,
             configuration=args.configuration,
+            profiles=profiles,
         )
     else:
-        manifest = build_blockmap(
+        manifests = build_blockmap(
             args.archive,
             args.output,
             target_tag=args.target_tag,
@@ -349,8 +459,10 @@ def main() -> int:
             runtime_id=args.runtime_id,
             runtime_variant=args.runtime_variant,
             configuration=args.configuration,
+            profiles=profiles,
         )
-    print(f"Created block map: {manifest}")
+    for manifest in manifests:
+        print(f"Created block map: {manifest}")
     return 0
 
 

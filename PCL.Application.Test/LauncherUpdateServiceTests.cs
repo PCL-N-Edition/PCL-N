@@ -232,7 +232,7 @@ public sealed class LauncherUpdateServiceTests
         Assert.IsTrue(result.Package.SupportsBlockMap);
         StringAssert.EndsWith(
             result.Package.BlockMapUrl!,
-            "/ci-latest/PCL_N_CI_win-x64_SelfContained.blockmap.json");
+            "/ci-latest/PCL_N_CI_win-x64_SelfContained.blockmap.v2.json");
     }
 
     [TestMethod]
@@ -277,7 +277,7 @@ public sealed class LauncherUpdateServiceTests
         Assert.AreEqual("PCL-N-Edition.exe", result.Package.TargetBinaryName);
         StringAssert.EndsWith(
             result.Package.BlockMapUrl!,
-            "/v1.4.4-beta/PCL_N_Beta_win-x64_NoRuntime_Portable.blockmap.json");
+            "/v1.4.4-beta/PCL_N_Beta_win-x64_NoRuntime_Portable.blockmap.v2.json");
         StringAssert.EndsWith(
             result.Package.TargetBinarySignatureUrl!,
             "/v1.4.4-beta/PCL_N_Beta_win-x64_NoRuntime_Portable.exe.asc");

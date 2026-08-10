@@ -115,7 +115,7 @@ jobs:
           while IFS= read -r -d '' map; do
             gpg --detach-sign --armor "$map"
             cp -a "$map" "$map.asc" r2-asset/
-          done < <(find block-dist/manifests -maxdepth 1 -type f -name '*.blockmap.json' -print0)
+          done < <(find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print0)
 
           export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
           npx --yes wrangler@4.120.0 --version
@@ -132,7 +132,7 @@ jobs:
             npx --yes wrangler@4.120.0 r2 object put \
               "pcln-releases/releases/${RELEASE_TAG}/${name}" \
               --file "$map" --remote
-          done < <(find r2-asset -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.json.asc' \) -print0)
+          done < <(find r2-asset -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.json.asc' -o -name '*.blockmap.v2.json' -o -name '*.blockmap.v2.json.asc' \) -print0)
 
           # The legacy archives were conversion inputs only. Remove any
           # canonical copies previously stored under this release tag.
