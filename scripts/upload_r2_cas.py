@@ -41,9 +41,12 @@ from typing import Callable, Iterable
 
 
 DEFAULT_BUCKET = "pcln-releases"
-MIN_CONCURRENCY = 8
-DEFAULT_CONCURRENCY = 24
-MAX_CONCURRENCY = 48
+MIN_CONCURRENCY = 2
+DEFAULT_CONCURRENCY = 8
+MAX_CONCURRENCY = 24
+# Matrix jobs fan out; be patient under Cloudflare HTTP API rate limits.
+THROTTLE_MAX_ATTEMPTS = 32
+THROTTLE_MAX_SLEEP_S = 45.0
 CF_API = "https://api.cloudflare.com/client/v4"
 
 
@@ -185,19 +188,70 @@ class CloudflareApiR2Client(R2Client):
             return int(exc.code), body, resp_headers
 
     def list_keys(self, prefix: str) -> set[str]:
+        # Shard CAS trees so each page is smaller (proxy/chunked IncompleteRead).
+        normalized = prefix.rstrip("/") + "/" if prefix else ""
+        if normalized in {"block/", "delta/"} or normalized == "delta/v2/":
+            shards: list[str]
+            if normalized == "block/":
+                shards = [f"block/{hh:02x}/" for hh in range(256)]
+            elif normalized.startswith("delta"):
+                # Prefer leaf under delta/v2/; fall back to whole delta/ tree.
+                base = "delta/v2/" if normalized in {"delta/", "delta/v2/"} else normalized
+                shards = [f"{base}{hh:02x}/" for hh in range(256)]
+            else:
+                shards = [normalized]
+            keys: set[str] = set()
+            total = len(shards)
+            for index, shard in enumerate(shards, start=1):
+                keys |= self._list_keys_prefix(shard, per_page=100)
+                if index == 1 or index % 32 == 0 or index == total:
+                    print(f"list {normalized}: shard {index}/{total} keys={len(keys)}", flush=True)
+            return keys
+        return self._list_keys_prefix(normalized or prefix, per_page=100)
+
+    def _list_keys_prefix(self, prefix: str, *, per_page: int = 200) -> set[str]:
+        import http.client
+
         keys: set[str] = set()
         cursor: str | None = None
         while True:
             query = {
                 "prefix": prefix,
-                "per_page": "1000",
+                "per_page": str(per_page),
             }
             if cursor:
                 query["cursor"] = cursor
             url = f"{self._list_url()}?{urllib.parse.urlencode(query)}"
-            status, body, _ = self._request("GET", url, headers=self._headers())
+            body: bytes | None = None
+            status = 0
+            last_error: Exception | None = None
+            for attempt in range(1, 8):
+                try:
+                    status, body, _ = self._request("GET", url, headers=self._headers())
+                    last_error = None
+                    break
+                except (
+                    TimeoutError,
+                    ConnectionError,
+                    OSError,
+                    http.client.IncompleteRead,
+                    http.client.RemoteDisconnected,
+                ) as exc:
+                    last_error = exc
+                    time.sleep(min(10.0, 0.25 * (2 ** (attempt - 1))))
+                except Exception as exc:  # noqa: BLE001
+                    name = type(exc).__name__
+                    if name in {"IncompleteRead", "RemoteDisconnected", "ProtocolError"} or "IncompleteRead" in str(exc):
+                        last_error = exc
+                        time.sleep(min(10.0, 0.25 * (2 ** (attempt - 1))))
+                        continue
+                    raise
+            if last_error is not None:
+                raise RuntimeError(f"list objects failed for prefix={prefix!r}: {last_error}") from last_error
+            assert body is not None
             if status == 429:
-                raise ThrottleError("list throttled")
+                time.sleep(1.5)
+                continue
             if status >= 400:
                 raise RuntimeError(f"list objects failed HTTP {status}: {body[:400]!r}")
             payload = json.loads(body.decode("utf-8"))
@@ -242,12 +296,21 @@ class CloudflareApiR2Client(R2Client):
             return "uploaded"
         if status == 412:
             return "exists"
-        if status == 429:
-            raise ThrottleError(f"throttled putting {key}")
+        if status in {429, 502, 503, 504}:
+            raise ThrottleError(f"throttled putting {key} (HTTP {status})")
         # Some API versions may ignore If-None-Match and still overwrite; treat
         # unexpected 2xx/409 as soft success for CAS idempotency.
         if status == 409:
             return "exists"
+        # CF sometimes wraps rate limits as JSON errors with HTTP 400.
+        try:
+            payload = json.loads(body.decode("utf-8"))
+            errors = payload.get("errors") or []
+            codes = {int(err.get("code", 0)) for err in errors if isinstance(err, dict)}
+            if 10000 in codes or any("ratelimit" in str(err).lower() for err in errors):
+                raise ThrottleError(f"throttled putting {key} (api codes={sorted(codes)})")
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+            pass
         raise RuntimeError(f"put {key} failed HTTP {status}: {body[:400]!r}")
 
     def get_file(self, key: str, destination: Path) -> bool:
@@ -555,18 +618,19 @@ def upload_tree(
                 return
             except ThrottleError:
                 limiter.release_throttle()
-                time.sleep(min(8.0, 0.25 * (2 ** min(attempts, 5))))
-                if attempts >= 8:
+                delay = min(THROTTLE_MAX_SLEEP_S, 0.5 * (2 ** min(attempts, 6)))
+                time.sleep(delay)
+                if attempts >= THROTTLE_MAX_ATTEMPTS:
                     stats.inc("failed")
                     print(f"error: throttled giving up on {key}", file=sys.stderr)
                     return
             except Exception as exc:  # noqa: BLE001
                 limiter.release_error()
-                if attempts >= 4:
+                if attempts >= 6:
                     stats.inc("failed")
                     print(f"error: {key}: {exc}", file=sys.stderr)
                     return
-                time.sleep(0.5 * attempts)
+                time.sleep(min(12.0, 0.75 * attempts))
 
     workers = min(MAX_CONCURRENCY, max(MIN_CONCURRENCY, concurrency))
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -639,17 +703,17 @@ def put_files(
                 return
             except ThrottleError:
                 limiter.release_throttle()
-                time.sleep(min(8.0, 0.25 * (2 ** min(attempts, 5))))
-                if attempts >= 8:
+                time.sleep(min(THROTTLE_MAX_SLEEP_S, 0.5 * (2 ** min(attempts, 6))))
+                if attempts >= THROTTLE_MAX_ATTEMPTS:
                     stats.inc("failed")
                     return
             except Exception as exc:  # noqa: BLE001
                 limiter.release_error()
-                if attempts >= 4:
+                if attempts >= 6:
                     stats.inc("failed")
                     print(f"error: {key}: {exc}", file=sys.stderr)
                     return
-                time.sleep(0.5 * attempts)
+                time.sleep(min(12.0, 0.75 * attempts))
 
     with ThreadPoolExecutor(max_workers=min(MAX_CONCURRENCY, concurrency)) as pool:
         futures = [pool.submit(worker, key, path) for key, path in items]
@@ -671,6 +735,10 @@ def delete_list(client: R2Client, list_path: Path, *, concurrency: int) -> int:
         for line in list_path.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.strip().startswith("#")
     ]
+    return delete_keys(client, keys, concurrency=concurrency)
+
+
+def delete_keys(client: R2Client, keys: list[str], *, concurrency: int) -> int:
     if not keys:
         print("delete-list: empty")
         return 0
@@ -680,19 +748,177 @@ def delete_list(client: R2Client, list_path: Path, *, concurrency: int) -> int:
 
     def worker(key: str) -> None:
         nonlocal failed
-        try:
-            client.delete_key(key)
-        except Exception as exc:  # noqa: BLE001
-            with lock:
-                failed += 1
-            print(f"error deleting {key}: {exc}", file=sys.stderr)
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                client.delete_key(key)
+                return
+            except Exception as exc:  # noqa: BLE001
+                if attempts >= 6:
+                    with lock:
+                        failed += 1
+                    print(f"error deleting {key}: {exc}", file=sys.stderr)
+                    return
+                time.sleep(min(8.0, 0.2 * (2 ** (attempts - 1))))
 
-    with ThreadPoolExecutor(max_workers=min(MAX_CONCURRENCY, concurrency)) as pool:
+    workers = min(MAX_CONCURRENCY, max(4, concurrency))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         list(pool.map(worker, keys))
     print(f"delete-list done: keys={len(keys)} failed={failed}")
     if failed:
         raise SystemExit(1)
     return len(keys)
+
+
+def _load_catalog_module():
+    """Import sibling update_update_block_catalog without requiring package install."""
+    import importlib.util
+
+    script = Path(__file__).resolve().parent / "update_update_block_catalog.py"
+    spec = importlib.util.spec_from_file_location("update_update_block_catalog", script)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {script}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _read_channel_pin_tags(client: R2Client) -> set[str]:
+    """Tags currently advertised by channels/*.json — never GC their CAS roots."""
+    import tempfile
+
+    pins: set[str] = set()
+    for name in ("release", "beta", "ci"):
+        key = f"channels/{name}.json"
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / f"{name}.json"
+            if not client.get_file(key, path):
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                print(f"warning: ignore channel pointer {key}: {exc}", file=sys.stderr)
+                continue
+            tag = payload.get("tag")
+            if isinstance(tag, str) and tag.strip():
+                pins.add(tag.strip())
+    return pins
+
+
+def gc_unused_cas(
+    client: R2Client,
+    *,
+    apply: bool,
+    concurrency: int,
+    delete_list_path: Path | None = None,
+    catalog_out: Path | None = None,
+) -> int:
+    """
+    Protocol v2 §19 standalone GC:
+
+      1. Load block/catalog.json
+      2. Pin live channel tags; prune catalog entries outside 14-day window
+      3. List remote block/ + delta/ inventory
+      4. Mark-and-sweep unreferenced full blocks and delta/v2/*
+      5. With --apply: delete + write pruned catalog; otherwise dry-run only
+    """
+    catalog_module = _load_catalog_module()
+    import tempfile
+    from datetime import datetime, timezone
+
+    with tempfile.TemporaryDirectory() as temporary:
+        work = Path(temporary)
+        catalog_path = work / "catalog.json"
+        if not client.get_file("block/catalog.json", catalog_path):
+            raise SystemExit("block/catalog.json missing on R2 — refusing GC")
+        previous = catalog_module._read_catalog(catalog_path)
+        if not (previous.get("releases") or []):
+            raise SystemExit("block catalog has no releases — refusing inventory sweep")
+
+        pin_tags = _read_channel_pin_tags(client)
+        print(f"gc: pin channel tags={sorted(pin_tags) or ['(none)']}")
+        now = datetime.now(timezone.utc)
+        catalog, retention_deletions = catalog_module.prune_catalog(
+            previous, now=now, pin_tags=pin_tags
+        )
+        print(
+            f"gc: catalog retained={len(catalog['releases'])} "
+            f"(was {len(previous.get('releases') or [])}) "
+            f"retention_deletions={len(retention_deletions)}"
+        )
+
+        remote: set[str] = set()
+        for prefix in ("block/", "delta/"):
+            keys = client.list_keys(prefix)
+            remote |= keys
+            print(f"gc: listed {prefix} keys={len(keys)}")
+
+        inventory = catalog_module.inventory_gc_deletions(catalog, remote)
+        # Retention may also name release/* objects; only delete CAS (block/delta)
+        # via inventory union, plus catalog-tracked block/delta retention deletes.
+        cas_retention = [
+            key
+            for key in retention_deletions
+            if key.startswith("block/") or key.startswith("delta/")
+        ]
+        release_retention = [
+            key for key in retention_deletions if key.startswith("releases/")
+        ]
+        deletions = sorted(set(inventory) | set(cas_retention) | set(release_retention))
+
+        block_deletes = sum(1 for k in deletions if k.startswith("block/"))
+        delta_deletes = sum(1 for k in deletions if k.startswith("delta/"))
+        release_deletes = sum(1 for k in deletions if k.startswith("releases/"))
+        print(
+            f"gc: candidates total={len(deletions)} "
+            f"block={block_deletes} delta={delta_deletes} releases={release_deletes} "
+            f"(inventory={len(inventory)} retention_cas={len(cas_retention)})"
+        )
+
+        if delete_list_path is not None:
+            delete_list_path.write_text(
+                "".join(f"{key}\n" for key in deletions), encoding="utf-8"
+            )
+            print(f"gc: wrote delete list -> {delete_list_path}")
+
+        if catalog_out is not None:
+            catalog_out.write_text(
+                json.dumps(catalog, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            print(f"gc: wrote pruned catalog -> {catalog_out}")
+
+        sample = deletions[:20]
+        for key in sample:
+            print(f"  would delete: {key}")
+        if len(deletions) > len(sample):
+            print(f"  ... and {len(deletions) - len(sample)} more")
+
+        if not apply:
+            print("gc: dry-run only (pass --apply to delete)")
+            return 0
+
+        if deletions:
+            delete_keys(client, deletions, concurrency=concurrency)
+
+        catalog_tmp = work / "catalog.next.json"
+        catalog_tmp.write_text(
+            json.dumps(catalog, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        client.put_file(
+            "block/catalog.json",
+            catalog_tmp,
+            if_none_match=False,
+            content_type="application/json; charset=utf-8",
+        )
+        print(
+            f"gc: applied deletions={len(deletions)} "
+            f"catalog_releases={len(catalog['releases'])}"
+        )
+        return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -744,6 +970,29 @@ def main(argv: list[str] | None = None) -> int:
 
     listp = sub.add_parser("list", help="List keys under a prefix (debug)")
     listp.add_argument("prefix")
+
+    gcp = sub.add_parser(
+        "gc",
+        help="Mark-and-sweep unreferenced block/ + delta/ using block/catalog.json (§19)",
+    )
+    gcp.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually delete unreachable keys and write pruned catalog (default: dry-run)",
+    )
+    gcp.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
+    gcp.add_argument(
+        "--delete-list",
+        type=Path,
+        default=None,
+        help="Optional path to write the candidate key list",
+    )
+    gcp.add_argument(
+        "--catalog-out",
+        type=Path,
+        default=None,
+        help="Optional path to write the pruned catalog JSON",
+    )
 
     args = parser.parse_args(argv)
     client = resolve_client()
@@ -800,6 +1049,15 @@ def main(argv: list[str] | None = None) -> int:
             print(key)
         print(f"count={len(keys)}")
         return 0
+
+    if args.command == "gc":
+        return gc_unused_cas(
+            client,
+            apply=bool(args.apply),
+            concurrency=args.concurrency,
+            delete_list_path=args.delete_list,
+            catalog_out=args.catalog_out,
+        )
 
     raise SystemExit(f"unknown command {args.command}")
 

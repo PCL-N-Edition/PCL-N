@@ -202,6 +202,19 @@ jobs:
           path: blockmap-stage
           if-no-files-found: error
 
+      # If matrix CAS was throttled, central job still needs the bytes. Keep a
+      # compact CAS residual artifact (new blocks only for this RID).
+      - name: Upload CAS residual for central catch-up
+        if: ${{ hashFiles('block-dist/block/**', 'block-dist/delta/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: PCL_N_CAS_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}
+          path: |
+            block-dist/block
+            block-dist/delta
+          if-no-files-found: ignore
+          retention-days: 2
+
   publish-assets:
     permissions:
       contents: write
@@ -372,25 +385,53 @@ jobs:
             '{formatVersion: 1, tag: $tag, version: $version, channel: $channel, commitSha: $commitSha, publishedAt: $publishedAt, manifestKey: $manifestKey}' \
             > "channel-dist/${{ inputs.channel }}.json"
 
+      - name: Download matrix CAS residuals (throttle catch-up)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: PCL_N_CAS_*
+          path: cas-residuals
+          merge-multiple: true
+
       - name: Upload remaining CAS objects to Cloudflare R2
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           R2_BUCKET: pcln-releases
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: utf-8
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
-          # Matrix jobs already uploaded CAS; this is an idempotent catch-up
-          # (List inventory skip / If-None-Match) for any leftover objects from the
-          # central fallback re-chunk path.
+
+          # Merge residual CAS trees from matrix jobs (if any upload was throttled).
+          if [[ -d cas-residuals ]]; then
+            mkdir -p block-dist
+            if [[ -d cas-residuals/block ]]; then
+              mkdir -p block-dist/block
+              cp -a cas-residuals/block/. block-dist/block/ || true
+            fi
+            if [[ -d cas-residuals/delta ]]; then
+              mkdir -p block-dist/delta
+              cp -a cas-residuals/delta/. block-dist/delta/ || true
+            fi
+            # download-artifact may nest by artifact name
+            while IFS= read -r -d '' nested; do
+              base="$(basename "$nested")"
+              mkdir -p "block-dist/$base"
+              cp -a "$nested"/. "block-dist/$base/" || true
+            done < <(find cas-residuals -mindepth 2 -maxdepth 2 -type d \( -name block -o -name delta \) -print0 2>/dev/null || true)
+          fi
+
+          # Serial catch-up: lower concurrency avoids CF API 429 storms.
           if [[ -d block-dist/block || -d block-dist/delta ]]; then
             python scripts/upload_r2_cas.py upload-tree block-dist \
               --prefix block --prefix delta \
-              --concurrency 24
+              --concurrency 6
           else
-            echo "No central block-dist CAS tree (matrix already published); skipping."
+            echo "No central block-dist CAS tree; relying on matrix uploads only."
           fi
 
       - name: Validate blockmaps and remote CAS (before promote)

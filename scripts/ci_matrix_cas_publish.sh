@@ -125,12 +125,14 @@ if [[ "${map_count:-0}" -eq 0 ]]; then
   exit 1
 fi
 
-# Batch CAS publish for both v1 full blocks and v2 full/delta objects.
+# Batch CAS publish. Keep concurrency low: 12 matrix jobs share one CF API token.
 # Auth reuses CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID (no separate R2 S3 keys).
 if [[ -n "${CLOUDFLARE_API_TOKEN:-}" && -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
-  python scripts/upload_r2_cas.py upload-tree "$BLOCK_DIST" \
-    --prefix block --prefix delta \
-    --concurrency 24
+  if ! python scripts/upload_r2_cas.py upload-tree "$BLOCK_DIST" \
+      --prefix block --prefix delta \
+      --concurrency 4; then
+    echo "::warning::Matrix CAS upload failed/throttled for $RUNTIME_ID/$RUNTIME_VARIANT; maps still staged for central retry."
+  fi
 else
   echo "::warning::Skipping CAS upload (no Cloudflare credentials on matrix job)."
 fi
