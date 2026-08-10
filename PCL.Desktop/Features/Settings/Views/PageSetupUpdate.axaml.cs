@@ -144,8 +144,8 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                 if (!_installation.SupportsCiChannel)
                 {
                     ciItem.ToolTip = AvaloniaLocalizationManager.GetText(
-                        "Setup.Update.Channel.CI.Scatter.Disabled",
-                        "散包版不能更新到 CI 版本；请使用正式版或测试版通道。");
+                        "Setup.Update.Channel.CI.Package.Disabled",
+                        "当前安装类型（安装包/系统包）不支持 CI 通道；请使用便携版或散包，或选择正式版/测试版。");
                 }
             }
             if (channel.SelectedIndex < 0 && channel.ItemCount > 0)

@@ -1052,6 +1052,8 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(packageWindows, "package_update_archive.py");
         Assert.IsFalse(packageLinux.Contains("_Portable.tar.gz\"", StringComparison.Ordinal));
         StringAssert.Contains(ci, "generate_update_blockmap.py");
+        StringAssert.Contains(ci, "package_update_archive.py");
+        StringAssert.Contains(ci, "--archive \"$archive\"");
         StringAssert.Contains(ci, "--target-asset-name \"$portable_name\"");
         StringAssert.Contains(publishAssets, "--target-asset-name \"$name\"");
         StringAssert.Contains(ci, "dist/r2-metadata");
@@ -1059,9 +1061,11 @@ public sealed class DesktopArchitectureTests
         StringAssert.Contains(ci, "--channel ci");
         StringAssert.Contains(ci, "upload_r2_cas.py");
         StringAssert.Contains(ci, "upload-tree block-dist");
+        // CI channel publishes every desktop RID (scatter + Win portable).
+        StringAssert.Contains(ci, "PCL_N_CI_(win|linux|osx)-(x64|arm64)_SelfContained");
+        StringAssert.Contains(ci, "Expected CI block maps for all desktop RIDs");
         StringAssert.Contains(packageLinux, "/opt/pcl-n");
         Assert.IsFalse(ci.Contains("generate-launcher-patches.yml", StringComparison.Ordinal));
-        Assert.IsFalse(ci.Contains("--archive \"$package\"", StringComparison.Ordinal));
         StringAssert.Contains(ci, "supportsPatches\": false");
         StringAssert.Contains(ci, "channels/ci.json");
         Assert.IsFalse(ci.Contains("gh release upload", StringComparison.Ordinal));

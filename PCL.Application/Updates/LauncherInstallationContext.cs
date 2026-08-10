@@ -30,11 +30,13 @@ public sealed record LauncherInstallationContext(
     public const string InstallKindMarkerFileName = "pcln-install-kind";
 
     /// <summary>
-    /// CI is a rolling developer channel for the Windows single-file build.
-    /// Expanded scatter layouts deliberately stay on versioned Release/Beta
-    /// updates so a CI build cannot replace an installed file tree.
+    /// CI is a rolling developer channel for in-place distributions (Windows
+    /// portable single-file and expanded scatter trees on all desktop RIDs).
+    /// Package-managed installs (MSI/DEB/RPM/AppImage/DMG) stay on versioned
+    /// Release/Beta only.
     /// </summary>
-    public bool SupportsCiChannel => Kind == LauncherInstallationKind.Portable;
+    public bool SupportsCiChannel =>
+        Kind is LauncherInstallationKind.Portable or LauncherInstallationKind.Scatter;
 
     public static LauncherInstallationContext Detect(string? executablePath = null)
     {
