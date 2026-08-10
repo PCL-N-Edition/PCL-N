@@ -359,8 +359,8 @@ class CloudflareApiR2Client(R2Client):
         )
         if status in {200, 204, 404}:
             return
-        if status == 429:
-            raise ThrottleError(f"throttled deleting {key}")
+        if status in {429, 502, 503, 504}:
+            raise ThrottleError(f"throttled deleting {key} (HTTP {status})")
         raise RuntimeError(f"delete {key} failed HTTP {status}: {body[:400]!r}")
 
 
@@ -745,6 +745,8 @@ def delete_keys(client: R2Client, keys: list[str], *, concurrency: int) -> int:
 
     failed = 0
     lock = threading.Lock()
+    # GC is best-effort; keep concurrency low so promote is not killed by 429 storms.
+    workers = min(8, max(1, concurrency))
 
     def worker(key: str) -> None:
         nonlocal failed
@@ -754,21 +756,33 @@ def delete_keys(client: R2Client, keys: list[str], *, concurrency: int) -> int:
             try:
                 client.delete_key(key)
                 return
-            except Exception as exc:  # noqa: BLE001
-                if attempts >= 6:
+            except ThrottleError as exc:
+                delay = min(THROTTLE_MAX_SLEEP_S, 0.5 * (2 ** min(attempts, 6)))
+                time.sleep(delay)
+                if attempts >= THROTTLE_MAX_ATTEMPTS:
                     with lock:
                         failed += 1
                     print(f"error deleting {key}: {exc}", file=sys.stderr)
                     return
-                time.sleep(min(8.0, 0.2 * (2 ** (attempts - 1))))
+            except Exception as exc:  # noqa: BLE001
+                if attempts >= 8:
+                    with lock:
+                        failed += 1
+                    print(f"error deleting {key}: {exc}", file=sys.stderr)
+                    return
+                time.sleep(min(12.0, 0.5 * attempts))
 
-    workers = min(MAX_CONCURRENCY, max(4, concurrency))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         list(pool.map(worker, keys))
     print(f"delete-list done: keys={len(keys)} failed={failed}")
     if failed:
-        raise SystemExit(1)
-    return len(keys)
+        # Do not abort the release over residual GC failures.
+        print(
+            f"warning: delete-list left {failed} key(s) undeleted (throttled/errors); "
+            "continuing — run scripts/gc later if needed",
+            file=sys.stderr,
+        )
+    return len(keys) - failed
 
 
 def _load_catalog_module():

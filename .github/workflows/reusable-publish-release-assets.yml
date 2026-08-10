@@ -495,14 +495,11 @@ jobs:
             python scripts/upload_r2_cas.py delete-list obsolete-archives.txt --concurrency 8 || true
           fi
 
-          # Mark-and-sweep only objects recorded in our catalog. Shared blocks
-          # stay alive while any release inside the 14-day rollback window uses them.
-          rm -f block-catalog.previous.json block-catalog.next.json obsolete-r2-objects.txt remote-cas-keys.txt
+          # Catalog retention GC only (14-day window). Full R2 inventory sweep is
+          # deferred to scripts/gc — promote must not die on delete throttling.
+          rm -f block-catalog.previous.json block-catalog.next.json obsolete-r2-objects.txt
           python scripts/upload_r2_cas.py get block/catalog.json \
             --file block-catalog.previous.json || rm -f block-catalog.previous.json
-          # Protocol v2 §19: inventory mark-and-sweep for unreferenced block/ + delta/.
-          python scripts/upload_r2_cas.py list block/ > remote-cas-keys.txt || true
-          python scripts/upload_r2_cas.py list delta/ >> remote-cas-keys.txt || true
           python scripts/update_update_block_catalog.py \
             --catalog block-catalog.previous.json \
             --manifest-dir block-dist/manifests \
@@ -511,10 +508,11 @@ jobs:
             --channel '${{ inputs.channel }}' \
             --published-at "$(jq -r .publishedAt 'channel-dist/${{ inputs.channel }}.json')" \
             --output block-catalog.next.json \
-            --delete-list obsolete-r2-objects.txt \
-            --remote-keys remote-cas-keys.txt
+            --delete-list obsolete-r2-objects.txt
           if [[ -s obsolete-r2-objects.txt ]]; then
-            python scripts/upload_r2_cas.py delete-list obsolete-r2-objects.txt --concurrency 16
+            # Best-effort: never fail the release over GC cleanup.
+            python scripts/upload_r2_cas.py delete-list obsolete-r2-objects.txt --concurrency 4 || \
+              echo "::warning::CAS GC delete incomplete (throttled); channel still promotes."
           fi
           python scripts/upload_r2_cas.py put block/catalog.json \
             --file block-catalog.next.json
