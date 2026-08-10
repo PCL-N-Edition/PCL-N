@@ -57,18 +57,53 @@ function Invoke-PclPluginSidecarObfuscation {
         Copy-Item $pluginDll $work -Force
         if (Test-Path $sidecarDll) { Copy-Item $sidecarDll $work -Force }
 
+        # Sidecar references PCL.N.Plugin.UI / UI.Avalonia (and their graph). Obfuscar
+        # only loads Modules from InPath; without search paths / companion DLLs it
+        # fails with "Unable to resolve dependency: PCL.N.Plugin.UI" (v1.4.5-beta).
+        $sdkAssemblies = @(
+            Get-ChildItem -LiteralPath $PublishDir -File -Filter 'PCL.N.Plugin*.dll' -ErrorAction SilentlyContinue
+        )
+        foreach ($dep in $sdkAssemblies) {
+            Copy-Item -LiteralPath $dep.FullName -Destination (Join-Path $work $dep.Name) -Force
+        }
+        if ($sdkAssemblies.Count -gt 0) {
+            Write-Host "Obfuscar dependency assemblies: $($sdkAssemblies.Name -join ', ')"
+        }
+
         $cfgPath = Join-Path $work 'obfuscar.xml'
         $xml = Get-Content -Raw -LiteralPath $template
-        $xml = $xml.Replace('value="."', "value=`"$($work.Replace('\', '/'))`"")
-        $xml = $xml.Replace('value="./obfuscar-out"', "value=`"$($out.Replace('\', '/'))`"")
+        $workPath = $work.Replace('\', '/')
+        $outPath = $out.Replace('\', '/')
+        $publishPath = $PublishDir.Replace('\', '/')
+        $xml = $xml.Replace('value="."', "value=`"$workPath`"")
+        $xml = $xml.Replace('value="./obfuscar-out"', "value=`"$outPath`"")
+        # Full publish dir: Avalonia / Harmony / other non-module refs for InheritMap.
+        if ($xml -notmatch 'AssemblySearchPath') {
+            $xml = $xml.Replace(
+                '</Obfuscator>',
+                "  <AssemblySearchPath path=`"$workPath`" />`r`n  <AssemblySearchPath path=`"$publishPath`" />`r`n</Obfuscator>")
+        }
         if (-not (Test-Path (Join-Path $work 'PCL.Plugin.Sidecar.dll'))) {
             $xml = $xml -replace '(?s)<Module file="\$\(InPath\)/PCL\.Plugin\.Sidecar\.dll">.*?</Module>', ''
         }
         Set-Content -LiteralPath $cfgPath -Value $xml -Encoding UTF8
 
-        & dotnet tool run obfuscar.console -- $cfgPath
-        if ($LASTEXITCODE -ne 0) {
-            throw "Obfuscar failed with exit code $LASTEXITCODE"
+        # Obfuscar.GlobalTool 2.2.x targets net9; CI runners and newer SDKs may only
+        # ship net8/net10. Allow major roll-forward so `dotnet tool run` still starts.
+        $previousRollForward = $env:DOTNET_ROLL_FORWARD
+        $env:DOTNET_ROLL_FORWARD = 'Major'
+        try {
+            & dotnet tool run obfuscar.console -- $cfgPath
+            if ($LASTEXITCODE -ne 0) {
+                throw "Obfuscar failed with exit code $LASTEXITCODE"
+            }
+        }
+        finally {
+            if ($null -eq $previousRollForward) {
+                Remove-Item Env:DOTNET_ROLL_FORWARD -ErrorAction SilentlyContinue
+            } else {
+                $env:DOTNET_ROLL_FORWARD = $previousRollForward
+            }
         }
 
         Get-ChildItem -LiteralPath $out -Filter '*.dll' -ErrorAction SilentlyContinue | ForEach-Object {
