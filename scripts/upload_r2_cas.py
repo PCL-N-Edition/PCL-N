@@ -103,7 +103,14 @@ class R2Client:
     def list_keys(self, prefix: str) -> set[str]:
         raise NotImplementedError
 
-    def put_file(self, key: str, path: Path, *, if_none_match: bool) -> str:
+    def put_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        if_none_match: bool,
+        content_type: str | None = None,
+    ) -> str:
         """Return 'uploaded' | 'exists'."""
         raise NotImplementedError
 
@@ -152,10 +159,19 @@ class BotoR2Client(R2Client):
                 break
         return keys
 
-    def put_file(self, key: str, path: Path, *, if_none_match: bool) -> str:
+    def put_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        if_none_match: bool,
+        content_type: str | None = None,
+    ) -> str:
         extra: dict = {}
         if if_none_match:
             extra["IfNoneMatch"] = "*"
+        if content_type:
+            extra["ContentType"] = content_type
         try:
             with path.open("rb") as handle:
                 self._client.put_object(
@@ -191,7 +207,7 @@ class BotoR2Client(R2Client):
 
 
 class WranglerR2Client(R2Client):
-    """Compatibility fallback — no inventory, unconditional put."""
+    """Compatibility fallback — no inventory, concurrent unconditional put."""
 
     def __init__(self, bucket: str) -> None:
         self.bucket = bucket
@@ -212,11 +228,19 @@ class WranglerR2Client(R2Client):
         )
         return set()
 
-    def put_file(self, key: str, path: Path, *, if_none_match: bool) -> str:
+    def put_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        if_none_match: bool,
+        content_type: str | None = None,
+    ) -> str:
         # wrangler has no If-None-Match; overwrite is idempotent for identical CAS bytes.
-        result = self._run(
-            ["r2", "object", "put", f"{self.bucket}/{key}", "--file", str(path), "--remote"]
-        )
+        args = ["r2", "object", "put", f"{self.bucket}/{key}", "--file", str(path), "--remote"]
+        if content_type:
+            args.extend(["--content-type", content_type])
+        result = self._run(args)
         if result.returncode != 0:
             raise RuntimeError(result.stderr or result.stdout or "wrangler put failed")
         return "uploaded"
@@ -333,7 +357,10 @@ def upload_tree(
             limiter.acquire()
             started = time.monotonic()
             try:
-                result = client.put_file(key, path, if_none_match=cas_conditional)
+                ctype = guess_content_type(path)
+                result = client.put_file(
+                    key, path, if_none_match=cas_conditional, content_type=ctype
+                )
                 latency = time.monotonic() - started
                 if result == "exists":
                     stats.inc("already_present")
@@ -357,6 +384,7 @@ def upload_tree(
                 time.sleep(0.5 * attempts)
 
     # Use a large pool; AdaptiveLimiter provides the real backpressure.
+    # Applies equally to v1 full blocks under block/ and v2 deltas under delta/.
     workers = min(MAX_CONCURRENCY, max(MIN_CONCURRENCY, concurrency))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(worker, key, path) for key, path in pending]
@@ -374,6 +402,17 @@ def upload_tree(
     return stats
 
 
+def guess_content_type(path: Path) -> str | None:
+    name = path.name.lower()
+    if name.endswith(".json"):
+        return "application/json; charset=utf-8"
+    if name.endswith(".asc") or name.endswith(".sig"):
+        return "text/plain; charset=utf-8"
+    if name.endswith(".vcdiff"):
+        return "application/octet-stream"
+    return None
+
+
 def put_files(
     client: R2Client,
     directory: Path,
@@ -381,7 +420,9 @@ def put_files(
     *,
     concurrency: int,
     name_filter: Callable[[str], bool] | None = None,
+    content_type: str | None = None,
 ) -> UploadStats:
+    """Batch-upload every file in a flat directory (v1 maps, v2 maps, sigs, metadata)."""
     directory = directory.resolve()
     key_prefix = key_prefix.strip("/")
     items: list[tuple[str, Path]] = []
@@ -394,17 +435,23 @@ def put_files(
         items.append((key, path))
 
     stats = UploadStats(planned=len(items))
+    if not items:
+        print("put-files: nothing to upload")
+        return stats
+
     limiter = AdaptiveLimiter(concurrency)
+    print(f"put-files plan: total={stats.planned} concurrency~{limiter.concurrency} prefix={key_prefix or '/'}")
 
     def worker(key: str, path: Path) -> None:
         attempts = 0
+        ctype = content_type or guess_content_type(path)
         while True:
             attempts += 1
             limiter.acquire()
             started = time.monotonic()
             try:
                 # Release maps/channel markers must overwrite.
-                client.put_file(key, path, if_none_match=False)
+                client.put_file(key, path, if_none_match=False, content_type=ctype)
                 stats.inc("uploaded")
                 limiter.release_success(time.monotonic() - started)
                 return
@@ -483,7 +530,7 @@ def main(argv: list[str] | None = None) -> int:
     upload.add_argument("--no-skip-existing", action="store_true")
     upload.add_argument("--no-conditional", action="store_true", help="Disable If-None-Match:*")
 
-    put = sub.add_parser("put-files", help="Upload flat directory to a key prefix")
+    put = sub.add_parser("put-files", help="Batch-upload flat directory to a key prefix")
     put.add_argument("directory", type=Path)
     put.add_argument("--key-prefix", required=True)
     put.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
@@ -492,6 +539,11 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         help="Basename to skip (repeatable), e.g. ci-channel.json",
+    )
+    put.add_argument(
+        "--content-type",
+        default=None,
+        help="Force Content-Type for every object (default: guess from extension)",
     )
 
     getp = sub.add_parser("get", help="Download a single object")
@@ -502,6 +554,7 @@ def main(argv: list[str] | None = None) -> int:
     put1.add_argument("key")
     put1.add_argument("--file", required=True, type=Path)
     put1.add_argument("--conditional", action="store_true")
+    put1.add_argument("--content-type", default=None)
 
     dell = sub.add_parser("delete-list", help="Delete keys listed in a text file")
     dell.add_argument("list_path", type=Path)
@@ -533,6 +586,7 @@ def main(argv: list[str] | None = None) -> int:
             args.key_prefix,
             concurrency=args.concurrency,
             name_filter=(None if not excluded else (lambda name: name not in excluded)),
+            content_type=args.content_type,
         )
         return 0
 
@@ -545,7 +599,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "put":
-        result = client.put_file(args.key, args.file, if_none_match=args.conditional)
+        result = client.put_file(
+            args.key,
+            args.file,
+            if_none_match=args.conditional,
+            content_type=args.content_type or guess_content_type(args.file),
+        )
         print(result)
         return 0
 

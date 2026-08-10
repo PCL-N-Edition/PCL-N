@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Update the R2 block catalog and emit objects made unreachable by the 14-day window."""
+"""Update the R2 block catalog and emit objects made unreachable by the 14-day window.
+
+Tracks both full CAS blocks (v1 + v2) and VCDIFF delta objects so expired
+releases can reclaim unreferenced delta/v2/* keys as well.
+"""
 
 from __future__ import annotations
 
@@ -46,8 +50,9 @@ def _iter_blockmap_paths(manifest_dir: Path) -> list[Path]:
     return sorted(found)
 
 
-def _read_current_blocks(manifest_dir: Path) -> set[str]:
+def _read_current_blocks_and_deltas(manifest_dir: Path) -> tuple[set[str], set[str]]:
     hashes: set[str] = set()
+    deltas: set[str] = set()
     manifests = _iter_blockmap_paths(manifest_dir)
     if not manifests:
         raise ValueError("no block maps found")
@@ -63,8 +68,8 @@ def _read_current_blocks(manifest_dir: Path) -> set[str]:
             raise ValueError(f"invalid block map: {path}")
         for file in value.get("targetFiles") or []:
             for chunk in file.get("chunks") or []:
-                sha256 = str(chunk.get("sha256") or "").lower()
                 full = chunk.get("full") if isinstance(chunk.get("full"), dict) else None
+                sha256 = str((full or {}).get("sha256") or chunk.get("sha256") or "").lower()
                 block_path = str((full or {}).get("path") or chunk.get("path") or "")
                 expected = f"block/{sha256[:2]}/{sha256}"
                 if len(sha256) != 64 or any(ch not in "0123456789abcdef" for ch in sha256):
@@ -72,7 +77,15 @@ def _read_current_blocks(manifest_dir: Path) -> set[str]:
                 if block_path != expected:
                     raise ValueError(f"invalid block path in {path}")
                 hashes.add(sha256)
-    return hashes
+
+                for delta in chunk.get("deltas") or []:
+                    if not isinstance(delta, dict):
+                        continue
+                    delta_path = str(delta.get("path") or "").replace("\\", "/")
+                    if not delta_path.startswith("delta/v2/") or ".." in delta_path:
+                        raise ValueError(f"invalid delta path in {path}: {delta_path}")
+                    deltas.add(delta_path)
+    return hashes, deltas
 
 
 def update_catalog(
@@ -84,12 +97,14 @@ def update_catalog(
     blocks: set[str],
     objects: list[str],
     now: datetime,
+    deltas: set[str] | None = None,
 ) -> tuple[dict, list[str]]:
     current = {
         "tag": tag,
         "channel": channel,
         "publishedAt": _timestamp(published_at).isoformat().replace("+00:00", "Z"),
         "blocks": sorted(blocks),
+        "deltas": sorted(deltas or ()),
         "objects": sorted(objects),
     }
     replaced = [entry for entry in catalog.get("releases", []) if entry.get("tag") == tag]
@@ -124,6 +139,22 @@ def update_catalog(
         for sha256 in expired_hashes - retained_hashes
         if len(sha256) == 64 and all(ch in "0123456789abcdef" for ch in sha256)
     }
+
+    retained_deltas = {
+        str(path)
+        for entry in retained
+        for path in entry.get("deltas") or []
+    }
+    for entry in expired:
+        for path in entry.get("deltas") or []:
+            if (
+                isinstance(path, str)
+                and path not in retained_deltas
+                and path.startswith("delta/v2/")
+                and ".." not in path
+            ):
+                deletions.add(path)
+
     retained_objects = {
         str(object_key)
         for entry in retained
@@ -163,18 +194,23 @@ def main() -> int:
         for path in sorted(args.asset_dir.iterdir())
         if path.is_file()
     ]
+    blocks, deltas = _read_current_blocks_and_deltas(args.manifest_dir)
     catalog, deletions = update_catalog(
         _read_catalog(args.catalog),
         tag=args.tag,
         channel=args.channel,
         published_at=args.published_at,
-        blocks=_read_current_blocks(args.manifest_dir),
+        blocks=blocks,
+        deltas=deltas,
         objects=objects,
         now=_timestamp(args.now) if args.now else datetime.now(timezone.utc),
     )
     args.output.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     args.delete_list.write_text("".join(f"{key}\n" for key in deletions), encoding="utf-8")
-    print(f"retained={len(catalog['releases'])} deletions={len(deletions)}")
+    print(
+        f"retained={len(catalog['releases'])} blocks={len(blocks)} "
+        f"deltas={len(deltas)} deletions={len(deletions)}"
+    )
     return 0
 
 

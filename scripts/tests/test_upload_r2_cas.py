@@ -23,7 +23,14 @@ class FakeClient(upload.R2Client):
     def list_keys(self, prefix: str) -> set[str]:
         return {key for key in self.keys if key.startswith(prefix)}
 
-    def put_file(self, key: str, path: Path, *, if_none_match: bool) -> str:
+    def put_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        if_none_match: bool,
+        content_type: str | None = None,
+    ) -> str:
         with self.lock:
             self.puts.append((key, if_none_match))
             if key in self.fail_once:
@@ -89,9 +96,17 @@ class UploadR2CasTests(unittest.TestCase):
 
             original = client.put_file
 
-            def race_put(key: str, path: Path, *, if_none_match: bool) -> str:
+            def race_put(
+                key: str,
+                path: Path,
+                *,
+                if_none_match: bool,
+                content_type: str | None = None,
+            ) -> str:
                 client.keys.add(key)  # simulate concurrent winner
-                return original(key, path, if_none_match=if_none_match)
+                return original(
+                    key, path, if_none_match=if_none_match, content_type=content_type
+                )
 
             client.put_file = race_put  # type: ignore[method-assign]
             stats = upload.upload_tree(
@@ -122,6 +137,41 @@ class UploadR2CasTests(unittest.TestCase):
             )
             self.assertEqual(1, stats.uploaded)
             self.assertEqual(0, stats.failed)
+
+    def test_put_files_batches_flat_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "a.blockmap.json").write_text("{}", encoding="utf-8")
+            (directory / "a.blockmap.v2.json").write_text("{}", encoding="utf-8")
+            (directory / "skip.me").write_text("x", encoding="utf-8")
+            client = FakeClient()
+            stats = upload.put_files(
+                client,
+                directory,
+                "releases/v1.4.7-beta",
+                concurrency=8,
+                name_filter=lambda name: name.endswith(".json"),
+            )
+            self.assertEqual(2, stats.planned)
+            self.assertEqual(2, stats.uploaded)
+            keys = sorted(key for key, _ in client.puts)
+            self.assertEqual(
+                [
+                    "releases/v1.4.7-beta/a.blockmap.json",
+                    "releases/v1.4.7-beta/a.blockmap.v2.json",
+                ],
+                keys,
+            )
+
+    def test_guess_content_type(self):
+        self.assertEqual(
+            "application/json; charset=utf-8",
+            upload.guess_content_type(Path("x.blockmap.json")),
+        )
+        self.assertEqual(
+            "application/octet-stream",
+            upload.guess_content_type(Path("x.vcdiff")),
+        )
 
 
 if __name__ == "__main__":

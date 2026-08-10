@@ -26,6 +26,11 @@ on:
         required: true
       CLOUDFLARE_ACCOUNT_ID:
         required: true
+      # Optional S3-compatible R2 API tokens (preferred over wrangler for CAS).
+      R2_ACCESS_KEY_ID:
+        required: false
+      R2_SECRET_ACCESS_KEY:
+        required: false
 
 jobs:
   package-assets:
@@ -165,6 +170,27 @@ jobs:
             echo "AppImage OK: $(basename "$appimage") mode=$(stat -c '%a' "$appimage" 2>/dev/null || stat -f '%Lp' "$appimage")"
           done < <(find package-output -maxdepth 1 -type f -name '*.AppImage' -print0)
 
+      - name: Generate blockmaps and publish CAS (matrix-local)
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: pcln-releases
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci_matrix_cas_publish.sh
+          scripts/ci_matrix_cas_publish.sh \
+            package-output \
+            '${{ inputs.tag_name }}' \
+            '${{ inputs.configuration }}' \
+            '${{ inputs.channel }}' \
+            '${{ matrix.target.runtime_id }}' \
+            '${{ matrix.runtime_variant }}' \
+            block-dist \
+            blockmap-stage
+
       - name: Upload packaged assets
         uses: actions/upload-artifact@v4
         with:
@@ -172,6 +198,13 @@ jobs:
           path: |
             package-output
             signing
+          if-no-files-found: error
+
+      - name: Upload blockmap manifests (for central sign/promote)
+        uses: actions/upload-artifact@v4
+        with:
+          name: PCL_N_Blockmaps_${{ matrix.target.runtime_id }}_${{ matrix.runtime_variant }}
+          path: blockmap-stage
           if-no-files-found: error
 
   publish-assets:
@@ -191,6 +224,13 @@ jobs:
           path: packaged
           merge-multiple: true
 
+      - name: Download matrix blockmap manifests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: PCL_N_Blockmaps_*
+          path: blockmaps
+          merge-multiple: true
+
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v6
         with:
@@ -203,7 +243,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag_name }}
         run: |
           set -euo pipefail
-          mkdir -p dist/updates dist/downloads
+          mkdir -p dist/updates dist/downloads block-dist/manifests
 
           # Keep updater scatter archives physically separate from user-facing
           # installers and single-file portable packages. Since 1.4.3, updater
@@ -219,47 +259,58 @@ jobs:
           done < <(find packaged/package-output -maxdepth 1 -type f -print0)
           chmod a+x dist/downloads/*.AppImage 2>/dev/null || true
 
-          # Cloudflare updater v2: content-defined blocks are global and
-          # content-addressed. Only small signed block maps are release assets.
-          rm -rf block-dist
-          mkdir -p block-dist
-          while IFS= read -r -d '' archive; do
-            name="$(basename "$archive")"
-            if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_((win|linux|osx)-(x64|arm64))_(SelfContained|NoRuntime)\.(zip|tar\.gz)$ ]]; then
-              echo "::error::Cannot derive block-map identity from $name"
-              exit 1
-            fi
-            python scripts/generate_update_blockmap.py \
-              --archive "$archive" \
-              --output block-dist \
-              --target-tag "$RELEASE_TAG" \
-              --target-version "${RELEASE_TAG#v}" \
-              --runtime-id "${BASH_REMATCH[2]}" \
-              --runtime-variant "${BASH_REMATCH[5]}" \
-              --configuration "${BASH_REMATCH[1]}"
-          done < <(find dist/updates -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0)
+          # Protocol v2 §15–16: matrix runners already chunked + uploaded CAS.
+          # Central job only collects signed maps for promote (no full re-chunk).
+          map_count=0
+          if [[ -d blockmaps ]]; then
+            while IFS= read -r -d '' map; do
+              cp -a "$map" block-dist/manifests/
+              cp -a "$map" dist/updates/
+              map_count=$((map_count + 1))
+            done < <(find blockmaps -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print0)
+          fi
+          echo "Collected $map_count matrix blockmap manifest(s)."
 
-          # Windows portable executables remain one file after updating. Give
-          # each one a separate one-file block map instead of pointing it at
-          # the expanded scatter archive with the same RID/runtime variant.
-          while IFS= read -r -d '' portable; do
-            name="$(basename "$portable")"
-            if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_((win)-(x64|arm64))_(SelfContained|NoRuntime)_Portable\.exe$ ]]; then
-              echo "::error::Cannot derive portable block-map identity from $name"
-              exit 1
-            fi
-            python scripts/generate_update_blockmap.py \
-              --file "$portable" \
-              --target-asset-name "$name" \
-              --entry-name PCL-N-Edition.exe \
-              --output block-dist \
-              --target-tag "$RELEASE_TAG" \
-              --target-version "${RELEASE_TAG#v}" \
-              --runtime-id "${BASH_REMATCH[2]}" \
-              --runtime-variant "${BASH_REMATCH[5]}" \
-              --configuration "${BASH_REMATCH[1]}"
-          done < <(find dist/downloads -maxdepth 1 -type f -name '*_Portable.exe' -print0)
-          find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -exec cp -a {} dist/updates/ \;
+          # Fallback: regenerate if a matrix job failed to stage maps (should be rare).
+          if [[ "$map_count" -eq 0 ]]; then
+            echo "::warning::No matrix blockmaps found; regenerating centrally (slow path)."
+            while IFS= read -r -d '' archive; do
+              name="$(basename "$archive")"
+              if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_((win|linux|osx)-(x64|arm64))_(SelfContained|NoRuntime)\.(zip|tar\.gz)$ ]]; then
+                echo "::error::Cannot derive block-map identity from $name"
+                exit 1
+              fi
+              python scripts/generate_update_blockmap.py \
+                --archive "$archive" \
+                --output block-dist \
+                --target-tag "$RELEASE_TAG" \
+                --target-version "${RELEASE_TAG#v}" \
+                --runtime-id "${BASH_REMATCH[2]}" \
+                --runtime-variant "${BASH_REMATCH[5]}" \
+                --configuration "${BASH_REMATCH[1]}" \
+                --profile auto
+            done < <(find dist/updates -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0)
+
+            while IFS= read -r -d '' portable; do
+              name="$(basename "$portable")"
+              if [[ ! "$name" =~ ^PCL_N_(Release|Beta)_((win)-(x64|arm64))_(SelfContained|NoRuntime)_Portable\.exe$ ]]; then
+                echo "::error::Cannot derive portable block-map identity from $name"
+                exit 1
+              fi
+              python scripts/generate_update_blockmap.py \
+                --file "$portable" \
+                --target-asset-name "$name" \
+                --entry-name PCL-N-Edition.exe \
+                --output block-dist \
+                --target-tag "$RELEASE_TAG" \
+                --target-version "${RELEASE_TAG#v}" \
+                --runtime-id "${BASH_REMATCH[2]}" \
+                --runtime-variant "${BASH_REMATCH[5]}" \
+                --configuration "${BASH_REMATCH[1]}" \
+                --profile auto
+            done < <(find dist/downloads -maxdepth 1 -type f -name '*_Portable.exe' -print0)
+            find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -exec cp -a {} dist/updates/ \;
+          fi
 
           # Every user-selectable installer and portable package gets its own
           # detached signature. No package is modified after this point.
@@ -326,7 +377,7 @@ jobs:
             '{formatVersion: 1, tag: $tag, version: $version, channel: $channel, commitSha: $commitSha, publishedAt: $publishedAt, manifestKey: $manifestKey}' \
             > "channel-dist/${{ inputs.channel }}.json"
 
-      - name: Upload content-addressed blocks to Cloudflare R2
+      - name: Upload remaining CAS objects to Cloudflare R2
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -337,17 +388,22 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
-          # S3 path (preferred): R2 API token secrets. Wrangler fallback uses CLOUDFLARE_API_TOKEN.
           if [[ -n "${R2_ACCESS_KEY_ID:-}" && -n "${R2_SECRET_ACCESS_KEY:-}" ]]; then
             python -m pip install --quiet 'boto3>=1.34'
           else
             test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN or R2 S3 keys required"; exit 1; }
             npx --yes wrangler@4.120.0 --version
           fi
-          # Protocol v2: ListObjects inventory + If-None-Match CAS + concurrent PUT.
-          python scripts/upload_r2_cas.py upload-tree block-dist \
-            --prefix block --prefix delta \
-            --concurrency 24
+          # Matrix jobs already uploaded CAS; this is an idempotent catch-up
+          # (ListObjects skip / If-None-Match) for any leftover objects from the
+          # central fallback re-chunk path.
+          if [[ -d block-dist/block || -d block-dist/delta ]]; then
+            python scripts/upload_r2_cas.py upload-tree block-dist \
+              --prefix block --prefix delta \
+              --concurrency 24
+          else
+            echo "No central block-dist CAS tree (matrix already published); skipping."
+          fi
 
       - name: Upload user download assets to the existing GitHub release
         uses: softprops/action-gh-release@v2.5.0
@@ -433,21 +489,28 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: pcln-releases
           RELEASE_TAG: ${{ inputs.tag_name }}
         run: |
           set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
+          if [[ -n "${R2_ACCESS_KEY_ID:-}" && -n "${R2_SECRET_ACCESS_KEY:-}" ]]; then
+            python -m pip install --quiet 'boto3>=1.34'
+          else
+            test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN or R2 S3 keys required"; exit 1; }
+            npx --yes wrangler@4.120.0 --version
+          fi
           catalog="$RUNNER_TEMP/launcher-releases.json"
-          npx --yes wrangler@4.120.0 r2 object get \
-            "pcln-releases/website/launcher-releases.json" \
-            --file "$catalog" --remote || printf '{"schemaVersion":1,"versions":[]}\n' > "$catalog"
+          python scripts/upload_r2_cas.py get website/launcher-releases.json \
+            --file "$catalog" || printf '{"schemaVersion":1,"versions":[]}\n' > "$catalog"
 
           python scripts/update_download_catalog.py \
             --file "$catalog" \
             --tag "$RELEASE_TAG" \
             --channel '${{ inputs.channel }}' \
             --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          npx --yes wrangler@4.120.0 r2 object put \
-            "pcln-releases/website/launcher-releases.json" \
-            --file "$catalog" --content-type "application/json; charset=utf-8" --remote
+          python scripts/upload_r2_cas.py put website/launcher-releases.json \
+            --file "$catalog" \
+            --content-type "application/json; charset=utf-8"

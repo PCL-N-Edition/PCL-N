@@ -85,6 +85,41 @@ class UpdateBlockCatalogTests(unittest.TestCase):
         self.assertIn("releases/ci-latest/old.blockmap.json", deletions)
         self.assertNotIn("releases/ci-latest/ci-channel.json", deletions)
 
+    def test_expired_release_deletes_unshared_deltas(self):
+        shared = "a" * 64
+        expired_only = "b" * 64
+        shared_delta = "delta/v2/aa/" + ("1" * 64) + "/" + ("2" * 64) + ".vcdiff"
+        expired_delta = "delta/v2/bb/" + ("3" * 64) + "/" + ("4" * 64) + ".vcdiff"
+        previous = {
+            "formatVersion": 1,
+            "releases": [
+                {
+                    "tag": "v1.4.7-beta",
+                    "channel": "beta",
+                    "publishedAt": "2026-07-01T00:00:00Z",
+                    "blocks": [shared, expired_only],
+                    "deltas": [shared_delta, expired_delta],
+                    "objects": ["releases/v1.4.7-beta/old.blockmap.v2.json"],
+                }
+            ],
+        }
+
+        result, deletions = catalog_module.update_catalog(
+            previous,
+            tag="v1.4.8-beta",
+            channel="beta",
+            published_at="2026-08-09T00:00:00Z",
+            blocks={shared},
+            deltas={shared_delta},
+            objects=["releases/v1.4.8-beta/new.blockmap.v2.json"],
+            now=datetime(2026, 8, 9, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(["v1.4.8-beta"], [entry["tag"] for entry in result["releases"]])
+        self.assertIn(f"block/{expired_only[:2]}/{expired_only}", deletions)
+        self.assertIn(expired_delta, deletions)
+        self.assertNotIn(shared_delta, deletions)
+
 
 if __name__ == "__main__":
     unittest.main()
