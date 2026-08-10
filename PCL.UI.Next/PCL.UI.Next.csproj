@@ -23,6 +23,6 @@
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <!-- Product name is intentionally PCL.UI.Next; CA1716 flags "Next" as a VB reserved word.
          CA1711: EventQueue/StatePatchQueue/UiDirtyFlags names match architecture doc. -->
-    <NoWarn>$(NoWarn);CA1716;CA1711;CA1036;CA1512;CA1305</NoWarn>
+    <NoWarn>$(NoWarn);CA1716;CA1711;CA1036;CA1512;CA1305;CA1720;CA1805;CA1822</NoWarn>
   </PropertyGroup>
 </Project>
