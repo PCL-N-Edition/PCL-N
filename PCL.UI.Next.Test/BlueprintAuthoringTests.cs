@@ -211,6 +211,38 @@ public sealed class BlueprintAuthoringTests
     }
 
     [TestMethod]
+    public void NestedIf_OuterRemountReconcilesInnerImmediately()
+    {
+        // Outer starts false so Inner is never force-seeded on instantiate.
+        // Only Outer slice changes → Inner host must still evaluate in the same Update.
+        UiWorld world = new(new DeterministicUiClock());
+        UiScopeId scope = world.CreateRootScope();
+        var store = new PresentationStore();
+        store.Set(LoggedInSlice, false);
+        store.Set(NestedSlice, true);
+        store.Set(UserSlice, "Alice");
+        var inst = new BlueprintInstantiator(world, store, registerPipelineSystem: false);
+
+        UiSelector<bool> outer = UiSelectors.Bool(LoggedInSelectorId, LoggedInSlice, s => s.Get<bool>(LoggedInSlice));
+        UiSelector<bool> inner = UiSelectors.Bool(NestedSelectorId, NestedSlice, s => s.Get<bool>(NestedSlice));
+        UiSelector<string> user = UiSelectors.String(UserSelectorId, UserSlice, s => s.Get<string>(UserSlice));
+
+        UiBlueprint bp = Ui.Compile(
+            Ui.If(
+                outer,
+                whenTrue: Ui.If(inner, Ui.Text().BindText(user), Ui.Text("inner-off")),
+                whenFalse: Ui.Text("outer-off")));
+
+        BlueprintInstance live = inst.Instantiate(bp, scope);
+        Assert.AreEqual("outer-off", GetMountedText(world, live));
+
+        store.Set(LoggedInSlice, true);
+        // NestedSlice did not change — Inner must still reconcile via structural work queue.
+        inst.Update(live);
+        Assert.AreEqual("Alice", GetMountedText(world, live));
+    }
+
+    [TestMethod]
     public void Button_HasBehaviorsAndCommand_WithoutTextContent()
     {
         UiWorld world = new(new DeterministicUiClock());

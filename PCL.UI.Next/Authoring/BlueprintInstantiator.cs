@@ -14,9 +14,9 @@ public sealed class BlueprintInstantiator
     private int _nextInstanceId = 1;
     private readonly List<BlueprintInstance> _instances = [];
     private readonly HashSet<int> _candidateBindings = [];
-    private readonly HashSet<int> _structuralIfNodes = [];
+    private readonly List<int> _structuralWorkQueue = [];
+    private readonly HashSet<int> _structuralWorkQueued = [];
     private readonly List<int> _remountedNodes = [];
-    private readonly Dictionary<int, ulong> _sliceVersionScratch = new();
 
     public BlueprintInstantiator(
         UiWorld world,
@@ -289,6 +289,11 @@ public sealed class BlueprintInstantiator
             instance.SliceVersions[slice] = _store.Version(slice);
     }
 
+    /// <summary>
+    /// Structural fixpoint: evaluate If hosts from a work queue. Mounting a branch
+    /// enqueues nested structural hosts so outer remounts reconcile inner Ifs immediately
+    /// without waiting for the inner condition slice to change again.
+    /// </summary>
     private void ReconcileStructural(
         BlueprintInstance instance,
         bool force,
@@ -298,13 +303,18 @@ public sealed class BlueprintInstantiator
         BlueprintNode[] nodes = instance.Blueprint.NodesCore;
         BlueprintDependencyIndex index = instance.Blueprint.DependencyIndex;
 
-        _structuralIfNodes.Clear();
+        _structuralWorkQueue.Clear();
+        _structuralWorkQueued.Clear();
+
         if (force)
         {
+            // Seed every structural host that already has a live entity (skeleton hosts).
             for (int nodeIndex = 0; nodeIndex < nodes.Length; nodeIndex++)
             {
-                if (nodes[nodeIndex].Kind == UiNodeKind.If)
-                    _structuralIfNodes.Add(nodeIndex);
+                if (nodes[nodeIndex].Kind != UiNodeKind.If)
+                    continue;
+                if (_world.Entities.IsAlive(instance.EntitiesByNode[nodeIndex]))
+                    EnqueueStructuralWork(nodeIndex);
             }
         }
         else
@@ -320,13 +330,15 @@ public sealed class BlueprintInstantiator
                 {
                     int bindingIndex = structural[i];
                     int nodeIndex = instance.Blueprint.BindingsCore[bindingIndex].NodeIndex;
-                    _structuralIfNodes.Add(nodeIndex);
+                    EnqueueStructuralWork(nodeIndex);
                 }
             }
         }
 
-        foreach (int nodeIndex in _structuralIfNodes)
+        int head = 0;
+        while (head < _structuralWorkQueue.Count)
         {
+            int nodeIndex = _structuralWorkQueue[head++];
             BlueprintNode node = nodes[nodeIndex];
             if (node.Kind != UiNodeKind.If)
                 continue;
@@ -341,7 +353,7 @@ public sealed class BlueprintInstantiator
             ulong version = _store.CombinedVersion(condition.DependencySlices);
 
             ref StructuralIfState state = ref _world.Components.Pool<StructuralIfState>().Get(host);
-            if (!force && state.LastConditionVersion == version)
+            if (!force && state.LastConditionVersion == version && state.ActiveBranch != 0)
                 continue;
 
             bool value = condition.ReadBool?.Invoke(_store) ?? false;
@@ -359,12 +371,47 @@ public sealed class BlueprintInstantiator
             {
                 MountNode(instance.Blueprint, branchRoot, host, instance.InstanceId, instance.EntitiesByNode, instance.Scope);
                 CollectSubtreeNodeIndices(instance.Blueprint, branchRoot, remountedNodes);
+                // Nested If hosts created as empty shells must evaluate this same pass.
+                EnqueueStructuralHostsInMountedSubtree(instance.Blueprint, branchRoot);
             }
 
             state.ActiveBranch = desired;
             state.LastConditionVersion = version;
             _world.Dirty.Mark(host, UiDirtyFlags.StructuralCascade);
             _world.Scheduler.RequestReactiveFrame();
+        }
+    }
+
+    private void EnqueueStructuralWork(int nodeIndex)
+    {
+        if (nodeIndex < 0)
+            return;
+        if (_structuralWorkQueued.Add(nodeIndex))
+            _structuralWorkQueue.Add(nodeIndex);
+    }
+
+    /// <summary>
+    /// Walk a just-mounted blueprint subtree and enqueue every If host shell
+    /// (created by MountNode without an active branch yet).
+    /// </summary>
+    private void EnqueueStructuralHostsInMountedSubtree(UiBlueprint blueprint, int nodeIndex)
+    {
+        if (nodeIndex < 0)
+            return;
+
+        BlueprintNode node = blueprint.NodesCore[nodeIndex];
+        if (node.Kind == UiNodeKind.If)
+        {
+            EnqueueStructuralWork(nodeIndex);
+            // Active branch is not mounted yet — evaluation will mount and enqueue further nests.
+            return;
+        }
+
+        int child = node.FirstChildIndex;
+        while (child >= 0)
+        {
+            EnqueueStructuralHostsInMountedSubtree(blueprint, child);
+            child = blueprint.NodesCore[child].NextSiblingIndex;
         }
     }
 
