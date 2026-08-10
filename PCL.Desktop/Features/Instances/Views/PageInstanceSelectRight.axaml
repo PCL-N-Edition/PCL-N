@@ -27,8 +27,9 @@
 
         <!-- Content: toolbar + library (no hero titles) -->
         <Grid x:Name="PanContent" Grid.Column="1" RowDefinitions="Auto,*" ClipToBounds="True">
+            <!-- Horizontal inset matches PanMain so the search card lines up with list cards. -->
             <Grid x:Name="PanToolbar"
-                  Margin="22,14,22,0"
+                  Margin="28,14,28,0"
                   ColumnDefinitions="*,Auto"
                   VerticalAlignment="Center">
                 <!-- MySearchBox already has card chrome; no outer border wrapper. -->

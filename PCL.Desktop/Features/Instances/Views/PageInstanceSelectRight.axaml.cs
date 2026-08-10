@@ -110,10 +110,12 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
             Grid.SetColumn(content, 0);
             content.Width = double.NaN;
             content.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+            // Keep toolbar (search) and list on the same horizontal inset.
+            const double classicEdge = 28d;
             if (this.FindControl<Grid>("PanToolbar") is { } classicToolbar)
-                classicToolbar.Margin = new Thickness(22d, 14d, 22d, 0d);
+                classicToolbar.Margin = new Thickness(classicEdge, 14d, classicEdge, 0d);
             if (this.FindControl<StackPanel>("PanMain") is { } classicMain)
-                classicMain.Margin = new Thickness(28d, 4d, 28d, 28d);
+                classicMain.Margin = new Thickness(classicEdge, 4d, classicEdge, classicEdge);
             if (this.FindControl<StackPanel>("PanFolders") is { } classicFolders)
                 classicFolders.Margin = new Thickness(10d, 12d, 10d, 18d);
             return;
@@ -125,7 +127,8 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
 
         double widthProgress = Math.Clamp((availableWidth - 1000d) / 800d, 0d, 1d);
         double sidebarWidth = 220d + 28d * widthProgress;
-        double toolbarEdge = 22d + 10d * widthProgress;
+        // One shared edge for toolbar + list; previously toolbar used a smaller inset and
+        // the search box visually stuck out past the cards on the left.
         double contentEdge = 28d + 12d * widthProgress;
         double availableContentWidth = Math.Max(0d, availableWidth - sidebarWidth);
 
@@ -135,7 +138,7 @@ public partial class PageInstanceSelectRight : MyPageRight, IDisposable
         content.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
 
         if (this.FindControl<Grid>("PanToolbar") is { } toolbar)
-            toolbar.Margin = new Thickness(toolbarEdge, 14d, toolbarEdge, 0d);
+            toolbar.Margin = new Thickness(contentEdge, 14d, contentEdge, 0d);
         if (this.FindControl<StackPanel>("PanMain") is { } main)
             main.Margin = new Thickness(contentEdge, 4d, contentEdge, contentEdge);
         if (this.FindControl<StackPanel>("PanFolders") is { } folders)
