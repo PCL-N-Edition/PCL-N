@@ -102,7 +102,13 @@ public partial class MainWindow
                     stage,
                     detail,
                     progress: 1d,
-                    TaskManagerTaskState.Finished);
+                    TaskManagerTaskState.Finished,
+                    completedFiles: Math.Max(progress.CompletedFiles, progress.TotalFiles),
+                    totalFiles: progress.TotalFiles,
+                    speedBytesPerSecond: 0,
+                    activeThreads: 0,
+                    threadLimit: Math.Max(1, progress.ThreadLimit),
+                    steps: null);
                 _taskUiCoalescer.FlushNow();
                 NotifyTaskManagerButton(ribble: true);
                 _ = RemoveTaskAfterDelayAsync(LauncherUpdateTaskId, TimeSpan.FromMilliseconds(1200));
@@ -114,7 +120,13 @@ public partial class MainWindow
                 stage,
                 detail,
                 Math.Clamp(progress.Progress, 0d, 1d),
-                TaskManagerTaskState.Running);
+                TaskManagerTaskState.Running,
+                completedFiles: progress.CompletedFiles,
+                totalFiles: progress.TotalFiles,
+                speedBytesPerSecond: progress.SpeedBytesPerSecond,
+                activeThreads: progress.ActiveThreads,
+                threadLimit: Math.Max(1, progress.ThreadLimit),
+                steps: CreateLauncherUpdateSteps(progress, stage, detail));
             _taskUiCoalescer.Request();
         }
 
@@ -198,7 +210,13 @@ public partial class MainWindow
         string stage,
         string detail,
         double progress,
-        TaskManagerTaskState state)
+        TaskManagerTaskState state,
+        int completedFiles = 0,
+        int totalFiles = 0,
+        long speedBytesPerSecond = 0,
+        int activeThreads = 0,
+        int threadLimit = 1,
+        IReadOnlyList<TaskManagerSubTaskSnapshot>? steps = null)
     {
         // CanCancel: false — launcher self-update cannot be aborted mid-download; hide the X.
         _taskSessionStore.Upsert(LauncherUpdateTaskId, new TaskManagerEntrySnapshot(
@@ -207,11 +225,64 @@ public partial class MainWindow
             stage,
             detail,
             progress,
-            CompletedFiles: 0,
-            TotalFiles: 0,
-            SpeedBytesPerSecond: 0,
+            completedFiles,
+            totalFiles,
+            speedBytesPerSecond,
             state,
+            ActiveThreads: activeThreads,
+            ThreadLimit: Math.Max(1, threadLimit),
+            Steps: steps,
             CanCancel: false));
+    }
+
+    /// <summary>
+    /// Right-pane rows: primary stage + transfer summary, matching game install cards.
+    /// </summary>
+    private static TaskManagerSubTaskSnapshot[] CreateLauncherUpdateSteps(
+        LauncherUpdateProgress progress,
+        string stage,
+        string detail)
+    {
+        List<TaskManagerSubTaskSnapshot> steps =
+        [
+            new TaskManagerSubTaskSnapshot(
+                stage,
+                detail,
+                Math.Clamp(progress.Progress, 0d, 1d),
+                progress.Stage is LauncherUpdateStage.Ready
+                    ? TaskManagerTaskState.Finished
+                    : TaskManagerTaskState.Running)
+        ];
+
+        if (progress.TotalFiles > 0 || progress.SpeedBytesPerSecond > 0 || progress.ActiveThreads > 0)
+        {
+            List<string> transfer = [];
+            if (progress.TotalFiles > 0)
+            {
+                transfer.Add(
+                    $"{Math.Clamp(progress.CompletedFiles, 0, progress.TotalFiles)} / {progress.TotalFiles} 项");
+            }
+
+            if (progress.SpeedBytesPerSecond > 0)
+                transfer.Add(TaskManagerFormatting.Speed(progress.SpeedBytesPerSecond));
+
+            if (progress.ThreadLimit > 0)
+            {
+                transfer.Add(
+                    $"{Math.Max(0, progress.ActiveThreads)} / {Math.Max(1, progress.ThreadLimit)} 线程");
+            }
+
+            if (transfer.Count > 0)
+            {
+                steps.Add(new TaskManagerSubTaskSnapshot(
+                    AvaloniaLocalizationManager.GetText("Setup.Update.Task.Transfer", "传输"),
+                    string.Join(" · ", transfer),
+                    Math.Clamp(progress.Progress, 0d, 1d),
+                    TaskManagerTaskState.Running));
+            }
+        }
+
+        return steps.ToArray();
     }
 
     private static string FormatLauncherUpdateStage(LauncherUpdateStage stage) =>

@@ -46,6 +46,12 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
 
     public event EventHandler<LauncherUpdateProgress>? ProgressChanged;
 
+    /// <summary>
+    /// Max concurrent block / file transfer workers. Mirrors game download thread setting
+    /// (ToolDownloadThread + 1). Defaults to 8 when not configured by the host.
+    /// </summary>
+    public int DownloadThreadLimit { get; set; } = 8;
+
     public Task<PreparedLauncherUpdate> PrepareAsync(
         LauncherUpdatePackage package,
         string currentExecutablePath,
@@ -393,6 +399,11 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
         await using FileStream target = new(destination, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 128, true);
         byte[] buffer = new byte[1024 * 128];
         long received = 0;
+        long speedWindowBytes = 0;
+        long speedWindowStart = Stopwatch.GetTimestamp();
+        long speedBytesPerSecond = 0;
+        long lastReportTicks = 0;
+        int threadLimit = NormalizeDownloadThreadLimit(DownloadThreadLimit);
         while (true)
         {
             int read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
@@ -400,10 +411,49 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
                 break;
             await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
             received += read;
+            speedWindowBytes += read;
+
+            long now = Stopwatch.GetTimestamp();
+            double windowSeconds = Stopwatch.GetElapsedTime(speedWindowStart, now).TotalSeconds;
+            if (windowSeconds >= 0.35d)
+            {
+                speedBytesPerSecond = (long)(speedWindowBytes / Math.Max(windowSeconds, 0.001d));
+                speedWindowBytes = 0;
+                speedWindowStart = now;
+            }
+
+            // Throttle UI reports (~10 Hz) while always emitting the final byte of the item.
+            bool force = total is > 0 && received >= total.Value;
+            if (!force && Stopwatch.GetElapsedTime(lastReportTicks, now).TotalMilliseconds < 100)
+                continue;
+            lastReportTicks = now;
+
             double itemProgress = total is > 0 ? Math.Clamp((double)received / total.Value, 0, 1) : 0;
             double progress = (itemIndex + itemProgress) / Math.Max(1, itemCount);
-            Report(stage, progress, $"正在下载更新（{FormatBytes(received)} / {FormatBytes(total)}）…");
+            Report(
+                stage,
+                progress,
+                $"正在下载更新（{FormatBytes(received)} / {FormatBytes(total)}）…",
+                completedFiles: itemIndex,
+                totalFiles: Math.Max(1, itemCount),
+                speedBytesPerSecond: speedBytesPerSecond,
+                activeThreads: 1,
+                threadLimit: threadLimit,
+                bytesReceived: received,
+                totalBytes: total ?? -1);
         }
+
+        Report(
+            stage,
+            (itemIndex + 1d) / Math.Max(1, itemCount),
+            $"正在下载更新（{FormatBytes(received)} / {FormatBytes(total)}）…",
+            completedFiles: itemIndex + 1,
+            totalFiles: Math.Max(1, itemCount),
+            speedBytesPerSecond: 0,
+            activeThreads: 0,
+            threadLimit: threadLimit,
+            bytesReceived: received,
+            totalBytes: total ?? received);
     }
 
     private static async Task RunPatchToolAsync(
@@ -583,8 +633,33 @@ public sealed partial class LauncherUpdateInstaller : IDisposable
         return $"{value:0.##} {units[unit]}";
     }
 
-    private void Report(LauncherUpdateStage stage, double progress, string message) =>
-        ProgressChanged?.Invoke(this, new LauncherUpdateProgress(stage, Math.Clamp(progress, 0, 1), message));
+    private void Report(
+        LauncherUpdateStage stage,
+        double progress,
+        string message,
+        int completedFiles = 0,
+        int totalFiles = 0,
+        long speedBytesPerSecond = 0,
+        int activeThreads = 0,
+        int? threadLimit = null,
+        long bytesReceived = 0,
+        long totalBytes = -1) =>
+        ProgressChanged?.Invoke(
+            this,
+            new LauncherUpdateProgress(
+                stage,
+                Math.Clamp(progress, 0, 1),
+                message,
+                completedFiles,
+                totalFiles,
+                speedBytesPerSecond,
+                activeThreads,
+                threadLimit ?? NormalizeDownloadThreadLimit(DownloadThreadLimit),
+                bytesReceived,
+                totalBytes));
+
+    internal static int NormalizeDownloadThreadLimit(int value) =>
+        Math.Clamp(value <= 0 ? 8 : value, 1, 256);
 
     public void Dispose()
     {
@@ -608,10 +683,22 @@ public sealed record PreparedLauncherUpdate(
     string? InstalledEntryPath = null,
     bool UsedBlockMap = false);
 
+/// <summary>
+/// Transfer-aware progress for launcher self-update. Field shape mirrors
+/// <c>MinecraftInstallProgress</c> so the task manager left pane (speed / remaining
+/// files / threads) can be driven the same way as game downloads.
+/// </summary>
 public sealed record LauncherUpdateProgress(
     LauncherUpdateStage Stage,
     double Progress,
-    string Message);
+    string Message,
+    int CompletedFiles = 0,
+    int TotalFiles = 0,
+    long SpeedBytesPerSecond = 0,
+    int ActiveThreads = 0,
+    int ThreadLimit = 1,
+    long BytesReceived = 0,
+    long TotalBytes = -1);
 
 public enum LauncherUpdateStage
 {

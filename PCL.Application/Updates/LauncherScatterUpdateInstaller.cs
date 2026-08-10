@@ -108,7 +108,10 @@ public sealed partial class LauncherUpdateInstaller
         Report(
             LauncherUpdateStage.Verifying,
             (double)stepIndex / Math.Max(1, stepCount),
-            $"正在校验当前散包（{stepIndex + 1}/{stepCount}）…");
+            $"正在校验当前散包（{stepIndex + 1}/{stepCount}）…",
+            completedFiles: 0,
+            totalFiles: targetFiles.Count,
+            threadLimit: NormalizeDownloadThreadLimit(DownloadThreadLimit));
         await VerifyTreeAsync(sourceRoot, sourceFiles.Values, manifest.FromManifestSha256!, cancellationToken)
             .ConfigureAwait(false);
 
@@ -116,6 +119,7 @@ public sealed partial class LauncherUpdateInstaller
             Directory.Delete(targetRoot, recursive: true);
         Directory.CreateDirectory(targetRoot);
 
+        int totalFiles = Math.Max(1, targetFiles.Count);
         int completed = 0;
         foreach (LauncherUpdateFileEntry target in targetFiles.Values.OrderBy(static item => item.Path, StringComparer.Ordinal))
         {
@@ -150,8 +154,12 @@ public sealed partial class LauncherUpdateInstaller
             completed++;
             Report(
                 LauncherUpdateStage.ApplyingPatch,
-                (stepIndex + (double)completed / targetFiles.Count) / Math.Max(1, stepCount),
-                $"正在重建更新文件（{completed}/{targetFiles.Count}）…");
+                (stepIndex + (double)completed / totalFiles) / Math.Max(1, stepCount),
+                $"正在重建更新文件（{completed}/{totalFiles}）…",
+                completedFiles: completed,
+                totalFiles: totalFiles,
+                activeThreads: 1,
+                threadLimit: 1);
         }
 
         await VerifyTreeAsync(targetRoot, targetFiles.Values, manifest.ToManifestSha256!, cancellationToken)

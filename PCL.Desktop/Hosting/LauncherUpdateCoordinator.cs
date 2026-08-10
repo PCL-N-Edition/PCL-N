@@ -207,6 +207,8 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
                     $"当前使用 {installation.DisplayName} 安装，不能安全地原地替换程序文件；请安装对应平台的新包。");
             }
             string? hpatchz = await PclEmbeddedUpdateTool.GetHpatchzPathAsync(cancellationToken).ConfigureAwait(false);
+            // Same thread budget as game downloads (ToolDownloadThread + 1).
+            ApplyDownloadThreadLimitFromSettings();
             PreparedLauncherUpdate prepared = await _installer.PrepareWithBlockCacheAsync(
                     package,
                     currentExecutable,
@@ -480,6 +482,26 @@ internal sealed class LauncherUpdateCoordinator : IDisposable
         lock (_sync)
             _latestProgress = progress;
         ProgressChanged?.Invoke(this, progress);
+    }
+
+    private void ApplyDownloadThreadLimitFromSettings()
+    {
+        try
+        {
+            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+            int threadLimit = Math.Clamp(
+                settings.GetIntegerOption(
+                    LauncherSettingKeys.ToolDownloadThread,
+                    LauncherSettingDefaults.GetInteger(LauncherSettingKeys.ToolDownloadThread.Value)) + 1,
+                1,
+                256);
+            _installer.DownloadThreadLimit = threadLimit;
+        }
+        catch (Exception ex)
+        {
+            PortableLog.Debug("Update", "读取下载线程设置失败，使用安装器默认值：" + ex.Message);
+            _installer.DownloadThreadLimit = LauncherUpdateInstaller.NormalizeDownloadThreadLimit(0);
+        }
     }
 
     private static string CurrentCommit => !string.IsNullOrWhiteSpace(PclBuildInfo.SourceRevisionId)

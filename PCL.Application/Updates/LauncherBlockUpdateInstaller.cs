@@ -1,6 +1,7 @@
 // Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
 using System.Security.Cryptography;
@@ -91,98 +92,185 @@ public sealed partial class LauncherUpdateInstaller
                 missingBlocks.Add(block);
         }
 
-        int downloaded = 0;
-        await Parallel.ForEachAsync(
-            missingBlocks,
-            new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = 6 },
-            async (block, token) =>
-            {
-                // Protocol v2: try VCDIFF from local source window first; any failure
-                // falls through to the immutable full gzip block (never fatal alone).
-                bool materialised = await TryMaterialiseBlockFromDeltaAsync(
-                        package.BlockMapUrl!,
-                        cacheRoot,
-                        block,
-                        localBlocks,
-                        token)
-                    .ConfigureAwait(false);
-                if (!materialised)
-                {
-                    await DownloadBlockAsync(
-                            package.BlockMapUrl!,
-                            map.BlockBasePath!,
-                            cacheRoot,
-                            block,
-                            map.Compression,
-                            token)
-                        .ConfigureAwait(false);
-                }
+        int threadLimit = NormalizeDownloadThreadLimit(DownloadThreadLimit);
+        int totalBlocks = Math.Max(1, missingBlocks.Count);
+        long expectedTransferBytes = missingBlocks.Sum(static block => Math.Max(0, block.CompressedSize));
+        BlockTransferProgressTracker transfer = new(
+            report: (progress, message, completed, active, speed, bytes) => Report(
+                LauncherUpdateStage.DownloadingBlocks,
+                progress,
+                message,
+                completedFiles: completed,
+                totalFiles: totalBlocks,
+                speedBytesPerSecond: speed,
+                activeThreads: active,
+                threadLimit: threadLimit,
+                bytesReceived: bytes,
+                totalBytes: expectedTransferBytes > 0 ? expectedTransferBytes : -1),
+            totalItems: totalBlocks,
+            threadLimit: threadLimit);
 
-                lock (verifiedCache)
-                    verifiedCache.Add(block.Sha256!);
-                int completed = Interlocked.Increment(ref downloaded);
-                Report(
-                    LauncherUpdateStage.DownloadingBlocks,
-                    (double)completed / Math.Max(1, missingBlocks.Count),
-                    $"正在下载更新分块（{completed}/{missingBlocks.Count}）…");
-            }).ConfigureAwait(false);
+        if (missingBlocks.Count == 0)
+        {
+            Report(
+                LauncherUpdateStage.DownloadingBlocks,
+                1d,
+                "本地已具备全部更新分块。",
+                completedFiles: 0,
+                totalFiles: 0,
+                speedBytesPerSecond: 0,
+                activeThreads: 0,
+                threadLimit: threadLimit);
+        }
+        else
+        {
+            Report(
+                LauncherUpdateStage.DownloadingBlocks,
+                0d,
+                $"正在下载更新分块（0/{missingBlocks.Count}）…",
+                completedFiles: 0,
+                totalFiles: totalBlocks,
+                speedBytesPerSecond: 0,
+                activeThreads: 0,
+                threadLimit: threadLimit);
+
+            await Parallel.ForEachAsync(
+                missingBlocks,
+                new ParallelOptions
+                {
+                    CancellationToken = cancellationToken,
+                    MaxDegreeOfParallelism = threadLimit
+                },
+                async (block, token) =>
+                {
+                    transfer.WorkerStarted();
+                    try
+                    {
+                        // Protocol v2: try VCDIFF from local source window first; any failure
+                        // falls through to the immutable full gzip block (never fatal alone).
+                        long transferred = 0;
+                        bool materialised = await TryMaterialiseBlockFromDeltaAsync(
+                                package.BlockMapUrl!,
+                                cacheRoot,
+                                block,
+                                localBlocks,
+                                bytes =>
+                                {
+                                    transferred += bytes;
+                                    transfer.AddBytes(bytes);
+                                },
+                                token)
+                            .ConfigureAwait(false);
+                        if (!materialised)
+                        {
+                            transferred = 0;
+                            await DownloadBlockAsync(
+                                    package.BlockMapUrl!,
+                                    map.BlockBasePath!,
+                                    cacheRoot,
+                                    block,
+                                    map.Compression,
+                                    bytes =>
+                                    {
+                                        transferred += bytes;
+                                        transfer.AddBytes(bytes);
+                                    },
+                                    token)
+                                .ConfigureAwait(false);
+                        }
+
+                        // If the codec consumed the stream without per-read callbacks, credit
+                        // compressed size once so left-pane speed still moves.
+                        if (transferred <= 0 && block.CompressedSize > 0)
+                            transfer.AddBytes(block.CompressedSize);
+
+                        lock (verifiedCache)
+                            verifiedCache.Add(block.Sha256!);
+                        transfer.ItemCompleted();
+                    }
+                    finally
+                    {
+                        transfer.WorkerFinished();
+                    }
+                }).ConfigureAwait(false);
+
+            transfer.FlushComplete();
+        }
 
         string targetRoot = Path.Combine(workDirectory, "tree-blocks");
         if (Directory.Exists(targetRoot))
             Directory.Delete(targetRoot, recursive: true);
         Directory.CreateDirectory(targetRoot);
 
+        List<LauncherUpdateBlockFile> rebuildTargets = targetFiles.Values
+            .OrderBy(static file => file.Path, StringComparer.Ordinal)
+            .ToList();
+        int rebuildThreadLimit = Math.Min(threadLimit, Math.Max(1, Environment.ProcessorCount));
         int rebuilt = 0;
-        foreach (LauncherUpdateBlockFile target in targetFiles.Values.OrderBy(static file => file.Path, StringComparer.Ordinal))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            string output = ResolveSafeRelativePath(targetRoot, target.Path!);
-            Directory.CreateDirectory(Path.GetDirectoryName(output)!);
-            if (exactLocalFiles.TryGetValue(target.Path!, out string? exactSource))
+        await Parallel.ForEachAsync(
+            rebuildTargets,
+            new ParallelOptions
             {
-                File.Copy(exactSource, output, overwrite: false);
-            }
-            else
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = rebuildThreadLimit
+            },
+            async (target, token) =>
             {
-                await using FileStream outputStream = new(
-                    output,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None,
-                    128 * 1024,
-                    FileOptions.Asynchronous | FileOptions.SequentialScan);
-                foreach (LauncherUpdateBlock block in target.Chunks)
+                string output = ResolveSafeRelativePath(targetRoot, target.Path!);
+                Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+                if (exactLocalFiles.TryGetValue(target.Path!, out string? exactSource))
                 {
-                    if (localBlocks.TryGetValue(block.Sha256!, out LocalBlockSource? local))
+                    File.Copy(exactSource, output, overwrite: false);
+                }
+                else
+                {
+                    await using FileStream outputStream = new(
+                        output,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        128 * 1024,
+                        FileOptions.Asynchronous | FileOptions.SequentialScan);
+                    foreach (LauncherUpdateBlock block in target.Chunks)
                     {
-                        await CopyLocalBlockAsync(local, outputStream, cancellationToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        string cachedPath = GetBlockCachePath(cacheRoot, block.Sha256!);
-                        if (!verifiedCache.Contains(block.Sha256!))
-                            throw new InvalidDataException($"更新分块没有通过校验：{block.Sha256}。");
-                        await using FileStream cached = new(
-                            cachedPath,
-                            FileMode.Open,
-                            FileAccess.Read,
-                            FileShare.Read,
-                            128 * 1024,
-                            FileOptions.Asynchronous | FileOptions.SequentialScan);
-                        await cached.CopyToAsync(outputStream, cancellationToken).ConfigureAwait(false);
+                        if (localBlocks.TryGetValue(block.Sha256!, out LocalBlockSource? local))
+                        {
+                            await CopyLocalBlockAsync(local, outputStream, token).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            string cachedPath = GetBlockCachePath(cacheRoot, block.Sha256!);
+                            bool hasCache;
+                            lock (verifiedCache)
+                                hasCache = verifiedCache.Contains(block.Sha256!);
+                            if (!hasCache)
+                                throw new InvalidDataException($"更新分块没有通过校验：{block.Sha256}。");
+                            await using FileStream cached = new(
+                                cachedPath,
+                                FileMode.Open,
+                                FileAccess.Read,
+                                FileShare.Read,
+                                128 * 1024,
+                                FileOptions.Asynchronous | FileOptions.SequentialScan);
+                            await cached.CopyToAsync(outputStream, token).ConfigureAwait(false);
+                        }
                     }
                 }
-            }
 
-            RestoreUnixMode(output, target.UnixMode);
-            await VerifyFileEntryAsync(output, target, "分块重建的文件校验失败", cancellationToken)
-                .ConfigureAwait(false);
-            rebuilt++;
-            Report(
-                LauncherUpdateStage.RebuildingFromBlocks,
-                (double)rebuilt / targetFiles.Count,
-                $"正在重组更新文件（{rebuilt}/{targetFiles.Count}）…");
-        }
+                RestoreUnixMode(output, target.UnixMode);
+                await VerifyFileEntryAsync(output, target, "分块重建的文件校验失败", token)
+                    .ConfigureAwait(false);
+                int completed = Interlocked.Increment(ref rebuilt);
+                Report(
+                    LauncherUpdateStage.RebuildingFromBlocks,
+                    (double)completed / rebuildTargets.Count,
+                    $"正在重组更新文件（{completed}/{rebuildTargets.Count}）…",
+                    completedFiles: completed,
+                    totalFiles: rebuildTargets.Count,
+                    speedBytesPerSecond: 0,
+                    activeThreads: Math.Min(rebuildThreadLimit, rebuildTargets.Count - completed + 1),
+                    threadLimit: rebuildThreadLimit);
+            }).ConfigureAwait(false);
 
         await VerifyTreeAsync(targetRoot, targetFiles.Values, map.TargetManifestSha256!, cancellationToken)
             .ConfigureAwait(false);
@@ -543,6 +631,7 @@ public sealed partial class LauncherUpdateInstaller
         string cacheRoot,
         LauncherUpdateBlock block,
         IReadOnlyDictionary<string, LocalBlockSource> localBlocks,
+        Action<long>? onBytesRead,
         CancellationToken cancellationToken)
     {
         if (block.Deltas is not { Count: > 0 } || string.IsNullOrWhiteSpace(block.Sha256))
@@ -570,7 +659,11 @@ public sealed partial class LauncherUpdateInstaller
                 if (sourceWindow is null)
                     continue;
 
-                byte[] deltaBytes = await DownloadDeltaBytesAsync(blockMapUrl, delta, cancellationToken)
+                byte[] deltaBytes = await DownloadDeltaBytesAsync(
+                        blockMapUrl,
+                        delta,
+                        onBytesRead,
+                        cancellationToken)
                     .ConfigureAwait(false);
                 if (!LauncherUpdateVcdiff.TryDecode(deltaBytes, sourceWindow, out byte[] target) ||
                     target.LongLength != block.Size)
@@ -607,6 +700,7 @@ public sealed partial class LauncherUpdateInstaller
     private async Task<byte[]> DownloadDeltaBytesAsync(
         string blockMapUrl,
         LauncherUpdateBlockDelta delta,
+        Action<long>? onBytesRead,
         CancellationToken cancellationToken)
     {
         Uri mapUri = new(blockMapUrl, UriKind.Absolute);
@@ -624,7 +718,11 @@ public sealed partial class LauncherUpdateInstaller
         EnsureUpdateResponseSuccess(response, deltaUrl);
         if (response.Content.Headers.ContentLength is long length && length != delta.Size)
             throw new InvalidDataException($"VCDIFF 大小不一致：{delta.Path}");
-        byte[] bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        await using Stream network = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        await using CountingReadStream counted = new(network, onBytesRead);
+        using MemoryStream buffer = new(capacity: (int)Math.Min(delta.Size, int.MaxValue));
+        await counted.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+        byte[] bytes = buffer.ToArray();
         if (bytes.LongLength != delta.Size)
             throw new InvalidDataException($"VCDIFF 实际大小不一致：{delta.Path}");
         return bytes;
@@ -636,6 +734,7 @@ public sealed partial class LauncherUpdateInstaller
         string cacheRoot,
         LauncherUpdateBlock block,
         string? mapCompression,
+        Action<long>? onBytesRead,
         CancellationToken cancellationToken)
     {
         Uri mapUri = new(blockMapUrl, UriKind.Absolute);
@@ -660,8 +759,9 @@ public sealed partial class LauncherUpdateInstaller
         try
         {
             await using Stream network = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            await using CountingReadStream counted = new(network, onBytesRead);
             await LauncherUpdateBlockCodec.DecompressAndVerifyAsync(
-                    network,
+                    counted,
                     codec,
                     block.Sha256!,
                     block.Size,
@@ -673,6 +773,180 @@ public sealed partial class LauncherUpdateInstaller
         finally
         {
             try { File.Delete(temporary); } catch (IOException) { }
+        }
+    }
+
+    /// <summary>Aggregates concurrent block download metrics for task-manager left pane.</summary>
+    private sealed class BlockTransferProgressTracker
+    {
+        private readonly object _sync = new();
+        private readonly Action<double, string, int, int, long, long> _report;
+        private readonly int _totalItems;
+        private readonly int _threadLimit;
+        private int _completed;
+        private int _active;
+        private long _bytesReceived;
+        private long _speedWindowBytes;
+        private long _speedWindowStart = Stopwatch.GetTimestamp();
+        private long _speedBytesPerSecond;
+        private long _lastReportTicks;
+        private string _lastMessage = string.Empty;
+
+        public BlockTransferProgressTracker(
+            Action<double, string, int, int, long, long> report,
+            int totalItems,
+            int threadLimit)
+        {
+            _report = report;
+            _totalItems = Math.Max(1, totalItems);
+            _threadLimit = Math.Max(1, threadLimit);
+        }
+
+        public void WorkerStarted()
+        {
+            lock (_sync)
+            {
+                _active++;
+                EmitLocked(force: true);
+            }
+        }
+
+        public void WorkerFinished()
+        {
+            lock (_sync)
+            {
+                _active = Math.Max(0, _active - 1);
+                EmitLocked(force: true);
+            }
+        }
+
+        public void AddBytes(long bytes)
+        {
+            if (bytes <= 0)
+                return;
+            lock (_sync)
+            {
+                _bytesReceived += bytes;
+                _speedWindowBytes += bytes;
+                long now = Stopwatch.GetTimestamp();
+                double windowSeconds = Stopwatch.GetElapsedTime(_speedWindowStart, now).TotalSeconds;
+                if (windowSeconds >= 0.35d)
+                {
+                    _speedBytesPerSecond = (long)(_speedWindowBytes / Math.Max(windowSeconds, 0.001d));
+                    _speedWindowBytes = 0;
+                    _speedWindowStart = now;
+                }
+
+                EmitLocked(force: false);
+            }
+        }
+
+        public void ItemCompleted()
+        {
+            lock (_sync)
+            {
+                _completed = Math.Min(_totalItems, _completed + 1);
+                EmitLocked(force: true);
+            }
+        }
+
+        public void FlushComplete()
+        {
+            lock (_sync)
+            {
+                _completed = _totalItems;
+                _active = 0;
+                _speedBytesPerSecond = 0;
+                EmitLocked(force: true);
+            }
+        }
+
+        private void EmitLocked(bool force)
+        {
+            long now = Stopwatch.GetTimestamp();
+            if (!force && _lastReportTicks != 0 &&
+                Stopwatch.GetElapsedTime(_lastReportTicks, now).TotalMilliseconds < 80)
+            {
+                return;
+            }
+
+            _lastReportTicks = now;
+            string message = $"正在下载更新分块（{_completed}/{_totalItems}）…";
+            if (!force &&
+                string.Equals(message, _lastMessage, StringComparison.Ordinal) &&
+                _active == 0)
+            {
+                return;
+            }
+
+            _lastMessage = message;
+            double progress = (double)_completed / _totalItems;
+            _report(progress, message, _completed, _active, _speedBytesPerSecond, _bytesReceived);
+        }
+    }
+
+    private sealed class CountingReadStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly Action<long>? _onBytesRead;
+
+        public CountingReadStream(Stream inner, Action<long>? onBytesRead)
+        {
+            _inner = inner;
+            _onBytesRead = onBytesRead;
+        }
+
+        public override bool CanRead => _inner.CanRead;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => _inner.Length;
+        public override long Position
+        {
+            get => _inner.Position;
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() => _inner.Flush();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int read = _inner.Read(buffer, offset, count);
+            if (read > 0)
+                _onBytesRead?.Invoke(read);
+            return read;
+        }
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            int read = await _inner.ReadAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
+            if (read > 0)
+                _onBytesRead?.Invoke(read);
+            return read;
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            int read = await _inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (read > 0)
+                _onBytesRead?.Invoke(read);
+            return read;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                _inner.Dispose();
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            await _inner.DisposeAsync().ConfigureAwait(false);
+            await base.DisposeAsync().ConfigureAwait(false);
         }
     }
 
