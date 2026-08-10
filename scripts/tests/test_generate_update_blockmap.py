@@ -15,6 +15,25 @@ blockmap = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = blockmap
 SPEC.loader.exec_module(blockmap)
 
+VCDIFF = Path(__file__).parents[1] / "pcln_vcdiff.py"
+VSPEC = importlib.util.spec_from_file_location("pcln_vcdiff", VCDIFF)
+assert VSPEC and VSPEC.loader
+vcdiff = importlib.util.module_from_spec(VSPEC)
+sys.modules[VSPEC.name] = vcdiff
+VSPEC.loader.exec_module(vcdiff)
+
+
+def _decompress_block(output: Path, chunk: dict) -> bytes:
+    path = output / chunk["path"]
+    raw = vcdiff.load_raw_block(output, chunk["sha256"])
+    if raw is None:
+        # Fallback for direct path read
+        payload = path.read_bytes()
+        if payload.startswith(b"\x1f\x8b"):
+            return gzip.decompress(payload)
+        raise AssertionError(f"cannot decompress {path}")
+    return raw
+
 
 class GenerateUpdateBlockmapTests(unittest.TestCase):
     def test_block_paths_are_content_addressed_and_shared(self):
@@ -36,16 +55,14 @@ class GenerateUpdateBlockmapTests(unittest.TestCase):
             self.assertEqual(first_chunks, second_chunks)
             self.assertGreater(created_first, 0)
             self.assertEqual(0, created_second)
-            reconstructed = b"".join(
-                gzip.decompress((output / chunk["path"]).read_bytes())
-                for chunk in first_chunks
-            )
+            reconstructed = b"".join(_decompress_block(output, chunk) for chunk in first_chunks)
             self.assertEqual(payload, reconstructed)
             for chunk in first_chunks:
                 self.assertEqual(
                     f"block/{chunk['sha256'][:2]}/{chunk['sha256']}",
                     chunk["path"],
                 )
+                self.assertIn(chunk.get("compression"), {"gzip", "zstd"})
 
     def test_archive_manifest_reconstructs_scatter_tree(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -90,10 +107,10 @@ class GenerateUpdateBlockmapTests(unittest.TestCase):
                     self.assertEqual("pcln-fastcdc-v1", manifest["algorithm"])
                 self.assertEqual("/v1/updates/block", manifest["blockBasePath"])
                 self.assertEqual(set(files), {entry["path"] for entry in manifest["targetFiles"]})
+                self.assertIn(manifest.get("compression"), {"gzip", "zstd"})
                 for entry in manifest["targetFiles"]:
                     reconstructed = b"".join(
-                        gzip.decompress((output / chunk["path"]).read_bytes())
-                        for chunk in entry["chunks"]
+                        _decompress_block(output, chunk) for chunk in entry["chunks"]
                     )
                     self.assertEqual(files[entry["path"]], reconstructed)
 
@@ -128,7 +145,7 @@ class GenerateUpdateBlockmapTests(unittest.TestCase):
                 self.assertEqual(source.name, manifest["targetAssetName"])
                 self.assertEqual(["PCL-N-Edition.exe"], [entry["path"] for entry in manifest["targetFiles"]])
                 reconstructed = b"".join(
-                    gzip.decompress((output / chunk["path"]).read_bytes())
+                    _decompress_block(output, chunk)
                     for chunk in manifest["targetFiles"][0]["chunks"]
                 )
                 self.assertEqual(payload, reconstructed)

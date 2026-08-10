@@ -20,6 +20,8 @@ mkdir -p "$BLOCK_DIST" "$MANIFEST_STAGE"
 if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
   echo "::warning::CLOUDFLARE_API_TOKEN/ACCOUNT_ID missing; generating maps only (CAS upload skipped)."
 fi
+# zstd for v2 full blocks (protocol §20); graceful fallback to gzip if install fails.
+python -m pip install --quiet 'zstandard>=0.22' || true
 
 PREV_ARGS=()
 PREV_DIR="$(mktemp -d)"

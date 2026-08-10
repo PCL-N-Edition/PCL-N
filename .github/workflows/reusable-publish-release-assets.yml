@@ -391,6 +391,21 @@ jobs:
             echo "No central block-dist CAS tree (matrix already published); skipping."
           fi
 
+      - name: Validate blockmaps and remote CAS (before promote)
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: pcln-releases
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet 'zstandard>=0.22' || true
+          # Protocol v2 §16: Validate → then publish maps / channel pointer.
+          python scripts/validate_update_release.py \
+            --manifest-dir block-dist/manifests \
+            --local-root block-dist \
+            --require-remote
+
       - name: Upload user download assets to the existing GitHub release
         uses: softprops/action-gh-release@v2.5.0
         with:
@@ -439,9 +454,12 @@ jobs:
 
           # Mark-and-sweep only objects recorded in our catalog. Shared blocks
           # stay alive while any release inside the 14-day rollback window uses them.
-          rm -f block-catalog.previous.json block-catalog.next.json obsolete-r2-objects.txt
+          rm -f block-catalog.previous.json block-catalog.next.json obsolete-r2-objects.txt remote-cas-keys.txt
           python scripts/upload_r2_cas.py get block/catalog.json \
             --file block-catalog.previous.json || rm -f block-catalog.previous.json
+          # Protocol v2 §19: inventory mark-and-sweep for unreferenced block/ + delta/.
+          python scripts/upload_r2_cas.py list block/ > remote-cas-keys.txt || true
+          python scripts/upload_r2_cas.py list delta/ >> remote-cas-keys.txt || true
           python scripts/update_update_block_catalog.py \
             --catalog block-catalog.previous.json \
             --manifest-dir block-dist/manifests \
@@ -450,7 +468,8 @@ jobs:
             --channel '${{ inputs.channel }}' \
             --published-at "$(jq -r .publishedAt 'channel-dist/${{ inputs.channel }}.json')" \
             --output block-catalog.next.json \
-            --delete-list obsolete-r2-objects.txt
+            --delete-list obsolete-r2-objects.txt \
+            --remote-keys remote-cas-keys.txt
           if [[ -s obsolete-r2-objects.txt ]]; then
             python scripts/upload_r2_cas.py delete-list obsolete-r2-objects.txt --concurrency 16
           fi

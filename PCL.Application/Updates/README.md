@@ -29,7 +29,11 @@
 - 新客户端优先下载 v2 分块图；目标 ≤1.4.7 时若 v2 缺失可回退 v1。目标 ≥1.4.8 不再请求 v1。本地块索引必须使用与清单相同的 FastCDC 算法。
 - **LocalBlockIndex（协议 v2）**：安装成功后写入 `{installRoot}/UpdateState/installed.blockmap.json`。下次更新优先按该图的 path/offset 解析源块，避免对整树重新 FastCDC；算法不一致或文件校验失败时回退实时分块。
 - **VCDIFF 模型**：blockmap 块条目可带 `full` + `deltas[]`（`vcdiff-rfc3284` + sourceChunks/sourceSha256）。解码失败必须回退 full gzip 块；客户端内置托管解码器，不 `Process.Start` xdelta3。
-- **发布**：matrix 各 RID 本地分块 + 批量上传 CAS（`block/` 含 v1/v2 全量块，`delta/` 含 VCDIFF）；中心 job 仅签名 blockmap 并 promote channel。上传走 `upload_r2_cas.py`（S3 ListObjects 跳过 + 并发 PUT；无 S3 密钥时 wrangler 并发回退）。
+- **发布**：matrix 各 RID 本地分块 + 批量上传 CAS（`block/` 含 v1/v2 全量块，`delta/` 含 VCDIFF）；中心 job **Validate → Sign → Promote**（校验 map 与远端 CAS 引用后才改 channel）。上传走 `upload_r2_cas.py`（复用 `CLOUDFLARE_API_TOKEN`）。
+- **压缩**：v1 固定 gzip；v2 全量块优先 **zstd**（不优于 gzip 时回退），per-block `full.compression` 为准；客户端按编解码解压。
+- **性能**：发布端 CDC 顺序扫描 + 压缩写并发 pipeline；客户端 ArrayPool slab 分块/解压。
+- **GC**：14 天回滚窗口 + 可选 R2 inventory mark-and-sweep（block + delta）。
+- **CI gate**：`scripts/benchmark_update_v2.py` 固定合成 corpus，reuse &gt; 70%。
 - 客户端先直接复用未变化文件，再对已安装散包建立本地块索引，只下载仍缺失的块；重组后逐文件校验、校验整树清单并验证最终入口程序的 GPG 签名。
 - 1.4.3 是 Cloudflare 分块协议基线。不得为 1.4.3 以前的源版本生成补丁；这类版本只能获取完整包。旧 `patch-index.json` 仅作为过渡兼容，不再由新发布流生成。
 

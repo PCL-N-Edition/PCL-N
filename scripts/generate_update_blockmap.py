@@ -6,7 +6,8 @@ Supports dual FastCDC profiles:
   v1  pcln-fastcdc-v1  256 KiB / 1 MiB / 2 MiB  →  *.blockmap.json
   v2  pcln-fastcdc-v2  128 KiB / 512 KiB / 1 MiB →  *.blockmap.v2.json
 
-Both maps share the same CAS block tree (gzip of raw chunk SHA-256 identity).
+Both maps share the same CAS block tree (compressed raw chunk, SHA-256 of
+decompressed identity). v1 always uses gzip; v2 prefers zstd when smaller.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import sys
 import tarfile
 import tempfile
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,14 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from pcln_vcdiff import attach_v2_deltas  # noqa: E402
+
+try:
+    import zstandard as _zstd
+
+    _ZSTD_AVAILABLE = True
+except ImportError:
+    _zstd = None  # type: ignore[assignment]
+    _ZSTD_AVAILABLE = False
 
 
 UINT64_MASK = (1 << 64) - 1
@@ -66,12 +76,16 @@ PROFILES: dict[str, dict[str, Any]] = {
     },
 }
 
-COMPRESSION = "gzip"
+COMPRESSION_GZIP = "gzip"
+COMPRESSION_ZSTD = "zstd"
 
 # Last release line that still dual-publishes pcln-fastcdc-v1 maps.
 # From 1.4.8 onward only v2 is generated; older clients keep using the v1 maps
 # already published through 1.4.7 (shared CAS blocks remain in R2).
 LAST_V1_BLOCKMAP_VERSION = (1, 4, 7)
+
+# Compress workers for hash→gzip/zstd→write pipeline (protocol v2 §13).
+COMPRESS_WORKERS = 4
 
 
 def _splitmix64(value: int) -> int:
@@ -133,20 +147,44 @@ def _should_ignore(path: Path) -> bool:
     )
 
 
+def _detect_codec(payload: bytes) -> str:
+    if payload.startswith(b"\x1f\x8b"):
+        return COMPRESSION_GZIP
+    if payload.startswith(b"\x28\xb5\x2f\xfd"):
+        return COMPRESSION_ZSTD
+    return COMPRESSION_GZIP
+
+
+def _compress_raw(raw: bytes, preferred: str) -> tuple[bytes, str]:
+    """Return (compressed_bytes, codec). v2 prefers zstd when smaller than gzip."""
+    gzip_bytes = gzip.compress(raw, compresslevel=9, mtime=0)
+    if preferred != COMPRESSION_ZSTD or not _ZSTD_AVAILABLE:
+        return gzip_bytes, COMPRESSION_GZIP
+    assert _zstd is not None
+    zstd_bytes = _zstd.ZstdCompressor(level=10).compress(raw)
+    # Prefer zstd whenever it is not worse than gzip (protocol §20).
+    if len(zstd_bytes) <= len(gzip_bytes):
+        return zstd_bytes, COMPRESSION_ZSTD
+    return gzip_bytes, COMPRESSION_GZIP
+
+
 def _flush_chunk(
-    data: bytearray,
+    data: bytes | bytearray,
     output_root: Path,
+    preferred_codec: str,
 ) -> tuple[dict, bool]:
     raw = bytes(data)
     sha256 = hashlib.sha256(raw).hexdigest()
-    compressed = gzip.compress(raw, compresslevel=9, mtime=0)
     relative = Path("block") / sha256[:2] / sha256
     target = output_root / relative
     created = False
     if target.exists():
-        if target.stat().st_size != len(compressed):
-            raise ValueError(f"block collision or corrupt cache: {target}")
+        payload = target.read_bytes()
+        codec = _detect_codec(payload)
+        compressed_size = len(payload)
     else:
+        compressed, codec = _compress_raw(raw, preferred_codec)
+        compressed_size = len(compressed)
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_suffix(".tmp")
         temporary.write_bytes(compressed)
@@ -156,8 +194,9 @@ def _flush_chunk(
         {
             "sha256": sha256,
             "size": len(raw),
-            "compressedSize": len(compressed),
+            "compressedSize": compressed_size,
             "path": relative.as_posix(),
+            "compression": codec,
         },
         created,
     )
@@ -168,53 +207,65 @@ def chunk_file(
     output_root: Path,
     profile: dict[str, Any] | None = None,
 ) -> tuple[str, int, list[dict], int, int]:
+    """
+    Single sequential CDC scan; compress/hash/write is pipelined on a worker pool
+    (protocol v2 §13–14).
+    """
     profile = profile or PROFILES["v1"]
     min_chunk = int(profile["min"])
     avg_chunk = int(profile["avg"])
     max_chunk = int(profile["max"])
     early_mask = int(profile["early_mask"])
     late_mask = int(profile["late_mask"])
+    preferred_codec = COMPRESSION_ZSTD if profile.get("name") == "v2" else COMPRESSION_GZIP
 
     file_hash = hashlib.sha256()
     file_size = 0
     rolling = 0
     buffer = bytearray()
+    # Preserve CDC order: list of (order_index, future)
+    futures: list[Any] = []
+    order = 0
+
+    def submit_chunk(payload: bytes) -> None:
+        nonlocal order
+        index = order
+        order += 1
+        futures.append((index, pool.submit(_flush_chunk, payload, output_root, preferred_codec)))
+
+    with ThreadPoolExecutor(max_workers=COMPRESS_WORKERS) as pool:
+        with path.open("rb") as source:
+            while data := source.read(256 * 1024):
+                file_hash.update(data)
+                file_size += len(data)
+                for value in data:
+                    buffer.append(value)
+                    rolling = ((rolling << 1) + GEAR_TABLE[value]) & UINT64_MASK
+                    length = len(buffer)
+                    if length < min_chunk:
+                        continue
+                    mask = early_mask if length < avg_chunk else late_mask
+                    if (rolling & mask) == 0 or length >= max_chunk:
+                        submit_chunk(bytes(buffer))
+                        buffer.clear()
+                        rolling = 0
+        if buffer or order == 0:
+            submit_chunk(bytes(buffer))
+
+        results: list[tuple[dict, bool] | None] = [None] * len(futures)
+        for index, future in futures:
+            results[index] = future.result()
+
     chunks: list[dict] = []
     created_blocks = 0
     created_bytes = 0
-
-    def flush() -> None:
-        nonlocal rolling, created_blocks, created_bytes
-        if not buffer:
-            return
-        chunk, created = _flush_chunk(buffer, output_root)
+    for item in results:
+        assert item is not None
+        chunk, created = item
         chunks.append(chunk)
         if created:
             created_blocks += 1
-            created_bytes += chunk["compressedSize"]
-        buffer.clear()
-        rolling = 0
-
-    with path.open("rb") as source:
-        while data := source.read(128 * 1024):
-            file_hash.update(data)
-            file_size += len(data)
-            for value in data:
-                buffer.append(value)
-                rolling = ((rolling << 1) + GEAR_TABLE[value]) & UINT64_MASK
-                length = len(buffer)
-                if length < min_chunk:
-                    continue
-                mask = early_mask if length < avg_chunk else late_mask
-                if (rolling & mask) == 0 or length >= max_chunk:
-                    flush()
-    flush()
-    if file_size == 0:
-        chunk, created = _flush_chunk(bytearray(), output_root)
-        chunks.append(chunk)
-        if created:
-            created_blocks += 1
-            created_bytes += chunk["compressedSize"]
+            created_bytes += int(chunk["compressedSize"])
     return file_hash.hexdigest(), file_size, chunks, created_blocks, created_bytes
 
 
@@ -313,11 +364,17 @@ def _write_manifest(
     created_bytes: int,
     delta_stats: dict[str, int] | None = None,
 ) -> Path:
+    # Map-level default: v1 always gzip; v2 advertises zstd when available (per-block may still be gzip).
+    map_compression = (
+        COMPRESSION_ZSTD
+        if profile.get("name") == "v2" and _ZSTD_AVAILABLE
+        else COMPRESSION_GZIP
+    )
     manifest: dict[str, Any] = {
         "formatVersion": profile["format_version"],
         "layout": layout,
         "algorithm": profile["algorithm"],
-        "compression": COMPRESSION,
+        "compression": map_compression,
         "blockBasePath": "/v1/updates/block",
         "targetTag": target_tag,
         "targetVersion": target_version,

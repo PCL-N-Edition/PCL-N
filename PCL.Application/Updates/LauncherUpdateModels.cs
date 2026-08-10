@@ -96,6 +96,7 @@ public sealed class LauncherUpdateBlockMap
 
     public string? Algorithm { get; set; }
 
+    /// <summary>Default full-block compression (<c>gzip</c> or <c>zstd</c>). Per-block <see cref="LauncherUpdateBlockFull.Compression"/> wins.</summary>
     public string? Compression { get; set; }
 
     public string? BlockBasePath { get; set; }
@@ -157,6 +158,11 @@ public sealed class LauncherUpdateBlock
 
     public long ResolveCompressedSize() =>
         Full is { CompressedSize: > 0 } ? Full.CompressedSize : CompressedSize;
+
+    public string? ResolveCompression(string? mapDefault) =>
+        !string.IsNullOrWhiteSpace(Full?.Compression)
+            ? Full.Compression
+            : mapDefault;
 }
 
 public sealed class LauncherUpdateBlockFull
@@ -164,6 +170,9 @@ public sealed class LauncherUpdateBlockFull
     public string? Path { get; set; }
 
     public long CompressedSize { get; set; }
+
+    /// <summary><c>gzip</c> (legacy default) or <c>zstd</c> (protocol v2 preferred for new blocks).</summary>
+    public string? Compression { get; set; }
 }
 
 public sealed class LauncherUpdateBlockDelta

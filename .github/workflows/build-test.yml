@@ -81,6 +81,56 @@ jobs:
       channel: ci
     secrets: inherit
 
+  # Protocol v2 gate: unit tests + fixed-corpus reuse/incremental benchmarks (§18).
+  update-protocol-v2:
+    name: Update protocol v2 gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install tools
+        run: python -m pip install --upgrade pip 'zstandard>=0.22'
+      - name: Python unit tests (blockmap / CAS / VCDIFF / catalog)
+        run: |
+          python -m unittest \
+            scripts.tests.test_generate_update_blockmap \
+            scripts.tests.test_pcln_vcdiff \
+            scripts.tests.test_upload_r2_cas \
+            scripts.tests.test_update_update_block_catalog \
+            -v
+      - name: Offline structural validate sample maps
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          python - <<PY
+          from pathlib import Path
+          import generate_update_blockmap as b
+          import sys
+          sys.path.insert(0, "scripts")
+          root = Path("$tmp")
+          sample = root / "sample.bin"
+          sample.write_bytes(b"pcln-v2-validate-" * 8000)
+          maps = b.build_file_blockmap(
+              sample, root / "dist",
+              target_asset_name="sample.bin",
+              entry_name="sample.bin",
+              target_tag="v0.0.0-test",
+              target_version="0.0.0-test",
+              runtime_id="win-x64",
+              runtime_variant="SelfContained",
+              configuration="Beta",
+              profiles=[b.PROFILES["v2"]],
+          )
+          print("maps", [m.name for m in maps])
+          PY
+          PYTHONPATH=scripts python scripts/validate_update_release.py \
+            --manifest-dir "$tmp/dist/manifests" \
+            --local-root "$tmp/dist"
+      - name: Benchmark gate (synthetic 1.4.3→1.4.4 corpus)
+        run: PYTHONPATH=scripts python scripts/benchmark_update_v2.py
+
   # Rolling CI package for the "CI" update channel. Content-addressed blocks only — never patches.
   publish-ci-rolling:
     name: Publish ci-latest (no patches)
@@ -203,6 +253,7 @@ jobs:
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
+          python -m pip install --quiet 'zstandard>=0.22' || true
 
           # CAS blocks + deltas via Cloudflare API (token reused; batch inventory skip).
           python scripts/upload_r2_cas.py upload-tree block-dist \

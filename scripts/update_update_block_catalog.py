@@ -176,6 +176,38 @@ def update_catalog(
     return result, sorted(deletions)
 
 
+def inventory_gc_deletions(catalog: dict, remote_keys: set[str]) -> list[str]:
+    """
+    Protocol v2 §19: after retention window GC of catalog entries, also sweep
+    remote inventory keys that no retained release references (full + delta).
+    """
+    retained_blocks = {
+        str(sha)
+        for entry in catalog.get("releases") or []
+        for sha in entry.get("blocks") or []
+        if isinstance(sha, str) and len(sha) == 64
+    }
+    retained_deltas = {
+        str(path)
+        for entry in catalog.get("releases") or []
+        for path in entry.get("deltas") or []
+        if isinstance(path, str)
+    }
+    deletions: list[str] = []
+    for key in remote_keys:
+        key = key.replace("\\", "/")
+        if key in {"block/catalog.json"} or key.startswith("block/catalog"):
+            continue
+        if key.startswith("block/") and key.count("/") == 2:
+            sha = key.rsplit("/", 1)[-1].lower()
+            if len(sha) == 64 and sha not in retained_blocks:
+                deletions.append(key)
+            continue
+        if key.startswith("delta/v2/") and key not in retained_deltas:
+            deletions.append(key)
+    return sorted(set(deletions))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", required=True, type=Path)
@@ -186,6 +218,11 @@ def main() -> int:
     parser.add_argument("--published-at", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--delete-list", required=True, type=Path)
+    parser.add_argument(
+        "--remote-keys",
+        type=Path,
+        help="Optional inventory file (one R2 key per line) for full mark-and-sweep GC (§19)",
+    )
     parser.add_argument("--now")
     args = parser.parse_args()
 
@@ -195,8 +232,9 @@ def main() -> int:
         if path.is_file()
     ]
     blocks, deltas = _read_current_blocks_and_deltas(args.manifest_dir)
+    previous_catalog = _read_catalog(args.catalog)
     catalog, deletions = update_catalog(
-        _read_catalog(args.catalog),
+        previous_catalog,
         tag=args.tag,
         channel=args.channel,
         published_at=args.published_at,
@@ -205,6 +243,26 @@ def main() -> int:
         objects=objects,
         now=_timestamp(args.now) if args.now else datetime.now(timezone.utc),
     )
+
+    # Full inventory sweep only when we already have a populated catalog history.
+    # An empty previous catalog must not mass-delete pre-existing R2 objects.
+    if (
+        args.remote_keys
+        and args.remote_keys.is_file()
+        and (previous_catalog.get("releases") or [])
+        and (catalog.get("releases") or [])
+    ):
+        remote = {
+            line.strip().replace("\\", "/")
+            for line in args.remote_keys.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        }
+        inventory = inventory_gc_deletions(catalog, remote)
+        deletions = sorted(set(deletions) | set(inventory))
+        print(f"inventory_gc candidates={len(inventory)}")
+    elif args.remote_keys:
+        print("inventory_gc skipped (need prior catalog history)")
+
     args.output.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     args.delete_list.write_text("".join(f"{key}\n" for key in deletions), encoding="utf-8")
     print(

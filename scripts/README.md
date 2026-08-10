@@ -102,8 +102,34 @@ Release packaging runs **matrix-local** CAS publish (`scripts/ci_matrix_cas_publ
 each RID generates maps (with optional VCDIFF vs previous channel), uploads CAS
 directly, then the central job only signs maps and promotes the channel pointer.
 
-Channel promotion still publishes maps/signatures first, then catalog, then `channels/*.json` last.
-Catalog GC tracks both full blocks and `delta/v2/*` objects.
+Channel promotion order (protocol §16):
+
+1. matrix CAS upload  
+2. central residual CAS upload  
+3. **`validate_update_release.py --require-remote`**  
+4. put signed maps / metadata  
+5. catalog + inventory GC  
+6. **`channels/*.json` last**
+
+Catalog GC tracks full blocks and `delta/v2/*`. With a prior catalog history,
+`--remote-keys` enables inventory mark-and-sweep (§19).
+
+### Compression (protocol §20)
+
+| Profile | Full-block codec |
+|---------|------------------|
+| v1 | always `gzip` |
+| v2 | prefer `zstd` when ≤ gzip size; else `gzip` |
+
+Per-block `full.compression` is authoritative; map-level `compression` is the default.
+
+### Benchmark gate (protocol §18)
+
+```bash
+pip install 'zstandard>=0.22'
+PYTHONPATH=scripts python scripts/benchmark_update_v2.py
+# PASS: reuse>=70% and incremental ratio under threshold
+```
 
 GitHub Release is only for installers and portable downloads; updater maps and
 blocks are published to Cloudflare R2.

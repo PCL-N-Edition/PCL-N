@@ -120,6 +120,35 @@ class UpdateBlockCatalogTests(unittest.TestCase):
         self.assertIn(expired_delta, deletions)
         self.assertNotIn(shared_delta, deletions)
 
+    def test_inventory_gc_sweeps_unreferenced_remote_keys(self):
+        live = "a" * 64
+        dead = "b" * 64
+        catalog = {
+            "formatVersion": 1,
+            "releases": [
+                {
+                    "tag": "v1.4.8-beta",
+                    "channel": "beta",
+                    "publishedAt": "2026-08-09T00:00:00Z",
+                    "blocks": [live],
+                    "deltas": [f"delta/v2/aa/{live}/{live}.vcdiff"],
+                    "objects": [],
+                }
+            ],
+        }
+        remote = {
+            f"block/{live[:2]}/{live}",
+            f"block/{dead[:2]}/{dead}",
+            f"delta/v2/aa/{live}/{live}.vcdiff",
+            f"delta/v2/bb/{dead}/{dead}.vcdiff",
+            "block/catalog.json",
+        }
+        deletions = catalog_module.inventory_gc_deletions(catalog, remote)
+        self.assertIn(f"block/{dead[:2]}/{dead}", deletions)
+        self.assertIn(f"delta/v2/bb/{dead}/{dead}.vcdiff", deletions)
+        self.assertNotIn(f"block/{live[:2]}/{live}", deletions)
+        self.assertNotIn("block/catalog.json", deletions)
+
 
 if __name__ == "__main__":
     unittest.main()

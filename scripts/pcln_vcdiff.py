@@ -216,9 +216,29 @@ def load_raw_block(output_root: Path, sha256: str) -> bytes | None:
     if not path.is_file():
         return None
     try:
-        import gzip
+        payload = path.read_bytes()
+        if payload.startswith(b"\x1f\x8b"):
+            import gzip
 
-        return gzip.decompress(path.read_bytes())
+            return gzip.decompress(payload)
+        if payload.startswith(b"\x28\xb5\x2f\xfd"):
+            try:
+                import zstandard as zstd
+            except ImportError:
+                return None
+            return zstd.ZstdDecompressor().decompress(payload)
+        # Legacy/unknown: try gzip then zstd.
+        try:
+            import gzip
+
+            return gzip.decompress(payload)
+        except OSError:
+            try:
+                import zstandard as zstd
+
+                return zstd.ZstdDecompressor().decompress(payload)
+            except Exception:  # noqa: BLE001
+                return None
     except OSError:
         return None
 
@@ -278,15 +298,18 @@ def attach_v2_deltas(
             full_compressed = int(chunk["compressedSize"])
             full_path = str(chunk["path"])
 
+            full_codec = str(chunk.get("compression") or "gzip")
             nested = {
                 "sha256": target_sha,
                 "size": target_size,
                 # Flat fields retained for older readers / client normalize.
                 "compressedSize": full_compressed,
                 "path": full_path,
+                "compression": full_codec,
                 "full": {
                     "path": full_path,
                     "compressedSize": full_compressed,
+                    "compression": full_codec,
                 },
                 "deltas": [],
             }

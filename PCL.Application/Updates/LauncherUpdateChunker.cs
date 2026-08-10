@@ -1,6 +1,7 @@
 // Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Buffers;
 using System.Security.Cryptography;
 
 namespace PCL.Application.Updates;
@@ -77,6 +78,8 @@ internal static class LauncherUpdateChunker
     internal const string BlockMapLayoutV2 = "pcln-blockmap-v2";
     internal const string SingleFileBlockMapLayoutV2 = "pcln-blockmap-file-v2";
 
+    private const int ReadBufferSize = 256 * 1024;
+
     private static readonly ulong[] GearTable = BuildGearTable();
 
     internal static Task<IReadOnlyList<LauncherUpdateChunkSlice>> ChunkFileAsync(
@@ -84,6 +87,10 @@ internal static class LauncherUpdateChunker
         CancellationToken cancellationToken) =>
         ChunkFileAsync(path, LauncherUpdateChunkProfile.V1, cancellationToken);
 
+    /// <summary>
+    /// Single sequential scan with ArrayPool slab buffers (protocol v2 §14).
+    /// Hash is computed on the same in-memory slice before the buffer is reused.
+    /// </summary>
     internal static async Task<IReadOnlyList<LauncherUpdateChunkSlice>> ChunkFileAsync(
         string path,
         LauncherUpdateChunkProfile profile,
@@ -91,44 +98,55 @@ internal static class LauncherUpdateChunker
     {
         ArgumentNullException.ThrowIfNull(profile);
         List<LauncherUpdateChunkSlice> chunks = [];
-        byte[] readBuffer = new byte[128 * 1024];
-        byte[] chunkBuffer = new byte[profile.MaximumSize];
-        int chunkLength = 0;
-        long chunkOffset = 0;
-        ulong rolling = 0;
-
-        await using FileStream stream = new(
-            path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete,
-            readBuffer.Length,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        while (true)
+        byte[] readBuffer = ArrayPool<byte>.Shared.Rent(ReadBufferSize);
+        byte[] chunkBuffer = ArrayPool<byte>.Shared.Rent(profile.MaximumSize);
+        try
         {
-            int read = await stream.ReadAsync(readBuffer, cancellationToken).ConfigureAwait(false);
-            if (read == 0)
-                break;
-            for (int index = 0; index < read; index++)
-            {
-                byte value = readBuffer[index];
-                chunkBuffer[chunkLength++] = value;
-                rolling = unchecked((rolling << 1) + GearTable[value]);
-                if (chunkLength < profile.MinimumSize)
-                    continue;
-                ulong mask = chunkLength < profile.AverageSize ? profile.EarlyMask : profile.LateMask;
-                if ((rolling & mask) != 0 && chunkLength < profile.MaximumSize)
-                    continue;
-                AddChunk(chunks, chunkBuffer.AsSpan(0, chunkLength), chunkOffset);
-                chunkOffset += chunkLength;
-                chunkLength = 0;
-                rolling = 0;
-            }
-        }
+            int chunkLength = 0;
+            long chunkOffset = 0;
+            ulong rolling = 0;
 
-        if (chunkLength > 0 || chunks.Count == 0)
-            AddChunk(chunks, chunkBuffer.AsSpan(0, chunkLength), chunkOffset);
-        return chunks;
+            await using FileStream stream = new(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                ReadBufferSize,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            while (true)
+            {
+                int read = await stream.ReadAsync(
+                        readBuffer.AsMemory(0, ReadBufferSize),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (read == 0)
+                    break;
+                for (int index = 0; index < read; index++)
+                {
+                    byte value = readBuffer[index];
+                    chunkBuffer[chunkLength++] = value;
+                    rolling = unchecked((rolling << 1) + GearTable[value]);
+                    if (chunkLength < profile.MinimumSize)
+                        continue;
+                    ulong mask = chunkLength < profile.AverageSize ? profile.EarlyMask : profile.LateMask;
+                    if ((rolling & mask) != 0 && chunkLength < profile.MaximumSize)
+                        continue;
+                    AddChunk(chunks, chunkBuffer.AsSpan(0, chunkLength), chunkOffset);
+                    chunkOffset += chunkLength;
+                    chunkLength = 0;
+                    rolling = 0;
+                }
+            }
+
+            if (chunkLength > 0 || chunks.Count == 0)
+                AddChunk(chunks, chunkBuffer.AsSpan(0, chunkLength), chunkOffset);
+            return chunks;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(readBuffer);
+            ArrayPool<byte>.Shared.Return(chunkBuffer);
+        }
     }
 
     private static void AddChunk(

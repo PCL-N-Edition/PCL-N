@@ -15,7 +15,6 @@ public sealed partial class LauncherUpdateInstaller
     private const string SingleFileBlockMapLayout = "pcln-blockmap-file-v1";
     private const string BlockMapLayoutV2 = "pcln-blockmap-v2";
     private const string SingleFileBlockMapLayoutV2 = "pcln-blockmap-file-v2";
-    private const string BlockCompression = "gzip";
     private const string BlockBasePath = "/v1/updates/block";
 
     private async Task<PreparedBlockPayload?> TryPrepareBlockPayloadAsync(
@@ -114,6 +113,7 @@ public sealed partial class LauncherUpdateInstaller
                             map.BlockBasePath!,
                             cacheRoot,
                             block,
+                            map.Compression,
                             token)
                         .ConfigureAwait(false);
                 }
@@ -281,13 +281,15 @@ public sealed partial class LauncherUpdateInstaller
         ValidateBlockMap(LauncherUpdateBlockMap map, LauncherUpdatePackage package)
     {
         if (!TryResolveBlockMapProfile(map, out LauncherUpdateChunkProfile profile) ||
-            !string.Equals(map.Compression, BlockCompression, StringComparison.Ordinal) ||
+            !LauncherUpdateBlockCodec.IsSupported(map.Compression) ||
             !string.Equals(map.BlockBasePath, BlockBasePath, StringComparison.Ordinal) ||
             !IsSha256(map.TargetManifestSha256) ||
             map.TargetFiles.Count is 0 or > 32768)
         {
             throw new InvalidDataException("分块更新清单版本或必填字段无效。");
         }
+
+        map.Compression = LauncherUpdateBlockCodec.Normalize(map.Compression);
 
         if (map.Chunking is { } chunking &&
             (chunking.Min != profile.MinimumSize ||
@@ -340,6 +342,11 @@ public sealed partial class LauncherUpdateInstaller
                 // Normalize nested full representation onto flat fields for download path.
                 block.CompressedSize = compressedSize;
                 block.Path = fullPath;
+                if (block.Full is not null)
+                {
+                    block.Full.Compression = LauncherUpdateBlockCodec.Normalize(
+                        block.ResolveCompression(map.Compression));
+                }
                 string expectedPath = $"block/{block.Sha256[..2]}/{block.Sha256}";
                 if (!string.Equals(block.Path, expectedPath, StringComparison.Ordinal))
                     throw new InvalidDataException($"分块索引路径不规范：{block.Path}。");
@@ -628,6 +635,7 @@ public sealed partial class LauncherUpdateInstaller
         string blockBasePath,
         string cacheRoot,
         LauncherUpdateBlock block,
+        string? mapCompression,
         CancellationToken cancellationToken)
     {
         Uri mapUri = new(blockMapUrl, UriKind.Absolute);
@@ -648,36 +656,18 @@ public sealed partial class LauncherUpdateInstaller
         string destination = GetBlockCachePath(cacheRoot, block.Sha256!);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         string temporary = destination + ".tmp-" + Guid.NewGuid().ToString("N");
+        string codec = block.ResolveCompression(mapCompression) ?? LauncherUpdateBlockCodec.Gzip;
         try
         {
             await using Stream network = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using GZipStream gzip = new(network, CompressionMode.Decompress, leaveOpen: false);
-            await using FileStream output = new(
-                temporary,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                128 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
-            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-            byte[] buffer = new byte[128 * 1024];
-            long written = 0;
-            while (true)
-            {
-                int read = await gzip.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-                if (read == 0)
-                    break;
-                checked { written += read; }
-                if (written > block.Size)
-                    throw new InvalidDataException($"更新分块解压后大小超限：{block.Sha256}。");
-                hash.AppendData(buffer.AsSpan(0, read));
-                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-            }
-            await output.FlushAsync(cancellationToken).ConfigureAwait(false);
-            string actual = Convert.ToHexStringLower(hash.GetHashAndReset());
-            if (written != block.Size || !string.Equals(actual, block.Sha256, StringComparison.Ordinal))
-                throw new InvalidDataException($"更新分块 SHA-256 校验失败：{block.Sha256}。");
-            output.Close();
+            await LauncherUpdateBlockCodec.DecompressAndVerifyAsync(
+                    network,
+                    codec,
+                    block.Sha256!,
+                    block.Size,
+                    temporary,
+                    cancellationToken)
+                .ConfigureAwait(false);
             File.Move(temporary, destination, overwrite: true);
         }
         finally

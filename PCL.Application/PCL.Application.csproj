@@ -21,14 +21,13 @@
   <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
     <PackageReference Include="fNbt" Version="1.0.0" />
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="../GPG-PUBLIC-KEY.asc">
       <LogicalName>PCL.Application.Updates.PclNReleasePublicKey.asc</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="Online/Certificates/pcln-api-client.pfx"
-                      Condition="Exists('Online/Certificates/pcln-api-client.pfx')"
-                      LogicalName="PCL.Application.Online.PclnApiClient.pfx" />
+    <EmbeddedResource Include="Online/Certificates/pcln-api-client.pfx" Condition="Exists('Online/Certificates/pcln-api-client.pfx')" LogicalName="PCL.Application.Online.PclnApiClient.pfx" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\PCL.Core.Portable\PCL.Core.Portable.csproj" />
