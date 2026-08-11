@@ -190,6 +190,8 @@ public sealed class BlueprintInstantiator
             NodeIndex = nodeIndex
         });
         _world.Set(entity, new NodeKindComponent { Kind = node.Kind });
+        _world.Set(entity, node.Layout);
+        ApplyLayoutComponents(entity, in node);
         if (node.StyleClassIds.Length > 0)
             _world.Set(entity, StyleClassSet.From(node.StyleClassIds));
         if (node.Behaviors != UiBehavior.None)
@@ -197,12 +199,54 @@ public sealed class BlueprintInstantiator
         if (node.CommandId != 0)
             _world.Set(entity, new CommandBindingComponent { CommandId = node.CommandId });
         if (node.Kind == UiNodeKind.Text || node.StaticText is not null)
+        {
             _world.Set(entity, new TextContent { Value = node.StaticText });
+            _world.Set(entity, node.TextFormat);
+        }
         if (node.Kind == UiNodeKind.If)
             _world.Set(entity, new StructuralIfState());
 
-        _world.Dirty.Mark(entity, UiDirtyFlags.Binding | UiDirtyFlags.Style | UiDirtyFlags.Render);
+        UiDirtyFlags initialDirty = UiDirtyFlags.Binding | UiDirtyFlags.Style | UiDirtyFlags.Render;
+        if (node.Kind == UiNodeKind.Text || node.StaticText is not null)
+            initialDirty |= UiDirtyFlags.TextMeasure;
+        _world.Dirty.Mark(entity, initialDirty);
         return entity;
+    }
+
+    private void ApplyLayoutComponents(UiEntity entity, in BlueprintNode node)
+    {
+        switch (node.Kind)
+        {
+            case UiNodeKind.Column:
+                _world.Set(entity, new StackLayout { Orientation = UiOrientation.Vertical, Gap = node.LayoutGap });
+                break;
+            case UiNodeKind.Row:
+                _world.Set(entity, new StackLayout { Orientation = UiOrientation.Horizontal, Gap = node.LayoutGap });
+                break;
+            case UiNodeKind.Grid:
+                GridTrackSetHandle tracks = _world.LayoutResources.Intern(node.GridColumns, node.GridRows);
+                _world.Set(entity, new GridLayout
+                {
+                    Tracks = tracks,
+                    ColumnGap = node.LayoutGap,
+                    RowGap = node.LayoutGap
+                });
+                break;
+            case UiNodeKind.Absolute:
+                _world.Set(entity, new AbsoluteLayout());
+                break;
+            case UiNodeKind.Container:
+            case UiNodeKind.Overlay:
+            case UiNodeKind.Button:
+            case UiNodeKind.If:
+                _world.Set(entity, new OverlayLayout());
+                break;
+        }
+
+        if (node.HasGridPlacement)
+            _world.Set(entity, node.GridPlacement);
+        if (node.HasAbsolutePlacement)
+            _world.Set(entity, node.AbsolutePlacement);
     }
 
     private void ApplyBindings(
@@ -382,6 +426,7 @@ public sealed class BlueprintInstantiator
             state.ActiveBranch = desired;
             state.LastConditionVersion = version;
             _world.Dirty.Mark(host, UiDirtyFlags.StructuralCascade);
+            LayoutInvalidation.MarkMeasure(_world, host, requestFrame: false);
             _world.Scheduler.RequestReactiveFrame();
         }
     }

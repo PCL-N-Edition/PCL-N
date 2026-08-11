@@ -21,6 +21,7 @@ public sealed class UiWorld
         Scopes = new ScopeRegistry();
         Hierarchy = new HierarchyStore(Entities);
         Components = new ComponentStore(Entities);
+        LayoutResources = new LayoutResourceStore();
         Dirty = new DirtyTracker(Entities);
         Events = new EventQueue();
         Patches = new StatePatchQueue();
@@ -41,6 +42,8 @@ public sealed class UiWorld
     public HierarchyStore Hierarchy { get; }
 
     public ComponentStore Components { get; }
+
+    public LayoutResourceStore LayoutResources { get; }
 
     public DirtyTracker Dirty { get; }
 
@@ -79,6 +82,7 @@ public sealed class UiWorld
         Hierarchy.AttachChild(parent, child);
         Dirty.Mark(parent, UiDirtyFlags.StructuralCascade);
         Dirty.Mark(child, UiDirtyFlags.StructuralCascade);
+        MarkLayoutAncestors(parent);
         Scheduler.RequestReactiveFrame();
     }
 
@@ -96,7 +100,12 @@ public sealed class UiWorld
         if (!Entities.IsAlive(entity))
             return;
 
+        UiEntity parent = Hierarchy.TryGetNode(entity, out HierarchyNode node)
+            ? node.Parent
+            : UiEntity.None;
         Hierarchy.DestroySubtree(entity, DestroyEntityLeaf);
+        if (Entities.IsAlive(parent))
+            MarkLayoutAncestors(parent);
         Scheduler.RequestReactiveFrame();
     }
 
@@ -177,5 +186,18 @@ public sealed class UiWorld
         Dirty.RemoveEntity(entity);
         Hierarchy.RemoveNode(entity);
         Entities.Destroy(entity);
+    }
+
+    private void MarkLayoutAncestors(UiEntity entity)
+    {
+        UiEntity current = entity;
+        int guard = 0;
+        while (Entities.IsAlive(current) && guard++ < 1_000_000)
+        {
+            Dirty.Mark(current, UiDirtyFlags.LayoutMeasure | UiDirtyFlags.LayoutArrange);
+            if (!Hierarchy.TryGetNode(current, out HierarchyNode node) || node.Parent == UiEntity.None)
+                break;
+            current = node.Parent;
+        }
     }
 }

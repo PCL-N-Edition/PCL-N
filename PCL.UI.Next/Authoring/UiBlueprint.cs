@@ -60,7 +60,16 @@ public readonly struct BlueprintNode
         string? staticText,
         int trueBranchRoot,
         int falseBranchRoot,
-        int conditionBindingIndex)
+        int conditionBindingIndex,
+        LayoutStyle layout,
+        float layoutGap,
+        ReadOnlySpan<UiGridTrack> gridColumns,
+        ReadOnlySpan<UiGridTrack> gridRows,
+        GridPlacement gridPlacement,
+        bool hasGridPlacement,
+        AbsolutePlacement absolutePlacement,
+        bool hasAbsolutePlacement,
+        TextFormat textFormat)
     {
         Kind = kind;
         ParentIndex = parentIndex;
@@ -75,6 +84,15 @@ public readonly struct BlueprintNode
         TrueBranchRoot = trueBranchRoot;
         FalseBranchRoot = falseBranchRoot;
         ConditionBindingIndex = conditionBindingIndex;
+        Layout = layout;
+        LayoutGap = layoutGap;
+        GridColumnsCore = gridColumns.ToArray();
+        GridRowsCore = gridRows.ToArray();
+        GridPlacement = gridPlacement;
+        HasGridPlacement = hasGridPlacement;
+        AbsolutePlacement = absolutePlacement;
+        HasAbsolutePlacement = hasAbsolutePlacement;
+        TextFormat = textFormat;
     }
 
     public UiNodeKind Kind { get; }
@@ -88,7 +106,19 @@ public readonly struct BlueprintNode
     public int TrueBranchRoot { get; }
     public int FalseBranchRoot { get; }
     public int ConditionBindingIndex { get; }
+    public LayoutStyle Layout { get; }
+    public float LayoutGap { get; }
+    public ReadOnlySpan<UiGridTrack> GridColumns => GridColumnsCore;
+    public ReadOnlySpan<UiGridTrack> GridRows => GridRowsCore;
+    public GridPlacement GridPlacement { get; }
+    public bool HasGridPlacement { get; }
+    public AbsolutePlacement AbsolutePlacement { get; }
+    public bool HasAbsolutePlacement { get; }
+    public TextFormat TextFormat { get; }
     public bool IsStructural => Kind == UiNodeKind.If;
+
+    private UiGridTrack[] GridColumnsCore { get; }
+    private UiGridTrack[] GridRowsCore { get; }
 }
 
 /// <summary>Compiled binding slot (selector → node property).</summary>

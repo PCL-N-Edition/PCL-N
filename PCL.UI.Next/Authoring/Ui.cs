@@ -33,6 +33,31 @@ public static class Ui
         return node;
     }
 
+    public static UiNode Overlay(params UiNode[] children)
+    {
+        UiNode node = new(UiNodeKind.Overlay);
+        if (children is { Length: > 0 })
+            node.AddChildren(children);
+        return node;
+    }
+
+    public static UiNode Absolute(params UiNode[] children)
+    {
+        UiNode node = new(UiNodeKind.Absolute);
+        if (children is { Length: > 0 })
+            node.AddChildren(children);
+        return node;
+    }
+
+    public static UiNode Grid(UiGridDefinition definition, params UiNode[] children)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        UiNode node = new(UiNodeKind.Grid) { GridDefinition = definition };
+        if (children is { Length: > 0 })
+            node.AddChildren(children);
+        return node;
+    }
+
     public static UiNode Text(string? value = null)
     {
         UiNode node = new(UiNodeKind.Text);

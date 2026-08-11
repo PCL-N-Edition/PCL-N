@@ -36,7 +36,16 @@ public static class UiBlueprintCompiler
                 d.StaticText,
                 d.TrueBranchRoot,
                 d.FalseBranchRoot,
-                d.ConditionBindingIndex);
+                d.ConditionBindingIndex,
+                d.Layout,
+                d.LayoutGap,
+                d.GridColumns,
+                d.GridRows,
+                d.GridPlacement,
+                d.HasGridPlacement,
+                d.AbsolutePlacement,
+                d.HasAbsolutePlacement,
+                d.TextFormat);
         }
 
         BlueprintBinding[] bindingArray = bindings.ToArray();
@@ -70,7 +79,16 @@ public static class UiBlueprintCompiler
             StaticText = node.StaticText,
             TrueBranchRoot = -1,
             FalseBranchRoot = -1,
-            ConditionBindingIndex = -1
+            ConditionBindingIndex = -1,
+            Layout = node.Layout,
+            LayoutGap = node.LayoutGap,
+            GridColumns = node.GridDefinition?.Columns.ToArray() ?? Array.Empty<UiGridTrack>(),
+            GridRows = node.GridDefinition?.Rows.ToArray() ?? Array.Empty<UiGridTrack>(),
+            GridPlacement = node.GridPlacement,
+            HasGridPlacement = node.HasGridPlacement,
+            AbsolutePlacement = node.AbsolutePlacement,
+            HasAbsolutePlacement = node.HasAbsolutePlacement,
+            TextFormat = node.TextFormat
         });
 
         if (node.TextBinding is { } textSelector)
@@ -148,5 +166,14 @@ public static class UiBlueprintCompiler
         public int TrueBranchRoot;
         public int FalseBranchRoot;
         public int ConditionBindingIndex;
+        public LayoutStyle Layout;
+        public float LayoutGap;
+        public UiGridTrack[] GridColumns;
+        public UiGridTrack[] GridRows;
+        public GridPlacement GridPlacement;
+        public bool HasGridPlacement;
+        public AbsolutePlacement AbsolutePlacement;
+        public bool HasAbsolutePlacement;
+        public TextFormat TextFormat;
     }
 }

@@ -13,5 +13,8 @@ public enum UiNodeKind : byte
     Text = 4,
     Button = 5,
     /// <summary>Structural: condition chooses one of two child templates.</summary>
-    If = 6
+    If = 6,
+    Grid = 7,
+    Overlay = 8,
+    Absolute = 9
 }
