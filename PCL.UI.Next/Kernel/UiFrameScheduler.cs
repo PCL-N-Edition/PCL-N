@@ -12,7 +12,8 @@ public enum UiContinuousReason : uint
     ScrollInertia = 1u << 1,
     CaretBlink = 1u << 2,
     Video = 1u << 3,
-    RealtimeEffect = 1u << 4
+    RealtimeEffect = 1u << 4,
+    Gesture = 1u << 5
 }
 
 /// <summary>

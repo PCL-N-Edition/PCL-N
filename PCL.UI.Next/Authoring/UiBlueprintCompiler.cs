@@ -45,7 +45,13 @@ public static class UiBlueprintCompiler
                 d.HasGridPlacement,
                 d.AbsolutePlacement,
                 d.HasAbsolutePlacement,
-                d.TextFormat);
+                d.TextFormat,
+                d.IsHitTestVisible,
+                d.TabIndex,
+                d.IsFocusScope,
+                d.IsFocusTrap,
+                d.RestorePreviousFocus,
+                d.Gestures);
         }
 
         BlueprintBinding[] bindingArray = bindings.ToArray();
@@ -88,7 +94,15 @@ public static class UiBlueprintCompiler
             HasGridPlacement = node.HasGridPlacement,
             AbsolutePlacement = node.AbsolutePlacement,
             HasAbsolutePlacement = node.HasAbsolutePlacement,
-            TextFormat = node.TextFormat
+            TextFormat = node.TextFormat,
+            IsHitTestVisible = node.HitTestVisibleOverride ??
+                               (node.Behaviors != UiBehavior.None ||
+                                node.GestureMask != UiGestureMask.None),
+            TabIndex = node.TabIndexValue,
+            IsFocusScope = node.IsFocusScope,
+            IsFocusTrap = node.IsFocusTrap,
+            RestorePreviousFocus = node.RestorePreviousFocus,
+            Gestures = node.GestureMask
         });
 
         if (node.TextBinding is { } textSelector)
@@ -175,5 +189,11 @@ public static class UiBlueprintCompiler
         public AbsolutePlacement AbsolutePlacement;
         public bool HasAbsolutePlacement;
         public TextFormat TextFormat;
+        public bool IsHitTestVisible;
+        public int TabIndex;
+        public bool IsFocusScope;
+        public bool IsFocusTrap;
+        public bool RestorePreviousFocus;
+        public UiGestureMask Gestures;
     }
 }

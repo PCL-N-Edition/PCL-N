@@ -27,6 +27,11 @@ public readonly record struct UiRect(float X, float Y, float Width, float Height
     public float Right => X + Width;
 
     public float Bottom => Y + Height;
+
+    public bool Contains(UiPoint point) =>
+        Width > 0f && Height > 0f &&
+        point.X >= X && point.X < Right &&
+        point.Y >= Y && point.Y < Bottom;
 }
 
 /// <summary>Logical-pixel edge thickness.</summary>

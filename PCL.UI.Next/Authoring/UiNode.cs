@@ -50,6 +50,18 @@ public sealed class UiNode
 
     internal TextFormat TextFormat { get; set; } = TextFormat.Default;
 
+    internal bool? HitTestVisibleOverride { get; set; }
+
+    internal int TabIndexValue { get; set; }
+
+    internal bool IsFocusScope { get; set; }
+
+    internal bool IsFocusTrap { get; set; }
+
+    internal bool RestorePreviousFocus { get; set; } = true;
+
+    internal UiGestureMask GestureMask { get; set; }
+
     public UiNode Class(UiClass styleClass)
     {
         if (StyleClassIds.Contains(styleClass.Id))
@@ -75,6 +87,35 @@ public sealed class UiNode
     public UiNode Command(UiCommand command)
     {
         CommandId = command.Id;
+        return this;
+    }
+
+    public UiNode HitTestVisible(bool visible = true)
+    {
+        HitTestVisibleOverride = visible;
+        return this;
+    }
+
+    public UiNode TabIndex(int tabIndex)
+    {
+        TabIndexValue = tabIndex;
+        Behaviors |= UiBehavior.Focusable;
+        return this;
+    }
+
+    public UiNode FocusScope(bool trap = false, bool restorePrevious = true)
+    {
+        IsFocusScope = true;
+        IsFocusTrap = trap;
+        RestorePreviousFocus = restorePrevious;
+        return this;
+    }
+
+    public UiNode Gestures(UiGestureMask gestures)
+    {
+        GestureMask |= gestures;
+        if (gestures != UiGestureMask.None)
+            HitTestVisibleOverride = true;
         return this;
     }
 

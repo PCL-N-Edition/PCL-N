@@ -69,7 +69,13 @@ public readonly struct BlueprintNode
         bool hasGridPlacement,
         AbsolutePlacement absolutePlacement,
         bool hasAbsolutePlacement,
-        TextFormat textFormat)
+        TextFormat textFormat,
+        bool isHitTestVisible,
+        int tabIndex,
+        bool isFocusScope,
+        bool isFocusTrap,
+        bool restorePreviousFocus,
+        UiGestureMask gestures)
     {
         Kind = kind;
         ParentIndex = parentIndex;
@@ -93,6 +99,12 @@ public readonly struct BlueprintNode
         AbsolutePlacement = absolutePlacement;
         HasAbsolutePlacement = hasAbsolutePlacement;
         TextFormat = textFormat;
+        IsHitTestVisible = isHitTestVisible;
+        TabIndex = tabIndex;
+        IsFocusScope = isFocusScope;
+        IsFocusTrap = isFocusTrap;
+        RestorePreviousFocus = restorePreviousFocus;
+        Gestures = gestures;
     }
 
     public UiNodeKind Kind { get; }
@@ -115,6 +127,12 @@ public readonly struct BlueprintNode
     public AbsolutePlacement AbsolutePlacement { get; }
     public bool HasAbsolutePlacement { get; }
     public TextFormat TextFormat { get; }
+    public bool IsHitTestVisible { get; }
+    public int TabIndex { get; }
+    public bool IsFocusScope { get; }
+    public bool IsFocusTrap { get; }
+    public bool RestorePreviousFocus { get; }
+    public UiGestureMask Gestures { get; }
     public bool IsStructural => Kind == UiNodeKind.If;
 
     private UiGridTrack[] GridColumnsCore { get; }

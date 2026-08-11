@@ -1,0 +1,177 @@
+// Copyright (c) 2026 PCL N contributors.
+// Licensed under the Apache License, Version 2.0.
+
+namespace PCL.UI.Next;
+
+public readonly record struct UiHitTestEntry(
+    UiEntity Entity,
+    UiRect Bounds,
+    int ZIndex,
+    int RenderOrder);
+
+/// <summary>
+/// Retained first-version hit-test structure: hierarchy render order plus explicit Z index.
+/// It rebuilds only when structure or hit-test dirtiness changes; querying is allocation-free.
+/// </summary>
+public sealed class UiHitTestIndex
+{
+    private readonly UiWorld _world;
+    private readonly List<UiHitTestEntry> _entries = [];
+    private readonly List<UiEntity> _dirty = [];
+    private readonly List<UiEntity> _roots = [];
+    private readonly HashSet<UiEntity> _rootSet = [];
+    private uint _structuralVersion;
+    private bool _initialized;
+    private int _renderOrder;
+
+    public UiHitTestIndex(UiWorld world)
+    {
+        _world = world ?? throw new ArgumentNullException(nameof(world));
+    }
+
+    public IReadOnlyList<UiHitTestEntry> Entries => _entries;
+
+    public UiEntity HitTest(UiPoint point, UiScopeId inputScope = default)
+    {
+        for (int i = _entries.Count - 1; i >= 0; i--)
+        {
+            UiHitTestEntry entry = _entries[i];
+            if (!_world.Entities.IsAlive(entry.Entity) || !entry.Bounds.Contains(point))
+                continue;
+            if (!IsInInputScope(entry.Entity, inputScope))
+                continue;
+            if (!_world.Components.TryGet(entry.Entity, out HitTestableComponent hitTestable) ||
+                !hitTestable.IsVisible || !hitTestable.IsEnabled)
+            {
+                continue;
+            }
+
+            if (_world.Components.TryGet(entry.Entity, out InteractionStateComponent state) &&
+                (state.Value & InteractionState.Disabled) != 0)
+            {
+                continue;
+            }
+
+            return entry.Entity;
+        }
+
+        return UiEntity.None;
+    }
+
+    public bool TryGetRenderOrder(UiEntity entity, out int renderOrder)
+    {
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            if (_entries[i].Entity != entity)
+                continue;
+            renderOrder = _entries[i].RenderOrder;
+            return true;
+        }
+
+        renderOrder = 0;
+        return false;
+    }
+
+    public bool Update()
+    {
+        _dirty.Clear();
+        _world.Dirty.Collect(UiDirtyFlags.HitTest, _dirty);
+        bool changed = !_initialized ||
+                       _structuralVersion != _world.Hierarchy.StructuralVersion ||
+                       _dirty.Count > 0;
+        if (changed)
+            Rebuild();
+
+        for (int i = 0; i < _dirty.Count; i++)
+            _world.Dirty.Clear(_dirty[i], UiDirtyFlags.HitTest);
+        return changed;
+    }
+
+    private void Rebuild()
+    {
+        _entries.Clear();
+        _roots.Clear();
+        _rootSet.Clear();
+        _renderOrder = 0;
+
+        ReadOnlySpan<UiEntity> entities = _world.Components.Pool<HitTestableComponent>().Entities;
+        for (int i = 0; i < entities.Length; i++)
+        {
+            UiEntity root = FindHierarchyRoot(entities[i]);
+            if (_rootSet.Add(root))
+                _roots.Add(root);
+        }
+
+        _roots.Sort(static (left, right) => left.Index.CompareTo(right.Index));
+        for (int i = 0; i < _roots.Count; i++)
+            AppendSubtree(_roots[i]);
+
+        _entries.Sort(static (left, right) =>
+        {
+            int z = left.ZIndex.CompareTo(right.ZIndex);
+            return z != 0 ? z : left.RenderOrder.CompareTo(right.RenderOrder);
+        });
+        _structuralVersion = _world.Hierarchy.StructuralVersion;
+        _initialized = true;
+    }
+
+    private void AppendSubtree(UiEntity entity)
+    {
+        if (!_world.Entities.IsAlive(entity))
+            return;
+
+        int order = _renderOrder++;
+        if (_world.Components.TryGet(entity, out HitTestableComponent hitTestable) &&
+            hitTestable.IsVisible &&
+            _world.Components.TryGet(entity, out LayoutRect layout))
+        {
+            _entries.Add(new UiHitTestEntry(entity, layout.Value, hitTestable.ZIndex, order));
+        }
+
+        if (!_world.Hierarchy.TryGetNode(entity, out HierarchyNode node))
+            return;
+        UiEntity child = node.FirstChild;
+        while (child != UiEntity.None)
+        {
+            UiEntity next = _world.Hierarchy.TryGetNode(child, out HierarchyNode childNode)
+                ? childNode.NextSibling
+                : UiEntity.None;
+            AppendSubtree(child);
+            child = next;
+        }
+    }
+
+    private UiEntity FindHierarchyRoot(UiEntity entity)
+    {
+        UiEntity current = entity;
+        int guard = 0;
+        while (_world.Hierarchy.TryGetNode(current, out HierarchyNode node) &&
+               node.Parent != UiEntity.None &&
+               guard++ < 1_000_000)
+        {
+            current = node.Parent;
+        }
+
+        return current;
+    }
+
+    private bool IsInInputScope(UiEntity entity, UiScopeId inputScope)
+    {
+        if (inputScope.IsNone)
+            return true;
+        if (!_world.Entities.TryGetScope(entity, out UiScopeId entityScope))
+            return false;
+
+        UiScopeId current = entityScope;
+        int guard = 0;
+        while (!current.IsNone && guard++ < 1_000_000)
+        {
+            if (current == inputScope)
+                return true;
+            if (!_world.Scopes.TryGetParent(current, out current))
+                break;
+        }
+
+        return false;
+    }
+}

@@ -196,6 +196,28 @@ public sealed class BlueprintInstantiator
             _world.Set(entity, StyleClassSet.From(node.StyleClassIds));
         if (node.Behaviors != UiBehavior.None)
             _world.Set(entity, new BehaviorComponent { Flags = node.Behaviors });
+        if (node.IsHitTestVisible)
+            _world.Set(entity, HitTestableComponent.Default);
+        if ((node.Behaviors & UiBehavior.Focusable) != 0)
+        {
+            _world.Set(entity, new FocusableComponent
+            {
+                TabIndex = node.TabIndex,
+                IsTabStop = true
+            });
+        }
+        if (node.IsFocusScope)
+        {
+            _world.Set(entity, new FocusScopeComponent
+            {
+                IsTrap = node.IsFocusTrap,
+                RestorePreviousFocus = node.RestorePreviousFocus
+            });
+        }
+        if (node.Gestures != UiGestureMask.None)
+            _world.Set(entity, new GestureComponent { Enabled = node.Gestures });
+        if (node.Behaviors != UiBehavior.None || node.IsFocusScope || node.Gestures != UiGestureMask.None)
+            _world.Set(entity, new InteractionStateComponent());
         if (node.CommandId != 0)
             _world.Set(entity, new CommandBindingComponent { CommandId = node.CommandId });
         if (node.Kind == UiNodeKind.Text || node.StaticText is not null)

@@ -49,4 +49,5 @@ public static class UiPlatformEventKind
     public const uint TextInput = 7;
     public const uint ThemeChanged = 8;
     public const uint DpiChanged = 9;
+    public const uint PointerCancel = 10;
 }
