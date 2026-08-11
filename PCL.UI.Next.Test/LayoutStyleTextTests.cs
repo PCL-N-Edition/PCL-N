@@ -5,7 +5,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace PCL.UI.Next.Test;
 
 [TestClass]
-public sealed class Phase3LayoutStyleTextTests
+public sealed class LayoutStyleTextTests
 {
     [TestMethod]
     public void StackLayout_MeasuresTextAndArrangesGap()
@@ -444,7 +444,7 @@ public sealed class Phase3LayoutStyleTextTests
     }
 
     [TestMethod]
-    public void Phase3RuntimeDispose_ReleasesActiveTextHandles()
+    public void LayoutRuntimeDispose_ReleasesActiveTextHandles()
     {
         TestContext context = Create(new UiSize(200f, 100f));
         context.Instantiator.Instantiate(Ui.Compile(Ui.Text("active")), context.Scope);
@@ -494,7 +494,7 @@ public sealed class Phase3LayoutStyleTextTests
     {
         UiWorld world = new(new DeterministicUiClock());
         DeterministicTextEngine text = new();
-        UiPhase3Runtime runtime = new(world, text, viewport, applyDefaults, textCacheCapacity);
+        UiLayoutRuntime runtime = new(world, text, viewport, applyDefaults, textCacheCapacity);
         UiScopeId scope = world.CreateRootScope();
         PresentationStore store = new();
         BlueprintInstantiator instantiator = new(world, store);
@@ -506,12 +506,12 @@ public sealed class Phase3LayoutStyleTextTests
         int guard = 0;
         while (world.Scheduler.NeedsFrame && guard++ < 8)
             Assert.IsTrue(world.Update());
-        Assert.IsFalse(world.Scheduler.NeedsFrame, "Phase 3 runtime did not settle to idle.");
+        Assert.IsFalse(world.Scheduler.NeedsFrame, "Layout runtime did not settle to idle.");
     }
 
     private sealed record TestContext(
         UiWorld World,
-        UiPhase3Runtime Runtime,
+        UiLayoutRuntime Runtime,
         DeterministicTextEngine TextEngine,
         UiScopeId Scope,
         PresentationStore Store,

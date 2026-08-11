@@ -4,8 +4,8 @@
 namespace PCL.UI.Next;
 
 /// <summary>
-/// Platform event envelope for Phase 1. Payload is untyped integer slots
-/// (no GC); higher phases will refine pointer/keyboard specialized events.
+/// Platform event envelope. Payload is untyped integer slots (no GC);
+/// specialized input systems normalize pointer and keyboard events.
 /// </summary>
 public readonly struct UiPlatformEvent
 {

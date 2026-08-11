@@ -69,7 +69,7 @@ public static class UiBlueprintCompiler
         {
             throw new InvalidOperationException(
                 $"Node kind {node.Kind} declares {node.StyleClassIds.Count} style classes; " +
-                $"max is {StyleClassSet.MaxInlineCount} in Phase 2.");
+                $"the inline maximum is {StyleClassSet.MaxInlineCount}.");
         }
 
         int index = drafts.Count;

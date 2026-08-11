@@ -3,7 +3,7 @@
 
 namespace PCL.UI.Next;
 
-/// <summary>Composition root for P4 input, hit testing, interaction, focus and gestures.</summary>
+/// <summary>Composition root for input, hit testing, interaction, focus and gestures.</summary>
 public sealed class UiInputRuntime : IDisposable
 {
     private readonly List<UiInputEvent> _normalized = [];

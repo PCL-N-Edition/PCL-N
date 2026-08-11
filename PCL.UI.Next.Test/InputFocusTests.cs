@@ -6,7 +6,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace PCL.UI.Next.Test;
 
 [TestClass]
-public sealed class Phase4InputFocusTests
+public sealed class InputFocusTests
 {
     [TestMethod]
     public void HitTest_UsesReverseSiblingRenderOrder()
@@ -548,7 +548,7 @@ public sealed class Phase4InputFocusTests
         DeterministicUiClock clock = new();
         UiWorld world = new(clock);
         DeterministicTextEngine text = new();
-        UiPhase4Runtime runtime = new(world, text, viewport);
+        UiInteractiveRuntime runtime = new(world, text, viewport);
         UiScopeId scope = world.CreateRootScope();
         PresentationStore store = new();
         BlueprintInstantiator instantiator = new(world, store);
@@ -622,7 +622,7 @@ public sealed class Phase4InputFocusTests
         int guard = 0;
         while (world.Scheduler.NeedsFrame && guard++ < 12)
             Assert.IsTrue(world.Update());
-        Assert.IsFalse(world.Scheduler.NeedsFrame, "P4 runtime did not settle to idle.");
+        Assert.IsFalse(world.Scheduler.NeedsFrame, "Interactive runtime did not settle to idle.");
     }
 
     private sealed class TestContext : IDisposable
@@ -630,7 +630,7 @@ public sealed class Phase4InputFocusTests
         public TestContext(
             DeterministicUiClock clock,
             UiWorld world,
-            UiPhase4Runtime runtime,
+            UiInteractiveRuntime runtime,
             UiScopeId scope,
             BlueprintInstantiator instantiator)
         {
@@ -643,7 +643,7 @@ public sealed class Phase4InputFocusTests
 
         public DeterministicUiClock Clock { get; }
         public UiWorld World { get; }
-        public UiPhase4Runtime Runtime { get; }
+        public UiInteractiveRuntime Runtime { get; }
         public UiScopeId Scope { get; }
         public BlueprintInstantiator Instantiator { get; }
 

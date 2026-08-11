@@ -3,7 +3,7 @@
 
 namespace PCL.UI.Next;
 
-/// <summary>Authoring / blueprint node kinds (Phase 2).</summary>
+/// <summary>Authoring and blueprint node kinds.</summary>
 public enum UiNodeKind : byte
 {
     None = 0,

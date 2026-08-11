@@ -3,8 +3,8 @@
 
 namespace PCL.UI.Next;
 
-/// <summary>Composition root for the Phase 3 style, text and incremental layout systems.</summary>
-public sealed class UiPhase3Runtime : IDisposable
+/// <summary>Composition root for style, text and incremental layout systems.</summary>
+public sealed class UiLayoutRuntime : IDisposable
 {
     private readonly StyleSystem _styleSystem;
     private readonly TextMeasureSystem _textMeasureSystem;
@@ -12,7 +12,7 @@ public sealed class UiPhase3Runtime : IDisposable
     private readonly LayoutArrangeSystem _layoutArrangeSystem;
     private bool _disposed;
 
-    public UiPhase3Runtime(
+    public UiLayoutRuntime(
         UiWorld world,
         ITextEngine textEngine,
         UiSize viewport,

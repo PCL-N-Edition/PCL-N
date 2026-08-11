@@ -6,7 +6,7 @@ namespace PCL.UI.Next;
 /// <summary>
 /// Per-frame scratch buffers drained from queues for system consumption.
 /// Lists are reused across frames (Clear, not re-allocate) to avoid GC on the hot path
-/// once real workloads land; Phase 1 still uses managed lists intentionally.
+/// once real workloads land; the current implementation uses managed lists intentionally.
 /// </summary>
 public sealed class UiFrameBuffers
 {

@@ -4,7 +4,7 @@
 namespace PCL.UI.Next;
 
 /// <summary>
-/// Style class identity used by authoring. Phase 2 stores a stable integer id
+/// Style class identity used by authoring. The runtime stores a stable integer id
 /// (string name is optional diagnostics only).
 /// </summary>
 public readonly struct UiClass : IEquatable<UiClass>

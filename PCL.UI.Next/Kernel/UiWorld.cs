@@ -4,7 +4,7 @@
 namespace PCL.UI.Next;
 
 /// <summary>
-/// Phase 1 ECS world: registry, scopes, hierarchy, components, dirty sets, queues, pipeline.
+/// ECS world: registry, scopes, hierarchy, components, dirty sets, queues and pipeline.
 /// Single-owner-thread write model (architecture ADR-010).
 /// </summary>
 public sealed class UiWorld

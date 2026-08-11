@@ -4,7 +4,7 @@
 namespace PCL.UI.Next;
 
 /// <summary>
-/// Versioned presentation-state bag for Phase 2 bindings.
+/// Versioned presentation-state bag consumed by compiled bindings.
 /// Business services must not be stored here — only UI-facing slices.
 /// </summary>
 public sealed class PresentationStore

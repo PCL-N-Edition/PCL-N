@@ -671,7 +671,7 @@ public sealed class LayoutEngine
     }
 
     private static NotSupportedException UnsupportedIntrinsicLength(UiLengthKind kind) =>
-        new($"{kind} layout semantics are not implemented in Phase 3.");
+        new($"{kind} intrinsic layout semantics are not implemented.");
 
     private static float AlignHorizontal(float start, float available, float size, UiHorizontalAlignment alignment) =>
         alignment switch

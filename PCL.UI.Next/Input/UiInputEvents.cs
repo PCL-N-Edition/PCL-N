@@ -148,7 +148,7 @@ public enum UiInputEventKind : byte
     Key = 1
 }
 
-/// <summary>Normalized per-frame input union consumed by the P4 systems.</summary>
+/// <summary>Normalized per-frame input union consumed by interactive systems.</summary>
 public readonly struct UiInputEvent
 {
     private UiInputEvent(UiPointerEvent pointer)

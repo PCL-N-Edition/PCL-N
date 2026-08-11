@@ -15,14 +15,14 @@ public struct NodeKindComponent
     public UiNodeKind Kind { get; set; }
 }
 
-/// <summary>Phase-2 text payload (string is acceptable off hot animation path).</summary>
+/// <summary>Text payload; managed strings are acceptable off the hot animation path.</summary>
 public struct TextContent
 {
     public string? Value { get; set; }
 }
 
 /// <summary>
-/// Inline style classes (hot path). Phase 2: max 4 classes; more throws at authoring/runtime.
+/// Inline style classes for the hot path. Overflow storage is not implemented yet.
 /// Future: overflow via StyleClassStore handle.
 /// </summary>
 public struct StyleClassSet
@@ -41,7 +41,7 @@ public struct StyleClassSet
         {
             throw new ArgumentException(
                 $"StyleClassSet supports at most {MaxInlineCount} inline classes; got {ids.Length}. " +
-                "Overflow store is not implemented in Phase 2.",
+                "Style-class overflow storage is not implemented.",
                 nameof(ids));
         }
 

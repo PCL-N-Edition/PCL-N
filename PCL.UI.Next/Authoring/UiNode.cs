@@ -70,8 +70,8 @@ public sealed class UiNode
         if (StyleClassIds.Count >= StyleClassSet.MaxInlineCount)
         {
             throw new InvalidOperationException(
-                $"A node may declare at most {StyleClassSet.MaxInlineCount} style classes in Phase 2 " +
-                "(inline StyleClassSet). Class '" + (styleClass.Name ?? styleClass.Id.ToString()) + "' was rejected.");
+                $"A node may declare at most {StyleClassSet.MaxInlineCount} inline style classes. " +
+                "Class '" + (styleClass.Name ?? styleClass.Id.ToString()) + "' was rejected.");
         }
 
         StyleClassIds.Add(styleClass.Id);
