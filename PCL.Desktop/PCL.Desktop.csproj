@@ -193,6 +193,7 @@
     <ProjectReference Include="../PCL.Platform/PCL.Platform.csproj" />
     <ProjectReference Include="../PCL.UI.Abstractions/PCL.UI.Abstractions.csproj" />
     <ProjectReference Include="../PCL.UI.Next/PCL.UI.Next.csproj" />
+    <ProjectReference Include="../PCL.UI.Next.Backend.Avalonia/PCL.UI.Next.Backend.Avalonia.csproj" />
   </ItemGroup>
   <Import Project="GenerateEmbeddedSecrets.targets" />
   <!--

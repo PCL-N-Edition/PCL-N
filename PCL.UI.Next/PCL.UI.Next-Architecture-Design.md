@@ -2617,6 +2617,27 @@ public interface IUiBackend
 }
 ```
 
+当前 Rendering 实现冻结以下契约：
+
+- `UiRenderingRuntime` 必须绑定一个显式 Window/Surface `UiScopeId`；一个
+  `UiWorld` 中的多个窗口分别拥有独立 `RenderScene` 与 Backend Commit，不能把
+  ApplicationScope 下的所有窗口隐式合并到同一个 Surface；
+- `RenderNodeId` 使用 `Index + Generation`，Entity slot 或 RenderNode slot 复用后，
+  旧 mutation 无法命中新节点；
+- `RenderNode` 的 Transform / Opacity 是相对 Parent 的局部值，由 Backend retained
+  tree 合成。父节点动画只提交父节点 mutation，不向所有后代展开；
+- `RenderDiffSystem` 只消费 `UiDirtyFlags.Render` 和结构版本变化。无视觉变化的强制帧
+  不产生空 `UiCommitBatch`，也不调用 Backend；
+- 结构销毁按 child-before-parent 提交；仍存活的子树必须先 `SetParent`，再销毁旧父节点；
+- `UiCommitBatch` 在跨越 Backend 边界后不可变，Backend Commit 不允许回调 Runtime；
+- `UiBackendCapabilities` 只能声明当前真正实现的能力。尚未实现的 Clip / Blur /
+  Shadow / Vector / Accessibility 不得提前宣称支持；
+- 第一版 Avalonia Backend 使用一个 `PclUiSurface` 绘制 retained state，不为每个
+  Entity 创建 Avalonia Control；文本由 `AvaloniaTextEngine` 复用 Avalonia 的成熟
+  shaping / fallback 实现；
+- `HeadlessUiBackend` 与 Avalonia retained state 都会验证 node generation、父节点存在性、
+  parent cycle 和严格递增的 FrameId。
+
 ---
 
 # 78. Avalonia Backend

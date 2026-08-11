@@ -14,6 +14,9 @@
   <Project Path="PCL.Application.Test\PCL.Application.Test.csproj" />
   <Project Path="PCL.UI.Abstractions\PCL.UI.Abstractions.csproj" />
   <Project Path="PCL.UI.Next\PCL.UI.Next.csproj" />
+  <Project Path="PCL.UI.Next.Backend.Avalonia\PCL.UI.Next.Backend.Avalonia.csproj" />
+  <Project Path="PCL.UI.Next.Backend.Avalonia.Test\PCL.UI.Next.Backend.Avalonia.Test.csproj" />
+  <Project Path="PCL.UI.Next.Playground\PCL.UI.Next.Playground.csproj" />
   <Project Path="PCL.UI.Next.Test\PCL.UI.Next.Test.csproj" />
   <Project Path="PCL.Desktop.SourceGenerators\PCL.Desktop.SourceGenerators.csproj" />
   <Project Path="PCL.Desktop\PCL.Desktop.csproj" />

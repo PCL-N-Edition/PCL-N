@@ -1,0 +1,23 @@
+<!--
+  Copyright (c) 2026 PCL N contributors.
+  Licensed under the Apache License, Version 2.0.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PCL.UI.Next.Playground</AssemblyName>
+    <RootNamespace>PCL.UI.Next.Playground</RootNamespace>
+    <LangVersion>14.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <NoWarn>$(NoWarn);CA1716;CA1512</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
+    <ProjectReference Include="..\PCL.UI.Next\PCL.UI.Next.csproj" />
+    <ProjectReference Include="..\PCL.UI.Next.Backend.Avalonia\PCL.UI.Next.Backend.Avalonia.csproj" />
+  </ItemGroup>
+</Project>
