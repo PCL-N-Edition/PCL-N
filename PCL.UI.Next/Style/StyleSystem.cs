@@ -4,7 +4,7 @@
 namespace PCL.UI.Next;
 
 /// <summary>Resolves class/state rules to a single target style and propagates precise dirtiness.</summary>
-public sealed class StyleSystem : IUiSystem
+public sealed class StyleSystem : IUiSystem, IDisposable
 {
     private readonly UiWorld _world;
     private readonly ThemeRegistry _theme;
@@ -13,6 +13,7 @@ public sealed class StyleSystem : IUiSystem
     private readonly List<UiEntity> _entities = [];
     private readonly List<UiEntity> _dirty = [];
     private ulong _styleSheetVersion;
+    private bool _disposed;
 
     public StyleSystem(UiWorld world, ThemeRegistry theme, UiStyleSheet styles)
     {
@@ -29,6 +30,7 @@ public sealed class StyleSystem : IUiSystem
 
     public void Update(UiWorld world, in UiFrameContext frame)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         _ = frame;
         _changedTokens.Clear();
         _theme.DrainChangedTokens(_changedTokens);
@@ -49,6 +51,15 @@ public sealed class StyleSystem : IUiSystem
                 continue;
             ResolveSubtree(world, entity);
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _theme.TokenChanged -= OnExternalStyleChanged;
+        _styles.Changed -= OnExternalStyleChanged;
+        _disposed = true;
     }
 
     private void MarkAffectedEntities(UiWorld world, bool sheetChanged)

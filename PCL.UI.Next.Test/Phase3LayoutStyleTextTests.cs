@@ -128,6 +128,145 @@ public sealed class Phase3LayoutStyleTextTests
     }
 
     [TestMethod]
+    public void WrappedText_UsesParentAvailableWidth()
+    {
+        TestContext context = Create(new UiSize(200f, 200f));
+        BlueprintInstance live = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Column(
+                Ui.Text("很长很长很长很长很长很长很长很长很长很长")
+                    .Class(UiClass.Body)
+                    .WrapText(500f))),
+            context.Scope);
+
+        Drain(context.World);
+
+        TextLayout layout = context.World.Components.Get<TextLayout>(live.EntityAt(1));
+        Assert.IsTrue(layout.Size.Width <= 200f);
+        Assert.IsTrue(layout.Size.Height > 14f * 1.2f);
+    }
+
+    [TestMethod]
+    public void WrappedText_RemeasuresOnViewportShrink()
+    {
+        TestContext context = Create(new UiSize(600f, 200f));
+        BlueprintInstance live = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Text("很长很长很长很长很长很长很长很长很长很长")
+                .Class(UiClass.Body)
+                .WrapText(500f)),
+            context.Scope);
+        Drain(context.World);
+        TextLayout before = context.World.Components.Get<TextLayout>(live.RootEntity);
+
+        context.Runtime.SetViewport(new UiSize(200f, 200f));
+        Drain(context.World);
+        TextLayout after = context.World.Components.Get<TextLayout>(live.RootEntity);
+
+        Assert.AreNotEqual(before.Handle, after.Handle);
+        Assert.IsTrue(after.Size.Height > before.Size.Height);
+        Assert.IsTrue(after.Size.Width <= 200f);
+    }
+
+    [TestMethod]
+    public void WrappedText_InFixedGridTrackUsesTrackWidth()
+    {
+        TestContext context = Create(new UiSize(300f, 200f));
+        UiGridDefinition grid = new(
+            [UiGridTrack.Fixed(100f), UiGridTrack.Star()],
+            [UiGridTrack.Auto()]);
+        BlueprintInstance live = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Grid(
+                grid,
+                Ui.Text("很长很长很长很长很长很长很长很长")
+                    .Class(UiClass.Body)
+                    .WrapText(500f)
+                    .GridCell(0, 0))),
+            context.Scope);
+
+        Drain(context.World);
+
+        TextLayout layout = context.World.Components.Get<TextLayout>(live.EntityAt(1));
+        Assert.IsTrue(layout.Size.Width <= 100f);
+        Assert.IsTrue(layout.Size.Height > 14f * 1.2f);
+    }
+
+    [TestMethod]
+    public void WrappedText_InPercentWidthUsesResolvedConstraint()
+    {
+        TestContext context = Create(new UiSize(200f, 200f));
+        BlueprintInstance live = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Text("很长很长很长很长很长很长很长很长")
+                .Class(UiClass.Body)
+                .Width(UiLength.Percent(0.5f))
+                .WrapText(500f)),
+            context.Scope);
+
+        Drain(context.World);
+
+        TextLayout layout = context.World.Components.Get<TextLayout>(live.RootEntity);
+        Assert.IsTrue(layout.Size.Width <= 100f);
+        Assert.AreEqual(100f, context.World.Components.Get<LayoutRect>(live.RootEntity).Value.Width, 0.001f);
+    }
+
+    [TestMethod]
+    public void StarMax_RedistributesRemainingSpace()
+    {
+        (float first, float second) = MeasureTwoStarColumns(
+            300f,
+            UiGridTrack.Star(1f, min: 100f, max: 100f),
+            UiGridTrack.Star());
+        Assert.AreEqual(100f, first, 0.001f);
+        Assert.AreEqual(200f, second, 0.001f);
+    }
+
+    [TestMethod]
+    public void StarMin_RedistributesDeficit()
+    {
+        (float first, float second) = MeasureTwoStarColumns(
+            300f,
+            UiGridTrack.Star(1f, min: 200f),
+            UiGridTrack.Star());
+        Assert.AreEqual(200f, first, 0.001f);
+        Assert.AreEqual(100f, second, 0.001f);
+    }
+
+    [TestMethod]
+    public void MultipleStarMinMax_Converges()
+    {
+        TestContext context = Create(new UiSize(600f, 100f));
+        UiGridDefinition definition = new(
+            [
+                UiGridTrack.Star(1f, max: 100f),
+                UiGridTrack.Star(1f, min: 200f, max: 250f),
+                UiGridTrack.Star(2f)
+            ],
+            [UiGridTrack.Star()]);
+        BlueprintInstance live = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Grid(
+                definition,
+                Ui.Container().GridCell(0, 0),
+                Ui.Container().GridCell(0, 1),
+                Ui.Container().GridCell(0, 2))),
+            context.Scope);
+
+        Drain(context.World);
+
+        Assert.AreEqual(100f, context.World.Components.Get<LayoutRect>(live.EntityAt(1)).Value.Width, 0.001f);
+        Assert.AreEqual(200f, context.World.Components.Get<LayoutRect>(live.EntityAt(2)).Value.Width, 0.001f);
+        Assert.AreEqual(300f, context.World.Components.Get<LayoutRect>(live.EntityAt(3)).Value.Width, 0.001f);
+    }
+
+    [TestMethod]
+    public void StarWeights_WithClampedTrack()
+    {
+        (float first, float second) = MeasureTwoStarColumns(
+            500f,
+            UiGridTrack.Star(1f, max: 100f),
+            UiGridTrack.Star(3f));
+        Assert.AreEqual(100f, first, 0.001f);
+        Assert.AreEqual(400f, second, 0.001f);
+    }
+
+    [TestMethod]
     public void ThemeTokenChange_InvalidatesOnlyDependentTextStyle()
     {
         TestContext context = Create(new UiSize(300f, 100f), applyDefaults: false);
@@ -240,11 +379,122 @@ public sealed class Phase3LayoutStyleTextTests
         Assert.IsTrue(after > before);
     }
 
-    private static TestContext Create(UiSize viewport, bool applyDefaults = true)
+    [TestMethod]
+    public void AutoSizedBoundary_PropagatesWhenDesiredSizeChanges()
+    {
+        const int slice = 83;
+        TestContext context = Create(new UiSize(400f, 100f));
+        context.Store.Set(slice, "A");
+        UiSelector<string> text = UiSelectors.String(903, slice, s => s.Get<string>(slice));
+        BlueprintInstance live = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Column(
+                Ui.Container(Ui.Text().BindText(text).Class(UiClass.Body))
+                    .LayoutBoundary())),
+            context.Scope);
+        Drain(context.World);
+        float before = context.World.Components.Get<DesiredSize>(live.RootEntity).Value.Width;
+
+        context.Store.Set(slice, "A much much longer boundary value");
+        Assert.IsTrue(context.World.Update());
+        float after = context.World.Components.Get<DesiredSize>(live.RootEntity).Value.Width;
+
+        Assert.IsTrue(after > before);
+        Assert.IsTrue(context.Runtime.Layout.LastMeasureCount > 2);
+    }
+
+    [TestMethod]
+    public void FixedBoundary_StopsPropagationWhenDesiredSizeStable()
+    {
+        const int slice = 84;
+        TestContext context = Create(new UiSize(400f, 100f));
+        context.Store.Set(slice, "A");
+        UiSelector<string> text = UiSelectors.String(904, slice, s => s.Get<string>(slice));
+        BlueprintInstance live = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Column(
+                Ui.Container(Ui.Text().BindText(text).Class(UiClass.Body))
+                    .Width(UiLength.Pixels(100f))
+                    .Height(UiLength.Pixels(30f))
+                    .LayoutBoundary())),
+            context.Scope);
+        Drain(context.World);
+        UiSize before = context.World.Components.Get<DesiredSize>(live.RootEntity).Value;
+
+        context.Store.Set(slice, "A much much longer fixed boundary value");
+        Assert.IsTrue(context.World.Update());
+        UiSize after = context.World.Components.Get<DesiredSize>(live.RootEntity).Value;
+
+        Assert.AreEqual(before, after);
+        Assert.AreEqual(2, context.Runtime.Layout.LastMeasureCount);
+    }
+
+    [TestMethod]
+    public void TextCache_EvictsLeastRecentlyUsedUnusedEntries()
+    {
+        TestContext context = Create(new UiSize(200f, 100f), textCacheCapacity: 2);
+        foreach (string value in new[] { "one", "two", "three" })
+        {
+            BlueprintInstance live = context.Instantiator.Instantiate(Ui.Compile(Ui.Text(value)), context.Scope);
+            Drain(context.World);
+            context.Instantiator.Destroy(live);
+        }
+
+        Assert.AreEqual(2, context.Runtime.TextCache.Count);
+        Assert.AreEqual(2, context.TextEngine.LayoutCount);
+        Assert.IsTrue(context.TextEngine.ReleaseCount >= 1);
+    }
+
+    [TestMethod]
+    public void Phase3RuntimeDispose_ReleasesActiveTextHandles()
+    {
+        TestContext context = Create(new UiSize(200f, 100f));
+        context.Instantiator.Instantiate(Ui.Compile(Ui.Text("active")), context.Scope);
+        Drain(context.World);
+        Assert.AreEqual(1, context.TextEngine.LayoutCount);
+
+        context.Runtime.Dispose();
+
+        Assert.AreEqual(0, context.TextEngine.LayoutCount);
+        Assert.AreEqual(1, context.TextEngine.ReleaseCount);
+    }
+
+    [TestMethod]
+    public void MinContent_IsExplicitlyUnsupportedUntilSolverExists()
+    {
+        TestContext context = Create(new UiSize(200f, 100f));
+        context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Container().Width(new UiLength(UiLengthKind.MinContent, 0f))),
+            context.Scope);
+
+        Assert.ThrowsExactly<NotSupportedException>(() => context.World.Update());
+    }
+
+    private static (float First, float Second) MeasureTwoStarColumns(
+        float width,
+        UiGridTrack firstTrack,
+        UiGridTrack secondTrack)
+    {
+        TestContext context = Create(new UiSize(width, 100f));
+        UiGridDefinition definition = new([firstTrack, secondTrack], [UiGridTrack.Star()]);
+        BlueprintInstance live = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Grid(
+                definition,
+                Ui.Container().GridCell(0, 0),
+                Ui.Container().GridCell(0, 1))),
+            context.Scope);
+        Drain(context.World);
+        return (
+            context.World.Components.Get<LayoutRect>(live.EntityAt(1)).Value.Width,
+            context.World.Components.Get<LayoutRect>(live.EntityAt(2)).Value.Width);
+    }
+
+    private static TestContext Create(
+        UiSize viewport,
+        bool applyDefaults = true,
+        int textCacheCapacity = 512)
     {
         UiWorld world = new(new DeterministicUiClock());
         DeterministicTextEngine text = new();
-        UiPhase3Runtime runtime = new(world, text, viewport, applyDefaults);
+        UiPhase3Runtime runtime = new(world, text, viewport, applyDefaults, textCacheCapacity);
         UiScopeId scope = world.CreateRootScope();
         PresentationStore store = new();
         BlueprintInstantiator instantiator = new(world, store);

@@ -60,6 +60,9 @@ public sealed class UiWorld
 
     public long FrameIndex => _frameIndex;
 
+    /// <summary>Runtime-owned resource stores release entity-scoped handles before components disappear.</summary>
+    public event Action<UiEntity>? EntityDestroying;
+
     public UiScopeId CreateRootScope() => Scopes.CreateRoot();
 
     public UiScopeId CreateScope(UiScopeId parent) => Scopes.Create(parent);
@@ -182,6 +185,7 @@ public sealed class UiWorld
     {
         if (!Entities.IsAlive(entity))
             return;
+        EntityDestroying?.Invoke(entity);
         Components.RemoveAll(entity);
         Dirty.RemoveEntity(entity);
         Hierarchy.RemoveNode(entity);

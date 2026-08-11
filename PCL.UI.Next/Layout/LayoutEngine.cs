@@ -12,18 +12,23 @@ namespace PCL.UI.Next;
 public sealed class LayoutEngine
 {
     private readonly UiWorld _world;
+    private readonly TextMeasurementService _textMeasurement;
     private readonly List<UiEntity> _dirty = [];
     private readonly List<UiEntity> _roots = [];
     private readonly List<UiEntity> _entities = [];
     private UiSize _viewport;
 
-    public LayoutEngine(UiWorld world, UiSize viewport)
+    public LayoutEngine(UiWorld world, UiSize viewport, TextMeasurementService textMeasurement)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
+        _textMeasurement = textMeasurement ?? throw new ArgumentNullException(nameof(textMeasurement));
         _viewport = NormalizeViewport(viewport);
     }
 
     public UiSize Viewport => _viewport;
+
+    /// <summary>Diagnostics: entities that performed real measure work in the latest layout phase.</summary>
+    public int LastMeasureCount { get; private set; }
 
     public void SetViewport(UiSize viewport)
     {
@@ -46,23 +51,37 @@ public sealed class LayoutEngine
 
     internal void Measure()
     {
-        _dirty.Clear();
-        _world.Dirty.Collect(UiDirtyFlags.LayoutMeasure, _dirty);
-        _roots.Clear();
-        for (int i = 0; i < _dirty.Count; i++)
+        LastMeasureCount = 0;
+        const int maxBoundaryPasses = 64;
+        for (int pass = 0; pass < maxBoundaryPasses; pass++)
         {
-            UiEntity entity = _dirty[i];
-            if (!_world.Entities.IsAlive(entity) || HasDirtyParent(entity, UiDirtyFlags.LayoutMeasure))
-                continue;
-            _roots.Add(entity);
+            _dirty.Clear();
+            _world.Dirty.Collect(UiDirtyFlags.LayoutMeasure, _dirty);
+            if (_dirty.Count == 0)
+                return;
+
+            _roots.Clear();
+            for (int i = 0; i < _dirty.Count; i++)
+            {
+                UiEntity entity = _dirty[i];
+                if (!_world.Entities.IsAlive(entity) || HasDirtyParent(entity, UiDirtyFlags.LayoutMeasure))
+                    continue;
+                _roots.Add(entity);
+            }
+
+            for (int i = 0; i < _roots.Count; i++)
+            {
+                UiEntity root = _roots[i];
+                UiSize available = GetMeasureAvailable(root);
+                MeasureEntity(root, available);
+            }
         }
 
-        for (int i = 0; i < _roots.Count; i++)
-        {
-            UiEntity root = _roots[i];
-            UiSize available = GetMeasureAvailable(root);
-            MeasureEntity(root, available);
-        }
+        _dirty.Clear();
+        _world.Dirty.Collect(UiDirtyFlags.LayoutMeasure, _dirty);
+        if (_dirty.Count == 0)
+            return;
+        throw new InvalidOperationException("Layout boundary measure propagation did not converge.");
     }
 
     internal void Arrange()
@@ -96,6 +115,7 @@ public sealed class LayoutEngine
                            (_world.Dirty.GetFlags(entity) & UiDirtyFlags.LayoutMeasure) != 0;
         if (!mustMeasure)
             return _world.Components.Get<DesiredSize>(entity).Value;
+        LastMeasureCount++;
 
         LayoutStyle style = GetLayoutStyle(entity);
         UiThickness padding = GetPadding(entity, in style);
@@ -121,14 +141,22 @@ public sealed class LayoutEngine
         _world.Set(entity, new DesiredSize { Value = desired });
         _world.Dirty.Clear(entity, UiDirtyFlags.LayoutMeasure);
         if (changed)
+        {
             _world.Dirty.Mark(entity, UiDirtyFlags.LayoutArrange);
+            if (style.IsMeasureBoundary &&
+                _world.Hierarchy.TryGetNode(entity, out HierarchyNode node) &&
+                _world.Entities.IsAlive(node.Parent))
+            {
+                LayoutInvalidation.MarkMeasure(_world, node.Parent, requestFrame: false);
+            }
+        }
         return desired;
     }
 
     private UiSize MeasureContent(UiEntity entity, UiSize available)
     {
-        if (_world.Components.TryGet(entity, out TextLayout text))
-            return text.Size;
+        if (_world.Components.Has<TextContent>(entity))
+            return _textMeasurement.Resolve(entity, available.Width);
         if (_world.Components.TryGet(entity, out StackLayout stack))
             return MeasureStack(entity, available, in stack);
         if (_world.Components.TryGet(entity, out GridLayout grid))
@@ -211,19 +239,24 @@ public sealed class LayoutEngine
 
     private UiSize MeasureGrid(UiEntity entity, UiSize available, in GridLayout grid)
     {
-        UiEntity child = FirstChild(entity);
-        while (child != UiEntity.None)
-        {
-            MeasureEntity(child, available);
-            child = NextSibling(child);
-        }
-
         ReadOnlySpan<UiGridTrack> columns = _world.LayoutResources.GetColumns(grid.Tracks);
         ReadOnlySpan<UiGridTrack> rows = _world.LayoutResources.GetRows(grid.Tracks);
         float[] columnSizes = ArrayPool<float>.Shared.Rent(columns.Length);
         float[] rowSizes = ArrayPool<float>.Shared.Rent(rows.Length);
         try
         {
+            // Resolve content-independent tracks first so constrained children (notably
+            // wrapped text) see their actual fixed/star cell width during this measure.
+            InitializeTracks(columns, columnSizes);
+            InitializeTracks(rows, rowSizes);
+            ResolveStars(columns, columnSizes, available.Width, grid.ColumnGap);
+            ResolveStars(rows, rowSizes, available.Height, grid.RowGap);
+            MeasureGridChildren(entity, columns, rows, columnSizes, rowSizes, grid.ColumnGap, grid.RowGap);
+
+            // Auto/content contributions can change the remaining star space. Recompute,
+            // then remeasure once with the final constrained track widths in the same pass.
+            ComputeGridTracks(entity, columns, rows, available, grid.ColumnGap, grid.RowGap, columnSizes, rowSizes);
+            MeasureGridChildren(entity, columns, rows, columnSizes, rowSizes, grid.ColumnGap, grid.RowGap);
             ComputeGridTracks(entity, columns, rows, available, grid.ColumnGap, grid.RowGap, columnSizes, rowSizes);
             return new UiSize(
                 Sum(columnSizes, columns.Length) + GapTotal(grid.ColumnGap, columns.Length),
@@ -233,6 +266,26 @@ public sealed class LayoutEngine
         {
             ArrayPool<float>.Shared.Return(columnSizes);
             ArrayPool<float>.Shared.Return(rowSizes);
+        }
+    }
+
+    private void MeasureGridChildren(
+        UiEntity entity,
+        ReadOnlySpan<UiGridTrack> columns,
+        ReadOnlySpan<UiGridTrack> rows,
+        float[] columnSizes,
+        float[] rowSizes,
+        float columnGap,
+        float rowGap)
+    {
+        UiEntity child = FirstChild(entity);
+        while (child != UiEntity.None)
+        {
+            GridPlacement placement = GetGridPlacement(child, columns.Length, rows.Length);
+            float width = GridMeasureConstraint(columns, columnSizes, placement.Column, placement.ColumnSpan, columnGap);
+            float height = GridMeasureConstraint(rows, rowSizes, placement.Row, placement.RowSpan, rowGap);
+            MeasureEntity(child, new UiSize(width, height));
+            child = NextSibling(child);
         }
     }
 
@@ -443,24 +496,86 @@ public sealed class LayoutEngine
         if (!float.IsFinite(available))
             return;
         float nonStar = GapTotal(gap, tracks.Length);
-        float weight = 0f;
+        float remainingWeight = 0f;
+        int unresolved = 0;
         for (int i = 0; i < tracks.Length; i++)
         {
             if (tracks[i].Kind == UiGridTrackKind.Star)
-                weight += tracks[i].Value;
+            {
+                remainingWeight += tracks[i].Value;
+                unresolved++;
+            }
             else
                 nonStar += sizes[i];
         }
-        if (weight <= 0f)
+        if (remainingWeight <= 0f)
             return;
 
-        float remaining = Math.Max(0f, available - nonStar);
-        for (int i = 0; i < tracks.Length; i++)
+        float remainingSpace = available - nonStar;
+        bool[] frozen = ArrayPool<bool>.Shared.Rent(tracks.Length);
+        Array.Clear(frozen, 0, tracks.Length);
+        try
         {
-            UiGridTrack track = tracks[i];
-            if (track.Kind == UiGridTrackKind.Star)
-                sizes[i] = ClampDimension(remaining * track.Value / weight, track.Min, track.Max);
+            while (unresolved > 0)
+            {
+                bool frozeAny = false;
+                for (int i = 0; i < tracks.Length; i++)
+                {
+                    UiGridTrack track = tracks[i];
+                    if (track.Kind != UiGridTrackKind.Star || frozen[i])
+                        continue;
+
+                    float tentative = remainingWeight > 0f
+                        ? remainingSpace * track.Value / remainingWeight
+                        : 0f;
+                    float min = Math.Max(0f, float.IsNaN(track.Min) ? 0f : track.Min);
+                    float max = float.IsNaN(track.Max) || track.Max < min ? min : track.Max;
+                    if (tentative >= min && tentative <= max)
+                        continue;
+
+                    float fixedSize = tentative < min ? min : max;
+                    sizes[i] = fixedSize;
+                    frozen[i] = true;
+                    unresolved--;
+                    remainingSpace -= fixedSize;
+                    remainingWeight -= track.Value;
+                    frozeAny = true;
+                }
+
+                if (frozeAny)
+                    continue;
+
+                for (int i = 0; i < tracks.Length; i++)
+                {
+                    UiGridTrack track = tracks[i];
+                    if (track.Kind == UiGridTrackKind.Star && !frozen[i])
+                        sizes[i] = remainingWeight > 0f
+                            ? remainingSpace * track.Value / remainingWeight
+                            : 0f;
+                }
+                break;
+            }
         }
+        finally
+        {
+            ArrayPool<bool>.Shared.Return(frozen, clearArray: true);
+        }
+    }
+
+    private static float GridMeasureConstraint(
+        ReadOnlySpan<UiGridTrack> tracks,
+        float[] sizes,
+        int start,
+        int span,
+        float gap)
+    {
+        int end = Math.Min(tracks.Length, start + span);
+        for (int i = start; i < end; i++)
+        {
+            if (tracks[i].Kind == UiGridTrackKind.Auto)
+                return float.PositiveInfinity;
+        }
+        return SpanSize(sizes, start, span, gap);
     }
 
     private GridPlacement GetGridPlacement(UiEntity child, int columnCount, int rowCount)
@@ -527,6 +642,7 @@ public sealed class LayoutEngine
         {
             UiLengthKind.Pixels => Math.Max(0f, length.Value),
             UiLengthKind.Percent when float.IsFinite(available) => Math.Max(0f, available * length.Value),
+            UiLengthKind.MinContent or UiLengthKind.MaxContent => throw UnsupportedIntrinsicLength(length.Kind),
             _ => available
         };
     }
@@ -537,6 +653,7 @@ public sealed class LayoutEngine
         {
             UiLengthKind.Pixels => Math.Max(0f, length.Value),
             UiLengthKind.Percent when float.IsFinite(available) => Math.Max(0f, available * length.Value),
+            UiLengthKind.MinContent or UiLengthKind.MaxContent => throw UnsupportedIntrinsicLength(length.Kind),
             _ => natural
         };
     }
@@ -547,10 +664,14 @@ public sealed class LayoutEngine
         {
             UiLengthKind.Pixels => Math.Max(0f, length.Value),
             UiLengthKind.Percent => Math.Max(0f, available * length.Value),
+            UiLengthKind.MinContent or UiLengthKind.MaxContent => throw UnsupportedIntrinsicLength(length.Kind),
             _ when stretch => available,
             _ => desired
         };
     }
+
+    private static NotSupportedException UnsupportedIntrinsicLength(UiLengthKind kind) =>
+        new($"{kind} layout semantics are not implemented in Phase 3.");
 
     private static float AlignHorizontal(float start, float available, float size, UiHorizontalAlignment alignment) =>
         alignment switch

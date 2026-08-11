@@ -48,47 +48,223 @@ public readonly record struct TextLayoutRequest(
     UiTextWrapping Wrapping,
     UiTextDirection Direction);
 
-/// <summary>Backend text shaping/measurement contract. Runtime stores only its opaque handle.</summary>
+/// <summary>Backend text shaping/measurement contract. Handles have explicit ownership.</summary>
 public interface ITextEngine
 {
     TextLayoutHandle Layout(in TextLayoutRequest request);
 
     UiSize Measure(TextLayoutHandle handle);
+
+    void Release(TextLayoutHandle handle);
+}
+
+internal readonly record struct TextCacheEntryHandle(int Index, uint Generation)
+{
+    public static TextCacheEntryHandle None => default;
+
+    public bool IsNone => Index <= 0 || Generation == 0;
 }
 
 public struct TextLayout
 {
     public TextLayoutHandle Handle { get; set; }
     public UiSize Size { get; set; }
+    internal TextCacheEntryHandle CacheEntry { get; set; }
 }
 
-/// <summary>Stable request cache; identical text layouts share one backend handle.</summary>
-public sealed class TextLayoutCache
+/// <summary>
+/// Reference-aware bounded LRU. Unused entries are evicted down to <see cref="MaxEntries"/>;
+/// layouts still referenced by live entities are pinned and may temporarily exceed the cache cap.
+/// </summary>
+public sealed class TextLayoutCache : IDisposable
 {
     private readonly ITextEngine _engine;
-    private readonly Dictionary<TextLayoutRequest, TextLayout> _entries = new();
+    private readonly Dictionary<TextLayoutRequest, int> _byRequest = new();
+    private readonly List<Entry> _entries = [new Entry()];
+    private readonly Stack<int> _free = new();
+    private long _accessClock;
+    private int _count;
+    private bool _disposed;
 
-    public TextLayoutCache(ITextEngine engine)
+    public TextLayoutCache(ITextEngine engine, int maxEntries = 512)
     {
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
+        if (maxEntries <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxEntries));
+        MaxEntries = maxEntries;
     }
 
-    public int Count => _entries.Count;
+    public int Count => _count;
 
-    public TextLayout GetOrCreate(in TextLayoutRequest request)
+    public int MaxEntries { get; }
+
+    internal TextLayout Acquire(in TextLayoutRequest request, TextCacheEntryHandle previous)
     {
-        if (_entries.TryGetValue(request, out TextLayout cached))
-            return cached;
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (TryGet(previous, out Entry previousEntry) && previousEntry.Request == request)
+        {
+            previousEntry.LastAccess = NextAccess();
+            return ToLayout(previous, previousEntry);
+        }
 
-        TextLayoutHandle handle = _engine.Layout(in request);
-        if (handle.IsNone)
-            throw new InvalidOperationException("Text engine returned an invalid layout handle.");
-        TextLayout created = new() { Handle = handle, Size = _engine.Measure(handle) };
-        _entries.Add(request, created);
-        return created;
+        TextCacheEntryHandle acquired;
+        Entry acquiredEntry;
+        if (_byRequest.TryGetValue(request, out int existingIndex))
+        {
+            acquiredEntry = _entries[existingIndex];
+            acquiredEntry.ReferenceCount++;
+            acquiredEntry.LastAccess = NextAccess();
+            acquired = new TextCacheEntryHandle(existingIndex, acquiredEntry.Generation);
+        }
+        else
+        {
+            TextLayoutHandle engineHandle = _engine.Layout(in request);
+            if (engineHandle.IsNone)
+                throw new InvalidOperationException("Text engine returned an invalid layout handle.");
+
+            int index = AllocateEntry();
+            acquiredEntry = _entries[index];
+            acquiredEntry.Alive = true;
+            acquiredEntry.Request = request;
+            acquiredEntry.EngineHandle = engineHandle;
+            acquiredEntry.Size = _engine.Measure(engineHandle);
+            acquiredEntry.ReferenceCount = 1;
+            acquiredEntry.LastAccess = NextAccess();
+            _byRequest.Add(request, index);
+            _count++;
+            acquired = new TextCacheEntryHandle(index, acquiredEntry.Generation);
+        }
+
+        Release(previous);
+        TrimToCapacity();
+        return ToLayout(acquired, acquiredEntry);
     }
 
-    public void Clear() => _entries.Clear();
+    internal void Release(TextCacheEntryHandle handle)
+    {
+        if (!TryGet(handle, out Entry entry))
+            return;
+        if (entry.ReferenceCount <= 0)
+            throw new InvalidOperationException("Text layout cache reference count underflow.");
+        entry.ReferenceCount--;
+        entry.LastAccess = NextAccess();
+        TrimToCapacity();
+    }
+
+    /// <summary>Evicts every currently unused entry, regardless of capacity.</summary>
+    public void ClearUnused()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        while (TryFindOldestUnused(out int index))
+            Evict(index);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        for (int i = 1; i < _entries.Count; i++)
+        {
+            Entry entry = _entries[i];
+            if (entry.Alive)
+            {
+                _engine.Release(entry.EngineHandle);
+                entry.Alive = false;
+                entry.ReferenceCount = 0;
+                entry.EngineHandle = TextLayoutHandle.None;
+                entry.Size = UiSize.Zero;
+                entry.Generation = NextGeneration(entry.Generation);
+            }
+        }
+        _byRequest.Clear();
+        _free.Clear();
+        _count = 0;
+        _disposed = true;
+    }
+
+    private int AllocateEntry()
+    {
+        if (_free.Count > 0)
+            return _free.Pop();
+        _entries.Add(new Entry { Generation = 1 });
+        return _entries.Count - 1;
+    }
+
+    private void TrimToCapacity()
+    {
+        while (_count > MaxEntries && TryFindOldestUnused(out int index))
+            Evict(index);
+    }
+
+    private bool TryFindOldestUnused(out int index)
+    {
+        index = 0;
+        long oldest = long.MaxValue;
+        for (int i = 1; i < _entries.Count; i++)
+        {
+            Entry entry = _entries[i];
+            if (!entry.Alive || entry.ReferenceCount != 0 || entry.LastAccess >= oldest)
+                continue;
+            oldest = entry.LastAccess;
+            index = i;
+        }
+        return index != 0;
+    }
+
+    private void Evict(int index)
+    {
+        Entry entry = _entries[index];
+        if (!entry.Alive || entry.ReferenceCount != 0)
+            throw new InvalidOperationException("Only unused live text layouts may be evicted.");
+
+        _byRequest.Remove(entry.Request);
+        _engine.Release(entry.EngineHandle);
+        entry.Alive = false;
+        entry.Request = default;
+        entry.EngineHandle = TextLayoutHandle.None;
+        entry.Size = UiSize.Zero;
+        entry.LastAccess = 0;
+        entry.Generation = NextGeneration(entry.Generation);
+        _free.Push(index);
+        _count--;
+    }
+
+    private bool TryGet(TextCacheEntryHandle handle, out Entry entry)
+    {
+        if (handle.IsNone || handle.Index >= _entries.Count)
+        {
+            entry = null!;
+            return false;
+        }
+        entry = _entries[handle.Index];
+        return entry.Alive && entry.Generation == handle.Generation;
+    }
+
+    private static TextLayout ToLayout(TextCacheEntryHandle cacheHandle, Entry entry) => new()
+    {
+        CacheEntry = cacheHandle,
+        Handle = entry.EngineHandle,
+        Size = entry.Size
+    };
+
+    private long NextAccess() => unchecked(++_accessClock);
+
+    private static uint NextGeneration(uint generation)
+    {
+        uint next = unchecked(generation + 1);
+        return next == 0 ? 1 : next;
+    }
+
+    private sealed class Entry
+    {
+        public uint Generation { get; set; } = 1;
+        public bool Alive { get; set; }
+        public TextLayoutRequest Request { get; set; }
+        public TextLayoutHandle EngineHandle { get; set; }
+        public UiSize Size { get; set; }
+        public int ReferenceCount { get; set; }
+        public long LastAccess { get; set; }
+    }
 }
 
 /// <summary>
@@ -98,9 +274,13 @@ public sealed class TextLayoutCache
 /// </summary>
 public sealed class DeterministicTextEngine : ITextEngine
 {
-    private readonly List<UiSize> _metrics = [default];
+    private readonly List<Entry> _entries = [default];
+    private readonly Stack<int> _free = new();
+    private int _layoutCount;
 
-    public int LayoutCount => _metrics.Count - 1;
+    public int LayoutCount => _layoutCount;
+
+    public int ReleaseCount { get; private set; }
 
     public TextLayoutHandle Layout(in TextLayoutRequest request)
     {
@@ -141,17 +321,71 @@ public sealed class DeterministicTextEngine : ITextEngine
         if (float.IsFinite(maxWidth))
             widest = Math.Min(widest, maxWidth);
 
-        _metrics.Add(new UiSize(widest, lines * lineHeight));
-        return new TextLayoutHandle(_metrics.Count - 1, 1);
+        int index;
+        Entry entry;
+        if (_free.Count > 0)
+        {
+            index = _free.Pop();
+            entry = _entries[index];
+        }
+        else
+        {
+            index = _entries.Count;
+            entry = new Entry { Generation = 1 };
+            _entries.Add(entry);
+        }
+
+        entry.Alive = true;
+        entry.Size = new UiSize(widest, lines * lineHeight);
+        _entries[index] = entry;
+        _layoutCount++;
+        return new TextLayoutHandle(index, entry.Generation);
     }
 
     public UiSize Measure(TextLayoutHandle handle)
     {
-        if (handle.Generation != 1 || handle.Index <= 0 || handle.Index >= _metrics.Count)
+        if (!TryGet(handle, out Entry entry))
             throw new InvalidOperationException("Text layout handle is stale or invalid: " + handle);
-        return _metrics[handle.Index];
+        return entry.Size;
+    }
+
+    public void Release(TextLayoutHandle handle)
+    {
+        if (!TryGet(handle, out Entry entry))
+            return;
+        entry.Alive = false;
+        entry.Size = UiSize.Zero;
+        entry.Generation = NextGeneration(entry.Generation);
+        _entries[handle.Index] = entry;
+        _free.Push(handle.Index);
+        _layoutCount--;
+        ReleaseCount++;
+    }
+
+    private bool TryGet(TextLayoutHandle handle, out Entry entry)
+    {
+        if (handle.IsNone || handle.Index >= _entries.Count)
+        {
+            entry = default;
+            return false;
+        }
+        entry = _entries[handle.Index];
+        return entry.Alive && entry.Generation == handle.Generation;
     }
 
     private static float NormalizeConstraint(float value) =>
-        value <= 0f || float.IsNaN(value) ? float.PositiveInfinity : value;
+        value < 0f || float.IsNaN(value) ? float.PositiveInfinity : value;
+
+    private static uint NextGeneration(uint generation)
+    {
+        uint next = unchecked(generation + 1);
+        return next == 0 ? 1 : next;
+    }
+
+    private struct Entry
+    {
+        public uint Generation { get; set; }
+        public bool Alive { get; set; }
+        public UiSize Size { get; set; }
+    }
 }

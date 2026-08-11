@@ -4,13 +4,20 @@
 namespace PCL.UI.Next;
 
 /// <summary>Composition root for the Phase 3 style, text and incremental layout systems.</summary>
-public sealed class UiPhase3Runtime
+public sealed class UiPhase3Runtime : IDisposable
 {
+    private readonly StyleSystem _styleSystem;
+    private readonly TextMeasureSystem _textMeasureSystem;
+    private readonly LayoutMeasureSystem _layoutMeasureSystem;
+    private readonly LayoutArrangeSystem _layoutArrangeSystem;
+    private bool _disposed;
+
     public UiPhase3Runtime(
         UiWorld world,
         ITextEngine textEngine,
         UiSize viewport,
-        bool applyDefaults = true)
+        bool applyDefaults = true,
+        int textCacheCapacity = 512)
     {
         World = world ?? throw new ArgumentNullException(nameof(world));
         ArgumentNullException.ThrowIfNull(textEngine);
@@ -23,12 +30,17 @@ public sealed class UiPhase3Runtime
             UiDefaultStyles.Apply(Styles);
         }
 
-        TextCache = new TextLayoutCache(textEngine);
-        Layout = new LayoutEngine(world, viewport);
-        world.Systems.Register(new StyleSystem(world, Theme, Styles));
-        world.Systems.Register(new TextMeasureSystem(TextCache));
-        world.Systems.Register(new LayoutMeasureSystem(Layout));
-        world.Systems.Register(new LayoutArrangeSystem(Layout));
+        TextCache = new TextLayoutCache(textEngine, textCacheCapacity);
+        TextMeasurement = new TextMeasurementService(world, TextCache);
+        Layout = new LayoutEngine(world, viewport, TextMeasurement);
+        _styleSystem = new StyleSystem(world, Theme, Styles);
+        _textMeasureSystem = new TextMeasureSystem();
+        _layoutMeasureSystem = new LayoutMeasureSystem(Layout);
+        _layoutArrangeSystem = new LayoutArrangeSystem(Layout);
+        world.Systems.Register(_styleSystem);
+        world.Systems.Register(_textMeasureSystem);
+        world.Systems.Register(_layoutMeasureSystem);
+        world.Systems.Register(_layoutArrangeSystem);
         world.Scheduler.RequestReactiveFrame();
     }
 
@@ -36,7 +48,22 @@ public sealed class UiPhase3Runtime
     public ThemeRegistry Theme { get; }
     public UiStyleSheet Styles { get; }
     public TextLayoutCache TextCache { get; }
+    public TextMeasurementService TextMeasurement { get; }
     public LayoutEngine Layout { get; }
 
     public void SetViewport(UiSize viewport) => Layout.SetViewport(viewport);
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        World.Systems.Unregister(_layoutArrangeSystem);
+        World.Systems.Unregister(_layoutMeasureSystem);
+        World.Systems.Unregister(_textMeasureSystem);
+        World.Systems.Unregister(_styleSystem);
+        _styleSystem.Dispose();
+        TextMeasurement.Dispose();
+        TextCache.Dispose();
+        _disposed = true;
+    }
 }
