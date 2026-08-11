@@ -16,6 +16,7 @@ public readonly record struct UiHitTestEntry(
 public sealed class UiHitTestIndex
 {
     private readonly UiWorld _world;
+    private readonly UiInputRootRegistry _inputRoots;
     private readonly List<UiHitTestEntry> _entries = [];
     private readonly List<UiEntity> _dirty = [];
     private readonly List<UiEntity> _roots = [];
@@ -24,21 +25,24 @@ public sealed class UiHitTestIndex
     private bool _initialized;
     private int _renderOrder;
 
-    public UiHitTestIndex(UiWorld world)
+    public UiHitTestIndex(UiWorld world, UiInputRootRegistry inputRoots)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
+        _inputRoots = inputRoots ?? throw new ArgumentNullException(nameof(inputRoots));
     }
 
     public IReadOnlyList<UiHitTestEntry> Entries => _entries;
 
-    public UiEntity HitTest(UiPoint point, UiScopeId inputScope = default)
+    public UiEntity HitTest(UiPoint point, UiInputRootId inputRoot)
     {
+        if (!_inputRoots.IsAlive(inputRoot))
+            return UiEntity.None;
         for (int i = _entries.Count - 1; i >= 0; i--)
         {
             UiHitTestEntry entry = _entries[i];
             if (!_world.Entities.IsAlive(entry.Entity) || !entry.Bounds.Contains(point))
                 continue;
-            if (!IsInInputScope(entry.Entity, inputScope))
+            if (!_inputRoots.Contains(inputRoot, entry.Entity))
                 continue;
             if (!_world.Components.TryGet(entry.Entity, out HitTestableComponent hitTestable) ||
                 !hitTestable.IsVisible || !hitTestable.IsEnabled)
@@ -155,23 +159,4 @@ public sealed class UiHitTestIndex
         return current;
     }
 
-    private bool IsInInputScope(UiEntity entity, UiScopeId inputScope)
-    {
-        if (inputScope.IsNone)
-            return true;
-        if (!_world.Entities.TryGetScope(entity, out UiScopeId entityScope))
-            return false;
-
-        UiScopeId current = entityScope;
-        int guard = 0;
-        while (!current.IsNone && guard++ < 1_000_000)
-        {
-            if (current == inputScope)
-                return true;
-            if (!_world.Scopes.TryGetParent(current, out current))
-                break;
-        }
-
-        return false;
-    }
 }

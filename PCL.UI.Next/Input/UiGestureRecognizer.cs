@@ -8,8 +8,9 @@ internal sealed class UiGestureRecognizer : IDisposable
     private readonly UiWorld _world;
     private readonly UiRoutedEventRouter _router;
     private readonly UiCommandQueue _commands;
+    private readonly UiInputRootRegistry _inputRoots;
     private readonly UiGestureThresholds _thresholds;
-    private readonly Dictionary<int, PointerSession> _sessions = [];
+    private readonly Dictionary<UiPointerKey, PointerSession> _sessions = [];
     private readonly Dictionary<UiEntity, PinchSession> _pinches = [];
     private readonly Dictionary<UiEntity, LastClick> _lastClicks = [];
     private bool _disposed;
@@ -18,13 +19,16 @@ internal sealed class UiGestureRecognizer : IDisposable
         UiWorld world,
         UiRoutedEventRouter router,
         UiCommandQueue commands,
+        UiInputRootRegistry inputRoots,
         UiGestureThresholds thresholds)
     {
         _world = world;
         _router = router;
         _commands = commands;
+        _inputRoots = inputRoots;
         _thresholds = thresholds;
         _world.EntityDestroying += OnEntityDestroying;
+        _inputRoots.InputRootDestroying += OnInputRootDestroying;
     }
 
     public void ProcessPointer(in TargetedInputEvent input)
@@ -32,7 +36,7 @@ internal sealed class UiGestureRecognizer : IDisposable
         UiPointerEvent pointer = input.Input.Pointer;
         if (input.Handled &&
             pointer.Kind != UiPointerEventKind.Down &&
-            _sessions.TryGetValue(pointer.PointerId, out PointerSession? handledSession))
+            _sessions.TryGetValue(new UiPointerKey(pointer.InputRoot, pointer.PointerId), out PointerSession? handledSession))
         {
             handledSession.SuppressClick = true;
             if (pointer.Kind == UiPointerEventKind.Move)
@@ -83,7 +87,8 @@ internal sealed class UiGestureRecognizer : IDisposable
                     default,
                     session.PointerId,
                     session.Button,
-                    Modifiers: session.Modifiers));
+                    Modifiers: session.Modifiers,
+                    InputRoot: session.InputRoot));
         }
 
         RefreshScheduling();
@@ -92,7 +97,7 @@ internal sealed class UiGestureRecognizer : IDisposable
     public void ActivateFromKeyboard(UiEntity entity, in UiKeyEvent keyEvent)
     {
         UiEntity target = FindGestureTarget(entity);
-        if (target == UiEntity.None)
+        if (target == UiEntity.None || !InteractionStateStore.IsEnabledAndVisible(_world, target))
             return;
         bool handled = Dispatch(
             UiRoutedEventKind.Click,
@@ -100,7 +105,8 @@ internal sealed class UiGestureRecognizer : IDisposable
             new UiRoutedEventData(
                 keyEvent.Timestamp,
                 Key: keyEvent.Key,
-                Modifiers: keyEvent.Modifiers));
+                Modifiers: keyEvent.Modifiers,
+                InputRoot: keyEvent.InputRoot));
         if (!handled)
             DispatchCommand(target, UiCommandTrigger.Keyboard, keyEvent.Timestamp);
     }
@@ -126,6 +132,7 @@ internal sealed class UiGestureRecognizer : IDisposable
         if (_disposed)
             return;
         _world.EntityDestroying -= OnEntityDestroying;
+        _inputRoots.InputRootDestroying -= OnInputRootDestroying;
         _world.Scheduler.ReleaseContinuousFrame(UiContinuousReason.Gesture);
         _sessions.Clear();
         _pinches.Clear();
@@ -142,6 +149,7 @@ internal sealed class UiGestureRecognizer : IDisposable
         UiGestureMask gestures = EffectiveGestures(target);
         PointerSession session = new()
         {
+            InputRoot = pointer.InputRoot,
             PointerId = pointer.PointerId,
             Target = target,
             Gestures = gestures,
@@ -152,13 +160,13 @@ internal sealed class UiGestureRecognizer : IDisposable
             Button = pointer.ChangedButton,
             Modifiers = pointer.Modifiers
         };
-        _sessions[pointer.PointerId] = session;
+        _sessions[new UiPointerKey(pointer.InputRoot, pointer.PointerId)] = session;
         TryStartPinch(target, pointer.Timestamp);
     }
 
     private void Move(in UiPointerEvent pointer)
     {
-        if (!_sessions.TryGetValue(pointer.PointerId, out PointerSession? session))
+        if (!_sessions.TryGetValue(new UiPointerKey(pointer.InputRoot, pointer.PointerId), out PointerSession? session))
             return;
         session.Last = session.Current;
         session.Current = pointer.Position;
@@ -220,7 +228,8 @@ internal sealed class UiGestureRecognizer : IDisposable
 
     private void End(in UiPointerEvent pointer, UiEntity hitTarget, bool canceled)
     {
-        if (!_sessions.TryGetValue(pointer.PointerId, out PointerSession? session))
+        UiPointerKey pointerKey = new(pointer.InputRoot, pointer.PointerId);
+        if (!_sessions.TryGetValue(pointerKey, out PointerSession? session))
             return;
         session.Last = session.Current;
         session.Current = pointer.Position;
@@ -260,7 +269,7 @@ internal sealed class UiGestureRecognizer : IDisposable
             TryDoubleClick(session, pointer.Timestamp);
         }
 
-        _sessions.Remove(pointer.PointerId);
+        _sessions.Remove(pointerKey);
     }
 
     private void TryDoubleClick(PointerSession session, UiTimestamp timestamp)
@@ -286,7 +295,10 @@ internal sealed class UiGestureRecognizer : IDisposable
     {
         if ((EffectiveGestures(target) & UiGestureMask.Pinch) == 0 || _pinches.ContainsKey(target))
             return;
-        PointerSession[] matching = _sessions.Values.Where(session => session.Target == target).Take(2).ToArray();
+        PointerSession[] matching = _sessions.Values
+            .Where(session => session.Target == target)
+            .Take(2)
+            .ToArray();
         if (matching.Length < 2)
             return;
         float distance = Length(Subtract(matching[1].Current, matching[0].Current));
@@ -297,8 +309,9 @@ internal sealed class UiGestureRecognizer : IDisposable
         PinchSession pinch = new()
         {
             Target = target,
-            Pointer0 = matching[0].PointerId,
-            Pointer1 = matching[1].PointerId,
+            InputRoot = matching[0].InputRoot,
+            Pointer0 = new UiPointerKey(matching[0].InputRoot, matching[0].PointerId),
+            Pointer1 = new UiPointerKey(matching[1].InputRoot, matching[1].PointerId),
             InitialDistance = distance,
             LastCenter = Midpoint(matching[0].Current, matching[1].Current)
         };
@@ -306,7 +319,7 @@ internal sealed class UiGestureRecognizer : IDisposable
         Dispatch(
             UiRoutedEventKind.PinchStarted,
             target,
-            new UiRoutedEventData(timestamp, pinch.LastCenter));
+            new UiRoutedEventData(timestamp, pinch.LastCenter, InputRoot: pinch.InputRoot));
     }
 
     private void UpdatePinch(PinchSession pinch, UiTimestamp timestamp)
@@ -325,7 +338,7 @@ internal sealed class UiGestureRecognizer : IDisposable
         Dispatch(
             UiRoutedEventKind.PinchDelta,
             pinch.Target,
-            new UiRoutedEventData(timestamp, center, delta, Scale: scale));
+            new UiRoutedEventData(timestamp, center, delta, Scale: scale, InputRoot: pinch.InputRoot));
     }
 
     private void CompletePinch(PinchSession pinch, UiTimestamp timestamp)
@@ -333,7 +346,7 @@ internal sealed class UiGestureRecognizer : IDisposable
         Dispatch(
             UiRoutedEventKind.PinchCompleted,
             pinch.Target,
-            new UiRoutedEventData(timestamp, pinch.LastCenter));
+            new UiRoutedEventData(timestamp, pinch.LastCenter, InputRoot: pinch.InputRoot));
         if (_sessions.TryGetValue(pinch.Pointer0, out PointerSession? first))
             first.SuppressClick = true;
         if (_sessions.TryGetValue(pinch.Pointer1, out PointerSession? second))
@@ -386,15 +399,40 @@ internal sealed class UiGestureRecognizer : IDisposable
 
     private void OnEntityDestroying(UiEntity entity)
     {
-        foreach (int pointerId in _sessions
+        foreach (UiPointerKey pointerKey in _sessions
                      .Where(pair => pair.Value.Target == entity)
                      .Select(pair => pair.Key)
                      .ToArray())
         {
-            _sessions.Remove(pointerId);
+            _sessions.Remove(pointerKey);
         }
         _pinches.Remove(entity);
         _lastClicks.Remove(entity);
+        RefreshScheduling();
+    }
+
+    private void OnInputRootDestroying(UiInputRootId inputRoot)
+    {
+        foreach (UiPointerKey pointerKey in _sessions.Keys
+                     .Where(key => key.InputRoot == inputRoot)
+                     .ToArray())
+        {
+            _sessions.Remove(pointerKey);
+        }
+
+        foreach (UiEntity target in _pinches.Keys
+                     .Where(entity => _inputRoots.Contains(inputRoot, entity))
+                     .ToArray())
+        {
+            _pinches.Remove(target);
+        }
+
+        foreach (UiEntity target in _lastClicks.Keys
+                     .Where(entity => _inputRoots.Contains(inputRoot, entity))
+                     .ToArray())
+        {
+            _lastClicks.Remove(target);
+        }
         RefreshScheduling();
     }
 
@@ -408,7 +446,8 @@ internal sealed class UiGestureRecognizer : IDisposable
             delta,
             session.PointerId,
             session.Button,
-            Modifiers: session.Modifiers);
+            Modifiers: session.Modifiers,
+            InputRoot: session.InputRoot);
 
     private static UiPoint Subtract(UiPoint left, UiPoint right) =>
         new(left.X - right.X, left.Y - right.Y);
@@ -421,6 +460,7 @@ internal sealed class UiGestureRecognizer : IDisposable
 
     private sealed class PointerSession
     {
+        public UiInputRootId InputRoot;
         public int PointerId;
         public UiEntity Target;
         public UiGestureMask Gestures;
@@ -439,8 +479,9 @@ internal sealed class UiGestureRecognizer : IDisposable
     private sealed class PinchSession
     {
         public UiEntity Target;
-        public int Pointer0;
-        public int Pointer1;
+        public UiInputRootId InputRoot;
+        public UiPointerKey Pointer0;
+        public UiPointerKey Pointer1;
         public float InitialDistance;
         public UiPoint LastCenter;
     }

@@ -687,6 +687,33 @@ Runtime 不应假设“UI 只有一棵树”。
 
 用于焦点导航。
 
+## 14.7 Input Root
+
+`Input Root` 表示一个独立 Window 或 Input Surface，使用 generation-safe 的
+`UiInputRootId` 标识。它必须由 Window/Input Surface 对应的 Scope 显式注册，
+不能通过寻找最顶层 `UiScope` 隐式推断。
+
+```text
+ApplicationScope
+├─ WindowScope A  ← InputRoot A
+│  └─ PageScope
+└─ WindowScope B  ← InputRoot B
+   └─ PageScope
+```
+
+一个 Runtime 可以同时拥有多个 Input Root。Input 状态必须按 Input Root 隔离：
+
+```text
+Focus:           InputRoot → FocusedEntity
+PointerCapture: (InputRoot, PointerId) → Entity
+Hover:          (InputRoot, PointerId) → Entity
+Pressed:        (InputRoot, PointerId) → Entity
+Gesture:        (InputRoot, PointerId) → Session
+```
+
+普通 Page/Popup Scope 解析到最近的已注册 Input Root；ApplicationScope 不会自动成为
+所有 Window 的共享焦点根或 Pointer 状态根。
+
 因此：
 
 ```text
@@ -2082,6 +2109,9 @@ Root
 - 不调用 Control 虚方法；
 - 不依赖对象事件订阅；
 - 统一由 Interaction System 处理。
+- 正常 dispatch 不为 handler snapshot 分配临时数组；
+- dispatch 期间移除 handler 使用 tombstone，退出最外层 dispatch 后再 compact；
+- dispatch 期间新增的 handler 不参与当前节点的本次调用。
 
 ---
 
@@ -2144,6 +2174,19 @@ Dialog Focus Trap
 Popup Focus Scope
 Restore Previous Focus
 ```
+
+Focus 必须维持以下 invariant：
+
+```text
+FocusedEntity is alive
+∧ has Focusable
+∧ is enabled
+∧ is visible
+∧ belongs to the owning InputRoot
+```
+
+当任一条件失效时，Focus System 在同帧清除 `Focused` 状态并派发 `LostFocus`；
+键盘事件和默认激活行为不得再路由到该 Entity。
 
 ---
 

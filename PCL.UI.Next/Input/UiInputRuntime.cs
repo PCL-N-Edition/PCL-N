@@ -8,10 +8,10 @@ public sealed class UiInputRuntime : IDisposable
 {
     private readonly List<UiInputEvent> _normalized = [];
     private readonly List<TargetedInputEvent> _targeted = [];
-    private readonly Dictionary<int, UiEntity> _hoveredByPointer = [];
-    private readonly Dictionary<int, UiEntity> _pressedByPointer = [];
+    private readonly Dictionary<UiPointerKey, UiEntity> _hoveredByPointer = [];
+    private readonly Dictionary<UiPointerKey, UiEntity> _pressedByPointer = [];
     private readonly Dictionary<UiEntity, int> _pressCounts = [];
-    private readonly HashSet<int> _automaticCaptures = [];
+    private readonly HashSet<UiPointerKey> _automaticCaptures = [];
     private readonly InputNormalizeSystem _normalizeSystem;
     private readonly InputHitTestSystem _hitTestSystem;
     private readonly InteractionSystem _interactionSystem;
@@ -26,17 +26,20 @@ public sealed class UiInputRuntime : IDisposable
     {
         World = world ?? throw new ArgumentNullException(nameof(world));
         World.EntityDestroying += OnEntityDestroying;
-        HitTest = new UiHitTestIndex(world);
+        InputRoots = new UiInputRootRegistry(world);
+        HitTest = new UiHitTestIndex(world, InputRoots);
         RoutedEvents = new UiRoutedEventRouter(world);
-        PointerCapture = new UiPointerCapture(world);
-        Focus = new UiFocusManager(world, RoutedEvents, HitTest);
+        PointerCapture = new UiPointerCapture(world, InputRoots);
+        Focus = new UiFocusManager(world, RoutedEvents, HitTest, InputRoots);
         Shortcuts = new UiShortcutRegistry(world);
         Commands = new UiCommandQueue();
         _gestures = new UiGestureRecognizer(
             world,
             RoutedEvents,
             Commands,
+            InputRoots,
             gestureThresholds ?? UiGestureThresholds.Default);
+        InputRoots.InputRootDestroying += OnInputRootDestroying;
 
         _normalizeSystem = new InputNormalizeSystem(this);
         _hitTestSystem = new InputHitTestSystem(this);
@@ -52,6 +55,7 @@ public sealed class UiInputRuntime : IDisposable
     }
 
     public UiWorld World { get; }
+    public UiInputRootRegistry InputRoots { get; }
     public UiHitTestIndex HitTest { get; }
     public UiRoutedEventRouter RoutedEvents { get; }
     public UiPointerCapture PointerCapture { get; }
@@ -61,7 +65,7 @@ public sealed class UiInputRuntime : IDisposable
     public IReadOnlyList<UiInputEvent> FrameInputEvents => _normalized;
 
     public void EnqueuePointer(
-        UiScopeId scope,
+        UiInputRootId inputRoot,
         UiPointerEventKind kind,
         UiPoint position,
         int pointerId = 0,
@@ -72,7 +76,9 @@ public sealed class UiInputRuntime : IDisposable
     {
         if (pointerId < 0)
             throw new ArgumentOutOfRangeException(nameof(pointerId));
+        UiScopeId scope = InputRoots.GetScope(inputRoot);
         UiPlatformEvent platformEvent = UiPlatformInput.Pointer(
+            inputRoot,
             scope,
             kind,
             timestamp ?? World.Clock.Now,
@@ -85,14 +91,16 @@ public sealed class UiInputRuntime : IDisposable
     }
 
     public void EnqueueKey(
-        UiScopeId scope,
+        UiInputRootId inputRoot,
         UiKeyEventKind kind,
         UiKey key,
         UiInputModifiers modifiers = UiInputModifiers.None,
         bool isRepeat = false,
         UiTimestamp? timestamp = null)
     {
+        UiScopeId scope = InputRoots.GetScope(inputRoot);
         UiPlatformEvent platformEvent = UiPlatformInput.Key(
+            inputRoot,
             scope,
             kind,
             timestamp ?? World.Clock.Now,
@@ -112,11 +120,13 @@ public sealed class UiInputRuntime : IDisposable
         World.Systems.Unregister(_hitTestSystem);
         World.Systems.Unregister(_normalizeSystem);
         World.EntityDestroying -= OnEntityDestroying;
+        InputRoots.InputRootDestroying -= OnInputRootDestroying;
         _gestures.Dispose();
         Shortcuts.Dispose();
         Focus.Dispose();
         PointerCapture.Dispose();
         RoutedEvents.Dispose();
+        InputRoots.Dispose();
         Commands.Clear();
         _normalized.Clear();
         _targeted.Clear();
@@ -135,7 +145,15 @@ public sealed class UiInputRuntime : IDisposable
         List<UiPlatformEvent> platformEvents = World.FrameBuffers.PlatformEvents;
         for (int i = 0; i < platformEvents.Count; i++)
         {
-            if (UiPlatformInput.TryNormalize(platformEvents[i], out UiInputEvent input))
+            if (!UiPlatformInput.TryNormalize(platformEvents[i], out UiInputEvent input))
+                continue;
+            UiScopeId scope = input.Kind == UiInputEventKind.Pointer
+                ? input.Pointer.Scope
+                : input.Key.Scope;
+            UiInputRootId inputRoot = input.Kind == UiInputEventKind.Pointer
+                ? input.Pointer.InputRoot
+                : input.Key.InputRoot;
+            if (InputRoots.TryResolve(scope, out UiInputRootId resolved) && resolved == inputRoot)
                 _normalized.Add(input);
         }
     }
@@ -149,13 +167,13 @@ public sealed class UiInputRuntime : IDisposable
             if (input.Kind == UiInputEventKind.Pointer)
             {
                 UiPointerEvent pointer = input.Pointer;
-                UiEntity hit = HitTest.HitTest(pointer.Position, pointer.Scope);
-                UiEntity captured = PointerCapture.GetCaptured(pointer.PointerId);
+                UiEntity hit = HitTest.HitTest(pointer.Position, pointer.InputRoot);
+                UiEntity captured = PointerCapture.GetCaptured(pointer.InputRoot, pointer.PointerId);
                 _targeted.Add(new TargetedInputEvent(input, captured != UiEntity.None ? captured : hit, hit));
             }
             else
             {
-                UiEntity focused = Focus.GetFocused(input.Key.Scope);
+                UiEntity focused = Focus.GetFocused(input.Key.InputRoot);
                 _targeted.Add(new TargetedInputEvent(input, focused, focused));
             }
         }
@@ -169,7 +187,8 @@ public sealed class UiInputRuntime : IDisposable
             if (targeted.Input.Kind != UiInputEventKind.Pointer)
                 continue;
             UiPointerEvent pointer = targeted.Input.Pointer;
-            UiEntity captured = PointerCapture.GetCaptured(pointer.PointerId);
+            UiPointerKey pointerKey = new(pointer.InputRoot, pointer.PointerId);
+            UiEntity captured = PointerCapture.GetCaptured(pointer.InputRoot, pointer.PointerId);
             targeted.Target = captured != UiEntity.None ? captured : targeted.HitTarget;
             UpdateHover(pointer, targeted.HitTarget);
             if (targeted.Target != UiEntity.None)
@@ -180,7 +199,8 @@ public sealed class UiInputRuntime : IDisposable
                     default,
                     pointer.PointerId,
                     pointer.ChangedButton,
-                    Modifiers: pointer.Modifiers);
+                    Modifiers: pointer.Modifiers,
+                    InputRoot: pointer.InputRoot);
                 targeted.Handled = RoutedEvents.Dispatch(ToRoutedKind(pointer.Kind), targeted.Target, in data);
             }
 
@@ -194,7 +214,7 @@ public sealed class UiInputRuntime : IDisposable
                 UiEntity pressed = FindBehaviorAncestor(targeted.Target, UiBehavior.Pressable);
                 if (pressed != UiEntity.None)
                 {
-                    _pressedByPointer[pointer.PointerId] = pressed;
+                    _pressedByPointer[pointerKey] = pressed;
                     int count = _pressCounts.TryGetValue(pressed, out int currentCount)
                         ? currentCount + 1
                         : 1;
@@ -204,17 +224,17 @@ public sealed class UiInputRuntime : IDisposable
                 }
 
                 UiEntity gestureTarget = _gestures.FindGestureTarget(targeted.Target);
-                if (PointerCapture.GetCaptured(pointer.PointerId) == UiEntity.None &&
+                if (PointerCapture.GetCaptured(pointer.InputRoot, pointer.PointerId) == UiEntity.None &&
                     (pressed != UiEntity.None || gestureTarget != UiEntity.None))
                 {
                     UiEntity capture = gestureTarget != UiEntity.None ? gestureTarget : pressed;
-                    if (PointerCapture.Capture(pointer.PointerId, capture))
-                        _automaticCaptures.Add(pointer.PointerId);
+                    if (PointerCapture.Capture(pointer.InputRoot, pointer.PointerId, capture))
+                        _automaticCaptures.Add(pointerKey);
                 }
             }
             else if (pointer.Kind is UiPointerEventKind.Up or UiPointerEventKind.Cancel)
             {
-                if (_pressedByPointer.Remove(pointer.PointerId, out UiEntity pressed))
+                if (_pressedByPointer.Remove(pointerKey, out UiEntity pressed))
                     ReleasePressed(pressed);
             }
 
@@ -224,6 +244,7 @@ public sealed class UiInputRuntime : IDisposable
 
     internal void ProcessFocusGesturesAndShortcuts(in UiFrameContext frame)
     {
+        Focus.Validate(frame.Now);
         for (int i = 0; i < _targeted.Count; i++)
         {
             TargetedInputEvent targeted = _targeted[i];
@@ -241,16 +262,17 @@ public sealed class UiInputRuntime : IDisposable
                 }
 
                 _gestures.ProcessPointer(in targeted);
+                UiPointerKey pointerKey = new(pointer.InputRoot, pointer.PointerId);
                 if (pointer.Kind is UiPointerEventKind.Up or UiPointerEventKind.Cancel &&
-                    _automaticCaptures.Remove(pointer.PointerId))
+                    _automaticCaptures.Remove(pointerKey))
                 {
-                    PointerCapture.Release(pointer.PointerId);
+                    PointerCapture.Release(pointer.InputRoot, pointer.PointerId);
                 }
             }
             else
             {
                 UiKeyEvent key = targeted.Input.Key;
-                ProcessKey(in key, Focus.GetFocused(key.Scope));
+                ProcessKey(in key, Focus.GetFocused(key.InputRoot));
             }
         }
 
@@ -267,7 +289,8 @@ public sealed class UiInputRuntime : IDisposable
             UiRoutedEventData data = new(
                 key.Timestamp,
                 Key: key.Key,
-                Modifiers: key.Modifiers);
+                Modifiers: key.Modifiers,
+                InputRoot: key.InputRoot);
             handled = RoutedEvents.Dispatch(
                 key.Kind == UiKeyEventKind.Down ? UiRoutedEventKind.KeyDown : UiRoutedEventKind.KeyUp,
                 target,
@@ -278,19 +301,19 @@ public sealed class UiInputRuntime : IDisposable
             return;
         if (key.Key == UiKey.Tab)
         {
-            Focus.MoveTab(key.Scope, (key.Modifiers & UiInputModifiers.Shift) != 0, key.Timestamp);
+            Focus.MoveTab(key.InputRoot, (key.Modifiers & UiInputModifiers.Shift) != 0, key.Timestamp);
             return;
         }
 
         if (key.Key is UiKey.Left or UiKey.Up or UiKey.Right or UiKey.Down)
         {
-            Focus.MoveDirectional(key.Scope, key.Key, key.Timestamp);
+            Focus.MoveDirectional(key.InputRoot, key.Key, key.Timestamp);
             return;
         }
 
         UiScopeId shortcutScope = World.Entities.TryGetScope(target, out UiScopeId targetScope)
             ? targetScope
-            : key.Scope;
+            : InputRoots.GetScope(key.InputRoot);
         if (Shortcuts.TryResolve(shortcutScope, in key, out UiCommand shortcut))
         {
             UiCommandInvocation invocation = new(
@@ -313,7 +336,8 @@ public sealed class UiInputRuntime : IDisposable
             return;
         if (pointer.Kind == UiPointerEventKind.Cancel)
             hitTarget = UiEntity.None;
-        _hoveredByPointer.TryGetValue(pointer.PointerId, out UiEntity previous);
+        UiPointerKey pointerKey = new(pointer.InputRoot, pointer.PointerId);
+        _hoveredByPointer.TryGetValue(pointerKey, out UiEntity previous);
         if (previous == hitTarget)
             return;
 
@@ -322,20 +346,28 @@ public sealed class UiInputRuntime : IDisposable
             SetHoverPath(previous, enabled: false);
             if (World.Entities.IsAlive(previous))
             {
-                UiRoutedEventData leave = new(pointer.Timestamp, pointer.Position, PointerId: pointer.PointerId);
+                UiRoutedEventData leave = new(
+                    pointer.Timestamp,
+                    pointer.Position,
+                    PointerId: pointer.PointerId,
+                    InputRoot: pointer.InputRoot);
                 RoutedEvents.Dispatch(UiRoutedEventKind.PointerLeave, previous, in leave);
             }
         }
 
         if (hitTarget == UiEntity.None)
         {
-            _hoveredByPointer.Remove(pointer.PointerId);
+            _hoveredByPointer.Remove(pointerKey);
             return;
         }
 
-        _hoveredByPointer[pointer.PointerId] = hitTarget;
+        _hoveredByPointer[pointerKey] = hitTarget;
         SetHoverPath(hitTarget, enabled: true);
-        UiRoutedEventData enter = new(pointer.Timestamp, pointer.Position, PointerId: pointer.PointerId);
+        UiRoutedEventData enter = new(
+            pointer.Timestamp,
+            pointer.Position,
+            PointerId: pointer.PointerId,
+            InputRoot: pointer.InputRoot);
         RoutedEvents.Dispatch(UiRoutedEventKind.PointerEnter, hitTarget, in enter);
     }
 
@@ -393,29 +425,50 @@ public sealed class UiInputRuntime : IDisposable
 
     private void OnEntityDestroying(UiEntity entity)
     {
-        foreach (int pointerId in _hoveredByPointer
+        foreach (UiPointerKey pointerKey in _hoveredByPointer
                      .Where(pair => pair.Value == entity)
                      .Select(pair => pair.Key)
                      .ToArray())
         {
-            _hoveredByPointer.Remove(pointerId);
+            _hoveredByPointer.Remove(pointerKey);
         }
 
-        foreach (int pointerId in _pressedByPointer
+        foreach (UiPointerKey pointerKey in _pressedByPointer
                      .Where(pair => pair.Value == entity)
                      .Select(pair => pair.Key)
                      .ToArray())
         {
-            _pressedByPointer.Remove(pointerId);
-            _automaticCaptures.Remove(pointerId);
+            _pressedByPointer.Remove(pointerKey);
+            _automaticCaptures.Remove(pointerKey);
         }
         _pressCounts.Remove(entity);
 
-        foreach (int pointerId in _automaticCaptures.ToArray())
+        foreach (UiPointerKey pointerKey in _automaticCaptures.ToArray())
         {
-            if (PointerCapture.GetCaptured(pointerId) == entity)
-                _automaticCaptures.Remove(pointerId);
+            if (PointerCapture.GetCaptured(pointerKey.InputRoot, pointerKey.PointerId) == entity)
+                _automaticCaptures.Remove(pointerKey);
         }
+    }
+
+    private void OnInputRootDestroying(UiInputRootId inputRoot)
+    {
+        foreach (UiPointerKey pointerKey in _hoveredByPointer.Keys
+                     .Where(key => key.InputRoot == inputRoot)
+                     .ToArray())
+        {
+            if (_hoveredByPointer.Remove(pointerKey, out UiEntity hovered))
+                SetHoverPath(hovered, enabled: false);
+        }
+
+        foreach (UiPointerKey pointerKey in _pressedByPointer.Keys
+                     .Where(key => key.InputRoot == inputRoot)
+                     .ToArray())
+        {
+            if (_pressedByPointer.Remove(pointerKey, out UiEntity pressed))
+                ReleasePressed(pressed);
+        }
+
+        _automaticCaptures.RemoveWhere(key => key.InputRoot == inputRoot);
     }
 
     private static UiRoutedEventKind ToRoutedKind(UiPointerEventKind kind) => kind switch

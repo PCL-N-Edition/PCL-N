@@ -125,6 +125,7 @@ public readonly record struct UiKeyGesture(UiKey Key, UiInputModifiers Modifiers
 }
 
 public readonly record struct UiPointerEvent(
+    UiInputRootId InputRoot,
     UiScopeId Scope,
     UiPointerEventKind Kind,
     UiTimestamp Timestamp,
@@ -135,6 +136,7 @@ public readonly record struct UiPointerEvent(
     UiInputModifiers Modifiers);
 
 public readonly record struct UiKeyEvent(
+    UiInputRootId InputRoot,
     UiScopeId Scope,
     UiKeyEventKind Kind,
     UiTimestamp Timestamp,
@@ -180,6 +182,7 @@ public readonly struct UiInputEvent
 public static class UiPlatformInput
 {
     public static UiPlatformEvent Pointer(
+        UiInputRootId inputRoot,
         UiScopeId scope,
         UiPointerEventKind kind,
         UiTimestamp timestamp,
@@ -205,10 +208,12 @@ public static class UiPlatformInput
             BitConverter.SingleToInt32Bits(position.X),
             BitConverter.SingleToInt32Bits(position.Y),
             pointerId,
-            packed);
+            packed,
+            inputRoot);
     }
 
     public static UiPlatformEvent Key(
+        UiInputRootId inputRoot,
         UiScopeId scope,
         UiKeyEventKind kind,
         UiTimestamp timestamp,
@@ -221,7 +226,8 @@ public static class UiPlatformInput
             timestamp,
             (int)key,
             (int)modifiers,
-            isRepeat ? 1 : 0);
+            isRepeat ? 1 : 0,
+            inputRoot: inputRoot);
 
     internal static bool TryNormalize(in UiPlatformEvent platformEvent, out UiInputEvent inputEvent)
     {
@@ -243,6 +249,7 @@ public static class UiPlatformInput
             case UiPlatformEventKind.KeyDown:
             case UiPlatformEventKind.KeyUp:
                 UiKeyEvent key = new(
+                    platformEvent.InputRoot,
                     platformEvent.Scope,
                     platformEvent.Kind == UiPlatformEventKind.KeyDown ? UiKeyEventKind.Down : UiKeyEventKind.Up,
                     platformEvent.Timestamp,
@@ -258,6 +265,7 @@ public static class UiPlatformInput
 
         int packed = platformEvent.Payload3;
         UiPointerEvent pointer = new(
+            platformEvent.InputRoot,
             platformEvent.Scope,
             pointerKind,
             platformEvent.Timestamp,

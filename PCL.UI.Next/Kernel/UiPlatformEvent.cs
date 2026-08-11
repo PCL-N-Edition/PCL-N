@@ -16,7 +16,8 @@ public readonly struct UiPlatformEvent
         int payload0 = 0,
         int payload1 = 0,
         int payload2 = 0,
-        int payload3 = 0)
+        int payload3 = 0,
+        UiInputRootId inputRoot = default)
     {
         Scope = scope;
         Kind = kind;
@@ -25,6 +26,7 @@ public readonly struct UiPlatformEvent
         Payload1 = payload1;
         Payload2 = payload2;
         Payload3 = payload3;
+        InputRoot = inputRoot;
     }
 
     public UiScopeId Scope { get; }
@@ -34,6 +36,7 @@ public readonly struct UiPlatformEvent
     public int Payload1 { get; }
     public int Payload2 { get; }
     public int Payload3 { get; }
+    public UiInputRootId InputRoot { get; }
 }
 
 /// <summary>Well-known platform event kinds reserved by the kernel.</summary>

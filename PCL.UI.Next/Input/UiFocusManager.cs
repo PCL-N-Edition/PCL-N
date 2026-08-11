@@ -9,28 +9,57 @@ public sealed class UiFocusManager : IDisposable
     private readonly UiWorld _world;
     private readonly UiRoutedEventRouter _router;
     private readonly UiHitTestIndex _hitTest;
-    private readonly Dictionary<UiScopeId, UiEntity> _focusedByRoot = [];
-    private readonly Dictionary<UiScopeId, UiEntity> _activeScopeByRoot = [];
+    private readonly UiInputRootRegistry _inputRoots;
+    private readonly Dictionary<UiInputRootId, UiEntity> _focusedByRoot = [];
+    private readonly Dictionary<UiInputRootId, UiEntity> _activeScopeByRoot = [];
     private readonly Dictionary<UiEntity, UiEntity> _restoreByFocusScope = [];
     private readonly Dictionary<UiEntity, UiEntity> _previousActiveScope = [];
     private readonly List<UiEntity> _candidates = [];
+    private readonly List<UiInputRootId> _validationRoots = [];
     private bool _disposed;
 
-    public UiFocusManager(UiWorld world, UiRoutedEventRouter router, UiHitTestIndex hitTest)
+    public UiFocusManager(
+        UiWorld world,
+        UiRoutedEventRouter router,
+        UiHitTestIndex hitTest,
+        UiInputRootRegistry inputRoots)
     {
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _hitTest = hitTest ?? throw new ArgumentNullException(nameof(hitTest));
+        _inputRoots = inputRoots ?? throw new ArgumentNullException(nameof(inputRoots));
         _world.EntityDestroying += OnEntityDestroying;
+        _inputRoots.InputRootDestroying += OnInputRootDestroying;
     }
 
-    public UiEntity GetFocused(UiScopeId scope)
+    public UiEntity GetFocused(UiInputRootId inputRoot)
     {
-        UiScopeId root = GetRootScope(scope);
-        if (_focusedByRoot.TryGetValue(root, out UiEntity focused) && _world.Entities.IsAlive(focused))
+        if (!_inputRoots.IsAlive(inputRoot) ||
+            !_focusedByRoot.TryGetValue(inputRoot, out UiEntity focused))
+        {
+            return UiEntity.None;
+        }
+
+        if (CanFocus(focused) && _inputRoots.Contains(inputRoot, focused))
             return focused;
-        _focusedByRoot.Remove(root);
+        InvalidateFocus(inputRoot, focused, _world.Clock.Now);
         return UiEntity.None;
+    }
+
+    public void Validate(UiTimestamp timestamp)
+    {
+        _validationRoots.Clear();
+        foreach (UiInputRootId inputRoot in _focusedByRoot.Keys)
+            _validationRoots.Add(inputRoot);
+        for (int i = 0; i < _validationRoots.Count; i++)
+        {
+            UiInputRootId inputRoot = _validationRoots[i];
+            if (_focusedByRoot.TryGetValue(inputRoot, out UiEntity focused) &&
+                (!CanFocus(focused) || !_inputRoots.Contains(inputRoot, focused)))
+            {
+                InvalidateFocus(inputRoot, focused, timestamp);
+            }
+        }
     }
 
     public bool Focus(UiEntity entity, UiTimestamp timestamp)
@@ -39,58 +68,56 @@ public sealed class UiFocusManager : IDisposable
         if (!CanFocus(entity))
             return false;
 
-        UiScopeId entityScope = _world.Entities.GetScope(entity);
-        UiScopeId root = GetRootScope(entityScope);
-        if (_activeScopeByRoot.TryGetValue(root, out UiEntity activeScope) &&
+        if (!_inputRoots.TryResolve(entity, out UiInputRootId inputRoot))
+            return false;
+        if (_activeScopeByRoot.TryGetValue(inputRoot, out UiEntity activeScope) &&
             IsTrappingScope(activeScope) &&
             !IsDescendantOrSelf(activeScope, entity))
         {
             return false;
         }
 
-        UiEntity previous = GetFocused(root);
+        UiEntity previous = GetFocused(inputRoot);
         if (previous == entity)
             return true;
 
         if (_world.Entities.IsAlive(previous))
         {
             InteractionStateStore.Set(_world, previous, InteractionState.Focused, enabled: false);
-            UiRoutedEventData lostData = new(timestamp);
+            UiRoutedEventData lostData = new(timestamp, InputRoot: inputRoot);
             _router.Dispatch(UiRoutedEventKind.LostFocus, previous, in lostData);
         }
 
-        _focusedByRoot[root] = entity;
+        _focusedByRoot[inputRoot] = entity;
         InteractionStateStore.Set(_world, entity, InteractionState.Focused, enabled: true);
-        UiRoutedEventData gotData = new(timestamp);
+        UiRoutedEventData gotData = new(timestamp, InputRoot: inputRoot);
         _router.Dispatch(UiRoutedEventKind.GotFocus, entity, in gotData);
         return true;
     }
 
-    public bool ClearFocus(UiScopeId scope, UiTimestamp timestamp)
+    public bool ClearFocus(UiInputRootId inputRoot, UiTimestamp timestamp)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        UiScopeId root = GetRootScope(scope);
-        UiEntity previous = GetFocused(root);
+        UiEntity previous = GetFocused(inputRoot);
         if (previous == UiEntity.None)
             return false;
-        _focusedByRoot.Remove(root);
+        _focusedByRoot.Remove(inputRoot);
         if (_world.Entities.IsAlive(previous))
         {
             InteractionStateStore.Set(_world, previous, InteractionState.Focused, enabled: false);
-            UiRoutedEventData data = new(timestamp);
+            UiRoutedEventData data = new(timestamp, InputRoot: inputRoot);
             _router.Dispatch(UiRoutedEventKind.LostFocus, previous, in data);
         }
 
         return true;
     }
 
-    public bool MoveTab(UiScopeId scope, bool reverse, UiTimestamp timestamp)
+    public bool MoveTab(UiInputRootId inputRoot, bool reverse, UiTimestamp timestamp)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        UiScopeId root = GetRootScope(scope);
-        UiEntity current = GetFocused(root);
-        UiEntity restriction = ResolveNavigationScope(root, current);
-        CollectCandidates(root, restriction);
+        UiEntity current = GetFocused(inputRoot);
+        UiEntity restriction = ResolveNavigationScope(inputRoot, current);
+        CollectCandidates(inputRoot, restriction);
         if (_candidates.Count == 0)
             return false;
 
@@ -106,18 +133,17 @@ public sealed class UiFocusManager : IDisposable
         return Focus(_candidates[nextIndex], timestamp);
     }
 
-    public bool MoveDirectional(UiScopeId scope, UiKey direction, UiTimestamp timestamp)
+    public bool MoveDirectional(UiInputRootId inputRoot, UiKey direction, UiTimestamp timestamp)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (direction is not (UiKey.Left or UiKey.Up or UiKey.Right or UiKey.Down))
             throw new ArgumentOutOfRangeException(nameof(direction));
-        UiScopeId root = GetRootScope(scope);
-        UiEntity current = GetFocused(root);
+        UiEntity current = GetFocused(inputRoot);
         if (!_world.Entities.IsAlive(current) || !_world.Components.TryGet(current, out LayoutRect currentRect))
-            return MoveTab(scope, reverse: direction is UiKey.Left or UiKey.Up, timestamp);
+            return MoveTab(inputRoot, reverse: direction is UiKey.Left or UiKey.Up, timestamp);
 
-        UiEntity restriction = ResolveNavigationScope(root, current);
-        CollectCandidates(root, restriction);
+        UiEntity restriction = ResolveNavigationScope(inputRoot, current);
+        CollectCandidates(inputRoot, restriction);
         UiPoint origin = Center(currentRect.Value);
         UiEntity best = UiEntity.None;
         float bestScore = float.PositiveInfinity;
@@ -189,40 +215,40 @@ public sealed class UiFocusManager : IDisposable
             return false;
         }
 
-        UiScopeId root = GetRootScope(_world.Entities.GetScope(focusScope));
-        if (_activeScopeByRoot.TryGetValue(root, out UiEntity alreadyActive) && alreadyActive == focusScope)
+        if (!_inputRoots.TryResolve(focusScope, out UiInputRootId inputRoot))
+            return false;
+        if (_activeScopeByRoot.TryGetValue(inputRoot, out UiEntity alreadyActive) && alreadyActive == focusScope)
             return true;
-        UiEntity previous = GetFocused(root);
+        UiEntity previous = GetFocused(inputRoot);
         _restoreByFocusScope[focusScope] = previous;
-        _previousActiveScope[focusScope] = _activeScopeByRoot.TryGetValue(root, out UiEntity active)
+        _previousActiveScope[focusScope] = _activeScopeByRoot.TryGetValue(inputRoot, out UiEntity active)
             ? active
             : UiEntity.None;
-        _activeScopeByRoot[root] = focusScope;
-        CollectCandidates(root, focusScope);
+        _activeScopeByRoot[inputRoot] = focusScope;
+        CollectCandidates(inputRoot, focusScope);
         _candidates.Sort(CompareTabOrder);
         if (_candidates.Count > 0)
             return Focus(_candidates[0], timestamp);
-        ClearFocus(root, timestamp);
+        ClearFocus(inputRoot, timestamp);
         return true;
     }
 
     public bool DeactivateScope(UiEntity focusScope, UiTimestamp timestamp)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!_world.Entities.TryGetScope(focusScope, out UiScopeId scope))
+        if (!_inputRoots.TryResolve(focusScope, out UiInputRootId inputRoot))
             return false;
-        UiScopeId root = GetRootScope(scope);
-        if (!_activeScopeByRoot.TryGetValue(root, out UiEntity active) || active != focusScope)
+        if (!_activeScopeByRoot.TryGetValue(inputRoot, out UiEntity active) || active != focusScope)
             return false;
         if (_previousActiveScope.Remove(focusScope, out UiEntity previousActive) &&
             _world.Entities.IsAlive(previousActive) &&
             _world.Components.Has<FocusScopeComponent>(previousActive))
         {
-            _activeScopeByRoot[root] = previousActive;
+            _activeScopeByRoot[inputRoot] = previousActive;
         }
         else
         {
-            _activeScopeByRoot.Remove(root);
+            _activeScopeByRoot.Remove(inputRoot);
         }
 
         bool restore = _world.Components.TryGet(focusScope, out FocusScopeComponent component) &&
@@ -232,7 +258,7 @@ public sealed class UiFocusManager : IDisposable
             : UiEntity.None;
         if (restore && CanFocus(previous))
             return Focus(previous, timestamp);
-        return ClearFocus(root, timestamp);
+        return ClearFocus(inputRoot, timestamp);
     }
 
     public void Dispose()
@@ -240,17 +266,19 @@ public sealed class UiFocusManager : IDisposable
         if (_disposed)
             return;
         _world.EntityDestroying -= OnEntityDestroying;
+        _inputRoots.InputRootDestroying -= OnInputRootDestroying;
         _focusedByRoot.Clear();
         _activeScopeByRoot.Clear();
         _restoreByFocusScope.Clear();
         _previousActiveScope.Clear();
         _candidates.Clear();
+        _validationRoots.Clear();
         _disposed = true;
     }
 
     private void OnEntityDestroying(UiEntity entity)
     {
-        UiScopeId[] roots = _focusedByRoot
+        UiInputRootId[] roots = _focusedByRoot
             .Where(pair => pair.Value == entity)
             .Select(pair => pair.Key)
             .ToArray();
@@ -260,7 +288,7 @@ public sealed class UiFocusManager : IDisposable
             _focusedByRoot.Remove(roots[i]);
         }
 
-        UiScopeId[] activeRoots = _activeScopeByRoot
+        UiInputRootId[] activeRoots = _activeScopeByRoot
             .Where(pair => pair.Value == entity)
             .Select(pair => pair.Key)
             .ToArray();
@@ -297,20 +325,18 @@ public sealed class UiFocusManager : IDisposable
         }
     }
 
-    private bool CanFocus(UiEntity entity)
+    internal bool CanFocus(UiEntity entity)
     {
         if (!_world.Entities.IsAlive(entity) ||
-            !_world.Components.TryGet(entity, out FocusableComponent focusable) ||
-            !focusable.IsTabStop)
+            !_world.Components.Has<FocusableComponent>(entity))
         {
             return false;
         }
 
-        return !_world.Components.TryGet(entity, out InteractionStateComponent state) ||
-               (state.Value & InteractionState.Disabled) == 0;
+        return InteractionStateStore.IsEnabledAndVisible(_world, entity);
     }
 
-    private void CollectCandidates(UiScopeId root, UiEntity restriction)
+    private void CollectCandidates(UiInputRootId inputRoot, UiEntity restriction)
     {
         _candidates.Clear();
         ComponentPool<FocusableComponent> pool = _world.Components.Pool<FocusableComponent>();
@@ -322,7 +348,7 @@ public sealed class UiFocusManager : IDisposable
             FocusableComponent component = components[i];
             if (!component.IsTabStop || component.TabIndex < 0 || !CanFocus(candidate))
                 continue;
-            if (GetRootScope(_world.Entities.GetScope(candidate)) != root)
+            if (!_inputRoots.Contains(inputRoot, candidate))
                 continue;
             if (restriction != UiEntity.None && !IsDescendantOrSelf(restriction, candidate))
                 continue;
@@ -344,9 +370,9 @@ public sealed class UiFocusManager : IDisposable
         return left.Index.CompareTo(right.Index);
     }
 
-    private UiEntity ResolveNavigationScope(UiScopeId root, UiEntity current)
+    private UiEntity ResolveNavigationScope(UiInputRootId inputRoot, UiEntity current)
     {
-        if (_activeScopeByRoot.TryGetValue(root, out UiEntity active) && IsTrappingScope(active))
+        if (_activeScopeByRoot.TryGetValue(inputRoot, out UiEntity active) && IsTrappingScope(active))
             return active;
         UiEntity cursor = current;
         int guard = 0;
@@ -383,18 +409,29 @@ public sealed class UiFocusManager : IDisposable
         return false;
     }
 
-    private UiScopeId GetRootScope(UiScopeId scope)
+    private void InvalidateFocus(UiInputRootId inputRoot, UiEntity focused, UiTimestamp timestamp)
     {
-        UiScopeId current = scope;
-        int guard = 0;
-        while (_world.Scopes.TryGetParent(current, out UiScopeId parent) &&
-               !parent.IsNone &&
-               guard++ < 1_000_000)
+        _focusedByRoot.Remove(inputRoot);
+        if (_world.Entities.IsAlive(focused))
         {
-            current = parent;
+            InteractionStateStore.Set(_world, focused, InteractionState.Focused, enabled: false);
+            UiRoutedEventData data = new(timestamp, InputRoot: inputRoot);
+            _router.Dispatch(UiRoutedEventKind.LostFocus, focused, in data);
         }
+    }
 
-        return current;
+    private void OnInputRootDestroying(UiInputRootId inputRoot)
+    {
+        if (_focusedByRoot.TryGetValue(inputRoot, out UiEntity focused))
+            InvalidateFocus(inputRoot, focused, _world.Clock.Now);
+        _activeScopeByRoot.Remove(inputRoot);
+        foreach (UiEntity focusScope in _restoreByFocusScope.Keys
+                     .Where(entity => _inputRoots.Contains(inputRoot, entity))
+                     .ToArray())
+        {
+            _restoreByFocusScope.Remove(focusScope);
+            _previousActiveScope.Remove(focusScope);
+        }
     }
 
     private static UiPoint Center(UiRect rect) =>
@@ -403,6 +440,20 @@ public sealed class UiFocusManager : IDisposable
 
 internal static class InteractionStateStore
 {
+    public static bool IsEnabledAndVisible(UiWorld world, UiEntity entity)
+    {
+        if (!world.Entities.IsAlive(entity))
+            return false;
+        if (world.Components.TryGet(entity, out InteractionStateComponent state) &&
+            (state.Value & InteractionState.Disabled) != 0)
+        {
+            return false;
+        }
+
+        return !world.Components.TryGet(entity, out HitTestableComponent hitTestable) ||
+               (hitTestable.IsEnabled && hitTestable.IsVisible);
+    }
+
     public static bool Set(UiWorld world, UiEntity entity, InteractionState flag, bool enabled)
     {
         if (!world.Entities.IsAlive(entity))

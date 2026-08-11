@@ -47,7 +47,8 @@ public readonly record struct UiRoutedEventData(
     UiPointerButton PointerButton = UiPointerButton.None,
     UiKey Key = UiKey.None,
     UiInputModifiers Modifiers = UiInputModifiers.None,
-    float Scale = 1f);
+    float Scale = 1f,
+    UiInputRootId InputRoot = default);
 
 public readonly record struct UiRoutedEventRecord(
     UiRoutedEventKind Kind,
@@ -102,9 +103,11 @@ public sealed class UiRoutedEventRouter : IDisposable
 {
     private readonly UiWorld _world;
     private readonly Dictionary<UiEntity, List<HandlerEntry>> _handlers = [];
+    private readonly HashSet<UiEntity> _handlerCompaction = [];
     private readonly List<UiRoutedEventRecord> _records = [];
     private readonly Stack<List<UiEntity>> _routePool = [];
     private readonly Stack<UiRoutedEventContext> _contextPool = [];
+    private int _dispatchDepth;
     private bool _disposed;
 
     public UiRoutedEventRouter(UiWorld world)
@@ -145,6 +148,7 @@ public sealed class UiRoutedEventRouter : IDisposable
 
         List<UiEntity> route = RentRoute(target);
         UiRoutedEventContext context = RentContext(kind, target, in data);
+        _dispatchDepth++;
         try
         {
             for (int i = route.Count - 1; i >= 1; i--)
@@ -171,6 +175,9 @@ public sealed class UiRoutedEventRouter : IDisposable
         {
             ReturnContext(context);
             ReturnRoute(route);
+            _dispatchDepth--;
+            if (_dispatchDepth == 0)
+                CompactHandlers();
         }
     }
 
@@ -182,6 +189,7 @@ public sealed class UiRoutedEventRouter : IDisposable
             return;
         _world.EntityDestroying -= OnEntityDestroying;
         _handlers.Clear();
+        _handlerCompaction.Clear();
         _records.Clear();
         _routePool.Clear();
         _contextPool.Clear();
@@ -194,10 +202,12 @@ public sealed class UiRoutedEventRouter : IDisposable
         context.Phase = phase;
         if (_handlers.TryGetValue(current, out List<HandlerEntry>? entries))
         {
-            HandlerEntry[] snapshot = entries.ToArray();
-            for (int i = 0; i < snapshot.Length; i++)
+            int initialCount = entries.Count;
+            for (int i = 0; i < initialCount; i++)
             {
-                HandlerEntry entry = snapshot[i];
+                HandlerEntry entry = entries[i];
+                if (!entry.IsActive)
+                    continue;
                 if (entry.Kind == context.Kind && (entry.Phases & phase) != 0)
                     entry.Handler(context);
                 if (context.PropagationStopped)
@@ -252,23 +262,71 @@ public sealed class UiRoutedEventRouter : IDisposable
 
     private void ReturnContext(UiRoutedEventContext context) => _contextPool.Push(context);
 
-    private void OnEntityDestroying(UiEntity entity) => _handlers.Remove(entity);
+    private void OnEntityDestroying(UiEntity entity)
+    {
+        if (!_handlers.Remove(entity, out List<HandlerEntry>? entries))
+            return;
+
+        for (int i = 0; i < entries.Count; i++)
+            entries[i].IsActive = false;
+        _handlerCompaction.Remove(entity);
+    }
 
     private void Unregister(UiEntity entity, HandlerEntry entry)
     {
-        if (!_handlers.TryGetValue(entity, out List<HandlerEntry>? entries))
+        if (!entry.IsActive || !_handlers.TryGetValue(entity, out List<HandlerEntry>? entries))
             return;
+
+        entry.IsActive = false;
+        if (_dispatchDepth != 0)
+        {
+            _handlerCompaction.Add(entity);
+            return;
+        }
+
         entries.Remove(entry);
         if (entries.Count == 0)
             _handlers.Remove(entity);
     }
 
+    private void CompactHandlers()
+    {
+        if (_handlerCompaction.Count == 0)
+            return;
+
+        foreach (UiEntity entity in _handlerCompaction)
+        {
+            if (!_handlers.TryGetValue(entity, out List<HandlerEntry>? entries))
+                continue;
+
+            for (int i = entries.Count - 1; i >= 0; i--)
+            {
+                if (!entries[i].IsActive)
+                    entries.RemoveAt(i);
+            }
+
+            if (entries.Count == 0)
+                _handlers.Remove(entity);
+        }
+
+        _handlerCompaction.Clear();
+    }
+
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
-    private sealed record HandlerEntry(
-        UiRoutedEventKind Kind,
-        UiRoutedEventPhase Phases,
-        UiRoutedEventHandler Handler);
+    private sealed class HandlerEntry(
+        UiRoutedEventKind kind,
+        UiRoutedEventPhase phases,
+        UiRoutedEventHandler handler)
+    {
+        public UiRoutedEventKind Kind { get; } = kind;
+
+        public UiRoutedEventPhase Phases { get; } = phases;
+
+        public UiRoutedEventHandler Handler { get; } = handler;
+
+        public bool IsActive { get; set; } = true;
+    }
 
     private sealed class HandlerRegistration : IDisposable
     {
