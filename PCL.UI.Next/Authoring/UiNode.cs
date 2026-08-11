@@ -62,6 +62,10 @@ public sealed class UiNode
 
     internal UiGestureMask GestureMask { get; set; }
 
+    internal UiTransitionSet Transitions { get; set; }
+
+    internal UiMotionToken LayoutTransition { get; set; }
+
     public UiNode Class(UiClass styleClass)
     {
         if (StyleClassIds.Contains(styleClass.Id))
@@ -116,6 +120,35 @@ public sealed class UiNode
         GestureMask |= gestures;
         if (gestures != UiGestureMask.None)
             HitTestVisibleOverride = true;
+        return this;
+    }
+
+    public UiNode Transition(UiAnimationProperty property, UiMotionToken motion)
+    {
+        UiTransitionSet transitions = Transitions;
+        UiTransitionDefinition definition = new(property, motion);
+        transitions.Set(in definition);
+        Transitions = transitions;
+        return this;
+    }
+
+    public UiNode Transition(
+        UiAnimationProperty property,
+        UiMotionToken motion,
+        UiAnimationContinuity continuity)
+    {
+        UiTransitionSet transitions = Transitions;
+        UiTransitionDefinition definition = new(property, motion, continuity);
+        transitions.Set(in definition);
+        Transitions = transitions;
+        return this;
+    }
+
+    public UiNode AnimateLayout(UiMotionToken motion)
+    {
+        if (motion.IsNone)
+            throw new ArgumentOutOfRangeException(nameof(motion));
+        LayoutTransition = motion;
         return this;
     }
 

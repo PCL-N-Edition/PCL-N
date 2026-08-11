@@ -15,7 +15,8 @@ public sealed class UiInteractiveRuntime : IDisposable
         UiSize viewport,
         bool applyDefaults = true,
         int textCacheCapacity = 512,
-        UiGestureThresholds? gestureThresholds = null)
+        UiGestureThresholds? gestureThresholds = null,
+        UiMotionRegistry? motionRegistry = null)
     {
         _layoutRuntime = new UiLayoutRuntime(
             world,
@@ -23,6 +24,7 @@ public sealed class UiInteractiveRuntime : IDisposable
             viewport,
             applyDefaults,
             textCacheCapacity);
+        Animation = new UiAnimationRuntime(world, motionRegistry);
         Input = new UiInputRuntime(world, gestureThresholds);
     }
 
@@ -32,6 +34,7 @@ public sealed class UiInteractiveRuntime : IDisposable
     public TextLayoutCache TextCache => _layoutRuntime.TextCache;
     public TextMeasurementService TextMeasurement => _layoutRuntime.TextMeasurement;
     public LayoutEngine Layout => _layoutRuntime.Layout;
+    public UiAnimationRuntime Animation { get; }
     public UiInputRuntime Input { get; }
 
     public void SetViewport(UiSize viewport) => _layoutRuntime.SetViewport(viewport);
@@ -41,6 +44,7 @@ public sealed class UiInteractiveRuntime : IDisposable
         if (_disposed)
             return;
         Input.Dispose();
+        Animation.Dispose();
         _layoutRuntime.Dispose();
         _disposed = true;
     }

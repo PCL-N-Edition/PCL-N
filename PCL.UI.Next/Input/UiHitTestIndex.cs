@@ -1,6 +1,8 @@
 // Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Numerics;
+
 namespace PCL.UI.Next;
 
 public readonly record struct UiHitTestEntry(
@@ -54,6 +56,19 @@ public sealed class UiHitTestIndex
                 (state.Value & InteractionState.Disabled) != 0)
             {
                 continue;
+            }
+
+            if (_world.Components.TryGet(entry.Entity, out ComputedTransform transform))
+            {
+                if (!Matrix3x2.Invert(transform.Value, out Matrix3x2 inverse) ||
+                    !_world.Components.TryGet(entry.Entity, out LayoutRect layout))
+                {
+                    continue;
+                }
+
+                Vector2 local = Vector2.Transform(new Vector2(point.X, point.Y), inverse);
+                if (!layout.Value.Contains(new UiPoint(local.X, local.Y)))
+                    continue;
             }
 
             return entry.Entity;
@@ -129,7 +144,10 @@ public sealed class UiHitTestIndex
             hitTestable.IsVisible &&
             _world.Components.TryGet(entity, out LayoutRect layout))
         {
-            _entries.Add(new UiHitTestEntry(entity, layout.Value, hitTestable.ZIndex, order));
+            UiRect bounds = _world.Components.TryGet(entity, out ComputedTransform transform)
+                ? TransformBounds(layout.Value, transform.Value)
+                : layout.Value;
+            _entries.Add(new UiHitTestEntry(entity, bounds, hitTestable.ZIndex, order));
         }
 
         if (!_world.Hierarchy.TryGetNode(entity, out HierarchyNode node))
@@ -157,6 +175,19 @@ public sealed class UiHitTestIndex
         }
 
         return current;
+    }
+
+    private static UiRect TransformBounds(UiRect rect, Matrix3x2 transform)
+    {
+        Vector2 topLeft = Vector2.Transform(new Vector2(rect.X, rect.Y), transform);
+        Vector2 topRight = Vector2.Transform(new Vector2(rect.Right, rect.Y), transform);
+        Vector2 bottomLeft = Vector2.Transform(new Vector2(rect.X, rect.Bottom), transform);
+        Vector2 bottomRight = Vector2.Transform(new Vector2(rect.Right, rect.Bottom), transform);
+        float left = MathF.Min(MathF.Min(topLeft.X, topRight.X), MathF.Min(bottomLeft.X, bottomRight.X));
+        float top = MathF.Min(MathF.Min(topLeft.Y, topRight.Y), MathF.Min(bottomLeft.Y, bottomRight.Y));
+        float right = MathF.Max(MathF.Max(topLeft.X, topRight.X), MathF.Max(bottomLeft.X, bottomRight.X));
+        float bottom = MathF.Max(MathF.Max(topLeft.Y, topRight.Y), MathF.Max(bottomLeft.Y, bottomRight.Y));
+        return new UiRect(left, top, Math.Max(0f, right - left), Math.Max(0f, bottom - top));
     }
 
 }

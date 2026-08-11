@@ -102,9 +102,9 @@ public sealed class StyleSystem : IUiSystem, IDisposable
         if (!world.Entities.IsAlive(entity))
             return;
 
-        ResolvedStyle previous = world.Components.TryGet(entity, out ResolvedStyle current)
-            ? current
-            : ResolvedStyle.Default;
+        bool hadResolved = world.Components.TryGet(entity, out ResolvedStyle previous);
+        if (!hadResolved)
+            previous = ResolvedStyle.Default;
         ResolvedStyle resolved = CreateInheritedBase(world, entity);
         InteractionState state = world.Components.TryGet(entity, out InteractionStateComponent interaction)
             ? interaction.Value
@@ -126,6 +126,12 @@ public sealed class StyleSystem : IUiSystem, IDisposable
 
         world.Set(entity, resolved);
         world.Dirty.Clear(entity, UiDirtyFlags.Style);
+        if ((!hadResolved || !previous.Equals(resolved)) &&
+            (world.Components.Has<TransitionSetComponent>(entity) ||
+             world.Components.Has<ComputedVisual>(entity)))
+        {
+            world.Dirty.Mark(entity, UiDirtyFlags.Animation);
+        }
         if (previous.Equals(resolved))
             return;
 
@@ -133,8 +139,15 @@ public sealed class StyleSystem : IUiSystem, IDisposable
                                   previous.FontWeight != resolved.FontWeight ||
                                   previous.FontFamilyId != resolved.FontFamilyId;
         bool layoutChanged = previous.Padding != resolved.Padding || textMetricsChanged;
+        bool transformChanged = previous.TranslateX != resolved.TranslateX ||
+                                previous.TranslateY != resolved.TranslateY ||
+                                previous.ScaleX != resolved.ScaleX ||
+                                previous.ScaleY != resolved.ScaleY ||
+                                previous.Rotation != resolved.Rotation;
 
         UiDirtyFlags dirty = UiDirtyFlags.Render;
+        if (transformChanged)
+            dirty |= UiDirtyFlags.Transform;
         if (textMetricsChanged && world.Components.Has<TextContent>(entity))
             dirty |= UiDirtyFlags.TextMeasure;
         world.Dirty.Mark(entity, dirty);
@@ -177,6 +190,11 @@ public sealed class StyleSystem : IUiSystem, IDisposable
         if ((defined & UiStyleProperty.FontSize) != 0) target.FontSize = values.FontSize.Resolve(_theme);
         if ((defined & UiStyleProperty.FontWeight) != 0) target.FontWeight = values.FontWeight.Resolve(_theme);
         if ((defined & UiStyleProperty.FontFamily) != 0) target.FontFamilyId = values.FontFamily.Resolve(_theme);
+        if ((defined & UiStyleProperty.TranslateX) != 0) target.TranslateX = values.TranslateX.Resolve(_theme);
+        if ((defined & UiStyleProperty.TranslateY) != 0) target.TranslateY = values.TranslateY.Resolve(_theme);
+        if ((defined & UiStyleProperty.ScaleX) != 0) target.ScaleX = values.ScaleX.Resolve(_theme);
+        if ((defined & UiStyleProperty.ScaleY) != 0) target.ScaleY = values.ScaleY.Resolve(_theme);
+        if ((defined & UiStyleProperty.Rotation) != 0) target.Rotation = values.Rotation.Resolve(_theme);
     }
 
     private void OnExternalStyleChanged() => _world.Scheduler.RequestReactiveFrame();

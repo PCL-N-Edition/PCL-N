@@ -75,7 +75,9 @@ public readonly struct BlueprintNode
         bool isFocusScope,
         bool isFocusTrap,
         bool restorePreviousFocus,
-        UiGestureMask gestures)
+        UiGestureMask gestures,
+        UiTransitionSet transitions,
+        UiMotionToken layoutTransition)
     {
         Kind = kind;
         ParentIndex = parentIndex;
@@ -105,6 +107,8 @@ public readonly struct BlueprintNode
         IsFocusTrap = isFocusTrap;
         RestorePreviousFocus = restorePreviousFocus;
         Gestures = gestures;
+        Transitions = transitions;
+        LayoutTransition = layoutTransition;
     }
 
     public UiNodeKind Kind { get; }
@@ -133,6 +137,8 @@ public readonly struct BlueprintNode
     public bool IsFocusTrap { get; }
     public bool RestorePreviousFocus { get; }
     public UiGestureMask Gestures { get; }
+    public UiTransitionSet Transitions { get; }
+    public UiMotionToken LayoutTransition { get; }
     public bool IsStructural => Kind == UiNodeKind.If;
 
     private UiGridTrack[] GridColumnsCore { get; }

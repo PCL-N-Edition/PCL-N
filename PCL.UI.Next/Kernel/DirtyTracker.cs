@@ -6,9 +6,8 @@ namespace PCL.UI.Next;
 /// <summary>
 /// Per-entity dirty flags with per-flag active sets for reactive system dispatch.
 /// <para>
-/// TODO (hot path): replace Dictionary + HashSet + per-Collect allocations with
-/// PackedDirtySet / SparseSet / reusable scratch buffers so interactive frames can
-/// target 0 B/frame. Correctness first; do not treat this Dictionary design as final.
+/// TODO (hot path): replace Dictionary + HashSet with PackedDirtySet / SparseSet.
+/// Collect reuses its scratch set and does not allocate after capacity warm-up.
 /// </para>
 /// </summary>
 public sealed class DirtyTracker
@@ -16,6 +15,7 @@ public sealed class DirtyTracker
     private readonly EntityRegistry _entities;
     private readonly Dictionary<int, DirtyEntry> _byIndex = new();
     private readonly HashSet<int>[] _sets;
+    private readonly HashSet<int> _collectSeen = [];
 
     public DirtyTracker(EntityRegistry entities)
     {
@@ -91,14 +91,14 @@ public sealed class DirtyTracker
         if (mask == UiDirtyFlags.None)
             return;
 
-        HashSet<int> seen = [];
+        _collectSeen.Clear();
         for (int bit = 0; bit < 32; bit++)
         {
             if (((uint)mask & (1u << bit)) == 0)
                 continue;
             foreach (int index in _sets[bit])
             {
-                if (!seen.Add(index))
+                if (!_collectSeen.Add(index))
                     continue;
                 if (!_byIndex.TryGetValue(index, out DirtyEntry entry))
                     continue;
@@ -147,6 +147,7 @@ public sealed class DirtyTracker
     public void ClearEverything()
     {
         _byIndex.Clear();
+        _collectSeen.Clear();
         for (int i = 0; i < _sets.Length; i++)
             _sets[i].Clear();
     }

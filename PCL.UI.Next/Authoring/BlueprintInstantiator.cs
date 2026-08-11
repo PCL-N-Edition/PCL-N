@@ -216,6 +216,10 @@ public sealed class BlueprintInstantiator
         }
         if (node.Gestures != UiGestureMask.None)
             _world.Set(entity, new GestureComponent { Enabled = node.Gestures });
+        if (node.Transitions.Count > 0)
+            _world.Set(entity, new TransitionSetComponent { Value = node.Transitions });
+        if (!node.LayoutTransition.IsNone)
+            _world.Set(entity, new LayoutTransitionComponent { Motion = node.LayoutTransition });
         if (node.Behaviors != UiBehavior.None || node.IsFocusScope || node.Gestures != UiGestureMask.None)
             _world.Set(entity, new InteractionStateComponent());
         if (node.CommandId != 0)

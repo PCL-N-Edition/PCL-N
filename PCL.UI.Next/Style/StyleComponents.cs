@@ -61,7 +61,12 @@ public enum UiStyleProperty : ushort
     Padding = 1 << 4,
     FontSize = 1 << 5,
     FontWeight = 1 << 6,
-    FontFamily = 1 << 7
+    FontFamily = 1 << 7,
+    TranslateX = 1 << 8,
+    TranslateY = 1 << 9,
+    ScaleX = 1 << 10,
+    ScaleY = 1 << 11,
+    Rotation = 1 << 12
 }
 
 /// <summary>Rule payload. Fluent With methods set explicit property bits.</summary>
@@ -76,6 +81,11 @@ public struct UiStyleValues
     public ThemeValue<float> FontSize { get; private set; }
     public ThemeValue<int> FontWeight { get; private set; }
     public ThemeValue<int> FontFamily { get; private set; }
+    public ThemeValue<float> TranslateX { get; private set; }
+    public ThemeValue<float> TranslateY { get; private set; }
+    public ThemeValue<float> ScaleX { get; private set; }
+    public ThemeValue<float> ScaleY { get; private set; }
+    public ThemeValue<float> Rotation { get; private set; }
 
     public UiStyleValues WithBackground(ThemeValue<UiColor> value)
     {
@@ -133,6 +143,44 @@ public struct UiStyleValues
         return this;
     }
 
+    public UiStyleValues WithTranslateX(ThemeValue<float> value)
+    {
+        TranslateX = value;
+        Defined |= UiStyleProperty.TranslateX;
+        return this;
+    }
+
+    public UiStyleValues WithTranslateY(ThemeValue<float> value)
+    {
+        TranslateY = value;
+        Defined |= UiStyleProperty.TranslateY;
+        return this;
+    }
+
+    public UiStyleValues WithScaleX(ThemeValue<float> value)
+    {
+        ScaleX = value;
+        Defined |= UiStyleProperty.ScaleX;
+        return this;
+    }
+
+    public UiStyleValues WithScaleY(ThemeValue<float> value)
+    {
+        ScaleY = value;
+        Defined |= UiStyleProperty.ScaleY;
+        return this;
+    }
+
+    public UiStyleValues WithScale(ThemeValue<float> value) =>
+        WithScaleX(value).WithScaleY(value);
+
+    public UiStyleValues WithRotation(ThemeValue<float> value)
+    {
+        Rotation = value;
+        Defined |= UiStyleProperty.Rotation;
+        return this;
+    }
+
     internal bool ReferencesToken(int tokenId) =>
         ((Defined & UiStyleProperty.Background) != 0 && Background.References(tokenId)) ||
         ((Defined & UiStyleProperty.Foreground) != 0 && Foreground.References(tokenId)) ||
@@ -141,7 +189,12 @@ public struct UiStyleValues
         ((Defined & UiStyleProperty.Padding) != 0 && Padding.References(tokenId)) ||
         ((Defined & UiStyleProperty.FontSize) != 0 && FontSize.References(tokenId)) ||
         ((Defined & UiStyleProperty.FontWeight) != 0 && FontWeight.References(tokenId)) ||
-        ((Defined & UiStyleProperty.FontFamily) != 0 && FontFamily.References(tokenId));
+        ((Defined & UiStyleProperty.FontFamily) != 0 && FontFamily.References(tokenId)) ||
+        ((Defined & UiStyleProperty.TranslateX) != 0 && TranslateX.References(tokenId)) ||
+        ((Defined & UiStyleProperty.TranslateY) != 0 && TranslateY.References(tokenId)) ||
+        ((Defined & UiStyleProperty.ScaleX) != 0 && ScaleX.References(tokenId)) ||
+        ((Defined & UiStyleProperty.ScaleY) != 0 && ScaleY.References(tokenId)) ||
+        ((Defined & UiStyleProperty.Rotation) != 0 && Rotation.References(tokenId));
 }
 
 public struct ResolvedStyle : IEquatable<ResolvedStyle>
@@ -154,6 +207,11 @@ public struct ResolvedStyle : IEquatable<ResolvedStyle>
     public float FontSize { get; set; }
     public int FontWeight { get; set; }
     public int FontFamilyId { get; set; }
+    public float TranslateX { get; set; }
+    public float TranslateY { get; set; }
+    public float ScaleX { get; set; }
+    public float ScaleY { get; set; }
+    public float Rotation { get; set; }
 
     public static ResolvedStyle Default => new()
     {
@@ -161,7 +219,9 @@ public struct ResolvedStyle : IEquatable<ResolvedStyle>
         Foreground = UiColor.FromRgb(31, 35, 41),
         Opacity = 1f,
         FontSize = 14f,
-        FontWeight = 400
+        FontWeight = 400,
+        ScaleX = 1f,
+        ScaleY = 1f
     };
 
     public bool Equals(ResolvedStyle other) =>
@@ -172,18 +232,32 @@ public struct ResolvedStyle : IEquatable<ResolvedStyle>
         Padding == other.Padding &&
         FontSize.Equals(other.FontSize) &&
         FontWeight == other.FontWeight &&
-        FontFamilyId == other.FontFamilyId;
+        FontFamilyId == other.FontFamilyId &&
+        TranslateX.Equals(other.TranslateX) &&
+        TranslateY.Equals(other.TranslateY) &&
+        ScaleX.Equals(other.ScaleX) &&
+        ScaleY.Equals(other.ScaleY) &&
+        Rotation.Equals(other.Rotation);
 
     public override bool Equals(object? obj) => obj is ResolvedStyle other && Equals(other);
     public static bool operator ==(ResolvedStyle left, ResolvedStyle right) => left.Equals(right);
     public static bool operator !=(ResolvedStyle left, ResolvedStyle right) => !left.Equals(right);
-    public override int GetHashCode() => HashCode.Combine(
-        Background,
-        Foreground,
-        Opacity,
-        CornerRadius,
-        Padding,
-        FontSize,
-        FontWeight,
-        FontFamilyId);
+    public override int GetHashCode()
+    {
+        HashCode hash = new();
+        hash.Add(Background);
+        hash.Add(Foreground);
+        hash.Add(Opacity);
+        hash.Add(CornerRadius);
+        hash.Add(Padding);
+        hash.Add(FontSize);
+        hash.Add(FontWeight);
+        hash.Add(FontFamilyId);
+        hash.Add(TranslateX);
+        hash.Add(TranslateY);
+        hash.Add(ScaleX);
+        hash.Add(ScaleY);
+        hash.Add(Rotation);
+        return hash.ToHashCode();
+    }
 }

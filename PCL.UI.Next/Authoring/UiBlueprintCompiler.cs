@@ -51,7 +51,9 @@ public static class UiBlueprintCompiler
                 d.IsFocusScope,
                 d.IsFocusTrap,
                 d.RestorePreviousFocus,
-                d.Gestures);
+                d.Gestures,
+                d.Transitions,
+                d.LayoutTransition);
         }
 
         BlueprintBinding[] bindingArray = bindings.ToArray();
@@ -102,7 +104,9 @@ public static class UiBlueprintCompiler
             IsFocusScope = node.IsFocusScope,
             IsFocusTrap = node.IsFocusTrap,
             RestorePreviousFocus = node.RestorePreviousFocus,
-            Gestures = node.GestureMask
+            Gestures = node.GestureMask,
+            Transitions = node.Transitions,
+            LayoutTransition = node.LayoutTransition
         });
 
         if (node.TextBinding is { } textSelector)
@@ -195,5 +199,7 @@ public static class UiBlueprintCompiler
         public bool IsFocusTrap;
         public bool RestorePreviousFocus;
         public UiGestureMask Gestures;
+        public UiTransitionSet Transitions;
+        public UiMotionToken LayoutTransition;
     }
 }
