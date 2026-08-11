@@ -520,6 +520,16 @@ Solver 与公共入口的兼容关系必须冻结：
 | `StartDecay` | `Decay` |
 | `SetDirect` | 不接受 Motion token，由 API 直接进入 `Direct` |
 
+Solver 与 Continuity 同样是封闭矩阵：
+
+| Solver | 允许的 Continuity |
+|---|---|
+| `Immediate` | `ContinueFromCurrent` |
+| `Tween` | `ContinueFromCurrent` / `PreserveSpeed` |
+| `Spring` | `ContinueFromCurrent` / `PreserveVelocity` |
+| `Decay` | `ContinueFromCurrent` / `MergeVelocity` |
+| `Direct` | 仅由 `SetDirect` 建立，不接受 Motion token |
+
 Runtime 必须先检查 token 的原始 Solver，再应用 Disabled / Reduced Motion policy，且检查
 发生在创建 Channel 之前。不兼容组合必须抛出 `ArgumentException`，不得把 `Decay`
 塞进 target-driven Retarget，也不得把 Tween/Spring token 强制解释为 Decay。

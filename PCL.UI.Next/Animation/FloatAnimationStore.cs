@@ -72,6 +72,8 @@ internal sealed class FloatAnimationStore
         UiMotionDefinition definition = _motions.ResolveForRetarget(
             spec.Motion,
             spec.Flags,
+            spec.HasContinuityOverride,
+            spec.Continuity,
             animationsEnabled,
             reducedMotion);
         target = AnimationPropertyRegistry.Constrain(property, target);
@@ -82,7 +84,9 @@ internal sealed class FloatAnimationStore
             return Handle(index);
         }
 
-        UiAnimationContinuity continuity = spec.HasContinuityOverride
+        UiAnimationContinuity continuity = definition.Solver == UiAnimationSolverKind.Immediate
+            ? definition.Continuity
+            : spec.HasContinuityOverride
             ? spec.Continuity
             : definition.Continuity;
         float previousVelocity = _velocity[index];
@@ -175,6 +179,8 @@ internal sealed class FloatAnimationStore
         UiMotionDefinition definition = _motions.ResolveForDecay(
             spec.Motion,
             spec.Flags,
+            spec.HasContinuityOverride,
+            spec.Continuity,
             animationsEnabled,
             reducedMotion);
         int index = GetOrCreate(entity, property);
@@ -355,6 +361,8 @@ internal sealed class FloatAnimationStore
             {
                 _current[index] = _target[index];
                 _velocity[index] = 0f;
+                _solver[index] = UiAnimationSolverKind.Immediate;
+                _continuity[index] = UiAnimationContinuity.ContinueFromCurrent;
                 AnimationPropertyRegistry.WriteCurrent(
                     _world,
                     _entities[index],

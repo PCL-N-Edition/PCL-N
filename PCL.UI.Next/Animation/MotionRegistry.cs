@@ -170,6 +170,8 @@ public sealed class UiMotionRegistry
     internal UiMotionDefinition ResolveForRetarget(
         UiMotionToken token,
         UiAnimationFlags flags,
+        bool hasContinuityOverride,
+        UiAnimationContinuity continuityOverride,
         bool animationsEnabled,
         bool reducedMotion)
     {
@@ -183,12 +185,18 @@ public sealed class UiMotionRegistry
                 $"Motion token {token.Id} uses {definition.Solver} and cannot be used with Retarget.",
                 nameof(token));
         }
+        ValidateContinuity(
+            definition.Solver,
+            hasContinuityOverride ? continuityOverride : definition.Continuity,
+            nameof(continuityOverride));
         return ApplyPolicy(definition, flags, animationsEnabled, reducedMotion);
     }
 
     internal UiMotionDefinition ResolveForDecay(
         UiMotionToken token,
         UiAnimationFlags flags,
+        bool hasContinuityOverride,
+        UiAnimationContinuity continuityOverride,
         bool animationsEnabled,
         bool reducedMotion)
     {
@@ -199,6 +207,10 @@ public sealed class UiMotionRegistry
                 $"Motion token {token.Id} uses {definition.Solver} and cannot be used with StartDecay.",
                 nameof(token));
         }
+        ValidateContinuity(
+            definition.Solver,
+            hasContinuityOverride ? continuityOverride : definition.Continuity,
+            nameof(continuityOverride));
         return ApplyPolicy(definition, flags, animationsEnabled, reducedMotion);
     }
 
@@ -276,6 +288,7 @@ public sealed class UiMotionRegistry
                 "Direct is controlled by SetDirect and cannot be registered as a motion token.",
                 nameof(definition));
         }
+        ValidateContinuity(definition.Solver, definition.Continuity, nameof(definition));
         if (definition.DurationSeconds < 0f || !float.IsFinite(definition.DurationSeconds))
             throw new ArgumentOutOfRangeException(nameof(definition));
         if (definition.SpringResponse < 0f || !float.IsFinite(definition.SpringResponse))
@@ -288,5 +301,34 @@ public sealed class UiMotionRegistry
             throw new ArgumentOutOfRangeException(nameof(definition));
         if (definition.VelocityTolerance <= 0f || !float.IsFinite(definition.VelocityTolerance))
             throw new ArgumentOutOfRangeException(nameof(definition));
+    }
+
+    private static void ValidateContinuity(
+        UiAnimationSolverKind solver,
+        UiAnimationContinuity continuity,
+        string parameterName)
+    {
+        UiAnimationSpec.ThrowIfUnsupported(continuity);
+        bool compatible = solver switch
+        {
+            UiAnimationSolverKind.Immediate =>
+                continuity == UiAnimationContinuity.ContinueFromCurrent,
+            UiAnimationSolverKind.Tween =>
+                continuity is UiAnimationContinuity.ContinueFromCurrent or
+                    UiAnimationContinuity.PreserveSpeed,
+            UiAnimationSolverKind.Spring =>
+                continuity is UiAnimationContinuity.ContinueFromCurrent or
+                    UiAnimationContinuity.PreserveVelocity,
+            UiAnimationSolverKind.Decay =>
+                continuity is UiAnimationContinuity.ContinueFromCurrent or
+                    UiAnimationContinuity.MergeVelocity,
+            _ => false
+        };
+        if (!compatible)
+        {
+            throw new ArgumentException(
+                $"Continuity {continuity} is not compatible with solver {solver}.",
+                parameterName);
+        }
     }
 }

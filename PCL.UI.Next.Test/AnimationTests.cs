@@ -570,6 +570,97 @@ public sealed class AnimationTests
     }
 
     [TestMethod]
+    public void MotionRegistry_RejectsTweenPreserveVelocity()
+    {
+        UiMotionRegistry motions = new();
+        UiMotionDefinition definition = new(
+            UiAnimationSolverKind.Tween,
+            UiAnimationContinuity.PreserveVelocity,
+            0.2f,
+            UiEasing.Linear,
+            0f,
+            1f,
+            0f);
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            motions.Set(new UiMotionToken(5002), in definition));
+    }
+
+    [TestMethod]
+    public void MotionRegistry_RejectsSpringPreserveSpeed()
+    {
+        UiMotionRegistry motions = new();
+        UiMotionDefinition definition = new(
+            UiAnimationSolverKind.Spring,
+            UiAnimationContinuity.PreserveSpeed,
+            0f,
+            UiEasing.Linear,
+            0.3f,
+            1f,
+            0f);
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            motions.Set(new UiMotionToken(5003), in definition));
+    }
+
+    [TestMethod]
+    public void MotionRegistry_RejectsDecayPreserveVelocity()
+    {
+        UiMotionRegistry motions = new();
+        UiMotionDefinition definition = new(
+            UiAnimationSolverKind.Decay,
+            UiAnimationContinuity.PreserveVelocity,
+            0f,
+            UiEasing.Linear,
+            0f,
+            1f,
+            8f);
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            motions.Set(new UiMotionToken(5004), in definition));
+    }
+
+    [TestMethod]
+    public void Retarget_RejectsIncompatibleContinuityOverride()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        UiEntity entity = context.Instantiate(Ui.Container()).RootEntity;
+        Drain(context);
+        UiAnimationSpec spec = new(
+            UiMotion.Standard,
+            UiAnimationContinuity.PreserveVelocity);
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            context.Runtime.Animation.Retarget(
+                entity,
+                UiAnimationProperty.Opacity,
+                0f,
+                in spec));
+
+        Assert.AreEqual(0, context.Runtime.Animation.ChannelCount);
+    }
+
+    [TestMethod]
+    public void StartDecay_RejectsIncompatibleContinuityOverride()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        UiEntity entity = context.Instantiate(Ui.Container()).RootEntity;
+        Drain(context);
+        UiAnimationSpec spec = new(
+            UiMotion.Scroll,
+            UiAnimationContinuity.PreserveVelocity);
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            context.Runtime.Animation.StartDecay(
+                entity,
+                UiAnimationProperty.TranslateX,
+                600f,
+                in spec));
+
+        Assert.AreEqual(0, context.Runtime.Animation.ChannelCount);
+    }
+
+    [TestMethod]
     public void AnimationTick_AllocatesZeroAfterWarmup()
     {
         using TestContext context = Create(new UiSize(200, 100));
