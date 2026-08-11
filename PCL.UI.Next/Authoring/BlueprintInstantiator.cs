@@ -15,7 +15,8 @@ public sealed class BlueprintInstantiator
     private readonly List<BlueprintInstance> _instances = [];
     private readonly HashSet<int> _candidateBindings = [];
     private readonly List<int> _structuralWorkQueue = [];
-    private readonly HashSet<int> _structuralWorkQueued = [];
+    /// <summary>Nodes currently pending in the work queue (not "already processed this pass").</summary>
+    private readonly HashSet<int> _structuralWorkPending = [];
     private readonly List<int> _remountedNodes = [];
 
     public BlueprintInstantiator(
@@ -304,7 +305,7 @@ public sealed class BlueprintInstantiator
         BlueprintDependencyIndex index = instance.Blueprint.DependencyIndex;
 
         _structuralWorkQueue.Clear();
-        _structuralWorkQueued.Clear();
+        _structuralWorkPending.Clear();
 
         if (force)
         {
@@ -339,6 +340,9 @@ public sealed class BlueprintInstantiator
         while (head < _structuralWorkQueue.Count)
         {
             int nodeIndex = _structuralWorkQueue[head++];
+            // Pending membership ends on dequeue so a later remount can re-enqueue the same node.
+            _structuralWorkPending.Remove(nodeIndex);
+
             BlueprintNode node = nodes[nodeIndex];
             if (node.Kind != UiNodeKind.If)
                 continue;
@@ -386,7 +390,7 @@ public sealed class BlueprintInstantiator
     {
         if (nodeIndex < 0)
             return;
-        if (_structuralWorkQueued.Add(nodeIndex))
+        if (_structuralWorkPending.Add(nodeIndex))
             _structuralWorkQueue.Add(nodeIndex);
     }
 

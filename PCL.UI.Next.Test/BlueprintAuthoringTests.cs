@@ -243,6 +243,44 @@ public sealed class BlueprintAuthoringTests
     }
 
     [TestMethod]
+    public void NestedIf_OuterAndInnerChangeSameFrame_StillReconcilesInner()
+    {
+        // InnerSliceId < OuterSliceId so AllSlices seeds Inner before Outer.
+        // If pending-set kept dequeued nodes, Inner would dequeue while unmounted,
+        // then fail to re-enqueue after Outer mounts it.
+        const int outerSlice = 20;
+        const int innerSlice = 10;
+        const int userSlice = 30;
+
+        UiWorld world = new(new DeterministicUiClock());
+        UiScopeId scope = world.CreateRootScope();
+        var store = new PresentationStore();
+        store.Set(outerSlice, false);
+        store.Set(innerSlice, false);
+        store.Set(userSlice, "Alice");
+        var inst = new BlueprintInstantiator(world, store, registerPipelineSystem: false);
+
+        UiSelector<bool> outer = UiSelectors.Bool(100, outerSlice, s => s.Get<bool>(outerSlice));
+        UiSelector<bool> inner = UiSelectors.Bool(101, innerSlice, s => s.Get<bool>(innerSlice));
+        UiSelector<string> user = UiSelectors.String(102, userSlice, s => s.Get<string>(userSlice));
+
+        UiBlueprint bp = Ui.Compile(
+            Ui.If(
+                outer,
+                whenTrue: Ui.If(inner, Ui.Text().BindText(user), Ui.Text("inner-off")),
+                whenFalse: Ui.Text("outer-off")));
+
+        BlueprintInstance live = inst.Instantiate(bp, scope);
+        Assert.AreEqual("outer-off", GetMountedText(world, live));
+
+        // Same frame / same Update: both slices flip true (inner id sorts first).
+        store.Set(innerSlice, true);
+        store.Set(outerSlice, true);
+        inst.Update(live);
+        Assert.AreEqual("Alice", GetMountedText(world, live));
+    }
+
+    [TestMethod]
     public void Button_HasBehaviorsAndCommand_WithoutTextContent()
     {
         UiWorld world = new(new DeterministicUiClock());
