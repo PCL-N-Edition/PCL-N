@@ -499,6 +499,77 @@ public sealed class AnimationTests
     }
 
     [TestMethod]
+    public void Retarget_RejectsDecayMotionWithoutCreatingChannel()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        UiEntity entity = context.Instantiate(Ui.Container()).RootEntity;
+        Drain(context);
+        UiAnimationSpec spec = new(UiMotion.Scroll);
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            context.Runtime.Animation.Retarget(
+                entity,
+                UiAnimationProperty.TranslateX,
+                100f,
+                in spec));
+        context.Runtime.Animation.SetAnimationsEnabled(false);
+        Assert.IsTrue(context.World.Update());
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            context.Runtime.Animation.Retarget(
+                entity,
+                UiAnimationProperty.TranslateX,
+                100f,
+                in spec));
+
+        Assert.AreEqual(0, context.Runtime.Animation.ChannelCount);
+        Assert.IsFalse(context.World.Components.Has<ComputedVisual>(entity));
+    }
+
+    [TestMethod]
+    public void StartDecay_RejectsTargetMotionWithoutCreatingChannel()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        UiEntity entity = context.Instantiate(Ui.Container()).RootEntity;
+        Drain(context);
+        UiAnimationSpec spec = new(UiMotion.Standard);
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            context.Runtime.Animation.StartDecay(
+                entity,
+                UiAnimationProperty.TranslateX,
+                600f,
+                in spec));
+        context.Runtime.Animation.SetReducedMotion(true);
+        Assert.IsTrue(context.World.Update());
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            context.Runtime.Animation.StartDecay(
+                entity,
+                UiAnimationProperty.TranslateX,
+                600f,
+                in spec));
+
+        Assert.AreEqual(0, context.Runtime.Animation.ChannelCount);
+        Assert.IsFalse(context.World.Components.Has<ComputedVisual>(entity));
+    }
+
+    [TestMethod]
+    public void MotionRegistry_RejectsDirectMotionToken()
+    {
+        UiMotionRegistry motions = new();
+        UiMotionDefinition direct = new(
+            UiAnimationSolverKind.Direct,
+            UiAnimationContinuity.ContinueFromCurrent,
+            0f,
+            UiEasing.Linear,
+            0f,
+            1f,
+            0f);
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            motions.Set(new UiMotionToken(5001), in direct));
+    }
+
+    [TestMethod]
     public void AnimationTick_AllocatesZeroAfterWarmup()
     {
         using TestContext context = Create(new UiSize(200, 100));

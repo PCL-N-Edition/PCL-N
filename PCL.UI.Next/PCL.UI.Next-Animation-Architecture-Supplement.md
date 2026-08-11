@@ -512,6 +512,18 @@ Gesture
 
 但前三类已覆盖 PCL 大部分 UI 动画。
 
+Solver 与公共入口的兼容关系必须冻结：
+
+| API | 允许的 Motion Solver |
+|---|---|
+| `Retarget` | `Immediate` / `Tween` / `Spring` |
+| `StartDecay` | `Decay` |
+| `SetDirect` | 不接受 Motion token，由 API 直接进入 `Direct` |
+
+Runtime 必须先检查 token 的原始 Solver，再应用 Disabled / Reduced Motion policy，且检查
+发生在创建 Channel 之前。不兼容组合必须抛出 `ArgumentException`，不得把 `Decay`
+塞进 target-driven Retarget，也不得把 Tween/Spring token 强制解释为 Decay。
+
 ---
 
 # 9. Tween Solver

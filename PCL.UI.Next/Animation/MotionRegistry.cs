@@ -163,10 +163,53 @@ public sealed class UiMotionRegistry
         bool animationsEnabled,
         bool reducedMotion)
     {
+        UiMotionDefinition definition = Get(token);
+        return ApplyPolicy(definition, flags, animationsEnabled, reducedMotion);
+    }
+
+    internal UiMotionDefinition ResolveForRetarget(
+        UiMotionToken token,
+        UiAnimationFlags flags,
+        bool animationsEnabled,
+        bool reducedMotion)
+    {
+        UiMotionDefinition definition = Get(token);
+        if (definition.Solver is not (
+                UiAnimationSolverKind.Immediate or
+                UiAnimationSolverKind.Tween or
+                UiAnimationSolverKind.Spring))
+        {
+            throw new ArgumentException(
+                $"Motion token {token.Id} uses {definition.Solver} and cannot be used with Retarget.",
+                nameof(token));
+        }
+        return ApplyPolicy(definition, flags, animationsEnabled, reducedMotion);
+    }
+
+    internal UiMotionDefinition ResolveForDecay(
+        UiMotionToken token,
+        UiAnimationFlags flags,
+        bool animationsEnabled,
+        bool reducedMotion)
+    {
+        UiMotionDefinition definition = Get(token);
+        if (definition.Solver != UiAnimationSolverKind.Decay)
+        {
+            throw new ArgumentException(
+                $"Motion token {token.Id} uses {definition.Solver} and cannot be used with StartDecay.",
+                nameof(token));
+        }
+        return ApplyPolicy(definition, flags, animationsEnabled, reducedMotion);
+    }
+
+    private static UiMotionDefinition ApplyPolicy(
+        UiMotionDefinition definition,
+        UiAnimationFlags flags,
+        bool animationsEnabled,
+        bool reducedMotion)
+    {
         if (!animationsEnabled)
             return UiMotionDefinition.Immediate;
-
-        UiMotionDefinition definition = Get(token);
         if (!reducedMotion || (flags & UiAnimationFlags.AllowReducedMotion) != 0)
             return definition;
         if ((flags & UiAnimationFlags.Essential) == 0)
@@ -227,6 +270,12 @@ public sealed class UiMotionRegistry
     private static void Validate(in UiMotionDefinition definition)
     {
         UiAnimationSpec.ThrowIfUnsupported(definition.Continuity);
+        if (definition.Solver == UiAnimationSolverKind.Direct)
+        {
+            throw new ArgumentException(
+                "Direct is controlled by SetDirect and cannot be registered as a motion token.",
+                nameof(definition));
+        }
         if (definition.DurationSeconds < 0f || !float.IsFinite(definition.DurationSeconds))
             throw new ArgumentOutOfRangeException(nameof(definition));
         if (definition.SpringResponse < 0f || !float.IsFinite(definition.SpringResponse))

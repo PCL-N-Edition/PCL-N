@@ -69,6 +69,11 @@ internal sealed class FloatAnimationStore
         _world.Entities.EnsureAlive(entity);
         if (property == UiAnimationProperty.None)
             throw new ArgumentOutOfRangeException(nameof(property));
+        UiMotionDefinition definition = _motions.ResolveForRetarget(
+            spec.Motion,
+            spec.Flags,
+            animationsEnabled,
+            reducedMotion);
         target = AnimationPropertyRegistry.Constrain(property, target);
         int index = GetOrCreate(entity, property);
         if (ApproximatelyEqual(_target[index], target) &&
@@ -77,11 +82,6 @@ internal sealed class FloatAnimationStore
             return Handle(index);
         }
 
-        UiMotionDefinition definition = _motions.Resolve(
-            spec.Motion,
-            spec.Flags,
-            animationsEnabled,
-            reducedMotion);
         UiAnimationContinuity continuity = spec.HasContinuityOverride
             ? spec.Continuity
             : definition.Continuity;
@@ -172,12 +172,12 @@ internal sealed class FloatAnimationStore
         bool reducedMotion)
     {
         _world.Entities.EnsureAlive(entity);
-        int index = GetOrCreate(entity, property);
-        UiMotionDefinition definition = _motions.Resolve(
+        UiMotionDefinition definition = _motions.ResolveForDecay(
             spec.Motion,
             spec.Flags,
             animationsEnabled,
             reducedMotion);
+        int index = GetOrCreate(entity, property);
         if (definition.Solver == UiAnimationSolverKind.Immediate)
         {
             _target[index] = _current[index];
