@@ -1,6 +1,8 @@
 // Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Numerics;
+
 namespace PCL.UI.Next;
 
 internal static class AnimationPropertyRegistry
@@ -19,10 +21,12 @@ internal static class AnimationPropertyRegistry
             UiAnimationProperty.ScaleX => visual.Transform.ScaleX,
             UiAnimationProperty.ScaleY => visual.Transform.ScaleY,
             UiAnimationProperty.Rotation => visual.Transform.Rotation,
-            UiAnimationProperty.LayoutTranslateX => visual.LayoutTransform.TranslateX,
-            UiAnimationProperty.LayoutTranslateY => visual.LayoutTransform.TranslateY,
-            UiAnimationProperty.LayoutScaleX => visual.LayoutTransform.ScaleX,
-            UiAnimationProperty.LayoutScaleY => visual.LayoutTransform.ScaleY,
+            UiAnimationProperty.LayoutM11 => ReadLayoutMatrix(world, entity).M11,
+            UiAnimationProperty.LayoutM12 => ReadLayoutMatrix(world, entity).M12,
+            UiAnimationProperty.LayoutM21 => ReadLayoutMatrix(world, entity).M21,
+            UiAnimationProperty.LayoutM22 => ReadLayoutMatrix(world, entity).M22,
+            UiAnimationProperty.LayoutM31 => ReadLayoutMatrix(world, entity).M31,
+            UiAnimationProperty.LayoutM32 => ReadLayoutMatrix(world, entity).M32,
             _ => throw new ArgumentOutOfRangeException(nameof(property))
         };
     }
@@ -41,8 +45,11 @@ internal static class AnimationPropertyRegistry
             UiAnimationProperty.ScaleX => style.ScaleX,
             UiAnimationProperty.ScaleY => style.ScaleY,
             UiAnimationProperty.Rotation => style.Rotation,
-            UiAnimationProperty.LayoutTranslateX or UiAnimationProperty.LayoutTranslateY => 0f,
-            UiAnimationProperty.LayoutScaleX or UiAnimationProperty.LayoutScaleY => 1f,
+            UiAnimationProperty.LayoutM11 or UiAnimationProperty.LayoutM22 => 1f,
+            UiAnimationProperty.LayoutM12 or
+            UiAnimationProperty.LayoutM21 or
+            UiAnimationProperty.LayoutM31 or
+            UiAnimationProperty.LayoutM32 => 0f,
             _ => throw new ArgumentOutOfRangeException(nameof(property))
         };
     }
@@ -89,22 +96,14 @@ internal static class AnimationPropertyRegistry
                 if (visual.Transform.Rotation.Equals(value)) return;
                 visual.Transform = visual.Transform with { Rotation = value };
                 break;
-            case UiAnimationProperty.LayoutTranslateX:
-                if (visual.LayoutTransform.TranslateX.Equals(value)) return;
-                visual.LayoutTransform = visual.LayoutTransform with { TranslateX = value };
-                break;
-            case UiAnimationProperty.LayoutTranslateY:
-                if (visual.LayoutTransform.TranslateY.Equals(value)) return;
-                visual.LayoutTransform = visual.LayoutTransform with { TranslateY = value };
-                break;
-            case UiAnimationProperty.LayoutScaleX:
-                if (visual.LayoutTransform.ScaleX.Equals(value)) return;
-                visual.LayoutTransform = visual.LayoutTransform with { ScaleX = value };
-                break;
-            case UiAnimationProperty.LayoutScaleY:
-                if (visual.LayoutTransform.ScaleY.Equals(value)) return;
-                visual.LayoutTransform = visual.LayoutTransform with { ScaleY = value };
-                break;
+            case UiAnimationProperty.LayoutM11:
+            case UiAnimationProperty.LayoutM12:
+            case UiAnimationProperty.LayoutM21:
+            case UiAnimationProperty.LayoutM22:
+            case UiAnimationProperty.LayoutM31:
+            case UiAnimationProperty.LayoutM32:
+                WriteLayoutMatrix(world, entity, property, value);
+                return;
             default:
                 throw new ArgumentOutOfRangeException(nameof(property));
         }
@@ -131,10 +130,12 @@ internal static class AnimationPropertyRegistry
         UiAnimationProperty.ScaleX or
         UiAnimationProperty.ScaleY or
         UiAnimationProperty.Rotation or
-        UiAnimationProperty.LayoutTranslateX or
-        UiAnimationProperty.LayoutTranslateY or
-        UiAnimationProperty.LayoutScaleX or
-        UiAnimationProperty.LayoutScaleY;
+        UiAnimationProperty.LayoutM11 or
+        UiAnimationProperty.LayoutM12 or
+        UiAnimationProperty.LayoutM21 or
+        UiAnimationProperty.LayoutM22 or
+        UiAnimationProperty.LayoutM31 or
+        UiAnimationProperty.LayoutM32;
 
     public static float Constrain(UiAnimationProperty property, float value)
     {
@@ -144,10 +145,7 @@ internal static class AnimationPropertyRegistry
         {
             UiAnimationProperty.Opacity => Math.Clamp(value, 0f, 1f),
             UiAnimationProperty.CornerRadius => Math.Max(0f, value),
-            UiAnimationProperty.ScaleX or
-            UiAnimationProperty.ScaleY or
-            UiAnimationProperty.LayoutScaleX or
-            UiAnimationProperty.LayoutScaleY => Math.Max(0.0001f, value),
+            UiAnimationProperty.ScaleX or UiAnimationProperty.ScaleY => Math.Max(0.0001f, value),
             _ => value
         };
     }
@@ -157,8 +155,8 @@ internal static class AnimationPropertyRegistry
         UiAnimationProperty.Opacity or
         UiAnimationProperty.ScaleX or
         UiAnimationProperty.ScaleY or
-        UiAnimationProperty.LayoutScaleX or
-        UiAnimationProperty.LayoutScaleY => 1f,
+        UiAnimationProperty.LayoutM11 or
+        UiAnimationProperty.LayoutM22 => 1f,
         _ => 0f
     };
 
@@ -168,5 +166,42 @@ internal static class AnimationPropertyRegistry
             ? resolved
             : ResolvedStyle.Default;
         return ComputedVisual.FromResolved(in style);
+    }
+
+    private static Matrix3x2 ReadLayoutMatrix(UiWorld world, UiEntity entity) =>
+        world.Components.TryGet(entity, out ComputedLayoutTransform transform)
+            ? transform.Value
+            : Matrix3x2.Identity;
+
+    private static void WriteLayoutMatrix(
+        UiWorld world,
+        UiEntity entity,
+        UiAnimationProperty property,
+        float value)
+    {
+        Matrix3x2 matrix = ReadLayoutMatrix(world, entity);
+        float previous = property switch
+        {
+            UiAnimationProperty.LayoutM11 => matrix.M11,
+            UiAnimationProperty.LayoutM12 => matrix.M12,
+            UiAnimationProperty.LayoutM21 => matrix.M21,
+            UiAnimationProperty.LayoutM22 => matrix.M22,
+            UiAnimationProperty.LayoutM31 => matrix.M31,
+            UiAnimationProperty.LayoutM32 => matrix.M32,
+            _ => throw new ArgumentOutOfRangeException(nameof(property))
+        };
+        if (previous.Equals(value))
+            return;
+        switch (property)
+        {
+            case UiAnimationProperty.LayoutM11: matrix.M11 = value; break;
+            case UiAnimationProperty.LayoutM12: matrix.M12 = value; break;
+            case UiAnimationProperty.LayoutM21: matrix.M21 = value; break;
+            case UiAnimationProperty.LayoutM22: matrix.M22 = value; break;
+            case UiAnimationProperty.LayoutM31: matrix.M31 = value; break;
+            case UiAnimationProperty.LayoutM32: matrix.M32 = value; break;
+        }
+        world.Set(entity, new ComputedLayoutTransform { Value = matrix });
+        world.Dirty.Mark(entity, UiDirtyFlags.Transform | UiDirtyFlags.Render);
     }
 }

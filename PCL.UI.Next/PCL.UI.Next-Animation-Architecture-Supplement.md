@@ -587,6 +587,10 @@ Start = predefined start
 
 默认禁止 UI interaction 使用。
 
+首版 Runtime 尚未冻结 predefined start 的来源，因此该策略仅保留枚举值；构造
+`AnimationSpec`、`TransitionDefinition` 或注册 `MotionDefinition` 时必须抛出
+`NotSupportedException`，不得静默退化为 `ContinueFromCurrent`。
+
 ---
 
 ## 11.2 ContinueFromCurrent
@@ -615,6 +619,9 @@ Blur
 适合某些 timeline 型动画。
 
 不是默认方案。
+
+首版 Runtime 暂不实现 timeline remap，因此该策略仅保留枚举值，并与 `Restart`
+一样在契约入口明确拒绝。
 
 ---
 
@@ -1134,6 +1141,16 @@ Scope
 ```
 
 消费者自行检查是否仍然相关。
+
+完成事件必须进入持久的 Runtime event journal / queue，并至少额外携带：
+
+```text
+Sequence
+FrameIndex
+```
+
+事件只能由消费者显式 `Drain` 后移除。禁止在 `TransitionPlanning` 等帧中间阶段
+调用 `Clear()`，因为 Input / Gesture 可能已经在更早阶段发布 Immediate completion。
 
 ---
 
@@ -1774,6 +1791,19 @@ Target = identity
 
 禁止重新从旧 First 开始。
 
+嵌套 FLIP 必须先求 Entity 所需的 world-space inverse，再移除父节点已经承担的
+当前 world transform：
+
+```text
+LocalFlip = DesiredWorldFlip
+          × inverse(ParentCurrentWorld)
+          × inverse(CurrentStyleTransform)
+```
+
+因此，完全随父节点同比例变化的子节点得到 `LocalFlip = Identity`，不会与父节点
+重复补偿。首版使用六个 float channel 表达完整 `Matrix3x2` local delta，避免把
+world-space Rect 的 scale/translate 直接逐节点叠乘。
+
 ---
 
 # 50. Layout Change During Animation
@@ -2077,6 +2107,16 @@ presentation timestamp
 否则使用 Runtime monotonic clock。
 
 禁止 wall clock。
+
+每个活动 Channel 保存自己的：
+
+```text
+LastSampleTimestamp
+```
+
+Retarget / Direct / Decay 接管时以 monotonic clock 重置该时间；Tick 使用
+`Frame.Now - LastSampleTimestamp`。禁止用 World frame index 猜测 Retarget 是否
+发生在帧内，否则 idle 后的首个 reactive frame 会错误吞入整段 idle delta。
 
 ---
 

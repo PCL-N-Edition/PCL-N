@@ -15,7 +15,6 @@ internal sealed class FloatAnimationStore
     private readonly UiMotionRegistry _motions;
     private readonly Dictionary<AnimationChannelKey, int> _byKey = [];
     private readonly Stack<int> _free = [];
-    private readonly List<UiAnimationSettled> _settled = [];
 
     private UiEntity[] _entities = new UiEntity[InitialCapacity];
     private UiAnimationProperty[] _properties = new UiAnimationProperty[InitialCapacity];
@@ -40,7 +39,7 @@ internal sealed class FloatAnimationStore
     private uint[] _handleGeneration = new uint[InitialCapacity];
     private uint[] _targetGeneration = new uint[InitialCapacity];
     private bool[] _alive = new bool[InitialCapacity];
-    private long[] _retargetFrame = new long[InitialCapacity];
+    private double[] _lastSampleTimestamp = new double[InitialCapacity];
     private int[] _active = new int[InitialCapacity];
     private int[] _activePosition = new int[InitialCapacity];
     private int _activeCount;
@@ -57,9 +56,7 @@ internal sealed class FloatAnimationStore
 
     public int ActiveCount => _activeCount;
 
-    public IReadOnlyList<UiAnimationSettled> FrameSettlements => _settled;
-
-    public void BeginFrame() => _settled.Clear();
+    public event Action<UiAnimationSettled>? Settled;
 
     public UiAnimationHandle Retarget(
         UiEntity entity,
@@ -133,7 +130,7 @@ internal sealed class FloatAnimationStore
             _velocity[index] = 0f;
         }
 
-        _retargetFrame[index] = _world.FrameIndex;
+        _lastSampleTimestamp[index] = _world.Clock.Now.Seconds;
         Activate(index);
         return Handle(index);
     }
@@ -160,7 +157,7 @@ internal sealed class FloatAnimationStore
         _motion[index] = UiMotion.Instant;
         _owner[index] = owner;
         _targetGeneration[index] = NextGeneration(_targetGeneration[index]);
-        _retargetFrame[index] = -1;
+        _lastSampleTimestamp[index] = _world.Clock.Now.Seconds;
         Deactivate(index);
         AnimationPropertyRegistry.WriteCurrent(_world, entity, property, current);
         return Handle(index);
@@ -191,7 +188,7 @@ internal sealed class FloatAnimationStore
             _flags[index] = spec.Flags;
             _owner[index] = spec.Owner;
             _targetGeneration[index] = NextGeneration(_targetGeneration[index]);
-            _retargetFrame[index] = -1;
+            _lastSampleTimestamp[index] = _world.Clock.Now.Seconds;
             Deactivate(index);
             PublishSettled(index);
             return Handle(index);
@@ -214,7 +211,7 @@ internal sealed class FloatAnimationStore
         _positionTolerance[index] = definition.PositionTolerance;
         _velocityTolerance[index] = definition.VelocityTolerance;
         _targetGeneration[index] = NextGeneration(_targetGeneration[index]);
-        _retargetFrame[index] = _world.FrameIndex;
+        _lastSampleTimestamp[index] = _world.Clock.Now.Seconds;
         if (MathF.Abs(nextVelocity) > _velocityTolerance[index])
             Activate(index);
         return Handle(index);
@@ -233,16 +230,14 @@ internal sealed class FloatAnimationStore
         if (mode == UiAnimationCancelMode.SnapToTarget)
             _current[index] = _target[index];
         _velocity[index] = 0f;
-        _retargetFrame[index] = -1;
+        _lastSampleTimestamp[index] = _world.Clock.Now.Seconds;
         Deactivate(index);
         AnimationPropertyRegistry.WriteCurrent(_world, entity, property, _current[index]);
         return true;
     }
 
-    public void Tick(long frameIndex, double deltaSeconds)
+    public void Tick(UiTimestamp now)
     {
-        float tweenDelta = (float)Math.Max(0d, deltaSeconds);
-        float simulationDelta = Math.Min(tweenDelta, 1f);
         int activePosition = 0;
         while (activePosition < _activeCount)
         {
@@ -255,15 +250,15 @@ internal sealed class FloatAnimationStore
                 continue;
             }
 
-            if (_retargetFrame[index] == frameIndex)
-            {
-                activePosition++;
-                continue;
-            }
+            double elapsed = now.Seconds - _lastSampleTimestamp[index];
+            float channelDelta = (float)Math.Max(0d, elapsed);
+            if (elapsed > 0d)
+                _lastSampleTimestamp[index] = now.Seconds;
+            float simulationDelta = Math.Min(channelDelta, 1f);
 
             bool settled = _solver[index] switch
             {
-                UiAnimationSolverKind.Tween => TickTween(index, tweenDelta),
+                UiAnimationSolverKind.Tween => TickTween(index, channelDelta),
                 UiAnimationSolverKind.Spring => TickSpring(index, simulationDelta),
                 UiAnimationSolverKind.Decay => TickDecay(index, simulationDelta),
                 _ => true
@@ -381,7 +376,6 @@ internal sealed class FloatAnimationStore
     {
         _byKey.Clear();
         _free.Clear();
-        _settled.Clear();
         Array.Clear(_alive);
         Array.Clear(_activePosition);
         Array.Clear(_active);
@@ -413,6 +407,7 @@ internal sealed class FloatAnimationStore
         _start[index] = current;
         _velocity[index] = 0f;
         _targetGeneration[index] = 0;
+        _lastSampleTimestamp[index] = _world.Clock.Now.Seconds;
         _positionTolerance[index] = 0.001f;
         _velocityTolerance[index] = 0.001f;
         _byKey[key] = index;
@@ -561,7 +556,7 @@ internal sealed class FloatAnimationStore
         _entities[index] = UiEntity.None;
         _properties[index] = UiAnimationProperty.None;
         _scope[index] = UiScopeId.None;
-        _retargetFrame[index] = -1;
+        _lastSampleTimestamp[index] = 0d;
         _handleGeneration[index] = NextGeneration(_handleGeneration[index]);
         _free.Push(index);
         _channelCount--;
@@ -569,7 +564,7 @@ internal sealed class FloatAnimationStore
 
     private void PublishSettled(int index)
     {
-        _settled.Add(new UiAnimationSettled(
+        Settled?.Invoke(new UiAnimationSettled(
             Handle(index),
             _entities[index],
             _properties[index],
@@ -617,7 +612,7 @@ internal sealed class FloatAnimationStore
         Array.Resize(ref _handleGeneration, capacity);
         Array.Resize(ref _targetGeneration, capacity);
         Array.Resize(ref _alive, capacity);
-        Array.Resize(ref _retargetFrame, capacity);
+        Array.Resize(ref _lastSampleTimestamp, capacity);
         Array.Resize(ref _activePosition, capacity);
     }
 

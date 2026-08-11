@@ -34,10 +34,12 @@ public enum UiAnimationProperty : byte
     ScaleX = 5,
     ScaleY = 6,
     Rotation = 7,
-    LayoutTranslateX = 8,
-    LayoutTranslateY = 9,
-    LayoutScaleX = 10,
-    LayoutScaleY = 11
+    LayoutM11 = 8,
+    LayoutM12 = 9,
+    LayoutM21 = 10,
+    LayoutM22 = 11,
+    LayoutM31 = 12,
+    LayoutM32 = 13
 }
 
 public enum UiAnimationOwnerReason : byte
@@ -120,6 +122,7 @@ public readonly struct UiAnimationSpec
         UiAnimationFlags flags = UiAnimationFlags.None,
         UiAnimationOwnerReason owner = UiAnimationOwnerReason.Programmatic)
     {
+        ThrowIfUnsupported(continuity);
         Motion = motion;
         Continuity = continuity;
         HasContinuityOverride = true;
@@ -132,6 +135,15 @@ public readonly struct UiAnimationSpec
     public bool HasContinuityOverride { get; }
     public UiAnimationFlags Flags { get; }
     public UiAnimationOwnerReason Owner { get; }
+
+    internal static void ThrowIfUnsupported(UiAnimationContinuity continuity)
+    {
+        if (continuity is UiAnimationContinuity.Restart or UiAnimationContinuity.PreserveRemainingRatio)
+        {
+            throw new NotSupportedException(
+                $"Animation continuity '{continuity}' is reserved but is not implemented.");
+        }
+    }
 }
 
 public readonly struct UiTransitionDefinition
@@ -154,6 +166,7 @@ public readonly struct UiTransitionDefinition
         UiAnimationContinuity continuity)
         : this(property, motion)
     {
+        UiAnimationSpec.ThrowIfUnsupported(continuity);
         Continuity = continuity;
         HasContinuityOverride = true;
     }
@@ -275,7 +288,6 @@ public struct ComputedVisual
     public float Opacity { get; set; }
     public float CornerRadius { get; set; }
     public UiVisualTransform Transform { get; set; }
-    public UiVisualTransform LayoutTransform { get; set; }
 
     public static ComputedVisual FromResolved(in ResolvedStyle style) => new()
     {
@@ -288,9 +300,16 @@ public struct ComputedVisual
             style.TranslateY,
             style.ScaleX,
             style.ScaleY,
-            style.Rotation),
-        LayoutTransform = UiVisualTransform.Identity
+            style.Rotation)
     };
+}
+
+/// <summary>Current entity-local FLIP delta. Identity is the settled layout state.</summary>
+public struct ComputedLayoutTransform
+{
+    public Matrix3x2 Value { get; set; }
+
+    public static ComputedLayoutTransform Identity => new() { Value = Matrix3x2.Identity };
 }
 
 /// <summary>Current world-space transform consumed by hit testing and the future renderer.</summary>
@@ -312,6 +331,20 @@ public readonly record struct UiAnimationSettled(
 public readonly record struct UiTransitionGroupCompleted(
     UiTransitionGroupId Group,
     UiScopeId Scope);
+
+public enum UiAnimationEventKind : byte
+{
+    Settled = 0,
+    TransitionGroupCompleted = 1
+}
+
+/// <summary>Durable lifecycle event retained until a consumer drains the animation journal.</summary>
+public readonly record struct UiAnimationEvent(
+    long Sequence,
+    long FrameIndex,
+    UiAnimationEventKind Kind,
+    UiAnimationSettled Settlement,
+    UiTransitionGroupCompleted TransitionGroup);
 
 public readonly record struct UiAnimationSnapshot(
     UiAnimationHandle Channel,

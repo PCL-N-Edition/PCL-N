@@ -226,6 +226,7 @@ public sealed class UiMotionRegistry
 
     private static void Validate(in UiMotionDefinition definition)
     {
+        UiAnimationSpec.ThrowIfUnsupported(definition.Continuity);
         if (definition.DurationSeconds < 0f || !float.IsFinite(definition.DurationSeconds))
             throw new ArgumentOutOfRangeException(nameof(definition));
         if (definition.SpringResponse < 0f || !float.IsFinite(definition.SpringResponse))

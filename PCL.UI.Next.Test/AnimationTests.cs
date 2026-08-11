@@ -1,6 +1,7 @@
 // Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace PCL.UI.Next.Test;
@@ -143,8 +144,11 @@ public sealed class AnimationTests
         UiAnimationSpec spec = new(UiMotion.FastFade);
         context.Runtime.Animation.Retarget(entity, UiAnimationProperty.Opacity, 0.25f, in spec);
         Settle(context);
-        UiAnimationSettled settled = context.Runtime.Animation.FrameSettlements.Single(record =>
-            record.Entity == entity && record.Property == UiAnimationProperty.Opacity);
+        UiAnimationSettled settled = DrainAnimationEvents(context)
+            .Single(record => record.Kind == UiAnimationEventKind.Settled &&
+                              record.Settlement.Entity == entity &&
+                              record.Settlement.Property == UiAnimationProperty.Opacity)
+            .Settlement;
         Assert.IsTrue(context.Runtime.Animation.IsCurrent(in settled));
 
         context.Runtime.Animation.Retarget(entity, UiAnimationProperty.Opacity, 1f, in spec);
@@ -177,8 +181,10 @@ public sealed class AnimationTests
         Settle(context);
 
         Assert.AreEqual(0, context.Runtime.Animation.ActiveTransitionGroupCount);
-        Assert.IsTrue(context.Runtime.Animation.FrameTransitionGroupCompletions.Any(completed =>
-            completed.Group == group && completed.Scope == context.WindowScope));
+        Assert.IsTrue(DrainAnimationEvents(context).Any(record =>
+            record.Kind == UiAnimationEventKind.TransitionGroupCompleted &&
+            record.TransitionGroup.Group == group &&
+            record.TransitionGroup.Scope == context.WindowScope));
     }
 
     [TestMethod]
@@ -202,8 +208,9 @@ public sealed class AnimationTests
         Settle(context);
 
         Assert.AreEqual(0, context.Runtime.Animation.ActiveTransitionGroupCount);
-        Assert.IsFalse(context.Runtime.Animation.FrameTransitionGroupCompletions.Any(completed =>
-            completed.Group == oldGroup));
+        Assert.IsFalse(DrainAnimationEvents(context).Any(record =>
+            record.Kind == UiAnimationEventKind.TransitionGroupCompleted &&
+            record.TransitionGroup.Group == oldGroup));
     }
 
     [TestMethod]
@@ -230,8 +237,9 @@ public sealed class AnimationTests
         Drain(context);
 
         Assert.AreEqual(0, context.Runtime.Animation.ActiveTransitionGroupCount);
-        Assert.IsFalse(context.Runtime.Animation.FrameTransitionGroupCompletions.Any(completed =>
-            completed.Group == group));
+        Assert.IsFalse(DrainAnimationEvents(context).Any(record =>
+            record.Kind == UiAnimationEventKind.TransitionGroupCompleted &&
+            record.TransitionGroup.Group == group));
     }
 
     [TestMethod]
@@ -250,6 +258,115 @@ public sealed class AnimationTests
 
         Assert.ThrowsExactly<ArgumentException>(() =>
             context.Runtime.Animation.CreateTransitionGroup(context.WindowScope, channels));
+    }
+
+    [TestMethod]
+    public void ImmediateRetarget_BeforeTransitionPlanning_PreservesSettlement()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        UiEntity entity = context.Instantiate(Ui.Container()).RootEntity;
+        Drain(context);
+        context.World.Systems.Register(new OneShotSystem(
+            UiSystemPhase.Interaction,
+            _ =>
+            {
+                UiAnimationSpec spec = new(UiMotion.Instant);
+                context.Runtime.Animation.Retarget(
+                    entity,
+                    UiAnimationProperty.Opacity,
+                    0f,
+                    in spec);
+            }));
+        context.World.Scheduler.RequestReactiveFrame();
+
+        Assert.IsTrue(context.World.Update());
+
+        List<UiAnimationEvent> events = DrainAnimationEvents(context);
+        Assert.IsTrue(events.Any(record =>
+            record.Kind == UiAnimationEventKind.Settled &&
+            record.Settlement.Entity == entity &&
+            record.Settlement.Property == UiAnimationProperty.Opacity));
+    }
+
+    [TestMethod]
+    public void ReducedMotion_TransitionGroupCompletion_IsNotLost()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        UiEntity entity = context.Instantiate(Ui.Container()).RootEntity;
+        Drain(context);
+        context.Runtime.Animation.SetReducedMotion(true);
+        Assert.IsTrue(context.World.Update());
+        UiTransitionGroupId group = default;
+        context.World.Systems.Register(new OneShotSystem(
+            UiSystemPhase.Interaction,
+            _ =>
+            {
+                UiAnimationSpec spec = new(UiMotion.Navigation);
+                UiAnimationHandle channel = context.Runtime.Animation.Retarget(
+                    entity,
+                    UiAnimationProperty.TranslateX,
+                    50f,
+                    in spec);
+                UiAnimationHandle[] channels = [channel];
+                group = context.Runtime.Animation.CreateTransitionGroup(
+                    context.WindowScope,
+                    channels);
+            }));
+        context.World.Scheduler.RequestReactiveFrame();
+
+        Assert.IsTrue(context.World.Update());
+
+        List<UiAnimationEvent> events = DrainAnimationEvents(context);
+        Assert.IsTrue(events.Any(record =>
+            record.Kind == UiAnimationEventKind.TransitionGroupCompleted &&
+            record.TransitionGroup.Group == group));
+        for (int i = 1; i < events.Count; i++)
+            Assert.IsTrue(events[i].Sequence > events[i - 1].Sequence);
+    }
+
+    [TestMethod]
+    public void AlreadySettledGroup_CompletesReliablyOnNextConsumerPass()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        UiEntity entity = context.Instantiate(Ui.Container()).RootEntity;
+        Drain(context);
+        UiAnimationHandle channel = context.Runtime.Animation.SetDirect(
+            entity,
+            UiAnimationProperty.Opacity,
+            0.5f);
+        UiAnimationHandle[] channels = [channel];
+        UiTransitionGroupId group = context.Runtime.Animation.CreateTransitionGroup(
+            context.WindowScope,
+            channels);
+
+        Drain(context);
+
+        Assert.IsTrue(DrainAnimationEvents(context).Any(record =>
+            record.Kind == UiAnimationEventKind.TransitionGroupCompleted &&
+            record.TransitionGroup.Group == group));
+    }
+
+    [TestMethod]
+    public void UnsupportedContinuityPolicies_ThrowInsteadOfFallingBack()
+    {
+        Assert.ThrowsExactly<NotSupportedException>(() =>
+            new UiAnimationSpec(UiMotion.Standard, UiAnimationContinuity.Restart));
+        Assert.ThrowsExactly<NotSupportedException>(() =>
+            new UiTransitionDefinition(
+                UiAnimationProperty.Opacity,
+                UiMotion.Standard,
+                UiAnimationContinuity.PreserveRemainingRatio));
+        UiMotionRegistry motions = new();
+        UiMotionDefinition unsupported = new(
+            UiAnimationSolverKind.Tween,
+            UiAnimationContinuity.Restart,
+            0.2f,
+            UiEasing.Linear,
+            0f,
+            1f,
+            0f);
+        Assert.ThrowsExactly<NotSupportedException>(() =>
+            motions.Set(new UiMotionToken(5000), in unsupported));
     }
 
     [TestMethod]
@@ -288,6 +405,48 @@ public sealed class AnimationTests
         Assert.AreEqual(80f, snapshot.Current, 0.0001f);
         Assert.IsFalse(snapshot.IsActive);
         Assert.AreEqual(0, context.Runtime.Animation.ActiveChannelCount);
+    }
+
+    [TestMethod]
+    public void RetargetAfterLongIdle_DoesNotFastForwardTween()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        UiEntity entity = context.Instantiate(Ui.Container()).RootEntity;
+        Drain(context);
+        context.Clock.Advance(30d);
+        UiAnimationSpec spec = new(UiMotion.Standard);
+
+        context.Runtime.Animation.Retarget(entity, UiAnimationProperty.Opacity, 0f, in spec);
+        context.Clock.Advance(0.001d);
+        Assert.IsTrue(context.World.Update());
+
+        Assert.IsTrue(context.Runtime.Animation.TryGetSnapshot(
+            entity,
+            UiAnimationProperty.Opacity,
+            out UiAnimationSnapshot snapshot));
+        Assert.IsTrue(snapshot.IsActive);
+        Assert.IsTrue(snapshot.Current > 0.9f);
+    }
+
+    [TestMethod]
+    public void SpringStartedAfterLongIdle_DoesNotConsumeIdleTime()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        UiEntity entity = context.Instantiate(Ui.Container()).RootEntity;
+        Drain(context);
+        context.Clock.Advance(30d);
+        UiAnimationSpec spec = new(UiMotion.Hover);
+
+        context.Runtime.Animation.Retarget(entity, UiAnimationProperty.TranslateX, 100f, in spec);
+        context.Clock.Advance(0.001d);
+        Assert.IsTrue(context.World.Update());
+
+        Assert.IsTrue(context.Runtime.Animation.TryGetSnapshot(
+            entity,
+            UiAnimationProperty.TranslateX,
+            out UiAnimationSnapshot snapshot));
+        Assert.IsTrue(snapshot.IsActive);
+        Assert.IsTrue(snapshot.Current is > 0f and < 1f);
     }
 
     [TestMethod]
@@ -514,14 +673,14 @@ public sealed class AnimationTests
         Assert.AreEqual(200f, targetLayout.Width, 0.001f);
         Assert.IsTrue(context.Runtime.Animation.TryGetSnapshot(
             entity,
-            UiAnimationProperty.LayoutScaleX,
+            UiAnimationProperty.LayoutM11,
             out UiAnimationSnapshot flip));
         Assert.AreEqual(0.5f, flip.Current, 0.001f);
         Assert.AreEqual(1f, flip.Target, 0.001f);
 
         AdvanceFrame(context, 0.05);
         Assert.AreEqual(targetLayout, context.World.Components.Get<LayoutRect>(entity).Value);
-        Assert.IsTrue(context.World.Components.Get<ComputedVisual>(entity).LayoutTransform.ScaleX > 0.5f);
+        Assert.IsTrue(context.World.Components.Get<ComputedLayoutTransform>(entity).Value.M11 > 0.5f);
     }
 
     [TestMethod]
@@ -538,15 +697,68 @@ public sealed class AnimationTests
         Assert.IsTrue(context.World.Update());
         AdvanceFrame(context, 0.06);
         UiRect beforeLayout = context.World.Components.Get<LayoutRect>(entity).Value;
-        float beforeScale = context.World.Components.Get<ComputedVisual>(entity).LayoutTransform.ScaleX;
+        float beforeScale = context.World.Components.Get<ComputedLayoutTransform>(entity).Value.M11;
         float visualWidth = beforeLayout.Width * beforeScale;
 
         context.Runtime.SetViewport(new UiSize(300, 100));
         Assert.IsTrue(context.World.Update());
 
         UiRect afterLayout = context.World.Components.Get<LayoutRect>(entity).Value;
-        float afterScale = context.World.Components.Get<ComputedVisual>(entity).LayoutTransform.ScaleX;
+        float afterScale = context.World.Components.Get<ComputedLayoutTransform>(entity).Value.M11;
         Assert.AreEqual(visualWidth, afterLayout.Width * afterScale, 0.01f);
+    }
+
+    [TestMethod]
+    public void NestedLayoutTransition_DoesNotDoubleApplyAncestorFlip()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        BlueprintInstance live = context.Instantiate(
+            Ui.Column(
+                    Ui.Container()
+                        .HitTestVisible()
+                        .Width(UiLength.Percent(1f))
+                        .Height(UiLength.Pixels(40))
+                        .AnimateLayout(UiMotion.Layout))
+                .Width(UiLength.Percent(0.5f))
+                .Height(UiLength.Pixels(40))
+                .AnimateLayout(UiMotion.Layout));
+        UiEntity child = live.EntityAt(1);
+        Drain(context);
+        Assert.AreEqual(100f, context.World.Components.Get<LayoutRect>(child).Value.Width, 0.001f);
+
+        context.Runtime.SetViewport(new UiSize(400, 100));
+        Assert.IsTrue(context.World.Update());
+
+        UiRect bounds = VisualBounds(context.World, child);
+        Assert.AreEqual(100f, bounds.Width, 0.01f);
+        Assert.AreEqual(
+            child,
+            context.Runtime.Input.HitTest.HitTest(new UiPoint(75f, 20f), context.InputRoot));
+        Assert.AreEqual(1f, context.World.Components.Get<ComputedLayoutTransform>(child).Value.M11, 0.001f);
+    }
+
+    [TestMethod]
+    public void NestedLayoutTransition_PreservesChildLocalChangeAlongsideAncestorFlip()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        BlueprintInstance live = context.Instantiate(
+            Ui.Column(
+                    Ui.Container()
+                        .Width(UiLength.Pixels(50))
+                        .Height(UiLength.Pixels(40))
+                        .AnimateLayout(UiMotion.Layout))
+                .Width(UiLength.Percent(0.5f))
+                .Height(UiLength.Pixels(40))
+                .AnimateLayout(UiMotion.Layout));
+        UiEntity child = live.EntityAt(1);
+        Drain(context);
+
+        context.Runtime.SetViewport(new UiSize(400, 100));
+        Assert.IsTrue(context.World.Update());
+
+        UiRect bounds = VisualBounds(context.World, child);
+        Assert.AreEqual(50f, bounds.Width, 0.01f);
+        Assert.AreEqual(2f, context.World.Components.Get<ComputedLayoutTransform>(child).Value.M11, 0.001f);
     }
 
     [TestMethod]
@@ -581,6 +793,28 @@ public sealed class AnimationTests
         UiInputRootId inputRoot = runtime.Input.InputRoots.Register(windowScope);
         BlueprintInstantiator instantiator = new(world, new PresentationStore());
         return new TestContext(clock, world, runtime, windowScope, inputRoot, instantiator);
+    }
+
+    private static List<UiAnimationEvent> DrainAnimationEvents(TestContext context)
+    {
+        List<UiAnimationEvent> events = [];
+        context.Runtime.Animation.Events.Drain(events);
+        return events;
+    }
+
+    private static UiRect VisualBounds(UiWorld world, UiEntity entity)
+    {
+        UiRect layout = world.Components.Get<LayoutRect>(entity).Value;
+        Matrix3x2 transform = world.Components.Get<ComputedTransform>(entity).Value;
+        Vector2 topLeft = Vector2.Transform(new Vector2(layout.X, layout.Y), transform);
+        Vector2 topRight = Vector2.Transform(new Vector2(layout.Right, layout.Y), transform);
+        Vector2 bottomLeft = Vector2.Transform(new Vector2(layout.X, layout.Bottom), transform);
+        Vector2 bottomRight = Vector2.Transform(new Vector2(layout.Right, layout.Bottom), transform);
+        float left = MathF.Min(MathF.Min(topLeft.X, topRight.X), MathF.Min(bottomLeft.X, bottomRight.X));
+        float top = MathF.Min(MathF.Min(topLeft.Y, topRight.Y), MathF.Min(bottomLeft.Y, bottomRight.Y));
+        float right = MathF.Max(MathF.Max(topLeft.X, topRight.X), MathF.Max(bottomLeft.X, bottomRight.X));
+        float bottom = MathF.Max(MathF.Max(topLeft.Y, topRight.Y), MathF.Max(bottomLeft.Y, bottomRight.Y));
+        return new UiRect(left, top, right - left, bottom - top);
     }
 
     private static void SetInteractionState(
@@ -644,5 +878,23 @@ public sealed class AnimationTests
             Instantiator.Instantiate(Ui.Compile(root), WindowScope);
 
         public void Dispose() => Runtime.Dispose();
+    }
+
+    private sealed class OneShotSystem(UiSystemPhase phase, Action<UiWorld> action) : IUiSystem
+    {
+        private bool _ran;
+
+        public UiSystemPhase Phase { get; } = phase;
+
+        public string Name => "test.animation-one-shot";
+
+        public void Update(UiWorld world, in UiFrameContext frame)
+        {
+            _ = frame;
+            if (_ran)
+                return;
+            _ran = true;
+            action(world);
+        }
     }
 }

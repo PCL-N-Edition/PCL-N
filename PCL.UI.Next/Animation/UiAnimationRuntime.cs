@@ -21,8 +21,11 @@ public sealed class UiAnimationRuntime : IDisposable
     {
         World = world ?? throw new ArgumentNullException(nameof(world));
         Motions = motions ?? new UiMotionRegistry();
+        Events = new UiAnimationEventJournal();
         _store = new FloatAnimationStore(world, Motions);
         _groups = new TransitionGroupStore(world, _store);
+        _store.Settled += OnSettled;
+        _groups.Completed += OnTransitionGroupCompleted;
         _stylePlanning = new StyleTransitionPlanningSystem(this);
         _layoutPlanning = new LayoutTransitionPlanningSystem(this);
         _tickSystem = new AnimationTickSystem(this);
@@ -38,16 +41,13 @@ public sealed class UiAnimationRuntime : IDisposable
 
     public UiMotionRegistry Motions { get; }
 
+    public UiAnimationEventJournal Events { get; }
+
     public int ChannelCount => _store.ChannelCount;
 
     public int ActiveChannelCount => _store.ActiveCount;
 
-    public IReadOnlyList<UiAnimationSettled> FrameSettlements => _store.FrameSettlements;
-
     public int ActiveTransitionGroupCount => _groups.ActiveCount;
-
-    public IReadOnlyList<UiTransitionGroupCompleted> FrameTransitionGroupCompletions =>
-        _groups.FrameCompletions;
 
     public bool AnimationsEnabled { get; private set; } = true;
 
@@ -141,7 +141,9 @@ public sealed class UiAnimationRuntime : IDisposable
         ReadOnlySpan<UiAnimationHandle> channels)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return _groups.Create(scope, channels);
+        UiTransitionGroupId group = _groups.Create(scope, channels);
+        World.Scheduler.RequestReactiveFrame();
+        return group;
     }
 
     public void SetAnimationsEnabled(bool enabled)
@@ -173,17 +175,18 @@ public sealed class UiAnimationRuntime : IDisposable
         World.Systems.Unregister(_layoutPlanning);
         World.Systems.Unregister(_stylePlanning);
         World.EntityDestroying -= OnEntityDestroying;
+        _groups.Completed -= OnTransitionGroupCompleted;
+        _store.Settled -= OnSettled;
         _layoutPlanning.Dispose();
         _groups.Clear();
         _store.Clear();
+        Events.Clear();
         World.Scheduler.ReleaseContinuousFrame(UiContinuousReason.Animation);
         _disposed = true;
     }
 
     internal void BeginPlanningFrame()
     {
-        _store.BeginFrame();
-        _groups.BeginFrame();
         if (!_motionPolicyDirty)
             return;
         _store.ApplyMotionPolicy(AnimationsEnabled, ReducedMotion);
@@ -193,8 +196,7 @@ public sealed class UiAnimationRuntime : IDisposable
 
     internal void Tick(in UiFrameContext frame)
     {
-        _store.Tick(frame.FrameIndex, frame.DeltaSeconds);
-        _groups.ProcessSettlements();
+        _store.Tick(frame.Now);
         RefreshScheduling();
     }
 
@@ -228,6 +230,15 @@ public sealed class UiAnimationRuntime : IDisposable
         if (_store.TryGetSnapshot(handle, out UiAnimationSnapshot snapshot))
             _groups.InvalidateRetarget(handle, snapshot.TargetGeneration);
     }
+
+    private void OnSettled(UiAnimationSettled settled)
+    {
+        Events.Publish(World.FrameIndex, in settled);
+        _groups.ProcessSettlement(in settled);
+    }
+
+    private void OnTransitionGroupCompleted(UiTransitionGroupCompleted completed) =>
+        Events.Publish(World.FrameIndex, in completed);
 }
 
 internal sealed class StyleTransitionPlanningSystem(UiAnimationRuntime animations) : IUiSystem
@@ -317,9 +328,23 @@ internal sealed class StyleTransitionPlanningSystem(UiAnimationRuntime animation
 
 internal sealed class LayoutTransitionPlanningSystem : IUiSystem, IDisposable
 {
+    private static readonly UiAnimationProperty[] MatrixProperties =
+    [
+        UiAnimationProperty.LayoutM11,
+        UiAnimationProperty.LayoutM12,
+        UiAnimationProperty.LayoutM21,
+        UiAnimationProperty.LayoutM22,
+        UiAnimationProperty.LayoutM31,
+        UiAnimationProperty.LayoutM32
+    ];
+
+    private static readonly float[] IdentityValues = [1f, 0f, 0f, 1f, 0f, 0f];
+
     private readonly UiAnimationRuntime _animations;
     private readonly Dictionary<UiEntity, UiRect> _previous = [];
     private readonly List<UiEntity> _dirty = [];
+    private readonly List<UiEntity> _changed = [];
+    private readonly HashSet<UiEntity> _changedSet = [];
 
     public LayoutTransitionPlanningSystem(UiAnimationRuntime animations)
     {
@@ -335,6 +360,8 @@ internal sealed class LayoutTransitionPlanningSystem : IUiSystem, IDisposable
     {
         _ = frame;
         _dirty.Clear();
+        _changed.Clear();
+        _changedSet.Clear();
         world.Dirty.Collect(UiDirtyFlags.Transform, _dirty);
         for (int i = 0; i < _dirty.Count; i++)
         {
@@ -351,67 +378,56 @@ internal sealed class LayoutTransitionPlanningSystem : IUiSystem, IDisposable
             {
                 _previous[entity] = next;
                 AnimationPropertyRegistry.EnsureVisual(world, entity);
+                if (!world.Components.Has<ComputedLayoutTransform>(entity))
+                    world.Set(entity, ComputedLayoutTransform.Identity);
                 continue;
             }
-            if (previous == next)
-                continue;
+            if (previous != next && _changedSet.Add(entity))
+                _changed.Add(entity);
+        }
 
-            float currentTranslateX = ReadCurrent(entity, UiAnimationProperty.LayoutTranslateX, 0f);
-            float currentTranslateY = ReadCurrent(entity, UiAnimationProperty.LayoutTranslateY, 0f);
-            float currentScaleX = ReadCurrent(entity, UiAnimationProperty.LayoutScaleX, 1f);
-            float currentScaleY = ReadCurrent(entity, UiAnimationProperty.LayoutScaleY, 1f);
-            float velocityTranslateX = ReadVelocity(entity, UiAnimationProperty.LayoutTranslateX);
-            float velocityTranslateY = ReadVelocity(entity, UiAnimationProperty.LayoutTranslateY);
-            float velocityScaleX = ReadVelocity(entity, UiAnimationProperty.LayoutScaleX);
-            float velocityScaleY = ReadVelocity(entity, UiAnimationProperty.LayoutScaleY);
+        int changedRootCount = _changed.Count;
+        for (int i = 0; i < changedRootCount; i++)
+            AppendAnimatedDescendants(world, _changed[i]);
+        SortByHierarchyDepth(world);
+        for (int i = 0; i < _changed.Count; i++)
+        {
+            UiEntity entity = _changed[i];
+            LayoutTransitionComponent transition = world.Components.Get<LayoutTransitionComponent>(entity);
+            UiRect next = world.Components.Get<LayoutRect>(entity).Value;
+            UiRect previous = _previous[entity];
 
-            float visualX = previous.X + currentTranslateX;
-            float visualY = previous.Y + currentTranslateY;
-            float visualWidth = previous.Width * currentScaleX;
-            float visualHeight = previous.Height * currentScaleY;
-            float rebasedScaleX = next.Width > 0.0001f ? visualWidth / next.Width : 1f;
-            float rebasedScaleY = next.Height > 0.0001f ? visualHeight / next.Height : 1f;
-            float scaleVelocityX = next.Width > 0.0001f
-                ? velocityScaleX * previous.Width / next.Width
-                : 0f;
-            float scaleVelocityY = next.Height > 0.0001f
-                ? velocityScaleY * previous.Height / next.Height
-                : 0f;
-
-            _animations.SetDirect(
-                entity,
-                UiAnimationProperty.LayoutTranslateX,
-                visualX - next.X,
-                velocityTranslateX,
-                UiAnimationOwnerReason.LayoutTransition);
-            _animations.SetDirect(
-                entity,
-                UiAnimationProperty.LayoutTranslateY,
-                visualY - next.Y,
-                velocityTranslateY,
-                UiAnimationOwnerReason.LayoutTransition);
-            _animations.SetDirect(
-                entity,
-                UiAnimationProperty.LayoutScaleX,
-                rebasedScaleX,
-                scaleVelocityX,
-                UiAnimationOwnerReason.LayoutTransition);
-            _animations.SetDirect(
-                entity,
-                UiAnimationProperty.LayoutScaleY,
-                rebasedScaleY,
-                scaleVelocityY,
-                UiAnimationOwnerReason.LayoutTransition);
+            Matrix3x2 previousWorld = world.Components.TryGet(entity, out ComputedTransform computed)
+                ? computed.Value
+                : Matrix3x2.Identity;
+            Matrix3x2 desiredWorld = UiTransformMath.MapRect(next, previous) * previousWorld;
+            Matrix3x2 parentWorld = UiTransformMath.ComputeParentWorld(world, entity);
+            Matrix3x2 style = UiTransformMath.CreateStyleTransform(world, entity);
+            if (!Matrix3x2.Invert(parentWorld, out Matrix3x2 inverseParent) ||
+                !Matrix3x2.Invert(style, out Matrix3x2 inverseStyle))
+            {
+                throw new InvalidOperationException(
+                    "Cannot rebase a layout transition through a non-invertible transform.");
+            }
+            Matrix3x2 localFlip = desiredWorld * inverseParent * inverseStyle;
 
             UiAnimationSpec spec = new(
                 transition.Motion,
                 UiAnimationContinuity.PreserveVelocity,
                 UiAnimationFlags.AllowRebase,
                 UiAnimationOwnerReason.LayoutTransition);
-            _animations.Retarget(entity, UiAnimationProperty.LayoutTranslateX, 0f, in spec);
-            _animations.Retarget(entity, UiAnimationProperty.LayoutTranslateY, 0f, in spec);
-            _animations.Retarget(entity, UiAnimationProperty.LayoutScaleX, 1f, in spec);
-            _animations.Retarget(entity, UiAnimationProperty.LayoutScaleY, 1f, in spec);
+            for (int propertyIndex = 0; propertyIndex < MatrixProperties.Length; propertyIndex++)
+            {
+                UiAnimationProperty property = MatrixProperties[propertyIndex];
+                float velocity = ReadVelocity(entity, property);
+                _animations.SetDirect(
+                    entity,
+                    property,
+                    ReadMatrixValue(localFlip, property),
+                    velocity,
+                    UiAnimationOwnerReason.LayoutTransition);
+                _animations.Retarget(entity, property, IdentityValues[propertyIndex], in spec);
+            }
             _previous[entity] = next;
         }
     }
@@ -421,17 +437,88 @@ internal sealed class LayoutTransitionPlanningSystem : IUiSystem, IDisposable
         _animations.World.EntityDestroying -= OnEntityDestroying;
         _previous.Clear();
         _dirty.Clear();
+        _changed.Clear();
+        _changedSet.Clear();
     }
-
-    private float ReadCurrent(UiEntity entity, UiAnimationProperty property, float fallback) =>
-        _animations.TryGetSnapshot(entity, property, out UiAnimationSnapshot snapshot)
-            ? snapshot.Current
-            : fallback;
 
     private float ReadVelocity(UiEntity entity, UiAnimationProperty property) =>
         _animations.TryGetSnapshot(entity, property, out UiAnimationSnapshot snapshot)
             ? snapshot.Velocity
             : 0f;
+
+    private void SortByHierarchyDepth(UiWorld world)
+    {
+        for (int i = 1; i < _changed.Count; i++)
+        {
+            UiEntity entity = _changed[i];
+            int depth = HierarchyDepth(world, entity);
+            int position = i - 1;
+            while (position >= 0 && HierarchyDepth(world, _changed[position]) > depth)
+            {
+                _changed[position + 1] = _changed[position];
+                position--;
+            }
+            _changed[position + 1] = entity;
+        }
+    }
+
+    private void AppendAnimatedDescendants(UiWorld world, UiEntity entity)
+    {
+        if (!world.Hierarchy.TryGetNode(entity, out HierarchyNode node))
+            return;
+        UiEntity child = node.FirstChild;
+        while (child != UiEntity.None)
+        {
+            UiEntity next = world.Hierarchy.TryGetNode(child, out HierarchyNode childNode)
+                ? childNode.NextSibling
+                : UiEntity.None;
+            if (world.Entities.IsAlive(child))
+            {
+                if (world.Components.Has<LayoutTransitionComponent>(child) &&
+                    world.Components.TryGet(child, out LayoutRect layout))
+                {
+                    if (_previous.ContainsKey(child))
+                    {
+                        if (_changedSet.Add(child))
+                            _changed.Add(child);
+                    }
+                    else
+                    {
+                        _previous[child] = layout.Value;
+                        AnimationPropertyRegistry.EnsureVisual(world, child);
+                        if (!world.Components.Has<ComputedLayoutTransform>(child))
+                            world.Set(child, ComputedLayoutTransform.Identity);
+                    }
+                }
+                AppendAnimatedDescendants(world, child);
+            }
+            child = next;
+        }
+    }
+
+    private static int HierarchyDepth(UiWorld world, UiEntity entity)
+    {
+        int depth = 0;
+        while (world.Hierarchy.TryGetNode(entity, out HierarchyNode node) &&
+               node.Parent != UiEntity.None &&
+               depth++ < 1_000_000)
+        {
+            entity = node.Parent;
+        }
+        return depth;
+    }
+
+    private static float ReadMatrixValue(Matrix3x2 matrix, UiAnimationProperty property) =>
+        property switch
+        {
+            UiAnimationProperty.LayoutM11 => matrix.M11,
+            UiAnimationProperty.LayoutM12 => matrix.M12,
+            UiAnimationProperty.LayoutM21 => matrix.M21,
+            UiAnimationProperty.LayoutM22 => matrix.M22,
+            UiAnimationProperty.LayoutM31 => matrix.M31,
+            UiAnimationProperty.LayoutM32 => matrix.M32,
+            _ => throw new ArgumentOutOfRangeException(nameof(property))
+        };
 
     private void OnEntityDestroying(UiEntity entity) => _previous.Remove(entity);
 }
@@ -474,7 +561,7 @@ internal sealed class TransformCompositionSystem : IUiSystem
 
     private static void ResolveSubtree(UiWorld world, UiEntity entity, Matrix3x2 parent)
     {
-        Matrix3x2 local = CreateLocalTransform(world, entity);
+        Matrix3x2 local = UiTransformMath.CreateLocalTransform(world, entity);
         Matrix3x2 computed = local * parent;
         bool changed = !world.Components.TryGet(entity, out ComputedTransform previous) ||
                        previous.Value != computed;
@@ -495,41 +582,6 @@ internal sealed class TransformCompositionSystem : IUiSystem
                 ResolveSubtree(world, child, computed);
             child = next;
         }
-    }
-
-    private static Matrix3x2 CreateLocalTransform(UiWorld world, UiEntity entity)
-    {
-        if (!world.Components.TryGet(entity, out LayoutRect layout))
-            return Matrix3x2.Identity;
-        UiVisualTransform style;
-        UiVisualTransform flip;
-        if (world.Components.TryGet(entity, out ComputedVisual visual))
-        {
-            style = visual.Transform;
-            flip = visual.LayoutTransform;
-        }
-        else
-        {
-            ResolvedStyle resolved = world.Components.TryGet(entity, out ResolvedStyle target)
-                ? target
-                : ResolvedStyle.Default;
-            style = new UiVisualTransform(
-                resolved.TranslateX,
-                resolved.TranslateY,
-                resolved.ScaleX,
-                resolved.ScaleY,
-                resolved.Rotation);
-            flip = UiVisualTransform.Identity;
-        }
-
-        UiPoint origin = new(layout.Value.X, layout.Value.Y);
-        return Matrix3x2.CreateTranslation(-origin.X, -origin.Y) *
-               Matrix3x2.CreateScale(flip.ScaleX, flip.ScaleY) *
-               Matrix3x2.CreateTranslation(flip.TranslateX, flip.TranslateY) *
-               Matrix3x2.CreateScale(style.ScaleX, style.ScaleY) *
-               Matrix3x2.CreateRotation(style.Rotation * (MathF.PI / 180f)) *
-               Matrix3x2.CreateTranslation(style.TranslateX, style.TranslateY) *
-               Matrix3x2.CreateTranslation(origin.X, origin.Y);
     }
 
     private static Matrix3x2 ParentTransform(UiWorld world, UiEntity entity)
@@ -556,5 +608,71 @@ internal sealed class TransformCompositionSystem : IUiSystem
                 return true;
         }
         return false;
+    }
+}
+
+internal static class UiTransformMath
+{
+    public static Matrix3x2 CreateLocalTransform(UiWorld world, UiEntity entity)
+    {
+        Matrix3x2 layout = world.Components.TryGet(entity, out ComputedLayoutTransform flip)
+            ? flip.Value
+            : Matrix3x2.Identity;
+        return layout * CreateStyleTransform(world, entity);
+    }
+
+    public static Matrix3x2 CreateStyleTransform(UiWorld world, UiEntity entity)
+    {
+        if (!world.Components.TryGet(entity, out LayoutRect layout))
+            return Matrix3x2.Identity;
+        UiVisualTransform style;
+        if (world.Components.TryGet(entity, out ComputedVisual visual))
+        {
+            style = visual.Transform;
+        }
+        else
+        {
+            ResolvedStyle resolved = world.Components.TryGet(entity, out ResolvedStyle target)
+                ? target
+                : ResolvedStyle.Default;
+            style = new UiVisualTransform(
+                resolved.TranslateX,
+                resolved.TranslateY,
+                resolved.ScaleX,
+                resolved.ScaleY,
+                resolved.Rotation);
+        }
+
+        UiPoint origin = new(layout.Value.X, layout.Value.Y);
+        return Matrix3x2.CreateTranslation(-origin.X, -origin.Y) *
+               Matrix3x2.CreateScale(style.ScaleX, style.ScaleY) *
+               Matrix3x2.CreateRotation(style.Rotation * (MathF.PI / 180f)) *
+               Matrix3x2.CreateTranslation(style.TranslateX, style.TranslateY) *
+               Matrix3x2.CreateTranslation(origin.X, origin.Y);
+    }
+
+    public static Matrix3x2 ComputeParentWorld(UiWorld world, UiEntity entity)
+    {
+        if (!world.Hierarchy.TryGetNode(entity, out HierarchyNode node) ||
+            node.Parent == UiEntity.None)
+        {
+            return Matrix3x2.Identity;
+        }
+        return ComputeWorld(world, node.Parent);
+    }
+
+    public static Matrix3x2 MapRect(UiRect from, UiRect to)
+    {
+        float scaleX = from.Width > 0.0001f ? to.Width / from.Width : 1f;
+        float scaleY = from.Height > 0.0001f ? to.Height / from.Height : 1f;
+        return Matrix3x2.CreateTranslation(-from.X, -from.Y) *
+               Matrix3x2.CreateScale(scaleX, scaleY) *
+               Matrix3x2.CreateTranslation(to.X, to.Y);
+    }
+
+    private static Matrix3x2 ComputeWorld(UiWorld world, UiEntity entity)
+    {
+        Matrix3x2 parent = ComputeParentWorld(world, entity);
+        return CreateLocalTransform(world, entity) * parent;
     }
 }

@@ -10,7 +10,6 @@ internal sealed class TransitionGroupStore
     private readonly List<GroupState?> _groups = [null];
     private readonly Stack<int> _free = [];
     private readonly List<int> _active = [];
-    private readonly List<UiTransitionGroupCompleted> _completed = [];
     private uint[] _generations = new uint[8];
 
     public TransitionGroupStore(UiWorld world, FloatAnimationStore animations)
@@ -21,9 +20,7 @@ internal sealed class TransitionGroupStore
 
     public int ActiveCount => _active.Count;
 
-    public IReadOnlyList<UiTransitionGroupCompleted> FrameCompletions => _completed;
-
-    public void BeginFrame() => _completed.Clear();
+    public event Action<UiTransitionGroupCompleted>? Completed;
 
     public UiTransitionGroupId Create(UiScopeId scope, ReadOnlySpan<UiAnimationHandle> channels)
     {
@@ -74,7 +71,7 @@ internal sealed class TransitionGroupStore
             _groups[index] = state;
         if (unsettled == 0)
         {
-            _completed.Add(new UiTransitionGroupCompleted(id, scope));
+            PublishCompleted(id, scope);
             RemoveSlot(index);
         }
         else
@@ -89,11 +86,9 @@ internal sealed class TransitionGroupStore
         _generations[group.Index] == group.Generation &&
         _groups[group.Index] is not null;
 
-    public void ProcessSettlements()
+    public void ProcessSettlement(in UiAnimationSettled settled)
     {
-        IReadOnlyList<UiAnimationSettled> settlements = _animations.FrameSettlements;
-        int activeIndex = 0;
-        while (activeIndex < _active.Count)
+        for (int activeIndex = _active.Count - 1; activeIndex >= 0; activeIndex--)
         {
             int groupIndex = _active[activeIndex];
             GroupState? state = _groups[groupIndex];
@@ -104,32 +99,25 @@ internal sealed class TransitionGroupStore
                 continue;
             }
 
-            for (int settlementIndex = 0; settlementIndex < settlements.Count; settlementIndex++)
+            for (int requirementIndex = 0; requirementIndex < state.Requirements.Length; requirementIndex++)
             {
-                UiAnimationSettled settled = settlements[settlementIndex];
-                for (int requirementIndex = 0; requirementIndex < state.Requirements.Length; requirementIndex++)
+                ref GroupRequirement requirement = ref state.Requirements[requirementIndex];
+                if (requirement.Settled ||
+                    requirement.Channel != settled.Channel ||
+                    requirement.TargetGeneration != settled.TargetGeneration)
                 {
-                    ref GroupRequirement requirement = ref state.Requirements[requirementIndex];
-                    if (requirement.Settled ||
-                        requirement.Channel != settled.Channel ||
-                        requirement.TargetGeneration != settled.TargetGeneration)
-                    {
-                        continue;
-                    }
-
-                    requirement.Settled = true;
-                    state.Unsettled--;
-                    break;
+                    continue;
                 }
+
+                requirement.Settled = true;
+                state.Unsettled--;
+                break;
             }
 
             if (state.Unsettled > 0)
-            {
-                activeIndex++;
                 continue;
-            }
 
-            _completed.Add(new UiTransitionGroupCompleted(state.Id, state.Scope));
+            PublishCompleted(state.Id, state.Scope);
             RemoveAtActivePosition(activeIndex);
             RemoveSlot(groupIndex);
         }
@@ -187,7 +175,6 @@ internal sealed class TransitionGroupStore
         _groups.Add(null);
         _free.Clear();
         _active.Clear();
-        _completed.Clear();
     }
 
     private bool RequirementsAreCurrent(GroupState state)
@@ -253,6 +240,9 @@ internal sealed class TransitionGroupStore
         _generations[groupIndex] = NextGeneration(_generations[groupIndex]);
         _free.Push(groupIndex);
     }
+
+    private void PublishCompleted(UiTransitionGroupId group, UiScopeId scope) =>
+        Completed?.Invoke(new UiTransitionGroupCompleted(group, scope));
 
     private void EnsureGenerationCapacity(int required)
     {
