@@ -43,6 +43,8 @@ public sealed class UiAnimationRuntime : IDisposable
 
     public UiAnimationEventJournal Events { get; }
 
+    internal event Action<UiTransitionGroupCompleted>? TransitionGroupCompleted;
+
     public int ChannelCount => _store.ChannelCount;
 
     public int ActiveChannelCount => _store.ActiveCount;
@@ -237,8 +239,11 @@ public sealed class UiAnimationRuntime : IDisposable
         _groups.ProcessSettlement(in settled);
     }
 
-    private void OnTransitionGroupCompleted(UiTransitionGroupCompleted completed) =>
+    private void OnTransitionGroupCompleted(UiTransitionGroupCompleted completed)
+    {
         Events.Publish(World.FrameIndex, in completed);
+        TransitionGroupCompleted?.Invoke(completed);
+    }
 }
 
 internal sealed class StyleTransitionPlanningSystem(UiAnimationRuntime animations) : IUiSystem

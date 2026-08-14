@@ -85,6 +85,16 @@ public sealed class UiHitTestIndex
         int guard = 0;
         while (_world.Entities.IsAlive(current) && guard++ < 1_000_000)
         {
+            if (_world.Components.TryGet(current, out HitTestableComponent hit) &&
+                (!hit.IsVisible || !hit.IsEnabled))
+            {
+                return false;
+            }
+            if (_world.Components.TryGet(current, out InteractionStateComponent interaction) &&
+                (interaction.Value & InteractionState.Disabled) != 0)
+            {
+                return false;
+            }
             if (_world.Components.TryGet(current, out VirtualItemSlot slot) && !slot.IsRealized)
                 return false;
             if (_world.Components.Has<ScrollViewport>(current) && !ContainsVisualPoint(current, point))

@@ -175,6 +175,13 @@ public sealed class UiAccessibilityRuntime : IUiSystem, IDisposable
     {
         if (!world.Entities.IsAlive(entity) || !IsInRoot(world, entity))
             return;
+        if (world.Components.TryGet(entity, out HitTestableComponent inheritedHit) &&
+            !inheritedHit.IsVisible)
+        {
+            return;
+        }
+        if (world.Components.TryGet(entity, out VirtualItemSlot inheritedSlot) && !inheritedSlot.IsRealized)
+            return;
 
         UiSemanticNodeId descendantParent = semanticParent;
         if (world.Components.TryGet(entity, out SemanticRole role))

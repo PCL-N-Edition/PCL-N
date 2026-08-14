@@ -1,0 +1,234 @@
+// Copyright (c) 2026 PCL N contributors.
+// Licensed under the Apache License, Version 2.0.
+
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace PCL.UI.Next.Test;
+
+[TestClass]
+public sealed class NavigationTests
+{
+    private static readonly UiPageKey PageA = new("A");
+    private static readonly UiPageKey PageB = new("B");
+    private static readonly UiPageKey PageC = new("C");
+
+    [TestMethod]
+    public void Navigation_FollowsPreparingEnteringActiveStateFlow()
+    {
+        using TestContext context = Create(reducedMotion: false);
+        context.Navigation.Register(Page(PageA, UiPageCachePolicy.None));
+        UiNavigationRequest request = context.Navigation.Navigate(PageA);
+
+        Assert.IsTrue(context.World.Update());
+        Assert.IsTrue(context.Navigation.TryGetPage(PageA, out UiNavigationPageSnapshot preparing));
+        Assert.AreEqual(UiNavigationPageState.Preparing, preparing.State);
+        Assert.AreEqual(request.Generation, preparing.NavigationGeneration);
+        Assert.AreEqual(0, context.Rendering.Accessibility.Tree.NodeCount);
+
+        context.Clock.Advance(0.016d);
+        Assert.IsTrue(context.World.Update());
+        Assert.IsTrue(context.Navigation.TryGetPage(PageA, out UiNavigationPageSnapshot entering));
+        Assert.AreEqual(UiNavigationPageState.Entering, entering.State);
+
+        AdvanceUntilSettled(context);
+        Assert.AreEqual(PageA, context.Navigation.CurrentPage);
+        Assert.IsTrue(context.Navigation.TryGetPage(PageA, out UiNavigationPageSnapshot active));
+        Assert.AreEqual(UiNavigationPageState.Active, active.State);
+        Assert.AreEqual(2, context.Rendering.Accessibility.Tree.NodeCount);
+
+        List<UiNavigationEvent> events = [];
+        context.Navigation.Events.Drain(events);
+        Assert.IsTrue(events.Any(item => item.Kind == UiNavigationEventKind.StateChanged &&
+                                         item.State == UiNavigationPageState.Preparing));
+        Assert.IsTrue(events.Any(item => item.Kind == UiNavigationEventKind.StateChanged &&
+                                         item.State == UiNavigationPageState.Entering));
+        Assert.IsTrue(events.Any(item => item.Kind == UiNavigationEventKind.Completed &&
+                                         item.NavigationGeneration == request.Generation));
+    }
+
+    [TestMethod]
+    public void KeepEntities_ReusesScopeWhileNoneDestroysOutgoingPage()
+    {
+        using TestContext context = Create(reducedMotion: true);
+        context.Navigation.Register(Page(PageA, UiPageCachePolicy.None));
+        context.Navigation.Register(Page(PageB, UiPageCachePolicy.KeepEntities));
+
+        NavigateAndSettle(context, PageB);
+        Assert.IsTrue(context.Navigation.TryGetPage(PageB, out UiNavigationPageSnapshot firstB));
+        NavigateAndSettle(context, PageA);
+        Assert.IsTrue(context.Navigation.TryGetPage(PageB, out UiNavigationPageSnapshot dormantB));
+        Assert.AreEqual(UiNavigationPageState.Dormant, dormantB.State);
+        Assert.AreEqual(firstB.Scope, dormantB.Scope);
+        Assert.AreEqual(firstB.RootEntity, dormantB.RootEntity);
+        Assert.AreEqual(2, context.Rendering.Accessibility.Tree.NodeCount);
+
+        NavigateAndSettle(context, PageB);
+        Assert.IsFalse(context.Navigation.TryGetPage(PageA, out _));
+        Assert.IsTrue(context.Navigation.TryGetPage(PageB, out UiNavigationPageSnapshot secondB));
+        Assert.AreEqual(firstB.Scope, secondB.Scope);
+        Assert.AreEqual(firstB.RootEntity, secondB.RootEntity);
+        Assert.AreEqual(UiNavigationPageState.Active, secondB.State);
+    }
+
+    [TestMethod]
+    public void Lru_EvictsOldestDormantEntityPageWithinCapacity()
+    {
+        using TestContext context = Create(
+            reducedMotion: true,
+            options: UiNavigationOptions.Default with { LruCapacity = 1 });
+        context.Navigation.Register(Page(PageA, UiPageCachePolicy.Lru));
+        context.Navigation.Register(Page(PageB, UiPageCachePolicy.Lru));
+        context.Navigation.Register(Page(PageC, UiPageCachePolicy.Lru));
+
+        NavigateAndSettle(context, PageA);
+        NavigateAndSettle(context, PageB);
+        Assert.IsTrue(context.Navigation.TryGetPage(PageA, out UiNavigationPageSnapshot cachedA));
+        Assert.AreEqual(UiNavigationPageState.Dormant, cachedA.State);
+
+        NavigateAndSettle(context, PageC);
+
+        Assert.IsFalse(context.Navigation.TryGetPage(PageA, out _));
+        Assert.IsTrue(context.Navigation.TryGetPage(PageB, out UiNavigationPageSnapshot cachedB));
+        Assert.AreEqual(UiNavigationPageState.Dormant, cachedB.State);
+        Assert.AreEqual(PageC, context.Navigation.CurrentPage);
+        Assert.AreEqual(2, context.Navigation.LivePageCount);
+        List<UiNavigationEvent> events = [];
+        context.Navigation.Events.Drain(events);
+        Assert.IsTrue(events.Any(item => item.Kind == UiNavigationEventKind.CacheEvicted && item.Page == PageA));
+    }
+
+    [TestMethod]
+    public void NavigateDuringTransition_IgnoresOldGenerationCompletion()
+    {
+        using TestContext context = Create(reducedMotion: false);
+        context.Navigation.Register(Page(PageA, UiPageCachePolicy.None));
+        context.Navigation.Register(Page(PageB, UiPageCachePolicy.None));
+        context.Navigation.Register(Page(PageC, UiPageCachePolicy.None));
+        NavigateAndSettle(context, PageA);
+        context.Navigation.Events.Drain([]);
+
+        UiNavigationRequest toB = context.Navigation.Navigate(PageB);
+        Assert.IsTrue(context.World.Update());
+        context.Clock.Advance(0.016d);
+        Assert.IsTrue(context.World.Update());
+        Assert.IsTrue(context.Navigation.TryGetPage(PageB, out UiNavigationPageSnapshot enteringB));
+        Assert.AreEqual(UiNavigationPageState.Entering, enteringB.State);
+
+        context.Clock.Advance(0.05d);
+        Assert.IsTrue(context.World.Update());
+        UiNavigationRequest toC = context.Navigation.Navigate(PageC);
+        Assert.IsGreaterThan(toB.Generation, toC.Generation);
+        Assert.IsTrue(context.World.Update());
+        context.Clock.Advance(0.016d);
+        Assert.IsTrue(context.World.Update());
+        AdvanceUntilSettled(context);
+
+        Assert.AreEqual(PageC, context.Navigation.CurrentPage);
+        Assert.IsFalse(context.Navigation.TryGetPage(PageA, out _));
+        Assert.IsFalse(context.Navigation.TryGetPage(PageB, out _));
+        Assert.IsTrue(context.Navigation.TryGetPage(PageC, out UiNavigationPageSnapshot activeC));
+        Assert.AreEqual(UiNavigationPageState.Active, activeC.State);
+        List<UiNavigationEvent> events = [];
+        context.Navigation.Events.Drain(events);
+        Assert.IsFalse(events.Any(item => item.Kind == UiNavigationEventKind.Completed &&
+                                          item.NavigationGeneration == toB.Generation));
+        Assert.IsTrue(events.Any(item => item.Kind == UiNavigationEventKind.Completed &&
+                                         item.NavigationGeneration == toC.Generation));
+    }
+
+    [TestMethod]
+    public void HostScopeDisposal_DestroysAllPageScopesAndRuntimeRoot()
+    {
+        using TestContext context = Create(reducedMotion: true);
+        context.Navigation.Register(Page(PageA, UiPageCachePolicy.Pinned));
+        NavigateAndSettle(context, PageA);
+        UiEntity navigationRoot = context.Navigation.NavigationRoot;
+        Assert.IsTrue(context.Navigation.TryGetPage(PageA, out UiNavigationPageSnapshot page));
+
+        Assert.IsTrue(context.World.DisposeScope(context.WindowScope));
+
+        Assert.IsFalse(context.World.Entities.IsAlive(navigationRoot));
+        Assert.IsFalse(context.World.Scopes.IsAlive(page.Scope));
+        Assert.AreEqual(0, context.Navigation.LivePageCount);
+    }
+
+    private static UiPageDefinition Page(UiPageKey key, UiPageCachePolicy policy) =>
+        new(
+            key,
+            Ui.Compile(
+                Ui.Button(key.Value!)
+                    .Width(UiLength.Pixels(160))
+                    .Height(UiLength.Pixels(60))),
+            policy);
+
+    private static void NavigateAndSettle(TestContext context, UiPageKey page)
+    {
+        context.Navigation.Navigate(page);
+        AdvanceUntilSettled(context);
+        Assert.AreEqual(page, context.Navigation.CurrentPage);
+    }
+
+    private static void AdvanceUntilSettled(TestContext context)
+    {
+        int guard = 0;
+        while (context.World.Scheduler.NeedsFrame && guard++ < 240)
+        {
+            context.Clock.Advance(0.025d);
+            Assert.IsTrue(context.World.Update());
+        }
+        Assert.IsFalse(context.World.Scheduler.NeedsFrame, "Navigation did not settle to idle.");
+    }
+
+    private static TestContext Create(
+        bool reducedMotion,
+        UiNavigationOptions? options = null)
+    {
+        DeterministicUiClock clock = new();
+        UiWorld world = new(clock);
+        UiSize viewport = new(320, 180);
+        UiInteractiveRuntime runtime = new(world, new DeterministicTextEngine(), viewport);
+        if (reducedMotion)
+            runtime.Animation.SetReducedMotion(true);
+        UiScopeId applicationScope = world.CreateRootScope();
+        UiScopeId windowScope = world.CreateScope(applicationScope);
+        runtime.Input.InputRoots.Register(windowScope);
+        BlueprintInstantiator instantiator = new(world, new PresentationStore());
+        HeadlessUiBackend backend = new();
+        UiRenderingRuntime rendering = new(
+            world,
+            backend,
+            runtime.TextCache,
+            windowScope,
+            viewport,
+            input: runtime.Input);
+        UiNavigationRuntime navigation = new(
+            world,
+            runtime,
+            instantiator,
+            windowScope,
+            options: options);
+        return new TestContext(
+            clock,
+            world,
+            runtime,
+            rendering,
+            navigation,
+            windowScope);
+    }
+
+    private sealed record TestContext(
+        DeterministicUiClock Clock,
+        UiWorld World,
+        UiInteractiveRuntime Runtime,
+        UiRenderingRuntime Rendering,
+        UiNavigationRuntime Navigation,
+        UiScopeId WindowScope) : IDisposable
+    {
+        public void Dispose()
+        {
+            Navigation.Dispose();
+            Rendering.Dispose();
+            Runtime.Dispose();
+        }
+    }
+}
