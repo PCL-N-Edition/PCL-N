@@ -201,7 +201,7 @@ public static class MinecraftProcessLaunchService
 
         if (OperatingSystem.IsLinux())
         {
-            SetupLinuxEnvironment(startInfo, request.UseSystemGlfw);
+            SetupLinuxEnvironment(startInfo, request.UseSystemGlfw, libraries);
         }
             PortableLog.Info(
                 "LaunchPlan",
@@ -623,16 +623,25 @@ public static class MinecraftProcessLaunchService
         return paths.Count == 0 ? string.Empty : string.Join(Path.PathSeparator, paths);
     }
 
-    private static void SetupLinuxEnvironment(ProcessStartInfo startInfo, bool useSystemGlfw)
+    internal static void SetupLinuxEnvironment(ProcessStartInfo startInfo, bool useSystemGlfw, IReadOnlyList<MinecraftLibraryToken> libraries)
     {
         bool isWayland = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE")?.Equals("wayland", StringComparison.OrdinalIgnoreCase) == true;
+        bool usesSdl3 = libraries.Any(static lib =>
+            lib.NameWithoutVersion?.Equals("org.lwjgl:lwjgl-sdl", StringComparison.Ordinal) == true);
 
         if (isWayland)
         {
-            PortableLog.Info("LaunchPlan", "检测到 Wayland 环境，将强制使用 X11 后端以确保窗口正常显示");
-            startInfo.Environment["GDK_BACKEND"] = "x11";
-            startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
-            startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
+            if (usesSdl3)
+            {
+                PortableLog.Info("LaunchPlan", "检测到Wayland环境且版本使用SDL3，保留Wayland显示后端");
+            }
+            else
+            {
+                PortableLog.Info("LaunchPlan", "Wayland 环境，强制使用X11后端");
+                startInfo.Environment["GDK_BACKEND"] = "x11";
+                startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
+                startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
+            }
         }
 
         if (useSystemGlfw)

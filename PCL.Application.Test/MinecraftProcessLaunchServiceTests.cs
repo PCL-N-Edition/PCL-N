@@ -2,8 +2,10 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Diagnostics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using PCL.Application.Launching;
+using PCL.Application.Minecraft.Launch.Libraries;
 
 namespace PCL.Application.Test;
 
@@ -539,6 +541,93 @@ public sealed class MinecraftProcessLaunchServiceTests
         {
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void SetupLinuxEnvironment_ForcesX11OnWaylandForGlfwVersions()
+    {
+        string? originalSessionType = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_SESSION_TYPE", "wayland");
+            ProcessStartInfo startInfo = new() { UseShellExecute = false };
+            List<MinecraftLibraryToken> libraries =
+            [
+                new()
+                {
+                    LocalPath = "/tmp/lwjgl-glfw.jar",
+                    NameWithoutVersion = "org.lwjgl:lwjgl-glfw"
+                }
+            ];
+
+            MinecraftProcessLaunchService.SetupLinuxEnvironment(startInfo, false, libraries);
+
+            Assert.AreEqual("x11", startInfo.Environment["GDK_BACKEND"]);
+            Assert.AreEqual("x11", startInfo.Environment["SDL_VIDEODRIVER"]);
+            Assert.AreEqual("xcb", startInfo.Environment["QT_QPA_PLATFORM"]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_SESSION_TYPE", originalSessionType);
+        }
+    }
+
+    [TestMethod]
+    public void SetupLinuxEnvironment_KeepsWaylandForSdl3Versions()
+    {
+        string? originalSessionType = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_SESSION_TYPE", "wayland");
+            ProcessStartInfo startInfo = new() { UseShellExecute = false };
+            List<MinecraftLibraryToken> libraries =
+            [
+                new()
+                {
+                    LocalPath = "/tmp/lwjgl-sdl.jar",
+                    NameWithoutVersion = "org.lwjgl:lwjgl-sdl"
+                }
+            ];
+
+            MinecraftProcessLaunchService.SetupLinuxEnvironment(startInfo, false, libraries);
+
+            Assert.IsFalse(startInfo.Environment.ContainsKey("GDK_BACKEND"));
+            Assert.IsFalse(startInfo.Environment.ContainsKey("SDL_VIDEODRIVER"));
+            Assert.IsFalse(startInfo.Environment.ContainsKey("QT_QPA_PLATFORM"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_SESSION_TYPE", originalSessionType);
+        }
+    }
+
+    [TestMethod]
+    public void SetupLinuxEnvironment_DoesNotForceX11OnX11Session()
+    {
+        string? originalSessionType = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_SESSION_TYPE", "x11");
+            ProcessStartInfo startInfo = new() { UseShellExecute = false };
+            List<MinecraftLibraryToken> libraries =
+            [
+                new()
+                {
+                    LocalPath = "/tmp/lwjgl-glfw.jar",
+                    NameWithoutVersion = "org.lwjgl:lwjgl-glfw"
+                }
+            ];
+
+            MinecraftProcessLaunchService.SetupLinuxEnvironment(startInfo, false, libraries);
+
+            Assert.IsFalse(startInfo.Environment.ContainsKey("GDK_BACKEND"));
+            Assert.IsFalse(startInfo.Environment.ContainsKey("SDL_VIDEODRIVER"));
+            Assert.IsFalse(startInfo.Environment.ContainsKey("QT_QPA_PLATFORM"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_SESSION_TYPE", originalSessionType);
         }
     }
 }
