@@ -26,6 +26,7 @@ public sealed class UiInteractiveRuntime : IDisposable
             textCacheCapacity);
         Animation = new UiAnimationRuntime(world, motionRegistry);
         Input = new UiInputRuntime(world, gestureThresholds);
+        Scroll = new UiScrollRuntime(world, Input);
     }
 
     public UiWorld World => _layoutRuntime.World;
@@ -36,6 +37,7 @@ public sealed class UiInteractiveRuntime : IDisposable
     public LayoutEngine Layout => _layoutRuntime.Layout;
     public UiAnimationRuntime Animation { get; }
     public UiInputRuntime Input { get; }
+    public UiScrollRuntime Scroll { get; }
 
     public void SetViewport(UiSize viewport) => _layoutRuntime.SetViewport(viewport);
 
@@ -43,6 +45,7 @@ public sealed class UiInteractiveRuntime : IDisposable
     {
         if (_disposed)
             return;
+        Scroll.Dispose();
         Input.Dispose();
         Animation.Dispose();
         _layoutRuntime.Dispose();
