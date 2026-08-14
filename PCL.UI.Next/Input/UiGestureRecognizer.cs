@@ -97,7 +97,7 @@ internal sealed class UiGestureRecognizer : IDisposable
     public void ActivateFromKeyboard(UiEntity entity, in UiKeyEvent keyEvent)
     {
         UiEntity target = FindGestureTarget(entity);
-        if (target == UiEntity.None || !InteractionStateStore.IsEnabledAndVisible(_world, target))
+        if (target == UiEntity.None || !UiEffectiveState.IsInteractive(_world, target))
             return;
         bool handled = Dispatch(
             UiRoutedEventKind.Click,

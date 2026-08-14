@@ -236,6 +236,30 @@ public sealed class NavigationTests
         Assert.AreEqual(PageA, context.Navigation.CurrentPage);
     }
 
+    [TestMethod]
+    public void DormantPage_FocusedDescendantLosesFocus()
+    {
+        using TestContext context = Create(reducedMotion: true);
+        context.Navigation.Register(new UiPageDefinition(
+            PageA,
+            Ui.Compile(Ui.Column(Ui.Button("Focused descendant"))),
+            UiPageCachePolicy.KeepEntities));
+        context.Navigation.Register(Page(PageB, UiPageCachePolicy.KeepEntities));
+        NavigateAndSettle(context, PageA);
+        UiNavigationPageSnapshot pageA = GetPage(context, PageA);
+        Assert.IsTrue(context.World.Hierarchy.TryGetNode(pageA.RootEntity, out HierarchyNode root));
+        UiEntity descendant = root.FirstChild;
+        Assert.IsTrue(context.Runtime.Input.Focus.Focus(descendant, context.Clock.Now));
+        Assert.AreEqual(descendant, context.Runtime.Input.Focus.GetFocused(context.InputRoot));
+
+        NavigateAndSettle(context, PageB);
+
+        Assert.AreEqual(UiNavigationPageState.Dormant, GetPage(context, PageA).State);
+        Assert.AreNotEqual(descendant, context.Runtime.Input.Focus.GetFocused(context.InputRoot));
+        Assert.IsFalse(UiEffectiveState.IsVisible(context.World, descendant));
+        Assert.IsFalse(UiEffectiveState.IsEnabled(context.World, descendant));
+    }
+
     private static UiPageDefinition Page(UiPageKey key, UiPageCachePolicy policy) =>
         new(
             key,
@@ -281,7 +305,7 @@ public sealed class NavigationTests
             runtime.Animation.SetReducedMotion(true);
         UiScopeId applicationScope = world.CreateRootScope();
         UiScopeId windowScope = world.CreateScope(applicationScope);
-        runtime.Input.InputRoots.Register(windowScope);
+        UiInputRootId inputRoot = runtime.Input.InputRoots.Register(windowScope);
         BlueprintInstantiator instantiator = new(world, new PresentationStore());
         HeadlessUiBackend backend = new();
         UiRenderingRuntime rendering = new(
@@ -303,7 +327,8 @@ public sealed class NavigationTests
             runtime,
             rendering,
             navigation,
-            windowScope);
+            windowScope,
+            inputRoot);
     }
 
     private sealed record TestContext(
@@ -312,7 +337,8 @@ public sealed class NavigationTests
         UiInteractiveRuntime Runtime,
         UiRenderingRuntime Rendering,
         UiNavigationRuntime Navigation,
-        UiScopeId WindowScope) : IDisposable
+        UiScopeId WindowScope,
+        UiInputRootId InputRoot) : IDisposable
     {
         public void Dispose()
         {

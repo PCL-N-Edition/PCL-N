@@ -153,6 +153,139 @@ public sealed class NativeHostTests
         Assert.AreEqual(beforeTransfer + 1, context.Backend.FocusReconciliationCount);
     }
 
+    [TestMethod]
+    public void DormantPage_HidesAndDisablesNativeHost()
+    {
+        using TestContext context = Create();
+        context.Runtime.Animation.SetReducedMotion(true);
+        using UiNavigationRuntime navigation = new(
+            context.World,
+            context.Runtime,
+            context.Instantiator,
+            context.WindowScope);
+        UiPageKey pageA = new("native");
+        UiPageKey pageB = new("other");
+        navigation.Register(new UiPageDefinition(
+            pageA,
+            Ui.Compile(Ui.Column(Ui.TextBox("cached"))),
+            UiPageCachePolicy.KeepEntities));
+        navigation.Register(new UiPageDefinition(
+            pageB,
+            Ui.Compile(Ui.Button("Other")),
+            UiPageCachePolicy.KeepEntities));
+        navigation.Navigate(pageA);
+        Drain(context.World);
+        Assert.IsTrue(navigation.TryGetPage(pageA, out UiNavigationPageSnapshot page));
+        Assert.IsTrue(context.World.Hierarchy.TryGetNode(page.RootEntity, out HierarchyNode root));
+        UiEntity native = root.FirstChild;
+        NativeHostHandle handle = context.Backend.HandleFor(native);
+        Assert.IsTrue(context.Runtime.Input.Focus.Focus(native, context.Clock.Now));
+        Assert.IsTrue(context.World.Update());
+
+        navigation.Navigate(pageB);
+        Drain(context.World);
+
+        NativeHostVisualState state = context.Backend.StateFor(handle);
+        Assert.IsFalse(state.IsVisible);
+        Assert.IsFalse(state.IsEnabled);
+        Assert.IsFalse(state.IsFocused);
+        Assert.AreNotEqual(native, context.Runtime.Input.Focus.GetFocused(context.InputRoot));
+    }
+
+    [TestMethod]
+    public void Modal_BlocksBackgroundNativeHostPointer()
+    {
+        using TestContext context = Create();
+        UiEntity background = context.Instantiator.Instantiate(
+            Ui.Compile(
+                Ui.TextBox("background")
+                    .Width(UiLength.Pixels(100f))
+                    .Height(UiLength.Pixels(40f))),
+            context.WindowScope).RootEntity;
+        Drain(context.World);
+        NativeHostHandle handle = context.Backend.HandleFor(background);
+        using UiOverlayRuntime overlays = new(
+            context.World,
+            context.Runtime,
+            context.Instantiator,
+            context.WindowScope);
+        UiOverlayHandle modal = overlays.ShowModal(Ui.Compile(Ui.Button("Modal")));
+        Drain(context.World);
+        Assert.IsTrue(overlays.TryGetOverlay(modal, out UiOverlaySnapshot snapshot));
+
+        NativeHostVisualState state = context.Backend.StateFor(handle);
+        Assert.IsFalse(state.IsVisible);
+        Assert.IsFalse(state.IsEnabled);
+        UiRect rect = context.World.Components.Get<LayoutRect>(background).Value;
+        UiPoint point = new(rect.X + 10f, rect.Y + 10f);
+        Assert.AreEqual(snapshot.BarrierEntity, context.Runtime.Input.HitTest.HitTest(point, context.InputRoot));
+    }
+
+    [TestMethod]
+    public void Modal_BackgroundNativeHostCannotRegainFocus()
+    {
+        using TestContext context = Create();
+        UiEntity background = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.TextBox("background")),
+            context.WindowScope).RootEntity;
+        Drain(context.World);
+        NativeHostHandle handle = context.Backend.HandleFor(background);
+        Assert.IsTrue(context.Runtime.Input.Focus.Focus(background, context.Clock.Now));
+        Assert.IsTrue(context.World.Update());
+        using UiOverlayRuntime overlays = new(
+            context.World,
+            context.Runtime,
+            context.Instantiator,
+            context.WindowScope);
+        overlays.ShowModal(Ui.Compile(Ui.Button("Modal")));
+        Drain(context.World);
+
+        context.Backend.Emit(new NativeHostEvent(handle, NativeHostEventKind.GotFocus, context.Clock.Now));
+        Assert.IsTrue(context.World.Update());
+
+        Assert.AreNotEqual(background, context.Runtime.Input.Focus.GetFocused(context.InputRoot));
+        Assert.AreNotEqual(handle, context.Backend.FocusedHost);
+    }
+
+    [TestMethod]
+    public void PopupBarrier_ClickOnBackgroundNativeHostDismissesPopup()
+    {
+        using TestContext context = Create();
+        UiEntity background = context.Instantiator.Instantiate(
+            Ui.Compile(
+                Ui.TextBox("background")
+                    .Width(UiLength.Pixels(100f))
+                    .Height(UiLength.Pixels(40f))),
+            context.WindowScope).RootEntity;
+        Drain(context.World);
+        NativeHostHandle nativeHandle = context.Backend.HandleFor(background);
+        using UiOverlayRuntime overlays = new(
+            context.World,
+            context.Runtime,
+            context.Instantiator,
+            context.WindowScope);
+        UiOverlayHandle popup = overlays.OpenPopup(
+            Ui.Compile(
+                Ui.Button("Popup")
+                    .Width(UiLength.Pixels(80f))
+                    .Height(UiLength.Pixels(30f))),
+            background);
+        Drain(context.World);
+        Assert.IsFalse(context.Backend.StateFor(nativeHandle).IsVisible);
+        UiRect rect = context.World.Components.Get<LayoutRect>(background).Value;
+        UiPoint point = new(rect.X + 10f, rect.Y + 10f);
+
+        context.Runtime.Input.EnqueuePointer(
+            context.InputRoot,
+            UiPointerEventKind.Down,
+            point,
+            changedButton: UiPointerButton.Primary,
+            buttons: UiPointerButtons.Primary);
+        Assert.IsTrue(context.World.Update());
+
+        Assert.IsFalse(overlays.TryGetOverlay(popup, out _));
+    }
+
     private static TestContext Create()
     {
         DeterministicUiClock clock = new();
@@ -244,6 +377,8 @@ public sealed class NativeHostTests
         {
             Assert.IsTrue(_hosts.ContainsKey(handle));
             LastMutation = mutation;
+            NativeHostDescriptor descriptor = _hosts[handle];
+            _hosts[handle] = descriptor with { State = mutation.State };
         }
 
         public void ReconcileNativeHostFocus(NativeHostHandle focusedHost)
@@ -263,5 +398,7 @@ public sealed class NativeHostTests
 
         public NativeHostHandle HandleFor(UiEntity owner) =>
             _hosts.Single(pair => pair.Value.Owner == owner).Key;
+
+        public NativeHostVisualState StateFor(NativeHostHandle handle) => _hosts[handle].State;
     }
 }

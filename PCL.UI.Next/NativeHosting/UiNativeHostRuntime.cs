@@ -146,8 +146,12 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
                 nativeEvent.SelectionEnd));
             if (_input is null || !_input.InputRoots.TryResolve(entity, out UiInputRootId inputRoot))
                 continue;
-            if (nativeEvent.Kind == NativeHostEventKind.GotFocus)
+            if (nativeEvent.Kind == NativeHostEventKind.GotFocus &&
+                UiEffectiveState.IsInteractive(_world, entity) &&
+                !IsBlockedByInteractionBarrier(entity))
+            {
                 _input.Focus.Focus(entity, timestamp);
+            }
             else if (nativeEvent.Kind == NativeHostEventKind.LostFocus && _input.Focus.GetFocused(inputRoot) == entity)
                 _input.Focus.ClearFocus(inputRoot, timestamp);
         }
@@ -156,9 +160,11 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
     private NativeHostVisualState ResolveState(UiEntity entity, in NativeHostComponent component)
     {
         UiRect bounds = UiVisualGeometry.ResolveBounds(_world, entity);
-        bool visible = !_world.Components.TryGet(entity, out HitTestableComponent hit) || hit.IsVisible;
-        bool enabled = InteractionStateStore.IsEnabledAndVisible(_world, entity);
-        bool focused = _world.Components.TryGet(entity, out InteractionStateComponent interaction) &&
+        bool blocked = IsBlockedByInteractionBarrier(entity);
+        bool visible = UiEffectiveState.IsVisible(_world, entity) && !blocked;
+        bool enabled = UiEffectiveState.IsEnabled(_world, entity) && !blocked;
+        bool focused = visible && enabled &&
+                       _world.Components.TryGet(entity, out InteractionStateComponent interaction) &&
                        (interaction.Value & InteractionState.Focused) != 0;
         string value = component.Value ?? string.Empty;
         int start = Math.Clamp(component.SelectionStart, 0, value.Length);
@@ -217,7 +223,7 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
             _input.InputRoots.TryResolve(_rootScope, out UiInputRootId inputRoot))
         {
             UiEntity focused = _input.Focus.GetFocused(inputRoot);
-            return _entries.TryGetValue(focused, out Entry focusedEntry)
+            return _entries.TryGetValue(focused, out Entry focusedEntry) && focusedEntry.State.IsFocused
                 ? focusedEntry.Handle
                 : NativeHostHandle.None;
         }
@@ -228,6 +234,50 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
                 return entry.Handle;
         }
         return NativeHostHandle.None;
+    }
+
+    private bool IsBlockedByInteractionBarrier(UiEntity entity)
+    {
+        if (!_world.Entities.TryGetScope(entity, out UiScopeId entityScope))
+            return true;
+        ReadOnlySpan<UiEntity> barriers = _world.Components.Pool<UiInteractionBarrier>().Entities;
+        UiInteractionBarrier selected = default;
+        int selectedZ = int.MinValue;
+        bool found = false;
+        for (int i = 0; i < barriers.Length; i++)
+        {
+            UiEntity barrierEntity = barriers[i];
+            if (!_world.Entities.IsAlive(barrierEntity) ||
+                !IsInRoot(barrierEntity) ||
+                !UiEffectiveState.IsVisible(_world, barrierEntity))
+            {
+                continue;
+            }
+            int z = _world.Components.TryGet(barrierEntity, out HitTestableComponent hit)
+                ? hit.ZIndex
+                : 0;
+            if (found && z < selectedZ)
+                continue;
+            selected = _world.Components.Get<UiInteractionBarrier>(barrierEntity);
+            selectedZ = z;
+            found = true;
+        }
+        return found &&
+               selected.OccludeNativeHosts &&
+               !IsScopeWithin(entityScope, selected.AllowedScope);
+    }
+
+    private bool IsScopeWithin(UiScopeId scope, UiScopeId ancestor)
+    {
+        int guard = 0;
+        while (_world.Scopes.IsAlive(scope) && guard++ < 1_000_000)
+        {
+            if (scope == ancestor)
+                return true;
+            if (!_world.Scopes.TryGetParent(scope, out scope) || scope.IsNone)
+                break;
+        }
+        return false;
     }
 
     private static NativeHostMutationFlags Diff(

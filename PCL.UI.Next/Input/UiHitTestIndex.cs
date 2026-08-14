@@ -46,16 +46,10 @@ public sealed class UiHitTestIndex
                 continue;
             if (!_inputRoots.Contains(inputRoot, entry.Entity))
                 continue;
-            if (!IsVisibleThroughAncestors(entry.Entity, point))
+            if (!UiEffectiveState.IsInteractive(_world, entry.Entity) ||
+                !IsWithinAncestorClips(entry.Entity, point))
                 continue;
-            if (!_world.Components.TryGet(entry.Entity, out HitTestableComponent hitTestable) ||
-                !hitTestable.IsVisible || !hitTestable.IsEnabled)
-            {
-                continue;
-            }
-
-            if (_world.Components.TryGet(entry.Entity, out InteractionStateComponent state) &&
-                (state.Value & InteractionState.Disabled) != 0)
+            if (!_world.Components.Has<HitTestableComponent>(entry.Entity))
             {
                 continue;
             }
@@ -79,24 +73,12 @@ public sealed class UiHitTestIndex
         return UiEntity.None;
     }
 
-    private bool IsVisibleThroughAncestors(UiEntity entity, UiPoint point)
+    private bool IsWithinAncestorClips(UiEntity entity, UiPoint point)
     {
         UiEntity current = entity;
         int guard = 0;
         while (_world.Entities.IsAlive(current) && guard++ < 1_000_000)
         {
-            if (_world.Components.TryGet(current, out HitTestableComponent hit) &&
-                (!hit.IsVisible || !hit.IsEnabled))
-            {
-                return false;
-            }
-            if (_world.Components.TryGet(current, out InteractionStateComponent interaction) &&
-                (interaction.Value & InteractionState.Disabled) != 0)
-            {
-                return false;
-            }
-            if (_world.Components.TryGet(current, out VirtualItemSlot slot) && !slot.IsRealized)
-                return false;
             if (_world.Components.Has<ScrollViewport>(current) && !ContainsVisualPoint(current, point))
                 return false;
             if (!_world.Hierarchy.TryGetNode(current, out HierarchyNode node) || node.Parent == UiEntity.None)

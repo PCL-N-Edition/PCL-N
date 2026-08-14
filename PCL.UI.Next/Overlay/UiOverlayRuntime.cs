@@ -423,6 +423,11 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
         _world.Set(barrier, new AbsolutePlacement());
         _world.Set(barrier, new HitTestableComponent { IsVisible = true, IsEnabled = true, ZIndex = z });
         _world.Set(barrier, new InteractionStateComponent());
+        _world.Set(barrier, new UiInteractionBarrier
+        {
+            AllowedScope = scope,
+            OccludeNativeHosts = true
+        });
         if (dimmed)
             _world.Set(barrier, StyleClassSet.From([UiClass.ModalBarrier.Id]));
         _world.AttachChild(OverlayRoot, barrier);

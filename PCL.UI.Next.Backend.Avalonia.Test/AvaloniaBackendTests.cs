@@ -278,6 +278,8 @@ public sealed class AvaloniaBackendTests
                 Assert.IsTrue(world.Update());
 
                 Assert.IsFalse(textBox.IsFocused);
+                Assert.IsFalse(textBox.IsVisible);
+                Assert.IsFalse(textBox.IsEnabled);
                 Assert.IsTrue(backend.Surface.IsFocused);
             }
             finally

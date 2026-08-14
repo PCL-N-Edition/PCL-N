@@ -1574,7 +1574,9 @@ Overlay primitive 描述的是 Runtime overlay contract，不是 Avalonia Popup/
 
 Compiler/IR 必须显式编码 placement、dismiss policy、focus policy 与 child Scope ownership。
 Tooltip 默认 input pass-through；Modal 默认生成 dim/input barrier 与 trapping FocusScope。
-页面不得通过设置主树 `IsHitTestVisible=false` 模拟 Modal。
+页面不得通过设置主树 `IsHitTestVisible=false` 模拟 Modal。Popup/Modal barrier 还必须声明
+允许交互的 overlay Scope；Backend 位于独立平台 layer 的 NativeHost 若不在该 Scope 内，
+必须隐藏、禁用且拒绝平台焦点回写，不能绕过 retained barrier。
 
 ---
 

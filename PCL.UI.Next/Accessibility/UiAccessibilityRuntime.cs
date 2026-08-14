@@ -121,7 +121,7 @@ public sealed class UiAccessibilityRuntime : IUiSystem, IDisposable
                 _input.Focus.Focus(request.Owner, timestamp);
             }
             else if (request.Action == UiAccessibleAction.Invoke &&
-                     InteractionStateStore.IsEnabledAndVisible(_world, request.Owner) &&
+                     UiEffectiveState.IsInteractive(_world, request.Owner) &&
                      _world.Components.TryGet(request.Owner, out CommandBindingComponent command) &&
                      command.CommandId != 0 &&
                      _world.Entities.TryGetScope(request.Owner, out UiScopeId scope))
@@ -173,12 +173,7 @@ public sealed class UiAccessibilityRuntime : IUiSystem, IDisposable
     {
         if (!world.Entities.IsAlive(entity) || !IsInRoot(world, entity))
             return;
-        if (world.Components.TryGet(entity, out HitTestableComponent inheritedHit) &&
-            !inheritedHit.IsVisible)
-        {
-            return;
-        }
-        if (world.Components.TryGet(entity, out VirtualItemSlot inheritedSlot) && !inheritedSlot.IsRealized)
+        if (!UiEffectiveState.IsVisible(world, entity))
             return;
 
         UiSemanticNodeId descendantParent = semanticParent;
@@ -239,13 +234,8 @@ public sealed class UiAccessibilityRuntime : IUiSystem, IDisposable
             if ((interaction.Value & InteractionState.Checked) != 0) state |= UiAccessibleState.Checked;
             if ((interaction.Value & InteractionState.Expanded) != 0) state |= UiAccessibleState.Expanded;
         }
-        if (world.Components.TryGet(entity, out HitTestableComponent hit))
-        {
-            if (!hit.IsEnabled) state |= UiAccessibleState.Disabled;
-            if (!hit.IsVisible) state |= UiAccessibleState.Hidden;
-        }
-        if (world.Components.TryGet(entity, out VirtualItemSlot slot) && !slot.IsRealized)
-            state |= UiAccessibleState.Hidden;
+        if (!UiEffectiveState.IsEnabled(world, entity)) state |= UiAccessibleState.Disabled;
+        if (!UiEffectiveState.IsVisible(world, entity)) state |= UiAccessibleState.Hidden;
         if (world.Components.TryGet(entity, out NativeHostComponent native) && native.IsReadOnly)
             state |= UiAccessibleState.ReadOnly;
         return state;

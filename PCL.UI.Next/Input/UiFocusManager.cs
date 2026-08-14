@@ -333,7 +333,7 @@ public sealed class UiFocusManager : IDisposable
             return false;
         }
 
-        return InteractionStateStore.IsEnabledAndVisible(_world, entity);
+        return UiEffectiveState.IsInteractive(_world, entity);
     }
 
     private void CollectCandidates(UiInputRootId inputRoot, UiEntity restriction)
@@ -440,20 +440,6 @@ public sealed class UiFocusManager : IDisposable
 
 internal static class InteractionStateStore
 {
-    public static bool IsEnabledAndVisible(UiWorld world, UiEntity entity)
-    {
-        if (!world.Entities.IsAlive(entity))
-            return false;
-        if (world.Components.TryGet(entity, out InteractionStateComponent state) &&
-            (state.Value & InteractionState.Disabled) != 0)
-        {
-            return false;
-        }
-
-        return !world.Components.TryGet(entity, out HitTestableComponent hitTestable) ||
-               (hitTestable.IsEnabled && hitTestable.IsVisible);
-    }
-
     public static bool Set(UiWorld world, UiEntity entity, InteractionState flag, bool enabled)
     {
         if (!world.Entities.IsAlive(entity))

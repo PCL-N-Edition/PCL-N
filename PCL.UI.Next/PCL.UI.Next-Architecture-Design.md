@@ -4407,6 +4407,8 @@ Navigation
   均通过 diff mutation 同步；
 - 每帧所有 NativeHost diff 完成后，Backend 只执行一次 platform focus reconciliation：
   目标为 NativeHost 时聚焦对应 Control，否则将焦点交回 retained surface；
+- `UiEffectiveState` 统一计算祖先感知的 visible/enabled/interactive；Focus、HitTest、
+  Accessibility 与 NativeHost 不允许只读取 Entity 自身状态；
 - NativeHost 与所属 `UiScope` 同生共死，Scope 销毁时必须立即释放平台控件。
 
 #### Semantic Tree / Accessibility
@@ -4432,6 +4434,8 @@ Navigation
   world bounds 同时包含 parent/scroll/FLIP/style transform，并以四角变换后的 AABB 表达；
 - Modal 始终具有 dim barrier、input barrier 和 trapping FocusScope，不修改主页面的
   `IsHitTestVisible`；
+- 最上层 Popup/Modal barrier 声明允许交互的 overlay Scope。范围外 NativeHost 必须在
+  平台层隐藏、禁用并禁止焦点回写，使 pointer 落到 retained barrier 完成 dismiss/block；
 - Overlay Scope 被外部销毁时，handle 必须立即失效，routed handler 与 timer lease
   必须同步释放。
 

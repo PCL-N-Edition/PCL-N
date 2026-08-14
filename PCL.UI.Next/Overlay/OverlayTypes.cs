@@ -79,6 +79,13 @@ public readonly record struct UiOverlaySnapshot(
     UiEntity AnchorEntity,
     UiOverlayPlacement Placement);
 
+/// <summary>Restricts platform-native interaction to the topmost overlay scope.</summary>
+public struct UiInteractionBarrier
+{
+    public UiScopeId AllowedScope { get; set; }
+    public bool OccludeNativeHosts { get; set; }
+}
+
 public sealed class UiTooltipRegistration : IDisposable
 {
     private UiOverlayRuntime? _runtime;
