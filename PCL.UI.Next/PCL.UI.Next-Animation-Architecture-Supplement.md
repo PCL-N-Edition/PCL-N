@@ -1208,6 +1208,11 @@ all required channels settled
 TransitionGroupCompleted
 ```
 
+生命周期事件进入固定容量、sequence-based 的 `UiAnimationEventJournal`。Navigation、
+DevTools 与 Diagnostics 各自持有独立 reader cursor，任一 reader 的读取都不能移除其他
+reader 尚未读取的事件。超过 retention window 的慢 reader 从最早可用 sequence 继续，并
+显式累计 dropped count；不存在消费者时 journal 仍保持有界。
+
 ---
 
 # 29. Transition Group Generation

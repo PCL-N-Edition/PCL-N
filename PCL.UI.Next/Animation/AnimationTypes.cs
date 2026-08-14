@@ -338,7 +338,7 @@ public enum UiAnimationEventKind : byte
     TransitionGroupCompleted = 1
 }
 
-/// <summary>Durable lifecycle event retained until a consumer drains the animation journal.</summary>
+/// <summary>Sequenced lifecycle event retained within the bounded animation journal window.</summary>
 public readonly record struct UiAnimationEvent(
     long Sequence,
     long FrameIndex,

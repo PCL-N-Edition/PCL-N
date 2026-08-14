@@ -152,6 +152,52 @@ public sealed class NavigationTests
         Assert.AreEqual(0, context.Navigation.LivePageCount);
     }
 
+    [TestMethod]
+    public void RepeatedNavigation_DoesNotGrowAnimationJournalUnbounded()
+    {
+        using TestContext context = Create(reducedMotion: true);
+        context.Navigation.Register(Page(PageA, UiPageCachePolicy.KeepEntities));
+        context.Navigation.Register(Page(PageB, UiPageCachePolicy.KeepEntities));
+        UiAnimationEventReader slowReader = context.Runtime.Animation.Events.CreateReader(
+            UiAnimationEventReaderStart.NextPublished);
+
+        for (int i = 0; i < 240; i++)
+            NavigateAndSettle(context, (i & 1) == 0 ? PageA : PageB);
+
+        Assert.AreEqual(
+            context.Runtime.Animation.Events.Capacity,
+            context.Runtime.Animation.Events.RetainedCount);
+        Assert.IsLessThanOrEqualTo(
+            context.Runtime.Animation.Events.Capacity,
+            context.Runtime.Animation.Events.Count);
+        Assert.IsTrue(slowReader.TryRead(out _));
+        Assert.IsGreaterThan(0L, slowReader.DroppedCount);
+    }
+
+    [TestMethod]
+    public void InternalTransitionConsumer_DoesNotStealPublicAnimationEvents()
+    {
+        using TestContext context = Create(reducedMotion: true);
+        context.Navigation.Register(Page(PageA, UiPageCachePolicy.None));
+        UiAnimationEventReader publicReader = context.Runtime.Animation.Events.CreateReader(
+            UiAnimationEventReaderStart.NextPublished);
+
+        NavigateAndSettle(context, PageA);
+
+        List<UiAnimationEvent> publicEvents = [];
+        publicReader.Drain(publicEvents);
+        List<UiAnimationEvent> compatibilityEvents = [];
+        context.Runtime.Animation.Events.Drain(compatibilityEvents);
+        Assert.AreEqual(UiNavigationPageState.Active, GetPage(context, PageA).State);
+        Assert.IsTrue(publicEvents.Any(static item =>
+            item.Kind == UiAnimationEventKind.TransitionGroupCompleted));
+        Assert.IsTrue(compatibilityEvents.Any(static item =>
+            item.Kind == UiAnimationEventKind.TransitionGroupCompleted));
+        Assert.IsTrue(publicEvents.Select(static item => item.Sequence)
+            .Intersect(compatibilityEvents.Select(static item => item.Sequence))
+            .Any());
+    }
+
     private static UiPageDefinition Page(UiPageKey key, UiPageCachePolicy policy) =>
         new(
             key,
@@ -160,6 +206,12 @@ public sealed class NavigationTests
                     .Width(UiLength.Pixels(160))
                     .Height(UiLength.Pixels(60))),
             policy);
+
+    private static UiNavigationPageSnapshot GetPage(TestContext context, UiPageKey page)
+    {
+        Assert.IsTrue(context.Navigation.TryGetPage(page, out UiNavigationPageSnapshot snapshot));
+        return snapshot;
+    }
 
     private static void NavigateAndSettle(TestContext context, UiPageKey page)
     {

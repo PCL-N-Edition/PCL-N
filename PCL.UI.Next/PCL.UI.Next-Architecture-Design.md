@@ -4405,6 +4405,8 @@ Navigation
 - Backend 以 generation-safe `NativeHostHandle` 管理 create/update/destroy；
 - bounds、visibility、enabled、focus、value、selection、read-only 与 multiline
   均通过 diff mutation 同步；
+- 每帧所有 NativeHost diff 完成后，Backend 只执行一次 platform focus reconciliation：
+  目标为 NativeHost 时聚焦对应 Control，否则将焦点交回 retained surface；
 - NativeHost 与所属 `UiScope` 同生共死，Scope 销毁时必须立即释放平台控件。
 
 #### Semantic Tree / Accessibility
@@ -4414,7 +4416,8 @@ Navigation
 - Semantic parent 是最近的 semantic ancestor，不能复用 RenderNode parent；
 - 每个 Window/Input Root 独立消费 Accessibility dirty，不能跨窗口清除或合并；
 - Avalonia Backend 使用虚拟 `AutomationPeer` 暴露 retained Entity，不为每个渲染
-  Entity 创建 Avalonia Control；NativeHost 继续使用原生 Control peer；
+  Entity 创建 Avalonia Control；NativeHost owner 不创建 virtual peer，只使用原生
+  Control peer，确保同一语义节点在平台 Automation Tree 中只暴露一次；
 - 平台 Invoke/Focus 先进入 `UiAccessibilityActionRequest`，再由 Runtime 校验
   Entity generation、Scope、支持的 action 与 enabled state，最后进入 Focus/Command。
 
@@ -4425,6 +4428,8 @@ Navigation
 - Tooltip 支持 delay、pointer anchor、viewport clamp、auto-close 和完整 subtree
   input pass-through；等待 timer 通过引用计数 lease 持有 continuous frame；
 - Popup 使用 placement + optional outside-pointer barrier + FocusScope，关闭时恢复焦点；
+- Popup anchor、NativeHost、HitTest 与 Accessibility 必须共享 `UiVisualGeometry`，其
+  world bounds 同时包含 parent/scroll/FLIP/style transform，并以四角变换后的 AABB 表达；
 - Modal 始终具有 dim barrier、input barrier 和 trapping FocusScope，不修改主页面的
   `IsHitTestVisible`；
 - Overlay Scope 被外部销毁时，handle 必须立即失效，routed handler 与 timer lease
@@ -4437,6 +4442,8 @@ Navigation
 - 每次 `Navigate` 递增 `NavigationGeneration`。再次导航时，所有仍在 Entering/Leaving
   的页面加入新 transition group；旧 generation completion 只能被丢弃；
 - 页面 lifecycle 只写入 `UiNavigationEventJournal`，公共 API 不允许 completion callback；
+- Navigation 通过自己的 sequence cursor 读取有界 `UiAnimationEventJournal`；内部生命周期
+  消费者与 DevTools/Diagnostics reader 互不抢占事件，journal retention 不得无限增长；
 - Cache policy 固定为 `None / KeepPresentationState / KeepEntities / Lru / Pinned`；
   LRU 只计算 Dormant 且声明为 Lru 的页面，Pinned 永不被容量驱逐；
 - Dormant/Preparing 页面从 HitTest 与 Semantic Tree 整棵移除，但仍可保留 Entity，
