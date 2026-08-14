@@ -5,6 +5,9 @@ using System.Numerics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Automation;
+using Avalonia.Automation.Peers;
+using Avalonia.Automation.Provider;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace PCL.UI.Next.Backend.Avalonia.Test;
@@ -180,9 +183,56 @@ public sealed class AvaloniaBackendTests
 
             Assert.AreEqual(1, backend.NativeHostCount);
             Assert.AreEqual(2, backend.View.Children.Count);
+            Assert.AreEqual(1, backend.AccessibilityTree.NodeCount);
+            Canvas nativeLayer = (Canvas)backend.View.Children[1];
+            TextBox textBox = (TextBox)nativeLayer.Children[0];
+            Assert.AreEqual("placeholder", AutomationProperties.GetName(textBox));
 
             instantiator.Destroy(live);
             Assert.AreEqual(0, backend.NativeHostCount);
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
+    public void AvaloniaAccessibility_ExposesSemanticPeersAndRoutesInvoke()
+    {
+        using HeadlessUnitTestSession session = CreateSession();
+        session.Dispatch(() =>
+        {
+            UiSize viewport = new(320, 180);
+            UiWorld world = new(new DeterministicUiClock());
+            using AvaloniaTextEngine textEngine = new();
+            using UiInteractiveRuntime runtime = new(world, textEngine, viewport);
+            UiScopeId scope = world.CreateRootScope();
+            runtime.Input.InputRoots.Register(scope);
+            AvaloniaUiBackend backend = new(textEngine);
+            using UiRenderingRuntime rendering = new(
+                world,
+                backend,
+                runtime.TextCache,
+                scope,
+                viewport,
+                input: runtime.Input);
+            BlueprintInstantiator instantiator = new(world, new PresentationStore());
+            instantiator.Instantiate(
+                Ui.Compile(Ui.Button("Install").Command(new UiCommand(77))),
+                scope);
+            Drain(world);
+
+            Assert.IsTrue((backend.Capabilities & UiBackendCapabilities.Accessibility) != 0);
+            Assert.AreEqual(2, backend.AccessibilityTree.NodeCount);
+            AutomationPeer root = ControlAutomationPeer.CreatePeerForElement(backend.Surface)!;
+            IReadOnlyList<AutomationPeer> roots = root.GetChildren();
+            Assert.AreEqual(1, roots.Count);
+            Assert.AreEqual("Install", roots[0].GetName());
+            Assert.AreEqual(AutomationControlType.Button, roots[0].GetAutomationControlType());
+
+            IInvokeProvider invoke = (IInvokeProvider)roots[0];
+            invoke.Invoke();
+            Assert.IsTrue(world.Update());
+            Assert.IsTrue(runtime.Input.Commands.TryDequeue(out UiCommandInvocation invocation));
+            Assert.AreEqual(new UiCommand(77), invocation.Command);
+            Assert.AreEqual(UiCommandTrigger.Accessibility, invocation.Trigger);
         }, CancellationToken.None).GetAwaiter().GetResult();
     }
 

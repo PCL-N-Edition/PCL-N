@@ -89,14 +89,25 @@ public sealed class UiWorld
         Scheduler.RequestReactiveFrame();
     }
 
-    public void Add<T>(UiEntity entity, in T component) where T : struct =>
+    public void Add<T>(UiEntity entity, in T component) where T : struct
+    {
         Components.Add(entity, in component);
+        MarkSemanticComponentMutation<T>(entity);
+    }
 
-    public void Set<T>(UiEntity entity, in T component) where T : struct =>
+    public void Set<T>(UiEntity entity, in T component) where T : struct
+    {
         Components.Set(entity, in component);
+        MarkSemanticComponentMutation<T>(entity);
+    }
 
-    public bool Remove<T>(UiEntity entity) where T : struct =>
-        Components.Remove<T>(entity);
+    public bool Remove<T>(UiEntity entity) where T : struct
+    {
+        bool removed = Components.Remove<T>(entity);
+        if (removed)
+            MarkSemanticComponentMutation<T>(entity);
+        return removed;
+    }
 
     public void DestroyEntity(UiEntity entity)
     {
@@ -203,5 +214,29 @@ public sealed class UiWorld
                 break;
             current = node.Parent;
         }
+    }
+
+    private void MarkSemanticComponentMutation<T>(UiEntity entity) where T : struct
+    {
+        Type type = typeof(T);
+        if (type != typeof(SemanticRole) &&
+            type != typeof(AccessibleName) &&
+            type != typeof(AccessibleDescription) &&
+            type != typeof(AccessibleValue) &&
+            type != typeof(AccessibleState) &&
+            type != typeof(AccessibleAction) &&
+            type != typeof(InteractionStateComponent) &&
+            type != typeof(HitTestableComponent) &&
+            type != typeof(NativeHostComponent) &&
+            type != typeof(TextContent) &&
+            type != typeof(LayoutRect) &&
+            type != typeof(ComputedTransform) &&
+            type != typeof(VirtualItemSlot))
+        {
+            return;
+        }
+
+        Dirty.Mark(entity, UiDirtyFlags.Accessibility);
+        Scheduler.RequestReactiveFrame();
     }
 }

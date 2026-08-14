@@ -8,7 +8,8 @@ public enum UiCommandTrigger : byte
     Pointer = 0,
     Keyboard = 1,
     Shortcut = 2,
-    Gesture = 3
+    Gesture = 3,
+    Accessibility = 4
 }
 
 public readonly record struct UiCommandInvocation(

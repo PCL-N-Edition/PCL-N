@@ -101,7 +101,10 @@ public static class Ui
 
     public static UiNode Text(string? value = null)
     {
-        UiNode node = new(UiNodeKind.Text);
+        UiNode node = new(UiNodeKind.Text)
+        {
+            Semantic = new SemanticDefinition(UiSemanticRole.StaticText)
+        };
         if (value is not null)
             node.StaticText = value;
         return node;
@@ -113,6 +116,9 @@ public static class Ui
         return new UiNode(UiNodeKind.Button)
             .Behavior(UiBehavior.ButtonDefaults)
             .Class(UiClass.Button)
+            .Accessible(
+                UiSemanticRole.Button,
+                actions: UiAccessibleAction.Invoke | UiAccessibleAction.Focus)
             .Child(content);
     }
 
@@ -132,7 +138,11 @@ public static class Ui
                 Placeholder = placeholder
             },
             HitTestVisibleOverride = true,
-            Behaviors = UiBehavior.Focusable
+            Behaviors = UiBehavior.Focusable,
+            Semantic = new SemanticDefinition(
+                password ? UiSemanticRole.PasswordBox : UiSemanticRole.TextBox,
+                Name: placeholder,
+                Actions: UiAccessibleAction.Focus | UiAccessibleAction.SetValue)
         };
         return node.Height(UiLength.Pixels(36f));
     }

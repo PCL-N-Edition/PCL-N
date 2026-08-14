@@ -5,12 +5,13 @@ using Avalonia.Threading;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia;
+using Avalonia.Automation;
 using PCL.UI.Next;
 
 namespace PCL.UI.Next.Backend.Avalonia;
 
 /// <summary>Avalonia platform adapter for retained ECS render commits.</summary>
-public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend
+public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessibilityBackend
 {
     private readonly Action _invalidate;
     private bool _initialized;
@@ -21,6 +22,7 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend
     public AvaloniaUiBackend(AvaloniaTextEngine textEngine)
     {
         Surface = new PclUiSurface(textEngine ?? throw new ArgumentNullException(nameof(textEngine)));
+        Surface.AccessibilityActionSink = request => AccessibilityActionRaised?.Invoke(request);
         View = new Grid();
         View.Children.Add(Surface);
         _nativeLayer.SetValue(Panel.ZIndexProperty, 1);
@@ -33,9 +35,12 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend
     public int NativeHostCount => _nativeHosts.Count;
 
     public event Action<NativeHostEvent>? NativeHostEventRaised;
+    public event Action<UiAccessibilityActionRequest>? AccessibilityActionRaised;
 
     public UiBackendCapabilities Capabilities =>
-        UiBackendCapabilities.Clip | UiBackendCapabilities.NativeTextInput;
+        UiBackendCapabilities.Clip | UiBackendCapabilities.NativeTextInput | UiBackendCapabilities.Accessibility;
+
+    public UiSemanticTreeSnapshot AccessibilityTree => Surface.AccessibilityTree;
 
     public void Initialize(in UiBackendContext context)
     {
@@ -60,6 +65,26 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend
             _invalidate();
         else
             Dispatcher.UIThread.Post(_invalidate, DispatcherPriority.Render);
+    }
+
+    public void CommitAccessibility(UiSemanticTreeSnapshot tree)
+    {
+        Dispatcher.UIThread.VerifyAccess();
+        EnsureInitialized();
+        Surface.ApplyAccessibility(tree);
+        ReadOnlySpan<UiSemanticNode> nodes = tree.Nodes.Span;
+        for (int i = 0; i < nodes.Length; i++)
+        {
+            UiSemanticNode node = nodes[i];
+            NativeEntry? entry = _nativeHosts.Values.FirstOrDefault(candidate => candidate.Owner == node.Owner);
+            if (entry is null)
+                continue;
+            AutomationProperties.SetName(entry.Control, node.Name);
+            AutomationProperties.SetHelpText(entry.Control, node.Description);
+            AutomationProperties.SetAutomationId(
+                entry.Control,
+                $"pcl-native-{node.Id.Index}-{node.Id.Generation}");
+        }
     }
 
     public NativeHostHandle CreateNativeHost(in NativeHostDescriptor descriptor)

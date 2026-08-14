@@ -99,7 +99,6 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
                     }
                 }
             }
-            world.Dirty.Clear(entity, UiDirtyFlags.Accessibility);
         }
 
         foreach ((UiEntity entity, Entry entry) in _entries.ToArray())

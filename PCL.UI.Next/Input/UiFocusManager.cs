@@ -465,7 +465,7 @@ internal static class InteractionStateStore
         if (next == value)
             return false;
         world.Set(entity, new InteractionStateComponent { Value = next });
-        world.Dirty.Mark(entity, UiDirtyFlags.Style | UiDirtyFlags.Render);
+        world.Dirty.Mark(entity, UiDirtyFlags.Style | UiDirtyFlags.Render | UiDirtyFlags.Accessibility);
         return true;
     }
 }

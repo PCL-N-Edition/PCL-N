@@ -4,6 +4,7 @@
 using System.Numerics;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Automation.Peers;
 using Avalonia.Media;
 using PCL.UI.Next;
 
@@ -18,6 +19,7 @@ public sealed class PclUiSurface : Control
     private readonly AvaloniaTextEngine _textEngine;
     private readonly HeadlessUiBackend _retained = new();
     private readonly Dictionary<UiColor, SolidColorBrush> _brushes = [];
+    private readonly AvaloniaAccessibilityBridge _accessibility;
 
     public PclUiSurface(AvaloniaTextEngine textEngine)
     {
@@ -25,17 +27,29 @@ public sealed class PclUiSurface : Control
         IsHitTestVisible = true;
         Focusable = true;
         ClipToBounds = true;
+        _accessibility = new AvaloniaAccessibilityBridge(this);
     }
 
     public int RetainedNodeCount => _retained.NodeCount;
 
     public int CommitCount => _retained.CommitCount;
 
+    public UiSemanticTreeSnapshot AccessibilityTree => _accessibility.Tree;
+
+    internal Action<UiAccessibilityActionRequest>? AccessibilityActionSink { get; set; }
+
     internal HeadlessUiBackend RetainedState => _retained;
 
     internal void Initialize(in UiBackendContext context) => _retained.Initialize(in context);
 
     internal void Apply(in UiCommitBatch batch) => _retained.Commit(in batch);
+
+    internal void ApplyAccessibility(UiSemanticTreeSnapshot tree) => _accessibility.Update(tree);
+
+    internal void RaiseAccessibilityAction(UiAccessibilityActionRequest request) =>
+        AccessibilityActionSink?.Invoke(request);
+
+    protected override AutomationPeer OnCreateAutomationPeer() => _accessibility.CreatePeer();
 
     public override void Render(DrawingContext context)
     {

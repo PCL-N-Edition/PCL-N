@@ -233,11 +233,25 @@ public sealed class BlueprintInstantiator
             _world.Set(entity, new StructuralIfState());
         if (node.Kind == UiNodeKind.NativeHost)
             _world.Set(entity, node.NativeHost);
+        if (node.Semantic.IsDefined)
+        {
+            _world.Set(entity, new SemanticRole { Value = node.Semantic.Role });
+            if (node.Semantic.Name is not null)
+                _world.Set(entity, new AccessibleName { Value = node.Semantic.Name });
+            if (node.Semantic.Description is not null)
+                _world.Set(entity, new AccessibleDescription { Value = node.Semantic.Description });
+            if (node.Semantic.Value is not null)
+                _world.Set(entity, new AccessibleValue { Value = node.Semantic.Value });
+            if (node.Semantic.State != UiAccessibleState.None)
+                _world.Set(entity, new AccessibleState { Value = node.Semantic.State });
+            if (node.Semantic.Actions != UiAccessibleAction.None)
+                _world.Set(entity, new AccessibleAction { Value = node.Semantic.Actions });
+        }
 
         UiDirtyFlags initialDirty = UiDirtyFlags.Binding | UiDirtyFlags.Style | UiDirtyFlags.Render;
         if (node.Kind == UiNodeKind.Text || node.StaticText is not null)
             initialDirty |= UiDirtyFlags.TextMeasure;
-        if (node.Kind == UiNodeKind.NativeHost)
+        if (node.Kind == UiNodeKind.NativeHost || node.Semantic.IsDefined)
             initialDirty |= UiDirtyFlags.Accessibility;
         _world.Dirty.Mark(entity, initialDirty);
         return entity;
@@ -362,7 +376,7 @@ public sealed class BlueprintInstantiator
         {
             string value = binding.ReadString(_store);
             _world.Set(entity, new TextContent { Value = value });
-            _world.Dirty.Mark(entity, UiDirtyFlags.Binding | UiDirtyFlags.TextMeasure | UiDirtyFlags.Render);
+            _world.Dirty.Mark(entity, UiDirtyFlags.Binding | UiDirtyFlags.TextMeasure | UiDirtyFlags.Render | UiDirtyFlags.Accessibility);
             instance.BindingStamps[bindingIndex] = new BindingStamp { StateVersion = version, Entity = entity };
         }
         else if (binding.Kind == BlueprintBindingKind.NativeValue && binding.ReadString is not null &&

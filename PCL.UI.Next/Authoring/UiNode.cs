@@ -74,6 +74,8 @@ public sealed class UiNode
 
     internal UiSelector<string>? NativeValueBinding { get; set; }
 
+    internal SemanticDefinition Semantic { get; set; }
+
     public UiNode Class(UiClass styleClass)
     {
         if (StyleClassIds.Contains(styleClass.Id))
@@ -171,6 +173,18 @@ public sealed class UiNode
         if (Kind != UiNodeKind.NativeHost)
             throw new InvalidOperationException("Value binding is only supported by native-host nodes.");
         NativeValueBinding = selector;
+        return this;
+    }
+
+    public UiNode Accessible(
+        UiSemanticRole role,
+        string? name = null,
+        string? description = null,
+        string? value = null,
+        UiAccessibleState state = UiAccessibleState.None,
+        UiAccessibleAction actions = UiAccessibleAction.None)
+    {
+        Semantic = new SemanticDefinition(role, name, description, value, state, actions);
         return this;
     }
 
