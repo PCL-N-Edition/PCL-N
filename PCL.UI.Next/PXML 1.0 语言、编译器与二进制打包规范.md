@@ -1545,6 +1545,8 @@ AccessibleAction
 
 禁止将 RenderNode hierarchy 当作 Semantic Tree。`AccessibleName`/`Value` 的 binding
 必须进入静态 dependency index；PasswordBox 的 Value 不得进入 semantic output。
+Modal 打开后，allowed overlay Scope 之外的 semantic node 不得进入平台 Accessibility Tree；
+来自该范围的 Focus/Invoke 请求必须在进入 Focus/Command 前由统一 interaction policy 拒绝。
 
 ---
 
@@ -1575,8 +1577,10 @@ Overlay primitive 描述的是 Runtime overlay contract，不是 Avalonia Popup/
 Compiler/IR 必须显式编码 placement、dismiss policy、focus policy 与 child Scope ownership。
 Tooltip 默认 input pass-through；Modal 默认生成 dim/input barrier 与 trapping FocusScope。
 页面不得通过设置主树 `IsHitTestVisible=false` 模拟 Modal。Popup/Modal barrier 还必须声明
-允许交互的 overlay Scope；Backend 位于独立平台 layer 的 NativeHost 若不在该 Scope 内，
-必须隐藏、禁用且拒绝平台焦点回写，不能绕过 retained barrier。
+RootScope、允许交互的 overlay Scope、Z 与 capability flags。Runtime 使用唯一的
+`UiInteractionPolicy` 统一裁决 Pointer、KeyboardFocus、Accessibility、CommandInvoke 与
+NativeHost；禁止各子系统维护不同的 barrier 解释。Modal 阻止范围外的全部上述 capability；
+outside-pointer Popup 只阻止 Pointer 与 NativeHost，以保留非 Modal 的语义访问策略。
 
 Overlay 的视觉遮挡必须与上述 interaction barrier 分离。Tooltip、Popup、Modal content
 都生成包含 window Scope、allowed Scope、Z 与 visual bounds 的 native-host occlusion 描述；

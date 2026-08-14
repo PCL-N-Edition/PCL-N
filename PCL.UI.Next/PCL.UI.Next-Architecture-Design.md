@@ -4409,6 +4409,9 @@ Navigation
   目标为 NativeHost 时聚焦对应 Control，否则将焦点交回 retained surface；
 - `UiEffectiveState` 统一计算祖先感知的 visible/enabled/interactive；Focus、HitTest、
   Accessibility 与 NativeHost 不允许只读取 Entity 自身状态；
+- sibling Overlay 的权限由共享 `UiInteractionPolicy` 计算；NativeHost 不得保留私有的
+  barrier 判断。Pointer、KeyboardFocus、Accessibility、CommandInvoke 与 NativeHost
+  分别选择当前 Window 中阻止该 capability 的最高 barrier；
 - NativeHost 与所属 `UiScope` 同生共死，Scope 销毁时必须立即释放平台控件。
 
 #### Semantic Tree / Accessibility
@@ -4421,7 +4424,10 @@ Navigation
   Entity 创建 Avalonia Control；NativeHost owner 不创建 virtual peer，只使用原生
   Control peer，确保同一语义节点在平台 Automation Tree 中只暴露一次；
 - 平台 Invoke/Focus 先进入 `UiAccessibilityActionRequest`，再由 Runtime 校验
-  Entity generation、Scope、支持的 action 与 enabled state，最后进入 Focus/Command。
+  Entity generation、Scope、支持的 action、effective state 与 `UiInteractionPolicy`，
+  最后进入 Focus/Command；被 Modal 隔离的 background request 必须直接丢弃；
+- Modal 打开时，范围外 semantic node 不进入 snapshot。遍历仍须穿过无语义的逻辑
+  ancestor，保证位于 OverlayRoot 下、但属于 Modal allowed Scope 的后代可以进入树。
 
 #### Overlay
 
@@ -4434,8 +4440,9 @@ Navigation
   world bounds 同时包含 parent/scroll/FLIP/style transform，并以四角变换后的 AABB 表达；
 - Modal 始终具有 dim barrier、input barrier 和 trapping FocusScope，不修改主页面的
   `IsHitTestVisible`；
-- 最上层 Popup/Modal barrier 声明允许交互的 overlay Scope。范围外 NativeHost 必须在
-  平台层隐藏、禁用并禁止焦点回写，使 pointer 落到 retained barrier 完成 dismiss/block；
+- `UiInteractionBarrier` 只声明 RootScope、AllowedScope、Z 与被阻止的 capability flags；
+  Modal 阻止范围外 pointer、keyboard focus、accessibility、command invoke 与 NativeHost，
+  outside-pointer Popup 只阻止 pointer 与 NativeHost，使点击落到 retained barrier；
 - visual stacking 不得依赖 input barrier：每个 Overlay content root 通过
   `UiNativeHostOcclusion` 独立声明 window Scope、allowed Scope、Z 与实时 visual bounds；
   更高 Overlay 与范围外 NativeHost 相交时 Backend 隐藏该平台控件，非相交控件保持显示。

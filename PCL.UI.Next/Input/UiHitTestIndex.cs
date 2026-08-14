@@ -47,6 +47,7 @@ public sealed class UiHitTestIndex
             if (!_inputRoots.Contains(inputRoot, entry.Entity))
                 continue;
             if (!UiEffectiveState.IsInteractive(_world, entry.Entity) ||
+                !UiInteractionPolicy.IsAllowed(_world, entry.Entity, UiInteractionCapability.Pointer) ||
                 !IsWithinAncestorClips(entry.Entity, point))
                 continue;
             if (!_world.Components.Has<HitTestableComponent>(entry.Entity))

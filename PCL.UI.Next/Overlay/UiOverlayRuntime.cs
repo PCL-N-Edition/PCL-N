@@ -177,6 +177,7 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
         if (!TryGet(handle, out Entry entry) || entry.Closing)
             return false;
         entry.Closing = true;
+        DeactivateBarrier(entry.BarrierEntity);
         if (entry.FocusScope && _world.Entities.IsAlive(entry.RootEntity))
             _runtime.Input.Focus.DeactivateScope(entry.RootEntity, _world.Clock.Now);
         if (_world.Scopes.IsAlive(entry.Scope))
@@ -255,6 +256,7 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
             if (entry is null)
                 continue;
             entry.Closing = true;
+            DeactivateBarrier(entry.BarrierEntity);
             if (entry.FocusScope && _world.Entities.IsAlive(entry.RootEntity))
                 _runtime.Input.Focus.DeactivateScope(entry.RootEntity, _world.Clock.Now);
             if (_world.Scopes.IsAlive(entry.Scope))
@@ -321,6 +323,12 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
         UiScopeId scope = _world.CreateScope(parentScope);
         try
         {
+            UiEntity previousFocus = UiEntity.None;
+            if (focusScope &&
+                _runtime.Input.InputRoots.TryResolve(parentScope, out UiInputRootId inputRoot))
+            {
+                previousFocus = _runtime.Input.Focus.GetFocused(inputRoot);
+            }
             int z = _nextZ;
             _nextZ = checked(_nextZ + 100);
             UiEntity barrier = UiEntity.None;
@@ -396,7 +404,7 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
             }
 
             if (focusScope)
-                _runtime.Input.Focus.ActivateScope(root, _world.Clock.Now);
+                _runtime.Input.Focus.ActivateScope(root, previousFocus, _world.Clock.Now);
             UpdatePlacement(entry);
             UpdateTimerLease();
             _world.Scheduler.RequestReactiveFrame();
@@ -431,8 +439,12 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
         _world.Set(barrier, new InteractionStateComponent());
         _world.Set(barrier, new UiInteractionBarrier
         {
+            RootScope = _windowScope,
             AllowedScope = scope,
-            OccludeNativeHosts = true
+            BlockedCapabilities = dimmed
+                ? UiInteractionCapability.All
+                : UiInteractionCapability.Pointer | UiInteractionCapability.NativeHost,
+            ZIndex = z
         });
         if (dimmed)
         {
@@ -447,6 +459,19 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
         _world.AttachChild(OverlayRoot, barrier);
         _world.Dirty.Mark(barrier, UiDirtyFlags.StructuralCascade | UiDirtyFlags.Style);
         return barrier;
+    }
+
+    private void DeactivateBarrier(UiEntity barrier)
+    {
+        if (!_world.Entities.IsAlive(barrier))
+            return;
+        _world.Remove<UiInteractionBarrier>(barrier);
+        if (_world.Components.TryGet(barrier, out HitTestableComponent hit))
+        {
+            hit.IsVisible = false;
+            hit.IsEnabled = false;
+            _world.Set(barrier, hit);
+        }
     }
 
     private void ConfigureInputSubtree(UiEntity entity, int z, bool passThrough)

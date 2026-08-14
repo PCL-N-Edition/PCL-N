@@ -124,6 +124,108 @@ public sealed class AccessibilityTests
     }
 
     [TestMethod]
+    public void Modal_RemovesBackgroundNodesFromSemanticTree()
+    {
+        using TestContext context = Create();
+        UiEntity background = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Button("Background")),
+            context.Scope).RootEntity;
+        Drain(context.World);
+        Assert.IsTrue(ContainsOwner(context.Rendering.Accessibility.Tree, background));
+        using UiOverlayRuntime overlays = new(
+            context.World,
+            context.Runtime,
+            context.Instantiator,
+            context.Scope);
+
+        overlays.ShowModal(Ui.Compile(Ui.Button("Modal")));
+        Drain(context.World);
+
+        Assert.IsFalse(ContainsOwner(context.Rendering.Accessibility.Tree, background));
+    }
+
+    [TestMethod]
+    public void Modal_BackgroundAccessibilityInvoke_IsRejected()
+    {
+        using TestContext context = Create();
+        UiCommand command = new(73);
+        UiEntity background = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Button("Background").Command(command)),
+            context.Scope).RootEntity;
+        Drain(context.World);
+        using UiOverlayRuntime overlays = new(
+            context.World,
+            context.Runtime,
+            context.Instantiator,
+            context.Scope);
+        overlays.ShowModal(Ui.Compile(Ui.Button("Modal")));
+        Drain(context.World);
+
+        context.Backend.Emit(new UiAccessibilityActionRequest(
+            background,
+            UiAccessibleAction.Invoke,
+            context.Clock.Now));
+        Assert.IsTrue(context.World.Update());
+
+        Assert.AreEqual(0, context.Rendering.Accessibility.FrameActions.Count);
+        Assert.IsFalse(context.Runtime.Input.Commands.TryDequeue(out _));
+    }
+
+    [TestMethod]
+    public void Modal_BackgroundAccessibilityFocus_IsRejected()
+    {
+        using TestContext context = Create();
+        UiEntity background = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Button("Background")),
+            context.Scope).RootEntity;
+        Drain(context.World);
+        Assert.IsTrue(context.Runtime.Input.Focus.Focus(background, context.Clock.Now));
+        using UiOverlayRuntime overlays = new(
+            context.World,
+            context.Runtime,
+            context.Instantiator,
+            context.Scope);
+        overlays.ShowModal(Ui.Compile(Ui.Button("Modal")));
+        Drain(context.World);
+
+        context.Backend.Emit(new UiAccessibilityActionRequest(
+            background,
+            UiAccessibleAction.Focus,
+            context.Clock.Now));
+        Assert.IsTrue(context.World.Update());
+
+        Assert.AreEqual(0, context.Rendering.Accessibility.FrameActions.Count);
+        Assert.IsTrue(context.Runtime.Input.InputRoots.TryResolve(background, out UiInputRootId inputRoot));
+        Assert.AreNotEqual(background, context.Runtime.Input.Focus.GetFocused(inputRoot));
+    }
+
+    [TestMethod]
+    public void Modal_AccessibilityTreeContainsOnlyModalScope()
+    {
+        using TestContext context = Create();
+        context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Button("Background")),
+            context.Scope);
+        Drain(context.World);
+        using UiOverlayRuntime overlays = new(
+            context.World,
+            context.Runtime,
+            context.Instantiator,
+            context.Scope);
+        UiOverlayHandle modal = overlays.ShowModal(
+            Ui.Compile(
+                Ui.Container(Ui.Button("Modal action"))
+                    .Accessible(UiSemanticRole.Dialog, "Modal")));
+        Drain(context.World);
+        Assert.IsTrue(overlays.TryGetOverlay(modal, out UiOverlaySnapshot snapshot));
+
+        ReadOnlySpan<UiSemanticNode> nodes = context.Rendering.Accessibility.Tree.Nodes.Span;
+        Assert.IsGreaterThan(0, nodes.Length);
+        for (int i = 0; i < nodes.Length; i++)
+            Assert.IsTrue(IsWithinScope(context.World, nodes[i].Owner, snapshot.Scope));
+    }
+
+    [TestMethod]
     public void WindowScopes_HaveIndependentSemanticTreesAndDirtyConsumption()
     {
         UiWorld world = new(new DeterministicUiClock());
@@ -166,6 +268,32 @@ public sealed class AccessibilityTests
         }
         Assert.Fail("Semantic role was not found: " + role);
         return default;
+    }
+
+    private static bool ContainsOwner(UiSemanticTreeSnapshot tree, UiEntity owner)
+    {
+        ReadOnlySpan<UiSemanticNode> nodes = tree.Nodes.Span;
+        for (int i = 0; i < nodes.Length; i++)
+        {
+            if (nodes[i].Owner == owner)
+                return true;
+        }
+        return false;
+    }
+
+    private static bool IsWithinScope(UiWorld world, UiEntity entity, UiScopeId ancestor)
+    {
+        if (!world.Entities.TryGetScope(entity, out UiScopeId scope))
+            return false;
+        int guard = 0;
+        while (world.Scopes.IsAlive(scope) && guard++ < 1_000_000)
+        {
+            if (scope == ancestor)
+                return true;
+            if (!world.Scopes.TryGetParent(scope, out scope) || scope.IsNone)
+                break;
+        }
+        return false;
     }
 
     private static TestContext Create()

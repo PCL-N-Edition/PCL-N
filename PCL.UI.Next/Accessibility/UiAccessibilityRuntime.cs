@@ -103,7 +103,8 @@ public sealed class UiAccessibilityRuntime : IUiSystem, IDisposable
             if (!_world.Entities.IsAlive(request.Owner) ||
                 !IsInRoot(_world, request.Owner) ||
                 !_world.Components.TryGet(request.Owner, out AccessibleAction supported) ||
-                (supported.Value & request.Action) == 0)
+                (supported.Value & request.Action) == 0 ||
+                !IsActionAllowed(request))
             {
                 continue;
             }
@@ -121,7 +122,6 @@ public sealed class UiAccessibilityRuntime : IUiSystem, IDisposable
                 _input.Focus.Focus(request.Owner, timestamp);
             }
             else if (request.Action == UiAccessibleAction.Invoke &&
-                     UiEffectiveState.IsInteractive(_world, request.Owner) &&
                      _world.Components.TryGet(request.Owner, out CommandBindingComponent command) &&
                      command.CommandId != 0 &&
                      _world.Entities.TryGetScope(request.Owner, out UiScopeId scope))
@@ -135,6 +135,36 @@ public sealed class UiAccessibilityRuntime : IUiSystem, IDisposable
                 _input.Commands.Enqueue(in invocation);
             }
         }
+    }
+
+    private bool IsActionAllowed(in UiAccessibilityActionRequest request)
+    {
+        if (!UiInteractionPolicy.IsAllowed(
+                _world,
+                request.Owner,
+                UiInteractionCapability.Accessibility))
+        {
+            return false;
+        }
+        if ((request.Action & UiAccessibleAction.Invoke) != 0 &&
+            (!UiEffectiveState.IsInteractive(_world, request.Owner) ||
+             !UiInteractionPolicy.IsAllowed(
+                 _world,
+                 request.Owner,
+                 UiInteractionCapability.CommandInvoke)))
+        {
+            return false;
+        }
+        if ((request.Action & UiAccessibleAction.Focus) != 0 &&
+            (!UiEffectiveState.IsInteractive(_world, request.Owner) ||
+             !UiInteractionPolicy.IsAllowed(
+                 _world,
+                 request.Owner,
+                 UiInteractionCapability.KeyboardFocus)))
+        {
+            return false;
+        }
+        return true;
     }
 
     private void Rebuild(UiWorld world, long frameId)
@@ -177,7 +207,11 @@ public sealed class UiAccessibilityRuntime : IUiSystem, IDisposable
             return;
 
         UiSemanticNodeId descendantParent = semanticParent;
-        if (world.Components.TryGet(entity, out SemanticRole role))
+        bool accessibilityAllowed = UiInteractionPolicy.IsAllowed(
+            world,
+            entity,
+            UiInteractionCapability.Accessibility);
+        if (accessibilityAllowed && world.Components.TryGet(entity, out SemanticRole role))
         {
             UiAccessibleState state = ResolveState(world, entity);
             if ((state & UiAccessibleState.Hidden) != 0)
@@ -235,7 +269,11 @@ public sealed class UiAccessibilityRuntime : IUiSystem, IDisposable
             if ((interaction.Value & InteractionState.Expanded) != 0) state |= UiAccessibleState.Expanded;
         }
         if (!UiEffectiveState.IsEnabled(world, entity)) state |= UiAccessibleState.Disabled;
-        if (!UiEffectiveState.IsVisible(world, entity)) state |= UiAccessibleState.Hidden;
+        if (!UiEffectiveState.IsVisible(world, entity) ||
+            !UiInteractionPolicy.IsAllowed(world, entity, UiInteractionCapability.Accessibility))
+        {
+            state |= UiAccessibleState.Hidden;
+        }
         if (world.Components.TryGet(entity, out NativeHostComponent native) && native.IsReadOnly)
             state |= UiAccessibleState.ReadOnly;
         return state;

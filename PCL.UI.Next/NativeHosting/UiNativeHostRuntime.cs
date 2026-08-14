@@ -148,7 +148,7 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
                 continue;
             if (nativeEvent.Kind == NativeHostEventKind.GotFocus &&
                 UiEffectiveState.IsInteractive(_world, entity) &&
-                !IsBlockedByInteractionBarrier(entity))
+                UiInteractionPolicy.IsAllowed(_world, entity, UiInteractionCapability.NativeHost))
             {
                 _input.Focus.Focus(entity, timestamp);
             }
@@ -160,7 +160,10 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
     private NativeHostVisualState ResolveState(UiEntity entity, in NativeHostComponent component)
     {
         UiRect bounds = UiVisualGeometry.ResolveBounds(_world, entity);
-        bool blocked = IsBlockedByInteractionBarrier(entity);
+        bool blocked = !UiInteractionPolicy.IsAllowed(
+            _world,
+            entity,
+            UiInteractionCapability.NativeHost);
         bool occluded = IsOccludedByOverlay(entity, bounds);
         bool visible = UiEffectiveState.IsVisible(_world, entity) && !blocked && !occluded;
         bool enabled = UiEffectiveState.IsEnabled(_world, entity) && !blocked;
@@ -206,8 +209,8 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
 
             UiNativeHostOcclusion occlusion = _world.Components.Get<UiNativeHostOcclusion>(occlusionEntity);
             if (occlusion.ZIndex <= hostZ ||
-                !IsScopeWithin(entityScope, occlusion.RootScope) ||
-                IsScopeWithin(entityScope, occlusion.AllowedScope))
+                !UiInteractionPolicy.IsScopeWithin(_world, entityScope, occlusion.RootScope) ||
+                UiInteractionPolicy.IsScopeWithin(_world, entityScope, occlusion.AllowedScope))
             {
                 continue;
             }
@@ -277,50 +280,6 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
                 return entry.Handle;
         }
         return NativeHostHandle.None;
-    }
-
-    private bool IsBlockedByInteractionBarrier(UiEntity entity)
-    {
-        if (!_world.Entities.TryGetScope(entity, out UiScopeId entityScope))
-            return true;
-        ReadOnlySpan<UiEntity> barriers = _world.Components.Pool<UiInteractionBarrier>().Entities;
-        UiInteractionBarrier selected = default;
-        int selectedZ = int.MinValue;
-        bool found = false;
-        for (int i = 0; i < barriers.Length; i++)
-        {
-            UiEntity barrierEntity = barriers[i];
-            if (!_world.Entities.IsAlive(barrierEntity) ||
-                !IsInRoot(barrierEntity) ||
-                !UiEffectiveState.IsVisible(_world, barrierEntity))
-            {
-                continue;
-            }
-            int z = _world.Components.TryGet(barrierEntity, out HitTestableComponent hit)
-                ? hit.ZIndex
-                : 0;
-            if (found && z < selectedZ)
-                continue;
-            selected = _world.Components.Get<UiInteractionBarrier>(barrierEntity);
-            selectedZ = z;
-            found = true;
-        }
-        return found &&
-               selected.OccludeNativeHosts &&
-               !IsScopeWithin(entityScope, selected.AllowedScope);
-    }
-
-    private bool IsScopeWithin(UiScopeId scope, UiScopeId ancestor)
-    {
-        int guard = 0;
-        while (_world.Scopes.IsAlive(scope) && guard++ < 1_000_000)
-        {
-            if (scope == ancestor)
-                return true;
-            if (!_world.Scopes.TryGetParent(scope, out scope) || scope.IsNone)
-                break;
-        }
-        return false;
     }
 
     private static NativeHostMutationFlags Diff(

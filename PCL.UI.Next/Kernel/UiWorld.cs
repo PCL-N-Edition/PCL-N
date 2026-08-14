@@ -219,6 +219,17 @@ public sealed class UiWorld
     private void MarkSemanticComponentMutation<T>(UiEntity entity) where T : struct
     {
         Type type = typeof(T);
+        if (type == typeof(UiInteractionBarrier))
+        {
+            Dirty.Mark(entity, UiDirtyFlags.HitTest | UiDirtyFlags.Accessibility);
+            Scheduler.RequestReactiveFrame();
+            return;
+        }
+        if (type == typeof(UiNativeHostOcclusion))
+        {
+            Scheduler.RequestReactiveFrame();
+            return;
+        }
         if (type != typeof(SemanticRole) &&
             type != typeof(AccessibleName) &&
             type != typeof(AccessibleDescription) &&

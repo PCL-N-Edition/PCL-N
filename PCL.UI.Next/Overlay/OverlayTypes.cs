@@ -79,11 +79,26 @@ public readonly record struct UiOverlaySnapshot(
     UiEntity AnchorEntity,
     UiOverlayPlacement Placement);
 
-/// <summary>Restricts platform-native interaction to the topmost overlay scope.</summary>
+/// <summary>Capabilities that an overlay barrier can restrict outside its allowed scope.</summary>
+[Flags]
+public enum UiInteractionCapability : ushort
+{
+    None = 0,
+    Pointer = 1 << 0,
+    KeyboardFocus = 1 << 1,
+    Accessibility = 1 << 2,
+    CommandInvoke = 1 << 3,
+    NativeHost = 1 << 4,
+    All = Pointer | KeyboardFocus | Accessibility | CommandInvoke | NativeHost
+}
+
+/// <summary>Restricts selected interaction capabilities to one overlay scope.</summary>
 public struct UiInteractionBarrier
 {
+    public UiScopeId RootScope { get; set; }
     public UiScopeId AllowedScope { get; set; }
-    public bool OccludeNativeHosts { get; set; }
+    public UiInteractionCapability BlockedCapabilities { get; set; }
+    public int ZIndex { get; set; }
 }
 
 /// <summary>

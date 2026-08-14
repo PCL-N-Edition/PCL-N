@@ -373,6 +373,11 @@ public sealed class UiInputRuntime : IDisposable
             : InputRoots.GetScope(key.InputRoot);
         if (Shortcuts.TryResolve(shortcutScope, in key, out UiCommand shortcut))
         {
+            if (target != UiEntity.None &&
+                !UiInteractionPolicy.IsAllowed(World, target, UiInteractionCapability.CommandInvoke))
+            {
+                return;
+            }
             UiCommandInvocation invocation = new(
                 shortcut,
                 target,

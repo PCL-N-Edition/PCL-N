@@ -373,7 +373,8 @@ internal sealed class UiGestureRecognizer : IDisposable
 
     private void DispatchCommand(UiEntity source, UiCommandTrigger trigger, UiTimestamp timestamp)
     {
-        if (!_world.Components.TryGet(source, out CommandBindingComponent binding) || binding.CommandId == 0)
+        if (!UiInteractionPolicy.IsAllowed(_world, source, UiInteractionCapability.CommandInvoke) ||
+            !_world.Components.TryGet(source, out CommandBindingComponent binding) || binding.CommandId == 0)
             return;
         UiScopeId scope = _world.Entities.GetScope(source);
         UiCommandInvocation invocation = new(

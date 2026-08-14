@@ -208,18 +208,42 @@ public sealed class UiFocusManager : IDisposable
 
     public bool ActivateScope(UiEntity focusScope, UiTimestamp timestamp)
     {
+        if (!TryResolveFocusScope(focusScope, out UiInputRootId inputRoot))
+            return false;
+        return ActivateScope(focusScope, inputRoot, GetFocused(inputRoot), timestamp);
+    }
+
+    internal bool ActivateScope(
+        UiEntity focusScope,
+        UiEntity previousFocus,
+        UiTimestamp timestamp)
+    {
+        if (!TryResolveFocusScope(focusScope, out UiInputRootId inputRoot))
+            return false;
+        return ActivateScope(focusScope, inputRoot, previousFocus, timestamp);
+    }
+
+    private bool TryResolveFocusScope(UiEntity focusScope, out UiInputRootId inputRoot)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!_world.Entities.IsAlive(focusScope) ||
             !_world.Components.Has<FocusScopeComponent>(focusScope))
         {
+            inputRoot = UiInputRootId.None;
             return false;
         }
 
-        if (!_inputRoots.TryResolve(focusScope, out UiInputRootId inputRoot))
-            return false;
+        return _inputRoots.TryResolve(focusScope, out inputRoot);
+    }
+
+    private bool ActivateScope(
+        UiEntity focusScope,
+        UiInputRootId inputRoot,
+        UiEntity previous,
+        UiTimestamp timestamp)
+    {
         if (_activeScopeByRoot.TryGetValue(inputRoot, out UiEntity alreadyActive) && alreadyActive == focusScope)
             return true;
-        UiEntity previous = GetFocused(inputRoot);
         _restoreByFocusScope[focusScope] = previous;
         _previousActiveScope[focusScope] = _activeScopeByRoot.TryGetValue(inputRoot, out UiEntity active)
             ? active
@@ -333,7 +357,8 @@ public sealed class UiFocusManager : IDisposable
             return false;
         }
 
-        return UiEffectiveState.IsInteractive(_world, entity);
+        return UiEffectiveState.IsInteractive(_world, entity) &&
+               UiInteractionPolicy.IsAllowed(_world, entity, UiInteractionCapability.KeyboardFocus);
     }
 
     private void CollectCandidates(UiInputRootId inputRoot, UiEntity restriction)
