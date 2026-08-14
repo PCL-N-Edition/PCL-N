@@ -352,7 +352,7 @@ public sealed class LayoutEngine
         _world.Set(entity, new LayoutRect { Value = rect });
         _world.Dirty.Clear(entity, UiDirtyFlags.LayoutArrange);
         if (rectChanged)
-            _world.Dirty.Mark(entity, UiDirtyFlags.Transform | UiDirtyFlags.HitTest | UiDirtyFlags.Render);
+            _world.Dirty.Mark(entity, UiDirtyFlags.Transform | UiDirtyFlags.HitTest | UiDirtyFlags.Render | UiDirtyFlags.Accessibility);
 
         UiThickness padding = GetPadding(entity, in style);
         UiRect content = new(

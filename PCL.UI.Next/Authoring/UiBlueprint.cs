@@ -79,7 +79,8 @@ public readonly struct BlueprintNode
         UiTransitionSet transitions,
         UiMotionToken layoutTransition,
         ScrollViewport scrollViewport,
-        Virtualization virtualization)
+        Virtualization virtualization,
+        NativeHostComponent nativeHost)
     {
         Kind = kind;
         ParentIndex = parentIndex;
@@ -113,6 +114,7 @@ public readonly struct BlueprintNode
         LayoutTransition = layoutTransition;
         ScrollViewport = scrollViewport;
         Virtualization = virtualization;
+        NativeHost = nativeHost;
     }
 
     public UiNodeKind Kind { get; }
@@ -145,6 +147,7 @@ public readonly struct BlueprintNode
     public UiMotionToken LayoutTransition { get; }
     public ScrollViewport ScrollViewport { get; }
     public Virtualization Virtualization { get; }
+    public NativeHostComponent NativeHost { get; }
     public bool IsStructural => Kind == UiNodeKind.If;
 
     private UiGridTrack[] GridColumnsCore { get; }
@@ -188,7 +191,8 @@ public enum BlueprintBindingKind : byte
 {
     None = 0,
     Text = 1,
-    Condition = 2
+    Condition = 2,
+    NativeValue = 3
 }
 
 /// <summary>

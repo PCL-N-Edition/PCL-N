@@ -69,7 +69,7 @@ public sealed class AvaloniaBackendTests
             {
                 Width = 320,
                 Height = 180,
-                Content = backend.Surface
+                Content = backend.View
             };
             try
             {
@@ -122,7 +122,7 @@ public sealed class AvaloniaBackendTests
             {
                 Width = 320,
                 Height = 180,
-                Content = backend.Surface
+                Content = backend.View
             };
             try
             {
@@ -148,6 +148,41 @@ public sealed class AvaloniaBackendTests
                 window.Content = null;
                 window.Close();
             }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
+    public void AvaloniaNativeHost_CreatesAndDestroysTextBoxOverlay()
+    {
+        using HeadlessUnitTestSession session = CreateSession();
+        session.Dispatch(() =>
+        {
+            UiSize viewport = new(320, 180);
+            UiWorld world = new(new DeterministicUiClock());
+            using AvaloniaTextEngine textEngine = new();
+            using UiInteractiveRuntime runtime = new(world, textEngine, viewport);
+            UiScopeId application = world.CreateRootScope();
+            UiScopeId windowScope = world.CreateScope(application);
+            runtime.Input.InputRoots.Register(windowScope);
+            AvaloniaUiBackend backend = new(textEngine);
+            using UiRenderingRuntime rendering = new(
+                world,
+                backend,
+                runtime.TextCache,
+                windowScope,
+                viewport,
+                input: runtime.Input);
+            BlueprintInstantiator instantiator = new(world, new PresentationStore());
+            BlueprintInstance live = instantiator.Instantiate(
+                Ui.Compile(Ui.TextBox("hello", "placeholder")),
+                windowScope);
+            Drain(world);
+
+            Assert.AreEqual(1, backend.NativeHostCount);
+            Assert.AreEqual(2, backend.View.Children.Count);
+
+            instantiator.Destroy(live);
+            Assert.AreEqual(0, backend.NativeHostCount);
         }, CancellationToken.None).GetAwaiter().GetResult();
     }
 

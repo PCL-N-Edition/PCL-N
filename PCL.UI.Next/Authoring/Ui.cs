@@ -118,6 +118,25 @@ public static class Ui
 
     public static UiNode Button(string label) => Button(Text(label));
 
+    public static UiNode TextBox(
+        string? value = null,
+        string? placeholder = null,
+        bool password = false)
+    {
+        UiNode node = new(UiNodeKind.NativeHost)
+        {
+            NativeHost = new NativeHostComponent
+            {
+                Kind = password ? UiNativeHostKind.PasswordBox : UiNativeHostKind.TextBox,
+                Value = value,
+                Placeholder = placeholder
+            },
+            HitTestVisibleOverride = true,
+            Behaviors = UiBehavior.Focusable
+        };
+        return node.Height(UiLength.Pixels(36f));
+    }
+
     /// <summary>
     /// Structural condition. True/false branches are templates; only one is
     /// instantiated at a time and reconciled when the condition version changes.

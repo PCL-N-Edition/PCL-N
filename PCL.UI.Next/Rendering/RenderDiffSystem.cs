@@ -271,6 +271,7 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
                        hitTestable.IsVisible;
         bool isText = nodeKind == UiNodeKind.Text;
         bool isClip = nodeKind is UiNodeKind.Scroll or UiNodeKind.VirtualList;
+        bool isNativeHost = nodeKind == UiNodeKind.NativeHost;
         bool realized = !world.Components.TryGet(entity, out VirtualItemSlot virtualSlot) || virtualSlot.IsRealized;
         TextLayoutHandle textLayout = TextLayoutHandle.None;
         TextCacheEntryHandle textCacheEntry = TextCacheEntryHandle.None;
@@ -283,7 +284,13 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
         return new RenderNodeState
         {
             Owner = entity,
-            Kind = isText ? UiRenderNodeKind.Text : isClip ? UiRenderNodeKind.Clip : UiRenderNodeKind.RoundedRectangle,
+            Kind = isText
+                ? UiRenderNodeKind.Text
+                : isClip
+                    ? UiRenderNodeKind.Clip
+                    : isNativeHost
+                        ? UiRenderNodeKind.NativeHostPlaceholder
+                        : UiRenderNodeKind.RoundedRectangle,
             Parent = parent,
             ZOrder = zOrder,
             Bounds = world.Components.TryGet(entity, out LayoutRect layout)

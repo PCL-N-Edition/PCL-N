@@ -100,7 +100,7 @@ public sealed class PlaygroundWindow : Window, IDisposable
             new PlaygroundItemSource(100_000),
             Ui.Compile(BuildVirtualItem(), "PlaygroundVirtualItem"));
 
-        Content = _backend.Surface;
+        Content = _backend.View;
         _inputBridge = new AvaloniaInputBridge(_backend.Surface, _runtime.Input, _inputRoot);
         _inputBridge.InputQueued += PumpFrame;
         SizeChanged += OnSizeChanged;

@@ -8,6 +8,7 @@ public sealed class UiRenderingRuntime : IDisposable
 {
     private readonly RenderDiffSystem _diff;
     private readonly BackendCommitSystem _commit;
+    private readonly UiNativeHostRuntime? _nativeHosts;
     private bool _disposed;
 
     public UiRenderingRuntime(
@@ -16,7 +17,8 @@ public sealed class UiRenderingRuntime : IDisposable
         TextLayoutCache textLayouts,
         UiScopeId rootScope,
         UiSize viewport,
-        float rasterScale = 1f)
+        float rasterScale = 1f,
+        UiInputRuntime? input = null)
     {
         World = world ?? throw new ArgumentNullException(nameof(world));
         Backend = backend ?? throw new ArgumentNullException(nameof(backend));
@@ -29,6 +31,8 @@ public sealed class UiRenderingRuntime : IDisposable
         _commit = new BackendCommitSystem(_diff, backend);
         UiBackendContext context = new(viewport, rasterScale);
         backend.Initialize(in context);
+        if (backend is INativeHostBackend nativeHostBackend)
+            _nativeHosts = new UiNativeHostRuntime(world, nativeHostBackend, rootScope, input);
         world.Systems.Register(_diff);
         world.Systems.Register(_commit);
         world.Scheduler.RequestReactiveFrame();
@@ -42,10 +46,13 @@ public sealed class UiRenderingRuntime : IDisposable
 
     public RenderScene Scene { get; }
 
+    public UiNativeHostRuntime? NativeHosts => _nativeHosts;
+
     public void Dispose()
     {
         if (_disposed)
             return;
+        _nativeHosts?.Dispose();
         World.Systems.Unregister(_commit);
         World.Systems.Unregister(_diff);
         _diff.Dispose();

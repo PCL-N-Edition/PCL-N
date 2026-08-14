@@ -231,10 +231,14 @@ public sealed class BlueprintInstantiator
         }
         if (node.Kind == UiNodeKind.If)
             _world.Set(entity, new StructuralIfState());
+        if (node.Kind == UiNodeKind.NativeHost)
+            _world.Set(entity, node.NativeHost);
 
         UiDirtyFlags initialDirty = UiDirtyFlags.Binding | UiDirtyFlags.Style | UiDirtyFlags.Render;
         if (node.Kind == UiNodeKind.Text || node.StaticText is not null)
             initialDirty |= UiDirtyFlags.TextMeasure;
+        if (node.Kind == UiNodeKind.NativeHost)
+            initialDirty |= UiDirtyFlags.Accessibility;
         _world.Dirty.Mark(entity, initialDirty);
         return entity;
     }
@@ -273,6 +277,7 @@ public sealed class BlueprintInstantiator
             case UiNodeKind.Overlay:
             case UiNodeKind.Button:
             case UiNodeKind.If:
+            case UiNodeKind.NativeHost:
                 _world.Set(entity, new OverlayLayout());
                 break;
         }
@@ -358,6 +363,14 @@ public sealed class BlueprintInstantiator
             string value = binding.ReadString(_store);
             _world.Set(entity, new TextContent { Value = value });
             _world.Dirty.Mark(entity, UiDirtyFlags.Binding | UiDirtyFlags.TextMeasure | UiDirtyFlags.Render);
+            instance.BindingStamps[bindingIndex] = new BindingStamp { StateVersion = version, Entity = entity };
+        }
+        else if (binding.Kind == BlueprintBindingKind.NativeValue && binding.ReadString is not null &&
+                 _world.Components.TryGet(entity, out NativeHostComponent nativeHost))
+        {
+            nativeHost.Value = binding.ReadString(_store);
+            _world.Set(entity, nativeHost);
+            _world.Dirty.Mark(entity, UiDirtyFlags.Binding | UiDirtyFlags.Accessibility);
             instance.BindingStamps[bindingIndex] = new BindingStamp { StateVersion = version, Entity = entity };
         }
     }

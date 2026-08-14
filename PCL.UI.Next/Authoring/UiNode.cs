@@ -70,6 +70,10 @@ public sealed class UiNode
 
     internal Virtualization Virtualization { get; set; } = Virtualization.Default;
 
+    internal NativeHostComponent NativeHost { get; set; }
+
+    internal UiSelector<string>? NativeValueBinding { get; set; }
+
     public UiNode Class(UiClass styleClass)
     {
         if (StyleClassIds.Contains(styleClass.Id))
@@ -159,6 +163,14 @@ public sealed class UiNode
     public UiNode BindText(UiSelector<string> selector)
     {
         TextBinding = selector;
+        return this;
+    }
+
+    public UiNode BindValue(UiSelector<string> selector)
+    {
+        if (Kind != UiNodeKind.NativeHost)
+            throw new InvalidOperationException("Value binding is only supported by native-host nodes.");
+        NativeValueBinding = selector;
         return this;
     }
 

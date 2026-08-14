@@ -568,7 +568,7 @@ internal sealed class TransformCompositionSystem : IUiSystem
         world.Set(entity, new ComputedTransform { Value = computed });
         world.Dirty.Clear(entity, UiDirtyFlags.Transform);
         if (changed)
-            world.Dirty.Mark(entity, UiDirtyFlags.HitTest | UiDirtyFlags.Render);
+            world.Dirty.Mark(entity, UiDirtyFlags.HitTest | UiDirtyFlags.Render | UiDirtyFlags.Accessibility);
 
         if (!world.Hierarchy.TryGetNode(entity, out HierarchyNode node))
             return;

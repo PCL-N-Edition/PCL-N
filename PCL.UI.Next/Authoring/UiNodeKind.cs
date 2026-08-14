@@ -18,5 +18,6 @@ public enum UiNodeKind : byte
     Overlay = 8,
     Absolute = 9,
     Scroll = 10,
-    VirtualList = 11
+    VirtualList = 11,
+    NativeHost = 12
 }

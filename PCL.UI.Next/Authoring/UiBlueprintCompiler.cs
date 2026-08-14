@@ -55,7 +55,8 @@ public static class UiBlueprintCompiler
                 d.Transitions,
                 d.LayoutTransition,
                 d.ScrollViewport,
-                d.Virtualization);
+                d.Virtualization,
+                d.NativeHost);
         }
 
         BlueprintBinding[] bindingArray = bindings.ToArray();
@@ -114,7 +115,8 @@ public static class UiBlueprintCompiler
             Transitions = node.Transitions,
             LayoutTransition = node.LayoutTransition,
             ScrollViewport = node.ScrollViewport,
-            Virtualization = node.Virtualization
+            Virtualization = node.Virtualization,
+            NativeHost = node.NativeHost
         });
 
         if (node.TextBinding is { } textSelector)
@@ -125,6 +127,16 @@ public static class UiBlueprintCompiler
                 textSelector.DependencySlices,
                 BlueprintBindingKind.Text,
                 readString: textSelector.Read));
+        }
+
+        if (node.NativeValueBinding is { } valueSelector)
+        {
+            bindings.Add(new BlueprintBinding(
+                valueSelector.Id,
+                index,
+                valueSelector.DependencySlices,
+                BlueprintBindingKind.NativeValue,
+                readString: valueSelector.Read));
         }
 
         if (node.Kind == UiNodeKind.If)
@@ -211,5 +223,6 @@ public static class UiBlueprintCompiler
         public UiMotionToken LayoutTransition;
         public ScrollViewport ScrollViewport;
         public Virtualization Virtualization;
+        public NativeHostComponent NativeHost;
     }
 }
