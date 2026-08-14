@@ -60,6 +60,7 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
     {
         if (PendingBatch is null)
             throw new InvalidOperationException("There is no pending render batch.");
+        Scene.CompleteCommit();
         PendingBatch = null;
     }
 
@@ -119,8 +120,8 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
             descendantParent = Scene.Apply(in desired, _mutations);
             descendantOrder = 0;
             _retained.Add(entity);
-            world.Dirty.Clear(entity, UiDirtyFlags.Render);
         }
+        world.Dirty.Clear(entity, UiDirtyFlags.Render);
 
         if (!world.Hierarchy.TryGetNode(entity, out HierarchyNode node))
             return;
@@ -139,6 +140,12 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
     {
         _dirty.Clear();
         world.Dirty.Collect(UiDirtyFlags.Render, _dirty);
+        if (HasRenderTopologyMismatch(world))
+        {
+            ReconcileScene(world);
+            return;
+        }
+
         for (int i = 0; i < _dirty.Count; i++)
         {
             UiEntity entity = _dirty[i];
@@ -157,6 +164,21 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
             Scene.Apply(in desired, _mutations);
             world.Dirty.Clear(entity, UiDirtyFlags.Render);
         }
+    }
+
+    private bool HasRenderTopologyMismatch(UiWorld world)
+    {
+        for (int i = 0; i < _dirty.Count; i++)
+        {
+            UiEntity entity = _dirty[i];
+            if (!world.Entities.IsAlive(entity) || !IsInRenderRoot(world, entity))
+                continue;
+            bool hasComponent = world.Components.Has<NodeKindComponent>(entity);
+            bool hasRetainedNode = Scene.TryGetNode(entity, out _);
+            if (hasComponent != hasRetainedNode)
+                return true;
+        }
+        return false;
     }
 
     private void OnEntityDestroying(UiEntity entity) =>
@@ -248,9 +270,13 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
         bool visible = !world.Components.TryGet(entity, out HitTestableComponent hitTestable) ||
                        hitTestable.IsVisible;
         bool isText = nodeKind == UiNodeKind.Text;
-        TextLayoutHandle textLayout = isText && world.Components.TryGet(entity, out TextLayout text)
-            ? text.Handle
-            : TextLayoutHandle.None;
+        TextLayoutHandle textLayout = TextLayoutHandle.None;
+        TextCacheEntryHandle textCacheEntry = TextCacheEntryHandle.None;
+        if (isText && world.Components.TryGet(entity, out TextLayout text))
+        {
+            textLayout = text.Handle;
+            textCacheEntry = text.CacheEntry;
+        }
 
         return new RenderNodeState
         {
@@ -267,7 +293,8 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
             Opacity = visible ? Math.Clamp(visual.Opacity, 0f, 1f) : 0f,
             Brush = isText ? visual.Foreground : visual.Background,
             CornerRadius = Math.Max(0f, visual.CornerRadius),
-            TextLayout = textLayout
+            TextLayout = textLayout,
+            TextCacheEntry = textCacheEntry
         };
     }
 }

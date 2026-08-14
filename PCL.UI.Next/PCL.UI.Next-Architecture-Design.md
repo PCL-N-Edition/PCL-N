@@ -2628,8 +2628,14 @@ public interface IUiBackend
   tree 合成。父节点动画只提交父节点 mutation，不向所有后代展开；
 - `RenderDiffSystem` 只消费 `UiDirtyFlags.Render` 和结构版本变化。无视觉变化的强制帧
   不产生空 `UiCommitBatch`，也不调用 Backend；
+- `NodeKindComponent` 的 presence 属于 Render topology：dirty Entity 的 ECS presence 与
+  `RenderScene` presence 不一致时必须回退完整 reconcile，使逻辑父节点增删能够同步
+  重挂仍存活的 Render descendants；
 - 结构销毁按 child-before-parent 提交；仍存活的子树必须先 `SetParent`，再销毁旧父节点；
 - `UiCommitBatch` 在跨越 Backend 边界后不可变，Backend Commit 不允许回调 Runtime；
+- `TextLayout` 同时持有 ECS/Layout lease 与 RenderScene lease；替换或销毁文本节点时，
+  旧 render lease 只能在 Backend Commit 成功后释放，确保 retained backend 中可见的
+  `TextLayoutHandle` 始终有效；
 - `UiBackendCapabilities` 只能声明当前真正实现的能力。尚未实现的 Clip / Blur /
   Shadow / Vector / Accessibility 不得提前宣称支持；
 - 第一版 Avalonia Backend 使用一个 `PclUiSurface` 绘制 retained state，不为每个

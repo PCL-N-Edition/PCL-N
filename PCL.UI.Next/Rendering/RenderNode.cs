@@ -56,4 +56,5 @@ internal struct RenderNodeState
     public UiColor Brush { get; set; }
     public float CornerRadius { get; set; }
     public TextLayoutHandle TextLayout { get; set; }
+    public TextCacheEntryHandle TextCacheEntry { get; set; }
 }

@@ -114,6 +114,91 @@ public sealed class RenderingTests
     }
 
     [TestMethod]
+    public void RemovingTextNode_DoesNotReleaseLayoutBeforeDestroyCommit()
+    {
+        using TestContext context = Create(new UiSize(300, 100), textCacheCapacity: 1);
+        BlueprintInstance live = context.Instantiate(Ui.Text("retained"));
+        Drain(context);
+        TextLayoutHandle handle = context.World.Components.Get<TextLayout>(live.RootEntity).Handle;
+
+        context.Instantiator.Destroy(live);
+
+        Assert.AreNotEqual(UiSize.Zero, context.TextEngine.Measure(handle));
+    }
+
+    [TestMethod]
+    public void ReplacingTextLayout_KeepsOldHandleAliveUntilCommit()
+    {
+        UiSize viewport = new(300, 100);
+        UiWorld world = new(new DeterministicUiClock());
+        DeterministicTextEngine textEngine = new();
+        using UiInteractiveRuntime runtime = new(
+            world,
+            textEngine,
+            viewport,
+            textCacheCapacity: 1);
+        HeadlessUiBackend retained = new();
+        CommitObservingBackend backend = new(retained);
+        UiScopeId scope = world.CreateRootScope();
+        using UiRenderingRuntime rendering = new(
+            world,
+            backend,
+            runtime.TextCache,
+            scope,
+            viewport);
+        BlueprintInstantiator instantiator = new(world, new PresentationStore());
+        BlueprintInstance live = instantiator.Instantiate(Ui.Compile(Ui.Text("first")), scope);
+        Drain(world);
+        UiEntity entity = live.RootEntity;
+        TextLayoutHandle oldHandle = world.Components.Get<TextLayout>(entity).Handle;
+        bool observedLiveDuringCommit = false;
+        backend.BeforeCommit = batch =>
+        {
+            if (!batch.Mutations.Span.ContainsKind(RenderMutationKind.SetTextLayout))
+                return;
+            Assert.AreNotEqual(UiSize.Zero, textEngine.Measure(oldHandle));
+            observedLiveDuringCommit = true;
+        };
+
+        world.Set(entity, new TextContent { Value = "replacement" });
+        world.Dirty.Mark(entity, UiDirtyFlags.TextMeasure | UiDirtyFlags.Render);
+        world.Scheduler.RequestReactiveFrame();
+        Assert.IsTrue(world.Update());
+
+        Assert.IsTrue(observedLiveDuringCommit);
+        Assert.ThrowsExactly<InvalidOperationException>(() => textEngine.Measure(oldHandle));
+    }
+
+    [TestMethod]
+    public void TextCachePressure_DoesNotInvalidateCommittedRenderHandle()
+    {
+        using TestContext context = Create(new UiSize(300, 100), textCacheCapacity: 1);
+        BlueprintInstance live = context.Instantiate(Ui.Text("retained"));
+        Drain(context);
+        TextLayoutHandle handle = context.World.Components.Get<TextLayout>(live.RootEntity).Handle;
+        context.Instantiator.Destroy(live);
+
+        context.Runtime.TextCache.ClearUnused();
+
+        Assert.AreNotEqual(UiSize.Zero, context.TextEngine.Measure(handle));
+    }
+
+    [TestMethod]
+    public void TextHandle_ReleasesAfterSuccessfulDestroyCommit()
+    {
+        using TestContext context = Create(new UiSize(300, 100), textCacheCapacity: 1);
+        BlueprintInstance live = context.Instantiate(Ui.Text("retained"));
+        Drain(context);
+        TextLayoutHandle handle = context.World.Components.Get<TextLayout>(live.RootEntity).Handle;
+        context.Instantiator.Destroy(live);
+
+        Assert.IsTrue(context.World.Update());
+        context.Runtime.TextCache.ClearUnused();
+
+        Assert.ThrowsExactly<InvalidOperationException>(() => context.TextEngine.Measure(handle));
+    }
+
+    [TestMethod]
     public void StructuralMove_UpdatesRetainedParent()
     {
         using TestContext context = Create(new UiSize(300, 120));
@@ -231,6 +316,95 @@ public sealed class RenderingTests
     }
 
     [TestMethod]
+    public void RemovingRenderComponent_FromParent_ReparentsSurvivingChildBeforeDestroy()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        BlueprintInstance live = context.Instantiate(
+            Ui.Container(Ui.Container(Ui.Text("child"))));
+        UiEntity root = live.RootEntity;
+        UiEntity parent = live.EntityAt(1);
+        UiEntity child = live.EntityAt(2);
+        Drain(context);
+        Assert.IsTrue(context.Rendering.Scene.TryGetNode(root, out RenderNodeId rootNode));
+        Assert.IsTrue(context.Rendering.Scene.TryGetNode(parent, out RenderNodeId parentNode));
+        Assert.IsTrue(context.Rendering.Scene.TryGetNode(child, out RenderNodeId childNode));
+
+        Assert.IsTrue(context.World.Remove<NodeKindComponent>(parent));
+        context.World.Dirty.Mark(parent, UiDirtyFlags.Render);
+        context.World.Scheduler.RequestReactiveFrame();
+        Assert.IsTrue(context.World.Update());
+
+        Assert.IsFalse(context.Backend.TryGetNode(parentNode, out _));
+        Assert.IsTrue(context.Backend.TryGetNode(childNode, out UiRenderNodeSnapshot retainedChild));
+        Assert.AreEqual(rootNode, retainedChild.Parent);
+        ReadOnlySpan<RenderMutation> mutations = context.Backend.LastBatch!.Value.Mutations.Span;
+        int reparentIndex = mutations.IndexOf(RenderMutationKind.SetParent, childNode);
+        int destroyIndex = mutations.IndexOf(RenderMutationKind.DestroyNode, parentNode);
+        Assert.IsGreaterThanOrEqualTo(0, reparentIndex);
+        Assert.IsGreaterThan(reparentIndex, destroyIndex);
+    }
+
+    [TestMethod]
+    public void AddingRenderComponent_ToLogicalParent_AdoptsExistingRenderChild()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        BlueprintInstance live = context.Instantiate(
+            Ui.Container(Ui.Container(Ui.Text("child"))));
+        UiEntity parent = live.EntityAt(1);
+        UiEntity child = live.EntityAt(2);
+        Drain(context);
+
+        Assert.IsTrue(context.World.Remove<NodeKindComponent>(parent));
+        context.World.Dirty.Mark(parent, UiDirtyFlags.Render);
+        context.World.Scheduler.RequestReactiveFrame();
+        Assert.IsTrue(context.World.Update());
+        Assert.IsTrue(context.Rendering.Scene.TryGetNode(child, out RenderNodeId childNode));
+
+        context.World.Set(parent, new NodeKindComponent { Kind = UiNodeKind.Container });
+        context.World.Dirty.Mark(parent, UiDirtyFlags.Render);
+        context.World.Scheduler.RequestReactiveFrame();
+        Assert.IsTrue(context.World.Update());
+
+        Assert.IsTrue(context.Rendering.Scene.TryGetNode(parent, out RenderNodeId parentNode));
+        Assert.IsTrue(context.Backend.TryGetNode(childNode, out UiRenderNodeSnapshot retainedChild));
+        Assert.AreEqual(parentNode, retainedChild.Parent);
+    }
+
+    [TestMethod]
+    public void AddingParentAndChildRenderComponents_SameFrame_ProducesCorrectParentage()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        BlueprintInstance live = context.Instantiate(
+            Ui.Container(Ui.Container(Ui.Container())));
+        UiEntity root = live.RootEntity;
+        UiEntity parent = live.EntityAt(1);
+        UiEntity child = live.EntityAt(2);
+        Drain(context);
+
+        Assert.IsTrue(context.World.Remove<NodeKindComponent>(parent));
+        Assert.IsTrue(context.World.Remove<NodeKindComponent>(child));
+        context.World.Dirty.Mark(parent, UiDirtyFlags.Render);
+        context.World.Dirty.Mark(child, UiDirtyFlags.Render);
+        context.World.Scheduler.RequestReactiveFrame();
+        Assert.IsTrue(context.World.Update());
+
+        context.World.Set(parent, new NodeKindComponent { Kind = UiNodeKind.Container });
+        context.World.Set(child, new NodeKindComponent { Kind = UiNodeKind.Container });
+        context.World.Dirty.Mark(parent, UiDirtyFlags.Render);
+        context.World.Dirty.Mark(child, UiDirtyFlags.Render);
+        context.World.Scheduler.RequestReactiveFrame();
+        Assert.IsTrue(context.World.Update());
+
+        Assert.IsTrue(context.Rendering.Scene.TryGetNode(root, out RenderNodeId rootNode));
+        Assert.IsTrue(context.Rendering.Scene.TryGetNode(parent, out RenderNodeId parentNode));
+        Assert.IsTrue(context.Rendering.Scene.TryGetNode(child, out RenderNodeId childNode));
+        Assert.IsTrue(context.Backend.TryGetNode(parentNode, out UiRenderNodeSnapshot retainedParent));
+        Assert.IsTrue(context.Backend.TryGetNode(childNode, out UiRenderNodeSnapshot retainedChild));
+        Assert.AreEqual(rootNode, retainedParent.Parent);
+        Assert.AreEqual(parentNode, retainedChild.Parent);
+    }
+
+    [TestMethod]
     public void NodeKindChange_PreservesNodeAndLiveChildren()
     {
         using TestContext context = Create(new UiSize(200, 100));
@@ -306,8 +480,18 @@ public sealed class RenderingTests
         UiScopeId windowB = world.CreateScope(application);
         HeadlessUiBackend backendA = new();
         HeadlessUiBackend backendB = new();
-        using UiRenderingRuntime renderingA = new(world, backendA, windowA, viewport);
-        using UiRenderingRuntime renderingB = new(world, backendB, windowB, viewport);
+        using UiRenderingRuntime renderingA = new(
+            world,
+            backendA,
+            interactive.TextCache,
+            windowA,
+            viewport);
+        using UiRenderingRuntime renderingB = new(
+            world,
+            backendB,
+            interactive.TextCache,
+            windowB,
+            viewport);
         BlueprintInstantiator blueprints = new(world, new PresentationStore());
         UiEntity entityA = blueprints.Instantiate(Ui.Compile(Ui.Container()), windowA).RootEntity;
         UiEntity entityB = blueprints.Instantiate(Ui.Compile(Ui.Container()), windowB).RootEntity;
@@ -336,24 +520,41 @@ public sealed class RenderingTests
         Assert.AreEqual(commitsB, backendB.CommitCount);
     }
 
-    private static TestContext Create(UiSize viewport)
+    private static TestContext Create(UiSize viewport, int textCacheCapacity = 512)
     {
         DeterministicUiClock clock = new();
         UiWorld world = new(clock);
-        UiInteractiveRuntime runtime = new(world, new DeterministicTextEngine(), viewport);
+        DeterministicTextEngine textEngine = new();
+        UiInteractiveRuntime runtime = new(
+            world,
+            textEngine,
+            viewport,
+            textCacheCapacity: textCacheCapacity);
         HeadlessUiBackend backend = new();
         UiScopeId scope = world.CreateRootScope();
-        UiRenderingRuntime rendering = new(world, backend, scope, viewport);
+        UiRenderingRuntime rendering = new(world, backend, runtime.TextCache, scope, viewport);
         BlueprintInstantiator instantiator = new(world, new PresentationStore());
-        return new TestContext(world, runtime, rendering, backend, scope, instantiator);
+        return new TestContext(
+            world,
+            runtime,
+            rendering,
+            backend,
+            scope,
+            instantiator,
+            textEngine);
     }
 
     private static void Drain(TestContext context)
     {
+        Drain(context.World);
+    }
+
+    private static void Drain(UiWorld world)
+    {
         int guard = 0;
-        while (context.World.Scheduler.NeedsFrame && guard++ < 16)
-            Assert.IsTrue(context.World.Update());
-        Assert.IsFalse(context.World.Scheduler.NeedsFrame, "Runtime did not settle to idle.");
+        while (world.Scheduler.NeedsFrame && guard++ < 16)
+            Assert.IsTrue(world.Update());
+        Assert.IsFalse(world.Scheduler.NeedsFrame, "Runtime did not settle to idle.");
     }
 
     private sealed class TestContext : IDisposable
@@ -364,7 +565,8 @@ public sealed class RenderingTests
             UiRenderingRuntime rendering,
             HeadlessUiBackend backend,
             UiScopeId scope,
-            BlueprintInstantiator instantiator)
+            BlueprintInstantiator instantiator,
+            DeterministicTextEngine textEngine)
         {
             World = world;
             Runtime = runtime;
@@ -372,6 +574,7 @@ public sealed class RenderingTests
             Backend = backend;
             Scope = scope;
             Instantiator = instantiator;
+            TextEngine = textEngine;
         }
 
         public UiWorld World { get; }
@@ -380,6 +583,7 @@ public sealed class RenderingTests
         public HeadlessUiBackend Backend { get; }
         public UiScopeId Scope { get; }
         public BlueprintInstantiator Instantiator { get; }
+        public DeterministicTextEngine TextEngine { get; }
 
         public BlueprintInstance Instantiate(UiNode node) =>
             Instantiator.Instantiate(Ui.Compile(node), Scope);
@@ -389,6 +593,23 @@ public sealed class RenderingTests
             Rendering.Dispose();
             Runtime.Dispose();
         }
+    }
+
+    private sealed class CommitObservingBackend(HeadlessUiBackend inner) : IUiBackend
+    {
+        public Action<UiCommitBatch>? BeforeCommit { get; set; }
+
+        public UiBackendCapabilities Capabilities => inner.Capabilities;
+
+        public void Initialize(in UiBackendContext context) => inner.Initialize(in context);
+
+        public void Commit(in UiCommitBatch batch)
+        {
+            BeforeCommit?.Invoke(batch);
+            inner.Commit(in batch);
+        }
+
+        public void RequestFrame() => inner.RequestFrame();
     }
 }
 
@@ -402,5 +623,18 @@ internal static class RenderMutationTestExtensions
                 return true;
         }
         return false;
+    }
+
+    public static int IndexOf(
+        this ReadOnlySpan<RenderMutation> mutations,
+        RenderMutationKind kind,
+        RenderNodeId node)
+    {
+        for (int i = 0; i < mutations.Length; i++)
+        {
+            if (mutations[i].Kind == kind && mutations[i].Node == node)
+                return i;
+        }
+        return -1;
     }
 }

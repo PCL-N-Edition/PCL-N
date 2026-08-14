@@ -74,7 +74,8 @@ public struct TextLayout
 
 /// <summary>
 /// Reference-aware bounded LRU. Unused entries are evicted down to <see cref="MaxEntries"/>;
-/// layouts still referenced by live entities are pinned and may temporarily exceed the cache cap.
+/// layouts referenced by live entities or retained render scenes are pinned and may temporarily
+/// exceed the cache cap.
 /// </summary>
 public sealed class TextLayoutCache : IDisposable
 {
@@ -97,6 +98,15 @@ public sealed class TextLayoutCache : IDisposable
     public int Count => _count;
 
     public int MaxEntries { get; }
+
+    internal void Retain(TextCacheEntryHandle handle)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!TryGet(handle, out Entry entry))
+            throw new InvalidOperationException("Cannot retain a stale text layout cache entry: " + handle);
+        entry.ReferenceCount = checked(entry.ReferenceCount + 1);
+        entry.LastAccess = NextAccess();
+    }
 
     internal TextLayout Acquire(in TextLayoutRequest request, TextCacheEntryHandle previous)
     {

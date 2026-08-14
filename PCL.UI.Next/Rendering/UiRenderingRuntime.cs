@@ -13,16 +13,18 @@ public sealed class UiRenderingRuntime : IDisposable
     public UiRenderingRuntime(
         UiWorld world,
         IUiBackend backend,
+        TextLayoutCache textLayouts,
         UiScopeId rootScope,
         UiSize viewport,
         float rasterScale = 1f)
     {
         World = world ?? throw new ArgumentNullException(nameof(world));
         Backend = backend ?? throw new ArgumentNullException(nameof(backend));
+        ArgumentNullException.ThrowIfNull(textLayouts);
         if (!world.Scopes.IsAlive(rootScope))
             throw new InvalidOperationException("Render root scope is not alive: " + rootScope);
         RootScope = rootScope;
-        Scene = new RenderScene();
+        Scene = new RenderScene(textLayouts);
         _diff = new RenderDiffSystem(world, Scene, rootScope);
         _commit = new BackendCommitSystem(_diff, backend);
         UiBackendContext context = new(viewport, rasterScale);
@@ -47,6 +49,7 @@ public sealed class UiRenderingRuntime : IDisposable
         World.Systems.Unregister(_commit);
         World.Systems.Unregister(_diff);
         _diff.Dispose();
+        Scene.Dispose();
         _disposed = true;
     }
 }

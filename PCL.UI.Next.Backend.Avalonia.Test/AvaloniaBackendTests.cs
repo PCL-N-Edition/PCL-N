@@ -89,6 +89,76 @@ public sealed class AvaloniaBackendTests
         }, CancellationToken.None).GetAwaiter().GetResult();
     }
 
+    [TestMethod]
+    public void SurfaceRender_AfterEntityDestroyBeforeCommit_UsesLiveTextResource()
+    {
+        using HeadlessUnitTestSession session = CreateSession();
+        session.Dispatch(() =>
+        {
+            UiSize viewport = new(320, 180);
+            UiWorld world = new(new DeterministicUiClock());
+            using AvaloniaTextEngine textEngine = new();
+            using UiInteractiveRuntime runtime = new(
+                world,
+                textEngine,
+                viewport,
+                textCacheCapacity: 1);
+            AvaloniaUiBackend backend = new(textEngine);
+            UiScopeId scope = world.CreateRootScope();
+            using UiRenderingRuntime rendering = new(
+                world,
+                backend,
+                runtime.TextCache,
+                scope,
+                viewport);
+            BlueprintInstantiator instantiator = new(world, new PresentationStore());
+            BlueprintInstance live = instantiator.Instantiate(
+                Ui.Compile(Ui.Text("retained until commit")),
+                scope);
+            Drain(world);
+            TextLayoutHandle handle = world.Components.Get<TextLayout>(live.RootEntity).Handle;
+
+            Window window = new()
+            {
+                Width = 320,
+                Height = 180,
+                Content = backend.Surface
+            };
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                instantiator.Destroy(live);
+                runtime.TextCache.ClearUnused();
+
+                backend.RequestFrame();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                Assert.AreEqual(1, backend.Surface.RetainedNodeCount);
+                Assert.AreNotEqual(UiSize.Zero, textEngine.Measure(handle));
+
+                Assert.IsTrue(world.Update());
+                Assert.AreEqual(0, backend.Surface.RetainedNodeCount);
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                runtime.TextCache.ClearUnused();
+                Assert.ThrowsExactly<InvalidOperationException>(() => textEngine.Measure(handle));
+            }
+            finally
+            {
+                window.Content = null;
+                window.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    private static void Drain(UiWorld world)
+    {
+        int guard = 0;
+        while (world.Scheduler.NeedsFrame && guard++ < 16)
+            Assert.IsTrue(world.Update());
+        Assert.IsFalse(world.Scheduler.NeedsFrame, "Runtime did not settle to idle.");
+    }
+
     private static HeadlessUnitTestSession CreateSession() =>
         HeadlessUnitTestSession.StartNew(
             typeof(TestApplication),

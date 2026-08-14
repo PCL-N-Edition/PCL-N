@@ -9,10 +9,18 @@ namespace PCL.UI.Next;
 /// </summary>
 public sealed class RenderScene
 {
+    private readonly TextLayoutCache _textLayouts;
     private readonly Dictionary<UiEntity, RenderNodeId> _byEntity = [];
     private readonly List<Entry> _entries = [default];
     private readonly Stack<int> _free = [];
+    private readonly List<TextCacheEntryHandle> _releaseAfterCommit = [];
     private int _count;
+    private bool _disposed;
+
+    internal RenderScene(TextLayoutCache textLayouts)
+    {
+        _textLayouts = textLayouts ?? throw new ArgumentNullException(nameof(textLayouts));
+    }
 
     public int NodeCount => _count;
 
@@ -46,6 +54,7 @@ public sealed class RenderScene
 
     internal RenderNodeId Apply(in RenderNodeState desired, List<RenderMutation> mutations)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(mutations);
         if (_byEntity.TryGetValue(desired.Owner, out RenderNodeId existing) &&
             TryGet(existing, out Entry existingEntry))
@@ -55,6 +64,7 @@ public sealed class RenderScene
         }
 
         int index = Allocate();
+        RetainTextLayout(desired.TextCacheEntry);
         Entry entry = _entries[index];
         entry.Alive = true;
         entry.State = desired;
@@ -78,6 +88,7 @@ public sealed class RenderScene
 
     internal bool RemoveEntity(UiEntity entity, List<RenderMutation> mutations)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(mutations);
         if (!_byEntity.TryGetValue(entity, out RenderNodeId node) ||
             !TryGet(node, out Entry entry))
@@ -91,6 +102,7 @@ public sealed class RenderScene
 
     internal void RemoveMissing(HashSet<UiEntity> retained, List<RenderMutation> mutations)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(retained);
         ArgumentNullException.ThrowIfNull(mutations);
         int remaining;
@@ -118,6 +130,30 @@ public sealed class RenderScene
         while (remaining > 0);
     }
 
+    internal void CompleteCommit()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        for (int i = 0; i < _releaseAfterCommit.Count; i++)
+            _textLayouts.Release(_releaseAfterCommit[i]);
+        _releaseAfterCommit.Clear();
+    }
+
+    internal void Dispose()
+    {
+        if (_disposed)
+            return;
+        for (int i = 1; i < _entries.Count; i++)
+        {
+            Entry entry = _entries[i];
+            if (entry.Alive)
+                _textLayouts.Release(entry.State.TextCacheEntry);
+        }
+        for (int i = 0; i < _releaseAfterCommit.Count; i++)
+            _textLayouts.Release(_releaseAfterCommit[i]);
+        _releaseAfterCommit.Clear();
+        _disposed = true;
+    }
+
     private void Update(
         RenderNodeId node,
         Entry entry,
@@ -125,6 +161,11 @@ public sealed class RenderScene
         List<RenderMutation> mutations)
     {
         RenderNodeState current = entry.State;
+        if (current.TextCacheEntry != desired.TextCacheEntry)
+        {
+            RetainTextLayout(desired.TextCacheEntry);
+            ReleaseTextLayoutAfterCommit(current.TextCacheEntry);
+        }
         if (current.Kind != desired.Kind)
             mutations.Add(RenderMutation.SetNodeKind(node, desired.Kind));
         if (current.Parent != desired.Parent)
@@ -151,6 +192,7 @@ public sealed class RenderScene
     private void Destroy(RenderNodeId node, Entry entry, List<RenderMutation> mutations)
     {
         mutations.Add(RenderMutation.Destroy(node));
+        ReleaseTextLayoutAfterCommit(entry.State.TextCacheEntry);
         _byEntity.Remove(entry.State.Owner);
         entry.Alive = false;
         entry.State = default;
@@ -158,6 +200,18 @@ public sealed class RenderScene
         _entries[node.Index] = entry;
         _free.Push(node.Index);
         _count--;
+    }
+
+    private void RetainTextLayout(TextCacheEntryHandle handle)
+    {
+        if (!handle.IsNone)
+            _textLayouts.Retain(handle);
+    }
+
+    private void ReleaseTextLayoutAfterCommit(TextCacheEntryHandle handle)
+    {
+        if (!handle.IsNone)
+            _releaseAfterCommit.Add(handle);
     }
 
     private bool HasMissingChild(RenderNodeId parent, HashSet<UiEntity> retained)

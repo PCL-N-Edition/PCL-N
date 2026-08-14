@@ -68,7 +68,12 @@ public sealed class PlaygroundWindow : Window, IDisposable
         UiScopeId applicationScope = _world.CreateRootScope();
         _windowScope = _world.CreateScope(applicationScope);
         _backend = new AvaloniaUiBackend(_textEngine);
-        _rendering = new UiRenderingRuntime(_world, _backend, _windowScope, viewport);
+        _rendering = new UiRenderingRuntime(
+            _world,
+            _backend,
+            _runtime.TextCache,
+            _windowScope,
+            viewport);
         _presentation = new PresentationStore();
         _presentation.Set(CounterSlice, _counter);
         _presentation.Set(DetailsSlice, _detailsVisible);
