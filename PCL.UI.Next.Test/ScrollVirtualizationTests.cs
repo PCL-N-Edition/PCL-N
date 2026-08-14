@@ -86,6 +86,85 @@ public sealed class ScrollVirtualizationTests
         Assert.IsTrue(index.IsMeasured(10));
     }
 
+    [TestMethod]
+    public void VirtualList_RealizesOnlyViewportWindowFromHundredThousandItems()
+    {
+        using VirtualTestContext context = CreateVirtualList(
+            100_000,
+            estimatedExtent: 20f,
+            overscan: 2,
+            Ui.Text().Height(UiLength.Pixels(20f)));
+
+        Assert.IsTrue(context.Runtime.Virtualization.TryGetSnapshot(context.Host, out UiVirtualizationSnapshot snapshot));
+        Assert.AreEqual(100_000, snapshot.ItemCount);
+        Assert.IsLessThanOrEqualTo(10, snapshot.RealizedCount);
+        Assert.IsLessThanOrEqualTo(12, context.World.Entities.AliveCount);
+        Assert.AreEqual(2_000_000f, snapshot.Extent, 0.01f);
+    }
+
+    [TestMethod]
+    public void VirtualList_ReusesEntitiesAcrossDistantScroll()
+    {
+        using VirtualTestContext context = CreateVirtualList(
+            100_000,
+            estimatedExtent: 20f,
+            overscan: 2,
+            Ui.Text().Height(UiLength.Pixels(20f)));
+        context.Runtime.Virtualization.ScrollIntoView(
+            context.Host,
+            100,
+            UiScrollAlignment.Start,
+            animated: false);
+        Drain(context.World);
+        int initialEntities = context.World.Entities.AliveCount;
+
+        context.Runtime.Virtualization.ScrollIntoView(
+            context.Host,
+            50_000,
+            UiScrollAlignment.Start,
+            animated: false);
+        Drain(context.World);
+
+        Assert.IsTrue(context.Runtime.Virtualization.TryGetSnapshot(context.Host, out UiVirtualizationSnapshot snapshot));
+        Assert.IsTrue(snapshot.RealizedStart <= 50_000 && snapshot.RealizedEndExclusive > 50_000);
+        Assert.AreEqual(initialEntities, context.World.Entities.AliveCount);
+        Assert.IsTrue(context.Runtime.Virtualization.TryGetRealizedEntity(context.Host, 50_000, out UiEntity item));
+        Assert.IsTrue(context.World.Entities.IsAlive(item));
+        Assert.IsGreaterThan(snapshot.RealizedCount, context.Source.BindCount);
+    }
+
+    [TestMethod]
+    public void VariableVirtualList_PreservesVisibleAnchorWhenMeasuredExtentsChange()
+    {
+        const int heightSlice = 1;
+        UiSelector<bool> tall = UiSelectors.Bool(1, heightSlice, store => store.Get<bool>(heightSlice));
+        UiNode template = Ui.If(
+            tall,
+            Ui.Container().Height(UiLength.Pixels(80f)),
+            Ui.Container().Height(UiLength.Pixels(20f)));
+        using VirtualTestContext context = CreateVirtualList(
+            1_000,
+            estimatedExtent: 40f,
+            overscan: 1,
+            template,
+            bind: (index, presentation) => presentation.Set(heightSlice, index % 2 == 0));
+
+        context.Runtime.Virtualization.ScrollIntoView(
+            context.Host,
+            10,
+            UiScrollAlignment.Start,
+            animated: false);
+        Drain(context.World);
+
+        Assert.IsTrue(context.Runtime.Virtualization.TryGetRealizedEntity(context.Host, 10, out UiEntity anchor));
+        VirtualItemSlot slot = context.World.Components.Get<VirtualItemSlot>(anchor);
+        ScrollState scroll = context.Runtime.Scroll.GetState(context.Host);
+        Assert.AreEqual(slot.Offset, scroll.Offset, 0.1f);
+        Assert.AreEqual(80f, slot.Extent, 0.1f);
+        Assert.IsTrue(context.Runtime.Virtualization.TryGetSnapshot(context.Host, out UiVirtualizationSnapshot snapshot));
+        Assert.AreNotEqual(40_000f, snapshot.Extent);
+    }
+
     private static TestContext CreateScrollable(bool buttons = false)
     {
         DeterministicUiClock clock = new();
@@ -105,6 +184,33 @@ public sealed class ScrollVirtualizationTests
         return new TestContext(clock, world, runtime, inputRoot, instance);
     }
 
+    private static VirtualTestContext CreateVirtualList(
+        int count,
+        float estimatedExtent,
+        ushort overscan,
+        UiNode item,
+        Action<int, PresentationStore>? bind = null)
+    {
+        DeterministicUiClock clock = new();
+        UiWorld world = new(clock);
+        UiInteractiveRuntime runtime = new(world, new DeterministicTextEngine(), new UiSize(200f, 100f));
+        UiScopeId applicationScope = world.CreateRootScope();
+        UiScopeId windowScope = world.CreateScope(applicationScope);
+        runtime.Input.InputRoots.Register(windowScope);
+        BlueprintInstantiator instantiator = new(world, new PresentationStore());
+        BlueprintInstance instance = instantiator.Instantiate(
+            Ui.Compile(Ui.VirtualList(estimatedExtent, overscan, overscan)),
+            windowScope);
+        Drain(world);
+        TestItemSource source = new(count, bind);
+        UiVirtualListRegistration registration = runtime.Virtualization.Register(
+            instance.RootEntity,
+            source,
+            Ui.Compile(item, "VirtualItem"));
+        Drain(world);
+        return new VirtualTestContext(world, runtime, instance.RootEntity, source, registration);
+    }
+
     private static void Drain(UiWorld world)
     {
         int guard = 0;
@@ -121,5 +227,45 @@ public sealed class ScrollVirtualizationTests
         BlueprintInstance Instance) : IDisposable
     {
         public void Dispose() => Runtime.Dispose();
+    }
+
+    private sealed record VirtualTestContext(
+        UiWorld World,
+        UiInteractiveRuntime Runtime,
+        UiEntity Host,
+        TestItemSource Source,
+        UiVirtualListRegistration Registration) : IDisposable
+    {
+        public void Dispose()
+        {
+            Registration.Dispose();
+            Runtime.Dispose();
+        }
+    }
+
+    private sealed class TestItemSource(
+        int count,
+        Action<int, PresentationStore>? bind) : IUiVirtualItemSource
+    {
+        public int Count { get; } = count;
+        public ulong Version => 1;
+        public int BindCount { get; private set; }
+
+        public long GetKey(int index) => index;
+
+        public void BindItem(int index, PresentationStore presentation)
+        {
+            BindCount++;
+            if (bind is null)
+                presentation.Set(1, "Item " + index);
+            else
+                bind(index, presentation);
+        }
+
+        public bool TryGetIndex(long key, out int index)
+        {
+            index = (int)key;
+            return key >= 0 && key < Count;
+        }
     }
 }

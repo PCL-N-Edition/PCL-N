@@ -27,6 +27,7 @@ public sealed class UiInteractiveRuntime : IDisposable
         Animation = new UiAnimationRuntime(world, motionRegistry);
         Input = new UiInputRuntime(world, gestureThresholds);
         Scroll = new UiScrollRuntime(world, Input);
+        Virtualization = new UiVirtualizationRuntime(world, Scroll);
     }
 
     public UiWorld World => _layoutRuntime.World;
@@ -38,6 +39,7 @@ public sealed class UiInteractiveRuntime : IDisposable
     public UiAnimationRuntime Animation { get; }
     public UiInputRuntime Input { get; }
     public UiScrollRuntime Scroll { get; }
+    public UiVirtualizationRuntime Virtualization { get; }
 
     public void SetViewport(UiSize viewport) => _layoutRuntime.SetViewport(viewport);
 
@@ -45,6 +47,7 @@ public sealed class UiInteractiveRuntime : IDisposable
     {
         if (_disposed)
             return;
+        Virtualization.Dispose();
         Scroll.Dispose();
         Input.Dispose();
         Animation.Dispose();

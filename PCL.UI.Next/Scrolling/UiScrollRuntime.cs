@@ -106,6 +106,24 @@ public sealed class UiScrollRuntime : IDisposable
         TickMotion(frame.Now);
     }
 
+    internal void UpdateVirtualExtent(UiEntity viewport, float extent, float? anchoredOffset = null)
+    {
+        EnsureViewport(viewport);
+        ScrollState state = _world.Components.Get<ScrollState>(viewport);
+        state.Extent = Math.Max(0f, extent);
+        if (anchoredOffset.HasValue && state.Motion == UiScrollMotionKind.Idle)
+        {
+            state.Offset = Math.Clamp(anchoredOffset.Value, 0f, state.MaximumOffset);
+            state.Target = state.Offset;
+        }
+        else if (state.Motion == UiScrollMotionKind.Idle)
+        {
+            state.Offset = Math.Clamp(state.Offset, 0f, state.MaximumOffset);
+            state.Target = state.Offset;
+        }
+        Store(viewport, in state);
+    }
+
     private void ProcessWheel()
     {
         IReadOnlyList<UiWheelDispatch> wheels = _input.FrameWheelEvents;

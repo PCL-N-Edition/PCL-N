@@ -71,3 +71,9 @@ public struct VirtualItemSlot
     public float Extent { get; set; }
     public bool IsRealized { get; set; }
 }
+
+/// <summary>Positions only the small realized/recycled item set over a logical extent.</summary>
+public struct VirtualizingLayout
+{
+    public UiOrientation Orientation { get; set; }
+}

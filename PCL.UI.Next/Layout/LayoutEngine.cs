@@ -159,6 +159,8 @@ public sealed class LayoutEngine
             return _textMeasurement.Resolve(entity, available.Width);
         if (_world.Components.TryGet(entity, out ScrollLayout scroll))
             return MeasureScroll(entity, available, in scroll);
+        if (_world.Components.TryGet(entity, out VirtualizingLayout virtualizing))
+            return MeasureVirtualizing(entity, available, in virtualizing);
         if (_world.Components.TryGet(entity, out StackLayout stack))
             return MeasureStack(entity, available, in stack);
         if (_world.Components.TryGet(entity, out GridLayout grid))
@@ -182,6 +184,20 @@ public sealed class LayoutEngine
         return new UiSize(
             float.IsFinite(available.Width) ? Math.Min(desired.Width, available.Width) : desired.Width,
             float.IsFinite(available.Height) ? Math.Min(desired.Height, available.Height) : desired.Height);
+    }
+
+    private UiSize MeasureVirtualizing(UiEntity entity, UiSize available, in VirtualizingLayout layout)
+    {
+        UiEntity child = FirstChild(entity);
+        while (child != UiEntity.None)
+        {
+            UiSize childAvailable = layout.Orientation == UiOrientation.Vertical
+                ? new UiSize(available.Width, float.PositiveInfinity)
+                : new UiSize(float.PositiveInfinity, available.Height);
+            MeasureEntity(child, childAvailable);
+            child = NextSibling(child);
+        }
+        return UiSize.Zero;
     }
 
     private UiSize MeasureStack(UiEntity entity, UiSize available, in StackLayout stack)
@@ -347,6 +363,8 @@ public sealed class LayoutEngine
 
         if (_world.Components.TryGet(entity, out ScrollLayout scroll))
             ArrangeScroll(entity, content, in scroll);
+        else if (_world.Components.TryGet(entity, out VirtualizingLayout virtualizing))
+            ArrangeVirtualizing(entity, content, in virtualizing);
         else if (_world.Components.TryGet(entity, out StackLayout stack))
             ArrangeStack(entity, content, in stack);
         else if (_world.Components.TryGet(entity, out GridLayout grid))
@@ -386,6 +404,23 @@ public sealed class LayoutEngine
         _world.Set(entity, state);
         if (child != UiEntity.None)
             SetScrollTransform(child, scroll.Orientation, state.Offset);
+    }
+
+    private void ArrangeVirtualizing(UiEntity entity, UiRect content, in VirtualizingLayout layout)
+    {
+        UiEntity child = FirstChild(entity);
+        while (child != UiEntity.None)
+        {
+            UiSize desired = _world.Components.TryGet(child, out DesiredSize size) ? size.Value : UiSize.Zero;
+            AbsolutePlacement placement = _world.Components.TryGet(child, out AbsolutePlacement configured)
+                ? configured
+                : default;
+            UiRect slot = layout.Orientation == UiOrientation.Vertical
+                ? new UiRect(content.X, content.Y + placement.Top, content.Width, desired.Height)
+                : new UiRect(content.X + placement.Left, content.Y, desired.Width, content.Height);
+            ArrangeEntity(child, slot);
+            child = NextSibling(child);
+        }
     }
 
     private void SetScrollTransform(UiEntity content, UiOrientation orientation, float offset)
