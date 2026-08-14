@@ -1,8 +1,6 @@
 // Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
-using System.Numerics;
-
 namespace PCL.UI.Next;
 
 /// <summary>Synchronizes ECS target state to native controls and journals native input.</summary>
@@ -155,11 +153,7 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
 
     private NativeHostVisualState ResolveState(UiEntity entity, in NativeHostComponent component)
     {
-        UiRect bounds = _world.Components.TryGet(entity, out LayoutRect layout)
-            ? layout.Value
-            : UiRect.Empty;
-        if (_world.Components.TryGet(entity, out ComputedTransform transform))
-            bounds = TransformBounds(bounds, transform.Value);
+        UiRect bounds = UiVisualGeometry.ResolveBounds(_world, entity);
         bool visible = !_world.Components.TryGet(entity, out HitTestableComponent hit) || hit.IsVisible;
         bool enabled = InteractionStateStore.IsEnabledAndVisible(_world, entity);
         bool focused = _world.Components.TryGet(entity, out InteractionStateComponent interaction) &&
@@ -230,17 +224,6 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
         if (previous.IsReadOnly != next.IsReadOnly) flags |= NativeHostMutationFlags.ReadOnly;
         if (previous.AcceptsReturn != next.AcceptsReturn) flags |= NativeHostMutationFlags.AcceptsReturn;
         return flags;
-    }
-
-    private static UiRect TransformBounds(UiRect rect, Matrix3x2 transform)
-    {
-        Vector2 topLeft = Vector2.Transform(new Vector2(rect.X, rect.Y), transform);
-        Vector2 bottomRight = Vector2.Transform(new Vector2(rect.Right, rect.Bottom), transform);
-        return new UiRect(
-            MathF.Min(topLeft.X, bottomRight.X),
-            MathF.Min(topLeft.Y, bottomRight.Y),
-            MathF.Abs(bottomRight.X - topLeft.X),
-            MathF.Abs(bottomRight.Y - topLeft.Y));
     }
 
     private readonly record struct Entry(

@@ -76,6 +76,31 @@ public sealed class NativeHostTests
         Assert.AreEqual(1, context.Backend.DestroyCount);
     }
 
+    [TestMethod]
+    public void NativeHost_RotationUsesFourCornerVisualBounds()
+    {
+        using TestContext context = Create();
+        UiEntity textBox = context.Instantiator.Instantiate(
+            Ui.Compile(
+                Ui.TextBox()
+                    .Width(UiLength.Pixels(100f))
+                    .Height(UiLength.Pixels(40f))),
+            context.WindowScope).RootEntity;
+        Drain(context.World);
+
+        context.Runtime.Animation.SetDirect(textBox, UiAnimationProperty.Rotation, 45f);
+        Drain(context.World);
+
+        NativeHostMutation mutation = context.Backend.LastMutation!.Value;
+        Assert.IsTrue((mutation.Flags & NativeHostMutationFlags.Bounds) != 0);
+        UiRect expected = UiVisualGeometry.ResolveBounds(context.World, textBox);
+        Assert.AreEqual(expected.X, mutation.State.Bounds.X, 0.01f);
+        Assert.AreEqual(expected.Y, mutation.State.Bounds.Y, 0.01f);
+        Assert.AreEqual(expected.Width, mutation.State.Bounds.Width, 0.01f);
+        Assert.AreEqual(expected.Height, mutation.State.Bounds.Height, 0.01f);
+        Assert.IsGreaterThan(90f, mutation.State.Bounds.Width);
+    }
+
     private static TestContext Create()
     {
         DeterministicUiClock clock = new();

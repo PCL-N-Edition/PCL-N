@@ -181,6 +181,116 @@ public sealed class OverlayTests
         Assert.AreEqual(0, context.Overlays.OverlayCount);
     }
 
+    [TestMethod]
+    public void Popup_FollowsScrolledAnchor()
+    {
+        using TestContext context = Create();
+        BlueprintInstance main = context.Instantiate(
+            Ui.Scroll(
+                    Ui.Column(
+                        Ui.Container().Height(UiLength.Pixels(60)),
+                        Ui.Button("Anchor").Height(UiLength.Pixels(20)),
+                        Ui.Container().Height(UiLength.Pixels(100))))
+                .Width(UiLength.Pixels(180))
+                .Height(UiLength.Pixels(100)));
+        Drain(context.World);
+        UiEntity anchor = main.EntityAt(3);
+        context.Runtime.Scroll.SetOffset(main.RootEntity, 40f);
+        Drain(context.World);
+
+        UiOverlaySnapshot popup = OpenPlacedPopup(context, anchor, UiOverlayPlacement.BelowStart);
+
+        UiRect visualAnchor = UiVisualGeometry.ResolveBounds(context.World, anchor);
+        UiRect popupRect = context.World.Components.Get<LayoutRect>(popup.RootEntity).Value;
+        Assert.AreEqual(visualAnchor.X, popupRect.X, 0.01f);
+        Assert.AreEqual(visualAnchor.Bottom, popupRect.Y, 0.01f);
+    }
+
+    [TestMethod]
+    public void Popup_FollowsTranslatedAnchor()
+    {
+        using TestContext context = Create();
+        UiEntity anchor = context.Instantiate(
+            Ui.Button("Anchor")
+                .Width(UiLength.Pixels(80))
+                .Height(UiLength.Pixels(30))).RootEntity;
+        Drain(context.World);
+        context.Runtime.Animation.SetDirect(anchor, UiAnimationProperty.TranslateX, 45f);
+        Drain(context.World);
+
+        UiOverlaySnapshot popup = OpenPlacedPopup(context, anchor, UiOverlayPlacement.BelowStart);
+
+        UiRect visualAnchor = UiVisualGeometry.ResolveBounds(context.World, anchor);
+        UiRect popupRect = context.World.Components.Get<LayoutRect>(popup.RootEntity).Value;
+        Assert.AreEqual(visualAnchor.X, popupRect.X, 0.01f);
+    }
+
+    [TestMethod]
+    public void Popup_FollowsAnimatedAnchor()
+    {
+        using TestContext context = Create();
+        UiEntity anchor = context.Instantiate(
+            Ui.Button("Anchor")
+                .Width(UiLength.Pixels(80))
+                .Height(UiLength.Pixels(30))).RootEntity;
+        Drain(context.World);
+        UiOverlaySnapshot popup = OpenPlacedPopup(context, anchor, UiOverlayPlacement.BelowStart);
+        UiAnimationSpec spec = new(UiMotion.Hover);
+        context.Runtime.Animation.Retarget(anchor, UiAnimationProperty.TranslateX, 80f, in spec);
+
+        context.Clock.Advance(0.05d);
+        Assert.IsTrue(context.World.Update());
+
+        UiRect visualAnchor = UiVisualGeometry.ResolveBounds(context.World, anchor);
+        UiRect popupRect = context.World.Components.Get<LayoutRect>(popup.RootEntity).Value;
+        Assert.IsGreaterThan(0f, visualAnchor.X);
+        Assert.AreEqual(visualAnchor.X, popupRect.X, 0.01f);
+    }
+
+    [TestMethod]
+    public void Popup_UsesTransformedVisualBoundsForViewportFlip()
+    {
+        using TestContext context = Create();
+        UiEntity anchor = context.Instantiate(
+            Ui.Button("Anchor")
+                .Width(UiLength.Pixels(80))
+                .Height(UiLength.Pixels(30))).RootEntity;
+        Drain(context.World);
+        context.Runtime.Animation.SetDirect(anchor, UiAnimationProperty.TranslateY, 80f);
+        Drain(context.World);
+
+        UiOverlaySnapshot popup = OpenPlacedPopup(context, anchor, UiOverlayPlacement.Auto);
+
+        UiRect visualAnchor = UiVisualGeometry.ResolveBounds(context.World, anchor);
+        UiRect popupRect = context.World.Components.Get<LayoutRect>(popup.RootEntity).Value;
+        Assert.AreEqual(visualAnchor.Y - popupRect.Height, popupRect.Y, 0.01f);
+    }
+
+    private static UiOverlaySnapshot OpenPlacedPopup(
+        TestContext context,
+        UiEntity anchor,
+        UiOverlayPlacement placement)
+    {
+        UiPopupOptions options = new(
+            placement,
+            Offset: 0f,
+            ViewportPadding: 0f,
+            DismissOnOutsidePointer: false,
+            DismissOnEscape: false,
+            TrapFocus: false,
+            RestorePreviousFocus: false);
+        UiOverlayHandle handle = context.Overlays.OpenPopup(
+            Ui.Compile(
+                Ui.Container()
+                    .Width(UiLength.Pixels(40))
+                    .Height(UiLength.Pixels(20))),
+            anchor,
+            options);
+        Drain(context.World);
+        Assert.IsTrue(context.Overlays.TryGetOverlay(handle, out UiOverlaySnapshot snapshot));
+        return snapshot;
+    }
+
     private static bool IsDescendantOrSelf(UiWorld world, UiEntity ancestor, UiEntity entity)
     {
         UiEntity current = entity;

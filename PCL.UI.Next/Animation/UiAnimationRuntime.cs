@@ -678,7 +678,7 @@ internal static class UiTransformMath
                Matrix3x2.CreateTranslation(to.X, to.Y);
     }
 
-    private static Matrix3x2 ComputeWorld(UiWorld world, UiEntity entity)
+    public static Matrix3x2 ComputeWorld(UiWorld world, UiEntity entity)
     {
         Matrix3x2 parent = ComputeParentWorld(world, entity);
         return CreateLocalTransform(world, entity) * parent;

@@ -1,8 +1,6 @@
 // Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
-using System.Numerics;
-
 namespace PCL.UI.Next;
 
 /// <summary>Builds a semantic tree from ECS state without sharing render-tree topology.</summary>
@@ -211,7 +209,7 @@ public sealed class UiAccessibilityRuntime : IUiSystem, IDisposable
                 world.Components.TryGet(entity, out AccessibleAction action)
                     ? action.Value
                     : UiAccessibleAction.None,
-                ResolveBounds(world, entity)));
+                UiVisualGeometry.ResolveBounds(world, entity)));
             descendantParent = id;
         }
 
@@ -293,24 +291,6 @@ public sealed class UiAccessibilityRuntime : IUiSystem, IDisposable
                 : UiEntity.None;
         }
         return string.Empty;
-    }
-
-    private static UiRect ResolveBounds(UiWorld world, UiEntity entity)
-    {
-        UiRect bounds = world.Components.TryGet(entity, out LayoutRect layout)
-            ? layout.Value
-            : UiRect.Empty;
-        if (!world.Components.TryGet(entity, out ComputedTransform transform))
-            return bounds;
-        Vector2 a = Vector2.Transform(new(bounds.X, bounds.Y), transform.Value);
-        Vector2 b = Vector2.Transform(new(bounds.Right, bounds.Y), transform.Value);
-        Vector2 c = Vector2.Transform(new(bounds.X, bounds.Bottom), transform.Value);
-        Vector2 d = Vector2.Transform(new(bounds.Right, bounds.Bottom), transform.Value);
-        float left = MathF.Min(MathF.Min(a.X, b.X), MathF.Min(c.X, d.X));
-        float top = MathF.Min(MathF.Min(a.Y, b.Y), MathF.Min(c.Y, d.Y));
-        float right = MathF.Max(MathF.Max(a.X, b.X), MathF.Max(c.X, d.X));
-        float bottom = MathF.Max(MathF.Max(a.Y, b.Y), MathF.Max(c.Y, d.Y));
-        return new UiRect(left, top, right - left, bottom - top);
     }
 
     private bool IsInRoot(UiWorld world, UiEntity entity)

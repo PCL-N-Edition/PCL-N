@@ -42,7 +42,7 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
         _world.Systems.Register(this);
     }
 
-    public UiSystemPhase Phase => UiSystemPhase.TransitionPlanning;
+    public UiSystemPhase Phase => UiSystemPhase.AnimationTick;
     public string Name => "overlay.update";
     public UiEntity OverlayRoot { get; }
     public int OverlayCount => _entries.Count(static entry => entry is not null);
@@ -208,6 +208,7 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
     public void Update(UiWorld world, in UiFrameContext frame)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        bool placementChanged = false;
         _closeScratch.Clear();
         foreach (TooltipEntry tooltip in _tooltips.Values)
         {
@@ -229,10 +230,12 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
                 _closeScratch.Add(entry.Handle);
                 continue;
             }
-            UpdatePlacement(entry);
+            placementChanged |= UpdatePlacement(entry);
         }
         for (int i = 0; i < _closeScratch.Count; i++)
             Close(_closeScratch[i]);
+        if (placementChanged)
+            _runtime.Layout.Arrange();
         UpdateTimerLease();
     }
 
@@ -457,20 +460,19 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
         }
     }
 
-    private void UpdatePlacement(Entry entry)
+    private bool UpdatePlacement(Entry entry)
     {
         if (!_world.Entities.IsAlive(entry.RootEntity) ||
             !_world.Components.TryGet(entry.RootEntity, out DesiredSize desired))
         {
-            return;
+            return false;
         }
 
         UiSize viewport = _runtime.Layout.Viewport;
         float width = Math.Min(desired.Value.Width, Math.Max(0f, viewport.Width - entry.ViewportPadding * 2f));
         float height = Math.Min(desired.Value.Height, Math.Max(0f, viewport.Height - entry.ViewportPadding * 2f));
-        UiRect anchor = !entry.AnchorEntity.IsNone &&
-                        _world.Components.TryGet(entry.AnchorEntity, out LayoutRect anchorLayout)
-            ? anchorLayout.Value
+        UiRect anchor = !entry.AnchorEntity.IsNone
+            ? UiVisualGeometry.ResolveBounds(_world, entry.AnchorEntity)
             : new UiRect(entry.PointerAnchor.X, entry.PointerAnchor.Y, 0f, 0f);
         (float x, float y) = ResolvePlacement(entry, anchor, width, height, viewport);
         x = Math.Clamp(x, entry.ViewportPadding, Math.Max(entry.ViewportPadding, viewport.Width - entry.ViewportPadding - width));
@@ -479,10 +481,11 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
         if (_world.Components.TryGet(entry.RootEntity, out AbsolutePlacement current) &&
             current.Left.Equals(next.Left) && current.Top.Equals(next.Top))
         {
-            return;
+            return false;
         }
         _world.Set(entry.RootEntity, next);
         LayoutInvalidation.MarkArrange(_world, OverlayRoot);
+        return true;
     }
 
     private static (float X, float Y) ResolvePlacement(
