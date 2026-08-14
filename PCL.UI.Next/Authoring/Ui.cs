@@ -52,6 +52,8 @@ public static class Ui
     public static UiNode Scroll(UiNode content, UiOrientation orientation = UiOrientation.Vertical)
     {
         ArgumentNullException.ThrowIfNull(content);
+        if (orientation is not (UiOrientation.Vertical or UiOrientation.Horizontal))
+            throw new ArgumentOutOfRangeException(nameof(orientation));
         return new UiNode(UiNodeKind.Scroll)
         {
             ScrollViewport = orientation == UiOrientation.Vertical
@@ -70,6 +72,8 @@ public static class Ui
     {
         if (!float.IsFinite(estimatedItemExtent) || estimatedItemExtent <= 0f)
             throw new ArgumentOutOfRangeException(nameof(estimatedItemExtent));
+        if (orientation is not (UiOrientation.Vertical or UiOrientation.Horizontal))
+            throw new ArgumentOutOfRangeException(nameof(orientation));
         return new UiNode(UiNodeKind.VirtualList)
         {
             ScrollViewport = orientation == UiOrientation.Vertical

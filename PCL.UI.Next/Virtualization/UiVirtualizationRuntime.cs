@@ -36,6 +36,8 @@ public sealed class UiVirtualizationRuntime : IDisposable
         EnsureVirtualList(host);
         if (_states.ContainsKey(host))
             throw new InvalidOperationException("A virtual item source is already registered for " + host);
+        if (_world.Hierarchy.TryGetNode(host, out HierarchyNode hostNode) && hostNode.FirstChild != UiEntity.None)
+            throw new InvalidOperationException("A virtual list host cannot contain static children.");
         if (source.Count < 0)
             throw new InvalidOperationException("A virtual item source cannot report a negative count.");
 
@@ -66,6 +68,15 @@ public sealed class UiVirtualizationRuntime : IDisposable
         }
         snapshot = default;
         return false;
+    }
+
+    /// <summary>Requests a plan pass after the registered source advances its Version.</summary>
+    public void Invalidate(UiEntity host)
+    {
+        ThrowIfDisposed();
+        if (!_states.ContainsKey(host))
+            throw new InvalidOperationException("Virtual list is not registered: " + host);
+        _world.Scheduler.RequestReactiveFrame();
     }
 
     public bool TryGetRealizedEntity(UiEntity host, int logicalIndex, out UiEntity entity)
@@ -183,6 +194,7 @@ public sealed class UiVirtualizationRuntime : IDisposable
         {
             ItemSlot slot = state.Slots[i];
             if (!slot.IsRealized || !slot.Instance.IsAlive ||
+                (uint)slot.LogicalIndex >= (uint)state.Extents.Count ||
                 !_world.Components.TryGet(slot.Instance.RootEntity, out DesiredSize desired))
             {
                 continue;
@@ -434,8 +446,14 @@ public sealed class UiVirtualizationRuntime : IDisposable
     private static long[] BuildKeys(IUiVirtualItemSource source, int count)
     {
         long[] keys = new long[count];
+        HashSet<long> unique = new(count);
         for (int i = 0; i < count; i++)
-            keys[i] = source.GetKey(i);
+        {
+            long key = source.GetKey(i);
+            if (!unique.Add(key))
+                throw new InvalidOperationException("Virtual item keys must be unique within a source version: " + key);
+            keys[i] = key;
+        }
         return keys;
     }
 

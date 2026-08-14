@@ -6,7 +6,7 @@
 dotnet run --project PCL.UI.Next.Playground/PCL.UI.Next.Playground.csproj --configuration Debug
 ```
 
-该窗口用于人工验证当前已实现的新 UI Runtime（截至 Rendering）的完整链路：
+该窗口用于人工验证当前已实现的新 UI Runtime 的完整链路：
 
 - Blueprint 编译、实例化、绑定与结构化 `If` 重建；
 - Scope / Entity / RenderNode generation 生命周期；
@@ -17,6 +17,8 @@ dotnet run --project PCL.UI.Next.Playground/PCL.UI.Next.Playground.csproj --conf
 - scope-aware F5 shortcut；
 - Tween、Spring 自然 Retarget、Reduced Motion、窗口缩放 FLIP；
 - retained RenderScene、最小 RenderMutation、CommitBatch 与单 Avalonia Surface。
+- Scroll viewport 裁剪、滚轮/拖拽、惯性、回弹与程序化滚动；
+- 100,000 项变高 VirtualList、overscan、稳定 key、锚点修正与实体回收。
 
 建议操作：
 
@@ -27,5 +29,6 @@ dotnet run --project PCL.UI.Next.Playground/PCL.UI.Next.Playground.csproj --conf
 5. 切换结构和主题，观察局部 retained diff；
 6. 开关 Reduced Motion 后再次触发动画；
 7. 按 F5，通过 Shortcut → Command 边界复位。
+8. 在 100,000 项列表上滚轮或拖拽，再点 `Jump to 50,000`，观察窗口标题中的 retained node 数量保持稳定。
 
-尚未实现的后续 Runtime 能力（如 Scroll/Virtualization、Navigation、Accessibility）不在该窗口的覆盖范围内。
+尚未实现的后续 Runtime 能力（如 Navigation、Accessibility）不在该窗口的覆盖范围内。

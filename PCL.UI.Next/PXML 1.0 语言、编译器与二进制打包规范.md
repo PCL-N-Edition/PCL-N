@@ -1103,6 +1103,46 @@ ItemBindingProgram
 EstimatedMetrics
 ```
 
+生成代码必须把集合适配为 Runtime 的强类型虚拟数据源，而不是在运行时反射模型：
+
+```csharp
+sealed class ModsVirtualSource : IUiVirtualItemSource
+{
+    public int Count { get; }
+    public ulong Version { get; }
+    public long GetKey(int index);
+    public void BindItem(int index, PresentationStore presentation);
+    public bool TryGetIndex(long key, out int index);
+}
+```
+
+Lowering 结果分成两部分：
+
+```text
+VirtualList host Blueprint
+├ ScrollViewport
+├ ScrollState
+└ Virtualization(EstimatedItemExtent, OverscanBefore, OverscanAfter)
+
+Item Blueprint
+└ Template 中的静态节点、BindingProgram 与结构指令
+```
+
+挂载时由生成代码执行一次注册：
+
+```csharp
+UiVirtualListRegistration registration = runtime.Virtualization.Register(
+    virtualListEntity,
+    generatedSource,
+    itemBlueprint);
+```
+
+注册对象属于页面 Scope 生命周期，卸载页面时必须 Dispose。编译器不得为每个逻辑项预创建 Entity；Runtime 只为可见区和 overscan 创建 slot，并在滚动后重绑定 `PresentationStore`。
+
+`Key` 在同一集合版本内必须唯一且稳定。变长项的实测 extent 按 Key 保存；集合插入、删除或重排后，Runtime 通过 Key 恢复测量结果和当前可见锚点。`Version` 只有在集合拓扑或 Key/绑定数据发生可观察变化时递增；生成的集合变更适配器随后调用 `runtime.Virtualization.Invalidate(host)` 请求一次响应式规划帧，禁止为了轮询 Version 常驻 60 FPS。
+
+`EstimatedItemHeight` Lower 为逻辑主轴的 `EstimatedItemExtent`。横向 VirtualList 使用同一字段表示估算宽度。offset 到 index、index 到 offset 的实现契约均为 `O(log N)`；100,000 个逻辑项不得导致 `O(N)` 的逐帧扫描或实体实例化。
+
 ---
 
 # 36. Template

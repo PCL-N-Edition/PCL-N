@@ -29,6 +29,20 @@ public sealed class RenderingTests
     }
 
     [TestMethod]
+    public void ScrollViewport_IsRetainedAsClipNode()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        BlueprintInstance live = context.Instantiate(
+            Ui.Scroll(Ui.Container().Height(UiLength.Pixels(240f))));
+        Drain(context);
+
+        Assert.IsTrue(context.Rendering.Scene.TryGetNode(live.RootEntity, out RenderNodeId node));
+        Assert.IsTrue(context.Backend.TryGetNode(node, out UiRenderNodeSnapshot snapshot));
+        Assert.AreEqual(UiRenderNodeKind.Clip, snapshot.Kind);
+        Assert.AreEqual(new UiRect(0f, 0f, 200f, 100f), snapshot.Bounds);
+    }
+
+    [TestMethod]
     public void VisualChange_EmitsOnlyChangedField()
     {
         using TestContext context = Create(new UiSize(200, 100));

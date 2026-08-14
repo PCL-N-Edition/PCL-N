@@ -15,6 +15,8 @@ public sealed class PlaygroundWindow : Window, IDisposable
     private const int CounterSlice = 1;
     private const int DetailsSlice = 2;
     private const int StatusSlice = 3;
+    private const int VirtualLabelSlice = 1;
+    private const int VirtualTallSlice = 2;
 
     private static readonly UiCommand IncrementCommand = new(1001, "Increment");
     private static readonly UiCommand ToggleDetailsCommand = new(1002, "Toggle details");
@@ -22,6 +24,7 @@ public sealed class PlaygroundWindow : Window, IDisposable
     private static readonly UiCommand MotionCommand = new(1004, "Retarget motion");
     private static readonly UiCommand ReducedMotionCommand = new(1005, "Reduced motion");
     private static readonly UiCommand ResetCommand = new(1006, "Reset");
+    private static readonly UiCommand JumpListCommand = new(1007, "Jump virtual list");
 
     private static readonly UiClass RootClass = new(5001, "Playground.Root");
     private static readonly UiClass SubtitleClass = new(5002, "Playground.Subtitle");
@@ -30,6 +33,7 @@ public sealed class PlaygroundWindow : Window, IDisposable
     private static readonly UiClass AccentCardClass = new(5005, "Playground.AccentCard");
     private static readonly UiClass MutedCardClass = new(5006, "Playground.MutedCard");
     private static readonly UiClass DemoTargetClass = new(5007, "Playground.MotionTarget");
+    private static readonly UiClass VirtualItemClass = new(5008, "Playground.VirtualItem");
 
     private readonly UiWorld _world;
     private readonly UiInteractiveRuntime _runtime;
@@ -43,24 +47,26 @@ public sealed class PlaygroundWindow : Window, IDisposable
     private readonly AvaloniaInputBridge _inputBridge;
     private readonly DispatcherTimer _timer;
     private readonly IDisposable _resetShortcut;
+    private readonly UiVirtualListRegistration _virtualListRegistration;
     private int _counter;
     private bool _detailsVisible = true;
     private bool _darkTheme;
     private bool _motionRight;
     private bool _reducedMotion;
     private UiEntity _motionTarget;
+    private UiEntity _virtualHost;
     private bool _disposed;
 
     public PlaygroundWindow()
     {
         Title = "PCL.UI.Next Rendering Playground";
         Width = 1120;
-        Height = 760;
+        Height = 880;
         MinWidth = 820;
         MinHeight = 600;
         Background = new SolidColorBrush(Color.FromRgb(18, 22, 29));
 
-        UiSize viewport = new(1120, 760);
+        UiSize viewport = new(1120, 880);
         _world = new UiWorld(new StopwatchUiClock());
         _textEngine = new AvaloniaTextEngine();
         _runtime = new UiInteractiveRuntime(_world, _textEngine, viewport);
@@ -88,6 +94,11 @@ public sealed class PlaygroundWindow : Window, IDisposable
 
         BlueprintInstance instance = _blueprints.Instantiate(Ui.Compile(BuildContent()), _windowScope);
         _motionTarget = FindEntityWithClass(instance, DemoTargetClass);
+        _virtualHost = FindEntityByKind(instance, UiNodeKind.VirtualList);
+        _virtualListRegistration = _runtime.Virtualization.Register(
+            _virtualHost,
+            new PlaygroundItemSource(100_000),
+            Ui.Compile(BuildVirtualItem(), "PlaygroundVirtualItem"));
 
         Content = _backend.Surface;
         _inputBridge = new AvaloniaInputBridge(_backend.Surface, _runtime.Input, _inputRoot);
@@ -138,7 +149,8 @@ public sealed class PlaygroundWindow : Window, IDisposable
                         ActionButton("Toggle structure", ToggleDetailsCommand),
                         ActionButton("Switch theme", ToggleThemeCommand),
                         ActionButton("Retarget spring", MotionCommand),
-                        ActionButton("Reduced motion", ReducedMotionCommand))
+                        ActionButton("Reduced motion", ReducedMotionCommand),
+                        ActionButton("Jump to 50,000", JumpListCommand))
                     .Gap(10)
                     .Height(UiLength.Pixels(46)),
                 Ui.Grid(
@@ -176,6 +188,12 @@ public sealed class PlaygroundWindow : Window, IDisposable
                                 .Width(UiLength.Pixels(210)).Height(UiLength.Pixels(48)).At(180, 8),
                             Ui.Text("Absolute / Overlay geometry").Class(UiClass.Body).At(18, 22)))
                     .Height(UiLength.Pixels(68)),
+                Ui.Text("Virtualized 100,000-item variable-height list · wheel, drag, or jump")
+                    .Class(SubtitleClass),
+                Ui.VirtualList(estimatedItemExtent: 42f, overscanBefore: 4, overscanAfter: 6)
+                    .Class(CardClass)
+                    .Padding(new UiThickness(6))
+                    .Height(UiLength.Pixels(170f)),
                 Ui.Text().BindText(counterText).Class(UiClass.Body),
                 Ui.Text().BindText(status).Class(SubtitleClass).WrapText(1000))
             .Class(RootClass)
@@ -189,7 +207,7 @@ public sealed class PlaygroundWindow : Window, IDisposable
         Ui.Button(label)
             .Class(ActionClass)
             .Command(command)
-            .Width(UiLength.Pixels(170))
+            .Width(UiLength.Pixels(160))
             .Height(UiLength.Pixels(44))
             .Transition(UiAnimationProperty.ScaleX, UiMotion.Hover)
             .Transition(UiAnimationProperty.ScaleY, UiMotion.Hover)
@@ -203,6 +221,29 @@ public sealed class PlaygroundWindow : Window, IDisposable
                     .Gap(7))
             .Class(styleClass)
             .Padding(new UiThickness(14));
+
+    private static UiNode BuildVirtualItem()
+    {
+        UiSelector<string> label = UiSelectors.String(
+            7001,
+            VirtualLabelSlice,
+            static store => store.Get<string>(VirtualLabelSlice));
+        UiSelector<bool> tall = UiSelectors.Bool(
+            7002,
+            VirtualTallSlice,
+            static store => store.Get<bool>(VirtualTallSlice));
+        return Ui.If(
+            tall,
+            VirtualItem(label, 58f),
+            VirtualItem(label, 34f));
+    }
+
+    private static UiNode VirtualItem(UiSelector<string> label, float height) =>
+        Ui.Container(
+                Ui.Text().BindText(label).Class(UiClass.Body))
+            .Class(VirtualItemClass)
+            .Padding(new UiThickness(10f, 7f))
+            .Height(UiLength.Pixels(height));
 
     private static void ConfigureStyles(UiStyleSheet styles)
     {
@@ -255,6 +296,11 @@ public sealed class PlaygroundWindow : Window, IDisposable
             default(UiStyleValues)
                 .WithBackground(UiColor.FromRgb(46, 51, 62))
                 .WithCornerRadius(12f)));
+        styles.Add(new UiStyleRule(
+            VirtualItemClass,
+            default(UiStyleValues)
+                .WithBackground(UiColor.FromRgb(34, 42, 55))
+                .WithCornerRadius(7f)));
     }
 
     private UiEntity FindEntityWithClass(BlueprintInstance instance, UiClass styleClass)
@@ -270,6 +316,21 @@ public sealed class PlaygroundWindow : Window, IDisposable
             }
         }
         throw new InvalidOperationException("Playground motion target was not instantiated.");
+    }
+
+    private UiEntity FindEntityByKind(BlueprintInstance instance, UiNodeKind kind)
+    {
+        for (int i = 0; i < instance.Blueprint.NodeCount; i++)
+        {
+            UiEntity entity = instance.EntityAt(i);
+            if (_world.Entities.IsAlive(entity) &&
+                _world.Components.TryGet(entity, out NodeKindComponent node) &&
+                node.Kind == kind)
+            {
+                return entity;
+            }
+        }
+        throw new InvalidOperationException("Playground node kind was not instantiated: " + kind);
     }
 
     private void OnSizeChanged(object? sender, SizeChangedEventArgs e)
@@ -338,6 +399,15 @@ public sealed class PlaygroundWindow : Window, IDisposable
                 _runtime.Animation.SetReducedMotion(_reducedMotion);
                 SetStatus("Reduced motion: " + (_reducedMotion ? "ON" : "OFF"));
             }
+            else if (invocation.Command == JumpListCommand)
+            {
+                _runtime.Virtualization.ScrollIntoView(
+                    _virtualHost,
+                    50_000,
+                    UiScrollAlignment.Center,
+                    animated: true);
+                SetStatus("Virtual list spring-scrolling to logical item 50,000");
+            }
             else if (invocation.Command == ResetCommand)
             {
                 ResetPlayground();
@@ -385,9 +455,30 @@ public sealed class PlaygroundWindow : Window, IDisposable
         _inputBridge.InputQueued -= PumpFrame;
         _inputBridge.Dispose();
         _resetShortcut.Dispose();
+        _virtualListRegistration.Dispose();
         _rendering.Dispose();
         _runtime.Dispose();
         _textEngine.Dispose();
+    }
+
+    private sealed class PlaygroundItemSource(int count) : IUiVirtualItemSource
+    {
+        public int Count { get; } = count;
+        public ulong Version => 1;
+
+        public long GetKey(int index) => index;
+
+        public void BindItem(int index, PresentationStore presentation)
+        {
+            presentation.Set(VirtualLabelSlice, $"#{index:N0}  recycled entity · stable key {index}");
+            presentation.Set(VirtualTallSlice, index % 7 == 0);
+        }
+
+        public bool TryGetIndex(long key, out int index)
+        {
+            index = (int)key;
+            return key >= 0 && key < Count;
+        }
     }
 
 }

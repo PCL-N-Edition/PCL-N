@@ -75,6 +75,10 @@ public static class UiBlueprintCompiler
                 $"Node kind {node.Kind} declares {node.StyleClassIds.Count} style classes; " +
                 $"the inline maximum is {StyleClassSet.MaxInlineCount}.");
         }
+        if (node.Kind == UiNodeKind.VirtualList && node.ChildNodes.Count != 0)
+            throw new InvalidOperationException("Ui.VirtualList item content must be supplied through Runtime template registration.");
+        if (node.Kind == UiNodeKind.Scroll && node.ChildNodes.Count != 1)
+            throw new InvalidOperationException("Ui.Scroll requires exactly one content child.");
 
         int index = drafts.Count;
         drafts.Add(new NodeDraft

@@ -39,6 +39,38 @@ public sealed class ScrollVirtualizationTests
     }
 
     [TestMethod]
+    public void WheelAtNestedBoundary_ContinuesIntoParentViewport()
+    {
+        DeterministicUiClock clock = new();
+        UiWorld world = new(clock);
+        using UiInteractiveRuntime runtime = new(world, new DeterministicTextEngine(), new UiSize(200f, 100f));
+        UiScopeId application = world.CreateRootScope();
+        UiScopeId window = world.CreateScope(application);
+        UiInputRootId inputRoot = runtime.Input.InputRoots.Register(window);
+        BlueprintInstantiator instantiator = new(world, new PresentationStore());
+        BlueprintInstance live = instantiator.Instantiate(
+            Ui.Compile(Ui.Scroll(Ui.Column(
+                Ui.Scroll(Ui.Column(
+                        Ui.Container().Height(UiLength.Pixels(80f)),
+                        Ui.Container().Height(UiLength.Pixels(80f)),
+                        Ui.Container().Height(UiLength.Pixels(80f))))
+                    .Height(UiLength.Pixels(100f)),
+                Ui.Container().Height(UiLength.Pixels(200f))))),
+            window);
+        Drain(world);
+        UiEntity outer = live.RootEntity;
+        UiEntity inner = live.EntityAt(2);
+        runtime.Scroll.SetOffset(inner, runtime.Scroll.GetState(inner).MaximumOffset);
+        Drain(world);
+
+        runtime.Input.EnqueueWheel(inputRoot, new UiPoint(10f, 10f), new UiPoint(0f, -1f));
+        Assert.IsTrue(world.Update());
+
+        Assert.AreEqual(runtime.Scroll.GetState(inner).MaximumOffset, runtime.Scroll.GetState(inner).Offset, 0.01f);
+        Assert.AreEqual(48f, runtime.Scroll.GetState(outer).Offset, 0.01f);
+    }
+
+    [TestMethod]
     public void FlingAfterLongIdle_DoesNotConsumeIdleTime()
     {
         using TestContext context = CreateScrollable();
@@ -165,6 +197,30 @@ public sealed class ScrollVirtualizationTests
         Assert.AreNotEqual(40_000f, snapshot.Extent);
     }
 
+    [TestMethod]
+    public void VirtualList_InvalidationRebindsAdvancedSourceVersion()
+    {
+        using VirtualTestContext context = CreateVirtualList(
+            1_000,
+            estimatedExtent: 20f,
+            overscan: 1,
+            Ui.Text().Height(UiLength.Pixels(20f)));
+        int before = context.Source.BindCount;
+
+        context.Source.AdvanceVersion();
+        context.Runtime.Virtualization.Invalidate(context.Host);
+        Drain(context.World);
+
+        Assert.IsGreaterThan(before, context.Source.BindCount);
+    }
+
+    [TestMethod]
+    public void VirtualList_RejectsStaticChildrenAtCompileTime()
+    {
+        UiNode invalid = Ui.VirtualList().Child(Ui.Text("not a template"));
+        Assert.ThrowsExactly<InvalidOperationException>(() => Ui.Compile(invalid));
+    }
+
     private static TestContext CreateScrollable(bool buttons = false)
     {
         DeterministicUiClock clock = new();
@@ -248,7 +304,7 @@ public sealed class ScrollVirtualizationTests
         Action<int, PresentationStore>? bind) : IUiVirtualItemSource
     {
         public int Count { get; } = count;
-        public ulong Version => 1;
+        public ulong Version { get; private set; } = 1;
         public int BindCount { get; private set; }
 
         public long GetKey(int index) => index;
@@ -267,5 +323,7 @@ public sealed class ScrollVirtualizationTests
             index = (int)key;
             return key >= 0 && key < Count;
         }
+
+        public void AdvanceVersion() => Version++;
     }
 }
