@@ -3439,6 +3439,24 @@ subset depends on accent
 
 实体，验证 Mutation 数量接近变更量。
 
+首版基准由无外部 benchmark framework 依赖的 `PCL.UI.Next.Benchmarks` Release executable
+承载；`--verify` 模式既输出结果，也在任一 gate 失败时返回非零退出码。所有 case 使用
+`DeterministicUiClock`、Headless Backend，并关闭 Diagnostics，避免观测开销污染 Runtime
+hot path。
+
+CI gate 优先冻结可重复的结构 invariant，而不是把某一台机器的绝对耗时当成产品 SLA：
+
+- B1 对 5001 个存活 Entity 连续执行 100000 次 idle probe，必须为 0 frame、0 B；
+- B2 在 1000 个可点击节点间移动 pointer，验证输入路径在有限时间内完成；
+- B3 分别启动 500/1000/5000 个 Tween channel，必须在 guard 内全部 settle；
+- B4 使用 100000 项变高 source，realized subtree 必须 `< 100`；
+- B5 交替嵌套 Stack/Grid 256 层，必须 measure 完整 hierarchy；
+- B6 10000 个 Style Entity 中仅一半依赖 Accent，换 Theme 后必须只改变这 5000 个；
+- B7 先预热 retained tree，再分别改变 1/10/100 个节点，mutation 数不得超过变更数。
+
+wall-time ceiling 只用于捕获 hang、意外全量退化与数量级回归，设置为远高于常见开发机
+结果的宽松上限；精细性能趋势应另存历史数据，不得用噪声敏感的窄阈值阻断 CI。
+
 ---
 
 # 107. 性能预算
@@ -4523,6 +4541,19 @@ Benchmark CI
 - Dirty Trace reader 必须暴露 journal `DroppedCount`，UI 应明确标注被 retention 淘汰的历史，
   不得把不完整 trace 伪装为完整因果链。
 
+### Phase 9 已冻结的 Replay / Benchmark 契约
+
+- `.uireplay` 是 versioned binary artifact；Recorder 只记录 World 已接收的 PlatformEvent、
+  StatePatch、实际 frame ClockTick、Viewport 与显式 ResourceReady。overflow 后禁止导出
+  不完整 replay；Runner 只能驱动使用同一个 `DeterministicUiClock` 的 Headless Runtime；
+- Replay 的 Entity/Scope/InputRoot 身份依赖测试夹具按原始顺序重建；未知 version/kind、
+  时钟倒退、缺少 viewport/resource consumer 必须 fail fast；
+- `PCL.UI.Next.Benchmarks --verify` 固定执行 B1–B7。结构 gate 检查 idle 0 frame/0 B、
+  animation settle、virtualized realized 上限、完整深层 layout、局部 Theme 依赖和稳态
+  RenderDiff mutation；宽松 wall-time ceiling 只捕获 hang/数量级退化；
+- `.github/workflows/build-test.yml` 在 Ubuntu + .NET 10 Release 下执行 benchmark gate；
+  benchmark Runtime 必须关闭 Diagnostics，并使用 deterministic clock/Headless Backend。
+
 ---
 
 ## Phase 10 — Runtime Freeze
@@ -4563,9 +4594,9 @@ Virtualization contract
 - [ ] UI 不依赖业务 Service；
 - [x] TextBox 通过 NativeHost 正常工作；
 - [x] Semantic Tree 可以被 Backend 暴露；
-- [ ] Headless 测试可重放输入；
-- [ ] DevTools 能显示 Dirty chain；
-- [ ] Benchmark CI 已建立。
+- [x] Headless 测试可重放输入；
+- [x] DevTools 能显示 Dirty chain；
+- [x] Benchmark CI 已建立。
 
 ---
 

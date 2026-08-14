@@ -135,6 +135,17 @@ jobs:
           export PYTHONPATH="${GITHUB_WORKSPACE}/scripts${PYTHONPATH:+:$PYTHONPATH}"
           python scripts/benchmark_update_v2.py
 
+  ui-next-benchmark:
+    name: PCL.UI.Next benchmark gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Run deterministic UI benchmark gate
+        run: dotnet run --project PCL.UI.Next.Benchmarks/PCL.UI.Next.Benchmarks.csproj -c Release -- --verify
+
   # Rolling CI package for the "CI" update channel. Content-addressed blocks only — never patches.
   publish-ci-rolling:
     name: Publish ci-latest (no patches)
