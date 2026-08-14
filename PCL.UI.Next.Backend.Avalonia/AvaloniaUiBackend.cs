@@ -18,6 +18,8 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessi
     private readonly Canvas _nativeLayer = new();
     private readonly Dictionary<NativeHostHandle, NativeEntry> _nativeHosts = [];
     private int _nextNativeHost = 1;
+    private NativeHostHandle _focusedNativeHost;
+    private bool _reconcilingNativeFocus;
 
     public AvaloniaUiBackend(AvaloniaTextEngine textEngine)
     {
@@ -110,8 +112,16 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessi
                 return;
             RaiseNativeEvent(entry, NativeHostEventKind.SelectionChanged, textBox.Text);
         };
-        textBox.GotFocus += entry.OnGotFocus = (_, _) => RaiseNativeEvent(entry, NativeHostEventKind.GotFocus, textBox.Text);
-        textBox.LostFocus += entry.OnLostFocus = (_, _) => RaiseNativeEvent(entry, NativeHostEventKind.LostFocus, textBox.Text);
+        textBox.GotFocus += entry.OnGotFocus = (_, _) =>
+        {
+            if (!_reconcilingNativeFocus)
+                RaiseNativeEvent(entry, NativeHostEventKind.GotFocus, textBox.Text);
+        };
+        textBox.LostFocus += entry.OnLostFocus = (_, _) =>
+        {
+            if (!_reconcilingNativeFocus)
+                RaiseNativeEvent(entry, NativeHostEventKind.LostFocus, textBox.Text);
+        };
         textBox.KeyDown += entry.OnKeyDown = (_, e) =>
         {
             if (e.Key == Key.Enter && !textBox.AcceptsReturn)
@@ -137,12 +147,47 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessi
         if (!_nativeHosts.Remove(handle, out NativeEntry? entry))
             return;
         TextBox textBox = entry.Control;
+        bool restoreSurfaceFocus = _focusedNativeHost == handle || textBox.IsFocused;
         textBox.TextChanged -= entry.OnTextChanged;
         textBox.PropertyChanged -= entry.OnPropertyChanged;
         textBox.GotFocus -= entry.OnGotFocus;
         textBox.LostFocus -= entry.OnLostFocus;
         textBox.KeyDown -= entry.OnKeyDown;
         _nativeLayer.Children.Remove(textBox);
+        if (restoreSurfaceFocus)
+        {
+            _focusedNativeHost = NativeHostHandle.None;
+            Surface.Focus();
+        }
+    }
+
+    public void ReconcileNativeHostFocus(NativeHostHandle focusedHost)
+    {
+        Dispatcher.UIThread.VerifyAccess();
+        EnsureInitialized();
+        _reconcilingNativeFocus = true;
+        try
+        {
+            if (focusedHost.IsNone)
+            {
+                bool nativeControlHasFocus = !_focusedNativeHost.IsNone ||
+                                             _nativeHosts.Values.Any(static entry => entry.Control.IsFocused);
+                _focusedNativeHost = NativeHostHandle.None;
+                if (nativeControlHasFocus && !Surface.IsFocused)
+                    Surface.Focus();
+                return;
+            }
+
+            if (!_nativeHosts.TryGetValue(focusedHost, out NativeEntry? entry))
+                throw new InvalidOperationException("Native-host focus handle is stale or invalid: " + focusedHost);
+            _focusedNativeHost = focusedHost;
+            if (!entry.Control.IsFocused)
+                entry.Control.Focus();
+        }
+        finally
+        {
+            _reconcilingNativeFocus = false;
+        }
     }
 
     private static void ApplyState(
@@ -178,8 +223,6 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessi
                 control.IsReadOnly = state.IsReadOnly;
             if ((flags & NativeHostMutationFlags.AcceptsReturn) != 0)
                 control.AcceptsReturn = state.AcceptsReturn;
-            if ((flags & NativeHostMutationFlags.Focus) != 0 && state.IsFocused && !control.IsFocused)
-                control.Focus();
         }
         finally
         {

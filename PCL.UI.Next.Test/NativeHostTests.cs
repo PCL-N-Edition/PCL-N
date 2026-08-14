@@ -101,6 +101,58 @@ public sealed class NativeHostTests
         Assert.IsGreaterThan(90f, mutation.State.Bounds.Width);
     }
 
+    [TestMethod]
+    public void NativeHost_EcsFocusLoss_ReconcilesToPlatformSurface()
+    {
+        using TestContext context = Create();
+        BlueprintInstance live = context.Instantiator.Instantiate(
+            Ui.Compile(
+                Ui.Column(
+                    Ui.TextBox("native"),
+                    Ui.Button("retained"))),
+            context.WindowScope);
+        Drain(context.World);
+        UiEntity textBox = live.EntityAt(1);
+        UiEntity button = live.EntityAt(2);
+
+        Assert.IsTrue(context.Runtime.Input.Focus.Focus(textBox, context.Clock.Now));
+        Assert.IsTrue(context.World.Update());
+        Assert.AreEqual(context.Backend.LastHandle, context.Backend.FocusedHost);
+
+        Assert.IsTrue(context.Runtime.Input.Focus.Focus(button, context.Clock.Now));
+        Assert.IsTrue(context.World.Update());
+
+        Assert.AreEqual(NativeHostHandle.None, context.Backend.FocusedHost);
+    }
+
+    [TestMethod]
+    public void NativeHostToNativeHost_FocusTransfersExactlyOnce()
+    {
+        using TestContext context = Create();
+        BlueprintInstance live = context.Instantiator.Instantiate(
+            Ui.Compile(
+                Ui.Column(
+                    Ui.TextBox("first"),
+                    Ui.TextBox("second"))),
+            context.WindowScope);
+        Drain(context.World);
+        UiEntity first = live.EntityAt(1);
+        UiEntity second = live.EntityAt(2);
+        NativeHostHandle firstHandle = context.Backend.HandleFor(first);
+        NativeHostHandle secondHandle = context.Backend.HandleFor(second);
+
+        Assert.IsTrue(context.Runtime.Input.Focus.Focus(first, context.Clock.Now));
+        Assert.IsTrue(context.World.Update());
+        int beforeTransfer = context.Backend.FocusReconciliationCount;
+
+        Assert.IsTrue(context.Runtime.Input.Focus.Focus(second, context.Clock.Now));
+        Assert.IsTrue(context.World.Update());
+
+        Assert.AreEqual(firstHandle, context.Backend.PreviousFocusedHost);
+        Assert.AreEqual(secondHandle, context.Backend.FocusedHost);
+        Assert.AreEqual(beforeTransfer + 1, context.Backend.FocusReconciliationCount);
+    }
+
     private static TestContext Create()
     {
         DeterministicUiClock clock = new();
@@ -170,6 +222,9 @@ public sealed class NativeHostTests
         public NativeHostHandle LastHandle { get; private set; }
         public NativeHostDescriptor? LastDescriptor { get; private set; }
         public NativeHostMutation? LastMutation { get; private set; }
+        public NativeHostHandle PreviousFocusedHost { get; private set; }
+        public NativeHostHandle FocusedHost { get; private set; }
+        public int FocusReconciliationCount { get; private set; }
         public event Action<NativeHostEvent>? NativeHostEventRaised;
 
         public void Initialize(in UiBackendContext context) => _ = context;
@@ -191,6 +246,13 @@ public sealed class NativeHostTests
             LastMutation = mutation;
         }
 
+        public void ReconcileNativeHostFocus(NativeHostHandle focusedHost)
+        {
+            PreviousFocusedHost = FocusedHost;
+            FocusedHost = focusedHost;
+            FocusReconciliationCount++;
+        }
+
         public void DestroyNativeHost(NativeHostHandle handle)
         {
             if (_hosts.Remove(handle))
@@ -198,5 +260,8 @@ public sealed class NativeHostTests
         }
 
         public void Emit(NativeHostEvent nativeEvent) => NativeHostEventRaised?.Invoke(nativeEvent);
+
+        public NativeHostHandle HandleFor(UiEntity owner) =>
+            _hosts.Single(pair => pair.Value.Owner == owner).Key;
     }
 }

@@ -104,6 +104,8 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
             if (!_seen.Contains(entity))
                 Destroy(entity, entry);
         }
+
+        _backend.ReconcileNativeHostFocus(ResolveFocusedHost());
     }
 
     public void Dispose()
@@ -207,6 +209,25 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
         _backend.DestroyNativeHost(entry.Handle);
         _entries.Remove(entity);
         _owners.Remove(entry.Handle);
+    }
+
+    private NativeHostHandle ResolveFocusedHost()
+    {
+        if (_input is not null &&
+            _input.InputRoots.TryResolve(_rootScope, out UiInputRootId inputRoot))
+        {
+            UiEntity focused = _input.Focus.GetFocused(inputRoot);
+            return _entries.TryGetValue(focused, out Entry focusedEntry)
+                ? focusedEntry.Handle
+                : NativeHostHandle.None;
+        }
+
+        foreach (Entry entry in _entries.Values)
+        {
+            if (entry.State.IsFocused)
+                return entry.Handle;
+        }
+        return NativeHostHandle.None;
     }
 
     private static NativeHostMutationFlags Diff(

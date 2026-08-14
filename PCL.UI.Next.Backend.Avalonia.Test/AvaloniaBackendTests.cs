@@ -194,6 +194,157 @@ public sealed class AvaloniaBackendTests
     }
 
     [TestMethod]
+    public void AvaloniaNativeHost_EcsFocusLoss_BlursPlatformControl()
+    {
+        using HeadlessUnitTestSession session = CreateSession();
+        session.Dispatch(() =>
+        {
+            UiSize viewport = new(320, 180);
+            UiWorld world = new(new DeterministicUiClock());
+            using AvaloniaTextEngine textEngine = new();
+            using UiInteractiveRuntime runtime = new(world, textEngine, viewport);
+            UiScopeId scope = world.CreateRootScope();
+            runtime.Input.InputRoots.Register(scope);
+            AvaloniaUiBackend backend = new(textEngine);
+            using UiRenderingRuntime rendering = new(
+                world,
+                backend,
+                runtime.TextCache,
+                scope,
+                viewport,
+                input: runtime.Input);
+            BlueprintInstantiator instantiator = new(world, new PresentationStore());
+            BlueprintInstance live = instantiator.Instantiate(
+                Ui.Compile(Ui.Column(Ui.TextBox("native"), Ui.Button("retained"))),
+                scope);
+            Window window = new() { Width = 320, Height = 180, Content = backend.View };
+            try
+            {
+                window.Show();
+                Drain(world);
+                TextBox textBox = (TextBox)((Canvas)backend.View.Children[1]).Children[0];
+                Assert.IsTrue(runtime.Input.Focus.Focus(live.EntityAt(1), world.Clock.Now));
+                Assert.IsTrue(world.Update());
+                Assert.IsTrue(textBox.IsFocused);
+
+                Assert.IsTrue(runtime.Input.Focus.Focus(live.EntityAt(2), world.Clock.Now));
+                Assert.IsTrue(world.Update());
+
+                Assert.IsFalse(textBox.IsFocused);
+                Assert.IsTrue(backend.Surface.IsFocused);
+            }
+            finally
+            {
+                window.Content = null;
+                window.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
+    public void ModalOpening_BlursBackgroundNativeTextBox()
+    {
+        using HeadlessUnitTestSession session = CreateSession();
+        session.Dispatch(() =>
+        {
+            UiSize viewport = new(320, 180);
+            UiWorld world = new(new DeterministicUiClock());
+            using AvaloniaTextEngine textEngine = new();
+            using UiInteractiveRuntime runtime = new(world, textEngine, viewport);
+            UiScopeId scope = world.CreateRootScope();
+            runtime.Input.InputRoots.Register(scope);
+            AvaloniaUiBackend backend = new(textEngine);
+            using UiRenderingRuntime rendering = new(
+                world,
+                backend,
+                runtime.TextCache,
+                scope,
+                viewport,
+                input: runtime.Input);
+            BlueprintInstantiator instantiator = new(world, new PresentationStore());
+            using UiOverlayRuntime overlays = new(world, runtime, instantiator, scope);
+            BlueprintInstance live = instantiator.Instantiate(Ui.Compile(Ui.TextBox("background")), scope);
+            Window window = new() { Width = 320, Height = 180, Content = backend.View };
+            try
+            {
+                window.Show();
+                Drain(world);
+                TextBox textBox = (TextBox)((Canvas)backend.View.Children[1]).Children[0];
+                Assert.IsTrue(runtime.Input.Focus.Focus(live.RootEntity, world.Clock.Now));
+                Assert.IsTrue(world.Update());
+                Assert.IsTrue(textBox.IsFocused);
+
+                overlays.ShowModal(Ui.Compile(Ui.Button("Modal action")));
+                Assert.IsTrue(world.Update());
+
+                Assert.IsFalse(textBox.IsFocused);
+                Assert.IsTrue(backend.Surface.IsFocused);
+            }
+            finally
+            {
+                window.Content = null;
+                window.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
+    public void AvaloniaNativeHostToNativeHost_FocusTransfersExactlyOnce()
+    {
+        using HeadlessUnitTestSession session = CreateSession();
+        session.Dispatch(() =>
+        {
+            UiSize viewport = new(320, 180);
+            UiWorld world = new(new DeterministicUiClock());
+            using AvaloniaTextEngine textEngine = new();
+            using UiInteractiveRuntime runtime = new(world, textEngine, viewport);
+            UiScopeId scope = world.CreateRootScope();
+            runtime.Input.InputRoots.Register(scope);
+            AvaloniaUiBackend backend = new(textEngine);
+            using UiRenderingRuntime rendering = new(
+                world,
+                backend,
+                runtime.TextCache,
+                scope,
+                viewport,
+                input: runtime.Input);
+            BlueprintInstantiator instantiator = new(world, new PresentationStore());
+            BlueprintInstance live = instantiator.Instantiate(
+                Ui.Compile(Ui.Column(Ui.TextBox("first"), Ui.TextBox("second"))),
+                scope);
+            Window window = new() { Width = 320, Height = 180, Content = backend.View };
+            try
+            {
+                window.Show();
+                Drain(world);
+                Canvas layer = (Canvas)backend.View.Children[1];
+                TextBox first = (TextBox)layer.Children[0];
+                TextBox second = (TextBox)layer.Children[1];
+                Assert.IsTrue(runtime.Input.Focus.Focus(live.EntityAt(1), world.Clock.Now));
+                Assert.IsTrue(world.Update());
+                Assert.IsTrue(first.IsFocused);
+                int lost = 0;
+                int got = 0;
+                first.LostFocus += (_, _) => lost++;
+                second.GotFocus += (_, _) => got++;
+
+                Assert.IsTrue(runtime.Input.Focus.Focus(live.EntityAt(2), world.Clock.Now));
+                Assert.IsTrue(world.Update());
+
+                Assert.IsFalse(first.IsFocused);
+                Assert.IsTrue(second.IsFocused);
+                Assert.AreEqual(1, lost);
+                Assert.AreEqual(1, got);
+            }
+            finally
+            {
+                window.Content = null;
+                window.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
     public void AvaloniaAccessibility_ExposesSemanticPeersAndRoutesInvoke()
     {
         using HeadlessUnitTestSession session = CreateSession();

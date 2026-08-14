@@ -99,5 +99,11 @@ public interface INativeHostBackend
 
     void UpdateNativeHost(NativeHostHandle handle, in NativeHostMutation mutation);
 
+    /// <summary>
+    /// Reconciles the single platform focus owner after all native-host mutations for the frame.
+    /// <see cref="NativeHostHandle.None"/> returns focus to the backend's retained UI surface.
+    /// </summary>
+    void ReconcileNativeHostFocus(NativeHostHandle focusedHost);
+
     void DestroyNativeHost(NativeHostHandle handle);
 }
