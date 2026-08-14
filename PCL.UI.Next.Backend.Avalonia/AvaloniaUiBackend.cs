@@ -20,6 +20,7 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessi
     private int _nextNativeHost = 1;
     private NativeHostHandle _focusedNativeHost;
     private bool _reconcilingNativeFocus;
+    private bool _shutdown;
 
     public AvaloniaUiBackend(AvaloniaTextEngine textEngine)
     {
@@ -39,6 +40,8 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessi
     public event Action<NativeHostEvent>? NativeHostEventRaised;
     public event Action<UiAccessibilityActionRequest>? AccessibilityActionRaised;
 
+    public UiContractVersion RequiredContractVersion => UiRuntimeContract.Current;
+
     public UiBackendCapabilities Capabilities =>
         UiBackendCapabilities.Clip | UiBackendCapabilities.NativeTextInput | UiBackendCapabilities.Accessibility;
 
@@ -47,8 +50,12 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessi
     public void Initialize(in UiBackendContext context)
     {
         Dispatcher.UIThread.VerifyAccess();
+        if (_shutdown)
+            throw new InvalidOperationException("Backend cannot be initialized after shutdown.");
         if (_initialized)
             throw new InvalidOperationException("Backend is already initialized.");
+        if (!context.RuntimeContractVersion.Supports(RequiredContractVersion))
+            throw new NotSupportedException("Runtime contract does not satisfy the backend requirement.");
         Surface.Initialize(in context);
         _initialized = true;
     }
@@ -67,6 +74,18 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessi
             _invalidate();
         else
             Dispatcher.UIThread.Post(_invalidate, DispatcherPriority.Render);
+    }
+
+    public void Shutdown()
+    {
+        Dispatcher.UIThread.VerifyAccess();
+        EnsureInitialized();
+        if (_nativeHosts.Count != 0)
+            throw new InvalidOperationException("Native hosts must be destroyed before backend shutdown.");
+        _focusedNativeHost = NativeHostHandle.None;
+        Surface.Shutdown();
+        _initialized = false;
+        _shutdown = true;
     }
 
     public void CommitAccessibility(UiSemanticTreeSnapshot tree)

@@ -463,6 +463,7 @@ public sealed class NativeHostTests
         private readonly Dictionary<NativeHostHandle, NativeHostDescriptor> _hosts = [];
         private int _nextHandle = 1;
 
+        public UiContractVersion RequiredContractVersion => UiRuntimeContract.Current;
         public UiBackendCapabilities Capabilities => UiBackendCapabilities.NativeTextInput;
         public int NativeHostCount => _hosts.Count;
         public int DestroyCount { get; private set; }
@@ -477,6 +478,7 @@ public sealed class NativeHostTests
         public void Initialize(in UiBackendContext context) => _ = context;
         public void Commit(in UiCommitBatch batch) => _ = batch;
         public void RequestFrame() { }
+        public void Shutdown() => Assert.AreEqual(0, _hosts.Count);
 
         public NativeHostHandle CreateNativeHost(in NativeHostDescriptor descriptor)
         {

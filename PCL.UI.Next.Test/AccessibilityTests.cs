@@ -336,12 +336,14 @@ public sealed class AccessibilityTests
 
     private sealed class AccessibilityBackend : IUiBackend, IAccessibilityBackend
     {
+        public UiContractVersion RequiredContractVersion => UiRuntimeContract.Current;
         public UiBackendCapabilities Capabilities => UiBackendCapabilities.Accessibility;
         public UiSemanticTreeSnapshot? LastTree { get; private set; }
         public event Action<UiAccessibilityActionRequest>? AccessibilityActionRaised;
         public void Initialize(in UiBackendContext context) => _ = context;
         public void Commit(in UiCommitBatch batch) => _ = batch;
         public void RequestFrame() { }
+        public void Shutdown() { }
         public void CommitAccessibility(UiSemanticTreeSnapshot tree) => LastTree = tree;
         public void Emit(UiAccessibilityActionRequest request) => AccessibilityActionRaised?.Invoke(request);
     }

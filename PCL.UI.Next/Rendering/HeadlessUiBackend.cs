@@ -16,11 +16,14 @@ public sealed class HeadlessUiBackend : IUiBackend
     private readonly List<RenderNodeId> _roots = [];
     private readonly Comparison<RenderNodeId> _renderOrderComparison;
     private bool _initialized;
+    private bool _shutdown;
 
     public HeadlessUiBackend()
     {
         _renderOrderComparison = CompareRenderOrder;
     }
+
+    public UiContractVersion RequiredContractVersion => UiRuntimeContract.Current;
 
     public UiBackendCapabilities Capabilities => UiBackendCapabilities.None;
 
@@ -32,6 +35,10 @@ public sealed class HeadlessUiBackend : IUiBackend
 
     public int RequestFrameCount { get; private set; }
 
+    public int ShutdownCount { get; private set; }
+
+    public bool IsShutdown => _shutdown;
+
     public long LastCommittedFrameId { get; private set; }
 
     public int AppliedMutationCount { get; private set; }
@@ -42,8 +49,12 @@ public sealed class HeadlessUiBackend : IUiBackend
 
     public void Initialize(in UiBackendContext context)
     {
+        if (_shutdown)
+            throw new InvalidOperationException("Backend cannot be initialized after shutdown.");
         if (_initialized)
             throw new InvalidOperationException("Backend is already initialized.");
+        if (!context.RuntimeContractVersion.Supports(RequiredContractVersion))
+            throw new NotSupportedException("Runtime contract does not satisfy the backend requirement.");
         Context = context;
         _initialized = true;
     }
@@ -73,6 +84,19 @@ public sealed class HeadlessUiBackend : IUiBackend
     {
         EnsureInitialized();
         RequestFrameCount++;
+    }
+
+    public void Shutdown()
+    {
+        EnsureInitialized();
+        _nodes.Clear();
+        _liveGenerations.Clear();
+        _children.Clear();
+        _roots.Clear();
+        LastBatch = null;
+        _initialized = false;
+        _shutdown = true;
+        ShutdownCount++;
     }
 
     public bool TryGetNode(RenderNodeId node, out UiRenderNodeSnapshot snapshot) =>

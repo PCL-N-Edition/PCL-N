@@ -136,13 +136,17 @@ jobs:
           python scripts/benchmark_update_v2.py
 
   ui-next-benchmark:
-    name: PCL.UI.Next benchmark gate
+    name: PCL.UI.Next contract and benchmark gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
+      - name: Verify frozen Runtime API
+        run: dotnet build PCL.UI.Next/PCL.UI.Next.csproj -c Release --nologo -warnaserror
+      - name: Run Runtime contract tests
+        run: dotnet test PCL.UI.Next.Test/PCL.UI.Next.Test.csproj -c Release --nologo
       - name: Run deterministic UI benchmark gate
         run: dotnet run --project PCL.UI.Next.Benchmarks/PCL.UI.Next.Benchmarks.csproj -c Release -- --verify
 

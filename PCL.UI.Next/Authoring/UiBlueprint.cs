@@ -25,31 +25,31 @@ public sealed class UiBlueprint
 
     public string Name { get; }
 
-    public int RootIndex { get; }
+    internal int RootIndex { get; }
 
-    public int NodeCount => NodesCore.Length;
+    internal int NodeCount => NodesCore.Length;
 
-    public int BindingCount => BindingsCore.Length;
+    internal int BindingCount => BindingsCore.Length;
 
     /// <summary>Node by index (struct copy — cannot mutate the compiled graph).</summary>
-    public BlueprintNode GetNode(int index) => NodesCore[index];
+    internal BlueprintNode GetNode(int index) => NodesCore[index];
 
     /// <summary>Binding by index (struct copy).</summary>
-    public BlueprintBinding GetBinding(int index) => BindingsCore[index];
+    internal BlueprintBinding GetBinding(int index) => BindingsCore[index];
 
     internal BlueprintNode[] NodesCore { get; }
 
     internal BlueprintBinding[] BindingsCore { get; }
 
-    public BlueprintDependencyIndex DependencyIndex { get; }
+    internal BlueprintDependencyIndex DependencyIndex { get; }
 }
 
 /// <summary>One static node in a blueprint graph (sibling/child via indices).</summary>
-public readonly struct BlueprintNode
+internal readonly struct BlueprintNode
 {
     private readonly int[] _styleClassIds;
 
-    public BlueprintNode(
+    internal BlueprintNode(
         UiNodeKind kind,
         int parentIndex,
         int firstChildIndex,
@@ -158,11 +158,11 @@ public readonly struct BlueprintNode
 }
 
 /// <summary>Compiled binding slot (selector → node property).</summary>
-public readonly struct BlueprintBinding
+internal readonly struct BlueprintBinding
 {
     private readonly int[] _dependencySlices;
 
-    public BlueprintBinding(
+    internal BlueprintBinding(
         int bindingId,
         int nodeIndex,
         ReadOnlySpan<int> dependencySlices,
@@ -190,7 +190,7 @@ public readonly struct BlueprintBinding
     public Func<PresentationStore, bool>? ReadBool { get; }
 }
 
-public enum BlueprintBindingKind : byte
+internal enum BlueprintBindingKind : byte
 {
     None = 0,
     Text = 1,
@@ -202,7 +202,7 @@ public enum BlueprintBindingKind : byte
 /// Applied binding stamp: state fingerprint + target entity generation.
 /// Remounts (new generation) re-apply even when state version is unchanged.
 /// </summary>
-public struct BindingStamp
+internal struct BindingStamp
 {
     public ulong StateVersion { get; set; }
     public UiEntity Entity { get; set; }

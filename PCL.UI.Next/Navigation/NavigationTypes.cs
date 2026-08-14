@@ -107,27 +107,101 @@ public readonly record struct UiNavigationEvent(
     UiPageKey Page,
     UiNavigationPageState State);
 
-public sealed class UiNavigationEventJournal
+public enum UiNavigationEventReaderStart : byte
 {
-    private readonly Queue<UiNavigationEvent> _pending = [];
-    private long _nextSequence = 1;
+    OldestAvailable = 0,
+    NextPublished = 1
+}
 
-    public int Count => _pending.Count;
+public sealed class UiNavigationEventReader
+{
+    private readonly UiNavigationEventJournal _journal;
 
-    public bool TryDequeue(out UiNavigationEvent navigationEvent) =>
-        _pending.TryDequeue(out navigationEvent);
+    internal UiNavigationEventReader(UiNavigationEventJournal journal, long nextSequence)
+    {
+        _journal = journal;
+        NextSequence = nextSequence;
+    }
+
+    public long DroppedCount { get; private set; }
+
+    internal long NextSequence { get; set; }
+
+    public bool TryRead(out UiNavigationEvent navigationEvent) =>
+        _journal.TryRead(this, out navigationEvent);
 
     public int Drain(List<UiNavigationEvent> destination)
     {
         ArgumentNullException.ThrowIfNull(destination);
         int count = 0;
-        while (_pending.TryDequeue(out UiNavigationEvent navigationEvent))
+        while (TryRead(out UiNavigationEvent navigationEvent))
         {
             destination.Add(navigationEvent);
             count++;
         }
         return count;
     }
+
+    internal void AddDropped(long count) => DroppedCount = checked(DroppedCount + count);
+}
+
+public sealed class UiNavigationEventJournal
+{
+    public const int DefaultCapacity = 1_024;
+
+    private readonly object _gate = new();
+    private readonly UiNavigationEvent[] _buffer;
+    private readonly UiNavigationEventReader _defaultReader;
+    private int _head;
+    private int _retainedCount;
+    private long _nextSequence = 1;
+
+    public UiNavigationEventJournal(int capacity = DefaultCapacity)
+    {
+        if (capacity <= 0)
+            throw new ArgumentOutOfRangeException(nameof(capacity));
+        _buffer = new UiNavigationEvent[capacity];
+        _defaultReader = new UiNavigationEventReader(this, _nextSequence);
+    }
+
+    public int Capacity => _buffer.Length;
+
+    public int Count
+    {
+        get
+        {
+            lock (_gate)
+                return GetUnreadCount(_defaultReader);
+        }
+    }
+
+    public int RetainedCount
+    {
+        get
+        {
+            lock (_gate)
+                return _retainedCount;
+        }
+    }
+
+    public UiNavigationEventReader CreateReader(
+        UiNavigationEventReaderStart start = UiNavigationEventReaderStart.OldestAvailable)
+    {
+        if (!Enum.IsDefined(start))
+            throw new ArgumentOutOfRangeException(nameof(start));
+        lock (_gate)
+        {
+            long sequence = start == UiNavigationEventReaderStart.NextPublished
+                ? _nextSequence
+                : FirstAvailableSequence();
+            return new UiNavigationEventReader(this, sequence);
+        }
+    }
+
+    public bool TryDequeue(out UiNavigationEvent navigationEvent) =>
+        TryRead(_defaultReader, out navigationEvent);
+
+    public int Drain(List<UiNavigationEvent> destination) => _defaultReader.Drain(destination);
 
     internal void Publish(
         long frameIndex,
@@ -136,22 +210,82 @@ public sealed class UiNavigationEventJournal
         UiPageKey page,
         UiNavigationPageState state)
     {
-        _pending.Enqueue(new UiNavigationEvent(
-            NextSequence(),
-            frameIndex,
-            kind,
-            generation,
-            page,
-            state));
+        lock (_gate)
+        {
+            Append(new UiNavigationEvent(
+                NextSequence(),
+                frameIndex,
+                kind,
+                generation,
+                page,
+                state));
+        }
     }
 
-    internal void Clear() => _pending.Clear();
+    internal void Clear()
+    {
+        lock (_gate)
+        {
+            Array.Clear(_buffer);
+            _head = 0;
+            _retainedCount = 0;
+            _defaultReader.NextSequence = _nextSequence;
+        }
+    }
+
+    internal bool TryRead(UiNavigationEventReader reader, out UiNavigationEvent navigationEvent)
+    {
+        lock (_gate)
+        {
+            long first = FirstAvailableSequence();
+            if (reader.NextSequence < first)
+            {
+                reader.AddDropped(first - reader.NextSequence);
+                reader.NextSequence = first;
+            }
+            if (_retainedCount == 0 || reader.NextSequence >= _nextSequence)
+            {
+                navigationEvent = default;
+                return false;
+            }
+            int offset = checked((int)(reader.NextSequence - first));
+            if ((uint)offset >= (uint)_retainedCount)
+            {
+                navigationEvent = default;
+                return false;
+            }
+            navigationEvent = _buffer[(_head + offset) % _buffer.Length];
+            reader.NextSequence = checked(navigationEvent.Sequence + 1);
+            return true;
+        }
+    }
+
+    private int GetUnreadCount(UiNavigationEventReader reader)
+    {
+        long first = FirstAvailableSequence();
+        long cursor = Math.Max(first, reader.NextSequence);
+        return checked((int)Math.Min(_retainedCount, Math.Max(0L, _nextSequence - cursor)));
+    }
+
+    private long FirstAvailableSequence() =>
+        _retainedCount == 0 ? _nextSequence : _buffer[_head].Sequence;
+
+    private void Append(UiNavigationEvent navigationEvent)
+    {
+        if (_retainedCount == _buffer.Length)
+        {
+            _head = (_head + 1) % _buffer.Length;
+            _retainedCount--;
+        }
+        int index = (_head + _retainedCount) % _buffer.Length;
+        _buffer[index] = navigationEvent;
+        _retainedCount++;
+    }
 
     private long NextSequence()
     {
-        long sequence = _nextSequence++;
-        if (_nextSequence <= 0)
-            _nextSequence = 1;
-        return sequence;
+        if (_nextSequence == long.MaxValue)
+            throw new InvalidOperationException("Navigation event sequence space is exhausted.");
+        return _nextSequence++;
     }
 }

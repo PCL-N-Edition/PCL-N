@@ -24,6 +24,7 @@ public sealed class UiRenderingRuntime : IDisposable
         World = world ?? throw new ArgumentNullException(nameof(world));
         Backend = backend ?? throw new ArgumentNullException(nameof(backend));
         ArgumentNullException.ThrowIfNull(textLayouts);
+        UiRuntimeContract.EnsureSupported(backend.RequiredContractVersion, backend.GetType().FullName);
         if (!world.Scopes.IsAlive(rootScope))
             throw new InvalidOperationException("Render root scope is not alive: " + rootScope);
         RootScope = rootScope;
@@ -61,6 +62,7 @@ public sealed class UiRenderingRuntime : IDisposable
         World.Systems.Unregister(_commit);
         World.Systems.Unregister(_diff);
         _diff.Dispose();
+        Backend.Shutdown();
         Scene.Dispose();
         _disposed = true;
     }

@@ -20,7 +20,10 @@ public enum UiBackendCapabilities : ulong
 
 public readonly record struct UiBackendContext
 {
-    public UiBackendContext(UiSize viewport, float rasterScale = 1f)
+    public UiBackendContext(
+        UiSize viewport,
+        float rasterScale = 1f,
+        UiContractVersion? runtimeContractVersion = null)
     {
         if (viewport.Width < 0f || viewport.Height < 0f || !viewport.IsFinite)
             throw new ArgumentOutOfRangeException(nameof(viewport));
@@ -28,16 +31,23 @@ public readonly record struct UiBackendContext
             throw new ArgumentOutOfRangeException(nameof(rasterScale));
         Viewport = viewport;
         RasterScale = rasterScale;
+        RuntimeContractVersion = runtimeContractVersion ?? UiRuntimeContract.Current;
+        if (!RuntimeContractVersion.IsValid)
+            throw new ArgumentOutOfRangeException(nameof(runtimeContractVersion));
     }
 
     public UiSize Viewport { get; }
 
     public float RasterScale { get; }
+
+    public UiContractVersion RuntimeContractVersion { get; }
 }
 
 /// <summary>Retained backend contract. Commit must not call back into the Runtime.</summary>
 public interface IUiBackend
 {
+    UiContractVersion RequiredContractVersion { get; }
+
     UiBackendCapabilities Capabilities { get; }
 
     void Initialize(in UiBackendContext context);
@@ -45,4 +55,6 @@ public interface IUiBackend
     void Commit(in UiCommitBatch batch);
 
     void RequestFrame();
+
+    void Shutdown();
 }

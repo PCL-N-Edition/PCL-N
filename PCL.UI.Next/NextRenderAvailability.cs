@@ -15,13 +15,13 @@ public static class NextRenderAvailability
     /// stays disabled and <see cref="ResolveEffectiveMode"/> always returns
     /// <see cref="NextUiRenderMode.Classic"/>.
     /// </summary>
-    public const bool IsImplemented = false;
+    public static bool IsImplemented => false;
 
     /// <summary>
     /// The ECS world, systems, and host bridge are process-wide; switching requires a
     /// full launcher restart. Callers must tell the user to restart once enable is allowed.
     /// </summary>
-    public const bool RequiresLauncherRestart = true;
+    public static bool RequiresLauncherRestart => true;
 
     /// <summary>Whether the experimental toggle may be turned on in settings.</summary>
     public static bool CanEnable => IsImplemented;

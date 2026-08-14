@@ -9,9 +9,9 @@ namespace PCL.UI.Next;
 /// (no reflection / expression-tree parse). A future
 /// <c>PCL.UI.Next.SourceGenerators</c> project can emit the same arrays at compile time.
 /// </summary>
-public static class UiBlueprintCompiler
+internal static class UiBlueprintCompiler
 {
-    public static UiBlueprint Compile(UiNode root, string name = "Blueprint")
+    internal static UiBlueprint Compile(UiNode root, string name = "Blueprint")
     {
         ArgumentNullException.ThrowIfNull(root);
         if (string.IsNullOrWhiteSpace(name))

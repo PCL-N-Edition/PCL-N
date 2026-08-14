@@ -175,6 +175,25 @@ public sealed class NavigationTests
     }
 
     [TestMethod]
+    public void NavigationEventJournal_IsBoundedAndReadersReportDrops()
+    {
+        using TestContext context = Create(reducedMotion: true);
+        context.Navigation.Register(Page(PageA, UiPageCachePolicy.KeepEntities));
+        UiNavigationEventReader reader = context.Navigation.Events.CreateReader(
+            UiNavigationEventReaderStart.NextPublished);
+        const int overflow = 64;
+
+        for (int i = 0; i < UiNavigationEventJournal.DefaultCapacity + overflow; i++)
+            context.Navigation.Navigate(PageA);
+
+        List<UiNavigationEvent> events = [];
+        reader.Drain(events);
+        Assert.AreEqual(UiNavigationEventJournal.DefaultCapacity, events.Count);
+        Assert.AreEqual(overflow, reader.DroppedCount);
+        Assert.AreEqual(context.Navigation.Events.Capacity, context.Navigation.Events.RetainedCount);
+    }
+
+    [TestMethod]
     public void InternalTransitionConsumer_DoesNotStealPublicAnimationEvents()
     {
         using TestContext context = Create(reducedMotion: true);

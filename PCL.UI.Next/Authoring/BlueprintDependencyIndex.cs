@@ -7,7 +7,7 @@ namespace PCL.UI.Next;
 /// Slice → affected binding indices for O(changed) dispatch (not O(all bindings)).
 /// Built at compile time; source generators can emit the same tables.
 /// </summary>
-public sealed class BlueprintDependencyIndex
+internal sealed class BlueprintDependencyIndex
 {
     private readonly Dictionary<int, int[]> _propertyBindingsBySlice;
     private readonly Dictionary<int, int[]> _structuralBindingsBySlice;
@@ -28,9 +28,9 @@ public sealed class BlueprintDependencyIndex
         _allSlices = slices.OrderBy(static x => x).ToArray();
     }
 
-    public ReadOnlySpan<int> AllSlices => _allSlices;
+    internal ReadOnlySpan<int> AllSlices => _allSlices;
 
-    public bool TryGetPropertyBindings(int sliceId, out ReadOnlySpan<int> bindingIndices)
+    internal bool TryGetPropertyBindings(int sliceId, out ReadOnlySpan<int> bindingIndices)
     {
         if (_propertyBindingsBySlice.TryGetValue(sliceId, out int[]? arr))
         {
@@ -42,7 +42,7 @@ public sealed class BlueprintDependencyIndex
         return false;
     }
 
-    public bool TryGetStructuralBindings(int sliceId, out ReadOnlySpan<int> bindingIndices)
+    internal bool TryGetStructuralBindings(int sliceId, out ReadOnlySpan<int> bindingIndices)
     {
         if (_structuralBindingsBySlice.TryGetValue(sliceId, out int[]? arr))
         {

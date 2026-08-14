@@ -613,6 +613,8 @@ public sealed class RenderingTests
     {
         public Action<UiCommitBatch>? BeforeCommit { get; set; }
 
+        public UiContractVersion RequiredContractVersion => inner.RequiredContractVersion;
+
         public UiBackendCapabilities Capabilities => inner.Capabilities;
 
         public void Initialize(in UiBackendContext context) => inner.Initialize(in context);
@@ -624,6 +626,8 @@ public sealed class RenderingTests
         }
 
         public void RequestFrame() => inner.RequestFrame();
+
+        public void Shutdown() => inner.Shutdown();
     }
 }
 

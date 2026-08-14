@@ -2607,11 +2607,15 @@ Backend 应偏 Retained，而不是 Immediate Draw API。
 ```csharp
 public interface IUiBackend
 {
+    UiContractVersion RequiredContractVersion { get; }
+
     void Initialize(in UiBackendContext context);
 
     void Commit(in UiCommitBatch batch);
 
     void RequestFrame();
+
+    void Shutdown();
 
     UiBackendCapabilities Capabilities { get; }
 }
@@ -2638,6 +2642,11 @@ public interface IUiBackend
   `TextLayoutHandle` 始终有效；
 - `UiBackendCapabilities` 只能声明当前真正实现的能力。尚未实现的 Blur / Shadow /
   Vector / HDR 不得提前宣称支持；
+- Backend 在 `Initialize` 前由 Runtime 校验 `RequiredContractVersion`；兼容规则为 major
+  必须相同，Runtime minor 必须大于等于 Backend 要求的 minor；
+- Backend 生命周期固定为 `Initialize → Commit/RequestFrame → Shutdown`。一个实例只能
+  初始化一次，`UiRenderingRuntime.Dispose` 必须恰好调用一次 `Shutdown`；Backend 清空
+  retained state 后，RenderScene 才能释放最后的 render resource lease；
 - 第一版 Avalonia Backend 使用一个 `PclUiSurface` 绘制 retained state，不为每个
   Entity 创建 Avalonia Control；文本由 `AvaloniaTextEngine` 复用 Avalonia 的成熟
   shaping / fallback 实现；
@@ -2922,6 +2931,10 @@ NavigationGeneration++
 System 只处理当前 generation。
 
 旧 transition/event 自动失效。
+
+公共 `UiNavigationEventJournal` 只承担观测，不驱动页面 lifecycle；它使用固定容量的
+sequence-based multi-reader ring。慢 reader 通过 `DroppedCount` 显式报告丢失，缺少
+consumer 不得让 Navigation 内存随进程时间增长。
 
 ---
 
@@ -3513,11 +3526,11 @@ Runtime ECS/Animation < 1 ms typical
 ```text
 Ui.*
 UiNode
-UiTemplate
+UiBlueprint
 UiClass
-Selector
+UiSelector<T>
 UiCommand
-ThemeToken
+ThemeToken<T>
 ```
 
 页面不应看到：
@@ -3530,6 +3543,10 @@ RenderNode
 RenderMutation
 Avalonia.Control
 ```
+
+`UiBlueprint` 对页面是 opaque compiled artifact：页面只能读取诊断名称并把它传给
+Navigation/Virtualization/host contract；node array、binding program、dependency index 与
+runtime compiler 均为 internal，不属于页面 ABI。
 
 ---
 
@@ -4579,27 +4596,84 @@ Virtualization contract
 
 再进入页面迁移。
 
+### Phase 10 已冻结的版本与兼容性契约
+
+- 首个冻结版本为 `UiRuntimeContract.Current = 1.0`，统一覆盖 Authoring、Binding、Theme、
+  Navigation、Backend 与 Virtualization；同 major 内只允许向后兼容的 additive 变化，
+  删除、改签名、枚举改值或改变既有语义必须提升 major；
+- `UiContractVersion.Supports(required)` 的方向固定为“当前 Runtime 是否满足 consumer 要求”：
+  major 相同且当前 minor 不低于 required minor；无效的 `0.x` contract 永不兼容；
+- `PublicAPI.Shipped.txt` 是 1.0 ABI 的唯一 machine-readable baseline；
+  `Microsoft.CodeAnalysis.PublicApiAnalyzers` 的 RS0016/RS0017 均为 build error。新增 API
+  必须先进入 `PublicAPI.Unshipped.txt` 并完成版本评审，禁止顺手扩张公共面；
+- CI 必须显式 build frozen Runtime、运行 Runtime contract tests，再运行 B1–B7 benchmark。
+
+### Phase 10 已冻结的六类公共契约
+
+#### Authoring
+
+- 页面入口固定为 `Ui.* / UiNode / UiBlueprint / UiClass / UiCommand` 及其 value types；
+- `UiNode` 只构建静态声明，不创建 Entity；`UiBlueprint` 是 opaque compiled artifact，
+  Blueprint node/binding/dependency representation 不公开；
+- Authoring facade 的 public signature 禁止出现 `UiWorld`、`UiEntity`、Component Store、
+  DirtyTracker、RenderNode 或 RenderMutation。
+
+#### Binding
+
+- `PresentationStore` 以 integer slice + monotonic version 保存 presentation state；
+  `UiSelector<T>` 显式声明 dependency slices，binding 只在 fingerprint 变化时执行；
+- Binding 禁止 reflection、字符串 property path、`INotifyPropertyChanged` 与运行时表达式树；
+  Source Generator 未来只能生成相同 contract 的静态数据/updater，不改变运行时语义。
+
+#### Theme
+
+- `ThemeToken<T>` 的 integer ID 与 value type 共同构成身份；同 ID 改变 T 必须 fail fast；
+- 相同值 Set 不增加 version；token change 只使真正引用该 token 的 StyleClass Entity dirty；
+- built-in `UiThemeTokens` 的 ID 与类型属于 shipped API，不能重排或复用。
+
+#### Navigation
+
+- Page state、generation、cache policy 与 Phase 8 lifecycle contract 保持不变；
+- public event journal 是 bounded、multi-reader、可丢失观测流，并公开 `DroppedCount`；
+  页面状态机继续使用内部 lossless completion path，禁止依赖观测 journal；
+- `UiPageKey` 与 page registration 在一个 Navigation Runtime 内唯一，active page 未销毁前
+  不允许 unregister。
+
+#### Backend
+
+- `IUiBackend` 固定声明 required contract version、capabilities、Initialize、Commit、
+  RequestFrame 与 Shutdown；不兼容 Backend 必须在 Initialize 前被拒绝；
+- Commit batch immutable、FrameId 严格递增、Commit 不回调 Runtime；Shutdown 先清空
+  platform retained state，Runtime 后释放 RenderScene resource leases。
+
+#### Virtualization
+
+- `IUiVirtualItemSource` 固定提供 Count、Version、stable key、BindItem 与 key lookup；
+- source Version 是结构刷新边界；同 Version 内 key/index 映射必须稳定且 key 唯一；
+- registration 拥有 realized subtree 生命周期且 Dispose 幂等；memory 与 realized/recycle window
+  成正比，measurement cache 在 source refresh 后不得保留已移除 key。
+
 ---
 
 # 138. Runtime 完成验收标准
 
 在开始重写实际页面前，应至少满足：
 
-- [ ] Runtime 不依赖 Avalonia；
-- [ ] Backend.Avalonia 可独立替换为 Headless；
-- [ ] Idle 时不持续 request frame；
+- [x] Runtime 不依赖 Avalonia；
+- [x] Backend.Avalonia 可独立替换为 Headless；
+- [x] Idle 时不持续 request frame；
 - [x] Hot animation path 0 B/frame；
-- [ ] 10 万项列表只实例化可见范围；
-- [ ] Hover/Press 不通过回调实现；
+- [x] 10 万项列表只实例化可见范围；
+- [x] Hover/Press 不通过回调实现；
 - [x] Navigation 不通过回调实现；
 - [x] 页面生命周期通过 Scope；
 - [x] 过期 generation 事件能正确丢弃；
-- [ ] Layout 是增量 Dirty；
-- [ ] Scroll 不触发全量 Layout；
-- [ ] Style/Theme 支持局部失效；
-- [ ] Binding 无反射；
-- [ ] UI 不使用 `INotifyPropertyChanged`；
-- [ ] UI 不依赖业务 Service；
+- [x] Layout 是增量 Dirty；
+- [x] Scroll 不触发全量 Layout；
+- [x] Style/Theme 支持局部失效；
+- [x] Binding 无反射；
+- [x] UI 不使用 `INotifyPropertyChanged`；
+- [x] UI 不依赖业务 Service；
 - [x] TextBox 通过 NativeHost 正常工作；
 - [x] Semantic Tree 可以被 Backend 暴露；
 - [x] Headless 测试可重放输入；
