@@ -19,6 +19,12 @@ dotnet run --project PCL.UI.Next.Playground/PCL.UI.Next.Playground.csproj --conf
 - retained RenderScene、最小 RenderMutation、CommitBatch 与单 Avalonia Surface。
 - Scroll viewport 裁剪、滚轮/拖拽、惯性、回弹与程序化滚动；
 - 100,000 项变高 VirtualList、overscan、稳定 key、锚点修正与实体回收。
+- Avalonia NativeHost TextBox、IME/selection/value 事件 journal；
+- 独立 Semantic Tree、Avalonia AutomationPeer 与 Accessibility action → Command；
+- Tooltip delay / pointer anchor / input pass-through；
+- PopupScope、外部点击/Escape 关闭与焦点恢复；
+- Modal barrier、背景 dim、输入阻断与 Tab focus trap；
+- Navigation PageScope、Preparing/Entering/Active/Leaving/Dormant 状态、generation 中断与缓存复用。
 
 建议操作：
 
@@ -30,5 +36,9 @@ dotnet run --project PCL.UI.Next.Playground/PCL.UI.Next.Playground.csproj --conf
 6. 开关 Reduced Motion 后再次触发动画；
 7. 按 F5，通过 Shortcut → Command 边界复位。
 8. 在 100,000 项列表上滚轮或拖拽，再点 `Jump to 50,000`，观察窗口标题中的 retained node 数量保持稳定。
-
-尚未实现的后续 Runtime 能力（如 Navigation、Accessibility）不在该窗口的覆盖范围内。
+9. 在 Native TextBox 中输入和移动选区，观察底部 NativeHost journal 状态；
+10. 悬停 `Hover tooltip`，确认延迟出现且不抢鼠标命中；
+11. 打开 Popup，测试外部点击/Escape 与焦点恢复；
+12. 打开 Modal，确认背景无法点击、Tab 不越过 Modal；
+13. 快速点击 `Navigate A / B`，确认中断时无跳变且旧 generation 不覆盖新页面；
+14. 用 Narrator/Accessibility Insights 检查按钮、文本、TextBox 与页面语义树；窗口标题会显示 semantic/native/overlay/page 实时计数。

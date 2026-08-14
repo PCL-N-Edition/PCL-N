@@ -1502,6 +1502,109 @@ PXML 只描述 NativeHost contract。
 
 具体 Avalonia Control 由 backend 创建。
 
+`Value` 是 Runtime target binding。平台侧输入不得直接修改 Presentation Store；它必须先
+形成 generation-safe NativeHost event，再经显式 Command/StatePatch 写回：
+
+```text
+Native TextChanged / SelectionChanged / Submitted
+↓
+NativeHost event journal
+↓
+validate Entity + Scope generation
+↓
+Command / StatePatch
+↓
+next binding evaluation
+```
+
+---
+
+## 53.1 Accessibility 语义
+
+PXML 元素可声明独立于视觉树的语义：
+
+```xml
+<Button
+    AccessibleRole="Button"
+    AccessibleName="{loc Download.Install}"
+    AccessibleDescription="{loc Download.InstallDescription}"
+    AccessibleActions="Invoke Focus"
+    Command="{cmd Install}" />
+```
+
+编译器必须将其展开为：
+
+```text
+SemanticRole
+AccessibleName
+AccessibleDescription
+AccessibleValue
+AccessibleState
+AccessibleAction
+```
+
+禁止将 RenderNode hierarchy 当作 Semantic Tree。`AccessibleName`/`Value` 的 binding
+必须进入静态 dependency index；PasswordBox 的 Value 不得进入 semantic output。
+
+---
+
+## 53.2 Tooltip / Popup / Modal
+
+Overlay primitive 描述的是 Runtime overlay contract，不是 Avalonia Popup/Window：
+
+```xml
+<Button Text="Help">
+    <Button.Tooltip Delay="500ms" Placement="Pointer">
+        <Text Text="{loc Help.Description}" />
+    </Button.Tooltip>
+</Button>
+
+<Popup
+    Anchor="{ref MoreButton}"
+    Placement="Auto"
+    DismissOnOutsidePointer="true"
+    DismissOnEscape="true">
+    <Menu Items="{bind Page.Actions}" />
+</Popup>
+
+<Modal DismissOnEscape="true">
+    <DialogContent />
+</Modal>
+```
+
+Compiler/IR 必须显式编码 placement、dismiss policy、focus policy 与 child Scope ownership。
+Tooltip 默认 input pass-through；Modal 默认生成 dim/input barrier 与 trapping FocusScope。
+页面不得通过设置主树 `IsHitTestVisible=false` 模拟 Modal。
+
+---
+
+## 53.3 NavigationHost / Page
+
+```xml
+<NavigationHost Current="{bind Shell.Route}">
+    <Page Key="Home" Cache="Pinned">
+        <HomePage />
+    </Page>
+    <Page Key="Download" Cache="Lru">
+        <DownloadPage />
+    </Page>
+</NavigationHost>
+```
+
+`Key` 必须在同一 NavigationHost 内编译期唯一。`Cache` 只允许：
+
+```text
+None
+KeepPresentationState
+KeepEntities
+Lru
+Pinned
+```
+
+生成物必须是静态 `UiPageDefinition + UiBlueprint` 表，不得生成页面对象或 completion
+callback。Navigation request、state change 与 completion 通过 generation-safe journal 表达；
+旧 generation 的 transition completion 不得提交页面状态。
+
 ---
 
 # 54. Import 与 Namespace

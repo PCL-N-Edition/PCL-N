@@ -25,6 +25,9 @@ public sealed class PlaygroundWindow : Window, IDisposable
     private static readonly UiCommand ReducedMotionCommand = new(1005, "Reduced motion");
     private static readonly UiCommand ResetCommand = new(1006, "Reset");
     private static readonly UiCommand JumpListCommand = new(1007, "Jump virtual list");
+    private static readonly UiCommand PopupCommand = new(1008, "Toggle popup");
+    private static readonly UiCommand ModalCommand = new(1009, "Show modal");
+    private static readonly UiCommand NavigateCommand = new(1010, "Navigate demo page");
 
     private static readonly UiClass RootClass = new(5001, "Playground.Root");
     private static readonly UiClass SubtitleClass = new(5002, "Playground.Subtitle");
@@ -34,6 +37,9 @@ public sealed class PlaygroundWindow : Window, IDisposable
     private static readonly UiClass MutedCardClass = new(5006, "Playground.MutedCard");
     private static readonly UiClass DemoTargetClass = new(5007, "Playground.MotionTarget");
     private static readonly UiClass VirtualItemClass = new(5008, "Playground.VirtualItem");
+    private static readonly UiClass PopupAnchorClass = new(5009, "Playground.PopupAnchor");
+    private static readonly UiClass TooltipAnchorClass = new(5010, "Playground.TooltipAnchor");
+    private static readonly UiClass NavigationHostClass = new(5011, "Playground.NavigationHost");
 
     private readonly UiWorld _world;
     private readonly UiInteractiveRuntime _runtime;
@@ -48,6 +54,9 @@ public sealed class PlaygroundWindow : Window, IDisposable
     private readonly DispatcherTimer _timer;
     private readonly IDisposable _resetShortcut;
     private readonly UiVirtualListRegistration _virtualListRegistration;
+    private readonly UiOverlayRuntime _overlays;
+    private readonly UiNavigationRuntime _navigation;
+    private readonly UiTooltipRegistration _tooltipRegistration;
     private int _counter;
     private bool _detailsVisible = true;
     private bool _darkTheme;
@@ -55,38 +64,43 @@ public sealed class PlaygroundWindow : Window, IDisposable
     private bool _reducedMotion;
     private UiEntity _motionTarget;
     private UiEntity _virtualHost;
+    private UiEntity _popupAnchor;
+    private UiOverlayHandle _popup;
+    private UiOverlayHandle _modal;
+    private bool _secondNavigationPage;
     private bool _disposed;
 
     public PlaygroundWindow()
     {
         Title = "PCL.UI.Next Rendering Playground";
         Width = 1120;
-        Height = 880;
+        Height = 960;
         MinWidth = 820;
         MinHeight = 600;
         Background = new SolidColorBrush(Color.FromRgb(18, 22, 29));
 
-        UiSize viewport = new(1120, 880);
+        UiSize viewport = new(1120, 960);
         _world = new UiWorld(new StopwatchUiClock());
         _textEngine = new AvaloniaTextEngine();
         _runtime = new UiInteractiveRuntime(_world, _textEngine, viewport);
         ConfigureStyles(_runtime.Styles);
         UiScopeId applicationScope = _world.CreateRootScope();
         _windowScope = _world.CreateScope(applicationScope);
+        _inputRoot = _runtime.Input.InputRoots.Register(_windowScope);
         _backend = new AvaloniaUiBackend(_textEngine);
         _rendering = new UiRenderingRuntime(
             _world,
             _backend,
             _runtime.TextCache,
             _windowScope,
-            viewport);
+            viewport,
+            input: _runtime.Input);
         _presentation = new PresentationStore();
         _presentation.Set(CounterSlice, _counter);
         _presentation.Set(DetailsSlice, _detailsVisible);
         _presentation.Set(StatusSlice, "Ready · click a button, resize the window, use Tab/Enter, or press F5");
         _blueprints = new BlueprintInstantiator(_world, _presentation);
 
-        _inputRoot = _runtime.Input.InputRoots.Register(_windowScope);
         _resetShortcut = _runtime.Input.Shortcuts.Register(
             _windowScope,
             new UiKeyGesture(UiKey.F5),
@@ -99,6 +113,36 @@ public sealed class PlaygroundWindow : Window, IDisposable
             _virtualHost,
             new PlaygroundItemSource(100_000),
             Ui.Compile(BuildVirtualItem(), "PlaygroundVirtualItem"));
+
+        _popupAnchor = FindEntityWithClass(instance, PopupAnchorClass);
+        UiEntity tooltipAnchor = FindEntityWithClass(instance, TooltipAnchorClass);
+        UiEntity navigationHost = FindEntityWithClass(instance, NavigationHostClass);
+        _overlays = new UiOverlayRuntime(_world, _runtime, _blueprints, _windowScope);
+        _tooltipRegistration = _overlays.AttachTooltip(
+            tooltipAnchor,
+            Ui.Compile(
+                Card(
+                        "Tooltip Scope",
+                        "Delayed, pointer-anchored, auto-closed and input pass-through.",
+                        AccentCardClass)
+                    .Width(UiLength.Pixels(300))
+                    .Height(UiLength.Pixels(76)),
+                "PlaygroundTooltip"));
+        _navigation = new UiNavigationRuntime(
+            _world,
+            _runtime,
+            _blueprints,
+            _windowScope,
+            navigationHost);
+        _navigation.Register(new UiPageDefinition(
+            new UiPageKey("overview"),
+            Ui.Compile(BuildNavigationPage("Navigation Page A", "KeepEntities cache · generation-safe Scope"), "NavigationPageA"),
+            UiPageCachePolicy.KeepEntities));
+        _navigation.Register(new UiPageDefinition(
+            new UiPageKey("details"),
+            Ui.Compile(BuildNavigationPage("Navigation Page B", "Interruptible UiMotion.Navigation transition"), "NavigationPageB"),
+            UiPageCachePolicy.Lru));
+        _navigation.Navigate(new UiPageKey("overview"));
 
         Content = _backend.View;
         _inputBridge = new AvaloniaInputBridge(_backend.Surface, _runtime.Input, _inputRoot);
@@ -153,6 +197,15 @@ public sealed class PlaygroundWindow : Window, IDisposable
                         ActionButton("Jump to 50,000", JumpListCommand))
                     .Gap(10)
                     .Height(UiLength.Pixels(46)),
+                Ui.Row(
+                        Ui.TextBox("Native input", "Native TextBox · IME / selection")
+                            .Width(UiLength.Pixels(300)),
+                        ActionButton("Popup", PopupCommand).Class(PopupAnchorClass),
+                        ActionButton("Modal", ModalCommand),
+                        ActionButton("Hover tooltip", IncrementCommand).Class(TooltipAnchorClass),
+                        ActionButton("Navigate A / B", NavigateCommand))
+                    .Gap(10)
+                    .Height(UiLength.Pixels(46)),
                 Ui.Grid(
                         cards,
                         Card("Fixed + Star Grid", "Track 1: 1*", CardClass).GridCell(0, 0),
@@ -193,7 +246,11 @@ public sealed class PlaygroundWindow : Window, IDisposable
                 Ui.VirtualList(estimatedItemExtent: 42f, overscanBefore: 4, overscanAfter: 6)
                     .Class(CardClass)
                     .Padding(new UiThickness(6))
-                    .Height(UiLength.Pixels(170f)),
+                    .Height(UiLength.Pixels(130f)),
+                Ui.Container()
+                    .Class(NavigationHostClass)
+                    .Class(CardClass)
+                    .Height(UiLength.Pixels(104f)),
                 Ui.Text().BindText(counterText).Class(UiClass.Body),
                 Ui.Text().BindText(status).Class(SubtitleClass).WrapText(1000))
             .Class(RootClass)
@@ -237,6 +294,16 @@ public sealed class PlaygroundWindow : Window, IDisposable
             VirtualItem(label, 58f),
             VirtualItem(label, 34f));
     }
+
+    private static UiNode BuildNavigationPage(string title, string subtitle) =>
+        Ui.Container(
+                Ui.Column(
+                        Ui.Text(title).Class(UiClass.Body),
+                        Ui.Text(subtitle).Class(SubtitleClass).WrapText(700))
+                    .Gap(7))
+            .Class(AccentCardClass)
+            .Padding(new UiThickness(14))
+            .Accessible(UiSemanticRole.Group, title);
 
     private static UiNode VirtualItem(UiSelector<string> label, float height) =>
         Ui.Container(
@@ -356,9 +423,26 @@ public sealed class PlaygroundWindow : Window, IDisposable
         if (_disposed || !_world.Scheduler.NeedsFrame)
             return;
         _world.Update();
+        ProcessNativeHostEvents();
         ProcessCommands();
         Title = $"PCL.UI.Next Playground · frame {_world.FrameIndex} · " +
-                $"nodes {_rendering.Scene.NodeCount} · commits {_backend.Surface.CommitCount}";
+                $"render {_rendering.Scene.NodeCount} · semantic {_rendering.Accessibility.Tree.NodeCount} · " +
+                $"native {_backend.NativeHostCount} · overlays {_overlays.OverlayCount} · " +
+                $"pages {_navigation.LivePageCount} · commits {_backend.Surface.CommitCount}";
+    }
+
+    private void ProcessNativeHostEvents()
+    {
+        if (_rendering.NativeHosts is not { } nativeHosts)
+            return;
+        for (int i = 0; i < nativeHosts.FrameEvents.Count; i++)
+        {
+            NativeHostFrameEvent nativeEvent = nativeHosts.FrameEvents[i];
+            if (nativeEvent.Kind == NativeHostEventKind.ValueChanged)
+                SetStatus($"NativeHost event journal: ValueChanged · {nativeEvent.Value}");
+            else if (nativeEvent.Kind == NativeHostEventKind.Submitted)
+                SetStatus("NativeHost event journal: Submitted");
+        }
     }
 
     private void ProcessCommands()
@@ -408,6 +492,58 @@ public sealed class PlaygroundWindow : Window, IDisposable
                     animated: true);
                 SetStatus("Virtual list spring-scrolling to logical item 50,000");
             }
+            else if (invocation.Command == PopupCommand)
+            {
+                if (!_popup.IsNone && _overlays.TryGetOverlay(_popup, out _))
+                {
+                    _overlays.Close(_popup);
+                    _popup = UiOverlayHandle.None;
+                    SetStatus("PopupScope closed and previous focus restored");
+                }
+                else
+                {
+                    _popup = _overlays.OpenPopup(
+                        Ui.Compile(
+                            Card(
+                                    "Popup Scope",
+                                    "Click outside or press Escape. Focus is restored on close.",
+                                    CardClass)
+                                .Width(UiLength.Pixels(310))
+                                .Height(UiLength.Pixels(82)),
+                            "PlaygroundPopup"),
+                        _popupAnchor);
+                    SetStatus("Popup opened in a child Scope with collision-aware placement");
+                }
+            }
+            else if (invocation.Command == ModalCommand)
+            {
+                if (!_modal.IsNone && _overlays.TryGetOverlay(_modal, out _))
+                {
+                    _overlays.Close(_modal);
+                    _modal = UiOverlayHandle.None;
+                    SetStatus("Modal closed");
+                }
+                else
+                {
+                    _modal = _overlays.ShowModal(
+                        Ui.Compile(
+                            Card(
+                                    "Modal + Focus Trap",
+                                    "The dim barrier blocks background input. Press Escape or click Modal again after closing.",
+                                    AccentCardClass)
+                                .Width(UiLength.Pixels(430))
+                                .Height(UiLength.Pixels(110)),
+                            "PlaygroundModal"));
+                    SetStatus("Modal barrier active · Tab focus is trapped");
+                }
+            }
+            else if (invocation.Command == NavigateCommand)
+            {
+                _secondNavigationPage = !_secondNavigationPage;
+                UiPageKey page = new(_secondNavigationPage ? "details" : "overview");
+                UiNavigationRequest request = _navigation.Navigate(page);
+                SetStatus($"Navigation request {request.Generation}: {page}");
+            }
             else if (invocation.Command == ResetCommand)
             {
                 ResetPlayground();
@@ -439,6 +575,12 @@ public sealed class PlaygroundWindow : Window, IDisposable
         _runtime.Animation.SetReducedMotion(false);
         UiAnimationSpec spec = new(UiMotion.SpringExpressive);
         _runtime.Animation.Retarget(_motionTarget, UiAnimationProperty.TranslateX, 0f, in spec);
+        if (!_popup.IsNone)
+            _overlays.Close(_popup);
+        if (!_modal.IsNone)
+            _overlays.Close(_modal);
+        _popup = UiOverlayHandle.None;
+        _modal = UiOverlayHandle.None;
         SetStatus("Reset by F5 shortcut through the scope-aware command registry");
     }
 
@@ -456,6 +598,9 @@ public sealed class PlaygroundWindow : Window, IDisposable
         _inputBridge.Dispose();
         _resetShortcut.Dispose();
         _virtualListRegistration.Dispose();
+        _tooltipRegistration.Dispose();
+        _navigation.Dispose();
+        _overlays.Dispose();
         _rendering.Dispose();
         _runtime.Dispose();
         _textEngine.Dispose();

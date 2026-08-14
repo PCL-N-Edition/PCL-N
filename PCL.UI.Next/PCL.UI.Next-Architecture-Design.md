@@ -2636,8 +2636,8 @@ public interface IUiBackend
 - `TextLayout` 同时持有 ECS/Layout lease 与 RenderScene lease；替换或销毁文本节点时，
   旧 render lease 只能在 Backend Commit 成功后释放，确保 retained backend 中可见的
   `TextLayoutHandle` 始终有效；
-- `UiBackendCapabilities` 只能声明当前真正实现的能力。尚未实现的 Clip / Blur /
-  Shadow / Vector / Accessibility 不得提前宣称支持；
+- `UiBackendCapabilities` 只能声明当前真正实现的能力。尚未实现的 Blur / Shadow /
+  Vector / HDR 不得提前宣称支持；
 - 第一版 Avalonia Backend 使用一个 `PclUiSurface` 绘制 retained state，不为每个
   Entity 创建 Avalonia Control；文本由 `AvaloniaTextEngine` 复用 Avalonia 的成熟
   shaping / fallback 实现；
@@ -4396,6 +4396,52 @@ Modal
 Navigation
 ```
 
+### Phase 8 已冻结的运行时契约
+
+#### NativeHost
+
+- ECS 中的 `NativeHostComponent` 是目标状态唯一来源；平台输入只进入
+  `NativeHostFrameEvent` journal，不允许 Backend 直接反写 ECS；
+- Backend 以 generation-safe `NativeHostHandle` 管理 create/update/destroy；
+- bounds、visibility、enabled、focus、value、selection、read-only 与 multiline
+  均通过 diff mutation 同步；
+- NativeHost 与所属 `UiScope` 同生共死，Scope 销毁时必须立即释放平台控件。
+
+#### Semantic Tree / Accessibility
+
+- `SemanticRole`、`AccessibleName`、`AccessibleDescription`、`AccessibleValue`、
+  `AccessibleState`、`AccessibleAction` 生成独立 `UiSemanticTreeSnapshot`；
+- Semantic parent 是最近的 semantic ancestor，不能复用 RenderNode parent；
+- 每个 Window/Input Root 独立消费 Accessibility dirty，不能跨窗口清除或合并；
+- Avalonia Backend 使用虚拟 `AutomationPeer` 暴露 retained Entity，不为每个渲染
+  Entity 创建 Avalonia Control；NativeHost 继续使用原生 Control peer；
+- 平台 Invoke/Focus 先进入 `UiAccessibilityActionRequest`，再由 Runtime 校验
+  Entity generation、Scope、支持的 action 与 enabled state，最后进入 Focus/Command。
+
+#### Overlay
+
+- 每个 Window 只有一个 Runtime-owned `OverlayRoot`；Tooltip、Popup、Modal
+  均创建独立 child Scope，并使用 generation-safe `UiOverlayHandle`；
+- Tooltip 支持 delay、pointer anchor、viewport clamp、auto-close 和完整 subtree
+  input pass-through；等待 timer 通过引用计数 lease 持有 continuous frame；
+- Popup 使用 placement + optional outside-pointer barrier + FocusScope，关闭时恢复焦点；
+- Modal 始终具有 dim barrier、input barrier 和 trapping FocusScope，不修改主页面的
+  `IsHitTestVisible`；
+- Overlay Scope 被外部销毁时，handle 必须立即失效，routed handler 与 timer lease
+  必须同步释放。
+
+#### Navigation
+
+- 页面状态固定为 `Created → Preparing → Entering → Active → Leaving →
+  Dormant/Destroyed`；每个页面实例拥有独立 PageScope；
+- 每次 `Navigate` 递增 `NavigationGeneration`。再次导航时，所有仍在 Entering/Leaving
+  的页面加入新 transition group；旧 generation completion 只能被丢弃；
+- 页面 lifecycle 只写入 `UiNavigationEventJournal`，公共 API 不允许 completion callback；
+- Cache policy 固定为 `None / KeepPresentationState / KeepEntities / Lru / Pinned`；
+  LRU 只计算 Dormant 且声明为 Lru 的页面，Pinned 永不被容量驱逐；
+- Dormant/Preparing 页面从 HitTest 与 Semantic Tree 整棵移除，但仍可保留 Entity，
+  不得只隐藏页面根而让后代继续接收输入。
+
 ---
 
 ## Phase 9 — DevTools / Benchmark
@@ -4439,17 +4485,17 @@ Virtualization contract
 - [ ] Hot animation path 0 B/frame；
 - [ ] 10 万项列表只实例化可见范围；
 - [ ] Hover/Press 不通过回调实现；
-- [ ] Navigation 不通过回调实现；
-- [ ] 页面生命周期通过 Scope；
-- [ ] 过期 generation 事件能正确丢弃；
+- [x] Navigation 不通过回调实现；
+- [x] 页面生命周期通过 Scope；
+- [x] 过期 generation 事件能正确丢弃；
 - [ ] Layout 是增量 Dirty；
 - [ ] Scroll 不触发全量 Layout；
 - [ ] Style/Theme 支持局部失效；
 - [ ] Binding 无反射；
 - [ ] UI 不使用 `INotifyPropertyChanged`；
 - [ ] UI 不依赖业务 Service；
-- [ ] TextBox 通过 NativeHost 正常工作；
-- [ ] Semantic Tree 可以被 Backend 暴露；
+- [x] TextBox 通过 NativeHost 正常工作；
+- [x] Semantic Tree 可以被 Backend 暴露；
 - [ ] Headless 测试可重放输入；
 - [ ] DevTools 能显示 Dirty chain；
 - [ ] Benchmark CI 已建立。
