@@ -13,6 +13,7 @@ public sealed class UiMotionTraceSession : IUiSystem, IDisposable
     private readonly UiAnimationEventReader _events;
     private int _head;
     private int _count;
+    private long _overwrittenSampleCount;
     private bool _disposed;
 
     public UiMotionTraceSession(UiWorld world, UiAnimationRuntime animations, int capacity = 8_192)
@@ -32,6 +33,9 @@ public sealed class UiMotionTraceSession : IUiSystem, IDisposable
     public string Name => "devtools.motion-trace";
     public int Count => _count;
     public int Capacity => _samples.Length;
+    public long DroppedAnimationEventCount => _events.DroppedCount;
+    public long OverwrittenSampleCount => _overwrittenSampleCount;
+    public bool IsComplete => DroppedAnimationEventCount == 0 && OverwrittenSampleCount == 0;
 
     public void Update(UiWorld world, in UiFrameContext frame)
     {
@@ -73,6 +77,8 @@ public sealed class UiMotionTraceSession : IUiSystem, IDisposable
         {
             _samples[_head] = sample;
             _head = (_head + 1) % _samples.Length;
+            if (_overwrittenSampleCount < long.MaxValue)
+                _overwrittenSampleCount++;
             return;
         }
         _samples[(_head + _count) % _samples.Length] = sample;

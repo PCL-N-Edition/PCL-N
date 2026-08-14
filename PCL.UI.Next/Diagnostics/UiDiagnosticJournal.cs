@@ -6,7 +6,8 @@ namespace PCL.UI.Next;
 public enum UiDiagnosticReaderStart : byte
 {
     OldestAvailable = 0,
-    NextPublished = 1
+    NextPublished = 1,
+    Beginning = 2
 }
 
 public sealed class UiDiagnosticEventReader
@@ -74,9 +75,13 @@ public sealed class UiDiagnosticJournal
             throw new ArgumentOutOfRangeException(nameof(start));
         lock (_gate)
         {
-            long sequence = start == UiDiagnosticReaderStart.NextPublished
-                ? _nextSequence
-                : FirstSequence();
+            long sequence = start switch
+            {
+                UiDiagnosticReaderStart.OldestAvailable => FirstSequence(),
+                UiDiagnosticReaderStart.NextPublished => _nextSequence,
+                UiDiagnosticReaderStart.Beginning => 1,
+                _ => throw new ArgumentOutOfRangeException(nameof(start))
+            };
             return new UiDiagnosticEventReader(this, sequence);
         }
     }
@@ -133,4 +138,3 @@ public sealed class UiDiagnosticJournal
         return _nextSequence++;
     }
 }
-

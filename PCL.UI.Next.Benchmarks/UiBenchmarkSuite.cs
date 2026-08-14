@@ -148,6 +148,7 @@ public static class UiBenchmarkSuite
             operations += count * frames;
             Require(runtime.Animation.ActiveChannelCount == 0, "Animation stress did not settle.", verify);
         }
+        Require(allocatedTotal == 0, "Animation stress allocated " + allocatedTotal + " bytes.", verify);
         Require(elapsedTotal < 8_000d, "Animation stress exceeded 8000 ms.", verify);
         return new UiBenchmarkResult(
             "B3 Animation Stress",

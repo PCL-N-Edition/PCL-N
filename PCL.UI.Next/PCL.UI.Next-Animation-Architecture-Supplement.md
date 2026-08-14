@@ -3027,6 +3027,9 @@ t=131  target 1.00
 首版由 `PCL.UI.Next.DevTools.UiMotionTraceSession` 实现：每帧在 `BackendCommit` phase
 读取 animation snapshot，并通过独立 journal reader 补齐当帧 settle 终点。Trace 使用
 固定容量覆盖环；其生命周期、读取速度或关闭状态不得影响 Animation lifecycle queue。
+Diagnostics trace 允许丢失，但禁止静默丢失：`DroppedAnimationEventCount` 累计 reader 因
+animation journal retention 跳过的事件，`OverwrittenSampleCount` 累计 trace 自身覆盖的
+sample；任一非零时 `IsComplete` 必须为 false，DevTools 不得绘制成完整曲线。
 
 ---
 

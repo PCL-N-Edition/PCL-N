@@ -3158,6 +3158,11 @@ Release Build 可按级别关闭高成本 trace。
 sequence-based bounded multi-reader journal；慢 reader 只累计 `DroppedCount`，不能阻塞
 Runtime 或令内存随进程时长增长。高频事件保持结构化数值字段，不预先格式化字符串。
 
+Diagnostic reader start contract 固定为：`OldestAvailable` 只读取当前 retention window，
+`NextPublished` 只读取创建后的事件，`Beginning` 从 sequence 1 建立逻辑 cursor，并在首次
+读取时把已淘汰的历史累计到 `DroppedCount`。需要声明历史完整性的 Inspector 必须使用
+`Beginning`，不能用 `OldestAvailable` 的零 drop 误报完整。
+
 `DirtyMarked` 同时记录 target 与 propagation source；Layout ancestor invalidation 必须逐级
 写入 source chain，使 DevTools 能重建 `leaf → parent → boundary/root`，而不是只展示某一帧
 最终残留的 Dirty flags。
@@ -3448,7 +3453,8 @@ CI gate 优先冻结可重复的结构 invariant，而不是把某一台机器�
 
 - B1 对 5001 个存活 Entity 连续执行 100000 次 idle probe，必须为 0 frame、0 B；
 - B2 在 1000 个可点击节点间移动 pointer，验证输入路径在有限时间内完成；
-- B3 分别启动 500/1000/5000 个 Tween channel，必须在 guard 内全部 settle；
+- B3 分别启动 500/1000/5000 个 Tween channel，必须在 guard 内全部 settle，且采样区间
+  allocation 必须为 0 B；
 - B4 使用 100000 项变高 source，realized subtree 必须 `< 100`；
 - B5 交替嵌套 Stack/Grid 256 层，必须 measure 完整 hierarchy；
 - B6 10000 个 Style Entity 中仅一半依赖 Accent，换 Theme 后必须只改变这 5000 个；
@@ -4537,9 +4543,11 @@ Benchmark CI
   input root、focus/hover/press/capture 与 bubble route；
 - Animation/Virtualization Inspector 只读取 Runtime snapshot API。`UiMotionTraceSession` 在
   BackendCommit phase 采样 active channel，并从 animation journal 补入 settle 终点；采样环
-  固定容量，禁止因 DevTools 长期开启而无限增长；
-- Dirty Trace reader 必须暴露 journal `DroppedCount`，UI 应明确标注被 retention 淘汰的历史，
-  不得把不完整 trace 伪装为完整因果链。
+  固定容量，禁止因 DevTools 长期开启而无限增长；session 必须公开 animation journal 的
+  `DroppedAnimationEventCount` 与 sample ring 的 `OverwrittenSampleCount`，任一非零时
+  `IsComplete` 为 false；
+- Dirty Trace reader 必须从 journal `Beginning` 建立 cursor 并暴露 `DroppedCount`，UI 应
+  明确标注打开 Inspector 前已被 retention 淘汰的历史，不得把不完整 trace 伪装为完整因果链。
 
 ### Phase 9 已冻结的 Replay / Benchmark 契约
 
@@ -4549,8 +4557,8 @@ Benchmark CI
 - Replay 的 Entity/Scope/InputRoot 身份依赖测试夹具按原始顺序重建；未知 version/kind、
   时钟倒退、缺少 viewport/resource consumer 必须 fail fast；
 - `PCL.UI.Next.Benchmarks --verify` 固定执行 B1–B7。结构 gate 检查 idle 0 frame/0 B、
-  animation settle、virtualized realized 上限、完整深层 layout、局部 Theme 依赖和稳态
-  RenderDiff mutation；宽松 wall-time ceiling 只捕获 hang/数量级退化；
+  animation settle/0 B、virtualized realized 上限、完整深层 layout、局部 Theme 依赖和
+  稳态 RenderDiff mutation；宽松 wall-time ceiling 只捕获 hang/数量级退化；
 - `.github/workflows/build-test.yml` 在 Ubuntu + .NET 10 Release 下执行 benchmark gate；
   benchmark Runtime 必须关闭 Diagnostics，并使用 deterministic clock/Headless Backend。
 
@@ -4580,7 +4588,7 @@ Virtualization contract
 - [ ] Runtime 不依赖 Avalonia；
 - [ ] Backend.Avalonia 可独立替换为 Headless；
 - [ ] Idle 时不持续 request frame；
-- [ ] Hot animation path 0 B/frame；
+- [x] Hot animation path 0 B/frame；
 - [ ] 10 万项列表只实例化可见范围；
 - [ ] Hover/Press 不通过回调实现；
 - [x] Navigation 不通过回调实现；

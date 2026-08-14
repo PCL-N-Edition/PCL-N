@@ -22,17 +22,24 @@ public sealed class DiagnosticsTests
         for (int i = 0; i < 5; i++)
             world.CreateEntity(scope);
         UiDiagnosticEventReader current = world.Diagnostics.Events.CreateReader();
+        UiDiagnosticEventReader beginning = world.Diagnostics.Events.CreateReader(
+            UiDiagnosticReaderStart.Beginning);
 
         List<UiDiagnosticEvent> slowEvents = [];
         List<UiDiagnosticEvent> currentEvents = [];
+        List<UiDiagnosticEvent> beginningEvents = [];
         slow.Drain(slowEvents);
         current.Drain(currentEvents);
+        beginning.Drain(beginningEvents);
 
         Assert.AreEqual(3, slowEvents.Count);
         Assert.AreEqual(3L, slow.DroppedCount);
         Assert.AreEqual(3, currentEvents.Count);
         Assert.AreEqual(0L, current.DroppedCount);
+        Assert.AreEqual(3, beginningEvents.Count);
+        Assert.AreEqual(3L, beginning.DroppedCount);
         Assert.AreEqual(slowEvents[0].Sequence, currentEvents[0].Sequence);
+        Assert.AreEqual(slowEvents[0].Sequence, beginningEvents[0].Sequence);
     }
 
     [TestMethod]

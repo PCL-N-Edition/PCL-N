@@ -187,7 +187,8 @@ public sealed class UiInspector
         out long droppedCount)
     {
         ArgumentNullException.ThrowIfNull(destination);
-        UiDiagnosticEventReader reader = _world.Diagnostics.Events.CreateReader();
+        UiDiagnosticEventReader reader = _world.Diagnostics.Events.CreateReader(
+            UiDiagnosticReaderStart.Beginning);
         int count = 0;
         while (reader.TryRead(out UiDiagnosticEvent diagnosticEvent))
         {

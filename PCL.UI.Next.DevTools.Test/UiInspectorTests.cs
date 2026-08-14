@@ -106,6 +106,33 @@ public sealed class UiInspectorTests
     }
 
     [TestMethod]
+    public void DirtyTrace_OpenedAfterJournalWrap_ReportsDroppedHistory()
+    {
+        UiDiagnosticsOptions options = UiDiagnosticsOptions.Developer with
+        {
+            EventCapacity = 4,
+            TimelineCapacity = 1
+        };
+        UiWorld world = new(new DeterministicUiClock(), diagnosticsOptions: options);
+        UiScopeId scope = world.CreateRootScope();
+        UiEntity entity = world.CreateEntity(scope);
+        world.Dirty.ClearEverything();
+        for (int i = 0; i < 10; i++)
+        {
+            world.Dirty.Mark(entity, UiDirtyFlags.LayoutMeasure);
+            world.Dirty.Clear(entity, UiDirtyFlags.LayoutMeasure);
+        }
+        UiInspector inspector = new(world);
+
+        List<UiDiagnosticEvent> events = [];
+        int count = inspector.CopyDirtyTrace(entity, events, out long droppedCount);
+
+        Assert.AreEqual(4, count);
+        Assert.IsGreaterThan(0L, droppedCount);
+        Assert.IsTrue(events.All(static item => item.Kind == UiDiagnosticEventKind.DirtyMarked));
+    }
+
+    [TestMethod]
     public void MotionTrace_IsBoundedAndIncludesSettledSample()
     {
         DeterministicUiClock clock = new();
@@ -136,6 +163,78 @@ public sealed class UiInspectorTests
         Assert.AreEqual(2, samples.Count);
         Assert.AreEqual(0f, samples[^1].Animation.Current, 0.001f);
         Assert.IsFalse(samples[^1].Animation.IsActive);
+    }
+
+    [TestMethod]
+    public void MotionTrace_ReportsAnimationJournalOverflow()
+    {
+        UiWorld world = new(new DeterministicUiClock());
+        using UiInteractiveRuntime runtime = new(
+            world,
+            new DeterministicTextEngine(),
+            new UiSize(100f, 100f));
+        UiScopeId scope = world.CreateRootScope();
+        const int overflow = 64;
+        int count = UiAnimationEventJournal.DefaultCapacity + overflow;
+        UiEntity[] entities = new UiEntity[count];
+        for (int i = 0; i < entities.Length; i++)
+        {
+            entities[i] = world.CreateEntity(scope);
+            world.Set(entities[i], ResolvedStyle.Default);
+        }
+        Drain(world);
+        using UiMotionTraceSession trace = new(
+            world,
+            runtime.Animation,
+            capacity: UiAnimationEventJournal.DefaultCapacity + 128);
+
+        for (int i = 0; i < entities.Length; i++)
+        {
+            runtime.Animation.Retarget(
+                entities[i],
+                UiAnimationProperty.Opacity,
+                0.5f,
+                new UiAnimationSpec(UiMotion.Instant));
+        }
+        Assert.IsTrue(world.Update());
+
+        Assert.AreEqual(overflow, trace.DroppedAnimationEventCount);
+        Assert.AreEqual(0L, trace.OverwrittenSampleCount);
+        Assert.IsFalse(trace.IsComplete);
+    }
+
+    [TestMethod]
+    public void MotionTrace_ReportsSampleRingOverwrite()
+    {
+        UiWorld world = new(new DeterministicUiClock());
+        using UiInteractiveRuntime runtime = new(
+            world,
+            new DeterministicTextEngine(),
+            new UiSize(100f, 100f));
+        UiScopeId scope = world.CreateRootScope();
+        UiEntity[] entities = new UiEntity[3];
+        for (int i = 0; i < entities.Length; i++)
+        {
+            entities[i] = world.CreateEntity(scope);
+            world.Set(entities[i], ResolvedStyle.Default);
+        }
+        Drain(world);
+        using UiMotionTraceSession trace = new(world, runtime.Animation, capacity: 2);
+
+        for (int i = 0; i < entities.Length; i++)
+        {
+            runtime.Animation.Retarget(
+                entities[i],
+                UiAnimationProperty.Opacity,
+                0.5f,
+                new UiAnimationSpec(UiMotion.Instant));
+        }
+        Assert.IsTrue(world.Update());
+
+        Assert.AreEqual(2, trace.Count);
+        Assert.AreEqual(0L, trace.DroppedAnimationEventCount);
+        Assert.AreEqual(1L, trace.OverwrittenSampleCount);
+        Assert.IsFalse(trace.IsComplete);
     }
 
     private static void Drain(UiWorld world)
