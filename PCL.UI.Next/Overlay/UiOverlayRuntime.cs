@@ -342,6 +342,12 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
             if (kind == UiOverlayKind.Tooltip)
                 _world.Set(root, new SemanticRole { Value = UiSemanticRole.Tooltip });
             ConfigureInputSubtree(root, z + 1, passThrough);
+            _world.Set(root, new UiNativeHostOcclusion
+            {
+                RootScope = _windowScope,
+                AllowedScope = scope,
+                ZIndex = z + 1
+            });
 
             Entry entry = new(
                 handle,
@@ -429,7 +435,15 @@ public sealed class UiOverlayRuntime : IUiSystem, IDisposable
             OccludeNativeHosts = true
         });
         if (dimmed)
+        {
             _world.Set(barrier, StyleClassSet.From([UiClass.ModalBarrier.Id]));
+            _world.Set(barrier, new UiNativeHostOcclusion
+            {
+                RootScope = _windowScope,
+                AllowedScope = scope,
+                ZIndex = z
+            });
+        }
         _world.AttachChild(OverlayRoot, barrier);
         _world.Dirty.Mark(barrier, UiDirtyFlags.StructuralCascade | UiDirtyFlags.Style);
         return barrier;

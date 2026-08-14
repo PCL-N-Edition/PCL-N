@@ -4436,6 +4436,10 @@ Navigation
   `IsHitTestVisible`；
 - 最上层 Popup/Modal barrier 声明允许交互的 overlay Scope。范围外 NativeHost 必须在
   平台层隐藏、禁用并禁止焦点回写，使 pointer 落到 retained barrier 完成 dismiss/block；
+- visual stacking 不得依赖 input barrier：每个 Overlay content root 通过
+  `UiNativeHostOcclusion` 独立声明 window Scope、allowed Scope、Z 与实时 visual bounds；
+  更高 Overlay 与范围外 NativeHost 相交时 Backend 隐藏该平台控件，非相交控件保持显示。
+  Modal dim layer 另外提供 viewport-wide occlusion；Tooltip 与无 barrier Popup 同样适用；
 - Overlay Scope 被外部销毁时，handle 必须立即失效，routed handler 与 timer lease
   必须同步释放。
 

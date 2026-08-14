@@ -286,6 +286,120 @@ public sealed class NativeHostTests
         Assert.IsFalse(overlays.TryGetOverlay(popup, out _));
     }
 
+    [TestMethod]
+    public void Tooltip_OccludesOverlappingBackgroundNativeHost()
+    {
+        using TestContext context = Create();
+        UiEntity background = context.Instantiator.Instantiate(
+            Ui.Compile(
+                Ui.TextBox("background")
+                    .Width(UiLength.Pixels(120f))
+                    .Height(UiLength.Pixels(50f))),
+            context.WindowScope).RootEntity;
+        Drain(context.World);
+        NativeHostHandle nativeHandle = context.Backend.HandleFor(background);
+        using UiOverlayRuntime overlays = new(
+            context.World,
+            context.Runtime,
+            context.Instantiator,
+            context.WindowScope);
+        using UiTooltipRegistration tooltip = overlays.AttachTooltip(
+            background,
+            Ui.Compile(
+                Ui.Container()
+                    .Width(UiLength.Pixels(80f))
+                    .Height(UiLength.Pixels(30f))),
+            UiTooltipOptions.Default with
+            {
+                DelaySeconds = 0d,
+                Placement = UiOverlayPlacement.Pointer,
+                Offset = 0f,
+                ViewportPadding = 0f
+            });
+
+        context.Runtime.Input.EnqueuePointer(
+            context.InputRoot,
+            UiPointerEventKind.Move,
+            new UiPoint(10f, 10f));
+        Drain(context.World);
+
+        Assert.IsFalse(tooltip.ActiveOverlay.IsNone);
+        Assert.IsFalse(context.Backend.StateFor(nativeHandle).IsVisible);
+    }
+
+    [TestMethod]
+    public void BarrierlessPopup_OccludesOverlappingBackgroundNativeHost()
+    {
+        using TestContext context = Create();
+        UiEntity background = context.Instantiator.Instantiate(
+            Ui.Compile(
+                Ui.TextBox("background")
+                    .Width(UiLength.Pixels(120f))
+                    .Height(UiLength.Pixels(50f))),
+            context.WindowScope).RootEntity;
+        Drain(context.World);
+        NativeHostHandle nativeHandle = context.Backend.HandleFor(background);
+        using UiOverlayRuntime overlays = new(
+            context.World,
+            context.Runtime,
+            context.Instantiator,
+            context.WindowScope);
+
+        overlays.OpenPopupAt(
+            Ui.Compile(
+                Ui.Container()
+                    .Width(UiLength.Pixels(80f))
+                    .Height(UiLength.Pixels(30f))),
+            background,
+            new UiPoint(10f, 10f),
+            BarrierlessPopupOptions());
+        Drain(context.World);
+
+        Assert.IsFalse(context.Backend.StateFor(nativeHandle).IsVisible);
+    }
+
+    [TestMethod]
+    public void NonOverlappingPopup_DoesNotHideNativeHost()
+    {
+        using TestContext context = Create();
+        UiEntity background = context.Instantiator.Instantiate(
+            Ui.Compile(
+                Ui.TextBox("background")
+                    .Width(UiLength.Pixels(100f))
+                    .Height(UiLength.Pixels(40f))),
+            context.WindowScope).RootEntity;
+        Drain(context.World);
+        NativeHostHandle nativeHandle = context.Backend.HandleFor(background);
+        using UiOverlayRuntime overlays = new(
+            context.World,
+            context.Runtime,
+            context.Instantiator,
+            context.WindowScope);
+
+        overlays.OpenPopupAt(
+            Ui.Compile(
+                Ui.Container()
+                    .Width(UiLength.Pixels(40f))
+                    .Height(UiLength.Pixels(20f))),
+            background,
+            new UiPoint(180f, 60f),
+            BarrierlessPopupOptions());
+        Drain(context.World);
+
+        Assert.IsTrue(context.Backend.StateFor(nativeHandle).IsVisible);
+    }
+
+    private static UiPopupOptions BarrierlessPopupOptions() =>
+        UiPopupOptions.Default with
+        {
+            Offset = 0f,
+            ViewportPadding = 0f,
+            DismissOnOutsidePointer = false,
+            DismissOnEscape = false,
+            TrapFocus = false,
+            RestorePreviousFocus = false
+        };
+
     private static TestContext Create()
     {
         DeterministicUiClock clock = new();

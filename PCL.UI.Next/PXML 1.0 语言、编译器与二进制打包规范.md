@@ -1578,6 +1578,11 @@ Tooltip 默认 input pass-through；Modal 默认生成 dim/input barrier 与 tra
 允许交互的 overlay Scope；Backend 位于独立平台 layer 的 NativeHost 若不在该 Scope 内，
 必须隐藏、禁用且拒绝平台焦点回写，不能绕过 retained barrier。
 
+Overlay 的视觉遮挡必须与上述 interaction barrier 分离。Tooltip、Popup、Modal content
+都生成包含 window Scope、allowed Scope、Z 与 visual bounds 的 native-host occlusion 描述；
+范围外且位于其下方的 NativeHost 仅在 bounds 相交时隐藏，非相交 NativeHost 保持显示。
+Modal dim layer 另外生成 viewport-wide occlusion，因此该规则不依赖是否启用 outside-pointer barrier。
+
 ---
 
 ## 53.3 NavigationHost / Page

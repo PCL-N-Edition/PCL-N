@@ -161,7 +161,8 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
     {
         UiRect bounds = UiVisualGeometry.ResolveBounds(_world, entity);
         bool blocked = IsBlockedByInteractionBarrier(entity);
-        bool visible = UiEffectiveState.IsVisible(_world, entity) && !blocked;
+        bool occluded = IsOccludedByOverlay(entity, bounds);
+        bool visible = UiEffectiveState.IsVisible(_world, entity) && !blocked && !occluded;
         bool enabled = UiEffectiveState.IsEnabled(_world, entity) && !blocked;
         bool focused = visible && enabled &&
                        _world.Components.TryGet(entity, out InteractionStateComponent interaction) &&
@@ -181,6 +182,48 @@ public sealed class UiNativeHostRuntime : IUiSystem, IDisposable
             component.IsReadOnly,
             component.AcceptsReturn);
     }
+
+    private bool IsOccludedByOverlay(UiEntity entity, UiRect bounds)
+    {
+        if (bounds.Width <= 0f || bounds.Height <= 0f ||
+            !_world.Entities.TryGetScope(entity, out UiScopeId entityScope))
+        {
+            return false;
+        }
+
+        int hostZ = _world.Components.TryGet(entity, out HitTestableComponent hit)
+            ? hit.ZIndex
+            : 0;
+        ReadOnlySpan<UiEntity> occlusions = _world.Components.Pool<UiNativeHostOcclusion>().Entities;
+        for (int i = 0; i < occlusions.Length; i++)
+        {
+            UiEntity occlusionEntity = occlusions[i];
+            if (!_world.Entities.IsAlive(occlusionEntity) ||
+                !UiEffectiveState.IsVisible(_world, occlusionEntity))
+            {
+                continue;
+            }
+
+            UiNativeHostOcclusion occlusion = _world.Components.Get<UiNativeHostOcclusion>(occlusionEntity);
+            if (occlusion.ZIndex <= hostZ ||
+                !IsScopeWithin(entityScope, occlusion.RootScope) ||
+                IsScopeWithin(entityScope, occlusion.AllowedScope))
+            {
+                continue;
+            }
+
+            UiRect overlayBounds = UiVisualGeometry.ResolveBounds(_world, occlusionEntity);
+            if (Intersects(bounds, overlayBounds))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool Intersects(UiRect left, UiRect right) =>
+        left.Width > 0f && left.Height > 0f &&
+        right.Width > 0f && right.Height > 0f &&
+        left.X < right.Right && left.Right > right.X &&
+        left.Y < right.Bottom && left.Bottom > right.Y;
 
     private bool IsInRoot(UiEntity entity)
     {

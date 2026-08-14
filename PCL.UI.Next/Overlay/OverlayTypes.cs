@@ -86,6 +86,17 @@ public struct UiInteractionBarrier
     public bool OccludeNativeHosts { get; set; }
 }
 
+/// <summary>
+/// Describes a retained overlay region that must visually occlude lower platform-native controls.
+/// This contract is independent from pointer and focus barriers.
+/// </summary>
+public struct UiNativeHostOcclusion
+{
+    public UiScopeId RootScope { get; set; }
+    public UiScopeId AllowedScope { get; set; }
+    public int ZIndex { get; set; }
+}
+
 public sealed class UiTooltipRegistration : IDisposable
 {
     private UiOverlayRuntime? _runtime;
