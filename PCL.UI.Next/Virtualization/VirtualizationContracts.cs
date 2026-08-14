@@ -43,7 +43,8 @@ public readonly record struct UiVirtualizationSnapshot(
     int RealizedEndExclusive,
     int RealizedCount,
     int RecyclePoolCount,
-    float Extent);
+    float Extent,
+    int MeasuredExtentCacheCount);
 
 /// <summary>Disposable registration of one item source/template against a VirtualList host.</summary>
 public sealed class UiVirtualListRegistration : IDisposable

@@ -152,9 +152,10 @@ public sealed class UiVirtualizationRuntime : IDisposable
     private void RefreshSource(ListState state)
     {
         int count = state.Source.Count;
+        ulong sourceVersion = state.Source.Version;
         if (count < 0)
             throw new InvalidOperationException("A virtual item source cannot report a negative count.");
-        if (state.Source.Version == state.SourceVersion && count == state.Extents.Count)
+        if (sourceVersion == state.SourceVersion && count == state.Extents.Count)
             return;
 
         ScrollState scroll = _scroll.GetState(state.Host);
@@ -164,16 +165,22 @@ public sealed class UiVirtualizationRuntime : IDisposable
 
         state.Extents.Reset(count, state.Policy.EstimatedItemExtent);
         long[] nextKeys = BuildKeys(state.Source, count);
+        Dictionary<long, float> previousMeasurements = state.MeasuredByKey;
+        Dictionary<long, float> currentMeasurements = new(Math.Min(count, previousMeasurements.Count));
         for (int i = 0; i < count; i++)
         {
             long key = nextKeys[i];
-            if (state.MeasuredByKey.TryGetValue(key, out float extent))
+            if (previousMeasurements.TryGetValue(key, out float extent))
+            {
+                currentMeasurements.Add(key, extent);
                 state.Extents.SetMeasuredExtent(i, extent);
+            }
         }
         for (int i = 0; i < state.Slots.Count; i++)
             state.Slots[i].LogicalIndex = -1;
         state.Keys = nextKeys;
-        state.SourceVersion = state.Source.Version;
+        state.MeasuredByKey = currentMeasurements;
+        state.SourceVersion = sourceVersion;
 
         float? anchored = null;
         if (oldAnchor >= 0 && state.Source.TryGetIndex(anchorKey, out int nextAnchor) &&
@@ -267,7 +274,8 @@ public sealed class UiVirtualizationRuntime : IDisposable
             realizedEnd,
             realizedCount,
             state.Slots.Count - realizedCount,
-            state.Extents.TotalExtent);
+            state.Extents.TotalExtent,
+            state.MeasuredByKey.Count);
     }
 
     private ItemSlot? FindSlot(ListState state, int logicalIndex)
@@ -483,7 +491,7 @@ public sealed class UiVirtualizationRuntime : IDisposable
         public VariableExtentIndex Extents { get; } = extents;
         public long[] Keys { get; set; } = keys;
         public ulong SourceVersion { get; set; } = source.Version;
-        public Dictionary<long, float> MeasuredByKey { get; } = [];
+        public Dictionary<long, float> MeasuredByKey { get; set; } = [];
         public List<ItemSlot> Slots { get; } = [];
         public UiVirtualizationSnapshot Snapshot { get; set; }
     }

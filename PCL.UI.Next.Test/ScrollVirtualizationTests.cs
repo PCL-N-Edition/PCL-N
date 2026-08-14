@@ -239,6 +239,27 @@ public sealed class ScrollVirtualizationTests
     }
 
     [TestMethod]
+    public void VirtualList_SourceRefresh_PrunesRemovedMeasuredKeys()
+    {
+        using VirtualTestContext context = CreateVirtualList(
+            100,
+            estimatedExtent: 20f,
+            overscan: 1,
+            Ui.Text().Height(UiLength.Pixels(20f)));
+        Assert.IsTrue(context.Runtime.Virtualization.TryGetSnapshot(context.Host, out UiVirtualizationSnapshot before));
+        Assert.AreEqual(before.RealizedCount, before.MeasuredExtentCacheCount);
+
+        context.Source.ReplaceKeys(10_000);
+        context.Runtime.Virtualization.Invalidate(context.Host);
+        Drain(context.World);
+
+        Assert.IsTrue(context.Runtime.Virtualization.TryGetSnapshot(context.Host, out UiVirtualizationSnapshot after));
+        Assert.AreEqual(after.RealizedCount, after.MeasuredExtentCacheCount);
+        Assert.AreEqual(before.MeasuredExtentCacheCount, after.MeasuredExtentCacheCount);
+        Assert.IsLessThanOrEqualTo(context.Source.Count, after.MeasuredExtentCacheCount);
+    }
+
+    [TestMethod]
     public void VirtualList_RejectsStaticChildrenAtCompileTime()
     {
         UiNode invalid = Ui.VirtualList().Child(Ui.Text("not a template"));
@@ -330,8 +351,9 @@ public sealed class ScrollVirtualizationTests
         public int Count { get; } = count;
         public ulong Version { get; private set; } = 1;
         public int BindCount { get; private set; }
+        private long KeyOffset { get; set; }
 
-        public long GetKey(int index) => index;
+        public long GetKey(int index) => KeyOffset + index;
 
         public void BindItem(int index, PresentationStore presentation)
         {
@@ -344,10 +366,17 @@ public sealed class ScrollVirtualizationTests
 
         public bool TryGetIndex(long key, out int index)
         {
-            index = (int)key;
-            return key >= 0 && key < Count;
+            long relative = key - KeyOffset;
+            index = (int)relative;
+            return relative >= 0 && relative < Count;
         }
 
         public void AdvanceVersion() => Version++;
+
+        public void ReplaceKeys(long keyOffset)
+        {
+            KeyOffset = keyOffset;
+            Version++;
+        }
     }
 }
