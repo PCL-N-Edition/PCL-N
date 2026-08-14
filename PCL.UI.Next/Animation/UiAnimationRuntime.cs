@@ -43,6 +43,9 @@ public sealed class UiAnimationRuntime : IDisposable
 
     public UiAnimationEventJournal Events { get; }
 
+    /// <summary>Lossless in-process lifecycle path; observers use <see cref="Events"/> instead.</summary>
+    internal event Action<UiTransitionGroupCompleted>? TransitionGroupCompleted;
+
     public int ChannelCount => _store.ChannelCount;
 
     public int ActiveChannelCount => _store.ActiveCount;
@@ -240,6 +243,7 @@ public sealed class UiAnimationRuntime : IDisposable
     private void OnTransitionGroupCompleted(UiTransitionGroupCompleted completed)
     {
         Events.Publish(World.FrameIndex, in completed);
+        TransitionGroupCompleted?.Invoke(completed);
         World.Scheduler.RequestReactiveFrame();
     }
 }

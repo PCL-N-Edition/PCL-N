@@ -13,7 +13,7 @@ public sealed class UiNavigationRuntime : IUiSystem, IDisposable
     private readonly UiNavigationOptions _options;
     private readonly Dictionary<UiPageKey, UiPageDefinition> _definitions = [];
     private readonly Dictionary<UiPageKey, PageEntry> _pages = [];
-    private readonly UiAnimationEventReader _animationEvents;
+    private readonly Queue<UiTransitionGroupCompleted> _completedGroups = [];
     private readonly IDisposable _hostScopeRegistration;
     private UiNavigationRequest? _requested;
     private PreparedNavigation? _prepared;
@@ -43,8 +43,8 @@ public sealed class UiNavigationRuntime : IUiSystem, IDisposable
         ValidateOptions(_options);
         NavigationRoot = CreateNavigationRoot(parent);
         Events = new UiNavigationEventJournal();
-        _animationEvents = runtime.Animation.Events.CreateReader(UiAnimationEventReaderStart.NextPublished);
         _hostScopeRegistration = world.Scopes.RegisterDisposeHandler(hostScope, _ => Dispose());
+        _runtime.Animation.TransitionGroupCompleted += OnTransitionGroupCompleted;
         _world.Systems.Register(this);
     }
 
@@ -140,6 +140,7 @@ public sealed class UiNavigationRuntime : IUiSystem, IDisposable
             return;
         _disposed = true;
         _world.Systems.Unregister(this);
+        _runtime.Animation.TransitionGroupCompleted -= OnTransitionGroupCompleted;
         _requested = null;
         _prepared = null;
         _transition = null;
@@ -149,6 +150,7 @@ public sealed class UiNavigationRuntime : IUiSystem, IDisposable
         if (_world.Entities.IsAlive(NavigationRoot))
             _world.DestroyEntity(NavigationRoot);
         _hostScopeRegistration.Dispose();
+        _completedGroups.Clear();
         Events.Clear();
     }
 
@@ -276,11 +278,8 @@ public sealed class UiNavigationRuntime : IUiSystem, IDisposable
 
     private void DrainCompletedGroups(long frameIndex)
     {
-        while (_animationEvents.TryRead(out UiAnimationEvent animationEvent))
+        while (_completedGroups.TryDequeue(out UiTransitionGroupCompleted completed))
         {
-            if (animationEvent.Kind != UiAnimationEventKind.TransitionGroupCompleted)
-                continue;
-            UiTransitionGroupCompleted completed = animationEvent.TransitionGroup;
             if (_transition is not { } transition ||
                 transition.Group != completed.Group ||
                 transition.Generation != _navigationGeneration)
@@ -497,6 +496,12 @@ public sealed class UiNavigationRuntime : IUiSystem, IDisposable
         _world.Dirty.Mark(
             page.RootEntity,
             UiDirtyFlags.HitTest | UiDirtyFlags.Render | UiDirtyFlags.Accessibility);
+        _world.Scheduler.RequestReactiveFrame();
+    }
+
+    private void OnTransitionGroupCompleted(UiTransitionGroupCompleted completed)
+    {
+        _completedGroups.Enqueue(completed);
         _world.Scheduler.RequestReactiveFrame();
     }
 

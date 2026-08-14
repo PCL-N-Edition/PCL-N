@@ -4442,8 +4442,9 @@ Navigation
 - 每次 `Navigate` 递增 `NavigationGeneration`。再次导航时，所有仍在 Entering/Leaving
   的页面加入新 transition group；旧 generation completion 只能被丢弃；
 - 页面 lifecycle 只写入 `UiNavigationEventJournal`，公共 API 不允许 completion callback；
-- Navigation 通过自己的 sequence cursor 读取有界 `UiAnimationEventJournal`；内部生命周期
-  消费者与 DevTools/Diagnostics reader 互不抢占事件，journal retention 不得无限增长；
+- Navigation 通过独立的 lossless internal completion queue 驱动生命周期；有界
+  `UiAnimationEventJournal` 只服务 DevTools/Diagnostics/public reader，不能作为状态机
+  的可靠消息通道，且任一观测 reader 都不能抢占其他 reader 的事件；
 - Cache policy 固定为 `None / KeepPresentationState / KeepEntities / Lru / Pinned`；
   LRU 只计算 Dormant 且声明为 Lru 的页面，Pinned 永不被容量驱逐；
 - Dormant/Preparing 页面从 HitTest 与 Semantic Tree 整棵移除，但仍可保留 Entity，

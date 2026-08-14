@@ -198,6 +198,44 @@ public sealed class NavigationTests
             .Any());
     }
 
+    [TestMethod]
+    public void NavigationCompletion_SurvivesJournalOverflowSameFrame()
+    {
+        using TestContext context = Create(reducedMotion: true);
+        context.Navigation.Register(Page(PageA, UiPageCachePolicy.None));
+        UiEntity noise = context.World.CreateEntity(context.WindowScope);
+        UiAnimationEventReader publicReader = context.Runtime.Animation.Events.CreateReader(
+            UiAnimationEventReaderStart.NextPublished);
+        context.Navigation.Navigate(PageA);
+        Assert.IsTrue(context.World.Update());
+        context.World.Systems.Register(new OneShotSystem(
+            UiSystemPhase.TransitionPlanning,
+            _ =>
+            {
+                UiAnimationSpec spec = new(UiMotion.FastFade);
+                for (int i = 0; i < 1_600; i++)
+                {
+                    context.Runtime.Animation.Retarget(
+                        noise,
+                        UiAnimationProperty.CornerRadius,
+                        (i & 1) == 0 ? 1f : 0f,
+                        in spec);
+                }
+            }));
+
+        context.Clock.Advance(0.016d);
+        Assert.IsTrue(context.World.Update());
+        List<UiAnimationEvent> retained = [];
+        publicReader.Drain(retained);
+        Assert.IsGreaterThan(0L, publicReader.DroppedCount);
+        Assert.IsFalse(retained.Any(static item =>
+            item.Kind == UiAnimationEventKind.TransitionGroupCompleted));
+
+        Assert.IsTrue(context.World.Update());
+        Assert.AreEqual(UiNavigationPageState.Active, GetPage(context, PageA).State);
+        Assert.AreEqual(PageA, context.Navigation.CurrentPage);
+    }
+
     private static UiPageDefinition Page(UiPageKey key, UiPageCachePolicy policy) =>
         new(
             key,
@@ -281,6 +319,23 @@ public sealed class NavigationTests
             Navigation.Dispose();
             Rendering.Dispose();
             Runtime.Dispose();
+        }
+    }
+
+    private sealed class OneShotSystem(UiSystemPhase phase, Action<UiWorld> action) : IUiSystem
+    {
+        private bool _ran;
+
+        public UiSystemPhase Phase { get; } = phase;
+        public string Name => "test.navigation-one-shot";
+
+        public void Update(UiWorld world, in UiFrameContext frame)
+        {
+            _ = frame;
+            if (_ran)
+                return;
+            _ran = true;
+            action(world);
         }
     }
 }
