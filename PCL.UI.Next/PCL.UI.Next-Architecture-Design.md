@@ -3153,6 +3153,15 @@ NativeHostCreated
 
 Release Build 可按级别关闭高成本 trace。
 
+首版 Runtime 通过 `UiDiagnosticsOptions` 冻结三档能力：默认仅记录固定容量的 lifecycle
+事件，Developer 额外开启 Dirty Trace 与 Frame Timeline，Disabled 完全关闭。事件使用
+sequence-based bounded multi-reader journal；慢 reader 只累计 `DroppedCount`，不能阻塞
+Runtime 或令内存随进程时长增长。高频事件保持结构化数值字段，不预先格式化字符串。
+
+`DirtyMarked` 同时记录 target 与 propagation source；Layout ancestor invalidation 必须逐级
+写入 source chain，使 DevTools 能重建 `leaf → parent → boundary/root`，而不是只展示某一帧
+最终残留的 Dirty flags。
+
 ---
 
 # 101. DevTools
@@ -3268,6 +3277,11 @@ Entities touched      84 / 7421
 Render mutations      37
 Allocations           0 B
 ```
+
+逐系统计时由 `SystemPipeline` 统一包围 `IUiSystem.Update`，不能要求各 System 自行埋点。
+Timeline 使用独立固定容量 ring 保存不可变 frame snapshot，包含 system timing、entity count、
+dirty mark count、render mutation count 与当前线程 allocation delta；未启用时不得调用
+`Stopwatch`/allocation counter 或创建 timeline 数组。
 
 ---
 

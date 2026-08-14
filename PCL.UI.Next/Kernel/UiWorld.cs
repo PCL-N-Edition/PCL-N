@@ -14,15 +14,19 @@ public sealed class UiWorld
     private UiTimestamp _lastFrameTime = UiTimestamp.Zero;
     private bool _hasLastFrameTime;
 
-    public UiWorld(IUiClock? clock = null, bool registerDefaultDrainSystems = true)
+    public UiWorld(
+        IUiClock? clock = null,
+        bool registerDefaultDrainSystems = true,
+        UiDiagnosticsOptions? diagnosticsOptions = null)
     {
         Clock = clock ?? new StopwatchUiClock();
+        Diagnostics = new UiDiagnostics(diagnosticsOptions ?? UiDiagnosticsOptions.Default);
         Entities = new EntityRegistry();
         Scopes = new ScopeRegistry();
         Hierarchy = new HierarchyStore(Entities);
         Components = new ComponentStore(Entities);
         LayoutResources = new LayoutResourceStore();
-        Dirty = new DirtyTracker(Entities);
+        Dirty = new DirtyTracker(Entities, Diagnostics);
         Events = new EventQueue();
         Patches = new StatePatchQueue();
         FrameBuffers = new UiFrameBuffers();
@@ -34,6 +38,8 @@ public sealed class UiWorld
     }
 
     public IUiClock Clock { get; }
+
+    public UiDiagnostics Diagnostics { get; }
 
     public EntityRegistry Entities { get; }
 
@@ -63,9 +69,19 @@ public sealed class UiWorld
     /// <summary>Runtime-owned resource stores release entity-scoped handles before components disappear.</summary>
     public event Action<UiEntity>? EntityDestroying;
 
-    public UiScopeId CreateRootScope() => Scopes.CreateRoot();
+    public UiScopeId CreateRootScope()
+    {
+        UiScopeId scope = Scopes.CreateRoot();
+        Diagnostics.ScopeCreated(scope, UiScopeId.None);
+        return scope;
+    }
 
-    public UiScopeId CreateScope(UiScopeId parent) => Scopes.Create(parent);
+    public UiScopeId CreateScope(UiScopeId parent)
+    {
+        UiScopeId scope = Scopes.Create(parent);
+        Diagnostics.ScopeCreated(scope, parent);
+        return scope;
+    }
 
     public UiEntity CreateEntity(UiScopeId scope, bool asHierarchyRoot = true)
     {
@@ -73,6 +89,7 @@ public sealed class UiWorld
             throw new InvalidOperationException("Scope is not alive: " + scope);
 
         UiEntity entity = Entities.Create(scope);
+        Diagnostics.EntityCreated(entity, scope);
         if (asHierarchyRoot)
             Hierarchy.EnsureRoot(entity);
         Dirty.Mark(entity, UiDirtyFlags.StructuralCascade);
@@ -128,7 +145,7 @@ public sealed class UiWorld
         if (!Scopes.IsAlive(scope))
             return false;
 
-        return Scopes.Dispose(scope, disposed =>
+        bool result = Scopes.Dispose(scope, disposed =>
         {
             _scopeEntityScratch.Clear();
             Entities.AppendAliveInScope(disposed, _scopeEntityScratch);
@@ -151,7 +168,9 @@ public sealed class UiWorld
 
                 DestroyEntity(entity);
             }
+            Diagnostics.ScopeDisposed(disposed);
         });
+        return result;
     }
 
     public void EnqueuePlatformEvent(in UiPlatformEvent platformEvent)
@@ -188,7 +207,15 @@ public sealed class UiWorld
         _frameIndex++;
 
         UiFrameContext frame = new(_frameIndex, delta, now);
-        Systems.Run(this, in frame);
+        Diagnostics.BeginFrame(in frame);
+        try
+        {
+            Systems.Run(this, in frame);
+        }
+        finally
+        {
+            Diagnostics.EndFrame(Entities.AliveCount);
+        }
         return true;
     }
 
@@ -196,6 +223,10 @@ public sealed class UiWorld
     {
         if (!Entities.IsAlive(entity))
             return;
+        UiScopeId scope = Entities.TryGetScope(entity, out UiScopeId ownerScope)
+            ? ownerScope
+            : UiScopeId.None;
+        Diagnostics.EntityDestroyed(entity, scope);
         EntityDestroying?.Invoke(entity);
         Components.RemoveAll(entity);
         Dirty.RemoveEntity(entity);
@@ -206,12 +237,14 @@ public sealed class UiWorld
     private void MarkLayoutAncestors(UiEntity entity)
     {
         UiEntity current = entity;
+        UiEntity source = UiEntity.None;
         int guard = 0;
         while (Entities.IsAlive(current) && guard++ < 1_000_000)
         {
-            Dirty.Mark(current, UiDirtyFlags.LayoutMeasure | UiDirtyFlags.LayoutArrange);
+            Dirty.Mark(current, UiDirtyFlags.LayoutMeasure | UiDirtyFlags.LayoutArrange, source);
             if (!Hierarchy.TryGetNode(current, out HierarchyNode node) || node.Parent == UiEntity.None)
                 break;
+            source = current;
             current = node.Parent;
         }
     }

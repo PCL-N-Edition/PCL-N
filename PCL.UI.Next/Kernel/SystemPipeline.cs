@@ -58,7 +58,18 @@ public sealed class SystemPipeline
         ArgumentNullException.ThrowIfNull(world);
         EnsureSorted();
         for (int i = 0; i < _entries.Count; i++)
-            _entries[i].System.Update(world, in frame);
+        {
+            IUiSystem system = _entries[i].System;
+            long started = world.Diagnostics.BeginSystem();
+            try
+            {
+                system.Update(world, in frame);
+            }
+            finally
+            {
+                world.Diagnostics.EndSystem(system, started);
+            }
+        }
     }
 
     /// <summary>Runs only systems whose phase is in <paramref name="phases"/>.</summary>
@@ -71,7 +82,15 @@ public sealed class SystemPipeline
             IUiSystem system = _entries[i].System;
             if (!ContainsPhase(phases, system.Phase))
                 continue;
-            system.Update(world, in frame);
+            long started = world.Diagnostics.BeginSystem();
+            try
+            {
+                system.Update(world, in frame);
+            }
+            finally
+            {
+                world.Diagnostics.EndSystem(system, started);
+            }
         }
     }
 

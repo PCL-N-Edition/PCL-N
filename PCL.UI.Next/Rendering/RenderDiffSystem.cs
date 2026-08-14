@@ -51,6 +51,7 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
 
         _structuralVersion = world.Hierarchy.StructuralVersion;
         _initialized = true;
+        world.Diagnostics.RenderMutationsGenerated(_mutations.Count);
         if (_mutations.Count > 0)
             PendingBatch = new UiCommitBatch(frame.FrameIndex, _mutations.ToArray(), takeOwnership: true);
         _mutations.Clear();

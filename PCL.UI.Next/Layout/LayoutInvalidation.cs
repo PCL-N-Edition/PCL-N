@@ -10,10 +10,14 @@ public static class LayoutInvalidation
     {
         ArgumentNullException.ThrowIfNull(world);
         UiEntity current = entity;
+        UiEntity source = UiEntity.None;
         int guard = 0;
         while (world.Entities.IsAlive(current) && guard++ < 1_000_000)
         {
-            world.Dirty.Mark(current, UiDirtyFlags.LayoutMeasure | UiDirtyFlags.LayoutArrange);
+            world.Dirty.Mark(
+                current,
+                UiDirtyFlags.LayoutMeasure | UiDirtyFlags.LayoutArrange,
+                source);
             if (current != entity &&
                 world.Components.TryGet(current, out LayoutStyle style) &&
                 style.IsMeasureBoundary)
@@ -23,6 +27,7 @@ public static class LayoutInvalidation
 
             if (!world.Hierarchy.TryGetNode(current, out HierarchyNode node) || node.Parent == UiEntity.None)
                 break;
+            source = current;
             current = node.Parent;
         }
 

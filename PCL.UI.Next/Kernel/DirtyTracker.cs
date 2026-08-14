@@ -13,13 +13,15 @@ namespace PCL.UI.Next;
 public sealed class DirtyTracker
 {
     private readonly EntityRegistry _entities;
+    private readonly UiDiagnostics? _diagnostics;
     private readonly Dictionary<int, DirtyEntry> _byIndex = new();
     private readonly HashSet<int>[] _sets;
     private readonly HashSet<int> _collectSeen = [];
 
-    public DirtyTracker(EntityRegistry entities)
+    public DirtyTracker(EntityRegistry entities, UiDiagnostics? diagnostics = null)
     {
         _entities = entities ?? throw new ArgumentNullException(nameof(entities));
+        _diagnostics = diagnostics;
         int flagCount = 32;
         _sets = new HashSet<int>[flagCount];
         for (int i = 0; i < flagCount; i++)
@@ -28,10 +30,12 @@ public sealed class DirtyTracker
 
     public bool HasAny => _byIndex.Count > 0;
 
-    public void Mark(UiEntity entity, UiDirtyFlags flags)
+    public void Mark(UiEntity entity, UiDirtyFlags flags, UiEntity source = default)
     {
         if (flags == UiDirtyFlags.None || !_entities.IsAlive(entity))
             return;
+
+        UiDirtyFlags effective;
 
         if (!_byIndex.TryGetValue(entity.Index, out DirtyEntry entry))
         {
@@ -55,6 +59,8 @@ public sealed class DirtyTracker
         }
 
         AddIndexToSets(entity.Index, flags);
+        effective = _byIndex[entity.Index].Flags;
+        _diagnostics?.DirtyMarked(entity, source, flags, effective);
     }
 
     public UiDirtyFlags GetFlags(UiEntity entity)
