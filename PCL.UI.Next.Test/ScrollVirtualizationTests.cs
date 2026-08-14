@@ -166,6 +166,30 @@ public sealed class ScrollVirtualizationTests
     }
 
     [TestMethod]
+    public void VirtualList_UpwardScroll_RebindsOnlyEnteringItems()
+    {
+        using VirtualTestContext context = CreateVirtualList(
+            100_000,
+            estimatedExtent: 20f,
+            overscan: 2,
+            Ui.Text().Height(UiLength.Pixels(20f)));
+        context.Runtime.Virtualization.ScrollIntoView(
+            context.Host,
+            100,
+            UiScrollAlignment.Start,
+            animated: false);
+        Drain(context.World);
+        int before = context.Source.BindCount;
+        float offset = context.Runtime.Scroll.GetState(context.Host).Offset;
+
+        context.Runtime.Scroll.SetOffset(context.Host, offset - 20f);
+        Drain(context.World);
+
+        int rebound = context.Source.BindCount - before;
+        Assert.AreEqual(1, rebound);
+    }
+
+    [TestMethod]
     public void VariableVirtualList_PreservesVisibleAnchorWhenMeasuredExtentsChange()
     {
         const int heightSlice = 1;

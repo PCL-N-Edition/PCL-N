@@ -234,7 +234,13 @@ public sealed class UiVirtualizationRuntime : IDisposable
         int realizedEnd = Math.Min(count, visibleEnd + state.Policy.OverscanAfter);
 
         for (int i = 0; i < state.Slots.Count; i++)
-            state.Slots[i].UsedThisPlan = false;
+        {
+            ItemSlot slot = state.Slots[i];
+            slot.UsedThisPlan = false;
+            slot.ReservedThisPlan = slot.IsRealized &&
+                                    (uint)(slot.LogicalIndex - realizedStart) < (uint)(realizedEnd - realizedStart) &&
+                                    slot.Key == state.Keys[slot.LogicalIndex];
+        }
         for (int index = realizedStart; index < realizedEnd; index++)
         {
             ItemSlot slot = FindSlot(state, index) ?? RentSlot(state, index);
@@ -269,7 +275,8 @@ public sealed class UiVirtualizationRuntime : IDisposable
         for (int i = 0; i < state.Slots.Count; i++)
         {
             ItemSlot slot = state.Slots[i];
-            if (!slot.UsedThisPlan && slot.IsRealized && slot.LogicalIndex == logicalIndex)
+            if (!slot.UsedThisPlan && slot.IsRealized &&
+                slot.LogicalIndex == logicalIndex && slot.Key == state.Keys[logicalIndex])
                 return slot;
         }
         return null;
@@ -279,7 +286,7 @@ public sealed class UiVirtualizationRuntime : IDisposable
     {
         for (int i = 0; i < state.Slots.Count; i++)
         {
-            if (!state.Slots[i].UsedThisPlan)
+            if (!state.Slots[i].UsedThisPlan && !state.Slots[i].ReservedThisPlan)
                 return state.Slots[i];
         }
 
@@ -493,6 +500,7 @@ public sealed class UiVirtualizationRuntime : IDisposable
         public long Key { get; set; }
         public bool IsRealized { get; set; }
         public bool UsedThisPlan { get; set; }
+        public bool ReservedThisPlan { get; set; }
     }
 }
 
