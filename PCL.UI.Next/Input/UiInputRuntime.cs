@@ -66,6 +66,18 @@ public sealed class UiInputRuntime : IDisposable
     public IReadOnlyList<UiInputEvent> FrameInputEvents => _normalized;
     public IReadOnlyList<UiWheelDispatch> FrameWheelEvents => _wheelDispatches;
 
+    public UiEntity GetHovered(UiInputRootId inputRoot, int pointerId = 0) =>
+        _hoveredByPointer.TryGetValue(new UiPointerKey(inputRoot, pointerId), out UiEntity entity) &&
+        World.Entities.IsAlive(entity)
+            ? entity
+            : UiEntity.None;
+
+    public UiEntity GetPressed(UiInputRootId inputRoot, int pointerId = 0) =>
+        _pressedByPointer.TryGetValue(new UiPointerKey(inputRoot, pointerId), out UiEntity entity) &&
+        World.Entities.IsAlive(entity)
+            ? entity
+            : UiEntity.None;
+
     public void EnqueuePointer(
         UiInputRootId inputRoot,
         UiPointerEventKind kind,

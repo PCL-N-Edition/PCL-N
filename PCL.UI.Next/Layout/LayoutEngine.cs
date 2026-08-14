@@ -30,6 +30,18 @@ public sealed class LayoutEngine
     /// <summary>Diagnostics: entities that performed real measure work in the latest layout phase.</summary>
     public int LastMeasureCount { get; private set; }
 
+    public bool TryGetLastMeasureConstraint(UiEntity entity, out UiSize available)
+    {
+        if (_world.Entities.IsAlive(entity) &&
+            _world.Components.TryGet(entity, out LayoutMeasureInput input))
+        {
+            available = input.Available;
+            return true;
+        }
+        available = default;
+        return false;
+    }
+
     public void SetViewport(UiSize viewport)
     {
         UiSize next = NormalizeViewport(viewport);

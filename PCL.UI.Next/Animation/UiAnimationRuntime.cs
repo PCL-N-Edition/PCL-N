@@ -137,6 +137,9 @@ public sealed class UiAnimationRuntime : IDisposable
     public bool TryGetSnapshot(UiAnimationHandle handle, out UiAnimationSnapshot snapshot) =>
         _store.TryGetSnapshot(handle, out snapshot);
 
+    public void CopySnapshotsTo(List<UiAnimationSnapshot> destination, bool activeOnly = false) =>
+        _store.CopySnapshotsTo(destination, activeOnly);
+
     public bool IsCurrent(in UiAnimationSettled settled) => _store.IsCurrent(in settled);
 
     public UiTransitionGroupId CreateTransitionGroup(

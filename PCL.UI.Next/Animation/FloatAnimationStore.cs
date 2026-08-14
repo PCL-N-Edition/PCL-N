@@ -56,6 +56,17 @@ internal sealed class FloatAnimationStore
 
     public int ActiveCount => _activeCount;
 
+    public void CopySnapshotsTo(List<UiAnimationSnapshot> destination, bool activeOnly = false)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        for (int index = 1; index < _highWater; index++)
+        {
+            if (!_alive[index] || (activeOnly && _activePosition[index] == 0))
+                continue;
+            destination.Add(CreateSnapshot(index));
+        }
+    }
+
     public event Action<UiAnimationSettled>? Settled;
 
     public UiAnimationHandle Retarget(
@@ -306,20 +317,7 @@ internal sealed class FloatAnimationStore
             return false;
         }
 
-        snapshot = new UiAnimationSnapshot(
-            Handle(index),
-            entity,
-            property,
-            _current[index],
-            _target[index],
-            _velocity[index],
-            _solver[index],
-            _continuity[index],
-            _motion[index],
-            _targetGeneration[index],
-            _scope[index],
-            _owner[index],
-            _activePosition[index] != 0);
+        snapshot = CreateSnapshot(index);
         return true;
     }
 
@@ -336,6 +334,21 @@ internal sealed class FloatAnimationStore
     public bool IsCurrent(in UiAnimationSettled settled) =>
         IsAlive(settled.Channel) &&
         _targetGeneration[settled.Channel.Index] == settled.TargetGeneration;
+
+    private UiAnimationSnapshot CreateSnapshot(int index) => new(
+        Handle(index),
+        _entities[index],
+        _properties[index],
+        _current[index],
+        _target[index],
+        _velocity[index],
+        _solver[index],
+        _continuity[index],
+        _motion[index],
+        _targetGeneration[index],
+        _scope[index],
+        _owner[index],
+        _activePosition[index] != 0);
 
     public void RemoveEntity(UiEntity entity)
     {

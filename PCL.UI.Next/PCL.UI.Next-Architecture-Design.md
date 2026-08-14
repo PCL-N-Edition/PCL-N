@@ -4493,6 +4493,22 @@ Replay
 Benchmark CI
 ```
 
+### Phase 9 已冻结的 Inspector 契约
+
+- `PCL.UI.Next.DevTools` 只依赖 backend-neutral Runtime，不引用 Avalonia，也不取得 ECS
+  写权限；Inspector 输出 immutable snapshot，不向页面暴露可变 component reference；
+- Entity Inspector 输出 generation-safe Entity/Scope、logical parent/children、当前 Dirty flags
+  与 component type names；component 枚举由 `ComponentStore` 提供 AOT-safe catalog，不扫描字段；
+- Layout Inspector 通过 `LayoutEngine.TryGetLastMeasureConstraint` 读取最近一次真实 measure
+  constraint，并同时返回 DesiredSize、LayoutRect、layout parent 与 boundary；
+- Render Inspector 复用 `UiRenderNodeSnapshot`；Interaction Inspector 输出 hit bounds、当前
+  input root、focus/hover/press/capture 与 bubble route；
+- Animation/Virtualization Inspector 只读取 Runtime snapshot API。`UiMotionTraceSession` 在
+  BackendCommit phase 采样 active channel，并从 animation journal 补入 settle 终点；采样环
+  固定容量，禁止因 DevTools 长期开启而无限增长；
+- Dirty Trace reader 必须暴露 journal `DroppedCount`，UI 应明确标注被 retention 淘汰的历史，
+  不得把不完整 trace 伪装为完整因果链。
+
 ---
 
 ## Phase 10 — Runtime Freeze

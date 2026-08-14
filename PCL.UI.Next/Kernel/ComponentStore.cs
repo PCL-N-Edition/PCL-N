@@ -64,6 +64,19 @@ public sealed class ComponentStore
         return removed;
     }
 
+    /// <summary>Diagnostics-only component type enumeration without reflecting over values.</summary>
+    public void CopyComponentTypes(UiEntity entity, List<Type> destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (!_entities.IsAlive(entity))
+            return;
+        foreach (IComponentPool pool in _pools.Values)
+        {
+            if (pool.Has(entity))
+                destination.Add(pool.ComponentType);
+        }
+    }
+
     public void ClearAll()
     {
         foreach (IComponentPool pool in _pools.Values)
@@ -72,6 +85,8 @@ public sealed class ComponentStore
 
     private interface IComponentPool
     {
+        Type ComponentType { get; }
+        bool Has(UiEntity entity);
         bool Remove(UiEntity entity);
         void Clear();
     }
@@ -81,6 +96,10 @@ public sealed class ComponentStore
         public ComponentPoolAdapter(ComponentPool<T> pool) => Pool = pool;
 
         public ComponentPool<T> Pool { get; }
+
+        public Type ComponentType => typeof(T);
+
+        public bool Has(UiEntity entity) => Pool.Has(entity);
 
         public bool Remove(UiEntity entity) => Pool.UnsafeRemove(entity);
 
