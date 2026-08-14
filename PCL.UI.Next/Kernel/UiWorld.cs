@@ -69,6 +69,15 @@ public sealed class UiWorld
     /// <summary>Runtime-owned resource stores release entity-scoped handles before components disappear.</summary>
     public event Action<UiEntity>? EntityDestroying;
 
+    /// <summary>Observation hook used by deterministic replay recording.</summary>
+    public event Action<UiPlatformEvent>? PlatformEventEnqueued;
+
+    /// <summary>Observation hook used by deterministic replay recording.</summary>
+    public event Action<UiStatePatch>? StatePatchEnqueued;
+
+    /// <summary>Raised once for every actual Update immediately before systems execute.</summary>
+    public event Action<UiFrameContext>? FrameStarting;
+
     public UiScopeId CreateRootScope()
     {
         UiScopeId scope = Scopes.CreateRoot();
@@ -176,12 +185,14 @@ public sealed class UiWorld
     public void EnqueuePlatformEvent(in UiPlatformEvent platformEvent)
     {
         Events.Enqueue(in platformEvent);
+        PlatformEventEnqueued?.Invoke(platformEvent);
         Scheduler.RequestReactiveFrame();
     }
 
     public void EnqueueStatePatch(in UiStatePatch patch)
     {
         Patches.Enqueue(in patch);
+        StatePatchEnqueued?.Invoke(patch);
         Scheduler.RequestReactiveFrame();
     }
 
@@ -207,6 +218,7 @@ public sealed class UiWorld
         _frameIndex++;
 
         UiFrameContext frame = new(_frameIndex, delta, now);
+        FrameStarting?.Invoke(frame);
         Diagnostics.BeginFrame(in frame);
         try
         {

@@ -41,7 +41,16 @@ public sealed class UiInteractiveRuntime : IDisposable
     public UiScrollRuntime Scroll { get; }
     public UiVirtualizationRuntime Virtualization { get; }
 
-    public void SetViewport(UiSize viewport) => _layoutRuntime.SetViewport(viewport);
+    public event Action<UiSize>? ViewportChanged;
+
+    public void SetViewport(UiSize viewport)
+    {
+        UiSize previous = Layout.Viewport;
+        _layoutRuntime.SetViewport(viewport);
+        UiSize current = Layout.Viewport;
+        if (current != previous)
+            ViewportChanged?.Invoke(current);
+    }
 
     public void Dispose()
     {

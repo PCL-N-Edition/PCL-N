@@ -3354,6 +3354,20 @@ Replay
 deterministically reproduce
 ```
 
+首版 `.uireplay` contract：
+
+- 文件以固定 magic、`ushort` format version 与 entry count 开头；v1 entry 只允许
+  PlatformEvent、StatePatch、ClockTick、Viewport、ResourceReady；未知 version/kind
+  必须 fail fast，禁止 best-effort 猜测；
+- `UiReplayRecorder` 订阅 World 的 enqueue observation hook 与每个实际 `Update` 的
+  `FrameStarting`，因此连续动画帧也有明确 tick；viewport 由 InteractiveRuntime event
+  自动记录，resource-ready 由资源 owner 显式写入；
+- 记录容量固定。达到上限后 recorder 标记 overflow，但不得从 observation callback 抛出
+  并破坏 Runtime；`Complete()` 必须拒绝导出不完整日志；
+- `UiReplayRunner` 只接受 `DeterministicUiClock` 和已按同样顺序构造 Scope/InputRoot/Entity
+  的 Headless Runtime；ClockTick 使用 force update 重建原始 frame boundary，时钟倒退、
+  缺少 viewport runtime 或 resource callback 均立即失败。
+
 ---
 
 # 106. Benchmark Suite
