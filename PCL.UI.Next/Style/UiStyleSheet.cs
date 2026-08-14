@@ -135,5 +135,9 @@ public static class UiDefaultStyles
                 .WithBackground(UiThemeTokens.Surface)
                 .WithCornerRadius(UiThemeTokens.RadiusCard)
                 .WithPadding(new UiThickness(12f))));
+
+        styles.Add(new UiStyleRule(
+            UiClass.ModalBarrier,
+            default(UiStyleValues).WithBackground(UiColor.FromArgb(112, 0, 0, 0))));
     }
 }

@@ -110,6 +110,20 @@ public sealed class DirtyTrackerAndPipelineTests
     }
 
     [TestMethod]
+    public void Scheduler_ContinuousLeasesAreReferenceCountedPerOwner()
+    {
+        UiFrameScheduler scheduler = new();
+        IDisposable first = scheduler.AcquireContinuousFrame(UiContinuousReason.OverlayTimer);
+        IDisposable second = scheduler.AcquireContinuousFrame(UiContinuousReason.OverlayTimer);
+        Assert.IsTrue(scheduler.HasContinuous);
+
+        first.Dispose();
+        Assert.IsTrue(scheduler.HasContinuous);
+        second.Dispose();
+        Assert.IsFalse(scheduler.HasContinuous);
+    }
+
+    [TestMethod]
     public void Scheduler_MidFrameRequest_SurvivesToNextFrame()
     {
         UiWorld world = new(new DeterministicUiClock(), registerDefaultDrainSystems: false);

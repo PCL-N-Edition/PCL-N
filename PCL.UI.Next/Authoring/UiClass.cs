@@ -24,6 +24,7 @@ public readonly struct UiClass : IEquatable<UiClass>
     public static UiClass PageTitle { get; } = new(2, "PageTitle");
     public static UiClass Body { get; } = new(3, "Body");
     public static UiClass Card { get; } = new(4, "Card");
+    public static UiClass ModalBarrier { get; } = new(5, "ModalBarrier");
 
     public bool Equals(UiClass other) => Id == other.Id;
     public override bool Equals(object? obj) => obj is UiClass other && Equals(other);

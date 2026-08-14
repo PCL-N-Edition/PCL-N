@@ -255,7 +255,7 @@ public sealed class LayoutEngine
         UiEntity child = FirstChild(entity);
         while (child != UiEntity.None)
         {
-            UiSize desired = MeasureEntity(child, UiSize.Infinite);
+            UiSize desired = MeasureEntity(child, available);
             AbsolutePlacement placement = _world.Components.TryGet(child, out AbsolutePlacement configured)
                 ? configured
                 : default;
