@@ -618,7 +618,10 @@ internal static class UiTransformMath
         Matrix3x2 layout = world.Components.TryGet(entity, out ComputedLayoutTransform flip)
             ? flip.Value
             : Matrix3x2.Identity;
-        return layout * CreateStyleTransform(world, entity);
+        Matrix3x2 scroll = world.Components.TryGet(entity, out ScrollContentTransform offset)
+            ? Matrix3x2.CreateTranslation(-offset.X, -offset.Y)
+            : Matrix3x2.Identity;
+        return layout * CreateStyleTransform(world, entity) * scroll;
     }
 
     public static Matrix3x2 CreateStyleTransform(UiWorld world, UiEntity entity)

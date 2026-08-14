@@ -157,6 +157,8 @@ public sealed class LayoutEngine
     {
         if (_world.Components.Has<TextContent>(entity))
             return _textMeasurement.Resolve(entity, available.Width);
+        if (_world.Components.TryGet(entity, out ScrollLayout scroll))
+            return MeasureScroll(entity, available, in scroll);
         if (_world.Components.TryGet(entity, out StackLayout stack))
             return MeasureStack(entity, available, in stack);
         if (_world.Components.TryGet(entity, out GridLayout grid))
@@ -166,6 +168,20 @@ public sealed class LayoutEngine
         if (_world.Components.Has<OverlayLayout>(entity))
             return MeasureOverlay(entity, available);
         return MeasureOverlay(entity, available);
+    }
+
+    private UiSize MeasureScroll(UiEntity entity, UiSize available, in ScrollLayout scroll)
+    {
+        UiEntity child = FirstChild(entity);
+        if (child == UiEntity.None)
+            return UiSize.Zero;
+        UiSize childAvailable = scroll.Orientation == UiOrientation.Vertical
+            ? new UiSize(available.Width, float.PositiveInfinity)
+            : new UiSize(float.PositiveInfinity, available.Height);
+        UiSize desired = MeasureEntity(child, childAvailable);
+        return new UiSize(
+            float.IsFinite(available.Width) ? Math.Min(desired.Width, available.Width) : desired.Width,
+            float.IsFinite(available.Height) ? Math.Min(desired.Height, available.Height) : desired.Height);
     }
 
     private UiSize MeasureStack(UiEntity entity, UiSize available, in StackLayout stack)
@@ -329,7 +345,9 @@ public sealed class LayoutEngine
             Math.Max(0f, rect.Width - padding.Horizontal),
             Math.Max(0f, rect.Height - padding.Vertical));
 
-        if (_world.Components.TryGet(entity, out StackLayout stack))
+        if (_world.Components.TryGet(entity, out ScrollLayout scroll))
+            ArrangeScroll(entity, content, in scroll);
+        else if (_world.Components.TryGet(entity, out StackLayout stack))
             ArrangeStack(entity, content, in stack);
         else if (_world.Components.TryGet(entity, out GridLayout grid))
             ArrangeGrid(entity, content, in grid);
@@ -337,6 +355,48 @@ public sealed class LayoutEngine
             ArrangeAbsolute(entity, content);
         else
             ArrangeOverlay(entity, content);
+    }
+
+    private void ArrangeScroll(UiEntity entity, UiRect content, in ScrollLayout scroll)
+    {
+        UiEntity child = FirstChild(entity);
+        float extent = 0f;
+        if (child != UiEntity.None)
+        {
+            UiSize desired = _world.Components.TryGet(child, out DesiredSize size) ? size.Value : UiSize.Zero;
+            UiRect slot = scroll.Orientation == UiOrientation.Vertical
+                ? new UiRect(content.X, content.Y, content.Width, Math.Max(content.Height, desired.Height))
+                : new UiRect(content.X, content.Y, Math.Max(content.Width, desired.Width), content.Height);
+            ArrangeEntity(child, slot);
+            if (_world.Components.TryGet(child, out LayoutRect childRect))
+            {
+                extent = scroll.Orientation == UiOrientation.Vertical
+                    ? childRect.Value.Height
+                    : childRect.Value.Width;
+            }
+        }
+
+        ScrollState state = _world.Components.TryGet(entity, out ScrollState current)
+            ? current
+            : default;
+        state.Extent = extent;
+        state.Viewport = scroll.Orientation == UiOrientation.Vertical ? content.Height : content.Width;
+        if (state.Motion == UiScrollMotionKind.Idle)
+            state.Offset = Math.Clamp(state.Offset, 0f, state.MaximumOffset);
+        _world.Set(entity, state);
+        if (child != UiEntity.None)
+            SetScrollTransform(child, scroll.Orientation, state.Offset);
+    }
+
+    private void SetScrollTransform(UiEntity content, UiOrientation orientation, float offset)
+    {
+        ScrollContentTransform next = orientation == UiOrientation.Vertical
+            ? new ScrollContentTransform { Y = offset }
+            : new ScrollContentTransform { X = offset };
+        if (_world.Components.TryGet(content, out ScrollContentTransform previous) && previous.Equals(next))
+            return;
+        _world.Set(content, next);
+        _world.Dirty.Mark(content, UiDirtyFlags.Transform | UiDirtyFlags.HitTest | UiDirtyFlags.Render);
     }
 
     private void ArrangeStack(UiEntity entity, UiRect content, in StackLayout stack)

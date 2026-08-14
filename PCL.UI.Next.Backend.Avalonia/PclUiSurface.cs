@@ -64,8 +64,20 @@ public sealed class PclUiSurface : Control
         {
             DrawPrimitive(context, in node);
             IReadOnlyList<RenderNodeId> children = _retained.GetChildren(id);
-            for (int i = 0; i < children.Count; i++)
-                RenderNode(context, children[i]);
+            if (node.Kind == UiRenderNodeKind.Clip)
+            {
+                Rect clip = new(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height);
+                using (context.PushClip(clip))
+                {
+                    for (int i = 0; i < children.Count; i++)
+                        RenderNode(context, children[i]);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < children.Count; i++)
+                    RenderNode(context, children[i]);
+            }
         }
     }
 
@@ -78,7 +90,7 @@ public sealed class PclUiSurface : Control
             return;
         }
 
-        if (node.Kind is not (UiRenderNodeKind.Rectangle or UiRenderNodeKind.RoundedRectangle) ||
+        if (node.Kind is not (UiRenderNodeKind.Rectangle or UiRenderNodeKind.RoundedRectangle or UiRenderNodeKind.Clip) ||
             node.Brush.A == 0 ||
             node.Bounds.Width <= 0f ||
             node.Bounds.Height <= 0f)
@@ -87,7 +99,7 @@ public sealed class PclUiSurface : Control
         }
 
         Rect bounds = new(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height);
-        double radius = node.Kind == UiRenderNodeKind.RoundedRectangle
+        double radius = node.Kind is UiRenderNodeKind.RoundedRectangle or UiRenderNodeKind.Clip
             ? node.CornerRadius
             : 0d;
         context.DrawRectangle(GetBrush(node.Brush), null, bounds, radius, radius);

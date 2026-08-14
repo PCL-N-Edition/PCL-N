@@ -53,7 +53,9 @@ public static class UiBlueprintCompiler
                 d.RestorePreviousFocus,
                 d.Gestures,
                 d.Transitions,
-                d.LayoutTransition);
+                d.LayoutTransition,
+                d.ScrollViewport,
+                d.Virtualization);
         }
 
         BlueprintBinding[] bindingArray = bindings.ToArray();
@@ -106,7 +108,9 @@ public static class UiBlueprintCompiler
             RestorePreviousFocus = node.RestorePreviousFocus,
             Gestures = node.GestureMask,
             Transitions = node.Transitions,
-            LayoutTransition = node.LayoutTransition
+            LayoutTransition = node.LayoutTransition,
+            ScrollViewport = node.ScrollViewport,
+            Virtualization = node.Virtualization
         });
 
         if (node.TextBinding is { } textSelector)
@@ -201,5 +205,7 @@ public static class UiBlueprintCompiler
         public UiGestureMask Gestures;
         public UiTransitionSet Transitions;
         public UiMotionToken LayoutTransition;
+        public ScrollViewport ScrollViewport;
+        public Virtualization Virtualization;
     }
 }

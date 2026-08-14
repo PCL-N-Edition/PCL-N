@@ -66,6 +66,10 @@ public sealed class UiNode
 
     internal UiMotionToken LayoutTransition { get; set; }
 
+    internal ScrollViewport ScrollViewport { get; set; } = ScrollViewport.Vertical;
+
+    internal Virtualization Virtualization { get; set; } = Virtualization.Default;
+
     public UiNode Class(UiClass styleClass)
     {
         if (StyleClassIds.Contains(styleClass.Id))

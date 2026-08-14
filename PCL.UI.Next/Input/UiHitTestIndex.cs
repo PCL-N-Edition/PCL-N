@@ -46,6 +46,8 @@ public sealed class UiHitTestIndex
                 continue;
             if (!_inputRoots.Contains(inputRoot, entry.Entity))
                 continue;
+            if (!IsVisibleThroughAncestors(entry.Entity, point))
+                continue;
             if (!_world.Components.TryGet(entry.Entity, out HitTestableComponent hitTestable) ||
                 !hitTestable.IsVisible || !hitTestable.IsEnabled)
             {
@@ -75,6 +77,35 @@ public sealed class UiHitTestIndex
         }
 
         return UiEntity.None;
+    }
+
+    private bool IsVisibleThroughAncestors(UiEntity entity, UiPoint point)
+    {
+        UiEntity current = entity;
+        int guard = 0;
+        while (_world.Entities.IsAlive(current) && guard++ < 1_000_000)
+        {
+            if (_world.Components.TryGet(current, out VirtualItemSlot slot) && !slot.IsRealized)
+                return false;
+            if (_world.Components.Has<ScrollViewport>(current) && !ContainsVisualPoint(current, point))
+                return false;
+            if (!_world.Hierarchy.TryGetNode(current, out HierarchyNode node) || node.Parent == UiEntity.None)
+                break;
+            current = node.Parent;
+        }
+        return true;
+    }
+
+    private bool ContainsVisualPoint(UiEntity entity, UiPoint point)
+    {
+        if (!_world.Components.TryGet(entity, out LayoutRect layout))
+            return false;
+        if (!_world.Components.TryGet(entity, out ComputedTransform transform))
+            return layout.Value.Contains(point);
+        if (!Matrix3x2.Invert(transform.Value, out Matrix3x2 inverse))
+            return false;
+        Vector2 local = Vector2.Transform(new Vector2(point.X, point.Y), inverse);
+        return layout.Value.Contains(new UiPoint(local.X, local.Y));
     }
 
     public bool TryGetRenderOrder(UiEntity entity, out int renderOrder)

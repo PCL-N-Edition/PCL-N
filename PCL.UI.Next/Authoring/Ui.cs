@@ -49,6 +49,43 @@ public static class Ui
         return node;
     }
 
+    public static UiNode Scroll(UiNode content, UiOrientation orientation = UiOrientation.Vertical)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        return new UiNode(UiNodeKind.Scroll)
+        {
+            ScrollViewport = orientation == UiOrientation.Vertical
+                ? ScrollViewport.Vertical
+                : ScrollViewport.Horizontal,
+            GestureMask = UiGestureMask.Pan,
+            HitTestVisibleOverride = true
+        }.Child(content);
+    }
+
+    public static UiNode VirtualList(
+        float estimatedItemExtent = 48f,
+        ushort overscanBefore = 6,
+        ushort overscanAfter = 6,
+        UiOrientation orientation = UiOrientation.Vertical)
+    {
+        if (!float.IsFinite(estimatedItemExtent) || estimatedItemExtent <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(estimatedItemExtent));
+        return new UiNode(UiNodeKind.VirtualList)
+        {
+            ScrollViewport = orientation == UiOrientation.Vertical
+                ? ScrollViewport.Vertical
+                : ScrollViewport.Horizontal,
+            Virtualization = new Virtualization
+            {
+                EstimatedItemExtent = estimatedItemExtent,
+                OverscanBefore = overscanBefore,
+                OverscanAfter = overscanAfter
+            },
+            GestureMask = UiGestureMask.Pan,
+            HitTestVisibleOverride = true
+        };
+    }
+
     public static UiNode Grid(UiGridDefinition definition, params UiNode[] children)
     {
         ArgumentNullException.ThrowIfNull(definition);

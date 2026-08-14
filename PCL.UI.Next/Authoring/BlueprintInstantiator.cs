@@ -261,6 +261,14 @@ public sealed class BlueprintInstantiator
             case UiNodeKind.Absolute:
                 _world.Set(entity, new AbsoluteLayout());
                 break;
+            case UiNodeKind.Scroll:
+            case UiNodeKind.VirtualList:
+                _world.Set(entity, new ScrollLayout { Orientation = node.ScrollViewport.Orientation });
+                _world.Set(entity, node.ScrollViewport);
+                _world.Set(entity, new ScrollState());
+                if (node.Kind == UiNodeKind.VirtualList)
+                    _world.Set(entity, node.Virtualization);
+                break;
             case UiNodeKind.Container:
             case UiNodeKind.Overlay:
             case UiNodeKind.Button:

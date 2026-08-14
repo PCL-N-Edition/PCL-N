@@ -16,5 +16,7 @@ public enum UiNodeKind : byte
     If = 6,
     Grid = 7,
     Overlay = 8,
-    Absolute = 9
+    Absolute = 9,
+    Scroll = 10,
+    VirtualList = 11
 }

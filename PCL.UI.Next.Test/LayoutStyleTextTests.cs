@@ -468,6 +468,29 @@ public sealed class LayoutStyleTextTests
         Assert.ThrowsExactly<NotSupportedException>(() => context.World.Update());
     }
 
+    [TestMethod]
+    public void Scroll_ConstrainsViewportAndArrangesFullContentExtent()
+    {
+        TestContext context = Create(new UiSize(200f, 100f));
+        BlueprintInstance live = context.Instantiator.Instantiate(
+            Ui.Compile(Ui.Scroll(
+                Ui.Column(
+                    Ui.Container().Height(UiLength.Pixels(80f)),
+                    Ui.Container().Height(UiLength.Pixels(80f))))),
+            context.Scope);
+
+        Drain(context.World);
+
+        UiEntity host = live.RootEntity;
+        UiEntity content = live.EntityAt(1);
+        ScrollState state = context.World.Components.Get<ScrollState>(host);
+        Assert.AreEqual(100f, state.Viewport, 0.01f);
+        Assert.AreEqual(160f, state.Extent, 0.01f);
+        Assert.AreEqual(100f, context.World.Components.Get<LayoutRect>(host).Value.Height, 0.01f);
+        Assert.AreEqual(160f, context.World.Components.Get<LayoutRect>(content).Value.Height, 0.01f);
+        Assert.AreEqual(UiNodeKind.Scroll, context.World.Components.Get<NodeKindComponent>(host).Kind);
+    }
+
     private static (float First, float Second) MeasureTwoStarColumns(
         float width,
         UiGridTrack firstTrack,

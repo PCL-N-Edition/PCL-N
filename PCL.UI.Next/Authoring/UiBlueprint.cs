@@ -77,7 +77,9 @@ public readonly struct BlueprintNode
         bool restorePreviousFocus,
         UiGestureMask gestures,
         UiTransitionSet transitions,
-        UiMotionToken layoutTransition)
+        UiMotionToken layoutTransition,
+        ScrollViewport scrollViewport,
+        Virtualization virtualization)
     {
         Kind = kind;
         ParentIndex = parentIndex;
@@ -109,6 +111,8 @@ public readonly struct BlueprintNode
         Gestures = gestures;
         Transitions = transitions;
         LayoutTransition = layoutTransition;
+        ScrollViewport = scrollViewport;
+        Virtualization = virtualization;
     }
 
     public UiNodeKind Kind { get; }
@@ -139,6 +143,8 @@ public readonly struct BlueprintNode
     public UiGestureMask Gestures { get; }
     public UiTransitionSet Transitions { get; }
     public UiMotionToken LayoutTransition { get; }
+    public ScrollViewport ScrollViewport { get; }
+    public Virtualization Virtualization { get; }
     public bool IsStructural => Kind == UiNodeKind.If;
 
     private UiGridTrack[] GridColumnsCore { get; }

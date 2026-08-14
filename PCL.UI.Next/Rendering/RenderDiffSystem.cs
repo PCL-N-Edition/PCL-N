@@ -270,6 +270,8 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
         bool visible = !world.Components.TryGet(entity, out HitTestableComponent hitTestable) ||
                        hitTestable.IsVisible;
         bool isText = nodeKind == UiNodeKind.Text;
+        bool isClip = nodeKind is UiNodeKind.Scroll or UiNodeKind.VirtualList;
+        bool realized = !world.Components.TryGet(entity, out VirtualItemSlot virtualSlot) || virtualSlot.IsRealized;
         TextLayoutHandle textLayout = TextLayoutHandle.None;
         TextCacheEntryHandle textCacheEntry = TextCacheEntryHandle.None;
         if (isText && world.Components.TryGet(entity, out TextLayout text))
@@ -281,7 +283,7 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
         return new RenderNodeState
         {
             Owner = entity,
-            Kind = isText ? UiRenderNodeKind.Text : UiRenderNodeKind.RoundedRectangle,
+            Kind = isText ? UiRenderNodeKind.Text : isClip ? UiRenderNodeKind.Clip : UiRenderNodeKind.RoundedRectangle,
             Parent = parent,
             ZOrder = zOrder,
             Bounds = world.Components.TryGet(entity, out LayoutRect layout)
@@ -290,7 +292,7 @@ public sealed class RenderDiffSystem : IUiSystem, IDisposable
             Transform = world.Components.Has<LayoutRect>(entity)
                 ? UiTransformMath.CreateLocalTransform(world, entity)
                 : Matrix3x2.Identity,
-            Opacity = visible ? Math.Clamp(visual.Opacity, 0f, 1f) : 0f,
+            Opacity = visible && realized ? Math.Clamp(visual.Opacity, 0f, 1f) : 0f,
             Brush = isText ? visual.Foreground : visual.Background,
             CornerRadius = Math.Max(0f, visual.CornerRadius),
             TextLayout = textLayout,
