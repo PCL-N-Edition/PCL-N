@@ -2647,6 +2647,9 @@ public interface IUiBackend
 - Backend 生命周期固定为 `Initialize → Commit/RequestFrame → Shutdown`。一个实例只能
   初始化一次，`UiRenderingRuntime.Dispose` 必须恰好调用一次 `Shutdown`；Backend 清空
   retained state 后，RenderScene 才能释放最后的 render resource lease；
+- `UiRenderingRuntime` 对 `UiInteractiveRuntime.TextCache` 的依赖是显式 borrow lease；只要
+  Rendering 仍存活，直接 Dispose Interactive 或 Text cache 必须 fail fast，不能释放仍可能
+  被 retained backend 引用的 text handle；
 - 第一版 Avalonia Backend 使用一个 `PclUiSurface` 绘制 retained state，不为每个
   Entity 创建 Avalonia Control；文本由 `AvaloniaTextEngine` 复用 Avalonia 的成熟
   shaping / fallback 实现；
@@ -4645,6 +4648,19 @@ Virtualization contract
   RequestFrame 与 Shutdown；不兼容 Backend 必须在 Initialize 前被拒绝；
 - Commit batch immutable、FrameId 严格递增、Commit 不回调 Runtime；Shutdown 先清空
   platform retained state，Runtime 后释放 RenderScene resource leases。
+
+#### Runtime ownership
+
+- Window 的正式 composition entry 是 `UiWindowRuntime`。它创建并拥有 WindowScope、
+  InputRoot、`UiInteractiveRuntime` 与 `UiRenderingRuntime`；ApplicationScope 和具体
+  `ITextEngine` 实例仍由外层 application/platform host 拥有；
+- Dispose 顺序冻结为 `Rendering → WindowScope subtree → Interactive`：先让 Backend 放弃
+  retained handles，再销毁窗口及全部后代 Scope/Entity，最后释放 ECS text lease 与 cache；
+- `UiRenderingRuntime` 构造时获取 TextLayoutCache borrow lease，Dispose 在 Backend Shutdown
+  和 RenderScene release 完成后释放。绕过 owner 提前 Dispose Interactive/TextLayoutCache
+  必须抛出 `InvalidOperationException`，不得进入部分 teardown 或 use-after-dispose；
+- `UiWindowRuntime.Dispose` 必须幂等；其拥有的 WindowScope、PageScope、PopupScope 与其他
+  descendant scope 必须全部失效，传入的 ApplicationScope 保持存活。
 
 #### Virtualization
 

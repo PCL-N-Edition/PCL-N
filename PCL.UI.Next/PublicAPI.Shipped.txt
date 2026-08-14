@@ -2586,6 +2586,15 @@ PCL.UI.Next.UiWheelEvent.Timestamp.get -> PCL.UI.Next.UiTimestamp
 PCL.UI.Next.UiWheelEvent.Timestamp.init -> void
 PCL.UI.Next.UiWheelEvent.UiWheelEvent() -> void
 PCL.UI.Next.UiWheelEvent.UiWheelEvent(PCL.UI.Next.UiInputRootId InputRoot, PCL.UI.Next.UiScopeId Scope, PCL.UI.Next.UiTimestamp Timestamp, PCL.UI.Next.UiPoint Position, PCL.UI.Next.UiPoint Delta, PCL.UI.Next.UiInputModifiers Modifiers) -> void
+PCL.UI.Next.UiWindowRuntime
+PCL.UI.Next.UiWindowRuntime.ApplicationScope.get -> PCL.UI.Next.UiScopeId
+PCL.UI.Next.UiWindowRuntime.Dispose() -> void
+PCL.UI.Next.UiWindowRuntime.InputRoot.get -> PCL.UI.Next.UiInputRootId
+PCL.UI.Next.UiWindowRuntime.Interactive.get -> PCL.UI.Next.UiInteractiveRuntime!
+PCL.UI.Next.UiWindowRuntime.Rendering.get -> PCL.UI.Next.UiRenderingRuntime!
+PCL.UI.Next.UiWindowRuntime.UiWindowRuntime(PCL.UI.Next.UiWorld! world, PCL.UI.Next.ITextEngine! textEngine, PCL.UI.Next.IUiBackend! backend, PCL.UI.Next.UiScopeId applicationScope, PCL.UI.Next.UiSize viewport, float rasterScale = 1, bool applyDefaults = true, int textCacheCapacity = 512, PCL.UI.Next.UiGestureThresholds? gestureThresholds = null, PCL.UI.Next.UiMotionRegistry? motionRegistry = null) -> void
+PCL.UI.Next.UiWindowRuntime.WindowScope.get -> PCL.UI.Next.UiScopeId
+PCL.UI.Next.UiWindowRuntime.World.get -> PCL.UI.Next.UiWorld!
 PCL.UI.Next.UiWorld
 PCL.UI.Next.UiWorld.Add<T>(PCL.UI.Next.UiEntity entity, in T component) -> void
 PCL.UI.Next.UiWorld.AttachChild(PCL.UI.Next.UiEntity parent, PCL.UI.Next.UiEntity child) -> void

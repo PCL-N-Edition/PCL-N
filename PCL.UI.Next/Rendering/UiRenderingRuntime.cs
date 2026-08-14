@@ -10,6 +10,7 @@ public sealed class UiRenderingRuntime : IDisposable
     private readonly BackendCommitSystem _commit;
     private readonly UiNativeHostRuntime? _nativeHosts;
     private readonly UiAccessibilityRuntime _accessibility;
+    private readonly IDisposable _textLayoutLease;
     private bool _disposed;
 
     public UiRenderingRuntime(
@@ -28,16 +29,49 @@ public sealed class UiRenderingRuntime : IDisposable
         if (!world.Scopes.IsAlive(rootScope))
             throw new InvalidOperationException("Render root scope is not alive: " + rootScope);
         RootScope = rootScope;
-        Scene = new RenderScene(textLayouts);
-        _diff = new RenderDiffSystem(world, Scene, rootScope);
-        _commit = new BackendCommitSystem(_diff, backend);
-        UiBackendContext context = new(viewport, rasterScale);
-        backend.Initialize(in context);
-        if (backend is INativeHostBackend nativeHostBackend)
-            _nativeHosts = new UiNativeHostRuntime(world, nativeHostBackend, rootScope, input);
-        _accessibility = new UiAccessibilityRuntime(world, rootScope, backend as IAccessibilityBackend, input);
-        world.Systems.Register(_diff);
-        world.Systems.Register(_commit);
+        _textLayoutLease = textLayouts.AcquireBorrowLease();
+        RenderScene scene = new(textLayouts);
+        RenderDiffSystem diff = new(world, scene, rootScope);
+        BackendCommitSystem commit = new(diff, backend);
+        UiNativeHostRuntime? nativeHosts = null;
+        UiAccessibilityRuntime? accessibility = null;
+        bool backendInitialized = false;
+        bool diffRegistered = false;
+        bool commitRegistered = false;
+        try
+        {
+            UiBackendContext context = new(viewport, rasterScale);
+            backend.Initialize(in context);
+            backendInitialized = true;
+            if (backend is INativeHostBackend nativeHostBackend)
+                nativeHosts = new UiNativeHostRuntime(world, nativeHostBackend, rootScope, input);
+            accessibility = new UiAccessibilityRuntime(world, rootScope, backend as IAccessibilityBackend, input);
+            world.Systems.Register(diff);
+            diffRegistered = true;
+            world.Systems.Register(commit);
+            commitRegistered = true;
+        }
+        catch
+        {
+            if (commitRegistered)
+                world.Systems.Unregister(commit);
+            if (diffRegistered)
+                world.Systems.Unregister(diff);
+            accessibility?.Dispose();
+            nativeHosts?.Dispose();
+            diff.Dispose();
+            if (backendInitialized)
+                backend.Shutdown();
+            scene.Dispose();
+            _textLayoutLease.Dispose();
+            throw;
+        }
+
+        Scene = scene;
+        _diff = diff;
+        _commit = commit;
+        _nativeHosts = nativeHosts;
+        _accessibility = accessibility!;
         world.Scheduler.RequestReactiveFrame();
     }
 
@@ -64,6 +98,7 @@ public sealed class UiRenderingRuntime : IDisposable
         _diff.Dispose();
         Backend.Shutdown();
         Scene.Dispose();
+        _textLayoutLease.Dispose();
         _disposed = true;
     }
 }

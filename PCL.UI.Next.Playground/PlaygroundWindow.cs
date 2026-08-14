@@ -42,6 +42,7 @@ public sealed class PlaygroundWindow : Window, IDisposable
     private static readonly UiClass NavigationHostClass = new(5011, "Playground.NavigationHost");
 
     private readonly UiWorld _world;
+    private readonly UiWindowRuntime _runtimeOwner;
     private readonly UiInteractiveRuntime _runtime;
     private readonly UiRenderingRuntime _rendering;
     private readonly AvaloniaTextEngine _textEngine;
@@ -82,19 +83,19 @@ public sealed class PlaygroundWindow : Window, IDisposable
         UiSize viewport = new(1120, 960);
         _world = new UiWorld(new StopwatchUiClock());
         _textEngine = new AvaloniaTextEngine();
-        _runtime = new UiInteractiveRuntime(_world, _textEngine, viewport);
-        ConfigureStyles(_runtime.Styles);
-        UiScopeId applicationScope = _world.CreateRootScope();
-        _windowScope = _world.CreateScope(applicationScope);
-        _inputRoot = _runtime.Input.InputRoots.Register(_windowScope);
         _backend = new AvaloniaUiBackend(_textEngine);
-        _rendering = new UiRenderingRuntime(
+        UiScopeId applicationScope = _world.CreateRootScope();
+        _runtimeOwner = new UiWindowRuntime(
             _world,
+            _textEngine,
             _backend,
-            _runtime.TextCache,
-            _windowScope,
-            viewport,
-            input: _runtime.Input);
+            applicationScope,
+            viewport);
+        _runtime = _runtimeOwner.Interactive;
+        _rendering = _runtimeOwner.Rendering;
+        _windowScope = _runtimeOwner.WindowScope;
+        _inputRoot = _runtimeOwner.InputRoot;
+        ConfigureStyles(_runtime.Styles);
         _presentation = new PresentationStore();
         _presentation.Set(CounterSlice, _counter);
         _presentation.Set(DetailsSlice, _detailsVisible);
@@ -601,8 +602,7 @@ public sealed class PlaygroundWindow : Window, IDisposable
         _tooltipRegistration.Dispose();
         _navigation.Dispose();
         _overlays.Dispose();
-        _rendering.Dispose();
-        _runtime.Dispose();
+        _runtimeOwner.Dispose();
         _textEngine.Dispose();
     }
 

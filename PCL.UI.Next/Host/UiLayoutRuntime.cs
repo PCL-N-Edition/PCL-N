@@ -53,10 +53,13 @@ public sealed class UiLayoutRuntime : IDisposable
 
     public void SetViewport(UiSize viewport) => Layout.SetViewport(viewport);
 
+    internal void EnsureCanDispose() => TextCache.EnsureCanDispose();
+
     public void Dispose()
     {
         if (_disposed)
             return;
+        EnsureCanDispose();
         World.Systems.Unregister(_layoutArrangeSystem);
         World.Systems.Unregister(_layoutMeasureSystem);
         World.Systems.Unregister(_textMeasureSystem);

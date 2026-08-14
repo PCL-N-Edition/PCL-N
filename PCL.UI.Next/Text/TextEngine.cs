@@ -85,6 +85,7 @@ public sealed class TextLayoutCache : IDisposable
     private readonly Stack<int> _free = new();
     private long _accessClock;
     private int _count;
+    private int _borrowCount;
     private bool _disposed;
 
     public TextLayoutCache(ITextEngine engine, int maxEntries = 512)
@@ -98,6 +99,26 @@ public sealed class TextLayoutCache : IDisposable
     public int Count => _count;
 
     public int MaxEntries { get; }
+
+    internal int BorrowCount => _borrowCount;
+
+    internal IDisposable AcquireBorrowLease()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _borrowCount = checked(_borrowCount + 1);
+        return new BorrowLease(this);
+    }
+
+    internal void EnsureCanDispose()
+    {
+        if (_disposed)
+            return;
+        if (_borrowCount != 0)
+        {
+            throw new InvalidOperationException(
+                "Text layout cache cannot be disposed while rendering runtimes still hold borrow leases.");
+        }
+    }
 
     internal void Retain(TextCacheEntryHandle handle)
     {
@@ -173,6 +194,7 @@ public sealed class TextLayoutCache : IDisposable
     {
         if (_disposed)
             return;
+        EnsureCanDispose();
         for (int i = 1; i < _entries.Count; i++)
         {
             Entry entry = _entries[i];
@@ -190,6 +212,13 @@ public sealed class TextLayoutCache : IDisposable
         _free.Clear();
         _count = 0;
         _disposed = true;
+    }
+
+    private void ReleaseBorrowLease()
+    {
+        if (_borrowCount <= 0)
+            throw new InvalidOperationException("Text layout cache borrow count underflow.");
+        _borrowCount--;
     }
 
     private int AllocateEntry()
@@ -274,6 +303,20 @@ public sealed class TextLayoutCache : IDisposable
         public UiSize Size { get; set; }
         public int ReferenceCount { get; set; }
         public long LastAccess { get; set; }
+    }
+
+    private sealed class BorrowLease(TextLayoutCache owner) : IDisposable
+    {
+        private TextLayoutCache? _owner = owner;
+
+        public void Dispose()
+        {
+            TextLayoutCache? current = _owner;
+            if (current is null)
+                return;
+            _owner = null;
+            current.ReleaseBorrowLease();
+        }
     }
 }
 

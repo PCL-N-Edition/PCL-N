@@ -159,6 +159,115 @@ public sealed class RuntimeContractTests
         Assert.AreEqual(1, backend.ShutdownCount);
     }
 
+    [TestMethod]
+    public void RuntimeOwner_DisposesRenderingBeforeInteractive()
+    {
+        List<string> order = [];
+        UiWorld world = new(new DeterministicUiClock());
+        UiScopeId applicationScope = world.CreateRootScope();
+        TrackingTextEngine textEngine = new(order);
+        TrackingBackend backend = new(order);
+        UiWindowRuntime owner = new(
+            world,
+            textEngine,
+            backend,
+            applicationScope,
+            new UiSize(100f, 100f));
+        UiEntity text = world.CreateEntity(owner.WindowScope);
+        TextLayoutRequest request = new(
+            "owned",
+            0,
+            16f,
+            400,
+            float.PositiveInfinity,
+            UiTextWrapping.NoWrap,
+            UiTextDirection.Auto);
+        TextLayout layout = owner.Interactive.TextCache.Acquire(
+            in request,
+            TextCacheEntryHandle.None);
+        world.Add(text, layout);
+
+        owner.Dispose();
+
+        CollectionAssert.AreEqual(
+            new[] { "rendering", "interactive" },
+            order);
+    }
+
+    [TestMethod]
+    public void RenderingLease_PreventsPrematureTextCacheDispose()
+    {
+        UiWorld world = new(new DeterministicUiClock());
+        UiInteractiveRuntime interactive = new(
+            world,
+            new DeterministicTextEngine(),
+            new UiSize(100f, 100f));
+        UiScopeId scope = world.CreateRootScope();
+        UiRenderingRuntime rendering = new(
+            world,
+            new HeadlessUiBackend(),
+            interactive.TextCache,
+            scope,
+            new UiSize(100f, 100f));
+
+        Assert.AreEqual(1, interactive.TextCache.BorrowCount);
+        Assert.ThrowsExactly<InvalidOperationException>(() => interactive.TextCache.Dispose());
+        Assert.ThrowsExactly<InvalidOperationException>(() => interactive.Dispose());
+        Assert.AreEqual(1, interactive.TextCache.BorrowCount);
+        interactive.TextCache.ClearUnused();
+
+        rendering.Dispose();
+        Assert.AreEqual(0, interactive.TextCache.BorrowCount);
+        interactive.Dispose();
+    }
+
+    [TestMethod]
+    public void RuntimeOwner_Dispose_IsIdempotent()
+    {
+        UiWorld world = new(new DeterministicUiClock());
+        UiScopeId applicationScope = world.CreateRootScope();
+        HeadlessUiBackend backend = new();
+        UiWindowRuntime owner = new(
+            world,
+            new DeterministicTextEngine(),
+            backend,
+            applicationScope,
+            new UiSize(100f, 100f));
+
+        owner.Dispose();
+        owner.Dispose();
+
+        Assert.AreEqual(1, backend.ShutdownCount);
+    }
+
+    [TestMethod]
+    public void RuntimeOwner_Dispose_DestroysAllWindowScopes()
+    {
+        UiWorld world = new(new DeterministicUiClock());
+        UiScopeId applicationScope = world.CreateRootScope();
+        UiWindowRuntime owner = new(
+            world,
+            new DeterministicTextEngine(),
+            new HeadlessUiBackend(),
+            applicationScope,
+            new UiSize(100f, 100f));
+        UiScopeId pageScope = world.CreateScope(owner.WindowScope);
+        UiScopeId popupScope = world.CreateScope(pageScope);
+        UiEntity windowEntity = world.CreateEntity(owner.WindowScope);
+        UiEntity pageEntity = world.CreateEntity(pageScope);
+        UiEntity popupEntity = world.CreateEntity(popupScope);
+
+        owner.Dispose();
+
+        Assert.IsTrue(world.Scopes.IsAlive(applicationScope));
+        Assert.IsFalse(world.Scopes.IsAlive(owner.WindowScope));
+        Assert.IsFalse(world.Scopes.IsAlive(pageScope));
+        Assert.IsFalse(world.Scopes.IsAlive(popupScope));
+        Assert.IsFalse(world.Entities.IsAlive(windowEntity));
+        Assert.IsFalse(world.Entities.IsAlive(pageEntity));
+        Assert.IsFalse(world.Entities.IsAlive(popupEntity));
+    }
+
     private sealed class IncompatibleBackend : IUiBackend
     {
         public UiContractVersion RequiredContractVersion { get; } = new(2, 0);
@@ -172,6 +281,31 @@ public sealed class RuntimeContractTests
         public void Commit(in UiCommitBatch batch) => _ = batch;
         public void RequestFrame() { }
         public void Shutdown() { }
+    }
+
+    private sealed class TrackingBackend(List<string> order) : IUiBackend
+    {
+        public UiContractVersion RequiredContractVersion => UiRuntimeContract.Current;
+        public UiBackendCapabilities Capabilities => UiBackendCapabilities.None;
+        public void Initialize(in UiBackendContext context) => _ = context;
+        public void Commit(in UiCommitBatch batch) => _ = batch;
+        public void RequestFrame() { }
+        public void Shutdown() => order.Add("rendering");
+    }
+
+    private sealed class TrackingTextEngine(List<string> order) : ITextEngine
+    {
+        private readonly DeterministicTextEngine _inner = new();
+
+        public TextLayoutHandle Layout(in TextLayoutRequest request) => _inner.Layout(in request);
+
+        public UiSize Measure(TextLayoutHandle handle) => _inner.Measure(handle);
+
+        public void Release(TextLayoutHandle handle)
+        {
+            order.Add("interactive");
+            _inner.Release(handle);
+        }
     }
 
     private static IEnumerable<Type> GetSignatureTypes(MemberInfo member)

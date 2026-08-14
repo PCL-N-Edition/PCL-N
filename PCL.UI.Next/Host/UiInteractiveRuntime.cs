@@ -56,6 +56,7 @@ public sealed class UiInteractiveRuntime : IDisposable
     {
         if (_disposed)
             return;
+        _layoutRuntime.EnsureCanDispose();
         Virtualization.Dispose();
         Scroll.Dispose();
         Input.Dispose();
