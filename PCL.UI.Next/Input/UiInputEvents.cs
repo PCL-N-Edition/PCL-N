@@ -144,10 +144,19 @@ public readonly record struct UiKeyEvent(
     UiInputModifiers Modifiers,
     bool IsRepeat);
 
+public readonly record struct UiWheelEvent(
+    UiInputRootId InputRoot,
+    UiScopeId Scope,
+    UiTimestamp Timestamp,
+    UiPoint Position,
+    UiPoint Delta,
+    UiInputModifiers Modifiers);
+
 public enum UiInputEventKind : byte
 {
     Pointer = 0,
-    Key = 1
+    Key = 1,
+    Wheel = 2
 }
 
 /// <summary>Normalized per-frame input union consumed by interactive systems.</summary>
@@ -158,6 +167,7 @@ public readonly struct UiInputEvent
         Kind = UiInputEventKind.Pointer;
         Pointer = pointer;
         Key = default;
+        Wheel = default;
     }
 
     private UiInputEvent(UiKeyEvent key)
@@ -165,14 +175,25 @@ public readonly struct UiInputEvent
         Kind = UiInputEventKind.Key;
         Pointer = default;
         Key = key;
+        Wheel = default;
+    }
+
+    private UiInputEvent(UiWheelEvent wheel)
+    {
+        Kind = UiInputEventKind.Wheel;
+        Pointer = default;
+        Key = default;
+        Wheel = wheel;
     }
 
     public UiInputEventKind Kind { get; }
     public UiPointerEvent Pointer { get; }
     public UiKeyEvent Key { get; }
+    public UiWheelEvent Wheel { get; }
 
     public static UiInputEvent FromPointer(in UiPointerEvent pointer) => new(pointer);
     public static UiInputEvent FromKey(in UiKeyEvent key) => new(key);
+    public static UiInputEvent FromWheel(in UiWheelEvent wheel) => new(wheel);
 }
 
 /// <summary>
@@ -229,6 +250,24 @@ public static class UiPlatformInput
             isRepeat ? 1 : 0,
             inputRoot: inputRoot);
 
+    public static UiPlatformEvent Wheel(
+        UiInputRootId inputRoot,
+        UiScopeId scope,
+        UiTimestamp timestamp,
+        UiPoint position,
+        UiPoint delta,
+        UiInputModifiers modifiers = UiInputModifiers.None) =>
+        new(
+            scope,
+            UiPlatformEventKind.PointerWheel,
+            timestamp,
+            BitConverter.SingleToInt32Bits(position.X),
+            BitConverter.SingleToInt32Bits(position.Y),
+            BitConverter.SingleToInt32Bits(delta.X),
+            BitConverter.SingleToInt32Bits(delta.Y),
+            inputRoot,
+            (int)modifiers);
+
     internal static bool TryNormalize(in UiPlatformEvent platformEvent, out UiInputEvent inputEvent)
     {
         UiPointerEventKind pointerKind;
@@ -257,6 +296,20 @@ public static class UiPlatformInput
                     (UiInputModifiers)platformEvent.Payload1,
                     platformEvent.Payload2 != 0);
                 inputEvent = UiInputEvent.FromKey(in key);
+                return true;
+            case UiPlatformEventKind.PointerWheel:
+                UiWheelEvent wheel = new(
+                    platformEvent.InputRoot,
+                    platformEvent.Scope,
+                    platformEvent.Timestamp,
+                    new UiPoint(
+                        BitConverter.Int32BitsToSingle(platformEvent.Payload0),
+                        BitConverter.Int32BitsToSingle(platformEvent.Payload1)),
+                    new UiPoint(
+                        BitConverter.Int32BitsToSingle(platformEvent.Payload2),
+                        BitConverter.Int32BitsToSingle(platformEvent.Payload3)),
+                    (UiInputModifiers)platformEvent.Payload4);
+                inputEvent = UiInputEvent.FromWheel(in wheel);
                 return true;
             default:
                 inputEvent = default;

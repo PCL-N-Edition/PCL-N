@@ -57,6 +57,35 @@ public sealed class InputFocusTests
     }
 
     [TestMethod]
+    public void PointerWheel_NormalizesAndRoutesToHitTarget()
+    {
+        using TestContext context = Create(new UiSize(200, 100));
+        BlueprintInstance live = context.Instantiate(
+            Ui.Container(Ui.Button("Wheel target").Width(UiLength.Pixels(100)).Height(UiLength.Pixels(50))));
+        Drain(context.World);
+        UiEntity button = FindKind(context.World, live, UiNodeKind.Button);
+        UiPoint routedDelta = default;
+        using IDisposable handler = context.Runtime.Input.RoutedEvents.Register(
+            button,
+            UiRoutedEventKind.PointerWheel,
+            e => routedDelta = e.Data.Delta,
+            UiRoutedEventPhase.Target);
+
+        context.Runtime.Input.EnqueueWheel(
+            context.InputRoot,
+            Center(context.World, button),
+            new UiPoint(1.5f, -2.25f),
+            UiInputModifiers.Control);
+        RunInputFrame(context.World);
+
+        Assert.AreEqual(new UiPoint(1.5f, -2.25f), routedDelta);
+        Assert.AreEqual(1, context.Runtime.Input.FrameWheelEvents.Count);
+        UiWheelDispatch dispatch = context.Runtime.Input.FrameWheelEvents[0];
+        Assert.AreEqual(button, dispatch.Target);
+        Assert.AreEqual(UiInputModifiers.Control, dispatch.Event.Modifiers);
+    }
+
+    [TestMethod]
     public void RoutedEvent_HandlerMutationIsDeterministicWithoutSnapshot()
     {
         using TestContext context = Create(new UiSize(100, 60));

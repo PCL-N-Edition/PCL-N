@@ -26,7 +26,8 @@ public enum UiRoutedEventKind : byte
     PanCompleted = 18,
     PinchStarted = 19,
     PinchDelta = 20,
-    PinchCompleted = 21
+    PinchCompleted = 21,
+    PointerWheel = 22
 }
 
 [Flags]

@@ -17,7 +17,8 @@ public readonly struct UiPlatformEvent
         int payload1 = 0,
         int payload2 = 0,
         int payload3 = 0,
-        UiInputRootId inputRoot = default)
+        UiInputRootId inputRoot = default,
+        int payload4 = 0)
     {
         Scope = scope;
         Kind = kind;
@@ -26,6 +27,7 @@ public readonly struct UiPlatformEvent
         Payload1 = payload1;
         Payload2 = payload2;
         Payload3 = payload3;
+        Payload4 = payload4;
         InputRoot = inputRoot;
     }
 
@@ -36,6 +38,7 @@ public readonly struct UiPlatformEvent
     public int Payload1 { get; }
     public int Payload2 { get; }
     public int Payload3 { get; }
+    public int Payload4 { get; }
     public UiInputRootId InputRoot { get; }
 }
 
@@ -53,4 +56,5 @@ public static class UiPlatformEventKind
     public const uint ThemeChanged = 8;
     public const uint DpiChanged = 9;
     public const uint PointerCancel = 10;
+    public const uint PointerWheel = 11;
 }

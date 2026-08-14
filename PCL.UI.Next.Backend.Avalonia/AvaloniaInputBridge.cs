@@ -30,6 +30,7 @@ public sealed class AvaloniaInputBridge : IDisposable
         _source.PointerReleased += OnPointerReleased;
         _source.PointerExited += OnPointerExited;
         _source.PointerCaptureLost += OnPointerCaptureLost;
+        _source.PointerWheelChanged += OnPointerWheelChanged;
         _source.KeyDown += OnKeyDown;
         _source.KeyUp += OnKeyUp;
     }
@@ -46,6 +47,7 @@ public sealed class AvaloniaInputBridge : IDisposable
         _source.PointerReleased -= OnPointerReleased;
         _source.PointerExited -= OnPointerExited;
         _source.PointerCaptureLost -= OnPointerCaptureLost;
+        _source.PointerWheelChanged -= OnPointerWheelChanged;
         _source.KeyDown -= OnKeyDown;
         _source.KeyUp -= OnKeyUp;
         InputQueued = null;
@@ -128,6 +130,19 @@ public sealed class AvaloniaInputBridge : IDisposable
             UiPointerButton.None,
             UiPointerButtons.None,
             UiInputModifiers.None);
+    }
+
+    private void OnPointerWheelChanged(object? sender, PointerWheelEventArgs e)
+    {
+        _ = sender;
+        Point point = e.GetPosition(_source);
+        _input.EnqueueWheel(
+            _inputRoot,
+            new UiPoint((float)point.X, (float)point.Y),
+            new UiPoint((float)e.Delta.X, (float)e.Delta.Y),
+            Modifiers(e.KeyModifiers));
+        InputQueued?.Invoke();
+        e.Handled = true;
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)

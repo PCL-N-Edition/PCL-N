@@ -12,6 +12,7 @@ public sealed class UiInputRuntime : IDisposable
     private readonly Dictionary<UiPointerKey, UiEntity> _pressedByPointer = [];
     private readonly Dictionary<UiEntity, int> _pressCounts = [];
     private readonly HashSet<UiPointerKey> _automaticCaptures = [];
+    private readonly List<UiWheelDispatch> _wheelDispatches = [];
     private readonly InputNormalizeSystem _normalizeSystem;
     private readonly InputHitTestSystem _hitTestSystem;
     private readonly InteractionSystem _interactionSystem;
@@ -63,6 +64,7 @@ public sealed class UiInputRuntime : IDisposable
     public UiShortcutRegistry Shortcuts { get; }
     public UiCommandQueue Commands { get; }
     public IReadOnlyList<UiInputEvent> FrameInputEvents => _normalized;
+    public IReadOnlyList<UiWheelDispatch> FrameWheelEvents => _wheelDispatches;
 
     public void EnqueuePointer(
         UiInputRootId inputRoot,
@@ -110,6 +112,24 @@ public sealed class UiInputRuntime : IDisposable
         World.EnqueuePlatformEvent(in platformEvent);
     }
 
+    public void EnqueueWheel(
+        UiInputRootId inputRoot,
+        UiPoint position,
+        UiPoint delta,
+        UiInputModifiers modifiers = UiInputModifiers.None,
+        UiTimestamp? timestamp = null)
+    {
+        UiScopeId scope = InputRoots.GetScope(inputRoot);
+        UiPlatformEvent platformEvent = UiPlatformInput.Wheel(
+            inputRoot,
+            scope,
+            timestamp ?? World.Clock.Now,
+            position,
+            delta,
+            modifiers);
+        World.EnqueuePlatformEvent(in platformEvent);
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -134,6 +154,7 @@ public sealed class UiInputRuntime : IDisposable
         _pressedByPointer.Clear();
         _pressCounts.Clear();
         _automaticCaptures.Clear();
+        _wheelDispatches.Clear();
         _disposed = true;
     }
 
@@ -141,18 +162,27 @@ public sealed class UiInputRuntime : IDisposable
     {
         _normalized.Clear();
         _targeted.Clear();
+        _wheelDispatches.Clear();
         RoutedEvents.BeginFrame();
         List<UiPlatformEvent> platformEvents = World.FrameBuffers.PlatformEvents;
         for (int i = 0; i < platformEvents.Count; i++)
         {
             if (!UiPlatformInput.TryNormalize(platformEvents[i], out UiInputEvent input))
                 continue;
-            UiScopeId scope = input.Kind == UiInputEventKind.Pointer
-                ? input.Pointer.Scope
-                : input.Key.Scope;
-            UiInputRootId inputRoot = input.Kind == UiInputEventKind.Pointer
-                ? input.Pointer.InputRoot
-                : input.Key.InputRoot;
+            UiScopeId scope = input.Kind switch
+            {
+                UiInputEventKind.Pointer => input.Pointer.Scope,
+                UiInputEventKind.Key => input.Key.Scope,
+                UiInputEventKind.Wheel => input.Wheel.Scope,
+                _ => default
+            };
+            UiInputRootId inputRoot = input.Kind switch
+            {
+                UiInputEventKind.Pointer => input.Pointer.InputRoot,
+                UiInputEventKind.Key => input.Key.InputRoot,
+                UiInputEventKind.Wheel => input.Wheel.InputRoot,
+                _ => default
+            };
             if (InputRoots.TryResolve(scope, out UiInputRootId resolved) && resolved == inputRoot)
                 _normalized.Add(input);
         }
@@ -171,10 +201,15 @@ public sealed class UiInputRuntime : IDisposable
                 UiEntity captured = PointerCapture.GetCaptured(pointer.InputRoot, pointer.PointerId);
                 _targeted.Add(new TargetedInputEvent(input, captured != UiEntity.None ? captured : hit, hit));
             }
-            else
+            else if (input.Kind == UiInputEventKind.Key)
             {
                 UiEntity focused = Focus.GetFocused(input.Key.InputRoot);
                 _targeted.Add(new TargetedInputEvent(input, focused, focused));
+            }
+            else
+            {
+                UiEntity hit = HitTest.HitTest(input.Wheel.Position, input.Wheel.InputRoot);
+                _targeted.Add(new TargetedInputEvent(input, hit, hit));
             }
         }
     }
@@ -184,6 +219,28 @@ public sealed class UiInputRuntime : IDisposable
         for (int i = 0; i < _targeted.Count; i++)
         {
             TargetedInputEvent targeted = _targeted[i];
+            if (targeted.Input.Kind == UiInputEventKind.Wheel)
+            {
+                UiWheelEvent wheel = targeted.Input.Wheel;
+                if (targeted.Target != UiEntity.None)
+                {
+                    UiRoutedEventData data = new(
+                        wheel.Timestamp,
+                        wheel.Position,
+                        wheel.Delta,
+                        Modifiers: wheel.Modifiers,
+                        InputRoot: wheel.InputRoot);
+                    targeted.Handled = RoutedEvents.Dispatch(
+                        UiRoutedEventKind.PointerWheel,
+                        targeted.Target,
+                        in data);
+                }
+
+                _wheelDispatches.Add(new UiWheelDispatch(wheel, targeted.Target, targeted.Handled));
+                _targeted[i] = targeted;
+                continue;
+            }
+
             if (targeted.Input.Kind != UiInputEventKind.Pointer)
                 continue;
             UiPointerEvent pointer = targeted.Input.Pointer;
@@ -269,7 +326,7 @@ public sealed class UiInputRuntime : IDisposable
                     PointerCapture.Release(pointer.InputRoot, pointer.PointerId);
                 }
             }
-            else
+            else if (targeted.Input.Kind == UiInputEventKind.Key)
             {
                 UiKeyEvent key = targeted.Input.Key;
                 ProcessKey(in key, Focus.GetFocused(key.InputRoot));
@@ -480,6 +537,11 @@ public sealed class UiInputRuntime : IDisposable
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 }
+
+public readonly record struct UiWheelDispatch(
+    UiWheelEvent Event,
+    UiEntity Target,
+    bool Handled);
 
 internal struct TargetedInputEvent
 {
