@@ -44,7 +44,10 @@ public sealed class PclUiSurface : Control
 
     internal void Apply(in UiCommitBatch batch) => _retained.Commit(in batch);
 
-    internal void ApplyAccessibility(UiSemanticTreeSnapshot tree) => _accessibility.Update(tree);
+    internal void ApplyAccessibility(
+        UiSemanticTreeSnapshot tree,
+        IReadOnlySet<UiEntity> nativeOwners) =>
+        _accessibility.Update(tree, nativeOwners);
 
     internal void RaiseAccessibilityAction(UiAccessibilityActionRequest request) =>
         AccessibilityActionSink?.Invoke(request);

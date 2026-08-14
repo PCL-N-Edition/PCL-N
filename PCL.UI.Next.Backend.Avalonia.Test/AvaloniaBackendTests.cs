@@ -345,6 +345,50 @@ public sealed class AvaloniaBackendTests
     }
 
     [TestMethod]
+    public void AvaloniaNativeHost_AutomationTree_ExposesExactlyOneEditPeer()
+    {
+        using HeadlessUnitTestSession session = CreateSession();
+        session.Dispatch(() =>
+        {
+            UiSize viewport = new(320, 180);
+            UiWorld world = new(new DeterministicUiClock());
+            using AvaloniaTextEngine textEngine = new();
+            using UiInteractiveRuntime runtime = new(world, textEngine, viewport);
+            UiScopeId scope = world.CreateRootScope();
+            runtime.Input.InputRoots.Register(scope);
+            AvaloniaUiBackend backend = new(textEngine);
+            using UiRenderingRuntime rendering = new(
+                world,
+                backend,
+                runtime.TextCache,
+                scope,
+                viewport,
+                input: runtime.Input);
+            BlueprintInstantiator instantiator = new(world, new PresentationStore());
+            instantiator.Instantiate(Ui.Compile(Ui.TextBox("value", "Search")), scope);
+            Window window = new() { Width = 320, Height = 180, Content = backend.View };
+            try
+            {
+                window.Show();
+                Drain(world);
+                TextBox textBox = (TextBox)((Canvas)backend.View.Children[1]).Children[0];
+                AutomationPeer surfacePeer = ControlAutomationPeer.CreatePeerForElement(backend.Surface)!;
+                AutomationPeer nativePeer = ControlAutomationPeer.CreatePeerForElement(textBox)!;
+
+                Assert.AreEqual(1, backend.AccessibilityTree.NodeCount);
+                Assert.AreEqual(0, CountPeers(surfacePeer, AutomationControlType.Edit));
+                Assert.AreEqual(1, CountPeers(nativePeer, AutomationControlType.Edit));
+                Assert.AreEqual("Search", nativePeer.GetName());
+            }
+            finally
+            {
+                window.Content = null;
+                window.Close();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
     public void AvaloniaAccessibility_ExposesSemanticPeersAndRoutesInvoke()
     {
         using HeadlessUnitTestSession session = CreateSession();
@@ -393,6 +437,15 @@ public sealed class AvaloniaBackendTests
         while (world.Scheduler.NeedsFrame && guard++ < 16)
             Assert.IsTrue(world.Update());
         Assert.IsFalse(world.Scheduler.NeedsFrame, "Runtime did not settle to idle.");
+    }
+
+    private static int CountPeers(AutomationPeer peer, AutomationControlType type)
+    {
+        int count = peer.GetAutomationControlType() == type ? 1 : 0;
+        IReadOnlyList<AutomationPeer> children = peer.GetChildren();
+        for (int i = 0; i < children.Count; i++)
+            count += CountPeers(children[i], type);
+        return count;
     }
 
     private static HeadlessUnitTestSession CreateSession() =>

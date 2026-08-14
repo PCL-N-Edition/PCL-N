@@ -12,6 +12,7 @@ namespace PCL.UI.Next.Backend.Avalonia;
 internal sealed class AvaloniaAccessibilityBridge
 {
     private readonly PclUiSurface _surface;
+    private readonly HashSet<UiEntity> _nativeOwners = [];
     private PclUiSurfaceAutomationPeer? _peer;
 
     public AvaloniaAccessibilityBridge(PclUiSurface surface)
@@ -24,14 +25,17 @@ internal sealed class AvaloniaAccessibilityBridge
     public AutomationPeer CreatePeer()
     {
         _peer ??= new PclUiSurfaceAutomationPeer(_surface);
-        _peer.Update(Tree);
+        _peer.Update(Tree, _nativeOwners);
         return _peer;
     }
 
-    public void Update(UiSemanticTreeSnapshot tree)
+    public void Update(UiSemanticTreeSnapshot tree, IReadOnlySet<UiEntity> nativeOwners)
     {
         Tree = tree ?? throw new ArgumentNullException(nameof(tree));
-        _peer?.Update(tree);
+        ArgumentNullException.ThrowIfNull(nativeOwners);
+        _nativeOwners.Clear();
+        _nativeOwners.UnionWith(nativeOwners);
+        _peer?.Update(tree, _nativeOwners);
     }
 }
 
@@ -46,13 +50,17 @@ internal sealed class PclUiSurfaceAutomationPeer : ControlAutomationPeer
         _surface = owner;
     }
 
-    public void Update(UiSemanticTreeSnapshot tree)
+    public void Update(UiSemanticTreeSnapshot tree, IReadOnlySet<UiEntity> nativeOwners)
     {
         HashSet<UiSemanticNodeId> retained = [];
+        Dictionary<UiSemanticNodeId, UiSemanticNode> nodesById = [];
         ReadOnlySpan<UiSemanticNode> nodes = tree.Nodes.Span;
         for (int i = 0; i < nodes.Length; i++)
         {
             UiSemanticNode node = nodes[i];
+            nodesById[node.Id] = node;
+            if (nativeOwners.Contains(node.Owner))
+                continue;
             retained.Add(node.Id);
             if (!_peers.TryGetValue(node.Id, out SemanticAutomationPeer? peer))
             {
@@ -73,8 +81,16 @@ internal sealed class PclUiSurfaceAutomationPeer : ControlAutomationPeer
         for (int i = 0; i < nodes.Length; i++)
         {
             UiSemanticNode node = nodes[i];
-            SemanticAutomationPeer peer = _peers[node.Id];
-            if (node.Parent.IsNone || !_peers.TryGetValue(node.Parent, out SemanticAutomationPeer? parent))
+            if (!_peers.TryGetValue(node.Id, out SemanticAutomationPeer? peer))
+                continue;
+            UiSemanticNodeId parentId = node.Parent;
+            while (!parentId.IsNone && !_peers.ContainsKey(parentId))
+            {
+                parentId = nodesById.TryGetValue(parentId, out UiSemanticNode skipped)
+                    ? skipped.Parent
+                    : UiSemanticNodeId.None;
+            }
+            if (parentId.IsNone || !_peers.TryGetValue(parentId, out SemanticAutomationPeer? parent))
             {
                 peer.SetSemanticParent(this);
                 roots.Add(peer);

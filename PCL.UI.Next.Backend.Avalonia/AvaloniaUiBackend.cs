@@ -73,7 +73,15 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessi
     {
         Dispatcher.UIThread.VerifyAccess();
         EnsureInitialized();
-        Surface.ApplyAccessibility(tree);
+        ApplyAccessibilityRepresentation(tree);
+    }
+
+    private void ApplyAccessibilityRepresentation(UiSemanticTreeSnapshot tree)
+    {
+        HashSet<UiEntity> nativeOwners = _nativeHosts.Values
+            .Select(static entry => entry.Owner)
+            .ToHashSet();
+        Surface.ApplyAccessibility(tree, nativeOwners);
         ReadOnlySpan<UiSemanticNode> nodes = tree.Nodes.Span;
         for (int i = 0; i < nodes.Length; i++)
         {
@@ -130,6 +138,7 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessi
         _nativeHosts.Add(handle, entry);
         _nativeLayer.Children.Add(textBox);
         ApplyState(entry, NativeHostMutationFlags.All, descriptor.State);
+        ApplyAccessibilityRepresentation(Surface.AccessibilityTree);
         return handle;
     }
 
@@ -154,6 +163,7 @@ public sealed class AvaloniaUiBackend : IUiBackend, INativeHostBackend, IAccessi
         textBox.LostFocus -= entry.OnLostFocus;
         textBox.KeyDown -= entry.OnKeyDown;
         _nativeLayer.Children.Remove(textBox);
+        ApplyAccessibilityRepresentation(Surface.AccessibilityTree);
         if (restoreSurfaceFocus)
         {
             _focusedNativeHost = NativeHostHandle.None;
