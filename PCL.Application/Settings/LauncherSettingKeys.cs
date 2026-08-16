@@ -83,6 +83,8 @@ public static class LauncherSettingKeys
 
     public static readonly SettingKey LaunchUseSystemGlfw = new("LaunchUseSystemGlfw");
 
+    public static readonly SettingKey LaunchForceX11OnWayland = new("LaunchForceX11OnWayland");
+
     public static SettingKey JavaDisabled(string javaExecutablePath)
     {
         if (string.IsNullOrWhiteSpace(javaExecutablePath))

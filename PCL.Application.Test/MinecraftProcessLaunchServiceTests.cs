@@ -561,7 +561,7 @@ public sealed class MinecraftProcessLaunchServiceTests
                 }
             ];
 
-            MinecraftProcessLaunchService.SetupLinuxEnvironment(startInfo, false, libraries);
+            MinecraftProcessLaunchService.SetupLinuxEnvironment(startInfo, false, libraries, true);
 
             Assert.AreEqual("x11", startInfo.Environment["GDK_BACKEND"]);
             Assert.AreEqual("x11", startInfo.Environment["SDL_VIDEODRIVER"]);
@@ -590,7 +590,7 @@ public sealed class MinecraftProcessLaunchServiceTests
                 }
             ];
 
-            MinecraftProcessLaunchService.SetupLinuxEnvironment(startInfo, false, libraries);
+            MinecraftProcessLaunchService.SetupLinuxEnvironment(startInfo, false, libraries, true);
 
             Assert.IsFalse(startInfo.Environment.ContainsKey("GDK_BACKEND"));
             Assert.IsFalse(startInfo.Environment.ContainsKey("SDL_VIDEODRIVER"));
@@ -619,7 +619,36 @@ public sealed class MinecraftProcessLaunchServiceTests
                 }
             ];
 
-            MinecraftProcessLaunchService.SetupLinuxEnvironment(startInfo, false, libraries);
+            MinecraftProcessLaunchService.SetupLinuxEnvironment(startInfo, false, libraries, true);
+
+            Assert.IsFalse(startInfo.Environment.ContainsKey("GDK_BACKEND"));
+            Assert.IsFalse(startInfo.Environment.ContainsKey("SDL_VIDEODRIVER"));
+            Assert.IsFalse(startInfo.Environment.ContainsKey("QT_QPA_PLATFORM"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_SESSION_TYPE", originalSessionType);
+        }
+    }
+
+    [TestMethod]
+    public void SetupLinuxEnvironment_DisablingForceX11OnWaylandKeepsNativeWayland()
+    {
+        string? originalSessionType = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_SESSION_TYPE", "wayland");
+            ProcessStartInfo startInfo = new() { UseShellExecute = false };
+            List<MinecraftLibraryToken> libraries =
+            [
+                new()
+                {
+                    LocalPath = "/tmp/lwjgl-glfw.jar",
+                    NameWithoutVersion = "org.lwjgl:lwjgl-glfw"
+                }
+            ];
+
+            MinecraftProcessLaunchService.SetupLinuxEnvironment(startInfo, false, libraries, false);
 
             Assert.IsFalse(startInfo.Environment.ContainsKey("GDK_BACKEND"));
             Assert.IsFalse(startInfo.Environment.ContainsKey("SDL_VIDEODRIVER"));

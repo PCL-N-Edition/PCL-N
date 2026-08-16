@@ -42,6 +42,7 @@ public static class LauncherSettingDefaults
         ["LaunchAdvanceNoJavaw"] = false,
         ["LaunchAdvanceDisableLwjglUnsafeAgent"] = false,
         ["LaunchUseSystemGlfw"] = false,
+        ["LaunchForceX11OnWayland"] = true,
         ["LaunchAutoRepairGame"] = true,
         ["ToolDownloadClipboard"] = false,
         ["UiHideNEditionHint"] = false,

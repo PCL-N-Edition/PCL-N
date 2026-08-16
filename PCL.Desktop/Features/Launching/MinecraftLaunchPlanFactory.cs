@@ -134,7 +134,11 @@ internal static class MinecraftLaunchPlanFactory
                 UseSystemGlfw = metadata.UseSystemGlfw ||
                     settings.GetBooleanOption(
                         LauncherSettingKeys.LaunchUseSystemGlfw.Value,
-                        LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.LaunchUseSystemGlfw.Value))
+                        LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.LaunchUseSystemGlfw.Value)),
+                ForceX11OnWayland = metadata.ForceX11OnWayland &&
+                    settings.GetBooleanOption(
+                        LauncherSettingKeys.LaunchForceX11OnWayland.Value,
+                        LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.LaunchForceX11OnWayland.Value))
             },
             cancellationToken).ConfigureAwait(false);
     }

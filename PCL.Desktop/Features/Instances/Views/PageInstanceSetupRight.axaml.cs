@@ -205,8 +205,9 @@ public partial class PageInstanceSetupRight : MyPageRight
                  {
                      "CheckArgumentTitleEmpty", "CheckAdvanceRunWait", "CheckAdvanceJava", "CheckAdvanceAssetsV2",
                      "CheckAdvanceUseProxyV2", "CheckAdvanceDisableJLW", "CheckAdvanceDisableRW",
-                     "CheckUseDebugLog4j2Config", "CheckAdvanceDisableLwjglUnsafeAgent", "CheckUseSystemGlfw"
-                 })
+                     "CheckUseDebugLog4j2Config", "CheckAdvanceDisableLwjglUnsafeAgent", "CheckUseSystemGlfw",
+                     "CheckForceX11OnWayland"
+                  })
         {
             if (this.FindControl<MyCheckBox>(name) is { } checkBox)
                 checkBox.Change += CheckBox_Change;
@@ -265,7 +266,8 @@ public partial class PageInstanceSetupRight : MyPageRight
             SetChecked("CheckAdvanceDisableRW", _metadata.DisableRw);
             SetChecked("CheckUseDebugLog4j2Config", _metadata.UseDebugLog4j2Config);
             SetChecked("CheckAdvanceDisableLwjglUnsafeAgent", _metadata.DisableLwjglUnsafeAgent);
-            SetChecked("CheckUseSystemGlfw", _metadata.UseSystemGlfw);
+             SetChecked("CheckUseSystemGlfw", _metadata.UseSystemGlfw);
+             SetChecked("CheckForceX11OnWayland", _metadata.ForceX11OnWayland);
             ApplyWindowTitleMode();
             ApplyRamMode();
             ApplyServerLoginMode();
@@ -385,7 +387,8 @@ public partial class PageInstanceSetupRight : MyPageRight
             "VersionAdvanceDisableRW" => metadata with { DisableRw = value },
             "VersionUseDebugLog4j2Config" => metadata with { UseDebugLog4j2Config = value },
             "VersionAdvanceDisableLwjglUnsafeAgent" => metadata with { DisableLwjglUnsafeAgent = value },
-            "VersionUseSystemGlfw" => metadata with { UseSystemGlfw = value },
+             "VersionUseSystemGlfw" => metadata with { UseSystemGlfw = value },
+             "VersionForceX11OnWayland" => metadata with { ForceX11OnWayland = value },
             _ => metadata
         });
         if (checkBox.Tag?.ToString() == "VersionArgumentTitleEmpty")

@@ -47,6 +47,7 @@ public sealed record MinecraftProcessLaunchRequest
     public string LauncherName { get; init; } = "PCL-N";
     public string VersionType { get; init; } = "PCL-N";
     public bool UseSystemGlfw { get; init; }
+    public bool ForceX11OnWayland { get; init; } = true;
 }
 
 public sealed record MinecraftProcessLaunchPlan(
@@ -201,7 +202,7 @@ public static class MinecraftProcessLaunchService
 
         if (OperatingSystem.IsLinux())
         {
-            SetupLinuxEnvironment(startInfo, request.UseSystemGlfw, libraries);
+            SetupLinuxEnvironment(startInfo, request.UseSystemGlfw, libraries, request.ForceX11OnWayland);
         }
             PortableLog.Info(
                 "LaunchPlan",
@@ -623,13 +624,13 @@ public static class MinecraftProcessLaunchService
         return paths.Count == 0 ? string.Empty : string.Join(Path.PathSeparator, paths);
     }
 
-    internal static void SetupLinuxEnvironment(ProcessStartInfo startInfo, bool useSystemGlfw, IReadOnlyList<MinecraftLibraryToken> libraries)
+    internal static void SetupLinuxEnvironment(ProcessStartInfo startInfo, bool useSystemGlfw, IReadOnlyList<MinecraftLibraryToken> libraries, bool forceX11OnWayland = true)
     {
         bool isWayland = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE")?.Equals("wayland", StringComparison.OrdinalIgnoreCase) == true;
         bool usesSdl3 = libraries.Any(static lib =>
             lib.NameWithoutVersion?.Equals("org.lwjgl:lwjgl-sdl", StringComparison.Ordinal) == true);
 
-        if (isWayland)
+        if (isWayland && forceX11OnWayland)
         {
             if (usesSdl3)
             {
@@ -642,6 +643,10 @@ public static class MinecraftProcessLaunchService
                 startInfo.Environment["SDL_VIDEODRIVER"] = "x11";
                 startInfo.Environment["QT_QPA_PLATFORM"] = "xcb";
             }
+        }
+        else if (isWayland)
+        {
+            PortableLog.Info("LaunchPlan", "检测到 Wayland 环境，已关闭 X11 强制，使用原生 Wayland 显示后端。");
         }
 
         if (useSystemGlfw)
