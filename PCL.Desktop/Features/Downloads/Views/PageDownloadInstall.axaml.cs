@@ -277,7 +277,8 @@ public partial class PageDownloadInstall : MyPageRight
             _loaderVersionCache[(kind, _selectedVersion.Id)] = [loader];
             _selectedLoaderKind = kind;
             _selectedLoaderVersion = loader;
-            if (kind == MinecraftLoaderKind.Forge && !string.IsNullOrWhiteSpace(currentOptiFineVersion))
+            // Same as FocusExistingInstallAddonAsync: caller-validated OptiFine companion.
+            if (kind != MinecraftLoaderKind.OptiFine && !string.IsNullOrWhiteSpace(currentOptiFineVersion))
             {
                 _selectedOptiFineAddon = new MinecraftLoaderVersionEntry(
                     MinecraftLoaderKind.OptiFine,
