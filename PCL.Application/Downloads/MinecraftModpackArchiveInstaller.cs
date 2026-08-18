@@ -1053,6 +1053,7 @@ public sealed class MinecraftModpackArchiveInstaller
 public sealed class HttpCurseForgeModpackFileResolver : ICurseForgeModpackFileResolver
 {
     private const string ApiRoot = "https://api.curseforge.com/v1";
+    private const string McimCurseForgeApiRoot = "https://mod.mcimirror.top/curseforge/v1";
     private readonly HttpClient _httpClient;
     private readonly string? _apiKey;
 
@@ -1072,11 +1073,66 @@ public sealed class HttpCurseForgeModpackFileResolver : ICurseForgeModpackFileRe
     {
         if (projectId <= 0 || fileId <= 0)
             throw new ArgumentOutOfRangeException(nameof(projectId));
-        if (string.IsNullOrWhiteSpace(_apiKey))
+
+        // Prefer official API when a key is present; otherwise fall back to MCIM mirror + CDN
+        // (aligns with CE allowMirror / DlSourceModDownloadGet behavior).
+        if (!string.IsNullOrWhiteSpace(_apiKey))
+        {
+            try
+            {
+                return await ResolveViaApiAsync(projectId, fileId, ApiRoot, requireApiKey: true, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                PortableLog.Warn(
+                    "ModpackInstall",
+                    $"CurseForge API 解析失败，尝试镜像：project={projectId} file={fileId}；{ex.Message}");
+            }
+        }
+
+        try
+        {
+            return await ResolveViaApiAsync(
+                    projectId,
+                    fileId,
+                    McimCurseForgeApiRoot,
+                    requireApiKey: false,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            PortableLog.Warn(
+                "ModpackInstall",
+                $"CurseForge 镜像解析失败，回退 CDN：project={projectId} file={fileId}；{ex.Message}");
+        }
+
+        // Last resort: forgecdn path with a synthetic file name (works for many packs).
+        string fallbackName = fileId.ToString(CultureInfo.InvariantCulture) + ".jar";
+        Uri cdn = CreateCdnUri(fileId, fallbackName);
+        return new CurseForgeModpackFile(
+            "mods/" + fallbackName,
+            [cdn, CreateMcimCdnUri(cdn)],
+            0L,
+            null,
+            null);
+    }
+
+    private async Task<CurseForgeModpackFile> ResolveViaApiAsync(
+        long projectId,
+        long fileId,
+        string apiRoot,
+        bool requireApiKey,
+        CancellationToken cancellationToken)
+    {
+        if (requireApiKey && string.IsNullOrWhiteSpace(_apiKey))
             throw new InvalidOperationException("安装 CurseForge 整合包需要配置 PCL_CURSEFORGE_API_KEY。");
 
-        JsonElement project = await GetDataAsync($"/mods/{projectId}", cancellationToken).ConfigureAwait(false);
-        JsonElement file = await GetDataAsync($"/mods/{projectId}/files/{fileId}", cancellationToken).ConfigureAwait(false);
+        JsonElement project = await GetDataAsync(apiRoot, $"/mods/{projectId}", requireApiKey, cancellationToken)
+            .ConfigureAwait(false);
+        JsonElement file = await GetDataAsync(apiRoot, $"/mods/{projectId}/files/{fileId}", requireApiKey, cancellationToken)
+            .ConfigureAwait(false);
         int classId = TryGetProperty(project, "classId", out JsonElement classValue) && classValue.TryGetInt32(out int parsedClass)
             ? parsedClass
             : 6;
@@ -1087,9 +1143,13 @@ public sealed class HttpCurseForgeModpackFileResolver : ICurseForgeModpackFileRe
             throw new InvalidDataException("CurseForge 返回了无效文件名。");
 
         string? downloadUrl = ReadString(file, "downloadUrl");
-        Uri uri = !string.IsNullOrWhiteSpace(downloadUrl) && Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri? parsedUri)
+        Uri primary = !string.IsNullOrWhiteSpace(downloadUrl) && Uri.TryCreate(downloadUrl, UriKind.Absolute, out Uri? parsedUri)
             ? parsedUri
             : CreateCdnUri(fileId, fileName);
+        List<Uri> uris = [primary, CreateMcimCdnUri(primary)];
+        if (!string.Equals(primary.Host, "edge.forgecdn.net", StringComparison.OrdinalIgnoreCase))
+            uris.Add(CreateCdnUri(fileId, fileName));
+
         (string? algorithm, string? hash) = ReadCurseForgeHash(file);
         string directory = classId switch
         {
@@ -1103,16 +1163,21 @@ public sealed class HttpCurseForgeModpackFileResolver : ICurseForgeModpackFileRe
             : 0L;
         return new CurseForgeModpackFile(
             directory + "/" + fileName,
-            [uri],
+            uris.Distinct().ToArray(),
             size,
             algorithm,
             hash);
     }
 
-    private async Task<JsonElement> GetDataAsync(string path, CancellationToken cancellationToken)
+    private async Task<JsonElement> GetDataAsync(
+        string apiRoot,
+        string path,
+        bool includeApiKey,
+        CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = new(HttpMethod.Get, ApiRoot + path);
-        request.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
+        using HttpRequestMessage request = new(HttpMethod.Get, apiRoot.TrimEnd('/') + path);
+        if (includeApiKey && !string.IsNullOrWhiteSpace(_apiKey))
+            request.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
         request.Headers.UserAgent.Add(new ProductInfoHeaderValue("PCL-N", "1.0"));
         using HttpResponseMessage response = await _httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
@@ -1150,6 +1215,26 @@ public sealed class HttpCurseForgeModpackFileResolver : ICurseForgeModpackFileRe
         long suffix = fileId % 1000L;
         return new Uri(
             $"https://edge.forgecdn.net/files/{group.ToString(CultureInfo.InvariantCulture)}/{suffix.ToString("000", CultureInfo.InvariantCulture)}/{Uri.EscapeDataString(fileName)}");
+    }
+
+    private static Uri CreateMcimCdnUri(Uri officialOrCdn)
+    {
+        string text = officialOrCdn.AbsoluteUri;
+        foreach (string root in new[]
+                 {
+                     "https://edge.forgecdn.net",
+                     "https://media.forgecdn.net",
+                     "https://mediafilez.forgecdn.net"
+                 })
+        {
+            if (text.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                return new Uri("https://mod.mcimirror.top" + text[root.Length..]);
+        }
+
+        if (text.StartsWith("https://api.curseforge.com", StringComparison.OrdinalIgnoreCase))
+            return new Uri("https://mod.mcimirror.top/curseforge" + text["https://api.curseforge.com".Length..]);
+
+        return officialOrCdn;
     }
 
     private static string? ReadString(JsonElement element, string propertyName) =>

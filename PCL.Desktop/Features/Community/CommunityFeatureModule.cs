@@ -191,6 +191,7 @@ public sealed class CommunityFeatureSurface
         page.OpenProjectRequested += (_, entry) =>
             _ = b.OpenDetailAsync(entry, page.Category, page.CurrentSearchOptions);
         page.DownloadRequested += (_, request) => _ = b.DownloadAsync(request);
+        page.InstallModPackRequested += (_, _) => _ = b.ImportModpackAsync();
         return page;
     }
 }
@@ -204,6 +205,8 @@ public sealed class CommunityFeatureBindings
     public required Func<CommunityResourceEntry, CommunityResourceCategory, CommunitySearchOptions, Task> OpenDetailAsync { get; init; }
 
     public required Func<CommunityResourceDownloadRequest, Task> DownloadAsync { get; init; }
+
+    public required Func<Task> ImportModpackAsync { get; init; }
 
     public required Action CloseDetail { get; init; }
 

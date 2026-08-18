@@ -4,12 +4,14 @@
 
 using System.Globalization;
 using PCL.Application.Downloads;
+using PCL.Application.Hosting.RuntimeExtensions;
 using PCL.Application.Settings;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Instances.Views;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Shared;
+using PCL.Desktop.Hosting;
 using PCL.Desktop.Telemetry;
 
 namespace PCL.Desktop.Features.Community;
@@ -129,6 +131,11 @@ internal static class CommunityDownloadOrchestrator
                         Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
                         "PCL-N Downloads");
             }
+            else if (request.Category == CommunityResourceCategory.Modpack)
+            {
+                // Modpacks install as new instances under the Minecraft root (CE ModpackInstall).
+                baseDirectory = host.GetMinecraftRootDirectory();
+            }
             else
             {
                 baseDirectory = instance is null
@@ -197,14 +204,44 @@ internal static class CommunityDownloadOrchestrator
                     completedPath = path;
             }
 
-            host.TrackTaskFinished(taskId, taskTitle, "已保存到 " + completedPath);
+            if (request.Category == CommunityResourceCategory.Modpack &&
+                !request.SaveAs &&
+                !string.IsNullOrWhiteSpace(completedPath))
+            {
+                host.TrackTaskBegin(taskId, taskTitle, "正在安装整合包");
+                host.AppendLog($"开始安装整合包：{request.Entry.Title}");
+                HostFileArtifactResult installed = await DesktopFileArtifactHost.Instance
+                    .InstallAsync(
+                        completedPath,
+                        new HostFileArtifactContext(host.GetMinecraftRootDirectory()),
+                        token)
+                    .ConfigureAwait(true);
+                host.AppendLog(installed.Message.Replace('\n', ' '));
+                if (installed.RefreshInstances && installed.Installed)
+                    await host.RefreshInstancesAsync().ConfigureAwait(true);
+
+                host.TrackTaskFinished(
+                    taskId,
+                    taskTitle,
+                    installed.Installed ? "整合包安装完成" : installed.Message);
+                host.ShowHint(
+                    installed.Installed
+                        ? "整合包安装完成：" + request.Entry.Title
+                        : "整合包未安装：" + host.TruncateHint(installed.Message),
+                    !installed.Installed);
+            }
+            else
+            {
+                host.TrackTaskFinished(taskId, taskTitle, "已保存到 " + completedPath);
+                host.AppendLog($"社区资源已下载：{request.Entry.Title} → {completedPath}");
+                host.ShowHint(request.SaveAs
+                    ? "已另存为：" + Path.GetFileName(completedPath)
+                    : request.Category == CommunityResourceCategory.World
+                        ? "世界安装完成：" + Path.GetFileName(completedPath)
+                        : "下载完成：" + Path.GetFileName(completedPath), false);
+            }
+
             DesktopFileLog.Info("CommunityDownload", $"社区资源下载完成：{request.Entry.Title} -> {completedPath}");
-            host.AppendLog($"社区资源已下载：{request.Entry.Title} → {completedPath}");
-            host.ShowHint(request.SaveAs
-                ? "已另存为：" + Path.GetFileName(completedPath)
-                : request.Category == CommunityResourceCategory.World
-                    ? "世界安装完成：" + Path.GetFileName(completedPath)
-                    : "下载完成：" + Path.GetFileName(completedPath), false);
             downloadOperation.Complete();
             LauncherTelemetry.CaptureEvent(
                 "download_completed",
@@ -369,4 +406,8 @@ internal sealed class CommunityDownloadHost
 
     /// <summary>Returns local path or null if cancelled / unavailable.</summary>
     public required Func<string, string, Task<string?>> PickSaveAsPathAsync { get; init; }
+
+    public required Func<string> GetMinecraftRootDirectory { get; init; }
+
+    public required Func<Task> RefreshInstancesAsync { get; init; }
 }
