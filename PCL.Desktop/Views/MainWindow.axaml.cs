@@ -2205,6 +2205,14 @@ public partial class MainWindow : Window, IDisposable
                 AppendLog = message => _launchRight?.AppendLog(message),
                 ShowHint = ShowHint,
                 TruncateHint = message => TruncateHint(message),
+                GetMinecraftRootDirectory = GetDefaultMinecraftRoot,
+                RefreshInstancesAsync = async () =>
+                {
+                    if (_launchLeft is null)
+                        return;
+                    await _launchLeft.RefreshInstancesAsync().ConfigureAwait(true);
+                    _instancesSelect.SetInstances(_launchLeft.Instances, _launchLeft.SelectedInstance);
+                },
                 PickSaveAsPathAsync = async (title, suggestedFileName) =>
                 {
                     IStorageProvider? storage = StorageProvider;
