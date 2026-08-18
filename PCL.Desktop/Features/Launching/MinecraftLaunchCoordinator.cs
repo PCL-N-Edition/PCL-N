@@ -795,7 +795,7 @@ internal sealed class MinecraftLaunchCoordinator
         bool looksInstalled = clientJar is not null && File.Exists(versionJson);
         if (looksInstalled)
         {
-            bool librariesPresent = await _installService.AreDownloadableLibrariesPresentAsync(
+            bool librariesPresent = await MinecraftVanillaInstallService.AreDownloadableLibrariesPresentAsync(
                     versionJson,
                     request.MinecraftRootDirectory,
                     request.Instance.InstanceDirectory,

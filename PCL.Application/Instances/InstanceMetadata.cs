@@ -78,6 +78,7 @@ public sealed record InstanceMetadata
 
     public bool DisableLwjglUnsafeAgent { get; init; }
 
-    public bool UseSystemGlfw { get; init; } = false;
+    public bool UseSystemGlfw { get; init; }
+
     public bool ForceX11OnWayland { get; init; } = true;
 }

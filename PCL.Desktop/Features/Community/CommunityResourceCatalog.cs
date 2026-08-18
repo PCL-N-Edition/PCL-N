@@ -589,7 +589,7 @@ public sealed class ModrinthCommunityResourceCatalog :
 
     private async Task FillFromVersionFilesBatchAsync(
         Dictionary<string, CommunityResourceFileIdentity> results,
-        IReadOnlyList<string> hashes,
+        List<string> hashes,
         string algorithm,
         CancellationToken cancellationToken)
     {

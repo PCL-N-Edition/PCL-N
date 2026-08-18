@@ -7350,7 +7350,7 @@ public sealed class AvaloniaHeadlessTests
                 .Any(item => string.Equals(item.Tag?.ToString(), "zh-TW", StringComparison.OrdinalIgnoreCase)));
             language.SelectedItem = language.Items.OfType<MyComboBoxItem>()
                 .Single(item => string.Equals(item.Tag?.ToString(), "zh-TW", StringComparison.OrdinalIgnoreCase));
-            Assert.AreEqual("個性化", AvaloniaLocalizationManager.GetText("Setup.Left.Item.Ui"));
+            Assert.AreEqual("外觀", AvaloniaLocalizationManager.GetText("Setup.Left.Item.Ui"));
 
             language.SelectedItem = language.Items.OfType<MyComboBoxItem>()
                 .Single(item => string.Equals(item.Tag?.ToString(), "en-US", StringComparison.OrdinalIgnoreCase));
@@ -7360,7 +7360,7 @@ public sealed class AvaloniaHeadlessTests
             Assert.AreEqual("en-US", System.Globalization.CultureInfo.CurrentUICulture.Name);
             Assert.AreEqual("en-US", System.Globalization.CultureInfo.CurrentCulture.Name);
             Assert.AreEqual(
-                "Personalization",
+                "Appearance",
                 AvaloniaLocalizationManager.GetText("Setup.Left.Item.Ui", "missing"));
             PageSetupLeft localizedNavigation = new();
             Window localizedWindow = new() { Content = localizedNavigation };
@@ -7369,7 +7369,7 @@ public sealed class AvaloniaHeadlessTests
                 localizedWindow.Show();
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                 Assert.AreEqual(
-                    "Personalization",
+                    "Appearance",
                     localizedNavigation.FindControl<MyListItem>("ItemUI")!.Title);
             }
             finally

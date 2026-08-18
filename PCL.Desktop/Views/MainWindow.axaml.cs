@@ -4210,7 +4210,7 @@ public partial class MainWindow : Window, IDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return await HandleMicrosoftRefreshFailureAsync(profile, ex, cancellationToken, Report)
+            return await HandleMicrosoftRefreshFailureAsync(profile, ex, Report, cancellationToken)
                 .ConfigureAwait(false);
         }
     }
@@ -4222,8 +4222,8 @@ public partial class MainWindow : Window, IDisposable
     private async Task<LoginProfileInfo> HandleMicrosoftRefreshFailureAsync(
         LoginProfileInfo profile,
         Exception exception,
-        CancellationToken cancellationToken,
-        Action<string> report)
+        Action<string> report,
+        CancellationToken cancellationToken)
     {
         bool mustRelogin = IsMicrosoftInvalidGrant(exception);
         bool canContinue = !mustRelogin &&

@@ -378,7 +378,7 @@ public sealed class MinecraftVanillaInstallService
     /// Returns true when every downloadable (non-local) classpath library for the version
     /// inheritance chain already exists on disk. Used to skip full repair when only jar+json exist.
     /// </summary>
-    public async Task<bool> AreDownloadableLibrariesPresentAsync(
+    public static async Task<bool> AreDownloadableLibrariesPresentAsync(
         string versionJsonPath,
         string minecraftRootDirectory,
         string instanceDirectory,

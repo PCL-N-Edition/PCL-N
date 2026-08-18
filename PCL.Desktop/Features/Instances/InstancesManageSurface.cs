@@ -345,7 +345,6 @@ public sealed class InstancesManageSurface
         page.ExportLaunchScriptRequested += (_, instance) => _ = b.ExportLaunchScriptAsync(instance);
         page.TestLaunchRequested += (_, instance) => _ = b.TestLaunchAsync(instance);
         page.RepairFilesRequested += (_, instance) => _ = b.RepairFilesAsync(instance);
-        page.ResetSettingsRequested += (_, instance) => b.ResetSettings(instance);
         page.ReinstallRequested += (_, instance) => _ = b.ReinstallAsync(instance);
         page.PatchCoreRequested += (_, instance) => _ = b.PatchCoreAsync(instance);
         page.StatusMessage += (_, message) =>
