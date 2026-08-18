@@ -378,6 +378,9 @@ public class MyComboBox : ComboBox
         {
             _isMouseDown = true;
             RefreshColor();
+            // Chrome (and middle text, which is not independently hit-testable) toggles
+            // the menu via PART_DropDownButton; keep arrow/color in sync immediately.
+            RefreshDropDownArrow(animate: true);
         }
     }
 
@@ -385,6 +388,7 @@ public class MyComboBox : ComboBox
     {
         _isMouseDown = false;
         RefreshColor();
+        RefreshDropDownArrow(animate: true);
     }
 
     private void MyComboBox_DropDownOpened(object? sender, EventArgs e)
@@ -412,6 +416,7 @@ public class MyComboBox : ComboBox
         if (!double.IsNaN(_realWidth))
             Width = _realWidth;
         _realWidth = double.NaN;
+        // Outside click / light-dismiss and item selection both land here — reset arrow.
         RefreshDropDownArrow(animate: true);
         RefreshSelectionText();
         RefreshColor();
@@ -421,6 +426,9 @@ public class MyComboBox : ComboBox
     {
         _text = SelectedItem?.ToString() ?? string.Empty;
         RefreshSelectionText();
+        // Menu item click (or equivalent selection) updates Text, closes menu, resets arrow.
+        if (IsDropDownOpen)
+            IsDropDownOpen = false;
     }
 
     private void EnsureWpfMarkedSelection()
