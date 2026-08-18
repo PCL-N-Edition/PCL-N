@@ -809,6 +809,11 @@
     <sys:String x:Key="Setup.Left.Item.Log">诊断日志</sys:String>
     <sys:String x:Key="Setup.Left.Item.Misc">通用</sys:String>
     <sys:String x:Key="Setup.Left.Item.Experimental">实验性功能</sys:String>
+    <sys:String x:Key="Compat.Status.Ok">正常</sys:String>
+    <sys:String x:Key="Compat.Status.Degraded">降级可用</sys:String>
+    <sys:String x:Key="Compat.Status.Unavailable">不可用</sys:String>
+    <sys:String x:Key="Compat.Status.Fatal">致命</sys:String>
+    <sys:String x:Key="Compat.Mitigation.DisableGpu">关闭硬件加速（软件渲染）</sys:String>
     <sys:String x:Key="Setup.Left.Item.Ui">外观</sys:String>
     <sys:String x:Key="Setup.Left.Item.Update">软件更新</sys:String>
     <sys:String x:Key="Setup.Misc.Debug.AnimationSpeed">动画速度</sys:String>

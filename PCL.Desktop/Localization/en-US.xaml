@@ -809,6 +809,11 @@
     <sys:String x:Key="Setup.Left.Item.Log">Diagnostics</sys:String>
     <sys:String x:Key="Setup.Left.Item.Misc">General</sys:String>
     <sys:String x:Key="Setup.Left.Item.Experimental">Experimental</sys:String>
+    <sys:String x:Key="Compat.Status.Ok">OK</sys:String>
+    <sys:String x:Key="Compat.Status.Degraded">Degraded</sys:String>
+    <sys:String x:Key="Compat.Status.Unavailable">Unavailable</sys:String>
+    <sys:String x:Key="Compat.Status.Fatal">Fatal</sys:String>
+    <sys:String x:Key="Compat.Mitigation.DisableGpu">Disable hardware acceleration (software rendering)</sys:String>
     <sys:String x:Key="Setup.Left.Item.Ui">Appearance</sys:String>
     <sys:String x:Key="Setup.Left.Item.Update">Software update</sys:String>
     <sys:String x:Key="Setup.Misc.Debug.AnimationSpeed">Animation speed</sys:String>

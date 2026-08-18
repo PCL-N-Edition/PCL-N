@@ -4,12 +4,9 @@
 
 using PCL.Application.Downloads;
 using PCL.Application.Hosting.RuntimeExtensions;
-using PCL.Application.Minecraft.Launch;
-using PCL.Application.Settings;
 using PCL.Core.Logging;
-using PCL.Desktop.Features.Launching;
-using PCL.Desktop.Features.Settings.Views;
-using PCL.Domain.Minecraft.Java;
+using PCL.Desktop.Features.Downloads;
+using PCL.Desktop.Features.Launching.Views;
 
 namespace PCL.Desktop.Hosting;
 
@@ -151,18 +148,18 @@ internal sealed class DesktopModpackFileArtifactHandler : IHostFileArtifactHandl
         });
         try
         {
-            string javaExecutable = await ResolveModpackJavaExecutableAsync(
-                    context,
-                    inspection.MinecraftVersion,
-                    linked.Token)
-                .ConfigureAwait(false);
+            // Same Java / root / threads / download-source path as PageDownloadInstall.
+            MinecraftModpackInstallRequest installRequest =
+                await DesktopMinecraftInstallCoordinator.BuildModpackInstallRequestAsync(
+                        filePath,
+                        context.MinecraftRootDirectory,
+                        getDefaultRoot: LaunchInstanceDiscovery.GetCurrentMinecraftRoot,
+                        preferredJavaHint: context.JavaExecutablePath,
+                        minecraftVersionHint: inspection.MinecraftVersion,
+                        linked.Token)
+                    .ConfigureAwait(false);
             MinecraftModpackInstallResult installed = await _installer.InstallAsync(
-                    new MinecraftModpackInstallRequest
-                    {
-                        ArchivePath = filePath,
-                        MinecraftRootDirectory = context.MinecraftRootDirectory,
-                        JavaExecutablePath = javaExecutable
-                    },
+                    installRequest,
                     progress,
                     linked.Token)
                 .ConfigureAwait(false);
@@ -185,82 +182,5 @@ internal sealed class DesktopModpackFileArtifactHandler : IHostFileArtifactHandl
             backgroundTask.Fail("整合包安装失败：" + ex.Message);
             throw;
         }
-    }
-
-    /// <summary>
-    /// Forge/NeoForge installers need a real java.exe path. Bare "java" on PATH often fails on Windows.
-    /// Prefer launcher catalog / selected Java, matching CE McInstall Java resolution.
-    /// </summary>
-    private static async Task<string> ResolveModpackJavaExecutableAsync(
-        HostFileArtifactContext context,
-        string? minecraftVersion,
-        CancellationToken cancellationToken)
-    {
-        if (TryResolveExistingJava(context.JavaExecutablePath, out string fromContext))
-            return MinecraftLaunchCoordinator.PreferJavaExecutable(fromContext, forceConsole: true);
-
-        string preferred = MinecraftLaunchPlanFactory.ResolvePreferredJavaExecutablePath(forceConsole: true);
-        if (TryResolveExistingJava(preferred, out string fromSettings))
-            return MinecraftLaunchCoordinator.PreferJavaExecutable(fromSettings, forceConsole: true);
-
-        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-        IReadOnlyList<JavaRuntimeCandidate> catalog = await JavaRuntimeCatalog
-            .LoadAsync(settings, cancellationToken)
-            .ConfigureAwait(false);
-
-        JavaVersionRange range = GuessJavaRangeForMinecraft(minecraftVersion);
-        JavaRuntimeCandidate? best = JavaRuntimeCatalog.SelectBest(catalog, range);
-        if (best is null)
-        {
-            best = catalog
-                .Where(static candidate => candidate.IsAvailable && candidate.IsEnabled)
-                .OrderByDescending(static candidate => candidate.Installation.MajorVersion)
-                .FirstOrDefault();
-        }
-
-        if (best is null)
-        {
-            throw new InvalidOperationException(
-                "安装整合包需要可用的 Java，但启动器没有找到已启用的 Java。" +
-                "请先到设置 → 启动中添加或选择 Java，然后再试。");
-        }
-
-        PortableLog.Info(
-            "ModpackInstall",
-            $"整合包安装使用 Java {best.Installation.MajorVersion}：{best.Installation.JavaExecutablePath}");
-        return MinecraftLaunchCoordinator.PreferJavaExecutable(
-            best.Installation.JavaExecutablePath,
-            forceConsole: true);
-    }
-
-    private static bool TryResolveExistingJava(string? path, out string resolved)
-    {
-        resolved = string.Empty;
-        if (string.IsNullOrWhiteSpace(path))
-            return false;
-        if (path is "java" or "javaw" or "java.exe" or "javaw.exe")
-            return false;
-        return JavaRuntimeCatalog.TryResolveExistingJavaPath(path, out resolved);
-    }
-
-    private static JavaVersionRange GuessJavaRangeForMinecraft(string? minecraftVersion)
-    {
-        if (string.IsNullOrWhiteSpace(minecraftVersion))
-            return JavaVersionRange.Any;
-
-        // Mirror JavaRuntimeRequirementResolver Minecraft base rules for installer selection.
-        if (Version.TryParse(minecraftVersion.Split('-', 2)[0], out Version? version))
-        {
-            if (version >= new Version(1, 20, 5))
-                return new JavaVersionRange(JavaVersionRange.ForMajor(21), JavaVersionRange.Any.Maximum);
-            if (version >= new Version(1, 18))
-                return new JavaVersionRange(JavaVersionRange.ForMajor(17), JavaVersionRange.Any.Maximum);
-            if (version >= new Version(1, 17))
-                return new JavaVersionRange(JavaVersionRange.ForMajor(16), JavaVersionRange.Any.Maximum);
-            if (version >= new Version(1, 13))
-                return new JavaVersionRange(JavaVersionRange.ForMajor(8), JavaVersionRange.Any.Maximum);
-        }
-
-        return JavaVersionRange.Any;
     }
 }
