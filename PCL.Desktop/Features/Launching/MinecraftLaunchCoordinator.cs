@@ -780,7 +780,8 @@ internal sealed class MinecraftLaunchCoordinator
         string method,
         CancellationToken cancellationToken)
     {
-        // Fast path: client jar present → skip full RepairAsync (was freezing launches).
+        // Fast path only when client jar + version JSON exist AND every downloadable
+        // classpath library on the inheritsFrom chain is present (Forge leaf JSONs omit vanilla libs).
         string versionJson = request.Instance.VersionJsonPath;
         MinecraftVersionJsonInfo versionInfo = MinecraftVersionJsonInspector.Read(request.Instance);
         string? clientJar = MinecraftVersionFileResolver.ResolveJarPath(
@@ -794,12 +795,23 @@ internal sealed class MinecraftLaunchCoordinator
         bool looksInstalled = clientJar is not null && File.Exists(versionJson);
         if (looksInstalled)
         {
-            request.Log?.Invoke("版本文件已存在，跳过完整补全（快速路径）。");
-            request.Report(new MinecraftLaunchStageReport(
-                StageName("Minecraft.Launch.Stage.CompleteFiles", "补全文件"),
-                MinecraftLaunchStages.ProgressAt(completedBeforeStage + MinecraftLaunchStages.CompleteFiles),
-                Method: method));
-            return;
+            bool librariesPresent = await _installService.AreDownloadableLibrariesPresentAsync(
+                    versionJson,
+                    request.MinecraftRootDirectory,
+                    request.Instance.InstanceDirectory,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (librariesPresent)
+            {
+                request.Log?.Invoke("版本文件与运行库已就绪，跳过完整补全。");
+                request.Report(new MinecraftLaunchStageReport(
+                    StageName("Minecraft.Launch.Stage.CompleteFiles", "补全文件"),
+                    MinecraftLaunchStages.ProgressAt(completedBeforeStage + MinecraftLaunchStages.CompleteFiles),
+                    Method: method));
+                return;
+            }
+
+            request.Log?.Invoke("检测到缺失运行库（含继承版本），开始补全文件。");
         }
 
         Progress<MinecraftInstallProgress> progress = new(update =>

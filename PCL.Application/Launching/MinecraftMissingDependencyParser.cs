@@ -31,17 +31,28 @@ public static partial class MinecraftMissingDependencyParser
             if (!match.Success)
                 match = EnglishAnyRegex().Match(line);
             if (!match.Success)
+                match = NeoForgeRequiresOfRegex().Match(line);
+            if (!match.Success)
+                match = NeoForgeRequiresModRegex().Match(line);
+            if (!match.Success)
                 continue;
 
-            string name = match.Groups["name"].Value.Trim(' ', '\'', '"');
-            string id = match.Groups["id"].Success ? match.Groups["id"].Value.Trim() : name;
+            string name = match.Groups["name"].Success
+                ? match.Groups["name"].Value.Trim(' ', '\'', '"')
+                : string.Empty;
+            string id = match.Groups["id"].Success
+                ? match.Groups["id"].Value.Trim(' ', '\'', '"', ',', '.')
+                : name;
+            if (string.IsNullOrWhiteSpace(name))
+                name = id;
             string version = match.Groups["version"].Success ? match.Groups["version"].Value.Trim() : string.Empty;
             version = version
                 .Replace("及以上版本", string.Empty, StringComparison.Ordinal)
                 .Replace("或更高版本", string.Empty, StringComparison.Ordinal)
                 .Trim();
-            if (version is "任意版本" or "任何版本" or "any version" or "any")
+            if (version is "任意版本" or "任何版本" or "any version" or "any" or "*")
                 version = string.Empty;
+            // NeoForge ranges like [1.2,) — keep as required version hint for catalog search.
             if (string.IsNullOrWhiteSpace(id) || !seen.Add(id))
                 continue;
 
@@ -65,4 +76,16 @@ public static partial class MinecraftMissingDependencyParser
 
     [GeneratedRegex(@"requires\s+(?:mod\s+)?(?<name>'[^']+'|[^\s(]+)\s*(?:\((?<id>[^)]*)\))?\s+(?:any\s+version|any)\s*[^.]*\bis\s+missing", RegexOptions.IgnoreCase)]
     private static partial Regex EnglishAnyRegex();
+
+    /// <summary>
+    /// NeoForge / Forge ModLauncher: "Mod farmersdelight requires version [1.2,) of bookshelf"
+    /// </summary>
+    [GeneratedRegex(@"\bMod\s+(?<name>[A-Za-z0-9_.\-]+)\s+requires\s+version\s+(?<version>\S+)\s+of\s+(?<id>[A-Za-z0-9_.\-]+)", RegexOptions.IgnoreCase)]
+    private static partial Regex NeoForgeRequiresOfRegex();
+
+    /// <summary>
+    /// NeoForge: "Mod X requires mod Y" / "Missing mod Y"
+    /// </summary>
+    [GeneratedRegex(@"\b(?:Mod\s+(?<name>[A-Za-z0-9_.\-]+)\s+requires\s+(?:mod\s+)?(?<id>[A-Za-z0-9_.\-]+)|Missing\s+mod\s+(?<id>[A-Za-z0-9_.\-]+))", RegexOptions.IgnoreCase)]
+    private static partial Regex NeoForgeRequiresModRegex();
 }

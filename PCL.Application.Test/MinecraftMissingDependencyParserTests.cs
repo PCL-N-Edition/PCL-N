@@ -38,4 +38,21 @@ public sealed class MinecraftMissingDependencyParserTests
 
         Assert.AreEqual(0, dependencies.Count);
     }
+
+    [TestMethod]
+    public void Parse_ShouldReadNeoForgeMandatoryDependencyLines()
+    {
+        IReadOnlyList<MinecraftMissingDependency> dependencies = MinecraftMissingDependencyParser.Parse(
+        [
+            "[main/ERROR] Missing or unsupported mandatory dependencies:",
+            "Mod farmersdelight requires version [1.2,) of bookshelf",
+            "Mod create requires version 0.5.1 of flywheel"
+        ]);
+
+        Assert.AreEqual(2, dependencies.Count);
+        Assert.AreEqual("bookshelf", dependencies[0].ModId);
+        Assert.AreEqual("[1.2,)", dependencies[0].RequiredVersion);
+        Assert.AreEqual("flywheel", dependencies[1].ModId);
+        Assert.AreEqual("0.5.1", dependencies[1].RequiredVersion);
+    }
 }

@@ -9,6 +9,7 @@ using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using PCL.Application.Launching;
 using PCL.Application.Minecraft.Assets;
 using PCL.Application.Minecraft.Downloads;
 using PCL.Application.Minecraft.Launch.Libraries;
@@ -328,7 +329,8 @@ public sealed class MinecraftVanillaInstallService
                 progress,
                 cancellationToken,
                 request.BeforeFileChangeAsync,
-                request.FileChanged)
+                request.FileChanged,
+                request.VersionJsonPath)
             .ConfigureAwait(false);
 
         progress?.Report(CreateProgress("修复完成", request.VersionId, 1d, 1, 1, 0, downloadThreadLimit));
@@ -372,6 +374,69 @@ public sealed class MinecraftVanillaInstallService
         value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
         value[^1] is >= '1' and <= '9';
 
+    /// <summary>
+    /// Returns true when every downloadable (non-local) classpath library for the version
+    /// inheritance chain already exists on disk. Used to skip full repair when only jar+json exist.
+    /// </summary>
+    public async Task<bool> AreDownloadableLibrariesPresentAsync(
+        string versionJsonPath,
+        string minecraftRootDirectory,
+        string instanceDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(versionJsonPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(instanceDirectory);
+
+        string minecraftRoot = Path.GetFullPath(minecraftRootDirectory);
+        string instance = Path.GetFullPath(instanceDirectory);
+        string jsonPath = Path.GetFullPath(versionJsonPath);
+        if (!File.Exists(jsonPath))
+            return false;
+
+        JsonObject versionJson = await ReadJsonObjectAsync(jsonPath, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<JsonObject> chain = await CollectInheritedVersionJsonsAsync(
+                versionJson,
+                jsonPath,
+                minecraftRoot,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        List<MinecraftLibraryToken> libraries = [];
+        HashSet<string> seen = new(GetPathComparer());
+        foreach (JsonObject json in chain)
+        {
+            foreach (MinecraftLibraryToken token in ResolveLibraries(json, minecraftRoot, instance))
+            {
+                if (!seen.Add(token.LocalPath))
+                    continue;
+                libraries.Add(token);
+            }
+        }
+
+        MinecraftLibraryDownloadPlan plan = MinecraftLibraryDownloadPlanner.CreatePlan(
+            new MinecraftLibraryDownloadPlanRequest
+            {
+                Libraries = libraries,
+                MinecraftRootDirectory = minecraftRoot,
+                PreferOfficialSource = true
+            });
+
+        foreach (MinecraftLibraryDownloadFile file in plan.DownloadFiles)
+        {
+            if (!File.Exists(file.LocalPath))
+                return false;
+        }
+
+        foreach (MinecraftBundledLibraryFile bundled in plan.BundledFiles)
+        {
+            if (!File.Exists(bundled.LocalPath))
+                return false;
+        }
+
+        return true;
+    }
+
     private async Task DownloadVersionFilesAsync(
         string versionId,
         JsonObject versionJson,
@@ -382,14 +447,29 @@ public sealed class MinecraftVanillaInstallService
         IProgress<MinecraftInstallProgress>? progress,
         CancellationToken cancellationToken,
         Func<string, CancellationToken, ValueTask>? beforeFileChangeAsync = null,
-        Action<string>? fileChanged = null)
+        Action<string>? fileChanged = null,
+        string? versionJsonPath = null)
     {
         List<PlannedDownload> files = [];
         AddClientJarDownload(files, versionId, versionJson, instanceDirectory, preferOfficialSource);
-        AddLibraryDownloads(files, versionJson, minecraftRoot, instanceDirectory, preferOfficialSource);
+
+        string resolvedJsonPath = string.IsNullOrWhiteSpace(versionJsonPath)
+            ? Path.Combine(instanceDirectory, versionId + ".json")
+            : Path.GetFullPath(versionJsonPath);
+        IReadOnlyList<JsonObject> versionChain = await CollectInheritedVersionJsonsAsync(
+                versionJson,
+                resolvedJsonPath,
+                minecraftRoot,
+                cancellationToken)
+            .ConfigureAwait(false);
+        AddLibraryDownloads(files, versionChain, minecraftRoot, instanceDirectory, preferOfficialSource);
+
+        // Asset index lives on the nearest ancestor that declares assetIndex / assets.
+        JsonObject assetSourceJson = versionChain.FirstOrDefault(static json =>
+            json["assetIndex"] is not null || json["assets"] is not null) ?? versionJson;
         await AddAssetDownloadsAsync(
                 files,
-                versionJson,
+                assetSourceJson,
                 minecraftRoot,
                 instanceDirectory,
                 preferOfficialSource,
@@ -922,22 +1002,23 @@ public sealed class MinecraftVanillaInstallService
 
     private static void AddLibraryDownloads(
         List<PlannedDownload> files,
-        JsonObject versionJson,
+        IReadOnlyList<JsonObject> versionJsonChain,
         string minecraftRoot,
         string instanceDirectory,
         bool preferOfficialSource)
     {
-        IReadOnlyList<MinecraftLibraryToken> libraries = MinecraftLibraryResolver.Resolve(
-            new MinecraftLibraryResolutionRequest
+        List<MinecraftLibraryToken> libraries = [];
+        HashSet<string> seen = new(GetPathComparer());
+        foreach (JsonObject versionJson in versionJsonChain)
+        {
+            foreach (MinecraftLibraryToken token in ResolveLibraries(versionJson, minecraftRoot, instanceDirectory))
             {
-                VersionJson = versionJson,
-                MinecraftRootDirectory = minecraftRoot,
-                TargetInstanceDirectory = instanceDirectory,
-                OperatingSystem = GetCurrentLibraryOperatingSystem(),
-                Is64BitArchitecture = Environment.Is64BitOperatingSystem,
-                IsArm64Architecture = RuntimeInformation.OSArchitecture == Architecture.Arm64,
-                OperatingSystemVersion = Environment.OSVersion.VersionString
-            });
+                if (!seen.Add(token.LocalPath))
+                    continue;
+                libraries.Add(token);
+            }
+        }
+
         MinecraftLibraryDownloadPlan plan = MinecraftLibraryDownloadPlanner.CreatePlan(
             new MinecraftLibraryDownloadPlanRequest
             {
@@ -952,6 +1033,74 @@ public sealed class MinecraftVanillaInstallService
                 library.ActualSize,
                 library.Sha1,
                 "下载运行库"));
+    }
+
+    private static IReadOnlyList<MinecraftLibraryToken> ResolveLibraries(
+        JsonObject versionJson,
+        string minecraftRoot,
+        string instanceDirectory) =>
+        MinecraftLibraryResolver.Resolve(
+            new MinecraftLibraryResolutionRequest
+            {
+                VersionJson = versionJson,
+                MinecraftRootDirectory = minecraftRoot,
+                TargetInstanceDirectory = instanceDirectory,
+                OperatingSystem = GetCurrentLibraryOperatingSystem(),
+                Is64BitArchitecture = Environment.Is64BitOperatingSystem,
+                IsArm64Architecture = RuntimeInformation.OSArchitecture == Architecture.Arm64,
+                OperatingSystemVersion = Environment.OSVersion.VersionString
+            });
+
+    /// <summary>
+    /// Leaf version JSON first, then each <c>inheritsFrom</c> ancestor (same order as launch classpath merge).
+    /// </summary>
+    private static async Task<IReadOnlyList<JsonObject>> CollectInheritedVersionJsonsAsync(
+        JsonObject versionJson,
+        string versionJsonPath,
+        string minecraftRoot,
+        CancellationToken cancellationToken)
+    {
+        List<JsonObject> result = [versionJson];
+        HashSet<string> seen = new(GetPathComparer())
+        {
+            Path.GetFullPath(versionJsonPath)
+        };
+
+        JsonObject current = versionJson;
+        string currentJsonPath = versionJsonPath;
+        for (int depth = 0; depth < 32; depth++)
+        {
+            string? inheritedId = current["inheritsFrom"]?.ToString()?.Trim();
+            if (string.IsNullOrWhiteSpace(inheritedId))
+                return result;
+
+            string? inheritedJsonPath = MinecraftVersionFileResolver.ResolveJsonPath(
+                minecraftRoot,
+                Path.GetDirectoryName(currentJsonPath),
+                inheritedId);
+            if (inheritedJsonPath is null || !File.Exists(inheritedJsonPath))
+            {
+                PortableLog.Warn(
+                    "MinecraftDownload",
+                    $"继承版本描述缺失，跳过后续祖先库补全：{inheritedId}");
+                return result;
+            }
+
+            string normalizedPath = Path.GetFullPath(inheritedJsonPath);
+            if (!seen.Add(normalizedPath))
+            {
+                PortableLog.Warn("MinecraftDownload", $"version.json 存在循环继承：{inheritedId}");
+                return result;
+            }
+
+            JsonObject inheritedJson = await ReadJsonObjectAsync(normalizedPath, cancellationToken).ConfigureAwait(false);
+            result.Add(inheritedJson);
+            current = inheritedJson;
+            currentJsonPath = normalizedPath;
+        }
+
+        PortableLog.Warn("MinecraftDownload", "version.json 继承层数超过 32 层，已截断库补全链。");
+        return result;
     }
 
     private async Task AddAssetDownloadsAsync(
