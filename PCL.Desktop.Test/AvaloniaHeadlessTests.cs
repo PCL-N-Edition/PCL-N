@@ -831,7 +831,7 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
-    public void MyComboBox_SelectionSyncDoesNotCloseOpenDropDownOrLoseCaption()
+    public void MyComboBox_SelectionClosesDropDownUpdatesCaptionAndResetsArrow()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
 
@@ -853,11 +853,21 @@ public sealed class AvaloniaHeadlessTests
                 window.Show();
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                 comboBox.IsDropDownOpen = true;
-                comboBox.SelectedIndex = 1;
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
 
-                Assert.IsTrue(comboBox.IsDropDownOpen);
+                Avalonia.Controls.Shapes.Path arrow = comboBox.GetVisualDescendants()
+                    .OfType<Avalonia.Controls.Shapes.Path>()
+                    .Single(path => path.Name == "PART_DropDownArrow");
+                Assert.IsTrue(arrow.RenderTransform is RotateTransform);
+
+                comboBox.SelectedIndex = 1;
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                ModAnimation.AdvanceUntilIdleForTesting();
+
+                Assert.IsFalse(comboBox.IsDropDownOpen);
                 Assert.AreEqual("第二项", comboBox.SelectionText);
                 Assert.AreEqual(1, comboBox.SelectedIndex);
+                Assert.AreEqual(0d, ((RotateTransform)arrow.RenderTransform!).Angle, 0.01d);
             }
             finally
             {
@@ -4970,11 +4980,11 @@ public sealed class AvaloniaHeadlessTests
             {
                 window.Show();
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-                Assert.IsNotNull(page.FindControl<MyCard>("CardPluginDeveloperAuthorization"));
+                Assert.IsNull(page.FindControl<MyCard>("CardPluginDeveloperAuthorization"));
                 Assert.IsNotNull(page.FindControl<MyCard>("CardPluginDeveloperOptions"));
-                Assert.IsNotNull(page.FindControl<TextBox>("TextPluginDeveloperOrderNumber"));
-                Assert.IsNotNull(page.FindControl<MyButton>("BtnPluginVerifyDeveloperOrder"));
-                Assert.IsNotNull(page.FindControl<MyButton>("BtnPluginReplaceDeveloperAuthorization"));
+                Assert.IsNull(page.FindControl<TextBox>("TextPluginDeveloperOrderNumber"));
+                Assert.IsNull(page.FindControl<MyButton>("BtnPluginVerifyDeveloperOrder"));
+                Assert.IsNull(page.FindControl<MyButton>("BtnPluginReplaceDeveloperAuthorization"));
                 Assert.IsNotNull(page.FindControl<MyCheckBox>("CheckPluginDeveloperMode"));
                 Assert.IsNotNull(page.FindControl<MyCheckBox>("CheckPluginDeveloperDiagnostics"));
                 Assert.IsNull(page.FindControl<TextBlock>("LabHostHeading"));
@@ -4984,126 +4994,6 @@ public sealed class AvaloniaHeadlessTests
                 window.Close();
             }
         }, CancellationToken.None);
-    }
-
-    [TestMethod]
-    [TestCategory("InjectedPlugin")]
-    public void InjectedPlugin_VerifiedDeveloperAuthorizationSwitchesToExpiryAndReplacement()
-    {
-        bool pluginExpected = string.Equals(
-            Environment.GetEnvironmentVariable("PCLN_EXPECT_PLUGIN_UI"),
-            "1",
-            StringComparison.Ordinal);
-        if (!pluginExpected)
-            return;
-
-        Type loaderType = typeof(MainWindow).Assembly.GetType(
-            "PCL.Desktop.Hosting.EmbeddedRuntimeExtensionLoader",
-            throwOnError: true)!;
-        System.Reflection.Assembly pluginAssembly = Assert.IsInstanceOfType<System.Reflection.Assembly>(
-            loaderType.GetMethod(
-                    "Load",
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!
-                .Invoke(null, null));
-        Type bootstrapType = pluginAssembly.GetType(
-            "PCL.Plugin.Host.PluginPlatformBootstrap",
-            throwOnError: true)!;
-        Task? priorShutdown = bootstrapType.GetMethod("ShutdownAsync")!.Invoke(null, null) as Task;
-        priorShutdown?.GetAwaiter().GetResult();
-
-        string runtimeRoot = System.IO.Path.Combine(
-            System.IO.Path.GetTempPath(),
-            "pcl-plugin-verified-ui-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(runtimeRoot);
-        try
-        {
-            bootstrapType.GetMethod("Initialize")!.Invoke(null, [runtimeRoot]);
-            object session = bootstrapType.GetField(
-                    "_session",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
-                .GetValue(null)!;
-            Type grantType = pluginAssembly.GetType(
-                "PCL.Plugin.Security.DeveloperAccess.DeveloperAccessGrant",
-                throwOnError: true)!;
-            object grant = Activator.CreateInstance(
-                grantType,
-                System.Reflection.BindingFlags.Instance |
-                System.Reflection.BindingFlags.Public |
-                System.Reflection.BindingFlags.NonPublic,
-                binder: null,
-                args:
-                [
-                    "headless-order-hash",
-                    "54ee4e286b4211f1851c52540025c377",
-                    "126.60",
-                    DateTimeOffset.UtcNow.AddDays(-1),
-                    null,
-                    true,
-                    DateTimeOffset.UtcNow,
-                    "headless-signature"
-                ],
-                culture: null)!;
-            session.GetType().GetField(
-                    "_developerAccess",
-                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-                .SetValue(session, grant);
-
-            IReadOnlyList<IPclHostModule> modules = Assert.IsInstanceOfType<IReadOnlyList<IPclHostModule>>(
-                loaderType.GetMethod(
-                        "LoadHostModules",
-                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!
-                    .Invoke(null, null));
-            PclHostBuilder builder = new();
-            foreach (IPclHostModule module in modules)
-                builder.AddModule(module);
-            HostSettingsPageDescriptor descriptor = builder.Build().SettingsPages.Pages.Single(page =>
-                page.Id == "pcl.plugin.developer");
-
-            using SafeHeadlessUnitTestSession headless = CreateSession();
-            headless.Dispatch(() =>
-            {
-                MyPageRight page = Assert.IsInstanceOfType<MyPageRight>(descriptor.PageFactory!());
-                Window window = new() { Width = 700d, Height = 600d, Content = page };
-                try
-                {
-                    window.Show();
-                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-                    TextBox order = page.FindControl<TextBox>("TextPluginDeveloperOrderNumber")!;
-                    MyButton verify = page.FindControl<MyButton>("BtnPluginVerifyDeveloperOrder")!;
-                    MyButton replace = page.FindControl<MyButton>("BtnPluginReplaceDeveloperAuthorization")!;
-                    TextBlock expiry = page.FindControl<TextBlock>("TextPluginDeveloperAuthorizationExpiry")!;
-                    Assert.IsFalse(order.IsEffectivelyVisible);
-                    Assert.IsFalse(verify.IsEffectivelyVisible);
-                    Assert.IsTrue(replace.IsEffectivelyVisible);
-                    Assert.AreEqual("授权到期时间：永久", expiry.Text);
-
-                    Click(window, replace);
-                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-                    Assert.IsTrue(order.IsEffectivelyVisible);
-                    Assert.IsTrue(verify.IsEffectivelyVisible);
-                    Assert.IsFalse(replace.IsEffectivelyVisible);
-                    Assert.AreEqual("验证新订单", verify.Text);
-                }
-                finally
-                {
-                    window.Close();
-                }
-            }, CancellationToken.None);
-        }
-        finally
-        {
-            Task? shutdown = bootstrapType.GetMethod("ShutdownAsync")!.Invoke(null, null) as Task;
-            shutdown?.GetAwaiter().GetResult();
-            try
-            {
-                if (Directory.Exists(runtimeRoot))
-                    Directory.Delete(runtimeRoot, recursive: true);
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
-        }
     }
 
     [TestMethod]
@@ -5175,11 +5065,11 @@ public sealed class AvaloniaHeadlessTests
                 Click(window, developerItem);
                 ModAnimation.AdvanceUntilIdleForTesting();
                 MyPageRight developerPage = FindVisual<MyPageRight>(window)!;
-                Assert.IsNotNull(developerPage.FindControl<MyCard>("CardPluginDeveloperAuthorization"));
+                Assert.IsNull(developerPage.FindControl<MyCard>("CardPluginDeveloperAuthorization"));
                 Assert.IsNotNull(developerPage.FindControl<MyCard>("CardPluginDeveloperOptions"));
-                Assert.IsNotNull(developerPage.FindControl<TextBox>("TextPluginDeveloperOrderNumber"));
-                Assert.IsNotNull(developerPage.FindControl<MyButton>("BtnPluginVerifyDeveloperOrder"));
-                Assert.IsNotNull(developerPage.FindControl<MyButton>("BtnPluginReplaceDeveloperAuthorization"));
+                Assert.IsNull(developerPage.FindControl<TextBox>("TextPluginDeveloperOrderNumber"));
+                Assert.IsNull(developerPage.FindControl<MyButton>("BtnPluginVerifyDeveloperOrder"));
+                Assert.IsNull(developerPage.FindControl<MyButton>("BtnPluginReplaceDeveloperAuthorization"));
                 Assert.IsNotNull(developerPage.FindControl<MyCheckBox>("CheckPluginDeveloperMode"));
                 Assert.IsNotNull(developerPage.FindControl<MyCheckBox>("CheckPluginDeveloperDiagnostics"));
                 Assert.IsNotNull(developerPage.FindControl<MyCheckBox>("CheckPluginShowSafetyPage"));
@@ -7226,6 +7116,10 @@ public sealed class AvaloniaHeadlessTests
                 window.Show();
                 AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                 MyCheckBox check = page.FindControl<MyCheckBox>("CheckExperimentalJvmHost")!;
+                Assert.IsNull(
+                    page.FindControl<MyCheckBox>("CheckExperimentalLaunchShortcuts"),
+                    "Shortcut dock is gated by ExperimentalHomepageUi; standalone checkbox removed.");
+                Assert.IsNotNull(page.FindControl<MyCheckBox>("CheckExperimentalHomepageUi"));
 
                 bool confirmationRequested = false;
                 page.ConfirmRequested += (_, args) =>
@@ -8510,7 +8404,8 @@ public sealed class AvaloniaHeadlessTests
                     Click(window, page.FindControl<MyCard>("CardFabricApi")!);
                     Assert.AreEqual(MinecraftInstallAddonKind.FabricApi, modifyRequest?.AddonKind);
                     Assert.AreEqual(MinecraftLoaderKind.Fabric, modifyRequest?.CurrentLoaderKind);
-                    Assert.AreEqual("0.16.10", modifyRequest?.CurrentLoaderVersion);
+                    // Prefer in-page selection over disk detect (install-page source of truth).
+                    Assert.AreEqual("0.16.14", modifyRequest?.CurrentLoaderVersion);
                 }
                 finally
                 {
@@ -8663,6 +8558,96 @@ public sealed class AvaloniaHeadlessTests
                         .Single();
                     Assert.AreEqual("Avaritia.jar", ((ExportOption)modOption.Tag!).Title);
                     Assert.AreEqual("mods/Avaritia.jar", ((ExportOption)modOption.Tag!).Rules);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }, CancellationToken.None);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void PageInstanceInstallRight_SelectsOptiFineAsAddonLikeInstallPage()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-install-optifine-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "1.12.2");
+            Directory.CreateDirectory(versionDirectory);
+            File.WriteAllText(
+                System.IO.Path.Combine(versionDirectory, "1.12.2.json"),
+                """
+                {
+                  "id": "1.12.2",
+                  "inheritsFrom": "1.12.2",
+                  "libraries": [
+                    { "name": "net.minecraftforge:forge:1.12.2-14.23.5.2860" }
+                  ]
+                }
+                """);
+            LaunchInstanceInfo instance = new(
+                "1.12.2",
+                System.IO.Path.Combine(versionDirectory, "1.12.2.json"),
+                versionDirectory);
+
+            session.Dispatch(() =>
+            {
+                PageInstanceInstallRight page = new(
+                    new MinecraftVanillaInstallService(),
+                    new FakeMinecraftLoaderMetadataService());
+                Dictionary<(MinecraftLoaderKind Kind, string GameVersion), IReadOnlyList<MinecraftLoaderVersionEntry>> cache =
+                    GetPrivateField<Dictionary<(MinecraftLoaderKind Kind, string GameVersion), IReadOnlyList<MinecraftLoaderVersionEntry>>>(
+                        page,
+                        "_loaderVersionCache");
+                cache[(MinecraftLoaderKind.OptiFine, "1.12.2")] =
+                [
+                    new MinecraftLoaderVersionEntry(MinecraftLoaderKind.OptiFine, "HD_U_G5", true)
+                ];
+                Window window = new()
+                {
+                    Width = 720,
+                    Height = 480,
+                    Content = page
+                };
+                InstanceInstallModifyRequest? modifyRequest = null;
+                page.ModifyRequested += (_, request) => modifyRequest = request;
+
+                try
+                {
+                    window.Show();
+                    page.SetInstance(instance);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    Assert.AreEqual("14.23.5.2860", page.FindControl<TextBlock>("LabForge")!.Text);
+
+                    Click(window, page.FindControl<MyCard>("CardOptiFine")!);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    MyListItem optiFineVersion = page.GetVisualDescendants()
+                        .OfType<MyListItem>()
+                        .First(item => item.Title == "HD_U_G5");
+                    Click(window, optiFineVersion);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                    Assert.AreEqual("HD_U_G5", page.FindControl<TextBlock>("LabOptiFine")!.Text);
+                    Assert.AreEqual("14.23.5.2860", page.FindControl<TextBlock>("LabForge")!.Text);
+                    StringAssert.Contains(page.FindControl<MyListItem>("ItemSelect")!.Info, "Forge");
+                    StringAssert.Contains(page.FindControl<MyListItem>("ItemSelect")!.Info, "OptiFine HD_U_G5");
+
+                    Click(window, page.FindControl<MyExtraTextButton>("BtnSelectStart")!);
+                    Assert.AreEqual(MinecraftLoaderKind.Forge, modifyRequest?.LoaderKind);
+                    Assert.AreEqual("14.23.5.2860", modifyRequest?.LoaderVersion);
+                    Assert.AreEqual("HD_U_G5", modifyRequest?.CurrentOptiFineVersion);
+                    Assert.IsTrue(modifyRequest?.ApplySelection);
                 }
                 finally
                 {
