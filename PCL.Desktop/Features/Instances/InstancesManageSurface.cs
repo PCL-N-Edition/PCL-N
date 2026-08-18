@@ -346,6 +346,7 @@ public sealed class InstancesManageSurface
         page.TestLaunchRequested += (_, instance) => _ = b.TestLaunchAsync(instance);
         page.RepairFilesRequested += (_, instance) => _ = b.RepairFilesAsync(instance);
         page.ResetSettingsRequested += (_, instance) => b.ResetSettings(instance);
+        page.ReinstallRequested += (_, instance) => _ = b.ReinstallAsync(instance);
         page.PatchCoreRequested += (_, instance) => _ = b.PatchCoreAsync(instance);
         page.StatusMessage += (_, message) =>
         {
@@ -371,7 +372,9 @@ public sealed class InstancesManageSurface
             args.Complete,
             args.PrimaryButton,
             args.SecondaryButton,
-            args.IsWarn);
+            args.IsWarn,
+            args.PrimaryAction,
+            args.SecondaryAction);
         page.CreateAuthProfileRequested += (_, authServer) => b.CreateAuthProfile(authServer);
         _setupPage = page;
         return page;
@@ -506,6 +509,8 @@ public sealed class InstancesManageBindings
 
     public required Action<LaunchInstanceInfo> ResetSettings { get; init; }
 
+    public required Func<LaunchInstanceInfo, Task> ReinstallAsync { get; init; }
+
     public required Action<string> OpenPath { get; init; }
 
     public required Action<string> OpenExistingPath { get; init; }
@@ -534,7 +539,7 @@ public sealed class InstancesManageBindings
 
     public required Action<string, string, string?> ShowMessage { get; init; }
 
-    public required Action<string, string, Action<bool>, string?, string?, bool> Confirm { get; init; }
+    public required Action<string, string, Action<bool>, string?, string?, bool, Action?, Action?> Confirm { get; init; }
 
     public required Action<string> CreateAuthProfile { get; init; }
 

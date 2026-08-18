@@ -52,6 +52,9 @@ public partial class PageInstanceManageRight : MyPageRight
 
     public event EventHandler<LaunchInstanceInfo>? ResetSettingsRequested;
 
+    /// <summary>CE BtnManageRestore: reinstall version components (not clear PCL settings).</summary>
+    public event EventHandler<LaunchInstanceInfo>? ReinstallRequested;
+
     public event EventHandler<LaunchInstanceInfo>? PatchCoreRequested;
 
     public event EventHandler<string>? StatusMessage;
@@ -138,7 +141,7 @@ public partial class PageInstanceManageRight : MyPageRight
         WireButton("BtnManageRestore", () =>
         {
             if (_instance is not null)
-                ResetSettingsRequested?.Invoke(this, _instance);
+                ReinstallRequested?.Invoke(this, _instance);
         });
         WireButton("BtnManagePatch", () =>
         {
