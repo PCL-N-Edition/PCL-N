@@ -13,6 +13,7 @@ using PCL.Application.Minecraft.Launch;
 using PCL.Application.Minecraft.Launch.Arguments;
 using PCL.Application.Settings;
 using PCL.Core.Logging;
+using PCL.Core.Platform;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Features.Shared;
@@ -131,11 +132,13 @@ internal static class MinecraftLaunchPlanFactory
                 VersionType = FirstNonEmpty(
                     metadata.CustomInfo,
                     settings.GetTextOption("LaunchArgumentInfo", LauncherSettingDefaults.GetText("LaunchArgumentInfo"))) ?? "PCL-N",
-                UseSystemGlfw = metadata.UseSystemGlfw ||
-                    settings.GetBooleanOption(
-                        LauncherSettingKeys.LaunchUseSystemGlfw.Value,
-                        LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.LaunchUseSystemGlfw.Value)),
-                ForceX11OnWayland = metadata.ForceX11OnWayland &&
+                UseSystemGlfw = PlatformFeaturePolicy.IsUseSystemGlfwSupported &&
+                    (metadata.UseSystemGlfw ||
+                     settings.GetBooleanOption(
+                         LauncherSettingKeys.LaunchUseSystemGlfw.Value,
+                         LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.LaunchUseSystemGlfw.Value))),
+                ForceX11OnWayland = PlatformFeaturePolicy.IsForceX11OnWaylandSupported &&
+                    metadata.ForceX11OnWayland &&
                     settings.GetBooleanOption(
                         LauncherSettingKeys.LaunchForceX11OnWayland.Value,
                         LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.LaunchForceX11OnWayland.Value))

@@ -12,6 +12,7 @@ using Avalonia.Threading;
 using PCL.Application.Instances;
 using PCL.Application.Launching;
 using PCL.Application.Settings;
+using PCL.Core.Platform;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Controls.Motion;
 using PCL.Desktop.Diagnostics;
@@ -53,6 +54,7 @@ public partial class PageInstanceSetupRight : MyPageRight
         _systemInfoProvider = systemInfoProvider ?? throw new ArgumentNullException(nameof(systemInfoProvider));
         AvaloniaXamlLoader.Load(this);
         PanScroll = this.FindControl<MyScrollViewer>("PanBack");
+        EnforceSystemGlfwPolicy();
         _ramRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _ramRefreshTimer.Tick += RamRefreshTimer_Tick;
         AttachedToVisualTree += (_, _) =>
@@ -266,8 +268,13 @@ public partial class PageInstanceSetupRight : MyPageRight
             SetChecked("CheckAdvanceDisableRW", _metadata.DisableRw);
             SetChecked("CheckUseDebugLog4j2Config", _metadata.UseDebugLog4j2Config);
             SetChecked("CheckAdvanceDisableLwjglUnsafeAgent", _metadata.DisableLwjglUnsafeAgent);
-             SetChecked("CheckUseSystemGlfw", _metadata.UseSystemGlfw);
-             SetChecked("CheckForceX11OnWayland", _metadata.ForceX11OnWayland);
+            SetChecked(
+                "CheckUseSystemGlfw",
+                PlatformFeaturePolicy.IsUseSystemGlfwSupported && _metadata.UseSystemGlfw);
+            SetChecked(
+                "CheckForceX11OnWayland",
+                PlatformFeaturePolicy.IsForceX11OnWaylandSupported && _metadata.ForceX11OnWayland);
+            EnforceSystemGlfwPolicy();
             ApplyWindowTitleMode();
             ApplyRamMode();
             ApplyServerLoginMode();
@@ -376,7 +383,20 @@ public partial class PageInstanceSetupRight : MyPageRight
             return;
 
         bool value = checkBox.Checked == true;
-        UpdateMetadata(metadata => (checkBox.Tag?.ToString()) switch
+        string? tag = checkBox.Tag?.ToString();
+        if (tag == "VersionUseSystemGlfw" && !PlatformFeaturePolicy.IsUseSystemGlfwSupported)
+        {
+            checkBox.SetChecked(false, user: false);
+            value = false;
+        }
+
+        if (tag == "VersionForceX11OnWayland" && !PlatformFeaturePolicy.IsForceX11OnWaylandSupported)
+        {
+            checkBox.SetChecked(false, user: false);
+            value = false;
+        }
+
+        UpdateMetadata(metadata => tag switch
         {
             "VersionArgumentTitleEmpty" => metadata with { UseGlobalWindowTitle = value },
             "VersionAdvanceRunWait" => metadata with { WaitForPreLaunchCommand = value },
@@ -387,12 +407,68 @@ public partial class PageInstanceSetupRight : MyPageRight
             "VersionAdvanceDisableRW" => metadata with { DisableRw = value },
             "VersionUseDebugLog4j2Config" => metadata with { UseDebugLog4j2Config = value },
             "VersionAdvanceDisableLwjglUnsafeAgent" => metadata with { DisableLwjglUnsafeAgent = value },
-             "VersionUseSystemGlfw" => metadata with { UseSystemGlfw = value },
-             "VersionForceX11OnWayland" => metadata with { ForceX11OnWayland = value },
+            "VersionUseSystemGlfw" => metadata with { UseSystemGlfw = value },
+            "VersionForceX11OnWayland" => metadata with { ForceX11OnWayland = value },
             _ => metadata
         });
-        if (checkBox.Tag?.ToString() == "VersionArgumentTitleEmpty")
+        if (tag == "VersionArgumentTitleEmpty")
             ApplyWindowTitleMode();
+    }
+
+    private void CheckUseSystemGlfw_OnPreviewChange(object sender, RouteEventArgs e) =>
+        BlockUnsupportedLinuxDisplayOption(sender, e, PlatformFeaturePolicy.IsUseSystemGlfwSupported);
+
+    private void CheckForceX11OnWayland_OnPreviewChange(object sender, RouteEventArgs e) =>
+        BlockUnsupportedLinuxDisplayOption(sender, e, PlatformFeaturePolicy.IsForceX11OnWaylandSupported);
+
+    private static void BlockUnsupportedLinuxDisplayOption(object sender, RouteEventArgs e, bool supported)
+    {
+        if (supported)
+            return;
+
+        e.Handled = true;
+        if (sender is MyCheckBox checkBox)
+            checkBox.SetChecked(false, user: false);
+    }
+
+    private void EnforceSystemGlfwPolicy()
+    {
+        EnforceLinuxDisplayOption(
+            "CheckUseSystemGlfw",
+            PlatformFeaturePolicy.IsUseSystemGlfwSupported,
+            supported =>
+            {
+                if (_instance is not null && _metadata.UseSystemGlfw)
+                    UpdateMetadata(metadata => metadata with { UseSystemGlfw = false });
+                else if (_metadata.UseSystemGlfw)
+                    _metadata = _metadata with { UseSystemGlfw = false };
+            });
+        EnforceLinuxDisplayOption(
+            "CheckForceX11OnWayland",
+            PlatformFeaturePolicy.IsForceX11OnWaylandSupported,
+            supported =>
+            {
+                if (_instance is not null && _metadata.ForceX11OnWayland)
+                    UpdateMetadata(metadata => metadata with { ForceX11OnWayland = false });
+                else if (_metadata.ForceX11OnWayland)
+                    _metadata = _metadata with { ForceX11OnWayland = false };
+            });
+    }
+
+    private void EnforceLinuxDisplayOption(string controlName, bool supported, Action<bool> clearStale)
+    {
+        if (this.FindControl<MyCheckBox>(controlName) is not { } checkBox)
+            return;
+
+        if (supported)
+        {
+            checkBox.IsEnabled = true;
+            return;
+        }
+
+        checkBox.SetChecked(false, user: false);
+        checkBox.IsEnabled = false;
+        clearStale(false);
     }
 
     private void EditableTitle_TextChanged(object sender, TextChangedEventArgs? e)

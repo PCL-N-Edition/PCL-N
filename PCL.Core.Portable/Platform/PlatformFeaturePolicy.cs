@@ -34,4 +34,30 @@ public static class PlatformFeaturePolicy
     /// </summary>
     public static bool IsCustomColorPaletteSupportedOn(RuntimePlatform platform) =>
         platform is RuntimePlatform.Linux or RuntimePlatform.MacOS;
+
+    /// <summary>
+    /// Gets whether launching with the OS-provided GLFW library is available on the current platform.
+    /// </summary>
+    public static bool IsUseSystemGlfwSupported =>
+        IsUseSystemGlfwSupportedOn(RuntimePlatformInfo.Current);
+
+    /// <summary>
+    /// Determines whether system GLFW substitution is available on a platform.
+    /// Only Linux exposes a reliable system GLFW packaging story; other platforms fail closed.
+    /// </summary>
+    public static bool IsUseSystemGlfwSupportedOn(RuntimePlatform platform) =>
+        platform is RuntimePlatform.Linux;
+
+    /// <summary>
+    /// Gets whether forcing X11 under Wayland is available on the current platform.
+    /// </summary>
+    public static bool IsForceX11OnWaylandSupported =>
+        IsForceX11OnWaylandSupportedOn(RuntimePlatformInfo.Current);
+
+    /// <summary>
+    /// Determines whether forcing X11 under Wayland is available on a platform.
+    /// Wayland/X11 display backends are Linux-only; other platforms fail closed.
+    /// </summary>
+    public static bool IsForceX11OnWaylandSupportedOn(RuntimePlatform platform) =>
+        platform is RuntimePlatform.Linux;
 }

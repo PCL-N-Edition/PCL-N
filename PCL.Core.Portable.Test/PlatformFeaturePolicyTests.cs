@@ -35,4 +35,24 @@ public sealed class PlatformFeaturePolicyTests
         Assert.IsTrue(PlatformFeaturePolicy.IsCustomColorPaletteSupportedOn(RuntimePlatform.MacOS));
         Assert.IsFalse(PlatformFeaturePolicy.IsCustomColorPaletteSupportedOn(RuntimePlatform.Other));
     }
+
+    [TestMethod]
+    public void UseSystemGlfwIsLinuxOnly()
+    {
+        Assert.IsFalse(PlatformFeaturePolicy.IsUseSystemGlfwSupportedOn(RuntimePlatform.Windows));
+        Assert.IsTrue(PlatformFeaturePolicy.IsUseSystemGlfwSupportedOn(RuntimePlatform.Linux));
+        Assert.IsFalse(PlatformFeaturePolicy.IsUseSystemGlfwSupportedOn(RuntimePlatform.MacOS));
+        Assert.IsFalse(PlatformFeaturePolicy.IsUseSystemGlfwSupportedOn(RuntimePlatform.Other));
+        Assert.AreEqual(OperatingSystem.IsLinux(), PlatformFeaturePolicy.IsUseSystemGlfwSupported);
+    }
+
+    [TestMethod]
+    public void ForceX11OnWaylandIsLinuxOnly()
+    {
+        Assert.IsFalse(PlatformFeaturePolicy.IsForceX11OnWaylandSupportedOn(RuntimePlatform.Windows));
+        Assert.IsTrue(PlatformFeaturePolicy.IsForceX11OnWaylandSupportedOn(RuntimePlatform.Linux));
+        Assert.IsFalse(PlatformFeaturePolicy.IsForceX11OnWaylandSupportedOn(RuntimePlatform.MacOS));
+        Assert.IsFalse(PlatformFeaturePolicy.IsForceX11OnWaylandSupportedOn(RuntimePlatform.Other));
+        Assert.AreEqual(OperatingSystem.IsLinux(), PlatformFeaturePolicy.IsForceX11OnWaylandSupported);
+    }
 }

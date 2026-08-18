@@ -12,10 +12,11 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using PCL.Application.Launching;
 using PCL.Application.Settings;
-using PCL.Desktop.Controls.Legacy;
-using PCL.Platform.System;
-using PCL.Platform.Abstractions.System;
 using PCL.Core.Logging;
+using PCL.Core.Platform;
+using PCL.Desktop.Controls.Legacy;
+using PCL.Platform.Abstractions.System;
+using PCL.Platform.System;
 
 #pragma warning disable CA1822, CS0067
 
@@ -46,6 +47,7 @@ public partial class PageSetupLaunch : MyPageRight, ISettingsPageInteractionSour
         if (this.FindControl<MyScrollViewer>("PanBack") is { } panBack)
             PanScroll = panBack;
         LauncherSettingsPageBinder.Attach(this);
+        EnforceSystemGlfwPolicy();
         _ramRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _ramRefreshTimer.Tick += (_, _) => RefreshRam(showAnim: true);
         AttachedToVisualTree += (_, _) =>
@@ -55,6 +57,7 @@ public partial class PageSetupLaunch : MyPageRight, ISettingsPageInteractionSour
                 _hasAttached = true;
                 this.FindControl<MyScrollViewer>("PanBack")?.ScrollToHome();
             }
+            EnforceSystemGlfwPolicy();
             RefreshDependentVisibility();
             RefreshRam(showAnim: false);
             _ramRefreshTimer.Start();
@@ -102,6 +105,76 @@ public partial class PageSetupLaunch : MyPageRight, ISettingsPageInteractionSour
 
     private void CheckBoxChange(object sender, bool user)
     {
+        if (sender is MyCheckBox { Tag: "LaunchUseSystemGlfw" } glfw &&
+            !PlatformFeaturePolicy.IsUseSystemGlfwSupported)
+        {
+            glfw.SetChecked(false, user: false);
+        }
+
+        if (sender is MyCheckBox { Tag: "LaunchForceX11OnWayland" } x11 &&
+            !PlatformFeaturePolicy.IsForceX11OnWaylandSupported)
+        {
+            x11.SetChecked(false, user: false);
+        }
+    }
+
+    private void CheckUseSystemGlfw_OnPreviewChange(object sender, RouteEventArgs e) =>
+        BlockUnsupportedLinuxDisplayOption(sender, e, PlatformFeaturePolicy.IsUseSystemGlfwSupported);
+
+    private void CheckForceX11OnWayland_OnPreviewChange(object sender, RouteEventArgs e) =>
+        BlockUnsupportedLinuxDisplayOption(sender, e, PlatformFeaturePolicy.IsForceX11OnWaylandSupported);
+
+    private static void BlockUnsupportedLinuxDisplayOption(object sender, RouteEventArgs e, bool supported)
+    {
+        if (supported)
+            return;
+
+        e.Handled = true;
+        if (sender is MyCheckBox checkBox)
+            checkBox.SetChecked(false, user: false);
+    }
+
+    /// <summary>
+    /// System GLFW / Force X11 are Linux-only; keep toggles off/disabled elsewhere and clear stale settings.
+    /// </summary>
+    private void EnforceSystemGlfwPolicy()
+    {
+        EnforceLinuxDisplayOption(
+            "CheckUseSystemGlfw",
+            PlatformFeaturePolicy.IsUseSystemGlfwSupported,
+            LauncherSettingKeys.LaunchUseSystemGlfw);
+        EnforceLinuxDisplayOption(
+            "CheckForceX11OnWayland",
+            PlatformFeaturePolicy.IsForceX11OnWaylandSupported,
+            LauncherSettingKeys.LaunchForceX11OnWayland);
+    }
+
+    private void EnforceLinuxDisplayOption(string controlName, bool supported, SettingKey key)
+    {
+        if (this.FindControl<MyCheckBox>(controlName) is not { } checkBox)
+            return;
+
+        if (supported)
+        {
+            checkBox.IsEnabled = true;
+            return;
+        }
+
+        checkBox.SetChecked(false, user: false);
+        checkBox.IsEnabled = false;
+        try
+        {
+            LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+            if (settings.GetBooleanOption(key, false))
+            {
+                settings.SetBooleanOption(key, false);
+                LauncherSettingsPageBinder.SaveSettings(settings);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            // Settings are best-effort; the checkbox remains forced off.
+        }
     }
 
     private void ComboAdvanceRenderer_OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
