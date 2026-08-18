@@ -67,6 +67,43 @@ public sealed class MinecraftCapeServiceTests
     }
 
     [TestMethod]
+    public void PreferCapePreviewAddress_PrefersActiveOwnedCapeOverSessionUrl()
+    {
+        string? preferred = MinecraftCapeService.PreferCapePreviewAddress(
+            [
+                new MinecraftOwnedCape(
+                    "inactive",
+                    "Inactive",
+                    "https://textures.minecraft.net/texture/inactive",
+                    IsActive: false),
+                new MinecraftOwnedCape(
+                    "active",
+                    "Active",
+                    "https://textures.minecraft.net/texture/active",
+                    IsActive: true)
+            ],
+            "https://textures.minecraft.net/texture/session");
+
+        Assert.AreEqual("https://textures.minecraft.net/texture/active", preferred);
+    }
+
+    [TestMethod]
+    public void PreferCapePreviewAddress_FallsBackToSessionCapeWhenNoneActive()
+    {
+        string? preferred = MinecraftCapeService.PreferCapePreviewAddress(
+            [
+                new MinecraftOwnedCape(
+                    "owned",
+                    "Owned",
+                    "https://textures.minecraft.net/texture/owned",
+                    IsActive: false)
+            ],
+            "https://textures.minecraft.net/texture/session");
+
+        Assert.AreEqual("https://textures.minecraft.net/texture/session", preferred);
+    }
+
+    [TestMethod]
     public async Task SetActiveCapeAsync_ActivatesCapeOwnedByAuthenticatedAccount()
     {
         int putCount = 0;

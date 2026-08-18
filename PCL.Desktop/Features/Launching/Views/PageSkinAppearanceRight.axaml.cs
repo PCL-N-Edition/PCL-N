@@ -23,11 +23,20 @@ public sealed record SkinAppearanceCard(
     long? TextureId = null,
     string? MicrosoftCapeId = null);
 
+public enum SkinCapeClosetState
+{
+    /// <summary>Capes loaded successfully (may be empty).</summary>
+    Loaded,
+    /// <summary>Ownership query failed; do not claim the account owns no capes.</summary>
+    LoadFailed
+}
+
 public sealed record SkinAppearancePageModel(
     LoginProfileInfo Profile,
     SkinAppearanceCard Current,
     IReadOnlyList<SkinAppearanceCard> Skins,
-    IReadOnlyList<SkinAppearanceCard> Capes);
+    IReadOnlyList<SkinAppearanceCard> Capes,
+    SkinCapeClosetState CapeClosetState = SkinCapeClosetState.Loaded);
 
 public partial class PageSkinAppearanceRight : MyPageRight
 {
@@ -79,7 +88,7 @@ public partial class PageSkinAppearanceRight : MyPageRight
             name.Text = model.Profile.Username;
         if (this.FindControl<TextBlock>("LabProfileType") is { } type)
             type.Text = model.Profile.DisplayInfo;
-        ApplyCapePolicyText(model.Profile.Kind);
+        ApplyCapePolicyText(model.Profile.Kind, model.CapeClosetState);
 
         PopulateTrack(
             "PanSkins",
@@ -97,7 +106,7 @@ public partial class PageSkinAppearanceRight : MyPageRight
             isCapeTrack: true);
     }
 
-    private void ApplyCapePolicyText(LaunchLoginProfileKind kind)
+    private void ApplyCapePolicyText(LaunchLoginProfileKind kind, SkinCapeClosetState capeClosetState)
     {
         (
             string titleKey,
@@ -108,13 +117,21 @@ public partial class PageSkinAppearanceRight : MyPageRight
             string emptyFallback) =
             kind switch
             {
-                LaunchLoginProfileKind.Microsoft => (
-                    "Appearance.Capes.Microsoft.Title",
-                    "正版账户披风",
-                    "Appearance.Capes.Microsoft.Subtitle",
-                    "仅可切换当前正版账户已经获得的披风",
-                    "Appearance.Capes.Microsoft.Empty",
-                    "当前正版账户尚未获得任何披风。"),
+                LaunchLoginProfileKind.Microsoft => capeClosetState == SkinCapeClosetState.LoadFailed
+                    ? (
+                        "Appearance.Capes.Microsoft.Title",
+                        "正版账户披风",
+                        "Appearance.Capes.Microsoft.Subtitle",
+                        "仅可切换当前正版账户已经获得的披风",
+                        "Appearance.Capes.Microsoft.LoadFailed",
+                        "暂时无法读取正版账户披风，请检查网络后重试。")
+                    : (
+                        "Appearance.Capes.Microsoft.Title",
+                        "正版账户披风",
+                        "Appearance.Capes.Microsoft.Subtitle",
+                        "仅可切换当前正版账户已经获得的披风",
+                        "Appearance.Capes.Microsoft.Empty",
+                        "当前正版账户尚未获得任何披风。"),
                 LaunchLoginProfileKind.LittleSkin => (
                     "Appearance.Capes.LittleSkin.Title",
                     "LittleSkin 披风库",

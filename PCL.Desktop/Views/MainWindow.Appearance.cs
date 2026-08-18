@@ -50,6 +50,7 @@ public partial class MainWindow
 
         try
         {
+            // Refresh a usable Minecraft services token before wardrobe/cape fetch when possible.
             if (profile.Kind == LaunchLoginProfileKind.Microsoft &&
                 !string.IsNullOrWhiteSpace(profile.RefreshToken))
             {
@@ -71,7 +72,7 @@ public partial class MainWindow
                     PortableLog.Warn(
                         exception,
                         "MicrosoftAppearance",
-                        "打开外观页时刷新正版登录状态失败，继续使用已保存的皮肤预览。");
+                        "打开外观页时刷新正版登录状态失败，继续使用已保存的令牌读取皮肤与披风。");
                 }
             }
 
@@ -250,25 +251,36 @@ public partial class MainWindow
         IReadOnlyList<LittleSkinClosetItem> closetCapes = [];
         long littleSkinActiveCapeTextureId = 0;
         IReadOnlyList<MinecraftOwnedCape> microsoftCapes = [];
-        if (profile.Kind == LaunchLoginProfileKind.Microsoft &&
-            !string.IsNullOrWhiteSpace(profile.AccessToken))
+        SkinCapeClosetState microsoftCapeClosetState = SkinCapeClosetState.Loaded;
+        if (profile.Kind == LaunchLoginProfileKind.Microsoft)
         {
-            try
+            // Caller (OpenExperimentalAppearancePageAsync) prefers refreshing a usable MS
+            // token on the UI thread before this model build; use whatever access token we have.
+            if (!string.IsNullOrWhiteSpace(profile.AccessToken))
             {
-                microsoftCapes = await _minecraftCapeService
-                    .GetOwnedCapesAsync(profile.AccessToken, cancellationToken)
-                    .ConfigureAwait(false);
+                try
+                {
+                    microsoftCapes = await _minecraftCapeService
+                        .GetOwnedCapesAsync(profile.AccessToken, cancellationToken)
+                        .ConfigureAwait(false);
+                    microsoftCapeClosetState = SkinCapeClosetState.Loaded;
+                }
+                catch (Exception exception) when (
+                    exception is HttpRequestException or
+                        InvalidOperationException or
+                        JsonException or
+                        TaskCanceledException)
+                {
+                    microsoftCapeClosetState = SkinCapeClosetState.LoadFailed;
+                    PortableLog.Warn(
+                        exception,
+                        "MicrosoftAppearance",
+                        "读取正版账户已获得的披风失败，不会显示其他账户或历史披风作为替代，也不应提示“尚未获得任何披风”。");
+                }
             }
-            catch (Exception exception) when (
-                exception is HttpRequestException or
-                    InvalidOperationException or
-                    JsonException or
-                    TaskCanceledException)
+            else
             {
-                PortableLog.Warn(
-                    exception,
-                    "MicrosoftAppearance",
-                    "读取正版账户已获得的披风失败，不会显示其他账户或历史披风作为替代。");
+                microsoftCapeClosetState = SkinCapeClosetState.LoadFailed;
             }
         }
 
@@ -335,15 +347,19 @@ public partial class MainWindow
             ? textures[currentIndex]
             : await MinecraftProfileTextureResolver.ResolveAsync(profile, cancellationToken)
                 .ConfigureAwait(false);
-        MinecraftOwnedCape? activeMicrosoftCape = microsoftCapes.FirstOrDefault(
-            static cape => cape.IsActive);
-        if (profile.Kind == LaunchLoginProfileKind.Microsoft &&
-            activeMicrosoftCape is not null)
+        if (profile.Kind == LaunchLoginProfileKind.Microsoft)
         {
-            currentTextures = currentTextures with
+            // Prefer ACTIVE owned cape; otherwise keep sessionserver CAPE URL for preview.
+            string? preferredCape = MinecraftCapeService.PreferCapePreviewAddress(
+                microsoftCapes,
+                currentTextures.CapeAddress);
+            if (!string.Equals(
+                    preferredCape,
+                    currentTextures.CapeAddress,
+                    StringComparison.OrdinalIgnoreCase))
             {
-                CapeAddress = activeMicrosoftCape.TextureAddress
-            };
+                currentTextures = currentTextures with { CapeAddress = preferredCape };
+            }
         }
 
         string currentKey = CreateAppearanceProfileKey(profile);
@@ -439,7 +455,10 @@ public partial class MainWindow
                 .ToArray();
         }
 
-        return new SkinAppearancePageModel(profile, current, skins, capes);
+        SkinCapeClosetState capeClosetState = profile.Kind == LaunchLoginProfileKind.Microsoft
+            ? microsoftCapeClosetState
+            : SkinCapeClosetState.Loaded;
+        return new SkinAppearancePageModel(profile, current, skins, capes, capeClosetState);
     }
 
     private async Task PickExperimentalLocalSkinAsync(LoginProfileInfo requestedProfile)
@@ -456,11 +475,13 @@ public partial class MainWindow
 
         if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
         {
+            const string littleSkinCloset = "https://littleskin.cn/user/closet";
             ShowTextDialog(
                 "上传 LittleSkin 皮肤",
                 "本地材质上传仍由 LittleSkin 网站完成。上传并加入衣柜后，返回此页面即可直接应用。",
-                "打开 LittleSkin");
-            OpenExternalUrl("https://littleskin.cn/user/closet");
+                primaryButton: "打开 LittleSkin",
+                secondaryButton: "知道了",
+                primaryAction: () => OpenExternalUrl(littleSkinCloset));
             return;
         }
 
@@ -589,14 +610,22 @@ public partial class MainWindow
         if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
         {
             string? profileUrl = ResolveAuthServerProfileUrl(profile.AuthServer);
-            if (!string.IsNullOrWhiteSpace(profileUrl))
-                OpenExternalUrl(profileUrl);
-            ShowTextDialog(
-                "第三方披风",
-                string.IsNullOrWhiteSpace(profileUrl)
-                    ? "第三方认证站可自由更换披风；请前往对应皮肤站选择或上传任意披风。"
-                    : "第三方认证站可自由更换披风；已打开对应皮肤站，可选择或上传任意披风。",
-                "知道了");
+            if (string.IsNullOrWhiteSpace(profileUrl))
+            {
+                ShowTextDialog(
+                    "第三方披风",
+                    "第三方认证站可自由更换披风；请前往对应皮肤站选择或上传任意披风。",
+                    "知道了");
+            }
+            else
+            {
+                ShowTextDialog(
+                    "第三方披风",
+                    "第三方认证站可自由更换披风；可在对应皮肤站选择或上传任意披风。",
+                    primaryButton: "打开皮肤站",
+                    secondaryButton: "知道了",
+                    primaryAction: () => OpenExternalUrl(profileUrl));
+            }
             return;
         }
 
@@ -708,15 +737,18 @@ public partial class MainWindow
 
         if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
         {
-            if (detailsUri is not null)
-                OpenExternalUrl(detailsUri.AbsoluteUri);
+            string detailsUrl = detailsUri?.AbsoluteUri ?? string.Empty;
             ShowTextDialog(
                 GetResourceText("Appearance.ThirdPartyAuth.Title", "需要皮肤站授权"),
                 GetResourceText(
                     "Appearance.ThirdPartyAuth.Message",
                     "第三方皮肤站的角色材质接口需要独立 OAuth 授权，不能复用游戏登录令牌。" +
-                    "\n\n已打开材质详情页，请在皮肤站中将它加入衣柜并应用到角色。"),
-                "知道了");
+                    "\n\n请在皮肤站中将材质加入衣柜并应用到角色。"),
+                primaryButton: string.IsNullOrWhiteSpace(detailsUrl) ? "知道了" : "查看详情",
+                secondaryButton: string.IsNullOrWhiteSpace(detailsUrl) ? string.Empty : "知道了",
+                primaryAction: string.IsNullOrWhiteSpace(detailsUrl)
+                    ? null
+                    : () => OpenExternalUrl(detailsUrl));
             return;
         }
 

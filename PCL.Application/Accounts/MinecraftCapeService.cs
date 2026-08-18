@@ -142,6 +142,20 @@ public sealed class MinecraftCapeService : IMinecraftCapeService
         return result;
     }
 
+    /// <summary>
+    /// Prefer the ACTIVE owned cape texture; otherwise keep the sessionserver CAPE URL.
+    /// </summary>
+    public static string? PreferCapePreviewAddress(
+        IReadOnlyList<MinecraftOwnedCape> ownedCapes,
+        string? sessionCapeAddress)
+    {
+        ArgumentNullException.ThrowIfNull(ownedCapes);
+        MinecraftOwnedCape? active = ownedCapes.FirstOrDefault(static cape => cape.IsActive);
+        if (active is not null && !string.IsNullOrWhiteSpace(active.TextureAddress))
+            return active.TextureAddress;
+        return string.IsNullOrWhiteSpace(sessionCapeAddress) ? null : sessionCapeAddress;
+    }
+
     private static HttpRequestMessage CreateRequest(
         HttpMethod method,
         Uri endpoint,
