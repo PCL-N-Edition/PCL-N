@@ -1821,10 +1821,11 @@ public partial class MainWindow : Window, IDisposable
         if (index >= announcements.Count)
             return;
         LauncherAnnouncement announcement = announcements[index];
+        Uri? actionUri = announcement.ActionUri;
         ShowMarkdownDialog(
             announcement.Title,
             announcement.Markdown,
-            result =>
+            _ =>
             {
                 if (announcement.Dismissible)
                 {
@@ -1836,13 +1837,21 @@ public partial class MainWindow : Window, IDisposable
                         return current;
                     });
                 }
-                if (result == 2 && announcement.ActionUri is not null)
+                ShowLauncherAnnouncement(announcements, index + 1, seen);
+            },
+            announcement.PrimaryLabel,
+            announcement.ActionLabel ?? string.Empty,
+            thirdButton: string.Empty,
+            isWarn: announcement.Severity is "important" or "security",
+            secondaryAction: actionUri is null
+                ? null
+                : () =>
                 {
                     try
                     {
                         Process.Start(new ProcessStartInfo
                         {
-                            FileName = announcement.ActionUri.AbsoluteUri,
+                            FileName = actionUri.AbsoluteUri,
                             UseShellExecute = true
                         });
                     }
@@ -1850,13 +1859,7 @@ public partial class MainWindow : Window, IDisposable
                     {
                         DesktopFileLog.Warn("Announcement", "无法打开公告链接。", exception);
                     }
-                }
-                ShowLauncherAnnouncement(announcements, index + 1, seen);
-            },
-            announcement.PrimaryLabel,
-            announcement.ActionLabel ?? string.Empty,
-            thirdButton: string.Empty,
-            isWarn: announcement.Severity is "important" or "security");
+                });
     }
 
 
@@ -2023,6 +2026,7 @@ public partial class MainWindow : Window, IDisposable
             ApplyRightPage = ApplyCommunityRightPage,
             OpenDetailAsync = OpenCommunityDetailAsync,
             DownloadAsync = DownloadCommunityResourceAsync,
+            ImportModpackAsync = PickModpackForImportAsync,
             CategoryChanged = category =>
             {
                 if (_communityDownloadTarget is { } target && target.Category != category)
@@ -2725,14 +2729,16 @@ public partial class MainWindow : Window, IDisposable
             PatchCoreAsync = PatchInstanceCoreAsync,
             OpenGlobalSettings = () => SelectNavRoute(SettingsRoute, animate: true),
             ShowMessage = (title, message, primary) => ShowTextDialog(title, message, primary ?? "确定"),
-            Confirm = (title, message, complete, primary, secondary, isWarn) =>
+            Confirm = (title, message, complete, primary, secondary, isWarn, primaryAction, secondaryAction) =>
                 ShowConfirmDialog(
                     title,
                     message,
                     complete,
                     primary ?? "确定",
                     secondary ?? "取消",
-                    isWarn),
+                    isWarn,
+                    primaryAction,
+                    secondaryAction),
             CreateAuthProfile = authServer =>
             {
                 SelectNavRoute(LaunchRoute, animate: true);
@@ -3574,14 +3580,16 @@ public partial class MainWindow : Window, IDisposable
                 this.FindControl<Border>("PanMainRight")?.Child as MyPageRight,
             WirePage = WireSetupPage,
             ApplyRightPage = ApplySetupRightPage,
-            Confirm = (title, message, complete, primary, secondary, isWarn) =>
+            Confirm = (title, message, complete, primary, secondary, isWarn, primaryAction, secondaryAction) =>
                 ShowConfirmDialog(
                     title,
                     message,
                     complete,
                     primary ?? "确定",
                     secondary ?? "取消",
-                    isWarn)
+                    isWarn,
+                    primaryAction,
+                    secondaryAction)
         });
         DesktopMainPage page = _settingsSurface.CreateMainPage();
         _setupLeft = _settingsSurface.Left;
@@ -3616,7 +3624,9 @@ public partial class MainWindow : Window, IDisposable
                 args.Complete,
                 args.PrimaryButton,
                 args.SecondaryButton,
-                args.IsWarn);
+                args.IsWarn,
+                args.PrimaryAction,
+                args.SecondaryAction);
         source.ColorRequested += (_, args) => ShowColorDialog(args);
     }
 
@@ -4637,7 +4647,14 @@ public partial class MainWindow : Window, IDisposable
                         TargetPath = targetPath
                     })
                 .ConfigureAwait(true);
-            ShowTextDialog("导出完成", "启动脚本已保存到：\n" + targetPath);
+            string folder = Path.GetDirectoryName(Path.GetFullPath(targetPath))
+                ?? DesktopPathHelpers.GetDesktopOrBaseDirectory();
+            ShowTextDialog(
+                "导出完成",
+                "启动脚本已保存到：\n" + targetPath,
+                primaryButton: "打开文件夹",
+                secondaryButton: "知道了",
+                primaryAction: () => OpenFolder(folder));
         }
         catch (Exception ex)
         {
@@ -4711,6 +4728,7 @@ public partial class MainWindow : Window, IDisposable
             "取消",
             isWarn: true);
     }
+
 
     private async Task ResetInstanceSettingsAsync(LaunchInstanceInfo instance)
     {
