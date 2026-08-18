@@ -2715,6 +2715,7 @@ public partial class MainWindow : Window, IDisposable
             SelectSubPage = ApplyInstanceManagePage,
             RefreshInstancesAsync = path => RefreshInstancesAfterManagementAsync(path),
             ResetSettings = PromptResetInstanceSettings,
+            ReinstallAsync = PromptReinstallInstanceAsync,
             OpenPath = OpenFolder,
             OpenExistingPath = OpenExistingPath,
             StatusMessage = HandleStatusMessage,
@@ -4912,6 +4913,71 @@ public partial class MainWindow : Window, IDisposable
             isWarn: true);
     }
 
+    /// <summary>
+    /// CE <c>BtnManageRestore</c>: confirm then reinstall vanilla + loaders into the same instance folder.
+    /// </summary>
+    private Task PromptReinstallInstanceAsync(LaunchInstanceInfo instance)
+    {
+        TaskCompletionSource<bool> confirmation = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ShowConfirmDialog(
+            AvaloniaLocalizationManager.GetText("Common.Action.Reset", "重置"),
+            $"确定要重置实例“{instance.Name}”吗？\n\n将重新下载安装信息并补全缺失组件；存档、模组、资源包等个人文件不会被删除。",
+            confirmed => confirmation.TrySetResult(confirmed),
+            AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "确定"),
+            AvaloniaLocalizationManager.GetText("Common.Action.Cancel", "取消"),
+            isWarn: true);
+        return ConfirmAndReinstallInstanceAsync(instance, confirmation.Task);
+    }
+
+    private async Task ConfirmAndReinstallInstanceAsync(
+        LaunchInstanceInfo instance,
+        Task<bool> confirmation)
+    {
+        if (!await confirmation.ConfigureAwait(true))
+            return;
+
+        try
+        {
+            // Backup core files like CE before McInstall.
+            string backupDirectory = Path.Combine(instance.InstanceDirectory, "PCLInstallBackups");
+            Directory.CreateDirectory(backupDirectory);
+            string jsonName = Path.GetFileName(instance.VersionJsonPath);
+            if (File.Exists(instance.VersionJsonPath))
+            {
+                File.Copy(
+                    instance.VersionJsonPath,
+                    Path.Combine(backupDirectory, jsonName),
+                    overwrite: true);
+            }
+
+            string jarPath = Path.Combine(instance.InstanceDirectory, instance.Name + ".jar");
+            if (File.Exists(jarPath))
+            {
+                File.Copy(
+                    jarPath,
+                    Path.Combine(backupDirectory, instance.Name + ".jar"),
+                    overwrite: true);
+            }
+
+            MinecraftVersionJsonInfo info = MinecraftVersionJsonInspector.Read(instance);
+            (MinecraftLoaderKind? loaderKind, string? loaderVersion, string? optiFine) =
+                PageInstanceInstallRight.DetectCurrentLoaderSelection(instance);
+
+            await OpenDownloadInstallForInstanceAsync(
+                    new InstanceInstallModifyRequest(
+                        instance,
+                        info.MinecraftVersionId,
+                        LoaderKind: loaderKind,
+                        LoaderVersion: loaderVersion,
+                        CurrentOptiFineVersion: optiFine,
+                        ApplySelection: true))
+                .ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            ShowTextDialog("重置失败", $"重置实例 {instance.Name} 失败。\n\n详细信息：" + ex.Message);
+        }
+    }
 
     private async Task ResetInstanceSettingsAsync(LaunchInstanceInfo instance)
     {
