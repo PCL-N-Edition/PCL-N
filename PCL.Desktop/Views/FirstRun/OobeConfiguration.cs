@@ -181,7 +181,6 @@ internal static class OobeConfiguration
     public static IReadOnlyList<OobeStepId> DefaultResumeSteps { get; } =
     [
         OobeStepId.Welcome,
-        OobeStepId.Compatibility,
         OobeStepId.Online,
         OobeStepId.Telemetry,
         OobeStepId.Finish
@@ -380,8 +379,12 @@ internal static class OobeConfiguration
         List<OobeStepId> steps = [];
         foreach (string name in names)
         {
-            if (TryParseStep(name, out OobeStepId step) && !steps.Contains(step))
+            if (TryParseStep(name, out OobeStepId step) &&
+                step != OobeStepId.Compatibility &&
+                !steps.Contains(step))
+            {
                 steps.Add(step);
+            }
         }
 
         // Always end with Finish if any steps and Finish missing — otherwise user cannot complete.
@@ -404,7 +407,12 @@ internal static class OobeConfiguration
     {
         if (steps.Count == 0)
             return fallback;
-        List<OobeStepId> list = steps.Distinct().ToList();
+        List<OobeStepId> list = steps
+            .Where(static step => step != OobeStepId.Compatibility)
+            .Distinct()
+            .ToList();
+        if (list.Count == 0)
+            return fallback;
         if (!list.Contains(OobeStepId.Finish))
             list.Add(OobeStepId.Finish);
         return list;
@@ -466,7 +474,9 @@ internal static class OobeConfiguration
 public enum OobeStepId
 {
     Welcome,
-    /// <summary>Dependency self-check + compatibility toggles.</summary>
+    /// <summary>
+    /// Legacy dependency self-check step. Removed from default OOBE flows; ignored if present in overrides.
+    /// </summary>
     Compatibility,
     Terms,
     Privacy,
@@ -496,7 +506,6 @@ internal sealed class OobeManifest
     public static IReadOnlyList<OobeStepId> DefaultFullSteps { get; } =
     [
         OobeStepId.Welcome,
-        OobeStepId.Compatibility,
         OobeStepId.Terms,
         OobeStepId.Privacy,
         OobeStepId.DataPaths,
@@ -505,11 +514,10 @@ internal sealed class OobeManifest
         OobeStepId.Finish
     ];
 
-    /// <summary>Post-update short flow: welcome, dependency self-check, finish.</summary>
+    /// <summary>Post-update short flow: welcome then finish.</summary>
     public static IReadOnlyList<OobeStepId> DefaultUpdateSteps { get; } =
     [
         OobeStepId.Welcome,
-        OobeStepId.Compatibility,
         OobeStepId.Finish
     ];
 

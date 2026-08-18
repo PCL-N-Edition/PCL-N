@@ -64,61 +64,6 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Compatibility self-check -->
-                <Grid x:Name="PageCompat" IsVisible="False" Opacity="0" IsHitTestVisible="False" Margin="28,18,28,22">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <StackPanel Grid.Row="0" Spacing="6" Margin="0,0,0,10">
-                        <TextBlock x:Name="LabCompatTitle"
-                                   Text="环境自检与兼容性"
-                                   FontSize="24" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource ColorBrush1}" />
-                        <TextBlock x:Name="LabCompatSummary"
-                                   TextWrapping="Wrap" Opacity="0.78"
-                                   Foreground="{DynamicResource ColorBrush1}"
-                                   Text="正在检测底层依赖…" />
-                    </StackPanel>
-                    <legacy:MyScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel x:Name="PanCompatItems" Spacing="8" Margin="0,0,8,0" />
-                    </legacy:MyScrollViewer>
-                    <StackPanel x:Name="PanCompatMitigations" Grid.Row="2" Spacing="8" Margin="0,10,0,0">
-                        <TextBlock Text="兼容性选项（可随时在设置中调整）"
-                                   FontWeight="SemiBold"
-                                   Foreground="{DynamicResource ColorBrush1}" />
-                        <legacy:MyCheckBox x:Name="CheckCompatDisableGpu"
-                                           Text="关闭硬件加速（软件渲染，更改后下次启动生效）" />
-                        <legacy:MyCheckBox x:Name="CheckCompatDisableAnimations"
-                                           Text="关闭界面动画（改善空白页 / 卡顿切换）" />
-                        <legacy:MyHint x:Name="HintCompatBlocked"
-                                       Theme="Red"
-                                       IsVisible="False"
-                                       Text="存在无法替代的必要依赖故障，本软件在此环境下不可用。请查看上方详情或更新系统组件后重试。" />
-                    </StackPanel>
-                    <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,12,0,0">
-                        <legacy:MyButton x:Name="BtnCompatRefresh" Grid.Column="1"
-                                         ColorType="Normal" UseExperimentalStyle="True"
-                                         Text="重新检测" MinWidth="110" Height="36" Padding="14,0" Margin="0,0,10,0"
-                                         Click="BtnCompatRefresh_Click" />
-                        <legacy:MyButton x:Name="BtnCompatPrev" Grid.Column="2"
-                                         ColorType="Normal" UseExperimentalStyle="True"
-                                         Text="上一页" MinWidth="110" Height="36" Padding="14,0" Margin="0,0,10,0"
-                                         Click="BtnCompatPrev_Click" />
-                        <legacy:MyButton x:Name="BtnCompatNext" Grid.Column="3"
-                                         ColorType="Highlight" UseExperimentalStyle="True"
-                                         Text="下一页" MinWidth="120" Height="36" Padding="14,0"
-                                         Click="BtnCompatNext_Click" />
-                        <legacy:MyButton x:Name="BtnCompatExit" Grid.Column="3"
-                                         ColorType="Red" UseExperimentalStyle="True"
-                                         Text="退出" MinWidth="120" Height="36" Padding="14,0"
-                                         IsVisible="False"
-                                         Click="BtnCompatExit_Click" />
-                    </Grid>
-                </Grid>
-
                 <!-- Legal (MD H1 as title) -->
                 <Grid x:Name="PageLegal" IsVisible="False" Opacity="0" IsHitTestVisible="False" Margin="28,18,28,22">
                     <Grid.RowDefinitions>

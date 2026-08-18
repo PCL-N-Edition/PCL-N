@@ -13,7 +13,6 @@ using Avalonia.VisualTree;
 using PCL.Application.Settings;
 using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
-using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Hosting.PluginSidecar;
 using PCL.Desktop.Legal;
@@ -89,20 +88,11 @@ public sealed partial class FirstRunWizardWindow : Window
     private TranslateTransform? _iconTranslate;
     private TranslateTransform? _finishIconTranslate;
     private Grid? _pageWelcome;
-    private Grid? _pageCompat;
     private Grid? _pageLegal;
     private Grid? _pageData;
     private Grid? _pageOnline;
     private Grid? _pageTelemetry;
     private Grid? _pageFinish;
-    private StackPanel? _panCompatItems;
-    private TextBlock? _labCompatSummary;
-    private MyHint? _hintCompatBlocked;
-    private MyCheckBox? _checkCompatDisableGpu;
-    private MyCheckBox? _checkCompatDisableAnimations;
-    private MyButton? _btnCompatNext;
-    private MyButton? _btnCompatExit;
-    private CompatibilityReport? _compatReport;
     private MyMarkdownViewer? _labLegalMarkdown;
     private MyScrollViewer? _panLegalScroll;
     private MyScrollViewer? _panLegalFallbackScroll;
@@ -227,19 +217,11 @@ public sealed partial class FirstRunWizardWindow : Window
     {
         _panBubble = this.FindControl<Border>("PanBubble");
         _pageWelcome = this.FindControl<Grid>("PageWelcome");
-        _pageCompat = this.FindControl<Grid>("PageCompat");
         _pageLegal = this.FindControl<Grid>("PageLegal");
         _pageData = this.FindControl<Grid>("PageData");
         _pageOnline = this.FindControl<Grid>("PageOnline");
         _pageTelemetry = this.FindControl<Grid>("PageTelemetry");
         _pageFinish = this.FindControl<Grid>("PageFinish");
-        _panCompatItems = this.FindControl<StackPanel>("PanCompatItems");
-        _labCompatSummary = this.FindControl<TextBlock>("LabCompatSummary");
-        _hintCompatBlocked = this.FindControl<MyHint>("HintCompatBlocked");
-        _checkCompatDisableGpu = this.FindControl<MyCheckBox>("CheckCompatDisableGpu");
-        _checkCompatDisableAnimations = this.FindControl<MyCheckBox>("CheckCompatDisableAnimations");
-        _btnCompatNext = this.FindControl<MyButton>("BtnCompatNext");
-        _btnCompatExit = this.FindControl<MyButton>("BtnCompatExit");
         _heroIcon = this.FindControl<Image>("HeroIcon");
         _finishIcon = this.FindControl<Image>("FinishIcon");
         _welcomePanel = this.FindControl<StackPanel>("WelcomePanel");
@@ -738,9 +720,6 @@ public sealed partial class FirstRunWizardWindow : Window
     {
         switch (step)
         {
-            case OobeStepId.Compatibility:
-                ConfigureCompatibilityPage();
-                break;
             case OobeStepId.Terms:
                 ConfigureLegalPage(isPrivacy: false);
                 break;
@@ -800,7 +779,6 @@ public sealed partial class FirstRunWizardWindow : Window
     private Grid? GetPageForStep(OobeStepId step) =>
         step switch
         {
-            OobeStepId.Compatibility => _pageCompat,
             OobeStepId.Terms or OobeStepId.Privacy => _pageLegal,
             OobeStepId.DataPaths => _pageData,
             OobeStepId.Online => _pageOnline,
@@ -814,7 +792,7 @@ public sealed partial class FirstRunWizardWindow : Window
     {
         Grid?[] pages =
         [
-            _pageWelcome, _pageCompat, _pageLegal, _pageData, _pageOnline, _pageTelemetry, _pageFinish
+            _pageWelcome, _pageLegal, _pageData, _pageOnline, _pageTelemetry, _pageFinish
         ];
         foreach (Grid? page in pages)
         {
@@ -822,184 +800,6 @@ public sealed partial class FirstRunWizardWindow : Window
                 yield return page;
         }
     }
-
-    private void ConfigureCompatibilityPage()
-    {
-        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-        if (_checkCompatDisableGpu is not null)
-        {
-            _checkCompatDisableGpu.Checked = settings.GetBooleanOption(
-                "SystemDisableHardwareAcceleration",
-                LauncherSettingDefaults.GetBoolean("SystemDisableHardwareAcceleration"));
-        }
-
-        if (_checkCompatDisableAnimations is not null)
-        {
-            _checkCompatDisableAnimations.Checked = settings.GetBooleanOption(
-                "SystemDisableUiAnimations",
-                LauncherSettingDefaults.GetBoolean("SystemDisableUiAnimations"));
-        }
-
-        RunAndBindCompatibilityReport();
-        ConfigureNavButtons(
-            this.FindControl<MyButton>("BtnCompatPrev"),
-            _btnCompatNext,
-            canPrev: CanGoPrevious());
-    }
-
-    private void RunAndBindCompatibilityReport()
-    {
-        _compatReport = LauncherCompatibilityProbe.Run();
-        CompatibilityReport report = _compatReport;
-
-        if (_labCompatSummary is not null)
-        {
-            if (report.CanRun)
-            {
-                string template = AvaloniaLocalizationManager.GetText(
-                    "Oobe.Compat.Summary.Ok",
-                    "检测完成：{0} 项正常，{1} 项需注意。你可以调整下方兼容性选项后继续。");
-                try
-                {
-                    _labCompatSummary.Text = string.Format(
-                        System.Globalization.CultureInfo.CurrentCulture,
-                        template,
-                        report.OkCount,
-                        report.IssueCount);
-                }
-                catch (FormatException)
-                {
-                    _labCompatSummary.Text =
-                        $"检测完成：{report.OkCount} 项正常，{report.IssueCount} 项需注意。你可以调整下方兼容性选项后继续。";
-                }
-            }
-            else
-            {
-                _labCompatSummary.Text = AvaloniaLocalizationManager.GetText(
-                    "Oobe.Compat.Summary.Blocked",
-                    "检测发现无法替代的必要依赖故障。本软件在此环境下不可用。");
-            }
-        }
-
-        if (_hintCompatBlocked is not null)
-            _hintCompatBlocked.IsVisible = !report.CanRun;
-
-        if (_btnCompatNext is not null)
-            _btnCompatNext.IsVisible = report.CanRun;
-        if (_btnCompatExit is not null)
-            _btnCompatExit.IsVisible = !report.CanRun;
-
-        if (_panCompatItems is null)
-            return;
-
-        _panCompatItems.Children.Clear();
-        foreach (CompatibilityCheckItem item in report.Items)
-            _panCompatItems.Children.Add(CreateCompatResultCard(item));
-    }
-
-    private static Border CreateCompatResultCard(CompatibilityCheckItem item)
-    {
-        string badge = LauncherCompatibilityProbe.StatusLabel(item.Status);
-        string color = item.Status switch
-        {
-            CompatibilityStatus.Ok => "#FF2E7D32",
-            CompatibilityStatus.Degraded => "#FFF9A825",
-            CompatibilityStatus.Unavailable => "#FFEF6C00",
-            _ => "#FFC62828"
-        };
-
-        return new Border
-        {
-            Padding = new Thickness(12, 10),
-            CornerRadius = new CornerRadius(10),
-            Background = new SolidColorBrush(Color.Parse("#14FFFFFF")),
-            Child = new StackPanel
-            {
-                Spacing = 4,
-                Children =
-                {
-                    new DockPanel
-                    {
-                        Children =
-                        {
-                            new TextBlock
-                            {
-                                Text = badge,
-                                FontSize = 12,
-                                FontWeight = FontWeight.SemiBold,
-                                Foreground = new SolidColorBrush(Color.Parse(color)),
-                                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                                [DockPanel.DockProperty] = Dock.Right
-                            },
-                            new TextBlock
-                            {
-                                Text = item.Title + (item.IsRequired ? " · 必要" : " · 可选"),
-                                FontWeight = FontWeight.SemiBold,
-                                TextWrapping = TextWrapping.Wrap,
-                                Foreground = new SolidColorBrush(Color.Parse("#FF1C1C1E"))
-                            }
-                        }
-                    },
-                    new TextBlock
-                    {
-                        Text = item.Detail,
-                        Opacity = 0.78,
-                        FontSize = 13,
-                        TextWrapping = TextWrapping.Wrap,
-                        Foreground = new SolidColorBrush(Color.Parse("#FF1C1C1E"))
-                    }
-                }
-            }
-        };
-    }
-
-    private void PersistCompatibilityToggles()
-    {
-        bool disableGpu = _checkCompatDisableGpu?.Checked == true;
-        bool disableAnim = _checkCompatDisableAnimations?.Checked == true;
-        LauncherSettingsPageBinder.UpdateSettings(current =>
-        {
-            current.SetBooleanOption("SystemDisableHardwareAcceleration", disableGpu);
-            current.SetBooleanOption("SystemDisableUiAnimations", disableAnim);
-            return current;
-        });
-
-        // Animations can take effect immediately; GPU path needs process restart.
-        try
-        {
-            ModAnimation.AniControlEnabled = disableAnim ? 1 : 0;
-        }
-        catch
-        {
-            // ignore
-        }
-    }
-
-    private void BtnCompatRefresh_Click(object? sender, EventArgs e)
-    {
-        PersistCompatibilityToggles();
-        RunAndBindCompatibilityReport();
-    }
-
-    private void BtnCompatPrev_Click(object? sender, EventArgs e)
-    {
-        PersistCompatibilityToggles();
-        GoToPreviousStep(animate: true);
-    }
-
-    private void BtnCompatNext_Click(object? sender, EventArgs e)
-    {
-        PersistCompatibilityToggles();
-        if (_compatReport is { CanRun: false })
-        {
-            PortableLog.Warn("OOBE", "兼容性自检未通过，阻止进入后续步骤。");
-            return;
-        }
-
-        GoToNextStep(animate: true);
-    }
-
-    private void BtnCompatExit_Click(object? sender, EventArgs e) => ShutdownHost();
 
     private void AnimateStepTransition(Grid? outgoing, Grid incoming, double direction, int generation)
     {

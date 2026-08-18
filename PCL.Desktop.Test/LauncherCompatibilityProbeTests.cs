@@ -40,22 +40,20 @@ public sealed class LauncherCompatibilityProbeTests
     }
 
     [TestMethod]
-    public void OobeDefaultFlows_IncludeCompatibilitySelfCheck()
+    public void OobeDefaultFlows_OmitCompatibilitySelfCheck()
     {
-        CollectionAssert.Contains(OobeManifest.DefaultFullSteps.ToArray(), OobeStepId.Compatibility);
-        CollectionAssert.Contains(OobeConfiguration.DefaultResumeSteps.ToArray(), OobeStepId.Compatibility);
+        CollectionAssert.DoesNotContain(OobeManifest.DefaultFullSteps.ToArray(), OobeStepId.Compatibility);
+        CollectionAssert.DoesNotContain(OobeConfiguration.DefaultResumeSteps.ToArray(), OobeStepId.Compatibility);
+        CollectionAssert.DoesNotContain(OobeManifest.DefaultUpdateSteps.ToArray(), OobeStepId.Compatibility);
 
         Assert.AreEqual(
             1,
-            Array.IndexOf(OobeManifest.DefaultFullSteps.ToArray(), OobeStepId.Compatibility),
-            "Compatibility should follow Welcome in full OOBE.");
-        Assert.IsTrue(
-            Array.IndexOf(OobeManifest.DefaultFullSteps.ToArray(), OobeStepId.Compatibility) <
-            Array.IndexOf(OobeManifest.DefaultFullSteps.ToArray(), OobeStepId.Terms));
+            Array.IndexOf(OobeManifest.DefaultFullSteps.ToArray(), OobeStepId.Terms),
+            "Terms should follow Welcome in full OOBE after Compatibility removal.");
 
-        // Version upgrade: short 3-page flow only.
+        // Version upgrade: short welcome → finish flow only.
         CollectionAssert.AreEqual(
-            new[] { OobeStepId.Welcome, OobeStepId.Compatibility, OobeStepId.Finish },
+            new[] { OobeStepId.Welcome, OobeStepId.Finish },
             OobeManifest.DefaultUpdateSteps.ToArray());
     }
 }

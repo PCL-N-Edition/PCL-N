@@ -147,6 +147,9 @@
     <PackageReference Include="Wacton.Unicolour" Version="6.4.0" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Item 7: settings Compatibility page removed from product; exclude leftover sources until deleted from disk. -->
+  </ItemGroup>
+  <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
     <EmbeddedResource Include="Localization/zh-CN.xaml">
       <LogicalName>PCL.Desktop.Localization.zh-CN.xaml</LogicalName>

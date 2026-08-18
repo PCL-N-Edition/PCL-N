@@ -29,8 +29,7 @@ public enum SetupPageSubType
     LauncherLanguage = 11,
     /// <summary>Host-registered extra settings pages (not third-party plugins).</summary>
     HostModule = 12,
-    Experimental = 13,
-    Compatibility = 14
+    Experimental = 13
 }
 
 public sealed class SetupPageChangedEventArgs(SetupPageSubType pageId, MyPageRight page, string? hostPageId = null) : EventArgs
@@ -561,8 +560,6 @@ public partial class PageSetupLeft : MyPageLeft
             return AvaloniaLocalizationManager.GetText("Setup.LauncherLanguage.Title", "语言");
         if (page == SetupPageSubType.Experimental)
             return AvaloniaLocalizationManager.GetText("Setup.Left.Item.Experimental", "实验性功能");
-        if (page == SetupPageSubType.Compatibility)
-            return AvaloniaLocalizationManager.GetText("Setup.Left.Item.Compatibility", "兼容性");
         return SetupPageRegistry.GetTitle(page);
     }
 
