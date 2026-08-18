@@ -435,6 +435,7 @@
     <sys:String x:Key="Appearance.Capes.Microsoft.Title">Minecraft Account Capes</sys:String>
     <sys:String x:Key="Appearance.Capes.Microsoft.Subtitle">Only capes already owned by this Minecraft account can be selected</sys:String>
     <sys:String x:Key="Appearance.Capes.Microsoft.Empty">This Minecraft account does not own any capes.</sys:String>
+    <sys:String x:Key="Appearance.Capes.Microsoft.LoadFailed">Could not load owned Minecraft capes. Check your network and try again.</sys:String>
     <sys:String x:Key="Appearance.Capes.LittleSkin.Title">LittleSkin Cape Library</sys:String>
     <sys:String x:Key="Appearance.Capes.LittleSkin.Subtitle">Your LittleSkin cape closet; freely switch between its capes</sys:String>
     <sys:String x:Key="Appearance.Capes.LittleSkin.Empty">Your LittleSkin cape closet is empty. Add a cape on LittleSkin first.</sys:String>

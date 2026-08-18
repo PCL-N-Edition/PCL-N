@@ -435,6 +435,7 @@
     <sys:String x:Key="Appearance.Capes.Microsoft.Title">正版帳戶披風</sys:String>
     <sys:String x:Key="Appearance.Capes.Microsoft.Subtitle">僅可切換目前正版帳戶已經獲得的披風</sys:String>
     <sys:String x:Key="Appearance.Capes.Microsoft.Empty">目前正版帳戶尚未獲得任何披風。</sys:String>
+    <sys:String x:Key="Appearance.Capes.Microsoft.LoadFailed">暫時無法讀取正版帳戶披風，請檢查網路後重試。</sys:String>
     <sys:String x:Key="Appearance.Capes.LittleSkin.Title">LittleSkin 披風庫</sys:String>
     <sys:String x:Key="Appearance.Capes.LittleSkin.Subtitle">LittleSkin 披風衣櫃，可自由切換帳戶衣櫃中的披風</sys:String>
     <sys:String x:Key="Appearance.Capes.LittleSkin.Empty">LittleSkin 披風衣櫃為空，可先在 LittleSkin 新增披風。</sys:String>
