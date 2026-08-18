@@ -79,7 +79,9 @@ internal enum HostBackgroundTaskStepState
     Failed = 3
 }
 
-internal sealed record HostFileArtifactContext(string MinecraftRootDirectory);
+internal sealed record HostFileArtifactContext(
+    string MinecraftRootDirectory,
+    string? JavaExecutablePath = null);
 
 internal sealed record HostFileArtifactResult(
     string HandlerId,

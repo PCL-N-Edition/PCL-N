@@ -2210,6 +2210,8 @@ public partial class MainWindow : Window, IDisposable
                 ShowHint = ShowHint,
                 TruncateHint = message => TruncateHint(message),
                 GetMinecraftRootDirectory = GetDefaultMinecraftRoot,
+                GetJavaExecutablePath = () =>
+                    MinecraftLaunchPlanFactory.ResolvePreferredJavaExecutablePath(forceConsole: true),
                 RefreshInstancesAsync = async () =>
                 {
                     if (_launchLeft is null)
@@ -2570,7 +2572,9 @@ public partial class MainWindow : Window, IDisposable
             {
                 result = await DesktopFileArtifactHost.Instance.InstallAsync(
                         path,
-                        new HostFileArtifactContext(GetDefaultMinecraftRoot()))
+                        new HostFileArtifactContext(
+                            GetDefaultMinecraftRoot(),
+                            MinecraftLaunchPlanFactory.ResolvePreferredJavaExecutablePath(forceConsole: true)))
                     .ConfigureAwait(true);
             }
             catch (OperationCanceledException)

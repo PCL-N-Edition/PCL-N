@@ -111,6 +111,14 @@ public sealed class MinecraftExternalLoaderInstaller : IMinecraftExternalLoaderI
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.JavaExecutablePath);
+        if (!IsUsableJavaExecutable(request.JavaExecutablePath))
+        {
+            throw new InvalidOperationException(
+                $"无法启动 Java：{request.JavaExecutablePath}。" +
+                "请确认启动器设置中已选择可用的 Java（不要依赖系统 PATH 中的裸 java 命令）。");
+        }
+
         ProcessStartInfo startInfo = CreateStartInfo(request);
         using Process process = new() { StartInfo = startInfo, EnableRaisingEvents = true };
         Queue<string> recentOutput = new();
@@ -124,7 +132,10 @@ public sealed class MinecraftExternalLoaderInstaller : IMinecraftExternalLoaderI
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
-            throw new InvalidOperationException($"无法启动 Java：{request.JavaExecutablePath}", ex);
+            throw new InvalidOperationException(
+                $"无法启动 Java：{request.JavaExecutablePath}。" +
+                "请到设置 → 启动中添加或选择 Java 后再安装整合包。",
+                ex);
         }
 
         process.BeginOutputReadLine();
@@ -179,6 +190,23 @@ public sealed class MinecraftExternalLoaderInstaller : IMinecraftExternalLoaderI
         }
 
         return startInfo;
+    }
+
+    private static bool IsUsableJavaExecutable(string javaExecutablePath)
+    {
+        if (string.IsNullOrWhiteSpace(javaExecutablePath))
+            return false;
+
+        // Absolute / relative file paths must exist. Bare command names like "java" are allowed
+        // only when the OS can resolve them later — callers should prefer concrete paths.
+        if (javaExecutablePath.Contains(Path.DirectorySeparatorChar) ||
+            javaExecutablePath.Contains(Path.AltDirectorySeparatorChar) ||
+            Path.IsPathRooted(javaExecutablePath))
+        {
+            return File.Exists(javaExecutablePath);
+        }
+
+        return true;
     }
 
     private static void CaptureLine(string? line, Queue<string> recentOutput, IProgress<string>? output)

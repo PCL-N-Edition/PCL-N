@@ -213,7 +213,9 @@ internal static class CommunityDownloadOrchestrator
                 HostFileArtifactResult installed = await DesktopFileArtifactHost.Instance
                     .InstallAsync(
                         completedPath,
-                        new HostFileArtifactContext(host.GetMinecraftRootDirectory()),
+                        new HostFileArtifactContext(
+                            host.GetMinecraftRootDirectory(),
+                            host.GetJavaExecutablePath()),
                         token)
                     .ConfigureAwait(true);
                 host.AppendLog(installed.Message.Replace('\n', ' '));
@@ -408,6 +410,8 @@ internal sealed class CommunityDownloadHost
     public required Func<string, string, Task<string?>> PickSaveAsPathAsync { get; init; }
 
     public required Func<string> GetMinecraftRootDirectory { get; init; }
+
+    public required Func<string?> GetJavaExecutablePath { get; init; }
 
     public required Func<Task> RefreshInstancesAsync { get; init; }
 }
