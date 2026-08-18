@@ -127,7 +127,7 @@ public partial class PageSetupExperimental : MyPageRight, ISettingsPageInteracti
             "启用实验性用户界面");
         string message = AvaloniaLocalizationManager.GetText(
             "Setup.Experimental.HomepageUi.Confirm.Message",
-            "将启用实验性用户界面（启动页、整页版本库、标题栏与右下角快捷按钮会切换为新样式）。遇到问题可随时在实验性功能中关闭。是否继续？");
+            "将启用实验性用户界面（启动页、整页版本库、整页版本设置、标题栏、右下角快捷按钮，以及启动页快捷栏会切换为新样式）。遇到问题可随时在实验性功能中关闭。是否继续？");
 
         void Complete(bool confirmed)
         {
@@ -141,38 +141,6 @@ public partial class PageSetupExperimental : MyPageRight, ISettingsPageInteracti
             Complete,
             primaryButton: AvaloniaLocalizationManager.GetText(
                 "Setup.Experimental.HomepageUi.Confirm.Enable",
-                "启用"),
-            secondaryButton: AvaloniaLocalizationManager.GetText("Common.Action.Cancel", "取消"),
-            isWarn: true);
-        if (ConfirmRequested is { } requested)
-            requested.Invoke(this, args);
-    }
-
-    private void ExperimentalLaunchShortcuts_OnPreviewChange(object sender, RouteEventArgs e)
-    {
-        e.Handled = true;
-        if (sender is not MyCheckBox checkBox)
-            return;
-
-        string title = AvaloniaLocalizationManager.GetText(
-            "Setup.Experimental.LaunchShortcuts.Confirm.Title",
-            "启用启动页快捷栏");
-        string message = AvaloniaLocalizationManager.GetText(
-            "Setup.Experimental.LaunchShortcuts.Confirm.Message",
-            "将在实验主页的轮播卡片中加入 iOS 风格快捷栏。可在世界/服务器列表用图钉固定常用目标。需要同时启用「实验性用户界面」。是否继续？");
-
-        void Complete(bool confirmed)
-        {
-            if (confirmed)
-                checkBox.SetChecked(true, user: false);
-        }
-
-        SettingsConfirmRequestedEventArgs args = new(
-            title,
-            message,
-            Complete,
-            primaryButton: AvaloniaLocalizationManager.GetText(
-                "Setup.Experimental.LaunchShortcuts.Confirm.Enable",
                 "启用"),
             secondaryButton: AvaloniaLocalizationManager.GetText("Common.Action.Cancel", "取消"),
             isWarn: true);

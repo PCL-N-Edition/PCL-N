@@ -90,9 +90,7 @@ public sealed class ExperimentalUiProfileSource
         try
         {
             LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
-            homepageUi = settings.GetBooleanOption(
-                LauncherSettingKeys.ExperimentalHomepageUi,
-                LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalHomepageUi.Value));
+            homepageUi = ResolveHomepageUi(settings);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
@@ -116,14 +114,49 @@ public sealed class ExperimentalUiProfileSource
     public ExperimentalUiProfile RefreshFromSettings(LauncherSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        bool homepageUi = settings.GetBooleanOption(
-            LauncherSettingKeys.ExperimentalHomepageUi,
-            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalHomepageUi.Value));
+        bool homepageUi = ResolveHomepageUi(settings);
         ExperimentalUiProfile next = ExperimentalUiProfile.FromHomepageFlag(homepageUi);
         bool changed = next != _current;
         _current = next;
         if (changed)
             _messenger.Send(new ExperimentalProfileChangedMessage(next.HomepageUi));
         return _current;
+    }
+
+    /// <summary>
+    /// Homepage UI owns the shortcut dock. Promote legacy ExperimentalLaunchShortcuts into HomepageUi.
+    /// </summary>
+    private static bool ResolveHomepageUi(LauncherSettings settings)
+    {
+        bool homepageUi = settings.GetBooleanOption(
+            LauncherSettingKeys.ExperimentalHomepageUi,
+            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalHomepageUi.Value));
+        bool legacyShortcuts = settings.GetBooleanOption(LauncherSettingKeys.ExperimentalLaunchShortcuts, false);
+        if (!legacyShortcuts)
+            return homepageUi;
+
+        if (!homepageUi)
+        {
+            homepageUi = true;
+            LauncherSettingsPageBinder.UpdateSettings(current =>
+            {
+                current.SetBooleanOption(LauncherSettingKeys.ExperimentalHomepageUi, true);
+                current.SetBooleanOption(LauncherSettingKeys.ExperimentalLaunchShortcuts, false);
+                return current;
+            });
+            settings.SetBooleanOption(LauncherSettingKeys.ExperimentalHomepageUi, true);
+            settings.SetBooleanOption(LauncherSettingKeys.ExperimentalLaunchShortcuts, false);
+        }
+        else
+        {
+            LauncherSettingsPageBinder.UpdateSettings(current =>
+            {
+                current.SetBooleanOption(LauncherSettingKeys.ExperimentalLaunchShortcuts, false);
+                return current;
+            });
+            settings.SetBooleanOption(LauncherSettingKeys.ExperimentalLaunchShortcuts, false);
+        }
+
+        return homepageUi;
     }
 }

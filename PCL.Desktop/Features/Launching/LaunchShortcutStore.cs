@@ -17,9 +17,38 @@ public static class LaunchShortcutStore
     public static bool IsFeatureEnabled()
     {
         LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+        MigrateLegacyShortcutsFlag(settings);
+        // Shortcut dock is part of experimental homepage UI (no separate toggle).
         return settings.GetBooleanOption(
-            LauncherSettingKeys.ExperimentalLaunchShortcuts,
-            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalLaunchShortcuts.Value));
+            LauncherSettingKeys.ExperimentalHomepageUi,
+            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalHomepageUi.Value));
+    }
+
+    /// <summary>
+    /// Legacy <see cref="LauncherSettingKeys.ExperimentalLaunchShortcuts"/> promoted the dock alone.
+    /// Migrate: if the old flag is on, ensure Homepage UI is on and clear the obsolete key.
+    /// </summary>
+    private static void MigrateLegacyShortcutsFlag(LauncherSettings settings)
+    {
+        bool legacy = settings.GetBooleanOption(LauncherSettingKeys.ExperimentalLaunchShortcuts, false);
+        if (!legacy)
+            return;
+
+        bool homepageUi = settings.GetBooleanOption(
+            LauncherSettingKeys.ExperimentalHomepageUi,
+            LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalHomepageUi.Value));
+
+        LauncherSettingsPageBinder.UpdateSettings(current =>
+        {
+            if (!homepageUi)
+                current.SetBooleanOption(LauncherSettingKeys.ExperimentalHomepageUi, true);
+            current.SetBooleanOption(LauncherSettingKeys.ExperimentalLaunchShortcuts, false);
+            return current;
+        });
+
+        if (!homepageUi)
+            settings.SetBooleanOption(LauncherSettingKeys.ExperimentalHomepageUi, true);
+        settings.SetBooleanOption(LauncherSettingKeys.ExperimentalLaunchShortcuts, false);
     }
 
     public static IReadOnlyList<LaunchShortcutPin> Load()

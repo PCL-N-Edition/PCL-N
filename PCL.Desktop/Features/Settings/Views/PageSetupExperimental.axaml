@@ -62,31 +62,6 @@
                 </StackPanel>
             </legacy:MyCard>
 
-            <legacy:MyCard Margin="0,0,0,15" Title="{DynamicResource Setup.Experimental.LaunchShortcuts.Title}">
-                <StackPanel Margin="25,40,25,18" Spacing="12">
-                    <legacy:MyCheckBox x:Name="CheckExperimentalLaunchShortcuts"
-                                       Tag="ExperimentalLaunchShortcuts"
-                                       Text="{DynamicResource Setup.Experimental.LaunchShortcuts.Enable}"
-                                       PreviewChange="ExperimentalLaunchShortcuts_OnPreviewChange" />
-                    <TextBlock Text="{DynamicResource Setup.Experimental.LaunchShortcuts.Summary}"
-                               TextWrapping="Wrap" Opacity="0.82" />
-                    <Grid ColumnDefinitions="1*,18,1*">
-                        <StackPanel Grid.Column="0" Spacing="7">
-                            <TextBlock Text="{DynamicResource Setup.Experimental.Benefits.Title}" FontWeight="SemiBold" />
-                            <TextBlock Text="{DynamicResource Setup.Experimental.LaunchShortcuts.Benefits}"
-                                       TextWrapping="Wrap" Opacity="0.78" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Spacing="7">
-                            <TextBlock Text="{DynamicResource Setup.Experimental.Risks.Title}" FontWeight="SemiBold" />
-                            <TextBlock Text="{DynamicResource Setup.Experimental.LaunchShortcuts.Risks}"
-                                       TextWrapping="Wrap" Opacity="0.78" />
-                        </StackPanel>
-                    </Grid>
-                    <legacy:MyHint Theme="Blue"
-                                   Text="{DynamicResource Setup.Experimental.LaunchShortcuts.Scope}" />
-                </StackPanel>
-            </legacy:MyCard>
-
             <legacy:MyCard Margin="0,0,0,15" Title="{DynamicResource Setup.Experimental.JvmHost.Title}">
                 <StackPanel Margin="25,40,25,18" Spacing="12">
                     <legacy:MyCheckBox x:Name="CheckExperimentalJvmHost"

@@ -55,7 +55,10 @@ public static class LauncherSettingKeys
     /// </summary>
     public static readonly SettingKey ExperimentalNextRenderBackend = new("ExperimentalNextRenderBackend");
 
-    /// <summary>iOS-style shortcut dock on the experimental launch home carousel.</summary>
+    /// <summary>
+    /// Legacy standalone shortcut-dock toggle. Migrated into <see cref="ExperimentalHomepageUi"/>;
+    /// kept so older settings files can be read and cleared.
+    /// </summary>
     public static readonly SettingKey ExperimentalLaunchShortcuts = new("ExperimentalLaunchShortcuts");
 
     /// <summary>JSON array of pinned worlds/servers for the experimental shortcut dock.</summary>
