@@ -69,7 +69,9 @@ public sealed class SettingsConfirmRequestedEventArgs(
     Action<bool> complete,
     string primaryButton = "确定",
     string secondaryButton = "取消",
-    bool isWarn = false) : EventArgs
+    bool isWarn = false,
+    Action? primaryAction = null,
+    Action? secondaryAction = null) : EventArgs
 {
     public string Title { get; } = title;
 
@@ -82,4 +84,10 @@ public sealed class SettingsConfirmRequestedEventArgs(
     public string SecondaryButton { get; } = secondaryButton;
 
     public bool IsWarn { get; } = isWarn;
+
+    /// <summary>When set, the primary button invokes this and keeps the dialog open.</summary>
+    public Action? PrimaryAction { get; } = primaryAction;
+
+    /// <summary>When set, the secondary button invokes this and keeps the dialog open.</summary>
+    public Action? SecondaryAction { get; } = secondaryAction;
 }

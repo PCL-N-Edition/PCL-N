@@ -1460,30 +1460,22 @@ public partial class MainWindow
         ShowMarkdownDialog(
             AvaloniaLocalizationManager.GetText("Crash.MinecraftErrorTitle", "Minecraft 出错"),
             markdown,
-            result =>
+            _ =>
             {
-                try
-                {
-                    if (result == 2)
-                        OpenExistingPath(primaryLog ?? gameDirectory);
-                    else if (result == 3)
-                        _ = ExportMinecraftCrashReportAsync(
-                            context,
-                            fault,
-                            markdown,
-                            gameDirectory,
-                            crashLines);
-                }
-                finally
-                {
-                    if (context.LaunchPage.IsLaunchInProgress)
-                        context.LaunchPage.PageChangeToLogin();
-                }
+                if (context.LaunchPage.IsLaunchInProgress)
+                    context.LaunchPage.PageChangeToLogin();
             },
             AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "知道了"),
             AvaloniaLocalizationManager.GetText("Crash.Action.ViewLog", "查看日志"),
             AvaloniaLocalizationManager.GetText("Crash.Action.ExportReport", "导出报告"),
-            isWarn: true);
+            isWarn: true,
+            secondaryAction: () => OpenExistingPath(primaryLog ?? gameDirectory),
+            thirdAction: () => _ = ExportMinecraftCrashReportAsync(
+                context,
+                fault,
+                markdown,
+                gameDirectory,
+                crashLines));
     }
 
     private async Task ExportMinecraftCrashReportAsync(

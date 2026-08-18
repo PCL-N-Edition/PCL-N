@@ -185,13 +185,11 @@ public partial class PageSetupLog : MyPageRight, IRefreshableSettingsPage, ISett
                 new SettingsConfirmRequestedEventArgs(
                     "导出完成",
                     BuildExportCompletedMessage(targetPath),
-                    confirmed =>
-                    {
-                        if (confirmed)
-                            OpenPathRequested?.Invoke(this, new SettingsPathRequestedEventArgs(folder));
-                    },
+                    _ => { },
                     primaryButton: "打开文件夹",
-                    secondaryButton: "知道了"));
+                    secondaryButton: "知道了",
+                    primaryAction: () =>
+                        OpenPathRequested?.Invoke(this, new SettingsPathRequestedEventArgs(folder))));
             DesktopFileLog.Info("LogExport", $"导出完成：{Path.GetFileName(targetPath)}。");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

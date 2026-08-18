@@ -368,18 +368,25 @@ public partial class MainWindow
 
         if (profile.Kind == LaunchLoginProfileKind.Microsoft)
         {
-            OpenExternalUrl("https://account.microsoft.com/security");
-            ShowTextDialog("修改密码", "已打开 Microsoft 账户安全页面。密码修改完成后，可能需要在启动器中重新登录。", "知道了");
+            const string securityUrl = "https://account.microsoft.com/security";
+            ShowTextDialog(
+                "修改密码",
+                "将打开 Microsoft 账户安全页面。密码修改完成后，可能需要在启动器中重新登录。",
+                primaryButton: "打开安全页面",
+                secondaryButton: "知道了",
+                primaryAction: () => OpenExternalUrl(securityUrl));
             return;
         }
 
         if (profile.Kind == LaunchLoginProfileKind.NCloud)
         {
-            OpenExternalUrl("https://pcln.top/#/account");
+            const string accountUrl = "https://pcln.top/#/account";
             ShowTextDialog(
                 "管理 N Cloud 账户",
-                "已打开 PCL N 在线账户页面。N Cloud 不会把账户密码交给启动器。",
-                "知道了");
+                "将打开 PCL N 在线账户页面。N Cloud 不会把账户密码交给启动器。",
+                primaryButton: "打开账户页面",
+                secondaryButton: "知道了",
+                primaryAction: () => OpenExternalUrl(accountUrl));
             return;
         }
 
@@ -416,11 +423,13 @@ public partial class MainWindow
 
         if (profile.Kind == LaunchLoginProfileKind.NCloud)
         {
-            OpenExternalUrl("https://pcln.top/#/account");
+            const string accountUrl = "https://pcln.top/#/account";
             ShowTextDialog(
                 "修改 N Cloud 档案",
-                "已打开 PCL N 在线账户页面。修改云端玩家名后，重新登录或启动游戏即可同步。",
-                "知道了");
+                "将打开 PCL N 在线账户页面。修改云端玩家名后，重新登录或启动游戏即可同步。",
+                primaryButton: "打开账户页面",
+                secondaryButton: "知道了",
+                primaryAction: () => OpenExternalUrl(accountUrl));
             return;
         }
 
@@ -568,8 +577,12 @@ public partial class MainWindow
             return;
         }
 
-        OpenExternalUrl(url);
-        ShowTextDialog(action, "已打开此第三方账户所属的认证服务器页面。请在服务器网页中完成账户资料修改。", "知道了");
+        ShowTextDialog(
+            action,
+            "请在此第三方账户所属的认证服务器页面中完成账户资料修改。",
+            primaryButton: "打开认证服务器",
+            secondaryButton: "知道了",
+            primaryAction: () => OpenExternalUrl(url));
     }
 
     private static string? ResolveAuthServerProfileUrl(string? authServer)
@@ -628,7 +641,14 @@ public partial class MainWindow
             }
 
             await File.WriteAllBytesAsync(targetPath, bytes).ConfigureAwait(true);
-            ShowTextDialog("保存完成", "皮肤已保存到：\n" + targetPath);
+            string folder = Path.GetDirectoryName(Path.GetFullPath(targetPath))
+                ?? DesktopPathHelpers.GetDesktopOrBaseDirectory();
+            ShowTextDialog(
+                "保存完成",
+                "皮肤已保存到：\n" + targetPath,
+                primaryButton: "打开文件夹",
+                secondaryButton: "知道了",
+                primaryAction: () => OpenFolder(folder));
         }
         catch (Exception ex)
         {
@@ -883,7 +903,15 @@ public partial class MainWindow
         dialog.BeginShowAnimation();
     }
 
-    private void ShowTextDialog(string title, string caption, string primaryButton = "确定")
+    private void ShowTextDialog(
+        string title,
+        string caption,
+        string primaryButton = "确定",
+        string secondaryButton = "",
+        string thirdButton = "",
+        Action? primaryAction = null,
+        Action? secondaryAction = null,
+        Action? thirdAction = null)
     {
         if (this.FindControl<BlurBorder>("PanMsgBackground") is not { } background ||
             this.FindControl<Grid>("PanMsg") is not { } host)
@@ -893,7 +921,16 @@ public partial class MainWindow
         }
 
         MyMsgText dialog = new();
-        dialog.Configure(MyMsgDialogModel.CreateLegacy(title, caption, primaryButton));
+        dialog.Configure(MyMsgDialogModel.CreateLegacy(
+            title,
+            caption,
+            primaryButton,
+            secondaryButton,
+            thirdButton,
+            isWarning: false,
+            primaryAction,
+            secondaryAction,
+            thirdAction));
         host.Children.Clear();
         background.IsVisible = true;
         AnimateMsgBackground(background, 90);
@@ -919,7 +956,9 @@ public partial class MainWindow
         Action<bool> closed,
         string primaryButton = "确定",
         string secondaryButton = "取消",
-        bool isWarn = false)
+        bool isWarn = false,
+        Action? primaryAction = null,
+        Action? secondaryAction = null)
     {
         ShowMarkdownDialog(
             title,
@@ -928,7 +967,9 @@ public partial class MainWindow
             primaryButton,
             secondaryButton,
             thirdButton: string.Empty,
-            isWarn);
+            isWarn,
+            primaryAction,
+            secondaryAction);
     }
 
     private void ShowMarkdownDialog(
@@ -938,7 +979,10 @@ public partial class MainWindow
         string primaryButton,
         string secondaryButton = "",
         string thirdButton = "",
-        bool isWarn = false)
+        bool isWarn = false,
+        Action? primaryAction = null,
+        Action? secondaryAction = null,
+        Action? thirdAction = null)
     {
         if (this.FindControl<BlurBorder>("PanMsgBackground") is not { } background ||
             this.FindControl<Grid>("PanMsg") is not { } host)
@@ -954,7 +998,10 @@ public partial class MainWindow
             primaryButton,
             secondaryButton,
             thirdButton,
-            isWarn));
+            isWarn,
+            primaryAction,
+            secondaryAction,
+            thirdAction));
         host.Children.Clear();
         background.IsVisible = true;
         AnimateMsgBackground(background, 90);
@@ -1350,7 +1397,14 @@ public partial class MainWindow
                         Profiles = _loginProfiles.Select(ToLaunchProfile).ToArray()
                     })
                 .ConfigureAwait(true);
-            ShowTextDialog("导出完成", "账户档案已导出到：\n" + targetPath);
+            string folder = Path.GetDirectoryName(Path.GetFullPath(targetPath))
+                ?? DesktopPathHelpers.GetDesktopOrBaseDirectory();
+            ShowTextDialog(
+                "导出完成",
+                "账户档案已导出到：\n" + targetPath,
+                primaryButton: "打开文件夹",
+                secondaryButton: "知道了",
+                primaryAction: () => OpenFolder(folder));
         }
         catch (Exception ex)
         {

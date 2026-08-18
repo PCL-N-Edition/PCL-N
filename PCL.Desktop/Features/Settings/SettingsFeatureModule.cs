@@ -94,7 +94,15 @@ public sealed class SettingsFeatureSurface
         page.PageCreated += (_, created) => b.WirePage(created);
         page.PageChanged += (_, args) => b.ApplyRightPage(args.Page);
         page.ResetRequested += (_, args) =>
-            b.Confirm(args.Title, args.Message, args.Complete, args.PrimaryButton, args.SecondaryButton, args.IsWarn);
+            b.Confirm(
+                args.Title,
+                args.Message,
+                args.Complete,
+                args.PrimaryButton,
+                args.SecondaryButton,
+                args.IsWarn,
+                args.PrimaryAction,
+                args.SecondaryAction);
         return page;
     }
 }
@@ -109,5 +117,5 @@ public sealed class SettingsFeatureBindings
 
     public required Action<MyPageRight> ApplyRightPage { get; init; }
 
-    public required Action<string, string, Action<bool>, string?, string?, bool> Confirm { get; init; }
+    public required Action<string, string, Action<bool>, string?, string?, bool, Action?, Action?> Confirm { get; init; }
 }
