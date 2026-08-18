@@ -521,18 +521,42 @@ public partial class PageInstanceResourceRight : MyPageRight
         {
             string kind = KindDisplayName(_kind);
             string count = showing.Count.ToString(CultureInfo.CurrentCulture);
-            listBack.Title = _isLoading
-                ? Text("Instance.Resource.Loading", kind)
-                : IsSearching
+            listBack.Title = IsSearching
                 ? Text("Instance.Resource.SearchResultTitle", kind, count)
                 : Text("Instance.Resource.ListTitleWithCount", kind, count);
         }
 
         bool isEmpty = _entries.Count == 0;
-        if (this.FindControl<Control>("PanEmpty") is { } empty)
-            empty.IsVisible = isEmpty && !_isLoading;
+        SetLoadingVisible(_isLoading, isEmpty);
+    }
+
+    private void SetLoadingVisible(bool loading, bool isEmpty)
+    {
+        if (this.FindControl<Control>("PanLoad") is { } panLoad)
+        {
+            panLoad.IsVisible = loading;
+            panLoad.IsHitTestVisible = loading;
+        }
+
+        if (this.FindControl<MyLoading>("Load") is { } spinner)
+        {
+            if (loading)
+                spinner.Text = Text("Instance.Resource.Loading", KindDisplayName(_kind));
+            spinner.State.LoadingState = loading
+                ? MyLoading.MyLoadingState.Run
+                : MyLoading.MyLoadingState.Stop;
+        }
+
+        if (this.FindControl<Control>("PanBack") is { } back)
+        {
+            back.IsVisible = !loading && !isEmpty;
+            back.IsHitTestVisible = !loading && !isEmpty;
+        }
+
         if (this.FindControl<Control>("PanMain") is { } main)
-            main.IsVisible = !isEmpty || _isLoading;
+            main.IsVisible = !loading && !isEmpty;
+        if (this.FindControl<Control>("PanEmpty") is { } empty)
+            empty.IsVisible = !loading && isEmpty;
     }
 
     private MyLocalModItem CreateEntryItem(ResourceEntry entry)
@@ -702,6 +726,12 @@ public partial class PageInstanceResourceRight : MyPageRight
             using SemaphoreSlim gate = new(3, 3);
             ConcurrentDictionary<string, Lazy<Task<CommunityResourceEntry?>>> projectLookups =
                 new(StringComparer.OrdinalIgnoreCase);
+
+            // Prefetch Modrinth/CurseForge identities in CE-style batches before per-file resolve.
+            await PrefetchCatalogLookupsAsync(files, catalog, gate, cancellationToken)
+                .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+
             Task<CatalogScanResult?>[] identityTasks = files
                 .Select(entry => ResolveAndPublishCatalogIdentityAsync(
                     entry, catalog, gate, projectLookups, options, context, scan, cancellationToken))
@@ -746,6 +776,47 @@ public partial class PageInstanceResourceRight : MyPageRight
         {
             // Online metadata is optional; local resource management remains available.
         }
+    }
+
+    private static async Task PrefetchCatalogLookupsAsync(
+        IReadOnlyList<ResourceEntry> files,
+        CompositeCommunityResourceCatalog catalog,
+        SemaphoreSlim gate,
+        CancellationToken cancellationToken)
+    {
+        Task<(string Sha1, uint Fingerprint, string Sha256)?>[] hashTasks = files
+            .Select(async entry =>
+            {
+                await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    return await ComputeFileHashesAsync(entry.FullPath, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            })
+            .ToArray();
+        (string Sha1, uint Fingerprint, string Sha256)?[] hashes =
+            await Task.WhenAll(hashTasks).ConfigureAwait(false);
+
+        List<string> sha1Hexes = [];
+        List<uint> fingerprints = [];
+        foreach ((string Sha1, uint Fingerprint, string Sha256)? hash in hashes)
+        {
+            if (hash is null)
+                continue;
+            sha1Hexes.Add(hash.Value.Sha1);
+            fingerprints.Add(hash.Value.Fingerprint);
+        }
+
+        if (sha1Hexes.Count == 0 && fingerprints.Count == 0)
+            return;
+
+        await catalog.PrefetchFileLookupsAsync(sha1Hexes, fingerprints, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private async Task<CatalogScanResult?> ResolveAndPublishCatalogIdentityAsync(
@@ -1061,12 +1132,19 @@ public partial class PageInstanceResourceRight : MyPageRight
         if (identity is null)
             return false;
         if (identity.CurrentFile is not { } currentFile)
-            return identity.Source != CommunityResourceSource.CurseForge;
+        {
+            // Hash/fingerprint lookup already identified the file; nothing further to cross-check.
+            return true;
+        }
+
         if (CommunityResourceMerge.NormalizeSha256(currentFile.Sha256) is not null)
             return Sha256Equals(currentFile.Sha256, localSha256);
         if (CommunityResourceMerge.NormalizeSha1(currentFile.Sha1) is not null)
             return Sha1Equals(currentFile.Sha1, localSha1);
-        return identity.Source != CommunityResourceSource.CurseForge;
+
+        // CurseForge fingerprint exact matches often omit SHA fields; treat them as verified.
+        // When SHA is present and mismatches, the checks above already rejected the collision.
+        return true;
     }
 
     private static CommunityResourceFileIdentity? SelectCurrentIdentity(CommunityResourceFileMatches matches) =>

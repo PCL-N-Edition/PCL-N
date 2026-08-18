@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Collections.Concurrent;
 using System.Text.Json;
 using PCL.Core.Logging;
 
@@ -15,6 +16,9 @@ public sealed class CompositeCommunityResourceCatalog :
     private readonly ICommunityResourceCatalog _modrinth;
     private readonly ICommunityResourceCatalog _curseForge;
     private readonly bool _ownsCatalogs;
+    private readonly ConcurrentDictionary<string, CommunityResourceFileIdentity?> _sha1Cache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<uint, CommunityResourceFileIdentity?> _fingerprintCache = new();
 
     public CompositeCommunityResourceCatalog()
         : this(CommunityOnlineProviderRegistry.CreateCatalogs())
@@ -179,17 +183,55 @@ public sealed class CompositeCommunityResourceCatalog :
             : Task.FromResult<CommunityResourceVersionLookupResult?>(null);
     }
 
-    public Task<CommunityResourceFileIdentity?> LookupFileBySha1Async(
+    public async Task<CommunityResourceFileIdentity?> LookupFileBySha1Async(
         string sha1Hex,
-        CancellationToken cancellationToken = default) =>
-        _modrinth.LookupFileBySha1Async(sha1Hex, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        string key = sha1Hex.Trim();
+        if (_sha1Cache.TryGetValue(key, out CommunityResourceFileIdentity? cached))
+            return cached;
 
-    public Task<CommunityResourceFileIdentity?> LookupFileByFingerprintAsync(
+        CommunityResourceFileIdentity? identity = await TryLookupAsync(
+                () => _modrinth.LookupFileBySha1Async(sha1Hex, cancellationToken),
+                cancellationToken)
+            .ConfigureAwait(false);
+        _sha1Cache[key] = identity;
+        return identity;
+    }
+
+    public async Task<CommunityResourceFileIdentity?> LookupFileByFingerprintAsync(
         uint fingerprint,
-        CancellationToken cancellationToken = default) =>
-        _curseForge is ICommunityResourceFingerprintLookup lookup
-            ? lookup.LookupFileByFingerprintAsync(fingerprint, cancellationToken)
-            : Task.FromResult<CommunityResourceFileIdentity?>(null);
+        CancellationToken cancellationToken = default)
+    {
+        if (_fingerprintCache.TryGetValue(fingerprint, out CommunityResourceFileIdentity? cached))
+            return cached;
+
+        CommunityResourceFileIdentity? identity = null;
+        if (_curseForge is ICommunityResourceFingerprintLookup lookup)
+        {
+            identity = await TryLookupAsync(
+                    () => lookup.LookupFileByFingerprintAsync(fingerprint, cancellationToken),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        _fingerprintCache[fingerprint] = identity;
+        return identity;
+    }
+
+    /// <summary>
+    /// Prefetch Modrinth/CurseForge file identities in CE-style batches so subsequent
+    /// <see cref="LookupFilesAsync"/> calls hit the in-memory cache.
+    /// </summary>
+    public async Task PrefetchFileLookupsAsync(
+        IReadOnlyList<string> sha1Hexes,
+        IReadOnlyList<uint> fingerprints,
+        CancellationToken cancellationToken = default)
+    {
+        Task modrinthTask = PrefetchModrinthAsync(sha1Hexes, cancellationToken);
+        Task curseForgeTask = PrefetchCurseForgeAsync(fingerprints, cancellationToken);
+        await Task.WhenAll(modrinthTask, curseForgeTask).ConfigureAwait(false);
+    }
 
     public async Task<CommunityResourceFileMatches> LookupFilesAsync(
         string sha1Hex,
@@ -197,19 +239,133 @@ public sealed class CompositeCommunityResourceCatalog :
         bool modrinthOnly = false,
         CancellationToken cancellationToken = default)
     {
-        Task<CommunityResourceFileIdentity?> modrinthTask = TryLookupAsync(
-            () => _modrinth.LookupFileBySha1Async(sha1Hex, cancellationToken),
-            cancellationToken);
+        Task<CommunityResourceFileIdentity?> modrinthTask =
+            LookupFileBySha1Async(sha1Hex, cancellationToken);
         Task<CommunityResourceFileIdentity?> curseForgeTask =
             modrinthOnly || curseForgeFingerprint is null
                 ? Task.FromResult<CommunityResourceFileIdentity?>(null)
-                : TryLookupAsync(
-                    () => LookupFileByFingerprintAsync(curseForgeFingerprint.Value, cancellationToken),
-                    cancellationToken);
+                : LookupFileByFingerprintAsync(curseForgeFingerprint.Value, cancellationToken);
         await Task.WhenAll(modrinthTask, curseForgeTask).ConfigureAwait(false);
         return new CommunityResourceFileMatches(
             await modrinthTask.ConfigureAwait(false),
             await curseForgeTask.ConfigureAwait(false));
+    }
+
+    private async Task PrefetchModrinthAsync(
+        IReadOnlyList<string> sha1Hexes,
+        CancellationToken cancellationToken)
+    {
+        List<string> pending = [];
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string raw in sha1Hexes)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            string key = raw.Trim();
+            if (!seen.Add(key) || _sha1Cache.ContainsKey(key))
+                continue;
+            pending.Add(key);
+        }
+
+        if (pending.Count == 0)
+            return;
+
+        if (_modrinth is ModrinthCommunityResourceCatalog modrinth)
+        {
+            try
+            {
+                IReadOnlyDictionary<string, CommunityResourceFileIdentity> batch =
+                    await modrinth.LookupFilesBySha1Async(pending, cancellationToken)
+                        .ConfigureAwait(false);
+                foreach (string hash in pending)
+                    _sha1Cache[hash] = batch.TryGetValue(hash, out CommunityResourceFileIdentity? identity)
+                        ? identity
+                        : null;
+                return;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or
+                                       IOException)
+            {
+                // Fall through to per-hash lookups.
+            }
+        }
+
+        foreach (string hash in pending)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_sha1Cache.ContainsKey(hash))
+                continue;
+            CommunityResourceFileIdentity? identity = await TryLookupAsync(
+                    () => _modrinth.LookupFileBySha1Async(hash, cancellationToken),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            _sha1Cache[hash] = identity;
+        }
+    }
+
+    private async Task PrefetchCurseForgeAsync(
+        IReadOnlyList<uint> fingerprints,
+        CancellationToken cancellationToken)
+    {
+        List<uint> pending = [];
+        HashSet<uint> seen = [];
+        foreach (uint fingerprint in fingerprints)
+        {
+            if (!seen.Add(fingerprint) || _fingerprintCache.ContainsKey(fingerprint))
+                continue;
+            pending.Add(fingerprint);
+        }
+
+        if (pending.Count == 0)
+            return;
+
+        if (_curseForge is CurseForgeCommunityResourceCatalog curseForge)
+        {
+            try
+            {
+                IReadOnlyDictionary<uint, CommunityResourceFileIdentity> batch =
+                    await curseForge.LookupFilesByFingerprintAsync(pending, cancellationToken)
+                        .ConfigureAwait(false);
+                foreach (uint fingerprint in pending)
+                    _fingerprintCache[fingerprint] =
+                        batch.TryGetValue(fingerprint, out CommunityResourceFileIdentity? identity)
+                            ? identity
+                            : null;
+                return;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or
+                                       IOException or InvalidOperationException)
+            {
+                // Fall through to per-fingerprint lookups.
+            }
+        }
+
+        if (_curseForge is not ICommunityResourceFingerprintLookup lookup)
+        {
+            foreach (uint fingerprint in pending)
+                _fingerprintCache.TryAdd(fingerprint, null);
+            return;
+        }
+
+        foreach (uint fingerprint in pending)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_fingerprintCache.ContainsKey(fingerprint))
+                continue;
+            CommunityResourceFileIdentity? identity = await TryLookupAsync(
+                    () => lookup.LookupFileByFingerprintAsync(fingerprint, cancellationToken),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            _fingerprintCache[fingerprint] = identity;
+        }
     }
 
     public Task<CommunityResourceVersion?> GetLatestVersionAsync(

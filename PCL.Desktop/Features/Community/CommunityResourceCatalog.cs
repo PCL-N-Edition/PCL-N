@@ -514,8 +514,139 @@ public sealed class ModrinthCommunityResourceCatalog :
         if (string.IsNullOrWhiteSpace(sha1Hex) || sha1Hex.Length is not (40 or 64))
             return null;
 
+        string normalized = sha1Hex.Trim().ToLowerInvariant();
+        IReadOnlyDictionary<string, CommunityResourceFileIdentity> batch =
+            await LookupFilesBySha1Async([normalized], cancellationToken).ConfigureAwait(false);
+        return batch.TryGetValue(normalized, out CommunityResourceFileIdentity? identity)
+            ? identity
+            : null;
+    }
+
+    /// <summary>
+    /// Batch hash lookup via Modrinth <c>POST /v2/version_files</c> (CE ModLocalComp style).
+    /// Falls back to per-hash GET when the batch endpoint fails.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, CommunityResourceFileIdentity>> LookupFilesBySha1Async(
+        IReadOnlyList<string> sha1Hexes,
+        CancellationToken cancellationToken = default)
+    {
+        Dictionary<string, CommunityResourceFileIdentity> results = new(StringComparer.OrdinalIgnoreCase);
+        List<string> sha1 = [];
+        List<string> sha512 = [];
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string raw in sha1Hexes)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            string normalized = raw.Trim().ToLowerInvariant();
+            if (normalized.Length is not (40 or 64) || !seen.Add(normalized))
+                continue;
+            if (normalized.Length == 64)
+                sha512.Add(normalized);
+            else
+                sha1.Add(normalized);
+        }
+
+        if (sha1.Count == 0 && sha512.Count == 0)
+            return results;
+
+        bool batchSucceeded = true;
+        try
+        {
+            if (sha1.Count > 0)
+                await FillFromVersionFilesBatchAsync(results, sha1, "sha1", cancellationToken)
+                    .ConfigureAwait(false);
+            if (sha512.Count > 0)
+                await FillFromVersionFilesBatchAsync(results, sha512, "sha512", cancellationToken)
+                    .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or IOException)
+        {
+            // Batch endpoint failed — recover remaining hashes via per-file GET.
+            batchSucceeded = false;
+        }
+
+        if (batchSucceeded)
+            return results;
+
+        foreach (string hash in seen)
+        {
+            if (results.ContainsKey(hash))
+                continue;
+            cancellationToken.ThrowIfCancellationRequested();
+            CommunityResourceFileIdentity? identity = await LookupFileBySha1GetAsync(hash, cancellationToken)
+                .ConfigureAwait(false);
+            if (identity is not null)
+                results[hash] = identity;
+        }
+
+        return results;
+    }
+
+    private async Task FillFromVersionFilesBatchAsync(
+        Dictionary<string, CommunityResourceFileIdentity> results,
+        IReadOnlyList<string> hashes,
+        string algorithm,
+        CancellationToken cancellationToken)
+    {
+        const int batchSize = 64;
+        for (int offset = 0; offset < hashes.Count; offset += batchSize)
+        {
+            int count = Math.Min(batchSize, hashes.Count - offset);
+            string[] slice = new string[count];
+            for (int index = 0; index < count; index++)
+                slice[index] = hashes[offset + index];
+
+            // Build JSON without reflection for AOT.
+            System.Text.StringBuilder json = new("{\"hashes\":[");
+            for (int index = 0; index < slice.Length; index++)
+            {
+                if (index > 0)
+                    json.Append(',');
+                json.Append('"').Append(slice[index]).Append('"');
+            }
+
+            json.Append("],\"algorithm\":\"").Append(algorithm).Append("\"}");
+            byte[] body = System.Text.Encoding.UTF8.GetBytes(json.ToString());
+            using HttpResponseMessage response = await PostWithFallbackAsync(
+                    "https://api.modrinth.com/v2/version_files",
+                    body,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                throw new HttpRequestException($"Modrinth version_files returned {(int)response.StatusCode}.");
+
+            await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                continue;
+
+            foreach (JsonProperty property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != JsonValueKind.Object)
+                    continue;
+                CommunityResourceFileIdentity? identity = TryParseVersionFileIdentity(
+                    property.Value,
+                    property.Name,
+                    algorithm);
+                if (identity is not null)
+                    results[property.Name] = identity;
+            }
+        }
+    }
+
+    private async Task<CommunityResourceFileIdentity?> LookupFileBySha1GetAsync(
+        string sha1Hex,
+        CancellationToken cancellationToken)
+    {
         string algorithm = sha1Hex.Length == 64 ? "sha512" : "sha1";
-        string url = "https://api.modrinth.com/v2/version_file/" + Uri.EscapeDataString(sha1Hex.ToLowerInvariant()) +
+        string url = "https://api.modrinth.com/v2/version_file/" + Uri.EscapeDataString(sha1Hex) +
                      "?algorithm=" + algorithm;
         try
         {
@@ -526,62 +657,7 @@ public sealed class ModrinthCommunityResourceCatalog :
             await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
-            JsonElement root = document.RootElement;
-            string projectId = ReadString(root, "project_id");
-            string versionId = ReadString(root, "id");
-            if (string.IsNullOrWhiteSpace(projectId) || string.IsNullOrWhiteSpace(versionId))
-                return null;
-
-            string versionNumber = ReadString(root, "version_number");
-            DateTimeOffset? published = ReadDateTimeOffset(root, "date_published");
-            CommunityResourceDownloadFile? currentFile = null;
-            if (TryGetProperty(root, "files", out JsonElement files) && files.ValueKind == JsonValueKind.Array)
-            {
-                foreach (JsonElement file in files.EnumerateArray())
-                {
-                    if (!TryGetProperty(file, "hashes", out JsonElement hashes) ||
-                        !string.Equals(ReadString(hashes, algorithm), sha1Hex, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    string downloadUrl = ReadString(file, "url");
-                    string fileName = ReadString(file, "filename");
-                    if (!string.IsNullOrWhiteSpace(downloadUrl) && !string.IsNullOrWhiteSpace(fileName))
-                    {
-                        currentFile = CreateDownloadFile(
-                            fileName,
-                            downloadUrl,
-                            ReadInt64(file, "size"),
-                            versionId,
-                            versionNumber,
-                            ReadSha256(file),
-                            ReadSha1(file));
-                    }
-                    break;
-                }
-            }
-
-            string title = projectId;
-            string slug = projectId;
-            string projectType = "mod";
-
-            string website = "https://modrinth.com/" + projectType + "/" +
-                             (string.IsNullOrWhiteSpace(slug) ? projectId : slug);
-            return new CommunityResourceFileIdentity(
-                projectId,
-                slug,
-                title,
-                projectType,
-                versionId,
-                versionNumber,
-                published,
-                null,
-                website)
-            {
-                Source = CommunityResourceSource.Modrinth,
-                CurrentFile = currentFile
-            };
+            return TryParseVersionFileIdentity(document.RootElement, sha1Hex, algorithm);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -591,6 +667,67 @@ public sealed class ModrinthCommunityResourceCatalog :
         {
             return null;
         }
+    }
+
+    private static CommunityResourceFileIdentity? TryParseVersionFileIdentity(
+        JsonElement root,
+        string requestedHash,
+        string algorithm)
+    {
+        string projectId = ReadString(root, "project_id");
+        string versionId = ReadString(root, "id");
+        if (string.IsNullOrWhiteSpace(projectId) || string.IsNullOrWhiteSpace(versionId))
+            return null;
+
+        string versionNumber = ReadString(root, "version_number");
+        DateTimeOffset? published = ReadDateTimeOffset(root, "date_published");
+        CommunityResourceDownloadFile? currentFile = null;
+        if (TryGetProperty(root, "files", out JsonElement files) && files.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement file in files.EnumerateArray())
+            {
+                if (!TryGetProperty(file, "hashes", out JsonElement hashes) ||
+                    !string.Equals(
+                        ReadString(hashes, algorithm),
+                        requestedHash,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string downloadUrl = ReadString(file, "url");
+                string fileName = ReadString(file, "filename");
+                if (!string.IsNullOrWhiteSpace(downloadUrl) && !string.IsNullOrWhiteSpace(fileName))
+                {
+                    currentFile = CreateDownloadFile(
+                        fileName,
+                        downloadUrl,
+                        ReadInt64(file, "size"),
+                        versionId,
+                        versionNumber,
+                        ReadSha256(file),
+                        ReadSha1(file));
+                }
+                break;
+            }
+        }
+
+        string projectType = "mod";
+        string website = "https://modrinth.com/" + projectType + "/" + projectId;
+        return new CommunityResourceFileIdentity(
+            projectId,
+            projectId,
+            projectId,
+            projectType,
+            versionId,
+            versionNumber,
+            published,
+            null,
+            website)
+        {
+            Source = CommunityResourceSource.Modrinth,
+            CurrentFile = currentFile
+        };
     }
 
     public async Task<CommunityResourceVersion?> GetLatestVersionAsync(
@@ -624,8 +761,21 @@ public sealed class ModrinthCommunityResourceCatalog :
             _client.Dispose();
     }
 
-    private async Task<HttpResponseMessage> GetWithFallbackAsync(
+    private Task<HttpResponseMessage> GetWithFallbackAsync(
         string url,
+        CancellationToken cancellationToken) =>
+        SendWithFallbackAsync(HttpMethod.Get, url, body: null, cancellationToken);
+
+    private Task<HttpResponseMessage> PostWithFallbackAsync(
+        string url,
+        byte[] body,
+        CancellationToken cancellationToken) =>
+        SendWithFallbackAsync(HttpMethod.Post, url, body, cancellationToken);
+
+    private async Task<HttpResponseMessage> SendWithFallbackAsync(
+        HttpMethod method,
+        string url,
+        byte[]? body,
         CancellationToken cancellationToken)
     {
         Exception? lastError = null;
@@ -638,8 +788,16 @@ public sealed class ModrinthCommunityResourceCatalog :
             HttpResponseMessage? response = null;
             try
             {
-                response = await _client.GetAsync(
-                        candidate,
+                using HttpRequestMessage request = new(method, candidate);
+                if (body is not null)
+                {
+                    ByteArrayContent content = new(body);
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                    request.Content = content;
+                }
+
+                response = await _client.SendAsync(
+                        request,
                         HttpCompletionOption.ResponseHeadersRead,
                         cancellationToken)
                     .ConfigureAwait(false);

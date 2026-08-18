@@ -328,64 +328,138 @@ public sealed class CurseForgeCommunityResourceCatalog :
         uint fingerprint,
         CancellationToken cancellationToken = default)
     {
-        string body = "{\"fingerprints\":[" +
-                      fingerprint.ToString(CultureInfo.InvariantCulture) +
-                      "]}";
-        using HttpResponseMessage response = await SendAsync(
-                HttpMethod.Post,
-                ApiRoot + "/fingerprints/432",
-                body,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            return null;
-        response.EnsureSuccessStatusCode();
-        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
-        if (!TryGetProperty(document.RootElement, "data", out JsonElement data) ||
-            !TryGetProperty(data, "exactMatches", out JsonElement matches) ||
-            matches.ValueKind != JsonValueKind.Array)
+        IReadOnlyDictionary<uint, CommunityResourceFileIdentity> batch =
+            await LookupFilesByFingerprintAsync([fingerprint], cancellationToken).ConfigureAwait(false);
+        return batch.TryGetValue(fingerprint, out CommunityResourceFileIdentity? identity)
+            ? identity
+            : null;
+    }
+
+    /// <summary>
+    /// Batch CurseForge fingerprint lookup (CE ModLocalComp style).
+    /// </summary>
+    public async Task<IReadOnlyDictionary<uint, CommunityResourceFileIdentity>> LookupFilesByFingerprintAsync(
+        IReadOnlyList<uint> fingerprints,
+        CancellationToken cancellationToken = default)
+    {
+        Dictionary<uint, CommunityResourceFileIdentity> results = [];
+        if (fingerprints.Count == 0)
+            return results;
+
+        HashSet<uint> unique = [];
+        List<uint> ordered = [];
+        foreach (uint fingerprint in fingerprints)
         {
-            return null;
+            if (unique.Add(fingerprint))
+                ordered.Add(fingerprint);
         }
 
-        foreach (JsonElement match in matches.EnumerateArray())
+        const int batchSize = 100;
+        for (int offset = 0; offset < ordered.Count; offset += batchSize)
         {
-            if (!TryGetProperty(match, "file", out JsonElement file) ||
-                file.ValueKind != JsonValueKind.Object ||
-                ReadInt64(file, "fileFingerprint") != fingerprint)
+            int count = Math.Min(batchSize, ordered.Count - offset);
+            StringBuilder body = new("{\"fingerprints\":[");
+            for (int index = 0; index < count; index++)
             {
-                continue;
+                if (index > 0)
+                    body.Append(',');
+                body.Append(ordered[offset + index].ToString(CultureInfo.InvariantCulture));
             }
 
-            string projectId = ReadNumberOrString(file, "modId");
-            if (string.IsNullOrWhiteSpace(projectId))
-                projectId = ReadNumberOrString(match, "id");
-            CommunityResourceVersion? version = ParseVersion(file);
-            CommunityResourceDownloadFile? currentFile = version is { Files.Count: > 0 }
-                ? version.Files[0]
-                : null;
-            if (string.IsNullOrWhiteSpace(projectId) || version is null || currentFile is null)
-                continue;
+            body.Append("]}");
 
-            return new CommunityResourceFileIdentity(
-                projectId,
-                projectId,
-                projectId,
-                "mod",
-                version.VersionId,
-                version.VersionNumber,
-                version.PublishedAt,
-                null,
-                "https://www.curseforge.com/minecraft/mc-mods/" + projectId)
+            try
             {
-                Source = CommunityResourceSource.CurseForge,
-                CurrentFile = currentFile
-            };
+                using HttpResponseMessage response = await SendAsync(
+                        HttpMethod.Post,
+                        ApiRoot + "/fingerprints/432",
+                        body.ToString(),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    continue;
+                response.EnsureSuccessStatusCode();
+                await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                using JsonDocument document = await JsonDocument.ParseAsync(
+                        stream,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                if (!TryGetProperty(document.RootElement, "data", out JsonElement data) ||
+                    !TryGetProperty(data, "exactMatches", out JsonElement matches) ||
+                    matches.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (JsonElement match in matches.EnumerateArray())
+                {
+                    CommunityResourceFileIdentity? identity = TryParseFingerprintMatch(match);
+                    if (identity is null ||
+                        identity.CurrentFile is null)
+                    {
+                        continue;
+                    }
+
+                    // Match key is the file fingerprint returned by CurseForge.
+                    if (!TryGetProperty(match, "file", out JsonElement file) ||
+                        file.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    long fingerprintValue = ReadInt64(file, "fileFingerprint");
+                    if (fingerprintValue is < uint.MinValue or > uint.MaxValue)
+                        continue;
+                    results[(uint)fingerprintValue] = identity;
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or
+                                       IOException or InvalidOperationException)
+            {
+                // Leave unmatched fingerprints empty; callers treat absence as no hit.
+            }
         }
 
-        return null;
+        return results;
+    }
+
+    private static CommunityResourceFileIdentity? TryParseFingerprintMatch(JsonElement match)
+    {
+        if (!TryGetProperty(match, "file", out JsonElement file) ||
+            file.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        string projectId = ReadNumberOrString(file, "modId");
+        if (string.IsNullOrWhiteSpace(projectId))
+            projectId = ReadNumberOrString(match, "id");
+        CommunityResourceVersion? version = ParseVersion(file);
+        CommunityResourceDownloadFile? currentFile = version is { Files.Count: > 0 }
+            ? version.Files[0]
+            : null;
+        if (string.IsNullOrWhiteSpace(projectId) || version is null || currentFile is null)
+            return null;
+
+        return new CommunityResourceFileIdentity(
+            projectId,
+            projectId,
+            projectId,
+            "mod",
+            version.VersionId,
+            version.VersionNumber,
+            version.PublishedAt,
+            null,
+            "https://www.curseforge.com/minecraft/mc-mods/" + projectId)
+        {
+            Source = CommunityResourceSource.CurseForge,
+            CurrentFile = currentFile
+        };
     }
 
     public async Task<CommunityResourceVersion?> GetLatestVersionAsync(
