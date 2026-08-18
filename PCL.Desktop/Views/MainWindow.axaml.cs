@@ -4191,19 +4191,202 @@ public partial class MainWindow : Window, IDisposable
         }
 
         Report("正在刷新 Microsoft 访问令牌…");
-        MicrosoftMinecraftLoginResult refreshed = await _microsoftAuthService
-            .RefreshAsync(clientId, profile.RefreshToken, cancellationToken)
-            .ConfigureAwait(false);
-        Report("Microsoft 访问令牌已刷新。");
-        return profile with
+        try
         {
-            Username = refreshed.Username,
-            Uuid = refreshed.Uuid,
-            AccessToken = refreshed.AccessToken,
-            RefreshToken = refreshed.RefreshToken,
-            SkinAddress = refreshed.SkinAddress ?? profile.SkinAddress,
-            Info = refreshed.OwnsMinecraft ? "Microsoft 正版" : profile.Info
-        };
+            MicrosoftMinecraftLoginResult refreshed = await _microsoftAuthService
+                .RefreshAsync(clientId, profile.RefreshToken, cancellationToken)
+                .ConfigureAwait(false);
+            Report("Microsoft 访问令牌已刷新。");
+            return profile with
+            {
+                Username = refreshed.Username,
+                Uuid = refreshed.Uuid,
+                AccessToken = refreshed.AccessToken,
+                RefreshToken = refreshed.RefreshToken,
+                SkinAddress = refreshed.SkinAddress ?? profile.SkinAddress,
+                Info = refreshed.OwnsMinecraft ? "Microsoft 正版" : profile.Info
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return await HandleMicrosoftRefreshFailureAsync(profile, ex, cancellationToken, Report)
+                .ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// CE <c>MsLoginStep1Refresh</c>: invalid_grant → re-login; other failures →
+    /// Relogin / Cancel / Continue (continue only when cached access token still usable).
+    /// </summary>
+    private async Task<LoginProfileInfo> HandleMicrosoftRefreshFailureAsync(
+        LoginProfileInfo profile,
+        Exception exception,
+        CancellationToken cancellationToken,
+        Action<string> report)
+    {
+        bool mustRelogin = IsMicrosoftInvalidGrant(exception);
+        bool canContinue = !mustRelogin &&
+            MinecraftLaunchPlanFactory.IsAccessTokenUsable(profile.AccessToken);
+
+        string detail = string.IsNullOrWhiteSpace(exception.Message)
+            ? "刷新 Microsoft 登录失败。"
+            : exception.Message.Trim();
+        report("Microsoft 令牌刷新失败：" + detail);
+
+        TaskCompletionSource<int> choice = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            string caption = mustRelogin
+                ? "正版登录已失效，需要重新登录后才能启动。\n\n" + detail
+                : canContinue
+                    ? "无法刷新正版访问令牌（可能是网络问题）。\n你可以重新登录、取消启动，或继续使用当前令牌尝试启动。\n\n" + detail
+                    : "无法刷新正版访问令牌，且当前令牌不可用。\n请重新登录，或取消启动。\n\n" + detail;
+
+            ShowMarkdownDialog(
+                "正版登录异常",
+                caption,
+                result => choice.TrySetResult(result),
+                primaryButton: "重新登录",
+                secondaryButton: "取消启动",
+                thirdButton: canContinue ? "继续启动" : string.Empty,
+                isWarn: true);
+        });
+
+        using CancellationTokenRegistration registration = cancellationToken.Register(
+            static state => ((TaskCompletionSource<int>)state!).TrySetCanceled(),
+            choice);
+        int selected = await choice.Task.ConfigureAwait(false);
+
+        if (selected == 3 && canContinue)
+        {
+            report("用户选择继续使用现有访问令牌启动。");
+            return profile;
+        }
+
+        if (selected == 1)
+        {
+            report("用户选择重新登录 Microsoft 账户。");
+            LoginProfileInfo? relogged = await PromptMicrosoftReloginForLaunchAsync(
+                    profile,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (relogged is not null)
+                return relogged;
+            throw new OperationCanceledException("已取消重新登录，启动中止。", cancellationToken);
+        }
+
+        throw new OperationCanceledException("用户取消启动。", cancellationToken);
+    }
+
+    private static bool IsMicrosoftInvalidGrant(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            string text = current.Message ?? string.Empty;
+            if (text.Contains("invalid_grant", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("交互式登录", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("relogin", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("重新登录", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<LoginProfileInfo?> PromptMicrosoftReloginForLaunchAsync(
+        LoginProfileInfo existing,
+        CancellationToken cancellationToken)
+    {
+        string clientId = MicrosoftMinecraftAuthService.ResolveClientId();
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+                ShowTextDialog(
+                    "Microsoft 登录配置缺失",
+                    "缺少 Microsoft 登录配置。请提供 PCL_MS_CLIENT_ID 后重试。",
+                    "知道了"));
+            return null;
+        }
+
+        MyMsgLogin? dialog = null;
+        try
+        {
+            MicrosoftDeviceCodeInfo deviceCode = await _microsoftAuthService
+                .RequestDeviceCodeAsync(clientId, cancellationToken)
+                .ConfigureAwait(false);
+
+            TaskCompletionSource dialogReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                dialog = new MyMsgLogin
+                {
+                    Title = "重新登录 Microsoft 正版档案",
+                    Caption = FormatMicrosoftDeviceCodeCaption(deviceCode),
+                    UserCode = deviceCode.UserCode,
+                    Website = MinecraftLaunchPlanFactory.FirstNonEmpty(
+                        deviceCode.VerificationUriComplete,
+                        deviceCode.VerificationUri)
+                };
+                ShowLoginDialog(dialog, () => { });
+                _ = PrepareLoginDialogAsync(dialog)
+                    .ContinueWith(
+                        _ => dialogReady.TrySetResult(),
+                        CancellationToken.None,
+                        TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+            });
+            await dialogReady.Task.ConfigureAwait(false);
+
+            MicrosoftMinecraftLoginResult result = await _microsoftAuthService
+                .CompleteDeviceLoginAsync(clientId, deviceCode, progress: null, cancellationToken)
+                .ConfigureAwait(false);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (dialog?.Parent is not null)
+                    dialog.CloseLikeWpf();
+            });
+
+            LoginProfileInfo profile = existing with
+            {
+                Username = result.Username,
+                Uuid = result.Uuid,
+                AccessToken = result.AccessToken,
+                RefreshToken = result.RefreshToken,
+                SkinAddress = result.SkinAddress ?? existing.SkinAddress,
+                Info = result.OwnsMinecraft ? "Microsoft 正版" : existing.Info
+            };
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AddOrUpdateLoginProfile(profile);
+                _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, profile);
+                _launchLoginSurface.ProfileSkinPage?.SetProfile(profile);
+                SaveProfilesInBackground("保存重新登录的 Microsoft 档案");
+                PublishMicrosoftProfile(profile, HostAccountSessionReason.Authenticated);
+            });
+            return profile;
+        }
+        catch (OperationCanceledException)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (dialog?.Parent is not null)
+                    dialog.CloseLikeWpf();
+            });
+            return null;
+        }
+        catch (Exception ex)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (dialog?.Parent is not null)
+                    dialog.CloseLikeWpf();
+                ShowTextDialog("重新登录失败", ex.Message, "知道了");
+            });
+            return null;
+        }
     }
 
     /// <summary>
