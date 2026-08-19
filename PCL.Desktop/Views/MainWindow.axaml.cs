@@ -2815,7 +2815,8 @@ public partial class MainWindow : Window, IDisposable
                     minecraftRoot,
                     request.LoaderKind,
                     request.LoaderVersion,
-                    request.CurrentOptiFineVersion)
+                    request.CurrentOptiFineVersion,
+                    request.Addons)
                 .ConfigureAwait(true);
             if (!started)
             {

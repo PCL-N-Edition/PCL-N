@@ -258,7 +258,8 @@ public partial class PageDownloadInstall : MyPageRight
         string minecraftRootDirectory,
         MinecraftLoaderKind? loaderKind,
         string? loaderVersion,
-        string? currentOptiFineVersion = null)
+        string? currentOptiFineVersion = null,
+        IReadOnlyList<MinecraftInstallAddonRequest>? addons = null)
     {
         await FocusVersionAsync(
                 gameVersion,
@@ -284,6 +285,26 @@ public partial class PageDownloadInstall : MyPageRight
                     MinecraftLoaderKind.OptiFine,
                     currentOptiFineVersion,
                     true);
+            }
+        }
+
+        if (addons is { Count: > 0 })
+        {
+            foreach (MinecraftInstallAddonRequest addon in addons)
+            {
+                if (addon.Kind == MinecraftInstallAddonKind.OptiFine)
+                    continue;
+
+                MinecraftInstallAddonVersionEntry entry = new(
+                    addon.Kind,
+                    addon.Version,
+                    addon.FileName,
+                    addon.Url,
+                    addon.Sha1,
+                    addon.Size,
+                    true);
+                _selectedAddons[addon.Kind] = entry;
+                _addonVersionCache[(addon.Kind, _selectedVersion.Id)] = [entry];
             }
         }
 

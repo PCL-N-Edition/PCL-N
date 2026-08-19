@@ -15,6 +15,7 @@ using PCL.Application.Downloads;
 using PCL.Application.Instances;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Diagnostics;
+using PCL.Desktop.Features.Downloads.Views;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Shared;
 
@@ -29,7 +30,8 @@ public sealed record InstanceInstallModifyRequest(
     MinecraftLoaderKind? CurrentLoaderKind = null,
     string? CurrentLoaderVersion = null,
     string? CurrentOptiFineVersion = null,
-    bool ApplySelection = false);
+    bool ApplySelection = false,
+    IReadOnlyList<MinecraftInstallAddonRequest>? Addons = null);
 
 public partial class PageInstanceInstallRight : MyPageRight
 {
@@ -43,8 +45,14 @@ public partial class PageInstanceInstallRight : MyPageRight
 
     private readonly MinecraftVanillaInstallService _installService;
     private readonly IMinecraftLoaderMetadataService _loaderMetadataService;
+    private readonly IMinecraftInstallAddonMetadataService _addonMetadataService;
     private readonly Dictionary<(MinecraftLoaderKind Kind, string GameVersion), IReadOnlyList<MinecraftLoaderVersionEntry>> _loaderVersionCache = [];
     private readonly Dictionary<(MinecraftLoaderKind Kind, string GameVersion), Task<IReadOnlyList<MinecraftLoaderVersionEntry>>> _loaderVersionLoads = [];
+    private readonly Dictionary<(MinecraftLoaderKind Kind, string GameVersion), string> _loaderVersionErrors = [];
+    private readonly Dictionary<(MinecraftInstallAddonKind Kind, string GameVersion), IReadOnlyList<MinecraftInstallAddonVersionEntry>> _addonVersionCache = [];
+    private readonly Dictionary<(MinecraftInstallAddonKind Kind, string GameVersion), Task<IReadOnlyList<MinecraftInstallAddonVersionEntry>>> _addonVersionLoads = [];
+    private readonly Dictionary<(MinecraftInstallAddonKind Kind, string GameVersion), string> _addonVersionErrors = [];
+    private readonly Dictionary<MinecraftInstallAddonKind, MinecraftInstallAddonVersionEntry> _selectedAddons = [];
     private IReadOnlyList<MinecraftVersionManifestEntry> _versions = [];
     private LaunchInstanceInfo? _instance;
     private string _selectedMinecraftVersionId = string.Empty;
@@ -57,18 +65,32 @@ public partial class PageInstanceInstallRight : MyPageRight
     /// </summary>
     private MinecraftLoaderVersionEntry? _selectedOptiFineAddon;
     private bool _isLoadingMinecraftVersions;
+    private SelectionBaseline _baseline = SelectionBaseline.Empty;
+    private bool _isSelectPage = true;
+
+    private readonly record struct SelectionBaseline(
+        string MinecraftVersionId,
+        MinecraftLoaderKind? LoaderKind,
+        string? LoaderVersion,
+        string? OptiFineVersion,
+        string AddonFingerprint)
+    {
+        public static SelectionBaseline Empty { get; } = new(string.Empty, null, null, null, string.Empty);
+    }
 
     public PageInstanceInstallRight()
-        : this(new MinecraftVanillaInstallService(), new MinecraftLoaderMetadataService())
+        : this(new MinecraftVanillaInstallService(), new MinecraftLoaderMetadataService(), new MinecraftInstallAddonMetadataService())
     {
     }
 
     public PageInstanceInstallRight(
         MinecraftVanillaInstallService installService,
-        IMinecraftLoaderMetadataService? loaderMetadataService = null)
+        IMinecraftLoaderMetadataService? loaderMetadataService = null,
+        IMinecraftInstallAddonMetadataService? addonMetadataService = null)
     {
         _installService = installService;
         _loaderMetadataService = loaderMetadataService ?? new MinecraftLoaderMetadataService();
+        _addonMetadataService = addonMetadataService ?? new MinecraftInstallAddonMetadataService();
         AvaloniaXamlLoader.Load(this);
         PanScroll = this.FindControl<MyScrollViewer>("PanBack");
         WireWpfCopiedControls();
@@ -93,12 +115,71 @@ public partial class PageInstanceInstallRight : MyPageRight
         _selectedMinecraftVersionId = versionInfo.MinecraftVersionId;
         _selectedMinecraftLogo = BlockAssetRoot + GetVersionLogoImageName("release");
         InitializeSelectedLoader(_instance);
+        CaptureSelectionBaseline();
         PanScroll?.ScrollToHome();
         ApplySelectPageState();
         PopulateSelectedInstance(_instance);
         InitializeLoaderCards(_instance);
+        // Apply mutex / availability chrome immediately (not only after the user edits).
+        RefreshSelectedLoaderCards();
+        BeginLoaderVersionPreload();
+        BeginAddonVersionPreload();
         HideAllHints();
         HideLoading();
+        UpdateModifyButtonVisibility();
+    }
+
+    private void CaptureSelectionBaseline()
+    {
+        _baseline = new SelectionBaseline(
+            _selectedMinecraftVersionId,
+            _selectedLoaderKind,
+            _selectedLoaderVersion?.Version,
+            _selectedOptiFineAddon?.Version,
+            BuildAddonFingerprint(_selectedAddons));
+    }
+
+    private bool IsSelectionDirty()
+    {
+        if (!string.Equals(_selectedMinecraftVersionId, _baseline.MinecraftVersionId, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (_selectedLoaderKind != _baseline.LoaderKind)
+            return true;
+        if (!string.Equals(_selectedLoaderVersion?.Version, _baseline.LoaderVersion, StringComparison.Ordinal))
+            return true;
+        if (!string.Equals(_selectedOptiFineAddon?.Version, _baseline.OptiFineVersion, StringComparison.Ordinal))
+            return true;
+        if (!string.Equals(BuildAddonFingerprint(_selectedAddons), _baseline.AddonFingerprint, StringComparison.Ordinal))
+            return true;
+        return false;
+    }
+
+    private static string BuildAddonFingerprint(
+        Dictionary<MinecraftInstallAddonKind, MinecraftInstallAddonVersionEntry> addons)
+    {
+        if (addons.Count == 0)
+            return string.Empty;
+
+        return string.Join(
+            "|",
+            addons
+                .OrderBy(entry => entry.Key.ToString(), StringComparer.Ordinal)
+                .Select(entry => entry.Key + "=" + entry.Value.Version));
+    }
+
+    private void UpdateModifyButtonVisibility()
+    {
+        if (this.FindControl<MyExtraTextButton>("BtnSelectStart") is not { } startButton)
+            return;
+
+        bool show = _isSelectPage && IsSelectionDirty();
+        startButton.Show = show;
+        startButton.IsEnabled = show;
+        if (show)
+        {
+            startButton.Opacity = 1d;
+            startButton.IsVisible = true;
+        }
     }
 
     private bool _startButtonWired;
@@ -109,11 +190,11 @@ public partial class PageInstanceInstallRight : MyPageRight
             return;
 
         _startButtonWired = true;
-        startButton.Show = true;
+        startButton.Show = false;
         startButton.IsEnabled = true;
         startButton.Click += (_, _) =>
         {
-            if (_instance is null)
+            if (_instance is null || !IsSelectionDirty())
                 return;
 
             // Reinstall / re-apply keeps the existing instance directory name via the
@@ -140,11 +221,24 @@ public partial class PageInstanceInstallRight : MyPageRight
                 _selectedLoaderKind,
                 _selectedLoaderVersion?.Version,
                 CurrentOptiFineVersion: _selectedOptiFineAddon?.Version,
-                ApplySelection: true));
+                ApplySelection: true,
+                Addons: CreateSelectedAddonRequests()));
     }
+
+    private MinecraftInstallAddonRequest[] CreateSelectedAddonRequests() =>
+        _selectedAddons.Values
+            .Select(version => new MinecraftInstallAddonRequest(
+                version.Kind,
+                version.Version,
+                version.FileName,
+                version.Url,
+                version.Sha1,
+                version.Size))
+            .ToArray();
 
     private void ApplySelectPageState()
     {
+        _isSelectPage = true;
         if (this.FindControl<Control>("PanMinecraft") is { } minecraft)
         {
             minecraft.IsVisible = false;
@@ -167,19 +261,12 @@ public partial class PageInstanceInstallRight : MyPageRight
             scroll.ScrollToHome();
         }
 
-        if (this.FindControl<MyExtraTextButton>("BtnSelectStart") is { } startButton)
-        {
-            // Prefer non-animated re-show so re-entering the page cannot accumulate scale.
-            if (!startButton.Show)
-                startButton.Show = true;
-            startButton.IsEnabled = true;
-            startButton.Opacity = 1d;
-            startButton.IsVisible = true;
-        }
+        UpdateModifyButtonVisibility();
     }
 
     private void ApplyMinecraftPageState()
     {
+        _isSelectPage = false;
         if (this.FindControl<Control>("PanSelect") is { } select)
         {
             select.IsVisible = false;
@@ -385,6 +472,9 @@ public partial class PageInstanceInstallRight : MyPageRight
         SetLoaderCardVisible("QSL", false);
         SetLoaderCardVisible("OptiFabric", false);
         ApplySelectedInstanceSummary(version.Manifest.Id, null, null, null, null, null, null, null, null, null);
+        RefreshSelectedLoaderCards();
+        BeginLoaderVersionPreload();
+        BeginAddonVersionPreload();
         ApplySelectPageState();
     }
 
@@ -540,6 +630,7 @@ public partial class PageInstanceInstallRight : MyPageRight
         (MinecraftLoaderKind? kind, string? version, string? optiFineVersion) =
             DetectCurrentLoaderSelection(instance);
         _selectedOptiFineAddon = null;
+        _selectedAddons.Clear();
         if (kind is not null && !string.IsNullOrWhiteSpace(version))
         {
             _selectedLoaderKind = kind;
@@ -932,16 +1023,16 @@ public partial class PageInstanceInstallRight : MyPageRight
         RequestLoaderInstall(MinecraftLoaderKind.LegacyFabric, e);
 
     private void CardFabricApi_PreviewSwap(object sender, RouteEventArgs e) =>
-        RequestAddonInstall(MinecraftInstallAddonKind.FabricApi, e);
+        RequestAddonExpand(MinecraftInstallAddonKind.FabricApi, e);
 
     private void CardLegacyFabricApi_PreviewSwap(object sender, RouteEventArgs e) =>
-        RequestAddonInstall(MinecraftInstallAddonKind.LegacyFabricApi, e);
+        RequestAddonExpand(MinecraftInstallAddonKind.LegacyFabricApi, e);
 
     private void CardQuilt_PreviewSwap(object sender, RouteEventArgs e) =>
         RequestLoaderInstall(MinecraftLoaderKind.Quilt, e);
 
     private void CardQSL_PreviewSwap(object sender, RouteEventArgs e) =>
-        RequestAddonInstall(MinecraftInstallAddonKind.Qsl, e);
+        RequestAddonExpand(MinecraftInstallAddonKind.Qsl, e);
 
     private void CardLabyMod_PreviewSwap(object sender, RouteEventArgs e) =>
         RequestLoaderInstall(MinecraftLoaderKind.LabyMod, e);
@@ -950,7 +1041,7 @@ public partial class PageInstanceInstallRight : MyPageRight
         RequestLoaderInstall(MinecraftLoaderKind.OptiFine, e);
 
     private void CardOptiFabric_PreviewSwap(object sender, RouteEventArgs e) =>
-        RequestAddonInstall(MinecraftInstallAddonKind.OptiFabric, e);
+        RequestAddonExpand(MinecraftInstallAddonKind.OptiFabric, e);
 
     private void CardLiteLoader_PreviewSwap(object sender, RouteEventArgs e) =>
         RequestLoaderInstall(MinecraftLoaderKind.LiteLoader, e);
@@ -1041,7 +1132,9 @@ public partial class PageInstanceInstallRight : MyPageRight
                 }
 
                 _loaderVersionCache[key] = versions;
+                _loaderVersionErrors.Remove(key);
                 PopulateLoaderVersionList(cardName, kind, versions);
+                RefreshSelectedLoaderCards();
             }).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or FormatException or InvalidOperationException or NotSupportedException)
@@ -1049,8 +1142,11 @@ public partial class PageInstanceInstallRight : MyPageRight
             await RunOnUiThreadAsync(() =>
             {
                 _loaderVersionLoads.Remove(key);
-                if (ReferenceEquals(_instance, expectedInstance))
-                    SetLoaderVersionPanelMessage(cardName, "获取版本列表失败", ex.Message);
+                if (!ReferenceEquals(_instance, expectedInstance))
+                    return;
+                _loaderVersionErrors[key] = ex.Message;
+                SetLoaderVersionPanelMessage(cardName, "获取版本列表失败", ex.Message);
+                RefreshSelectedLoaderCards();
             }).ConfigureAwait(false);
         }
     }
@@ -1110,13 +1206,35 @@ public partial class PageInstanceInstallRight : MyPageRight
             _selectedLoaderKind = kind;
             _selectedLoaderVersion = version;
             if (kind is MinecraftLoaderKind.Fabric or MinecraftLoaderKind.LegacyFabric)
+            {
                 _selectedOptiFineAddon = null;
+                _selectedAddons.Remove(MinecraftInstallAddonKind.OptiFabric);
+            }
+
+            PruneIncompatibleAddons();
         }
 
         if (this.FindControl<MyCard>("Card" + GetLoaderCardName(kind)) is { } card)
             card.IsSwapped = true;
         HideAllHints();
         RefreshSelectedLoaderCards();
+        BeginAddonVersionPreload();
+        UpdateModifyButtonVisibility();
+    }
+
+    private void PruneIncompatibleAddons()
+    {
+        if (_selectedLoaderKind is not MinecraftLoaderKind.Fabric and not MinecraftLoaderKind.Quilt)
+            _selectedAddons.Remove(MinecraftInstallAddonKind.FabricApi);
+        if (_selectedLoaderKind != MinecraftLoaderKind.LegacyFabric)
+            _selectedAddons.Remove(MinecraftInstallAddonKind.LegacyFabricApi);
+        if (_selectedLoaderKind != MinecraftLoaderKind.Quilt)
+            _selectedAddons.Remove(MinecraftInstallAddonKind.Qsl);
+        bool supportsOptiFabric =
+            _selectedLoaderKind is MinecraftLoaderKind.Fabric or MinecraftLoaderKind.LegacyFabric &&
+            _selectedOptiFineAddon is not null;
+        if (!supportsOptiFabric)
+            _selectedAddons.Remove(MinecraftInstallAddonKind.OptiFabric);
     }
 
     private void RefreshSelectedLoaderCards()
@@ -1138,6 +1256,7 @@ public partial class PageInstanceInstallRight : MyPageRight
             if (_selectedLoaderKind == kind && _selectedLoaderVersion is { } selectedLoader)
             {
                 SetLoaderInfo(cardName, selectedLoader.Version, GetLoaderImageName(kind));
+                SetLoaderCardOpenable(cardName, true);
             }
             else if (_selectedLoaderKind is not null && _selectedLoaderKind != MinecraftLoaderKind.OptiFine)
             {
@@ -1155,15 +1274,26 @@ public partial class PageInstanceInstallRight : MyPageRight
             }
             else
             {
+                string availability = GetLoaderAvailabilityText(kind, canAdd);
                 SetLoaderInfo(cardName, null, GetLoaderImageName(kind));
+                if (this.FindControl<TextBlock>("Lab" + cardName) is { } openLabel)
+                    openLabel.Text = availability;
+                SetLoaderCardOpenable(cardName, IsLoaderListOpenable(kind));
             }
         }
 
         if (_selectedOptiFineAddon is { } optiFineAddon)
+        {
             SetLoaderInfo("OptiFine", optiFineAddon.Version, GetLoaderImageName(MinecraftLoaderKind.OptiFine));
+            SetLoaderCardOpenable("OptiFine", true);
+        }
         else if (_selectedLoaderKind == MinecraftLoaderKind.OptiFine && _selectedLoaderVersion is { } selectedOptiFine)
+        {
             SetLoaderInfo("OptiFine", selectedOptiFine.Version, GetLoaderImageName(MinecraftLoaderKind.OptiFine));
+            SetLoaderCardOpenable("OptiFine", true);
+        }
         else if (_selectedLoaderKind is { } selectedLoader && !CanCombineWithOptiFine(selectedLoader))
+        {
             SetLoaderInfoClosed(
                 "OptiFine",
                 ResourceText(
@@ -1171,23 +1301,42 @@ public partial class PageInstanceInstallRight : MyPageRight
                     "与 {0} 不兼容",
                     GetLoaderDisplayName(selectedLoader)),
                 GetLoaderImageName(MinecraftLoaderKind.OptiFine));
+        }
         else
+        {
+            string availability = GetLoaderAvailabilityText(MinecraftLoaderKind.OptiFine, canAdd);
             SetLoaderInfo("OptiFine", null, GetLoaderImageName(MinecraftLoaderKind.OptiFine));
+            if (this.FindControl<TextBlock>("LabOptiFine") is { } optiLabel)
+                optiLabel.Text = availability;
+            SetLoaderCardOpenable("OptiFine", IsLoaderListOpenable(MinecraftLoaderKind.OptiFine));
+        }
 
-        SetLoaderCardVisible(
+        RefreshAddonCard(
             "FabricApi",
-            _selectedLoaderKind is MinecraftLoaderKind.Fabric or MinecraftLoaderKind.Quilt);
-        SetLoaderCardVisible("LegacyFabricApi", _selectedLoaderKind == MinecraftLoaderKind.LegacyFabric);
-        SetLoaderCardVisible("QSL", _selectedLoaderKind == MinecraftLoaderKind.Quilt);
+            MinecraftInstallAddonKind.FabricApi,
+            _selectedLoaderKind is MinecraftLoaderKind.Fabric or MinecraftLoaderKind.Quilt,
+            canAdd);
+        RefreshAddonCard(
+            "LegacyFabricApi",
+            MinecraftInstallAddonKind.LegacyFabricApi,
+            _selectedLoaderKind == MinecraftLoaderKind.LegacyFabric,
+            canAdd);
+        RefreshAddonCard(
+            "QSL",
+            MinecraftInstallAddonKind.Qsl,
+            _selectedLoaderKind == MinecraftLoaderKind.Quilt,
+            canAdd);
         SetLoaderCardVisible("OptiFabric", false);
 
         if (_selectedLoaderKind == MinecraftLoaderKind.Fabric &&
+            !_selectedAddons.ContainsKey(MinecraftInstallAddonKind.FabricApi) &&
             this.FindControl<Control>("HintFabricAPI") is { } fabricHint)
         {
             fabricHint.IsVisible = true;
         }
 
         if (_selectedLoaderKind == MinecraftLoaderKind.Quilt &&
+            !_selectedAddons.ContainsKey(MinecraftInstallAddonKind.Qsl) &&
             this.FindControl<Control>("HintQSL") is { } qslHint)
         {
             qslHint.IsVisible = true;
@@ -1200,13 +1349,235 @@ public partial class PageInstanceInstallRight : MyPageRight
                 parts.Add(GetLoaderDisplayName(kind) + " " + version.DisplayVersion);
             if (_selectedOptiFineAddon is { } addon && _selectedLoaderKind != MinecraftLoaderKind.OptiFine)
                 parts.Add(GetLoaderDisplayName(MinecraftLoaderKind.OptiFine) + " " + addon.DisplayVersion);
+            foreach (MinecraftInstallAddonVersionEntry selectedAddon in _selectedAddons.Values
+                         .OrderBy(entry => entry.Kind.ToString(), StringComparer.Ordinal))
+            {
+                parts.Add(GetAddonDisplayName(selectedAddon.Kind) + " " + selectedAddon.Version);
+            }
+
             if (parts.Count == 1)
                 parts.Add(ResourceText("Instance.Install.NoExtraInstall", "无额外安装"));
             item.Info = string.Join("  |  ", parts);
         }
 
-        if (this.FindControl<MyExtraTextButton>("BtnSelectStart") is { } startButton)
-            startButton.IsEnabled = true;
+        UpdateModifyButtonVisibility();
+    }
+
+    private void RefreshAddonCard(
+        string cardName,
+        MinecraftInstallAddonKind kind,
+        bool visible,
+        string canAdd)
+    {
+        if (!visible)
+        {
+            SetLoaderCardVisible(cardName, false);
+            return;
+        }
+
+        SetLoaderCardVisible(cardName, true);
+        if (_selectedAddons.TryGetValue(kind, out MinecraftInstallAddonVersionEntry? selected))
+        {
+            SetLoaderInfo(cardName, selected.Version, GetAddonImageName(kind));
+            SetLoaderCardOpenable(cardName, true);
+            return;
+        }
+
+        string availability = GetAddonAvailabilityText(kind, canAdd);
+        SetLoaderInfo(cardName, null, GetAddonImageName(kind));
+        if (this.FindControl<TextBlock>("Lab" + cardName) is { } label)
+            label.Text = availability;
+        SetLoaderCardOpenable(cardName, IsAddonListOpenable(kind));
+    }
+
+    private string GetAddonAvailabilityText(MinecraftInstallAddonKind kind, string canAdd)
+    {
+        (MinecraftInstallAddonKind Kind, string GameVersion) key = (kind, _selectedMinecraftVersionId);
+        if (_addonVersionCache.TryGetValue(key, out IReadOnlyList<MinecraftInstallAddonVersionEntry>? versions))
+            return versions.Count == 0 ? "暂无可用版本" : canAdd;
+        if (_addonVersionErrors.TryGetValue(key, out string? error))
+            return "版本列表加载失败：" + error;
+        return "正在获取版本列表";
+    }
+
+    private bool IsAddonListOpenable(MinecraftInstallAddonKind kind)
+    {
+        (MinecraftInstallAddonKind Kind, string GameVersion) key = (kind, _selectedMinecraftVersionId);
+        if (_addonVersionCache.TryGetValue(key, out IReadOnlyList<MinecraftInstallAddonVersionEntry>? versions))
+            return versions.Count > 0;
+        return !_addonVersionErrors.ContainsKey(key);
+    }
+
+    private static string GetAddonDisplayName(MinecraftInstallAddonKind kind) =>
+        kind switch
+        {
+            MinecraftInstallAddonKind.FabricApi => "Fabric API",
+            MinecraftInstallAddonKind.LegacyFabricApi => "Legacy Fabric API",
+            MinecraftInstallAddonKind.Qsl => "QSL",
+            MinecraftInstallAddonKind.OptiFabric => "OptiFabric",
+            MinecraftInstallAddonKind.OptiFine => "OptiFine",
+            _ => kind.ToString()
+        };
+
+    private static string GetAddonImageName(MinecraftInstallAddonKind kind) =>
+        kind switch
+        {
+            MinecraftInstallAddonKind.FabricApi or MinecraftInstallAddonKind.LegacyFabricApi => "Fabric.png",
+            MinecraftInstallAddonKind.Qsl => "Quilt.png",
+            MinecraftInstallAddonKind.OptiFabric => "OptiFabric.png",
+            _ => "Grass.png"
+        };
+
+    private string GetLoaderAvailabilityText(MinecraftLoaderKind kind, string canAdd)
+    {
+        (MinecraftLoaderKind Kind, string GameVersion) key = (kind, _selectedMinecraftVersionId);
+        if (_loaderVersionCache.TryGetValue(key, out IReadOnlyList<MinecraftLoaderVersionEntry>? versions))
+            return versions.Count == 0 ? "暂无可用版本" : canAdd;
+        if (_loaderVersionErrors.TryGetValue(key, out string? error))
+            return "版本列表加载失败：" + error;
+        return "正在获取版本列表";
+    }
+
+    private bool IsLoaderListOpenable(MinecraftLoaderKind kind)
+    {
+        if (!CanOpenLoaderCard(kind))
+            return false;
+        (MinecraftLoaderKind Kind, string GameVersion) key = (kind, _selectedMinecraftVersionId);
+        if (_loaderVersionCache.TryGetValue(key, out IReadOnlyList<MinecraftLoaderVersionEntry>? versions))
+            return versions.Count > 0;
+        // Still loading — allow expand so the in-panel spinner can show.
+        return !_loaderVersionErrors.ContainsKey(key);
+    }
+
+    private void BeginLoaderVersionPreload()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedMinecraftVersionId) || _instance is null)
+            return;
+
+        LaunchInstanceInfo instance = _instance;
+        string gameVersion = _selectedMinecraftVersionId;
+        foreach (MinecraftLoaderKind kind in CoreLoaderKinds)
+        {
+            string cardName = GetLoaderCardName(kind);
+            if (this.FindControl<MyCard>("Card" + cardName) is not { IsVisible: true })
+                continue;
+            UnhandledExceptionGuard.Observe(
+                PreloadLoaderVersionsAsync(kind, instance, gameVersion),
+                $"PageInstanceInstallRight.Preload{kind}");
+        }
+    }
+
+    private void BeginAddonVersionPreload()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedMinecraftVersionId) || _instance is null)
+            return;
+
+        LaunchInstanceInfo instance = _instance;
+        string gameVersion = _selectedMinecraftVersionId;
+        foreach (DownloadAddonDescriptor addon in DownloadAddonRegistry.All)
+        {
+            if (this.FindControl<MyCard>("Card" + addon.CardName) is not { IsVisible: true })
+                continue;
+            UnhandledExceptionGuard.Observe(
+                PreloadAddonVersionsAsync(addon.Kind, instance, gameVersion),
+                $"PageInstanceInstallRight.PreloadAddon{addon.Kind}");
+        }
+    }
+
+    private async Task PreloadAddonVersionsAsync(
+        MinecraftInstallAddonKind kind,
+        LaunchInstanceInfo expectedInstance,
+        string expectedGameVersion)
+    {
+        (MinecraftInstallAddonKind Kind, string GameVersion) key = (kind, expectedGameVersion);
+        if (_addonVersionCache.ContainsKey(key) || _addonVersionErrors.ContainsKey(key))
+            return;
+
+        try
+        {
+            if (!_addonVersionLoads.TryGetValue(key, out Task<IReadOnlyList<MinecraftInstallAddonVersionEntry>>? load))
+            {
+                load = _addonMetadataService.GetVersionsAsync(kind, expectedGameVersion);
+                _addonVersionLoads[key] = load;
+            }
+
+            IReadOnlyList<MinecraftInstallAddonVersionEntry> versions = await load.ConfigureAwait(false);
+            await RunOnUiThreadAsync(() =>
+            {
+                if (!ReferenceEquals(_instance, expectedInstance) ||
+                    !string.Equals(_selectedMinecraftVersionId, expectedGameVersion, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                _addonVersionCache[key] = versions;
+                _addonVersionErrors.Remove(key);
+                RefreshSelectedLoaderCards();
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or FormatException or InvalidOperationException or NotSupportedException)
+        {
+            await RunOnUiThreadAsync(() =>
+            {
+                _addonVersionLoads.Remove(key);
+                if (!ReferenceEquals(_instance, expectedInstance) ||
+                    !string.Equals(_selectedMinecraftVersionId, expectedGameVersion, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                _addonVersionErrors[key] = ex.Message;
+                RefreshSelectedLoaderCards();
+            }).ConfigureAwait(false);
+        }
+    }
+
+    private async Task PreloadLoaderVersionsAsync(
+        MinecraftLoaderKind kind,
+        LaunchInstanceInfo expectedInstance,
+        string expectedGameVersion)
+    {
+        (MinecraftLoaderKind Kind, string GameVersion) key = (kind, expectedGameVersion);
+        if (_loaderVersionCache.ContainsKey(key) || _loaderVersionErrors.ContainsKey(key))
+            return;
+
+        try
+        {
+            if (!_loaderVersionLoads.TryGetValue(key, out Task<IReadOnlyList<MinecraftLoaderVersionEntry>>? load))
+            {
+                load = _loaderMetadataService.GetLoaderVersionsAsync(kind, expectedGameVersion);
+                _loaderVersionLoads[key] = load;
+            }
+
+            IReadOnlyList<MinecraftLoaderVersionEntry> versions = await load.ConfigureAwait(false);
+            await RunOnUiThreadAsync(() =>
+            {
+                if (!ReferenceEquals(_instance, expectedInstance) ||
+                    !string.Equals(_selectedMinecraftVersionId, expectedGameVersion, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                _loaderVersionCache[key] = versions;
+                _loaderVersionErrors.Remove(key);
+                RefreshSelectedLoaderCards();
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or FormatException or InvalidOperationException or NotSupportedException)
+        {
+            await RunOnUiThreadAsync(() =>
+            {
+                _loaderVersionLoads.Remove(key);
+                if (!ReferenceEquals(_instance, expectedInstance) ||
+                    !string.Equals(_selectedMinecraftVersionId, expectedGameVersion, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                _loaderVersionErrors[key] = ex.Message;
+                RefreshSelectedLoaderCards();
+            }).ConfigureAwait(false);
+        }
     }
 
     private void SetLoaderInfoClosed(string name, string text, string imageName)
@@ -1227,6 +1598,19 @@ public partial class PageInstanceInstallRight : MyPageRight
             clearButton.IsVisible = false;
 
         if (this.FindControl<MyCard>("Card" + name) is { } card)
+        {
+            card.IsSwapped = true;
+            // Match PageDownloadInstall: incompatible cards cannot expand.
+            card.MainSwap.IsVisible = false;
+        }
+    }
+
+    private void SetLoaderCardOpenable(string name, bool canOpen)
+    {
+        if (this.FindControl<MyCard>("Card" + name) is not { } card)
+            return;
+        card.MainSwap.IsVisible = canOpen;
+        if (!canOpen)
             card.IsSwapped = true;
     }
 
@@ -1235,6 +1619,7 @@ public partial class PageInstanceInstallRight : MyPageRight
         _selectedLoaderKind = null;
         _selectedLoaderVersion = null;
         _selectedOptiFineAddon = null;
+        _selectedAddons.Clear();
     }
 
     private void SetLoaderVersionPanelLoading(string cardName)
@@ -1268,32 +1653,131 @@ public partial class PageInstanceInstallRight : MyPageRight
         });
     }
 
-    private void RequestAddonInstall(MinecraftInstallAddonKind kind, RouteEventArgs e)
+    private void RequestAddonExpand(MinecraftInstallAddonKind kind, RouteEventArgs e)
     {
-        e.Handled = true;
-        if (_instance is null)
-            return;
-
-        // Prefer in-page selection (install-page source of truth); fall back to disk detect.
-        MinecraftLoaderKind? loaderKind = _selectedLoaderKind;
-        string? loaderVersion = _selectedLoaderVersion?.Version;
-        string? optiFineVersion = _selectedOptiFineAddon?.Version;
-        if (loaderKind is null || string.IsNullOrWhiteSpace(loaderVersion))
+        if (_instance is null || !IsAddonListOpenable(kind))
         {
-            (loaderKind, loaderVersion, string? detectedOptiFine) = DetectCurrentLoaderSelection(_instance);
-            optiFineVersion ??= detectedOptiFine;
+            e.Handled = true;
+            return;
         }
 
-        if (loaderKind is null || string.IsNullOrWhiteSpace(loaderVersion))
+        string cardName = GetAddonCardName(kind);
+        if (this.FindControl<MyCard>("Card" + cardName) is not { IsSwapped: true })
             return;
 
-        ModifyRequested?.Invoke(this, new InstanceInstallModifyRequest(
-            _instance,
-            _selectedMinecraftVersionId,
-            AddonKind: kind,
-            CurrentLoaderKind: loaderKind,
-            CurrentLoaderVersion: loaderVersion,
-            CurrentOptiFineVersion: optiFineVersion));
+        SetLoaderVersionPanelLoading(cardName);
+        UnhandledExceptionGuard.Observe(
+            EnsureAddonVersions(kind, _instance, _selectedMinecraftVersionId),
+            $"PageInstanceInstallRight.LoadAddon{kind}");
+    }
+
+    private static string GetAddonCardName(MinecraftInstallAddonKind kind)
+    {
+        foreach (DownloadAddonDescriptor addon in DownloadAddonRegistry.All)
+        {
+            if (addon.Kind == kind)
+                return addon.CardName;
+        }
+
+        return kind.ToString();
+    }
+
+    private async Task EnsureAddonVersions(
+        MinecraftInstallAddonKind kind,
+        LaunchInstanceInfo expectedInstance,
+        string expectedGameVersion)
+    {
+        string cardName = GetAddonCardName(kind);
+        (MinecraftInstallAddonKind Kind, string GameVersion) key = (kind, expectedGameVersion);
+        if (_addonVersionCache.TryGetValue(key, out IReadOnlyList<MinecraftInstallAddonVersionEntry>? cached))
+        {
+            PopulateAddonVersionList(cardName, kind, cached);
+            return;
+        }
+
+        try
+        {
+            if (!_addonVersionLoads.TryGetValue(key, out Task<IReadOnlyList<MinecraftInstallAddonVersionEntry>>? load))
+            {
+                load = _addonMetadataService.GetVersionsAsync(kind, expectedGameVersion);
+                _addonVersionLoads[key] = load;
+            }
+
+            IReadOnlyList<MinecraftInstallAddonVersionEntry> versions = await load.ConfigureAwait(false);
+            await RunOnUiThreadAsync(() =>
+            {
+                if (!ReferenceEquals(_instance, expectedInstance) ||
+                    !string.Equals(_selectedMinecraftVersionId, expectedGameVersion, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                _addonVersionCache[key] = versions;
+                _addonVersionErrors.Remove(key);
+                PopulateAddonVersionList(cardName, kind, versions);
+                RefreshSelectedLoaderCards();
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or FormatException or InvalidOperationException or NotSupportedException)
+        {
+            await RunOnUiThreadAsync(() =>
+            {
+                _addonVersionLoads.Remove(key);
+                if (!ReferenceEquals(_instance, expectedInstance))
+                    return;
+                _addonVersionErrors[key] = ex.Message;
+                SetLoaderVersionPanelMessage(cardName, "获取版本列表失败", ex.Message);
+                RefreshSelectedLoaderCards();
+            }).ConfigureAwait(false);
+        }
+    }
+
+    private void PopulateAddonVersionList(
+        string cardName,
+        MinecraftInstallAddonKind kind,
+        IReadOnlyList<MinecraftInstallAddonVersionEntry> versions)
+    {
+        if (this.FindControl<StackPanel>("Pan" + cardName) is not { } panel)
+            return;
+
+        panel.Children.Clear();
+        if (versions.Count == 0)
+        {
+            SetLoaderVersionPanelMessage(cardName, "没有可用版本", "当前 Minecraft 版本暂时没有兼容的附加组件版本。");
+            return;
+        }
+
+        string logo = DownloadAddonRegistry.TryGetByCardName(cardName, out DownloadAddonDescriptor addon)
+            ? addon.Logo
+            : BlockAssetRoot + GetAddonImageName(kind);
+        foreach (MinecraftInstallAddonVersionEntry version in versions)
+        {
+            MyListItem item = new()
+            {
+                Title = version.Version,
+                Info = version.Stable ? "稳定版" : "测试版",
+                Type = MyListItem.CheckType.Clickable,
+                Logo = logo,
+                LogoScale = 0.82d,
+                Height = 42d,
+                Margin = new Thickness(0d, 0d, 0d, 2d),
+                Tag = version
+            };
+            item.Click += (_, _) => SelectAddonVersion(kind, version);
+            panel.Children.Add(item);
+        }
+
+        ControlVisualHelpers.AnimateListEntrance(panel, "Instance Addon List " + cardName);
+    }
+
+    private void SelectAddonVersion(MinecraftInstallAddonKind kind, MinecraftInstallAddonVersionEntry version)
+    {
+        _selectedAddons[kind] = version;
+        if (this.FindControl<MyCard>("Card" + GetAddonCardName(kind)) is { } card)
+            card.IsSwapped = true;
+        HideAllHints();
+        RefreshSelectedLoaderCards();
+        UpdateModifyButtonVisibility();
     }
 
     internal static (MinecraftLoaderKind? Kind, string? Version, string? OptiFineVersion) DetectCurrentLoaderSelection(
@@ -1358,12 +1842,21 @@ public partial class PageInstanceInstallRight : MyPageRight
 
     private void ClearLoader(string name, PointerReleasedEventArgs e)
     {
+        if (DownloadAddonRegistry.TryGetByCardName(name, out DownloadAddonDescriptor addon))
+        {
+            _selectedAddons.Remove(addon.Kind);
+            RefreshSelectedLoaderCards();
+            e.Handled = true;
+            return;
+        }
+
         // Match PageDownloadInstall.ClearSelectedLoader: OptiFine addon clears independently.
         if (string.Equals(name, "OptiFine", StringComparison.Ordinal) &&
             _selectedOptiFineAddon is not null &&
             _selectedLoaderKind != MinecraftLoaderKind.OptiFine)
         {
             _selectedOptiFineAddon = null;
+            _selectedAddons.Remove(MinecraftInstallAddonKind.OptiFabric);
             RefreshSelectedLoaderCards();
             e.Handled = true;
             return;
@@ -1373,6 +1866,7 @@ public partial class PageInstanceInstallRight : MyPageRight
         {
             ResetSelectedLoader();
             RefreshSelectedLoaderCards();
+            BeginAddonVersionPreload();
         }
         else
         {
@@ -1380,6 +1874,7 @@ public partial class PageInstanceInstallRight : MyPageRight
                 ? GetLoaderImageName(clearedKind)
                 : "Grass.png";
             SetLoaderInfo(name, null, imageName);
+            UpdateModifyButtonVisibility();
         }
 
         e.Handled = true;

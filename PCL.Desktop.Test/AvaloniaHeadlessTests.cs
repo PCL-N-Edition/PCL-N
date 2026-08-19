@@ -8334,7 +8334,8 @@ public sealed class AvaloniaHeadlessTests
             {
                 PageInstanceInstallRight page = new(
                     new MinecraftVanillaInstallService(),
-                    new FakeMinecraftLoaderMetadataService());
+                    new FakeMinecraftLoaderMetadataService(),
+                    new FakeMinecraftInstallAddonMetadataService());
                 Dictionary<(MinecraftLoaderKind Kind, string GameVersion), IReadOnlyList<MinecraftLoaderVersionEntry>> cache =
                     GetPrivateField<Dictionary<(MinecraftLoaderKind Kind, string GameVersion), IReadOnlyList<MinecraftLoaderVersionEntry>>>(
                         page,
@@ -8342,6 +8343,21 @@ public sealed class AvaloniaHeadlessTests
                 cache[(MinecraftLoaderKind.Fabric, "1.20.1")] =
                 [
                     new MinecraftLoaderVersionEntry(MinecraftLoaderKind.Fabric, "0.16.14", true)
+                ];
+                Dictionary<(MinecraftInstallAddonKind Kind, string GameVersion), IReadOnlyList<MinecraftInstallAddonVersionEntry>> addonCache =
+                    GetPrivateField<Dictionary<(MinecraftInstallAddonKind Kind, string GameVersion), IReadOnlyList<MinecraftInstallAddonVersionEntry>>>(
+                        page,
+                        "_addonVersionCache");
+                addonCache[(MinecraftInstallAddonKind.FabricApi, "1.20.1")] =
+                [
+                    new MinecraftInstallAddonVersionEntry(
+                        MinecraftInstallAddonKind.FabricApi,
+                        "0.100.0+1.20.1",
+                        "fabric-api.jar",
+                        "https://cdn.example/fabric-api.jar",
+                        null,
+                        1234,
+                        true)
                 ];
                 Window window = new()
                 {
@@ -8371,14 +8387,8 @@ public sealed class AvaloniaHeadlessTests
                     Assert.IsFalse(page.FindControl<MyCard>("CardCleanroom")!.IsVisible);
                     Assert.IsFalse(page.FindControl<Control>("PanLoad")!.IsVisible);
                     Assert.IsTrue(page.FindControl<Control>("PanSelect")!.IsVisible);
-
-                    Click(window, page.FindControl<MyExtraTextButton>("BtnSelectStart")!);
-
-                    Assert.AreEqual(instance, modifyRequest?.Instance);
-                    Assert.AreEqual("1.20.1", modifyRequest?.MinecraftVersionId);
-                    Assert.AreEqual(MinecraftLoaderKind.Fabric, modifyRequest?.LoaderKind);
-                    Assert.AreEqual("0.16.10", modifyRequest?.LoaderVersion);
-                    Assert.IsTrue(modifyRequest?.ApplySelection);
+                    // Unchanged selection — modify button stays hidden.
+                    Assert.IsFalse(page.FindControl<MyExtraTextButton>("BtnSelectStart")!.Show);
 
                     modifyRequest = null;
                     Click(window, page.FindControl<MyCard>("CardFabric")!);
@@ -8393,19 +8403,38 @@ public sealed class AvaloniaHeadlessTests
                     AvaloniaHeadlessPlatform.ForceRenderTimerTick();
                     Assert.IsTrue(page.FindControl<MyCard>("CardFabric")!.IsSwapped);
                     Assert.AreEqual("0.16.14", page.FindControl<TextBlock>("LabFabric")!.Text);
+                    Assert.IsTrue(page.FindControl<MyExtraTextButton>("BtnSelectStart")!.Show);
 
                     Click(window, page.FindControl<MyExtraTextButton>("BtnSelectStart")!);
+                    Assert.AreEqual(instance, modifyRequest?.Instance);
+                    Assert.AreEqual("1.20.1", modifyRequest?.MinecraftVersionId);
                     Assert.AreEqual(MinecraftLoaderKind.Fabric, modifyRequest?.LoaderKind);
                     Assert.AreEqual("0.16.14", modifyRequest?.LoaderVersion);
                     Assert.IsTrue(modifyRequest?.ApplySelection);
 
                     modifyRequest = null;
                     Assert.IsTrue(page.FindControl<MyCard>("CardFabricApi")!.IsVisible);
+                    Assert.IsTrue(page.FindControl<MyCard>("CardFabricApi")!.MainSwap.IsVisible);
                     Click(window, page.FindControl<MyCard>("CardFabricApi")!);
-                    Assert.AreEqual(MinecraftInstallAddonKind.FabricApi, modifyRequest?.AddonKind);
-                    Assert.AreEqual(MinecraftLoaderKind.Fabric, modifyRequest?.CurrentLoaderKind);
-                    // Prefer in-page selection over disk detect (install-page source of truth).
-                    Assert.AreEqual("0.16.14", modifyRequest?.CurrentLoaderVersion);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    Assert.IsNull(modifyRequest);
+                    Assert.IsFalse(page.FindControl<MyCard>("CardFabricApi")!.IsSwapped);
+
+                    MyListItem fabricApiVersion = page.GetVisualDescendants()
+                        .OfType<MyListItem>()
+                        .First(item => item.Title == "0.100.0+1.20.1");
+                    Click(window, fabricApiVersion);
+                    AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    Assert.AreEqual("0.100.0+1.20.1", page.FindControl<TextBlock>("LabFabricApi")!.Text);
+                    Assert.IsTrue(page.FindControl<MyExtraTextButton>("BtnSelectStart")!.Show);
+
+                    Click(window, page.FindControl<MyExtraTextButton>("BtnSelectStart")!);
+                    Assert.AreEqual(MinecraftLoaderKind.Fabric, modifyRequest?.LoaderKind);
+                    Assert.AreEqual("0.16.14", modifyRequest?.LoaderVersion);
+                    Assert.IsTrue(modifyRequest?.ApplySelection);
+                    Assert.AreEqual(1, modifyRequest?.Addons?.Count);
+                    Assert.AreEqual(MinecraftInstallAddonKind.FabricApi, modifyRequest?.Addons?[0].Kind);
+                    Assert.AreEqual("0.100.0+1.20.1", modifyRequest?.Addons?[0].Version);
                 }
                 finally
                 {
@@ -8731,7 +8760,7 @@ public sealed class AvaloniaHeadlessTests
                     Assert.IsFalse(page.FindControl<StackPanel>("PanMinecraft")!.IsVisible);
                     Assert.AreEqual("1.20.2", page.FindControl<TextBlock>("LabMinecraft")!.Text);
                     Assert.AreEqual("1.20.2  |  无额外安装", page.FindControl<MyListItem>("ItemSelect")!.Info);
-                    Assert.AreEqual("可添加", page.FindControl<TextBlock>("LabFabric")!.Text);
+                    Assert.IsTrue(page.FindControl<MyExtraTextButton>("BtnSelectStart")!.Show);
 
                     Click(window, page.FindControl<MyExtraTextButton>("BtnSelectStart")!);
 
@@ -8807,7 +8836,8 @@ public sealed class AvaloniaHeadlessTests
                     Assert.AreEqual(0d, ((TranslateTransform)select.RenderTransform!).X, 0.01d);
                     Assert.AreEqual(0d, ((TranslateTransform)minecraft.RenderTransform!).X, 0.01d);
                     Assert.IsTrue(scroll.IsHitTestVisible);
-                    Assert.IsTrue(page.FindControl<MyExtraTextButton>("BtnSelectStart")!.Show);
+                    // No configuration change yet — modify button stays hidden (dirty-gated).
+                    Assert.IsFalse(page.FindControl<MyExtraTextButton>("BtnSelectStart")!.Show);
                     Assert.AreEqual("forge-47.3.0", page.FindControl<TextBlock>("LabForge")!.Text);
                     Assert.IsTrue(page.FindControl<Control>("BtnForgeClear")!.IsVisible);
                 }
