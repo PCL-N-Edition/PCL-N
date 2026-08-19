@@ -3815,10 +3815,18 @@ public partial class MainWindow : Window, IDisposable
 
             double versionProgress = 0d;
             string versionDetail = "准备安装版本";
+            int versionCompleted = 0;
+            int versionTotal = 0;
+            long versionSpeed = 0;
+            int versionActiveThreads = 0;
+            int versionThreadLimit = Math.Max(1, installRequest.DownloadThreadLimit);
             double packProgressValue = 0d;
             string packDetail = "等待下载模组";
             int packCompleted = 0;
             int packTotal = 0;
+            long packSpeed = 0;
+            int packActiveThreads = 0;
+            int packThreadLimit = Math.Max(1, installRequest.DownloadThreadLimit);
             bool versionFinished = false;
 
             void PublishModpackTaskUi()
@@ -3844,6 +3852,20 @@ public partial class MainWindow : Window, IDisposable
                                 : TaskManagerTaskState.Waiting)
                 ];
 
+                // Left-rail summary reads Speed / ActiveThreads / ThreadLimit / remaining files
+                // from the task snapshot — keep version metrics while installing, pack after.
+                int completedFiles = versionFinished ? packCompleted : versionCompleted;
+                int totalFiles = versionFinished
+                    ? packTotal
+                    : (versionTotal > 0 ? versionTotal : packTotal);
+                long speed = Math.Max(0, versionSpeed) + Math.Max(0, packSpeed);
+                int activeThreads = versionFinished
+                    ? Math.Max(0, packActiveThreads)
+                    : Math.Max(versionActiveThreads, packActiveThreads);
+                int threadLimit = versionFinished
+                    ? Math.Max(1, packThreadLimit)
+                    : Math.Max(versionThreadLimit, packThreadLimit);
+
                 TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, taskTitle);
                 _taskSessionStore.Upsert(taskId, previous with
                 {
@@ -3851,8 +3873,11 @@ public partial class MainWindow : Window, IDisposable
                     Stage = versionFinished ? (string.IsNullOrWhiteSpace(packDetail) ? "下载模组" : packDetail.Split('·')[0].Trim()) : "安装版本",
                     Detail = versionFinished ? packDetail : versionDetail,
                     Progress = Math.Clamp(overall, 0d, 1d),
-                    CompletedFiles = packCompleted,
-                    TotalFiles = packTotal,
+                    CompletedFiles = completedFiles,
+                    TotalFiles = totalFiles,
+                    SpeedBytesPerSecond = speed,
+                    ActiveThreads = activeThreads,
+                    ThreadLimit = threadLimit,
                     State = TaskManagerTaskState.Running,
                     ErrorMessage = null,
                     Steps = steps
@@ -3873,6 +3898,11 @@ public partial class MainWindow : Window, IDisposable
                         : update.Stage + " · " + update.Detail;
                     packCompleted = update.CompletedFiles;
                     packTotal = update.TotalFiles;
+                    packSpeed = Math.Max(0, update.SpeedBytesPerSecond);
+                    if (update.ActiveThreads > 0)
+                        packActiveThreads = update.ActiveThreads;
+                    if (update.ThreadLimit > 0)
+                        packThreadLimit = update.ThreadLimit;
                     PublishModpackTaskUi();
                 });
             });
@@ -3890,6 +3920,11 @@ public partial class MainWindow : Window, IDisposable
                             versionDetail = string.IsNullOrWhiteSpace(update.Detail)
                                 ? (string.IsNullOrWhiteSpace(update.Stage) ? "正在安装版本" : update.Stage)
                                 : update.Stage + " · " + update.Detail;
+                            versionCompleted = update.CompletedFiles;
+                            versionTotal = update.TotalFiles;
+                            versionSpeed = Math.Max(0, update.SpeedBytesPerSecond);
+                            versionActiveThreads = Math.Max(0, update.ActiveThreads);
+                            versionThreadLimit = Math.Max(1, update.ThreadLimit);
                             PublishModpackTaskUi();
                         })),
                     cancellationToken: linked.Token)

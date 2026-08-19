@@ -51,7 +51,9 @@ public sealed record MinecraftModpackInstallProgress(
     double Progress,
     int CompletedFiles = 0,
     int TotalFiles = 0,
-    long SpeedBytesPerSecond = 0);
+    long SpeedBytesPerSecond = 0,
+    int ActiveThreads = 0,
+    int ThreadLimit = 0);
 
 public sealed record MinecraftModpackInstallResult(
     MinecraftModpackFormat Format,
@@ -336,6 +338,7 @@ public sealed class MinecraftModpackArchiveInstaller
         int totalResources,
         CancellationToken cancellationToken)
     {
+        int threadLimit = Math.Clamp(request.DownloadThreadLimit <= 0 ? 64 : request.DownloadThreadLimit, 1, 256);
         int installedResources = 0;
         if (plan.ModrinthFiles.Count > 0)
         {
@@ -345,6 +348,7 @@ public sealed class MinecraftModpackArchiveInstaller
                     progress,
                     totalResources,
                     installedResources,
+                    threadLimit,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -360,6 +364,7 @@ public sealed class MinecraftModpackArchiveInstaller
                     progress,
                     totalResources,
                     installedResources,
+                    threadLimit,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -466,31 +471,47 @@ public sealed class MinecraftModpackArchiveInstaller
         IProgress<MinecraftModpackInstallProgress>? progress,
         int totalResources,
         int completedBefore,
+        int threadLimit,
         CancellationToken cancellationToken)
     {
-        int completed = 0;
-        foreach (ModrinthPackFile file in files)
+        PackDownloadProgressTracker tracker = new(
+            progress,
+            "正在下载整合包资源",
+            totalResources,
+            completedBefore,
+            threadLimit);
+        ParallelOptions parallelOptions = new()
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            string target = ResolveSafeTarget(instanceDirectory, file.Path);
-            await DownloadFileAsync(
-                    file.DownloadUris,
-                    target,
-                    file.Size,
-                    file.HashAlgorithm,
-                    file.Hash,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            completed++;
-            int current = completedBefore + completed;
-            progress?.Report(new MinecraftModpackInstallProgress(
-                "正在下载整合包资源",
-                file.Path,
-                0.65d + 0.25d * current / Math.Max(1d, totalResources),
-                current,
-                totalResources));
-        }
-        return completed;
+            CancellationToken = cancellationToken,
+            MaxDegreeOfParallelism = threadLimit
+        };
+        await Parallel.ForEachAsync(
+                files,
+                parallelOptions,
+                async (file, token) =>
+                {
+                    tracker.WorkerStarted();
+                    try
+                    {
+                        string target = ResolveSafeTarget(instanceDirectory, file.Path);
+                        await DownloadFileAsync(
+                                file.DownloadUris,
+                                target,
+                                file.Size,
+                                file.HashAlgorithm,
+                                file.Hash,
+                                token,
+                                tracker.OnBytes)
+                            .ConfigureAwait(false);
+                        tracker.MarkCompleted(file.Path);
+                    }
+                    finally
+                    {
+                        tracker.WorkerFinished();
+                    }
+                })
+            .ConfigureAwait(false);
+        return files.Count;
     }
 
     private async Task<int> DownloadCurseForgeFilesAsync(
@@ -500,43 +521,150 @@ public sealed class MinecraftModpackArchiveInstaller
         IProgress<MinecraftModpackInstallProgress>? progress,
         int totalResources,
         int completedBefore,
+        int threadLimit,
         CancellationToken cancellationToken)
     {
-        int completed = 0;
-        foreach (CurseForgePackReference reference in files)
+        PackDownloadProgressTracker tracker = new(
+            progress,
+            "正在下载 CurseForge 资源",
+            totalResources,
+            completedBefore,
+            threadLimit);
+        ParallelOptions parallelOptions = new()
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            CurseForgeModpackFile file = await resolver
-                .ResolveAsync(reference.ProjectId, reference.FileId, cancellationToken)
-                .ConfigureAwait(false);
-            string target = ResolveSafeTarget(instanceDirectory, file.RelativePath);
-            await DownloadFileAsync(
-                    file.DownloadUris,
-                    target,
-                    file.Size,
-                    file.HashAlgorithm,
-                    file.Hash,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            completed++;
-            int current = completedBefore + completed;
-            progress?.Report(new MinecraftModpackInstallProgress(
-                "正在下载 CurseForge 资源",
-                file.RelativePath,
-                0.65d + 0.25d * current / Math.Max(1d, totalResources),
-                current,
-                totalResources));
-        }
-        return completed;
+            CancellationToken = cancellationToken,
+            MaxDegreeOfParallelism = threadLimit
+        };
+        await Parallel.ForEachAsync(
+                files,
+                parallelOptions,
+                async (reference, token) =>
+                {
+                    tracker.WorkerStarted();
+                    try
+                    {
+                        CurseForgeModpackFile file = await resolver
+                            .ResolveAsync(reference.ProjectId, reference.FileId, token)
+                            .ConfigureAwait(false);
+                        string target = ResolveSafeTarget(instanceDirectory, file.RelativePath);
+                        await DownloadFileAsync(
+                                file.DownloadUris,
+                                target,
+                                file.Size,
+                                file.HashAlgorithm,
+                                file.Hash,
+                                token,
+                                tracker.OnBytes)
+                            .ConfigureAwait(false);
+                        tracker.MarkCompleted(file.RelativePath);
+                    }
+                    finally
+                    {
+                        tracker.WorkerFinished();
+                    }
+                })
+            .ConfigureAwait(false);
+        return files.Count;
     }
 
-    private async Task DownloadFileAsync(
+    private sealed class PackDownloadProgressTracker
+    {
+        private readonly IProgress<MinecraftModpackInstallProgress>? _progress;
+        private readonly string _stage;
+        private readonly int _totalResources;
+        private readonly int _completedBefore;
+        private readonly int _threadLimit;
+        private int _completed;
+        private int _activeThreads;
+        private long _windowBytes;
+        private long _windowStarted = Environment.TickCount64;
+        private string _detail;
+
+        public PackDownloadProgressTracker(
+            IProgress<MinecraftModpackInstallProgress>? progress,
+            string stage,
+            int totalResources,
+            int completedBefore,
+            int threadLimit)
+        {
+            _progress = progress;
+            _stage = stage;
+            _totalResources = totalResources;
+            _completedBefore = completedBefore;
+            _threadLimit = threadLimit;
+            _detail = stage;
+        }
+
+        public void WorkerStarted()
+        {
+            Interlocked.Increment(ref _activeThreads);
+            Report(_detail, CurrentSpeed());
+        }
+
+        public void WorkerFinished()
+        {
+            Interlocked.Decrement(ref _activeThreads);
+            Report(_detail, CurrentSpeed());
+        }
+
+        public void OnBytes(long bytesDelta, long instantaneousSpeed)
+        {
+            _ = instantaneousSpeed;
+            if (bytesDelta > 0)
+                Interlocked.Add(ref _windowBytes, bytesDelta);
+            Report(_detail, CurrentSpeed());
+            MaybeRotateWindow();
+        }
+
+        public void MarkCompleted(string detail)
+        {
+            Interlocked.Increment(ref _completed);
+            Volatile.Write(ref _detail, detail);
+            Report(detail, CurrentSpeed());
+            MaybeRotateWindow();
+        }
+
+        private long CurrentSpeed()
+        {
+            long elapsed = Math.Max(1, Environment.TickCount64 - Interlocked.Read(ref _windowStarted));
+            return Interlocked.Read(ref _windowBytes) * 1000L / elapsed;
+        }
+
+        private void MaybeRotateWindow()
+        {
+            long now = Environment.TickCount64;
+            long started = Interlocked.Read(ref _windowStarted);
+            if (now - started <= 2000)
+                return;
+            if (Interlocked.CompareExchange(ref _windowStarted, now, started) == started)
+                Interlocked.Exchange(ref _windowBytes, 0);
+        }
+
+        private void Report(string detail, long speed)
+        {
+            int completed = _completedBefore + Volatile.Read(ref _completed);
+            int active = Math.Max(0, Volatile.Read(ref _activeThreads));
+            _progress?.Report(new MinecraftModpackInstallProgress(
+                _stage,
+                detail,
+                0.65d + 0.25d * completed / Math.Max(1d, _totalResources),
+                completed,
+                _totalResources,
+                Math.Max(0, speed),
+                active,
+                _threadLimit));
+        }
+    }
+
+    /// <returns>Bytes written for the completed file.</returns>
+    private async Task<long> DownloadFileAsync(
         IReadOnlyList<Uri> downloadUris,
         string targetPath,
         long expectedSize,
         string? hashAlgorithm,
         string? expectedHash,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<long, long>? onProgress = null)
     {
         if (downloadUris.Count == 0)
             throw new InvalidDataException($"整合包资源没有下载地址：{targetPath}");
@@ -557,6 +685,8 @@ public sealed class MinecraftModpackArchiveInstaller
                     byte[] buffer = ArrayPool<byte>.Shared.Rent(128 * 1024);
                     IncrementalHash? hasher = CreateHasher(hashAlgorithm);
                     long written = 0;
+                    long sampleStarted = Environment.TickCount64;
+                    long sampleBytes = 0;
                     try
                     {
                         // Dispose the file handle before Move — Windows cannot rename an open file.
@@ -576,6 +706,15 @@ public sealed class MinecraftModpackArchiveInstaller
                                 await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
                                 hasher?.AppendData(buffer, 0, read);
                                 written += read;
+                                sampleBytes += read;
+                                long elapsed = Environment.TickCount64 - sampleStarted;
+                                if (elapsed >= 250)
+                                {
+                                    // (bytesDelta, instantaneousBytesPerSecond)
+                                    onProgress?.Invoke(sampleBytes, sampleBytes * 1000L / Math.Max(1, elapsed));
+                                    sampleStarted = Environment.TickCount64;
+                                    sampleBytes = 0;
+                                }
                             }
 
                             await target.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -601,7 +740,7 @@ public sealed class MinecraftModpackArchiveInstaller
                     }
 
                     File.Move(temporaryPath, targetPath, overwrite: true);
-                    return;
+                    return written;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException or FormatException)
                 {
