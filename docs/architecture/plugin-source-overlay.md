@@ -12,7 +12,7 @@
 
 ```
 main 合入
-  → bump PCL.Plugin.csproj Version (e.g. 0.20.0)
+  → bump PCL.Plugin.csproj Version (e.g. 0.20.1)
   → push main
   → annotated tag vX.Y.Z + push tag
   → GitHub Release（changelog / releases/latest 发现用）
@@ -77,7 +77,7 @@ Host hooks that stay in the body (empty without overlay):
 .\scripts\apply-plugin-overlay.ps1 -Channel Latest
 
 # Pin
-.\scripts\apply-plugin-overlay.ps1 -Tag v0.17.0
+.\scripts\apply-plugin-overlay.ps1 -Tag v0.20.1
 
 .\scripts\build-desktop.ps1 -WithPlugin -SkipPluginFetch
 .\scripts\apply-plugin-overlay.ps1 -RestoreHostRewrites -SkipFetch
