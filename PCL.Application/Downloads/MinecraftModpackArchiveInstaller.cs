@@ -554,28 +554,33 @@ public sealed class MinecraftModpackArchiveInstaller
                         .ConfigureAwait(false);
                     response.EnsureSuccessStatusCode();
                     await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                    await using FileStream target = new(
-                        temporaryPath,
-                        FileMode.Create,
-                        FileAccess.Write,
-                        FileShare.None,
-                        128 * 1024,
-                        FileOptions.Asynchronous | FileOptions.SequentialScan);
                     byte[] buffer = ArrayPool<byte>.Shared.Rent(128 * 1024);
                     IncrementalHash? hasher = CreateHasher(hashAlgorithm);
                     long written = 0;
                     try
                     {
-                        while (true)
+                        // Dispose the file handle before Move — Windows cannot rename an open file.
+                        await using (FileStream target = new(
+                            temporaryPath,
+                            FileMode.Create,
+                            FileAccess.Write,
+                            FileShare.None,
+                            128 * 1024,
+                            FileOptions.Asynchronous | FileOptions.SequentialScan))
                         {
-                            int read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-                            if (read == 0)
-                                break;
-                            await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-                            hasher?.AppendData(buffer, 0, read);
-                            written += read;
+                            while (true)
+                            {
+                                int read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                                if (read == 0)
+                                    break;
+                                await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                                hasher?.AppendData(buffer, 0, read);
+                                written += read;
+                            }
+
+                            await target.FlushAsync(cancellationToken).ConfigureAwait(false);
                         }
-                        await target.FlushAsync(cancellationToken).ConfigureAwait(false);
+
                         if (expectedSize > 0 && written != expectedSize)
                             throw new InvalidDataException($"下载文件大小不匹配：期望 {expectedSize}，实际 {written}。");
                         if (hasher is not null && !string.IsNullOrWhiteSpace(expectedHash))
