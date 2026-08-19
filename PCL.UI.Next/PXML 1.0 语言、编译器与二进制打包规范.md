@@ -580,6 +580,14 @@ Button Runtime Class
 
 # 16. Component 展开
 
+框架预定义 Component 不得硬编码进展开器。调用方必须提供一个预定义目录；遇到非
+Primitive 元素 `<Name>` 时，展开器按安全的本地名称读取
+`<predefined-directory>/Name.pxml`。文件根必须是 `x:Component`，且 `x:Name` 必须与文件名
+一致。找不到文件、名称不一致或重名都属于确定性的编译错误。
+
+项目私有 `--component` 定义优先进入同一 Component registry；预定义目录只是惰性查找源，
+两者必须复用同一 Parser、属性替换、Slot 与递归展开实现。
+
 调用：
 
 ```xml
@@ -3805,6 +3813,8 @@ PXML 1.0 最终冻结以下不变量：
 13. **PCL-N 主仓库只消费 Compiler Artifact 和 Runtime ABI。**
 14. **PCL.UI.Next 不依赖 PXML Compiler。**
 15. **PXML 不得演化成 XAML/DependencyProperty/Control Tree 的复制品。**
+16. **预定义控件来自调用方提供的 PXML Component 目录，不得内置于展开器。**
+17. **PCL.UI.Next 公共 Runtime 只接受已编译 PXB/PXPK，不接受 PXML 源码或 C# UI 树。**
 
 ---
 
@@ -3838,7 +3848,7 @@ Conformance Tests
 PCL.UI.Next Runtime
 PXML Runtime ABI Adapter
 PXPK Loader
-Generated UI
+PXB Blueprint Loader
 ```
 
 以后涉及：

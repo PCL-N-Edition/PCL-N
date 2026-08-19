@@ -891,7 +891,6 @@ PCL.UI.Next.TransitionSetComponent
 PCL.UI.Next.TransitionSetComponent.TransitionSetComponent() -> void
 PCL.UI.Next.TransitionSetComponent.Value.get -> PCL.UI.Next.UiTransitionSet
 PCL.UI.Next.TransitionSetComponent.Value.set -> void
-PCL.UI.Next.Ui
 PCL.UI.Next.UiAccessibilityActionRequest
 PCL.UI.Next.UiAccessibilityActionRequest.Action.get -> PCL.UI.Next.UiAccessibleAction
 PCL.UI.Next.UiAccessibilityActionRequest.Action.init -> void
@@ -1840,39 +1839,9 @@ PCL.UI.Next.UiNavigationRuntime.TryGetPage(PCL.UI.Next.UiPageKey page, out PCL.U
 PCL.UI.Next.UiNavigationRuntime.UiNavigationRuntime(PCL.UI.Next.UiWorld! world, PCL.UI.Next.UiInteractiveRuntime! runtime, PCL.UI.Next.BlueprintInstantiator! instantiator, PCL.UI.Next.UiScopeId hostScope, PCL.UI.Next.UiEntity parent = default(PCL.UI.Next.UiEntity), PCL.UI.Next.UiNavigationOptions? options = null) -> void
 PCL.UI.Next.UiNavigationRuntime.Unregister(PCL.UI.Next.UiPageKey page) -> bool
 PCL.UI.Next.UiNavigationRuntime.Update(PCL.UI.Next.UiWorld! world, in PCL.UI.Next.UiFrameContext frame) -> void
-PCL.UI.Next.UiNode
-PCL.UI.Next.UiNode.Accessible(PCL.UI.Next.UiSemanticRole role, string? name = null, string? description = null, string? value = null, PCL.UI.Next.UiAccessibleState state = PCL.UI.Next.UiAccessibleState.None, PCL.UI.Next.UiAccessibleAction actions = PCL.UI.Next.UiAccessibleAction.None) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.AddChildren(params PCL.UI.Next.UiNode![]! children) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Align(PCL.UI.Next.UiHorizontalAlignment horizontal, PCL.UI.Next.UiVerticalAlignment vertical) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.AnimateLayout(PCL.UI.Next.UiMotionToken motion) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.At(float left, float top) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Behavior(PCL.UI.Next.UiBehavior behavior) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.BindText(PCL.UI.Next.UiSelector<string!> selector) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.BindValue(PCL.UI.Next.UiSelector<string!> selector) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Child(PCL.UI.Next.UiNode! child) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Class(PCL.UI.Next.UiClass styleClass) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Command(PCL.UI.Next.UiCommand command) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.FocusScope(bool trap = false, bool restorePrevious = true) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Gap(float gap) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Gestures(PCL.UI.Next.UiGestureMask gestures) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.GridCell(int row, int column, int rowSpan = 1, int columnSpan = 1) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Height(PCL.UI.Next.UiLength height) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.HitTestVisible(bool visible = true) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Kind.get -> PCL.UI.Next.UiNodeKind
-PCL.UI.Next.UiNode.LayoutBoundary(bool enabled = true) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Margin(PCL.UI.Next.UiThickness margin) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.MaxSize(float width, float height) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.MinSize(float width, float height) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Padding(PCL.UI.Next.UiThickness padding) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.TabIndex(int tabIndex) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Text(string! value) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Transition(PCL.UI.Next.UiAnimationProperty property, PCL.UI.Next.UiMotionToken motion) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Transition(PCL.UI.Next.UiAnimationProperty property, PCL.UI.Next.UiMotionToken motion, PCL.UI.Next.UiAnimationContinuity continuity) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.Width(PCL.UI.Next.UiLength width) -> PCL.UI.Next.UiNode!
-PCL.UI.Next.UiNode.WrapText(float maxWidth) -> PCL.UI.Next.UiNode!
 PCL.UI.Next.UiNodeKind
 PCL.UI.Next.UiNodeKind.Absolute = 9 -> PCL.UI.Next.UiNodeKind
-PCL.UI.Next.UiNodeKind.Button = 5 -> PCL.UI.Next.UiNodeKind
+PCL.UI.Next.UiNodeKind.Reserved = 5 -> PCL.UI.Next.UiNodeKind
 PCL.UI.Next.UiNodeKind.Column = 1 -> PCL.UI.Next.UiNodeKind
 PCL.UI.Next.UiNodeKind.Container = 3 -> PCL.UI.Next.UiNodeKind
 PCL.UI.Next.UiNodeKind.Grid = 7 -> PCL.UI.Next.UiNodeKind
@@ -2728,20 +2697,6 @@ static PCL.UI.Next.ThemeToken<T>.operator !=(PCL.UI.Next.ThemeToken<T> left, PCL
 static PCL.UI.Next.ThemeToken<T>.operator ==(PCL.UI.Next.ThemeToken<T> left, PCL.UI.Next.ThemeToken<T> right) -> bool
 static PCL.UI.Next.ThemeValue<T>.implicit operator PCL.UI.Next.ThemeValue<T>(PCL.UI.Next.ThemeToken<T> token) -> PCL.UI.Next.ThemeValue<T>
 static PCL.UI.Next.ThemeValue<T>.implicit operator PCL.UI.Next.ThemeValue<T>(T value) -> PCL.UI.Next.ThemeValue<T>
-static PCL.UI.Next.Ui.Absolute(params PCL.UI.Next.UiNode![]! children) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.Button(PCL.UI.Next.UiNode! content) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.Button(string! label) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.Column(params PCL.UI.Next.UiNode![]! children) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.Compile(PCL.UI.Next.UiNode! root, string! name = "Blueprint") -> PCL.UI.Next.UiBlueprint!
-static PCL.UI.Next.Ui.Container(params PCL.UI.Next.UiNode![]! children) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.Grid(PCL.UI.Next.UiGridDefinition! definition, params PCL.UI.Next.UiNode![]! children) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.If(PCL.UI.Next.UiSelector<bool> condition, PCL.UI.Next.UiNode! whenTrue, PCL.UI.Next.UiNode? whenFalse = null) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.Overlay(params PCL.UI.Next.UiNode![]! children) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.Row(params PCL.UI.Next.UiNode![]! children) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.Scroll(PCL.UI.Next.UiNode! content, PCL.UI.Next.UiOrientation orientation = PCL.UI.Next.UiOrientation.Vertical) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.Text(string? value = null) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.TextBox(string? value = null, string? placeholder = null, bool password = false) -> PCL.UI.Next.UiNode!
-static PCL.UI.Next.Ui.VirtualList(float estimatedItemExtent = 48, ushort overscanBefore = 6, ushort overscanAfter = 6, PCL.UI.Next.UiOrientation orientation = PCL.UI.Next.UiOrientation.Vertical) -> PCL.UI.Next.UiNode!
 static PCL.UI.Next.UiAccessibilityActionRequest.operator !=(PCL.UI.Next.UiAccessibilityActionRequest left, PCL.UI.Next.UiAccessibilityActionRequest right) -> bool
 static PCL.UI.Next.UiAccessibilityActionRequest.operator ==(PCL.UI.Next.UiAccessibilityActionRequest left, PCL.UI.Next.UiAccessibilityActionRequest right) -> bool
 static PCL.UI.Next.UiAccessibilityFrameAction.operator !=(PCL.UI.Next.UiAccessibilityFrameAction left, PCL.UI.Next.UiAccessibilityFrameAction right) -> bool

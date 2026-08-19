@@ -292,7 +292,7 @@ public sealed class BlueprintAuthoringTests
         UiBlueprint bp = Ui.Compile(Ui.Button("Start").Command(launch));
         BlueprintInstance live = inst.Instantiate(bp, scope);
 
-        UiEntity button = FindFirstKind(world, live, UiNodeKind.Button);
+        UiEntity button = FindButton(world, live);
         Assert.IsTrue(world.Components.Pool<BehaviorComponent>().Get(button).Flags.HasFlag(UiBehavior.Clickable));
         Assert.AreEqual(42, world.Components.Pool<CommandBindingComponent>().Get(button).CommandId);
         Assert.IsTrue(world.Components.Pool<StyleClassSet>().Get(button).Contains(UiClass.Button.Id));
@@ -414,6 +414,24 @@ public sealed class BlueprintAuthoringTests
                 return e;
         }
 
+        return UiEntity.None;
+    }
+
+    private static UiEntity FindButton(UiWorld world, BlueprintInstance live)
+    {
+        for (int i = 0; i < live.Blueprint.NodeCount; i++)
+        {
+            UiEntity entity = live.EntityAt(i);
+            if (!world.Entities.IsAlive(entity) ||
+                !world.Components.TryGet(entity, out BehaviorComponent behavior) ||
+                (behavior.Flags & UiBehavior.Clickable) == 0 ||
+                !world.Components.TryGet(entity, out StyleClassSet classes) ||
+                !classes.Contains(UiClass.Button.Id))
+            {
+                continue;
+            }
+            return entity;
+        }
         return UiEntity.None;
     }
 

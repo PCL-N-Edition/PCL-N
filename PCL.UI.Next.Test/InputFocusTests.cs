@@ -18,8 +18,8 @@ public sealed class InputFocusTests
                 Ui.Button("Front").Width(UiLength.Pixels(100)).Height(UiLength.Pixels(50))));
         Drain(context.World);
 
-        UiEntity back = FindKind(context.World, live, UiNodeKind.Button, occurrence: 0);
-        UiEntity front = FindKind(context.World, live, UiNodeKind.Button, occurrence: 1);
+        UiEntity back = FindButton(context.World, live, occurrence: 0);
+        UiEntity front = FindButton(context.World, live, occurrence: 1);
         Assert.AreNotEqual(back, front);
         Assert.AreEqual(front, context.Runtime.Input.HitTest.HitTest(new UiPoint(25, 25), context.InputRoot));
     }
@@ -32,7 +32,7 @@ public sealed class InputFocusTests
             Ui.Container(Ui.Button("Go").Width(UiLength.Pixels(100)).Height(UiLength.Pixels(50))));
         Drain(context.World);
         UiEntity root = live.RootEntity;
-        UiEntity button = FindKind(context.World, live, UiNodeKind.Button);
+        UiEntity button = FindButton(context.World, live);
         List<string> route = [];
         using IDisposable rootHandler = context.Runtime.Input.RoutedEvents.Register(
             root,
@@ -63,7 +63,7 @@ public sealed class InputFocusTests
         BlueprintInstance live = context.Instantiate(
             Ui.Container(Ui.Button("Wheel target").Width(UiLength.Pixels(100)).Height(UiLength.Pixels(50))));
         Drain(context.World);
-        UiEntity button = FindKind(context.World, live, UiNodeKind.Button);
+        UiEntity button = FindButton(context.World, live);
         UiPoint routedDelta = default;
         using IDisposable handler = context.Runtime.Input.RoutedEvents.Register(
             button,
@@ -146,7 +146,7 @@ public sealed class InputFocusTests
                 .Width(UiLength.Pixels(120))
                 .Height(UiLength.Pixels(48)));
         Drain(context.World);
-        UiEntity button = FindKind(context.World, live, UiNodeKind.Button);
+        UiEntity button = FindButton(context.World, live);
         UiPoint point = Center(context.World, button);
 
         context.Runtime.Input.EnqueuePointer(context.InputRoot, UiPointerEventKind.Move, point);
@@ -184,7 +184,7 @@ public sealed class InputFocusTests
                 .Width(UiLength.Pixels(100))
                 .Height(UiLength.Pixels(40)));
         Drain(context.World);
-        UiEntity button = FindKind(context.World, live, UiNodeKind.Button);
+        UiEntity button = FindButton(context.World, live);
         using IDisposable handler = context.Runtime.Input.RoutedEvents.Register(
             button,
             UiRoutedEventKind.Click,
@@ -232,8 +232,8 @@ public sealed class InputFocusTests
                 Ui.Button("B").Width(UiLength.Pixels(100)).Height(UiLength.Pixels(50)))
                 .Gap(10));
         Drain(context.World);
-        UiEntity first = FindKind(context.World, live, UiNodeKind.Button, 0);
-        UiEntity second = FindKind(context.World, live, UiNodeKind.Button, 1);
+        UiEntity first = FindButton(context.World, live, 0);
+        UiEntity second = FindButton(context.World, live, 1);
         Assert.IsTrue(context.Runtime.Input.PointerCapture.Capture(context.InputRoot, 7, first));
 
         context.Runtime.Input.EnqueuePointer(context.InputRoot, UiPointerEventKind.Move, Center(context.World, second), 7);
@@ -474,9 +474,9 @@ public sealed class InputFocusTests
                 Ui.Button("C").TabIndex(2).Width(UiLength.Pixels(80)).Height(UiLength.Pixels(40)))
                 .Gap(10));
         Drain(context.World);
-        UiEntity first = FindKind(context.World, live, UiNodeKind.Button, 0);
-        UiEntity second = FindKind(context.World, live, UiNodeKind.Button, 1);
-        UiEntity third = FindKind(context.World, live, UiNodeKind.Button, 2);
+        UiEntity first = FindButton(context.World, live, 0);
+        UiEntity second = FindButton(context.World, live, 1);
+        UiEntity third = FindButton(context.World, live, 2);
 
         Key(context, UiKey.Tab);
         Assert.AreEqual(first, context.Runtime.Input.Focus.GetFocused(context.InputRoot));
@@ -504,9 +504,9 @@ public sealed class InputFocusTests
                     .Gap(8))
                 .Gap(10));
         Drain(context.World);
-        UiEntity outside = FindKind(context.World, live, UiNodeKind.Button, 0);
-        UiEntity insideA = FindKind(context.World, live, UiNodeKind.Button, 1);
-        UiEntity insideB = FindKind(context.World, live, UiNodeKind.Button, 2);
+        UiEntity outside = FindButton(context.World, live, 0);
+        UiEntity insideA = FindButton(context.World, live, 1);
+        UiEntity insideB = FindButton(context.World, live, 2);
         UiEntity trap = FindKind(context.World, live, UiNodeKind.Row);
         Assert.IsTrue(context.Runtime.Input.Focus.Focus(outside, context.Clock.Now));
 
@@ -534,9 +534,9 @@ public sealed class InputFocusTests
                             .FocusScope(trap: true))
                     .FocusScope(trap: true)));
         Drain(context.World);
-        UiEntity outside = FindKind(context.World, live, UiNodeKind.Button, 0);
-        UiEntity outerButton = FindKind(context.World, live, UiNodeKind.Button, 1);
-        UiEntity innerButton = FindKind(context.World, live, UiNodeKind.Button, 2);
+        UiEntity outside = FindButton(context.World, live, 0);
+        UiEntity outerButton = FindButton(context.World, live, 1);
+        UiEntity innerButton = FindButton(context.World, live, 2);
         UiEntity outerScope = FindKind(context.World, live, UiNodeKind.Column, 1);
         UiEntity innerScope = FindKind(context.World, live, UiNodeKind.Column, 2);
         Assert.IsTrue(context.Runtime.Input.Focus.Focus(outside, context.Clock.Now));
@@ -611,8 +611,8 @@ public sealed class InputFocusTests
                     Ui.Button("Enabled").Width(UiLength.Pixels(90)).Height(UiLength.Pixels(40)))
                 .Gap(10));
         Drain(context.World);
-        UiEntity disabled = FindKind(context.World, live, UiNodeKind.Button, 0);
-        UiEntity enabled = FindKind(context.World, live, UiNodeKind.Button, 1);
+        UiEntity disabled = FindButton(context.World, live, 0);
+        UiEntity enabled = FindButton(context.World, live, 1);
         InteractionStateComponent state = context.World.Components.Get<InteractionStateComponent>(disabled);
         state.Value |= InteractionState.Disabled;
         context.World.Set(disabled, state);
@@ -649,7 +649,7 @@ public sealed class InputFocusTests
                 .Width(UiLength.Pixels(100))
                 .Height(UiLength.Pixels(40)));
         Drain(context.World);
-        UiEntity button = FindKind(context.World, live, UiNodeKind.Button);
+        UiEntity button = FindButton(context.World, live);
         Assert.IsTrue(context.Runtime.Input.Focus.Focus(button, context.Clock.Now));
 
         Key(context, UiKey.Enter);
@@ -707,7 +707,7 @@ public sealed class InputFocusTests
         BlueprintInstance live = context.Instantiate(
             Ui.Button("Double").Width(UiLength.Pixels(100)).Height(UiLength.Pixels(40)));
         Drain(context.World);
-        UiEntity button = FindKind(context.World, live, UiNodeKind.Button);
+        UiEntity button = FindButton(context.World, live);
 
         Click(context, button);
         context.Clock.Advance(0.1);
@@ -930,6 +930,31 @@ public sealed class InputFocusTests
             if (!world.Entities.IsAlive(entity) ||
                 !world.Components.TryGet(entity, out NodeKindComponent component) ||
                 component.Kind != kind)
+            {
+                continue;
+            }
+
+            if (found++ == occurrence)
+                return entity;
+        }
+
+        return UiEntity.None;
+    }
+
+    private static UiEntity FindButton(
+        UiWorld world,
+        BlueprintInstance live,
+        int occurrence = 0)
+    {
+        int found = 0;
+        for (int i = 0; i < live.Blueprint.NodeCount; i++)
+        {
+            UiEntity entity = live.EntityAt(i);
+            if (!world.Entities.IsAlive(entity) ||
+                !world.Components.TryGet(entity, out BehaviorComponent behavior) ||
+                (behavior.Flags & UiBehavior.Clickable) == 0 ||
+                !world.Components.TryGet(entity, out StyleClassSet classes) ||
+                !classes.Contains(UiClass.Button.Id))
             {
                 continue;
             }

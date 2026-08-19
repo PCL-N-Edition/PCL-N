@@ -32,7 +32,13 @@ PCL Application
 PCL.Presentation
       │
       ▼
-PCL.UI.Next Authoring
+PXML Source
+      │
+      ▼
+Independent PXML Compiler
+      │ PXB
+      ▼
+PCL.UI.Next Blueprint Loader
       │
       ▼
 Reactive ECS Runtime
@@ -963,10 +969,13 @@ world.Add(e, new Background(...));
 
 否则会产生大量低级 ECS 操作代码，失去声明式 UI 的可维护性。
 
-页面只能通过：
+页面只能通过 PXML 声明 UI；应用代码只负责提供 binding resolver、command handler 与
+presentation state。PCL.UI.Next 不公开另一套 C# 树构建 DSL。
+
+编译产物只能通过：
 
 ```text
-PCL.UI.Next.Authoring
+UiBlueprint.FromPxmlBinary(...)
 ```
 
 构建 Blueprint。
@@ -975,7 +984,7 @@ PCL.UI.Next.Authoring
 
 # 19. Authoring Layer
 
-Authoring API 的职责：
+PXML Authoring Layer 的职责：
 
 ```text
 声明 UI 结构
@@ -989,22 +998,18 @@ Authoring API 的职责：
 
 示例：
 
-```csharp
-Ui.Column(
-    gap: Theme.Spacing.Medium,
-
-    Ui.Text()
-        .Class(UiClass.PageTitle)
-        .BindText(AppSelectors.Title),
-
-    Ui.Button(
-        Ui.Text("启动")
-    )
-    .Command(AppCommands.Launch)
-)
+```xml
+<Column Gap="12">
+  <Text Class="PageTitle" Text="{bind Title}"/>
+  <Button Text="启动" Command="{cmd Launch}"/>
+</Column>
 ```
 
-这里不会创建 Avalonia Control，也不应直接创建运行时 Entity。
+`Button` 是预定义目录中的编译期 Component。展开器按
+`<predefined-directory>/Button.pxml` 读取定义，并在 Lowering 前把它展开为 `Node + Text +
+Behavior + Command`。展开器中不得内置控件源码或控件名称表。
+
+这里不会创建 Avalonia Control，也不会直接创建运行时 Entity。
 
 它生成：
 
@@ -1038,7 +1043,7 @@ Virtualization Metadata
 Blueprint #Home
 ├─ Node 0 Column
 │  ├─ Node 1 Text
-│  └─ Node 2 Button
+│  └─ Node 2 Container [Button style + behaviors]
 │     └─ Node 3 Text
 ```
 
@@ -1093,17 +1098,13 @@ Run dependent binding only
 
 # 22. Blueprint Compiler
 
-可采用：
-
-```text
-Source Generator
-```
+Blueprint 只能由独立 PXML Compiler 产生。PCL.UI.Next Release 不包含 Parser、Expander、
+Optimizer 或源码编译入口。
 
 编译：
 
-```csharp
-Ui.Text()
-    .BindText(s => s.UserName)
+```xml
+<Text Text="{bind UserName}"/>
 ```
 
 为：
@@ -1141,20 +1142,19 @@ static void UpdateBinding17(
 Blueprint 除属性 Binding 外，还应支持结构变化：
 
 ```text
-Ui.If
-Ui.Switch
-Ui.ForEach
-Ui.VirtualList
+x:If
+x:Switch
+x:ForEach
+VirtualList
 ```
 
 例如：
 
-```csharp
-Ui.If(
-    AppSelectors.IsLoggedIn,
-    whenTrue: LoggedInView(),
-    whenFalse: LoginView()
-)
+```xml
+<x:If Condition="{bind IsLoggedIn}">
+  <x:Then><local:LoggedInView/></x:Then>
+  <x:Else><local:LoginView/></x:Else>
+</x:If>
 ```
 
 编译为：
@@ -3527,9 +3527,10 @@ Runtime ECS/Animation < 1 ms typical
 页面未来只允许使用：
 
 ```text
-Ui.*
-UiNode
+PXML source
+PXML Compiler produced PXB/PXPK
 UiBlueprint
+IPxmlBindingResolver
 UiClass
 UiSelector<T>
 UiCommand
@@ -3555,7 +3556,7 @@ runtime compiler 均为 internal，不属于页面 ABI。
 
 # 109. Widget 设计
 
-Widget 不是 class inheritance。
+Widget 不是 class inheritance，也不是 Runtime node kind。
 
 例如：
 
@@ -3567,28 +3568,23 @@ NavigationItem
 ProgressBar
 ```
 
-只是：
+只是预定义目录中的 PXML 编译期 Component：
 
 ```text
-Blueprint function
-+
-Style class
-+
-behavior components
+<predefined-directory>/<ComponentName>.pxml
+↓ expand
+Primitive Blueprint nodes + style classes + behavior components
 ```
 
-概念代码：
+概念定义：
 
-```csharp
-public static UiNode Button(
-    UiNode content,
-    UiCommand command)
-{
-    return Ui.Container(content)
-        .Class(UiClass.Button)
-        .Behavior(UiBehavior.Clickable)
-        .Command(command);
-}
+```xml
+<x:Component x:Name="Button">
+  <x:Property Name="Text" Type="string"/>
+  <Node Class="Button" Behaviors="Hoverable Pressable Clickable Focusable">
+    <Text Text="{component.Text}"/>
+  </Node>
+</x:Component>
 ```
 
 ---
@@ -4178,7 +4174,7 @@ runtime code generation
 dynamic type activation
 ```
 
-Blueprint Source Generator、显式泛型注册、静态 Binding 更适合 Native AOT。
+PXML Compiler 生成的静态 Blueprint 数据、显式泛型注册与静态 Binding 更适合 Native AOT。
 
 因此 `PCL.UI.Next` 应从第一天：
 
@@ -4189,7 +4185,7 @@ Trim-friendly
 
 ---
 
-# 131. Source Generator
+# 131. PXML Compiler 静态输出
 
 推荐生成：
 
@@ -4367,13 +4363,14 @@ generation tests
 实现：
 
 ```text
-UiNode
+PXML source
+PXB loader
 UiBlueprint
 Template
 Instantiate
 Structural Reconcile
 Compiled Binding
-Source Generator prototype
+PXML Compiler interop tests
 ```
 
 ---
@@ -4589,7 +4586,7 @@ Benchmark CI
 在正式重写 PCL 页面前冻结：
 
 ```text
-Public Authoring API
+PXML/PXB Authoring ABI
 Binding API
 Theme API
 Navigation contract
@@ -4615,9 +4612,12 @@ Virtualization contract
 
 #### Authoring
 
-- 页面入口固定为 `Ui.* / UiNode / UiBlueprint / UiClass / UiCommand` 及其 value types；
-- `UiNode` 只构建静态声明，不创建 Entity；`UiBlueprint` 是 opaque compiled artifact，
-  Blueprint node/binding/dependency representation 不公开；
+- 页面源码固定为 PXML；Runtime 公共入口固定为
+  `UiBlueprint.FromPxmlBinary / IPxmlBindingResolver / UiClass / UiCommand` 及其 value types；
+- `UiBlueprint` 是 opaque compiled artifact，Blueprint node/binding/dependency representation
+  不公开；PCL.UI.Next 不公开 PXML Parser、C# node builder 或源码编译 API；
+- 框架控件是 PXML Compiler 从调用方提供的预定义目录按名称加载的普通 Component；目录中
+  不存在对应文件必须产生编译诊断，禁止展开器回退到硬编码控件；
 - Authoring facade 的 public signature 禁止出现 `UiWorld`、`UiEntity`、Component Store、
   DirtyTracker、RenderNode 或 RenderMutation。
 
@@ -4626,7 +4626,7 @@ Virtualization contract
 - `PresentationStore` 以 integer slice + monotonic version 保存 presentation state；
   `UiSelector<T>` 显式声明 dependency slices，binding 只在 fingerprint 变化时执行；
 - Binding 禁止 reflection、字符串 property path、`INotifyPropertyChanged` 与运行时表达式树；
-  Source Generator 未来只能生成相同 contract 的静态数据/updater，不改变运行时语义。
+  PXML Compiler 只能生成相同 contract 的静态数据/updater，不改变运行时语义。
 
 #### Theme
 
@@ -4945,7 +4945,7 @@ UI 结构变化频繁，Sparse Pool 更简单稳定。
 7. Avalonia Backend 是更多依赖 DrawingContext，还是更多依赖 Composition；
 8. Dedicated Runtime Thread 在首个正式版本是否启用；
 9. Render Scene 是否需要跨帧 triple buffering；
-10. Blueprint Source Generator 的最终语法形式。
+10. PXML Compiler 静态 updater 的最终生成形式。
 
 这些属于实现策略，不改变顶层架构。
 
@@ -5063,14 +5063,12 @@ PCL.UI.Next.Runtime/
 └─ Diagnostics/
 
 PCL.UI.Next.Authoring/
-├─ Ui.cs
-├─ UiNode.cs
 ├─ UiBlueprint.cs
+├─ PxmlBinaryBlueprint.cs
 ├─ UiTemplate.cs
 ├─ UiClass.cs
 ├─ UiBinding.cs
-├─ UiCommandBinding.cs
-└─ Compiler/
+└─ UiCommandBinding.cs
 
 PCL.UI.Next.Layout/
 ├─ LayoutSystem.cs

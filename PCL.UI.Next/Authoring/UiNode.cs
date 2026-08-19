@@ -7,7 +7,7 @@ namespace PCL.UI.Next;
 /// Mutable authoring node. Pages build trees of these; compilers emit
 /// <see cref="UiBlueprint"/>. Never create runtime entities from a page.
 /// </summary>
-public sealed class UiNode
+internal sealed class UiNode
 {
     internal UiNode(UiNodeKind kind)
     {
