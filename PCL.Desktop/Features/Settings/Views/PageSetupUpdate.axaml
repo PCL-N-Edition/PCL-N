@@ -63,15 +63,16 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="29" />
                             <RowDefinition Height="1" />
-                            <RowDefinition Height="20" />
+                            <RowDefinition Height="Auto" MinHeight="20" />
                         </Grid.RowDefinitions>
                         <legacy:MyImage Source="avares://PCL.Desktop/Assets/icon.png" Grid.Column="0" Grid.Row="0"
                                        Grid.RowSpan="3" Height="50" Width="50" HorizontalAlignment="Left"
                                        VerticalAlignment="Center" />
                         <TextBlock x:Name="TextCurrentVersion" Text="PCL N" FontWeight="Bold" FontSize="20"
-                                   Grid.Row="0" Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Bottom" />
+                                   Grid.Row="0" Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
                         <TextBlock x:Name="TextCurrentDesc" Text="{DynamicResource Setup.Update.Latest}" FontSize="14" Grid.Row="2" Grid.Column="2"
-                                   HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                   HorizontalAlignment="Left" VerticalAlignment="Top" TextWrapping="Wrap" />
                         <legacy:MyButton x:Name="BtnCheckAgain" Text="{DynamicResource Setup.Update.CheckAgain}" ColorType="Highlight" Grid.Row="0"
                                         Grid.RowSpan="2" Grid.Column="3" HorizontalAlignment="Stretch"
                                         VerticalAlignment="Stretch" Click="BtnCheckAgain_OnClick" />
@@ -97,19 +98,20 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="29" />
                             <RowDefinition Height="1" />
-                            <RowDefinition Height="20" />
+                            <RowDefinition Height="Auto" MinHeight="20" />
                             <RowDefinition Height="8" />
-                            <RowDefinition />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="10" />
-                            <RowDefinition />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <legacy:MyImage x:Name="ImgUpdateIcon" Source="avares://PCL.Desktop/Assets/icon.png"
                                        Grid.Column="0" Grid.Row="0" Grid.RowSpan="3" Height="50" Width="50"
                                        HorizontalAlignment="Left" VerticalAlignment="Center" />
                         <TextBlock x:Name="TextUpdateName" Text="PCL N" FontWeight="Bold" FontSize="20"
-                                   Grid.Row="0" Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Bottom" />
+                                   Grid.Row="0" Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
                         <TextBlock x:Name="TextUpdateDesc" Text="{DynamicResource Setup.Update.Available}" FontSize="14" Grid.Row="2"
-                                   Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                                   Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Top" TextWrapping="Wrap" />
                         <legacy:MyButton x:Name="BtnDownloadNow" Text="{DynamicResource Setup.Update.DownloadNow}" ColorType="Normal"
                                         Grid.Row="0" Grid.RowSpan="2" Grid.Column="3"
                                         HorizontalAlignment="Stretch" VerticalAlignment="Stretch"

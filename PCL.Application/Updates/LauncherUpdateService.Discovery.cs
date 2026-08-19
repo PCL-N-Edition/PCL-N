@@ -99,14 +99,22 @@ public sealed partial class LauncherUpdateService
             };
         }
 
+        string? releaseNotes = string.IsNullOrWhiteSpace(marker.ReleaseNotes)
+            ? null
+            : marker.ReleaseNotes.Trim();
+        string releaseUrl = !string.IsNullOrWhiteSpace(marker.ReleaseNotesUrl) &&
+                            Uri.TryCreate(marker.ReleaseNotesUrl.Trim(), UriKind.Absolute, out Uri? notesUri) &&
+                            notesUri.Scheme == Uri.UriSchemeHttps
+            ? notesUri.AbsoluteUri
+            : "https://pcln.top/download";
         LauncherUpdateCheckResult result = new(
             Success: true,
             IsUpdateAvailable: isNewer,
             CurrentVersion: localVersion,
             LatestVersion: remoteVersion,
             ReleaseName: marker.Tag,
-            ReleaseNotes: null,
-            ReleaseUrl: "https://pcln.top/download",
+            ReleaseNotes: releaseNotes,
+            ReleaseUrl: releaseUrl,
             PreferredAssetUrl: package.FullPackageUrl,
             ErrorMessage: null,
             Channel: channel,

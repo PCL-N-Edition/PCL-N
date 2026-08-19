@@ -11,8 +11,10 @@ using Avalonia.VisualTree;
 using PCL.Application.Settings;
 using PCL.Application.Updates;
 using PCL.Core.App;
+using PCL.Core.Logging;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Hosting;
+using PCL.Desktop.Hosting.PluginSidecar;
 using PCL.Desktop.Localization;
 
 #pragma warning disable CA1822, CS0067
@@ -33,10 +35,13 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     private bool _autoCheckScheduled;
     private int _lastUpdateChannel;
     private readonly LauncherUpdateCoordinator _updateCoordinator = LauncherUpdateCoordinator.Current;
+    private readonly PluginSidecarUpdateCoordinator _pluginUpdateCoordinator = PluginSidecarUpdateCoordinator.Current;
     private readonly LauncherInstallationContext _installation = LauncherInstallationContext.Detect();
     private LauncherUpdateCheckResult? _availableUpdate;
+    private PluginSidecarUpdateCheckResult? _availablePluginUpdate;
     private PreparedLauncherUpdate? _preparedUpdate;
     private bool _isPreparingUpdate;
+    private bool _showingPluginUpdate;
 
     public PageSetupUpdate()
     {
@@ -191,6 +196,8 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     private void ShowCurrentVersionUi()
     {
         _updateAvailableUi = false;
+        _showingPluginUpdate = false;
+        _availablePluginUpdate = null;
         if (this.FindControl<MyCard>("CardUpdate") is { } updateCard)
             updateCard.IsVisible = false;
 
@@ -291,6 +298,13 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
     private async void BtnDownloadNow_Click(object? sender, EventArgs e)
     {
+        if (_showingPluginUpdate)
+        {
+            // Download-only mode for Sidecar still installs (no staged host restart).
+            await ProcessAvailablePluginUpdateAsync(mode: 1).ConfigureAwait(true);
+            return;
+        }
+
         if (_preparedUpdate is not null && _availableUpdate is not null)
         {
             _updateCoordinator.SkipAvailableVersion(_availableUpdate);
@@ -319,6 +333,12 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
     private async Task InstallOrPrepareUpdateAsync()
     {
+        if (_showingPluginUpdate)
+        {
+            await ProcessAvailablePluginUpdateAsync(mode: 0).ConfigureAwait(true);
+            return;
+        }
+
         _isPreparingUpdate = true;
         SetUpdateButtonsEnabled(false);
         try
@@ -541,6 +561,8 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
         }
 
         _availableUpdate = result.IsUpdateAvailable ? result : null;
+        _availablePluginUpdate = null;
+        _showingPluginUpdate = false;
         _preparedUpdate = _updateCoordinator.PreparedUpdate;
         if (_preparedUpdate?.Package.TargetTag != result.Package?.TargetTag)
             _preparedUpdate = null;
@@ -552,25 +574,34 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
         if (!result.IsUpdateAvailable)
         {
+            // Host body is current — only then surface independent Sidecar ("插件功能更新") cards.
             _availableUpdate = null;
             _preferredAssetUrl = null;
+            if (await TryShowPluginSidecarUpdateAsync(automaticallyPrepare).ConfigureAwait(true))
+                return;
+
             ShowCurrentVersionUi();
             if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDesc)
             {
                 string latest = AvaloniaLocalizationManager.GetText("Setup.Update.Latest", "已是最新版本");
-                currentDesc.Text = string.IsNullOrWhiteSpace(result.CurrentVersion)
+                string sidecar = DescribeSidecarVersion();
+                string body = string.IsNullOrWhiteSpace(result.CurrentVersion)
                     ? latest + " · " + DescribeCurrentBuild()
                     : $"{latest}（{result.CurrentVersion}） · {DescribeCurrentBuild()}";
+                if (!string.IsNullOrWhiteSpace(sidecar))
+                    body += " · " + sidecar;
+                currentDesc.Text = body;
             }
             return;
         }
 
         if (this.FindControl<TextBlock>("TextUpdateName") is { } updateName)
-            updateName.Text = "PCL N " + (result.LatestVersion ?? "");
+            updateName.Text = AvaloniaLocalizationManager.GetText("Setup.Update.Product.Host", "PCL N 软件更新") +
+                              " " + (result.LatestVersion ?? "");
         if (this.FindControl<TextBlock>("TextUpdateDesc") is { } updateDesc)
         {
             updateDesc.Text = _preparedUpdate is not null
-                ? "更新已下载并通过校验"
+                ? AvaloniaLocalizationManager.GetText("Setup.Update.Downloaded", "更新已下载并通过校验")
                 : result.Channel is UpdateChannel.CI
                     ? (result.ReleaseName ?? "CI") + " · " + AvaloniaLocalizationManager.GetText("Setup.Update.Available", "有可用更新")
                     : AvaloniaLocalizationManager.GetText("Setup.Update.Available", "有可用更新");
@@ -578,9 +609,18 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
         if (this.FindControl<TextBlock>("TextChangelog") is { } changelog)
         {
-            string guide = AvaloniaLocalizationManager.GetText(
-                "Setup.Update.Changelog.Placeholder",
-                "此更新包含问题修复与改进。\n\n部分内容可能因设备、系统版本或使用方式而略有不同。建议在网络状况良好时完成下载与安装。\n\n有关此更新的完整说明与变更列表，可在 GitHub 上查看。");
+            string guide;
+            if (!string.IsNullOrWhiteSpace(result.ReleaseNotes))
+            {
+                guide = result.ReleaseNotes.Trim();
+            }
+            else
+            {
+                guide = AvaloniaLocalizationManager.GetText(
+                    "Setup.Update.Changelog.Placeholder",
+                    "此更新包含问题修复与改进。\n\n部分内容可能因设备、系统版本或使用方式而略有不同。建议在网络状况良好时完成下载与安装。\n\n有关此更新的完整说明与变更列表，可在 GitHub 上查看。");
+            }
+
             if (result.Channel is UpdateChannel.CI)
             {
                 guide += "\n\n" + AvaloniaLocalizationManager.GetText(
@@ -593,6 +633,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                     "Setup.Update.FullOnly.NoApplicablePatch",
                     "当前安装版本没有适用的旧式补丁，将改用内容寻址分块更新。");
             }
+
             changelog.Text = guide;
         }
 
@@ -607,14 +648,107 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
             await ProcessAvailableUpdateAsync(updateMode).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// When the host body has no update, reuse the same CardUpdate chrome for Sidecar CAS.
+    /// Returns true when a plugin update card was shown.
+    /// </summary>
+    private async Task<bool> TryShowPluginSidecarUpdateAsync(bool automaticallyPrepare)
+    {
+        PluginSidecarUpdateCheckResult plugin;
+        try
+        {
+            plugin = await _pluginUpdateCoordinator.CheckAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            PortableLog.Warn(ex, "PluginSidecarUpdate", "检查 Sidecar 更新失败。");
+            return false;
+        }
+
+        if (!plugin.Success || !plugin.IsUpdateAvailable)
+            return false;
+
+        _showingPluginUpdate = true;
+        _availablePluginUpdate = plugin;
+        _availableUpdate = null;
+        _preparedUpdate = null;
+        _latestReleaseUrl = plugin.ReleaseUrl ?? ReleasesUrl;
+        _preferredAssetUrl = plugin.PackageUrl;
+        SetUpdateActionButtons(prepared: false);
+        SetUpdateButtonsEnabled(true);
+        SetUpdateButtonsVisible(true);
+
+        if (this.FindControl<TextBlock>("TextUpdateName") is { } updateName)
+        {
+            updateName.Text = AvaloniaLocalizationManager.GetText(
+                                  "Setup.Update.Product.Plugin",
+                                  "插件功能更新") +
+                              " " + (plugin.LatestVersion ?? "");
+        }
+
+        if (this.FindControl<TextBlock>("TextUpdateDesc") is { } updateDesc)
+        {
+            updateDesc.Text = AvaloniaLocalizationManager.GetText(
+                "Setup.Update.Plugin.Available",
+                "有可用的 PCL.Plugin Sidecar 更新（不替换 PCL N 本体）");
+        }
+
+        if (this.FindControl<TextBlock>("TextChangelog") is { } changelog)
+        {
+            changelog.Text = !string.IsNullOrWhiteSpace(plugin.ReleaseNotes)
+                ? plugin.ReleaseNotes.Trim()
+                : AvaloniaLocalizationManager.GetText(
+                    "Setup.Update.Plugin.Changelog.Placeholder",
+                    "此更新仅升级插件侧车与插件平台能力，不会替换 Native AOT 宿主程序。");
+        }
+
+        ShowUpdateAvailableUi();
+        if (!automaticallyPrepare)
+            return true;
+
+        int updateMode = this.FindControl<MyComboBox>("ComboSystemUpdateMode") is { SelectedIndex: >= 0 } modeCombo
+            ? modeCombo.SelectedIndex
+            : LauncherSettingDefaults.GetInteger("SystemUpdateMode", 1);
+        // Notify-only (2) still shows the card; download modes trigger Sidecar CAS install.
+        if (updateMode is 0 or 1)
+            await ProcessAvailablePluginUpdateAsync(updateMode).ConfigureAwait(true);
+        return true;
+    }
+
     private void SetCurrentVersionText()
     {
         string version = "PCL N " + PclMetadata.Current.DisplayVersion;
         if (this.FindControl<TextBlock>("TextCurrentVersion") is { } currentVersion)
             currentVersion.Text = version;
         if (this.FindControl<TextBlock>("TextCurrentDesc") is { } currentDescription && !_isChecking && !_updateAvailableUi)
-            currentDescription.Text = AvaloniaLocalizationManager.GetText("Setup.Update.Latest", "已是最新版本") +
-                                      " · " + DescribeCurrentBuild();
+        {
+            string text = AvaloniaLocalizationManager.GetText("Setup.Update.Latest", "已是最新版本") +
+                          " · " + DescribeCurrentBuild();
+            string sidecar = DescribeSidecarVersion();
+            if (!string.IsNullOrWhiteSpace(sidecar))
+                text += " · " + sidecar;
+            currentDescription.Text = text;
+        }
+    }
+
+    private static string DescribeSidecarVersion()
+    {
+        try
+        {
+            PluginSidecarInstallIdentity identity = PluginSidecarUpdateInstaller.ResolveLocalIdentity();
+            if (string.IsNullOrWhiteSpace(identity.CurrentVersion) ||
+                identity.CurrentVersion is "0.0.0")
+            {
+                return string.Empty;
+            }
+
+            return AvaloniaLocalizationManager.GetText("Setup.Update.Plugin.Current", "插件") +
+                   " " + identity.CurrentVersion;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private async Task ProcessAvailableUpdateAsync(
@@ -623,6 +757,12 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
     {
         if (_isPreparingUpdate)
             return;
+        if (_showingPluginUpdate)
+        {
+            await ProcessAvailablePluginUpdateAsync(mode, cancellationToken).ConfigureAwait(true);
+            return;
+        }
+
         if (_availableUpdate?.Package is null)
         {
             OpenUrlRequested?.Invoke(this, new SettingsUrlRequestedEventArgs(_preferredAssetUrl ?? _latestReleaseUrl));
@@ -646,6 +786,87 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                 new SettingsMessageRequestedEventArgs(
                     "自动更新失败",
                     ex.Message + "\n\n你仍可在发布页手动下载。",
+                    AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
+        }
+        finally
+        {
+            _isPreparingUpdate = false;
+            SetUpdateButtonsEnabled(true);
+        }
+    }
+
+    private async Task ProcessAvailablePluginUpdateAsync(
+        int mode,
+        CancellationToken cancellationToken = default)
+    {
+        if (_isPreparingUpdate || _availablePluginUpdate is null)
+            return;
+
+        // mode 2 = notify only — card already visible.
+        if (mode == 2)
+            return;
+
+        _isPreparingUpdate = true;
+        SetUpdateButtonsEnabled(false);
+        try
+        {
+            if (this.FindControl<TextBlock>("TextUpdateDesc") is { } description)
+            {
+                description.Text = AvaloniaLocalizationManager.GetText(
+                    "Setup.Update.Plugin.Downloading",
+                    "正在下载插件功能更新…");
+            }
+
+            Progress<double> progress = new(value =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (this.FindControl<TextBlock>("TextUpdateDesc") is { } live)
+                    {
+                        live.Text = AvaloniaLocalizationManager.GetText(
+                                        "Setup.Update.Plugin.Downloading",
+                                        "正在下载插件功能更新…") +
+                                    $" {value:P0}";
+                    }
+                });
+            });
+
+            await _pluginUpdateCoordinator
+                .DownloadAndInstallAsync(_availablePluginUpdate, progress, cancellationToken)
+                .ConfigureAwait(true);
+
+            _availablePluginUpdate = null;
+            _showingPluginUpdate = false;
+            ShowCurrentVersionUi();
+            if (this.FindControl<TextBlock>("TextCurrentDesc") is { } done)
+            {
+                done.Text = AvaloniaLocalizationManager.GetText(
+                    "Setup.Update.Plugin.Installed",
+                    "插件功能更新已安装并尝试重启侧车。");
+            }
+
+            if (mode == 0)
+            {
+                MessageRequested?.Invoke(
+                    this,
+                    new SettingsMessageRequestedEventArgs(
+                        AvaloniaLocalizationManager.GetText("Setup.Update.Product.Plugin", "插件功能更新"),
+                        AvaloniaLocalizationManager.GetText(
+                            "Setup.Update.Plugin.Installed",
+                            "插件功能更新已安装并尝试重启侧车。"),
+                        AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            MessageRequested?.Invoke(
+                this,
+                new SettingsMessageRequestedEventArgs(
+                    AvaloniaLocalizationManager.GetText("Setup.Update.Plugin.Failed", "插件功能更新失败"),
+                    ex.Message,
                     AvaloniaLocalizationManager.GetText("Common.Action.Confirm", "好")));
         }
         finally
