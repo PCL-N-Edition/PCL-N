@@ -578,9 +578,18 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
 
         if (this.FindControl<TextBlock>("TextChangelog") is { } changelog)
         {
-            string guide = AvaloniaLocalizationManager.GetText(
-                "Setup.Update.Changelog.Placeholder",
-                "此更新包含问题修复与改进。\n\n部分内容可能因设备、系统版本或使用方式而略有不同。建议在网络状况良好时完成下载与安装。\n\n有关此更新的完整说明与变更列表，可在 GitHub 上查看。");
+            string guide;
+            if (!string.IsNullOrWhiteSpace(result.ReleaseNotes))
+            {
+                guide = result.ReleaseNotes.Trim();
+            }
+            else
+            {
+                guide = AvaloniaLocalizationManager.GetText(
+                    "Setup.Update.Changelog.Placeholder",
+                    "此更新包含问题修复与改进。\n\n部分内容可能因设备、系统版本或使用方式而略有不同。建议在网络状况良好时完成下载与安装。\n\n有关此更新的完整说明与变更列表，可在 GitHub 上查看。");
+            }
+
             if (result.Channel is UpdateChannel.CI)
             {
                 guide += "\n\n" + AvaloniaLocalizationManager.GetText(
@@ -593,6 +602,7 @@ public partial class PageSetupUpdate : MyPageRight, IRefreshableSettingsPage, IS
                     "Setup.Update.FullOnly.NoApplicablePatch",
                     "当前安装版本没有适用的旧式补丁，将改用内容寻址分块更新。");
             }
+
             changelog.Text = guide;
         }
 

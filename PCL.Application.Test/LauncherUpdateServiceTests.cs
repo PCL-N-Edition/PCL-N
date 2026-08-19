@@ -149,7 +149,9 @@ public sealed class LauncherUpdateServiceTests
                       "channel": "beta",
                       "commitSha": "1234567890abcdef1234567890abcdef12345678",
                       "publishedAt": "2026-08-09T08:00:00Z",
-                      "manifestKey": "releases/v1.4.4-beta"
+                      "manifestKey": "releases/v1.4.4-beta",
+                      "releaseNotes": "- Fix cape wardrobe\n- Improve updater notes",
+                      "releaseNotesUrl": "https://pcln.top/download"
                     }
                     """);
             }
@@ -181,6 +183,8 @@ public sealed class LauncherUpdateServiceTests
         Assert.IsNotNull(result.Package);
         Assert.IsTrue(result.Package.SupportsBlockMap);
         StringAssert.StartsWith(result.Package.BlockMapUrl!, "https://api.pcln.top/v1/updates/releases/");
+        StringAssert.Contains(result.ReleaseNotes, "Fix cape wardrobe");
+        Assert.AreEqual("https://pcln.top/download", result.ReleaseUrl);
     }
 
     [TestMethod]

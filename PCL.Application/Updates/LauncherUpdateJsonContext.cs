@@ -58,6 +58,10 @@ internal sealed class LauncherChannelReleaseDto
     public DateTimeOffset? PublishedAt { get; set; }
 
     public string? ManifestKey { get; set; }
+
+    public string? ReleaseNotes { get; set; }
+
+    public string? ReleaseNotesUrl { get; set; }
 }
 
 internal sealed class GitHubReleaseDto

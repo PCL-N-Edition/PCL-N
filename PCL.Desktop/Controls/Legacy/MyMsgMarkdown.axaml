@@ -47,7 +47,7 @@
                                    VerticalAlignment="Stretch"
                                    Margin="0,0,0,17"
                                    Padding="0,0,7,0"
-                                   MaxHeight="320"
+                                   MaxHeight="480"
                                    VerticalScrollBarVisibility="Auto"
                                    HorizontalScrollBarVisibility="Disabled">
                 <legacy:MyMarkdownViewer x:Name="LabCaption"
