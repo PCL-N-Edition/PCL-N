@@ -6204,42 +6204,67 @@ public partial class MainWindow : Window, IDisposable
 
     private static void ApplyNetworkProxy(LauncherSettings settings)
     {
-        PortableNetworkOptions.EnableDoH = settings.GetBooleanOption(
+        bool enableDoH = settings.GetBooleanOption(
             "SystemNetEnableDoH",
             LauncherSettingDefaults.GetBoolean("SystemNetEnableDoH", true));
 
         int proxyType = settings.GetIntegerOption(
             "SystemHttpProxyType",
             LauncherSettingDefaults.GetInteger("SystemHttpProxyType"));
+
+        IWebProxy effectiveProxy;
+        bool useProxy;
         if (proxyType == 1)
         {
+            // Follow system proxy (Clash / WinHTTP / etc.).
+            effectiveProxy = SystemDefaultProxy;
+            useProxy = true;
             HttpClient.DefaultProxy = SystemDefaultProxy;
-            return;
         }
-
-        if (proxyType != 2)
+        else if (proxyType == 2)
         {
-            HttpClient.DefaultProxy = new WebProxy();
-            return;
+            string address = settings.GetTextOption(
+                "SystemHttpProxy",
+                LauncherSettingDefaults.GetText("SystemHttpProxy"));
+            if (!Uri.TryCreate(address, UriKind.Absolute, out Uri? proxyAddress) ||
+                string.IsNullOrWhiteSpace(proxyAddress.Host))
+            {
+                effectiveProxy = new WebProxy();
+                useProxy = false;
+                HttpClient.DefaultProxy = effectiveProxy;
+            }
+            else
+            {
+                WebProxy proxy = new(proxyAddress);
+                string username = settings.GetTextOption(
+                    "SystemHttpProxyCustomUsername",
+                    LauncherSettingDefaults.GetText("SystemHttpProxyCustomUsername"));
+                if (!string.IsNullOrWhiteSpace(username))
+                {
+                    proxy.Credentials = new NetworkCredential(
+                        username,
+                        settings.GetTextOption(
+                            "SystemHttpProxyCustomPassword",
+                            LauncherSettingDefaults.GetText("SystemHttpProxyCustomPassword")));
+                }
+
+                effectiveProxy = proxy;
+                useProxy = true;
+                HttpClient.DefaultProxy = proxy;
+            }
         }
-
-        string address = settings.GetTextOption("SystemHttpProxy", LauncherSettingDefaults.GetText("SystemHttpProxy"));
-        if (!Uri.TryCreate(address, UriKind.Absolute, out Uri? proxyAddress))
-            return;
-
-        WebProxy proxy = new(proxyAddress);
-        string username = settings.GetTextOption(
-            "SystemHttpProxyCustomUsername",
-            LauncherSettingDefaults.GetText("SystemHttpProxyCustomUsername"));
-        if (!string.IsNullOrWhiteSpace(username))
+        else
         {
-            proxy.Credentials = new NetworkCredential(
-                username,
-                settings.GetTextOption(
-                    "SystemHttpProxyCustomPassword",
-                    LauncherSettingDefaults.GetText("SystemHttpProxyCustomPassword")));
+            effectiveProxy = new WebProxy();
+            useProxy = false;
+            HttpClient.DefaultProxy = effectiveProxy;
         }
-        HttpClient.DefaultProxy = proxy;
+
+        // Shared by vanilla install, modpack mod downloads, metadata, etc.
+        PortableHttp.Configure(enableDoH, effectiveProxy, useProxy);
+        DesktopFileLog.Info(
+            "Network",
+            $"已应用网络设置；DoH={(enableDoH ? "开" : "关")}；ProxyType={proxyType}；Proxy={PortableHttp.ActiveProxyDescription}。");
     }
 
     private void ApplyHomepageSettings(LauncherSettings settings)

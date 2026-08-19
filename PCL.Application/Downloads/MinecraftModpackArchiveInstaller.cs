@@ -339,6 +339,9 @@ public sealed class MinecraftModpackArchiveInstaller
         CancellationToken cancellationToken)
     {
         int threadLimit = Math.Clamp(request.DownloadThreadLimit <= 0 ? 64 : request.DownloadThreadLimit, 1, 256);
+        PortableLog.Info(
+            "ModpackInstall",
+            $"开始下载整合包资源；文件={totalResources}；线程={threadLimit}；DoH={(PortableNetworkOptions.EnableDoH ? "开" : "关")}；Proxy={PortableHttp.ActiveProxyDescription ?? "未配置"}。");
         int installedResources = 0;
         if (plan.ModrinthFiles.Count > 0)
         {
