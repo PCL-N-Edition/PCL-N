@@ -66,6 +66,7 @@ public partial class PageSpeedLeft : MyPageLeft
             return;
         }
 
-        Dispatcher.UIThread.InvokeAsync(action).GetTask().GetAwaiter().GetResult();
+        // Never block a worker waiting on the UI dispatcher (deadlock / wrong-thread create).
+        Dispatcher.UIThread.Post(action);
     }
 }

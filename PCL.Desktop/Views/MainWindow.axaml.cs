@@ -3767,10 +3767,12 @@ public partial class MainWindow : Window, IDisposable
         HostFileArtifactContext context,
         CancellationToken cancellationToken)
     {
+        // FileArtifactHost uses ConfigureAwait(false); never touch Avalonia controls here
+        // until we explicitly hop to the UI thread.
         MinecraftModpackInspection inspection = await Task.Run(
                 () => MinecraftModpackArchiveInstaller.Inspect(filePath),
                 cancellationToken)
-            .ConfigureAwait(true);
+            .ConfigureAwait(false);
 
         bool ownsTask = string.IsNullOrWhiteSpace(context.TaskId);
         string taskId = ownsTask
@@ -3783,17 +3785,16 @@ public partial class MainWindow : Window, IDisposable
                 : context.TaskTitle!);
 
         CancellationTokenSource? ownedCancellation = null;
-        if (ownsTask)
+        await RunOnUiThreadAsync(() =>
         {
-            ownedCancellation = RegisterTrackedTask(taskId);
+            if (ownsTask)
+                ownedCancellation = RegisterTrackedTask(taskId);
             ActivateTaskManagerPage(animate: true);
-            TrackTaskBegin(taskId, taskTitle, "准备安装整合包");
-        }
-        else
-        {
-            ActivateTaskManagerPage(animate: true);
-            TrackTaskBegin(taskId, taskTitle, "正在安装整合包");
-        }
+            TrackTaskBegin(
+                taskId,
+                taskTitle,
+                ownsTask ? "准备安装整合包" : "正在安装整合包");
+        }).ConfigureAwait(false);
 
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
@@ -3809,11 +3810,11 @@ public partial class MainWindow : Window, IDisposable
                         preferredJavaHint: context.JavaExecutablePath,
                         minecraftVersionHint: inspection.MinecraftVersion,
                         linked.Token)
-                    .ConfigureAwait(true);
+                    .ConfigureAwait(false);
 
             Progress<MinecraftModpackInstallProgress> packProgress = new(update =>
             {
-                void Apply()
+                Dispatcher.UIThread.Post(() =>
                 {
                     TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, taskTitle);
                     _taskSessionStore.Upsert(taskId, previous with
@@ -3829,12 +3830,7 @@ public partial class MainWindow : Window, IDisposable
                         ErrorMessage = null
                     });
                     _taskUiCoalescer.Request();
-                }
-
-                if (Dispatcher.UIThread.CheckAccess())
-                    Apply();
-                else
-                    Dispatcher.UIThread.Post(Apply);
+                });
             });
 
             MinecraftModpackArchiveInstaller installer = new(_minecraftInstallService);
@@ -3844,18 +3840,16 @@ public partial class MainWindow : Window, IDisposable
                     installVersionAsync: (request, progress, token) =>
                         _minecraftInstallService.InstallAsync(request, progress, token),
                     versionInstallProgress: new Progress<MinecraftInstallProgress>(update =>
-                    {
-                        if (Dispatcher.UIThread.CheckAccess())
-                            TrackInstallProgress(taskId, taskTitle, update);
-                        else
-                            Dispatcher.UIThread.Post(() => TrackInstallProgress(taskId, taskTitle, update));
-                    }),
+                        Dispatcher.UIThread.Post(() => TrackInstallProgress(taskId, taskTitle, update))),
                     cancellationToken: linked.Token)
-                .ConfigureAwait(true);
+                .ConfigureAwait(false);
 
-            if (ownsTask)
-                TrackTaskFinished(taskId, taskTitle, "整合包安装完成");
-            _launchRight?.AppendLog($"整合包安装完成：{installed.Name} → {installed.VersionId}");
+            await RunOnUiThreadAsync(() =>
+            {
+                if (ownsTask)
+                    TrackTaskFinished(taskId, taskTitle, "整合包安装完成");
+                _launchRight?.AppendLog($"整合包安装完成：{installed.Name} → {installed.VersionId}");
+            }).ConfigureAwait(false);
 
             return new HostFileArtifactResult(
                 "pcl.desktop.modpack",
@@ -3867,21 +3861,42 @@ public partial class MainWindow : Window, IDisposable
         }
         catch (OperationCanceledException)
         {
-            if (ownsTask)
-                TrackTaskFailed(taskId, taskTitle, "整合包安装已取消。", canceled: true);
+            await RunOnUiThreadAsync(() =>
+            {
+                if (ownsTask)
+                    TrackTaskFailed(taskId, taskTitle, "整合包安装已取消。", canceled: true);
+            }).ConfigureAwait(false);
             throw;
         }
         catch (Exception ex)
         {
-            if (ownsTask)
-                TrackTaskFailed(taskId, taskTitle, ex.Message, canceled: false);
+            await RunOnUiThreadAsync(() =>
+            {
+                if (ownsTask)
+                    TrackTaskFailed(taskId, taskTitle, ex.Message, canceled: false);
+            }).ConfigureAwait(false);
             throw;
         }
         finally
         {
             if (ownedCancellation is not null)
-                UnregisterTrackedTask(taskId, ownedCancellation);
+            {
+                await RunOnUiThreadAsync(() => UnregisterTrackedTask(taskId, ownedCancellation))
+                    .ConfigureAwait(false);
+            }
         }
+    }
+
+    private static Task RunOnUiThreadAsync(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        return Dispatcher.UIThread.InvokeAsync(action).GetTask();
     }
 
     private void BindStartMinecraftUseCase()
