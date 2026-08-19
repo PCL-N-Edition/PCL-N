@@ -188,8 +188,9 @@ public partial class MainWindow : Window, IDisposable
         _externalUrlOpener = externalUrlOpener ?? OpenExternalUrlCore;
         _clipboardWriter = clipboardWriter;
         _launchCoordinator = new MinecraftLaunchCoordinator(_minecraftInstallService);
-        // Modpack base version/loader install must use this same controller as PageDownloadInstall.
+        // Modpack version/loader + task list must align with PageDownloadInstall / StartInstallAsync.
         DesktopFileArtifactHost.Instance.UseMinecraftInstallService(_minecraftInstallService);
+        DesktopFileArtifactHost.Instance.UseModpackInstallOrchestrator(InstallModpackTrackedAsync);
         if (!DesktopCompositionRoot.IsInitialized)
             DesktopCompositionRoot.Initialize();
         _shellViewModel = DesktopCompositionRoot.GetRequiredService<AppShellViewModel>();
@@ -3754,6 +3755,132 @@ public partial class MainWindow : Window, IDisposable
         finally
         {
             UnregisterTrackedTask(taskId, cancellation);
+        }
+    }
+
+    /// <summary>
+    /// Modpack install on the same task-manager rail as <see cref="StartInstallAsync"/>.
+    /// Version/loader stage uses <see cref="TrackInstallProgress"/>; pack content follows.
+    /// </summary>
+    private async ValueTask<HostFileArtifactResult> InstallModpackTrackedAsync(
+        string filePath,
+        HostFileArtifactContext context,
+        CancellationToken cancellationToken)
+    {
+        MinecraftModpackInspection inspection = await Task.Run(
+                () => MinecraftModpackArchiveInstaller.Inspect(filePath),
+                cancellationToken)
+            .ConfigureAwait(true);
+
+        bool ownsTask = string.IsNullOrWhiteSpace(context.TaskId);
+        string taskId = ownsTask
+            ? CreateTaskId("install", "modpack-" + inspection.SuggestedInstanceId)
+            : context.TaskId!;
+        string taskTitle = ownsTask
+            ? "安装整合包 · " + inspection.Name
+            : (string.IsNullOrWhiteSpace(context.TaskTitle)
+                ? "安装整合包 · " + inspection.Name
+                : context.TaskTitle!);
+
+        CancellationTokenSource? ownedCancellation = null;
+        if (ownsTask)
+        {
+            ownedCancellation = RegisterTrackedTask(taskId);
+            ActivateTaskManagerPage(animate: true);
+            TrackTaskBegin(taskId, taskTitle, "准备安装整合包");
+        }
+        else
+        {
+            ActivateTaskManagerPage(animate: true);
+            TrackTaskBegin(taskId, taskTitle, "正在安装整合包");
+        }
+
+        using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            ownedCancellation?.Token ?? CancellationToken.None);
+
+        try
+        {
+            MinecraftModpackInstallRequest installRequest =
+                await DesktopMinecraftInstallCoordinator.BuildModpackInstallRequestAsync(
+                        filePath,
+                        context.MinecraftRootDirectory,
+                        GetDefaultMinecraftRoot,
+                        preferredJavaHint: context.JavaExecutablePath,
+                        minecraftVersionHint: inspection.MinecraftVersion,
+                        linked.Token)
+                    .ConfigureAwait(true);
+
+            Progress<MinecraftModpackInstallProgress> packProgress = new(update =>
+            {
+                void Apply()
+                {
+                    TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, taskTitle);
+                    _taskSessionStore.Upsert(taskId, previous with
+                    {
+                        Title = taskTitle,
+                        Stage = string.IsNullOrWhiteSpace(update.Stage) ? previous.Stage : update.Stage,
+                        Detail = update.Detail,
+                        Progress = Math.Clamp(update.Progress, 0d, 1d),
+                        CompletedFiles = update.CompletedFiles,
+                        TotalFiles = update.TotalFiles,
+                        SpeedBytesPerSecond = update.SpeedBytesPerSecond,
+                        State = TaskManagerTaskState.Running,
+                        ErrorMessage = null
+                    });
+                    _taskUiCoalescer.Request();
+                }
+
+                if (Dispatcher.UIThread.CheckAccess())
+                    Apply();
+                else
+                    Dispatcher.UIThread.Post(Apply);
+            });
+
+            MinecraftModpackArchiveInstaller installer = new(_minecraftInstallService);
+            MinecraftModpackInstallResult installed = await installer.InstallAsync(
+                    installRequest,
+                    packProgress,
+                    installVersionAsync: (request, progress, token) =>
+                        _minecraftInstallService.InstallAsync(request, progress, token),
+                    versionInstallProgress: new Progress<MinecraftInstallProgress>(update =>
+                    {
+                        if (Dispatcher.UIThread.CheckAccess())
+                            TrackInstallProgress(taskId, taskTitle, update);
+                        else
+                            Dispatcher.UIThread.Post(() => TrackInstallProgress(taskId, taskTitle, update));
+                    }),
+                    cancellationToken: linked.Token)
+                .ConfigureAwait(true);
+
+            if (ownsTask)
+                TrackTaskFinished(taskId, taskTitle, "整合包安装完成");
+            _launchRight?.AppendLog($"整合包安装完成：{installed.Name} → {installed.VersionId}");
+
+            return new HostFileArtifactResult(
+                "pcl.desktop.modpack",
+                "modpack",
+                installed.Name,
+                $"已安装整合包 {installed.Name}（{installed.Version}）\n实例名称：{installed.VersionId}",
+                Installed: true,
+                RefreshInstances: true);
+        }
+        catch (OperationCanceledException)
+        {
+            if (ownsTask)
+                TrackTaskFailed(taskId, taskTitle, "整合包安装已取消。", canceled: true);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            if (ownsTask)
+                TrackTaskFailed(taskId, taskTitle, ex.Message, canceled: false);
+            throw;
+        }
+        finally
+        {
+            if (ownedCancellation is not null)
+                UnregisterTrackedTask(taskId, ownedCancellation);
         }
     }
 

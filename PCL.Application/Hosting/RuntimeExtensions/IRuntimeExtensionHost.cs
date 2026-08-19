@@ -81,7 +81,10 @@ internal enum HostBackgroundTaskStepState
 
 internal sealed record HostFileArtifactContext(
     string MinecraftRootDirectory,
-    string? JavaExecutablePath = null);
+    string? JavaExecutablePath = null,
+    /// <summary>Optional existing task-manager entry to reuse (e.g. community download).</summary>
+    string? TaskId = null,
+    string? TaskTitle = null);
 
 internal sealed record HostFileArtifactResult(
     string HandlerId,

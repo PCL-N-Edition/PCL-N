@@ -215,7 +215,9 @@ internal static class CommunityDownloadOrchestrator
                         completedPath,
                         new HostFileArtifactContext(
                             host.GetMinecraftRootDirectory(),
-                            host.GetJavaExecutablePath()),
+                            host.GetJavaExecutablePath(),
+                            TaskId: taskId,
+                            TaskTitle: taskTitle),
                         token)
                     .ConfigureAwait(true);
                 host.AppendLog(installed.Message.Replace('\n', ' '));

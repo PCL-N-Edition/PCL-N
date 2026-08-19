@@ -127,9 +127,20 @@ public sealed class MinecraftModpackArchiveInstaller
         return plan.Inspection;
     }
 
+    /// <param name="installVersionAsync">
+    /// Optional host-owned version installer (same path as PageDownloadInstall).
+    /// When null, uses the injected <see cref="MinecraftVanillaInstallService"/>.
+    /// </param>
+    /// <param name="versionInstallProgress">
+    /// Progress for the version/loader stage only. When provided, raw
+    /// <see cref="MinecraftInstallProgress"/> is forwarded here (task-manager install UI);
+    /// <paramref name="progress"/> is used for pack-content stages.
+    /// </param>
     public async Task<MinecraftModpackInstallResult> InstallAsync(
         MinecraftModpackInstallRequest request,
         IProgress<MinecraftModpackInstallProgress>? progress = null,
+        Func<MinecraftInstallRequest, IProgress<MinecraftInstallProgress>?, CancellationToken, Task<MinecraftInstallResult>>? installVersionAsync = null,
+        IProgress<MinecraftInstallProgress>? versionInstallProgress = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -177,62 +188,104 @@ public sealed class MinecraftModpackArchiveInstaller
                 string.Equals(version.Id, plan.Inspection.MinecraftVersion, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidDataException($"Minecraft 版本清单中找不到 {plan.Inspection.MinecraftVersion}。");
 
-        Progress<MinecraftInstallProgress> minecraftProgress = new(value =>
-        {
-            progress?.Report(new MinecraftModpackInstallProgress(
-                value.Stage,
-                value.Detail,
-                0.05d + value.Progress * 0.6d,
-                value.CompletedFiles,
-                value.TotalFiles,
-                value.SpeedBytesPerSecond));
-        });
-        MinecraftInstallResult installed = await _minecraftInstaller.InstallAsync(
-                new MinecraftInstallRequest
-                {
-                    VersionId = versionId,
-                    BaseVersionId = baseVersion.Id,
-                    VersionJsonUrl = baseVersion.Url,
-                    MinecraftRootDirectory = minecraftRoot,
-                    PreferOfficialSource = request.PreferOfficialSource,
-                    DownloadThreadLimit = request.DownloadThreadLimit,
-                    Loader = plan.Inspection.Loader,
-                    ReplaceExistingVersion = false,
-                    JavaExecutablePath = request.JavaExecutablePath
-                },
-                minecraftProgress,
-                cancellationToken)
-            .ConfigureAwait(false);
+        // Pre-create the target instance folder so pack mods/overrides can download in parallel
+        // while the shared version installer runs (same controller as PageDownloadInstall).
+        string instanceDirectory = Path.Combine(versionsRoot, versionId);
+        Directory.CreateDirectory(instanceDirectory);
 
-        int installedResources = 0;
+        using CancellationTokenSource packCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        int totalResources = plan.ModrinthFiles.Count + plan.CurseForgeFiles.Count;
+        // Mute pack progress until version install finishes so the task UI matches download-page install.
+        bool versionStageComplete = false;
+        Progress<MinecraftModpackInstallProgress> packProgress = new(value =>
+        {
+            if (versionStageComplete)
+                progress?.Report(value);
+        });
+        Task<int> packDownloadTask = DownloadPackResourcesAsync(
+            plan,
+            request,
+            instanceDirectory,
+            packProgress,
+            totalResources,
+            packCts.Token);
+
+        MinecraftInstallRequest versionRequest = new()
+        {
+            VersionId = versionId,
+            BaseVersionId = baseVersion.Id,
+            VersionJsonUrl = baseVersion.Url,
+            MinecraftRootDirectory = minecraftRoot,
+            PreferOfficialSource = request.PreferOfficialSource,
+            DownloadThreadLimit = request.DownloadThreadLimit,
+            Loader = plan.Inspection.Loader,
+            ReplaceExistingVersion = false,
+            JavaExecutablePath = request.JavaExecutablePath
+        };
+
+        IProgress<MinecraftInstallProgress>? minecraftProgress = versionInstallProgress;
+        if (minecraftProgress is null)
+        {
+            minecraftProgress = new Progress<MinecraftInstallProgress>(value =>
+            {
+                progress?.Report(new MinecraftModpackInstallProgress(
+                    value.Stage,
+                    value.Detail,
+                    0.05d + value.Progress * 0.6d,
+                    value.CompletedFiles,
+                    value.TotalFiles,
+                    value.SpeedBytesPerSecond));
+            });
+        }
+
+        Func<MinecraftInstallRequest, IProgress<MinecraftInstallProgress>?, CancellationToken, Task<MinecraftInstallResult>>
+            versionInstaller = installVersionAsync ??
+            ((req, prog, token) => _minecraftInstaller.InstallAsync(req, prog, token));
+
+        MinecraftInstallResult installed;
         try
         {
-            int totalResources = plan.ModrinthFiles.Count + plan.CurseForgeFiles.Count;
-            if (plan.ModrinthFiles.Count > 0)
+            installed = await versionInstaller(versionRequest, minecraftProgress, cancellationToken)
+                .ConfigureAwait(false);
+            versionStageComplete = true;
+        }
+        catch
+        {
+            await packCts.CancelAsync().ConfigureAwait(false);
+            try
             {
-                installedResources += await DownloadModrinthFilesAsync(
-                        plan.ModrinthFiles,
-                        installed.InstanceDirectory,
-                        progress,
-                        totalResources,
-                        installedResources,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                _ = await packDownloadTask.ConfigureAwait(false);
+            }
+            catch
+            {
+                // Ignored: version failure is the primary error.
             }
 
-            if (plan.CurseForgeFiles.Count > 0)
+            TryDeleteDirectory(instanceDirectory);
+            throw;
+        }
+
+        int installedResources;
+        try
+        {
+            installedResources = await packDownloadTask.ConfigureAwait(false);
+
+            // Prefer the installer-reported instance directory (should match pre-created path).
+            string targetDirectory = installed.InstanceDirectory;
+            if (!string.Equals(targetDirectory, instanceDirectory, StringComparison.OrdinalIgnoreCase) &&
+                Directory.Exists(instanceDirectory))
             {
-                ICurseForgeModpackFileResolver resolver = request.CurseForgeResolver ??
-                    new HttpCurseForgeModpackFileResolver(_httpClient);
-                installedResources += await DownloadCurseForgeFilesAsync(
-                        plan.CurseForgeFiles,
-                        resolver,
-                        installed.InstanceDirectory,
-                        progress,
-                        totalResources,
-                        installedResources,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                // External loaders always land on versions/{VersionId}; keep files there if paths diverge.
+                if (Directory.Exists(targetDirectory) &&
+                    !string.Equals(targetDirectory, instanceDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    MergeDirectoryContents(instanceDirectory, targetDirectory);
+                    TryDeleteDirectory(instanceDirectory);
+                }
+                else
+                {
+                    targetDirectory = instanceDirectory;
+                }
             }
 
             progress?.Report(new MinecraftModpackInstallProgress(
@@ -242,10 +295,10 @@ public sealed class MinecraftModpackArchiveInstaller
                 installedResources,
                 totalResources));
             using (ZipArchive archive = ZipFile.OpenRead(archivePath))
-                ExtractOverrides(archive, plan.OverridePrefixes, installed.InstanceDirectory, cancellationToken);
+                ExtractOverrides(archive, plan.OverridePrefixes, targetDirectory, cancellationToken);
 
             await InstanceMetadataStore.SaveAsync(
-                    installed.InstanceDirectory,
+                    targetDirectory,
                     new InstanceMetadata
                     {
                         Description = $"{FormatName(plan.Inspection.Format)}整合包",
@@ -261,20 +314,72 @@ public sealed class MinecraftModpackArchiveInstaller
                 1d,
                 installedResources,
                 totalResources));
-            PortableLog.Info("ModpackInstall", $"整合包安装完成；目标={installed.InstanceDirectory}；资源={installedResources}。");
+            PortableLog.Info("ModpackInstall", $"整合包安装完成；目标={targetDirectory}；资源={installedResources}。");
             return new MinecraftModpackInstallResult(
                 plan.Inspection.Format,
                 plan.Inspection.Name,
                 plan.Inspection.Version,
                 versionId,
                 minecraftRoot,
-                installed.InstanceDirectory,
+                targetDirectory,
                 installedResources);
         }
         catch
         {
             TryDeleteDirectory(installed.InstanceDirectory);
+            TryDeleteDirectory(instanceDirectory);
             throw;
+        }
+    }
+
+    private async Task<int> DownloadPackResourcesAsync(
+        ArchivePlan plan,
+        MinecraftModpackInstallRequest request,
+        string instanceDirectory,
+        IProgress<MinecraftModpackInstallProgress>? progress,
+        int totalResources,
+        CancellationToken cancellationToken)
+    {
+        int installedResources = 0;
+        if (plan.ModrinthFiles.Count > 0)
+        {
+            installedResources += await DownloadModrinthFilesAsync(
+                    plan.ModrinthFiles,
+                    instanceDirectory,
+                    progress,
+                    totalResources,
+                    installedResources,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (plan.CurseForgeFiles.Count > 0)
+        {
+            ICurseForgeModpackFileResolver resolver = request.CurseForgeResolver ??
+                new HttpCurseForgeModpackFileResolver(_httpClient);
+            installedResources += await DownloadCurseForgeFilesAsync(
+                    plan.CurseForgeFiles,
+                    resolver,
+                    instanceDirectory,
+                    progress,
+                    totalResources,
+                    installedResources,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return installedResources;
+    }
+
+    private static void MergeDirectoryContents(string sourceDirectory, string destinationDirectory)
+    {
+        foreach (string file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            string relative = Path.GetRelativePath(sourceDirectory, file);
+            string target = Path.Combine(destinationDirectory, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            if (!File.Exists(target))
+                File.Move(file, target);
         }
     }
 

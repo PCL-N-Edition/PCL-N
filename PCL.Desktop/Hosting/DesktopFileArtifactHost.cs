@@ -37,6 +37,17 @@ internal sealed class DesktopFileArtifactHost : IHostFileArtifactRegistry
         _modpackHandler.UseMinecraftInstallService(minecraftInstallService);
     }
 
+    /// <summary>
+    /// Host-owned modpack install (task manager + version install progress aligned with
+    /// <c>StartInstallAsync</c>). When set, replaces the handler's local background-task path.
+    /// </summary>
+    public void UseModpackInstallOrchestrator(
+        Func<string, HostFileArtifactContext, CancellationToken, ValueTask<HostFileArtifactResult>> orchestrator)
+    {
+        ArgumentNullException.ThrowIfNull(orchestrator);
+        _modpackHandler.UseInstallOrchestrator(orchestrator);
+    }
+
     public IDisposable Register(IHostFileArtifactHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
@@ -116,6 +127,7 @@ internal sealed class DesktopFileArtifactHost : IHostFileArtifactRegistry
 internal sealed class DesktopModpackFileArtifactHandler : IHostFileArtifactHandler
 {
     private MinecraftModpackArchiveInstaller _installer = new();
+    private Func<string, HostFileArtifactContext, CancellationToken, ValueTask<HostFileArtifactResult>>? _orchestrator;
 
     public string Id => "pcl.desktop.modpack";
 
@@ -124,12 +136,18 @@ internal sealed class DesktopModpackFileArtifactHandler : IHostFileArtifactHandl
     public void UseMinecraftInstallService(MinecraftVanillaInstallService minecraftInstallService)
     {
         ArgumentNullException.ThrowIfNull(minecraftInstallService);
-        // Recreate so the modpack version/loader stage calls the same service instance
-        // as MainWindow.StartInstallAsync / PageDownloadInstall.
         _installer = new MinecraftModpackArchiveInstaller(minecraftInstallService);
         PortableLog.Info(
             "FileArtifactHost",
             "整合包版本安装已复用实例安装的 MinecraftVanillaInstallService。");
+    }
+
+    public void UseInstallOrchestrator(
+        Func<string, HostFileArtifactContext, CancellationToken, ValueTask<HostFileArtifactResult>> orchestrator)
+    {
+        ArgumentNullException.ThrowIfNull(orchestrator);
+        _orchestrator = orchestrator;
+        PortableLog.Info("FileArtifactHost", "整合包安装已接入 MainWindow 任务列表编排。");
     }
 
     public ValueTask<bool> CanHandleAsync(string filePath, CancellationToken cancellationToken = default)
@@ -145,10 +163,24 @@ internal sealed class DesktopModpackFileArtifactHandler : IHostFileArtifactHandl
         return new ValueTask<bool>(Task.Run(() => MinecraftModpackArchiveInstaller.CanInstall(filePath), cancellationToken));
     }
 
-    public async ValueTask<HostFileArtifactResult> InstallAsync(
+    public ValueTask<HostFileArtifactResult> InstallAsync(
         string filePath,
         HostFileArtifactContext context,
         CancellationToken cancellationToken = default)
+    {
+        Func<string, HostFileArtifactContext, CancellationToken, ValueTask<HostFileArtifactResult>>? orchestrator =
+            _orchestrator;
+        if (orchestrator is not null)
+            return orchestrator(filePath, context, cancellationToken);
+
+        return InstallWithBackgroundTaskAsync(filePath, context, cancellationToken);
+    }
+
+    /// <summary>Fallback when MainWindow orchestrator is not attached (tests / early host).</summary>
+    private async ValueTask<HostFileArtifactResult> InstallWithBackgroundTaskAsync(
+        string filePath,
+        HostFileArtifactContext context,
+        CancellationToken cancellationToken)
     {
         MinecraftModpackInspection inspection = await Task.Run(() => MinecraftModpackArchiveInstaller.Inspect(filePath), cancellationToken)
             .ConfigureAwait(false);
@@ -170,7 +202,6 @@ internal sealed class DesktopModpackFileArtifactHandler : IHostFileArtifactHandl
         });
         try
         {
-            // Same Java / root / threads / download-source path as PageDownloadInstall.
             MinecraftModpackInstallRequest installRequest =
                 await DesktopMinecraftInstallCoordinator.BuildModpackInstallRequestAsync(
                         filePath,
@@ -183,7 +214,7 @@ internal sealed class DesktopModpackFileArtifactHandler : IHostFileArtifactHandl
             MinecraftModpackInstallResult installed = await _installer.InstallAsync(
                     installRequest,
                     progress,
-                    linked.Token)
+                    cancellationToken: linked.Token)
                 .ConfigureAwait(false);
             backgroundTask.Complete("整合包安装完成");
             return new HostFileArtifactResult(
