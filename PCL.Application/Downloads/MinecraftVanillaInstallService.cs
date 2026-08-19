@@ -5,6 +5,7 @@
 using System.Buffers;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -672,6 +673,16 @@ public sealed class MinecraftVanillaInstallService
                 .ConfigureAwait(false);
 
             PrepareExternalInstallerRoot(workingRoot, minecraftRoot, baseVersionId);
+            // Prefer launcher HTTP (proxy/DoH/mirrors) over the Java installer's own downloads.
+            await PrefetchExternalInstallerLibrariesAsync(
+                    installerPath,
+                    workingRoot,
+                    minecraftRoot,
+                    preferOfficialSource,
+                    downloadThreadLimit,
+                    progress,
+                    cancellationToken)
+                .ConfigureAwait(false);
             progress?.Report(CreateProgress(
                 "运行加载器安装器",
                 artifact.FileName,
@@ -748,8 +759,219 @@ public sealed class MinecraftVanillaInstallService
                 File.Copy(source, Path.Combine(targetDirectory, baseVersionId + extension), overwrite: true);
         }
 
+        // Seed libraries so NeoForge/Forge installers can skip Java HTTPS downloads when possible.
+        CopyDirectoryIfPresent(
+            Path.Combine(minecraftRoot, "libraries"),
+            Path.Combine(workingRoot, "libraries"));
+
         File.WriteAllText(Path.Combine(workingRoot, "launcher_profiles.json"), "{\"profiles\":{}}");
     }
+
+    /// <summary>
+    /// Download libraries declared by the Forge/NeoForge installer profile using the launcher
+    /// HTTP stack (proxy / DoH / BMCLAPI) into the installer working root before Java runs.
+    /// </summary>
+    private async Task PrefetchExternalInstallerLibrariesAsync(
+        string installerPath,
+        string workingRoot,
+        string minecraftRoot,
+        bool preferOfficialSource,
+        int downloadThreadLimit,
+        IProgress<MinecraftInstallProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        List<InstallerLibraryDownload> libraries;
+        try
+        {
+            libraries = ReadInstallerLibraryDownloads(installerPath);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or JsonException)
+        {
+            PortableLog.Warn(ex, "MinecraftInstall", "无法解析加载器安装器依赖清单，将交给 Java 安装器自行下载。");
+            return;
+        }
+
+        if (libraries.Count == 0)
+            return;
+
+        string workingLibraries = Path.Combine(workingRoot, "libraries");
+        string sharedLibraries = Path.Combine(minecraftRoot, "libraries");
+        Directory.CreateDirectory(workingLibraries);
+        Directory.CreateDirectory(sharedLibraries);
+
+        progress?.Report(CreateProgress(
+            "预下载加载器依赖",
+            $"{libraries.Count} 个文件",
+            0.2d,
+            0,
+            libraries.Count,
+            0,
+            downloadThreadLimit));
+
+        int completed = 0;
+        foreach (InstallerLibraryDownload library in libraries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string relative = library.Path.Replace('/', Path.DirectorySeparatorChar);
+            string workingTarget = Path.Combine(workingLibraries, relative);
+            string sharedTarget = Path.Combine(sharedLibraries, relative);
+
+            if (!File.Exists(workingTarget) && File.Exists(sharedTarget))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(workingTarget)!);
+                File.Copy(sharedTarget, workingTarget, overwrite: true);
+            }
+
+            if (!File.Exists(workingTarget) ||
+                (library.ExpectedSize > 0 && new FileInfo(workingTarget).Length != library.ExpectedSize))
+            {
+                List<string> sources = [];
+                if (!string.IsNullOrWhiteSpace(library.Url))
+                {
+                    if (preferOfficialSource)
+                        sources.Add(library.Url);
+                    sources.Add(ToBmclApiMavenUrl(library.Path));
+                    if (!preferOfficialSource)
+                        sources.Add(library.Url);
+                }
+                else
+                {
+                    sources.Add(ToBmclApiMavenUrl(library.Path));
+                    sources.Add("https://maven.neoforged.net/releases/" + library.Path.TrimStart('/'));
+                    sources.Add("https://maven.minecraftforge.net/" + library.Path.TrimStart('/'));
+                    sources.Add("https://libraries.minecraft.net/" + library.Path.TrimStart('/'));
+                }
+
+                await DownloadIfNeededAsync(
+                        sources,
+                        workingTarget,
+                        library.ExpectedSize,
+                        library.Sha1,
+                        "预下载加载器依赖",
+                        completed,
+                        libraries.Count,
+                        progress,
+                        activeThreads: 1,
+                        threadLimit: downloadThreadLimit,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            if (File.Exists(workingTarget) && !File.Exists(sharedTarget))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(sharedTarget)!);
+                File.Copy(workingTarget, sharedTarget, overwrite: true);
+            }
+
+            completed++;
+            progress?.Report(CreateProgress(
+                "预下载加载器依赖",
+                Path.GetFileName(relative),
+                0.2d + 0.15d * completed / libraries.Count,
+                completed,
+                libraries.Count,
+                0,
+                downloadThreadLimit));
+        }
+
+        PortableLog.Info("MinecraftInstall", $"已为加载器安装器预下载/复用 {completed}/{libraries.Count} 个依赖。");
+    }
+
+    private static List<InstallerLibraryDownload> ReadInstallerLibraryDownloads(string installerPath)
+    {
+        using ZipArchive archive = ZipFile.OpenRead(installerPath);
+        List<InstallerLibraryDownload> results = [];
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string entryName in new[] { "install_profile.json", "version.json" })
+        {
+            ZipArchiveEntry? entry = archive.GetEntry(entryName);
+            if (entry is null)
+                continue;
+
+            using Stream stream = entry.Open();
+            using JsonDocument document = JsonDocument.Parse(stream);
+            if (!document.RootElement.TryGetProperty("libraries", out JsonElement libraries) ||
+                libraries.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (JsonElement library in libraries.EnumerateArray())
+            {
+                if (TryReadInstallerLibrary(library, out InstallerLibraryDownload download) &&
+                    seen.Add(download.Path))
+                {
+                    results.Add(download);
+                }
+            }
+        }
+
+        return results;
+    }
+
+    private static bool TryReadInstallerLibrary(JsonElement library, out InstallerLibraryDownload download)
+    {
+        download = default!;
+        string? path = null;
+        string? url = null;
+        string? sha1 = null;
+        long size = -1;
+
+        if (library.TryGetProperty("downloads", out JsonElement downloads) &&
+            downloads.TryGetProperty("artifact", out JsonElement artifact))
+        {
+            path = artifact.TryGetProperty("path", out JsonElement pathNode) ? pathNode.GetString() : null;
+            url = artifact.TryGetProperty("url", out JsonElement urlNode) ? urlNode.GetString() : null;
+            sha1 = artifact.TryGetProperty("sha1", out JsonElement shaNode) ? shaNode.GetString() : null;
+            if (artifact.TryGetProperty("size", out JsonElement sizeNode) &&
+                sizeNode.TryGetInt64(out long parsedSize))
+            {
+                size = parsedSize;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(path) &&
+            library.TryGetProperty("name", out JsonElement nameNode))
+        {
+            path = MavenNameToPath(nameNode.GetString());
+        }
+
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        download = new InstallerLibraryDownload(path.Replace('\\', '/'), url, sha1, size);
+        return true;
+    }
+
+    private static string? MavenNameToPath(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        // group:artifact:version[:classifier][@ext]
+        string[] atParts = name.Split('@', 2);
+        string ext = atParts.Length > 1 ? atParts[1] : "jar";
+        string[] parts = atParts[0].Split(':');
+        if (parts.Length < 3)
+            return null;
+
+        string group = parts[0].Replace('.', '/');
+        string artifact = parts[1];
+        string version = parts[2];
+        string fileName = parts.Length >= 4
+            ? $"{artifact}-{version}-{parts[3]}.{ext}"
+            : $"{artifact}-{version}.{ext}";
+        return $"{group}/{artifact}/{version}/{fileName}";
+    }
+
+    private static string ToBmclApiMavenUrl(string relativePath) =>
+        "https://bmclapi2.bangbang93.com/maven/" + relativePath.TrimStart('/');
+
+    private sealed record InstallerLibraryDownload(
+        string Path,
+        string? Url,
+        string? Sha1,
+        long ExpectedSize);
 
     private static string FindGeneratedLoaderJson(
         string workingRoot,

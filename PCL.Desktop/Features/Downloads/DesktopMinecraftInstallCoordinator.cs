@@ -2,6 +2,7 @@
 // Modifications Copyright (c) 2026 PCL N contributors.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Net;
 using PCL.Application.Downloads;
 using PCL.Application.Minecraft.Launch;
 using PCL.Application.Settings;
@@ -182,7 +183,8 @@ internal static class DesktopMinecraftInstallCoordinator
     }
 
     /// <summary>
-    /// JVM system properties for Forge/NeoForge installers when a custom HTTP proxy is configured.
+    /// JVM system properties for Forge/NeoForge installers.
+    /// Covers custom proxy and "follow system proxy" (Java ignores WinHTTP otherwise).
     /// </summary>
     public static string? ResolveLoaderProxyJvmArguments(LauncherSettings? settings = null)
     {
@@ -190,21 +192,55 @@ internal static class DesktopMinecraftInstallCoordinator
         int proxyType = settings.GetIntegerOption(
             "SystemHttpProxyType",
             LauncherSettingDefaults.GetInteger("SystemHttpProxyType"));
-        if (proxyType != 2)
+
+        // 0 = off, 1 = system, 2 = custom
+        if (proxyType == 0)
             return null;
 
-        string address = settings.GetTextOption(
-            "SystemHttpProxy",
-            LauncherSettingDefaults.GetText("SystemHttpProxy"));
-        if (!Uri.TryCreate(address, UriKind.Absolute, out Uri? proxy) ||
-            string.IsNullOrWhiteSpace(proxy.Host) ||
-            proxy.Port <= 0)
+        Uri? proxyUri = null;
+        if (proxyType == 2)
         {
-            return null;
+            string address = settings.GetTextOption(
+                "SystemHttpProxy",
+                LauncherSettingDefaults.GetText("SystemHttpProxy"));
+            if (Uri.TryCreate(address, UriKind.Absolute, out Uri? custom) &&
+                !string.IsNullOrWhiteSpace(custom.Host) &&
+                custom.Port > 0)
+            {
+                proxyUri = custom;
+            }
+        }
+        else
+        {
+            // Follow system proxy — resolve against a real HTTPS origin NeoForge will hit.
+            try
+            {
+                IWebProxy systemProxy = HttpClient.DefaultProxy;
+                Uri probe = new("https://maven.neoforged.net/");
+                Uri? candidate = systemProxy.GetProxy(probe);
+                if (candidate is not null &&
+                    !string.Equals(candidate.Host, probe.Host, StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(candidate.Host) &&
+                    candidate.Port > 0)
+                {
+                    proxyUri = candidate;
+                }
+            }
+            catch (Exception)
+            {
+                // Fall through — installer runs without explicit proxy flags.
+            }
         }
 
-        return $"-Dhttp.proxyHost={proxy.Host} -Dhttp.proxyPort={proxy.Port} " +
-               $"-Dhttps.proxyHost={proxy.Host} -Dhttps.proxyPort={proxy.Port}";
+        if (proxyUri is null)
+            return null;
+
+        PortableLog.Info(
+            "MinecraftInstall",
+            $"加载器安装器将使用代理 {proxyUri.Host}:{proxyUri.Port}（设置类型={proxyType}）。");
+        return $"-Dhttp.proxyHost={proxyUri.Host} -Dhttp.proxyPort={proxyUri.Port} " +
+               $"-Dhttps.proxyHost={proxyUri.Host} -Dhttps.proxyPort={proxyUri.Port} " +
+               "-Djava.net.useSystemProxies=true";
     }
 
     private static bool TryResolveExistingJava(string? path, out string resolved)
