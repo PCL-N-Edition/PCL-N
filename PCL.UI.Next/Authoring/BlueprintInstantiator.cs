@@ -289,7 +289,6 @@ public sealed class BlueprintInstantiator
                 break;
             case UiNodeKind.Container:
             case UiNodeKind.Overlay:
-            case UiNodeKind.Button:
             case UiNodeKind.If:
             case UiNodeKind.NativeHost:
                 _world.Set(entity, new OverlayLayout());

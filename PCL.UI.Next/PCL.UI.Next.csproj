@@ -37,5 +37,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="PCL.UI.Next.Test" />
     <InternalsVisibleTo Include="PCL.UI.Next.Playground" />
+    <InternalsVisibleTo Include="PCL.UI.Next.Backend.Avalonia.Test" />
+    <InternalsVisibleTo Include="PCL.UI.Next.Benchmarks" />
+    <InternalsVisibleTo Include="PCL.UI.Next.DevTools.Test" />
   </ItemGroup>
 </Project>

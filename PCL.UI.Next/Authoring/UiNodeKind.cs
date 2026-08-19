@@ -3,7 +3,7 @@
 
 namespace PCL.UI.Next;
 
-/// <summary>Authoring and blueprint node kinds.</summary>
+/// <summary>Primitive PXML Runtime ABI node kinds.</summary>
 public enum UiNodeKind : byte
 {
     None = 0,
@@ -11,7 +11,8 @@ public enum UiNodeKind : byte
     Row = 2,
     Container = 3,
     Text = 4,
-    Button = 5,
+    /// <summary>Reserved legacy value. Framework controls must not lower to this kind.</summary>
+    Reserved = 5,
     /// <summary>Structural: condition chooses one of two child templates.</summary>
     If = 6,
     Grid = 7,

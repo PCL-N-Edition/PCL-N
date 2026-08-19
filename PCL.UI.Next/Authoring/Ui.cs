@@ -7,7 +7,7 @@ namespace PCL.UI.Next;
 /// Fluent authoring entry points (architecture §19 / §109).
 /// Produces <see cref="UiNode"/> trees that compile to <see cref="UiBlueprint"/>.
 /// </summary>
-public static class Ui
+internal static class Ui
 {
     public static UiNode Column(params UiNode[] children)
     {
@@ -113,7 +113,7 @@ public static class Ui
     public static UiNode Button(UiNode content)
     {
         ArgumentNullException.ThrowIfNull(content);
-        return new UiNode(UiNodeKind.Button)
+        return new UiNode(UiNodeKind.Container)
             .Behavior(UiBehavior.ButtonDefaults)
             .Class(UiClass.Button)
             .Accessible(

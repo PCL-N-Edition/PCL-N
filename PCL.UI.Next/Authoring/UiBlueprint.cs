@@ -9,6 +9,16 @@ namespace PCL.UI.Next;
 /// </summary>
 public sealed class UiBlueprint
 {
+    /// <summary>
+    /// Loads an immutable blueprint produced by the independent PXML Compiler.
+    /// PCL.UI.Next accepts compiled PXB only and never parses PXML source at runtime.
+    /// </summary>
+    public static UiBlueprint FromPxmlBinary(
+        ReadOnlySpan<byte> binary,
+        string name = "PXML",
+        IPxmlBindingResolver? bindingResolver = null) =>
+        PxmlBinaryBlueprint.Read(binary, name, bindingResolver);
+
     internal UiBlueprint(
         string name,
         BlueprintNode[] nodes,
