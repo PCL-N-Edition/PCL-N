@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using PCL.Core.IO.Net;
 
 namespace PCL.Application.Accounts;
 
@@ -43,7 +44,7 @@ public sealed class MinecraftCapeService : IMinecraftCapeService
     private readonly HttpClient _client;
 
     public MinecraftCapeService()
-        : this(CreateClient())
+        : this(PortableHttp.Client)
     {
     }
 
@@ -192,11 +193,4 @@ public sealed class MinecraftCapeService : IMinecraftCapeService
         value.ValueKind == JsonValueKind.String
             ? value.GetString()?.Trim() ?? string.Empty
             : string.Empty;
-
-    private static HttpClient CreateClient()
-    {
-        HttpClient client = new() { Timeout = TimeSpan.FromSeconds(30) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
-        return client;
-    }
 }

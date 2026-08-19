@@ -5,10 +5,12 @@
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using System.Net;
 using System.Text.Json;
 using PCL.Application.Accounts;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Core.Logging;
+using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Launching.Appearance;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Settings.Views;
@@ -50,30 +52,17 @@ public partial class MainWindow
 
         try
         {
-            // Refresh a usable Minecraft services token before wardrobe/cape fetch when possible.
+            // Quiet refresh only — do not surface the launch-oriented MS relogin dialog here.
+            // Upstream waits on mcLoginMsLoader; we best-effort refresh then query owned capes.
             if (profile.Kind == LaunchLoginProfileKind.Microsoft &&
                 !string.IsNullOrWhiteSpace(profile.RefreshToken))
             {
-                try
-                {
-                    profile = await RefreshMicrosoftAppearanceProfileAsync(
-                            profile,
-                            "刷新 Microsoft 外观凭据",
-                            cancellationToken)
-                        .ConfigureAwait(true);
-                    page.SetModel(CreateFallbackAppearanceModel(profile));
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception exception)
-                {
-                    PortableLog.Warn(
-                        exception,
-                        "MicrosoftAppearance",
-                        "打开外观页时刷新正版登录状态失败，继续使用已保存的令牌读取皮肤与披风。");
-                }
+                profile = await TryRefreshMicrosoftAppearanceProfileQuietAsync(
+                        profile,
+                        "刷新 Microsoft 外观凭据",
+                        cancellationToken)
+                    .ConfigureAwait(true);
+                page.SetModel(CreateFallbackAppearanceModel(profile));
             }
 
             SkinAppearancePageModel model = await BuildAppearanceModelAsync(
@@ -191,7 +180,88 @@ public partial class MainWindow
                     "Alex",
                     StringComparison.OrdinalIgnoreCase)))
             .ToArray();
-        return new SkinAppearancePageModel(profile, current, otherProfiles, []);
+        // Microsoft wardrobe must not claim "no owned capes" while the ownership query is still
+        // outstanding (or when a previous load never completed).
+        SkinCapeClosetState capeClosetState = profile.Kind == LaunchLoginProfileKind.Microsoft
+            ? SkinCapeClosetState.Loading
+            : SkinCapeClosetState.Loaded;
+        return new SkinAppearancePageModel(profile, current, otherProfiles, [], capeClosetState);
+    }
+
+    private async Task<(
+        LoginProfileInfo Profile,
+        IReadOnlyList<MinecraftOwnedCape> Capes,
+        SkinCapeClosetState State)> LoadMicrosoftOwnedCapesAsync(
+        LoginProfileInfo profile,
+        CancellationToken cancellationToken)
+    {
+        if (!MinecraftLaunchPlanFactory.IsAccessTokenUsable(profile.AccessToken) &&
+            !string.IsNullOrWhiteSpace(profile.RefreshToken))
+        {
+            profile = await TryRefreshMicrosoftAppearanceProfileQuietAsync(
+                    profile,
+                    "刷新 Microsoft 披风凭据",
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (!MinecraftLaunchPlanFactory.IsAccessTokenUsable(profile.AccessToken))
+            return (profile, [], SkinCapeClosetState.LoadFailed);
+
+        try
+        {
+            IReadOnlyList<MinecraftOwnedCape> capes = await _minecraftCapeService
+                .GetOwnedCapesAsync(profile.AccessToken, cancellationToken)
+                .ConfigureAwait(false);
+            return (profile, capes, SkinCapeClosetState.Loaded);
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException or
+                InvalidOperationException or
+                JsonException or
+                TaskCanceledException)
+        {
+            bool unauthorized = exception is HttpRequestException http &&
+                                http.StatusCode == HttpStatusCode.Unauthorized;
+            if (unauthorized && !string.IsNullOrWhiteSpace(profile.RefreshToken))
+            {
+                try
+                {
+                    LoginProfileInfo refreshed = await TryRefreshMicrosoftAppearanceProfileQuietAsync(
+                            profile,
+                            "刷新 Microsoft 披风凭据",
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    if (MinecraftLaunchPlanFactory.IsAccessTokenUsable(refreshed.AccessToken) &&
+                        !string.Equals(refreshed.AccessToken, profile.AccessToken, StringComparison.Ordinal))
+                    {
+                        IReadOnlyList<MinecraftOwnedCape> retryCapes = await _minecraftCapeService
+                            .GetOwnedCapesAsync(refreshed.AccessToken, cancellationToken)
+                            .ConfigureAwait(false);
+                        return (refreshed, retryCapes, SkinCapeClosetState.Loaded);
+                    }
+
+                    profile = refreshed;
+                }
+                catch (Exception retryException) when (
+                    retryException is HttpRequestException or
+                        InvalidOperationException or
+                        JsonException or
+                        TaskCanceledException)
+                {
+                    PortableLog.Warn(
+                        retryException,
+                        "MicrosoftAppearance",
+                        "刷新后再次读取正版披风仍失败。");
+                }
+            }
+
+            PortableLog.Warn(
+                exception,
+                "MicrosoftAppearance",
+                "读取正版账户已获得的披风失败，不会显示其他账户或历史披风作为替代，也不应提示“尚未获得任何披风”。");
+            return (profile, [], SkinCapeClosetState.LoadFailed);
+        }
     }
 
     private async Task<SkinAppearancePageModel> BuildAppearanceModelAsync(
@@ -254,34 +324,8 @@ public partial class MainWindow
         SkinCapeClosetState microsoftCapeClosetState = SkinCapeClosetState.Loaded;
         if (profile.Kind == LaunchLoginProfileKind.Microsoft)
         {
-            // Caller (OpenExperimentalAppearancePageAsync) prefers refreshing a usable MS
-            // token on the UI thread before this model build; use whatever access token we have.
-            if (!string.IsNullOrWhiteSpace(profile.AccessToken))
-            {
-                try
-                {
-                    microsoftCapes = await _minecraftCapeService
-                        .GetOwnedCapesAsync(profile.AccessToken, cancellationToken)
-                        .ConfigureAwait(false);
-                    microsoftCapeClosetState = SkinCapeClosetState.Loaded;
-                }
-                catch (Exception exception) when (
-                    exception is HttpRequestException or
-                        InvalidOperationException or
-                        JsonException or
-                        TaskCanceledException)
-                {
-                    microsoftCapeClosetState = SkinCapeClosetState.LoadFailed;
-                    PortableLog.Warn(
-                        exception,
-                        "MicrosoftAppearance",
-                        "读取正版账户已获得的披风失败，不会显示其他账户或历史披风作为替代，也不应提示“尚未获得任何披风”。");
-                }
-            }
-            else
-            {
-                microsoftCapeClosetState = SkinCapeClosetState.LoadFailed;
-            }
+            (profile, microsoftCapes, microsoftCapeClosetState) =
+                await LoadMicrosoftOwnedCapesAsync(profile, cancellationToken).ConfigureAwait(false);
         }
 
         if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
@@ -416,7 +460,7 @@ public partial class MainWindow
         {
             capes = microsoftCapes
                 .Select(cape => new SkinAppearanceCard(
-                    cape.Name,
+                    ResolveMicrosoftCapeDisplayName(cape.Name),
                     cape.IsActive
                         ? GetResourceText("Appearance.Source.Current", "当前使用")
                         : GetResourceText(
@@ -574,6 +618,20 @@ public partial class MainWindow
 
             try
             {
+                profile = await TryRefreshMicrosoftAppearanceProfileQuietAsync(
+                        profile,
+                        "刷新 Microsoft 披风凭据",
+                        CancellationToken.None)
+                    .ConfigureAwait(true);
+                if (!MinecraftLaunchPlanFactory.IsAccessTokenUsable(profile.AccessToken))
+                {
+                    ShowTextDialog(
+                        "更换披风",
+                        "当前正版档案的访问令牌缺失或已过期，请先重新登录后再更换披风。",
+                        "知道了");
+                    return;
+                }
+
                 HandleStatusMessage("正在更换正版披风…");
                 await _minecraftCapeService
                     .SetActiveCapeAsync(profile.AccessToken, card.MicrosoftCapeId)
@@ -876,6 +934,26 @@ public partial class MainWindow
         _launchLoginSurface.ProfileSkinPage?.SetProfile(updated);
         SaveProfilesInBackground(saveAction);
         HandleStatusMessage(statusMessage ?? $"已为 {updated.Username} 应用皮肤。");
+    }
+
+    /// <summary>
+    /// Upstream <c>MySkin._GetCapeDisplayName</c>: map Mojang cape aliases to localized titles.
+    /// </summary>
+    private string ResolveMicrosoftCapeDisplayName(string capeAlias)
+    {
+        if (string.IsNullOrWhiteSpace(capeAlias))
+            return capeAlias;
+
+        string safeName = capeAlias
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .Replace("'", string.Empty, StringComparison.Ordinal);
+        string key = "Appearance.Cape.Name." + safeName;
+        string localized = GetResourceText(key, capeAlias);
+        return string.Equals(localized, key, StringComparison.Ordinal) ||
+               localized.StartsWith('!')
+            ? capeAlias
+            : localized;
     }
 
     private static async Task RecordProfileTextureSnapshotAsync(LoginProfileInfo profile)

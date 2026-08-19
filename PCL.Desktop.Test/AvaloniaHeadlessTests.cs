@@ -469,6 +469,66 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageSkinAppearanceRight_MicrosoftEmptyCopyDependsOnCapeClosetState()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            LoginProfileInfo profile = new(
+                "Player",
+                "Microsoft 正版",
+                LaunchLoginProfileKind.Microsoft,
+                "0123456789abcdef0123456789abcdef");
+            PageSkinAppearanceRight page = new();
+            SkinAppearanceCard current = new("Current", "Current", string.Empty, null, false);
+            Window window = new()
+            {
+                Width = 1080,
+                Height = 720,
+                Content = page
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+
+                page.SetModel(new SkinAppearancePageModel(
+                    profile,
+                    current,
+                    [],
+                    [],
+                    SkinCapeClosetState.Loading));
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                StringAssert.Contains(page.FindControl<TextBlock>("LabCapeEmpty")!.Text, "正在读取");
+
+                page.SetModel(new SkinAppearancePageModel(
+                    profile,
+                    current,
+                    [],
+                    [],
+                    SkinCapeClosetState.LoadFailed));
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                StringAssert.Contains(page.FindControl<TextBlock>("LabCapeEmpty")!.Text, "暂时无法读取");
+
+                page.SetModel(new SkinAppearancePageModel(
+                    profile,
+                    current,
+                    [],
+                    [],
+                    SkinCapeClosetState.Loaded));
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                StringAssert.Contains(page.FindControl<TextBlock>("LabCapeEmpty")!.Text, "尚未获得");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MyMsgColor_LoadsColorPickerTemplateAndRendersContent()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();

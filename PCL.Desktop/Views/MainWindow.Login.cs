@@ -361,6 +361,69 @@ public partial class MainWindow
         return refreshed;
     }
 
+    /// <summary>
+    /// Appearance-page refresh must not open the launch-oriented MS relogin dialog.
+    /// Upstream waits on <c>mcLoginMsLoader</c>; we best-effort refresh and keep the
+    /// previous profile when network/auth refresh fails.
+    /// </summary>
+    private async Task<LoginProfileInfo> TryRefreshMicrosoftAppearanceProfileQuietAsync(
+        LoginProfileInfo requestedProfile,
+        string saveAction,
+        CancellationToken cancellationToken)
+    {
+        LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
+        if (profile.Kind != LaunchLoginProfileKind.Microsoft ||
+            string.IsNullOrWhiteSpace(profile.RefreshToken))
+        {
+            return profile;
+        }
+
+        string clientId = MicrosoftMinecraftAuthService.ResolveClientId();
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            if (MinecraftLaunchPlanFactory.IsAccessTokenUsable(profile.AccessToken))
+                return profile;
+
+            PortableLog.Warn(
+                "MicrosoftAppearance",
+                "缺少 Microsoft Client ID，且当前访问令牌不可用，无法静默刷新正版外观凭据。");
+            return profile;
+        }
+
+        try
+        {
+            MicrosoftMinecraftLoginResult refreshed = await _microsoftAuthService
+                .RefreshAsync(clientId, profile.RefreshToken, cancellationToken)
+                .ConfigureAwait(false);
+            LoginProfileInfo updated = profile with
+            {
+                Username = refreshed.Username,
+                Uuid = refreshed.Uuid,
+                AccessToken = refreshed.AccessToken,
+                RefreshToken = refreshed.RefreshToken,
+                SkinAddress = refreshed.SkinAddress ?? profile.SkinAddress,
+                Info = refreshed.OwnsMinecraft ? "Microsoft 正版" : profile.Info
+            };
+            ReplaceLoginProfile(profile, updated);
+            _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, updated);
+            _launchLoginSurface.ProfileSkinPage?.SetProfile(updated);
+            SaveProfilesInBackground(saveAction);
+            return updated;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            PortableLog.Warn(
+                exception,
+                "MicrosoftAppearance",
+                "静默刷新正版外观凭据失败，继续使用已保存的令牌读取皮肤与披风。");
+            return profile;
+        }
+    }
+
     private void OpenProfileSecurityPage(LoginProfileInfo? profile)
     {
         if (profile is null)

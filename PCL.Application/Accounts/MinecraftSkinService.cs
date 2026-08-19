@@ -4,6 +4,7 @@
 
 using System.Net.Http.Headers;
 using System.Text.Json;
+using PCL.Core.IO.Net;
 
 namespace PCL.Application.Accounts;
 
@@ -31,7 +32,7 @@ public sealed class MinecraftSkinService : IMinecraftSkinService
     private readonly HttpClient _client;
 
     public MinecraftSkinService()
-        : this(CreateClient())
+        : this(PortableHttp.Client)
     {
     }
 
@@ -148,12 +149,5 @@ public sealed class MinecraftSkinService : IMinecraftSkinService
             "更换正版皮肤失败：" + detail,
             null,
             response.StatusCode);
-    }
-
-    private static HttpClient CreateClient()
-    {
-        HttpClient client = new() { Timeout = TimeSpan.FromMinutes(2) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/1.0");
-        return client;
     }
 }

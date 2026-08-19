@@ -67,6 +67,17 @@ public sealed class MinecraftCapeServiceTests
     }
 
     [TestMethod]
+    public void DefaultConstructor_UsesSharedPortableHttpClient()
+    {
+        // Regression: cape wardrobe must honor launcher DoH/proxy like Microsoft auth.
+        MinecraftCapeService service = new();
+        object? client = typeof(MinecraftCapeService)
+            .GetField("_client", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(service);
+        Assert.AreSame(PCL.Core.IO.Net.PortableHttp.Client, client);
+    }
+
+    [TestMethod]
     public void PreferCapePreviewAddress_PrefersActiveOwnedCapeOverSessionUrl()
     {
         string? preferred = MinecraftCapeService.PreferCapePreviewAddress(

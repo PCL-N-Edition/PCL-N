@@ -25,6 +25,8 @@ public sealed record SkinAppearanceCard(
 
 public enum SkinCapeClosetState
 {
+    /// <summary>Ownership query still in flight; do not claim the account owns no capes.</summary>
+    Loading,
     /// <summary>Capes loaded successfully (may be empty).</summary>
     Loaded,
     /// <summary>Ownership query failed; do not claim the account owns no capes.</summary>
@@ -117,21 +119,30 @@ public partial class PageSkinAppearanceRight : MyPageRight
             string emptyFallback) =
             kind switch
             {
-                LaunchLoginProfileKind.Microsoft => capeClosetState == SkinCapeClosetState.LoadFailed
-                    ? (
+                LaunchLoginProfileKind.Microsoft => capeClosetState switch
+                {
+                    SkinCapeClosetState.LoadFailed => (
                         "Appearance.Capes.Microsoft.Title",
                         "正版账户披风",
                         "Appearance.Capes.Microsoft.Subtitle",
                         "仅可切换当前正版账户已经获得的披风",
                         "Appearance.Capes.Microsoft.LoadFailed",
-                        "暂时无法读取正版账户披风，请检查网络后重试。")
-                    : (
+                        "暂时无法读取正版账户披风，请检查网络后重试。"),
+                    SkinCapeClosetState.Loading => (
+                        "Appearance.Capes.Microsoft.Title",
+                        "正版账户披风",
+                        "Appearance.Capes.Microsoft.Subtitle",
+                        "仅可切换当前正版账户已经获得的披风",
+                        "Appearance.Capes.Microsoft.Loading",
+                        "正在读取正版账户已获得的披风…"),
+                    _ => (
                         "Appearance.Capes.Microsoft.Title",
                         "正版账户披风",
                         "Appearance.Capes.Microsoft.Subtitle",
                         "仅可切换当前正版账户已经获得的披风",
                         "Appearance.Capes.Microsoft.Empty",
-                        "当前正版账户尚未获得任何披风。"),
+                        "当前正版账户尚未获得任何披风。")
+                },
                 LaunchLoginProfileKind.LittleSkin => (
                     "Appearance.Capes.LittleSkin.Title",
                     "LittleSkin 披风库",
