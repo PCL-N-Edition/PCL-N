@@ -47,7 +47,9 @@ public sealed class PluginSidecarUpdateServiceTests
         Assert.AreEqual("v0.20.1", result.ReleaseName);
         StringAssert.Contains(result.ReleaseNotes, "Sidecar mismatch dialog");
         StringAssert.Contains(result.PackageUrl, "PCL_Plugin_Sidecar_win-x64_SelfContained.zip");
-        StringAssert.Contains(result.BlockMapUrl, ".blockmap.v2.json");
+        Assert.IsFalse(
+            result.PackageUrl!.Contains("blockmap", StringComparison.OrdinalIgnoreCase),
+            "Sidecar updates must be full-package URLs without block maps.");
     }
 
     [TestMethod]

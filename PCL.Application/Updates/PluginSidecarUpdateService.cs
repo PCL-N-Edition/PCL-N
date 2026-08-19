@@ -116,7 +116,7 @@ public sealed class PluginSidecarUpdateService : IDisposable
 
         string assetStem = BuildAssetStem(identity.RuntimeId, identity.RuntimeVariant);
         string packageUrl = $"{_releasesBaseUrl}/{Uri.EscapeDataString(marker.Tag)}/{assetStem}.zip";
-        string blockMapUrl = $"{_releasesBaseUrl}/{Uri.EscapeDataString(marker.Tag)}/{assetStem}.blockmap.v2.json";
+        // Sidecar updates are full-package only on CF (no FastCDC / block maps).
         string? notes = string.IsNullOrWhiteSpace(marker.ReleaseNotes) ? null : marker.ReleaseNotes.Trim();
         string releaseUrl = !string.IsNullOrWhiteSpace(marker.ReleaseNotesUrl) &&
                             Uri.TryCreate(marker.ReleaseNotesUrl.Trim(), UriKind.Absolute, out Uri? notesUri) &&
@@ -126,7 +126,7 @@ public sealed class PluginSidecarUpdateService : IDisposable
 
         PortableLog.Info(
             "PluginSidecarUpdate",
-            $"Sidecar 更新检查完成；通道={normalizedChannel}；本地={localVersion}；远端={remoteVersion}；有更新={isNewer}。");
+            $"Sidecar 更新检查完成；通道={normalizedChannel}；本地={localVersion}；远端={remoteVersion}；有更新={isNewer}；交付=整包。");
 
         return new PluginSidecarUpdateCheckResult(
             Success: true,
@@ -139,7 +139,6 @@ public sealed class PluginSidecarUpdateService : IDisposable
             PackageUrl: packageUrl,
             PackageSha256: null,
             PackageSize: null,
-            BlockMapUrl: blockMapUrl,
             ErrorMessage: null,
             RemoteCommitSha: string.IsNullOrWhiteSpace(remoteCommit) ? null : remoteCommit,
             PublishedAt: marker.PublishedAt,

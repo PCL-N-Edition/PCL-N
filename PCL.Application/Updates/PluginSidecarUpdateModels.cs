@@ -17,7 +17,6 @@ public sealed record PluginSidecarUpdateCheckResult(
     string? PackageUrl,
     string? PackageSha256,
     long? PackageSize,
-    string? BlockMapUrl,
     string? ErrorMessage,
     string? RemoteCommitSha,
     DateTimeOffset? PublishedAt,
@@ -35,7 +34,6 @@ public sealed record PluginSidecarUpdateCheckResult(
             PackageUrl: null,
             PackageSha256: null,
             PackageSize: null,
-            BlockMapUrl: null,
             ErrorMessage: message,
             RemoteCommitSha: null,
             PublishedAt: null);

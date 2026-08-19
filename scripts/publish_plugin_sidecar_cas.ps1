@@ -1,5 +1,7 @@
 # Copyright (c) 2026 PCL N contributors.
-# Build/publish PCL.Plugin Sidecar CAS for Cloudflare (channels/plugin.json).
+# Build/publish PCL.Plugin Sidecar full-package updates for Cloudflare.
+# Sidecar updates intentionally do NOT use FastCDC block maps — only the zip +
+# channels/plugin.json marker are uploaded to R2.
 #
 # Example:
 #   .\scripts\publish_plugin_sidecar_cas.ps1 `
@@ -38,7 +40,7 @@ if (-not [string]::IsNullOrWhiteSpace($ReleaseNotesFile) -and (Test-Path -Litera
 
 $selfContained = $RuntimeVariant -eq 'SelfContained'
 $stem = "PCL_Plugin_Sidecar_${Runtime}_${RuntimeVariant}"
-$outDir = Join-Path $repoRoot "artifacts\plugin-cas\$normalizedTag"
+$outDir = Join-Path $repoRoot "artifacts\plugin-sidecar\$normalizedTag"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $zipPath = Join-Path $outDir "$stem.zip"
 
@@ -58,30 +60,25 @@ if (-not (Test-Path -LiteralPath $zipPath)) {
     throw "Sidecar zip missing: $zipPath"
 }
 
-$casRoot = Join-Path $outDir 'cas'
-New-Item -ItemType Directory -Force -Path $casRoot | Out-Null
-python (Join-Path $PSScriptRoot 'generate_update_blockmap.py') `
-    --archive $zipPath `
-    --output $casRoot `
-    --target-tag $normalizedTag `
-    --target-version $normalizedVersion `
-    --runtime-id $Runtime `
-    --runtime-variant $RuntimeVariant `
-    --configuration $Configuration `
-    --profile v2
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-$generatedMaps = @(Get-ChildItem -LiteralPath $casRoot -Filter "$stem.blockmap*.json" -File -ErrorAction SilentlyContinue)
-if ($generatedMaps.Count -eq 0) {
-    $generatedMaps = @(Get-ChildItem -LiteralPath $casRoot -Filter '*.blockmap*.json' -File -ErrorAction SilentlyContinue)
+$sha256 = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$size = (Get-Item -LiteralPath $zipPath).Length
+$metaPath = Join-Path $outDir "$stem.build.json"
+$buildMeta = [ordered]@{
+    formatVersion  = 1
+    product        = 'plugin-sidecar'
+    tag            = $normalizedTag
+    version        = $normalizedVersion
+    channel        = $Channel
+    commitSha      = $CommitSha.ToLowerInvariant()
+    runtimeId      = $Runtime
+    runtimeVariant = $RuntimeVariant
+    artifact       = "$stem.zip"
+    packageSha256  = $sha256
+    packageSize    = $size
+    delivery       = 'full-package'
+    builtAt        = (Get-Date).ToUniversalTime().ToString('o')
 }
-foreach ($map in $generatedMaps) {
-    Copy-Item -LiteralPath $map.FullName -Destination (Join-Path $outDir $map.Name) -Force
-}
-$blockmap = Join-Path $outDir "$stem.blockmap.v2.json"
-if (-not (Test-Path -LiteralPath $blockmap) -and $generatedMaps.Count -gt 0) {
-    $blockmap = Join-Path $outDir $generatedMaps[0].Name
-}
+$buildMeta | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $metaPath -Encoding utf8
 
 $channelPath = Join-Path $outDir 'plugin-channel.json'
 $marker = [ordered]@{
@@ -94,14 +91,18 @@ $marker = [ordered]@{
     manifestKey     = "channels/$Channel.json"
     releaseNotes    = $ReleaseNotes
     releaseNotesUrl = $ReleaseNotesUrl
+    packageSha256   = $sha256
+    packageSize     = $size
+    delivery        = 'full-package'
 }
 $marker | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $channelPath -Encoding utf8
 
-Write-Host "Prepared Sidecar CAS under $outDir"
-Write-Host "  zip:      $zipPath"
-Write-Host "  blockmap: $blockmap"
-Write-Host "  cas:      $casRoot"
-Write-Host "  channel:  $channelPath"
+Write-Host "Prepared Sidecar full-package update under $outDir"
+Write-Host "  zip:     $zipPath"
+Write-Host "  sha256:  $sha256"
+Write-Host "  size:    $size"
+Write-Host "  meta:    $metaPath"
+Write-Host "  channel: $channelPath"
 
 if (-not $Upload) {
     Write-Host "Skip upload (pass -Upload to push to R2)."
@@ -113,17 +114,8 @@ python (Join-Path $PSScriptRoot 'upload_r2_cas.py') put-files `
     --dir $outDir `
     --prefix $releasePrefix `
     --include "*.zip" `
-    --include "*.blockmap.v2.json" `
-    --include "*.blockmap.v2.json.asc"
+    --include "*.build.json"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-# Blocks live beside the blockmap generator output when using upload-tree from a CAS root.
-# Prefer uploading the blockmap-linked tree if present.
-$casTree = Join-Path $outDir 'cas'
-if (Test-Path -LiteralPath (Join-Path $casTree 'block')) {
-    python (Join-Path $PSScriptRoot 'upload_r2_cas.py') upload-tree --root $casTree
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-}
 
 python (Join-Path $PSScriptRoot 'upload_r2_cas.py') put `
     "channels/$Channel.json" `
@@ -131,4 +123,4 @@ python (Join-Path $PSScriptRoot 'upload_r2_cas.py') put `
     --content-type application/json
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "Uploaded Sidecar channel marker channels/$Channel.json"
+Write-Host "Uploaded Sidecar channel marker channels/$Channel.json (full-package, no blocks)."

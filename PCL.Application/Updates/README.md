@@ -5,7 +5,7 @@
 ## 处理流程
 
 1. `LauncherUpdateService` 根据更新通道检查新版本，并返回一个不可变的 `LauncherUpdateCheckResult`。
-2. `LauncherUpdateService.Discovery` 从要求 mTLS 的 Cloudflare 通道端点发现 Release、Beta 或滚动 CI 构建；通道 JSON 可带 `releaseNotes` / `releaseNotesUrl` 供更新页展示。独立 **PCL.Plugin Sidecar** 通道（`channels/plugin.json`）由 sibling 服务消费，不混入本目录的宿主业务语义。
+2. `LauncherUpdateService.Discovery` 从要求 mTLS 的 Cloudflare 通道端点发现 Release、Beta 或滚动 CI 构建；通道 JSON 可带 `releaseNotes` / `releaseNotesUrl` 供更新页展示。独立 **PCL.Plugin Sidecar** 通道（`channels/plugin.json`）由 sibling 服务消费，**整包 zip 交付、不分块**，不混入本目录的宿主 FastCDC 业务语义。
 3. `LauncherUpdateService.Packages` 选择当前 RID 和运行时变体对应的逻辑更新包；1.4.3 及更新版本必须使用已签名的内容寻址分块图。
 4. `LauncherUpdateService.Transport` 统一处理元数据请求、安全重定向和内容长度探测。
 5. `LauncherUpdateInstaller` 下载、校验并准备更新；`LauncherBlockUpdateInstaller` 查找本地重复块、下载缺块并重组文件；`LauncherScatterUpdateInstaller` 负责散包清单与替换计划。
