@@ -1121,6 +1121,15 @@
     <sys:String x:Key="Setup.Update.FullOnly.CI">CI 通道使用內容定址分塊更新，只會下載本機缺少的分塊。</sys:String>
     <sys:String x:Key="Setup.Update.FullOnly.NoApplicablePatch">目前安裝版本沒有適用的舊式補丁，將改用內容定址分塊更新。</sys:String>
     <sys:String x:Key="Setup.Update.Latest">PCL N 已是最新版本</sys:String>
+    <sys:String x:Key="Setup.Update.Downloaded">更新已下載並通過校驗</sys:String>
+    <sys:String x:Key="Setup.Update.Product.Host">PCL N 軟體更新</sys:String>
+    <sys:String x:Key="Setup.Update.Product.Plugin">外掛功能更新</sys:String>
+    <sys:String x:Key="Setup.Update.Plugin.Available">有可用的 PCL.Plugin Sidecar 更新（不替換 PCL N 本體）</sys:String>
+    <sys:String x:Key="Setup.Update.Plugin.Changelog.Placeholder">此更新僅升級外掛側車與外掛平台能力，不會替換 Native AOT 宿主程式。</sys:String>
+    <sys:String x:Key="Setup.Update.Plugin.Current">外掛</sys:String>
+    <sys:String x:Key="Setup.Update.Plugin.Downloading">正在下載外掛功能更新…</sys:String>
+    <sys:String x:Key="Setup.Update.Plugin.Failed">外掛功能更新失敗</sys:String>
+    <sys:String x:Key="Setup.Update.Plugin.Installed">外掛功能更新已安裝並嘗試重啟側車。</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadAndInstall">下載並安裝</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadOnly">僅下載</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.Title">發現可用更新</sys:String>
