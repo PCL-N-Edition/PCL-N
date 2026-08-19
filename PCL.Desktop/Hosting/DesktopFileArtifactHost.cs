@@ -18,12 +18,23 @@ internal sealed class DesktopFileArtifactHost : IHostFileArtifactRegistry
 {
     private readonly object _gate = new();
     private readonly List<IHostFileArtifactHandler> _handlers = [];
+    private readonly DesktopModpackFileArtifactHandler _modpackHandler = new();
 
     public static DesktopFileArtifactHost Instance { get; } = new();
 
     private DesktopFileArtifactHost()
     {
-        _handlers.Add(new DesktopModpackFileArtifactHandler());
+        _handlers.Add(_modpackHandler);
+    }
+
+    /// <summary>
+    /// Share MainWindow's <see cref="MinecraftVanillaInstallService"/> with modpack installs
+    /// so version/loader installation uses the same installer controller as PageDownloadInstall.
+    /// </summary>
+    public void UseMinecraftInstallService(MinecraftVanillaInstallService minecraftInstallService)
+    {
+        ArgumentNullException.ThrowIfNull(minecraftInstallService);
+        _modpackHandler.UseMinecraftInstallService(minecraftInstallService);
     }
 
     public IDisposable Register(IHostFileArtifactHandler handler)
@@ -104,11 +115,22 @@ internal sealed class DesktopFileArtifactHost : IHostFileArtifactRegistry
 
 internal sealed class DesktopModpackFileArtifactHandler : IHostFileArtifactHandler
 {
-    private readonly MinecraftModpackArchiveInstaller _installer = new();
+    private MinecraftModpackArchiveInstaller _installer = new();
 
     public string Id => "pcl.desktop.modpack";
 
     public int Priority => 100;
+
+    public void UseMinecraftInstallService(MinecraftVanillaInstallService minecraftInstallService)
+    {
+        ArgumentNullException.ThrowIfNull(minecraftInstallService);
+        // Recreate so the modpack version/loader stage calls the same service instance
+        // as MainWindow.StartInstallAsync / PageDownloadInstall.
+        _installer = new MinecraftModpackArchiveInstaller(minecraftInstallService);
+        PortableLog.Info(
+            "FileArtifactHost",
+            "整合包版本安装已复用实例安装的 MinecraftVanillaInstallService。");
+    }
 
     public ValueTask<bool> CanHandleAsync(string filePath, CancellationToken cancellationToken = default)
     {

@@ -188,6 +188,8 @@ public partial class MainWindow : Window, IDisposable
         _externalUrlOpener = externalUrlOpener ?? OpenExternalUrlCore;
         _clipboardWriter = clipboardWriter;
         _launchCoordinator = new MinecraftLaunchCoordinator(_minecraftInstallService);
+        // Modpack base version/loader install must use this same controller as PageDownloadInstall.
+        DesktopFileArtifactHost.Instance.UseMinecraftInstallService(_minecraftInstallService);
         if (!DesktopCompositionRoot.IsInitialized)
             DesktopCompositionRoot.Initialize();
         _shellViewModel = DesktopCompositionRoot.GetRequiredService<AppShellViewModel>();
