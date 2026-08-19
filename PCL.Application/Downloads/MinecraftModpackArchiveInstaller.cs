@@ -40,6 +40,8 @@ public sealed record MinecraftModpackInstallRequest
     public bool PreferOfficialSource { get; init; } = true;
     public int DownloadThreadLimit { get; init; } = 64;
     public string JavaExecutablePath { get; init; } = "java";
+    /// <summary>Passed through to the version/loader installer (proxy JVM flags).</summary>
+    public string? LoaderExtraJvmArguments { get; init; }
     public ICurseForgeModpackFileResolver? CurseForgeResolver { get; init; }
 }
 
@@ -195,18 +197,12 @@ public sealed class MinecraftModpackArchiveInstaller
 
         using CancellationTokenSource packCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         int totalResources = plan.ModrinthFiles.Count + plan.CurseForgeFiles.Count;
-        // Mute pack progress until version install finishes so the task UI matches download-page install.
-        bool versionStageComplete = false;
-        Progress<MinecraftModpackInstallProgress> packProgress = new(value =>
-        {
-            if (versionStageComplete)
-                progress?.Report(value);
-        });
+        // Report pack downloads immediately so the task list can show a "下载模组" step in parallel.
         Task<int> packDownloadTask = DownloadPackResourcesAsync(
             plan,
             request,
             instanceDirectory,
-            packProgress,
+            progress,
             totalResources,
             packCts.Token);
 
@@ -220,7 +216,8 @@ public sealed class MinecraftModpackArchiveInstaller
             DownloadThreadLimit = request.DownloadThreadLimit,
             Loader = plan.Inspection.Loader,
             ReplaceExistingVersion = false,
-            JavaExecutablePath = request.JavaExecutablePath
+            JavaExecutablePath = request.JavaExecutablePath,
+            LoaderExtraJvmArguments = request.LoaderExtraJvmArguments
         };
 
         IProgress<MinecraftInstallProgress>? minecraftProgress = versionInstallProgress;
@@ -247,7 +244,6 @@ public sealed class MinecraftModpackArchiveInstaller
         {
             installed = await versionInstaller(versionRequest, minecraftProgress, cancellationToken)
                 .ConfigureAwait(false);
-            versionStageComplete = true;
         }
         catch
         {

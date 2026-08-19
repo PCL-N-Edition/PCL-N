@@ -36,6 +36,7 @@ using PCL.Application.Minecraft.Java;
 using PCL.Application.Minecraft.Launch;
 using PCL.Application.Settings;
 using PCL.Core.App;
+using PCL.Core.IO.Net;
 using PCL.Core.Logging;
 using PCL.Domain.Minecraft.Launch;
 using PCL.Desktop.Composition;
@@ -3812,24 +3813,67 @@ public partial class MainWindow : Window, IDisposable
                         linked.Token)
                     .ConfigureAwait(false);
 
+            double versionProgress = 0d;
+            string versionDetail = "准备安装版本";
+            double packProgressValue = 0d;
+            string packDetail = "等待下载模组";
+            int packCompleted = 0;
+            int packTotal = 0;
+            bool versionFinished = false;
+
+            void PublishModpackTaskUi()
+            {
+                double overall = versionFinished
+                    ? 0.65d + packProgressValue * 0.35d
+                    : versionProgress * 0.65d + packProgressValue * 0.15d;
+                TaskManagerSubTaskSnapshot[] steps =
+                [
+                    new TaskManagerSubTaskSnapshot(
+                        "安装版本",
+                        versionDetail,
+                        versionProgress,
+                        versionFinished ? TaskManagerTaskState.Finished : TaskManagerTaskState.Running),
+                    new TaskManagerSubTaskSnapshot(
+                        "下载模组",
+                        packDetail,
+                        packProgressValue,
+                        versionFinished && packProgressValue >= 1d
+                            ? TaskManagerTaskState.Finished
+                            : packProgressValue > 0d || packTotal > 0
+                                ? TaskManagerTaskState.Running
+                                : TaskManagerTaskState.Waiting)
+                ];
+
+                TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, taskTitle);
+                _taskSessionStore.Upsert(taskId, previous with
+                {
+                    Title = taskTitle,
+                    Stage = versionFinished ? (string.IsNullOrWhiteSpace(packDetail) ? "下载模组" : packDetail.Split('·')[0].Trim()) : "安装版本",
+                    Detail = versionFinished ? packDetail : versionDetail,
+                    Progress = Math.Clamp(overall, 0d, 1d),
+                    CompletedFiles = packCompleted,
+                    TotalFiles = packTotal,
+                    State = TaskManagerTaskState.Running,
+                    ErrorMessage = null,
+                    Steps = steps
+                });
+                _taskUiCoalescer.Request();
+            }
+
             Progress<MinecraftModpackInstallProgress> packProgress = new(update =>
             {
                 Dispatcher.UIThread.Post(() =>
                 {
-                    TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, taskTitle);
-                    _taskSessionStore.Upsert(taskId, previous with
-                    {
-                        Title = taskTitle,
-                        Stage = string.IsNullOrWhiteSpace(update.Stage) ? previous.Stage : update.Stage,
-                        Detail = update.Detail,
-                        Progress = Math.Clamp(update.Progress, 0d, 1d),
-                        CompletedFiles = update.CompletedFiles,
-                        TotalFiles = update.TotalFiles,
-                        SpeedBytesPerSecond = update.SpeedBytesPerSecond,
-                        State = TaskManagerTaskState.Running,
-                        ErrorMessage = null
-                    });
-                    _taskUiCoalescer.Request();
+                    packProgressValue = Math.Clamp(update.Progress, 0d, 1d);
+                    // Remap installer pack stage (0.65–1.0 overall) into 0–1 step progress when possible.
+                    if (update.TotalFiles > 0)
+                        packProgressValue = Math.Clamp(update.CompletedFiles / (double)update.TotalFiles, 0d, 1d);
+                    packDetail = string.IsNullOrWhiteSpace(update.Detail)
+                        ? (string.IsNullOrWhiteSpace(update.Stage) ? "正在下载模组" : update.Stage)
+                        : update.Stage + " · " + update.Detail;
+                    packCompleted = update.CompletedFiles;
+                    packTotal = update.TotalFiles;
+                    PublishModpackTaskUi();
                 });
             });
 
@@ -3840,9 +3884,29 @@ public partial class MainWindow : Window, IDisposable
                     installVersionAsync: (request, progress, token) =>
                         _minecraftInstallService.InstallAsync(request, progress, token),
                     versionInstallProgress: new Progress<MinecraftInstallProgress>(update =>
-                        Dispatcher.UIThread.Post(() => TrackInstallProgress(taskId, taskTitle, update))),
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            versionProgress = Math.Clamp(update.Progress, 0d, 1d);
+                            versionDetail = string.IsNullOrWhiteSpace(update.Detail)
+                                ? (string.IsNullOrWhiteSpace(update.Stage) ? "正在安装版本" : update.Stage)
+                                : update.Stage + " · " + update.Detail;
+                            PublishModpackTaskUi();
+                        })),
                     cancellationToken: linked.Token)
                 .ConfigureAwait(false);
+
+            await RunOnUiThreadAsync(() =>
+            {
+                versionFinished = true;
+                versionProgress = 1d;
+                if (packTotal <= 0)
+                {
+                    packProgressValue = 1d;
+                    packDetail = "无需下载模组 / 正在释放文件";
+                }
+
+                PublishModpackTaskUi();
+            }).ConfigureAwait(false);
 
             await RunOnUiThreadAsync(() =>
             {
@@ -6105,6 +6169,10 @@ public partial class MainWindow : Window, IDisposable
 
     private static void ApplyNetworkProxy(LauncherSettings settings)
     {
+        PortableNetworkOptions.EnableDoH = settings.GetBooleanOption(
+            "SystemNetEnableDoH",
+            LauncherSettingDefaults.GetBoolean("SystemNetEnableDoH", true));
+
         int proxyType = settings.GetIntegerOption(
             "SystemHttpProxyType",
             LauncherSettingDefaults.GetInteger("SystemHttpProxyType"));

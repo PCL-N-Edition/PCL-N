@@ -17,7 +17,8 @@ public sealed record MinecraftExternalLoaderInstallRequest(
     string GameVersion,
     string JavaExecutablePath,
     string InstallerPath,
-    string MinecraftRootDirectory);
+    string MinecraftRootDirectory,
+    string? ExtraJvmArguments = null);
 
 public interface IMinecraftExternalLoaderInstaller
 {
@@ -172,6 +173,8 @@ public sealed class MinecraftExternalLoaderInstaller : IMinecraftExternalLoaderI
             RedirectStandardError = true
         };
 
+        AppendExtraJvmArguments(startInfo, request.ExtraJvmArguments);
+
         if (request.Kind == MinecraftLoaderKind.OptiFine)
         {
             string home = Directory.GetParent(request.MinecraftRootDirectory)?.FullName ?? request.MinecraftRootDirectory;
@@ -189,7 +192,52 @@ public sealed class MinecraftExternalLoaderInstaller : IMinecraftExternalLoaderI
             startInfo.ArgumentList.Add(request.MinecraftRootDirectory);
         }
 
+        ApplyProxyEnvironment(startInfo, request.ExtraJvmArguments);
         return startInfo;
+    }
+
+    private static void AppendExtraJvmArguments(ProcessStartInfo startInfo, string? extraJvmArguments)
+    {
+        if (string.IsNullOrWhiteSpace(extraJvmArguments))
+            return;
+
+        foreach (string token in extraJvmArguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            startInfo.ArgumentList.Add(token);
+    }
+
+    /// <summary>
+    /// Mirror JVM proxy system properties into process environment for installers that
+    /// read HTTP(S)_PROXY instead of -Dhttp.proxyHost.
+    /// </summary>
+    private static void ApplyProxyEnvironment(ProcessStartInfo startInfo, string? extraJvmArguments)
+    {
+        if (string.IsNullOrWhiteSpace(extraJvmArguments))
+            return;
+
+        string? host = null;
+        string? port = null;
+        foreach (string token in extraJvmArguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (token.StartsWith("-Dhttp.proxyHost=", StringComparison.Ordinal) ||
+                token.StartsWith("-Dhttps.proxyHost=", StringComparison.Ordinal))
+            {
+                host = token[(token.IndexOf('=') + 1)..];
+            }
+            else if (token.StartsWith("-Dhttp.proxyPort=", StringComparison.Ordinal) ||
+                     token.StartsWith("-Dhttps.proxyPort=", StringComparison.Ordinal))
+            {
+                port = token[(token.IndexOf('=') + 1)..];
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(port))
+            return;
+
+        string proxyUrl = $"http://{host}:{port}";
+        startInfo.Environment["HTTP_PROXY"] = proxyUrl;
+        startInfo.Environment["HTTPS_PROXY"] = proxyUrl;
+        startInfo.Environment["http_proxy"] = proxyUrl;
+        startInfo.Environment["https_proxy"] = proxyUrl;
     }
 
     private static bool IsUsableJavaExecutable(string javaExecutablePath)

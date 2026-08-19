@@ -38,6 +38,8 @@ public sealed record MinecraftInstallRequest
     public IReadOnlyList<MinecraftInstallAddonRequest> Addons { get; init; } = [];
     public bool ReplaceExistingVersion { get; init; }
     public string JavaExecutablePath { get; init; } = "java";
+    /// <summary>Extra JVM flags for Forge/NeoForge/OptiFine installers (e.g. HTTP proxy).</summary>
+    public string? LoaderExtraJvmArguments { get; init; }
 }
 
 public sealed record MinecraftInstallProgress
@@ -693,7 +695,8 @@ public sealed class MinecraftVanillaInstallService
                         baseVersionId,
                         string.IsNullOrWhiteSpace(request.JavaExecutablePath) ? "java" : request.JavaExecutablePath,
                         installerPath,
-                        workingRoot),
+                        workingRoot,
+                        request.LoaderExtraJvmArguments),
                     installerOutput,
                     cancellationToken)
                 .ConfigureAwait(false);

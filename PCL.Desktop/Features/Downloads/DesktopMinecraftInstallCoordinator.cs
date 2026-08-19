@@ -149,7 +149,8 @@ internal static class DesktopMinecraftInstallCoordinator
             Loader = loader,
             Addons = addons ?? [],
             ReplaceExistingVersion = replaceExistingVersion,
-            JavaExecutablePath = java
+            JavaExecutablePath = java,
+            LoaderExtraJvmArguments = ResolveLoaderProxyJvmArguments(settings)
         };
     }
 
@@ -175,8 +176,35 @@ internal static class DesktopMinecraftInstallCoordinator
             MinecraftRootDirectory = root,
             PreferOfficialSource = ResolvePreferOfficialSource(settings),
             DownloadThreadLimit = ResolveDownloadThreadLimit(settings),
-            JavaExecutablePath = java
+            JavaExecutablePath = java,
+            LoaderExtraJvmArguments = ResolveLoaderProxyJvmArguments(settings)
         };
+    }
+
+    /// <summary>
+    /// JVM system properties for Forge/NeoForge installers when a custom HTTP proxy is configured.
+    /// </summary>
+    public static string? ResolveLoaderProxyJvmArguments(LauncherSettings? settings = null)
+    {
+        settings ??= LauncherSettingsPageBinder.LoadSettings();
+        int proxyType = settings.GetIntegerOption(
+            "SystemHttpProxyType",
+            LauncherSettingDefaults.GetInteger("SystemHttpProxyType"));
+        if (proxyType != 2)
+            return null;
+
+        string address = settings.GetTextOption(
+            "SystemHttpProxy",
+            LauncherSettingDefaults.GetText("SystemHttpProxy"));
+        if (!Uri.TryCreate(address, UriKind.Absolute, out Uri? proxy) ||
+            string.IsNullOrWhiteSpace(proxy.Host) ||
+            proxy.Port <= 0)
+        {
+            return null;
+        }
+
+        return $"-Dhttp.proxyHost={proxy.Host} -Dhttp.proxyPort={proxy.Port} " +
+               $"-Dhttps.proxyHost={proxy.Host} -Dhttps.proxyPort={proxy.Port}";
     }
 
     private static bool TryResolveExistingJava(string? path, out string resolved)
