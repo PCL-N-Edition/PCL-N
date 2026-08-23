@@ -1123,13 +1123,6 @@
     <sys:String x:Key="Setup.Update.Latest">PCL N 已是最新版本</sys:String>
     <sys:String x:Key="Setup.Update.Downloaded">更新已下载并通过校验</sys:String>
     <sys:String x:Key="Setup.Update.Product.Host">PCL N 软件更新</sys:String>
-    <sys:String x:Key="Setup.Update.Product.Plugin">插件功能更新</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Available">有可用的 PCL.Plugin Sidecar 更新（不替换 PCL N 本体）</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Changelog.Placeholder">此更新仅升级插件侧车与插件平台能力，不会替换 Native AOT 宿主程序。</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Current">插件</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Downloading">正在下载插件功能更新…</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Failed">插件功能更新失败</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Installed">插件功能更新已安装并尝试重启侧车。</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadAndInstall">下载并安装</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadOnly">仅下载</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.Title">发现可用更新</sys:String>
@@ -1144,7 +1137,6 @@
     <sys:String x:Key="Setup.Update.RestartAndInstall">重启并安装</sys:String>
     <sys:String x:Key="Setup.Update.Skipped">已跳过此版本更新。</sys:String>
     <sys:String x:Key="Setup.Update.Task.Title">启动器更新</sys:String>
-    <sys:String x:Key="Setup.Update.Task.Transfer">传输</sys:String>
     <sys:String x:Key="Setup.Update.Task.Preparing">准备更新…</sys:String>
     <sys:String x:Key="Setup.Update.Task.Ready">更新已就绪</sys:String>
     <sys:String x:Key="Setup.Update.Task.ReadyDetail">下载完成并通过校验</sys:String>

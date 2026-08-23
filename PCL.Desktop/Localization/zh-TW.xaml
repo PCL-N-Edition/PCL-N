@@ -1123,13 +1123,6 @@
     <sys:String x:Key="Setup.Update.Latest">PCL N 已是最新版本</sys:String>
     <sys:String x:Key="Setup.Update.Downloaded">更新已下載並通過校驗</sys:String>
     <sys:String x:Key="Setup.Update.Product.Host">PCL N 軟體更新</sys:String>
-    <sys:String x:Key="Setup.Update.Product.Plugin">外掛功能更新</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Available">有可用的 PCL.Plugin Sidecar 更新（不替換 PCL N 本體）</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Changelog.Placeholder">此更新僅升級外掛側車與外掛平台能力，不會替換 Native AOT 宿主程式。</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Current">外掛</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Downloading">正在下載外掛功能更新…</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Failed">外掛功能更新失敗</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Installed">外掛功能更新已安裝並嘗試重啟側車。</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadAndInstall">下載並安裝</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadOnly">僅下載</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.Title">發現可用更新</sys:String>
@@ -1144,7 +1137,6 @@
     <sys:String x:Key="Setup.Update.RestartAndInstall">重啟並安裝</sys:String>
     <sys:String x:Key="Setup.Update.Skipped">已跳過此版本更新。</sys:String>
     <sys:String x:Key="Setup.Update.Task.Title">啟動器更新</sys:String>
-    <sys:String x:Key="Setup.Update.Task.Transfer">傳輸</sys:String>
     <sys:String x:Key="Setup.Update.Task.Preparing">準備更新…</sys:String>
     <sys:String x:Key="Setup.Update.Task.Ready">更新已就緒</sys:String>
     <sys:String x:Key="Setup.Update.Task.ReadyDetail">下載完成並通過校驗</sys:String>

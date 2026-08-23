@@ -1123,13 +1123,6 @@
     <sys:String x:Key="Setup.Update.Latest">PCL N Is Up to Date</sys:String>
     <sys:String x:Key="Setup.Update.Downloaded">Update downloaded and verified</sys:String>
     <sys:String x:Key="Setup.Update.Product.Host">PCL N software update</sys:String>
-    <sys:String x:Key="Setup.Update.Product.Plugin">Plugin feature update</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Available">A PCL.Plugin Sidecar update is available (host body is not replaced)</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Changelog.Placeholder">This update upgrades the plugin sidecar only and does not replace the Native AOT host.</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Current">Plugin</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Downloading">Downloading plugin feature update…</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Failed">Plugin feature update failed</sys:String>
-    <sys:String x:Key="Setup.Update.Plugin.Installed">Plugin feature update installed; sidecar restart was attempted.</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadAndInstall">Download and install</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.DownloadOnly">Download only</sys:String>
     <sys:String x:Key="Setup.Update.Prompt.Available.Title">Update available</sys:String>
@@ -1144,7 +1137,6 @@
     <sys:String x:Key="Setup.Update.RestartAndInstall">Restart and install</sys:String>
     <sys:String x:Key="Setup.Update.Skipped">This version has been skipped.</sys:String>
     <sys:String x:Key="Setup.Update.Task.Title">Launcher update</sys:String>
-    <sys:String x:Key="Setup.Update.Task.Transfer">Transfer</sys:String>
     <sys:String x:Key="Setup.Update.Task.Preparing">Preparing update…</sys:String>
     <sys:String x:Key="Setup.Update.Task.Ready">Update ready</sys:String>
     <sys:String x:Key="Setup.Update.Task.ReadyDetail">Download finished and verified</sys:String>
