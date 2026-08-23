@@ -43,6 +43,7 @@ public partial class PageInstanceResourceRight : MyPageRight
     private ResourceSort _sort = ResourceSort.FileName;
     private string _folder = string.Empty;
     private List<ResourceEntry> _entries = [];
+    private IReadOnlyList<ResourceListSignature> _resourceSignatures = [];
     private bool _isLoading;
     private bool _catalogUiRefreshScheduled;
     private bool _isUpdatingFilter;
@@ -93,6 +94,8 @@ public partial class PageInstanceResourceRight : MyPageRight
     public event EventHandler<string>? StatusMessage;
 
     public string ResourceDirectory => _folder;
+
+    internal int CompletedReloadVersionForTesting { get; private set; }
 
     public override void Dispose()
     {
@@ -146,8 +149,11 @@ public partial class PageInstanceResourceRight : MyPageRight
 
                 _instance = instance;
                 _page = page;
+                string nextFolder = Path.Combine(gameDir, relativePath);
+                if (_kind != kind || !GetPathComparer().Equals(_folder, nextFolder))
+                    ResetResourceListCache();
                 _kind = kind;
-                _folder = Path.Combine(gameDir, relativePath);
+                _folder = nextFolder;
                 ApplyKindChrome();
                 Reload();
             }, DispatcherPriority.Background, cancellationToken);
@@ -164,8 +170,11 @@ public partial class PageInstanceResourceRight : MyPageRight
         CancelPendingWork();
         _instance = null;
         _page = InstancePageSubType.Saves;
+        string nextFolder = Path.Combine(saveFolder, "datapacks");
+        if (_kind != InstanceResourceKind.DataPack || !GetPathComparer().Equals(_folder, nextFolder))
+            ResetResourceListCache();
         _kind = InstanceResourceKind.DataPack;
-        _folder = Path.Combine(saveFolder, "datapacks");
+        _folder = nextFolder;
         ApplyKindChrome();
         Reload();
     }
@@ -175,7 +184,7 @@ public partial class PageInstanceResourceRight : MyPageRight
         if (string.IsNullOrWhiteSpace(_folder))
             return;
 
-        CancelPendingWork();
+        CancelAndDispose(ref _reloadCancellation);
         int reload = Interlocked.Increment(ref _reloadVersion);
         int context = _contextVersion;
         string folder = _folder;
@@ -183,31 +192,30 @@ public partial class PageInstanceResourceRight : MyPageRight
         CancellationTokenSource cancellation = new();
         _reloadCancellation = cancellation;
 
-        _entries = [];
-        _isLoading = true;
-        _catalogByPath = new Dictionary<string, LocalCatalogMatch>(GetPathComparer());
-        _searchResultPaths = new HashSet<string>(GetPathComparer());
-        _entryItems = new Dictionary<string, MyLocalModItem>(GetPathComparer());
-        _selectedPaths.Clear();
-        UpdateSelectionBar();
-        RefreshUI();
-        _ = ReloadAsync(folder, kind, context, reload, cancellation.Token);
+        ResourceListSignature[] previousSignatures = _resourceSignatures.ToArray();
+        if (_entries.Count == 0)
+        {
+            _isLoading = true;
+            RefreshUI();
+        }
+        _ = ReloadAsync(folder, kind, previousSignatures, context, reload, cancellation.Token);
     }
 
     private async Task ReloadAsync(
         string folder,
         InstanceResourceKind kind,
+        IReadOnlyList<ResourceListSignature> previousSignatures,
         int context,
         int reload,
         CancellationToken cancellationToken)
     {
         try
         {
-            List<ResourceEntry> entries = await Task.Run(
-                    () => LoadResourceEntries(folder, kind, cancellationToken),
+            ResourceLoadResult result = await Task.Run(
+                    () => LoadResourceEntries(folder, kind, previousSignatures, cancellationToken),
                     cancellationToken)
                 .ConfigureAwait(false);
-            await PublishLoadedEntriesAsync(entries, context, reload, cancellationToken).ConfigureAwait(false);
+            await PublishLoadedEntriesAsync(result, context, reload, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -226,24 +234,35 @@ public partial class PageInstanceResourceRight : MyPageRight
         }
     }
 
-    private List<ResourceEntry> LoadResourceEntries(
+    private ResourceLoadResult LoadResourceEntries(
         string folder,
         InstanceResourceKind kind,
+        IReadOnlyList<ResourceListSignature> previousSignatures,
         CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(folder);
-        List<ResourceEntry> entries = [];
+        List<ResourceListSignature> signatures = [];
         foreach (string path in Directory.EnumerateFileSystemEntries(folder))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (IsAcceptedPath(path, kind))
-                entries.Add(CreateResourceEntry(path, kind));
+                signatures.Add(CreateResourceListSignature(path));
         }
-        return entries;
+        signatures.Sort((left, right) => GetPathComparer().Compare(left.FullPath, right.FullPath));
+        if (ResourceSignaturesEqual(previousSignatures, signatures))
+            return new ResourceLoadResult(signatures, Entries: null);
+
+        List<ResourceEntry> entries = new(signatures.Count);
+        foreach (ResourceListSignature signature in signatures)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            entries.Add(CreateResourceEntry(signature.FullPath, kind));
+        }
+        return new ResourceLoadResult(signatures, entries);
     }
 
     private async Task PublishLoadedEntriesAsync(
-        List<ResourceEntry> entries,
+        ResourceLoadResult result,
         int context,
         int reload,
         CancellationToken cancellationToken)
@@ -256,11 +275,26 @@ public partial class PageInstanceResourceRight : MyPageRight
             if (!IsReloadCurrent(context, reload, cancellationToken))
                 return;
 
-            _entries = entries;
+            _resourceSignatures = result.Signatures;
             _isLoading = false;
+            CompletedReloadVersionForTesting = reload;
+            if (result.Entries is null)
+            {
+                // Directory contents are byte-for-byte equivalent according to
+                // the lightweight file signatures. Preserve controls, metadata,
+                // catalog matches, selection and scroll position.
+                UpdateViewChrome(GetShowingEntries());
+                return;
+            }
+
+            CancelAndDispose(ref _catalogScanCancellation);
+            CancelAndDispose(ref _searchCancellation);
+            _entries = result.Entries;
             _catalogByPath = new Dictionary<string, LocalCatalogMatch>(GetPathComparer());
             _searchResultPaths = new HashSet<string>(GetPathComparer());
             _entryItems = new Dictionary<string, MyLocalModItem>(GetPathComparer());
+            _selectedPaths.Clear();
+            UpdateSelectionBar();
             render = Interlocked.Increment(ref _renderVersion);
             UpdateFilterControls();
             showing = GetShowingEntries();
@@ -309,6 +343,52 @@ public partial class PageInstanceResourceRight : MyPageRight
         !cancellationToken.IsCancellationRequested &&
         context == _contextVersion &&
         reload == _reloadVersion;
+
+    private void ResetResourceListCache()
+    {
+        _entries = [];
+        _resourceSignatures = [];
+        _catalogByPath = new Dictionary<string, LocalCatalogMatch>(GetPathComparer());
+        _searchResultPaths = new HashSet<string>(GetPathComparer());
+        _entryItems = new Dictionary<string, MyLocalModItem>(GetPathComparer());
+        _selectedPaths.Clear();
+        CompletedReloadVersionForTesting = 0;
+        UpdateSelectionBar();
+    }
+
+    private static ResourceListSignature CreateResourceListSignature(string path)
+    {
+        bool isDirectory = Directory.Exists(path);
+        FileSystemInfo info = isDirectory ? new DirectoryInfo(path) : new FileInfo(path);
+        long length = info is FileInfo file ? file.Length : 0L;
+        return new ResourceListSignature(
+            Path.GetFullPath(path),
+            isDirectory,
+            length,
+            info.LastWriteTimeUtc.Ticks);
+    }
+
+    private static bool ResourceSignaturesEqual(
+        IReadOnlyList<ResourceListSignature> left,
+        IReadOnlyList<ResourceListSignature> right)
+    {
+        if (left.Count != right.Count)
+            return false;
+        StringComparer comparer = GetPathComparer();
+        for (int index = 0; index < left.Count; index++)
+        {
+            ResourceListSignature first = left[index];
+            ResourceListSignature second = right[index];
+            if (!comparer.Equals(first.FullPath, second.FullPath) ||
+                first.IsDirectory != second.IsDirectory ||
+                first.Length != second.Length ||
+                first.LastWriteUtcTicks != second.LastWriteUtcTicks)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 
     private void WireControls()
     {
@@ -2124,6 +2204,16 @@ public partial class PageInstanceResourceRight : MyPageRight
 
     private static StringComparer GetPathComparer() =>
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    private sealed record ResourceListSignature(
+        string FullPath,
+        bool IsDirectory,
+        long Length,
+        long LastWriteUtcTicks);
+
+    private sealed record ResourceLoadResult(
+        IReadOnlyList<ResourceListSignature> Signatures,
+        List<ResourceEntry>? Entries);
 
     private enum ResourceFilter
     {

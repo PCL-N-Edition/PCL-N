@@ -9500,6 +9500,76 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageInstanceResourceRight_ReusesRenderedListUntilDirectoryChanges()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        string root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "pcl-instance-resource-cache-ui-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string versionDirectory = System.IO.Path.Combine(root, "versions", "1.20.1");
+            string modsDirectory = System.IO.Path.Combine(versionDirectory, "mods");
+            Directory.CreateDirectory(modsDirectory);
+            string modPath = System.IO.Path.Combine(modsDirectory, "cached.jar");
+            File.WriteAllText(modPath, "first");
+            string jsonPath = System.IO.Path.Combine(versionDirectory, "1.20.1.json");
+            File.WriteAllText(jsonPath, """{ "id": "1.20.1" }""");
+            LaunchInstanceInfo instance = new("1.20.1", jsonPath, versionDirectory);
+            int metadataReads = 0;
+
+            session.Dispatch(async () =>
+            {
+                PageInstanceResourceRight page = new(
+                    () => new CompositeCommunityResourceCatalog(
+                        new FileLookupCommunityCatalog(),
+                        new FileLookupCommunityCatalog()),
+                    path =>
+                    {
+                        Interlocked.Increment(ref metadataReads);
+                        return new MinecraftModMetadata(path, "cached", "Cached Mod", "1.0", "fabric", []);
+                    });
+                Window window = new() { Width = 760, Height = 520, Content = page };
+                try
+                {
+                    window.Show();
+                    page.SetContext(instance, InstancePageSubType.Mods);
+                    StackPanel list = page.FindControl<StackPanel>("PanList")!;
+                    await WaitForConditionAsync(() => list.Children.OfType<MyLocalModItem>().Count() == 1)
+                        .ConfigureAwait(true);
+                    MyLocalModItem original = list.Children.OfType<MyLocalModItem>().Single();
+                    int firstReload = page.CompletedReloadVersionForTesting;
+                    Assert.AreEqual(1, metadataReads);
+
+                    page.Reload();
+                    await WaitForConditionAsync(() => page.CompletedReloadVersionForTesting > firstReload)
+                        .ConfigureAwait(true);
+                    Assert.AreEqual(1, metadataReads, "未变化的目录不应再次读取 JAR metadata。");
+                    Assert.AreSame(original, list.Children.OfType<MyLocalModItem>().Single());
+
+                    File.AppendAllText(modPath, "-changed");
+                    int cachedReload = page.CompletedReloadVersionForTesting;
+                    page.Reload();
+                    await WaitForConditionAsync(() => page.CompletedReloadVersionForTesting > cachedReload)
+                        .ConfigureAwait(true);
+                    Assert.AreEqual(2, metadataReads);
+                    Assert.AreNotSame(original, list.Children.OfType<MyLocalModItem>().Single());
+                }
+                finally
+                {
+                    window.Close();
+                    page.Dispose();
+                }
+            }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void PageInstanceResourceRight_UsesLocalMetadataAndOnlineProjectDetailsInSearch()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
