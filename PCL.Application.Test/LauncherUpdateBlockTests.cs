@@ -233,6 +233,92 @@ public sealed class LauncherUpdateBlockTests
     }
 
     [TestMethod]
+    public async Task Installer_AcceptsGatewayContentLengthAndStillVerifiesBlockPayload()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcln-block-content-length-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string entryName = OperatingSystem.IsWindows() ? "PCL-N-Edition.exe" : "PCL-N-Edition";
+            string currentExecutable = Path.Combine(root, entryName);
+            byte[] current = Encoding.UTF8.GetBytes("old launcher");
+            byte[] replacement = Encoding.UTF8.GetBytes("new launcher delivered through a recoding gateway");
+            await File.WriteAllBytesAsync(currentExecutable, current);
+
+            LauncherUpdateBlockFile target = CreateBlockFile(entryName, replacement);
+            LauncherUpdateBlock block = target.Chunks.Single();
+            LauncherUpdateBlockMap map = new()
+            {
+                FormatVersion = 1,
+                Layout = "pcln-blockmap-file-v1",
+                Algorithm = LauncherUpdateChunker.Algorithm,
+                Compression = "gzip",
+                BlockBasePath = "/v1/updates/block",
+                TargetTag = "v2.0.0-beta",
+                TargetVersion = "2.0.0-beta",
+                RuntimeId = "win-x64",
+                RuntimeVariant = "SelfContained",
+                Configuration = "Beta",
+                TargetAssetName = "PCL_N_Beta_win-x64_SelfContained_Portable.exe",
+                TargetManifestSha256 = ManifestHash([target]),
+                TargetFiles = [target]
+            };
+            byte[] mapJson = JsonSerializer.SerializeToUtf8Bytes(
+                map,
+                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            byte[] compressed = Gzip(replacement);
+
+            using HttpClient client = new(new RoutingHandler(request =>
+            {
+                string path = request.RequestUri!.AbsolutePath;
+                if (path.EndsWith(".blockmap.json", StringComparison.Ordinal))
+                    return BytesResponse(mapJson, "application/json");
+                if (path.EndsWith(".asc", StringComparison.Ordinal))
+                    return BytesResponse([1], "application/pgp-signature");
+                if (path == $"/v1/updates/block/{block.Sha256![..2]}/{block.Sha256}")
+                {
+                    HttpResponseMessage response = BytesResponse(compressed, "application/gzip");
+                    response.Content.Headers.ContentLength = compressed.Length + 37;
+                    return response;
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            }));
+            using LauncherUpdateInstaller installer = new(client, new AcceptAllGpgVerifier());
+            LauncherUpdatePackage package = new(
+                "2.0.0-beta",
+                "v2.0.0-beta",
+                "https://api.test/v1/updates/releases/v2.0.0-beta/PCL_N_Beta_win-x64_SelfContained_Portable.exe",
+                "PCL_N_Beta_win-x64_SelfContained_Portable.exe",
+                entryName,
+                Hash(replacement),
+                replacement.Length,
+                [],
+                "win-x64",
+                "SelfContained",
+                "Beta",
+                "https://api.test/portable.asc",
+                "https://api.test/portable.asc",
+                BlockMapUrl: "https://api.test/v1/updates/releases/v2.0.0-beta/PCL_N_Beta_win-x64_SelfContained_Portable.blockmap.json",
+                BlockMapSignatureUrl: "https://api.test/map.asc");
+
+            PreparedLauncherUpdate prepared = await installer.PrepareWithBlockCacheAsync(
+                package,
+                currentExecutable,
+                null,
+                Path.Combine(root, "cache"),
+                CancellationToken.None);
+
+            Assert.IsTrue(prepared.UsedBlockMap);
+            CollectionAssert.AreEqual(replacement, await File.ReadAllBytesAsync(prepared.StagedExecutablePath));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task Installer_DoesNotDownloadFullArchiveWhenRequiredBlockMapIsMissing()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcln-block-required-" + Guid.NewGuid().ToString("N"));

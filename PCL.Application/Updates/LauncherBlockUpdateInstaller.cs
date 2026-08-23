@@ -717,7 +717,15 @@ public sealed partial class LauncherUpdateInstaller
             .ConfigureAwait(false);
         EnsureUpdateResponseSuccess(response, deltaUrl);
         if (response.Content.Headers.ContentLength is long length && length != delta.Size)
-            throw new InvalidDataException($"VCDIFF 大小不一致：{delta.Path}");
+        {
+            // Content-Length describes the HTTP representation selected by the
+            // gateway. A CDN/proxy may transparently recode that representation,
+            // so it is not an integrity boundary. The bytes read below are still
+            // checked against the signed map before they are used.
+            PortableLog.Debug(
+                "Update",
+                $"VCDIFF 响应长度与索引不同；将以实际内容校验为准：{delta.Path}；响应={length}；索引={delta.Size}。");
+        }
         await using Stream network = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         await using CountingReadStream counted = new(network, onBytesRead);
         using MemoryStream buffer = new(capacity: (int)Math.Min(delta.Size, int.MaxValue));
@@ -750,7 +758,15 @@ public sealed partial class LauncherUpdateInstaller
             .ConfigureAwait(false);
         EnsureUpdateResponseSuccess(response, blockUrl);
         if (response.Content.Headers.ContentLength is long contentLength && contentLength != block.CompressedSize)
-            throw new InvalidDataException($"更新分块压缩大小不一致：{block.Sha256}。");
+        {
+            // Do not reject a valid block solely because an intermediary changed
+            // its transfer representation. DecompressAndVerifyAsync validates the
+            // signed uncompressed size and SHA-256 before the cache entry is moved
+            // into place.
+            PortableLog.Debug(
+                "Update",
+                $"更新分块响应长度与索引不同；将以解压后 SHA-256 校验为准：{block.Sha256}；响应={contentLength}；索引={block.CompressedSize}。");
+        }
 
         string destination = GetBlockCachePath(cacheRoot, block.Sha256!);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
