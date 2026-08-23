@@ -163,20 +163,44 @@ internal static class Program
             DesktopFileLog.Info("SingleInstance", $"单实例检查完成；Primary={singleInstance.IsPrimaryInstance}。");
             if (!singleInstance.IsPrimaryInstance)
             {
-                // Secondary exits immediately (no splash). If primary is a headless zombie holding
-                // the mutex, the user only sees a flash — surface a recoverable hint.
-                int code = singleInstance.SignalExistingInstance();
-                try
+                // During updater/OOBE relaunch the old process can stop its pipe a
+                // moment before releasing the mutex. Conversely, a newly started
+                // primary may not have opened the pipe yet. Retry both activation
+                // and lock takeover before treating this as a genuine duplicate.
+                Stopwatch recovery = Stopwatch.StartNew();
+                bool forwarded = false;
+                while (!forwarded &&
+                       !singleInstance.IsPrimaryInstance &&
+                       recovery.Elapsed < TimeSpan.FromSeconds(5))
                 {
-                    ShowSecondaryInstanceHint();
-                }
-                catch
-                {
-                    // ignore UI failures on secondary path
+                    forwarded = singleInstance.SignalExistingInstance(timeoutMilliseconds: 250);
+                    if (forwarded || singleInstance.TryBecomePrimary(TimeSpan.Zero))
+                        break;
+                    Thread.Sleep(100);
                 }
 
-                completedNormally = true;
-                return code;
+                if (forwarded)
+                {
+                    completedNormally = true;
+                    return 0;
+                }
+
+                if (!singleInstance.IsPrimaryInstance)
+                {
+                    try
+                    {
+                        ShowSecondaryInstanceHint();
+                    }
+                    catch
+                    {
+                        // ignore UI failures on secondary path
+                    }
+
+                    completedNormally = true;
+                    return 0;
+                }
+
+                DesktopFileLog.Info("SingleInstance", "重启竞态恢复完成；当前进程继续初始化。");
             }
 
             App.SingleInstanceCoordinator = singleInstance;

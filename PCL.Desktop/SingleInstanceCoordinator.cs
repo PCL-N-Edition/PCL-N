@@ -15,7 +15,7 @@ internal sealed class SingleInstanceCoordinator : IDisposable
     private const int PipeConnectTimeoutMilliseconds = 1500;
     private readonly string _pipeName;
     private readonly Mutex? _mutex;
-    private readonly bool _ownsMutex;
+    private bool _ownsMutex;
     private CancellationTokenSource? _listenCancellation;
     private Task? _listenTask;
     private int _pendingActivation;
@@ -70,14 +70,15 @@ internal sealed class SingleInstanceCoordinator : IDisposable
         PortableLog.Info("SingleInstance", "主实例激活管道监听已启动。");
     }
 
-    public int SignalExistingInstance()
+    public bool SignalExistingInstance(int timeoutMilliseconds = PipeConnectTimeoutMilliseconds)
     {
         try
         {
             using NamedPipeClientStream pipe = new(".", _pipeName, PipeDirection.Out);
-            pipe.Connect(PipeConnectTimeoutMilliseconds);
+            pipe.Connect(Math.Max(1, timeoutMilliseconds));
             pipe.WriteByte(1);
             pipe.Flush();
+            return true;
         }
         catch (IOException ex)
         {
@@ -92,7 +93,38 @@ internal sealed class SingleInstanceCoordinator : IDisposable
             PortableLog.Warn(ex, "SingleInstance", "无权连接主实例激活管道。");
         }
 
-        return 0;
+        return false;
+    }
+
+    /// <summary>
+    /// Promotes a secondary coordinator after the previous process released its
+    /// mutex. This is the expected path during updater/OOBE relaunch and avoids a
+    /// false "already running" failure while the old process is winding down.
+    /// </summary>
+    public bool TryBecomePrimary(TimeSpan timeout)
+    {
+        if (_ownsMutex || _mutex is null || _disposed)
+            return _ownsMutex;
+
+        try
+        {
+            if (!_mutex.WaitOne(timeout))
+                return false;
+            _ownsMutex = true;
+            PortableLog.Info("SingleInstance", "前一实例已退出；当前进程已接管单实例锁。");
+            return true;
+        }
+        catch (AbandonedMutexException ex)
+        {
+            _ownsMutex = true;
+            PortableLog.Warn(ex, "SingleInstance", "检测到异常退出的前一实例；当前进程已接管单实例锁。");
+            return true;
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException or UnauthorizedAccessException)
+        {
+            PortableLog.Warn(ex, "SingleInstance", "无法接管单实例锁。");
+            return false;
+        }
     }
 
     public bool ConsumePendingActivation() =>
