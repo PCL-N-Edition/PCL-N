@@ -132,6 +132,7 @@ internal static class PluginSidecarUiInjector
                 {
                     GroupId = page.GroupId,
                     Order = page.Order,
+                    RequiresDeveloperMode = page.RequiresDeveloperMode,
                     PageFactory = () => new PageSetupRemoteDataChain(pageId)
                 });
                 InjectedPageIds.Add(page.Id);

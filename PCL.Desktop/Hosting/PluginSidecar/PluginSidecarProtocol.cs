@@ -454,6 +454,9 @@ internal sealed class PluginUiPageDto
 
     [JsonPropertyName("order")]
     public int Order { get; set; }
+
+    [JsonPropertyName("requiresDeveloperMode")]
+    public bool RequiresDeveloperMode { get; set; }
 }
 
 /// <summary>Declarative UI node rendered by host (data-chain injection).</summary>

@@ -405,15 +405,35 @@ public partial class PageSetupLeft : MyPageLeft
         {
             Control child = panel.Children[index];
             bool isHostGroupLabel = child.Name?.StartsWith("TextHostSettingsGroup_", StringComparison.Ordinal) == true;
-            bool isHostPageItem = child is MyListItem item && TryReadHostPage(item.Tag, out _);
+            // Do not consult the freshly reloaded page map here: stale entries
+            // have intentionally disappeared from that map and still need to be
+            // removed from the visual tree.
+            bool isHostPageItem = child is MyListItem { Tag: HostSettingsPageTag };
             if (isHostGroupLabel || isHostPageItem)
                 panel.Children.RemoveAt(index);
         }
 
         RegisterHostSettingsPages();
-        if (_hostPageId is not null && GetItems().FirstOrDefault(item =>
-                TryReadHostPage(item.Tag, out string? id) && string.Equals(id, _hostPageId, StringComparison.OrdinalIgnoreCase)) is { } selected)
-            selected.SetChecked(true, user: false);
+        if (_hostPageId is not null)
+        {
+            MyListItem? selected = GetItems().FirstOrDefault(item =>
+                TryReadHostPage(item.Tag, out string? id) &&
+                string.Equals(id, _hostPageId, StringComparison.OrdinalIgnoreCase));
+            if (selected is not null)
+            {
+                selected.SetChecked(true, user: false);
+            }
+            else
+            {
+                // The active developer page was hidden. Do not leave its cached
+                // content mounted after the sidebar entry disappears.
+                string hiddenPageId = _hostPageId;
+                if (_hostPages.Remove(hiddenPageId, out MyPageRight? hiddenPage))
+                    hiddenPage.Dispose();
+                SelectDefaultPageCore(raiseChanged: true);
+                SyncDefaultPageCheckmarks();
+            }
+        }
     }
 
     private HostSettingsGroupView[] BuildHostSettingsGroups()
