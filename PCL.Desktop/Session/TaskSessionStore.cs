@@ -21,6 +21,12 @@ public sealed class TaskSessionStore
         _messenger = messenger;
     }
 
+    /// <summary>
+    /// Raised after the snapshot collection changes. Consumers should marshal the
+    /// notification to their UI dispatcher; background tasks are allowed to publish.
+    /// </summary>
+    public event EventHandler? SnapshotsChanged;
+
     public IReadOnlyDictionary<string, TaskManagerEntrySnapshot> Snapshots => _snapshots;
 
     public bool IsTaskManagerVisible
@@ -41,6 +47,7 @@ public sealed class TaskSessionStore
     {
         _snapshots[taskId] = snapshot;
         PublishProgress();
+        SnapshotsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public bool TryGet(string taskId, out TaskManagerEntrySnapshot snapshot) =>
@@ -48,14 +55,19 @@ public sealed class TaskSessionStore
 
     public void Remove(string taskId)
     {
-        _snapshots.Remove(taskId);
+        if (!_snapshots.Remove(taskId))
+            return;
         PublishProgress();
+        SnapshotsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void Clear()
     {
+        if (_snapshots.Count == 0)
+            return;
         _snapshots.Clear();
         PublishProgress();
+        SnapshotsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public bool HasActiveTask =>

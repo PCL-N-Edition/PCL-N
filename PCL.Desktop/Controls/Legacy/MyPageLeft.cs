@@ -64,7 +64,7 @@ public class MyPageLeft : Grid
                 listItem.isMouseOverAnimationEnabled = false;
             animations.Add(ModAnimation.AaOpacity(
                 control,
-                control is TextBlock ? 0.55d : 1d,
+                1d,
                 MotionTokens.PageEnterOpacityMs,
                 delay,
                 new ModAnimation.AniEaseOutFluent(ModAnimation.AniEasePower.Weak)));

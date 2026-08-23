@@ -219,6 +219,7 @@ public partial class MainWindow : Window, IDisposable
                 RefreshTaskManagerButton();
             },
             intervalMs: 50);
+        _taskSessionStore.SnapshotsChanged += TaskSessionStore_SnapshotsChanged;
         BindStartMinecraftUseCase();
         _extraDockViewModel.PropertyChanged += ExtraDockViewModel_PropertyChanged;
         AvaloniaXamlLoader.Load(this);
@@ -311,7 +312,11 @@ public partial class MainWindow : Window, IDisposable
         CancellationTokenSource cancellation = RegisterTrackedTask(taskId);
         if (openTaskManager)
             ActivateTaskManagerPage(animate: true);
-        TrackTaskBegin(taskId, title, "准备任务");
+        TrackTaskBegin(
+            taskId,
+            title,
+            "准备任务",
+            ["准备任务", "下载内容", "校验内容", "应用更改"]);
         return new HostBackgroundTaskProxy(this, taskId, title, cancellation);
     }
 
@@ -344,6 +349,7 @@ public partial class MainWindow : Window, IDisposable
             void Apply()
             {
                 _title = string.IsNullOrWhiteSpace(progress.Stage) ? _title : _title;
+                TaskManagerEntrySnapshot previous = _window.GetTaskSnapshotOrDefault(_taskId, _title);
                 TaskManagerSubTaskSnapshot[]? steps = progress.Steps is { Count: > 0 }
                     ? progress.Steps.Select(static step => new TaskManagerSubTaskSnapshot(
                         step.Name,
@@ -356,7 +362,13 @@ public partial class MainWindow : Window, IDisposable
                             HostBackgroundTaskStepState.Failed => TaskManagerTaskState.Failed,
                             _ => TaskManagerTaskState.Running
                         })).ToArray()
-                    : null;
+                    : previous.Steps is { Count: > 0 } plan
+                        ? TaskManagerStagePlanner.Advance(
+                            plan,
+                            progress.Stage,
+                            progress.Detail,
+                            progress.Progress)
+                        : null;
                 _window._taskSessionStore.Upsert(_taskId, new TaskManagerEntrySnapshot(
                     _taskId,
                     _title,
@@ -2206,7 +2218,7 @@ public partial class MainWindow : Window, IDisposable
                 CreateTaskId = projectId => CreateTaskId("community", projectId),
                 RegisterTrackedTask = RegisterTrackedTask,
                 UnregisterTrackedTask = UnregisterTrackedTask,
-                TrackTaskBegin = TrackTaskBegin,
+                TrackTaskBegin = (taskId, title, stage) => TrackTaskBegin(taskId, title, stage),
                 TrackTaskProgress = TrackTaskProgress,
                 TrackTaskFinished = TrackTaskFinished,
                 TrackTaskFailed = TrackTaskFailed,
@@ -2983,22 +2995,69 @@ public partial class MainWindow : Window, IDisposable
             : fallback;
     }
 
-    private void TrackTaskBegin(string taskId, string title, string stage)
+    private void TaskSessionStore_SnapshotsChanged(object? sender, EventArgs e)
+    {
+        if (_isDisposed)
+            return;
+        if (Dispatcher.UIThread.CheckAccess())
+            _taskUiCoalescer.Request();
+        else
+            Dispatcher.UIThread.Post(_taskUiCoalescer.Request);
+    }
+
+    private void TrackTaskBegin(
+        string taskId,
+        string title,
+        string stage,
+        IReadOnlyList<string>? plannedStages = null)
     {
         DesktopFileLog.Info("Task", $"任务开始/进入阶段；Id={taskId}；Title={title}；Stage={stage}。");
+        bool hasExisting = _taskSessionStore.TryGet(taskId, out TaskManagerEntrySnapshot existing);
+        TaskManagerSubTaskSnapshot[] steps;
+        if (hasExisting &&
+            existing.Steps is { Count: > 0 } existingPlan)
+        {
+            steps = TaskManagerStagePlanner.Advance(existingPlan, stage, stage, existing.Progress);
+        }
+        else
+        {
+            string[] plan = plannedStages?.Where(static item => !string.IsNullOrWhiteSpace(item)).ToArray()
+                            ?? CreateDefaultTaskPlan(stage);
+            steps = TaskManagerStagePlanner.Advance(
+                TaskManagerStagePlanner.Create(plan),
+                stage,
+                stage,
+                0d);
+        }
+
         _taskSessionStore.Upsert(taskId, new TaskManagerEntrySnapshot(
             taskId,
             title,
             stage,
-            string.Empty,
-            0d,
-            0,
-            0,
-            0,
-            TaskManagerTaskState.Waiting));
+            hasExisting ? existing.Detail : string.Empty,
+            hasExisting ? existing.Progress : 0d,
+            hasExisting ? existing.CompletedFiles : 0,
+            hasExisting ? existing.TotalFiles : 0,
+            hasExisting ? existing.SpeedBytesPerSecond : 0,
+            hasExisting ? TaskManagerTaskState.Running : TaskManagerTaskState.Waiting,
+            ActiveThreads: hasExisting ? existing.ActiveThreads : 0,
+            ThreadLimit: hasExisting ? existing.ThreadLimit : 1,
+            Steps: steps));
         // Lifecycle edges flush immediately so the task row appears without waiting for coalesce.
         _taskUiCoalescer.FlushNow();
         NotifyTaskManagerButton(ribble: true);
+    }
+
+    private static string[] CreateDefaultTaskPlan(string stage)
+    {
+        if (stage.Contains("下载地址", StringComparison.Ordinal) ||
+            stage.Contains("前置", StringComparison.Ordinal) ||
+            stage.Contains("下载前置", StringComparison.Ordinal))
+        {
+            return ["解析下载地址", "解析必需前置", "下载资源", "安装内容"];
+        }
+
+        return ["准备任务", "下载内容", "校验内容", "应用更改"];
     }
 
     private void TrackTaskProgress(string taskId, string title, double progress, string detail)
@@ -3014,7 +3073,10 @@ public partial class MainWindow : Window, IDisposable
             Detail = detail,
             Progress = Math.Clamp(progress, 0d, 1d),
             State = TaskManagerTaskState.Running,
-            ErrorMessage = null
+            ErrorMessage = null,
+            Steps = previous.Steps is { Count: > 0 } plan
+                ? TaskManagerStagePlanner.Advance(plan, previous.Stage, detail, progress)
+                : previous.Steps
         });
         _taskUiCoalescer.Request();
     }
@@ -3029,6 +3091,10 @@ public partial class MainWindow : Window, IDisposable
                 $"安装任务进度；Id={taskId}；Title={title}；Stage={stage}；Progress={progress.Progress:P1}；" +
                 $"Files={progress.CompletedFiles}/{progress.TotalFiles}；Threads={progress.ActiveThreads}/{progress.ThreadLimit}；Speed={progress.SpeedBytesPerSecond}B/s。");
         }
+        TaskManagerEntrySnapshot previous = GetTaskSnapshotOrDefault(taskId, title);
+        TaskManagerSubTaskSnapshot[] steps = previous.Steps is { Count: > 0 } plan
+            ? TaskManagerStagePlanner.Advance(plan, stage, progress.Detail, progress.Progress)
+            : CreateInstallTaskSteps(progress);
         _taskSessionStore.Upsert(taskId, new TaskManagerEntrySnapshot(
             taskId,
             title,
@@ -3041,7 +3107,7 @@ public partial class MainWindow : Window, IDisposable
             TaskManagerTaskState.Running,
             ActiveThreads: progress.ActiveThreads,
             ThreadLimit: progress.ThreadLimit,
-            Steps: CreateInstallTaskSteps(progress)));
+            Steps: steps));
         _taskUiCoalescer.Request();
     }
 
@@ -3710,7 +3776,13 @@ public partial class MainWindow : Window, IDisposable
         using CancellationTokenSource cancellation = RegisterTrackedTask(taskId);
         string taskTitle = "安装 " + request.VersionId;
         ActivateTaskManagerPage(animate: true);
-        TrackTaskBegin(taskId, taskTitle, "准备安装文件");
+        List<string> installStages = ["准备安装", "下载版本信息", "下载游戏文件"];
+        if (request.Loader is not null)
+            installStages.Add("安装加载器");
+        if (request.Addons is { Count: > 0 })
+            installStages.Add("安装附加组件");
+        installStages.Add("完成安装");
+        TrackTaskBegin(taskId, taskTitle, "准备安装", installStages);
 
         Progress<MinecraftInstallProgress> progress = new(update => TrackInstallProgress(taskId, taskTitle, update));
         try
@@ -3795,7 +3867,8 @@ public partial class MainWindow : Window, IDisposable
             TrackTaskBegin(
                 taskId,
                 taskTitle,
-                ownsTask ? "准备安装整合包" : "正在安装整合包");
+                ownsTask ? "准备安装整合包" : "正在安装整合包",
+                ["准备安装整合包", "安装版本", "下载模组", "释放整合包文件", "完成安装"]);
         }).ConfigureAwait(false);
 
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
@@ -5071,7 +5144,11 @@ public partial class MainWindow : Window, IDisposable
         using CancellationTokenSource cancellation = RegisterTrackedTask(taskId);
         string taskTitle = "修复 " + instance.Name;
         ActivateTaskManagerPage(animate: true);
-        TrackTaskBegin(taskId, taskTitle, "准备检查版本文件");
+        TrackTaskBegin(
+            taskId,
+            taskTitle,
+            "准备修复",
+            ["准备修复", "检查并下载缺失文件", "校验版本文件", "完成修复"]);
 
         Progress<MinecraftInstallProgress> progress = new(update => TrackInstallProgress(taskId, taskTitle, update));
         try
@@ -5664,6 +5741,7 @@ public partial class MainWindow : Window, IDisposable
             return;
         _isDisposed = true;
         _extraDockViewModel.PropertyChanged -= ExtraDockViewModel_PropertyChanged;
+        _taskSessionStore.SnapshotsChanged -= TaskSessionStore_SnapshotsChanged;
         if (_registeredPageSurfaceId is { } pageSurface)
             DesktopHostUiComposition.Instance.UnregisterTarget(pageSurface);
         DesktopHostUiComposition.Instance.UnregisterSlot("pcl.navigation.main", "items.after-download");

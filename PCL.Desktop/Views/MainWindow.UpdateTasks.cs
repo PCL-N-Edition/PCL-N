@@ -125,8 +125,7 @@ public partial class MainWindow
                 totalFiles: progress.TotalFiles,
                 speedBytesPerSecond: progress.SpeedBytesPerSecond,
                 activeThreads: progress.ActiveThreads,
-                threadLimit: Math.Max(1, progress.ThreadLimit),
-                steps: CreateLauncherUpdateSteps(progress, stage, detail));
+                threadLimit: Math.Max(1, progress.ThreadLimit));
             _taskUiCoalescer.Request();
         }
 
@@ -188,7 +187,13 @@ public partial class MainWindow
             AvaloniaLocalizationManager.GetText("Setup.Update.Task.Preparing", "准备更新…"),
             detail: string.Empty,
             progress: 0d,
-            TaskManagerTaskState.Waiting);
+            TaskManagerTaskState.Waiting,
+            steps: TaskManagerStagePlanner.Create(
+                AvaloniaLocalizationManager.GetText("Setup.Update.Task.Stage.Indexing", "正在索引本地分块…"),
+                AvaloniaLocalizationManager.GetText("Setup.Update.Task.Stage.DownloadingBlocks", "正在下载更新内容…"),
+                AvaloniaLocalizationManager.GetText("Setup.Update.Task.Stage.Rebuilding", "正在重组更新包…"),
+                AvaloniaLocalizationManager.GetText("Setup.Update.Task.Stage.Verifying", "正在校验…"),
+                AvaloniaLocalizationManager.GetText("Setup.Update.Task.Ready", "更新已就绪")));
         _taskUiCoalescer.FlushNow();
         NotifyTaskManagerButton(ribble: true);
     }
@@ -218,6 +223,21 @@ public partial class MainWindow
         int threadLimit = 1,
         IReadOnlyList<TaskManagerSubTaskSnapshot>? steps = null)
     {
+        IReadOnlyList<TaskManagerSubTaskSnapshot>? effectiveSteps = steps;
+        if (_taskSessionStore.TryGet(LauncherUpdateTaskId, out TaskManagerEntrySnapshot previous) &&
+            effectiveSteps is null &&
+            previous.Steps is { Count: > 0 } plan)
+        {
+            effectiveSteps = state == TaskManagerTaskState.Finished
+                ? plan.Select(static item => item with
+                {
+                    Detail = AvaloniaLocalizationManager.GetText("Common.Task.Completed", "任务已完成"),
+                    Progress = 1d,
+                    State = TaskManagerTaskState.Finished
+                }).ToArray()
+                : TaskManagerStagePlanner.Advance(plan, stage, detail, progress);
+        }
+
         // CanCancel: false — launcher self-update cannot be aborted mid-download; hide the X.
         _taskSessionStore.Upsert(LauncherUpdateTaskId, new TaskManagerEntrySnapshot(
             LauncherUpdateTaskId,
@@ -231,58 +251,8 @@ public partial class MainWindow
             state,
             ActiveThreads: activeThreads,
             ThreadLimit: Math.Max(1, threadLimit),
-            Steps: steps,
+            Steps: effectiveSteps,
             CanCancel: false));
-    }
-
-    /// <summary>
-    /// Right-pane rows: primary stage + transfer summary, matching game install cards.
-    /// </summary>
-    private static TaskManagerSubTaskSnapshot[] CreateLauncherUpdateSteps(
-        LauncherUpdateProgress progress,
-        string stage,
-        string detail)
-    {
-        List<TaskManagerSubTaskSnapshot> steps =
-        [
-            new TaskManagerSubTaskSnapshot(
-                stage,
-                detail,
-                Math.Clamp(progress.Progress, 0d, 1d),
-                progress.Stage is LauncherUpdateStage.Ready
-                    ? TaskManagerTaskState.Finished
-                    : TaskManagerTaskState.Running)
-        ];
-
-        if (progress.TotalFiles > 0 || progress.SpeedBytesPerSecond > 0 || progress.ActiveThreads > 0)
-        {
-            List<string> transfer = [];
-            if (progress.TotalFiles > 0)
-            {
-                transfer.Add(
-                    $"{Math.Clamp(progress.CompletedFiles, 0, progress.TotalFiles)} / {progress.TotalFiles} 项");
-            }
-
-            if (progress.SpeedBytesPerSecond > 0)
-                transfer.Add(TaskManagerFormatting.Speed(progress.SpeedBytesPerSecond));
-
-            if (progress.ThreadLimit > 0)
-            {
-                transfer.Add(
-                    $"{Math.Max(0, progress.ActiveThreads)} / {Math.Max(1, progress.ThreadLimit)} 线程");
-            }
-
-            if (transfer.Count > 0)
-            {
-                steps.Add(new TaskManagerSubTaskSnapshot(
-                    AvaloniaLocalizationManager.GetText("Setup.Update.Task.Transfer", "传输"),
-                    string.Join(" · ", transfer),
-                    Math.Clamp(progress.Progress, 0d, 1d),
-                    TaskManagerTaskState.Running));
-            }
-        }
-
-        return steps.ToArray();
     }
 
     private static string FormatLauncherUpdateStage(LauncherUpdateStage stage) =>
