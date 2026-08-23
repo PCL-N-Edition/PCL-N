@@ -38,7 +38,7 @@ internal static class OobeConfiguration
     private static bool _resumeFromArgs;
 
     /// <summary>Bump when shipping OOBE content that returning users should see (even as a short flow).</summary>
-    public const string DefaultContentVersion = "4";
+    public const string DefaultContentVersion = PclCompiledOobeConfiguration.ContentVersion;
 
     public static OobeManifest Current
     {
@@ -504,22 +504,11 @@ public sealed record OobeRunPlan(
 internal sealed class OobeManifest
 {
     public static IReadOnlyList<OobeStepId> DefaultFullSteps { get; } =
-    [
-        OobeStepId.Welcome,
-        OobeStepId.Terms,
-        OobeStepId.Privacy,
-        OobeStepId.DataPaths,
-        OobeStepId.Online,
-        OobeStepId.Telemetry,
-        OobeStepId.Finish
-    ];
+        PclCompiledOobeConfiguration.CreateFullSteps();
 
     /// <summary>Post-update short flow: welcome then finish.</summary>
     public static IReadOnlyList<OobeStepId> DefaultUpdateSteps { get; } =
-    [
-        OobeStepId.Welcome,
-        OobeStepId.Finish
-    ];
+        PclCompiledOobeConfiguration.CreateUpdateSteps();
 
     public OobeManifest(
         string contentVersion,
@@ -550,8 +539,8 @@ internal sealed class OobeManifest
             OobeConfiguration.DefaultContentVersion,
             DefaultFullSteps,
             DefaultUpdateSteps,
-            restartAfterFull: true,
-            restartAfterUpdate: false);
+            restartAfterFull: PclCompiledOobeConfiguration.RestartAfterFull,
+            restartAfterUpdate: PclCompiledOobeConfiguration.RestartAfterUpdate);
 }
 
 /// <summary>JSON shape for <c>pcln-oobe.json</c>.</summary>

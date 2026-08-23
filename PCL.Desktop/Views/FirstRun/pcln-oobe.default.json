@@ -1,0 +1,18 @@
+{
+  "contentVersion": "4",
+  "fullSteps": [
+    "welcome",
+    "terms",
+    "privacy",
+    "data",
+    "online",
+    "telemetry",
+    "finish"
+  ],
+  "updateSteps": [
+    "welcome",
+    "finish"
+  ],
+  "restartAfterFull": true,
+  "restartAfterUpdate": false
+}

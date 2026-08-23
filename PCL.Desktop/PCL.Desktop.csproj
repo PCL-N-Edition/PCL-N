@@ -151,6 +151,8 @@
   </ItemGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
+    <!-- Deterministic startup configuration is validated and compiled into typed code. -->
+    <AdditionalFiles Include="Views/FirstRun/pcln-oobe.default.json" />
     <EmbeddedResource Include="Localization/zh-CN.xaml">
       <LogicalName>PCL.Desktop.Localization.zh-CN.xaml</LogicalName>
     </EmbeddedResource>
