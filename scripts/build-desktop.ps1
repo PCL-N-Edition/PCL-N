@@ -64,6 +64,9 @@ $common = @(
     "-nodeReuse:false",
     "--nologo"
 )
+if ($Runtime.StartsWith('win-', [StringComparison]::OrdinalIgnoreCase)) {
+    $common += '-p:PclWindowsHello=true'
+}
 
 if ($Publish) {
     $outDir = Join-Path $PSScriptRoot "..\artifacts\desktop-$Runtime"

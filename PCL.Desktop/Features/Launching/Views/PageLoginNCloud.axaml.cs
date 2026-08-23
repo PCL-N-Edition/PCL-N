@@ -11,7 +11,19 @@ namespace PCL.Desktop.Features.Launching.Views;
 
 public partial class PageLoginNCloud : StackPanel, PageLaunchLeft.ILoginPage
 {
-    public PageLoginNCloud() => AvaloniaXamlLoader.Load(this);
+    private readonly WindowsHelloLoginController _windowsHello;
+
+    public PageLoginNCloud()
+    {
+        AvaloniaXamlLoader.Load(this);
+        _windowsHello = new WindowsHelloLoginController(
+            this,
+            this.FindControl<MyButton>("BtnWindowsHello")!,
+            this.FindControl<TextBlock>("LabWindowsHelloStatus")!,
+            "N Cloud",
+            RequestLogin);
+        _ = _windowsHello.InitializeAsync();
+    }
 
     public bool IsLoggingIn { get; private set; }
 
@@ -28,6 +40,7 @@ public partial class PageLoginNCloud : StackPanel, PageLaunchLeft.ILoginPage
     public void StartLogin()
     {
         IsLoggingIn = true;
+        _windowsHello.SetLoginBusy(true);
         if (this.FindControl<MyButton>("BtnLogin") is { } login)
         {
             login.IsEnabled = false;
@@ -65,8 +78,12 @@ public partial class PageLoginNCloud : StackPanel, PageLaunchLeft.ILoginPage
 
     private void BtnLoginClick(object? sender, EventArgs e) => RequestLogin();
 
+    private void BtnWindowsHelloClick(object? sender, EventArgs e) =>
+        _ = _windowsHello.VerifyAndContinueAsync();
+
     private void ResetLoginButton()
     {
+        _windowsHello.SetLoginBusy(false);
         if (this.FindControl<MyButton>("BtnLogin") is { } login)
         {
             login.IsEnabled = true;

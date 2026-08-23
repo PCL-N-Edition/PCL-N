@@ -11,9 +11,18 @@ namespace PCL.Desktop.Features.Launching.Views;
 
 public partial class PageLoginMs : StackPanel, PageLaunchLeft.ILoginPage
 {
+    private readonly WindowsHelloLoginController _windowsHello;
+
     public PageLoginMs()
     {
         AvaloniaXamlLoader.Load(this);
+        _windowsHello = new WindowsHelloLoginController(
+            this,
+            this.FindControl<MyButton>("BtnWindowsHello")!,
+            this.FindControl<TextBlock>("LabWindowsHelloStatus")!,
+            "Microsoft",
+            RequestLogin);
+        _ = _windowsHello.InitializeAsync();
     }
 
     public bool IsLoggingIn { get; private set; }
@@ -35,6 +44,7 @@ public partial class PageLoginMs : StackPanel, PageLaunchLeft.ILoginPage
     public void StartLogin()
     {
         IsLoggingIn = true;
+        _windowsHello.SetLoginBusy(true);
         if (this.FindControl<MyButton>("BtnLogin") is { } login)
         {
             login.IsEnabled = false;
@@ -69,12 +79,16 @@ public partial class PageLoginMs : StackPanel, PageLaunchLeft.ILoginPage
 
     private void BtnLoginClick(object? sender, EventArgs e) => RequestLogin();
 
+    private void BtnWindowsHelloClick(object? sender, EventArgs e) =>
+        _ = _windowsHello.VerifyAndContinueAsync();
+
     private void BtnPurchaseClick(object? sender, RoutedEventArgs e) => PurchaseRequested?.Invoke(this, EventArgs.Empty);
 
     private void BtnWebsiteClick(object? sender, RoutedEventArgs e) => WebsiteRequested?.Invoke(this, EventArgs.Empty);
 
     private void ResetLoginButton()
     {
+        _windowsHello.SetLoginBusy(false);
         if (this.FindControl<MyButton>("BtnLogin") is { } login)
         {
             login.IsEnabled = true;

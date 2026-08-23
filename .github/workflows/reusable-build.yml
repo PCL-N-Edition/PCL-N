@@ -405,6 +405,7 @@ jobs:
             -m:1 \
             -nodeReuse:false \
             -p:Platform="${{ inputs.architecture }}" \
+            -p:PclWindowsHello=${{ startsWith(inputs.runtime_id, 'win-') }} \
             -p:PublishAot=true \
             -p:PublishTrimmed=true \
             -p:PublishSingleFile=false \
@@ -479,6 +480,7 @@ jobs:
               -m:1 \
               -nodeReuse:false \
               -p:Platform="${{ inputs.architecture }}" \
+              -p:PclWindowsHello=true \
               -p:PublishAot=true \
               -p:PublishTrimmed=true \
               -p:PublishSingleFile=false \

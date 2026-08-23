@@ -102,6 +102,7 @@ jobs:
           -m:1
           -nodeReuse:false
           -p:PublishAot=true
+          -p:PclWindowsHello=${{ startsWith(matrix.rid, 'win-') }}
           -p:PublishTrimmed=true
           -p:PublishSingleFile=false
           -p:DebugType=None

@@ -6,7 +6,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework Condition="'$(PclWindowsHello)' != 'true'">net10.0</TargetFramework>
+    <!-- Windows release artifacts use a Windows-targeted TFM so WinRT can
+         expose the native Windows Hello consent broker. Cross-platform and
+         ordinary developer builds remain portable net10.0. -->
+    <TargetFramework Condition="'$(PclWindowsHello)' == 'true'">net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion Condition="'$(PclWindowsHello)' == 'true'">10.0.17763.0</TargetPlatformMinVersion>
+    <EnableWindowsTargeting Condition="'$(PclWindowsHello)' == 'true'">true</EnableWindowsTargeting>
+    <DefineConstants Condition="'$(PclWindowsHello)' == 'true'">$(DefineConstants);PCL_WINDOWS_HELLO</DefineConstants>
     <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <!-- Managed assembly identity (avares://, InternalsVisibleTo, RootNamespace). -->
     <AssemblyName>PCL.Desktop</AssemblyName>
