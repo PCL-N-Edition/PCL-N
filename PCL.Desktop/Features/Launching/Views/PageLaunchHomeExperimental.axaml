@@ -247,6 +247,7 @@
                         <Border x:Name="PanHintExtra"
                                 IsVisible="False"
                                 Opacity="0"
+                                Tapped="PanHintExtra_Tapped"
                                 Background="{DynamicResource ColorBrushWhite}"
                                 CornerRadius="18"
                                 Padding="22,18,28,18"

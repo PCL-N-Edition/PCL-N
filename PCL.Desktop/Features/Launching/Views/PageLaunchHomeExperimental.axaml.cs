@@ -34,6 +34,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
     private const int WidgetFlipMs = 220;
     private const double HomeCanvasMaxWidth = 1360d;
     private const double HomeCanvasMaxHeight = 860d;
+    internal static readonly TimeSpan TipsRotationInterval = TimeSpan.FromSeconds(3);
 
     /// <summary>Built-in N-Edition notice flip card.</summary>
     public const string CardIdCommunityHint = "pcl.builtin.community-hint";
@@ -66,10 +67,13 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
     private bool _widgetDragging;
     private Point _widgetDragStart;
     private bool _widgetPageAnimating;
+    private readonly DispatcherTimer _tipsRotationTimer;
 
     public PageLaunchHomeExperimental()
     {
         AvaloniaXamlLoader.Load(this);
+        _tipsRotationTimer = new DispatcherTimer { Interval = TipsRotationInterval };
+        _tipsRotationTimer.Tick += TipsRotationTimer_Tick;
         // Experimental homepage fills the pane without internal scroll.
         PanScroll = null;
         InitWidgetPager();
@@ -81,6 +85,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         SizeChanged += (_, _) => ApplyResponsiveLayout();
         AttachedToVisualTree += (_, _) =>
         {
+            RestartTipsRotationTimer(updateImmediately: false);
             ApplyResponsiveLayout();
             RefreshShortcutDock();
             ExperimentalControlChrome.ApplyDeferred(this, enabled: true);
@@ -89,6 +94,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             _isLoadedOnce = true;
             _ = EnsureInstancesLoadedAsync();
         };
+        DetachedFromVisualTree += (_, _) => _tipsRotationTimer.Stop();
         PageEnter += () => ExperimentalControlChrome.ApplyDeferred(this, enabled: true);
     }
 
@@ -782,6 +788,8 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         _refreshCancellation?.Cancel();
         _refreshCancellation?.Dispose();
         _refreshCancellation = null;
+        _tipsRotationTimer.Stop();
+        _tipsRotationTimer.Tick -= TipsRotationTimer_Tick;
         base.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -814,6 +822,23 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
 
         SetText("LabHintExtra", PageLaunchRight.GetRandomHint(raw: true));
     }
+
+    private void TipsRotationTimer_Tick(object? sender, EventArgs e) => RefreshTipText();
+
+    private void PanHintExtra_Tapped(object? sender, TappedEventArgs e) =>
+        RestartTipsRotationTimer(updateImmediately: true);
+
+    private void RestartTipsRotationTimer(bool updateImmediately)
+    {
+        _tipsRotationTimer.Stop();
+        if (updateImmediately)
+            RefreshTipText();
+        if (!_disposed && VisualRoot is not null)
+            _tipsRotationTimer.Start();
+    }
+
+    private void RefreshTipText() =>
+        SetText("LabHintExtra", PageLaunchRight.GetRandomHint(raw: true));
 
     /// <summary>
     /// Permanently hide path: drop the community-hint flip card from the registry
