@@ -129,6 +129,7 @@ public partial class MainWindow : Window, IDisposable
     private CancellationTokenSource? _launchCancellation;
     private CancellationTokenSource? _microsoftLoginCancellation;
     private CancellationTokenSource? _littleSkinLoginCancellation;
+    private CancellationTokenSource? _communityServerJoinCancellation;
     private readonly MinecraftVanillaInstallService _minecraftInstallService = new();
     private readonly MinecraftLaunchCoordinator _launchCoordinator;
     private readonly MinecraftAiRepairAdvisor _minecraftAiRepairAdvisor = new();
@@ -230,6 +231,9 @@ public partial class MainWindow : Window, IDisposable
             intervalMs: 50);
         _taskSessionStore.SnapshotsChanged += TaskSessionStore_SnapshotsChanged;
         BindStartMinecraftUseCase();
+        WeakReferenceMessenger.Default.Register<CommunityServerJoinRequestedMessage>(
+            this,
+            (_, message) => _ = JoinCommunityServerAsync(message.Entry));
         _extraDockViewModel.PropertyChanged += ExtraDockViewModel_PropertyChanged;
         AvaloniaXamlLoader.Load(this);
         DesktopRenderBootstrap.ApplyCompositorHints(this);
@@ -1529,26 +1533,72 @@ public partial class MainWindow : Window, IDisposable
 
     private async Task ActivateLaunchShortcutAsync(LaunchShortcutPin pin)
     {
-        LaunchInstanceInfo? instance = (_launchLeft?.Instances ?? [])
-            .FirstOrDefault(candidate =>
-                string.Equals(
-                    candidate.InstanceDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                    pin.InstanceDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                    StringComparison.OrdinalIgnoreCase));
+        ILaunchHomeSurface launchHome = await EnsureLaunchHomeReadyAsync().ConfigureAwait(true);
+        LaunchInstanceInfo? instance = FindInstanceByDirectory(launchHome.Instances, pin.InstanceDirectory);
         if (instance is null)
         {
-            ShowHint("固定目标对应的版本不存在或未加载", critical: true);
+            await launchHome.RefreshInstancesAsync().ConfigureAwait(true);
+            instance = FindInstanceByDirectory(launchHome.Instances, pin.InstanceDirectory);
+        }
+
+        if (instance is null)
+        {
+            ShowHint("固定目标对应的版本不存在", critical: true);
             return;
         }
 
-        ILaunchHomeSurface? launchHome = _launchLeft;
-        if (launchHome is null)
-            return;
-
+        launchHome.SetInstances(launchHome.Instances, instance);
         StartMinecraftRequest request = pin.Kind == LaunchShortcutKind.Server
             ? new StartMinecraftRequest(launchHome, instance, ServerAddress: pin.Target)
             : new StartMinecraftRequest(launchHome, instance, WorldName: pin.Target);
         await _startMinecraft.ExecuteAsync(request).ConfigureAwait(true);
+    }
+
+    private async Task<ILaunchHomeSurface> EnsureLaunchHomeReadyAsync()
+    {
+        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+        bool experimental = _launchHomeProfile.UseExperimentalFullPageHome() ||
+                            IsExperimentalHomepageUiEnabled(settings);
+        _launchHomeSurface.WireOnce(this, CreateLaunchHomeBindings(settings));
+        _ = _launchHomeSurface.CreateMainPage(settings, experimental);
+        SyncLaunchFieldsFromSurface();
+        ILaunchHomeSurface launchHome = _launchLeft ??
+                                        throw new InvalidOperationException("启动页尚未初始化。");
+        await launchHome.EnsureInstancesLoadedAsync().ConfigureAwait(true);
+        return launchHome;
+    }
+
+    private static LaunchInstanceInfo? FindInstanceByDirectory(
+        IEnumerable<LaunchInstanceInfo> instances,
+        string? instanceDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(instanceDirectory))
+            return null;
+
+        string expected;
+        try
+        {
+            expected = Path.GetFullPath(instanceDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            return null;
+        }
+
+        return instances.FirstOrDefault(candidate =>
+        {
+            try
+            {
+                string actual = Path.GetFullPath(candidate.InstanceDirectory)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+            {
+                return false;
+            }
+        });
     }
 
     private void PromptHideCommunityHint()
@@ -2262,67 +2312,305 @@ public partial class MainWindow : Window, IDisposable
     private Task DownloadCommunityResourceAsync(CommunityResourceDownloadRequest request) =>
         CommunityDownloadOrchestrator.RunAsync(
             request,
-            new CommunityDownloadHost
-            {
-                GetSelectedInstance = () => _launchLeft?.SelectedInstance ?? _managedInstance,
-                GetTargetDirectoryOverride = category =>
-                    _communityDownloadTarget is { } target && target.Category == category
-                        ? target.Directory
-                        : null,
-                CloseDetailIfOpen = () =>
-                {
-                    if (this.FindControl<Border>("PanMainRight")?.Child is PageCommunityDetail)
-                        CloseCommunityDetail();
-                },
-                CreateTaskId = projectId => CreateTaskId("community", projectId),
-                RegisterTrackedTask = RegisterTrackedTask,
-                UnregisterTrackedTask = UnregisterTrackedTask,
-                TrackTaskBegin = (taskId, title, stage) => TrackTaskBegin(taskId, title, stage),
-                TrackTaskProgress = TrackTaskProgress,
-                TrackTaskFinished = TrackTaskFinished,
-                TrackTaskFailed = TrackTaskFailed,
-                AppendLog = message => _launchRight?.AppendLog(message),
-                ShowHint = ShowHint,
-                TruncateHint = message => TruncateHint(message),
-                GetMinecraftRootDirectory = GetDefaultMinecraftRoot,
-                GetJavaExecutablePath = () =>
-                    MinecraftLaunchPlanFactory.ResolvePreferredJavaExecutablePath(forceConsole: true),
-                RefreshInstancesAsync = async () =>
-                {
-                    if (_launchLeft is null)
-                        return;
-                    await _launchLeft.RefreshInstancesAsync().ConfigureAwait(true);
-                    _instancesSelect.SetInstances(_launchLeft.Instances, _launchLeft.SelectedInstance);
-                },
-                PickSaveAsPathAsync = async (title, suggestedFileName) =>
-                {
-                    IStorageProvider? storage = StorageProvider;
-                    if (storage is null)
-                    {
-                        ShowHint("另存为失败：无法打开保存对话框", critical: true);
-                        return null;
-                    }
+            CreateCommunityDownloadHost());
 
-                    IStorageFile? target = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
-                    {
-                        Title = "另存为 — " + title,
-                        SuggestedFileName = suggestedFileName,
-                        FileTypeChoices =
-                        [
-                            new FilePickerFileType("资源文件")
-                            {
-                                Patterns =
-                                [
-                                    "*" + (Path.GetExtension(suggestedFileName) is { Length: > 0 } ext
-                                        ? ext
-                                        : ".*")
-                                ]
-                            }
-                        ]
-                    }).ConfigureAwait(true);
-                    return target?.Path.LocalPath;
+    private CommunityDownloadHost CreateCommunityDownloadHost() =>
+        new()
+        {
+            GetSelectedInstance = () => _launchLeft?.SelectedInstance ?? _managedInstance,
+            GetTargetDirectoryOverride = category =>
+                _communityDownloadTarget is { } target && target.Category == category
+                    ? target.Directory
+                    : null,
+            CloseDetailIfOpen = () =>
+            {
+                if (this.FindControl<Border>("PanMainRight")?.Child is PageCommunityDetail)
+                    CloseCommunityDetail();
+            },
+            CreateTaskId = projectId => CreateTaskId("community", projectId),
+            RegisterTrackedTask = RegisterTrackedTask,
+            UnregisterTrackedTask = UnregisterTrackedTask,
+            TrackTaskBegin = (taskId, title, stage) => TrackTaskBegin(taskId, title, stage),
+            TrackTaskProgress = TrackTaskProgress,
+            TrackTaskFinished = TrackTaskFinished,
+            TrackTaskFailed = TrackTaskFailed,
+            AppendLog = message => _launchRight?.AppendLog(message),
+            ShowHint = ShowHint,
+            TruncateHint = message => TruncateHint(message),
+            GetMinecraftRootDirectory = GetDefaultMinecraftRoot,
+            GetJavaExecutablePath = () =>
+                MinecraftLaunchPlanFactory.ResolvePreferredJavaExecutablePath(forceConsole: true),
+            RefreshInstancesAsync = async () =>
+            {
+                ILaunchHomeSurface launchHome = await EnsureLaunchHomeReadyAsync().ConfigureAwait(true);
+                await launchHome.RefreshInstancesAsync().ConfigureAwait(true);
+                _instancesSelect.SetInstances(launchHome.Instances, launchHome.SelectedInstance);
+            },
+            PickSaveAsPathAsync = async (title, suggestedFileName) =>
+            {
+                IStorageProvider? storage = StorageProvider;
+                if (storage is null)
+                {
+                    ShowHint("另存为失败：无法打开保存对话框", critical: true);
+                    return null;
                 }
-            });
+
+                IStorageFile? target = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
+                {
+                    Title = "另存为 — " + title,
+                    SuggestedFileName = suggestedFileName,
+                    FileTypeChoices =
+                    [
+                        new FilePickerFileType("资源文件")
+                        {
+                            Patterns =
+                            [
+                                "*" + (Path.GetExtension(suggestedFileName) is { Length: > 0 } ext
+                                    ? ext
+                                    : ".*")
+                            ]
+                        }
+                    ]
+                }).ConfigureAwait(true);
+                return target?.Path.LocalPath;
+            }
+        };
+
+    private async Task JoinCommunityServerAsync(CommunityResourceEntry entry)
+    {
+        if (entry.Server is not { } server || string.IsNullOrWhiteSpace(server.Address))
+        {
+            ShowHint("该服务器没有提供可用的连接地址", critical: true);
+            return;
+        }
+
+        _communityServerJoinCancellation?.Cancel();
+        CancellationTokenSource cancellation = new();
+        _communityServerJoinCancellation = cancellation;
+        try
+        {
+            ShowHint("正在检查服务器所需的游戏实例…");
+            ILaunchHomeSurface launchHome = await EnsureLaunchHomeReadyAsync().ConfigureAwait(true);
+            LaunchInstanceInfo? instance;
+
+            if (string.Equals(server.ContentKind, "modpack", StringComparison.OrdinalIgnoreCase) &&
+                (!string.IsNullOrWhiteSpace(server.ContentProjectId) ||
+                 !string.IsNullOrWhiteSpace(server.ContentVersionId)))
+            {
+                CommunityResourceVersionLookupResult? modpack = await ResolveServerModpackAsync(
+                        server,
+                        cancellation.Token)
+                    .ConfigureAwait(true);
+                if (modpack is null)
+                {
+                    ShowHint("无法读取该服务器关联的整合包", critical: true);
+                    return;
+                }
+
+                instance = await FindInstalledServerModpackAsync(
+                        launchHome.Instances,
+                        server,
+                        modpack,
+                        cancellation.Token)
+                    .ConfigureAwait(true);
+                if (instance is null)
+                {
+                    ShowHint("未找到对应整合包，正在自动下载安装…");
+                    CommunityDownloadResult download = await CommunityDownloadOrchestrator.RunAsync(
+                            new CommunityResourceDownloadRequest(
+                                modpack.Entry,
+                                CommunityResourceCategory.Modpack,
+                                new CommunitySearchOptions(
+                                    GameVersion: server.GameVersions.FirstOrDefault(),
+                                    Source: CommunityResourceSource.Modrinth),
+                                PreferredFile: modpack.Version.Files.FirstOrDefault(),
+                                PreferredVersion: modpack.Version),
+                            CreateCommunityDownloadHost(),
+                            cancellation.Token)
+                        .ConfigureAwait(true);
+                    if (!download.Success)
+                        return;
+
+                    await launchHome.RefreshInstancesAsync().ConfigureAwait(true);
+                    instance = FindInstanceByDirectory(
+                                   launchHome.Instances,
+                                   download.InstalledInstanceDirectory) ??
+                               await FindInstalledServerModpackAsync(
+                                       launchHome.Instances,
+                                       server,
+                                       modpack,
+                                       cancellation.Token)
+                                   .ConfigureAwait(true);
+                }
+            }
+            else
+            {
+                instance = FindMinecraftVersionInstance(launchHome.Instances, server.GameVersions);
+                if (instance is null)
+                {
+                    ShowHint("未找到对应 Minecraft 版本，正在自动安装…");
+                    instance = await InstallServerMinecraftVersionAsync(server, cancellation.Token)
+                        .ConfigureAwait(true);
+                    if (instance is not null)
+                        await launchHome.RefreshInstancesAsync().ConfigureAwait(true);
+                }
+            }
+
+            cancellation.Token.ThrowIfCancellationRequested();
+            if (instance is null)
+            {
+                ShowHint("未能准备服务器所需的游戏实例", critical: true);
+                return;
+            }
+
+            SelectNavRoute(LaunchRoute, animate: true);
+            launchHome.SetInstances(launchHome.Instances, instance);
+            ShowHint("正在连接服务器：" + entry.Title);
+            await StartMinecraftAsync(launchHome, instance, serverAddress: server.Address).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            ShowHint("已取消服务器连接准备");
+        }
+        catch (Exception ex)
+        {
+            DesktopFileLog.Error("CommunityServer", $"准备服务器连接失败：{entry.Title}", ex);
+            ShowTextDialog("无法连接服务器", "准备游戏实例时发生错误。\n\n详细信息：" + ex.Message);
+        }
+        finally
+        {
+            if (ReferenceEquals(_communityServerJoinCancellation, cancellation))
+                _communityServerJoinCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
+    private static async Task<CommunityResourceVersionLookupResult?> ResolveServerModpackAsync(
+        CommunityServerTarget server,
+        CancellationToken cancellationToken)
+    {
+        using ModrinthCommunityResourceCatalog catalog = new();
+        if (!string.IsNullOrWhiteSpace(server.ContentVersionId))
+        {
+            CommunityResourceVersionLookupResult? exact = await catalog.GetVersionAsync(
+                    CommunityResourceSource.Modrinth,
+                    server.ContentVersionId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (exact is not null)
+                return exact;
+        }
+
+        if (string.IsNullOrWhiteSpace(server.ContentProjectId))
+            return null;
+
+        CommunityResourceEntry? project = await catalog.GetProjectAsync(
+                CommunityResourceSource.Modrinth,
+                server.ContentProjectId,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (project is null)
+            return null;
+
+        IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(
+                project,
+                new CommunitySearchOptions(
+                    GameVersion: server.GameVersions.FirstOrDefault(),
+                    Source: CommunityResourceSource.Modrinth),
+                cancellationToken)
+            .ConfigureAwait(false);
+        CommunityResourceVersion? version = versions
+            .OrderByDescending(static candidate => candidate.PublishedAt ?? DateTimeOffset.MinValue)
+            .FirstOrDefault();
+        return version is null ? null : new CommunityResourceVersionLookupResult(project, version);
+    }
+
+    private static async Task<LaunchInstanceInfo?> FindInstalledServerModpackAsync(
+        IEnumerable<LaunchInstanceInfo> instances,
+        CommunityServerTarget server,
+        CommunityResourceVersionLookupResult modpack,
+        CancellationToken cancellationToken)
+    {
+        string projectId = string.IsNullOrWhiteSpace(server.ContentProjectId)
+            ? modpack.Entry.ProjectId
+            : server.ContentProjectId;
+        foreach (LaunchInstanceInfo candidate in instances)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            InstanceMetadata metadata = await InstanceMetadataStore.LoadAsync(
+                    candidate.InstanceDirectory,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!string.Equals(metadata.ModpackProjectId, projectId, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!string.IsNullOrWhiteSpace(metadata.ModpackVersion) &&
+                !string.Equals(
+                    metadata.ModpackVersion,
+                    modpack.Version.VersionNumber,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return candidate;
+        }
+
+        string? contentName = server.ContentName;
+        if (string.IsNullOrWhiteSpace(contentName))
+            return null;
+        return instances.FirstOrDefault(candidate =>
+            string.Equals(candidate.Name, contentName, StringComparison.OrdinalIgnoreCase) &&
+            ServerSupportsMinecraftVersion(candidate, server.GameVersions));
+    }
+
+    private static LaunchInstanceInfo? FindMinecraftVersionInstance(
+        IEnumerable<LaunchInstanceInfo> instances,
+        IReadOnlyList<string> supportedVersions)
+    {
+        LaunchInstanceInfo[] available = instances.ToArray();
+        if (supportedVersions.Count == 0)
+            return available.FirstOrDefault();
+        return available.FirstOrDefault(candidate =>
+            ServerSupportsMinecraftVersion(candidate, supportedVersions));
+    }
+
+    private static bool ServerSupportsMinecraftVersion(
+        LaunchInstanceInfo instance,
+        IReadOnlyList<string> supportedVersions)
+    {
+        string minecraftVersion = MinecraftVersionJsonInspector.Read(instance).MinecraftVersionId;
+        return supportedVersions.Any(version =>
+            string.Equals(version, minecraftVersion, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task<LaunchInstanceInfo?> InstallServerMinecraftVersionAsync(
+        CommunityServerTarget server,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<MinecraftVersionManifestEntry> manifest = await _minecraftInstallService
+            .GetVersionManifestAsync(DesktopMinecraftInstallCoordinator.ResolvePreferOfficialSource())
+            .ConfigureAwait(true);
+        MinecraftVersionManifestEntry? version = server.GameVersions
+            .Select(id => manifest.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase)))
+            .FirstOrDefault(static candidate => candidate is not null);
+        if (version is null)
+        {
+            string requested = server.GameVersions.Count == 0
+                ? "未知"
+                : string.Join(" / ", server.GameVersions.Take(4));
+            throw new InvalidOperationException("服务器要求的 Minecraft 版本不在官方版本清单中：" + requested);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return await StartInstallAsync(new DownloadInstallRequest(
+                version.Id,
+                version.Id,
+                version.Url,
+                Loader: null,
+                MinecraftRootDirectory: GetDefaultMinecraftRoot()))
+            .ConfigureAwait(true);
+    }
 
     private PageDownloadLeft CreateDownloadLeftPage()
     {
@@ -2833,8 +3121,8 @@ public partial class MainWindow : Window, IDisposable
             ShowSaveDetailsAsync = ShowInstanceSaveDetailsAsync,
             QuickPlayWorld = worldName =>
             {
-                if (_managedInstance is not null && _launchLeft is not null)
-                    _ = StartMinecraftAsync(_launchLeft, _managedInstance, worldName);
+                if (_managedInstance is { } instance)
+                    _ = LaunchManagedInstanceTargetAsync(instance, worldName: worldName);
             },
             NavigateDownload = () => SelectNavRoute(DownloadRoute, animate: true),
             NavigateInstanceSelect = () =>
@@ -2849,8 +3137,8 @@ public partial class MainWindow : Window, IDisposable
             AddServer = PromptAddServer,
             ConnectServer = server =>
             {
-                if (_managedInstance is { } instance && _launchLeft is { } launchPage)
-                    _ = StartMinecraftAsync(launchPage, instance, serverAddress: server.Address);
+                if (_managedInstance is { } instance)
+                    _ = LaunchManagedInstanceTargetAsync(instance, serverAddress: server.Address);
             },
             EditServer = (page, server) =>
             {
@@ -2868,6 +3156,40 @@ public partial class MainWindow : Window, IDisposable
                     PromptRemoveServers(instance, page, servers);
             }
         });
+    }
+
+    private async Task LaunchManagedInstanceTargetAsync(
+        LaunchInstanceInfo managedInstance,
+        string? worldName = null,
+        string? serverAddress = null)
+    {
+        try
+        {
+            ILaunchHomeSurface launchHome = await EnsureLaunchHomeReadyAsync().ConfigureAwait(true);
+            LaunchInstanceInfo? instance = FindInstanceByDirectory(
+                launchHome.Instances,
+                managedInstance.InstanceDirectory);
+            if (instance is null)
+            {
+                await launchHome.RefreshInstancesAsync().ConfigureAwait(true);
+                instance = FindInstanceByDirectory(launchHome.Instances, managedInstance.InstanceDirectory);
+            }
+
+            if (instance is null)
+            {
+                ShowHint("当前实例已不存在或无法读取", critical: true);
+                return;
+            }
+
+            SelectNavRoute(LaunchRoute, animate: true);
+            launchHome.SetInstances(launchHome.Instances, instance);
+            await StartMinecraftAsync(launchHome, instance, worldName, serverAddress).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            DesktopFileLog.Error("QuickLaunch", "快捷启动目标失败。", ex);
+            ShowHint("快捷启动失败：" + TruncateHint(ex.Message), critical: true);
+        }
     }
 
     private async Task OpenDownloadInstallForInstanceAsync(InstanceInstallModifyRequest request)
@@ -3838,7 +4160,7 @@ public partial class MainWindow : Window, IDisposable
     }
 
 
-    private async Task StartInstallAsync(DownloadInstallRequest request)
+    private async Task<LaunchInstanceInfo?> StartInstallAsync(DownloadInstallRequest request)
     {
         string taskId = CreateTaskId("install", request.VersionId);
         using CancellationTokenSource cancellation = RegisterTrackedTask(taskId);
@@ -3873,6 +4195,10 @@ public partial class MainWindow : Window, IDisposable
                     progress,
                     cancellation.Token)
                 .ConfigureAwait(true);
+            LaunchInstanceInfo installedInstance = new(
+                result.VersionId,
+                result.VersionJsonPath,
+                result.InstanceDirectory);
             TrackTaskFinished(taskId, taskTitle, "安装完成");
             _launchRight?.AppendLog($"{request.VersionId} 安装完成。");
 
@@ -3882,17 +4208,24 @@ public partial class MainWindow : Window, IDisposable
                 LaunchInstanceInfo? installed = _launchLeft.Instances.FirstOrDefault(instance =>
                     string.Equals(instance.InstanceDirectory, result.InstanceDirectory, StringComparison.OrdinalIgnoreCase));
                 if (installed is not null)
+                {
                     _launchLeft.SetInstances(_launchLeft.Instances, installed);
+                    installedInstance = installed;
+                }
             }
+
+            return installedInstance;
         }
         catch (OperationCanceledException)
         {
             TrackTaskFailed(taskId, taskTitle, "安装已取消。", canceled: true);
+            return null;
         }
         catch (Exception ex)
         {
             TrackTaskFailed(taskId, taskTitle, ex.Message, canceled: false);
             ShowTextDialog("安装失败", "未能完成 Minecraft 安装。\n\n详细信息：" + ex.Message);
+            return null;
         }
         finally
         {
@@ -4098,7 +4431,8 @@ public partial class MainWindow : Window, IDisposable
                 installed.Name,
                 $"已安装整合包 {installed.Name}（{installed.Version}）\n实例名称：{installed.VersionId}",
                 Installed: true,
-                RefreshInstances: true);
+                RefreshInstances: true,
+                InstalledPath: installed.InstanceDirectory);
         }
         catch (OperationCanceledException)
         {
@@ -5910,6 +6244,11 @@ public partial class MainWindow : Window, IDisposable
         _launchCancellation?.Dispose();
         _microsoftLoginCancellation?.Cancel();
         _microsoftLoginCancellation?.Dispose();
+        _littleSkinLoginCancellation?.Cancel();
+        _littleSkinLoginCancellation?.Dispose();
+        _communityServerJoinCancellation?.Cancel();
+        _communityServerJoinCancellation?.Dispose();
+        WeakReferenceMessenger.Default.Unregister<CommunityServerJoinRequestedMessage>(this);
         _appearanceLoadCancellation?.Cancel();
         _appearanceLoadCancellation?.Dispose();
         (_launchLeft as IDisposable)?.Dispose();

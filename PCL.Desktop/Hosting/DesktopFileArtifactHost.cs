@@ -223,7 +223,8 @@ internal sealed class DesktopModpackFileArtifactHandler : IHostFileArtifactHandl
                 installed.Name,
                 $"已安装整合包 {installed.Name}（{installed.Version}）\n实例名称：{installed.VersionId}",
                 Installed: true,
-                RefreshInstances: true);
+                RefreshInstances: true,
+                InstalledPath: installed.InstanceDirectory);
         }
         catch (OperationCanceledException)
         {

@@ -92,7 +92,8 @@ internal sealed record HostFileArtifactResult(
     string DisplayName,
     string Message,
     bool Installed,
-    bool RefreshInstances = false);
+    bool RefreshInstances = false,
+    string? InstalledPath = null);
 
 internal interface IHostFileArtifactHandler
 {

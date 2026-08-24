@@ -5,6 +5,7 @@
 using System.Globalization;
 using PCL.Application.Downloads;
 using PCL.Application.Hosting.RuntimeExtensions;
+using PCL.Application.Instances;
 using PCL.Application.Settings;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Instances.Views;
@@ -22,7 +23,7 @@ namespace PCL.Desktop.Features.Community;
 /// </summary>
 internal static class CommunityDownloadOrchestrator
 {
-    public static async Task RunAsync(
+    public static async Task<CommunityDownloadResult> RunAsync(
         CommunityResourceDownloadRequest request,
         CommunityDownloadHost host,
         CancellationToken cancellationToken = default)
@@ -93,7 +94,7 @@ internal static class CommunityDownloadOrchestrator
                 DesktopFileLog.Warn("CommunityDownload", $"未找到符合筛选条件的文件：{request.Entry.Title}");
                 host.TrackTaskFailed(taskId, taskTitle, "未找到匹配当前筛选条件的版本文件。", false);
                 host.ShowHint("下载失败：未找到可下载的文件", true);
-                return;
+                return CommunityDownloadResult.Failed;
             }
 
             selectedVersion ??= new CommunityResourceVersion(
@@ -122,7 +123,7 @@ internal static class CommunityDownloadOrchestrator
                     LauncherTelemetry.CaptureEvent("download_cancelled");
                     host.TrackTaskFailed(taskId, taskTitle, "已取消另存为。", true);
                     host.ShowHint("已取消另存为", false);
-                    return;
+                    return CommunityDownloadResult.Cancelled;
                 }
 
                 saveAsPath = picked;
@@ -224,6 +225,22 @@ internal static class CommunityDownloadOrchestrator
                 if (installed.RefreshInstances && installed.Installed)
                     await host.RefreshInstancesAsync().ConfigureAwait(true);
 
+                if (installed.Installed && !string.IsNullOrWhiteSpace(installed.InstalledPath))
+                {
+                    string installedPath = installed.InstalledPath;
+                    await InstanceMetadataStore.UpdateAsync(
+                            installedPath,
+                            metadata => metadata with
+                            {
+                                ModpackProjectId = request.Entry.ProjectId,
+                                ModpackVersion = string.IsNullOrWhiteSpace(selectedVersion.VersionNumber)
+                                    ? metadata.ModpackVersion
+                                    : selectedVersion.VersionNumber
+                            },
+                            token)
+                        .ConfigureAwait(true);
+                }
+
                 host.TrackTaskFinished(
                     taskId,
                     taskTitle,
@@ -233,6 +250,20 @@ internal static class CommunityDownloadOrchestrator
                         ? "整合包安装完成：" + request.Entry.Title
                         : "整合包未安装：" + host.TruncateHint(installed.Message),
                     !installed.Installed);
+
+                if (!installed.Installed)
+                    return CommunityDownloadResult.Failed;
+
+                DesktopFileLog.Info("CommunityDownload", $"社区整合包安装完成：{request.Entry.Title} -> {installed.InstalledPath}");
+                downloadOperation.Complete();
+                LauncherTelemetry.CaptureEvent(
+                    "download_completed",
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["category"] = request.Category.ToString(),
+                        ["dependency_count"] = dependencyCount.ToString(CultureInfo.InvariantCulture)
+                    });
+                return new CommunityDownloadResult(true, completedPath, installed.InstalledPath);
             }
             else
             {
@@ -254,6 +285,7 @@ internal static class CommunityDownloadOrchestrator
                     ["category"] = request.Category.ToString(),
                     ["dependency_count"] = dependencyCount.ToString(CultureInfo.InvariantCulture)
                 });
+            return new CommunityDownloadResult(true, completedPath);
         }
         catch (OperationCanceledException)
         {
@@ -262,6 +294,7 @@ internal static class CommunityDownloadOrchestrator
             DesktopFileLog.Warn("CommunityDownload", $"社区资源下载已取消：{request.Entry.Title}");
             host.TrackTaskFailed(taskId, taskTitle, "下载已取消。", true);
             host.ShowHint("下载已取消", false);
+            return CommunityDownloadResult.Cancelled;
         }
         catch (Exception ex)
         {
@@ -277,6 +310,7 @@ internal static class CommunityDownloadOrchestrator
             DesktopFileLog.Error("CommunityDownload", $"社区资源下载失败：{request.Entry.Title}", ex);
             host.TrackTaskFailed(taskId, taskTitle, ex.Message, false);
             host.ShowHint("下载失败：" + host.TruncateHint(ex.Message), true);
+            return CommunityDownloadResult.Failed;
         }
         finally
         {
@@ -377,6 +411,16 @@ internal static class CommunityDownloadOrchestrator
             }
         }
     }
+}
+
+internal sealed record CommunityDownloadResult(
+    bool Success,
+    string? CompletedPath = null,
+    string? InstalledInstanceDirectory = null)
+{
+    public static CommunityDownloadResult Failed { get; } = new(false);
+
+    public static CommunityDownloadResult Cancelled { get; } = new(false);
 }
 
 /// <summary>Host UI / task-manager hooks for community downloads.</summary>
