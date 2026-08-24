@@ -10,6 +10,7 @@ internal static class PluginSidecarMethods
 {
     public const string SystemHello = "system.hello";
     public const string SystemShutdown = "system.shutdown";
+    public const string SystemTrimMemory = "system.trimMemory";
     public const string HealthPing = "health.ping";
     public const string RuntimeInit = "runtime.init";
     public const string RuntimeStatus = "runtime.status";
@@ -230,6 +231,27 @@ internal sealed class PluginSidecarResult
 
     [JsonPropertyName("message")]
     public string? Message { get; set; }
+
+    [JsonPropertyName("capabilities")]
+    public string[]? Capabilities { get; set; }
+
+    [JsonPropertyName("workingSetBeforeBytes")]
+    public long WorkingSetBeforeBytes { get; set; }
+
+    [JsonPropertyName("workingSetAfterBytes")]
+    public long WorkingSetAfterBytes { get; set; }
+
+    [JsonPropertyName("managedHeapBeforeBytes")]
+    public long ManagedHeapBeforeBytes { get; set; }
+
+    [JsonPropertyName("managedHeapAfterBytes")]
+    public long ManagedHeapAfterBytes { get; set; }
+
+    [JsonPropertyName("nativePressureRelieved")]
+    public bool NativePressureRelieved { get; set; }
+
+    [JsonPropertyName("elapsedMilliseconds")]
+    public double ElapsedMilliseconds { get; set; }
 
     [JsonPropertyName("protocolVersion")]
     public int ProtocolVersion { get; set; }

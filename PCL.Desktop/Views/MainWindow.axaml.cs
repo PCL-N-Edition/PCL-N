@@ -47,6 +47,7 @@ using PCL.Desktop.Telemetry;
 using PCL.Desktop.Features.Community;
 using PCL.Desktop.Features.Launching.Appearance;
 using PCL.Desktop.Hosting;
+using PCL.Desktop.Hosting.PluginSidecar;
 using PCL.Desktop.Legal;
 using PCL.Desktop.Localization;
 using PCL.Desktop.Messaging;
@@ -6278,6 +6279,33 @@ public partial class MainWindow : Window, IDisposable
                 owner.Token);
             if (!shouldTrim)
                 return;
+
+            PluginSidecarClient? sidecar = PluginSidecarSupervisor.Instance.Client;
+            if (sidecar is { IsConnected: true, SupportsMemoryTrim: true })
+            {
+                try
+                {
+                    PluginSidecarResult sidecarResult = await sidecar.TrimMemoryAsync(owner.Token)
+                        .ConfigureAwait(false);
+                    DesktopFileLog.Info(
+                        "Power",
+                        $"Sidecar 内存整理完成：工作集 {ToMebibytes(sidecarResult.WorkingSetBeforeBytes):0.0} → " +
+                        $"{ToMebibytes(sidecarResult.WorkingSetAfterBytes):0.0} MiB；托管堆 " +
+                        $"{ToMebibytes(sidecarResult.ManagedHeapBeforeBytes):0.0} → " +
+                        $"{ToMebibytes(sidecarResult.ManagedHeapAfterBytes):0.0} MiB；" +
+                        $"原生回收={sidecarResult.NativePressureRelieved}；" +
+                        $"耗时={sidecarResult.ElapsedMilliseconds:0} ms。");
+                }
+                catch (OperationCanceledException) when (owner.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // Sidecar memory relief is optional and must never prevent the host trim.
+                    DesktopFileLog.Debug("Power", "Sidecar 内存整理失败；继续整理主程序内存。", ex);
+                }
+            }
 
             LowPowerMemoryTrimResult result = await Task.Run(
                     LowPowerMemoryTrimmer.Trim,

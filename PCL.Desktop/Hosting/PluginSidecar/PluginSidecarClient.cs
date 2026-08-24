@@ -41,6 +41,8 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
 
     internal int ProtocolVersion => Volatile.Read(ref _protocolVersion);
 
+    public bool SupportsMemoryTrim { get; private set; }
+
     public async Task ConnectAsync(Stream stream, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -51,6 +53,7 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
             _stream = stream;
             Volatile.Write(ref _broken, 0);
             Volatile.Write(ref _protocolVersion, PluginSidecarProtocolVersions.Legacy);
+            SupportsMemoryTrim = false;
         }
         finally
         {
@@ -74,6 +77,9 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
                 cancellationToken)
             .ConfigureAwait(false);
 
+        SupportsMemoryTrim = result.Capabilities?.Contains(
+            PluginSidecarMethods.SystemTrimMemory,
+            StringComparer.Ordinal) == true;
         if (result.ProtocolVersion >= PluginSidecarProtocolVersions.Current)
             StartV4Transport();
         return result;
@@ -81,6 +87,9 @@ internal sealed class PluginSidecarClient : IAsyncDisposable
 
     public Task<PluginSidecarResult> PingAsync(CancellationToken cancellationToken = default) =>
         CallAsync(PluginSidecarMethods.HealthPing, null, cancellationToken);
+
+    public Task<PluginSidecarResult> TrimMemoryAsync(CancellationToken cancellationToken = default) =>
+        CallAsync(PluginSidecarMethods.SystemTrimMemory, null, cancellationToken);
 
     public Task<PluginSidecarResult> InitRuntimeAsync(
         string applicationDataDirectory,

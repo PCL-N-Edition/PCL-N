@@ -168,6 +168,7 @@ public sealed class PluginSidecarProtocolTests
         PluginSidecarResult hello = await client.HelloAsync("test-token");
         Assert.AreEqual(PluginSidecarProtocolVersions.Current, hello.ProtocolVersion);
         Assert.AreEqual(PluginSidecarProtocolVersions.Current, client.ProtocolVersion);
+        Assert.IsTrue(client.SupportsMemoryTrim);
 
         Task<PluginSidecarResult> slow = client.CallAsync("test.slow", null);
         Task<PluginSidecarResult> fast = client.CallAsync("test.fast", null);
@@ -209,7 +210,8 @@ public sealed class PluginSidecarProtocolTests
                 {
                     Ok = true,
                     ProtocolVersion = PluginSidecarProtocolVersions.Current,
-                    SidecarVersion = "test"
+                    SidecarVersion = "test",
+                    Capabilities = [PluginSidecarMethods.SystemTrimMemory]
                 }
             },
             PluginSidecarJsonContext.Default.PluginSidecarResponse,
