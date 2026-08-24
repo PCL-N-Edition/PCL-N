@@ -54,6 +54,21 @@ internal static class MotionTokens
     /// <summary>Horizontal distance used to preserve forward/backward direction in OOBE.</summary>
     public const double OobeStepOffsetX = 24d;
 
+    /// <summary>OOBE/power transition icon fade.</summary>
+    public const int TransitionIconFadeMs = 140;
+
+    /// <summary>Circular white mask closing duration.</summary>
+    public const int CircularCoverMs = 280;
+
+    /// <summary>Circular transparent aperture expansion duration.</summary>
+    public const int CircularRevealMs = 340;
+
+    /// <summary>OOBE completion button/title exit before icon handoff.</summary>
+    public const int OobeCompletionContentFadeMs = 140;
+
+    /// <summary>OOBE icon recenter duration.</summary>
+    public const int OobeCompletionIconCenterMs = 260;
+
     /// <summary>Maximum number of children that receive staggered page enter.</summary>
     public const int PageEnterMaxChildren = 36;
 

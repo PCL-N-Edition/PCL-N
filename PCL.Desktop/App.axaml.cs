@@ -253,34 +253,9 @@ public sealed partial class App : Avalonia.Application
                 }
             };
 
-            wizard.Completed += (_, _) =>
-            {
-                // Safety: never leave splash orphaned after OOBE.
-                DismissSplash(fade: false);
-
-                bool restart = wizard.ShouldRestartAfterComplete;
-                try
-                {
-                    LauncherTelemetry.Initialize(LauncherSettingsPageBinder.LoadSettings());
-                    if (restart)
-                    {
-                        ReleaseSingleInstanceLock();
-                        RestartLauncherProcess();
-                    }
-                }
-                finally
-                {
-                    try { wizard.Close(); } catch { /* ignore */ }
-                    if (restart)
-                    {
-                        desktop.Shutdown(0);
-                    }
-                    else
-                    {
-                        ShowMainWindow(desktop, fadeSplash: false);
-                    }
-                }
-            };
+            wizard.Completed += (_, _) => UnhandledExceptionGuard.Observe(
+                CompleteOobeIntoMainShellAsync(desktop, wizard),
+                "App.CompleteOobeIntoMainShellAsync");
 
             // Show OOBE first (still under splash if Topmost), then start intro, then dismiss splash.
             desktop.MainWindow = wizard;
@@ -320,6 +295,52 @@ public sealed partial class App : Avalonia.Application
         UnhandledExceptionGuard.Observe(
             ObservePluginOptionalRuntimeAsync("oobe"),
             "App.ObservePluginOptionalRuntimeAsync(oobe)");
+    }
+
+    private async Task CompleteOobeIntoMainShellAsync(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        FirstRunWizardWindow wizard)
+    {
+        DismissSplash(fade: false);
+        LauncherTelemetry.Initialize(LauncherSettingsPageBinder.LoadSettings());
+
+        MainWindow mainWindow = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            MainWindow window = new();
+            window.PrepareForOobeHandoff();
+            window.Width = Math.Max(window.MinWidth, wizard.Bounds.Width);
+            window.Height = Math.Max(window.MinHeight, wizard.Bounds.Height);
+            window.Position = wizard.Position;
+            window.WindowStartupLocation = WindowStartupLocation.Manual;
+            window.ShowActivated = false;
+            WireMainWindowActivation(window);
+            desktop.MainWindow = window;
+            desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
+            window.Show();
+            wizard.Activate();
+            return window;
+        });
+
+        // Let layout, the first navigation page, and background resources paint behind
+        // the opaque handoff surface before the OOBE icon starts moving.
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+        await Task.Delay(32).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+        await Dispatcher.UIThread.InvokeAsync(
+            () => wizard.PlayCompletionHandoffAsync(),
+            DispatcherPriority.Normal);
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            try { wizard.Close(); } catch { /* ignore */ }
+            mainWindow.ShowActivated = true;
+            mainWindow.Activate();
+        });
+        await Dispatcher.UIThread.InvokeAsync(
+            () => mainWindow.PlayOobeHandoffRevealAsync(),
+            DispatcherPriority.Render);
+        LauncherTelemetry.MarkStartupReady();
     }
 
     private static async Task ObservePluginOptionalRuntimeAsync(string phase)
@@ -372,10 +393,7 @@ public sealed partial class App : Avalonia.Application
         };
         mainWindow.Opened += opened;
 
-        SingleInstanceCoordinator?.ActivationRequested += (_, _) =>
-            Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
-        if (SingleInstanceCoordinator?.ConsumePendingActivation() == true)
-            Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
+        WireMainWindowActivation(mainWindow);
 
         // Show main first so lifetime always has a real shell window.
         desktop.MainWindow = mainWindow;
@@ -391,6 +409,14 @@ public sealed partial class App : Avalonia.Application
         Dispatcher.UIThread.Post(
             () => DismissSplash(fade: false),
             DispatcherPriority.Background);
+    }
+
+    private static void WireMainWindowActivation(MainWindow mainWindow)
+    {
+        SingleInstanceCoordinator?.ActivationRequested += (_, _) =>
+            Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
+        if (SingleInstanceCoordinator?.ConsumePendingActivation() == true)
+            Dispatcher.UIThread.Post(mainWindow.ActivateExistingInstance);
     }
 
     private void HandleSplashClosing(IClassicDesktopStyleApplicationLifetime desktop)

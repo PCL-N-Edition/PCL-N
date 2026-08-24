@@ -160,6 +160,7 @@ public partial class MainWindow : Window, IDisposable
     private string? _homepageSignature;
     private readonly IDisposable _windowStateSubscription;
     private string? _registeredPageSurfaceId;
+    private bool _isOobeHandoff;
 
     private const double NavCollapsedWidth = 50d;
     private const int NavAnimDuration = 200;
@@ -1581,16 +1582,48 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
+        if (_isOobeHandoff)
+        {
+            Opacity = _targetWindowOpacity;
+            if (_showAnimationRoot is not null)
+                _showAnimationRoot.RenderTransform = null;
+            QueueAutomaticUpdateCheck();
+            DesktopFileLog.Info("Window", "主窗口已在 OOBE 遮罩后完成首帧；等待圆形揭示。");
+            return;
+        }
+
         StartShowAnimation();
         // The coordinator performs synchronous settings/lock work before its
         // first incomplete await. Keep that work off the UI thread so the
         // initial opacity animation and Window.Show() cannot be starved.
-        UnhandledExceptionGuard.Observe(
-            Task.Run(() => LauncherUpdateCoordinator.Current.StartAutomaticUpdateOnceAsync()),
-            "LauncherUpdateCoordinator.AutomaticStartup");
+        QueueAutomaticUpdateCheck();
         // First-run chain: community welcome → special build notice (no EULA gate).
         Dispatcher.UIThread.Post(MaybeShowFirstRunDialogs, DispatcherPriority.Background);
         DesktopFileLog.Info("Window", "主窗口首帧任务已排队；显现动画与后台更新检查均已启动。");
+    }
+
+    private static void QueueAutomaticUpdateCheck() =>
+        UnhandledExceptionGuard.Observe(
+            Task.Run(() => LauncherUpdateCoordinator.Current.StartAutomaticUpdateOnceAsync()),
+            "LauncherUpdateCoordinator.AutomaticStartup");
+
+    internal void PrepareForOobeHandoff()
+    {
+        _isOobeHandoff = true;
+        Opacity = _targetWindowOpacity;
+        if (_showAnimationRoot is not null)
+            _showAnimationRoot.RenderTransform = null;
+        this.FindControl<CircularRevealOverlay>("PowerTransitionOverlay")?.PrepareCovered(showIcon: true);
+    }
+
+    internal async Task PlayOobeHandoffRevealAsync(CancellationToken cancellationToken = default)
+    {
+        if (this.FindControl<CircularRevealOverlay>("PowerTransitionOverlay") is { } overlay)
+            await overlay.RevealAsync(cancellationToken).ConfigureAwait(true);
+        _isOobeHandoff = false;
+        HostShellLifecycleEvents.PublishReady();
+        Dispatcher.UIThread.Post(MaybeShowFirstRunDialogs, DispatcherPriority.Background);
+        DesktopFileLog.Info("OOBE", "主窗口圆形揭示完成；OOBE 已在当前进程内交接。");
     }
 
     private void MaybeShowFirstRunDialogs()

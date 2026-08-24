@@ -62,6 +62,7 @@ public sealed partial class FirstRunWizardWindow : Window
     private bool _finishLayoutApplied;
     private bool _completing;
     private bool _visitedDataPaths;
+    private int _completionAnimationGeneration;
 
     /// <summary>
     /// Bumped at the start of every step navigation. All completion/safety/exception
@@ -1461,6 +1462,114 @@ public sealed partial class FirstRunWizardWindow : Window
                 // ignore
             }
         }
+    }
+
+    /// <summary>
+    /// Fades the action first, then recenters the launcher icon while the host prepares
+    /// the real shell behind this window. The host closes the wizard only after this
+    /// task completes so the icon handoff has no blank frame.
+    /// </summary>
+    public async Task PlayCompletionHandoffAsync(CancellationToken cancellationToken = default)
+    {
+        int generation = ++_completionAnimationGeneration;
+        if (_btnFinish is not null)
+            _btnFinish.IsHitTestVisible = false;
+
+        bool reducedMotion = ControlVisualHelpers.ReduceMotionPreferred();
+        if (reducedMotion)
+        {
+            if (_btnFinish is not null)
+                _btnFinish.Opacity = 0d;
+            if (_finishPanel is not null)
+                _finishPanel.Opacity = 0d;
+            if (_finishIconTranslate is not null)
+                _finishIconTranslate.X = 0d;
+            await Task.Delay(MotionTokens.ReducedMotionFadeMs, cancellationToken).ConfigureAwait(true);
+            return;
+        }
+
+        if (_btnFinish is not null)
+        {
+            await AnimateCompletionValueAsync(
+                    _btnFinish.Opacity,
+                    0d,
+                    MotionTokens.OobeCompletionContentFadeMs,
+                    value => _btnFinish.Opacity = value,
+                    generation,
+                    cancellationToken)
+                .ConfigureAwait(true);
+        }
+
+        List<Task> settle = [];
+        if (_finishPanel is not null)
+        {
+            settle.Add(AnimateCompletionValueAsync(
+                _finishPanel.Opacity,
+                0d,
+                MotionTokens.OobeCompletionContentFadeMs,
+                value => _finishPanel.Opacity = value,
+                generation,
+                cancellationToken));
+        }
+        if (_finishIconTranslate is not null)
+        {
+            settle.Add(AnimateCompletionValueAsync(
+                _finishIconTranslate.X,
+                0d,
+                MotionTokens.OobeCompletionIconCenterMs,
+                value => _finishIconTranslate.X = value,
+                generation,
+                cancellationToken));
+        }
+
+        await Task.WhenAll(settle).ConfigureAwait(true);
+    }
+
+    private Task AnimateCompletionValueAsync(
+        double from,
+        double to,
+        int durationMs,
+        Action<double> apply,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        if (Math.Abs(to - from) < 0.001d)
+        {
+            apply(to);
+            return Task.CompletedTask;
+        }
+
+        TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(16d) };
+        CancellationTokenRegistration registration = cancellationToken.Register(() =>
+            Dispatcher.UIThread.Post(() =>
+            {
+                timer.Stop();
+                completion.TrySetCanceled(cancellationToken);
+            }));
+        timer.Tick += (_, _) =>
+        {
+            if (generation != _completionAnimationGeneration || cancellationToken.IsCancellationRequested)
+            {
+                timer.Stop();
+                registration.Dispose();
+                completion.TrySetCanceled(cancellationToken);
+                return;
+            }
+
+            double progress = Math.Clamp(stopwatch.Elapsed.TotalMilliseconds / durationMs, 0d, 1d);
+            double eased = 1d - Math.Pow(1d - progress, 3d);
+            apply(from + (to - from) * eased);
+            if (progress < 1d)
+                return;
+            timer.Stop();
+            apply(to);
+            registration.Dispose();
+            completion.TrySetResult();
+        };
+        timer.Start();
+        return completion.Task;
     }
 
     private void ShutdownHost()
