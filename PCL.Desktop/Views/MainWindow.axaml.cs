@@ -653,7 +653,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void FormMain_Deactivated(object? sender, EventArgs e)
     {
-        if (!_ultraLowPowerEnabled || _isOobeHandoff || _isClosing)
+        if (!CanEnterUltraLowPower())
             return;
 
         BeginUltraLowPowerTransition(enterLowPower: true);
@@ -3059,9 +3059,18 @@ public partial class MainWindow : Window, IDisposable
         if (_isDisposed)
             return;
         if (Dispatcher.UIThread.CheckAccess())
+        {
             _taskUiCoalescer.Request();
+            ReevaluateUltraLowPowerState();
+        }
         else
-            Dispatcher.UIThread.Post(_taskUiCoalescer.Request);
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                _taskUiCoalescer.Request();
+                ReevaluateUltraLowPowerState();
+            });
+        }
     }
 
     private void TrackTaskBegin(
@@ -6085,6 +6094,43 @@ public partial class MainWindow : Window, IDisposable
         RefreshNavigationText();
     }
 
+    private UltraLowPowerActivity CaptureUltraLowPowerActivity() => new(
+        _taskSessionStore.HasActiveTask,
+        (_launchLeft?.IsLaunchInProgress ?? false) ||
+        (_launchHomeExperimental?.IsLaunchInProgress ?? false),
+        (_launchLoginSurface.MsPage?.IsLoggingIn ?? false) ||
+        (_launchLoginSurface.LittleSkinPage?.IsLoggingIn ?? false) ||
+        (_launchLoginSurface.NCloudPage?.IsLoggingIn ?? false) ||
+        (_launchLoginSurface.AuthPage?.IsLoggingIn ?? false));
+
+    private bool CanEnterUltraLowPower() =>
+        !_isDisposed &&
+        !_isClosing &&
+        !_isOobeHandoff &&
+        UltraLowPowerPolicy.CanEnter(
+            _ultraLowPowerEnabled,
+            IsActive,
+            CaptureUltraLowPowerActivity());
+
+    private void ReevaluateUltraLowPowerState()
+    {
+        if (!_ultraLowPowerEnabled || _isDisposed || _isClosing || _isOobeHandoff)
+            return;
+
+        if (CanEnterUltraLowPower())
+        {
+            BeginUltraLowPowerTransition(enterLowPower: true);
+            return;
+        }
+
+        if (_isUltraLowPowerSuspended ||
+            _ultraLowPowerTransitionCancellation is not null ||
+            this.FindControl<CircularRevealOverlay>("PowerTransitionOverlay")?.IsVisible == true)
+        {
+            BeginUltraLowPowerTransition(enterLowPower: false);
+        }
+    }
+
     private void ApplyRuntimeSettings(LauncherSettings settings)
     {
         bool wasUltraLowPowerEnabled = _ultraLowPowerEnabled;
@@ -6131,7 +6177,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (_isMainWindowOpened && wasUltraLowPowerEnabled != _ultraLowPowerEnabled)
         {
-            if (_ultraLowPowerEnabled && !IsActive)
+            if (CanEnterUltraLowPower())
                 BeginUltraLowPowerTransition(enterLowPower: true);
             else if (!_ultraLowPowerEnabled &&
                      (_isUltraLowPowerSuspended ||
@@ -6144,11 +6190,16 @@ public partial class MainWindow : Window, IDisposable
     {
         if (_isDisposed || _isClosing || _isOobeHandoff)
             return;
+        if (enterLowPower && !CanEnterUltraLowPower())
+            return;
         if (enterLowPower && _isUltraLowPowerSuspended)
             return;
 
         CircularRevealOverlay? overlay = this.FindControl<CircularRevealOverlay>("PowerTransitionOverlay");
-        if (!enterLowPower && !_isUltraLowPowerSuspended && overlay?.IsVisible != true)
+        if (!enterLowPower &&
+            !_isUltraLowPowerSuspended &&
+            _ultraLowPowerTransitionCancellation is null &&
+            overlay?.IsVisible != true)
         {
             UpdateBackgroundVideoPlayback();
             return;
@@ -6174,11 +6225,11 @@ public partial class MainWindow : Window, IDisposable
             if (enterLowPower)
             {
                 await overlay.CoverAsync(showIcon: true, owner.Token).ConfigureAwait(true);
-                if (owner.IsCancellationRequested || IsActive || !_ultraLowPowerEnabled)
+                if (owner.IsCancellationRequested || !CanEnterUltraLowPower())
                     return;
 
                 SuspendUltraLowPowerResources();
-                DesktopFileLog.Debug("Power", "主窗口已进入超低功耗状态；保留下载、启动与后台任务。");
+                DesktopFileLog.Debug("Power", "主窗口已进入超低功耗状态；当前没有登录、启动、下载或安装任务。");
                 return;
             }
 
@@ -6279,7 +6330,7 @@ public partial class MainWindow : Window, IDisposable
             // compaction is reserved for a window that is genuinely staying in low-power mode.
             await Task.Delay(TimeSpan.FromSeconds(3), owner.Token).ConfigureAwait(false);
             bool shouldTrim = await Dispatcher.UIThread.InvokeAsync(
-                () => !_isDisposed && !_isClosing && _isUltraLowPowerSuspended && !IsActive,
+                () => !_isDisposed && !_isClosing && _isUltraLowPowerSuspended && CanEnterUltraLowPower(),
                 DispatcherPriority.Background,
                 owner.Token);
             if (!shouldTrim)

@@ -43,6 +43,8 @@ public partial class PageLoginAuth : Grid, PageLaunchLeft.ILoginPage
 
     public string CurrentServer => this.FindControl<MyComboBox>("TextServer")?.Text?.Trim() ?? string.Empty;
 
+    public bool IsLoggingIn => _isLoginRunning;
+
     public void SetServer(string serverAddress)
     {
         if (this.FindControl<MyComboBox>("TextServer") is { } server)
