@@ -612,6 +612,24 @@ internal sealed class PluginUiNodeDto
     /// <summary>Options for select nodes.</summary>
     [JsonPropertyName("options")]
     public PluginUiOptionDto[]? Options { get; set; }
+
+    [JsonPropertyName("segments")]
+    public PluginUiStorageSegmentDto[]? Segments { get; set; }
+}
+
+internal sealed class PluginUiStorageSegmentDto
+{
+    [JsonPropertyName("key")]
+    public string Key { get; set; } = "other";
+
+    [JsonPropertyName("label")]
+    public string Label { get; set; } = "其他";
+
+    [JsonPropertyName("value")]
+    public double Value { get; set; }
+
+    [JsonPropertyName("color")]
+    public string Color { get; set; } = "#FF9F0A";
 }
 
 internal sealed class PluginUiOptionDto

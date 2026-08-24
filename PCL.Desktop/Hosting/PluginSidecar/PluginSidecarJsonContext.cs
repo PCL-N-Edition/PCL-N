@@ -35,6 +35,8 @@ namespace PCL.Desktop.Hosting.PluginSidecar;
 [JsonSerializable(typeof(PluginUiNodeDto[]))]
 [JsonSerializable(typeof(PluginUiOptionDto))]
 [JsonSerializable(typeof(PluginUiOptionDto[]))]
+[JsonSerializable(typeof(PluginUiStorageSegmentDto))]
+[JsonSerializable(typeof(PluginUiStorageSegmentDto[]))]
 [JsonSerializable(typeof(PluginSidecarIssueCategoryDto))]
 [JsonSerializable(typeof(PluginSidecarIssueCategoryDto[]))]
 [JsonSerializable(typeof(string[]))]

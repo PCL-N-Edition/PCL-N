@@ -263,6 +263,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             "settingscell" => RenderSettingsCell(node),
             "markdown" => new MyMarkdownViewer { Markdown = node.Text ?? "" },
             "progress" => RenderProgress(node),
+            "storagesummary" => RenderStorageSummary(node),
             "slider" => RenderSlider(node),
             "spacer" => new Border { MinHeight = Math.Max(0, node.Number ?? 8) },
             _ => CreateMuted($"未知节点: {kind}")
@@ -789,6 +790,143 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             Height = 5
         });
         return panel;
+    }
+
+    private StackPanel RenderStorageSummary(PluginUiNodeDto node)
+    {
+        double quota = Math.Max(1, node.Maximum ?? 1);
+        double used = Math.Max(0, node.Number ?? 0);
+        PluginUiStorageSegmentDto[] segments = (node.Segments ?? [])
+            .Where(segment => segment.Value > 0)
+            .ToArray();
+
+        Grid header = new();
+        header.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        header.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+        StackPanel heading = new() { Spacing = 3 };
+        heading.Children.Add(new TextBlock
+        {
+            Text = node.Title ?? "N Cloud",
+            FontSize = 20,
+            FontWeight = FontWeight.SemiBold
+        });
+        if (!string.IsNullOrWhiteSpace(node.Text))
+            heading.Children.Add(CreateMuted(node.Text!));
+        TextBlock usage = new()
+        {
+            Text = $"{FormatStorageBytes(used)} / {FormatStorageBytes(quota)}",
+            FontSize = 12,
+            Opacity = 0.68,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(16, 0, 0, 1)
+        };
+        Grid.SetColumn(usage, 1);
+        header.Children.Add(heading);
+        header.Children.Add(usage);
+
+        Grid bar = new() { Height = 12 };
+        double categoryTotal = 0;
+        foreach (PluginUiStorageSegmentDto segment in segments)
+        {
+            double weight = Math.Max(segment.Value / quota, 0.000001);
+            bar.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(weight, GridUnitType.Star))
+            {
+                MinWidth = 2
+            });
+            Border fill = new() { Background = StorageBrush(segment.Color) };
+            Grid.SetColumn(fill, bar.ColumnDefinitions.Count - 1);
+            bar.Children.Add(fill);
+            categoryTotal += segment.Value;
+        }
+        double freeWeight = Math.Max((quota - categoryTotal) / quota, 0.000001);
+        bar.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(freeWeight, GridUnitType.Star)));
+        Border free = new() { Background = new SolidColorBrush(Color.FromArgb(42, 128, 128, 128)) };
+        Grid.SetColumn(free, bar.ColumnDefinitions.Count - 1);
+        bar.Children.Add(free);
+
+        WrapPanel legend = new() { Orientation = Orientation.Horizontal, ItemHeight = 28 };
+        foreach (PluginUiStorageSegmentDto segment in segments)
+        {
+            StackPanel item = new()
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 7,
+                Margin = new Thickness(0, 0, 18, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            item.Children.Add(new Border
+            {
+                Width = 8,
+                Height = 8,
+                CornerRadius = new CornerRadius(4),
+                Background = StorageBrush(segment.Color),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            item.Children.Add(new TextBlock
+            {
+                Text = $"{segment.Label}  {FormatStorageBytes(segment.Value)}",
+                FontSize = 12,
+                Opacity = 0.72,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            legend.Children.Add(item);
+        }
+        if (legend.Children.Count == 0)
+            legend.Children.Add(CreateMuted("尚未使用 N Cloud 文件空间"));
+
+        StackPanel content = new()
+        {
+            Spacing = 12,
+            Margin = new Thickness(22)
+        };
+        content.Children.Add(header);
+        content.Children.Add(new Border
+        {
+            Height = 12,
+            CornerRadius = new CornerRadius(6),
+            ClipToBounds = true,
+            Child = bar
+        });
+        content.Children.Add(legend);
+        foreach (PluginUiNodeDto child in node.Children ?? [])
+            content.Children.Add(RenderNode(child));
+
+        return new StackPanel
+        {
+            Children =
+            {
+                new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(18, 128, 128, 128)),
+                    BorderBrush = new SolidColorBrush(Color.FromArgb(28, 128, 128, 128)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(16),
+                    Child = content,
+                    Margin = new Thickness(0, 0, 0, 15)
+                }
+            }
+        };
+    }
+
+    private static SolidColorBrush StorageBrush(string? value)
+    {
+        return Color.TryParse(value, out Color color)
+            ? new SolidColorBrush(color)
+            : new SolidColorBrush(Color.Parse("#FF9F0A"));
+    }
+
+    private static string FormatStorageBytes(double bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        double value = Math.Max(0, bytes);
+        int unit = 0;
+        while (value >= 1000 && unit < units.Length - 1)
+        {
+            value /= 1000;
+            unit++;
+        }
+        return unit == 0 ? $"{value:0} {units[unit]}" : $"{value:0.##} {units[unit]}";
     }
 
     private StackPanel RenderSlider(PluginUiNodeDto node)
