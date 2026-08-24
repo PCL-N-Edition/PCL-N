@@ -26,6 +26,8 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         new SolidColorBrush(Color.FromArgb(40, 128, 128, 128));
 
     private readonly string _pageId;
+    private readonly Grid _rootLayout;
+    private readonly Grid _floatingLayer;
     private readonly StackPanel _panMain;
     private readonly MyLoading _loading;
     private readonly Dictionary<string, Func<string?>> _fields = new(StringComparer.OrdinalIgnoreCase);
@@ -54,8 +56,16 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
             Content = _panMain
         };
+        _floatingLayer = new Grid
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        _rootLayout = new Grid();
+        _rootLayout.Children.Add(scroll);
+        _rootLayout.Children.Add(_floatingLayer);
         PanScroll = scroll;
-        Content = scroll;
+        Content = _rootLayout;
         AttachedToVisualTree += (_, _) => StartLiveRefresh();
         DetachedFromVisualTree += (_, _) => StopLiveRefresh();
 
@@ -159,6 +169,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
     {
         _fields.Clear();
         _panMain.Children.Clear();
+        _floatingLayer.Children.Clear();
         _panMain.Children.Add(new MyHint
         {
             Text = text,
@@ -171,7 +182,11 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
     {
         _fields.Clear();
         _panMain.Children.Clear();
+        _floatingLayer.Children.Clear();
         _panMain.Children.Add(RenderNode(root));
+        PluginUiNodeDto? floating = FindFloatingButton(root);
+        if (floating is not null)
+            _floatingLayer.Children.Add(RenderFloatingButton(floating));
     }
 
     private void StartLiveRefresh()
@@ -253,6 +268,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
                 Margin = new Thickness(0, 2, 0, 6)
             },
             "button" => RenderButton(node),
+            "floatingbutton" => RenderFloatingButton(node),
             "checkbox" => RenderCheckBox(node),
             "textbox" => RenderTextBox(node),
             "select" => RenderSelect(node),
@@ -323,8 +339,38 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             panel.Children.Add(CreateSectionTitle(node.Title!));
 
         foreach (PluginUiNodeDto child in node.Children ?? [])
+        {
+            if (string.Equals(child.Kind, "floatingbutton", StringComparison.OrdinalIgnoreCase))
+                continue;
             panel.Children.Add(RenderNode(child));
+        }
         return panel;
+    }
+
+    private MyButton RenderFloatingButton(PluginUiNodeDto node)
+    {
+        MyButton button = RenderButton(node);
+        button.MinWidth = 150;
+        button.Height = 44;
+        button.Padding = new Thickness(18, 0);
+        button.Margin = new Thickness(24);
+        button.HorizontalAlignment = HorizontalAlignment.Right;
+        button.VerticalAlignment = VerticalAlignment.Bottom;
+        button.UseExperimentalStyle = true;
+        button.ZIndex = 100;
+        return button;
+    }
+
+    private static PluginUiNodeDto? FindFloatingButton(PluginUiNodeDto node)
+    {
+        if (string.Equals(node.Kind, "floatingbutton", StringComparison.OrdinalIgnoreCase))
+            return node;
+        foreach (PluginUiNodeDto child in node.Children ?? [])
+        {
+            PluginUiNodeDto? found = FindFloatingButton(child);
+            if (found is not null) return found;
+        }
+        return null;
     }
 
     private StackPanel RenderList(PluginUiNodeDto node)
