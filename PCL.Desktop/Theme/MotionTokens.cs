@@ -57,7 +57,7 @@ internal static class MotionTokens
     /// <summary>OOBE/power transition icon fade.</summary>
     public const int TransitionIconFadeMs = 140;
 
-    /// <summary>Circular white mask closing duration.</summary>
+    /// <summary>Circular theme surface closing duration.</summary>
     public const int CircularCoverMs = 280;
 
     /// <summary>Circular transparent aperture expansion duration.</summary>
@@ -68,6 +68,9 @@ internal static class MotionTokens
 
     /// <summary>OOBE icon recenter duration.</summary>
     public const int OobeCompletionIconCenterMs = 260;
+
+    /// <summary>OOBE card geometry settle into the main shell surface.</summary>
+    public const int OobeCompletionSurfaceSettleMs = 260;
 
     /// <summary>Maximum number of children that receive staggered page enter.</summary>
     public const int PageEnterMaxChildren = 36;

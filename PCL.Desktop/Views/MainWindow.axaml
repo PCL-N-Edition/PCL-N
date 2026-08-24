@@ -337,6 +337,7 @@
                 <motion:CircularRevealOverlay x:Name="PowerTransitionOverlay"
                                                Grid.Row="0" Grid.RowSpan="2"
                                                Grid.Column="0" Grid.ColumnSpan="2"
+                                               OverlayBrush="{DynamicResource ColorBrushBackground}"
                                                ZIndex="500" />
 
                 <!-- Name-compat only; live frosted fill is on PanMainLeft host (WPF ColorBrushBackgroundTransparentSidebar). -->

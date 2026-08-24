@@ -14,11 +14,16 @@ using PCL.Desktop.Theme;
 namespace PCL.Desktop.Controls.Motion;
 
 /// <summary>
-/// White transition surface with a circular transparent aperture. The same
+/// Theme-aware transition surface with a circular transparent aperture. The same
 /// reversible component is used for OOBE handoff and ultra-low-power focus changes.
 /// </summary>
 public sealed class CircularRevealOverlay : Grid
 {
+    public static readonly StyledProperty<IBrush?> OverlayBrushProperty =
+        AvaloniaProperty.Register<CircularRevealOverlay, IBrush?>(
+            nameof(OverlayBrush),
+            Brushes.White);
+
     private readonly RevealMask _mask;
     private readonly Image _icon;
     private DispatcherTimer? _timer;
@@ -40,6 +45,7 @@ public sealed class CircularRevealOverlay : Grid
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
             Source = new Bitmap(AssetLoader.Open(new Uri("avares://PCL.Desktop/Assets/icon.png")))
         };
+        _mask.Fill = OverlayBrush;
         Children.Add(_mask);
         Children.Add(_icon);
         SizeChanged += (_, _) =>
@@ -51,10 +57,24 @@ public sealed class CircularRevealOverlay : Grid
 
     public double RevealRadius => _radius;
 
+    /// <summary>The opaque part of the transition surface.</summary>
+    public IBrush? OverlayBrush
+    {
+        get => GetValue(OverlayBrushProperty);
+        set => SetValue(OverlayBrushProperty, value);
+    }
+
     public bool IsCovered => IsVisible && _radius <= 0.5d && Opacity >= 0.99d;
 
     private double MaximumRadius =>
         Math.Sqrt(Bounds.Width * Bounds.Width + Bounds.Height * Bounds.Height) / 2d + 4d;
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == OverlayBrushProperty)
+            _mask.Fill = change.NewValue as IBrush ?? Brushes.White;
+    }
 
     public void PrepareCovered(bool showIcon = true)
     {
@@ -229,7 +249,21 @@ public sealed class CircularRevealOverlay : Grid
 
     private sealed class RevealMask : Control
     {
+        public static readonly StyledProperty<IBrush?> FillProperty =
+            AvaloniaProperty.Register<RevealMask, IBrush?>(nameof(Fill), Brushes.White);
+
         private double _radius;
+
+        static RevealMask()
+        {
+            AffectsRender<RevealMask>(FillProperty);
+        }
+
+        public IBrush? Fill
+        {
+            get => GetValue(FillProperty);
+            set => SetValue(FillProperty, value);
+        }
 
         public double Radius
         {
@@ -258,7 +292,7 @@ public sealed class CircularRevealOverlay : Grid
                 GeometryCombineMode.Exclude,
                 new RectangleGeometry(bounds),
                 aperture);
-            context.DrawGeometry(Brushes.White, null, mask);
+            context.DrawGeometry(Fill ?? Brushes.White, null, mask);
         }
     }
 }

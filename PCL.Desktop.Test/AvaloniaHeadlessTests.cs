@@ -27,6 +27,7 @@ using PCL.Core.Logging;
 using PCL.Desktop;
 using PCL.Desktop.Composition;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Controls.Motion;
 using PCL.Desktop.Diagnostics;
 using PCL.Desktop.Features.Community;
 using PCL.Desktop.Theme;
@@ -708,6 +709,36 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void FirstRunWizardWindow_CompletionConvergesToMainWindowSurface()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            FirstRunWizardWindow wizard = new(new OobeRunPlan(
+                OobeRunKind.Update,
+                [OobeStepId.Finish],
+                "test",
+                RestartAfterComplete: false,
+                Reason: "headless-handoff"));
+
+            try
+            {
+                InvokePrivateMethod(wizard, "ApplyCompletionSurfaceFrame", 1d);
+                Border surface = wizard.FindControl<Border>("PanBubble")!;
+
+                Assert.AreEqual(840d, surface.Width, 0.001d);
+                Assert.AreEqual(500d, surface.Height, 0.001d);
+                Assert.AreEqual(new CornerRadius(8d), surface.CornerRadius);
+            }
+            finally
+            {
+                wizard.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void MainWindow_UltraLowPowerSuspendsAndRestoresPresentationResources()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -717,7 +748,9 @@ public sealed class AvaloniaHeadlessTests
             using MainWindow window = new();
             window.Show();
             AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-            Assert.IsNotNull(window.FindControl<Control>("PowerTransitionOverlay"));
+            CircularRevealOverlay overlay = window.FindControl<CircularRevealOverlay>("PowerTransitionOverlay")!;
+            Assert.IsNotNull(overlay);
+            Assert.AreSame(RequiredBrush("ColorBrushBackground"), overlay.OverlayBrush);
 
             int animationState = ModAnimation.AniControlEnabled;
             InvokePrivateMethod(window, "SuspendUltraLowPowerResources");
@@ -1333,6 +1366,10 @@ public sealed class AvaloniaHeadlessTests
                 LinearGradientBrush formBackground = (LinearGradientBrush)window.FindControl<Grid>("PanForm")!.Background!;
                 Assert.IsTrue(formBackground.GradientStops.All(stop =>
                     stop.Color.R < 120 && stop.Color.G < 120 && stop.Color.B < 120));
+                CircularRevealOverlay overlay = window.FindControl<CircularRevealOverlay>("PowerTransitionOverlay")!;
+                Assert.AreEqual(
+                    palette["ColorBrushBackground"],
+                    ((ISolidColorBrush)overlay.OverlayBrush!).Color);
             }
             finally
             {

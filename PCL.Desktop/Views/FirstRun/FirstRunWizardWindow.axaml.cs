@@ -43,6 +43,12 @@ public sealed partial class FirstRunWizardWindow : Window
     private const double BubbleEndWidth = TargetWidth - BubbleMargin * 2d;
     private const double BubbleEndHeight = TargetHeight - BubbleMargin * 2d;
     private const double SurfaceCorner = 12d;
+    // MainWindow.PanBack uses Margin=10 and CornerRadius=8. The OOBE completion
+    // frame must converge to exactly the same surface before the window handoff.
+    private const double HandoffSurfaceMargin = 10d;
+    private const double HandoffSurfaceWidth = TargetWidth - HandoffSurfaceMargin * 2d;
+    private const double HandoffSurfaceHeight = TargetHeight - HandoffSurfaceMargin * 2d;
+    private const double HandoffSurfaceCorner = 8d;
     private const string StepTransitionAnimationKey = "OOBE Step Transition";
     private const double StepTranslateTolerance = 0.5d;
     private const int StepTransitionSafetyMarginMs = 200;
@@ -1484,6 +1490,7 @@ public sealed partial class FirstRunWizardWindow : Window
                 _finishPanel.Opacity = 0d;
             if (_finishIconTranslate is not null)
                 _finishIconTranslate.X = 0d;
+            ApplyCompletionSurfaceFrame(1d);
             await Task.Delay(MotionTokens.ReducedMotionFadeMs, cancellationToken).ConfigureAwait(true);
             return;
         }
@@ -1521,8 +1528,39 @@ public sealed partial class FirstRunWizardWindow : Window
                 generation,
                 cancellationToken));
         }
+        if (_panBubble is not null)
+        {
+            settle.Add(AnimateCompletionValueAsync(
+                0d,
+                1d,
+                MotionTokens.OobeCompletionSurfaceSettleMs,
+                ApplyCompletionSurfaceFrame,
+                generation,
+                cancellationToken));
+        }
 
         await Task.WhenAll(settle).ConfigureAwait(true);
+    }
+
+    private void ApplyCompletionSurfaceFrame(double progress)
+    {
+        if (_panBubble is null)
+            return;
+
+        double p = Math.Clamp(progress, 0d, 1d);
+        _panBubble.Width = Lerp(BubbleEndWidth, HandoffSurfaceWidth, p);
+        _panBubble.Height = Lerp(BubbleEndHeight, HandoffSurfaceHeight, p);
+        _panBubble.CornerRadius = new CornerRadius(Lerp(SurfaceCorner, HandoffSurfaceCorner, p));
+        _panBubble.BoxShadow = new BoxShadows(new BoxShadow
+        {
+            Blur = Lerp(22d, 6d, p),
+            OffsetY = Lerp(10d, 0d, p),
+            Color = Color.FromArgb(
+                (byte)Math.Clamp((int)Math.Round(Lerp(0.34d * 255d, 0x48, p)), 0, 255),
+                0,
+                0,
+                0)
+        });
     }
 
     private Task AnimateCompletionValueAsync(
