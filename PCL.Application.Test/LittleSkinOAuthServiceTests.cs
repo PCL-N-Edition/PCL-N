@@ -30,6 +30,7 @@ public sealed class LittleSkinOAuthServiceTests
         StringAssert.Contains(url, "state=state-token");
         StringAssert.Contains(url, "openid");
         StringAssert.Contains(url, "offline_access");
+        StringAssert.Contains(url, "Closet.ReadWrite");
         StringAssert.Contains(url, "Yggdrasil.PlayerProfiles.Read");
         StringAssert.Contains(url, "Yggdrasil.MinecraftToken.Create");
         Assert.DoesNotContain("Yggdrasil.PlayerProfiles.Select", url);
@@ -343,6 +344,74 @@ public sealed class LittleSkinOAuthServiceTests
         Assert.AreEqual("Favorite", capes[0].Name);
         Assert.AreEqual("https://littleskin.cn/textures/" + hash, capes[0].TextureAddress);
         Assert.AreEqual(1, applied);
+    }
+
+    [TestMethod]
+    public async Task PublicTexture_IsAddedToClosetBeforeItCanBeApplied()
+    {
+        List<string> calls = [];
+        using HttpClient client = new(new DelegateHandler(async request =>
+        {
+            calls.Add(request.Method + " " + request.RequestUri!.AbsolutePath);
+            if (request.Method == HttpMethod.Get && request.RequestUri.AbsolutePath == "/api/closet")
+                return Json("""{"last_page":1,"data":[]}""");
+            if (request.Method == HttpMethod.Post && request.RequestUri.AbsolutePath == "/api/closet")
+            {
+                string form = await request.Content!.ReadAsStringAsync();
+                StringAssert.Contains(form, "tid=42");
+                StringAssert.Contains(form, "name=Library+Skin");
+                return Json("""{"code":0,"message":"ok"}""");
+            }
+            if (request.Method == HttpMethod.Put && request.RequestUri.AbsolutePath == "/api/players/7/textures")
+                return Json("""{"code":0,"message":"ok"}""");
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+        LittleSkinOAuthService service = new(client);
+
+        await service.EnsureClosetTextureAsync(
+            "oauth-token",
+            42,
+            "Library Skin",
+            LittleSkinTextureKind.Skin);
+        await service.ApplyTextureAsync(
+            "oauth-token",
+            7,
+            42,
+            LittleSkinTextureKind.Skin);
+
+        CollectionAssert.AreEqual(
+            new[] { "GET /api/closet", "POST /api/closet", "PUT /api/players/7/textures" },
+            calls);
+    }
+
+    [TestMethod]
+    public async Task UploadMinecraftTexture_UsesYggdrasilProfileEndpointAndSessionToken()
+    {
+        using HttpClient client = new(new DelegateHandler(async request =>
+        {
+            Assert.AreEqual(HttpMethod.Put, request.Method);
+            Assert.AreEqual(
+                "/api/yggdrasil/api/user/profile/0123456789abcdef0123456789abcdef/skin",
+                request.RequestUri!.AbsolutePath);
+            Assert.AreEqual("Bearer", request.Headers.Authorization!.Scheme);
+            Assert.AreEqual("minecraft-token", request.Headers.Authorization.Parameter);
+            string multipart = await request.Content!.ReadAsStringAsync();
+            StringAssert.Contains(multipart, "name=model");
+            StringAssert.Contains(multipart, "slim");
+            StringAssert.Contains(multipart, "name=file");
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        }));
+        LittleSkinOAuthService service = new(client);
+
+        LittleSkinTextureUploadResult result = await service.UploadMinecraftTextureAsync(
+            "minecraft-token",
+            "01234567-89ab-cdef-0123-456789abcdef",
+            [137, 80, 78, 71],
+            "custom.png",
+            isSlim: true);
+
+        Assert.AreEqual(LittleSkinTextureKind.Skin, result.Kind);
+        Assert.IsTrue(result.IsSlim);
     }
 
     private static Dictionary<string, string> ParseQuery(string query) =>

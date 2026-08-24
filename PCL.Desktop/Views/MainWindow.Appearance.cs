@@ -517,18 +517,6 @@ public partial class MainWindow
             return;
         }
 
-        if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
-        {
-            const string littleSkinCloset = "https://littleskin.cn/user/closet";
-            ShowTextDialog(
-                "上传 LittleSkin 皮肤",
-                "本地材质上传仍由 LittleSkin 网站完成。上传并加入衣柜后，返回此页面即可直接应用。",
-                primaryButton: "打开 LittleSkin",
-                secondaryButton: "知道了",
-                primaryAction: () => OpenExternalUrl(littleSkinCloset));
-            return;
-        }
-
         if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
         {
             OpenLegacyProfileAppearanceAction(profile, "更换皮肤");
@@ -541,6 +529,52 @@ public partial class MainWindow
             .ConfigureAwait(true);
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             return;
+
+        if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
+        {
+            bool? isSlim = await ChooseLocalSkinModelAsync().ConfigureAwait(true);
+            if (isSlim is null)
+                return;
+
+            try
+            {
+                HandleStatusMessage("正在上传并应用 LittleSkin 皮肤…");
+                LoginProfileInfo refreshed = await RefreshLittleSkinLaunchProfileAsync(
+                        profile,
+                        CancellationToken.None)
+                    .ConfigureAwait(true);
+                byte[] bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(true);
+                _ = await _littleSkinOAuthService
+                    .UploadMinecraftTextureAsync(
+                        refreshed.AccessToken,
+                        refreshed.Uuid,
+                        bytes,
+                        Path.GetFileName(path),
+                        isSlim.Value,
+                        CancellationToken.None)
+                    .ConfigureAwait(true);
+                LoginProfileInfo serverBacked = refreshed with { SkinAddress = null };
+                MinecraftProfileTextures textures = await MinecraftProfileTextureResolver
+                    .ResolveAsync(serverBacked, CancellationToken.None)
+                    .ConfigureAwait(true);
+                LoginProfileInfo updated = serverBacked with { SkinAddress = textures.SkinAddress };
+                ApplyUpdatedAppearanceProfile(
+                    profile,
+                    updated,
+                    "上传 LittleSkin 皮肤",
+                    $"已为 {updated.Username} 上传并应用自定义皮肤。");
+                await RecordProfileTextureSnapshotAsync(updated).ConfigureAwait(true);
+                await OpenExperimentalAppearancePageAsync(updated).ConfigureAwait(true);
+            }
+            catch (Exception exception)
+            {
+                ShowTextDialog(
+                    "上传 LittleSkin 皮肤失败",
+                    exception.Message,
+                    "知道了");
+            }
+            return;
+        }
 
         if (profile.Kind == LaunchLoginProfileKind.Microsoft)
         {
@@ -584,6 +618,25 @@ public partial class MainWindow
                     "知道了");
             }
         }
+    }
+
+    private Task<bool?> ChooseLocalSkinModelAsync()
+    {
+        TaskCompletionSource<bool?> completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ShowMarkdownDialog(
+            "选择皮肤模型",
+            "请选择这张皮肤使用的手臂模型。选错模型会导致手臂纹理错位。",
+            result => completion.TrySetResult(result switch
+            {
+                1 => false,
+                2 => true,
+                _ => null
+            }),
+            "经典（Steve）",
+            "纤细（Alex）",
+            "取消");
+        return completion.Task;
     }
 
     private async Task ApplyAppearanceSkinAsync(
@@ -887,6 +940,14 @@ public partial class MainWindow
                                 ?? throw new InvalidOperationException(
                                     $"LittleSkin 账户中未找到角色 {profile.Username}。");
                             await _littleSkinOAuthService
+                                .EnsureClosetTextureAsync(
+                                    accessToken,
+                                    textureId,
+                                    displayName,
+                                    kind,
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                            await _littleSkinOAuthService
                                 .ApplyTextureAsync(
                                     accessToken,
                                     selected.PlayerId,
@@ -894,7 +955,22 @@ public partial class MainWindow
                                     kind,
                                     cancellationToken)
                                 .ConfigureAwait(false);
-                            return selected;
+                            IReadOnlyList<LittleSkinPlayer> updatedPlayers =
+                                await _littleSkinOAuthService
+                                    .GetPlayersAsync(accessToken, cancellationToken)
+                                    .ConfigureAwait(false);
+                            LittleSkinPlayer updatedPlayer = updatedPlayers.FirstOrDefault(player =>
+                                player.PlayerId == selected.PlayerId)
+                                ?? throw new InvalidDataException("LittleSkin 未返回已更新的角色。");
+                            long appliedTextureId = kind == LittleSkinTextureKind.Cape
+                                ? updatedPlayer.CapeTextureId
+                                : updatedPlayer.SkinTextureId;
+                            if (appliedTextureId != textureId)
+                            {
+                                throw new InvalidDataException(
+                                    "LittleSkin 返回的角色材质与所选材质不一致，请稍后重试。");
+                            }
+                            return updatedPlayer;
                         },
                         CancellationToken.None)
                     .ConfigureAwait(true);

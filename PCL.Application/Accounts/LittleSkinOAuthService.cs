@@ -4,6 +4,7 @@
 
 using System.Globalization;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using PCL.Core.IO.Net;
@@ -65,6 +66,11 @@ public sealed record LittleSkinClosetItem(
     string TextureAddress,
     LittleSkinTextureKind Kind);
 
+public sealed record LittleSkinTextureUploadResult(
+    string ProfileUuid,
+    LittleSkinTextureKind Kind,
+    bool IsSlim);
+
 public interface ILittleSkinOAuthService
 {
     LittleSkinAuthorizationRequest CreateAuthorizationRequest(
@@ -115,6 +121,21 @@ public interface ILittleSkinOAuthService
         long textureId,
         LittleSkinTextureKind kind,
         CancellationToken cancellationToken = default);
+
+    Task EnsureClosetTextureAsync(
+        string accessToken,
+        long textureId,
+        string name,
+        LittleSkinTextureKind kind,
+        CancellationToken cancellationToken = default);
+
+    Task<LittleSkinTextureUploadResult> UploadMinecraftTextureAsync(
+        string minecraftAccessToken,
+        string profileUuid,
+        byte[] pngBytes,
+        string fileName,
+        bool isSlim,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -160,7 +181,7 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     /// </summary>
     public const string RequestedScopes =
         "openid offline_access " +
-        "User.Read Player.ReadWrite Closet.Read " +
+        "User.Read Player.ReadWrite Closet.ReadWrite " +
         "Yggdrasil.PlayerProfiles.Read Yggdrasil.MinecraftToken.Create";
 
     private const int MaximumClosetPages = 50;
@@ -582,7 +603,7 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
             {
                 [field] = textureId.ToString(CultureInfo.InvariantCulture)
             });
-        _ = await SendBearerAsync(
+        string body = await SendBearerAsync(
                 HttpMethod.Put,
                 new Uri(ApiRoot + $"players/{playerId}/textures"),
                 accessToken,
@@ -590,11 +611,96 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
                 kind == LittleSkinTextureKind.Cape
                     ? "更换 LittleSkin 披风失败"
                     : "更换 LittleSkin 皮肤失败",
-                cancellationToken)
+            cancellationToken)
             .ConfigureAwait(false);
+        EnsureApiOperationSucceeded(body, kind == LittleSkinTextureKind.Cape
+            ? "更换 LittleSkin 披风失败"
+            : "更换 LittleSkin 皮肤失败");
         PortableLog.Info(
             "LittleSkinAppearance",
             $"角色材质已更新；PlayerId={playerId}；Kind={kind}；TextureId={textureId}。");
+    }
+
+    public async Task EnsureClosetTextureAsync(
+        string accessToken,
+        long textureId,
+        string name,
+        LittleSkinTextureKind kind,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(textureId);
+        IReadOnlyList<LittleSkinClosetItem> items =
+            await GetClosetItemsAsync(accessToken, kind, cancellationToken).ConfigureAwait(false);
+        if (items.Any(item => item.TextureId == textureId))
+            return;
+
+        using FormUrlEncodedContent content = new(
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["tid"] = textureId.ToString(CultureInfo.InvariantCulture),
+                ["name"] = string.IsNullOrWhiteSpace(name) ? "PCL N Texture" : name.Trim()
+            });
+        string body = await SendBearerAsync(
+                HttpMethod.Post,
+                new Uri(ApiRoot + "closet"),
+                accessToken,
+                content,
+                "加入 LittleSkin 衣柜失败",
+                cancellationToken)
+            .ConfigureAwait(false);
+        EnsureApiOperationSucceeded(body, "加入 LittleSkin 衣柜失败");
+        PortableLog.Info(
+            "LittleSkinAppearance",
+            $"材质已加入衣柜；Kind={kind}；TextureId={textureId}。");
+    }
+
+    /// <summary>
+    /// Uploads and applies a private skin through the authlib-injector compatible
+    /// Yggdrasil profile API. This endpoint authenticates with the Minecraft session
+    /// token, not the provider OAuth token.
+    /// </summary>
+    public async Task<LittleSkinTextureUploadResult> UploadMinecraftTextureAsync(
+        string minecraftAccessToken,
+        string profileUuid,
+        byte[] pngBytes,
+        string fileName,
+        bool isSlim,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(minecraftAccessToken);
+        ArgumentNullException.ThrowIfNull(pngBytes);
+        if (pngBytes.Length == 0)
+            throw new ArgumentException("皮肤文件为空。", nameof(pngBytes));
+        string uuid = NormalizeUuid(profileUuid);
+        if (uuid.Length != 32)
+            throw new ArgumentException("LittleSkin 角色 UUID 无效。", nameof(profileUuid));
+
+        using MultipartFormDataContent content = new();
+        content.Add(new StringContent(isSlim ? "slim" : string.Empty), "model");
+        ByteArrayContent fileContent = new(pngBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        content.Add(
+            fileContent,
+            "file",
+            string.IsNullOrWhiteSpace(fileName) ? "skin.png" : Path.GetFileName(fileName));
+        using HttpRequestMessage request = new(
+            HttpMethod.Put,
+            new Uri(YggdrasilApiRoot + $"api/user/profile/{uuid}/skin"))
+        {
+            Content = content
+        };
+        request.Headers.Authorization =
+            new AuthenticationHeaderValue("Bearer", minecraftAccessToken.Trim());
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        using HttpResponseMessage response = await _client
+            .SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken)
+            .ConfigureAwait(false);
+        string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response, body, "上传并应用 LittleSkin 皮肤失败", TryGetRequestId(response));
+        PortableLog.Info(
+            "LittleSkinAppearance",
+            $"自定义皮肤已通过 Yggdrasil 接口上传并应用；Profile={uuid}；Slim={isSlim}。");
+        return new LittleSkinTextureUploadResult(uuid, LittleSkinTextureKind.Skin, isSlim);
     }
 
     private async Task<LittleSkinOAuthTokens> RequestTokensAsync(
@@ -754,6 +860,25 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
         {
             return false;
         }
+    }
+
+    private static void EnsureApiOperationSucceeded(string body, string operation)
+    {
+        if (!TryReadApiErrorCode(body, out int code) || code == 0)
+            return;
+
+        string detail = string.Empty;
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(body);
+            detail = ReadString(document.RootElement, "message");
+        }
+        catch (JsonException)
+        {
+        }
+
+        throw new InvalidOperationException(
+            string.IsNullOrWhiteSpace(detail) ? operation : operation + "：" + detail);
     }
 
     private static List<LittleSkinProfile> ParseProfileArray(string body)
