@@ -242,6 +242,8 @@ public sealed class LauncherSettingsStoreTests
         Assert.AreEqual("HintDownloadThread", LauncherSettingKeys.HintDownloadThread.Value);
         Assert.AreEqual("ToolDownloadThread", LauncherSettingKeys.ToolDownloadThread.Value);
         Assert.AreEqual("UiCustomLogoPath", LauncherSettingKeys.UiCustomLogoPath.Value);
+        Assert.AreEqual("UiUltraLowPowerMode", LauncherSettingKeys.UiUltraLowPowerMode.Value);
+        Assert.IsFalse(LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.UiUltraLowPowerMode.Value));
         Assert.AreEqual("JavaDisabled|/opt/java/bin/java", LauncherSettingKeys.JavaDisabled("/opt/java/bin/java").Value);
         Assert.ThrowsExactly<ArgumentException>(() => LauncherSettingKeys.JavaDisabled(""));
     }

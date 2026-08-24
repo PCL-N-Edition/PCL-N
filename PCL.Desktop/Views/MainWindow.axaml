@@ -11,7 +11,7 @@
 
     KeyDown="FormMain_KeyDown" PointerPressed="FormMain_MouseDown" SizeChanged="FormMain_SizeChanged"
 
-    Closing="FormMain_Closing" Activated="FormMain_Activated" DragDrop.DragOver="FrmMain_DragOver" DragDrop.Drop="FrmMain_Drop"
+    Closing="FormMain_Closing" Activated="FormMain_Activated" Deactivated="FormMain_Deactivated" DragDrop.DragOver="FrmMain_DragOver" DragDrop.Drop="FrmMain_Drop"
 
     PointerMoved="FormMain_MouseMove"
 

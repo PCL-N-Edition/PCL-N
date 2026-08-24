@@ -45,6 +45,9 @@ public static class LauncherSettingKeys
     /// <summary>Disable decorative UI animations when compositor/GPU timers misbehave.</summary>
     public static readonly SettingKey SystemDisableUiAnimations = new("SystemDisableUiAnimations");
 
+    /// <summary>Release recreatable presentation resources while the launcher window is inactive.</summary>
+    public static readonly SettingKey UiUltraLowPowerMode = new("UiUltraLowPowerMode");
+
     public static readonly SettingKey ExperimentalJvmLifecycleHost = new("ExperimentalJvmLifecycleHost");
 
     public static readonly SettingKey ExperimentalHomepageUi = new("ExperimentalHomepageUi");

@@ -53,6 +53,12 @@
                             <RowDefinition Height="20" />
                         </Grid.RowDefinitions>
                         <legacy:MyCheckBox Grid.Row="0" Grid.Column="0" Text="{DynamicResource Setup.Misc.System.DisableHardwareAcceleration}" x:Name="CheckSystemDisableHardwareAcceleration" Tag="SystemDisableHardwareAcceleration" Change="CheckSystemDisableHardwareAcceleration_OnChange"/>
+                        <legacy:MyCheckBox Grid.Row="0" Grid.Column="1"
+                                           x:Name="CheckUltraLowPowerMode"
+                                           Text="{DynamicResource Setup.Misc.System.UltraLowPower}"
+                                           ToolTip.Tip="{DynamicResource Setup.Misc.System.UltraLowPower.ToolTip}"
+                                           Tag="UiUltraLowPowerMode"
+                                           Change="CheckBoxChange" />
                     </Grid>
                     <Grid Grid.Row="8" Grid.ColumnSpan="5">
                         <Grid.ColumnDefinitions>

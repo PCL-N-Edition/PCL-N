@@ -161,6 +161,11 @@ public partial class MainWindow : Window, IDisposable
     private readonly IDisposable _windowStateSubscription;
     private string? _registeredPageSurfaceId;
     private bool _isOobeHandoff;
+    private bool _isClosing;
+    private bool _ultraLowPowerEnabled;
+    private bool _isUltraLowPowerSuspended;
+    private bool _lowPowerAnimationSuppressionApplied;
+    private CancellationTokenSource? _ultraLowPowerTransitionCancellation;
 
     private const double NavCollapsedWidth = 50d;
     private const int NavAnimDuration = 200;
@@ -601,6 +606,8 @@ public partial class MainWindow : Window, IDisposable
         }
 
         DesktopFileLog.Info("Window", "主窗口正在关闭。");
+        _isClosing = true;
+        CancelUltraLowPowerTransition();
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
@@ -631,7 +638,21 @@ public partial class MainWindow : Window, IDisposable
 
     private void FormMain_Activated(object? sender, EventArgs e)
     {
-        UpdateBackgroundVideoPlayback();
+        if (!_ultraLowPowerEnabled || _isOobeHandoff || _isClosing)
+        {
+            UpdateBackgroundVideoPlayback();
+            return;
+        }
+
+        BeginUltraLowPowerTransition(enterLowPower: false);
+    }
+
+    private void FormMain_Deactivated(object? sender, EventArgs e)
+    {
+        if (!_ultraLowPowerEnabled || _isOobeHandoff || _isClosing)
+            return;
+
+        BeginUltraLowPowerTransition(enterLowPower: true);
     }
 
     private void FrmMain_DragOver(object? sender, DragEventArgs e)
@@ -1439,6 +1460,7 @@ public partial class MainWindow : Window, IDisposable
         _launchLeft = _launchHomeSurface.Home;
         _launchRight = _launchHomeSurface.ClassicRight;
         _launchHomeExperimental = _launchHomeSurface.ExperimentalHome;
+        _launchHomeExperimental?.SetLowPowerSuspended(_isUltraLowPowerSuspended);
         _useExperimentalLaunchHome = _launchHomeSurface.UseExperimental;
     }
 
@@ -5849,6 +5871,12 @@ public partial class MainWindow : Window, IDisposable
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
         _backgroundBitmap?.Dispose();
         _backgroundBitmap = null;
+        CancelUltraLowPowerTransition();
+        if (_lowPowerAnimationSuppressionApplied)
+        {
+            ModAnimation.AniControlEnabled = Math.Max(0, ModAnimation.AniControlEnabled - 1);
+            _lowPowerAnimationSuppressionApplied = false;
+        }
         _windowStateSubscription.Dispose();
         if (this.FindControl<MediaElement>("VideoBack") is { } video)
         {
@@ -6050,6 +6078,10 @@ public partial class MainWindow : Window, IDisposable
 
     private void ApplyRuntimeSettings(LauncherSettings settings)
     {
+        bool wasUltraLowPowerEnabled = _ultraLowPowerEnabled;
+        _ultraLowPowerEnabled = settings.GetBooleanOption(
+            LauncherSettingKeys.UiUltraLowPowerMode,
+            LauncherSettingDefaults.GetBoolean("UiUltraLowPowerMode"));
         LauncherTelemetry.ApplySettings(settings);
         DesktopFileLog.ConfigureLevel(DesktopFileLog.LevelFromSetting(settings.GetIntegerOption(
             "SystemLogLevel",
@@ -6079,13 +6111,143 @@ public partial class MainWindow : Window, IDisposable
             : [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None];
         ApplyFormBackground(settings);
         ApplyTitleAppearance(settings);
-        ApplyBackgroundAppearance(settings);
+        if (!_isUltraLowPowerSuspended)
+            ApplyBackgroundAppearance(settings);
         ApplyNetworkProxy(settings);
         ExperimentalUiProfile profile = _shellViewModel.RefreshProfile(settings);
         ApplyExperimentalChrome(profile.HomepageUi);
         _launchRight?.SetMaximumLogLines(ResolveMaximumLogLines(settings));
         ApplyLaunchPageSettings(settings);
         ApplyHomepageSettings(settings);
+
+        if (_isMainWindowOpened && wasUltraLowPowerEnabled != _ultraLowPowerEnabled)
+        {
+            if (_ultraLowPowerEnabled && !IsActive)
+                BeginUltraLowPowerTransition(enterLowPower: true);
+            else if (!_ultraLowPowerEnabled &&
+                     (_isUltraLowPowerSuspended ||
+                      this.FindControl<CircularRevealOverlay>("PowerTransitionOverlay")?.IsVisible == true))
+                BeginUltraLowPowerTransition(enterLowPower: false);
+        }
+    }
+
+    private void BeginUltraLowPowerTransition(bool enterLowPower)
+    {
+        if (_isDisposed || _isClosing || _isOobeHandoff)
+            return;
+        if (enterLowPower && _isUltraLowPowerSuspended)
+            return;
+
+        CircularRevealOverlay? overlay = this.FindControl<CircularRevealOverlay>("PowerTransitionOverlay");
+        if (!enterLowPower && !_isUltraLowPowerSuspended && overlay?.IsVisible != true)
+        {
+            UpdateBackgroundVideoPlayback();
+            return;
+        }
+        if (overlay is null)
+            return;
+
+        CancelUltraLowPowerTransition();
+        CancellationTokenSource cancellation = new();
+        _ultraLowPowerTransitionCancellation = cancellation;
+        UnhandledExceptionGuard.Observe(
+            RunUltraLowPowerTransitionAsync(overlay, enterLowPower, cancellation),
+            enterLowPower ? "MainWindow.UltraLowPower.Enter" : "MainWindow.UltraLowPower.Exit");
+    }
+
+    private async Task RunUltraLowPowerTransitionAsync(
+        CircularRevealOverlay overlay,
+        bool enterLowPower,
+        CancellationTokenSource owner)
+    {
+        try
+        {
+            if (enterLowPower)
+            {
+                await overlay.CoverAsync(showIcon: true, owner.Token).ConfigureAwait(true);
+                if (owner.IsCancellationRequested || IsActive || !_ultraLowPowerEnabled)
+                    return;
+
+                SuspendUltraLowPowerResources();
+                DesktopFileLog.Debug("Power", "主窗口已进入超低功耗状态；保留下载、启动与后台任务。");
+                return;
+            }
+
+            RestoreUltraLowPowerResources();
+            await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Render);
+            owner.Token.ThrowIfCancellationRequested();
+            await overlay.RevealAsync(owner.Token).ConfigureAwait(true);
+            DesktopFileLog.Debug("Power", "主窗口已恢复超低功耗模式释放的界面资源。");
+        }
+        catch (OperationCanceledException) when (owner.IsCancellationRequested)
+        {
+            // Focus can bounce between launcher-owned windows. The next transition
+            // continues from the current aperture radius instead of snapping.
+        }
+        finally
+        {
+            if (ReferenceEquals(_ultraLowPowerTransitionCancellation, owner))
+                _ultraLowPowerTransitionCancellation = null;
+            owner.Dispose();
+        }
+    }
+
+    private void SuspendUltraLowPowerResources()
+    {
+        if (_isUltraLowPowerSuspended)
+            return;
+
+        _isUltraLowPowerSuspended = true;
+        if (!_lowPowerAnimationSuppressionApplied)
+        {
+            ModAnimation.AniControlEnabled += 1;
+            _lowPowerAnimationSuppressionApplied = true;
+        }
+
+        _launchHomeExperimental?.SetLowPowerSuspended(true);
+        if (this.FindControl<MediaElement>("VideoBack") is { } video)
+        {
+            video.Stop();
+            video.Close();
+            video.Source = null;
+            video.IsVisible = false;
+        }
+        if (this.FindControl<Image>("ImageBack") is { } image)
+        {
+            image.Source = null;
+            image.IsVisible = false;
+        }
+        _backgroundBitmap?.Dispose();
+        _backgroundBitmap = null;
+        _backgroundStamp = null;
+    }
+
+    private void RestoreUltraLowPowerResources()
+    {
+        if (_lowPowerAnimationSuppressionApplied)
+        {
+            ModAnimation.AniControlEnabled = Math.Max(0, ModAnimation.AniControlEnabled - 1);
+            _lowPowerAnimationSuppressionApplied = false;
+        }
+        if (!_isUltraLowPowerSuspended)
+            return;
+
+        _isUltraLowPowerSuspended = false;
+        LauncherSettings settings = LauncherSettingsPageBinder.LoadSettings();
+        ApplyBackgroundAppearance(settings);
+        _launchHomeExperimental?.SetLowPowerSuspended(false);
+        UpdateBackgroundVideoPlayback(settings);
+    }
+
+    private void CancelUltraLowPowerTransition()
+    {
+        CancellationTokenSource? cancellation = _ultraLowPowerTransitionCancellation;
+        _ultraLowPowerTransitionCancellation = null;
+        if (cancellation is null)
+            return;
+
+        try { cancellation.Cancel(); }
+        catch (ObjectDisposedException) { }
     }
 
     private void ApplyFormBackground(LauncherSettings settings)
@@ -6326,6 +6488,12 @@ public partial class MainWindow : Window, IDisposable
     {
         if (this.FindControl<MediaElement>("VideoBack") is not { Source: not null, IsVisible: true } video)
             return;
+
+        if (_isUltraLowPowerSuspended)
+        {
+            video.Pause();
+            return;
+        }
 
         settings ??= LauncherSettingsPageBinder.LoadSettings();
         bool pauseForGame = _gameSessionStore.IsRunning && settings.GetBooleanOption(

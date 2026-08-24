@@ -708,6 +708,30 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void MainWindow_UltraLowPowerSuspendsAndRestoresPresentationResources()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            using MainWindow window = new();
+            window.Show();
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Assert.IsNotNull(window.FindControl<Control>("PowerTransitionOverlay"));
+
+            int animationState = ModAnimation.AniControlEnabled;
+            InvokePrivateMethod(window, "SuspendUltraLowPowerResources");
+            Assert.IsTrue(GetPrivateField<bool>(window, "_isUltraLowPowerSuspended"));
+            Assert.AreEqual(animationState + 1, ModAnimation.AniControlEnabled);
+
+            InvokePrivateMethod(window, "RestoreUltraLowPowerResources");
+            Assert.IsFalse(GetPrivateField<bool>(window, "_isUltraLowPowerSuspended"));
+            Assert.AreEqual(animationState, ModAnimation.AniControlEnabled);
+            window.Close();
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
     public void MainWindow_TitleLayoutStretchesAndChromeTracksWindowState()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -7140,6 +7164,9 @@ public sealed class AvaloniaHeadlessTests
                 Assert.AreEqual("不限量", misc.FindControl<MySlider>("SliderMaxLog")!.getHintText!(29));
                 Assert.AreEqual("关闭", misc.FindControl<MySlider>("SliderDebugAnim")!.getHintText!(30));
                 Assert.IsNull(misc.FindControl<MyCheckBox>("CheckDebugMode"));
+                MyCheckBox lowPower = misc.FindControl<MyCheckBox>("CheckUltraLowPowerMode")!;
+                Assert.AreEqual("UiUltraLowPowerMode", lowPower.Tag);
+                Assert.IsFalse(lowPower.Checked);
 
                 bool confirmationRequested = false;
                 misc.ConfirmRequested += (_, args) =>

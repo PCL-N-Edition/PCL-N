@@ -67,6 +67,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
     private bool _widgetDragging;
     private Point _widgetDragStart;
     private bool _widgetPageAnimating;
+    private bool _isLowPowerSuspended;
     private readonly DispatcherTimer _tipsRotationTimer;
 
     public PageLaunchHomeExperimental()
@@ -833,8 +834,23 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         _tipsRotationTimer.Stop();
         if (updateImmediately)
             RefreshTipText();
-        if (!_disposed && VisualRoot is not null)
+        if (!_disposed && !_isLowPowerSuspended && VisualRoot is not null)
             _tipsRotationTimer.Start();
+    }
+
+    internal void SetLowPowerSuspended(bool suspended)
+    {
+        if (_isLowPowerSuspended == suspended)
+            return;
+
+        _isLowPowerSuspended = suspended;
+        if (suspended)
+        {
+            _tipsRotationTimer.Stop();
+            return;
+        }
+
+        RestartTipsRotationTimer(updateImmediately: false);
     }
 
     private void RefreshTipText() =>

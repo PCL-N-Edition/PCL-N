@@ -24,6 +24,7 @@ public static class LauncherSettingDefaults
         ["ToolUpdateSnapshot"] = false,
         ["UiLauncherLogo"] = true,
         ["UiLockWindowSize"] = false,
+        ["UiUltraLowPowerMode"] = false,
         ["UiShowLaunchingHint"] = true,
         ["UiHintAlignRight"] = false,
         ["UiLogoLeft"] = false,
