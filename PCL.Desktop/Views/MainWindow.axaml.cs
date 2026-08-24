@@ -4122,7 +4122,7 @@ public partial class MainWindow : Window, IDisposable
                 CreatePlanAsync = MinecraftLaunchPlanFactory.CreateAsync,
                 RunPreLaunchCommandAsync = MinecraftLaunchPlanFactory.RunPreLaunchCommandAsync,
                 ApplyProcessPriority = MinecraftLaunchPlanFactory.ApplyProcessPriority,
-                ConfirmJavaDownloadAsync = ConfirmJavaDownloadAsync,
+                ChooseMissingJavaAsync = ChooseMissingJavaAsync,
                 StopRepairServerAsync = () => _minecraftAiRepairAdvisor.StopLocalServerAsync(),
                 OnSucceededAsync = OnStartMinecraftSucceededAsync,
                 OnFailedAsync = OnStartMinecraftFailedAsync,
@@ -4335,12 +4335,15 @@ public partial class MainWindow : Window, IDisposable
             : null;
     }
 
-    private Task<bool> ConfirmJavaDownloadAsync(string versionLabel, CancellationToken cancellationToken)
+    private Task<JavaMissingRuntimeDecision> ChooseMissingJavaAsync(
+        JavaMissingRuntimePrompt prompt,
+        CancellationToken cancellationToken)
     {
         // Always Post so we never show+await a modal on the same UI stack frame (deadlock/freeze).
-        TaskCompletionSource<bool> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<JavaMissingRuntimeDecision> tcs =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         CancellationTokenRegistration registration = cancellationToken.Register(
-            static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(),
+            static state => ((TaskCompletionSource<JavaMissingRuntimeDecision>)state!).TrySetCanceled(),
             tcs);
 
         Dispatcher.UIThread.Post(() =>
@@ -4352,16 +4355,71 @@ public partial class MainWindow : Window, IDisposable
                 return;
             }
 
-            ShowConfirmDialog(
-                "需要下载 Java",
-                "启动该版本需要 Java " + versionLabel + "，但本机未找到兼容的 Java。\n\n是否由 PCL N 自动下载并安装官方运行时？",
-                confirmed =>
+            void Complete(JavaMissingRuntimeDecision decision)
+            {
+                registration.Dispose();
+                tcs.TrySetResult(decision);
+            }
+
+            void SelectAlternative()
+            {
+                MyMsgSelect selector = new();
+                selector.Configure(
+                    "选择其他 Java（仅本次启动）",
+                    prompt.Alternatives.Select(option => new MyListItem
+                    {
+                        Title = $"Java {option.MajorVersion} · " +
+                                (option.IsCompatible ? "兼容" : "可能不兼容") +
+                                (option.IsEnabled ? string.Empty : " · 已在设置中禁用"),
+                        Info = option.DisplayName + "\n" + option.JavaExecutablePath,
+                        SvgIcon = option.IsCompatible ? "lucide/coffee" : "lucide/triangle-alert",
+                        LogoScale = 0.82d,
+                        MinHeight = 46d,
+                        Margin = new Thickness(0d, 2d)
+                    }),
+                    "使用所选 Java",
+                    "取消");
+                ShowSelectionDialog(selector, selectedIndex =>
                 {
-                    registration.Dispose();
-                    tcs.TrySetResult(confirmed);
+                    if (selectedIndex is int index && index >= 0 && index < prompt.Alternatives.Count)
+                    {
+                        Complete(new JavaMissingRuntimeDecision(
+                            JavaMissingRuntimeAction.UseAlternative,
+                            prompt.Alternatives[index].JavaExecutablePath));
+                    }
+                    else
+                    {
+                        Complete(new JavaMissingRuntimeDecision(JavaMissingRuntimeAction.Cancel));
+                    }
+                });
+            }
+
+            if (!prompt.CanDownload)
+            {
+                if (prompt.Alternatives.Count > 0)
+                    SelectAlternative();
+                else
+                    Complete(new JavaMissingRuntimeDecision(JavaMissingRuntimeAction.Cancel));
+                return;
+            }
+
+            ShowMarkdownDialog(
+                "需要 Java " + prompt.RequiredVersionLabel,
+                prompt.Alternatives.Count > 0
+                    ? "本机没有可自动使用的兼容 Java。你可以下载并安装官方运行时，也可以从已发现的 Java 中为本次启动选择一个。选择标记为“不兼容”的 Java 可能导致游戏启动失败。"
+                    : "本机没有可自动使用的兼容 Java。是否由 PCL N 下载并安装官方运行时？",
+                result =>
+                {
+                    if (result == 1)
+                        Complete(new JavaMissingRuntimeDecision(JavaMissingRuntimeAction.Download));
+                    else if (result == 2 && prompt.Alternatives.Count > 0)
+                        SelectAlternative();
+                    else
+                        Complete(new JavaMissingRuntimeDecision(JavaMissingRuntimeAction.Cancel));
                 },
                 "下载并安装",
-                "取消");
+                prompt.Alternatives.Count > 0 ? "使用其他 Java" : "取消",
+                prompt.Alternatives.Count > 0 ? "取消" : string.Empty);
         });
 
         return tcs.Task;

@@ -145,7 +145,7 @@ public sealed class StartMinecraftUseCase
                         CreatePlanAsync = host.CreatePlanAsync,
                         RunPreLaunchCommandAsync = host.RunPreLaunchCommandAsync,
                         ApplyProcessPriority = host.ApplyProcessPriority,
-                        ConfirmJavaDownloadAsync = host.ConfirmJavaDownloadAsync
+                        ChooseMissingJavaAsync = host.ChooseMissingJavaAsync
                     },
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -360,7 +360,10 @@ internal sealed class StartMinecraftHost
 
     public required Action<Process, LauncherSettings> ApplyProcessPriority { get; init; }
 
-    public required Func<string, CancellationToken, Task<bool>> ConfirmJavaDownloadAsync { get; init; }
+    public required Func<
+        JavaMissingRuntimePrompt,
+        CancellationToken,
+        Task<JavaMissingRuntimeDecision>> ChooseMissingJavaAsync { get; init; }
 
     public required Func<Task> StopRepairServerAsync { get; init; }
 

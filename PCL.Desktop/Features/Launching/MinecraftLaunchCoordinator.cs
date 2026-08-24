@@ -552,11 +552,45 @@ internal sealed class MinecraftLaunchCoordinator
             return PreferJavaExecutable(path, launchForceConsole);
         }
 
-        // 4) Auto-download Mojang runtime
+        // 4) No compatible automatic choice remains. Keep every verified local runtime
+        // available as an explicit one-launch override instead of forcing a download.
         JavaSelectionResult fakeFailure = JavaSelectionResult.Failed(
             requirement,
             JavaSelectionFailureReason.NoCompatibleJava,
             suggestedDownloadComponent: JavaRuntimeAcquisitionPlanner.Plan(requirement, profile.HasForge).DownloadComponent);
+
+        JavaRuntimeAcquisitionDecision acquisition =
+            JavaRuntimeAcquisitionPlanner.Plan(requirement, profile.HasForge);
+        JavaMissingRuntimePrompt prompt = CreateMissingJavaPrompt(
+            catalog,
+            requirement,
+            acquisition);
+        JavaMissingRuntimeDecision decision = request.ChooseMissingJavaAsync is null
+            ? acquisition.CanAutoDownload
+                ? new JavaMissingRuntimeDecision(JavaMissingRuntimeAction.Download)
+                : new JavaMissingRuntimeDecision(JavaMissingRuntimeAction.Cancel)
+            : await request.ChooseMissingJavaAsync(prompt, cancellationToken).ConfigureAwait(false);
+
+        if (decision.Action == JavaMissingRuntimeAction.UseAlternative)
+        {
+            JavaMissingRuntimeOption? selected = prompt.Alternatives.FirstOrDefault(option =>
+                string.Equals(
+                    option.JavaExecutablePath,
+                    decision.JavaExecutablePath,
+                    OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal));
+            if (selected is null || !File.Exists(selected.JavaExecutablePath))
+                throw new InvalidOperationException("所选 Java 已不存在，请重新选择。");
+
+            request.Log?.Invoke(
+                "用户为本次启动选择 Java：" + selected.JavaExecutablePath +
+                (selected.IsCompatible ? string.Empty : "（版本可能不兼容）"));
+            return PreferJavaExecutable(selected.JavaExecutablePath, launchForceConsole);
+        }
+
+        if (decision.Action != JavaMissingRuntimeAction.Download)
+            throw new InvalidOperationException("已取消选择 Java。");
 
         string? downloaded = await TryAutoDownloadJavaAsync(
                 request,
@@ -569,6 +603,47 @@ internal sealed class MinecraftLaunchCoordinator
             return downloaded;
 
         throw new InvalidOperationException(BuildNoCompatibleJavaMessage(fakeFailure));
+    }
+
+    internal static JavaMissingRuntimePrompt CreateMissingJavaPrompt(
+        IReadOnlyList<JavaRuntimeCandidate> catalog,
+        JavaRequirementResolution requirement,
+        JavaRuntimeAcquisitionDecision acquisition)
+    {
+        JavaMissingRuntimeOption[] alternatives = catalog
+            .Where(static candidate =>
+                candidate.IsAvailable &&
+                !string.IsNullOrWhiteSpace(candidate.Installation.JavaExecutablePath) &&
+                File.Exists(candidate.Installation.JavaExecutablePath))
+            .Select(candidate => new JavaMissingRuntimeOption(
+                candidate.Installation.JavaExecutablePath,
+                candidate.Installation.MajorVersion,
+                candidate.Installation.ToDetailedString(),
+                requirement.Range.Contains(candidate.Installation.Version),
+                candidate.IsEnabled))
+            .DistinctBy(
+                static option => option.JavaExecutablePath,
+                OperatingSystem.IsWindows()
+                    ? StringComparer.OrdinalIgnoreCase
+                    : StringComparer.Ordinal)
+            .OrderByDescending(static option => option.IsCompatible)
+            .ThenByDescending(static option => option.IsEnabled)
+            .ThenByDescending(static option => option.MajorVersion)
+            .ToArray();
+        string versionLabel = acquisition.JavaVersionCode ??
+                              acquisition.DownloadComponent ??
+                              BuildJavaRangeLabel(requirement.Range);
+        return new JavaMissingRuntimePrompt(
+            versionLabel,
+            acquisition.CanAutoDownload && !string.IsNullOrWhiteSpace(acquisition.DownloadComponent),
+            alternatives);
+    }
+
+    private static string BuildJavaRangeLabel(JavaVersionRange range)
+    {
+        int minimum = JavaVersionRange.Normalize(range.Minimum).Major;
+        int maximum = JavaVersionRange.Normalize(range.Maximum).Major;
+        return minimum == maximum ? minimum.ToString(CultureInfo.InvariantCulture) : $"{minimum}–{maximum}";
     }
 
     private static async Task<string?> TryAutoDownloadJavaAsync(
@@ -588,13 +663,6 @@ internal sealed class MinecraftLaunchCoordinator
 
         string component = acquisition.DownloadComponent;
         string versionLabel = acquisition.JavaVersionCode ?? component;
-        if (request.ConfirmJavaDownloadAsync is not null)
-        {
-            bool confirmed = await request.ConfirmJavaDownloadAsync(versionLabel, cancellationToken)
-                .ConfigureAwait(false);
-            if (!confirmed)
-                throw new InvalidOperationException("已取消自动下载 Java " + versionLabel + "。");
-        }
 
         request.Log?.Invoke("未找到兼容 Java，开始自动下载 Java " + versionLabel + "…");
         string runtimeRoot = Path.Combine(
@@ -1253,8 +1321,33 @@ internal sealed class MinecraftLaunchCoordinatorRequest
     public required Action<Process, LauncherSettings> ApplyProcessPriority { get; init; }
 
     /// <summary>
-    /// Optional UI confirmation before downloading a Mojang Java runtime.
-    /// Return true to download, false to cancel launch.
+    /// Optional UI decision when no compatible automatic Java selection exists.
+    /// It can request an official runtime download or choose a verified local runtime
+    /// for this launch only.
     /// </summary>
-    public Func<string, CancellationToken, Task<bool>>? ConfirmJavaDownloadAsync { get; init; }
+    public Func<JavaMissingRuntimePrompt, CancellationToken, Task<JavaMissingRuntimeDecision>>?
+        ChooseMissingJavaAsync { get; init; }
 }
+
+internal enum JavaMissingRuntimeAction
+{
+    Cancel,
+    Download,
+    UseAlternative
+}
+
+internal sealed record JavaMissingRuntimeOption(
+    string JavaExecutablePath,
+    int MajorVersion,
+    string DisplayName,
+    bool IsCompatible,
+    bool IsEnabled);
+
+internal sealed record JavaMissingRuntimePrompt(
+    string RequiredVersionLabel,
+    bool CanDownload,
+    IReadOnlyList<JavaMissingRuntimeOption> Alternatives);
+
+internal sealed record JavaMissingRuntimeDecision(
+    JavaMissingRuntimeAction Action,
+    string? JavaExecutablePath = null);
