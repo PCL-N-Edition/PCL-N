@@ -25,6 +25,13 @@ if ($null -eq $runtimeOptions) {
 
 $framework = $runtimeOptions.PSObject.Properties['framework']
 $includedFrameworks = $runtimeOptions.PSObject.Properties['includedFrameworks']
+$nativeRuntimeFiles = if ($Runtime.StartsWith('win-')) {
+    @('hostfxr.dll', 'hostpolicy.dll', 'coreclr.dll')
+} elseif ($Runtime.StartsWith('osx-')) {
+    @('libhostfxr.dylib', 'libhostpolicy.dylib', 'libcoreclr.dylib')
+} else {
+    @('libhostfxr.so', 'libhostpolicy.so', 'libcoreclr.so')
+}
 if ($SelfContained) {
     if ($null -ne $framework -and $null -ne $framework.Value) {
         throw "SelfContained sidecar is framework-dependent: $runtimeConfigPath"
@@ -33,13 +40,6 @@ if ($SelfContained) {
         throw "SelfContained sidecar has no includedFrameworks: $runtimeConfigPath"
     }
 
-    $nativeRuntimeFiles = if ($Runtime.StartsWith('win-')) {
-        @('hostfxr.dll', 'hostpolicy.dll', 'coreclr.dll')
-    } elseif ($Runtime.StartsWith('osx-')) {
-        @('libhostfxr.dylib', 'libhostpolicy.dylib', 'libcoreclr.dylib')
-    } else {
-        @('libhostfxr.so', 'libhostpolicy.so', 'libcoreclr.so')
-    }
     foreach ($fileName in $nativeRuntimeFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $Stage $fileName))) {
             throw "SelfContained sidecar runtime file missing: $fileName under $Stage"
@@ -51,6 +51,11 @@ if ($SelfContained) {
     }
     if ($null -ne $includedFrameworks -and @($includedFrameworks.Value).Count -gt 0) {
         throw "NoRuntime sidecar unexpectedly includes a framework: $runtimeConfigPath"
+    }
+    foreach ($fileName in $nativeRuntimeFiles) {
+        if (Test-Path -LiteralPath (Join-Path $Stage $fileName)) {
+            throw "NoRuntime sidecar contains app-local runtime host '$fileName'; it would shadow the installed .NET runtime."
+        }
     }
 }
 

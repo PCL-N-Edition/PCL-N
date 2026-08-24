@@ -82,6 +82,17 @@ internal static class PluginSidecarRuntimeInspector
             }
             Version requiredVersion = parsedRequiredVersion!;
 
+            string localHostFxr = Path.Combine(directory, GetHostFxrFileName());
+            if (File.Exists(localHostFxr) &&
+                !HasCompatibleFramework([directory], frameworkName, requiredVersion))
+            {
+                return new PluginSidecarRuntimeCheck(
+                    false,
+                    true,
+                    "NoRuntime 插件 sidecar 错误携带了不完整的本地 .NET 宿主，它会屏蔽系统已安装的运行时。" +
+                    "请重新安装新版 NoRuntime 或 SelfContained 包。");
+            }
+
             if (HasCompatibleFramework(runtimeRoots, frameworkName, requiredVersion))
             {
                 return new PluginSidecarRuntimeCheck(
@@ -139,6 +150,13 @@ internal static class PluginSidecarRuntimeInspector
 
     private static bool TryParseRuntimeVersion(string value, out Version? version) =>
         Version.TryParse(value.Split('-', 2)[0], out version);
+
+    private static string GetHostFxrFileName() =>
+        OperatingSystem.IsWindows()
+            ? "hostfxr.dll"
+            : OperatingSystem.IsMacOS()
+                ? "libhostfxr.dylib"
+                : "libhostfxr.so";
 
     private static IEnumerable<string> EnumerateRuntimeRoots(string executable)
     {

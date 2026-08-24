@@ -57,9 +57,24 @@ public sealed class PluginSidecarRuntimeInspectorTests
         StringAssert.Contains(result.Message, "发布产物已损坏");
     }
 
+    [TestMethod]
+    public void Inspect_RejectsIncompleteAppLocalHostEvenWhenSystemRuntimeExists()
+    {
+        using RuntimeFixture fixture = new(selfContained: false, includeLocalHost: true);
+        string runtimeRoot = Path.Combine(fixture.Root, "dotnet");
+        Directory.CreateDirectory(Path.Combine(runtimeRoot, "shared", "Microsoft.NETCore.App", "10.0.11"));
+
+        PluginSidecarRuntimeCheck result = PluginSidecarRuntimeInspector.Inspect(
+            fixture.Executable,
+            [runtimeRoot]);
+
+        Assert.IsFalse(result.CanStart);
+        StringAssert.Contains(result.Message, "屏蔽系统已安装的运行时");
+    }
+
     private sealed class RuntimeFixture : IDisposable
     {
-        public RuntimeFixture(bool selfContained, string? marker = null)
+        public RuntimeFixture(bool selfContained, string? marker = null, bool includeLocalHost = false)
         {
             Root = Path.Combine(Path.GetTempPath(), "pcln-sidecar-runtime-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Root);
@@ -78,6 +93,15 @@ public sealed class PluginSidecarRuntimeInspectorTests
                 File.WriteAllText(
                     Path.Combine(Root, PluginSidecarRuntimeInspector.VariantMarkerFileName),
                     marker);
+            }
+            if (includeLocalHost)
+            {
+                string hostFxr = OperatingSystem.IsWindows()
+                    ? "hostfxr.dll"
+                    : OperatingSystem.IsMacOS()
+                        ? "libhostfxr.dylib"
+                        : "libhostfxr.so";
+                File.WriteAllBytes(Path.Combine(Root, hostFxr), []);
             }
         }
 
