@@ -234,7 +234,7 @@ public sealed class SkinAppearanceTests
         }));
         LittleSkinCatalog catalog = new(client);
 
-        SkinSitePage result = await catalog.GetPageAsync(2);
+        SkinSitePage result = await catalog.GetPageAsync(new SkinSiteQuery(Page: 2));
 
         Assert.AreEqual("LittleSkin Test", result.SiteName);
         Assert.AreEqual("6.0.2", result.ServerVersion);
@@ -244,9 +244,67 @@ public sealed class SkinAppearanceTests
         Assert.HasCount(1, result.Items);
         Assert.AreEqual("Test Skin", result.Items[0].Name);
         Assert.AreEqual("alex", result.Items[0].Model);
+        Assert.AreEqual(SkinSiteTextureKind.Skin, result.Items[0].TextureKind);
         Assert.AreEqual(
             "https://littleskin.cn/textures/" + hash,
             result.Items[0].SkinAddress);
+    }
+
+    [TestMethod]
+    public async Task LittleSkinCatalog_ForwardsCapeSearchAndSortAndMapsCape()
+    {
+        const string hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        Uri? catalogRequest = null;
+        using HttpClient client = new(new StubHandler(request =>
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            return path switch
+            {
+                "/api" => Json("""{"site_name":"LittleSkin","blessing_skin":"6.0.2"}"""),
+                "/skinlib/list" => CaptureCatalogRequest(request),
+                "/skinlib/info/84" => Json($$"""{"tid":84,"hash":"{{hash}}"}"""),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound)
+            };
+        }));
+        LittleSkinCatalog catalog = new(client);
+
+        SkinSitePage result = await catalog.GetPageAsync(new SkinSiteQuery(
+            Page: 3,
+            TextureKind: SkinSiteTextureKind.Cape,
+            SortOrder: SkinSiteSortOrder.Likes,
+            Keyword: "  迁移者  "));
+
+        Assert.IsNotNull(catalogRequest);
+        string query = Uri.UnescapeDataString(catalogRequest.Query);
+        StringAssert.Contains(query, "page=3");
+        StringAssert.Contains(query, "filter=cape");
+        StringAssert.Contains(query, "sort=likes");
+        StringAssert.Contains(query, "keyword=迁移者");
+        Assert.HasCount(1, result.Items);
+        Assert.AreEqual(SkinSiteTextureKind.Cape, result.Items[0].TextureKind);
+
+        HttpResponseMessage CaptureCatalogRequest(HttpRequestMessage request)
+        {
+            catalogRequest = request.RequestUri;
+            return Json(
+                """
+                {
+                  "current_page": 3,
+                  "prev_page_url": "https://littleskin.cn/skinlib/list?page=2",
+                  "next_page_url": null,
+                  "data": [
+                    {
+                      "tid": 84,
+                      "name": "Migrator Cape",
+                      "nickname": "Uploader",
+                      "type": "cape",
+                      "likes": 99,
+                      "hd": false
+                    }
+                  ]
+                }
+                """);
+        }
     }
 
     private static HttpResponseMessage Json(string content) =>

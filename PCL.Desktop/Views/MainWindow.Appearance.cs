@@ -113,7 +113,7 @@ public partial class MainWindow
         LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
         _appearanceLoadCancellation?.Cancel();
         PageSkinLibraryRight page = new();
-        page.SkinSelected += (_, item) => _ = ApplySkinSiteItemAsync(profile, item);
+        page.TextureSelected += (_, item) => _ = ApplySkinSiteItemAsync(profile, item);
         page.OpenUrlRequested += (_, uri) => OpenExternalUrl(uri.AbsoluteUri);
         ApplyExperimentalAppearancePage(
             page,
@@ -759,8 +759,45 @@ public partial class MainWindow
         LoginProfileInfo requestedProfile,
         SkinSiteItem item)
     {
+        LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
+        if (item.TextureKind == SkinSiteTextureKind.Cape)
+        {
+            if (profile.Kind == LaunchLoginProfileKind.LittleSkin)
+            {
+                await ApplyLittleSkinTextureAsync(
+                        profile,
+                        item.TextureId,
+                        item.SkinAddress,
+                        item.Name,
+                        LittleSkinTextureKind.Cape)
+                    .ConfigureAwait(true);
+                return;
+            }
+
+            if (profile.Kind == LaunchLoginProfileKind.ThirdParty)
+            {
+                ShowTextDialog(
+                    GetResourceText("Appearance.Library.ThirdPartyCape.Title", "第三方披风"),
+                    GetResourceText(
+                        "Appearance.Library.ThirdPartyCape.Message",
+                        "请在皮肤站中将该披风加入衣柜，并应用到当前角色。"),
+                    primaryButton: GetResourceText("Appearance.Library.Details", "查看详情"),
+                    secondaryButton: GetResourceText("Common.Action.Confirm", "好"),
+                    primaryAction: () => OpenExternalUrl(item.DetailsUri.AbsoluteUri));
+                return;
+            }
+
+            ShowTextDialog(
+                GetResourceText("Appearance.Library.UnsupportedCape.Title", "使用披风"),
+                GetResourceText(
+                    "Appearance.Library.UnsupportedCape.Message",
+                    "当前档案不能直接应用皮肤站中的披风。"),
+                GetResourceText("Common.Action.Confirm", "好"));
+            return;
+        }
+
         await ApplySkinAddressAsync(
-                requestedProfile,
+                profile,
                 item.SkinAddress,
                 string.Equals(item.Model, "alex", StringComparison.OrdinalIgnoreCase),
                 item.Name,

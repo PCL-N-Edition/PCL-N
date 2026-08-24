@@ -12,7 +12,35 @@ public sealed record SkinSiteDescriptor(
     string DisplayName,
     Uri BaseUri,
     Uri DocumentationUri,
-    string SvgIcon);
+    string SvgIcon,
+    bool SupportsCapes = false);
+
+public enum SkinSiteTextureKind
+{
+    Skin,
+    Cape
+}
+
+public enum SkinSiteSortOrder
+{
+    Time,
+    Likes
+}
+
+public sealed record SkinSiteQuery(
+    int Page = 1,
+    SkinSiteTextureKind TextureKind = SkinSiteTextureKind.Skin,
+    SkinSiteSortOrder SortOrder = SkinSiteSortOrder.Time,
+    string Keyword = "")
+{
+    public SkinSiteQuery Normalize() => this with
+    {
+        Page = Math.Max(1, Page),
+        TextureKind = Enum.IsDefined(TextureKind) ? TextureKind : SkinSiteTextureKind.Skin,
+        SortOrder = Enum.IsDefined(SortOrder) ? SortOrder : SkinSiteSortOrder.Time,
+        Keyword = Keyword.Trim()
+    };
+}
 
 public sealed record SkinSiteItem(
     long TextureId,
@@ -22,7 +50,8 @@ public sealed record SkinSiteItem(
     int Likes,
     bool IsHighDefinition,
     string SkinAddress,
-    Uri DetailsUri);
+    Uri DetailsUri,
+    SkinSiteTextureKind TextureKind = SkinSiteTextureKind.Skin);
 
 public sealed record SkinSitePage(
     string SiteName,
@@ -37,7 +66,7 @@ public interface ISkinSiteCatalog
     SkinSiteDescriptor Descriptor { get; }
 
     Task<SkinSitePage> GetPageAsync(
-        int page,
+        SkinSiteQuery query,
         CancellationToken cancellationToken = default);
 }
 
@@ -50,7 +79,7 @@ public sealed class LittleSkinCatalog : ISkinSiteCatalog
     private static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(5);
     private static readonly HttpClient SharedClient = CreateClient();
     private readonly HttpClient _client;
-    private readonly ConcurrentDictionary<int, CacheEntry> _cache = new();
+    private readonly ConcurrentDictionary<SkinSiteQuery, CacheEntry> _cache = new();
 
     public LittleSkinCatalog(HttpClient? client = null)
     {
@@ -62,14 +91,16 @@ public sealed class LittleSkinCatalog : ISkinSiteCatalog
         "LittleSkin",
         new Uri("https://littleskin.cn/"),
         new Uri("https://manual.littlesk.in/advanced/api"),
-        "lucide/shirt");
+        "lucide/shirt",
+        SupportsCapes: true);
 
     public async Task<SkinSitePage> GetPageAsync(
-        int page,
+        SkinSiteQuery query,
         CancellationToken cancellationToken = default)
     {
-        page = Math.Max(1, page);
-        if (_cache.TryGetValue(page, out CacheEntry? cached) &&
+        ArgumentNullException.ThrowIfNull(query);
+        query = query.Normalize();
+        if (_cache.TryGetValue(query, out CacheEntry? cached) &&
             DateTimeOffset.UtcNow - cached.CreatedUtc < CacheLifetime)
         {
             return cached.Page;
@@ -78,7 +109,7 @@ public sealed class LittleSkinCatalog : ISkinSiteCatalog
         Task<SiteIdentity> identityTask = GetIdentityAsync(cancellationToken);
         using HttpRequestMessage request = new(
             HttpMethod.Get,
-            new Uri(Descriptor.BaseUri, "skinlib/list?page=" + page));
+            BuildCatalogUri(query));
         AddJsonHeaders(request);
         using HttpResponseMessage response = await _client
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
@@ -90,7 +121,7 @@ public sealed class LittleSkinCatalog : ISkinSiteCatalog
         using JsonDocument document = await JsonDocument
             .ParseAsync(stream, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        CatalogList list = ParseCatalogList(document.RootElement, page);
+        CatalogList list = ParseCatalogList(document.RootElement, query.Page);
 
         using SemaphoreSlim detailSlots = new(4, 4);
         Task<SkinSiteItem?>[] detailTasks = list.Items
@@ -105,8 +136,20 @@ public sealed class LittleSkinCatalog : ISkinSiteCatalog
             list.HasPrevious,
             list.HasNext,
             details.Where(static item => item is not null).Cast<SkinSiteItem>().ToArray());
-        _cache[page] = new CacheEntry(DateTimeOffset.UtcNow, result);
+        _cache[query] = new CacheEntry(DateTimeOffset.UtcNow, result);
         return result;
+    }
+
+    private Uri BuildCatalogUri(SkinSiteQuery query)
+    {
+        string filter = query.TextureKind == SkinSiteTextureKind.Cape ? "cape" : "skin";
+        string sort = query.SortOrder == SkinSiteSortOrder.Likes ? "likes" : "time";
+        string keyword = string.IsNullOrWhiteSpace(query.Keyword)
+            ? string.Empty
+            : "&keyword=" + Uri.EscapeDataString(query.Keyword);
+        return new Uri(
+            Descriptor.BaseUri,
+            $"skinlib/list?page={query.Page}&filter={filter}&sort={sort}{keyword}");
     }
 
     internal static CatalogList ParseCatalogList(JsonElement root, int requestedPage)
@@ -198,7 +241,10 @@ public sealed class LittleSkinCatalog : ISkinSiteCatalog
                 item.Likes,
                 item.IsHighDefinition,
                 new Uri(Descriptor.BaseUri, "textures/" + hash).AbsoluteUri,
-                new Uri(Descriptor.BaseUri, "skinlib/show/" + item.TextureId));
+                new Uri(Descriptor.BaseUri, "skinlib/show/" + item.TextureId),
+                string.Equals(item.Model, "cape", StringComparison.OrdinalIgnoreCase)
+                    ? SkinSiteTextureKind.Cape
+                    : SkinSiteTextureKind.Skin);
         }
         catch (Exception exception) when (
             exception is HttpRequestException or

@@ -20,7 +20,7 @@
         </Border>
 
         <Grid Grid.Column="1"
-              RowDefinitions="Auto,*,Auto"
+              RowDefinitions="Auto,Auto,*,Auto"
               MaxWidth="1320"
               HorizontalAlignment="Center">
             <Grid Margin="28,18,28,12"
@@ -61,7 +61,46 @@
                 </StackPanel>
             </Grid>
 
-            <Grid Grid.Row="1">
+            <Grid Grid.Row="1"
+                  Margin="28,0,28,12"
+                  ColumnDefinitions="*,Auto,154"
+                  ColumnSpacing="10">
+                <legacy:MySearchBox x:Name="SearchBox"
+                                    Height="36"
+                                    HintText="{DynamicResource Appearance.Library.Search.Hint}"
+                                    SearchButtonVisibility="True" />
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="6">
+                    <legacy:MyButton x:Name="BtnSkin"
+                                     Height="36"
+                                     MinWidth="68"
+                                     Padding="13,0"
+                                     CornerRadius="10"
+                                     UseExperimentalStyle="True"
+                                     ColorType="Highlight"
+                                     Text="{DynamicResource Appearance.Library.Filter.Skin}" />
+                    <legacy:MyButton x:Name="BtnCape"
+                                     Height="36"
+                                     MinWidth="68"
+                                     Padding="13,0"
+                                     CornerRadius="10"
+                                     UseExperimentalStyle="True"
+                                     Text="{DynamicResource Appearance.Library.Filter.Cape}" />
+                </StackPanel>
+                <legacy:MyComboBox x:Name="ComboSort"
+                                   Grid.Column="2"
+                                   Height="36"
+                                   UseExperimentalStyle="True">
+                    <legacy:MyComboBoxItem Content="{DynamicResource Appearance.Library.Sort.Time}"
+                                           Tag="time"
+                                           IsSelected="True" />
+                    <legacy:MyComboBoxItem Content="{DynamicResource Appearance.Library.Sort.Likes}"
+                                           Tag="likes" />
+                </legacy:MyComboBox>
+            </Grid>
+
+            <Grid Grid.Row="2">
                 <legacy:MyScrollViewer x:Name="PanBack"
                                        Margin="20,0,18,0"
                                        VerticalScrollBarVisibility="Auto"
@@ -111,7 +150,7 @@
                 </Border>
             </Grid>
 
-            <Grid Grid.Row="2"
+            <Grid Grid.Row="3"
                   Margin="28,10,28,20"
                   ColumnDefinitions="*,Auto,Auto">
                 <TextBlock Text="{DynamicResource Appearance.Library.ApiNotice}"

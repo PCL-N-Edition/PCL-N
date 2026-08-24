@@ -24,6 +24,9 @@ public partial class PageSkinLibraryRight : MyPageRight
     private bool _hasPreviousPage;
     private bool _hasNextPage;
     private bool _isLoading;
+    private SkinSiteTextureKind _textureKind = SkinSiteTextureKind.Skin;
+    private SkinSiteSortOrder _sortOrder = SkinSiteSortOrder.Time;
+    private string _keyword = string.Empty;
 
     public PageSkinLibraryRight()
     {
@@ -34,11 +37,23 @@ public partial class PageSkinLibraryRight : MyPageRight
         PageExit += CancelPendingLoad;
         AttachedToVisualTree += (_, _) => ExperimentalControlChrome.ApplyDeferred(this, enabled: true);
         PageEnter += () => ExperimentalControlChrome.ApplyDeferred(this, enabled: true);
+        if (this.FindControl<MySearchBox>("SearchBox") is { } searchBox)
+        {
+            searchBox.Search += SearchBox_Search;
+            searchBox.TextChanged += SearchBox_TextChanged;
+        }
+        if (this.FindControl<MyButton>("BtnSkin") is { } skinButton)
+            skinButton.Click += (_, _) => SelectTextureKind(SkinSiteTextureKind.Skin);
+        if (this.FindControl<MyButton>("BtnCape") is { } capeButton)
+            capeButton.Click += (_, _) => SelectTextureKind(SkinSiteTextureKind.Cape);
+        if (this.FindControl<MyComboBox>("ComboSort") is { } sortCombo)
+            sortCombo.SelectionChanged += ComboSort_SelectionChanged;
         ApplyResponsiveLayout();
+        UpdateFilterControls();
         UpdatePager();
     }
 
-    public event EventHandler<SkinSiteItem>? SkinSelected;
+    public event EventHandler<SkinSiteItem>? TextureSelected;
 
     public event EventHandler<Uri>? OpenUrlRequested;
 
@@ -55,7 +70,10 @@ public partial class PageSkinLibraryRight : MyPageRight
                                    StringComparison.OrdinalIgnoreCase))
                            ?? (catalogs.Count > 0 ? catalogs[0] : null);
         _currentPage = 1;
+        if (_selectedCatalog?.Descriptor.SupportsCapes != true)
+            _textureKind = SkinSiteTextureKind.Skin;
         RenderSiteRail();
+        UpdateFilterControls();
         _ = ReloadAsync(force: false);
     }
 
@@ -96,7 +114,9 @@ public partial class PageSkinLibraryRight : MyPageRight
             }
 
             SkinSitePage page = await catalog
-                .GetPageAsync(_currentPage, cancellationToken)
+                .GetPageAsync(
+                    new SkinSiteQuery(_currentPage, _textureKind, _sortOrder, _keyword),
+                    cancellationToken)
                 .ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -172,12 +192,17 @@ public partial class PageSkinLibraryRight : MyPageRight
 
     private Border CreateSkinCard(SkinSiteItem item)
     {
+        bool isCape = item.TextureKind == SkinSiteTextureKind.Cape;
         MinecraftPlayerPreview preview = new()
         {
             Width = 84,
             Height = 168,
-            SkinAddress = item.SkinAddress,
+            SkinAddress = isCape
+                ? "avares://PCL.Desktop/Assets/Legacy/Skins/Steve.png"
+                : item.SkinAddress,
+            CapeAddress = isCape ? item.SkinAddress : string.Empty,
             IsSlim = string.Equals(item.Model, "alex", StringComparison.OrdinalIgnoreCase),
+            View = isCape ? MinecraftPlayerView.Back : MinecraftPlayerView.Isometric,
             HorizontalAlignment = HorizontalAlignment.Center
         };
         TextBlock title = new()
@@ -205,14 +230,20 @@ public partial class PageSkinLibraryRight : MyPageRight
         };
         TextBlock metadata = new()
         {
-            Text = FormatResource(
-                "Appearance.Library.Metadata",
-                "♥ {0} · {1}{2}",
-                item.Likes,
-                string.Equals(item.Model, "alex", StringComparison.OrdinalIgnoreCase)
-                    ? "Slim"
-                    : "Classic",
-                item.IsHighDefinition ? " · HD" : string.Empty),
+            Text = isCape
+                ? FormatResource(
+                    "Appearance.Library.Metadata.Cape",
+                    "♥ {0} · 披风{1}",
+                    item.Likes,
+                    item.IsHighDefinition ? " · HD" : string.Empty)
+                : FormatResource(
+                    "Appearance.Library.Metadata",
+                    "♥ {0} · {1}{2}",
+                    item.Likes,
+                    string.Equals(item.Model, "alex", StringComparison.OrdinalIgnoreCase)
+                        ? "Slim"
+                        : "Classic",
+                    item.IsHighDefinition ? " · HD" : string.Empty),
             FontSize = 10.5,
             Opacity = 0.62,
             TextAlignment = TextAlignment.Center
@@ -225,9 +256,11 @@ public partial class PageSkinLibraryRight : MyPageRight
             Margin = new Thickness(0, 6, 0, 0),
             UseExperimentalStyle = true,
             ColorType = MyButton.ColorState.Highlight,
-            Text = ResourceText("Appearance.Action.UseSkin", "使用皮肤")
+            Text = isCape
+                ? ResourceText("Appearance.Action.UseCape", "使用披风")
+                : ResourceText("Appearance.Action.UseSkin", "使用皮肤")
         };
-        useButton.Click += (_, _) => SkinSelected?.Invoke(this, item);
+        useButton.Click += (_, _) => TextureSelected?.Invoke(this, item);
         MyButton detailsButton = new()
         {
             Height = 31,
@@ -342,7 +375,10 @@ public partial class PageSkinLibraryRight : MyPageRight
             e.Handled = true;
             _selectedCatalog = catalog;
             _currentPage = 1;
+            if (!catalog.Descriptor.SupportsCapes)
+                _textureKind = SkinSiteTextureKind.Skin;
             RenderSiteRail();
+            UpdateFilterControls();
             _ = ReloadAsync(force: false);
         };
         return row;
@@ -384,6 +420,79 @@ public partial class PageSkinLibraryRight : MyPageRight
             previous.IsEnabled = _hasPreviousPage && !_isLoading;
         if (this.FindControl<MyButton>("BtnNext") is { } next)
             next.IsEnabled = _hasNextPage && !_isLoading;
+    }
+
+    private void SearchBox_Search(object sender, EventArgs e) =>
+        ApplySearchQuery();
+
+    private void SearchBox_TextChanged(object sender, EventArgs e)
+    {
+        if (this.FindControl<MySearchBox>("SearchBox") is { } searchBox &&
+            string.IsNullOrWhiteSpace(searchBox.Text) &&
+            !string.IsNullOrEmpty(_keyword))
+        {
+            ApplySearchQuery();
+        }
+    }
+
+    private void ApplySearchQuery()
+    {
+        string keyword = this.FindControl<MySearchBox>("SearchBox")?.Text.Trim() ?? string.Empty;
+        if (string.Equals(keyword, _keyword, StringComparison.Ordinal))
+            return;
+
+        _keyword = keyword;
+        _currentPage = 1;
+        _ = ReloadAsync(force: false);
+    }
+
+    private void ComboSort_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not MyComboBox { SelectedItem: MyComboBoxItem item })
+            return;
+        SkinSiteSortOrder selected = string.Equals(
+            item.Tag?.ToString(),
+            "likes",
+            StringComparison.OrdinalIgnoreCase)
+            ? SkinSiteSortOrder.Likes
+            : SkinSiteSortOrder.Time;
+        if (_sortOrder == selected)
+            return;
+
+        _sortOrder = selected;
+        _currentPage = 1;
+        _ = ReloadAsync(force: false);
+    }
+
+    private void SelectTextureKind(SkinSiteTextureKind textureKind)
+    {
+        if (textureKind == SkinSiteTextureKind.Cape &&
+            _selectedCatalog?.Descriptor.SupportsCapes != true)
+        {
+            return;
+        }
+        if (_textureKind == textureKind)
+            return;
+
+        _textureKind = textureKind;
+        _currentPage = 1;
+        UpdateFilterControls();
+        _ = ReloadAsync(force: false);
+    }
+
+    private void UpdateFilterControls()
+    {
+        if (this.FindControl<MyButton>("BtnSkin") is { } skinButton)
+            skinButton.ColorType = _textureKind == SkinSiteTextureKind.Skin
+                ? MyButton.ColorState.Highlight
+                : MyButton.ColorState.Normal;
+        if (this.FindControl<MyButton>("BtnCape") is { } capeButton)
+        {
+            capeButton.IsVisible = _selectedCatalog?.Descriptor.SupportsCapes == true;
+            capeButton.ColorType = _textureKind == SkinSiteTextureKind.Cape
+                ? MyButton.ColorState.Highlight
+                : MyButton.ColorState.Normal;
+        }
     }
 
     private void ApplyResponsiveLayout()

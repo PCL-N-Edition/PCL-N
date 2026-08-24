@@ -486,6 +486,16 @@
     <sys:String x:Key="Appearance.Library.By">由 {0} 上傳</sys:String>
     <sys:String x:Key="Appearance.Library.UnknownUploader">未知使用者</sys:String>
     <sys:String x:Key="Appearance.Library.Metadata">♥ {0} · {1}{2}</sys:String>
+    <sys:String x:Key="Appearance.Library.Metadata.Cape">♥ {0} · 披風{1}</sys:String>
+    <sys:String x:Key="Appearance.Library.Search.Hint">搜尋公開材質…</sys:String>
+    <sys:String x:Key="Appearance.Library.Filter.Skin">皮膚</sys:String>
+    <sys:String x:Key="Appearance.Library.Filter.Cape">披風</sys:String>
+    <sys:String x:Key="Appearance.Library.Sort.Time">最新上傳</sys:String>
+    <sys:String x:Key="Appearance.Library.Sort.Likes">最多收藏</sys:String>
+    <sys:String x:Key="Appearance.Library.ThirdPartyCape.Title">第三方披風</sys:String>
+    <sys:String x:Key="Appearance.Library.ThirdPartyCape.Message">請在皮膚站中將該披風加入衣櫃，並套用到目前角色。</sys:String>
+    <sys:String x:Key="Appearance.Library.UnsupportedCape.Title">使用披風</sys:String>
+    <sys:String x:Key="Appearance.Library.UnsupportedCape.Message">目前檔案不能直接套用皮膚站中的披風。</sys:String>
     <sys:String x:Key="Appearance.Library.Details">檢視詳情</sys:String>
     <sys:String x:Key="Appearance.Library.Empty.Title">沒有可顯示的皮膚</sys:String>
     <sys:String x:Key="Appearance.Library.Empty.Message">此頁沒有公開材質，可以嘗試重新整理或切換頁面。</sys:String>
