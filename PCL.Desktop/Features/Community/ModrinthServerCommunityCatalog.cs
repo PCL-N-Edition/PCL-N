@@ -41,7 +41,7 @@ public sealed class ModrinthServerCommunityCatalog : ICommunityResourceCatalog, 
             return [];
 
         options ??= new CommunitySearchOptions();
-        string facets = JsonSerializer.Serialize(new[] { new[] { "project_type:minecraft_java_server" } });
+        const string facets = "[[\"project_type:minecraft_java_server\"]]";
         string index = options.Sort switch
         {
             CommunityResourceSort.Downloads => "downloads",
