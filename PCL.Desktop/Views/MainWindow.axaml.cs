@@ -4541,7 +4541,11 @@ public partial class MainWindow : Window, IDisposable
                 AccessToken = session.AccessToken,
                 ClientToken = session.ClientToken,
                 AuthServer = authServer,
-                SkinAddress = session.SkinAddress ?? profile.SkinAddress
+                // N Cloud is authoritative here. Keeping the previous local URL when the
+                // service returns no skin resurrects a texture that was deleted server-side.
+                SkinAddress = string.IsNullOrWhiteSpace(session.SkinAddress)
+                    ? null
+                    : session.SkinAddress.Trim()
             };
 
             // Prefer concrete texture PNG from the Yggdrasil session profile (skin + cape source).

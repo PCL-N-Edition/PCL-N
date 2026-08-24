@@ -1621,16 +1621,6 @@ public partial class MainWindow
             {
                 profile = profile with { SkinAddress = textures.SkinAddress };
             }
-            else if (string.IsNullOrWhiteSpace(profile.SkinAddress))
-            {
-                profile = profile with
-                {
-                    SkinAddress = MySkin.ResolveSkinAddress(
-                        skinAddress: null,
-                        uuid: profile.Uuid,
-                        authServer: profile.AuthServer)
-                };
-            }
 
             page.UpdateProgress(0.85d);
             AddOrUpdateLoginProfile(profile);
