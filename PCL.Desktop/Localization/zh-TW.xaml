@@ -882,7 +882,7 @@
     <sys:String x:Key="Setup.Misc.System.Announcement.ImportantOnly">僅重要公告</sys:String>
     <sys:String x:Key="Setup.Misc.System.DisableHardwareAcceleration">關閉硬體加速</sys:String>
     <sys:String x:Key="Setup.Misc.System.UltraLowPower">超低功耗模式</sys:String>
-    <sys:String x:Key="Setup.Misc.System.UltraLowPower.ToolTip">視窗失去焦點後播放遮罩動畫，並暫停介面計時器與背景影片、釋放可快速恢復的背景影像和媒體資源；重新取得焦點時立即恢復。下載、遊戲啟動與其他背景工作不會停止。</sys:String>
+    <sys:String x:Key="Setup.Misc.System.UltraLowPower.ToolTip">視窗失去焦點後播放遮罩動畫，並暫停介面計時器與背景影片、釋放可快速恢復的背景影像和媒體資源；持續失焦 3 秒後會壓縮受控堆積並要求系統回收閒置工作集。重新取得焦點時立即恢復，下載、遊戲啟動與其他背景工作不會停止。</sys:String>
     <sys:String x:Key="Setup.Misc.System.ExportSettings">匯出設定</sys:String>
     <sys:String x:Key="Setup.Misc.System.ImportSettings">匯入設定</sys:String>
     <sys:String x:Key="Setup.Misc.System.MaxFps">動畫幀率</sys:String>

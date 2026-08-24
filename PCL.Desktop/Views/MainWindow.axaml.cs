@@ -166,6 +166,7 @@ public partial class MainWindow : Window, IDisposable
     private bool _isUltraLowPowerSuspended;
     private bool _lowPowerAnimationSuppressionApplied;
     private CancellationTokenSource? _ultraLowPowerTransitionCancellation;
+    private CancellationTokenSource? _lowPowerMemoryTrimCancellation;
 
     private const double NavCollapsedWidth = 50d;
     private const int NavAnimDuration = 200;
@@ -608,6 +609,7 @@ public partial class MainWindow : Window, IDisposable
         DesktopFileLog.Info("Window", "主窗口正在关闭。");
         _isClosing = true;
         CancelUltraLowPowerTransition();
+        CancelLowPowerMemoryTrim();
         LauncherSettingsPageBinder.SettingsChanged -= LauncherSettingsChanged;
         AvaloniaThemeManager.ThemeChanged -= ThemeChanged;
         AvaloniaLocalizationManager.LanguageChanged -= LocalizationChanged;
@@ -5872,6 +5874,7 @@ public partial class MainWindow : Window, IDisposable
         _backgroundBitmap?.Dispose();
         _backgroundBitmap = null;
         CancelUltraLowPowerTransition();
+        CancelLowPowerMemoryTrim();
         if (_lowPowerAnimationSuppressionApplied)
         {
             ModAnimation.AniControlEnabled = Math.Max(0, ModAnimation.AniControlEnabled - 1);
@@ -6220,10 +6223,12 @@ public partial class MainWindow : Window, IDisposable
         _backgroundBitmap?.Dispose();
         _backgroundBitmap = null;
         _backgroundStamp = null;
+        ScheduleLowPowerMemoryTrim();
     }
 
     private void RestoreUltraLowPowerResources()
     {
+        CancelLowPowerMemoryTrim();
         if (_lowPowerAnimationSuppressionApplied)
         {
             ModAnimation.AniControlEnabled = Math.Max(0, ModAnimation.AniControlEnabled - 1);
@@ -6249,6 +6254,68 @@ public partial class MainWindow : Window, IDisposable
         try { cancellation.Cancel(); }
         catch (ObjectDisposedException) { }
     }
+
+    private void ScheduleLowPowerMemoryTrim()
+    {
+        CancelLowPowerMemoryTrim();
+        CancellationTokenSource cancellation = new();
+        _lowPowerMemoryTrimCancellation = cancellation;
+        UnhandledExceptionGuard.Observe(
+            RunLowPowerMemoryTrimAsync(cancellation),
+            "MainWindow.UltraLowPower.TrimMemory");
+    }
+
+    private async Task RunLowPowerMemoryTrimAsync(CancellationTokenSource owner)
+    {
+        try
+        {
+            // Ignore short focus changes (dialogs, task switching, notifications). The expensive
+            // compaction is reserved for a window that is genuinely staying in low-power mode.
+            await Task.Delay(TimeSpan.FromSeconds(3), owner.Token).ConfigureAwait(false);
+            bool shouldTrim = await Dispatcher.UIThread.InvokeAsync(
+                () => !_isDisposed && !_isClosing && _isUltraLowPowerSuspended && !IsActive,
+                DispatcherPriority.Background,
+                owner.Token);
+            if (!shouldTrim)
+                return;
+
+            LowPowerMemoryTrimResult result = await Task.Run(
+                    LowPowerMemoryTrimmer.Trim,
+                    owner.Token)
+                .ConfigureAwait(false);
+            if (owner.IsCancellationRequested)
+                return;
+            DesktopFileLog.Info(
+                "Power",
+                $"超低功耗内存整理完成：工作集 {ToMebibytes(result.WorkingSetBefore):0.0} → " +
+                $"{ToMebibytes(result.WorkingSetAfter):0.0} MiB；托管堆 " +
+                $"{ToMebibytes(result.ManagedHeapBefore):0.0} → {ToMebibytes(result.ManagedHeapAfter):0.0} MiB；" +
+                $"原生回收={result.NativePressureRelieved}；耗时={result.Elapsed.TotalMilliseconds:0} ms。");
+        }
+        catch (OperationCanceledException) when (owner.IsCancellationRequested)
+        {
+            // Focus returned before the delayed trim became worthwhile.
+        }
+        finally
+        {
+            if (ReferenceEquals(_lowPowerMemoryTrimCancellation, owner))
+                _lowPowerMemoryTrimCancellation = null;
+            owner.Dispose();
+        }
+    }
+
+    private void CancelLowPowerMemoryTrim()
+    {
+        CancellationTokenSource? cancellation = _lowPowerMemoryTrimCancellation;
+        _lowPowerMemoryTrimCancellation = null;
+        if (cancellation is null)
+            return;
+
+        try { cancellation.Cancel(); }
+        catch (ObjectDisposedException) { }
+    }
+
+    private static double ToMebibytes(long bytes) => bytes / 1024d / 1024d;
 
     private void ApplyFormBackground(LauncherSettings settings)
     {

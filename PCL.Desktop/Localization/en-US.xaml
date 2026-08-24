@@ -882,7 +882,7 @@
     <sys:String x:Key="Setup.Misc.System.Announcement.ImportantOnly">Important only</sys:String>
     <sys:String x:Key="Setup.Misc.System.DisableHardwareAcceleration">Turn Off Hardware Acceleration</sys:String>
     <sys:String x:Key="Setup.Misc.System.UltraLowPower">Ultra-low power mode</sys:String>
-    <sys:String x:Key="Setup.Misc.System.UltraLowPower.ToolTip">After the window loses focus, play a cover transition, pause visible UI timers and background video, and release quickly recoverable image and media resources. Restore them immediately on focus. Downloads, game launches, and other background work keep running.</sys:String>
+    <sys:String x:Key="Setup.Misc.System.UltraLowPower.ToolTip">After the window loses focus, play a cover transition, pause visible UI timers and background video, and release quickly recoverable image and media resources. After 3 seconds, compact the managed heap and ask the OS to reclaim idle working-set pages. Restore immediately on focus; downloads, game launches, and other background work keep running.</sys:String>
     <sys:String x:Key="Setup.Misc.System.ExportSettings">Export settings</sys:String>
     <sys:String x:Key="Setup.Misc.System.ImportSettings">Import settings</sys:String>
     <sys:String x:Key="Setup.Misc.System.MaxFps">Animation frame rate</sys:String>

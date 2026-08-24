@@ -25,7 +25,10 @@ internal static class AsyncLogoLoader
     private static readonly object CacheGate = new();
     private static readonly ConcurrentDictionary<string, Task<string>> CacheTasks = new(StringComparer.Ordinal);
     private static Bitmap? _placeholder;
-    private static readonly Dictionary<string, Bitmap> MemoryCache = new(StringComparer.OrdinalIgnoreCase);
+    // Controls keep a strong reference while rendering. A weak cache avoids retaining every
+    // logo seen during the entire session and lets low-power compaction reclaim detached pages.
+    private static readonly Dictionary<string, WeakReference<Bitmap>> MemoryCache =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public static Bitmap GetPlaceholder()
     {
@@ -131,11 +134,14 @@ internal static class AsyncLogoLoader
 
         lock (CacheGate)
         {
-            if (MemoryCache.TryGetValue(address, out Bitmap? cached))
+            if (MemoryCache.TryGetValue(address, out WeakReference<Bitmap>? reference) &&
+                reference.TryGetTarget(out Bitmap? cached))
             {
                 onLoaded(generation, cached);
                 return generation;
             }
+
+            MemoryCache.Remove(address);
         }
 
         _ = Task.Run(async () =>
@@ -165,7 +171,7 @@ internal static class AsyncLogoLoader
                 }
 
                 lock (CacheGate)
-                    MemoryCache[address] = bitmap;
+                    MemoryCache[address] = new WeakReference<Bitmap>(bitmap);
 
                 await Dispatcher.UIThread.InvokeAsync(() => onLoaded(generation, bitmap));
             }
