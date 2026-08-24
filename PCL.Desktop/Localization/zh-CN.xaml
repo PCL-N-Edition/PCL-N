@@ -1178,6 +1178,13 @@
     <sys:String x:Key="Plugin.Safety.Title">安全</sys:String>
     <sys:String x:Key="Plugin.UiPatches.Title">UI Patch</sys:String>
     <sys:String x:Key="Plugin.Compatibility.Title">兼容性</sys:String>
+    <sys:String x:Key="Plugin.Network.Title">网络</sys:String>
+    <sys:String x:Key="Plugin.Network.Group.Game">游戏</sys:String>
+    <sys:String x:Key="Plugin.Network.Group.Social">社交</sys:String>
+    <sys:String x:Key="Plugin.Network.Servers">服务器</sys:String>
+    <sys:String x:Key="Plugin.Network.NCloud">N Cloud 联机</sys:String>
+    <sys:String x:Key="Plugin.Network.Friends">好友</sys:String>
+    <sys:String x:Key="Plugin.Network.Chat">聊天</sys:String>
 
 
 

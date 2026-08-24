@@ -14,6 +14,57 @@ namespace PCL.Desktop.Test;
 public sealed class PluginSidecarProtocolTests
 {
     [TestMethod]
+    public void NavigationManifest_RoundTripsGroupedChildPagesWithAotJsonContext()
+    {
+        PluginSidecarV4Response source = new()
+        {
+            Result = new PluginSidecarResult
+            {
+                Ok = true,
+                Pages =
+                [
+                    new PluginUiPageDto
+                    {
+                        Id = "pcl.plugin.network",
+                        Surface = "pcl.navigation.main",
+                        Title = "网络",
+                        TitleKey = "Plugin.Network.Title",
+                        NavigationGroups =
+                        [
+                            new PluginUiNavigationGroupDto
+                            {
+                                Title = "游戏",
+                                TitleKey = "Plugin.Network.Group.Game",
+                                Items =
+                                [
+                                    new PluginUiNavigationItemDto
+                                    {
+                                        Id = "pcl.plugin.network.servers",
+                                        Title = "服务器",
+                                        TitleKey = "Plugin.Network.Servers",
+                                        Icon = "lucide/server"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        };
+
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(
+            source,
+            PluginSidecarJsonContext.Default.PluginSidecarV4Response);
+        PluginSidecarV4Response? restored = JsonSerializer.Deserialize(
+            json,
+            PluginSidecarJsonContext.Default.PluginSidecarV4Response);
+
+        PluginUiPageDto page = restored!.Result!.Pages!.Single();
+        Assert.AreEqual("Plugin.Network.Title", page.TitleKey);
+        Assert.AreEqual("pcl.plugin.network.servers", page.NavigationGroups!.Single().Items.Single().Id);
+    }
+
+    [TestMethod]
     public void HostStatePayload_RoundTripsWithAotJsonContext()
     {
         Guid sessionId = Guid.NewGuid();

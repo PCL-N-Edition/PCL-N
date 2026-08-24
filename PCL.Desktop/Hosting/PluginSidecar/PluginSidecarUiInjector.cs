@@ -94,6 +94,7 @@ internal static class PluginSidecarUiInjector
                     continue;
 
                 string route = page.Id;
+                PluginSidecarNavigationText.Register(route, page.TitleKey, page.Title);
                 try
                 {
                     IHostRegistration registration = DesktopHostNavigation.Instance.RegisterPage(
@@ -101,14 +102,17 @@ internal static class PluginSidecarUiInjector
                             "plugin-sidecar",
                             route,
                             route,
-                            page.Title,
+                            PluginSidecarNavigationText.Resolve(route, page.Title),
                             string.IsNullOrWhiteSpace(page.Icon) ? "lucide/plug" : page.Icon,
                             page.Order,
-                            () => new PageSetupRemoteDataChain(route)));
+                            () => page.NavigationGroups is { Length: > 0 }
+                                ? PluginRemoteNavigationPage.Create(page)
+                                : new PageSetupRemoteDataChain(route)));
                     NavigationRegistrations.Add(route, registration);
                 }
                 catch (InvalidOperationException ex)
                 {
+                    PluginSidecarNavigationText.Remove(route);
                     PortableLog.Warn("PluginSidecar", $"注册远程导航页失败：{route}；{ex.Message}");
                 }
 
@@ -154,6 +158,7 @@ internal static class PluginSidecarUiInjector
         {
             IHostRegistration registration = NavigationRegistrations[stale];
             NavigationRegistrations.Remove(stale);
+            PluginSidecarNavigationText.Remove(stale);
             await registration.DisposeAsync().ConfigureAwait(false);
             PluginUiPageCache.Invalidate(stale);
         }

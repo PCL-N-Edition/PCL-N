@@ -6849,7 +6849,7 @@ public partial class MainWindow : Window, IDisposable
                 DesktopNavigationRegistry.DownloadRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Download", "安装"),
                 DesktopNavigationRegistry.CommunityRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Community", "资源"),
                 DesktopNavigationRegistry.SettingsRouteValue => AvaloniaLocalizationManager.GetText("Main.TopTitle.Settings", "设置"),
-                _ => item.Title
+                _ => PluginSidecarNavigationText.Resolve(route.Value, item.Title ?? "")
             };
         }
     }

@@ -38,7 +38,7 @@ internal sealed class DesktopHostNavigation : IHostDynamicNavigation
             Provider = new DelegatePageProvider((_, _) =>
             {
                 object page = registration.CreatePage();
-                if (page is not Control)
+                if (page is not Control and not DesktopMainPage)
                     throw new InvalidOperationException(
                         $"Host page factory returned an unsupported type: {page?.GetType().FullName ?? "null"}");
                 return new ValueTask<object>(page);

@@ -465,6 +465,9 @@ internal sealed class PluginUiPageDto
     [JsonPropertyName("title")]
     public string Title { get; set; } = "";
 
+    [JsonPropertyName("titleKey")]
+    public string? TitleKey { get; set; }
+
     [JsonPropertyName("icon")]
     public string Icon { get; set; } = "lucide/plug";
 
@@ -479,6 +482,42 @@ internal sealed class PluginUiPageDto
 
     [JsonPropertyName("requiresDeveloperMode")]
     public bool RequiresDeveloperMode { get; set; }
+
+    [JsonPropertyName("navigationGroups")]
+    public PluginUiNavigationGroupDto[]? NavigationGroups { get; set; }
+}
+
+internal sealed class PluginUiNavigationGroupDto
+{
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+
+    [JsonPropertyName("titleKey")]
+    public string? TitleKey { get; set; }
+
+    [JsonPropertyName("order")]
+    public int Order { get; set; }
+
+    [JsonPropertyName("items")]
+    public PluginUiNavigationItemDto[] Items { get; set; } = [];
+}
+
+internal sealed class PluginUiNavigationItemDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+
+    [JsonPropertyName("titleKey")]
+    public string? TitleKey { get; set; }
+
+    [JsonPropertyName("icon")]
+    public string Icon { get; set; } = "lucide/circle";
+
+    [JsonPropertyName("order")]
+    public int Order { get; set; }
 }
 
 /// <summary>Declarative UI node rendered by host (data-chain injection).</summary>

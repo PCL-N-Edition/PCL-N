@@ -1178,6 +1178,13 @@
     <sys:String x:Key="Plugin.Safety.Title">Safety</sys:String>
     <sys:String x:Key="Plugin.UiPatches.Title">UI Patches</sys:String>
     <sys:String x:Key="Plugin.Compatibility.Title">Compatibility</sys:String>
+    <sys:String x:Key="Plugin.Network.Title">Network</sys:String>
+    <sys:String x:Key="Plugin.Network.Group.Game">Game</sys:String>
+    <sys:String x:Key="Plugin.Network.Group.Social">Social</sys:String>
+    <sys:String x:Key="Plugin.Network.Servers">Servers</sys:String>
+    <sys:String x:Key="Plugin.Network.NCloud">N Cloud Multiplayer</sys:String>
+    <sys:String x:Key="Plugin.Network.Friends">Friends</sys:String>
+    <sys:String x:Key="Plugin.Network.Chat">Chat</sys:String>
 
 
 
