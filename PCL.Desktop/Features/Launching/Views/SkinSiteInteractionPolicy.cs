@@ -4,9 +4,14 @@
 
 namespace PCL.Desktop.Features.Launching.Views;
 
+using PCL.Desktop.Features.Launching.Appearance;
+
 public static class SkinSiteInteractionPolicy
 {
-    public static bool CanApplyPublicTexture(LaunchLoginProfileKind profileKind) =>
+    public static bool CanApplyPublicTexture(
+        LaunchLoginProfileKind profileKind,
+        SkinSiteTextureKind textureKind) =>
+        textureKind == SkinSiteTextureKind.Skin ||
         profileKind is not LaunchLoginProfileKind.Microsoft and
-        not LaunchLoginProfileKind.NCloud;
+            not LaunchLoginProfileKind.NCloud;
 }

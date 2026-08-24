@@ -113,7 +113,9 @@ public partial class MainWindow
         LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
         _appearanceLoadCancellation?.Cancel();
         PageSkinLibraryRight page = new();
-        page.SetApplyAvailability(SkinSiteInteractionPolicy.CanApplyPublicTexture(profile.Kind));
+        page.SetCapeApplyAvailability(SkinSiteInteractionPolicy.CanApplyPublicTexture(
+            profile.Kind,
+            SkinSiteTextureKind.Cape));
         page.TextureSelected += (_, item) => _ = ApplySkinSiteItemAsync(profile, item);
         page.OpenUrlRequested += (_, uri) => OpenExternalUrl(uri.AbsoluteUri);
         ApplyExperimentalAppearancePage(
@@ -761,15 +763,13 @@ public partial class MainWindow
         SkinSiteItem item)
     {
         LoginProfileInfo profile = ResolveCurrentProfile(requestedProfile);
-        if (!SkinSiteInteractionPolicy.CanApplyPublicTexture(profile.Kind))
+        if (!SkinSiteInteractionPolicy.CanApplyPublicTexture(profile.Kind, item.TextureKind))
         {
             ShowTextDialog(
-                item.TextureKind == SkinSiteTextureKind.Cape
-                    ? GetResourceText("Appearance.Library.ApplyBlocked.CapeTitle", "使用公开披风")
-                    : GetResourceText("Appearance.Library.ApplyBlocked.SkinTitle", "使用公开皮肤"),
+                GetResourceText("Appearance.Library.ApplyBlocked.CapeTitle", "使用公开披风"),
                 GetResourceText(
                     "Appearance.Library.ApplyBlocked.Message",
-                    "正版与 N Cloud 档案不能直接使用皮肤站中的公开材质。"),
+                    "正版与 N Cloud 档案不能直接使用 LittleSkin 公共披风。"),
                 GetResourceText("Common.Action.Confirm", "好"));
             return;
         }

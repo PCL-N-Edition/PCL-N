@@ -492,9 +492,8 @@
     <sys:String x:Key="Appearance.Library.Filter.Cape">披風</sys:String>
     <sys:String x:Key="Appearance.Library.Sort.Time">最新上傳</sys:String>
     <sys:String x:Key="Appearance.Library.Sort.Likes">最多收藏</sys:String>
-    <sys:String x:Key="Appearance.Library.ApplyBlocked.SkinTitle">使用公開皮膚</sys:String>
     <sys:String x:Key="Appearance.Library.ApplyBlocked.CapeTitle">使用公開披風</sys:String>
-    <sys:String x:Key="Appearance.Library.ApplyBlocked.Message">正版與 N Cloud 檔案不能直接使用皮膚站中的公開材質。</sys:String>
+    <sys:String x:Key="Appearance.Library.ApplyBlocked.Message">正版與 N Cloud 檔案不能直接使用 LittleSkin 公開披風。</sys:String>
     <sys:String x:Key="Appearance.Library.ThirdPartyCape.Title">第三方披風</sys:String>
     <sys:String x:Key="Appearance.Library.ThirdPartyCape.Message">請在皮膚站中將該披風加入衣櫃，並套用到目前角色。</sys:String>
     <sys:String x:Key="Appearance.Library.UnsupportedCape.Title">使用披風</sys:String>

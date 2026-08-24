@@ -308,18 +308,29 @@ public sealed class SkinAppearanceTests
     }
 
     [TestMethod]
-    public void SkinSiteInteractionPolicy_BlocksMicrosoftAndNCloudOnly()
+    public void SkinSiteInteractionPolicy_AllowsSkinsButBlocksMicrosoftAndNCloudCapes()
     {
+        Assert.IsTrue(SkinSiteInteractionPolicy.CanApplyPublicTexture(
+            LaunchLoginProfileKind.Microsoft,
+            SkinSiteTextureKind.Skin));
+        Assert.IsTrue(SkinSiteInteractionPolicy.CanApplyPublicTexture(
+            LaunchLoginProfileKind.NCloud,
+            SkinSiteTextureKind.Skin));
         Assert.IsFalse(SkinSiteInteractionPolicy.CanApplyPublicTexture(
-            LaunchLoginProfileKind.Microsoft));
+            LaunchLoginProfileKind.Microsoft,
+            SkinSiteTextureKind.Cape));
         Assert.IsFalse(SkinSiteInteractionPolicy.CanApplyPublicTexture(
-            LaunchLoginProfileKind.NCloud));
+            LaunchLoginProfileKind.NCloud,
+            SkinSiteTextureKind.Cape));
         Assert.IsTrue(SkinSiteInteractionPolicy.CanApplyPublicTexture(
-            LaunchLoginProfileKind.LittleSkin));
+            LaunchLoginProfileKind.LittleSkin,
+            SkinSiteTextureKind.Cape));
         Assert.IsTrue(SkinSiteInteractionPolicy.CanApplyPublicTexture(
-            LaunchLoginProfileKind.ThirdParty));
+            LaunchLoginProfileKind.ThirdParty,
+            SkinSiteTextureKind.Cape));
         Assert.IsTrue(SkinSiteInteractionPolicy.CanApplyPublicTexture(
-            LaunchLoginProfileKind.Offline));
+            LaunchLoginProfileKind.Offline,
+            SkinSiteTextureKind.Cape));
     }
 
     private static HttpResponseMessage Json(string content) =>

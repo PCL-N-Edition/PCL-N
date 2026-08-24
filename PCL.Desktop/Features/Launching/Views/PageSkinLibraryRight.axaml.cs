@@ -24,7 +24,7 @@ public partial class PageSkinLibraryRight : MyPageRight
     private bool _hasPreviousPage;
     private bool _hasNextPage;
     private bool _isLoading;
-    private bool _canApplyPublicTextures = true;
+    private bool _canApplyPublicCapes = true;
     private SkinSiteTextureKind _textureKind = SkinSiteTextureKind.Skin;
     private SkinSiteSortOrder _sortOrder = SkinSiteSortOrder.Time;
     private string _keyword = string.Empty;
@@ -58,9 +58,9 @@ public partial class PageSkinLibraryRight : MyPageRight
 
     public event EventHandler<Uri>? OpenUrlRequested;
 
-    public void SetApplyAvailability(bool canApplyPublicTextures)
+    public void SetCapeApplyAvailability(bool canApplyPublicCapes)
     {
-        _canApplyPublicTextures = canApplyPublicTextures;
+        _canApplyPublicCapes = canApplyPublicCapes;
     }
 
     public void SetCatalogs(
@@ -265,7 +265,7 @@ public partial class PageSkinLibraryRight : MyPageRight
             Text = isCape
                 ? ResourceText("Appearance.Action.UseCape", "使用披风")
                 : ResourceText("Appearance.Action.UseSkin", "使用皮肤"),
-            IsVisible = _canApplyPublicTextures
+            IsVisible = !isCape || _canApplyPublicCapes
         };
         useButton.Click += (_, _) => TextureSelected?.Invoke(this, item);
         MyButton detailsButton = new()

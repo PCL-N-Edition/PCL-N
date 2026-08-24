@@ -492,9 +492,8 @@
     <sys:String x:Key="Appearance.Library.Filter.Cape">Capes</sys:String>
     <sys:String x:Key="Appearance.Library.Sort.Time">Newest</sys:String>
     <sys:String x:Key="Appearance.Library.Sort.Likes">Most liked</sys:String>
-    <sys:String x:Key="Appearance.Library.ApplyBlocked.SkinTitle">Use Public Skin</sys:String>
     <sys:String x:Key="Appearance.Library.ApplyBlocked.CapeTitle">Use Public Cape</sys:String>
-    <sys:String x:Key="Appearance.Library.ApplyBlocked.Message">Microsoft and N Cloud profiles cannot apply public textures directly from a skin site.</sys:String>
+    <sys:String x:Key="Appearance.Library.ApplyBlocked.Message">Microsoft and N Cloud profiles cannot apply public LittleSkin capes directly.</sys:String>
     <sys:String x:Key="Appearance.Library.ThirdPartyCape.Title">Third-party Cape</sys:String>
     <sys:String x:Key="Appearance.Library.ThirdPartyCape.Message">Add this cape to the skin site's closet and apply it to the current player.</sys:String>
     <sys:String x:Key="Appearance.Library.UnsupportedCape.Title">Use Cape</sys:String>
