@@ -28,11 +28,12 @@ public sealed class LittleSkinOAuthServiceTests
         StringAssert.Contains(url, "response_type=code");
         StringAssert.Contains(url, "client_id=client-id");
         StringAssert.Contains(url, "state=state-token");
-        StringAssert.Contains(url, "openid");
-        StringAssert.Contains(url, "offline_access");
-        StringAssert.Contains(url, "Closet.ReadWrite");
+        StringAssert.Contains(url, "Closet.Read");
         StringAssert.Contains(url, "Yggdrasil.PlayerProfiles.Read");
         StringAssert.Contains(url, "Yggdrasil.MinecraftToken.Create");
+        Assert.DoesNotContain("openid", url);
+        Assert.DoesNotContain("offline_access", url);
+        Assert.DoesNotContain("Closet.ReadWrite", url);
         Assert.DoesNotContain("Yggdrasil.PlayerProfiles.Select", url);
         Assert.DoesNotContain("Yggdrasil.Server.Join", url);
     }
@@ -50,8 +51,12 @@ public sealed class LittleSkinOAuthServiceTests
             {
                 string form = await request.Content!.ReadAsStringAsync();
                 StringAssert.Contains(form, "client_id=client-id");
+                StringAssert.Contains(form, "openid");
+                StringAssert.Contains(form, "offline_access");
+                StringAssert.Contains(form, "Closet.Read");
                 StringAssert.Contains(form, "Yggdrasil.PlayerProfiles.Read");
                 StringAssert.Contains(form, "Yggdrasil.MinecraftToken.Create");
+                Assert.DoesNotContain("Closet.ReadWrite", form);
                 return Json(
                     """
                     {

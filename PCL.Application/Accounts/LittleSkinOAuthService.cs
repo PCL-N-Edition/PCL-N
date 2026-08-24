@@ -176,12 +176,22 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     private const string YggdrasilApiRoot = "https://littleskin.cn/api/yggdrasil/";
 
     /// <summary>
-    /// Scopes for launcher OAuth2 login + wardrobe APIs.
+    /// Scopes for the current launcher device flow. Public skin-library textures
+    /// are applied directly to a player, so the closet only needs read access.
     /// Must not combine <c>PlayerProfiles.Read</c> with <c>PlayerProfiles.Select</c>.
     /// </summary>
     public const string RequestedScopes =
         "openid offline_access " +
-        "User.Read Player.ReadWrite Closet.ReadWrite " +
+        "User.Read Player.ReadWrite Closet.Read " +
+        "Yggdrasil.PlayerProfiles.Read Yggdrasil.MinecraftToken.Create";
+
+    /// <summary>
+    /// Authorization-code flow scopes. LittleSkin only supports OpenID Connect
+    /// and <c>offline_access</c> on its device flow; code exchange returns a
+    /// refresh token without requesting either scope.
+    /// </summary>
+    public const string AuthorizationCodeScopes =
+        "User.Read Player.ReadWrite Closet.Read " +
         "Yggdrasil.PlayerProfiles.Read Yggdrasil.MinecraftToken.Create";
 
     private const int MaximumClosetPages = 50;
@@ -235,7 +245,7 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
                      "?client_id=" + Uri.EscapeDataString(configuration.ClientId) +
                      "&redirect_uri=" + Uri.EscapeDataString(configuration.RedirectUri.AbsoluteUri) +
                      "&response_type=code" +
-                     "&scope=" + Uri.EscapeDataString(RequestedScopes) +
+                     "&scope=" + Uri.EscapeDataString(AuthorizationCodeScopes) +
                      "&state=" + Uri.EscapeDataString(state);
         return new LittleSkinAuthorizationRequest(new Uri(url), state);
     }
@@ -738,7 +748,7 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
         if (string.IsNullOrWhiteSpace(accessToken))
             throw new InvalidDataException("LittleSkin OAuth 响应缺少访问令牌。");
         if (requireRefreshToken && string.IsNullOrWhiteSpace(refreshToken))
-            throw new InvalidDataException("LittleSkin OAuth 响应缺少刷新令牌（请申请 offline_access 权限）。");
+            throw new InvalidDataException("LittleSkin OAuth 响应缺少刷新令牌，无法维持长期登录。");
         return new LittleSkinOAuthTokens(
             accessToken,
             refreshToken,
