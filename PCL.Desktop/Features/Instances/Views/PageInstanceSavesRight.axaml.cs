@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Features.Launching;
 using PCL.Desktop.Features.Launching.Views;
+using PCL.Desktop.Features.Shared;
 using PCL.Desktop.Localization;
 
 namespace PCL.Desktop.Features.Instances.Views;
@@ -116,9 +117,6 @@ public partial class PageInstanceSavesRight : MyPageRight
         string trimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         return Path.GetFileName(trimmed);
     }
-
-    private static string GetFileNameFromPath(string fullPath) =>
-        Path.GetFileName(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
     private void SetupFileSystemWatcher()
     {
@@ -265,7 +263,7 @@ public partial class PageInstanceSavesRight : MyPageRight
                 SvgIcon = "lucide/play",
                 ToolTip = Text("Instance.Saves.QuickPlay")
             };
-            btnLaunch.Click += (_, _) => QuickPlayRequested?.Invoke(this, GetFileNameFromPath(curFolder));
+            btnLaunch.Click += (_, _) => QuickPlayRequested?.Invoke(this, GetFolderNameFromPath(curFolder));
             buttons.Add(btnLaunch);
         }
 
@@ -312,8 +310,9 @@ public partial class PageInstanceSavesRight : MyPageRight
         }
 
         string json = _instance.VersionJsonPath;
+        string minecraftVersion = MinecraftVersionJsonInspector.Read(_instance).MinecraftVersionId;
         _quickPlayFeature = File.Exists(json) &&
-                            string.Compare(_instance.Name, "1.20", StringComparison.OrdinalIgnoreCase) >= 0;
+                            MinecraftVersionRuleHelper.VersionToDrop(minecraftVersion, allowSnapshot: true) >= 200;
     }
 
     private void LoadFileList()
