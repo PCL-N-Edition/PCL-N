@@ -201,7 +201,6 @@ public sealed class DesktopArchitectureTests
         [
             "namespace PCL.Online",
             "NCloudHttpClient",
-            "CloudSyncService",
             "OnlineAccountService",
             "OnlineFriendService",
             "XboxSocialService",

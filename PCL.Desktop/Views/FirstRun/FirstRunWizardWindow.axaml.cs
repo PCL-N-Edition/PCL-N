@@ -1257,7 +1257,7 @@ public sealed partial class FirstRunWizardWindow : Window
                 {
                     Text = AvaloniaLocalizationManager.GetText(
                         "Oobe.Online.Unavailable.Detail",
-                        "在线服务由 Plugin 提供；打包完整发行版后，此页将显示登录与云同步入口。"),
+                        "在线服务由 Plugin 提供；打包完整发行版后，此页将显示登录入口。"),
                     Opacity = 0.7,
                     TextWrapping = TextWrapping.Wrap,
                     Foreground = new SolidColorBrush(Color.Parse("#FF1C1C1E"))

@@ -544,7 +544,7 @@
     <sys:String x:Key="Oobe.Data.BrowseCache">選擇啟動器快取位置</sys:String>
     <sys:String x:Key="Oobe.Online.Title">線上服務設定</sys:String>
     <sys:String x:Key="Oobe.Online.Unavailable">外掛側車未執行，暫時無法登入線上帳戶。可略過本頁，稍後在「設定 → 線上」連線。</sys:String>
-    <sys:String x:Key="Oobe.Online.Unavailable.Detail">線上服務由 Plugin 提供；完整發行版會在此顯示登入與雲端同步入口。</sys:String>
+    <sys:String x:Key="Oobe.Online.Unavailable.Detail">線上服務由 Plugin 提供；完整發行版會在此顯示登入入口。</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Title">遙測與資料收集</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Title">基本服務資料（必須）</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Intro">為提供更新、下載、安全驗證與故障復原，啟動器會處理維持服務所必需的最少資料，此部分不能關閉，也不用於產品側寫或廣告。</sys:String>
@@ -1182,7 +1182,7 @@
     <sys:String x:Key="Plugin.Network.Group.Game">遊戲</sys:String>
     <sys:String x:Key="Plugin.Network.Group.Social">社交</sys:String>
     <sys:String x:Key="Plugin.Network.Servers">伺服器</sys:String>
-    <sys:String x:Key="Plugin.Network.NCloud">N Cloud 連線</sys:String>
+    <sys:String x:Key="Plugin.Network.NCloud">連線</sys:String>
     <sys:String x:Key="Plugin.Network.Friends">好友</sys:String>
     <sys:String x:Key="Plugin.Network.Chat">聊天</sys:String>
 

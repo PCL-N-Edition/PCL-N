@@ -544,7 +544,7 @@
     <sys:String x:Key="Oobe.Data.BrowseCache">Choose cache folder</sys:String>
     <sys:String x:Key="Oobe.Online.Title">Online services</sys:String>
     <sys:String x:Key="Oobe.Online.Unavailable">Plugin sidecar is not running, so online sign-in is unavailable. You can skip this step and connect later in Settings → Online.</sys:String>
-    <sys:String x:Key="Oobe.Online.Unavailable.Detail">Online services are provided by the Plugin. Full packages show login and cloud sync here.</sys:String>
+    <sys:String x:Key="Oobe.Online.Unavailable.Detail">Online services are provided by the Plugin. Full packages show sign-in here.</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Title">Telemetry &amp; data collection</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Title">Basic service data (required)</sys:String>
     <sys:String x:Key="Oobe.Telemetry.Essential.Intro">The launcher processes the minimum data needed for updates, downloads, security checks, and fault recovery. This cannot be disabled and is never used for advertising or product profiling.</sys:String>
@@ -1182,7 +1182,7 @@
     <sys:String x:Key="Plugin.Network.Group.Game">Game</sys:String>
     <sys:String x:Key="Plugin.Network.Group.Social">Social</sys:String>
     <sys:String x:Key="Plugin.Network.Servers">Servers</sys:String>
-    <sys:String x:Key="Plugin.Network.NCloud">N Cloud Multiplayer</sys:String>
+    <sys:String x:Key="Plugin.Network.NCloud">Multiplayer</sys:String>
     <sys:String x:Key="Plugin.Network.Friends">Friends</sys:String>
     <sys:String x:Key="Plugin.Network.Chat">Chat</sys:String>
 

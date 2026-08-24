@@ -452,7 +452,6 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
 
         bool hasToggle = node.Checked.HasValue ||
                          string.Equals(node.ActionId, "permission.toggle", StringComparison.Ordinal) ||
-                         string.Equals(node.ActionId, "cloud.setSection", StringComparison.Ordinal) ||
                          (node.ActionId?.StartsWith("safety.", StringComparison.Ordinal) ?? false) ||
                          (node.ActionId?.StartsWith("developer.", StringComparison.Ordinal) ?? false);
 
@@ -913,7 +912,7 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             or "safety.setPluginSafe" or "safety.setUiSafe" or "safety.setIsolation"
             or "developer.setMode" or "developer.setAllowUnsigned" or "developer.showSafety"
             or "developer.showUiPatches" or "developer.showCompatibility"
-            or "developer.setDiagnostics" or "cloud.setSection";
+            or "developer.setDiagnostics";
 
     private async Task InvokeAsync(
         string actionId,
