@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -127,6 +128,39 @@ public sealed class PortableInfrastructureTests
         var value = await PortableHttp.ReadStringAsync(response, TestContext.CancellationToken);
 
         Assert.AreEqual("portable", value);
+    }
+
+    [TestMethod]
+    public async Task PortableHttp_ConfigureAfterRequest_ReplacesHandlerWithoutReplacingClient()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        Task server = ServeSingleHttpResponseAsync(listener, TestContext.CancellationToken);
+
+        PortableHttp.Configure(enableDoH: false, proxy: null, useProxy: false);
+        HttpClient client = PortableHttp.Client;
+        string response = await client.GetStringAsync(
+            new Uri($"http://127.0.0.1:{port}/"),
+            TestContext.CancellationToken);
+
+        Assert.AreEqual("ok", response);
+        PortableHttp.Configure(enableDoH: true, proxy: null, useProxy: true);
+        Assert.AreSame(client, PortableHttp.Client);
+        await server;
+    }
+
+    private static async Task ServeSingleHttpResponseAsync(
+        TcpListener listener,
+        CancellationToken cancellationToken)
+    {
+        using TcpClient client = await listener.AcceptTcpClientAsync(cancellationToken);
+        await using NetworkStream stream = client.GetStream();
+        var requestBuffer = new byte[4096];
+        _ = await stream.ReadAsync(requestBuffer, cancellationToken);
+        byte[] response = Encoding.ASCII.GetBytes(
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        await stream.WriteAsync(response, cancellationToken);
     }
 
     public TestContext TestContext { get; set; } = null!;

@@ -15,10 +15,10 @@ namespace PCL.Core.IO.Net;
 public static class PortableHttp
 {
     private static readonly object Gate = new();
-    private static SocketsHttpHandler? _handler;
-    private static readonly Lazy<HttpClient> SharedClient = new(CreateClient);
+    private static readonly ReloadableHttpMessageHandler SharedHandler = new(CreateHandler());
+    private static readonly HttpClient SharedClient = new(SharedHandler, disposeHandler: false);
 
-    public static HttpClient Client => SharedClient.Value;
+    public static HttpClient Client => SharedClient;
 
     /// <summary>Last proxy configured for logging / diagnostics.</summary>
     public static string? ActiveProxyDescription { get; private set; }
@@ -32,45 +32,73 @@ public static class PortableHttp
     }
 
     /// <summary>
-    /// Apply launcher network settings. Safe to call repeatedly; updates the shared handler
-    /// in place so already-created <see cref="Client"/> picks up proxy changes.
+    /// Apply launcher network settings. Safe to call after requests have started: the shared
+    /// client keeps its identity while subsequent requests are routed through a new handler.
     /// </summary>
     public static void Configure(bool enableDoH, IWebProxy? proxy, bool useProxy)
     {
         PortableNetworkOptions.EnableDoH = enableDoH;
 
-        // Ensure the shared client/handler exist before mutating Proxy.
-        _ = Client;
-
         lock (Gate)
         {
-            if (_handler is null)
-                return;
-
-            _handler.UseProxy = useProxy;
-            // Explicit Proxy assignment — relying only on HttpClient.DefaultProxy is unreliable
-            // once ConnectCallback is installed (mod downloads were effectively direct).
-            _handler.Proxy = useProxy ? proxy : new WebProxy();
+            SharedHandler.Replace(CreateHandler(useProxy, proxy));
             ActiveProxyDescription = DescribeProxy(useProxy, proxy);
         }
     }
 
-    private static HttpClient CreateClient()
+    private static SocketsHttpHandler CreateHandler(bool useProxy = true, IWebProxy? proxy = null)
     {
-        var handler = new SocketsHttpHandler
+        return new SocketsHttpHandler
         {
             UseCookies = false,
             AllowAutoRedirect = true,
             MaxAutomaticRedirections = 20,
             AutomaticDecompression = DecompressionMethods.All,
-            UseProxy = true,
-            // Null => fall back to HttpClient.DefaultProxy until Configure() runs.
-            Proxy = null,
+            UseProxy = useProxy,
+            // Explicit Proxy assignment is required once ConnectCallback is installed.
+            // Null preserves the system-default behavior before launcher settings are loaded.
+            Proxy = useProxy ? proxy : new WebProxy(),
             ConnectCallback = ConnectAsync
         };
-        lock (Gate)
-            _handler = handler;
-        return new HttpClient(handler, disposeHandler: true);
+    }
+
+    /// <summary>
+    /// Keeps the public HttpClient stable for services that cache it, while allowing immutable
+    /// SocketsHttpHandler options (such as Proxy and UseProxy) to be changed safely. Retired
+    /// invokers remain alive for the process lifetime so response streams already handed to a
+    /// caller cannot be interrupted by a settings change.
+    /// </summary>
+    private sealed class ReloadableHttpMessageHandler(HttpMessageHandler initialHandler)
+        : HttpMessageHandler
+    {
+        private readonly List<HttpMessageInvoker> _retiredInvokers = [];
+        private HttpMessageInvoker _currentInvoker = new(initialHandler, disposeHandler: true);
+
+        public void Replace(HttpMessageHandler handler)
+        {
+            ArgumentNullException.ThrowIfNull(handler);
+            HttpMessageInvoker next = new(handler, disposeHandler: true);
+            HttpMessageInvoker previous = Interlocked.Exchange(ref _currentInvoker, next);
+            _retiredInvokers.Add(previous);
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Volatile.Read(ref _currentInvoker).SendAsync(request, cancellationToken);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                Volatile.Read(ref _currentInvoker).Dispose();
+                foreach (HttpMessageInvoker invoker in _retiredInvokers)
+                    invoker.Dispose();
+                _retiredInvokers.Clear();
+            }
+
+            base.Dispose(disposing);
+        }
     }
 
     private static string DescribeProxy(bool useProxy, IWebProxy? proxy)

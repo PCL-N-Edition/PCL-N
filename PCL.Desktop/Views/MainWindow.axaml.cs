@@ -159,6 +159,7 @@ public partial class MainWindow : Window, IDisposable
     private string? _titleLogoFile;
     private Bitmap? _titleLogoBitmap;
     private string? _homepageSignature;
+    private string? _networkProxySignature;
     private readonly IDisposable _windowStateSubscription;
     private string? _registeredPageSurfaceId;
     private bool _isOobeHandoff;
@@ -6635,7 +6636,7 @@ public partial class MainWindow : Window, IDisposable
         };
     }
 
-    private static void ApplyNetworkProxy(LauncherSettings settings)
+    private void ApplyNetworkProxy(LauncherSettings settings)
     {
         bool enableDoH = settings.GetBooleanOption(
             "SystemNetEnableDoH",
@@ -6644,6 +6645,27 @@ public partial class MainWindow : Window, IDisposable
         int proxyType = settings.GetIntegerOption(
             "SystemHttpProxyType",
             LauncherSettingDefaults.GetInteger("SystemHttpProxyType"));
+
+        string proxyAddress = settings.GetTextOption(
+            "SystemHttpProxy",
+            LauncherSettingDefaults.GetText("SystemHttpProxy"));
+        string proxyUsername = settings.GetTextOption(
+            "SystemHttpProxyCustomUsername",
+            LauncherSettingDefaults.GetText("SystemHttpProxyCustomUsername"));
+        string proxyPassword = settings.GetTextOption(
+            "SystemHttpProxyCustomPassword",
+            LauncherSettingDefaults.GetText("SystemHttpProxyCustomPassword"));
+        string passwordFingerprint = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(proxyPassword)));
+        string signature = string.Join(
+            '\n',
+            enableDoH,
+            proxyType,
+            proxyAddress,
+            proxyUsername,
+            passwordFingerprint);
+        if (string.Equals(_networkProxySignature, signature, StringComparison.Ordinal))
+            return;
 
         IWebProxy effectiveProxy;
         bool useProxy;
@@ -6656,11 +6678,8 @@ public partial class MainWindow : Window, IDisposable
         }
         else if (proxyType == 2)
         {
-            string address = settings.GetTextOption(
-                "SystemHttpProxy",
-                LauncherSettingDefaults.GetText("SystemHttpProxy"));
-            if (!Uri.TryCreate(address, UriKind.Absolute, out Uri? proxyAddress) ||
-                string.IsNullOrWhiteSpace(proxyAddress.Host))
+            if (!Uri.TryCreate(proxyAddress, UriKind.Absolute, out Uri? parsedProxyAddress) ||
+                string.IsNullOrWhiteSpace(parsedProxyAddress.Host))
             {
                 effectiveProxy = new WebProxy();
                 useProxy = false;
@@ -6668,17 +6687,12 @@ public partial class MainWindow : Window, IDisposable
             }
             else
             {
-                WebProxy proxy = new(proxyAddress);
-                string username = settings.GetTextOption(
-                    "SystemHttpProxyCustomUsername",
-                    LauncherSettingDefaults.GetText("SystemHttpProxyCustomUsername"));
-                if (!string.IsNullOrWhiteSpace(username))
+                WebProxy proxy = new(parsedProxyAddress);
+                if (!string.IsNullOrWhiteSpace(proxyUsername))
                 {
                     proxy.Credentials = new NetworkCredential(
-                        username,
-                        settings.GetTextOption(
-                            "SystemHttpProxyCustomPassword",
-                            LauncherSettingDefaults.GetText("SystemHttpProxyCustomPassword")));
+                        proxyUsername,
+                        proxyPassword);
                 }
 
                 effectiveProxy = proxy;
@@ -6695,6 +6709,7 @@ public partial class MainWindow : Window, IDisposable
 
         // Shared by vanilla install, modpack mod downloads, metadata, etc.
         PortableHttp.Configure(enableDoH, effectiveProxy, useProxy);
+        _networkProxySignature = signature;
         DesktopFileLog.Info(
             "Network",
             $"已应用网络设置；DoH={(enableDoH ? "开" : "关")}；ProxyType={proxyType}；Proxy={PortableHttp.ActiveProxyDescription}。");
