@@ -990,9 +990,14 @@ public partial class MainWindow
                                     StringComparison.OrdinalIgnoreCase))
                                 ?? throw new InvalidOperationException(
                                     $"LittleSkin 账户中未找到角色 {profile.Username}。");
-                            // Blessing Skin accepts a public texture TID directly on
-                            // the player endpoint. Avoid elevating OAuth to Closet.ReadWrite
-                            // or duplicating public library items in the user's closet.
+                            await _littleSkinOAuthService
+                                .EnsureClosetTextureAsync(
+                                    accessToken,
+                                    textureId,
+                                    displayName,
+                                    kind,
+                                    cancellationToken)
+                                .ConfigureAwait(false);
                             await _littleSkinOAuthService
                                 .ApplyTextureAsync(
                                     accessToken,

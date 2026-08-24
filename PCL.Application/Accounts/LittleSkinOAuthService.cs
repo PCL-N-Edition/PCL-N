@@ -176,13 +176,19 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     private const string YggdrasilApiRoot = "https://littleskin.cn/api/yggdrasil/";
 
     /// <summary>
-    /// Scopes for the current launcher device flow. Public skin-library textures
-    /// are applied directly to a player, so the closet only needs read access.
-    /// Must not combine <c>PlayerProfiles.Read</c> with <c>PlayerProfiles.Select</c>.
+    /// LittleSkin's production OAuth server exposes the write scope with this
+    /// historical spelling. Keep the wire value exact even though the public
+    /// documentation displays <c>Closet.ReadWrite</c>.
     /// </summary>
+    public const string ClosetReadWriteScope = "Closet.ReadWrtie";
+
+    /// <summary>Scopes for the current launcher device flow.</summary>
+    /// <remarks>
+    /// Must not combine <c>PlayerProfiles.Read</c> with <c>PlayerProfiles.Select</c>.
+    /// </remarks>
     public const string RequestedScopes =
         "openid offline_access " +
-        "User.Read Player.ReadWrite Closet.Read " +
+        "User.Read Player.ReadWrite " + ClosetReadWriteScope + " " +
         "Yggdrasil.PlayerProfiles.Read Yggdrasil.MinecraftToken.Create";
 
     /// <summary>
@@ -191,7 +197,7 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     /// refresh token without requesting either scope.
     /// </summary>
     public const string AuthorizationCodeScopes =
-        "User.Read Player.ReadWrite Closet.Read " +
+        "User.Read Player.ReadWrite " + ClosetReadWriteScope + " " +
         "Yggdrasil.PlayerProfiles.Read Yggdrasil.MinecraftToken.Create";
 
     private const int MaximumClosetPages = 50;
