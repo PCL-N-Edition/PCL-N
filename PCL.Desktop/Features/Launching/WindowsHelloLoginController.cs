@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Avalonia.Controls;
+using Avalonia.Threading;
 using PCL.Desktop.Controls.Legacy;
 using PCL.Desktop.Platform;
 
@@ -45,6 +46,13 @@ internal sealed class WindowsHelloLoginController(
         status.IsVisible = true;
         try
         {
+            // Commit the busy state before the modal system consent broker takes
+            // focus. Otherwise the queued launcher render can run after the
+            // broker has already opened and make the result appear out of order.
+            await Dispatcher.UIThread.InvokeAsync(
+                static () => { },
+                DispatcherPriority.Render,
+                cancellationToken);
             WindowsHelloVerificationStatus result = await WindowsHelloAccountVerifier.VerifyAsync(
                 owner,
                 $"验证身份以登录 {providerName}",
@@ -67,6 +75,10 @@ internal sealed class WindowsHelloLoginController(
                     status.Text = "Windows Hello 验证失败，请重试。";
                     break;
             }
+        }
+        catch (OperationCanceledException)
+        {
+            status.Text = "已取消 Windows Hello 验证。";
         }
         finally
         {

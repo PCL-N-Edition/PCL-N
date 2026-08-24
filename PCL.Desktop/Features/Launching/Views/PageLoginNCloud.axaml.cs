@@ -78,8 +78,8 @@ public partial class PageLoginNCloud : StackPanel, PageLaunchLeft.ILoginPage
 
     private void BtnLoginClick(object? sender, EventArgs e) => RequestLogin();
 
-    private void BtnWindowsHelloClick(object? sender, EventArgs e) =>
-        _ = _windowsHello.VerifyAndContinueAsync();
+    private async void BtnWindowsHelloClick(object? sender, EventArgs e) =>
+        await _windowsHello.VerifyAndContinueAsync();
 
     private void ResetLoginButton()
     {

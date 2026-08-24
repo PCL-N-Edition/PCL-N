@@ -71,10 +71,11 @@ internal static class WindowsHelloAccountVerifier
             if (hwnd == 0)
                 return WindowsHelloVerificationStatus.Unavailable;
 
-            Windows.Security.Credentials.UI.UserConsentVerificationResult result =
-                await Windows.Security.Credentials.UI.UserConsentVerifierInterop
+            Windows.Foundation.IAsyncOperation<Windows.Security.Credentials.UI.UserConsentVerificationResult> operation =
+                Windows.Security.Credentials.UI.UserConsentVerifierInterop
                     .RequestVerificationForWindowAsync(hwnd, message);
-            cancellationToken.ThrowIfCancellationRequested();
+            Windows.Security.Credentials.UI.UserConsentVerificationResult result =
+                await operation.AsTask(cancellationToken);
             return result switch
             {
                 Windows.Security.Credentials.UI.UserConsentVerificationResult.Verified =>
