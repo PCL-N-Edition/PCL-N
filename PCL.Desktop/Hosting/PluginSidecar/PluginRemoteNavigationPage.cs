@@ -6,9 +6,12 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Threading;
+using CommunityToolkit.Mvvm.Messaging;
 using PCL.Desktop.Controls.Legacy;
+using PCL.Desktop.Features.Community;
 using PCL.Desktop.Features.Settings.Views;
 using PCL.Desktop.Localization;
+using PCL.Desktop.Messaging;
 
 namespace PCL.Desktop.Hosting.PluginSidecar;
 
@@ -181,9 +184,10 @@ internal static class PluginRemoteNavigationPage
 
     private sealed class RemotePageHost : ContentControl
     {
-        private readonly Dictionary<string, PageSetupRemoteDataChain> pages =
+        private const string NetworkServersPageId = "pcl.plugin.network.servers";
+        private readonly Dictionary<string, MyPageRight> pages =
             new(StringComparer.OrdinalIgnoreCase);
-        private PageSetupRemoteDataChain current;
+        private MyPageRight current;
         private bool active;
 
         public RemotePageHost(string initialPageId)
@@ -205,7 +209,7 @@ internal static class PluginRemoteNavigationPage
 
         public void SwitchTo(string pageId)
         {
-            PageSetupRemoteDataChain next = GetOrCreate(pageId);
+            MyPageRight next = GetOrCreate(pageId);
             if (ReferenceEquals(next, current))
                 return;
 
@@ -217,14 +221,27 @@ internal static class PluginRemoteNavigationPage
                 current.PageOnEnter();
         }
 
-        private PageSetupRemoteDataChain GetOrCreate(string pageId)
+        private MyPageRight GetOrCreate(string pageId)
         {
-            if (!pages.TryGetValue(pageId, out PageSetupRemoteDataChain? page))
+            if (!pages.TryGetValue(pageId, out MyPageRight? page))
             {
-                page = new PageSetupRemoteDataChain(pageId);
+                page = string.Equals(pageId, NetworkServersPageId, StringComparison.OrdinalIgnoreCase)
+                    ? CreateServerCatalogPage()
+                    : new PageSetupRemoteDataChain(pageId);
                 pages.Add(pageId, page);
             }
 
+            return page;
+        }
+
+        private static PageCommunityRight CreateServerCatalogPage()
+        {
+            PageCommunityRight page = new(
+                new ModrinthServerCommunityCatalog(),
+                ownsCatalog: true,
+                initialCategory: CommunityResourceCategory.Server);
+            page.JoinServerRequested += (_, entry) =>
+                WeakReferenceMessenger.Default.Send(new CommunityServerJoinRequestedMessage(entry));
             return page;
         }
 

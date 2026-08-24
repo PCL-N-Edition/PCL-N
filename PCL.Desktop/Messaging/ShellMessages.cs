@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using CommunityToolkit.Mvvm.Messaging.Messages;
+using PCL.Desktop.Features.Community;
 using PCL.UI.Abstractions.Navigation;
 
 namespace PCL.Desktop.Messaging;
@@ -33,3 +34,6 @@ public sealed record TaskProgressChangedMessage(
 
 /// <summary>Settings → shell/features: experimental UI profile toggled.</summary>
 public sealed record ExperimentalProfileChangedMessage(bool HomepageUiEnabled);
+
+/// <summary>Network server catalog → shell: resolve or install a compatible instance, then join.</summary>
+public sealed record CommunityServerJoinRequestedMessage(CommunityResourceEntry Entry);

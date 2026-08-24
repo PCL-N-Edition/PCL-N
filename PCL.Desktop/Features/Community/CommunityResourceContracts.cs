@@ -13,7 +13,8 @@ public enum CommunityResourceCategory
     DataPack,
     ResourcePack,
     Shader,
-    World
+    World,
+    Server
 }
 
 public enum CommunityResourceSort
@@ -61,6 +62,7 @@ public sealed record CommunityResourceEntry(
     public IReadOnlyList<string> Tags { get; init; } = [];
     public CommunityResourceProjectReference? ModrinthProject { get; init; }
     public CommunityResourceProjectReference? CurseForgeProject { get; init; }
+    public CommunityServerTarget? Server { get; init; }
 
     public string DisplayTitle =>
         AvaloniaLocalizationManager.CurrentLanguageCode == AvaloniaLocalizationManager.ChineseLanguage &&
@@ -89,7 +91,8 @@ public sealed record CommunityResourceEntry(
     public string WebsiteUrl => ProjectUrl ?? (Source == CommunityResourceSource.CurseForge
         ? "https://www.curseforge.com/minecraft/" + CurseForgeProjectPath(ProjectType) + "/" +
           (string.IsNullOrWhiteSpace(Slug) ? ProjectId : Slug)
-        : "https://modrinth.com/" + ProjectType + "/" + (string.IsNullOrWhiteSpace(Slug) ? ProjectId : Slug));
+        : "https://modrinth.com/" + ModrinthProjectPath(ProjectType) + "/" +
+          (string.IsNullOrWhiteSpace(Slug) ? ProjectId : Slug));
 
     public CommunityResourceProjectReference? GetProjectReference(CommunityResourceSource source)
     {
@@ -113,7 +116,24 @@ public sealed record CommunityResourceEntry(
         "world" => "worlds",
         _ => "mc-mods"
     };
+
+    private static string ModrinthProjectPath(string projectType) => projectType.ToLowerInvariant() switch
+    {
+        "minecraft_java_server" or "server" => "server",
+        _ => projectType
+    };
 }
+
+public sealed record CommunityServerTarget(
+    string Address,
+    IReadOnlyList<string> GameVersions,
+    int PlayersOnline,
+    int PlayersMax,
+    string? ContentKind = null,
+    string? ContentProjectId = null,
+    string? ContentVersionId = null,
+    string? ContentName = null,
+    string? ContentIconUrl = null);
 
 public sealed record CommunityResourceDownloadFile(
     string FileName,

@@ -45,11 +45,13 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
     public PageCommunityRight(
         ICommunityResourceCatalog catalog,
         bool ownsCatalog = false,
-        CommunityFavoritesStore? favorites = null)
+        CommunityFavoritesStore? favorites = null,
+        CommunityResourceCategory initialCategory = CommunityResourceCategory.Mod)
     {
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _ownsCatalog = ownsCatalog;
         _favorites = favorites;
+        _category = initialCategory;
         AvaloniaXamlLoader.Load(this);
         PanScroll = this.FindControl<MyScrollViewer>("PanBack");
         _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(280) };
@@ -92,6 +94,8 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
 
     public event EventHandler<CommunityResourceDownloadRequest>? DownloadRequested;
 
+    public event EventHandler<CommunityResourceEntry>? JoinServerRequested;
+
     public event EventHandler? InstallModPackRequested;
 
     public CommunityResourceCategory Category => _category;
@@ -131,16 +135,16 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
             PortableLog.Debug("CommunityUI", $"刷新资源列表；分类={category}；页={_page + 1}；查询={query}；来源={options.Source}。");
             bool useChineseIndex = AvaloniaLocalizationManager.CurrentLanguageCode == AvaloniaLocalizationManager.ChineseLanguage &&
                                    query.Any(static value => value is >= '\u3400' and <= '\u9fff');
-            IReadOnlyList<CommunityResourceEntry> entries =
-                await McModCommunitySearch.SearchAsync(
-                        _catalog,
-                        McModIndex.Current,
-                        category,
-                        query,
-                        options,
-                        useChineseIndex,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+            IReadOnlyList<CommunityResourceEntry> entries = category == CommunityResourceCategory.Server
+                ? await _catalog.SearchAsync(category, query, options, cancellationToken).ConfigureAwait(false)
+                : await McModCommunitySearch.SearchAsync(
+                    _catalog,
+                    McModIndex.Current,
+                    category,
+                    query,
+                    options,
+                    useChineseIndex,
+                    cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
 
             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -353,6 +357,7 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
 
     private void ApplyCategoryFilterVisibility()
     {
+        bool server = _category == CommunityResourceCategory.Server;
         bool showLoader = _category is CommunityResourceCategory.Mod or CommunityResourceCategory.Modpack;
         bool showShaderLoader = _category == CommunityResourceCategory.Shader;
         if (this.FindControl<Control>("LabLoader") is { } lab)
@@ -363,6 +368,10 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
             shader.IsVisible = showShaderLoader;
         if (this.FindControl<Control>("BtnSearchInstallModPack") is { } installPack)
             installPack.IsVisible = _category == CommunityResourceCategory.Modpack;
+        if (this.FindControl<Control>("CardFilters") is { } filters)
+            filters.IsVisible = !server;
+        if (this.FindControl<MySearchBar>("PanSearchBox") is { } search)
+            search.HintText = server ? "搜索 Modrinth 服务器…" : "搜索社区资源…";
     }
 
     private void BindCombo(string name, IReadOnlyList<FilterOption> items, int selectedIndex)
@@ -508,6 +517,7 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
     /// <summary>MyCompItem-style row: icon · title · description · downloads/time/source · actions.</summary>
     private MyListItem CreateCompItem(CommunityResourceEntry entry, CommunitySearchOptions options)
     {
+        bool server = entry.Server is not null;
         bool isFavorite = _favorites?.Contains(entry) == true;
         MyIconButton favorite = new()
         {
@@ -517,7 +527,7 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
             Width = 25,
             Height = 25,
             Margin = new Thickness(0, 0, 4, 0),
-            IsVisible = _favorites is not null
+            IsVisible = !server && _favorites is not null
         };
         favorite.Click += (_, _) =>
         {
@@ -544,18 +554,22 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
 
         MyIconButton download = new()
         {
-            SvgIcon = "lucide/download",
+            SvgIcon = server ? "lucide/play" : "lucide/download",
             LogoScale = 0.9d,
-            ToolTip = "下载到当前实例（右键另存为）",
+            ToolTip = server ? "检查实例并快速进服" : "下载到当前实例（右键另存为）",
             Width = 25,
             Height = 25
         };
-        download.Click += (_, _) => DownloadRequested?.Invoke(
-            this,
-            new CommunityResourceDownloadRequest(entry, _category, options));
+        download.Click += (_, _) =>
+        {
+            if (server)
+                JoinServerRequested?.Invoke(this, entry);
+            else
+                DownloadRequested?.Invoke(this, new CommunityResourceDownloadRequest(entry, _category, options));
+        };
         download.PointerPressed += (_, e) =>
         {
-            if (e.GetCurrentPoint(download).Properties.IsRightButtonPressed)
+            if (!server && e.GetCurrentPoint(download).Properties.IsRightButtonPressed)
             {
                 e.Handled = true;
                 DownloadRequested?.Invoke(
@@ -574,24 +588,35 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
         string info = entry.Description;
         if (string.IsNullOrWhiteSpace(info))
             info = "暂无简介";
+        string displayInfo = server && entry.Server is { } target
+            ? info + "  ·  " + target.PlayersOnline.ToString(CultureInfo.CurrentCulture) + "/" +
+              target.PlayersMax.ToString(CultureInfo.CurrentCulture) + " 在线  ·  " +
+              (target.GameVersions.FirstOrDefault() ?? "版本未知") + "  ·  " + target.Address
+            : entry.DisplayDescription + "  ·  ↓" + downloadsText + "  ·  " + timeText + "  ·  " +
+              entry.SourceDisplayName;
 
         // Logo = remote icon (async + NoIcon placeholder); SvgIcon is fallback while empty.
         // Height 64 → logo column ~50px (WPF MyCompItem). LogoScale 1 keeps icon filling the cell.
         MyListItem item = new()
         {
             Title = entry.DisplayTitle,
-            Info = entry.DisplayDescription + "  ·  ↓" + downloadsText + "  ·  " + timeText + "  ·  " +
-                   entry.SourceDisplayName,
+            Info = displayInfo,
             Height = 64d,
             Type = MyListItem.CheckType.Clickable,
             Tag = entry,
             SvgIcon = CategoryIcon(_category),
             Logo = entry.IconUrl ?? string.Empty,
             LogoScale = 1.05d,
-            Buttons = [download, favorite, website]
+            Buttons = server ? [download, website] : [download, favorite, website]
         };
 
-        item.Click += (_, _) => OpenProjectRequested?.Invoke(this, entry);
+        item.Click += (_, _) =>
+        {
+            if (server)
+                JoinServerRequested?.Invoke(this, entry);
+            else
+                OpenProjectRequested?.Invoke(this, entry);
+        };
         return item;
     }
 
@@ -642,6 +667,7 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
             CommunityResourceCategory.ResourcePack => "lucide/layers",
             CommunityResourceCategory.Shader => "lucide/sparkles",
             CommunityResourceCategory.World => "lucide/globe",
+            CommunityResourceCategory.Server => "lucide/server",
             _ => "lucide/download"
         };
 
