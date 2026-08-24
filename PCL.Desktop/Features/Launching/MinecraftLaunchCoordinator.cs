@@ -15,6 +15,7 @@ using PCL.Application.Settings;
 using PCL.Desktop.Features.Launching.Views;
 using PCL.Desktop.Features.Shared;
 using PCL.Desktop.Localization;
+using PCL.Desktop.Platform;
 using PCL.Desktop.Telemetry;
 using PCL.Domain.Minecraft.Java;
 using PCL.Domain.Minecraft.Launch;
@@ -752,24 +753,63 @@ internal sealed class MinecraftLaunchCoordinator
         Task<MinecraftLaunchFaultReport?>? faultReportTask = null)
     {
         ArgumentNullException.ThrowIfNull(process);
+        ExternalWindowProbeResult windowProbe =
+            ExternalWindowManager.ProbeVisibleTopLevelWindow(process.Id);
+
+        if (windowProbe == ExternalWindowProbeResult.Unsupported)
+        {
+            await WaitForStableProcessFallbackAsync(
+                    process,
+                    log,
+                    faultReportTask,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        while (windowProbe != ExternalWindowProbeResult.Found)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PortableLog.RealTime("GameProcess", $"轮询窗口管理器；PID={process.Id}；HasExited={process.HasExited}。");
+
+            if (process.HasExited)
+                throw await CreateEarlyExitExceptionAsync(process, faultReportTask).ConfigureAwait(false);
+
+            await Task.Delay(WindowPollInterval, cancellationToken).ConfigureAwait(false);
+            windowProbe = ExternalWindowManager.ProbeVisibleTopLevelWindow(process.Id);
+        }
+
+        if (process.HasExited)
+            throw await CreateEarlyExitExceptionAsync(process, faultReportTask).ConfigureAwait(false);
+
+        log?.Invoke("已检测到游戏窗口（PID " + process.Id.ToString(CultureInfo.InvariantCulture) + "）。");
+    }
+
+    private static async Task WaitForStableProcessFallbackAsync(
+        Process process,
+        Action<string>? log,
+        Task<MinecraftLaunchFaultReport?>? faultReportTask,
+        CancellationToken cancellationToken)
+    {
+        PortableLog.Debug(
+            "GameProcess",
+            $"当前窗口系统不支持枚举其他进程的顶层窗口，使用进程稳定性回退；PID={process.Id}。");
         DateTimeOffset deadline = DateTimeOffset.UtcNow + EarlyExitGracePeriod;
 
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            PortableLog.RealTime("GameProcess", $"等待游戏稳定运行；PID={process.Id}；HasExited={process.HasExited}。");
-
             if (process.HasExited)
                 throw await CreateEarlyExitExceptionAsync(process, faultReportTask).ConfigureAwait(false);
 
             await Task.Delay(WindowPollInterval, cancellationToken).ConfigureAwait(false);
         }
 
-        // Still alive after grace → success. Do not require MainWindowHandle (java/javaw often lag).
         if (process.HasExited)
             throw await CreateEarlyExitExceptionAsync(process, faultReportTask).ConfigureAwait(false);
 
-        log?.Invoke("游戏进程仍在运行（PID " + process.Id.ToString(CultureInfo.InvariantCulture) + "）。");
+        log?.Invoke("窗口管理器不支持全局查询，游戏进程仍在运行（PID " +
+                    process.Id.ToString(CultureInfo.InvariantCulture) + "）。");
     }
 
     private static async Task ObserveProcessExitAsync(Process process, Guid sessionId)
