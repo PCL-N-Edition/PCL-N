@@ -28,8 +28,11 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
     private readonly string _pageId;
     private readonly Grid _rootLayout;
     private readonly Grid _floatingLayer;
+    private readonly Border _operationLayer;
+    private readonly MyLoading _operationLoading;
     private readonly StackPanel _panMain;
     private readonly MyLoading _loading;
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly Dictionary<string, Func<string?>> _fields = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _liveRefreshCancellation;
     private long _revision;
@@ -61,9 +64,27 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch
         };
+        _operationLoading = new MyLoading
+        {
+            Text = "正在处理",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(24)
+        };
+        _operationLayer = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(38, 0, 0, 0)),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            IsVisible = false,
+            IsHitTestVisible = true,
+            Child = _operationLoading,
+            ZIndex = 200
+        };
         _rootLayout = new Grid();
         _rootLayout.Children.Add(scroll);
         _rootLayout.Children.Add(_floatingLayer);
+        _rootLayout.Children.Add(_operationLayer);
         PanScroll = scroll;
         Content = _rootLayout;
         AttachedToVisualTree += (_, _) => StartLiveRefresh();
@@ -645,7 +666,20 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             {
                 string? value = ResolveFieldValue(valueField);
                 string? pluginId = ResolveFieldValue(metaField) ?? meta;
-                await InvokeAsync(actionId!, pluginId: pluginId, value: value).ConfigureAwait(true);
+                string originalText = button.Text;
+                button.IsEnabled = false;
+                button.Text = ButtonBusyText(label);
+                try
+                {
+                    await InvokeAsync(actionId!, pluginId: pluginId, value: value).ConfigureAwait(true);
+                }
+                finally
+                {
+                    // The action may have rebuilt the page; only restore this detached
+                    // instance for the no-refresh path.
+                    button.Text = originalText;
+                    button.IsEnabled = node.Enabled;
+                }
             };
         }
 
@@ -1098,6 +1132,38 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
             or "developer.showUiPatches" or "developer.showCompatibility"
             or "developer.setDiagnostics";
 
+    private static string ButtonBusyText(string label) => label switch
+    {
+        "刷新" or "重试" => "正在刷新…",
+        "加入" or "加入群组" => "正在加入…",
+        "创建房间" or "新建群组" or "创建群组" => "正在创建…",
+        "打开聊天" => "正在打开…",
+        "返回聊天列表" or "返回大厅" or "返回" => "正在返回…",
+        "发送" => "正在发送…",
+        "安装" or "安装 .pnp" => "正在安装…",
+        "下载" => "正在下载…",
+        _ => "正在处理…"
+    };
+
+    private static string OperationBusyText(string actionId) => actionId switch
+    {
+        "page.refresh" or "catalog.refresh" => "正在刷新插件页面",
+        "ncloud.chat.open" => "正在打开聊天",
+        "ncloud.chat.openJoin" or "ncloud.chat.openCreate" => "正在打开聊天页面",
+        "ncloud.chat.back" => "正在返回聊天列表",
+        "ncloud.chat.create" => "正在创建群组",
+        "ncloud.chat.join" => "正在加入群组",
+        "ncloud.chat.send" => "正在发送消息",
+        "ncloud.room.create" => "正在创建联机房间",
+        "ncloud.room.join" => "正在加入联机房间",
+        "market.searchOnline" => "正在搜索插件",
+        "market.installRemote" or "market.installListing" or "catalog.install" => "正在安装插件",
+        _ => "正在处理插件操作"
+    };
+
+    private static bool ShowsOperationFeedback(string actionId) =>
+        actionId is not ("pclui.value" or "pclui.toggle" or "pclui.slider");
+
     private async Task InvokeAsync(
         string actionId,
         string? pluginId = null,
@@ -1112,8 +1178,23 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         }
 
         IHostBackgroundTask? hostTask = null;
+        bool operationFeedback = false;
         try
         {
+            if (ShowsOperationFeedback(actionId))
+            {
+                if (!await _operationGate.WaitAsync(0).ConfigureAwait(true))
+                    return;
+                operationFeedback = true;
+                _operationLoading.Text = OperationBusyText(actionId);
+                _operationLayer.IsVisible = true;
+                // Give Avalonia a render turn before awaiting sidecar/network work so
+                // even a cold action produces visible feedback on the first click.
+                await Dispatcher.UIThread.InvokeAsync(
+                    static () => { },
+                    DispatcherPriority.Render);
+            }
+
             if (TracksHostTask(actionId))
             {
                 string title = actionId switch
@@ -1312,6 +1393,11 @@ internal sealed class PageSetupRemoteDataChain : MyPageRight, IRefreshableSettin
         finally
         {
             hostTask?.Dispose();
+            if (operationFeedback)
+            {
+                _operationLayer.IsVisible = false;
+                _operationGate.Release();
+            }
         }
     }
 
