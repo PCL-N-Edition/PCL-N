@@ -63,6 +63,13 @@ if (Test-Path -LiteralPath $libVlcRoot) {
     }
 }
 
+& (Join-Path $PSScriptRoot 'validate-plugin-sidecar.ps1') `
+    -Stage $stage `
+    -Runtime $Runtime `
+    -SelfContained:$SelfContained `
+    -WriteMarker
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 if ([string]::IsNullOrWhiteSpace($OutputZip)) {
     $OutputZip = Join-Path $repoRoot "artifacts\PCL.Plugin.Sidecar.$Runtime.zip"
 }

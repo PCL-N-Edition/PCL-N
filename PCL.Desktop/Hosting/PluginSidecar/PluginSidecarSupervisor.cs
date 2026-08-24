@@ -25,6 +25,7 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
     private PluginSidecarClient? _client;
     private string? _pipeName;
     private string? _token;
+    private string? _lastStartFailureMessage;
 
     public bool IsAvailable
     {
@@ -44,6 +45,15 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
         }
     }
 
+    public string? LastStartFailureMessage
+    {
+        get
+        {
+            lock (_gate)
+                return _lastStartFailureMessage;
+        }
+    }
+
     /// <summary>Try start sidecar if binary exists; never throws into shell init.</summary>
     public async Task<bool> TryStartAsync(CancellationToken cancellationToken = default)
     {
@@ -59,6 +69,7 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
             staleProcess = _process;
             _client = null;
             _process = null;
+            _lastStartFailureMessage = null;
         }
 
         if (staleClient is not null || staleProcess is not null)
@@ -87,9 +98,20 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
             .ConfigureAwait(false);
         if (executable is null)
         {
-            PortableLog.Info("PluginSidecar", "Sidecar binary not found; plugin platform disabled.");
+            const string message = "Sidecar binary not found; plugin platform disabled.";
+            SetLastStartFailure(message);
+            PortableLog.Info("PluginSidecar", message);
             return false;
         }
+
+        PluginSidecarRuntimeCheck runtimeCheck = PluginSidecarRuntimeInspector.Inspect(executable);
+        if (!runtimeCheck.CanStart)
+        {
+            SetLastStartFailure(runtimeCheck.Message);
+            PortableLog.Warn("PluginSidecar", runtimeCheck.Message);
+            return false;
+        }
+        PortableLog.Debug("PluginSidecar", runtimeCheck.Message);
 
         DefaultPlatformPathProvider platformPaths = new();
         // Align plugin runtime with OOBE / pcln-paths.json data roots (not only OS defaults).
@@ -141,7 +163,9 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
             Process process = new() { StartInfo = start };
             if (!process.Start())
             {
-                PortableLog.Warn("PluginSidecar", "Failed to start sidecar process.");
+                const string message = "Failed to start sidecar process.";
+                SetLastStartFailure(message);
+                PortableLog.Warn("PluginSidecar", message);
                 return false;
             }
 
@@ -161,7 +185,9 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
             PluginSidecarResult hello = await client.HelloAsync(_token, cancellationToken).ConfigureAwait(false);
             if (!hello.Ok)
             {
-                PortableLog.Warn("PluginSidecar", "Sidecar hello rejected: " + (hello.Message ?? "unknown"));
+                string message = "Sidecar hello rejected: " + (hello.Message ?? "unknown");
+                SetLastStartFailure(message);
+                PortableLog.Warn("PluginSidecar", message);
                 await client.DisposeAsync().ConfigureAwait(false);
                 TryKill(process);
                 return false;
@@ -191,10 +217,18 @@ internal sealed class PluginSidecarSupervisor : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            PortableLog.Warn("PluginSidecar", "Sidecar start failed: " + ex.Message);
+            string message = "Sidecar start failed: " + ex.Message;
+            SetLastStartFailure(message);
+            PortableLog.Warn("PluginSidecar", message);
             await DisposeAsync().ConfigureAwait(false);
             return false;
         }
+    }
+
+    private void SetLastStartFailure(string message)
+    {
+        lock (_gate)
+            _lastStartFailureMessage = message;
     }
 
     private static async Task<Stream> ConnectPipeAsync(string pipeName, CancellationToken cancellationToken)

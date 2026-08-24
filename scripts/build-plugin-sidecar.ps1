@@ -170,6 +170,7 @@ if ($Publish) {
         -p:PublishAot=false `
         -p:PublishTrimmed=false `
         -p:PublishSingleFile=false `
+        -p:CopyLocalLockFileAssemblies=false `
         -p:DebugType=None `
         -p:DebugSymbols=false `
         -o $Output

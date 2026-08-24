@@ -110,6 +110,7 @@ internal static partial class DesktopHost
             {
                 PluginOptionalRuntimeResult failed = new(
                     PluginOptionalRuntimeStatus.Failed,
+                    PluginSidecarSupervisor.Instance.LastStartFailureMessage ??
                     "Plugin sidecar start failed or hello rejected.");
                 OptionalRuntimeResult = failed;
                 PortableLog.Info("DesktopHost", failed.Message);
