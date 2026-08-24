@@ -307,6 +307,21 @@ public sealed class SkinAppearanceTests
         }
     }
 
+    [TestMethod]
+    public void SkinSiteInteractionPolicy_BlocksMicrosoftAndNCloudOnly()
+    {
+        Assert.IsFalse(SkinSiteInteractionPolicy.CanApplyPublicTexture(
+            LaunchLoginProfileKind.Microsoft));
+        Assert.IsFalse(SkinSiteInteractionPolicy.CanApplyPublicTexture(
+            LaunchLoginProfileKind.NCloud));
+        Assert.IsTrue(SkinSiteInteractionPolicy.CanApplyPublicTexture(
+            LaunchLoginProfileKind.LittleSkin));
+        Assert.IsTrue(SkinSiteInteractionPolicy.CanApplyPublicTexture(
+            LaunchLoginProfileKind.ThirdParty));
+        Assert.IsTrue(SkinSiteInteractionPolicy.CanApplyPublicTexture(
+            LaunchLoginProfileKind.Offline));
+    }
+
     private static HttpResponseMessage Json(string content) =>
         new(HttpStatusCode.OK)
         {

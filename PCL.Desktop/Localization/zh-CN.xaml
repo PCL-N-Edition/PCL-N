@@ -492,6 +492,9 @@
     <sys:String x:Key="Appearance.Library.Filter.Cape">披风</sys:String>
     <sys:String x:Key="Appearance.Library.Sort.Time">最新上传</sys:String>
     <sys:String x:Key="Appearance.Library.Sort.Likes">最多收藏</sys:String>
+    <sys:String x:Key="Appearance.Library.ApplyBlocked.SkinTitle">使用公开皮肤</sys:String>
+    <sys:String x:Key="Appearance.Library.ApplyBlocked.CapeTitle">使用公开披风</sys:String>
+    <sys:String x:Key="Appearance.Library.ApplyBlocked.Message">正版与 N Cloud 档案不能直接使用皮肤站中的公开材质。</sys:String>
     <sys:String x:Key="Appearance.Library.ThirdPartyCape.Title">第三方披风</sys:String>
     <sys:String x:Key="Appearance.Library.ThirdPartyCape.Message">请在皮肤站中将该披风加入衣柜，并应用到当前角色。</sys:String>
     <sys:String x:Key="Appearance.Library.UnsupportedCape.Title">使用披风</sys:String>
