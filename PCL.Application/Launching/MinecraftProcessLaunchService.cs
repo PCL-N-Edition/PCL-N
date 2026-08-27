@@ -130,19 +130,23 @@ public static class MinecraftProcessLaunchService
                 OperatingSystem = GetNativeOperatingSystem()
             });
 
+        List<string> bundledClasspathEntries = CreateBundledClasspathEntries(
+            versionJson,
+            versionJsonPath,
+            request.VersionId,
+            inheritedVersions,
+            minecraftRoot);
         MinecraftClasspathPlan classpath = MinecraftClasspathPlanner.CreatePlan(
             new MinecraftClasspathPlanRequest
             {
                 Libraries = libraries,
                 ClasspathHeadEntries = request.ClasspathHeadEntries,
-                BundledClasspathEntries = CreateBundledClasspathEntries(
-                    versionJson,
-                    versionJsonPath,
-                    request.VersionId,
-                    inheritedVersions,
-                    minecraftRoot)
+                BundledClasspathEntries = bundledClasspathEntries
             });
         string classpathText = string.Join(Path.PathSeparator, classpath.Entries);
+        string versionName = bundledClasspathEntries.Count == 0
+            ? request.VersionId
+            : Path.GetFileNameWithoutExtension(bundledClasspathEntries[0]);
         string assetIndexName = MinecraftAssetIndexResolver.GetIndexName(
             new MinecraftAssetIndexNameRequest
             {
@@ -181,7 +185,14 @@ public static class MinecraftProcessLaunchService
                         MinecraftArguments = minecraftArguments
                     }
                     : null,
-                Replacements = CreateReplacements(request, minecraftRoot, gameDirectory, nativesDirectory, classpathText, assetIndexName),
+                Replacements = CreateReplacements(
+                    request,
+                    minecraftRoot,
+                    gameDirectory,
+                    nativesDirectory,
+                    classpathText,
+                    assetIndexName,
+                    versionName),
                 JavaMajorVersion = request.JavaMajorVersion,
                 Fullscreen = request.Fullscreen,
                 CustomGameArguments = request.CustomGameArguments,
@@ -244,7 +255,8 @@ public static class MinecraftProcessLaunchService
         string gameDirectory,
         string nativesDirectory,
         string classpath,
-        string assetIndexName)
+        string assetIndexName,
+        string versionName)
     {
         // NeoForge/Forge module path uses these (unquoted) — leaving them literal causes instant exit code 1.
         string libraryDirectory = Path.Combine(minecraftRoot, "libraries");
@@ -261,7 +273,10 @@ public static class MinecraftProcessLaunchService
             ["${library_directory}"] = libraryDirectory,
             ["${libraries_directory}"] = libraryDirectory,
             ["${auth_player_name}"] = request.PlayerName,
-            ["${version_name}"] = request.VersionId,
+            // Forge appends this value to its ignoreList as "${version_name}.jar".
+            // Renamed/inherited instances commonly do not have a local game jar, so use
+            // the actual first bundled game jar rather than the launcher instance name.
+            ["${version_name}"] = versionName,
             ["${game_directory}"] = Quote(gameDirectory),
             ["${assets_root}"] = Quote(Path.Combine(minecraftRoot, "assets")),
             ["${assets_index_name}"] = assetIndexName,

@@ -283,6 +283,9 @@ public sealed class MinecraftProcessLaunchServiceTests
                   "id": "fabric-loader-0.16.14-1.20.1",
                   "inheritsFrom": "1.20.1",
                   "mainClass": "net.fabricmc.loader.impl.launch.knot.KnotClient",
+                  "arguments": {
+                    "jvm": ["-DignoreList=${version_name}.jar"]
+                  },
                   "libraries": [
                     {
                       "name": "net.fabricmc:fabric-loader:0.16.14",
@@ -310,6 +313,10 @@ public sealed class MinecraftProcessLaunchServiceTests
             StringAssert.Contains(plan.StartInfo.Arguments, "--username Steve");
             StringAssert.Contains(plan.StartInfo.Arguments, "--versionType \"Custom Type\"");
             StringAssert.Contains(plan.StartInfo.Arguments, "--launcherName \"Custom Launcher\"");
+            StringAssert.Contains(plan.StartInfo.Arguments, "-DignoreList=1.20.1.jar");
+            Assert.IsFalse(plan.StartInfo.Arguments.Contains(
+                "-DignoreList=fabric-loader-0.16.14-1.20.1.jar",
+                StringComparison.Ordinal));
             CollectionAssert.Contains(plan.ClasspathEntries.ToArray(), baseJarPath);
             Assert.IsTrue(plan.ClasspathEntries.Any(path => path.EndsWith(
                 Path.Combine("net", "fabricmc", "fabric-loader", "0.16.14", "fabric-loader-0.16.14.jar"),
