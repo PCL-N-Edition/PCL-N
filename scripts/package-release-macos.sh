@@ -78,6 +78,9 @@ trap cleanup EXIT
 
 mv "$app" "$dmg_root/PCL N.app"
 ln -s /Applications "$dmg_root/Applications"
+mkdir -p "$dmg_root/.background"
+swift "$repo_root/scripts/generate-macos-dmg-background.swift" \
+  "$dmg_root/.background/PCLN-background.png"
 # Drop leftover artifact files so hdiutil has more free space.
 find "$artifact_dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
 
@@ -98,7 +101,7 @@ rm -f "$rw_dmg" "$final_dmg"
 hdiutil create \
   -size "${image_mb}m" \
   -fs HFS+ \
-  -volname "PCLN" \
+  -volname "PCL N" \
   -ov \
   "$rw_dmg"
 
@@ -112,8 +115,37 @@ hdiutil attach \
 test -d "$mount_dir"
 ditto "$dmg_root/PCL N.app" "$mount_dir/PCL N.app"
 ln -sf /Applications "$mount_dir/Applications"
+ditto "$dmg_root/.background" "$mount_dir/.background"
 test -x "$mount_dir/PCL N.app/Contents/MacOS/PCL-N-Edition"
 codesign --verify --deep --strict "$mount_dir/PCL N.app"
+
+# Persist the familiar drag-to-Applications installer layout in .DS_Store.
+# The app and target folder are spatially mapped to the arrow in the background.
+osascript <<'APPLESCRIPT'
+tell application "Finder"
+  tell disk "PCL N"
+    open
+    set current view of container window to icon view
+    set toolbar visible of container window to false
+    set statusbar visible of container window to false
+    set bounds of container window to {120, 120, 780, 520}
+
+    set viewOptions to the icon view options of container window
+    set arrangement of viewOptions to not arranged
+    set icon size of viewOptions to 112
+    set text size of viewOptions to 13
+    set background picture of viewOptions to file ".background:PCLN-background.png"
+
+    set position of item "PCL N.app" of container window to {170, 220}
+    set position of item "Applications" of container window to {490, 220}
+    update without registering applications
+    delay 2
+    close
+  end tell
+end tell
+APPLESCRIPT
+
+test -s "$mount_dir/.DS_Store"
 sync
 
 hdiutil detach "$mount_dir"
@@ -138,6 +170,25 @@ rm -f "$rw_dmg"
 rw_dmg=""
 
 test -s "$final_dmg"
+
+# Re-open the compressed image and validate what users actually download.
+mount_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/pcln-verify.XXXXXX")"
+hdiutil attach \
+  -readonly \
+  -noverify \
+  -noautoopen \
+  -mountpoint "$mount_dir" \
+  "$final_dmg"
+test -d "$mount_dir/PCL N.app"
+test -L "$mount_dir/Applications"
+test -s "$mount_dir/.DS_Store"
+test -s "$mount_dir/.background/PCLN-background.png"
+test -x "$mount_dir/PCL N.app/Contents/MacOS/PCL-N-Edition"
+codesign --verify --deep --strict "$mount_dir/PCL N.app"
+hdiutil detach "$mount_dir"
+rmdir "$mount_dir" 2>/dev/null || true
+mount_dir=""
+
 echo "Created $(basename "$final_dmg") ($(du -h "$final_dmg" | awk '{print $1}'))"
 echo "Disk after packaging:"
 df -h || true
