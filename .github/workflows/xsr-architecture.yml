@@ -1,0 +1,50 @@
+name: XSR Architecture
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [refactor/xsr]
+  pull_request:
+    branches: [refactor/xsr]
+  workflow_dispatch:
+
+jobs:
+  architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Run XSR architecture fitness tests
+        run: dotnet test PCL.Xsr.ArchitectureTests/PCL.Xsr.ArchitectureTests.csproj -c Release --nologo
+
+  version-policy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { channel: stable, sequence: 1, commit: ffffff, expected: 2.0.0 }
+          - { channel: alpha, sequence: 1, commit: ffffff, expected: 2.0.0.alpha.1 }
+          - { channel: beta, sequence: 1, commit: ffffff, expected: 2.0.0.beta.1 }
+          - { channel: ci, sequence: 1, commit: ffffff, expected: 2.0.0.ci.ffffff }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Verify canonical ${{ matrix.channel }} version
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$(dotnet msbuild PCL.Xsr.ArchitectureTests/PCL.Xsr.ArchitectureTests.csproj \
+            -t:PrintXsrVersion \
+            -p:XsrVersionChannel=${{ matrix.channel }} \
+            -p:XsrVersionSequence=${{ matrix.sequence }} \
+            -p:XsrCommitShort=${{ matrix.commit }} \
+            --nologo)"
+          printf '%s\n' "$output"
+          grep -Fq "XSR_PRODUCT_VERSION=${{ matrix.expected }}" <<< "$output"

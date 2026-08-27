@@ -1,0 +1,46 @@
+<Project>
+  <PropertyGroup>
+    <XsrVersionPrefix Condition="'$(XsrVersionPrefix)' == ''">2.0.0</XsrVersionPrefix>
+    <XsrVersionChannel Condition="'$(XsrVersionChannel)' == ''">alpha</XsrVersionChannel>
+    <XsrVersionSequence Condition="'$(XsrVersionSequence)' == ''">1</XsrVersionSequence>
+    <XsrCommitShort Condition="'$(XsrCommitShort)' == '' and $([System.String]::Copy('$(GITHUB_SHA)').Length) &gt;= 6">$([System.String]::Copy('$(GITHUB_SHA)').Substring(0, 6).ToLowerInvariant())</XsrCommitShort>
+
+    <XsrProductVersion Condition="'$(XsrVersionChannel)' == 'stable'">$(XsrVersionPrefix)</XsrProductVersion>
+    <XsrProductVersion Condition="'$(XsrVersionChannel)' == 'alpha' or '$(XsrVersionChannel)' == 'beta'">$(XsrVersionPrefix).$(XsrVersionChannel).$(XsrVersionSequence)</XsrProductVersion>
+    <XsrProductVersion Condition="'$(XsrVersionChannel)' == 'ci'">$(XsrVersionPrefix).ci.$(XsrCommitShort)</XsrProductVersion>
+
+    <XsrPackageVersion Condition="'$(XsrVersionChannel)' == 'stable'">$(XsrVersionPrefix)</XsrPackageVersion>
+    <XsrPackageVersion Condition="'$(XsrVersionChannel)' == 'alpha' or '$(XsrVersionChannel)' == 'beta'">$(XsrVersionPrefix)-$(XsrVersionChannel).$(XsrVersionSequence)</XsrPackageVersion>
+    <XsrPackageVersion Condition="'$(XsrVersionChannel)' == 'ci'">$(XsrVersionPrefix)-ci.$(XsrCommitShort)</XsrPackageVersion>
+
+    <Version>$(XsrPackageVersion)</Version>
+    <PackageVersion>$(XsrPackageVersion)</PackageVersion>
+    <InformationalVersion>$(XsrProductVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <AssemblyVersion>$(XsrVersionPrefix).0</AssemblyVersion>
+    <FileVersion>$(XsrVersionPrefix).0</FileVersion>
+  </PropertyGroup>
+
+  <Target Name="ValidateXsrVersion" BeforeTargets="PrepareForBuild">
+    <Error
+      Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(XsrVersionPrefix)', '^[0-9]+\.[0-9]+\.[0-9]+$')) != 'True'"
+      Text="XsrVersionPrefix must contain exactly three numeric components." />
+    <Error
+      Condition="'$(XsrVersionChannel)' != 'stable' and '$(XsrVersionChannel)' != 'alpha' and '$(XsrVersionChannel)' != 'beta' and '$(XsrVersionChannel)' != 'ci'"
+      Text="XsrVersionChannel must be stable, alpha, beta, or ci." />
+    <Error
+      Condition="('$(XsrVersionChannel)' == 'alpha' or '$(XsrVersionChannel)' == 'beta') and $([System.Text.RegularExpressions.Regex]::IsMatch('$(XsrVersionSequence)', '^[1-9][0-9]*$')) != 'True'"
+      Text="Alpha and beta XSR versions require a positive integer XsrVersionSequence." />
+    <Error
+      Condition="'$(XsrVersionChannel)' == 'ci' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(XsrCommitShort)', '^[0-9a-f]{6}$')) != 'True'"
+      Text="CI XSR versions require XsrCommitShort to contain the lowercase first six hexadecimal commit characters." />
+    <Error
+      Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(XsrProductVersion)', '^[0-9]+\.[0-9]+\.[0-9]+(?:\.(?:alpha|beta)\.[1-9][0-9]*|\.ci\.[0-9a-f]{6})?$')) != 'True'"
+      Text="XsrProductVersion '$(XsrProductVersion)' does not match the canonical dotted format." />
+  </Target>
+
+  <Target Name="PrintXsrVersion" DependsOnTargets="ValidateXsrVersion">
+    <Message Importance="high" Text="XSR_PRODUCT_VERSION=$(XsrProductVersion)" />
+    <Message Importance="high" Text="XSR_PACKAGE_VERSION=$(XsrPackageVersion)" />
+  </Target>
+</Project>
