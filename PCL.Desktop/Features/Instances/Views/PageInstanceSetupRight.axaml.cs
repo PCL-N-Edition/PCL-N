@@ -259,6 +259,7 @@ public partial class PageInstanceSetupRight : MyPageRight
             SetText("TextAdvanceJvm", _metadata.JvmArguments);
             SetText("TextAdvanceGame", _metadata.GameArguments);
             SetText("TextAdvanceClasspathHead", _metadata.ClasspathHead);
+            SetText("TextAdvanceWrapper", _metadata.WrapperCommand);
             SetText("TextAdvanceRun", _metadata.PreLaunchCommand);
             SetChecked("CheckAdvanceRunWait", _metadata.WaitForPreLaunchCommand);
             SetChecked("CheckAdvanceJava", _metadata.IgnoreJavaCompatibility);
@@ -308,6 +309,7 @@ public partial class PageInstanceSetupRight : MyPageRight
             "VersionAdvanceJvm" => metadata with { JvmArguments = textBox.Text ?? string.Empty },
             "VersionAdvanceGame" => metadata with { GameArguments = textBox.Text ?? string.Empty },
             "VersionAdvanceClasspathHead" => metadata with { ClasspathHead = textBox.Text ?? string.Empty },
+            "VersionAdvanceWrapper" => metadata with { WrapperCommand = textBox.Text ?? string.Empty },
             "VersionAdvanceRun" => metadata with { PreLaunchCommand = textBox.Text ?? string.Empty },
             _ => metadata
         });

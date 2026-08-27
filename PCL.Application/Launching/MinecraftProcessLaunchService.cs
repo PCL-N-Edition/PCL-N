@@ -31,6 +31,7 @@ public sealed record MinecraftProcessLaunchRequest
     public bool IsolatedGameDirectory { get; init; }
     public string? CustomJvmArguments { get; init; }
     public string? CustomGameArguments { get; init; }
+    public string? WrapperCommand { get; init; }
     public IReadOnlyList<string> ClasspathHeadEntries { get; init; } = [];
     public string? AuthlibInjectorPath { get; init; }
     public string? AuthlibServer { get; init; }
@@ -211,6 +212,8 @@ public static class MinecraftProcessLaunchService
             UseShellExecute = false
         };
 
+        ApplyWrapperCommand(startInfo, request.WrapperCommand);
+
         if (OperatingSystem.IsLinux())
         {
             SetupLinuxEnvironment(startInfo, request.UseSystemGlfw, libraries, request.ForceX11OnWayland);
@@ -222,7 +225,7 @@ public static class MinecraftProcessLaunchService
                 "LaunchPlan",
                 $"进程参数：FileName={startInfo.FileName}；WorkingDirectory={startInfo.WorkingDirectory}；Arguments={startInfo.Arguments}");
             MinecraftJvmHostRequest? jvmHostRequest = null;
-            if (request.UseExperimentalJvmHost)
+            if (request.UseExperimentalJvmHost && string.IsNullOrWhiteSpace(request.WrapperCommand))
             {
                 IReadOnlyList<string> launchTokens = ParseCommandLine(launchPlan.Arguments);
                 jvmHostRequest = CreateJvmHostRequest(
@@ -910,6 +913,76 @@ public static class MinecraftProcessLaunchService
         }
 
         return result;
+    }
+
+    internal static void ApplyWrapperCommand(ProcessStartInfo startInfo, string? wrapperCommand)
+    {
+        ArgumentNullException.ThrowIfNull(startInfo);
+        if (string.IsNullOrWhiteSpace(wrapperCommand))
+            return;
+
+        IReadOnlyList<string> wrapperTokens = ParseCommandLine(wrapperCommand.Trim());
+        if (wrapperTokens.Count == 0 || string.IsNullOrWhiteSpace(wrapperTokens[0]))
+            throw new FormatException("包装命令缺少可执行程序。");
+
+        string javaExecutable = startInfo.FileName;
+        string javaArguments = startInfo.Arguments;
+        System.Text.StringBuilder arguments = new();
+        foreach (string token in wrapperTokens.Skip(1))
+            AppendProcessArgument(arguments, token);
+        AppendProcessArgument(arguments, javaExecutable);
+        if (!string.IsNullOrWhiteSpace(javaArguments))
+        {
+            if (arguments.Length > 0)
+                arguments.Append(' ');
+            arguments.Append(javaArguments);
+        }
+
+        startInfo.FileName = wrapperTokens[0];
+        startInfo.Arguments = arguments.ToString();
+        PortableLog.Info(
+            "LaunchPlan",
+            $"已应用包装命令：Wrapper={startInfo.FileName}；Java={javaExecutable}。");
+    }
+
+    private static void AppendProcessArgument(System.Text.StringBuilder target, string value)
+    {
+        if (target.Length > 0)
+            target.Append(' ');
+        target.Append(QuoteProcessArgument(value));
+    }
+
+    private static string QuoteProcessArgument(string value)
+    {
+        if (value.Length > 0 && !value.Any(static character => char.IsWhiteSpace(character) || character == '"'))
+            return value;
+
+        System.Text.StringBuilder quoted = new(value.Length + 2);
+        quoted.Append('"');
+        int backslashes = 0;
+        foreach (char character in value)
+        {
+            if (character == '\\')
+            {
+                backslashes++;
+                continue;
+            }
+
+            if (character == '"')
+            {
+                quoted.Append('\\', backslashes * 2 + 1);
+                quoted.Append('"');
+                backslashes = 0;
+                continue;
+            }
+
+            quoted.Append('\\', backslashes);
+            backslashes = 0;
+            quoted.Append(character);
+        }
+        quoted.Append('\\', backslashes * 2);
+        quoted.Append('"');
+        return quoted.ToString();
     }
 
     private sealed record InheritedVersionJson(string VersionId, string JsonPath, JsonObject Json);

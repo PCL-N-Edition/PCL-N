@@ -238,6 +238,8 @@
                         <RowDefinition Height="28" />
                         <RowDefinition Height="9" />
                         <RowDefinition Height="28" />
+                        <RowDefinition Height="9" />
+                        <RowDefinition Height="28" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -272,17 +274,24 @@
                     <legacy:MyTextBox x:Name="TextAdvanceGame" Grid.Row="4" Grid.ColumnSpan="2" Tag="LaunchAdvanceGame"
                                      Grid.Column="1" ValidatedTextChanged="TextBoxChange"
                                      ToolTip.Tip="{DynamicResource Setup.Launch.Advanced.GameTail.ToolTip}" />
-                    <TextBlock Grid.Row="6" VerticalAlignment="Center" HorizontalAlignment="Left" Text="{DynamicResource Setup.Launch.Advanced.PreLaunchCommand}"
+                    <TextBlock Grid.Row="6" VerticalAlignment="Center" HorizontalAlignment="Left"
+                               Text="{DynamicResource Setup.Launch.Advanced.WrapperCommand}"
                                Margin="0,0,25,0" />
-                    <legacy:MyTextBox x:Name="TextAdvanceRun" Grid.Row="6" Grid.ColumnSpan="2" Tag="LaunchAdvanceRun"
+                    <legacy:MyTextBox x:Name="TextAdvanceWrapper" Grid.Row="6" Grid.ColumnSpan="2"
+                                     Tag="LaunchWrapperCommand" Grid.Column="1"
+                                     ValidatedTextChanged="TextBoxChange"
+                                     ToolTip.Tip="{DynamicResource Setup.Launch.Advanced.WrapperCommand.ToolTip}" />
+                    <TextBlock Grid.Row="8" VerticalAlignment="Center" HorizontalAlignment="Left" Text="{DynamicResource Setup.Launch.Advanced.PreLaunchCommand}"
+                               Margin="0,0,25,0" />
+                    <legacy:MyTextBox x:Name="TextAdvanceRun" Grid.Row="8" Grid.ColumnSpan="2" Tag="LaunchAdvanceRun"
                                      Grid.Column="1" HintText="" ValidatedTextChanged="TextBoxChange"
                                      TextChanged="TextAdvanceRun_TextChanged"
                                      ToolTip.Tip="{DynamicResource Setup.Launch.Advanced.PreLaunchCommand.ToolTip}" />
-                    <legacy:MyCheckBox Grid.Row="7" Grid.Column="1" x:Name="CheckAdvanceRunWait"
+                    <legacy:MyCheckBox Grid.Row="9" Grid.Column="1" x:Name="CheckAdvanceRunWait"
                                       Tag="LaunchAdvanceRunWait" IsVisible="False"
                                       Change="CheckBoxChange"
                                       Text="{DynamicResource Setup.Launch.Advanced.PreLaunchCommand.Wait}" Margin="0,8,0,7" />
-                    <StackPanel Margin="0,12,0,4" Grid.Row="8" Grid.ColumnSpan="2" HorizontalAlignment="Left">
+                    <StackPanel Margin="0,12,0,4" Grid.Row="10" Grid.ColumnSpan="2" HorizontalAlignment="Left">
                         <legacy:MyCheckBox Height="28" Text="{DynamicResource Setup.Launch.Advanced.DisableJlw}" x:Name="CheckAdvanceDisableJLW" Tag="LaunchAdvanceDisableJLW"  Change="CheckBoxChange" ToolTip.Tip="{DynamicResource Setup.Launch.Advanced.DisableJlw.ToolTip}" />
                         <legacy:MyCheckBox Height="28" Text="{DynamicResource Setup.Launch.Advanced.DisableRw}" x:Name="CheckAdvanceDisableRW" Tag="LaunchAdvanceDisableRW"  Change="CheckBoxChange" ToolTip.Tip="{DynamicResource Setup.Launch.Advanced.DisableRw.ToolTip}" />
                         <legacy:MyCheckBox Height="28" Text="{DynamicResource Setup.Launch.Advanced.GpuPreference}" x:Name="CheckAdvanceGraphicCard" Tag="LaunchAdvanceGraphicCard"  Change="CheckBoxChange" ToolTip.Tip="{DynamicResource Setup.Launch.Advanced.GpuPreference.ToolTip}" />
@@ -292,7 +301,7 @@
                         <legacy:MyCheckBox Height="28" Text="{DynamicResource Setup.Launch.Advanced.ForceX11OnWayland}" x:Name="CheckForceX11OnWayland" Tag="LaunchForceX11OnWayland" Change="CheckBoxChange" PreviewChange="CheckForceX11OnWayland_OnPreviewChange" ToolTip.Tip="{DynamicResource Setup.Launch.Advanced.ForceX11OnWayland.ToolTip}" />
                         <legacy:MyCheckBox Height="28" Text="{DynamicResource Setup.Launch.Advanced.AutoRepairGame}" x:Name="CheckAutoRepairGame" Tag="LaunchAutoRepairGame" Change="CheckBoxChange" ToolTip.Tip="{DynamicResource Setup.Launch.Advanced.AutoRepairGame.ToolTip}" />
                     </StackPanel>
-                    <legacy:MyHint Text="{DynamicResource Setup.Launch.Advanced.MoreInInstanceSetup}" Margin="0,5,0,10" Theme="Blue" Grid.Row="9"
+                    <legacy:MyHint Text="{DynamicResource Setup.Launch.Advanced.MoreInInstanceSetup}" Margin="0,5,0,10" Theme="Blue" Grid.Row="11"
                                   Grid.ColumnSpan="2"
                                   CanClose="True" RelativeSetup="HintMoreAdvancedSetup" />
                 </Grid>

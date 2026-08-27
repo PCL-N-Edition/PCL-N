@@ -770,6 +770,8 @@
     <sys:String x:Key="Setup.Launch.Advanced.JvmHead.ToolTip">啟動 Minecraft 時新增額外 JVM 引數。僅在瞭解其作用時修改。&#x0a;支援 ${library_directory} 等 Minecraft JSON 替換標記。</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.MoreInInstanceSetup">每個版本的設定中還提供更多高階選項。</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.PreLaunchCommand">啟動前執行</sys:String>
+    <sys:String x:Key="Setup.Launch.Advanced.WrapperCommand">包裝命令</sys:String>
+    <sys:String x:Key="Setup.Launch.Advanced.WrapperCommand.ToolTip">在 Java 啟動命令前加入包裝程式及其參數，例如 gamemoderun 或 mangohud。支援使用引號包圍含空格的參數。單一實例留空時跟隨全域設定。設定後會使用外部 Java 行程，以確保包裝程式實際接管 Minecraft。</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.PreLaunchCommand.ToolTip">在 Minecraft 啟動前執行命令或程式，語法與 Windows 命令提示符一致。&#x0a;&#x0a;路徑標記（路徑均以 \ 結尾）：&#x0a;· {path}：PCL 程式所在資料夾&#x0a;· {minecraft}：.minecraft 資料夾&#x0a;· {verpath}：版本資料夾（.minecraft\versions\版本名稱\）&#x0a;· {verindie}：啟用隔離時為版本資料夾，否則為 .minecraft 資料夾&#x0a;· {java}：Java 執行環境資料夾&#x0a;&#x0a;其他標記：&#x0a;· {user}：玩家名稱&#x0a;· {login}：登入方式&#x0a;· {uuid}：玩家 UUID&#x0a;· {name}：版本名稱&#x0a;· {date}、{time}：當前系統時間&#x0a;· {version}：原版版本號&#x0a;&#x0a;示例：&#x0a;· &quot;{verpath}test.exe&quot;&#x0a;· &quot;{java}java.exe&quot; -jar &quot;{verpath}test.jar&quot;&#x0a;· notepad &quot;{verindie}options.txt&quot;&#x0a;&#x0a;路徑可能包含空格時，請使用雙引號。命令的工作目錄為當前 .minecraft 資料夾。</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.PreLaunchCommand.Wait">等待命令完成後繼續</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.Renderer.DirectX12">DirectX 12（D3D12）</sys:String>

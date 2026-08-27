@@ -44,11 +44,16 @@ internal static class MinecraftLaunchPlanFactory
                 LauncherSettingsPageBinder.LoadSettings,
                 cancellationToken)
             .ConfigureAwait(false);
+        string wrapperCommand = FirstNonEmpty(
+            metadata.WrapperCommand,
+            GetTextOption(settings, LauncherSettingKeys.LaunchWrapperCommand));
         bool useJvmHost = ShouldUseJvmHostForProfile(
             settings.GetBooleanOption(
                 LauncherSettingKeys.ExperimentalJvmLifecycleHost,
                 LauncherSettingDefaults.GetBoolean(LauncherSettingKeys.ExperimentalJvmLifecycleHost.Value)),
-            profile.Kind);
+            profile.Kind) && string.IsNullOrWhiteSpace(wrapperCommand);
+        if (!string.IsNullOrWhiteSpace(wrapperCommand))
+            PortableLog.Info("LaunchPlan", "已配置包装命令，将使用外部 Java 进程启动路径。");
         int windowType = GetIntegerOption(settings, LauncherSettingKeys.LaunchArgumentWindowType, 1);
         (int width, int height) = GetWindowSize(settings);
         (string? authlibPath, string? authlibServer, string? authlibMetadata) =
@@ -102,6 +107,7 @@ internal static class MinecraftLaunchPlanFactory
                 IsolatedGameDirectory = metadata.InstanceIsolation,
                 CustomJvmArguments = BuildInstanceJvmArguments(metadata, settings),
                 CustomGameArguments = FirstNonEmpty(metadata.GameArguments, GetTextOption(settings, LauncherSettingKeys.LaunchAdvanceGame)),
+                WrapperCommand = wrapperCommand,
                 ClasspathHeadEntries = SplitClasspathHead(metadata.ClasspathHead),
                 AuthlibInjectorPath = authlibPath,
                 AuthlibServer = authlibServer,

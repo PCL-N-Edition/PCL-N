@@ -112,6 +112,7 @@ public static class LauncherSettingDefaults
         ["UiFormatCulture"] = "auto",
         ["LaunchAdvanceJvm"] = "-XX:+UseG1GC -XX:-UseAdaptiveSizePolicy -XX:-OmitStackTraceInFastThrow -Djdk.lang.Process.allowAmbiguousCommands=true -Dfml.ignoreInvalidMinecraftCertificates=True -Dfml.ignorePatchDiscrepancies=True -Dlog4j2.formatMsgNoLookups=true",
         ["LaunchAdvanceGame"] = string.Empty,
+        ["LaunchWrapperCommand"] = string.Empty,
         ["LaunchAdvanceRun"] = string.Empty,
         ["LaunchArgumentTitle"] = string.Empty,
         ["LaunchArgumentInfo"] = "PCLN",

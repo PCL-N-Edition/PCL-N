@@ -10,6 +10,8 @@ public static class LauncherSettingKeys
 
     public static readonly SettingKey LaunchAdvanceGame = new("LaunchAdvanceGame");
 
+    public static readonly SettingKey LaunchWrapperCommand = new("LaunchWrapperCommand");
+
     public static readonly SettingKey LaunchArgumentWindowHeight = new("LaunchArgumentWindowHeight");
 
     public static readonly SettingKey LaunchArgumentWindowType = new("LaunchArgumentWindowType");

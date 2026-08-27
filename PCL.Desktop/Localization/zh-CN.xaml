@@ -770,6 +770,8 @@
     <sys:String x:Key="Setup.Launch.Advanced.JvmHead.ToolTip">启动 Minecraft 时添加额外 JVM 参数。仅在了解其作用时修改。&#x0a;支持 ${library_directory} 等 Minecraft JSON 替换标记。</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.MoreInInstanceSetup">每个版本的设置中还提供更多高级选项。</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.PreLaunchCommand">启动前运行</sys:String>
+    <sys:String x:Key="Setup.Launch.Advanced.WrapperCommand">包装命令</sys:String>
+    <sys:String x:Key="Setup.Launch.Advanced.WrapperCommand.ToolTip">在 Java 启动命令前添加包装程序及其参数，例如 gamemoderun 或 mangohud。支持使用引号包围含空格的参数。单实例留空时跟随全局设置。配置后会使用外部 Java 进程，以确保包装程序实际接管 Minecraft。</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.PreLaunchCommand.ToolTip">在 Minecraft 启动前运行命令或程序，语法与 Windows 命令提示符一致。&#x0a;&#x0a;路径标记（路径均以 \ 结尾）：&#x0a;· {path}：PCL 程序所在文件夹&#x0a;· {minecraft}：.minecraft 文件夹&#x0a;· {verpath}：版本文件夹（.minecraft\versions\版本名称\）&#x0a;· {verindie}：启用隔离时为版本文件夹，否则为 .minecraft 文件夹&#x0a;· {java}：Java 运行环境文件夹&#x0a;&#x0a;其他标记：&#x0a;· {user}：玩家名称&#x0a;· {login}：登录方式&#x0a;· {uuid}：玩家 UUID&#x0a;· {name}：版本名称&#x0a;· {date}、{time}：当前系统时间&#x0a;· {version}：原版版本号&#x0a;&#x0a;示例：&#x0a;· &quot;{verpath}test.exe&quot;&#x0a;· &quot;{java}java.exe&quot; -jar &quot;{verpath}test.jar&quot;&#x0a;· notepad &quot;{verindie}options.txt&quot;&#x0a;&#x0a;路径可能包含空格时，请使用双引号。命令的工作目录为当前 .minecraft 文件夹。</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.PreLaunchCommand.Wait">等待命令完成后继续</sys:String>
     <sys:String x:Key="Setup.Launch.Advanced.Renderer.DirectX12">DirectX 12（D3D12）</sys:String>

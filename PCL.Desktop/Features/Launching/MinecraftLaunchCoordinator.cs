@@ -1023,10 +1023,13 @@ internal sealed class MinecraftLaunchCoordinator
                 startInfo.FileName = windowed;
         }
 
-        if (string.IsNullOrWhiteSpace(startInfo.FileName) || !File.Exists(startInfo.FileName))
+        bool hasExplicitDirectory = !string.IsNullOrWhiteSpace(startInfo.FileName) &&
+                                    !string.IsNullOrWhiteSpace(Path.GetDirectoryName(startInfo.FileName));
+        if (string.IsNullOrWhiteSpace(startInfo.FileName) ||
+            (hasExplicitDirectory && !File.Exists(startInfo.FileName)))
         {
             throw new FileNotFoundException(
-                "找不到 Java 可执行文件：" + (startInfo.FileName ?? "(null)"),
+                "找不到启动程序：" + (startInfo.FileName ?? "(null)"),
                 startInfo.FileName);
         }
 

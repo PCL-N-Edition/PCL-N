@@ -33,6 +33,36 @@ public sealed class MinecraftProcessLaunchServiceTests
     }
 
     [TestMethod]
+    public void ApplyWrapperCommand_PrefixesJavaAndPreservesArguments()
+    {
+        ProcessStartInfo startInfo = new()
+        {
+            FileName = "/opt/java runtimes/java",
+            Arguments = "-Xmx2G -cp \"game files/client.jar\" net.minecraft.client.main.Main"
+        };
+
+        MinecraftProcessLaunchService.ApplyWrapperCommand(
+            startInfo,
+            "\"/opt/Game Mode/gamemoderun\" --prefer-system");
+
+        Assert.AreEqual("/opt/Game Mode/gamemoderun", startInfo.FileName);
+        Assert.AreEqual(
+            "--prefer-system \"/opt/java runtimes/java\" -Xmx2G -cp \"game files/client.jar\" net.minecraft.client.main.Main",
+            startInfo.Arguments);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "--prefer-system",
+                "/opt/java runtimes/java",
+                "-Xmx2G",
+                "-cp",
+                "game files/client.jar",
+                "net.minecraft.client.main.Main"
+            },
+            MinecraftProcessLaunchService.ParseCommandLine(startInfo.Arguments).ToArray());
+    }
+
+    [TestMethod]
     public void NormalizeJvmHostVmArguments_CanonicalizesNeoForgeModuleOptions()
     {
         IReadOnlyList<string> normalized = MinecraftProcessLaunchService.NormalizeJvmHostVmArguments(

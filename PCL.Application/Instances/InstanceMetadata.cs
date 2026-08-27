@@ -62,6 +62,8 @@ public sealed record InstanceMetadata
 
     public string ClasspathHead { get; init; } = string.Empty;
 
+    public string WrapperCommand { get; init; } = string.Empty;
+
     public string PreLaunchCommand { get; init; } = string.Empty;
 
     public bool WaitForPreLaunchCommand { get; init; } = true;

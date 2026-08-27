@@ -292,7 +292,8 @@
                         <RowDefinition Height="28" />
                         <RowDefinition Height="9" />
                         <RowDefinition Height="31" />
-                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="9" />
+                        <RowDefinition Height="31" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
@@ -335,13 +336,21 @@
                                      ToolTip.Tip="{DynamicResource Instance.Setup.Advanced.Classpath.ToolTip}" />
 
                     <TextBlock Grid.Row="8" VerticalAlignment="Center" HorizontalAlignment="Left"
+                               Text="{DynamicResource Setup.Launch.Advanced.WrapperCommand}"
+                               Margin="0,0,25,3" />
+                    <legacy:MyTextBox x:Name="TextAdvanceWrapper" Grid.Row="8" Grid.ColumnSpan="2"
+                                     Tag="VersionAdvanceWrapper" Grid.Column="1"
+                                     HintText="{DynamicResource Instance.Setup.FollowGlobal}" Margin="0,0,0,3"
+                                     ToolTip.Tip="{DynamicResource Setup.Launch.Advanced.WrapperCommand.ToolTip}" />
+
+                    <TextBlock Grid.Row="10" VerticalAlignment="Center" HorizontalAlignment="Left"
                                Text="{DynamicResource Setup.Launch.Advanced.PreLaunchCommand}"
                                Margin="0,0,25,3" />
-                    <legacy:MyTextBox x:Name="TextAdvanceRun" Grid.Row="8" Grid.ColumnSpan="2" Tag="VersionAdvanceRun"
+                    <legacy:MyTextBox x:Name="TextAdvanceRun" Grid.Row="10" Grid.ColumnSpan="2" Tag="VersionAdvanceRun"
                                      Grid.Column="1" HintText="" Margin="0,0,0,3"
                                      ToolTip.Tip="{DynamicResource Instance.Setup.Advanced.PreLaunchCommand.ToolTip}" />
 
-                    <StackPanel Margin="0,8,0,4" Grid.Row="9" Grid.ColumnSpan="2" HorizontalAlignment="Left">
+                    <StackPanel Margin="0,8,0,4" Grid.Row="11" Grid.ColumnSpan="2" HorizontalAlignment="Left">
                         <legacy:MyCheckBox Height="28" x:Name="CheckAdvanceRunWait" Tag="VersionAdvanceRunWait"
                                           IsVisible="False"
                                           Text="{DynamicResource Setup.Launch.Advanced.PreLaunchCommand.Wait}" />
