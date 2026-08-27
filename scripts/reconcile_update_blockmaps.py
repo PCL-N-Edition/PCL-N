@@ -30,6 +30,19 @@ def detect_codec(prefix: bytes) -> str | None:
     return None
 
 
+def codec_from_content_type(content_type: str | None) -> str | None:
+    normalized = (content_type or "").split(";", 1)[0].strip().lower()
+    if normalized in {"application/gzip", "application/x-gzip"}:
+        return "gzip"
+    if normalized in {"application/zstd", "application/zstandard"}:
+        return "zstd"
+    return None
+
+
+def magic_for_codec(codec: str) -> bytes:
+    return GZIP_MAGIC if codec == "gzip" else ZSTD_MAGIC
+
+
 def _iter_full_blocks(document: dict[str, Any]):
     for file_entry in document.get("targetFiles") or []:
         if not isinstance(file_entry, dict):
@@ -63,6 +76,7 @@ def reconcile(
     apply: bool,
     require_remote: bool,
     concurrency: int = 8,
+    remote_metadata=None,
 ) -> tuple[int, int, int]:
     paths = sorted({*manifest_dir.glob("*.blockmap.json"), *manifest_dir.glob("*.blockmap.v2.json")})
     if not paths:
@@ -79,12 +93,47 @@ def reconcile(
                 continue
             references.setdefault(key, []).append(block)
 
+    metadata = remote_metadata if remote_metadata is not None else client.list_object_metadata("block/")
     probes: dict[str, tuple[bytes, int] | None] = {}
+    needs_probe: list[str] = []
+    for key, blocks in references.items():
+        item = metadata.get(key)
+        if item is None:
+            probes[key] = None
+            continue
+        declared = {
+            (str(block.get("compression") or "gzip").lower(), int(block.get("compressedSize") or 0))
+            for block in blocks
+        }
+        stored_codec = codec_from_content_type(getattr(item, "content_type", None))
+        stored_size = getattr(item, "size", None)
+        if stored_size is not None and len(declared) == 1:
+            declared_codec, declared_size = next(iter(declared))
+            if stored_codec is not None:
+                probes[key] = (magic_for_codec(stored_codec), int(stored_size))
+                continue
+            if declared_size == int(stored_size):
+                # Legacy objects were uploaded as application/octet-stream. A
+                # matching compressed size is sufficient to avoid thousands of
+                # per-object GETs; all new objects carry an explicit codec type.
+                probes[key] = (magic_for_codec(declared_codec), int(stored_size))
+                continue
+        needs_probe.append(key)
+
+    print(
+        f"reconcile inventory: remote={len(metadata)} references={len(references)} "
+        f"prefix_probes={len(needs_probe)}",
+        flush=True,
+    )
+    completed = 0
     with ThreadPoolExecutor(max_workers=max(1, min(24, concurrency))) as pool:
-        futures = {pool.submit(_probe_with_retry, client, key): key for key in references}
+        futures = {pool.submit(_probe_with_retry, client, key): key for key in needs_probe}
         for future in as_completed(futures):
             key = futures[future]
             probes[key] = future.result()
+            completed += 1
+            if completed == 1 or completed % 100 == 0 or completed == len(needs_probe):
+                print(f"reconcile probes: {completed}/{len(needs_probe)}", flush=True)
 
     mismatches = 0
     missing = 0

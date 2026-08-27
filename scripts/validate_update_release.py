@@ -125,9 +125,9 @@ def validate(
         from upload_r2_cas import resolve_client  # noqa: WPS433
 
         client = resolve_client()
-        remote: set[str] = set()
-        for prefix in ("block/", "delta/"):
-            remote |= client.list_keys(prefix)
+        block_metadata = client.list_object_metadata("block/")
+        remote: set[str] = set(block_metadata)
+        remote |= client.list_keys("delta/")
         print(f"validate: remote inventory keys={len(remote)}")
         missing_blocks = sorted(key for key in all_blocks if key not in remote)
         missing_deltas = sorted(key for key in all_deltas if key not in remote)
@@ -151,6 +151,7 @@ def validate(
                 apply=False,
                 require_remote=True,
                 concurrency=8,
+                remote_metadata=block_metadata,
             )
         except (ValueError, RuntimeError) as exc:
             errors.extend(f"remote CAS metadata: {line}" for line in str(exc).splitlines())

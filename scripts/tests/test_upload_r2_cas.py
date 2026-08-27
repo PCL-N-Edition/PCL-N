@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 import tempfile
 import threading
@@ -188,12 +189,42 @@ class UploadR2CasTests(unittest.TestCase):
             upload.guess_content_type(Path("x.vcdiff")),
         )
 
+        with tempfile.TemporaryDirectory() as temporary:
+            block = Path(temporary) / "hash"
+            block.write_bytes(b"\x28\xb5\x2f\xfddata")
+            self.assertEqual(
+                "application/zstd",
+                upload.guess_content_type(block, key="block/aa/hash"),
+            )
+
     def test_cloudflare_api_object_url_encodes_segments(self):
         client = upload.CloudflareApiR2Client("acct", "token", "pcln-releases")
         url = client._object_url("block/ab/deadbeef")
         self.assertIn("/accounts/acct/r2/buckets/pcln-releases/objects/", url)
         self.assertIn("block/ab/deadbeef", url)
         self.assertTrue(url.startswith(upload.CF_API))
+
+    def test_cloudflare_api_list_exposes_object_size_and_codec_type(self):
+        client = upload.CloudflareApiR2Client("acct", "token", "pcln-releases")
+
+        def fake_request(method, url, *, data=None, headers=None, timeout=120.0):
+            payload = {
+                "success": True,
+                "result": [
+                    {
+                        "key": "block/ab/hash",
+                        "size": 456,
+                        "http_metadata": {"contentType": "application/zstd"},
+                    }
+                ],
+                "result_info": {"is_truncated": False},
+            }
+            return 200, json.dumps(payload).encode(), {}
+
+        client._request = fake_request  # type: ignore[method-assign]
+        metadata = client._list_object_metadata_prefix("block/ab/")
+        self.assertEqual(456, metadata["block/ab/hash"].size)
+        self.assertEqual("application/zstd", metadata["block/ab/hash"].content_type)
 
     def test_cloudflare_api_put_treats_412_as_exists(self):
         client = upload.CloudflareApiR2Client("acct", "token", "pcln-releases")

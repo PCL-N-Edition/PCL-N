@@ -65,6 +65,12 @@ class UploadStats:
             setattr(self, name, getattr(self, name) + amount)
 
 
+@dataclass(frozen=True)
+class R2ObjectMetadata:
+    size: int | None = None
+    content_type: str | None = None
+
+
 class AdaptiveLimiter:
     def __init__(self, initial: int = DEFAULT_CONCURRENCY) -> None:
         self._value = max(MIN_CONCURRENCY, min(MAX_CONCURRENCY, initial))
@@ -115,6 +121,9 @@ class R2Client:
 
     def list_keys(self, prefix: str) -> set[str]:
         raise NotImplementedError
+
+    def list_object_metadata(self, prefix: str) -> dict[str, R2ObjectMetadata]:
+        return {key: R2ObjectMetadata() for key in self.list_keys(prefix)}
 
     def put_file(
         self,
@@ -199,6 +208,9 @@ class CloudflareApiR2Client(R2Client):
             return int(exc.code), body, resp_headers
 
     def list_keys(self, prefix: str) -> set[str]:
+        return set(self.list_object_metadata(prefix))
+
+    def list_object_metadata(self, prefix: str) -> dict[str, R2ObjectMetadata]:
         # Shard CAS trees so each page is smaller (proxy/chunked IncompleteRead).
         normalized = prefix.rstrip("/") + "/" if prefix else ""
         if normalized in {"block/", "delta/"} or normalized == "delta/v2/":
@@ -211,19 +223,27 @@ class CloudflareApiR2Client(R2Client):
                 shards = [f"{base}{hh:02x}/" for hh in range(256)]
             else:
                 shards = [normalized]
-            keys: set[str] = set()
+            objects: dict[str, R2ObjectMetadata] = {}
             total = len(shards)
             for index, shard in enumerate(shards, start=1):
-                keys |= self._list_keys_prefix(shard, per_page=100)
+                objects.update(self._list_object_metadata_prefix(shard, per_page=100))
                 if index == 1 or index % 32 == 0 or index == total:
-                    print(f"list {normalized}: shard {index}/{total} keys={len(keys)}", flush=True)
-            return keys
-        return self._list_keys_prefix(normalized or prefix, per_page=100)
+                    print(f"list {normalized}: shard {index}/{total} keys={len(objects)}", flush=True)
+            return objects
+        return self._list_object_metadata_prefix(normalized or prefix, per_page=100)
 
     def _list_keys_prefix(self, prefix: str, *, per_page: int = 200) -> set[str]:
+        return set(self._list_object_metadata_prefix(prefix, per_page=per_page))
+
+    def _list_object_metadata_prefix(
+        self,
+        prefix: str,
+        *,
+        per_page: int = 200,
+    ) -> dict[str, R2ObjectMetadata]:
         import http.client
 
-        keys: set[str] = set()
+        objects: dict[str, R2ObjectMetadata] = {}
         cursor: str | None = None
         while True:
             query = {
@@ -271,14 +291,22 @@ class CloudflareApiR2Client(R2Client):
             for item in payload.get("result") or []:
                 key = item.get("key") if isinstance(item, dict) else None
                 if isinstance(key, str) and key:
-                    keys.add(key)
+                    raw_size = item.get("size")
+                    size = int(raw_size) if isinstance(raw_size, (int, float)) else None
+                    http_metadata = item.get("http_metadata") or {}
+                    content_type = (
+                        str(http_metadata.get("contentType"))
+                        if isinstance(http_metadata, dict) and http_metadata.get("contentType")
+                        else None
+                    )
+                    objects[key] = R2ObjectMetadata(size=size, content_type=content_type)
             info = payload.get("result_info") or {}
             if not info.get("is_truncated"):
                 break
             cursor = info.get("cursor")
             if not cursor:
                 break
-        return keys
+        return objects
 
     def put_file(
         self,
@@ -438,7 +466,10 @@ class BotoR2Client(R2Client):
         )
 
     def list_keys(self, prefix: str) -> set[str]:
-        keys: set[str] = set()
+        return set(self.list_object_metadata(prefix))
+
+    def list_object_metadata(self, prefix: str) -> dict[str, R2ObjectMetadata]:
+        objects: dict[str, R2ObjectMetadata] = {}
         token: str | None = None
         while True:
             kwargs: dict = {"Bucket": self.bucket, "Prefix": prefix, "MaxKeys": 1000}
@@ -448,13 +479,16 @@ class BotoR2Client(R2Client):
             for item in response.get("Contents") or []:
                 key = item.get("Key")
                 if isinstance(key, str) and key:
-                    keys.add(key)
+                    raw_size = item.get("Size")
+                    objects[key] = R2ObjectMetadata(
+                        size=int(raw_size) if isinstance(raw_size, (int, float)) else None
+                    )
             if not response.get("IsTruncated"):
                 break
             token = response.get("NextContinuationToken")
             if not token:
                 break
-        return keys
+        return objects
 
     def put_file(
         self,
@@ -681,7 +715,7 @@ def upload_tree(
             limiter.acquire()
             started = time.monotonic()
             try:
-                ctype = guess_content_type(path)
+                ctype = guess_content_type(path, key=key)
                 result = client.put_file(
                     key, path, if_none_match=cas_conditional, content_type=ctype
                 )
@@ -725,7 +759,14 @@ def upload_tree(
     return stats
 
 
-def guess_content_type(path: Path) -> str | None:
+def guess_content_type(path: Path, *, key: str | None = None) -> str | None:
+    if key and key.startswith("block/"):
+        with path.open("rb") as handle:
+            prefix = handle.read(4)
+        if prefix.startswith(b"\x1f\x8b"):
+            return "application/gzip"
+        if prefix.startswith(b"\x28\xb5\x2f\xfd"):
+            return "application/zstd"
     name = path.name.lower()
     if name.endswith(".json"):
         return "application/json; charset=utf-8"

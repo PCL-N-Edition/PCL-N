@@ -22,6 +22,18 @@ class FakeClient:
         payload = self.objects.get(key)
         return None if payload is None else (payload[:prefix_length], len(payload))
 
+    def list_object_metadata(self, prefix: str):
+        class Metadata:
+            def __init__(self, size: int) -> None:
+                self.size = size
+                self.content_type = "application/octet-stream"
+
+        return {
+            key: Metadata(len(payload))
+            for key, payload in self.objects.items()
+            if key.startswith(prefix)
+        }
+
 
 def write_manifest(path: Path, key: str) -> None:
     full = {
