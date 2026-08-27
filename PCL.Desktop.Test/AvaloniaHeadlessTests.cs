@@ -978,6 +978,9 @@ public sealed class AvaloniaHeadlessTests
                 Assert.IsTrue(arrow.RenderTransform is RotateTransform);
 
                 comboBox.SelectedIndex = 1;
+                Assert.IsTrue(
+                    comboBox.IsDropDownOpen,
+                    "Selection must not synchronously remove a popup during its layout transaction.");
                 Avalonia.Threading.Dispatcher.UIThread.RunJobs();
                 ModAnimation.AdvanceUntilIdleForTesting();
 

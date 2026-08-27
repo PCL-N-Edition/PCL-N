@@ -35,6 +35,8 @@ public class MyComboBox : ComboBox
 
     private bool _isMouseDown;
     private bool _isTextChanging;
+    private bool _isEnsuringMarkedSelection;
+    private int _dropDownCloseRevision;
     private double _realWidth = double.NaN;
     private string _text = string.Empty;
     private PathShape? _dropDownArrow;
@@ -412,6 +414,7 @@ public class MyComboBox : ComboBox
 
     private void MyComboBox_DropDownClosed(object? sender, EventArgs e)
     {
+        _dropDownCloseRevision++;
         // Restore any legacy Width mutation from older builds; keep NaN (auto) otherwise.
         if (!double.IsNaN(_realWidth))
             Width = _realWidth;
@@ -426,9 +429,21 @@ public class MyComboBox : ComboBox
     {
         _text = SelectedItem?.ToString() ?? string.Empty;
         RefreshSelectionText();
-        // Menu item click (or equivalent selection) updates Text, closes menu, resets arrow.
-        if (IsDropDownOpen)
-            IsDropDownOpen = false;
+        if (!IsDropDownOpen || _isEnsuringMarkedSelection)
+            return;
+
+        // Popup.Open performs a synchronous layout pass while PopupOverlayLayer is
+        // enumerating its children. Closing here used to remove the popup from that
+        // collection mid-enumeration (issues #69/#73). Finish the current input/layout
+        // transaction first, then preserve the WPF behavior of closing after selection.
+        int revision = ++_dropDownCloseRevision;
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                if (revision == _dropDownCloseRevision && IsDropDownOpen)
+                    IsDropDownOpen = false;
+            },
+            DispatcherPriority.Background);
     }
 
     private void EnsureWpfMarkedSelection()
@@ -441,9 +456,17 @@ public class MyComboBox : ComboBox
             if (item is not MyComboBoxItem { IsSelected: true } comboBoxItem)
                 continue;
 
-            SelectedItem = comboBoxItem;
-            _text = comboBoxItem.ToString();
-            RefreshSelectionText();
+            _isEnsuringMarkedSelection = true;
+            try
+            {
+                SelectedItem = comboBoxItem;
+                _text = comboBoxItem.ToString();
+                RefreshSelectionText();
+            }
+            finally
+            {
+                _isEnsuringMarkedSelection = false;
+            }
             return;
         }
     }
