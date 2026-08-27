@@ -667,6 +667,15 @@ jobs:
           codesign --verify --deep --strict "$app"
           test -x "$executable"
 
+          # Finder does not guarantee that an app starts with Contents/MacOS as
+          # its working directory. Launch the signed bundle entry from an
+          # unrelated directory so the native bootstrap must resolve its own
+          # path before locating host/, native/, and sidecar/.
+          (
+            cd "$RUNNER_TEMP"
+            "$executable" --validate-environment
+          )
+
       - name: Upload Avalonia build artifact
         uses: actions/upload-artifact@v4
         with:

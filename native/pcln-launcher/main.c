@@ -38,6 +38,9 @@
 #  include <sys/types.h>
 #  include <sys/wait.h>
 #  include <unistd.h>
+#  if defined(__APPLE__)
+#    include <mach-o/dyld.h>
+#  endif
 #endif
 
 #define PCLN_MAX 2048
@@ -130,12 +133,31 @@ static void resolve_self_dir(void)
     if (n == 0 || n >= PCLN_MAX)
         die("GetModuleFileName failed");
     dirname_of(buf, g_self_dir, sizeof(g_self_dir));
+#elif defined(__APPLE__)
+    char buf[PCLN_MAX];
+    char resolved[PCLN_MAX];
+    uint32_t size = (uint32_t)sizeof(buf);
+
+    /*
+     * macOS does not expose /proc/self/exe. Finder also launches application
+     * bundles with a working directory unrelated to Contents/MacOS, so using
+     * getcwd() here makes the bootstrap look for host/ and native/ beside an
+     * arbitrary directory and immediately exit. _NSGetExecutablePath is the
+     * platform-supported way to locate the actual bundle executable.
+     */
+    if (_NSGetExecutablePath(buf, &size) != 0)
+        die("cannot resolve macOS launcher path");
+
+    if (realpath(buf, resolved) != NULL)
+        dirname_of(resolved, g_self_dir, sizeof(g_self_dir));
+    else
+        dirname_of(buf, g_self_dir, sizeof(g_self_dir));
 #else
     char buf[PCLN_MAX];
     ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
     if (n <= 0)
     {
-        /* macOS fallback: argv0 handled by caller — use cwd */
+        /* Last-resort fallback for Unix platforms without /proc mounted. */
         if (!getcwd(buf, sizeof(buf)))
             die("cannot resolve launcher directory");
         strncpy(g_self_dir, buf, sizeof(g_self_dir) - 1);

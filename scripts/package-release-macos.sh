@@ -112,6 +112,8 @@ hdiutil attach \
 test -d "$mount_dir"
 ditto "$dmg_root/PCL N.app" "$mount_dir/PCL N.app"
 ln -sf /Applications "$mount_dir/Applications"
+test -x "$mount_dir/PCL N.app/Contents/MacOS/PCL-N-Edition"
+codesign --verify --deep --strict "$mount_dir/PCL N.app"
 sync
 
 hdiutil detach "$mount_dir"
