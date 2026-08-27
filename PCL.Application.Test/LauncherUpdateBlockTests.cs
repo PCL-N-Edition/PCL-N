@@ -14,6 +14,31 @@ namespace PCL.Application.Test;
 public sealed class LauncherUpdateBlockTests
 {
     [TestMethod]
+    public async Task BlockCodec_UsesActualGzipMagicWhenMapDeclaresZstd()
+    {
+        byte[] payload = Encoding.UTF8.GetBytes("canonical CAS block created by an older gzip release");
+        byte[] compressed = Gzip(payload);
+        string temporary = Path.Combine(Path.GetTempPath(), "pcln-codec-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            await using MemoryStream source = new(compressed, writable: false);
+            await LauncherUpdateBlockCodec.DecompressAndVerifyAsync(
+                source,
+                LauncherUpdateBlockCodec.Zstd,
+                Hash(payload),
+                payload.Length,
+                temporary,
+                CancellationToken.None);
+
+            CollectionAssert.AreEqual(payload, await File.ReadAllBytesAsync(temporary));
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
+    }
+
+    [TestMethod]
     public async Task Chunker_MatchesReleaseGeneratorVector()
     {
         string path = await WriteChunkerGoldenPayloadAsync().ConfigureAwait(false);
