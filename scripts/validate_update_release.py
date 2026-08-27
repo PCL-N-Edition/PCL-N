@@ -138,6 +138,23 @@ def validate(
         for key in missing_deltas:
             errors.append(f"missing remote delta: {key}")
 
+        # Existence alone is insufficient for immutable raw-SHA CAS keys: an
+        # older gzip representation may already own a key while a newer map was
+        # generated from zstd bytes. Verify the stored magic and compressed size
+        # before making the release discoverable.
+        from reconcile_update_blockmaps import reconcile  # noqa: WPS433
+
+        try:
+            reconcile(
+                manifest_dir,
+                client=client,
+                apply=False,
+                require_remote=True,
+                concurrency=8,
+            )
+        except (ValueError, RuntimeError) as exc:
+            errors.extend(f"remote CAS metadata: {line}" for line in str(exc).splitlines())
+
     if errors:
         for line in errors[:80]:
             print(f"error: {line}", file=sys.stderr)

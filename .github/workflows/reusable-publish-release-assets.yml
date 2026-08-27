@@ -249,6 +249,9 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.tag_name }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: pcln-releases
         run: |
           set -euo pipefail
           mkdir -p dist/updates dist/downloads block-dist/manifests
@@ -273,7 +276,6 @@ jobs:
           if [[ -d blockmaps ]]; then
             while IFS= read -r -d '' map; do
               cp -a "$map" block-dist/manifests/
-              cp -a "$map" dist/updates/
               map_count=$((map_count + 1))
             done < <(find blockmaps -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print0)
           fi
@@ -317,8 +319,18 @@ jobs:
                 --configuration "${BASH_REMATCH[1]}" \
                 --profile auto
             done < <(find dist/downloads -maxdepth 1 -type f -name '*_Portable.exe' -print0)
-            find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -exec cp -a {} dist/updates/ \;
           fi
+
+          # A raw-SHA CAS key is immutable and may already contain gzip from an
+          # older release. Reconcile every map with the canonical R2 bytes before
+          # signing it; missing objects are uploaded from matrix residuals later.
+          python scripts/reconcile_update_blockmaps.py \
+            --manifest-dir block-dist/manifests \
+            --local-root block-dist \
+            --apply \
+            --concurrency 8
+          find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) \
+            -exec cp -a {} dist/updates/ \;
 
           # Every user-selectable installer and portable package gets its own
           # detached signature. No package is modified after this point.

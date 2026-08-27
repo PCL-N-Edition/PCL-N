@@ -1,0 +1,118 @@
+name: Repair R2 block-map metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing R2 release tag whose signed block maps should be repaired
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repair-r2-blockmaps-${{ inputs.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_BUCKET: pcln-releases
+      RELEASE_TAG: ${{ inputs.tag_name }}
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Download current maps from R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is not configured"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is not configured"; exit 1; }
+          mkdir -p manifests repaired
+          python - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path("scripts").resolve()))
+          from upload_r2_cas import resolve_client
+
+          tag = os.environ["RELEASE_TAG"]
+          prefix = f"releases/{tag}/"
+          client = resolve_client()
+          keys = sorted(
+              key for key in client.list_keys(prefix)
+              if key.endswith(".blockmap.json") or key.endswith(".blockmap.v2.json")
+          )
+          if not keys:
+              raise SystemExit(f"no block maps found under {prefix}")
+          for key in keys:
+              destination = Path("manifests") / Path(key).name
+              if not client.get_file(key, destination):
+                  raise SystemExit(f"block map disappeared while downloading: {key}")
+          print(f"downloaded {len(keys)} block map(s) for {tag}")
+          PY
+
+      - name: Reconcile, validate, and re-sign maps
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/reconcile_update_blockmaps.py \
+            --manifest-dir manifests \
+            --apply \
+            --require-remote \
+            --concurrency 8
+          python scripts/validate_update_release.py \
+            --manifest-dir manifests \
+            --require-remote
+          while IFS= read -r -d '' map; do
+            name="$(basename "$map")"
+            cp -a "$map" "repaired/$name"
+            gpg --detach-sign --armor --output "repaired/$name.asc" "$map"
+          done < <(find manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print0)
+
+      - name: Replace repaired maps and signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' map; do
+            name="$(basename "$map")"
+            python scripts/upload_r2_cas.py put \
+              "releases/${RELEASE_TAG}/${name}" --file "$map"
+            python scripts/upload_r2_cas.py put \
+              "releases/${RELEASE_TAG}/${name}.asc" --file "${map}.asc"
+          done < <(find repaired -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print0 | sort -z)
+
+      - name: Verify repaired R2 maps
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf verify
+          mkdir verify
+          while IFS= read -r -d '' map; do
+            name="$(basename "$map")"
+            python scripts/upload_r2_cas.py get \
+              "releases/${RELEASE_TAG}/${name}" --file "verify/$name"
+            python scripts/upload_r2_cas.py get \
+              "releases/${RELEASE_TAG}/${name}.asc" --file "verify/$name.asc"
+            gpg --verify "verify/$name.asc" "verify/$name"
+          done < <(find repaired -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print0 | sort -z)
+          python scripts/validate_update_release.py \
+            --manifest-dir verify \
+            --require-remote

@@ -212,6 +212,37 @@ class UploadR2CasTests(unittest.TestCase):
                 client.put_file("block/aa/one", path, if_none_match=True),
             )
 
+    def test_cloudflare_api_inspect_reads_only_prefix_and_total_size(self):
+        client = upload.CloudflareApiR2Client("acct", "token", "pcln-releases")
+
+        class Response:
+            status = 206
+            headers = {"Content-Range": "bytes 0-3/9123", "Content-Length": "4"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self, length=-1):
+                self.requested = length
+                return b"\x28\xb5\x2f\xfd"[:length]
+
+        response = Response()
+
+        class Opener:
+            def open(self, request, timeout=120.0):
+                self.request = request
+                self.timeout = timeout
+                return response
+
+        opener = Opener()
+        client._opener = opener  # type: ignore[assignment]
+        self.assertEqual((b"\x28\xb5\x2f\xfd", 9123), client.inspect_object("block/ab/hash"))
+        self.assertEqual("bytes=0-3", opener.request.get_header("Range"))
+        self.assertEqual(4, response.requested)
+
     def test_resolve_client_prefers_cloudflare_token(self):
         import os
 

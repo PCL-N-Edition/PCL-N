@@ -108,14 +108,23 @@ jobs:
           done < <(find asset -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0)
           test -n "$configuration"
 
+          python scripts/upload_r2_cas.py upload-tree block-dist \
+            --prefix block --prefix delta \
+            --concurrency 24
+          python scripts/reconcile_update_blockmaps.py \
+            --manifest-dir block-dist/manifests \
+            --local-root block-dist \
+            --apply \
+            --require-remote \
+            --concurrency 8
           while IFS= read -r -d '' map; do
             gpg --detach-sign --armor "$map"
             cp -a "$map" "$map.asc" r2-asset/
           done < <(find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print0)
-
-          python scripts/upload_r2_cas.py upload-tree block-dist \
-            --prefix block --prefix delta \
-            --concurrency 24
+          python scripts/validate_update_release.py \
+            --manifest-dir block-dist/manifests \
+            --local-root block-dist \
+            --require-remote
           python scripts/upload_r2_cas.py put-files r2-asset \
             --key-prefix "releases/${RELEASE_TAG}" \
             --concurrency 16

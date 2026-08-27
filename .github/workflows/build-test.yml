@@ -242,10 +242,6 @@ jobs:
           }
           EOF
           done
-          while IFS= read -r -d '' map; do
-            gpg --detach-sign --armor "$map"
-            cp -a "$map" "$map.asc" dist/r2-metadata/
-          done < <(find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print0)
           cat > dist/r2-metadata/ci-channel.json <<EOF
           {
             "formatVersion": 1,
@@ -278,6 +274,24 @@ jobs:
           python scripts/upload_r2_cas.py upload-tree block-dist \
             --prefix block --prefix delta \
             --concurrency 24
+
+          # Existing raw-SHA keys keep their first representation. Repair the
+          # rolling map to describe those canonical bytes, then sign the result.
+          python scripts/reconcile_update_blockmaps.py \
+            --manifest-dir block-dist/manifests \
+            --local-root block-dist \
+            --apply \
+            --require-remote \
+            --concurrency 8
+          while IFS= read -r -d '' map; do
+            gpg --detach-sign --armor "$map"
+            cp -a "$map" "$map.asc" dist/r2-metadata/
+          done < <(find block-dist/manifests -maxdepth 1 -type f \( -name '*.blockmap.json' -o -name '*.blockmap.v2.json' \) -print0)
+
+          python scripts/validate_update_release.py \
+            --manifest-dir block-dist/manifests \
+            --local-root block-dist \
+            --require-remote
 
           # Publish maps and signatures before moving the discoverable marker.
           while IFS= read -r -d '' asset; do

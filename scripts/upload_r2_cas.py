@@ -29,6 +29,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -128,6 +129,16 @@ class R2Client:
 
     def get_file(self, key: str, destination: Path) -> bool:
         raise NotImplementedError
+
+    def inspect_object(self, key: str, prefix_length: int = 4) -> tuple[bytes, int] | None:
+        """Return the first bytes and total stored size without changing the object."""
+        with tempfile.TemporaryDirectory(prefix="pcln-r2-probe-") as temporary:
+            destination = Path(temporary) / "object"
+            if not self.get_file(key, destination):
+                return None
+            with destination.open("rb") as handle:
+                prefix = handle.read(prefix_length)
+            return prefix, destination.stat().st_size
 
     def delete_key(self, key: str) -> None:
         raise NotImplementedError
@@ -351,6 +362,49 @@ class CloudflareApiR2Client(R2Client):
         temporary.replace(destination)
         return True
 
+    def inspect_object(self, key: str, prefix_length: int = 4) -> tuple[bytes, int] | None:
+        # The Cloudflare object endpoint may honor Range (206) or return the full
+        # representation (200). Read only the prefix in either case so validation
+        # never downloads every complete CAS block.
+        request = urllib.request.Request(
+            self._object_url(key),
+            method="GET",
+            headers=self._headers(extra={"Range": f"bytes=0-{max(0, prefix_length - 1)}"}),
+        )
+        try:
+            with self._opener.open(request, timeout=120.0) as response:
+                status = int(getattr(response, "status", 200) or 200)
+                headers = {k.lower(): v for k, v in response.headers.items()}
+                prefix = response.read(prefix_length)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return None
+            body = exc.read(400) if exc.fp else b""
+            if exc.code in {429, 502, 503, 504}:
+                raise ThrottleError(f"throttled inspecting {key} (HTTP {exc.code})") from exc
+            raise RuntimeError(f"inspect {key} failed HTTP {exc.code}: {body!r}") from exc
+
+        if status == 404:
+            return None
+        if status in {429, 502, 503, 504}:
+            raise ThrottleError(f"throttled inspecting {key} (HTTP {status})")
+        if status >= 400:
+            raise RuntimeError(f"inspect {key} failed HTTP {status}")
+
+        total_size: int | None = None
+        content_range = headers.get("content-range", "")
+        if "/" in content_range:
+            tail = content_range.rsplit("/", 1)[-1]
+            if tail.isdigit():
+                total_size = int(tail)
+        if total_size is None:
+            content_length = headers.get("content-length", "")
+            if content_length.isdigit():
+                total_size = int(content_length)
+        if total_size is None or (status == 206 and total_size < len(prefix)):
+            raise RuntimeError(f"inspect {key} response did not include the stored object size")
+        return prefix, total_size
+
     def delete_key(self, key: str) -> None:
         status, body, _ = self._request(
             "DELETE",
@@ -443,6 +497,28 @@ class BotoR2Client(R2Client):
             code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
             if code in {"404", "NoSuchKey", "NotFound"}:
                 return False
+            raise
+
+    def inspect_object(self, key: str, prefix_length: int = 4) -> tuple[bytes, int] | None:
+        try:
+            response = self._client.get_object(
+                Bucket=self.bucket,
+                Key=key,
+                Range=f"bytes=0-{max(0, prefix_length - 1)}",
+            )
+            prefix = response["Body"].read(prefix_length)
+            content_range = str(response.get("ContentRange") or "")
+            total_size = int(content_range.rsplit("/", 1)[-1]) if "/" in content_range else None
+            if total_size is None:
+                total_size = int(self._client.head_object(Bucket=self.bucket, Key=key)["ContentLength"])
+            return prefix, total_size
+        except Exception as exc:  # noqa: BLE001
+            code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+            status = getattr(exc, "response", {}).get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if status == 404 or code in {"404", "NoSuchKey", "NotFound"}:
+                return None
+            if status in {429, 502, 503, 504} or code in {"SlowDown", "TooManyRequests"}:
+                raise ThrottleError(str(exc)) from exc
             raise
 
     def delete_key(self, key: str) -> None:
