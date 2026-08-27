@@ -4,6 +4,8 @@
 
 The migration branch is `refactor/xsr`. Its working copy must be a dedicated Git worktree outside the active `dev` checkout. `dev` remains the legacy maintenance line; XSR work must not be created as a subdirectory of that checkout.
 
+The migration branch itself contains no legacy source, project, solution, implementation submodule, installer, native bootstrap, or release tooling. Reference work is performed against the separate `dev` checkout as described in [source-reference.md](source-reference.md).
+
 There is no periodic `dev -> refactor/xsr` merge. A legacy fix is forward-ported by meaning:
 
 - security fixes are re-evaluated and carried forward;
@@ -15,7 +17,7 @@ There is no periodic `dev -> refactor/xsr` merge. A legacy fix is forward-ported
 
 | Wave | Outcome | Exit evidence |
 |---|---|---|
-| 0 Architecture lock | normative documents, version policy, dependency tests, CI gate | docs and `PCL.Xsr.ArchitectureTests` pass |
+| 0 Architecture lock | normative documents, version policy, clean-slate source boundary | architecture review and zero legacy source inventory |
 | 1 X kernel | registry, command/query routers, state store/graph, events, scopes, scheduling, diagnostics | no Avalonia/Minecraft/plugin refs; AOT/trim pass |
 | 2 Renderer kernel | stable UI.Next ECS, scene, layout, input, navigation, overlay, accessibility | deterministic contract and benchmark gates |
 | 3 PXML | parser through generated UI.Next IR and runtime loader | no runtime reflection binding |
@@ -51,11 +53,12 @@ A task does not mix architecture migration with user-data format migration unles
 |---|---|---|
 | XSR-000 | create dedicated `refactor/xsr` worktree | complete |
 | XSR-001 | lock architecture, state, service, renderer, Sidecar, and version documents | complete |
-| XSR-002 | add project/package dependency fitness tests and migration-branch CI | complete |
+| XSR-002 | add project/package dependency fitness tests and migration-branch CI with the first source project | pending |
 | XSR-003 | add source analyzers for forbidden namespaces, sync-over-async, reflection dispatch, and unstable plugin API use | pending |
 | XSR-004 | inventory legacy behaviors, data formats, and parity corpora by capability | pending |
+| XSR-005 | remove all legacy source, projects, submodules, and build/release implementation from the migration branch | complete |
 
-Wave 1 does not begin until the pending Wave 0 items have owners and acceptance tests. Empty placeholder projects are not evidence of completion.
+The first Wave 1 implementation unit must complete XSR-002. XSR-003 may grow incrementally with compilable surfaces, but bypassing the architecture gate is not allowed. Empty placeholder projects are not evidence of completion.
 
 ## Cutover gate
 

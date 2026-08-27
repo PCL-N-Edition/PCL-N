@@ -11,6 +11,8 @@
 ## XSR migration rules
 
 - XSR development belongs on `refactor/xsr` in a dedicated Git worktree outside the active `dev` checkout. Do not build the new architecture inside the `dev` working directory.
+- This is a clean-slate branch. Do not restore, merge, copy wholesale, add a project reference to, or add a submodule for legacy implementation code. Inspect the `dev` worktree read-only and migrate only documented behavior, algorithms, data contracts, and compatibility requirements.
+- Every source project on this branch must be created intentionally for XSR. Do not recreate the legacy solution or its assembly graph as migration scaffolding.
 - Treat `docs/xsr/` as the architecture lock. Update the relevant document before changing a boundary or compatibility promise.
 - Migrate behavior and data contracts, not legacy type or assembly shapes. Do not modify a legacy implementation merely to make an XSR migration diff smaller.
 - New services must not reference Avalonia, Desktop, renderer internals, ViewModels, or service locators. They receive commands/queries and publish state/events.

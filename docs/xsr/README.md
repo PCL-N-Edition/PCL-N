@@ -6,7 +6,8 @@ The user-requested constraints take precedence:
 
 - migration work happens on `refactor/xsr` in a dedicated worktree outside the `dev` checkout;
 - the XSR product line starts at `2.0.0` and uses the dotted version forms in [versioning.md](versioning.md);
-- Wave 0 locks architecture and automation only; it does not migrate product behavior.
+- the branch contains no legacy source or project graph; code is consulted from the separate `dev` worktree;
+- Wave 0 locks architecture and migration policy only; it does not migrate product behavior.
 
 ## Documents
 
@@ -18,6 +19,7 @@ The user-requested constraints take precedence:
 - [sidecar-protocol.md](sidecar-protocol.md) — Sidecar Fabric control/data planes
 - [versioning.md](versioning.md) — XSR product-version grammar and compatibility surfaces
 - [migration-map.md](migration-map.md) — waves, closed work units, and cutover gates
+- [source-reference.md](source-reference.md) — clean-slate rules for consulting legacy code
 
 ## Decision process
 

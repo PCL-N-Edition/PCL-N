@@ -34,8 +34,8 @@ References not shown are denied by default for new XSR projects.
 
 ## Enforcement
 
-`PCL.Xsr.ArchitectureTests` scans project references and package references without loading product assemblies. `.github/workflows/xsr-architecture.yml` runs the gate on the migration branch and pull requests targeting it.
+No source project currently exists on the clean-slate branch, so there is no project graph to scan. The first source-project migration unit must introduce architecture fitness tests and a migration-branch CI gate in the same change. Source analyzers follow as soon as there is compilable code to analyze.
 
-The first gate deliberately applies strict rules to new project families while reporting legacy projects as migration inventory. Expanding a forbidden list to acknowledge a new dependency is an architecture decision and requires a matching document change.
+The first gate applies these rules strictly to new project families; there is no legacy-project exception list on this branch. Expanding a forbidden list to acknowledge a new dependency is an architecture decision and requires a matching document change.
 
-Roslyn analyzers will add source-level diagnostics for forbidden namespaces, synchronous waits, reflection dispatch, and unstable plugin APIs. Until those analyzers exist, architecture tests remain mandatory rather than optional.
+Roslyn analyzers will add source-level diagnostics for forbidden namespaces, synchronous waits, reflection dispatch, and unstable plugin APIs. Once source exists, architecture tests are mandatory even before the full analyzer set is complete.
