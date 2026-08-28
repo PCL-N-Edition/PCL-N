@@ -121,6 +121,6 @@ dotnet publish .\PCL.Desktop\PCL.Desktop.csproj `
 
 ![Alt](https://repobeats.axiom.co/api/embed/803751b94f0b1e8682bf9b5aba0f0dd9f2d156fd.svg "Repobeats analytics image")
 
-[![Star History Chart](https://api.star-history.com/svg?repos=MuXue1230-owo/PCL-N&type=Date)](https://www.star-history.com/#MuXue1230-owo/PCL-N&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=PCL-N-Edition/PCL-N&type=Date)](https://www.star-history.com/#PCL-N-Edition/PCL-N&Date)
 
-**此页浏览量**（总计 / 今日）：[![Hits](https://hits.zkitefly.eu.org/?tag=https://github.com/MuXue1230-owo/PCL-N)](https://hits.zkitefly.eu.org/?tag=https://github.com/MuXue1230-owo/PCL-N&web=true)
+**此页浏览量**（总计 / 今日）：[![Hits](https://hits.zkitefly.eu.org/?tag=https://github.com/PCL-N-Edition/PCL-N)](https://hits.zkitefly.eu.org/?tag=https://github.com/PCL-N-Edition/PCL-N&web=true)
