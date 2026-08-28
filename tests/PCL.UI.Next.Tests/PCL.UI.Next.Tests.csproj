@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Focused executable tests for the Wave 2 UI.Next renderer kernel.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../PCL.UI.Next/PCL.UI.Next.csproj" />
+    <ProjectReference Include="../../PCL.Xsr.Abstractions/PCL.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../../PCL.Xsr.State/PCL.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>

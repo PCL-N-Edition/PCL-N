@@ -27,6 +27,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-104-ordered-events.md](migrations/XSR-104-ordered-events.md) — ordered event scopes and bounded delivery with backpressure
 - [migrations/XSR-105-scheduling-lifecycle-diagnostics.md](migrations/XSR-105-scheduling-lifecycle-diagnostics.md) — scheduling, lifecycle state machines, and session traces
 - [migrations/XSR-106-lifetime-scopes.md](migrations/XSR-106-lifetime-scopes.md) — runtime lifetime scopes for atomic resource cleanup
+- [migrations/XSR-201-ui-entity-kernel.md](migrations/XSR-201-ui-entity-kernel.md) — renderer entity tree, components, dirty tracking, state bridge
 
 ## Decision process
 

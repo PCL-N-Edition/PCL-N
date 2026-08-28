@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Canonical framework-neutral semantic renderer for XSR.</Description>
+    <IsAotCompatible>true</IsAotCompatible>
+    <!-- The namespace is locked to the PCL.UI.Next project identity; CA1716 cannot be satisfied without renaming the architecture. -->
+    <NoWarn>$(NoWarn);CA1716</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

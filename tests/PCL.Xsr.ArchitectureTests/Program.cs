@@ -54,6 +54,7 @@ internal static class Program
             ],
             ["PCL.Xsr.ArchitectureTests"] = [],
             ["PCL.Xsr.Runtime.Tests"] = ["PCL.Xsr.Abstractions", "PCL.Xsr.Runtime", "PCL.Xsr.State", "PCL.Xsr.Diagnostics"],
+            ["PCL.UI.Next.Tests"] = ["PCL.Xsr.Abstractions", "PCL.Xsr.State", "PCL.UI.Next"],
         };
 
     private static readonly HashSet<string> ExecutableProjects =
@@ -62,13 +63,14 @@ internal static class Program
             "PCL.UI.Next.Benchmarks",
             "PCL.Xsr.ArchitectureTests",
             "PCL.Xsr.Runtime.Tests",
+            "PCL.UI.Next.Tests",
         ];
 
     private static readonly HashSet<string> GeneratorProjects =
         ["PCL.Pxml.Generators", "PCL.Xsr.Generators"];
 
     private static readonly HashSet<string> AotCompatibleProjects =
-        ["PCL.Xsr.Abstractions", "PCL.Xsr.Runtime", "PCL.Xsr.State", "PCL.Xsr.Diagnostics"];
+        ["PCL.Xsr.Abstractions", "PCL.Xsr.Runtime", "PCL.Xsr.State", "PCL.Xsr.Diagnostics", "PCL.UI.Next"];
 
     public static int Main(string[] args)
     {

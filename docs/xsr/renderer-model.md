@@ -33,7 +33,7 @@ public interface IUiCommandSink
 }
 ```
 
-Exact types will be frozen only after the X kernel proves the contract. The architectural rule is stable now: UI reads local state and emits intent.
+The X kernel proved the contract in Wave 1, so the renderer consumes `XsrStateStore` reads as its state source and emits commands through `IXsrUiIntentSink` (owned by UI.Next; the composition root bridges it into the command router). The architectural rule is stable: UI reads local state and emits intent.
 
 ## Responsibility split
 
