@@ -1,0 +1,48 @@
+name: Close completed issues
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Release tag that contains the completed fixes
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  close:
+    name: Close issues labeled as completed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close completed issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          mapfile -t issues < <(
+            gh issue list \
+              --repo "$GH_REPO" \
+              --state open \
+              --label '完成' \
+              --limit 1000 \
+              --json number \
+              --jq '.[].number'
+          )
+
+          if (( ${#issues[@]} == 0 )); then
+            echo 'No open issues carry the 完成 label.'
+            exit 0
+          fi
+
+          release_url="https://github.com/${GH_REPO}/releases/tag/${RELEASE_TAG}"
+          for issue in "${issues[@]}"; do
+            gh issue close "$issue" \
+              --repo "$GH_REPO" \
+              --reason completed \
+              --comment "已随 [${RELEASE_TAG}](${release_url}) 发布，由发布流自动关闭。"
+          done

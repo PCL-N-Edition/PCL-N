@@ -2,6 +2,7 @@ name: Publish Avalonia (Beta)
 
 permissions:
   contents: write
+  issues: write
 
 on:
   release:
@@ -131,3 +132,14 @@ jobs:
       tag_name: ${{ github.event.release.tag_name || inputs.tag_name }}
       cleanup_legacy: true
       source_commit: ${{ github.sha }}
+
+  close-completed-issues:
+    name: Close completed issues
+    needs: [finalize-release-notes]
+    if: ${{ always() && needs.finalize-release-notes.result == 'success' }}
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/close-completed-issues.yml
+    with:
+      release_tag: ${{ github.event.release.tag_name || inputs.tag_name }}
