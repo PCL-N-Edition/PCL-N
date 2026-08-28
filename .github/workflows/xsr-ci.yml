@@ -31,6 +31,19 @@ jobs:
       - name: Build
         run: dotnet build PCL-N.slnx --configuration Release --no-restore -p:XsrVersionChannel=ci
 
+      - name: Test XSR runtime kernel
+        run: dotnet run --project tests/PCL.Xsr.Runtime.Tests/PCL.Xsr.Runtime.Tests.csproj --configuration Release --no-build
+
+      - name: Publish and run NativeAOT runtime tests
+        run: |
+          dotnet publish tests/PCL.Xsr.Runtime.Tests/PCL.Xsr.Runtime.Tests.csproj \
+            --configuration Release \
+            -p:XsrVersionChannel=ci \
+            -p:PublishAot=true \
+            -p:StripSymbols=true \
+            --output "${{ runner.temp }}/xsr-runtime-aot"
+          "${{ runner.temp }}/xsr-runtime-aot/PCL.Xsr.Runtime.Tests"
+
       - name: Enforce architecture boundaries
         run: dotnet run --project tests/PCL.Xsr.ArchitectureTests/PCL.Xsr.ArchitectureTests.csproj --configuration Release --no-build -- --repo-root .
 

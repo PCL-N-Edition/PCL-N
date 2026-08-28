@@ -72,6 +72,8 @@ XSR has four distinct primitives:
 
 Development identifiers may be readable strings. Source generation resolves them to compact, stable runtime IDs for hot paths. Reflection and string dispatch are not runtime routing mechanisms.
 
+The initial Wave 1 registry treats semantic IDs as opaque, case-sensitive values. After registration closes, it assigns contiguous nonzero runtime IDs by sorting the complete semantic-ID set with ordinal comparison. The sealed mapping is immutable; numeric lookup, rather than string lookup, is the runtime hot path. Generated code may cache these resolved IDs without owning a second registry.
+
 ## Ownership and composition
 
 - Services own business behavior and publish state/events.

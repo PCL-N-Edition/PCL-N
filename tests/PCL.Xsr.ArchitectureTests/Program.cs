@@ -53,13 +53,22 @@ internal static class Program
                 "PCL.Xsr.Runtime",
             ],
             ["PCL.Xsr.ArchitectureTests"] = [],
+            ["PCL.Xsr.Runtime.Tests"] = ["PCL.Xsr.Abstractions", "PCL.Xsr.Runtime"],
         };
 
     private static readonly HashSet<string> ExecutableProjects =
-        ["PCL.Desktop", "PCL.UI.Next.Benchmarks", "PCL.Xsr.ArchitectureTests"];
+        [
+            "PCL.Desktop",
+            "PCL.UI.Next.Benchmarks",
+            "PCL.Xsr.ArchitectureTests",
+            "PCL.Xsr.Runtime.Tests",
+        ];
 
     private static readonly HashSet<string> GeneratorProjects =
         ["PCL.Pxml.Generators", "PCL.Xsr.Generators"];
+
+    private static readonly HashSet<string> AotCompatibleProjects =
+        ["PCL.Xsr.Abstractions", "PCL.Xsr.Runtime"];
 
     public static int Main(string[] args)
     {
@@ -210,6 +219,12 @@ internal static class Program
             && !string.Equals(Property(project, "IsRoslynComponent"), "true", StringComparison.OrdinalIgnoreCase))
         {
             failures.Add($"{projectName} must remain marked as a Roslyn component.");
+        }
+
+        if (AotCompatibleProjects.Contains(projectName)
+            && !string.Equals(Property(project, "IsAotCompatible"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add($"{projectName} must remain marked as AOT compatible.");
         }
     }
 

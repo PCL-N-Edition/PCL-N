@@ -1,6 +1,6 @@
 # PCL N XSR migration
 
-`refactor/xsr` is a clean-slate architecture branch. It contains the new .NET 10 XSR project graph, but no migrated launcher behavior, legacy build pipeline, or vendored/submodule implementation.
+`refactor/xsr` is a clean-slate architecture branch. It contains the new .NET 10 XSR project graph and the first Wave 1 runtime primitive, but no migrated launcher behavior, legacy build pipeline, or vendored/submodule implementation.
 
 The existing product remains in the separate `dev` worktree and is consulted as a read-only behavioral reference. Legacy projects are never referenced, copied wholesale, or merged into this branch.
 
@@ -10,6 +10,7 @@ Current tracked implementation baseline:
 - [clean-slate reference rules](docs/xsr/source-reference.md)
 - [product version policy](docs/xsr/versioning.md)
 - [project-graph migration unit](docs/xsr/migrations/XSR-002-project-graph.md)
+- [Wave 1 identifier and registry unit](docs/xsr/migrations/XSR-101-identifiers-and-registry.md)
 - central version projection in `eng/xsr/Xsr.Version.props`
 
 Build and validate the scaffold with:

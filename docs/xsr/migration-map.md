@@ -60,6 +60,18 @@ A task does not mix architecture migration with user-data format migration unles
 
 The first Wave 1 implementation unit must complete XSR-002. XSR-003 may grow incrementally with compilable surfaces, but bypassing the architecture gate is not allowed. Empty placeholder projects are not evidence of completion.
 
+## Wave 1 work items
+
+| ID | Work item | Status |
+|---|---|---|
+| XSR-101 | semantic/runtime identifiers and deterministic sealed registry | complete |
+| XSR-102 | asynchronous command and query routing with cancellation and stable errors | pending |
+| XSR-103 | revisioned state store, snapshots, deltas, and derived dependency graph | pending |
+| XSR-104 | ordered events, scopes, and bounded delivery | pending |
+| XSR-105 | scheduling, lifecycle, and end-to-end diagnostics | pending |
+
+Wave 1 is in progress. Completing XSR-101 establishes registration identity only; it does not satisfy the full X-kernel exit gate.
+
 ## Cutover gate
 
 Before XSR replaces the legacy architecture, startup, downloads, instances, Minecraft launch, accounts, settings, updates, cloud, online play, plugins, OOBE, crash recovery, AOT, and trim must pass. Plugin SDK 1.0, Sidecar Protocol v1, Manifest/Package v1, and Plugin UI IR v1 must be frozen with compatibility tests.

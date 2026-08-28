@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Focused executable tests for the Wave 1 XSR runtime kernel.</Description>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../PCL.Xsr.Abstractions/PCL.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../../PCL.Xsr.Runtime/PCL.Xsr.Runtime.csproj" />
+  </ItemGroup>
+</Project>

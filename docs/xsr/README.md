@@ -21,6 +21,7 @@ The user-requested constraints take precedence:
 - [migration-map.md](migration-map.md) — waves, closed work units, and cutover gates
 - [source-reference.md](source-reference.md) — clean-slate rules for consulting legacy code
 - [migrations/XSR-002-project-graph.md](migrations/XSR-002-project-graph.md) — initial solution graph and architecture gate
+- [migrations/XSR-101-identifiers-and-registry.md](migrations/XSR-101-identifiers-and-registry.md) — Wave 1 identity and sealed registry contract
 
 ## Decision process
 
