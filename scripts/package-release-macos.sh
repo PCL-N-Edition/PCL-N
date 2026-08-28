@@ -47,7 +47,9 @@ fi
 
 # Artifact upload/download may drop the executable bit.
 chmod +x "$binary" "$host_bin" || true
-find "$app/Contents/MacOS" -type f \( -name 'PCL-N-*' -o -name 'pcln-*' \) -exec chmod +x {} + 2>/dev/null || true
+# pcln-layout is a plain-text marker; with an exec bit codesign --deep rejects
+# the bundle for containing an unsigned code object.
+find "$app/Contents/MacOS" -type f \( -name 'PCL-N-*' -o -name 'pcln-*' \) ! -name 'pcln-layout' -exec chmod +x {} + 2>/dev/null || true
 test -x "$binary"
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
