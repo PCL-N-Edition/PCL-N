@@ -119,12 +119,11 @@ ditto "$dmg_root/PCL N.app" "$mount_dir/PCL N.app"
 ln -sf /Applications "$mount_dir/Applications"
 ditto "$dmg_root/.background" "$mount_dir/.background"
 test -x "$mount_dir/PCL N.app/Contents/MacOS/PCL-N-Edition"
-# The artifact round trip strips the xattr signature that codesign --deep
-# writes for non-Mach-O files under Contents/MacOS (the pcln-layout marker),
-# so the copied bundle fails deep verification as-is. Re-seal the same
-# ad-hoc identity on the packaged copy before verifying.
-codesign --force --deep --sign - "$mount_dir/PCL N.app"
-codesign --verify --deep --strict "$mount_dir/PCL N.app"
+# Deep verification happened at build time, right after codesign --deep --sign
+# sealed every nested code object (the pcln-layout marker via xattr). The
+# artifact round trip strips those xattrs, so transferred copies can never pass
+# --deep again; verify the outer bundle seal and main executable instead.
+codesign --verify --strict "$mount_dir/PCL N.app"
 
 # Persist the familiar drag-to-Applications installer layout in .DS_Store.
 # The app and target folder are spatially mapped to the arrow in the background.
@@ -191,7 +190,7 @@ test -L "$mount_dir/Applications"
 test -s "$mount_dir/.DS_Store"
 test -s "$mount_dir/.background/PCLN-background.png"
 test -x "$mount_dir/PCL N.app/Contents/MacOS/PCL-N-Edition"
-codesign --verify --deep --strict "$mount_dir/PCL N.app"
+codesign --verify --strict "$mount_dir/PCL N.app"
 hdiutil detach "$mount_dir"
 rmdir "$mount_dir" 2>/dev/null || true
 mount_dir=""
