@@ -107,8 +107,13 @@ internal sealed partial class LauncherAnnouncementService : IDisposable
         if (activityMode >= 2 || !SemVer.TryParse(NormalizeVersion(launcherVersion), out SemVer? current))
             return [];
         List<LauncherAnnouncement> results = [];
+        DateTimeOffset now = DateTimeOffset.UtcNow;
         foreach (LauncherAnnouncementDto item in source)
         {
+            if (item.StartsAt is { } startsAt && startsAt > now)
+                continue;
+            if (item.EndsAt is { } endsAt && endsAt <= now)
+                continue;
             if (activityMode == 1 && item.Severity is not ("important" or "security"))
                 continue;
             if (item.Channels.Count > 0 && !item.Channels.Contains(channel, StringComparer.OrdinalIgnoreCase))
@@ -219,7 +224,9 @@ internal sealed partial class LauncherAnnouncementService : IDisposable
         [property: JsonPropertyName("platforms")] IReadOnlyList<string> Platforms,
         [property: JsonPropertyName("localized_content")] IReadOnlyDictionary<string, LauncherAnnouncementContent> LocalizedContent,
         [property: JsonPropertyName("dismissible")] bool Dismissible,
-        [property: JsonPropertyName("updated_at")] DateTimeOffset UpdatedAt);
+        [property: JsonPropertyName("updated_at")] DateTimeOffset UpdatedAt,
+        [property: JsonPropertyName("starts_at")] DateTimeOffset? StartsAt = null,
+        [property: JsonPropertyName("ends_at")] DateTimeOffset? EndsAt = null);
 
     internal sealed record LauncherAnnouncementContent(
         [property: JsonPropertyName("title")] string Title,
