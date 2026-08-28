@@ -44,6 +44,22 @@ jobs:
             --output "${{ runner.temp }}/xsr-runtime-aot"
           "${{ runner.temp }}/xsr-runtime-aot/PCL.Xsr.Runtime.Tests"
 
+      - name: Test UI.Next renderer kernel
+        run: dotnet run --project tests/PCL.UI.Next.Tests/PCL.UI.Next.Tests.csproj --configuration Release --no-build
+
+      - name: Publish and run NativeAOT renderer tests
+        run: >-
+          dotnet publish tests/PCL.UI.Next.Tests/PCL.UI.Next.Tests.csproj
+          --configuration Release
+          -p:XsrVersionChannel=ci
+          -p:PublishAot=true
+          -p:StripSymbols=true
+          --output "${{ runner.temp }}/uinext-aot"
+          "${{ runner.temp }}/uinext-aot/PCL.UI.Next.Tests"
+
+      - name: Enforce UI.Next benchmark gates
+        run: dotnet run --project PCL.UI.Next.Benchmarks/PCL.UI.Next.Benchmarks.csproj --configuration Release --no-build
+
       - name: Enforce architecture boundaries
         run: dotnet run --project tests/PCL.Xsr.ArchitectureTests/PCL.Xsr.ArchitectureTests.csproj --configuration Release --no-build -- --repo-root .
 

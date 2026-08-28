@@ -73,6 +73,17 @@ The first Wave 1 implementation unit must complete XSR-002. XSR-003 may grow inc
 
 Wave 1 is complete. The X kernel provides the sealed registry, command/query routers, revisioned state with a derived dependency graph, ordered event scopes with bounded delivery, scheduling, lifecycle, and session diagnostics. Exit evidence: every kernel project is AOT-compatible, the NativeAOT runtime-test publish and trimmed Desktop publish pass, and the architecture gate enforces that no kernel project references Avalonia, Minecraft, plugin, or renderer code.
 
+## Wave 2 work items
+
+| ID | Work item | Status |
+|---|---|---|
+| XSR-201 | UI.Next entity kernel: tree, components, dirty tracking, state bridge | complete |
+| XSR-202 | deterministic layout and immutable scene production | complete |
+| XSR-203 | input routing, focus, navigation, overlays, accessibility semantics | complete |
+| XSR-204 | deterministic benchmark gates and renderer CI | complete |
+
+Wave 2 is complete. The renderer kernel provides the entity tree, deterministic layout with dirty-subtree relayout, the immutable scene boundary, input and focus routing, navigation and overlays, and accessibility semantics. Exit evidence: the UI.Next test suite and benchmark gates run in CI including NativeAOT publishes, and the architecture gate enforces that UI.Next references no backend, service, or runtime assembly.
+
 ## Cutover gate
 
 Before XSR replaces the legacy architecture, startup, downloads, instances, Minecraft launch, accounts, settings, updates, cloud, online play, plugins, OOBE, crash recovery, AOT, and trim must pass. Plugin SDK 1.0, Sidecar Protocol v1, Manifest/Package v1, and Plugin UI IR v1 must be frozen with compatibility tests.

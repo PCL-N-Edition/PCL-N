@@ -30,6 +30,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-201-ui-entity-kernel.md](migrations/XSR-201-ui-entity-kernel.md) — renderer entity tree, components, dirty tracking, state bridge
 - [migrations/XSR-202-layout-and-scene.md](migrations/XSR-202-layout-and-scene.md) — deterministic layout and the immutable render scene
 - [migrations/XSR-203-input-navigation-overlay.md](migrations/XSR-203-input-navigation-overlay.md) — pointer and keyboard input, navigation, overlays, accessibility
+- [migrations/XSR-204-renderer-gates.md](migrations/XSR-204-renderer-gates.md) — deterministic benchmark gates and renderer CI
 
 ## Decision process
 

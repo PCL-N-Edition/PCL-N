@@ -18,6 +18,9 @@ public sealed class XsrUiTree
     private readonly SortedSet<int> _dirtyEntities = [];
     private int _nextId = 1;
 
+    private const XsrUiDirtyKinds LayoutRelevantKinds =
+        XsrUiDirtyKinds.Structure | XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.State;
+
     /// <summary>
     /// Gets the number of live entities.
     /// </summary>
@@ -192,18 +195,30 @@ public sealed class XsrUiTree
         XsrUiEntity value = Require(entity);
         value.OwnDirty |= kinds;
         value.SubtreeDirty = true;
+        bool layoutRelevant = (kinds & LayoutRelevantKinds) != 0;
+        value.SubtreeLayoutDirty |= layoutRelevant;
         _dirtyEntities.Add(entity.Value);
 
+        // Bubble each subtree flag until it reaches an ancestor that already carries it, so
+        // paint-only dirt never triggers ancestor relayouts.
+        bool anyPending = true;
+        bool layoutPending = layoutRelevant;
         XsrUiEntityId ancestor = value.Parent;
-        while (ancestor.IsAssigned)
+        while (ancestor.IsAssigned && (anyPending || layoutPending))
         {
             XsrUiEntity current = Require(ancestor);
-            if (current.SubtreeDirty)
+            if (anyPending)
             {
-                break;
+                anyPending = !current.SubtreeDirty;
+                current.SubtreeDirty = true;
             }
 
-            current.SubtreeDirty = true;
+            if (layoutPending)
+            {
+                layoutPending = !current.SubtreeLayoutDirty;
+                current.SubtreeLayoutDirty = true;
+            }
+
             ancestor = current.Parent;
         }
     }
@@ -223,6 +238,12 @@ public sealed class XsrUiTree
     /// Gets a value indicating whether self or any descendant carries a dirty flag.
     /// </summary>
     public bool HasDirtySubtree(XsrUiEntityId entity) => Require(entity).SubtreeDirty;
+
+    /// <summary>
+    /// Gets a value indicating whether self or any descendant carries layout-relevant dirt.
+    /// Paint-only dirt does not count.
+    /// </summary>
+    public bool HasDirtyLayoutSubtree(XsrUiEntityId entity) => Require(entity).SubtreeLayoutDirty;
 
     /// <summary>
     /// Gets the dirty kinds of one entity's own flags.
@@ -362,23 +383,30 @@ public sealed class XsrUiTree
     private void RecomputeSubtreeUpwards(int id)
     {
         XsrUiEntity current = _entities[id];
-        current.SubtreeDirty = current.OwnDirty != XsrUiDirtyKinds.None
-            || current.Children.Any(child => _entities[child].SubtreeDirty);
+        RecomputeFlags(current);
 
         XsrUiEntityId ancestor = current.Parent;
         while (ancestor.IsAssigned)
         {
             XsrUiEntity parent = Require(ancestor);
-            bool dirty = parent.OwnDirty != XsrUiDirtyKinds.None
-                || parent.Children.Any(child => _entities[child].SubtreeDirty);
-            if (parent.SubtreeDirty == dirty)
+            bool anyWas = parent.SubtreeDirty;
+            bool layoutWas = parent.SubtreeLayoutDirty;
+            RecomputeFlags(parent);
+            if (parent.SubtreeDirty == anyWas && parent.SubtreeLayoutDirty == layoutWas)
             {
                 break;
             }
 
-            parent.SubtreeDirty = dirty;
             ancestor = parent.Parent;
         }
+    }
+
+    private void RecomputeFlags(XsrUiEntity entity)
+    {
+        entity.SubtreeDirty = entity.OwnDirty != XsrUiDirtyKinds.None
+            || entity.Children.Any(child => _entities[child].SubtreeDirty);
+        entity.SubtreeLayoutDirty = (entity.OwnDirty & LayoutRelevantKinds) != 0
+            || entity.Children.Any(child => _entities[child].SubtreeLayoutDirty);
     }
 
     private XsrUiEntity Require(XsrUiEntityId entity)
@@ -404,5 +432,7 @@ public sealed class XsrUiTree
         public XsrUiDirtyKinds OwnDirty { get; set; }
 
         public bool SubtreeDirty { get; set; }
+
+        public bool SubtreeLayoutDirty { get; set; }
     }
 }

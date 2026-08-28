@@ -166,7 +166,7 @@ public sealed class XsrUiRenderer
 
     private void Layout(XsrUiEntityId entity, XsrUiRect slot)
     {
-        if (!_tree.HasDirtySubtree(entity))
+        if (!_tree.HasDirtyLayoutSubtree(entity))
         {
             return;
         }
@@ -177,9 +177,9 @@ public sealed class XsrUiRenderer
 
     private XsrUiSize Measure(XsrUiEntityId entity, XsrUiSize available)
     {
-        // Fully clean subtrees keep the previous pass's desired size; anything with a dirty
-        // descendant re-aggregates so containers pick up new child measurements.
-        if (!_tree.HasDirtySubtree(entity) && _desiredSizes.TryGetValue(entity.Value, out XsrUiSize cached))
+        // Subtrees without layout-relevant dirt keep the previous pass's desired size; anything
+        // with a dirty descendant re-aggregates so containers pick up new child measurements.
+        if (!_tree.HasDirtyLayoutSubtree(entity) && _desiredSizes.TryGetValue(entity.Value, out XsrUiSize cached))
         {
             return cached;
         }
