@@ -3,11 +3,14 @@ using PCL.Xsr;
 namespace PCL.UI.Next;
 
 /// <summary>
-/// Text content of one entity. Content is plain text; the backend chooses presentation.
+/// Text content of one entity. Content is plain text; the backend chooses presentation. Text
+/// can bind to one state entry, in which case the renderer reads the applied value per render.
 /// </summary>
 public sealed class XsrUiText(string content)
 {
     public string Content { get; set; } = content ?? string.Empty;
+
+    public XsrStateId BoundState { get; set; }
 }
 
 /// <summary>
@@ -43,10 +46,12 @@ public enum XsrUiOrientation
 }
 
 /// <summary>
-/// Size, spacing, and alignment constraints of one element.
+/// Size, spacing, alignment, and visibility constraints of one element.
 /// </summary>
 public sealed class XsrUiElement
 {
+    public bool IsVisible { get; set; } = true;
+
     public double? Width { get; set; }
 
     public double? Height { get; set; }

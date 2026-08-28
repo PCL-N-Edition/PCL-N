@@ -28,6 +28,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-105-scheduling-lifecycle-diagnostics.md](migrations/XSR-105-scheduling-lifecycle-diagnostics.md) — scheduling, lifecycle state machines, and session traces
 - [migrations/XSR-106-lifetime-scopes.md](migrations/XSR-106-lifetime-scopes.md) — runtime lifetime scopes for atomic resource cleanup
 - [migrations/XSR-201-ui-entity-kernel.md](migrations/XSR-201-ui-entity-kernel.md) — renderer entity tree, components, dirty tracking, state bridge
+- [migrations/XSR-202-layout-and-scene.md](migrations/XSR-202-layout-and-scene.md) — deterministic layout and the immutable render scene
 
 ## Decision process
 

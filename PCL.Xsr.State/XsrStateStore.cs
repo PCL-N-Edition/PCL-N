@@ -128,6 +128,12 @@ public sealed class XsrStateStore
     public long CoalescedCount(XsrStateId stateId) => RequireNode(stateId).CoalescedCount;
 
     /// <summary>
+    /// Reads the applied value of one entry boxed, for consumers that render values without
+    /// knowing their contract. Typed hot paths use <see cref="Read{TValue}"/>.
+    /// </summary>
+    public object? ReadValue(XsrStateId stateId) => RequireNode(stateId).ReadValue();
+
+    /// <summary>
     /// Reads one ordered collection snapshot. The returned items never change after capture.
     /// </summary>
     public XsrCollectionSnapshot<TItem> ReadCollection<TItem>(

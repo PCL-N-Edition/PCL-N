@@ -1,0 +1,260 @@
+using PCL.Xsr;
+using PCL.Xsr.State;
+
+namespace PCL.UI.Next.Tests;
+
+internal static partial class Program
+{
+    private static void FixedLeafProducesExactRect()
+    {
+        XsrUiRenderer renderer = BuildSingleLeafRenderer(out XsrUiScene scene);
+        _ = renderer;
+
+        AssertEqual(new XsrUiRect(0, 0, 200, 100), scene[0].Rect);
+        AssertEqual(1, scene.Count);
+    }
+
+    private static void VerticalStackFlowsTopDown()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical) { Spacing = 10 });
+        XsrUiEntityId alpha = tree.Create("alpha");
+        tree.SetComponent(alpha, new XsrUiElement { Width = 200, Height = 50 });
+        XsrUiEntityId beta = tree.Create("beta");
+        tree.SetComponent(beta, new XsrUiElement { Width = 180, Height = 30 });
+        tree.Attach(alpha, root);
+        tree.Attach(beta, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(new XsrUiRect(0, 0, 800, 600), scene[0].Rect);
+        AssertEqual(new XsrUiRect(0, 0, 200, 50), scene[1].Rect);
+        AssertEqual(new XsrUiRect(0, 60, 180, 30), scene[2].Rect);
+    }
+
+    private static void HorizontalStackFlowsLeftRight()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Horizontal) { Spacing = 5 });
+        XsrUiEntityId alpha = tree.Create("alpha");
+        tree.SetComponent(alpha, new XsrUiElement { Width = 100, Height = 50 });
+        XsrUiEntityId beta = tree.Create("beta");
+        tree.SetComponent(beta, new XsrUiElement { Width = 200, Height = 40 });
+        tree.Attach(alpha, root);
+        tree.Attach(beta, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(new XsrUiRect(0, 0, 100, 50), scene[1].Rect);
+        AssertEqual(new XsrUiRect(105, 0, 200, 40), scene[2].Rect);
+    }
+
+    private static void PaddingInsetsAndMarginOffsets()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiElement { Padding = XsrUiThickness.Uniform(20) });
+        XsrUiEntityId child = tree.Create("child");
+        tree.SetComponent(child, new XsrUiElement
+        {
+            Width = 100,
+            Height = 100,
+            Margin = XsrUiThickness.Uniform(10),
+        });
+        tree.Attach(child, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(new XsrUiRect(30, 30, 100, 100), scene[1].Rect);
+    }
+
+    private static void CrossAxisAlignmentPositionsChildren()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        XsrUiEntityId centered = tree.Create("centered");
+        tree.SetComponent(centered, new XsrUiElement
+        {
+            Width = 100,
+            Height = 40,
+            HorizontalAlignment = XsrUiAlignment.Center,
+        });
+        XsrUiEntityId ending = tree.Create("ending");
+        tree.SetComponent(ending, new XsrUiElement
+        {
+            Width = 100,
+            Height = 40,
+            HorizontalAlignment = XsrUiAlignment.End,
+        });
+        tree.Attach(centered, root);
+        tree.Attach(ending, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(new XsrUiRect(350, 0, 100, 40), scene[1].Rect);
+        AssertEqual(new XsrUiRect(700, 40, 100, 40), scene[2].Rect);
+    }
+
+    private static void InvisibleEntitiesLeaveSceneAndLayout()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical) { Spacing = 10 });
+        XsrUiEntityId hidden = tree.Create("hidden");
+        tree.SetComponent(hidden, new XsrUiElement { Width = 100, Height = 40, IsVisible = false });
+        XsrUiEntityId visible = tree.Create("visible");
+        tree.SetComponent(visible, new XsrUiElement { Width = 100, Height = 40 });
+        tree.Attach(hidden, root);
+        tree.Attach(visible, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(2, scene.Count);
+        AssertEqual(visible, scene[1].Entity);
+        AssertEqual(new XsrUiRect(0, 0, 100, 40), scene[1].Rect);
+    }
+
+    private static void CleanTreeReturnsSameScene()
+    {
+        XsrUiRenderer renderer = BuildSingleLeafRenderer(out XsrUiScene first);
+
+        XsrUiScene second = renderer.Render();
+
+        AssertTrue(ReferenceEquals(first, second));
+        AssertEqual(first.Version, second.Version);
+    }
+
+    private static void DirtyLeafRelayoutsOnlyItsSubtree()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Horizontal));
+        XsrUiEntityId leftBranch = tree.Create("left");
+        tree.SetComponent(leftBranch, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        XsrUiEntityId rightBranch = tree.Create("right");
+        tree.SetComponent(rightBranch, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        XsrUiEntityId leftLeaf = tree.Create("left-leaf");
+        tree.SetComponent(leftLeaf, new XsrUiElement { Width = 50, Height = 20 });
+        XsrUiEntityId rightLeaf = tree.Create("right-leaf");
+        tree.SetComponent(rightLeaf, new XsrUiElement { Width = 50, Height = 20 });
+        tree.Attach(leftBranch, root);
+        tree.Attach(rightBranch, root);
+        tree.Attach(leftLeaf, leftBranch);
+        tree.Attach(rightLeaf, rightBranch);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        _ = renderer.Render();
+        AssertEqual(5, renderer.LastLayoutVisits);
+
+        // Mutating one leaf relayouts the root chain and that leaf only.
+        tree.SetComponent(leftLeaf, new XsrUiElement { Width = 90, Height = 20 });
+        _ = renderer.Render();
+        AssertEqual(3, renderer.LastLayoutVisits);
+    }
+
+    private static void StateBoundTextRendersAppliedValue()
+    {
+        XsrUiTree tree = new();
+        XsrStateStoreBuilder states = new();
+        states.Cell<string>("ui.label".AsXsrId(), "Owner");
+        XsrUiStateBridge bridge = new(tree);
+        XsrStateStore store = states.Build(bridge);
+        XsrStateId label = store.Resolve("ui.label".AsXsrId());
+
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiText(string.Empty) { BoundState = label });
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+
+        _ = store.Publish(label, "hello");
+        XsrUiScene first = renderer.Render();
+        AssertEqual("hello", first[0].Text);
+
+        _ = store.Publish(label, "world");
+        XsrUiScene second = renderer.Render();
+        AssertEqual("world", second[0].Text);
+        AssertTrue(second.Version > first.Version);
+    }
+
+    private static void SceneOrderIsDepthFirstPreOrder()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        XsrUiEntityId alpha = tree.Create("alpha");
+        XsrUiEntityId beta = tree.Create("beta");
+        XsrUiEntityId alphaChild = tree.Create("alpha-child");
+        tree.SetComponent(alpha, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        tree.Attach(alpha, root);
+        tree.Attach(beta, root);
+        tree.Attach(alphaChild, alpha);
+        tree.SetComponent(alphaChild, new XsrUiSemantic(XsrUiSemanticRole.Button, "OK"));
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        XsrUiScene scene = renderer.Render();
+
+        AssertSequence(
+            new[] { root, alpha, alphaChild, beta },
+            scene.Nodes.Select(node => node.Entity).ToArray());
+        AssertEqual(0, scene[0].Depth);
+        AssertEqual(1, scene[1].Depth);
+        AssertEqual(2, scene[2].Depth);
+        AssertEqual(1, scene[3].Depth);
+        AssertEqual(XsrUiSemanticRole.Button, scene[2].Role);
+        AssertEqual("OK", scene[2].Label);
+    }
+
+    private static void RenderWithoutRootThrows()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiRenderer renderer = new(tree, store);
+
+        AssertThrows<InvalidOperationException>(() => renderer.Render());
+    }
+
+    private static void ViewportChangeRelayouts()
+    {
+        XsrUiRenderer renderer = BuildSingleLeafRenderer(out XsrUiScene first);
+        AssertEqual(200, first[0].Rect.Width);
+
+        renderer.Viewport = new XsrUiSize(400, 300);
+        XsrUiScene second = renderer.Render();
+
+        AssertEqual(new XsrUiRect(0, 0, 200, 100), second[0].Rect);
+        AssertTrue(second.Version > first.Version);
+    }
+
+    private static XsrUiRenderer BuildSingleLeafRenderer(out XsrUiScene scene)
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("leaf");
+        tree.SetComponent(root, new XsrUiElement { Width = 200, Height = 100 });
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        scene = renderer.Render();
+        return renderer;
+    }
+}

@@ -14,6 +14,7 @@ public sealed class XsrUiTree
     private readonly Dictionary<int, XsrUiEntity> _entities = [];
     private readonly Stack<int> _freeIds = [];
     private readonly Dictionary<XsrStateId, List<int>> _stateDependencies = [];
+    private readonly Dictionary<int, XsrStateId> _entityStates = [];
     private readonly SortedSet<int> _dirtyEntities = [];
     private int _nextId = 1;
 
@@ -154,7 +155,7 @@ public sealed class XsrUiTree
         {
             if (value.Components.Remove(typeof(T)))
             {
-                if (typeof(T) == typeof(XsrUiStateBinding))
+                if (typeof(T) == typeof(XsrUiStateBinding) || typeof(T) == typeof(XsrUiText))
                 {
                     UnbindState(entity);
                 }
@@ -169,6 +170,10 @@ public sealed class XsrUiTree
         if (typeof(T) == typeof(XsrUiStateBinding))
         {
             BindState(entity, ((XsrUiStateBinding)(object)component).State);
+        }
+        else if (typeof(T) == typeof(XsrUiText))
+        {
+            BindState(entity, ((XsrUiText)(object)component).BoundState);
         }
 
         MarkDirty(entity, XsrUiDirtyKinds.Structure);
@@ -267,10 +272,28 @@ public sealed class XsrUiTree
         }
     }
 
+    /// <summary>
+    /// Binds one entity to one state entry. An entity carries at most one binding; binding a
+    /// different entry replaces the previous one.
+    /// </summary>
     private void BindState(XsrUiEntityId entity, XsrStateId state)
     {
+        if (_entityStates.TryGetValue(entity.Value, out XsrStateId existing))
+        {
+            if (existing.Equals(state))
+            {
+                return;
+            }
+
+            if (_stateDependencies.TryGetValue(existing, out List<int>? previous))
+            {
+                _ = previous.Remove(entity.Value);
+            }
+        }
+
         if (!state.IsAssigned)
         {
+            _ = _entityStates.Remove(entity.Value);
             return;
         }
 
@@ -284,13 +307,20 @@ public sealed class XsrUiTree
         {
             dependents.Add(entity.Value);
         }
+
+        _entityStates[entity.Value] = state;
     }
 
     private void UnbindState(XsrUiEntityId entity)
     {
-        foreach (KeyValuePair<XsrStateId, List<int>> dependency in _stateDependencies)
+        if (!_entityStates.Remove(entity.Value, out XsrStateId state))
         {
-            _ = dependency.Value.Remove(entity.Value);
+            return;
+        }
+
+        if (_stateDependencies.TryGetValue(state, out List<int>? dependents))
+        {
+            _ = dependents.Remove(entity.Value);
         }
     }
 
@@ -323,14 +353,7 @@ public sealed class XsrUiTree
 
     private void RemoveEntity(int id, XsrUiEntity entity)
     {
-        foreach (Type componentType in entity.Components.Keys)
-        {
-            if (componentType == typeof(XsrUiStateBinding))
-            {
-                UnbindState(new XsrUiEntityId(id));
-            }
-        }
-
+        UnbindState(new XsrUiEntityId(id));
         _ = _entities.Remove(id);
         _ = _dirtyEntities.Remove(id);
         _freeIds.Push(id);

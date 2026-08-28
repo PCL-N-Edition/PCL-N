@@ -90,6 +90,18 @@ internal abstract class XsrStateNode
         }
     }
 
+    /// <summary>
+    /// Reads the applied value boxed. Consumers that cannot know the value contract at compile
+    /// time (the renderer's state-bound text) use this; typed hot paths use typed reads.
+    /// </summary>
+    public object? ReadValue()
+    {
+        lock (Gate)
+        {
+            return CaptureValueLocked();
+        }
+    }
+
     public XsrStateSnapshotEntry Capture(XsrStateId id)
     {
         lock (Gate)

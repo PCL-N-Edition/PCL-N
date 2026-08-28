@@ -18,6 +18,19 @@ internal static partial class Program
         ("state bridge marks only bound entities dirty", Sync(StateBridgeMarksOnlyBoundEntities)),
         ("destroyed entities drop state dependencies", Sync(DestroyedEntitiesDropStateDependencies)),
         ("walk visits depth first in order", Sync(WalkVisitsDepthFirstInOrder)),
+        // XSR-202: layout and scene production.
+        ("fixed leaf produces exact rect", Sync(FixedLeafProducesExactRect)),
+        ("vertical stack flows top down", Sync(VerticalStackFlowsTopDown)),
+        ("horizontal stack flows left right", Sync(HorizontalStackFlowsLeftRight)),
+        ("padding insets and margin offsets", Sync(PaddingInsetsAndMarginOffsets)),
+        ("cross alignment positions children", Sync(CrossAxisAlignmentPositionsChildren)),
+        ("invisible entities leave scene and layout", Sync(InvisibleEntitiesLeaveSceneAndLayout)),
+        ("clean tree returns same scene", Sync(CleanTreeReturnsSameScene)),
+        ("dirty leaf relayouts only its subtree", Sync(DirtyLeafRelayoutsOnlyItsSubtree)),
+        ("state bound text renders applied value", Sync(StateBoundTextRendersAppliedValue)),
+        ("scene order is depth first pre order", Sync(SceneOrderIsDepthFirstPreOrder)),
+        ("render without root throws", Sync(RenderWithoutRootThrows)),
+        ("viewport change relayouts", Sync(ViewportChangeRelayouts)),
     ];
 
     private static async Task<int> Main()
