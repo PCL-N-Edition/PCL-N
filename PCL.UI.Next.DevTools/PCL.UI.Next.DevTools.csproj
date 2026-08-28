@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Inspection and diagnostics tooling for the UI.Next semantic renderer.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PCL.UI.Next/PCL.UI.Next.csproj" />
+    <ProjectReference Include="../PCL.Xsr.Diagnostics/PCL.Xsr.Diagnostics.csproj" />
+  </ItemGroup>
+</Project>

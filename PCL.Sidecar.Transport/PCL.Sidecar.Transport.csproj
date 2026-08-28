@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Reliable local IPC transport for Sidecar protocol frames.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PCL.Sidecar.Protocol/PCL.Sidecar.Protocol.csproj" />
+  </ItemGroup>
+</Project>

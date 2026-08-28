@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Compiler from PXML authoring documents to UI.Next intermediate representation.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PCL.Core/PCL.Core.csproj" />
+    <ProjectReference Include="../PCL.UI.Next/PCL.UI.Next.csproj" />
+  </ItemGroup>
+</Project>

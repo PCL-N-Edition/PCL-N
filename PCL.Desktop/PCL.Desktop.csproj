@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Thin PCL N process bootstrap and XSR composition root.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PCL.Pxml.Runtime/PCL.Pxml.Runtime.csproj" />
+    <ProjectReference Include="../PCL.Services/PCL.Services.csproj" />
+    <ProjectReference Include="../PCL.Sidecar.Protocol/PCL.Sidecar.Protocol.csproj" />
+    <ProjectReference Include="../PCL.Sidecar.Transport/PCL.Sidecar.Transport.csproj" />
+    <ProjectReference Include="../PCL.UI.Next/PCL.UI.Next.csproj" />
+    <ProjectReference Include="../PCL.UI.Next.Backend.Avalonia/PCL.UI.Next.Backend.Avalonia.csproj" />
+    <ProjectReference Include="../PCL.Xsr.Runtime/PCL.Xsr.Runtime.csproj" />
+  </ItemGroup>
+</Project>

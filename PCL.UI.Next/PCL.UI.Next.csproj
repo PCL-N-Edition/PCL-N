@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Canonical framework-neutral semantic renderer for XSR.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PCL.Core/PCL.Core.csproj" />
+    <ProjectReference Include="../PCL.Xsr.Abstractions/PCL.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../PCL.Xsr.State/PCL.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>

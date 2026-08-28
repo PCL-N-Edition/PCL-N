@@ -1,0 +1,44 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <Platform Name="AnyCPU" />
+  </Configurations>
+  <Folder Name="/Foundation/">
+    <Project Path="PCL.Core/PCL.Core.csproj" />
+    <Project Path="PCL.Domain/PCL.Domain.csproj" />
+    <Project Path="PCL.Contracts/PCL.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/XSR/">
+    <Project Path="PCL.Xsr.Abstractions/PCL.Xsr.Abstractions.csproj" />
+    <Project Path="PCL.Xsr.Runtime/PCL.Xsr.Runtime.csproj" />
+    <Project Path="PCL.Xsr.State/PCL.Xsr.State.csproj" />
+    <Project Path="PCL.Xsr.Transport/PCL.Xsr.Transport.csproj" />
+    <Project Path="PCL.Xsr.Diagnostics/PCL.Xsr.Diagnostics.csproj" />
+    <Project Path="PCL.Xsr.Generators/PCL.Xsr.Generators.csproj" />
+  </Folder>
+  <Folder Name="/Services/">
+    <Project Path="PCL.Services/PCL.Services.csproj" />
+  </Folder>
+  <Folder Name="/Renderer/">
+    <Project Path="PCL.UI.Next/PCL.UI.Next.csproj" />
+    <Project Path="PCL.UI.Next.Backend.Avalonia/PCL.UI.Next.Backend.Avalonia.csproj" />
+    <Project Path="PCL.UI.Next.DevTools/PCL.UI.Next.DevTools.csproj" />
+    <Project Path="PCL.UI.Next.Benchmarks/PCL.UI.Next.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/PXML/">
+    <Project Path="PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj" />
+    <Project Path="PCL.Pxml.Runtime/PCL.Pxml.Runtime.csproj" />
+    <Project Path="PCL.Pxml.Generators/PCL.Pxml.Generators.csproj" />
+  </Folder>
+  <Folder Name="/Sidecar/">
+    <Project Path="PCL.Sidecar.Protocol/PCL.Sidecar.Protocol.csproj" />
+    <Project Path="PCL.Sidecar.Transport/PCL.Sidecar.Transport.csproj" />
+  </Folder>
+  <Folder Name="/Host/">
+    <Project Path="PCL.Desktop/PCL.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="tests/PCL.Xsr.ArchitectureTests/PCL.Xsr.ArchitectureTests.csproj" />
+  </Folder>
+</Solution>

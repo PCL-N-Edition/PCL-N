@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Revisioned state cells, collections, snapshots, deltas, and derived-state graph.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PCL.Core/PCL.Core.csproj" />
+    <ProjectReference Include="../PCL.Xsr.Abstractions/PCL.Xsr.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

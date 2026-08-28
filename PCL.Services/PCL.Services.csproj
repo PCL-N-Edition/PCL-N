@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Composition boundary for PCL N business capability services.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PCL.Contracts/PCL.Contracts.csproj" />
+    <ProjectReference Include="../PCL.Core/PCL.Core.csproj" />
+    <ProjectReference Include="../PCL.Domain/PCL.Domain.csproj" />
+    <ProjectReference Include="../PCL.Xsr.Abstractions/PCL.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../PCL.Xsr.State/PCL.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>

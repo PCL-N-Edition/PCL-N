@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Avalonia windowing, input, accessibility, and render submission backend for UI.Next.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PCL.UI.Next/PCL.UI.Next.csproj" />
+  </ItemGroup>
+</Project>

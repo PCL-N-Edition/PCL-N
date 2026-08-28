@@ -6,7 +6,7 @@ The user-requested constraints take precedence:
 
 - migration work happens on `refactor/xsr` in a dedicated worktree outside the `dev` checkout;
 - the XSR product line starts at `2.0.0` and uses the dotted version forms in [versioning.md](versioning.md);
-- the branch contains no legacy source or project graph; code is consulted from the separate `dev` worktree;
+- the branch contains no legacy source or project graph; the new XSR graph is built independently while `dev` is consulted read-only;
 - Wave 0 locks architecture and migration policy only; it does not migrate product behavior.
 
 ## Documents
@@ -20,6 +20,7 @@ The user-requested constraints take precedence:
 - [versioning.md](versioning.md) — XSR product-version grammar and compatibility surfaces
 - [migration-map.md](migration-map.md) — waves, closed work units, and cutover gates
 - [source-reference.md](source-reference.md) — clean-slate rules for consulting legacy code
+- [migrations/XSR-002-project-graph.md](migrations/XSR-002-project-graph.md) — initial solution graph and architecture gate
 
 ## Decision process
 

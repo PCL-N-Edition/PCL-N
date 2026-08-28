@@ -44,6 +44,7 @@ The product version does not version every XSR contract. These axes remain indep
 
 - Plugin SDK version;
 - Plugin API version;
+- private PCL.Plugin runtime version;
 - Sidecar Protocol version;
 - Manifest Schema version;
 - Package Format version;
@@ -51,7 +52,7 @@ The product version does not version every XSR contract. These axes remain indep
 - PXML Language version;
 - individual capability versions.
 
-For example, XSR product `2.0.0.beta.1` may validate Plugin SDK `1.0.0-rc.1` and Sidecar Protocol v1. A product release never implies that an unrelated public contract has the same major number.
+For example, XSR product `2.0.0.beta.1` may validate Plugin SDK `1.0.0-rc.1`, private PCL.Plugin runtime `0.20.3`, and Sidecar Protocol v1. A product release never implies a bump to any of those independent versions.
 
 ## Build inputs
 

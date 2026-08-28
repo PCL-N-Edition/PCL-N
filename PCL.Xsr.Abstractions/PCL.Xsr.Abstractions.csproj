@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Portable command, query, state, event, and module abstractions for XSR.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PCL.Contracts/PCL.Contracts.csproj" />
+    <ProjectReference Include="../PCL.Core/PCL.Core.csproj" />
+  </ItemGroup>
+</Project>

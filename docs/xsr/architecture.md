@@ -57,6 +57,8 @@ X coordinates service registration, command/query routing, state, events, scopes
 | `PCL.Sidecar.*`, `PCL.Plugin.Sidecar` | protocol, transport, and dynamic plugin execution |
 | `PCL.Desktop` | process bootstrap and composition root |
 
+`PCL.Sidecar.Protocol` and `PCL.Sidecar.Transport` live in this Host repository. The `PCL.Plugin.Sidecar` executable lives in the independent PCL.Plugin XSR repository and consumes released protocol surfaces; neither repository uses a workstation-relative source reference to the other.
+
 The target list is not a requirement to create an empty project for every name. A project is introduced only when it has a clear owner and a dependency boundary worth enforcing.
 
 ## Communication model

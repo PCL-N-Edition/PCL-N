@@ -53,7 +53,7 @@ A task does not mix architecture migration with user-data format migration unles
 |---|---|---|
 | XSR-000 | create dedicated `refactor/xsr` worktree | complete |
 | XSR-001 | lock architecture, state, service, renderer, Sidecar, and version documents | complete |
-| XSR-002 | add project/package dependency fitness tests and migration-branch CI with the first source project | pending |
+| XSR-002 | add project/package dependency fitness tests and migration-branch CI with the first source project | complete |
 | XSR-003 | add source analyzers for forbidden namespaces, sync-over-async, reflection dispatch, and unstable plugin API use | pending |
 | XSR-004 | inventory legacy behaviors, data formats, and parity corpora by capability | pending |
 | XSR-005 | remove all legacy source, projects, submodules, and build/release implementation from the migration branch | complete |

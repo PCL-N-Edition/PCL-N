@@ -1,0 +1,44 @@
+name: XSR CI
+
+on:
+  push:
+    branches:
+      - refactor/xsr
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and architecture gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore PCL-N.slnx
+
+      - name: Build
+        run: dotnet build PCL-N.slnx --configuration Release --no-restore -p:XsrVersionChannel=ci
+
+      - name: Enforce architecture boundaries
+        run: dotnet run --project tests/PCL.Xsr.ArchitectureTests/PCL.Xsr.ArchitectureTests.csproj --configuration Release --no-build -- --repo-root .
+
+      - name: Analyze trimmed desktop composition
+        run: >-
+          dotnet publish PCL.Desktop/PCL.Desktop.csproj
+          --configuration Release
+          -p:XsrVersionChannel=ci
+          -p:PublishTrimmed=true
+          -p:TrimMode=link
+          --output "${{ runner.temp }}/pcl-desktop-trimmed"

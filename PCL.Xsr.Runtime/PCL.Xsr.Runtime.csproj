@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>XSR coordination runtime for registration, routing, scopes, scheduling, and lifecycle.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PCL.Contracts/PCL.Contracts.csproj" />
+    <ProjectReference Include="../PCL.Core/PCL.Core.csproj" />
+    <ProjectReference Include="../PCL.Xsr.Abstractions/PCL.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../PCL.Xsr.Diagnostics/PCL.Xsr.Diagnostics.csproj" />
+    <ProjectReference Include="../PCL.Xsr.State/PCL.Xsr.State.csproj" />
+    <ProjectReference Include="../PCL.Xsr.Transport/PCL.Xsr.Transport.csproj" />
+  </ItemGroup>
+</Project>
