@@ -54,7 +54,7 @@ jobs:
             -p:XsrVersionChannel=ci \
             -p:PublishAot=true \
             -p:StripSymbols=true \
-            --output "${{ runner.temp }}/uinext-aot" \
+            --output "${{ runner.temp }}/uinext-aot"
           "${{ runner.temp }}/uinext-aot/PCL.UI.Next.Tests"
 
       - name: Enforce UI.Next benchmark gates
