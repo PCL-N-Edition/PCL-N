@@ -660,7 +660,7 @@ jobs:
             "$layout_source"
           chmod +x "$layout_marker"
           file "$layout_marker"
-          lipo -verify_arch "$marker_arch" "$layout_marker"
+          lipo "$layout_marker" -verify_arch "$marker_arch"
 
           # Preserve the PCL artwork pixel-for-pixel while presenting it inside
           # the white rounded application tile expected by modern macOS.
