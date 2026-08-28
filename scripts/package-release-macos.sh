@@ -119,6 +119,11 @@ ditto "$dmg_root/PCL N.app" "$mount_dir/PCL N.app"
 ln -sf /Applications "$mount_dir/Applications"
 ditto "$dmg_root/.background" "$mount_dir/.background"
 test -x "$mount_dir/PCL N.app/Contents/MacOS/PCL-N-Edition"
+# The artifact round trip strips the xattr signature that codesign --deep
+# writes for non-Mach-O files under Contents/MacOS (the pcln-layout marker),
+# so the copied bundle fails deep verification as-is. Re-seal the same
+# ad-hoc identity on the packaged copy before verifying.
+codesign --force --deep --sign - "$mount_dir/PCL N.app"
 codesign --verify --deep --strict "$mount_dir/PCL N.app"
 
 # Persist the familiar drag-to-Applications installer layout in .DS_Store.
