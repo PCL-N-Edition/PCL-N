@@ -84,13 +84,17 @@ echo "Created ${base_name}.tar.gz ($(du -h "$output_dir/${base_name}.tar.gz" | a
 # Staging for DMG contents. Prefer move over ditto to avoid a second full copy of
 # large SelfContained bundles (GHA macOS runners previously hit ENOSPC on arm64).
 dmg_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/pcln-dmg.XXXXXX")"
-mount_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/pcln-mnt.XXXXXX")"
+mount_dir=""
+attach_plist=""
 rw_dmg=""
 cleanup() {
   if [[ -n "${mount_dir:-}" && -d "$mount_dir" ]]; then
     hdiutil detach "$mount_dir" -force >/dev/null 2>&1 || true
   fi
-  rm -rf "${dmg_root:-}" "${mount_dir:-}" ${rw_dmg:+"$rw_dmg"} 2>/dev/null || true
+  [[ -z "${dmg_root:-}" ]] || rm -rf "$dmg_root" 2>/dev/null || true
+  [[ -z "${mount_dir:-}" ]] || rm -rf "$mount_dir" 2>/dev/null || true
+  [[ -z "${attach_plist:-}" ]] || rm -f "$attach_plist" 2>/dev/null || true
+  [[ -z "${rw_dmg:-}" ]] || rm -f "$rw_dmg" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -123,14 +127,33 @@ hdiutil create \
   -ov \
   "$rw_dmg"
 
+attach_plist="$(mktemp "${RUNNER_TEMP:-/tmp}/pcln-attach.XXXXXX")"
 hdiutil attach \
   -readwrite \
   -noverify \
   -noautoopen \
-  -mountpoint "$mount_dir" \
-  "$rw_dmg"
+  -plist \
+  "$rw_dmg" >"$attach_plist"
 
-test -d "$mount_dir"
+# Do not force a private RUNNER_TEMP mountpoint: Finder only exposes normal
+# /Volumes mounts as disks, which is required to persist the installer layout
+# in .DS_Store. Parse hdiutil's plist instead of its whitespace-delimited text.
+for entity in {0..15}; do
+  candidate="$(/usr/libexec/PlistBuddy \
+    -c "Print :system-entities:${entity}:mount-point" \
+    "$attach_plist" 2>/dev/null || true)"
+  if [[ -n "$candidate" ]]; then
+    mount_dir="$candidate"
+    break
+  fi
+done
+rm -f "$attach_plist"
+attach_plist=""
+
+if [[ -z "$mount_dir" || ! -d "$mount_dir" ]]; then
+  echo "Could not determine the mounted DMG volume from hdiutil plist." >&2
+  exit 1
+fi
 ditto "$dmg_root/PCL N.app" "$mount_dir/PCL N.app"
 ln -sf /Applications "$mount_dir/Applications"
 ditto "$dmg_root/.background" "$mount_dir/.background"
@@ -141,9 +164,27 @@ codesign --verify --deep --strict "$mount_dir/PCL N.app"
 
 # Persist the familiar drag-to-Applications installer layout in .DS_Store.
 # The app and target folder are spatially mapped to the arrow in the background.
-osascript <<'APPLESCRIPT'
+volume_name="$(basename "$mount_dir")"
+finder_ready=false
+for _ in {1..10}; do
+  if PCLN_DMG_VOLUME="$volume_name" osascript \
+      -e 'set volumeName to system attribute "PCLN_DMG_VOLUME"' \
+      -e 'tell application "Finder" to exists disk volumeName' \
+      2>/dev/null | grep -q true; then
+    finder_ready=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$finder_ready" != "true" ]]; then
+  echo "Finder did not register mounted volume: $volume_name" >&2
+  exit 1
+fi
+
+PCLN_DMG_VOLUME="$volume_name" osascript <<'APPLESCRIPT'
+set volumeName to system attribute "PCLN_DMG_VOLUME"
 tell application "Finder"
-  tell disk "PCL N"
+  tell disk volumeName
     open
     set current view of container window to icon view
     set toolbar visible of container window to false
