@@ -12,6 +12,8 @@ public sealed class XsrStateStore
     private readonly IXsrStateObserver? _observer;
     private long _changeStamp;
 
+    private readonly Dictionary<XsrStateId, List<XsrStateId>> _derivedDependents;
+
     internal XsrStateStore(
         XsrRegistrySnapshot<XsrStateDescriptor> registry,
         XsrStateNode[] nodes,
@@ -20,6 +22,24 @@ public sealed class XsrStateStore
         _registry = registry;
         _nodes = nodes;
         _observer = observer;
+
+        _derivedDependents = [];
+        foreach (XsrRegistryEntry<XsrStateDescriptor> entry in registry.Entries)
+        {
+            if (nodes[entry.RuntimeId.Value - 1] is IXsrStateDerivedNode derived)
+            {
+                foreach (XsrStateId dependency in derived.DependencyIds)
+                {
+                    if (!_derivedDependents.TryGetValue(dependency, out List<XsrStateId>? dependents))
+                    {
+                        dependents = [];
+                        _derivedDependents[dependency] = dependents;
+                    }
+
+                    dependents.Add(new XsrStateId(entry.RuntimeId));
+                }
+            }
+        }
     }
 
     public int Count => _registry.Count;
@@ -120,6 +140,13 @@ public sealed class XsrStateStore
         }
 
         cell.PublishCoalesced(value);
+        Notify(new XsrStateChange(
+            stateId,
+            node.SemanticId,
+            XsrStateKind.Cell,
+            node.Revision,
+            XsrStateAvailability.Unavailable,
+            XsrStateChangeReason.CoalescedPublished));
     }
 
     /// <summary>
@@ -128,10 +155,61 @@ public sealed class XsrStateStore
     public long CoalescedCount(XsrStateId stateId) => RequireNode(stateId).CoalescedCount;
 
     /// <summary>
-    /// Reads the applied value of one entry boxed, for consumers that render values without
-    /// knowing their contract. Typed hot paths use <see cref="Read{TValue}"/>.
+    /// Reads the applied value of one entry boxed. Cells flush deferred coalesced publications;
+    /// derived entries recompute when their dependencies changed. Typed hot paths use
+    /// <see cref="Read{TValue}"/>.
     /// </summary>
-    public object? ReadValue(XsrStateId stateId) => RequireNode(stateId).ReadValue();
+    public object? ReadAppliedValue(XsrStateId stateId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        XsrStateNode node = RequireNode(stateId);
+
+        if (node is IXsrStateCellNode cell)
+        {
+            object? value = cell.ReadApplied(stateId, NextChangeStamp(), out XsrStateChange? flushed);
+            Notify(flushed);
+            return value;
+        }
+
+        if (node is IXsrStateDerivedNode derived)
+        {
+            object? value = derived.ReadAppliedObject(this, stateId, cancellationToken, out XsrStateChange? change);
+            Notify(change);
+            return value;
+        }
+
+        throw MismatchedContract(stateId, node, typeof(object));
+    }
+
+    /// <summary>
+    /// Resolves every state entry whose applied value can change when one entry changes: the
+    /// entry itself plus all derived entries that transitively depend on it.
+    /// </summary>
+    public IReadOnlyList<XsrStateId> AffectedBy(XsrStateId changed)
+    {
+        if (!_derivedDependents.TryGetValue(changed, out List<XsrStateId>? direct))
+        {
+            return [changed];
+        }
+
+        List<XsrStateId> affected = [changed];
+        HashSet<XsrStateId> visited = [changed];
+        for (int index = 0; index < affected.Count; index++)
+        {
+            if (_derivedDependents.TryGetValue(affected[index], out List<XsrStateId>? next))
+            {
+                foreach (XsrStateId dependent in next)
+                {
+                    if (visited.Add(dependent))
+                    {
+                        affected.Add(dependent);
+                    }
+                }
+            }
+        }
+
+        return affected;
+    }
 
     /// <summary>
     /// Reads one ordered collection snapshot. The returned items never change after capture.

@@ -81,8 +81,9 @@ Wave 1 is complete. The X kernel provides the sealed registry, command/query rou
 | XSR-202 | deterministic layout and immutable scene production | complete |
 | XSR-203 | input routing, focus, navigation, overlays, accessibility semantics | complete |
 | XSR-204 | deterministic benchmark gates and renderer CI | complete |
+| XSR-205 | animation kernel primitive, generational handles, thread-safe state bridge, multi-property bindings | complete |
 
-Wave 2 is complete. The renderer kernel provides the entity tree, deterministic layout with dirty-subtree relayout, the immutable scene boundary, input and focus routing, navigation and overlays, and accessibility semantics. Exit evidence: the UI.Next test suite and benchmark gates run in CI including NativeAOT publishes, and the architecture gate enforces that UI.Next references no backend, service, or runtime assembly.
+Wave 2 is complete. The renderer kernel provides the entity tree, deterministic layout with dirty-subtree relayout, the immutable scene boundary, input and focus routing, navigation and overlays, and accessibility semantics. Exit evidence: the UI.Next test suite and benchmark gates run in CI including NativeAOT publishes, and the architecture gate enforces that UI.Next references no backend, service, or runtime assembly. XSR-205 closed the animation scope gap with the kernel primitive (easing and keyframes stay later units) and folded review hardening into the contracts: generational entity handles, separated measure/arrange caching with slot-correct siblings, a thread-safe state bridge drained at frame start, applied-value reads over derived and coalesced state, and multi-property state bindings.
 
 ## Cutover gate
 

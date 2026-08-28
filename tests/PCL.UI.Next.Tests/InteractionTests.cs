@@ -257,7 +257,7 @@ internal static partial class Program
         XsrUiEntityId host = tree.Create("host");
         XsrUiNavigator navigator = new(tree, host);
 
-        AssertThrows<InvalidOperationException>(() => navigator.Push(new XsrUiEntityId(999)));
+        AssertThrows<InvalidOperationException>(() => navigator.Push(new XsrUiEntityId(999, 1)));
         AssertFalse(navigator.Pop());
 
         XsrUiEntityId page = BuildPage(tree, "page");

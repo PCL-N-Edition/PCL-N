@@ -15,11 +15,13 @@ public sealed class XsrUiRenderer
     private readonly XsrUiTree _tree;
     private readonly XsrStateStore _state;
     private readonly IXsrUiIntentSink? _sink;
+    private readonly XsrUiStateBridge? _stateBridge;
     private XsrUiEntityId _hovered;
     private XsrUiEntityId _pressed;
     private XsrUiEntityId _focused;
     private readonly Dictionary<int, XsrUiSize> _desiredSizes = [];
     private readonly Dictionary<int, XsrUiRect> _paintRects = [];
+    private readonly Dictionary<int, XsrUiRect> _arrangedSlots = [];
     private readonly HashSet<int> _measuredThisPass = [];
     private XsrUiScene? _scene;
     private long _sceneVersion;
@@ -27,11 +29,16 @@ public sealed class XsrUiRenderer
     private XsrUiSize _viewport = new(800, 600);
     private int _layoutVisits;
 
-    public XsrUiRenderer(XsrUiTree tree, XsrStateStore state, IXsrUiIntentSink? sink = null)
+    public XsrUiRenderer(
+        XsrUiTree tree,
+        XsrStateStore state,
+        IXsrUiIntentSink? sink = null,
+        XsrUiStateBridge? stateBridge = null)
     {
         _tree = tree ?? throw new ArgumentNullException(nameof(tree));
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _sink = sink;
+        _stateBridge = stateBridge;
     }
 
     /// <summary>
@@ -97,6 +104,10 @@ public sealed class XsrUiRenderer
             throw new InvalidOperationException("The renderer has no root entity.");
         }
 
+        // The state bridge queues publisher-thread changes; the render thread drains them here,
+        // so coalesced and derived state land in this frame's dirty set before the clean check.
+        _stateBridge?.DrainAndMark(_state);
+
         if (_scene is not null && !_tree.HasDirtySubtree(_root))
         {
             return _scene;
@@ -153,20 +164,31 @@ public sealed class XsrUiRenderer
 
     private void PruneDeadCacheEntries()
     {
-        foreach (int id in _desiredSizes.Keys.Where(id => !_tree.IsAlive(new XsrUiEntityId(id))).ToArray())
+        foreach (int id in _desiredSizes.Keys.Where(id => !_tree.IsIndexAlive(id)).ToArray())
         {
             _ = _desiredSizes.Remove(id);
         }
 
-        foreach (int id in _paintRects.Keys.Where(id => !_tree.IsAlive(new XsrUiEntityId(id))).ToArray())
+        foreach (int id in _paintRects.Keys.Where(id => !_tree.IsIndexAlive(id)).ToArray())
         {
             _ = _paintRects.Remove(id);
+        }
+
+        foreach (int id in _arrangedSlots.Keys.Where(id => !_tree.IsIndexAlive(id)).ToArray())
+        {
+            _ = _arrangedSlots.Remove(id);
         }
     }
 
     private void Layout(XsrUiEntityId entity, XsrUiRect slot)
     {
-        if (!_tree.HasDirtyLayoutSubtree(entity))
+        // Measure caching and arrange caching are separate concerns: a clean subtree keeps its
+        // measured sizes, but any entity whose input slot moved must re-arrange, even when the
+        // entity itself is clean — otherwise siblings keep stale coordinates.
+        bool subtreeClean = !_tree.HasDirtyLayoutSubtree(entity);
+        bool slotUnchanged = _arrangedSlots.TryGetValue(entity.Index, out XsrUiRect previous) && previous == slot;
+        bool arranged = _paintRects.ContainsKey(entity.Index);
+        if (subtreeClean && slotUnchanged && arranged)
         {
             return;
         }
@@ -179,12 +201,12 @@ public sealed class XsrUiRenderer
     {
         // Subtrees without layout-relevant dirt keep the previous pass's desired size; anything
         // with a dirty descendant re-aggregates so containers pick up new child measurements.
-        if (!_tree.HasDirtyLayoutSubtree(entity) && _desiredSizes.TryGetValue(entity.Value, out XsrUiSize cached))
+        if (!_tree.HasDirtyLayoutSubtree(entity) && _desiredSizes.TryGetValue(entity.Index, out XsrUiSize cached))
         {
             return cached;
         }
 
-        if (_measuredThisPass.Add(entity.Value))
+        if (_measuredThisPass.Add(entity.Index))
         {
             _layoutVisits++;
         }
@@ -241,7 +263,7 @@ public sealed class XsrUiRenderer
         }
 
         XsrUiSize desired = new(width, height);
-        _desiredSizes[entity.Value] = desired;
+        _desiredSizes[entity.Index] = desired;
         return desired;
     }
 
@@ -288,7 +310,8 @@ public sealed class XsrUiRenderer
         double contentY = borderY + padding.Top;
         double contentWidth = Math.Max(0, borderW - padding.Horizontal);
         double contentHeight = Math.Max(0, borderH - padding.Vertical);
-        _paintRects[entity.Value] = new XsrUiRect(contentX, contentY, contentWidth, contentHeight);
+        _arrangedSlots[entity.Index] = slot;
+        _paintRects[entity.Index] = new XsrUiRect(contentX, contentY, contentWidth, contentHeight);
 
         XsrUiStackPanel? stack = _tree.GetComponent<XsrUiStackPanel>(entity);
         if (stack is null)
@@ -314,7 +337,7 @@ public sealed class XsrUiRenderer
                 continue;
             }
 
-            XsrUiSize childDesired = _desiredSizes.TryGetValue(child.Value, out XsrUiSize size)
+            XsrUiSize childDesired = _desiredSizes.TryGetValue(child.Index, out XsrUiSize size)
                 ? size
                 : Measure(child, new XsrUiSize(contentWidth, contentHeight));
             XsrUiElement? childElement = _tree.GetComponent<XsrUiElement>(child);
@@ -397,8 +420,9 @@ public sealed class XsrUiRenderer
     /// </summary>
     public bool PointerReleased(XsrUiPoint point)
     {
-        if (!_pressed.IsAssigned)
+        if (!_pressed.IsAssigned || !_tree.IsAlive(_pressed))
         {
+            _pressed = default;
             return false;
         }
 
@@ -421,6 +445,11 @@ public sealed class XsrUiRenderer
         XsrUiEntityId entity = HitTest(point);
         XsrUiInput? input = entity.IsAssigned ? _tree.GetComponent<XsrUiInput>(entity) : null;
         bool overInput = input is not null;
+
+        if (_hovered.IsAssigned && !_tree.IsAlive(_hovered))
+        {
+            _hovered = default;
+        }
 
         if (_hovered.IsAssigned && !_hovered.Equals(entity))
         {
@@ -468,6 +497,11 @@ public sealed class XsrUiRenderer
             return false;
         }
 
+        if (_focused.IsAssigned && !_tree.IsAlive(_focused))
+        {
+            _focused = default;
+        }
+
         int currentIndex = focusable.FindIndex(entity => entity.Equals(_focused));
         int next = (currentIndex + 1) % focusable.Count;
         return Focus(focusable[next]);
@@ -478,6 +512,12 @@ public sealed class XsrUiRenderer
     /// </summary>
     public bool Focus(XsrUiEntityId entity)
     {
+        if (!_tree.IsAlive(entity))
+        {
+            _focused = default;
+            return false;
+        }
+
         XsrUiInput? input = _tree.GetComponent<XsrUiInput>(entity);
         if (input is not { Focusable: true })
         {
@@ -517,6 +557,11 @@ public sealed class XsrUiRenderer
 
     private bool Activate(XsrUiEntityId entity)
     {
+        if (!_tree.IsAlive(entity))
+        {
+            return false;
+        }
+
         XsrUiCommandBinding? binding = _tree.GetComponent<XsrUiCommandBinding>(entity);
         if (binding is null || _sink is null || !binding.Command.IsAssigned)
         {
@@ -546,11 +591,11 @@ public sealed class XsrUiRenderer
         string? content = text?.Content;
         if (text?.BoundState is { } bound && bound.IsAssigned)
         {
-            object? value = _state.ReadValue(bound);
+            object? value = _state.ReadAppliedValue(bound);
             content = Convert.ToString(value, CultureInfo.InvariantCulture);
         }
 
-        XsrUiRect rect = _paintRects.TryGetValue(entity.Value, out XsrUiRect paintRect)
+        XsrUiRect rect = _paintRects.TryGetValue(entity.Index, out XsrUiRect paintRect)
             ? paintRect
             : default;
         nodes.Add(new XsrUiSceneNode(
@@ -560,7 +605,8 @@ public sealed class XsrUiRenderer
             semantic?.Role ?? XsrUiSemanticRole.None,
             semantic?.Label,
             content,
-            _tree.GetComponent<XsrUiInput>(entity)?.IsFocused ?? false));
+            _tree.GetComponent<XsrUiInput>(entity)?.IsFocused ?? false,
+            _tree.GetComponent<XsrUiAnimation>(entity)?.Progress));
 
         foreach (XsrUiEntityId child in _tree.Children(entity))
         {

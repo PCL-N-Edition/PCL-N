@@ -6,6 +6,7 @@ namespace PCL.Xsr.State;
 public enum XsrStateChangeReason
 {
     ValuePublished = 1,
+    CoalescedPublished = 6,
     CoalescedApplied = 2,
     CollectionDeltaApplied = 3,
     AvailabilityChanged = 4,

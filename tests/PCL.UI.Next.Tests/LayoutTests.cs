@@ -172,6 +172,62 @@ internal static partial class Program
         AssertEqual(3, renderer.LastLayoutVisits);
     }
 
+    private static void SiblingRectsFollowSlotChanges()
+    {
+        // Reviewer regression: a clean sibling must re-arrange into its new slot even though it
+        // is not dirty — measure caching must never cache arrange results.
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        XsrUiEntityId alpha = tree.Create("alpha");
+        XsrUiEntityId beta = tree.Create("beta");
+        tree.SetComponent(alpha, new XsrUiElement { Width = 100, Height = 20 });
+        tree.SetComponent(beta, new XsrUiElement { Width = 100, Height = 20 });
+        tree.Attach(alpha, root);
+        tree.Attach(beta, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        XsrUiScene first = renderer.Render();
+        AssertEqual(new XsrUiRect(0, 0, 100, 20), first[1].Rect);
+        AssertEqual(new XsrUiRect(0, 20, 100, 20), first[2].Rect);
+
+        tree.SetComponent(alpha, new XsrUiElement { Width = 100, Height = 40 });
+        XsrUiScene second = renderer.Render();
+
+        AssertEqual(new XsrUiRect(0, 0, 100, 40), second[1].Rect);
+        AssertEqual(new XsrUiRect(0, 40, 100, 20), second[2].Rect);
+        AssertTrue(second.Version > first.Version);
+
+        // Only the changed chain re-measures: the clean sibling keeps its cached measurement.
+        AssertEqual(2, renderer.LastLayoutVisits);
+    }
+
+    private static void ShrinkKeepsSiblingsCorrectToo()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical) { Spacing = 5 });
+        XsrUiEntityId alpha = tree.Create("alpha");
+        XsrUiEntityId beta = tree.Create("beta");
+        tree.SetComponent(alpha, new XsrUiElement { Width = 100, Height = 40 });
+        tree.SetComponent(beta, new XsrUiElement { Width = 100, Height = 20 });
+        tree.Attach(alpha, root);
+        tree.Attach(beta, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        _ = renderer.Render();
+
+        tree.SetComponent(alpha, new XsrUiElement { Width = 100, Height = 10 });
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(new XsrUiRect(0, 0, 100, 10), scene[1].Rect);
+        AssertEqual(new XsrUiRect(0, 15, 100, 20), scene[2].Rect);
+    }
+
     private static void StateBoundTextRendersAppliedValue()
     {
         XsrUiTree tree = new();
@@ -183,7 +239,7 @@ internal static partial class Program
 
         XsrUiEntityId root = tree.Create("root");
         tree.SetComponent(root, new XsrUiText(string.Empty) { BoundState = label });
-        XsrUiRenderer renderer = new(tree, store);
+        XsrUiRenderer renderer = new(tree, store, stateBridge: bridge);
         renderer.SetRoot(root);
 
         _ = store.Publish(label, "hello");

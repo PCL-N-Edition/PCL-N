@@ -4,16 +4,78 @@ using PCL.Xsr.State;
 namespace PCL.UI.Next;
 
 /// <summary>
-/// Receives applied state changes from the XSR state store and marks the entities bound to the
-/// changed entry dirty. The bridge observes; it never mutates state back.
+/// Bridges applied state changes into renderer dirt across the thread boundary. State publishers
+/// run on arbitrary threads; the tree is render-thread owned. The bridge therefore only enqueues
+/// changed state IDs (coalescing duplicates) on the publisher thread; the render thread drains
+/// the queue at frame start, resolves every affected entry — including derived entries that
+/// transitively depend on a changed one — and marks the bound entities dirty.
 /// </summary>
-public sealed class XsrUiStateBridge(XsrUiTree tree) : IXsrStateObserver
+public sealed class XsrUiStateBridge : IXsrStateObserver
 {
+    private readonly XsrUiTree _tree;
+    private readonly object _gate = new();
+    private readonly HashSet<XsrStateId> _pending = [];
+
+    public XsrUiStateBridge(XsrUiTree tree)
+    {
+        _tree = tree ?? throw new ArgumentNullException(nameof(tree));
+    }
+
+    /// <summary>
+    /// Gets the number of state entries waiting to be drained. Thread-safe.
+    /// </summary>
+    public int PendingCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _pending.Count;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Observes one applied state change. Safe on any thread; never touches the tree.
+    /// </summary>
     public void OnChanged(XsrStateChange change)
     {
-        foreach (XsrUiEntityId entity in tree.StateDependents(change.Id))
+        if (!change.Id.IsAssigned)
         {
-            tree.MarkDirty(entity, XsrUiDirtyKinds.State);
+            return;
+        }
+
+        lock (_gate)
+        {
+            _pending.Add(change.Id);
+        }
+    }
+
+    /// <summary>
+    /// Drains the pending queue on the render thread and marks every bound entity dirty. Call
+    /// once per frame before rendering.
+    /// </summary>
+    public void DrainAndMark(XsrStateStore store)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        XsrStateId[] pending;
+        lock (_gate)
+        {
+            if (_pending.Count == 0)
+            {
+                return;
+            }
+
+            pending = [.. _pending];
+            _pending.Clear();
+        }
+
+        foreach (XsrStateId changed in pending)
+        {
+            foreach (XsrStateId affected in store.AffectedBy(changed))
+            {
+                _tree.MarkStateDirty(affected);
+            }
         }
     }
 }

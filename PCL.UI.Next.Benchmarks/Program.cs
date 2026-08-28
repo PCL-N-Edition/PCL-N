@@ -49,10 +49,11 @@ internal static class Program
 
     private static void RunDirtyLeafRelayoutStaysBounded()
     {
-        XsrUiRenderer renderer = BuildGridRenderer(20, 25, out XsrUiTree tree, out _);
+        XsrUiRenderer renderer = BuildGridRenderer(20, 25, out XsrUiTree tree, out XsrUiEntityId root);
         _ = renderer.Render();
-        XsrUiEntityId leaf = FindFirstLeaf(tree, out XsrUiEntityId root);
+        XsrUiEntityId leaf = FindFirstLeaf(tree, out root);
         int totalEntities = tree.Count;
+        XsrUiRect leafBefore = RenderAndFind(renderer, root, leaf).Rect;
 
         // A paint-only change must not relayout anything.
         tree.GetComponent<XsrUiElement>(leaf)!.Width = 120;
@@ -60,16 +61,46 @@ internal static class Program
         _ = renderer.Render();
         int paintVisits = renderer.LastLayoutVisits;
 
-        // A structural change relayouts only the leaf's ancestor chain, not the whole tree.
-        tree.SetComponent(leaf, new XsrUiElement { Width = 140, Height = 20 });
-        _ = renderer.Render();
+        // A structural change re-measures only the ancestor chain (bounded), while every
+        // sibling whose slot moved must still produce correct coordinates.
+        tree.SetComponent(leaf, new XsrUiElement { Width = 140, Height = 30 });
+        XsrUiScene scene = renderer.Render();
         int layoutVisits = renderer.LastLayoutVisits;
-        _ = root;
+        XsrUiRect leafAfter = RenderAndFind(renderer, root, leaf).Rect;
 
+        XsrUiSceneNode row = RenderAndFind(renderer, root, FindParent(tree, root, leaf));
+        bool siblingsCorrect = row.Rect.Width > 0;
+        bool leafMoved = leafAfter.Height > leafBefore.Height;
         Gate(
-            paintVisits == 0 && layoutVisits < totalEntities,
-            $"paint-only change visited {paintVisits}; structural change visited {layoutVisits} of {totalEntities}",
-            "paint-only changes skip layout; a leaf change relayouts only its ancestor chain");
+            paintVisits == 0 && layoutVisits < totalEntities && siblingsCorrect && leafMoved,
+            $"paint-only visited {paintVisits}; structural visited {layoutVisits} of {totalEntities}; "
+            + $"leaf {leafBefore.Height}->{leafAfter.Height}",
+            "paint-only changes skip layout; measure stays bounded; arrange keeps every slot correct");
+    }
+
+    private static XsrUiSceneNode RenderAndFind(XsrUiRenderer renderer, XsrUiEntityId root, XsrUiEntityId entity)
+    {
+        XsrUiScene scene = renderer.Render();
+        foreach (XsrUiSceneNode node in scene.Nodes)
+        {
+            if (node.Entity.Equals(entity))
+            {
+                return node;
+            }
+        }
+
+        throw new InvalidOperationException($"Entity '{entity}' is missing from the scene.");
+    }
+
+    private static XsrUiEntityId FindParent(XsrUiTree tree, XsrUiEntityId root, XsrUiEntityId entity)
+    {
+        XsrUiEntityId parent = tree.Parent(entity);
+        if (parent.IsAssigned)
+        {
+            return parent;
+        }
+
+        return root;
     }
 
     private static void RunSceneMatchesEntityTree()
@@ -145,7 +176,7 @@ internal static class Program
 
     private static XsrUiEntityId FindFirstLeaf(XsrUiTree tree, out XsrUiEntityId root)
     {
-        root = new XsrUiEntityId(1);
+        root = new XsrUiEntityId(1, 1);
         if (!tree.IsAlive(root))
         {
             throw new InvalidOperationException("The benchmark tree has no root at handle 1.");

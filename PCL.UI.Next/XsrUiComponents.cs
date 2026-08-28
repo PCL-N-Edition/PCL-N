@@ -112,15 +112,6 @@ public sealed class XsrUiCommandBinding(XsrSemanticId command)
 }
 
 /// <summary>
-/// Binds one entity to one state entry: when the entry changes, the entity is marked dirty and
-/// the next render pass reads the current value through the state source.
-/// </summary>
-public sealed class XsrUiStateBinding(XsrStateId state)
-{
-    public XsrStateId State { get; set; } = state;
-}
-
-/// <summary>
 /// Marks one entity as an input target: focusable for keyboard navigation, clickable for
 /// pointer activation. Hover, pressed, and focus flags are renderer-local ephemeral state.
 /// </summary>

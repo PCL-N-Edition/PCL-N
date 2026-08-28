@@ -90,18 +90,6 @@ internal abstract class XsrStateNode
         }
     }
 
-    /// <summary>
-    /// Reads the applied value boxed. Consumers that cannot know the value contract at compile
-    /// time (the renderer's state-bound text) use this; typed hot paths use typed reads.
-    /// </summary>
-    public object? ReadValue()
-    {
-        lock (Gate)
-        {
-            return CaptureValueLocked();
-        }
-    }
-
     public XsrStateSnapshotEntry Capture(XsrStateId id)
     {
         lock (Gate)
@@ -121,6 +109,15 @@ internal abstract class XsrStateNode
 }
 
 /// <summary>
+/// Dispatches non-generic applied reads on cells for consumers that cannot know the value
+/// contract at compile time.
+/// </summary>
+internal interface IXsrStateCellNode
+{
+    object? ReadApplied(XsrStateId id, long flushStamp, out XsrStateChange? flushed);
+}
+
+/// <summary>
 /// Dispatches typed reads on collections when only the item contract is known at the call site.
 /// </summary>
 internal interface IXsrStateCollectionNode
@@ -129,14 +126,17 @@ internal interface IXsrStateCollectionNode
 }
 
 /// <summary>
-/// Exposes declared dependencies so the store can flush deferred publications before watermarking.
+/// Exposes declared dependencies so the store can flush deferred publications before watermarking,
+/// plus a non-generic applied read for consumers that cannot know the value contract.
 /// </summary>
 internal interface IXsrStateDerivedNode
 {
     IReadOnlyList<XsrStateId> DependencyIds { get; }
+
+    object? ReadAppliedObject(XsrStateStore store, XsrStateId id, CancellationToken cancellationToken, out XsrStateChange? change);
 }
 
-internal sealed class XsrStateCellNode<TValue> : XsrStateNode
+internal sealed class XsrStateCellNode<TValue> : XsrStateNode, IXsrStateCellNode
 {
     private TValue? _value;
     private bool _hasValue;
@@ -216,6 +216,18 @@ internal sealed class XsrStateCellNode<TValue> : XsrStateNode
         lock (Gate)
         {
             flushed = FlushPendingLocked(id, changeStamp);
+        }
+    }
+
+    /// <summary>
+    /// Reads the applied value, flushing any deferred coalesced publication first.
+    /// </summary>
+    public object? ReadApplied(XsrStateId id, long flushStamp, out XsrStateChange? flushed)
+    {
+        lock (Gate)
+        {
+            flushed = FlushPendingLocked(id, flushStamp);
+            return _hasValue ? _value : null;
         }
     }
 
@@ -357,6 +369,16 @@ internal sealed class XsrStateDerivedNode<TValue> : XsrStateNode, IXsrStateDeriv
     }
 
     public IReadOnlyList<XsrStateId> DependencyIds => _dependencies;
+
+    public object? ReadAppliedObject(
+        XsrStateStore store,
+        XsrStateId id,
+        CancellationToken cancellationToken,
+        out XsrStateChange? change)
+    {
+        XsrStateValue<TValue> value = Read(store, id, cancellationToken, out change);
+        return value.HasValue ? value.Value : null;
+    }
 
     public XsrStateValue<TValue> Read(
         XsrStateStore store,

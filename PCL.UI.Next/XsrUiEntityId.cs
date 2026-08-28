@@ -1,18 +1,19 @@
 namespace PCL.UI.Next;
 
 /// <summary>
-/// Identifies one UI entity inside its tree. Entity IDs are handles, not stable contracts: they
-/// are recycled when entities are destroyed and never cross the plugin compatibility boundary.
+/// Identifies one UI entity inside its tree. Handles are generational: the index is recycled on
+/// destroy while the generation advances, so a stale handle can never silently resolve to a
+/// different entity. Handles are renderer-local and never cross the plugin compatibility boundary.
 /// </summary>
-public readonly record struct XsrUiEntityId(int Value)
+public readonly record struct XsrUiEntityId(int Index, uint Generation)
 {
     /// <summary>
     /// Gets a value indicating whether this handle refers to a live entity.
     /// </summary>
-    public bool IsAssigned => Value > 0;
+    public bool IsAssigned => Index > 0 && Generation > 0;
 
     /// <inheritdoc />
-    public override string ToString() => IsAssigned ? $"entity:{Value}" : "entity:none";
+    public override string ToString() => IsAssigned ? $"entity:{Index}@{Generation}" : "entity:none";
 }
 
 /// <summary>

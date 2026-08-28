@@ -22,10 +22,16 @@ internal static partial class Program
         AssertEqual(1, tree.Count);
         AssertThrows<InvalidOperationException>(() => tree.Name(first));
 
+        // The index is recycled with an advanced generation: the stale handle stays dead and
+        // can never silently resolve to the new entity.
         XsrUiEntityId recycled = tree.Create("recycled");
-        AssertEqual(first, recycled);
+        AssertEqual(first.Index, recycled.Index);
+        AssertTrue(recycled.Generation > first.Generation);
+        AssertFalse(first.Equals(recycled));
+        AssertFalse(tree.IsAlive(first));
         AssertTrue(tree.IsAlive(recycled));
-        AssertEqual("recycled", tree.Name(first));
+        AssertEqual("recycled", tree.Name(recycled));
+        AssertThrows<InvalidOperationException>(() => tree.Name(first));
     }
 
     private static void AttachPreservesDeterministicChildOrder()
@@ -178,27 +184,40 @@ internal static partial class Program
     {
         XsrStateStoreBuilder states = new();
         states.Cell<int>("ui.progress".AsXsrId(), "Download");
-        XsrStateStore store = states.Build();
-        XsrStateId progress = store.Resolve("ui.progress".AsXsrId());
 
         XsrUiTree tree = new();
         XsrUiEntityId bound = tree.Create("bound");
         XsrUiEntityId unbound = tree.Create("unbound");
-        tree.SetComponent(bound, new XsrUiStateBinding(progress));
+        tree.SetComponent(bound, new XsrUiStateBinding(progress_placeholder()));
 
         XsrUiStateBridge bridge = new(tree);
-        store.Publish(progress, 42, default);
-        _ = store;
-        bridge.OnChanged(new XsrStateChange(
-            progress,
-            "ui.progress".AsXsrId(),
-            XsrStateKind.Cell,
-            1,
-            XsrStateAvailability.Available,
-            XsrStateChangeReason.ValuePublished));
+        XsrStateStore store = states.Build(bridge);
+        XsrStateId progress = store.Resolve("ui.progress".AsXsrId());
+        tree.SetComponent(bound, new XsrUiStateBinding(progress));
+        tree.ClearDirty(bound);
+        tree.ClearDirty(unbound);
+
+        // The bridge only enqueues on the publisher thread; the tree is untouched until the
+        // render thread drains.
+        store.Publish(progress, 42);
+        AssertEqual(1, bridge.PendingCount);
+        AssertEqual(XsrUiDirtyKinds.None, tree.DirtyKinds(bound));
+        bridge.DrainAndMark(store);
 
         AssertTrue(tree.DirtyKinds(bound).HasFlag(XsrUiDirtyKinds.State));
         AssertEqual(XsrUiDirtyKinds.None, tree.DirtyKinds(unbound));
+        AssertEqual(0, bridge.PendingCount);
+
+        // Duplicate notifications coalesce into one pending entry.
+        store.Publish(progress, 43);
+        store.Publish(progress, 44);
+        AssertEqual(1, bridge.PendingCount);
+    }
+
+    private static XsrStateId progress_placeholder()
+    {
+        // A binding needs a state ID before the store exists; it is replaced after the build.
+        return default;
     }
 
     private static void DestroyedEntitiesDropStateDependencies()
@@ -218,6 +237,33 @@ internal static partial class Program
 
         tree.Destroy(entity);
         AssertSequence([], tree.StateDependents(count).ToArray());
+    }
+
+    private static void EntitiesCarryMultipleStateBindings()
+    {
+        XsrStateStoreBuilder states = new();
+        states.Cell<string>("account.name".AsXsrId(), "Account");
+        states.Cell<bool>("account.valid".AsXsrId(), "Account");
+        XsrStateStore store = states.Build();
+        XsrStateId name = store.Resolve("account.name".AsXsrId());
+        XsrStateId valid = store.Resolve("account.valid".AsXsrId());
+
+        XsrUiTree tree = new();
+        XsrUiEntityId entity = tree.Create("row");
+        tree.SetComponent(entity, new XsrUiText(string.Empty) { BoundState = name });
+        tree.SetComponent(entity, new XsrUiStateBinding(valid, XsrUiStateProperty.Visibility));
+
+        // Text and visibility bindings coexist; neither replaces the other.
+        AssertSequence(new[] { entity }, tree.StateDependents(name).ToArray());
+        AssertSequence(new[] { entity }, tree.StateDependents(valid).ToArray());
+
+        tree.MarkStateDirty(valid);
+        AssertTrue(tree.DirtyKinds(entity).HasFlag(XsrUiDirtyKinds.State));
+
+        // Unbinding the text record keeps the visibility record.
+        tree.UnbindState(entity, new XsrUiStateDependency(name, XsrUiStateProperty.Text, XsrUiDirtyKinds.Paint));
+        AssertEqual([], tree.StateDependents(name).ToArray());
+        AssertSequence(new[] { entity }, tree.StateDependents(valid).ToArray());
     }
 
     private static void WalkVisitsDepthFirstInOrder()

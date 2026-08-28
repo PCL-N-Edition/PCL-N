@@ -1,25 +1,25 @@
 using PCL.Xsr;
-
-using System.Collections.ObjectModel;
+using PCL.Xsr.State;
 
 namespace PCL.UI.Next;
 
 /// <summary>
 /// One entity of the UI tree: identity, hierarchy, and an open component set. Trees are
 /// single-threaded (render-thread owned) and deterministic: children keep attach order and
-/// dirty enumeration runs in ascending entity-ID order.
+/// dirty enumeration runs in ascending entity-index order.
 /// </summary>
 public sealed class XsrUiTree
 {
-    private readonly Dictionary<int, XsrUiEntity> _entities = [];
-    private readonly Stack<int> _freeIds = [];
-    private readonly Dictionary<XsrStateId, List<int>> _stateDependencies = [];
-    private readonly Dictionary<int, XsrStateId> _entityStates = [];
-    private readonly SortedSet<int> _dirtyEntities = [];
-    private int _nextId = 1;
-
     private const XsrUiDirtyKinds LayoutRelevantKinds =
         XsrUiDirtyKinds.Structure | XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.State;
+
+    private readonly Dictionary<int, XsrUiEntity> _entities = [];
+    private readonly Dictionary<int, uint> _generations = [];
+    private readonly Stack<int> _freeIndexes = [];
+    private readonly Dictionary<XsrStateId, List<(int Entity, XsrUiStateDependency Dependency)>> _stateDependencies = [];
+    private readonly Dictionary<int, List<XsrUiStateDependency>> _entityDependencies = [];
+    private readonly SortedSet<int> _dirtyEntities = [];
+    private int _nextIndex = 1;
 
     /// <summary>
     /// Gets the number of live entities.
@@ -27,18 +27,28 @@ public sealed class XsrUiTree
     public int Count => _entities.Count;
 
     /// <summary>
-    /// Creates one entity. The new entity has no parent and no components.
+    /// Creates one entity. The new entity has no parent and no components. Recycled indexes get
+    /// a fresh generation, so stale handles stay dead.
     /// </summary>
     public XsrUiEntityId Create(string? name = null)
     {
-        int id = _freeIds.TryPop(out int reused) ? reused : _nextId++;
-        _entities[id] = new XsrUiEntity(name);
-        return new XsrUiEntityId(id);
+        if (_freeIndexes.TryPop(out int index))
+        {
+            _generations[index]++;
+        }
+        else
+        {
+            index = _nextIndex++;
+            _generations[index] = 1;
+        }
+
+        _entities[index] = new XsrUiEntity(name);
+        return new XsrUiEntityId(index, _generations[index]);
     }
 
     /// <summary>
     /// Destroys one entity and its whole subtree: components, state bindings, dirty records,
-    /// and hierarchy entries are released, and the identity is recycled.
+    /// and hierarchy entries are released; the index is recycled with an advanced generation.
     /// </summary>
     public void Destroy(XsrUiEntityId entity)
     {
@@ -46,12 +56,12 @@ public sealed class XsrUiTree
         if (destroyed.Parent.IsAssigned)
         {
             XsrUiEntity parent = Require(destroyed.Parent);
-            _ = parent.Children.Remove(entity.Value);
+            _ = parent.Children.Remove(entity.Index);
             MarkDirty(destroyed.Parent, XsrUiDirtyKinds.Structure);
         }
 
-        DestroyDescendants(entity.Value);
-        RemoveEntity(entity.Value, destroyed);
+        DestroyDescendants(entity.Index);
+        RemoveEntity(entity.Index, destroyed);
     }
 
     /// <summary>
@@ -85,7 +95,7 @@ public sealed class XsrUiTree
         }
 
         childEntity.Parent = parent;
-        parentEntity.Children.Add(child.Value);
+        parentEntity.Children.Add(child.Index);
         MarkDirty(parent, XsrUiDirtyKinds.Structure);
         MarkDirty(child, XsrUiDirtyKinds.Structure);
     }
@@ -102,7 +112,7 @@ public sealed class XsrUiTree
         }
 
         XsrUiEntity parent = Require(detached.Parent);
-        _ = parent.Children.Remove(entity.Value);
+        _ = parent.Children.Remove(entity.Index);
         XsrUiEntityId previousParent = detached.Parent;
         detached.Parent = default;
         MarkDirty(previousParent, XsrUiDirtyKinds.Structure);
@@ -120,15 +130,24 @@ public sealed class XsrUiTree
     public IReadOnlyList<XsrUiEntityId> Children(XsrUiEntityId entity)
     {
         XsrUiEntity value = Require(entity);
-        return new ReadOnlyCollection<XsrUiEntityId>(
-            [.. value.Children.Select(id => new XsrUiEntityId(id))]);
+        return [.. value.Children.Select(IndexToHandle)];
     }
 
     /// <summary>
-    /// Gets a value indicating whether the handle refers to a live entity.
+    /// Gets a value indicating whether the handle refers to a live entity. A stale handle —
+    /// same index as a recycled entity, older generation — is not alive.
     /// </summary>
     public bool IsAlive(XsrUiEntityId entity) =>
-        entity.IsAssigned && _entities.ContainsKey(entity.Value);
+        entity.IsAssigned
+        && _entities.ContainsKey(entity.Index)
+        && _generations.TryGetValue(entity.Index, out uint generation)
+        && generation == entity.Generation;
+
+    /// <summary>
+    /// Gets a value indicating whether an index currently hosts a live entity. Used for cache
+    /// maintenance by index-keyed renderer caches.
+    /// </summary>
+    public bool IsIndexAlive(int index) => _entities.ContainsKey(index);
 
     /// <summary>
     /// Gets the diagnostic name assigned at creation.
@@ -146,8 +165,8 @@ public sealed class XsrUiTree
     }
 
     /// <summary>
-    /// Sets or replaces one component; null removes it. Structure is marked dirty. A state
-    /// binding component automatically maintains the state dependency table.
+    /// Sets or replaces one component; null removes it. Structure is marked dirty. State-carrying
+    /// components maintain their binding records automatically, replacing their own previous record.
     /// </summary>
     public void SetComponent<T>(XsrUiEntityId entity, T? component)
         where T : class
@@ -158,32 +177,29 @@ public sealed class XsrUiTree
         {
             if (value.Components.Remove(typeof(T)))
             {
-                if (typeof(T) == typeof(XsrUiStateBinding) || typeof(T) == typeof(XsrUiText))
-                {
-                    UnbindState(entity);
-                }
-
+                UnbindComponent<T>(entity, value);
                 MarkDirty(entity, XsrUiDirtyKinds.Structure);
             }
 
             return;
         }
 
+        UnbindComponent<T>(entity, value);
         value.Components[typeof(T)] = component;
-        if (typeof(T) == typeof(XsrUiStateBinding))
+        if (component is XsrUiStateBinding binding)
         {
-            BindState(entity, ((XsrUiStateBinding)(object)component).State);
+            BindState(entity, binding.Dependency);
         }
-        else if (typeof(T) == typeof(XsrUiText))
+        else if (component is XsrUiText text)
         {
-            BindState(entity, ((XsrUiText)(object)component).BoundState);
+            BindState(entity, TextDependency(text.BoundState));
         }
 
         MarkDirty(entity, XsrUiDirtyKinds.Structure);
     }
 
     /// <summary>
-    /// Marks one entity dirty and bubbles the subtree flag to every ancestor.
+    /// Marks one entity dirty and bubbles the subtree flags to every ancestor.
     /// </summary>
     public void MarkDirty(XsrUiEntityId entity, XsrUiDirtyKinds kinds)
     {
@@ -197,7 +213,7 @@ public sealed class XsrUiTree
         value.SubtreeDirty = true;
         bool layoutRelevant = (kinds & LayoutRelevantKinds) != 0;
         value.SubtreeLayoutDirty |= layoutRelevant;
-        _dirtyEntities.Add(entity.Value);
+        _dirtyEntities.Add(entity.Index);
 
         // Bubble each subtree flag until it reaches an ancestor that already carries it, so
         // paint-only dirt never triggers ancestor relayouts.
@@ -230,8 +246,8 @@ public sealed class XsrUiTree
     {
         XsrUiEntity value = Require(entity);
         value.OwnDirty = XsrUiDirtyKinds.None;
-        _ = _dirtyEntities.Remove(entity.Value);
-        RecomputeSubtreeUpwards(entity.Value);
+        _ = _dirtyEntities.Remove(entity.Index);
+        RecomputeSubtreeUpwards(entity.Index);
     }
 
     /// <summary>
@@ -251,14 +267,14 @@ public sealed class XsrUiTree
     public XsrUiDirtyKinds DirtyKinds(XsrUiEntityId entity) => Require(entity).OwnDirty;
 
     /// <summary>
-    /// Enumerates dirty entities in ascending entity-ID order.
+    /// Enumerates dirty entities in ascending entity-index order.
     /// </summary>
     public IReadOnlyList<XsrUiEntityId> DirtyEntities()
     {
         List<XsrUiEntityId> entities = [];
-        foreach (int id in _dirtyEntities)
+        foreach (int index in _dirtyEntities)
         {
-            entities.Add(new XsrUiEntityId(id));
+            entities.Add(IndexToHandle(index));
         }
 
         return entities;
@@ -294,95 +310,176 @@ public sealed class XsrUiTree
     }
 
     /// <summary>
-    /// Binds one entity to one state entry. An entity carries at most one binding; binding a
-    /// different entry replaces the previous one.
+    /// Binds one entity to one state entry for one property slot. Entities carry as many
+    /// bindings as they need; duplicate records are ignored.
     /// </summary>
-    private void BindState(XsrUiEntityId entity, XsrStateId state)
+    public void BindState(XsrUiEntityId entity, XsrUiStateDependency dependency)
     {
-        if (_entityStates.TryGetValue(entity.Value, out XsrStateId existing))
+        if (!dependency.IsValid || !IsAlive(entity))
         {
-            if (existing.Equals(state))
-            {
-                return;
-            }
-
-            if (_stateDependencies.TryGetValue(existing, out List<int>? previous))
-            {
-                _ = previous.Remove(entity.Value);
-            }
-        }
-
-        if (!state.IsAssigned)
-        {
-            _ = _entityStates.Remove(entity.Value);
             return;
         }
 
-        if (!_stateDependencies.TryGetValue(state, out List<int>? dependents))
+        if (!_stateDependencies.TryGetValue(dependency.State, out List<(int Entity, XsrUiStateDependency Dependency)>? dependents))
         {
             dependents = [];
-            _stateDependencies[state] = dependents;
+            _stateDependencies[dependency.State] = dependents;
         }
 
-        if (!dependents.Contains(entity.Value))
+        if (!dependents.Contains((entity.Index, dependency)))
         {
-            dependents.Add(entity.Value);
+            dependents.Add((entity.Index, dependency));
         }
 
-        _entityStates[entity.Value] = state;
-    }
-
-    private void UnbindState(XsrUiEntityId entity)
-    {
-        if (!_entityStates.Remove(entity.Value, out XsrStateId state))
+        if (!_entityDependencies.TryGetValue(entity.Index, out List<XsrUiStateDependency>? own))
         {
-            return;
+            own = [];
+            _entityDependencies[entity.Index] = own;
         }
 
-        if (_stateDependencies.TryGetValue(state, out List<int>? dependents))
+        if (!own.Contains(dependency))
         {
-            _ = dependents.Remove(entity.Value);
+            own.Add(dependency);
         }
     }
 
     /// <summary>
-    /// Gets the entities bound to one state entry, in binding order.
+    /// Removes one exact binding record from an entity.
+    /// </summary>
+    public void UnbindState(XsrUiEntityId entity, XsrUiStateDependency dependency)
+    {
+        if (_entityDependencies.TryGetValue(entity.Index, out List<XsrUiStateDependency>? own)
+            && own.Remove(dependency)
+            && own.Count == 0)
+        {
+            _ = _entityDependencies.Remove(entity.Index);
+        }
+
+        if (_stateDependencies.TryGetValue(dependency.State, out List<(int Entity, XsrUiStateDependency Dependency)>? dependents)
+            && dependents.Remove((entity.Index, dependency))
+            && dependents.Count == 0)
+        {
+            _ = _stateDependencies.Remove(dependency.State);
+        }
+    }
+
+    /// <summary>
+    /// Removes every state binding of one entity.
+    /// </summary>
+    public void UnbindAllStates(XsrUiEntityId entity)
+    {
+        if (!_entityDependencies.Remove(entity.Index, out List<XsrUiStateDependency>? own))
+        {
+            return;
+        }
+
+        foreach (XsrUiStateDependency dependency in own)
+        {
+            if (_stateDependencies.TryGetValue(dependency.State, out List<(int Entity, XsrUiStateDependency Dependency)>? dependents))
+            {
+                _ = dependents.Remove((entity.Index, dependency));
+                if (dependents.Count == 0)
+                {
+                    _ = _stateDependencies.Remove(dependency.State);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Marks every entity bound to one state entry dirty, each with the dirty kinds its binding
+    /// declared.
+    /// </summary>
+    public void MarkStateDirty(XsrStateId state)
+    {
+        if (!_stateDependencies.TryGetValue(state, out List<(int Entity, XsrUiStateDependency Dependency)>? dependents))
+        {
+            return;
+        }
+
+        foreach ((int entity, XsrUiStateDependency dependency) in dependents)
+        {
+            MarkDirty(IndexToHandle(entity), dependency.DirtyKinds);
+        }
+    }
+
+    /// <summary>
+    /// Gets the distinct entities bound to one state entry.
     /// </summary>
     public IReadOnlyList<XsrUiEntityId> StateDependents(XsrStateId state)
     {
-        if (!_stateDependencies.TryGetValue(state, out List<int>? dependents))
+        if (!_stateDependencies.TryGetValue(state, out List<(int Entity, XsrUiStateDependency Dependency)>? dependents))
         {
             return [];
         }
 
-        return [.. dependents.Select(id => new XsrUiEntityId(id))];
+        return [.. dependents
+            .Select(dependent => IndexToHandle(dependent.Entity))
+            .Distinct()];
     }
 
-    private void DestroyDescendants(int id)
+    /// <summary>
+    /// Gets the full binding records of one state entry.
+    /// </summary>
+    public IReadOnlyList<(XsrUiEntityId Entity, XsrUiStateDependency Dependency)> StateDependencyRecords(
+        XsrStateId state)
     {
-        XsrUiEntity entity = _entities[id];
-        while (entity.Children.Count > 0)
+        if (!_stateDependencies.TryGetValue(state, out List<(int Entity, XsrUiStateDependency Dependency)>? dependents))
         {
-            int childId = entity.Children[0];
-            XsrUiEntity child = _entities[childId];
-            child.Parent = default;
-            entity.Children.RemoveAt(0);
-            DestroyDescendants(childId);
-            RemoveEntity(childId, child);
+            return [];
+        }
+
+        return [.. dependents.Select(dependent => (IndexToHandle(dependent.Entity), dependent.Dependency))];
+    }
+
+    private void UnbindComponent<T>(XsrUiEntityId entity, XsrUiEntity value)
+        where T : class
+    {
+        if (typeof(T) == typeof(XsrUiStateBinding)
+            && value.Components.TryGetValue(typeof(T), out object? previousBinding))
+        {
+            UnbindState(entity, ((XsrUiStateBinding)previousBinding).Dependency);
+        }
+        else if (typeof(T) == typeof(XsrUiText)
+            && value.Components.TryGetValue(typeof(T), out object? previousText)
+            && previousText is XsrUiText text)
+        {
+            UnbindState(entity, TextDependency(text.BoundState));
         }
     }
 
-    private void RemoveEntity(int id, XsrUiEntity entity)
+    private static XsrUiStateDependency TextDependency(XsrStateId state) =>
+        new(state, XsrUiStateProperty.Text, XsrUiDirtyKinds.Paint);
+
+    private XsrUiEntityId IndexToHandle(int index) =>
+        new(index, _generations.TryGetValue(index, out uint generation) ? generation : 0);
+
+    private void DestroyDescendants(int index)
     {
-        UnbindState(new XsrUiEntityId(id));
-        _ = _entities.Remove(id);
-        _ = _dirtyEntities.Remove(id);
-        _freeIds.Push(id);
+        XsrUiEntity entity = _entities[index];
+        while (entity.Children.Count > 0)
+        {
+            int childIndex = entity.Children[0];
+            XsrUiEntity child = _entities[childIndex];
+            child.Parent = default;
+            entity.Children.RemoveAt(0);
+            DestroyDescendants(childIndex);
+            RemoveEntity(childIndex, child);
+        }
     }
 
-    private void RecomputeSubtreeUpwards(int id)
+    private void RemoveEntity(int index, XsrUiEntity entity)
     {
-        XsrUiEntity current = _entities[id];
+        UnbindAllStates(IndexToHandle(index));
+        _ = _entities.Remove(index);
+        _generations[index]++;
+        _ = _dirtyEntities.Remove(index);
+        _freeIndexes.Push(index);
+    }
+
+    private void RecomputeSubtreeUpwards(int index)
+    {
+        XsrUiEntity current = _entities[index];
         RecomputeFlags(current);
 
         XsrUiEntityId ancestor = current.Parent;
@@ -411,12 +508,12 @@ public sealed class XsrUiTree
 
     private XsrUiEntity Require(XsrUiEntityId entity)
     {
-        if (!entity.IsAssigned || !_entities.TryGetValue(entity.Value, out XsrUiEntity? value))
+        if (!IsAlive(entity))
         {
             throw new InvalidOperationException($"The UI entity '{entity}' is not alive.");
         }
 
-        return value;
+        return _entities[entity.Index];
     }
 
     private sealed class XsrUiEntity(string? name)

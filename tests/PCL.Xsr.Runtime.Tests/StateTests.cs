@@ -367,13 +367,17 @@ internal static partial class Program
         _ = store.Read<int>(cell);
         _ = store.MarkAvailability(cell, XsrStateAvailability.Stale);
 
-        AssertEqual(3, observer.Changes.Length);
+        // Coalesced publications notify with a pending hint (no revision yet), then the applied
+        // flush delivers the real revision.
+        AssertEqual(5, observer.Changes.Length);
         AssertEqual(XsrStateChangeReason.ValuePublished, observer.Changes[0].Reason);
-        AssertEqual(XsrStateChangeReason.CoalescedApplied, observer.Changes[1].Reason);
-        AssertEqual(XsrStateChangeReason.AvailabilityChanged, observer.Changes[2].Reason);
+        AssertEqual(XsrStateChangeReason.CoalescedPublished, observer.Changes[1].Reason);
+        AssertEqual(XsrStateChangeReason.CoalescedPublished, observer.Changes[2].Reason);
+        AssertEqual(XsrStateChangeReason.CoalescedApplied, observer.Changes[3].Reason);
+        AssertEqual(XsrStateChangeReason.AvailabilityChanged, observer.Changes[4].Reason);
         AssertEqual(1L, observer.Changes[0].Revision);
-        AssertEqual(2L, observer.Changes[1].Revision);
-        AssertEqual(3L, observer.Changes[2].Revision);
+        AssertEqual(2L, observer.Changes[3].Revision);
+        AssertEqual(3L, observer.Changes[4].Revision);
         AssertTrue(observer.Changes[0].Id.Equals(cell));
 
         // A throwing observer never blocks publication.

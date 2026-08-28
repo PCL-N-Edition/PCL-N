@@ -17,6 +17,7 @@ internal static partial class Program
         ("dirty enumeration is ascending and deterministic", Sync(DirtyEnumerationIsDeterministic)),
         ("state bridge marks only bound entities dirty", Sync(StateBridgeMarksOnlyBoundEntities)),
         ("destroyed entities drop state dependencies", Sync(DestroyedEntitiesDropStateDependencies)),
+        ("entities carry multiple state bindings", Sync(EntitiesCarryMultipleStateBindings)),
         ("walk visits depth first in order", Sync(WalkVisitsDepthFirstInOrder)),
         // XSR-202: layout and scene production.
         ("fixed leaf produces exact rect", Sync(FixedLeafProducesExactRect)),
@@ -27,6 +28,8 @@ internal static partial class Program
         ("invisible entities leave scene and layout", Sync(InvisibleEntitiesLeaveSceneAndLayout)),
         ("clean tree returns same scene", Sync(CleanTreeReturnsSameScene)),
         ("dirty leaf relayouts only its subtree", Sync(DirtyLeafRelayoutsOnlyItsSubtree)),
+        ("sibling rects follow slot changes", Sync(SiblingRectsFollowSlotChanges)),
+        ("shrink keeps siblings correct too", Sync(ShrinkKeepsSiblingsCorrectToo)),
         ("state bound text renders applied value", Sync(StateBoundTextRendersAppliedValue)),
         ("scene order is depth first pre order", Sync(SceneOrderIsDepthFirstPreOrder)),
         ("render without root throws", Sync(RenderWithoutRootThrows)),
@@ -46,6 +49,10 @@ internal static partial class Program
         ("stage dismiss removes top overlay", Sync(StageDismissRemovesTopOverlay)),
         ("stage navigation swaps page content", Sync(StageNavigationSwapsPageContent)),
         ("reduced motion is a presentation contract flag", Sync(ReducedMotionIsAPresentationContractFlag)),
+        ("derived state drives bound text", Sync(DerivedStateDrivesBoundText)),
+        ("coalesced state becomes visible without manual flush", Sync(CoalescedStateBecomesVisibleWithoutManualFlush)),
+        ("animator advances and completes", Sync(AnimatorAdvancesAndCompletes)),
+        ("reduced motion completes animations immediately", Sync(ReducedMotionCompletesAnimationsImmediately)),
     ];
 
     private static async Task<int> Main()

@@ -39,6 +39,8 @@ The X kernel proved the contract in Wave 1, so the renderer consumes `XsrStateSt
 
 UI.Next owns semantic entities, layout, animation, input routing, navigation, overlay, accessibility semantics, text/media abstractions, dirty tracking, and render-scene production.
 
+The state boundary is thread-safe by construction: state publishers run on arbitrary threads and only enqueue changed state IDs into the UI state bridge; the render thread drains the queue at frame start, resolves derived entries through the store's dependency index, and marks bound entities dirty. Entity handles are generational, so destroyed entities cannot be impersonated by recycled indexes.
+
 Backends own native windows and surfaces, final drawing submission, device resources, native input/IME bridges, clipboard integration, and platform accessibility bridges. Backend types do not appear in UI.Next public contracts.
 
 Services own business facts and effects. Renderer-local state is limited to ephemeral presentation mechanics such as hover, focus, an in-progress gesture, or animation progress. It cannot become a duplicate account, download, launch, or selection model.
