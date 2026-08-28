@@ -56,6 +56,17 @@ find "$app/Contents/MacOS" -type f \( -name 'PCL-N-*' -o -name 'pcln-*' \) -exec
 test -x "$binary"
 test -x "$layout_marker"
 file "$layout_marker" | grep -q 'Mach-O'
+
+# actions/upload-artifact reconstructs the application tree and does not
+# preserve all bundle signing metadata or executable modes. Re-seal the
+# extracted app on the runner's normal APFS workspace after restoring modes,
+# before either the updater archive or the DMG captures it. All nested marker
+# and launcher binaries are Mach-O, so their signatures are embedded and
+# survive the subsequent tar/ditto copies.
+xattr -cr "$app"
+codesign --force --deep --sign - "$app"
+codesign --verify --deep --strict "$app"
+
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
 
