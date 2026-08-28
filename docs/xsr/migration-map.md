@@ -70,7 +70,7 @@ The first Wave 1 implementation unit must complete XSR-002. XSR-003 may grow inc
 | XSR-104 | ordered events, scopes, and bounded delivery | complete |
 | XSR-105 | scheduling, lifecycle, and end-to-end diagnostics | complete |
 
-Wave 1 is in progress. Completing XSR-101 establishes registration identity only; it does not satisfy the full X-kernel exit gate.
+Wave 1 is complete. The X kernel provides the sealed registry, command/query routers, revisioned state with a derived dependency graph, ordered event scopes with bounded delivery, scheduling, lifecycle, and session diagnostics. Exit evidence: every kernel project is AOT-compatible, the NativeAOT runtime-test publish and trimmed Desktop publish pass, and the architecture gate enforces that no kernel project references Avalonia, Minecraft, plugin, or renderer code.
 
 ## Cutover gate
 
