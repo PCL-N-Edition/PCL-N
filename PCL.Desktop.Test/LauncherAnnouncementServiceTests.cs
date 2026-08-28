@@ -3,6 +3,8 @@
 // Licensed under the Apache License, Version 2.0.
 
 using PCL.Desktop.Hosting;
+using System.Net;
+using System.Text;
 
 namespace PCL.Desktop.Test;
 
@@ -50,6 +52,48 @@ public sealed class LauncherAnnouncementServiceTests
         Assert.AreEqual(0, seen.Count);
     }
 
+    [TestMethod]
+    public async Task FetchEligibleAsync_AcceptsCloudflareItemsEnvelope()
+    {
+        using HttpClient client = new(new StubHttpMessageHandler(static _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """
+                {
+                  "items": [
+                    {
+                      "id": "cloudflare-notice",
+                      "title": "Service notice",
+                      "body": "**Cloudflare announcement body.**",
+                      "publishedAt": "2026-08-28T06:00:00Z",
+                      "updatedAt": "2026-08-28T07:00:00Z"
+                    }
+                  ],
+                  "backend": "cloudflare"
+                }
+                """,
+                Encoding.UTF8,
+                "application/json")
+        }));
+        using LauncherAnnouncementService service = new(
+            client,
+            new Uri("https://api.example.test/v1/announcements"));
+
+        IReadOnlyList<LauncherAnnouncement> result = await service.FetchEligibleAsync(
+            "1.4.11-beta",
+            "beta",
+            "windows",
+            "en-US",
+            activityMode: 0,
+            seen: new HashSet<string>());
+
+        Assert.AreEqual(1, result.Count);
+        Assert.AreEqual("cloudflare-notice", result[0].Id);
+        Assert.AreEqual("Service notice", result[0].Title);
+        Assert.AreEqual("Got it", result[0].PrimaryLabel);
+        Assert.AreEqual("cloudflare-notice@2026-08-28T07:00:00.0000000+00:00", result[0].SeenKey);
+    }
+
     private static LauncherAnnouncementService.LauncherAnnouncementDto Create(
         string id,
         string severity,
@@ -72,4 +116,12 @@ public sealed class LauncherAnnouncementServiceTests
         },
         Dismissible: true,
         UpdatedAt: updatedAt);
+
+    private sealed class StubHttpMessageHandler(
+        Func<HttpRequestMessage, HttpResponseMessage> handler) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) => Task.FromResult(handler(request));
+    }
 }

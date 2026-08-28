@@ -3,6 +3,7 @@
 
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using PCL.Application.Online;
 
 namespace PCL.Desktop.Hosting;
 
@@ -33,7 +34,9 @@ internal sealed partial class LauncherSponsorService : IDisposable
 
     public LauncherSponsorService(HttpClient? httpClient = null, Uri? endpoint = null)
     {
-        _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
+        _httpClient = httpClient ?? PclnApiHttpClientFactory.Create(
+            allowAutoRedirect: false,
+            timeout: TimeSpan.FromSeconds(12));
         _ownsClient = httpClient is null;
         _endpoint = endpoint ?? ResolveEndpoint();
     }

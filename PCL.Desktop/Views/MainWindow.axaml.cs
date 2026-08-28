@@ -1921,8 +1921,8 @@ public partial class MainWindow : Window, IDisposable
             };
             string platform = OperatingSystem.IsWindows() ? "windows" :
                 OperatingSystem.IsMacOS() ? "macos" : "linux";
-            IReadOnlyList<LauncherAnnouncement> announcements = await new LauncherAnnouncementService()
-                .FetchEligibleAsync(
+            using LauncherAnnouncementService announcementService = new();
+            IReadOnlyList<LauncherAnnouncement> announcements = await announcementService.FetchEligibleAsync(
                     PclBuildInfo.DisplayVersion,
                     channel,
                     platform,

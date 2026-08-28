@@ -4,6 +4,7 @@
 
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using PCL.Application.Online;
 using PCL.Core.Utils;
 
 namespace PCL.Desktop.Hosting;
@@ -19,14 +20,18 @@ internal sealed record LauncherAnnouncement(
     Uri? ActionUri,
     bool Dismissible);
 
-internal sealed partial class LauncherAnnouncementService
+internal sealed partial class LauncherAnnouncementService : IDisposable
 {
     private readonly HttpClient _httpClient;
+    private readonly bool _ownsClient;
     private readonly Uri _endpoint;
 
     public LauncherAnnouncementService(HttpClient? httpClient = null, Uri? endpoint = null)
     {
-        _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        _httpClient = httpClient ?? PclnApiHttpClientFactory.Create(
+            allowAutoRedirect: false,
+            timeout: TimeSpan.FromSeconds(15));
+        _ownsClient = httpClient is null;
         _endpoint = endpoint ?? ResolveEndpoint();
     }
 
@@ -48,14 +53,46 @@ internal sealed partial class LauncherAnnouncementService
         LauncherAnnouncementResponse? payload = await response.Content.ReadFromJsonAsync(
             AnnouncementJsonContext.Default.LauncherAnnouncementResponse,
             cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<LauncherAnnouncementDto> source = ResolvePayload(payload, culture);
         return SelectEligible(
-            payload?.Announcements ?? [],
+            source,
             launcherVersion,
             channel,
             platform,
             culture,
             activityMode,
             seen);
+    }
+
+    internal static IReadOnlyList<LauncherAnnouncementDto> ResolvePayload(
+        LauncherAnnouncementResponse? payload,
+        string culture)
+    {
+        if (payload?.Announcements is { Count: > 0 } announcements)
+            return announcements;
+        if (payload?.Items is not { Count: > 0 } items)
+            return payload?.Announcements ?? [];
+
+        string locale = string.IsNullOrWhiteSpace(culture) ? "zh-CN" : culture;
+        return items
+            .Where(static item => !string.IsNullOrWhiteSpace(item.Id) &&
+                                  !string.IsNullOrWhiteSpace(item.Title) &&
+                                  !string.IsNullOrWhiteSpace(item.Body))
+            .Select(item => new LauncherAnnouncementDto(
+                item.Id,
+                "info",
+                0,
+                null,
+                null,
+                [],
+                [],
+                new Dictionary<string, LauncherAnnouncementContent>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [locale] = new(item.Title, item.Body)
+                },
+                Dismissible: true,
+                UpdatedAt: item.UpdatedAt ?? item.PublishedAt ?? DateTimeOffset.UnixEpoch))
+            .ToArray();
     }
 
     internal static IReadOnlyList<LauncherAnnouncement> SelectEligible(
@@ -96,12 +133,20 @@ internal sealed partial class LauncherAnnouncementService
                 item.Severity,
                 content.Title.Trim(),
                 content.Body,
-                string.IsNullOrWhiteSpace(content.PrimaryLabel) ? "知道了" : content.PrimaryLabel.Trim(),
+                string.IsNullOrWhiteSpace(content.PrimaryLabel)
+                    ? culture.StartsWith("zh", StringComparison.OrdinalIgnoreCase) ? "知道了" : "Got it"
+                    : content.PrimaryLabel.Trim(),
                 actionUri is null || string.IsNullOrWhiteSpace(content.ActionLabel) ? null : content.ActionLabel.Trim(),
                 actionUri,
                 item.Dismissible));
         }
         return results;
+    }
+
+    public void Dispose()
+    {
+        if (_ownsClient)
+            _httpClient.Dispose();
     }
 
     private static LauncherAnnouncementContent? SelectContent(
@@ -154,7 +199,15 @@ internal sealed partial class LauncherAnnouncementService
     }
 
     internal sealed record LauncherAnnouncementResponse(
-        [property: JsonPropertyName("announcements")] IReadOnlyList<LauncherAnnouncementDto> Announcements);
+        [property: JsonPropertyName("announcements")] IReadOnlyList<LauncherAnnouncementDto>? Announcements,
+        [property: JsonPropertyName("items")] IReadOnlyList<CloudflareAnnouncementDto>? Items);
+
+    internal sealed record CloudflareAnnouncementDto(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("title")] string Title,
+        [property: JsonPropertyName("body")] string Body,
+        [property: JsonPropertyName("publishedAt")] DateTimeOffset? PublishedAt,
+        [property: JsonPropertyName("updatedAt")] DateTimeOffset? UpdatedAt);
 
     internal sealed record LauncherAnnouncementDto(
         [property: JsonPropertyName("id")] string Id,
