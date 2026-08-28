@@ -89,4 +89,4 @@ The sealed registry is part of the XSR abstractions kernel: routing, state, even
 
 ## Operability
 
-The runtime must make `SessionId`, plugin identity, correlation ID, command/query ID, duration, queue depth, state coalescing, restarts, and activation time observable. Cancellation, backpressure, shutdown, crash recovery, and reconnect are correctness requirements, not later performance work.
+The runtime must make `SessionId`, plugin identity, correlation ID, command/query ID, duration, queue depth, state coalescing, restarts, and activation time observable. Cancellation, backpressure, shutdown, crash recovery, and reconnect are correctness requirements, not later performance work. Wave 1 exposes these through bounded `XsrSessionTrace` diagnostics: every subsystem observation lands in one trace per session, correlation IDs are preserved wherever the subsystem contract carries them, and the trace observes behavior without changing it.

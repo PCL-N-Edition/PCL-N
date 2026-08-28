@@ -59,6 +59,7 @@ public static class XsrRuntimeErrors
     public static readonly XsrSemanticId HandlerFaultedCode = XsrSemanticId.Parse("xsr.handler_faulted");
     public static readonly XsrSemanticId BackpressureCode = XsrSemanticId.Parse("xsr.backpressure");
     public static readonly XsrSemanticId NotRetainedCode = XsrSemanticId.Parse("xsr.event_not_retained");
+    public static readonly XsrSemanticId LifecycleCode = XsrSemanticId.Parse("xsr.lifecycle");
 
     public static XsrError RouteNotFound() =>
         new(XsrErrorKind.NotFound, RouteNotFoundCode, "The requested XSR route is not registered.");
@@ -80,4 +81,7 @@ public static class XsrRuntimeErrors
 
     public static XsrError NotRetained() =>
         new(XsrErrorKind.NotFound, NotRetainedCode, "The requested XSR event sequence is no longer retained; request a fresh snapshot from state.");
+
+    public static XsrError Lifecycle() =>
+        new(XsrErrorKind.Lifecycle, LifecycleCode, "The XSR component is not in a lifecycle phase that accepts this operation.");
 }

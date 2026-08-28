@@ -9,5 +9,6 @@
     <ProjectReference Include="../../PCL.Xsr.Abstractions/PCL.Xsr.Abstractions.csproj" />
     <ProjectReference Include="../../PCL.Xsr.Runtime/PCL.Xsr.Runtime.csproj" />
     <ProjectReference Include="../../PCL.Xsr.State/PCL.Xsr.State.csproj" />
+    <ProjectReference Include="../../PCL.Xsr.Diagnostics/PCL.Xsr.Diagnostics.csproj" />
   </ItemGroup>
 </Project>

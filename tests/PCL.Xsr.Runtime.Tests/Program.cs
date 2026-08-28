@@ -47,6 +47,17 @@ internal static partial class Program
         ("events observe every publication without blocking it", Sync(EventsObserveEveryPublicationWithoutBlockingIt)),
         ("events preserve scope order under concurrent publishers", EventsPreserveScopeOrderUnderConcurrentPublishers),
         ("events reject undeclared scope and duplicate scope", Sync(EventsRejectUndeclaredScopeAndDuplicateScope)),
+        ("scheduler runs work and observes completion", SchedulerRunsWorkAndObservesCompletion),
+        ("scheduler cancellation is observed without running work", SchedulerCancellationIsObservedWithoutRunningWork),
+        ("scheduler faults are classified and isolated", SchedulerFaultsAreClassifiedAndIsolated),
+        ("scheduler dispose cancels pending work", Sync(SchedulerDisposeCancelsPendingWork)),
+        ("lifecycle accepts only forward transitions", Sync(LifecycleAcceptsOnlyForwardTransitions)),
+        ("lifecycle rejects illegal transitions", Sync(LifecycleRejectsIllegalTransitions)),
+        ("lifecycle failure is terminal and observable", Sync(LifecycleFailureIsTerminalAndObservable)),
+        ("lifecycle transitions are serialized under concurrency", Sync(LifecycleTransitionsAreSerializedUnderConcurrency)),
+        ("lifecycle errors carry stable codes", Sync(LifecycleErrorsCarryStableCodes)),
+        ("session trace is bounded and correlation addressable", Sync(SessionTraceIsBoundedAndCorrelationAddressable)),
+        ("session trace correlates end to end across subsystems", SessionTraceCorrelatesEndToEndAcrossSubsystems),
     ];
 
     private static async Task<int> Main()

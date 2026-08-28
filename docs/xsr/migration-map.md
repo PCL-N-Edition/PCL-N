@@ -68,7 +68,7 @@ The first Wave 1 implementation unit must complete XSR-002. XSR-003 may grow inc
 | XSR-102 | asynchronous command and query routing with cancellation and stable errors | complete |
 | XSR-103 | revisioned state store, snapshots, deltas, and derived dependency graph | complete |
 | XSR-104 | ordered events, scopes, and bounded delivery | complete |
-| XSR-105 | scheduling, lifecycle, and end-to-end diagnostics | pending |
+| XSR-105 | scheduling, lifecycle, and end-to-end diagnostics | complete |
 
 Wave 1 is in progress. Completing XSR-101 establishes registration identity only; it does not satisfy the full X-kernel exit gate.
 

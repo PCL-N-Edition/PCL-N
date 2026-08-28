@@ -25,6 +25,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-102-command-query-routing.md](migrations/XSR-102-command-query-routing.md) — asynchronous command/query routing and stable errors
 - [migrations/XSR-103-revisioned-state.md](migrations/XSR-103-revisioned-state.md) — revisioned cells, collections, snapshots, deltas, and derived state
 - [migrations/XSR-104-ordered-events.md](migrations/XSR-104-ordered-events.md) — ordered event scopes and bounded delivery with backpressure
+- [migrations/XSR-105-scheduling-lifecycle-diagnostics.md](migrations/XSR-105-scheduling-lifecycle-diagnostics.md) — scheduling, lifecycle state machines, and session traces
 
 ## Decision process
 
