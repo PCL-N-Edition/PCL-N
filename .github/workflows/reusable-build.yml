@@ -615,7 +615,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app="$PUBLISH_DIR/PCL N.app"
+          publish_dir="$(cd "$PUBLISH_DIR" && pwd -P)"
+          app="$publish_dir/PCL N.app"
           contents="$app/Contents"
           executable="$contents/MacOS/${{ inputs.binary_name }}"
           resources="$contents/Resources"
@@ -625,7 +626,7 @@ jobs:
 
           mkdir -p "$contents/MacOS" "$resources" "$iconset"
           shopt -s dotglob nullglob
-          for item in "$PUBLISH_DIR"/*; do
+          for item in "$publish_dir"/*; do
             [[ "$item" == "$app" ]] && continue
             mv "$item" "$contents/MacOS/"
           done
