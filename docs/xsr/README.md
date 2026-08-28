@@ -24,6 +24,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-101-identifiers-and-registry.md](migrations/XSR-101-identifiers-and-registry.md) — Wave 1 identity and sealed registry contract
 - [migrations/XSR-102-command-query-routing.md](migrations/XSR-102-command-query-routing.md) — asynchronous command/query routing and stable errors
 - [migrations/XSR-103-revisioned-state.md](migrations/XSR-103-revisioned-state.md) — revisioned cells, collections, snapshots, deltas, and derived state
+- [migrations/XSR-104-ordered-events.md](migrations/XSR-104-ordered-events.md) — ordered event scopes and bounded delivery with backpressure
 
 ## Decision process
 

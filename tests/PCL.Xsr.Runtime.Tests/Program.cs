@@ -36,6 +36,17 @@ internal static partial class Program
         ("state contract mismatches are rejected", Sync(StateContractMismatchesAreRejected)),
         ("state builder rejects reuse and duplicates", Sync(StateBuilderRejectsReuseAndDuplicates)),
         ("state supports concurrent readers and publishers", Sync(StateSupportsConcurrentReadersAndPublishers)),
+        ("events assign deterministic typed identifiers", Sync(EventsAssignDeterministicTypedIdentifiers)),
+        ("events share sequence space inside declared scope", Sync(EventsShareSequenceSpaceInsideDeclaredScope)),
+        ("events order per scope key independently", Sync(EventsOrderPerScopeKeyIndependently)),
+        ("events reject with backpressure instead of dropping", Sync(EventsRejectWithBackpressureInsteadOfDropping)),
+        ("events evict freely without subscribers", Sync(EventsEvictFreelyWithoutSubscribers)),
+        ("events replay retained records then continue live", Sync(EventsReplayRetainedRecordsThenContinueLive)),
+        ("events cancellation returns stable error", EventsCancellationReturnsStableError),
+        ("events reject contract mismatches and unknown routes", Sync(EventsRejectContractMismatchesAndUnknownRoutes)),
+        ("events observe every publication without blocking it", Sync(EventsObserveEveryPublicationWithoutBlockingIt)),
+        ("events preserve scope order under concurrent publishers", EventsPreserveScopeOrderUnderConcurrentPublishers),
+        ("events reject undeclared scope and duplicate scope", Sync(EventsRejectUndeclaredScopeAndDuplicateScope)),
     ];
 
     private static async Task<int> Main()

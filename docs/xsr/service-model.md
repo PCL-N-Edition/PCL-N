@@ -46,6 +46,8 @@ The query router applies cancellation and any configured timeout at the route bo
 
 Events describe facts that already occurred. They are ordered within their documented scope and cannot maintain progress, selection, account, or other current state. Consumers must tolerate replay or duplication when the transport contract allows it.
 
+The XSR event router declares an ordering scope per event and seals it before use. One scope instance is one bounded ring with one contiguous sequence shared by every event inside it; delivery is a pull-based cursor that never blocks publication. When the ring is full and a live subscriber still needs the oldest record, publication is rejected with the stable backpressure error instead of dropping events, and replay from the retained window lets consumers catch up or deliberately redeliver.
+
 ## Migration unit
 
 Each migrated capability is a vertical slice containing its service behavior, contracts, commands/queries, state/events, composition, and parity tests. The old implementation remains unchanged until the slice passes behavior, data, architecture, AOT/trim, and integration gates.

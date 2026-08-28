@@ -57,6 +57,8 @@ public static class XsrRuntimeErrors
     public static readonly XsrSemanticId CancelledCode = XsrSemanticId.Parse("xsr.cancelled");
     public static readonly XsrSemanticId TimedOutCode = XsrSemanticId.Parse("xsr.timed_out");
     public static readonly XsrSemanticId HandlerFaultedCode = XsrSemanticId.Parse("xsr.handler_faulted");
+    public static readonly XsrSemanticId BackpressureCode = XsrSemanticId.Parse("xsr.backpressure");
+    public static readonly XsrSemanticId NotRetainedCode = XsrSemanticId.Parse("xsr.event_not_retained");
 
     public static XsrError RouteNotFound() =>
         new(XsrErrorKind.NotFound, RouteNotFoundCode, "The requested XSR route is not registered.");
@@ -72,4 +74,10 @@ public static class XsrRuntimeErrors
 
     public static XsrError HandlerFaulted() =>
         new(XsrErrorKind.Faulted, HandlerFaultedCode, "The XSR handler failed unexpectedly.");
+
+    public static XsrError Backpressure() =>
+        new(XsrErrorKind.Backpressure, BackpressureCode, "The XSR event scope buffer is full; publication was rejected without dropping events.");
+
+    public static XsrError NotRetained() =>
+        new(XsrErrorKind.NotFound, NotRetainedCode, "The requested XSR event sequence is no longer retained; request a fresh snapshot from state.");
 }
