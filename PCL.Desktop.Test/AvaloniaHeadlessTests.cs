@@ -1144,6 +1144,54 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void PageLaunchHomeExperimental_UsesThemeAwareTranslucentCardSurfaces()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+
+        session.Dispatch(() =>
+        {
+            AvaloniaThemeManager.Apply(new LauncherSettings
+            {
+                ColorMode = ColorMode.Light,
+                LightColor = ColorTheme.CatBlue
+            });
+            PageLaunchHomeExperimental page = new();
+            Window window = new()
+            {
+                Width = 900,
+                Height = 600,
+                Content = page
+            };
+
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Color expected = ThemeColorPalette.Create(isDarkMode: false, ColorTheme.CatBlue)
+                    ["ColorBrushTransparentBackground"];
+                Border[] cards =
+                [
+                    page.FindControl<Border>("CardAccount")!,
+                    page.FindControl<Border>("CardVersion")!,
+                    page.FindControl<Border>("PanHint")!,
+                    page.FindControl<Border>("PanHintExtra")!,
+                    page.FindControl<Border>("PanShortcuts")!
+                ];
+
+                foreach (Border card in cards)
+                {
+                    Assert.AreEqual(expected, ((SolidColorBrush)card.Background!).Color);
+                    Assert.IsTrue(((SolidColorBrush)card.Background!).Color.A < byte.MaxValue);
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void LaunchPage_RootChangeWaitsForOneExplicitRefreshAndLeavesLoadingState()
     {
         string root = System.IO.Path.Combine(

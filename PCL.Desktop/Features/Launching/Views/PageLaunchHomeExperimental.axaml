@@ -24,8 +24,9 @@
             </Grid.ColumnDefinitions>
 
             <!-- Left: account only -->
-            <Border Grid.Column="0"
-                    Background="{DynamicResource ColorBrushWhite}"
+            <Border x:Name="CardAccount"
+                    Grid.Column="0"
+                    Background="{DynamicResource ColorBrushTransparentBackground}"
                     CornerRadius="16"
                     Padding="20,18"
                     BorderBrush="{DynamicResource ColorBrushGray6}"
@@ -84,8 +85,9 @@
                 </Grid.RowDefinitions>
 
                 <!-- Compact version + launch (must not steal the flip-card band) -->
-                <Border Grid.Row="0"
-                        Background="{DynamicResource ColorBrushWhite}"
+                <Border x:Name="CardVersion"
+                        Grid.Row="0"
+                        Background="{DynamicResource ColorBrushTransparentBackground}"
                         CornerRadius="16"
                         Padding="16,14"
                         BorderBrush="{DynamicResource ColorBrushGray6}"
@@ -192,7 +194,7 @@
                           MinHeight="0">
                         <!-- Page 0: community tips -->
                         <Border x:Name="PanHint"
-                                Background="{DynamicResource ColorBrushWhite}"
+                                Background="{DynamicResource ColorBrushTransparentBackground}"
                                 CornerRadius="18"
                                 Padding="18,14,32,14"
                                 BorderBrush="{DynamicResource ColorBrushGray6}"
@@ -248,7 +250,7 @@
                                 IsVisible="False"
                                 Opacity="0"
                                 Tapped="PanHintExtra_Tapped"
-                                Background="{DynamicResource ColorBrushWhite}"
+                                Background="{DynamicResource ColorBrushTransparentBackground}"
                                 CornerRadius="18"
                                 Padding="22,18,28,18"
                                 BorderBrush="{DynamicResource ColorBrushGray6}"
@@ -304,7 +306,7 @@
                         <Border x:Name="PanShortcuts"
                                 IsVisible="False"
                                 Opacity="0"
-                                Background="{DynamicResource ColorBrushWhite}"
+                                Background="{DynamicResource ColorBrushTransparentBackground}"
                                 CornerRadius="18"
                                 Padding="18,14,32,14"
                                 BorderBrush="{DynamicResource ColorBrushGray6}"
