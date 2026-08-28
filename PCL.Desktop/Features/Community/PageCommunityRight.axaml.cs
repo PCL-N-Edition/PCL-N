@@ -591,7 +591,7 @@ public partial class PageCommunityRight : MyPageRight, IDisposable
         string displayInfo = server && entry.Server is { } target
             ? info + "  ·  " + target.PlayersOnline.ToString(CultureInfo.CurrentCulture) + "/" +
               target.PlayersMax.ToString(CultureInfo.CurrentCulture) + " 在线  ·  " +
-              (target.GameVersions.FirstOrDefault() ?? "版本未知") + "  ·  " + target.Address
+              (target.GameVersions.Count > 0 ? target.GameVersions[0] : "版本未知") + "  ·  " + target.Address
             : entry.DisplayDescription + "  ·  ↓" + downloadsText + "  ·  " + timeText + "  ·  " +
               entry.SourceDisplayName;
 

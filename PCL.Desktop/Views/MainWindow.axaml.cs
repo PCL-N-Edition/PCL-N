@@ -2309,7 +2309,7 @@ public partial class MainWindow : Window, IDisposable
         ExitTitleSubPage();
     }
 
-    private Task DownloadCommunityResourceAsync(CommunityResourceDownloadRequest request) =>
+    private Task<CommunityDownloadResult> DownloadCommunityResourceAsync(CommunityResourceDownloadRequest request) =>
         CommunityDownloadOrchestrator.RunAsync(
             request,
             CreateCommunityDownloadHost());
@@ -2421,9 +2421,9 @@ public partial class MainWindow : Window, IDisposable
                                 modpack.Entry,
                                 CommunityResourceCategory.Modpack,
                                 new CommunitySearchOptions(
-                                    GameVersion: server.GameVersions.FirstOrDefault(),
+                                    GameVersion: server.GameVersions.Count > 0 ? server.GameVersions[0] : null,
                                     Source: CommunityResourceSource.Modrinth),
-                                PreferredFile: modpack.Version.Files.FirstOrDefault(),
+                                PreferredFile: modpack.Version.Files.Count > 0 ? modpack.Version.Files[0] : null,
                                 PreferredVersion: modpack.Version),
                             CreateCommunityDownloadHost(),
                             cancellation.Token)
@@ -2515,7 +2515,7 @@ public partial class MainWindow : Window, IDisposable
         IReadOnlyList<CommunityResourceVersion> versions = await catalog.GetVersionsAsync(
                 project,
                 new CommunitySearchOptions(
-                    GameVersion: server.GameVersions.FirstOrDefault(),
+                    GameVersion: server.GameVersions.Count > 0 ? server.GameVersions[0] : null,
                     Source: CommunityResourceSource.Modrinth),
                 cancellationToken)
             .ConfigureAwait(false);
@@ -2588,7 +2588,9 @@ public partial class MainWindow : Window, IDisposable
         CancellationToken cancellationToken)
     {
         IReadOnlyList<MinecraftVersionManifestEntry> manifest = await _minecraftInstallService
-            .GetVersionManifestAsync(DesktopMinecraftInstallCoordinator.ResolvePreferOfficialSource())
+            .GetVersionManifestAsync(
+                DesktopMinecraftInstallCoordinator.ResolvePreferOfficialSource(),
+                cancellationToken)
             .ConfigureAwait(true);
         MinecraftVersionManifestEntry? version = server.GameVersions
             .Select(id => manifest.FirstOrDefault(candidate =>

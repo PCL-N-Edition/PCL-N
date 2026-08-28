@@ -155,8 +155,8 @@ public sealed class ModrinthServerCommunityCatalog : ICommunityResourceCatalog, 
         string title = Coalesce(ReadString(detail, "name"), ReadString(detail, "title"), ReadString(hit, "title"), slug);
         string description = Coalesce(ReadString(detail, "summary"), ReadString(detail, "description"), ReadString(hit, "description"));
         string? iconUrl = NullIfWhiteSpace(Coalesce(ReadString(detail, "icon_url"), ReadString(hit, "icon_url")));
-        IReadOnlyList<string> versions = ReadStringArray(detail, "game_versions");
-        if (versions.Count == 0)
+        string[] versions = ReadStringArray(detail, "game_versions");
+        if (versions.Length == 0)
             versions = ReadStringArray(hit, "versions");
 
         JsonElement pingData = default;
@@ -212,7 +212,7 @@ public sealed class ModrinthServerCommunityCatalog : ICommunityResourceCatalog, 
         return value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
     }
 
-    private static IReadOnlyList<string> ReadStringArray(JsonElement element, string name)
+    private static string[] ReadStringArray(JsonElement element, string name)
     {
         if (element.ValueKind != JsonValueKind.Object ||
             !element.TryGetProperty(name, out JsonElement value) ||
