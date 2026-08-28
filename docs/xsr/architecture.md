@@ -42,7 +42,7 @@ The first project in each family is created only when a closed migration unit ne
   PCL.Xsr.Runtime + UI.Next  <------>  Sidecar Fabric v2
 ```
 
-X coordinates service registration, command/query routing, state, events, scopes, scheduling, capabilities, Sidecar sessions, and diagnostics. It does not own business rules or presentation truth.
+X coordinates service registration, command/query routing, state, events, scopes, scheduling, capabilities, Sidecar sessions, and diagnostics. It does not own business rules or presentation truth. Two distinct scope abstractions exist by design: event ordering scopes bound and order event delivery inside the router, while runtime lifetime scopes (`IXsrScope`) form a disposal tree so a plugin, window, Sidecar session, or service group can be torn down atomically.
 
 ## Target project families
 

@@ -214,6 +214,85 @@ internal static partial class Program
         AssertEqual("value=-2", store.Read<string>(labeled).Value);
     }
 
+    private static void StateDerivedUnevenDependencyRevisionsInvalidate()
+    {
+        XsrStateStoreBuilder builder = new();
+        builder.Cell<int>("uneven.a".AsXsrId(), "Owner");
+        builder.Cell<int>("uneven.b".AsXsrId(), "Owner");
+        ComputeCounter counter = new();
+        builder.Derived<int>(
+            "uneven.sum".AsXsrId(),
+            "Derived",
+            ["uneven.a".AsXsrId(), "uneven.b".AsXsrId()],
+            (reader, cancellationToken) =>
+            {
+                counter.Increment();
+                return reader.Read<int>(reader.Resolve("uneven.a".AsXsrId()), cancellationToken).Value
+                    + reader.Read<int>(reader.Resolve("uneven.b".AsXsrId()), cancellationToken).Value;
+            });
+        XsrStateStore store = builder.Build();
+        XsrStateId a = store.Resolve("uneven.a".AsXsrId());
+        XsrStateId b = store.Resolve("uneven.b".AsXsrId());
+        XsrStateId sum = store.Resolve("uneven.sum".AsXsrId());
+
+        // A's per-entry revision races far ahead of B's local counter.
+        for (int index = 1; index <= 10; index++)
+        {
+            _ = store.Publish(a, index);
+        }
+
+        _ = store.Publish(b, 100);
+        AssertEqual(110, store.Read<int>(sum).Value);
+        AssertEqual(1, counter.Count);
+
+        // B changes again: despite its low local revision, the derived entry must recompute.
+        _ = store.Publish(b, 200);
+        AssertEqual(210, store.Read<int>(sum).Value);
+        AssertEqual(2, counter.Count);
+    }
+
+    private static async ValueTask StateDerivedMutationDuringFirstComputeDoesNotCommitStaleValue()
+    {
+        TaskCompletionSource computeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource releaseCompute = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        XsrStateStoreBuilder builder = new();
+        builder.Cell<int>("race.input".AsXsrId(), "Owner");
+        ComputeCounter counter = new();
+        builder.Derived<int>(
+            "race.doubled".AsXsrId(),
+            "Derived",
+            ["race.input".AsXsrId()],
+            (reader, cancellationToken) =>
+            {
+                counter.Increment();
+                // The input is captured before the gate so the first computation observes the
+                // pre-mutation value while the mutation lands underneath it.
+                int captured = reader.Read<int>(reader.Resolve("race.input".AsXsrId()), cancellationToken).Value;
+                computeStarted.TrySetResult();
+                releaseCompute.Task.Wait(cancellationToken);
+                return captured * 2;
+            });
+        XsrStateStore store = builder.Build();
+        XsrStateId input = store.Resolve("race.input".AsXsrId());
+        XsrStateId doubled = store.Resolve("race.doubled".AsXsrId());
+
+        Task<XsrStateValue<int>> readTask = Task.Run(() => store.Read<int>(doubled));
+        await computeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        _ = store.Publish(input, 21);
+        releaseCompute.TrySetResult();
+
+        // The stale first computation must not be committed as current: the read retries and
+        // returns the value computed against the new input.
+        XsrStateValue<int> result = await readTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        AssertEqual(42, result.Value);
+        AssertTrue(result.IsAvailable);
+        AssertEqual(2, counter.Count);
+
+        // The committed value is cached: a repeated read does not recompute.
+        _ = store.Read<int>(doubled);
+        AssertEqual(2, counter.Count);
+    }
+
     private static void StateDerivedGraphRejectsCycles()
     {
         XsrStateStoreBuilder builder = new();

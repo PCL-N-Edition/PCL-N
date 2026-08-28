@@ -88,14 +88,172 @@ internal static partial class Program
     {
         RecordingSchedulerObserver observer = new();
         XsrScheduler scheduler = new(observer: observer);
-        _ = scheduler.Schedule(TimeSpan.FromMinutes(1), _ => ValueTask.CompletedTask);
+        XsrScheduledWork work = scheduler.Schedule(TimeSpan.FromMinutes(1), _ => ValueTask.CompletedTask);
         AssertEqual(1, scheduler.PendingCount);
 
         scheduler.Dispose();
         AssertEqual(0, scheduler.PendingCount);
+        AssertTrue(work.IsCancelled);
         AssertThrows<ObjectDisposedException>(
             () => scheduler.Schedule(TimeSpan.Zero, _ => ValueTask.CompletedTask));
         scheduler.Dispose();
+    }
+
+    private static void SchedulerWorkDisposeThenSchedulerDisposeIsSafe()
+    {
+        RecordingSchedulerObserver observer = new();
+        XsrScheduler scheduler = new(observer: observer);
+        XsrScheduledWork work = scheduler.Schedule(TimeSpan.FromMinutes(1), _ => ValueTask.CompletedTask);
+        AssertEqual(1, scheduler.PendingCount);
+
+        // The user handle detaches itself from the scheduler, so the scheduler's own dispose
+        // must not touch the already-released cancellation source.
+        work.Dispose();
+        AssertEqual(0, scheduler.PendingCount);
+        AssertFalse(work.Cancel());
+
+        scheduler.Dispose();
+        scheduler.Dispose();
+        AssertEqual(0, observer.Count);
+    }
+
+    private static async ValueTask SchedulerZeroDelayStress()
+    {
+        const int workCount = 2000;
+        RecordingSchedulerObserver observer = new();
+        using XsrScheduler scheduler = new(observer: observer);
+        int executed = 0;
+
+        for (int index = 0; index < workCount; index++)
+        {
+            _ = scheduler.Schedule(
+                TimeSpan.Zero,
+                _ =>
+                {
+                    Interlocked.Increment(ref executed);
+                    return ValueTask.CompletedTask;
+                });
+        }
+
+        for (int index = 0; index < workCount; index++)
+        {
+            XsrScheduledObservation observation = await observer.TakeAsync().ConfigureAwait(false);
+            AssertEqual(XsrScheduledOutcome.Completed, observation.Outcome);
+        }
+
+        AssertEqual(workCount, executed);
+        AssertEqual(workCount, observer.Count);
+        AssertEqual(0, scheduler.PendingCount);
+    }
+
+    private static void ScopeDisposalReleasesAndUnregistersOwnedResources()
+    {
+        DisposalTracker first = new();
+        DisposalTracker second = new();
+        DisposalTracker childResource = new();
+        XsrScope root = new("root");
+        root.Register(first);
+        root.Register(second);
+        IXsrScope child = root.CreateChild("child");
+        child.Register(childResource);
+
+        AssertTrue(root.Unregister(second));
+        AssertFalse(root.Unregister(second));
+
+        root.Dispose();
+        AssertTrue(first.Disposed);
+        AssertFalse(second.Disposed);
+        AssertTrue(childResource.Disposed);
+        AssertTrue(root.IsDisposed);
+        AssertTrue(child.IsDisposed);
+        AssertThrows<ObjectDisposedException>(() => root.CreateChild("late"));
+        AssertThrows<ObjectDisposedException>(() => root.Register(first));
+
+        // Disposal is idempotent and never double-disposes.
+        root.Dispose();
+        AssertEqual(1, first.Disposals);
+        AssertEqual(1, childResource.Disposals);
+    }
+
+    private static void ScopeNestingDisposesDepthFirst()
+    {
+        DisposalTracker grandchildResource = new();
+        DisposalTracker secondChildResource = new();
+        XsrScope parent = new("parent");
+        IXsrScope firstChild = parent.CreateChild("first");
+        IXsrScope secondChild = parent.CreateChild("second");
+        IXsrScope grandchild = firstChild.CreateChild("grandchild");
+        grandchild.Register(grandchildResource);
+        secondChild.Register(secondChildResource);
+
+        firstChild.Dispose();
+        AssertTrue(firstChild.IsDisposed);
+        AssertEqual(1, grandchildResource.Disposals);
+        AssertFalse(parent.IsDisposed);
+
+        // The parent stays usable after a child disposal.
+        _ = parent.CreateChild("replacement");
+
+        parent.Dispose();
+        AssertTrue(secondChild.IsDisposed);
+        AssertEqual(1, secondChildResource.Disposals);
+        AssertEqual(1, grandchildResource.Disposals);
+
+        firstChild.Dispose();
+        AssertEqual(1, grandchildResource.Disposals);
+    }
+
+    private static void ScopeBulkCleanupMatchesPluginUnload()
+    {
+        // A plugin scope owns its scheduler, scheduled work, and tracked resources; one dispose
+        // atomically tears the whole subtree down.
+        XsrScope plugin = new("PluginScope");
+        RecordingSchedulerObserver observer = new();
+        XsrScheduler scheduler = new(observer: observer);
+        plugin.Register(scheduler);
+        XsrScheduledWork work = scheduler.Schedule(TimeSpan.FromMinutes(1), _ => ValueTask.CompletedTask);
+
+        DisposalTracker[] resources = Enumerable.Range(0, 50)
+            .Select(_ => new DisposalTracker())
+            .ToArray();
+        foreach (DisposalTracker resource in resources)
+        {
+            plugin.Register(resource);
+        }
+
+        // Each feature child owns its own resources; scope disposal must reach all of them
+        // exactly once through the depth-first cleanup.
+        DisposalTracker[] childResources = Enumerable.Range(0, 10)
+            .SelectMany(_ => Enumerable.Range(0, 5).Select(_ => new DisposalTracker()))
+            .ToArray();
+        for (int index = 0; index < 10; index++)
+        {
+            IXsrScope child = plugin.CreateChild($"feature-{index}");
+            foreach (DisposalTracker resource in childResources.Skip(index * 5).Take(5))
+            {
+                child.Register(resource);
+            }
+        }
+
+        plugin.Dispose();
+
+        AssertTrue(plugin.IsDisposed);
+        AssertTrue(work.IsCancelled);
+        AssertEqual(0, scheduler.PendingCount);
+        AssertTrue(resources.All(resource => resource.Disposals == 1));
+        AssertTrue(childResources.All(resource => resource.Disposals == 1));
+        AssertEqual(0, observer.Count);
+    }
+
+    private sealed class DisposalTracker : IDisposable
+    {
+        private int _disposals;
+
+        public bool Disposed => Volatile.Read(ref _disposals) > 0;
+
+        public int Disposals => Volatile.Read(ref _disposals);
+
+        public void Dispose() => Interlocked.Increment(ref _disposals);
     }
 
     private static void LifecycleAcceptsOnlyForwardTransitions()
@@ -260,15 +418,21 @@ internal static partial class Program
                 SingleReader = true,
                 SingleWriter = false,
             });
+        private int _count;
+
+        public int Count => Volatile.Read(ref _count);
 
         public async ValueTask<XsrScheduledObservation> TakeAsync()
         {
-            using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
-            return await _observations.Reader.ReadAsync(timeout.Token).ConfigureAwait(false);
+            using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+            XsrScheduledObservation observation =
+                await _observations.Reader.ReadAsync(timeout.Token).ConfigureAwait(false);
+            return observation;
         }
 
         public void OnExecuted(XsrScheduledObservation observation)
         {
+            Interlocked.Increment(ref _count);
             if (!_observations.Writer.TryWrite(observation))
             {
                 throw new InvalidOperationException("The observation channel rejected a value.");

@@ -10,6 +10,7 @@ public sealed class XsrStateStore
     private readonly XsrRegistrySnapshot<XsrStateDescriptor> _registry;
     private readonly XsrStateNode[] _nodes;
     private readonly IXsrStateObserver? _observer;
+    private long _changeStamp;
 
     internal XsrStateStore(
         XsrRegistrySnapshot<XsrStateDescriptor> registry,
@@ -46,6 +47,12 @@ public sealed class XsrStateStore
     public XsrStateDescriptor Describe(XsrStateId stateId) => RequireNode(stateId).Descriptor;
 
     /// <summary>
+    /// Allocates the next store-global change stamp. Stamps are strictly monotonic, so any
+    /// applied mutation raises the stamp of exactly the entry it mutated.
+    /// </summary>
+    internal long NextChangeStamp() => Interlocked.Increment(ref _changeStamp);
+
+    /// <summary>
     /// Reads one typed cell, applying any deferred coalesced publication first.
     /// </summary>
     public XsrStateValue<TValue> Read<TValue>(XsrStateId stateId, CancellationToken cancellationToken = default)
@@ -54,7 +61,11 @@ public sealed class XsrStateStore
 
         if (node is XsrStateCellNode<TValue> cell)
         {
-            XsrStateValue<TValue> value = cell.Read(stateId, cancellationToken, out XsrStateChange? flushed);
+            XsrStateValue<TValue> value = cell.Read(
+                stateId,
+                NextChangeStamp(),
+                cancellationToken,
+                out XsrStateChange? flushed);
             Notify(flushed);
             return value;
         }
@@ -83,7 +94,12 @@ public sealed class XsrStateStore
             throw MismatchedContract(stateId, node, typeof(TValue));
         }
 
-        XsrStateChange change = cell.Publish(stateId, value, out XsrStateChange? flushed);
+        XsrStateChange change = cell.Publish(
+            stateId,
+            value,
+            NextChangeStamp(),
+            NextChangeStamp(),
+            out XsrStateChange? flushed);
         Notify(flushed);
         Notify(change);
         return change.Revision;
@@ -147,7 +163,11 @@ public sealed class XsrStateStore
             throw MismatchedContract(stateId, node, typeof(TItem));
         }
 
-        XsrCollectionApplyResult result = collection.PublishDelta(stateId, delta, out XsrStateChange? change);
+        XsrCollectionApplyResult result = collection.PublishDelta(
+            stateId,
+            delta,
+            NextChangeStamp(),
+            out XsrStateChange? change);
         Notify(change);
         return result;
     }
@@ -166,7 +186,7 @@ public sealed class XsrStateStore
                 $"Derived state '{stateId}' derives availability from its dependencies.");
         }
 
-        bool changed = node.SetAvailability(availability, out XsrStateChange? change);
+        bool changed = node.SetAvailability(availability, NextChangeStamp(), out XsrStateChange? change);
         Notify(change);
         return changed;
     }
@@ -191,25 +211,27 @@ public sealed class XsrStateStore
     }
 
     /// <summary>
-    /// Resolves the effective revision of one entry: a cell's own revision, or for derived
-    /// entries the newest revision reachable through their declared dependencies.
+    /// Resolves the dependency stamp of one entry: the store-global change stamp of its last
+    /// applied mutation, or for derived entries the newest stamp reachable through their declared
+    /// dependencies. Per-entry revisions cannot serve this purpose because they are local
+    /// counters; stamps are globally monotonic, so any dependency mutation raises this value.
     /// </summary>
-    internal long EffectiveRevision(XsrStateId stateId)
+    internal long ChangeStampOf(XsrStateId stateId)
     {
         XsrStateNode node = RequireNode(stateId);
 
         if (node is not IXsrStateDerivedNode derived)
         {
-            return node.Revision;
+            return node.ChangeStamp;
         }
 
         long watermark = 0;
         foreach (XsrStateId dependency in derived.DependencyIds)
         {
-            long revision = EffectiveRevision(dependency);
-            if (revision > watermark)
+            long stamp = ChangeStampOf(dependency);
+            if (stamp > watermark)
             {
-                watermark = revision;
+                watermark = stamp;
             }
         }
 
@@ -228,7 +250,7 @@ public sealed class XsrStateStore
             return;
         }
 
-        node.ApplyPending(stateId, out XsrStateChange? flushed);
+        node.ApplyPending(stateId, NextChangeStamp(), out XsrStateChange? flushed);
         Notify(flushed);
     }
 

@@ -83,6 +83,7 @@ public sealed class XsrLifecycle
             throw new ArgumentOutOfRangeException(nameof(phase));
         }
 
+        XsrLifecycleTransition transition;
         lock (_gate)
         {
             if (!IsAllowed(_phase, phase))
@@ -90,11 +91,13 @@ public sealed class XsrLifecycle
                 return false;
             }
 
-            XsrLifecyclePhase from = _phase;
+            transition = new XsrLifecycleTransition(Component, _phase, phase);
             _phase = phase;
-            Notify(new XsrLifecycleTransition(Component, from, phase));
-            return true;
         }
+
+        // Observers run outside the gate so a slow observer never extends the transition lock.
+        Notify(transition);
+        return true;
     }
 
     private static bool IsAllowed(XsrLifecyclePhase from, XsrLifecyclePhase to) =>

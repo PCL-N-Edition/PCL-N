@@ -37,56 +37,143 @@ public interface IXsrSchedulerObserver
 }
 
 /// <summary>
-/// One cancellable handle over scheduled work. Disposing the handle releases its timer and
-/// cancellation source; a disposed handle cannot be cancelled again.
+/// The lifetime of one scheduled work item. Every transition happens under the owning
+/// scheduler's gate: <see cref="Pending"/> until the due time fires, then <see cref="Running"/>,
+/// ending in exactly one terminal state.
+/// </summary>
+internal enum XsrScheduledWorkState
+{
+    Pending = 1,
+    Running = 2,
+    Completed = 3,
+    Cancelled = 4,
+    Disposed = 5,
+}
+
+/// <summary>
+/// One cancellable handle over scheduled work. The scheduler owns the timer; the handle only
+/// cancels and releases. Disposing the handle is safe from any thread at any point — before the
+/// due time, while running, after completion, or after the scheduler itself was disposed.
 /// </summary>
 public sealed class XsrScheduledWork : IDisposable
 {
     private readonly CancellationTokenSource _source = new();
-    private ITimer? _timer;
+    private readonly XsrScheduler _owner;
+    private XsrScheduledWorkState _state = XsrScheduledWorkState.Pending;
+    private bool _cancelled;
+    private bool _observed;
 
-    internal XsrScheduledWork(XsrCorrelationId correlationId)
+    internal XsrScheduledWork(XsrScheduler owner, XsrCorrelationId correlationId)
     {
+        _owner = owner;
         CorrelationId = correlationId;
     }
 
     public XsrCorrelationId CorrelationId { get; }
 
-    public bool IsCancelled => _source.IsCancellationRequested;
+    public bool IsCancelled => _cancelled;
+
+    internal XsrScheduledWorkState State => _state;
 
     internal CancellationToken CancellationToken => _source.Token;
 
     /// <summary>
-    /// Cancels the work before or during execution. Returns false when it was already cancelled.
+    /// Cancels the work before or during execution. Returns false when it already reached a
+    /// terminal state.
     /// </summary>
     public bool Cancel()
     {
-        if (_source.IsCancellationRequested)
+        lock (_owner.Gate)
         {
-            return false;
+            switch (_state)
+            {
+                case XsrScheduledWorkState.Pending:
+                    // The timer stays alive: firing later delivers the cancelled observation.
+                    _state = XsrScheduledWorkState.Cancelled;
+                    _cancelled = true;
+                    _ = _owner.RemovePendingLocked(this);
+                    break;
+                case XsrScheduledWorkState.Running:
+                    _cancelled = true;
+                    break;
+                default:
+                    return false;
+            }
         }
 
-        _source.Cancel();
+        try
+        {
+            _source.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The work finished and released its source concurrently with this cancellation.
+        }
+
         return true;
     }
 
+    /// <summary>
+    /// Releases the handle's timer and cancellation source and detaches it from the scheduler.
+    /// </summary>
     public void Dispose()
     {
-        _timer?.Dispose();
-        _timer = null;
+        ITimer? timer;
+        lock (_owner.Gate)
+        {
+            if (_state == XsrScheduledWorkState.Disposed)
+            {
+                return;
+            }
+
+            _state = XsrScheduledWorkState.Disposed;
+            _ = _owner.RemovePendingLocked(this);
+            timer = _owner.RemoveTimerLocked(this);
+        }
+
+        timer?.Dispose();
         _source.Dispose();
     }
 
-    internal void AttachTimer(ITimer timer)
+    internal void BeginRunLocked()
     {
-        _timer = timer;
+        _state = XsrScheduledWorkState.Running;
     }
 
-    internal ITimer? DetachTimer()
+    internal void MarkDisposedBySchedulerLocked()
     {
-        ITimer? timer = _timer;
-        _timer = null;
-        return timer;
+        _state = XsrScheduledWorkState.Disposed;
+        _cancelled = true;
+    }
+
+    internal void CompleteLocked(XsrScheduledOutcome outcome)
+    {
+        // A user disposal wins over a late completion classification.
+        if (_state == XsrScheduledWorkState.Running)
+        {
+            _state = outcome == XsrScheduledOutcome.Cancelled
+                ? XsrScheduledWorkState.Cancelled
+                : XsrScheduledWorkState.Completed;
+        }
+    }
+
+    internal bool TryMarkObserved()
+    {
+        lock (_owner.Gate)
+        {
+            if (_observed)
+            {
+                return false;
+            }
+
+            _observed = true;
+            return true;
+        }
+    }
+
+    internal void ReleaseSource()
+    {
+        _source.Dispose();
     }
 }
 
@@ -101,7 +188,10 @@ public sealed class XsrScheduler : IDisposable
     private readonly IXsrSchedulerObserver? _observer;
     private readonly object _gate = new();
     private readonly List<XsrScheduledWork> _pending = [];
+    private readonly Dictionary<XsrScheduledWork, ITimer> _timers = [];
     private bool _disposed;
+
+    internal object Gate => _gate;
 
     public XsrScheduler(TimeProvider? timeProvider = null, IXsrSchedulerObserver? observer = null)
     {
@@ -139,29 +229,43 @@ public sealed class XsrScheduler : IDisposable
         }
 
         correlationId = correlationId.IsAssigned ? correlationId : XsrCorrelationId.Create();
-        XsrScheduledWork work = new(correlationId);
+        XsrScheduledWork work;
 
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, nameof(XsrScheduler));
-
+            work = new XsrScheduledWork(this, correlationId);
             _pending.Add(work);
         }
 
-        ITimer timer = _timeProvider.CreateTimer(
+        ITimer? timer = _timeProvider.CreateTimer(
             _ => Run(work, handler),
             null,
             dueTime,
             Timeout.InfiniteTimeSpan);
-        work.AttachTimer(timer);
+
+        lock (_gate)
+        {
+            // The callback may race ahead of this attachment when the due time is zero. The
+            // scheduler owns timer disposal in both orderings.
+            if (!_disposed && work.State == XsrScheduledWorkState.Pending)
+            {
+                _timers.Add(work, timer);
+                timer = null;
+            }
+        }
+
+        timer?.Dispose();
         return work;
     }
 
     /// <summary>
-    /// Cancels every pending work item and stops accepting new work.
+    /// Cancels every pending work item, releases its timers, and stops accepting new work. Work
+    /// handles disposed earlier are skipped.
     /// </summary>
     public void Dispose()
     {
+        ITimer[] timers;
         XsrScheduledWork[] pending;
         lock (_gate)
         {
@@ -171,74 +275,116 @@ public sealed class XsrScheduler : IDisposable
             }
 
             _disposed = true;
+            foreach (XsrScheduledWork work in _pending)
+            {
+                work.MarkDisposedBySchedulerLocked();
+            }
+
             pending = [.. _pending];
             _pending.Clear();
+            timers = [.. _timers.Values];
+            _timers.Clear();
+        }
+
+        foreach (ITimer timer in timers)
+        {
+            timer.Dispose();
         }
 
         foreach (XsrScheduledWork work in pending)
         {
-            work.Cancel();
-            work.Dispose();
+            work.ReleaseSource();
         }
+    }
+
+    internal bool RemovePendingLocked(XsrScheduledWork work) => _pending.Remove(work);
+
+    internal ITimer? RemoveTimerLocked(XsrScheduledWork work)
+    {
+        _ = _timers.Remove(work, out ITimer? timer);
+        return timer;
     }
 
     private void Run(XsrScheduledWork work, XsrScheduledWorkHandler handler)
     {
+        ITimer? timer;
+        bool skipRun;
         lock (_gate)
         {
-            _ = _pending.Remove(work);
+            timer = RemoveTimerLocked(work);
+            skipRun = work.State != XsrScheduledWorkState.Pending;
+            if (!skipRun)
+            {
+                work.BeginRunLocked();
+                _ = RemovePendingLocked(work);
+            }
         }
 
-        work.DetachTimer()?.Dispose();
-        long startedAt = _timeProvider.GetTimestamp();
+        timer?.Dispose();
 
-        if (work.CancellationToken.IsCancellationRequested)
+        if (skipRun)
         {
-            Observe(work, XsrScheduledOutcome.Cancelled, startedAt, null);
-            work.Dispose();
+            // A work cancelled before its due time still gets its one cancelled observation;
+            // a work disposed before its due time is abandoned without observation.
+            if (work.State == XsrScheduledWorkState.Cancelled)
+            {
+                Observe(work, XsrScheduledOutcome.Cancelled, 0, null);
+                work.ReleaseSource();
+            }
+
             return;
         }
 
+        long startedAt = _timeProvider.GetTimestamp();
         ValueTask invocation;
         try
         {
             invocation = handler(work.CancellationToken);
         }
-        catch (OperationCanceledException) when (work.CancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            Observe(work, XsrScheduledOutcome.Cancelled, startedAt, null);
-            work.Dispose();
+            Finish(work, XsrScheduledOutcome.Cancelled, startedAt, null);
             return;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
         {
-            Observe(work, XsrScheduledOutcome.Faulted, startedAt, exception.GetType().FullName);
-            work.Dispose();
+            Finish(work, XsrScheduledOutcome.Faulted, startedAt, exception.GetType().FullName);
             return;
         }
 
-        _ = AwaitAndObserve(work, invocation, startedAt);
+        _ = AwaitAndFinish(work, invocation, startedAt);
     }
 
-    private async Task AwaitAndObserve(XsrScheduledWork work, ValueTask invocation, long startedAt)
+    private async Task AwaitAndFinish(XsrScheduledWork work, ValueTask invocation, long startedAt)
     {
         try
         {
             await invocation.ConfigureAwait(false);
-            Observe(work, XsrScheduledOutcome.Completed, startedAt, null);
+            Finish(work, XsrScheduledOutcome.Completed, startedAt, null);
         }
-        catch (OperationCanceledException) when (work.CancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            Observe(work, XsrScheduledOutcome.Cancelled, startedAt, null);
+            Finish(work, XsrScheduledOutcome.Cancelled, startedAt, null);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
         {
-            Observe(work, XsrScheduledOutcome.Faulted, startedAt, exception.GetType().FullName);
+            Finish(work, XsrScheduledOutcome.Faulted, startedAt, exception.GetType().FullName);
         }
-        finally
+    }
+
+    private void Finish(
+        XsrScheduledWork work,
+        XsrScheduledOutcome outcome,
+        long startedAt,
+        string? faultType)
+    {
+        lock (_gate)
         {
-            work.Dispose();
+            work.CompleteLocked(outcome);
         }
+
+        Observe(work, outcome, startedAt, faultType);
+        work.ReleaseSource();
     }
 
     private void Observe(
@@ -247,7 +393,7 @@ public sealed class XsrScheduler : IDisposable
         long startedAt,
         string? faultType)
     {
-        if (_observer is null)
+        if (_observer is null || !work.TryMarkObserved())
         {
             return;
         }
@@ -255,7 +401,7 @@ public sealed class XsrScheduler : IDisposable
         XsrScheduledObservation observation = new(
             work.CorrelationId,
             outcome,
-            _timeProvider.GetElapsedTime(startedAt),
+            startedAt == 0 ? TimeSpan.Zero : _timeProvider.GetElapsedTime(startedAt),
             faultType);
 
         try
