@@ -1,4 +1,5 @@
 using System.Globalization;
+using PCL.Xsr;
 using PCL.Xsr.State;
 
 namespace PCL.UI.Next;
@@ -13,6 +14,10 @@ public sealed class XsrUiRenderer
 {
     private readonly XsrUiTree _tree;
     private readonly XsrStateStore _state;
+    private readonly IXsrUiIntentSink? _sink;
+    private XsrUiEntityId _hovered;
+    private XsrUiEntityId _pressed;
+    private XsrUiEntityId _focused;
     private readonly Dictionary<int, XsrUiSize> _desiredSizes = [];
     private readonly Dictionary<int, XsrUiRect> _paintRects = [];
     private readonly HashSet<int> _measuredThisPass = [];
@@ -22,11 +27,23 @@ public sealed class XsrUiRenderer
     private XsrUiSize _viewport = new(800, 600);
     private int _layoutVisits;
 
-    public XsrUiRenderer(XsrUiTree tree, XsrStateStore state)
+    public XsrUiRenderer(XsrUiTree tree, XsrStateStore state, IXsrUiIntentSink? sink = null)
     {
         _tree = tree ?? throw new ArgumentNullException(nameof(tree));
         _state = state ?? throw new ArgumentNullException(nameof(state));
+        _sink = sink;
     }
+
+    /// <summary>
+    /// Gets or sets whether animation-heavy presentation should reduce motion. The flag is a
+    /// presentation contract; backends and animation drivers must honor it.
+    /// </summary>
+    public bool ReducedMotion { get; set; }
+
+    /// <summary>
+    /// Gets the currently focused entity, or an unassigned handle.
+    /// </summary>
+    public XsrUiEntityId Focused => _focused;
 
     /// <summary>
     /// Gets or sets the size the root entity is arranged into.
@@ -333,6 +350,183 @@ public sealed class XsrUiRenderer
     private bool IsVisible(XsrUiEntityId entity) =>
         _tree.GetComponent<XsrUiElement>(entity)?.IsVisible ?? true;
 
+    /// <summary>
+    /// Resolves the top-most scene entity at one point. Hit testing reads the last produced
+    /// scene, so it never triggers layout or state reads.
+    /// </summary>
+    public XsrUiEntityId HitTest(XsrUiPoint point)
+    {
+        if (_scene is null)
+        {
+            return default;
+        }
+
+        for (int index = _scene.Count - 1; index >= 0; index--)
+        {
+            XsrUiSceneNode node = _scene[index];
+            if (node.Rect.Contains(point))
+            {
+                return node.Entity;
+            }
+        }
+
+        return default;
+    }
+
+    /// <summary>
+    /// Routes a pointer press. Returns true when a clickable entity absorbed it.
+    /// </summary>
+    public bool PointerPressed(XsrUiPoint point)
+    {
+        XsrUiEntityId entity = HitTest(point);
+        XsrUiInput? input = _tree.GetComponent<XsrUiInput>(entity);
+        if (entity.IsAssigned && input is { Clickable: true })
+        {
+            input.IsPressed = true;
+            _pressed = entity;
+            _tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Routes a pointer release. Releasing over the pressed entity activates its command binding
+    /// and emits one intent with a renderer-produced correlation ID.
+    /// </summary>
+    public bool PointerReleased(XsrUiPoint point)
+    {
+        if (!_pressed.IsAssigned)
+        {
+            return false;
+        }
+
+        XsrUiEntityId pressed = _pressed;
+        XsrUiInput? input = _tree.GetComponent<XsrUiInput>(pressed);
+        if (input is not null)
+        {
+            input.IsPressed = false;
+        }
+        _pressed = default;
+        _tree.MarkDirty(pressed, XsrUiDirtyKinds.Paint);
+        return HitTest(point).Equals(pressed) && Activate(pressed);
+    }
+
+    /// <summary>
+    /// Routes a pointer move, updating hover state on input entities.
+    /// </summary>
+    public bool PointerMoved(XsrUiPoint point)
+    {
+        XsrUiEntityId entity = HitTest(point);
+        XsrUiInput? input = entity.IsAssigned ? _tree.GetComponent<XsrUiInput>(entity) : null;
+        bool overInput = input is not null;
+
+        if (_hovered.IsAssigned && !_hovered.Equals(entity))
+        {
+            XsrUiInput? previous = _tree.GetComponent<XsrUiInput>(_hovered);
+            if (previous is not null)
+            {
+                previous.IsHovered = false;
+                _tree.MarkDirty(_hovered, XsrUiDirtyKinds.Paint);
+            }
+        }
+
+        _hovered = overInput ? entity : default;
+        if (input is not null && !input.IsHovered)
+        {
+            input.IsHovered = true;
+            _tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
+            return true;
+        }
+
+        return overInput;
+    }
+
+    /// <summary>
+    /// Moves keyboard focus to the next focusable entity in scene (tab) order, wrapping around.
+    /// Returns false when no focusable entity exists.
+    /// </summary>
+    public bool FocusNext()
+    {
+        if (_scene is null)
+        {
+            return false;
+        }
+
+        List<XsrUiEntityId> focusable = [];
+        for (int index = 0; index < _scene.Count; index++)
+        {
+            if (_tree.GetComponent<XsrUiInput>(_scene[index].Entity)?.Focusable == true)
+            {
+                focusable.Add(_scene[index].Entity);
+            }
+        }
+
+        if (focusable.Count == 0)
+        {
+            return false;
+        }
+
+        int currentIndex = focusable.FindIndex(entity => entity.Equals(_focused));
+        int next = (currentIndex + 1) % focusable.Count;
+        return Focus(focusable[next]);
+    }
+
+    /// <summary>
+    /// Sets keyboard focus to one focusable entity.
+    /// </summary>
+    public bool Focus(XsrUiEntityId entity)
+    {
+        XsrUiInput? input = _tree.GetComponent<XsrUiInput>(entity);
+        if (input is not { Focusable: true })
+        {
+            return false;
+        }
+
+        if (_focused.IsAssigned && !_focused.Equals(entity))
+        {
+            XsrUiInput? previous = _tree.GetComponent<XsrUiInput>(_focused);
+            if (previous is not null)
+            {
+                previous.IsFocused = false;
+                _tree.MarkDirty(_focused, XsrUiDirtyKinds.Paint);
+            }
+        }
+
+        _focused = entity;
+        input.IsFocused = true;
+        _tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
+        return true;
+    }
+
+    /// <summary>
+    /// Routes one keyboard key: Tab moves focus, Enter and Space activate the focused entity,
+    /// Back pops navigation through the intent sink as a plain false (navigation is owned by
+    /// composition). Returns true when the key was handled.
+    /// </summary>
+    public bool HandleKey(XsrUiKey key)
+    {
+        return key switch
+        {
+            XsrUiKey.Tab => FocusNext(),
+            XsrUiKey.Enter or XsrUiKey.Space => _focused.IsAssigned && Activate(_focused),
+            _ => false,
+        };
+    }
+
+    private bool Activate(XsrUiEntityId entity)
+    {
+        XsrUiCommandBinding? binding = _tree.GetComponent<XsrUiCommandBinding>(entity);
+        if (binding is null || _sink is null || !binding.Command.IsAssigned)
+        {
+            return false;
+        }
+
+        _sink.Emit(binding.Command, entity, XsrCorrelationId.Create());
+        return true;
+    }
+
     private XsrUiSceneNode[] CollectNodes(XsrUiEntityId root, int depth)
     {
         List<XsrUiSceneNode> nodes = [];
@@ -365,7 +559,8 @@ public sealed class XsrUiRenderer
             depth,
             semantic?.Role ?? XsrUiSemanticRole.None,
             semantic?.Label,
-            content));
+            content,
+            _tree.GetComponent<XsrUiInput>(entity)?.IsFocused ?? false));
 
         foreach (XsrUiEntityId child in _tree.Children(entity))
         {

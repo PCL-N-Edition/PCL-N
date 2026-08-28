@@ -31,6 +31,21 @@ internal static partial class Program
         ("scene order is depth first pre order", Sync(SceneOrderIsDepthFirstPreOrder)),
         ("render without root throws", Sync(RenderWithoutRootThrows)),
         ("viewport change relayouts", Sync(ViewportChangeRelayouts)),
+        // XSR-203: input, focus, navigation, overlay, accessibility.
+        ("hit test returns top most entity", Sync(HitTestReturnsTopMostEntity)),
+        ("pointer activation emits command intent", Sync(PointerActivationEmitsCommandIntent)),
+        ("pointer press on non clickable is not handled", Sync(PointerPressOnNonClickableIsNotHandled)),
+        ("pointer release outside does not activate", Sync(PointerReleaseOutsideDoesNotActivate)),
+        ("pointer move tracks hover", Sync(PointerMoveTracksHover)),
+        ("focus cycles through focusable entities", Sync(FocusCyclesThroughFocusableEntities)),
+        ("keyboard activation emits intent", Sync(KeyboardActivationEmitsIntent)),
+        ("focused entity is visible in the scene", Sync(FocusedEntityIsVisibleInTheScene)),
+        ("navigator push pop and replace swap pages", Sync(NavigatorPushPopAndReplaceSwapPages)),
+        ("navigator rejects unknown pages", Sync(NavigatorRejectsUnknownPages)),
+        ("stage overlays draw above page", Sync(StageOverlaysDrawAbovePage)),
+        ("stage dismiss removes top overlay", Sync(StageDismissRemovesTopOverlay)),
+        ("stage navigation swaps page content", Sync(StageNavigationSwapsPageContent)),
+        ("reduced motion is a presentation contract flag", Sync(ReducedMotionIsAPresentationContractFlag)),
     ];
 
     private static async Task<int> Main()

@@ -122,7 +122,7 @@ public sealed class XsrUiStateBinding(XsrStateId state)
 
 /// <summary>
 /// Marks one entity as an input target: focusable for keyboard navigation, clickable for
-/// pointer activation.
+/// pointer activation. Hover, pressed, and focus flags are renderer-local ephemeral state.
 /// </summary>
 public sealed class XsrUiInput
 {
@@ -133,4 +133,17 @@ public sealed class XsrUiInput
     public bool IsHovered { get; set; }
 
     public bool IsPressed { get; set; }
+
+    public bool IsFocused { get; set; }
+}
+
+/// <summary>
+/// The keyboard keys the renderer kernel routes itself.
+/// </summary>
+public enum XsrUiKey
+{
+    Tab = 1,
+    Enter = 2,
+    Space = 3,
+    Back = 4,
 }
