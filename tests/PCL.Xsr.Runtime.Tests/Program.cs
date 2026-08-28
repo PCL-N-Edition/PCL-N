@@ -1,31 +1,45 @@
 namespace PCL.Xsr.Runtime.Tests;
 
-internal static class Program
+internal static partial class Program
 {
-    private static readonly (string Name, Action Body)[] TestCases =
+    private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
-        ("semantic identifiers validate without normalization", SemanticIdentifiersValidateWithoutNormalization),
-        ("runtime identifier zero remains reserved", RuntimeIdentifierZeroRemainsReserved),
-        ("registry assigns deterministic runtime identifiers", RegistryAssignsDeterministicRuntimeIdentifiers),
-        ("registry rejects duplicate semantic identifiers", RegistryRejectsDuplicateSemanticIdentifiers),
-        ("registry accepts concurrent unique registrations", RegistryAcceptsConcurrentUniqueRegistrations),
-        ("registry becomes immutable after sealing", RegistryBecomesImmutableAfterSealing),
-        ("snapshot resolves both identifier directions", SnapshotResolvesBothIdentifierDirections),
-        ("snapshot supports concurrent numeric reads", SnapshotSupportsConcurrentNumericReads),
-        ("snapshot numeric reads allocate no managed memory", SnapshotNumericReadsAllocateNoManagedMemory),
+        ("semantic identifiers validate without normalization", Sync(SemanticIdentifiersValidateWithoutNormalization)),
+        ("runtime identifier zero remains reserved", Sync(RuntimeIdentifierZeroRemainsReserved)),
+        ("registry assigns deterministic runtime identifiers", Sync(RegistryAssignsDeterministicRuntimeIdentifiers)),
+        ("registry rejects duplicate semantic identifiers", Sync(RegistryRejectsDuplicateSemanticIdentifiers)),
+        ("registry accepts concurrent unique registrations", Sync(RegistryAcceptsConcurrentUniqueRegistrations)),
+        ("registry becomes immutable after sealing", Sync(RegistryBecomesImmutableAfterSealing)),
+        ("snapshot resolves both identifier directions", Sync(SnapshotResolvesBothIdentifierDirections)),
+        ("snapshot supports concurrent numeric reads", Sync(SnapshotSupportsConcurrentNumericReads)),
+        ("snapshot numeric reads allocate no managed memory", Sync(SnapshotNumericReadsAllocateNoManagedMemory)),
+        ("routers assign deterministic typed identifiers", RoutersAssignDeterministicTypedIdentifiers),
+        ("command acceptance is separate from completion", CommandAcceptanceIsSeparateFromCompletion),
+        ("detached command failures remain observable", DetachedCommandFailuresRemainObservable),
+        ("command cancellation has a stable error", CommandCancellationHasAStableError),
+        ("query results and timeouts remain distinct", QueryResultsAndTimeoutsRemainDistinct),
+        ("query contract mismatches have a stable error", QueryContractMismatchesHaveAStableError),
+        ("handler exceptions do not escape routing", HandlerExceptionsDoNotEscapeRouting),
+        ("command dispatch supports concurrent callers", CommandDispatchSupportsConcurrentCallers),
     ];
 
-    private static int Main()
+    private static async Task<int> Main()
     {
-        foreach ((string name, Action body) in TestCases)
+        foreach ((string name, Func<ValueTask> body) in TestCases)
         {
-            body();
+            await body().ConfigureAwait(false);
             Console.WriteLine($"PASS: {name}");
         }
 
         Console.WriteLine($"XSR runtime tests passed: {TestCases.Length}.");
         return 0;
     }
+
+    private static Func<ValueTask> Sync(Action action) => () =>
+    {
+        action();
+        return ValueTask.CompletedTask;
+    };
 
     private static void SemanticIdentifiersValidateWithoutNormalization()
     {

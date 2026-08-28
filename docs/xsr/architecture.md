@@ -74,6 +74,8 @@ Development identifiers may be readable strings. Source generation resolves them
 
 The initial Wave 1 registry treats semantic IDs as opaque, case-sensitive values. After registration closes, it assigns contiguous nonzero runtime IDs by sorting the complete semantic-ID set with ordinal comparison. The sealed mapping is immutable; numeric lookup, rather than string lookup, is the runtime hot path. Generated code may cache these resolved IDs without owning a second registry.
 
+Command and query routes are registered through closed generic adapters and sealed before use. Commands separate immediate route acceptance from asynchronous handler completion, and every completion is observed even when the caller does not await it. Queries are asynchronous, cancellable, correlated, and may apply an explicit timeout. Runtime failures cross the router boundary as stable XSR error codes rather than leaked handler or transport exceptions.
+
 ## Ownership and composition
 
 - Services own business behavior and publish state/events.

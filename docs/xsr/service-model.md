@@ -32,11 +32,15 @@ StartDownload command
 
 A command handler defines idempotency, concurrency, cancellation, authorization, and retry semantics. Fire-and-forget means the caller does not await business completion; it does not mean errors are discarded.
 
+The XSR command router therefore returns an acceptance plus an asynchronous completion. The runtime observes every completion independently of the caller. A handler exception is recorded for diagnostics and converted to a stable runtime error; services use explicit result errors for expected business rejection.
+
 ## Query semantics
 
 Queries are reserved for one-time results such as discovery, search, file selection, or an expensive calculation. Queries are asynchronous, cancellable, correlated, timed out at an explicit boundary, and forbidden in renderer frame or binding evaluation paths.
 
 Repeatedly queried data should become state. A query must not be introduced merely to preserve an old RPC shape.
+
+The query router applies cancellation and any configured timeout at the route boundary. It preserves a correlation ID through completion and does not expose handler exceptions as query results.
 
 ## Events
 

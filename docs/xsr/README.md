@@ -22,6 +22,7 @@ The user-requested constraints take precedence:
 - [source-reference.md](source-reference.md) — clean-slate rules for consulting legacy code
 - [migrations/XSR-002-project-graph.md](migrations/XSR-002-project-graph.md) — initial solution graph and architecture gate
 - [migrations/XSR-101-identifiers-and-registry.md](migrations/XSR-101-identifiers-and-registry.md) — Wave 1 identity and sealed registry contract
+- [migrations/XSR-102-command-query-routing.md](migrations/XSR-102-command-query-routing.md) — asynchronous command/query routing and stable errors
 
 ## Decision process
 
