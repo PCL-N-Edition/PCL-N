@@ -1,4 +1,4 @@
-namespace PCL.Xsr.Runtime;
+namespace PCL.Xsr;
 
 /// <summary>
 /// Binds one stable semantic identifier to its compact runtime identifier and descriptor.

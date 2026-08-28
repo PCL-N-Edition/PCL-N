@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 
-namespace PCL.Xsr.Runtime;
+namespace PCL.Xsr;
 
 /// <summary>
 /// Provides an immutable, concurrently readable view of a sealed XSR registry.

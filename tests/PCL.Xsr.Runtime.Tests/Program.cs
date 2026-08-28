@@ -21,6 +21,21 @@ internal static partial class Program
         ("query contract mismatches have a stable error", QueryContractMismatchesHaveAStableError),
         ("handler exceptions do not escape routing", HandlerExceptionsDoNotEscapeRouting),
         ("command dispatch supports concurrent callers", CommandDispatchSupportsConcurrentCallers),
+        ("state assigns deterministic identifiers and ownership", Sync(StateAssignsDeterministicIdentifiersAndOwnership)),
+        ("state cells start unavailable until published", Sync(StateCellsStartUnavailableUntilPublished)),
+        ("state revisions are monotonic per entry", Sync(StateRevisionsAreMonotonicPerEntry)),
+        ("state reads see coherent snapshots", Sync(StateReadsSeeCoherentSnapshots)),
+        ("state coalescing applies latest and counts replaced", Sync(StateCoalescingAppliesLatestAndCountsReplaced)),
+        ("state collection deltas apply against matching base", Sync(StateCollectionDeltasApplyAgainstMatchingBase)),
+        ("state derived recomputes only when inputs change", Sync(StateDerivedRecomputesOnlyWhenInputsChange)),
+        ("state derived chains propagate in order", Sync(StateDerivedChainsPropagateInOrder)),
+        ("state derived graph rejects cycles", Sync(StateDerivedGraphRejectsCycles)),
+        ("state derived rejects undeclared dependency", Sync(StateDerivedRejectsUndeclaredDependency)),
+        ("state availability is separate from value", Sync(StateAvailabilityIsSeparateFromValue)),
+        ("state observers see ordered changes and cannot break publication", Sync(StateObserversSeeOrderedChangesAndCannotBreakPublication)),
+        ("state contract mismatches are rejected", Sync(StateContractMismatchesAreRejected)),
+        ("state builder rejects reuse and duplicates", Sync(StateBuilderRejectsReuseAndDuplicates)),
+        ("state supports concurrent readers and publishers", Sync(StateSupportsConcurrentReadersAndPublishers)),
     ];
 
     private static async Task<int> Main()

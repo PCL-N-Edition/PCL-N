@@ -76,6 +76,8 @@ The initial Wave 1 registry treats semantic IDs as opaque, case-sensitive values
 
 Command and query routes are registered through closed generic adapters and sealed before use. Commands separate immediate route acceptance from asynchronous handler completion, and every completion is observed even when the caller does not await it. Queries are asynchronous, cancellable, correlated, and may apply an explicit timeout. Runtime failures cross the router boundary as stable XSR error codes rather than leaked handler or transport exceptions.
 
+The sealed registry is part of the XSR abstractions kernel: routing, state, events, transport, and generated code resolve the identical deterministic ID mapping. State entries declared through the store follow the same rule — typed cells and ordered collections carry a monotonic revision and availability separate from the last value, collection deltas apply only against a matching base revision, and derived entries recompute only after an input revision changes.
+
 ## Ownership and composition
 
 - Services own business behavior and publish state/events.

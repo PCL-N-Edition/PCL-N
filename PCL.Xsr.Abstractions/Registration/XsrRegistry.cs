@@ -1,4 +1,4 @@
-namespace PCL.Xsr.Runtime;
+namespace PCL.Xsr;
 
 /// <summary>
 /// Collects XSR registrations during startup and seals them into a deterministic snapshot.
