@@ -17,6 +17,7 @@ app="$artifact_dir/PCL N.app"
 binary="$app/Contents/MacOS/PCL-N-Edition"
 host_bin="$app/Contents/MacOS/host/PCL-N-Host"
 native_dir="$app/Contents/MacOS/native"
+layout_marker="$app/Contents/MacOS/pcln-layout"
 
 if [[ ! -d "$app" ]]; then
   echo "macOS app bundle not found at: $app" >&2
@@ -39,6 +40,10 @@ if [[ ! -d "$native_dir" ]]; then
   echo "Expanded native/ tree not found at: $native_dir" >&2
   exit 1
 fi
+if [[ ! -f "$layout_marker" ]]; then
+  echo "Scatter layout marker not found at: $layout_marker" >&2
+  exit 1
+fi
 if find "$app/Contents/MacOS" -type f -name '*.zip' | grep -q .; then
   echo "App bundle must not contain .zip files (fully expanded scatter):" >&2
   find "$app/Contents/MacOS" -type f -name '*.zip' -print >&2
@@ -46,11 +51,11 @@ if find "$app/Contents/MacOS" -type f -name '*.zip' | grep -q .; then
 fi
 
 # Artifact upload/download may drop the executable bit.
-chmod +x "$binary" "$host_bin" || true
-# pcln-layout is a plain-text marker; with an exec bit codesign --deep rejects
-# the bundle for containing an unsigned code object.
-find "$app/Contents/MacOS" -type f \( -name 'PCL-N-*' -o -name 'pcln-*' \) ! -name 'pcln-layout' -exec chmod +x {} + 2>/dev/null || true
+chmod +x "$binary" "$host_bin" "$layout_marker" || true
+find "$app/Contents/MacOS" -type f \( -name 'PCL-N-*' -o -name 'pcln-*' \) -exec chmod +x {} + 2>/dev/null || true
 test -x "$binary"
+test -x "$layout_marker"
+file "$layout_marker" | grep -q 'Mach-O'
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
 
@@ -119,11 +124,9 @@ ditto "$dmg_root/PCL N.app" "$mount_dir/PCL N.app"
 ln -sf /Applications "$mount_dir/Applications"
 ditto "$dmg_root/.background" "$mount_dir/.background"
 test -x "$mount_dir/PCL N.app/Contents/MacOS/PCL-N-Edition"
-# Deep verification happened at build time, right after codesign --deep --sign
-# sealed every nested code object (the pcln-layout marker via xattr). The
-# artifact round trip strips those xattrs, so transferred copies can never pass
-# --deep again; verify the outer bundle seal and main executable instead.
-codesign --verify --strict "$mount_dir/PCL N.app"
+# pcln-layout is an embedded-signature Mach-O marker, so the complete bundle
+# must remain deeply verifiable after the artifact round trip and DMG copy.
+codesign --verify --deep --strict "$mount_dir/PCL N.app"
 
 # Persist the familiar drag-to-Applications installer layout in .DS_Store.
 # The app and target folder are spatially mapped to the arrow in the background.
@@ -190,7 +193,9 @@ test -L "$mount_dir/Applications"
 test -s "$mount_dir/.DS_Store"
 test -s "$mount_dir/.background/PCLN-background.png"
 test -x "$mount_dir/PCL N.app/Contents/MacOS/PCL-N-Edition"
-codesign --verify --strict "$mount_dir/PCL N.app"
+test -x "$mount_dir/PCL N.app/Contents/MacOS/pcln-layout"
+file "$mount_dir/PCL N.app/Contents/MacOS/pcln-layout" | grep -q 'Mach-O'
+codesign --verify --deep --strict "$mount_dir/PCL N.app"
 hdiutil detach "$mount_dir"
 rmdir "$mount_dir" 2>/dev/null || true
 mount_dir=""

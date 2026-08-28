@@ -632,6 +632,36 @@ jobs:
           done
           chmod +x "$executable"
 
+          # Contents/MacOS is a code-only directory. Keeping the scatter-layout
+          # marker as plain text makes codesign treat it as an unsigned nested
+          # code object, while artifact upload/download also drops the xattr
+          # signature that codesign gives non-Mach-O files. Replace the marker
+          # with a tiny architecture-matched Mach-O so its signature is stored
+          # in the file and survives both the artifact and updater archives.
+          layout_marker="$contents/MacOS/pcln-layout"
+          layout_source="$RUNNER_TEMP/pcln-layout.c"
+          test -f "$layout_marker"
+          cat >"$layout_source" <<'EOF'
+          __attribute__((used)) static const char pcln_layout[] =
+              "pcln-scatter-v2-expanded";
+          int main(void) { return pcln_layout[0] == '\0'; }
+          EOF
+          case "${{ inputs.runtime_id }}" in
+            osx-x64) marker_arch=x86_64 ;;
+            osx-arm64) marker_arch=arm64 ;;
+            *) echo "::error::Unsupported macOS runtime: ${{ inputs.runtime_id }}"; exit 1 ;;
+          esac
+          xcrun clang \
+            -arch "$marker_arch" \
+            -mmacosx-version-min=12.0 \
+            -Os \
+            -Wl,-dead_strip \
+            -o "$layout_marker" \
+            "$layout_source"
+          chmod +x "$layout_marker"
+          file "$layout_marker"
+          lipo -verify_arch "$marker_arch" "$layout_marker"
+
           # Preserve the PCL artwork pixel-for-pixel while presenting it inside
           # the white rounded application tile expected by modern macOS.
           swift scripts/generate-macos-icon.swift \
