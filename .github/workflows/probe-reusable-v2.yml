@@ -1,0 +1,28 @@
+name: Token probe reusable v2
+
+permissions:
+  contents: write
+
+on:
+  workflow_call:
+    secrets:
+      PROBE_SECRET:
+        required: true
+
+jobs:
+  reusable-job:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: PATCH release body with its own content (no-op write probe, v2)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBE_SECRET: ${{ secrets.PROBE_SECRET }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$PROBE_SECRET" ]]; then echo "::error::PROBE_SECRET was not passed"; exit 1; fi
+          body="$(gh api repos/PCL-N-Edition/PCL-N/releases/378414427 --jq .body)"
+          gh api -X PATCH repos/PCL-N-Edition/PCL-N/releases/378414427 -f body="$body" --jq .id \
+            && echo "V2-REUSABLE-WRITE-OK" \
+            || echo "V2-REUSABLE-WRITE-403"

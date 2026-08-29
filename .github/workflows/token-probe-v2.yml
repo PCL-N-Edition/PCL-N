@@ -1,0 +1,23 @@
+name: Token probe v2
+
+permissions:
+  contents: write
+  issues: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/token-probe
+
+concurrency:
+  group: token-probe-v2
+  cancel-in-progress: false
+
+jobs:
+  reusable:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/probe-reusable-v2.yml
+    secrets:
+      PROBE_SECRET: ${{ secrets.GITHUB_TOKEN }}
