@@ -17,7 +17,7 @@ internal static partial class Program
         using SidecarIpcListener listener = SidecarIpcListener.Bind(pipeName);
 
         ValueTask<Stream> accepted = listener.AcceptAsync();
-        Stream clientStream = await SidecarIpcConnector.ConnectAsync(pipeName);
+        Stream clientStream = await SidecarIpcConnector.ConnectAsync(listener.Endpoint);
         Stream serverStream = await accepted;
 
         using SidecarConnection client = new(clientStream);

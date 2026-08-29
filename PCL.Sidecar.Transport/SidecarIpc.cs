@@ -179,7 +179,8 @@ public sealed class SidecarIpcListener : IDisposable
 }
 
 /// <summary>
-/// Connects to a Sidecar IPC listener.
+/// Connects to a Sidecar IPC listener. On Unix, pass the listener's
+/// <see cref="SidecarIpcListener.Endpoint"/> — the guarded socket path — not the bare name.
 /// </summary>
 public static class SidecarIpcConnector
 {
