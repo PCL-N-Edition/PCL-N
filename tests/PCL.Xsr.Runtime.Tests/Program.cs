@@ -54,6 +54,8 @@ internal static partial class Program
         ("stream failure marks session failed", StreamFailureMarksSessionFailed),
         ("reconnect replaces mirror with fresh snapshot", ReconnectReplacesMirrorWithFreshSnapshot),
         ("pending backpressure rejects with stable error", PendingBackpressureRejectsWithStableError),
+        ("pending table stays bounded", PendingTableStaysBounded),
+        ("unregistered commands reject locally without wire bytes", UnregisteredCommandsRejectLocally),
         ("events assign deterministic typed identifiers", Sync(EventsAssignDeterministicTypedIdentifiers)),
         ("events share sequence space inside declared scope", Sync(EventsShareSequenceSpaceInsideDeclaredScope)),
         ("events order per scope key independently", Sync(EventsOrderPerScopeKeyIndependently)),

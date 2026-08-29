@@ -6,10 +6,12 @@ using PCL.Xsr.State;
 namespace PCL.Xsr.Runtime;
 
 /// <summary>
-/// Data-plane behavior of the host session: command and query forwarding with correlated
-/// results, state deltas applied to the mirror, event delivery, and crash handling that marks
-/// the mirror unavailable while retaining values. The receive loop is the session's single
-/// reader; renderer reads stay local to the mirror store and perform no IPC.
+/// Data-plane behavior of the host session: command and query forwarding by session-local
+/// contract ID, state deltas applied to the mirror, ordered event delivery, bounded pending
+/// exchanges, and cancellation that reaches the sidecar. The data plane is a capability
+/// boundary: a semantic that was not registered under the requested kind is rejected locally
+/// with the stable route-not-found error and never touches the wire. The receive loop is the
+/// session's single reader; renderer reads stay local to the mirror store and perform no IPC.
 /// </summary>
 public sealed partial class SidecarHostSession
 {
@@ -32,6 +34,8 @@ public sealed partial class SidecarHostSession
         }
     }
 
+    private string LastValue { get; set; } = string.Empty;
+
     /// <summary>
     /// Attaches the event observer. Call once before activation.
     /// </summary>
@@ -42,9 +46,9 @@ public sealed partial class SidecarHostSession
     }
 
     /// <summary>
-    /// Forwards one command to the sidecar with a fresh correlation ID and an optional timeout.
-    /// Failures cross the boundary as stable error codes; a timeout or cancellation removes the
-    /// pending exchange and returns the stable timed-out or cancelled error.
+    /// Forwards one command to the sidecar by its session-local contract ID. Unregistered
+    /// semantics are rejected locally without IPC. Cancellation sends CANCEL so the sidecar
+    /// aborts the operation instead of running it to completion.
     /// </summary>
     public async ValueTask<XsrResult> SendCommandAsync(
         XsrSemanticId command,
@@ -53,27 +57,20 @@ public sealed partial class SidecarHostSession
         CancellationToken cancellationToken = default)
     {
         ThrowState(SidecarSessionState.Active);
-        (SidecarCorrelationId correlation, Task<SidecarExchangeOutcome> completion) =
-            BeginExchange(SidecarMessageType.CommandRequest, command, argument, timeout);
-        try
+        SidecarRegistrationEntry? entry = RequireContract(SidecarRegistrationKind.Command, command);
+        if (entry is null)
         {
-            SidecarExchangeOutcome outcome = await completion.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return OutcomeToResult(outcome);
+            return XsrResult.Failure(XsrRuntimeErrors.RouteNotFound());
         }
-        catch (TimeoutException)
-        {
-            RemovePending(correlation.Value);
-            return XsrResult.Failure(XsrRuntimeErrors.TimedOut());
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            RemovePending(correlation.Value);
-            return XsrResult.Failure(XsrRuntimeErrors.Cancelled());
-        }
+
+        SidecarExchangeOutcome outcome =
+            await RunExchangeAsync(SidecarMessageType.CommandRequest, entry, argument, timeout, cancellationToken)
+                .ConfigureAwait(false);
+        return OutcomeToResult(outcome);
     }
 
     /// <summary>
-    /// Forwards one query to the sidecar and returns its string-encoded result.
+    /// Forwards one query to the sidecar by contract ID and returns its string-encoded result.
     /// </summary>
     public async ValueTask<XsrResult<string>> SendQueryAsync(
         XsrSemanticId query,
@@ -82,25 +79,22 @@ public sealed partial class SidecarHostSession
         CancellationToken cancellationToken = default)
     {
         ThrowState(SidecarSessionState.Active);
-        (SidecarCorrelationId correlation, Task<SidecarExchangeOutcome> completion) =
-            BeginExchange(SidecarMessageType.QueryRequest, query, argument, timeout);
-        try
+        SidecarRegistrationEntry? entry = RequireContract(SidecarRegistrationKind.Query, query);
+        if (entry is null)
         {
-            SidecarExchangeOutcome outcome = await completion.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return outcome.Success
-                ? XsrResult.Success(outcome.Value)
-                : XsrResult.Failure<string>(OutcomeToResult(outcome).Error!);
+            return XsrResult.Failure<string>(XsrRuntimeErrors.RouteNotFound());
         }
-        catch (TimeoutException)
+
+        SidecarExchangeOutcome outcome =
+            await RunExchangeAsync(SidecarMessageType.QueryRequest, entry, argument, timeout, cancellationToken)
+                .ConfigureAwait(false);
+        if (outcome.Success)
         {
-            RemovePending(correlation.Value);
-            return XsrResult.Failure<string>(XsrRuntimeErrors.TimedOut());
+            LastValue = outcome.Value;
+            return XsrResult.Success(outcome.Value);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            RemovePending(correlation.Value);
-            return XsrResult.Failure<string>(XsrRuntimeErrors.Cancelled());
-        }
+
+        return XsrResult.Failure<string>(OutcomeToResult(outcome).Error!);
     }
 
     /// <summary>
@@ -120,7 +114,7 @@ public sealed partial class SidecarHostSession
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                FailWithMirrorStale($"The sidecar stream failed: {exception.Message}");
+                FailWithMirrorUnavailable($"The sidecar stream failed: {exception.Message}");
                 return;
             }
 
@@ -136,30 +130,34 @@ public sealed partial class SidecarHostSession
                     DeliverEvent(frame.Payload.Span);
                     break;
                 case SidecarMessageType.Crash:
-                    FailWithMirrorStale("The sidecar reported a crash.");
+                    FailWithMirrorUnavailable("The sidecar reported a crash.");
                     return;
                 case SidecarMessageType.Shutdown:
                     Transition(SidecarSessionState.Closed);
                     _connection.Close();
                     return;
                 default:
-                    FailWithMirrorStale($"The data plane received unexpected message {frame.MessageType}.");
+                    FailWithMirrorUnavailable($"The data plane received unexpected message {frame.MessageType}.");
                     return;
             }
         }
     }
 
-    private (SidecarCorrelationId Correlation, Task<SidecarExchangeOutcome> Completion) BeginExchange(
+    private SidecarRegistrationEntry? RequireContract(SidecarRegistrationKind kind, XsrSemanticId semantic) =>
+        _registration?.TryResolve(kind, semantic);
+
+    private async ValueTask<SidecarExchangeOutcome> RunExchangeAsync(
         SidecarMessageType requestType,
-        XsrSemanticId semantic,
+        SidecarRegistrationEntry entry,
         string? argument,
-        TimeSpan? timeout)
+        TimeSpan? timeout,
+        CancellationToken cancellationToken)
     {
         lock (_pendingGate)
         {
             if (_pending.Count >= _maxPending)
             {
-                return (default, Task.FromResult(SidecarExchangeOutcome.Backpressure()));
+                return SidecarExchangeOutcome.Backpressure();
             }
         }
 
@@ -171,32 +169,60 @@ public sealed partial class SidecarHostSession
             _pending[correlation.Value] = completion;
         }
 
-        ValueTask send = _connection.SendAsync(new SidecarFrame(
+        await _connection.SendAsync(new SidecarFrame(
             SidecarProtocol.Version,
             requestType,
             SidecarFrameTraits.None,
             correlation,
-            SidecarDataPlane.EncodeRequest(semantic, argument)),
-            CancellationToken.None);
-        if (!send.IsCompletedSuccessfully)
-        {
-            _ = DeliverSendFailureAsync(send, correlation.Value);
-        }
+            SidecarDataPlane.EncodeRequest(entry.ContractId, argument)),
+            CancellationToken.None).ConfigureAwait(false);
 
-        return (correlation, timeout is { } bounded
-            ? completion.Task.WaitAsync(bounded)
-            : completion.Task);
+        try
+        {
+            Task<SidecarExchangeOutcome> wait = completion.Task;
+            if (timeout is { } bounded)
+            {
+                wait = wait.WaitAsync(bounded, CancellationToken.None);
+            }
+
+            return await wait.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            RemovePending(correlation.Value);
+            await SendCancelAsync(correlation, "host timeout", CancellationToken.None).ConfigureAwait(false);
+            return SidecarExchangeOutcome.TimedOut();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            RemovePending(correlation.Value);
+            await SendCancelAsync(correlation, "host cancelled", CancellationToken.None).ConfigureAwait(false);
+            return SidecarExchangeOutcome.Cancelled();
+        }
     }
 
-    private async Task DeliverSendFailureAsync(ValueTask send, Guid correlation)
+    /// <summary>
+    /// Sends CANCEL for one exchange so the sidecar aborts the operation. Best-effort: a
+    /// failure to deliver the cancel never changes the host's outcome.
+    /// </summary>
+    private async ValueTask SendCancelAsync(
+        SidecarCorrelationId correlation,
+        string reason,
+        CancellationToken cancellationToken)
     {
         try
         {
-            await send.ConfigureAwait(false);
+            await _connection.SendAsync(new SidecarFrame(
+                SidecarProtocol.Version,
+                SidecarMessageType.Cancel,
+                SidecarFrameTraits.None,
+                correlation,
+                SidecarStateSnapshot.EncodeCancel(correlation.Value, reason)),
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
         {
-            CompletePending(correlation, SidecarExchangeOutcome.Unavailable());
+            // A failed cancel delivery never changes the caller's outcome.
         }
     }
 
@@ -212,10 +238,12 @@ public sealed partial class SidecarHostSession
 
     private void ApplyStateDelta(ReadOnlySpan<byte> payload)
     {
-        (XsrSemanticId semantic, string value) = SidecarDataPlane.DecodeStateDelta(payload);
-        if (_mirror?.TryResolve(semantic) is not { } stateId)
+        (uint contractId, string value) = SidecarDataPlane.DecodeStateDelta(payload);
+        SidecarRegistrationEntry? entry = _registration?.Entries.FirstOrDefault(
+            candidate => candidate.Kind == SidecarRegistrationKind.State && candidate.ContractId == contractId);
+        if (entry is null || _mirror?.TryResolve(entry.SemanticId) is not { } stateId)
         {
-            // A delta for an unregistered state is dropped; the mirror only carries declared
+            // A delta for an undeclared contract is dropped; the mirror only carries declared
             // cells.
             return;
         }
@@ -225,10 +253,17 @@ public sealed partial class SidecarHostSession
 
     private void DeliverEvent(ReadOnlySpan<byte> payload)
     {
-        (XsrSemanticId semantic, string payloadText) = SidecarDataPlane.DecodeEvent(payload);
+        (uint contractId, string payloadText) = SidecarDataPlane.DecodeEvent(payload);
+        SidecarRegistrationEntry? entry = _registration?.Entries.FirstOrDefault(
+            candidate => candidate.Kind == SidecarRegistrationKind.Event && candidate.ContractId == contractId);
+        if (entry is null)
+        {
+            return;
+        }
+
         try
         {
-            _eventObserver?.OnEvent(semantic, payloadText);
+            _eventObserver?.OnEvent(entry.SemanticId, payloadText);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
         {
@@ -236,7 +271,7 @@ public sealed partial class SidecarHostSession
         }
     }
 
-    private void FailWithMirrorStale(string reason)
+    private void FailWithMirrorUnavailable(string reason)
     {
         Fail(reason);
         if (_mirror is { } mirror && _registration is { } registration)
@@ -281,11 +316,10 @@ public sealed partial class SidecarHostSession
             return XsrResult.Success();
         }
 
-        string code = outcome.ErrorCode.Length == 0 ? "xsr.handler_faulted" : outcome.ErrorCode;
-        XsrErrorKind kind = code == XsrRuntimeErrors.BackpressureCode.Value
-            ? XsrErrorKind.Backpressure
-            : XsrErrorKind.Rejected;
-        return XsrResult.Failure(new XsrError(kind, XsrSemanticId.Parse(code), "The sidecar rejected the exchange."));
+        return XsrResult.Failure(new XsrError(
+            XsrErrorKind.Rejected,
+            XsrSemanticId.Parse(outcome.ErrorCode.Length == 0 ? "xsr.handler_faulted" : outcome.ErrorCode),
+            "The sidecar rejected the exchange."));
     }
 }
 
@@ -294,7 +328,9 @@ public sealed partial class SidecarHostSession
 /// </summary>
 public sealed record SidecarExchangeOutcome(bool Success, string Value, string ErrorCode)
 {
-    internal static SidecarExchangeOutcome Unavailable() => new(false, string.Empty, "xsr.unavailable");
+    public static SidecarExchangeOutcome TimedOut() => new(false, string.Empty, "xsr.timed_out");
+
+    public static SidecarExchangeOutcome Cancelled() => new(false, string.Empty, "xsr.cancelled");
 
     internal static SidecarExchangeOutcome Backpressure() => new(false, string.Empty, "xsr.backpressure");
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using PCL.Sidecar.Protocol;
 
 namespace PCL.Sidecar.Tests;
@@ -38,6 +39,7 @@ internal static partial class Program
         }
 
         Console.WriteLine($"Sidecar protocol tests passed: {TestCases.Length}.");
+        await RunPerfGates();
         return 0;
     }
 

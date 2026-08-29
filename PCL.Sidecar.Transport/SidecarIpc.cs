@@ -1,5 +1,6 @@
 using System.IO.Pipes;
 using System.Net.Sockets;
+using System.Runtime.Versioning;
 using PCL.Sidecar.Protocol;
 
 namespace PCL.Sidecar.Transport;
@@ -7,19 +8,23 @@ namespace PCL.Sidecar.Transport;
 /// <summary>
 /// Accepts one Sidecar connection at a time over the platform local IPC: named pipes on Windows,
 /// Unix-domain sockets elsewhere. The stream factories are the only OS-specific surface; the
-/// protocol and session layers stay transport-agnostic.
+/// protocol and session layers stay transport-agnostic. On Unix the socket lives in a
+/// randomized 0700 directory and the socket file itself is 0600 — same-user security is a
+/// requirement, never a umask assumption.
 /// </summary>
 public sealed class SidecarIpcListener : IDisposable
 {
     private readonly string _pipeName;
+    private readonly string? _unixDirectory;
     private readonly object _gate = new();
     private NamedPipeServerStream? _windowsServer;
     private Socket? _unixSocket;
     private bool _disposed;
 
-    private SidecarIpcListener(string pipeName)
+    private SidecarIpcListener(string pipeName, string? unixDirectory)
     {
         _pipeName = pipeName;
+        _unixDirectory = unixDirectory;
     }
 
     public static bool IsSupported =>
@@ -36,7 +41,13 @@ public sealed class SidecarIpcListener : IDisposable
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(pipeName);
-        SidecarIpcListener listener = new(pipeName);
+        string? unixDirectory = null;
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        {
+            unixDirectory = CreateGuardedUnixDirectory();
+        }
+
+        SidecarIpcListener listener = new(pipeName, unixDirectory);
         if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
         {
             listener.BindUnix();
@@ -88,18 +99,25 @@ public sealed class SidecarIpcListener : IDisposable
             _unixSocket?.Dispose();
             try
             {
-                if (File.Exists(_pipeName))
+                if (File.Exists(SocketPath))
                 {
-                    File.Delete(_pipeName);
+                    File.Delete(SocketPath);
+                }
+
+                if (_unixDirectory is not null && Directory.Exists(_unixDirectory))
+                {
+                    Directory.Delete(_unixDirectory);
                 }
             }
             catch (IOException)
             {
-                // The socket file is best-effort cleanup.
+                // The socket file and directory are best-effort cleanup.
             }
         }
     }
 
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
     private void BindUnix()
     {
         try
@@ -113,10 +131,36 @@ public sealed class SidecarIpcListener : IDisposable
         {
         }
 
+        string socketPath = SocketPath;
         _unixSocket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-        _unixSocket.Bind(new UnixDomainSocketEndPoint(_pipeName));
+        _unixSocket.Bind(new UnixDomainSocketEndPoint(socketPath));
         _unixSocket.Listen(1);
+        File.SetUnixFileMode(socketPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
+
+    private string SocketPath => _unixDirectory is null ? _pipeName : Path.Combine(_unixDirectory, _pipeName);
+
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    private static string CreateGuardedUnixDirectory()
+    {
+        // A randomized 0700 directory per listener: even a world-writable temp root cannot let
+        // another user reach or pre-empt the endpoint.
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "pcl-n-sidecar-" + Guid.NewGuid().ToString("N"));
+        _ = Directory.CreateDirectory(directory);
+        File.SetUnixFileMode(
+            directory,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return directory;
+    }
+
+    /// <summary>
+    /// Gets the endpoint the connector dialls: the pipe name on Windows, the full socket path on
+    /// Unix (inside the randomized 0700 directory).
+    /// </summary>
+    public string Endpoint => OperatingSystem.IsWindows() ? _pipeName : SocketPath;
 
     private NamedPipeServerStream CreateWindowsPipe()
     {

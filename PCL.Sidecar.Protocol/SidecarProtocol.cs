@@ -1,8 +1,9 @@
 namespace PCL.Sidecar.Protocol;
 
 /// <summary>
-/// The frozen Sidecar protocol constants. Message numbers and framing are append-only after
-/// protocol v1; existing values never change meaning.
+/// The Sidecar protocol constants. The protocol is 1.0-draft (pre-freeze): framing and message
+/// numbers are append-only, existing values never change meaning, and the freeze happens before
+/// the Plugin SDK RC. Nothing here is a plugin-consumable stable ABI yet.
 /// </summary>
 public static class SidecarProtocol
 {

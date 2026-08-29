@@ -53,11 +53,44 @@ internal static partial class Program
             Array.Empty<byte>()));
         SidecarStateMirror mirror = await registration;
 
+        // Registration alone does not make the session ready: the sidecar must deliver the
+        // state snapshot, and READY comes back on the wire only after it commits.
+        AssertEqual(SidecarSessionState.Registering, session.State);
+        ValueTask snapshot = session.AcceptStateSnapshotAsync();
+        await pluginConnection.SendAsync(new SidecarFrame(
+            SidecarProtocol.Version,
+            SidecarMessageType.StateSnapshotBegin,
+            SidecarFrameTraits.None,
+            SidecarCorrelationId.Create(),
+            SidecarStateSnapshot.EncodeBegin(1)));
+        await pluginConnection.SendAsync(new SidecarFrame(
+            SidecarProtocol.Version,
+            SidecarMessageType.StateSnapshotItem,
+            SidecarFrameTraits.None,
+            SidecarCorrelationId.Create(),
+            SidecarStateSnapshot.EncodeItem(1, "0")));
+        await pluginConnection.SendAsync(new SidecarFrame(
+            SidecarProtocol.Version,
+            SidecarMessageType.StateSnapshotEnd,
+            SidecarFrameTraits.None,
+            SidecarCorrelationId.Create(),
+            Array.Empty<byte>()));
+        await snapshot;
+        SidecarFrame ready = await SessionReceiveAsync(pluginConnection);
+        AssertEqual(SidecarMessageType.Ready, ready.MessageType);
         AssertEqual(SidecarSessionState.Ready, session.State);
+
+        // The snapshot committed before activation: the mirrored cell is coherent and
+        // available already.
+        XsrStateId snapshotProgress = mirror.TryResolve(XsrSemanticId.Parse("plugin.download.progress"))
+            ?? throw new InvalidOperationException("The mirrored state is missing.");
+        AssertEqual("0", mirror.Store.Read<string>(snapshotProgress).Value);
+        AssertTrue(mirror.Store.Read<string>(snapshotProgress).IsAvailable);
         AssertEqual(1, mirror.Store.Count);
         XsrStateId progress = mirror.TryResolve(XsrSemanticId.Parse("plugin.download.progress"))
             ?? throw new InvalidOperationException("The mirrored state is missing.");
-        AssertEqual(0L, mirror.Store.Read<string>(progress).Revision);
+        // The snapshot published revision 1 before READY; the mirror is coherent, not empty.
+        AssertEqual(1L, mirror.Store.Read<string>(progress).Revision);
         AssertEqual(1, session.Registration!.Commands.Count());
         AssertEqual(1, session.Registration!.Queries.Count());
         AssertEqual(1, session.Registration.Events.Count());
@@ -82,7 +115,7 @@ internal static partial class Program
                 SidecarSessionState.Registering,
                 SidecarSessionState.Ready,
                 SidecarSessionState.Active,
-                SidecarSessionState.Registering,
+                SidecarSessionState.Ready,
                 SidecarSessionState.Closed,
             },
             transitions.ToArray());
@@ -182,7 +215,7 @@ internal static partial class Program
         SidecarMessageType.RegisterItem,
         SidecarFrameTraits.None,
         SidecarCorrelationId.Create(),
-        SidecarRegistration.EncodeItem(new SidecarRegistrationItem(kind, semanticId, 0)));
+        SidecarRegistration.EncodeItem(new SidecarRegistrationItem(kind, semanticId, 0, 0)));
 
     private static Task<SidecarFrame> SessionReceiveAsync(SidecarConnection connection) =>
         connection.ReceiveAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));

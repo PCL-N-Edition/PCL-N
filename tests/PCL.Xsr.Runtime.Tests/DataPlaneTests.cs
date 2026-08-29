@@ -17,8 +17,9 @@ internal static partial class Program
 
         SidecarFrame request = await DataPlaneReceiveAsync(plugin);
         AssertEqual(SidecarMessageType.CommandRequest, request.MessageType);
-        (XsrSemanticId semantic, string argument) = SidecarDataPlane.DecodeRequest(request.Payload.Span);
-        AssertEqual("plugin.download.start", semantic.Value);
+        (uint contractId, string argument) = SidecarDataPlane.DecodeRequest(request.Payload.Span);
+        // Command contract ID 1: the first command declared at registration.
+        AssertEqual(1u, contractId);
         AssertEqual("http://example.com", argument);
 
         await plugin.SendAsync(Result(request, success: true, value: "started", error: null));
@@ -31,7 +32,8 @@ internal static partial class Program
     {
         (SidecarHostSession session, SidecarConnection plugin, _, _) = await ActivatedSession();
 
-        ValueTask<XsrResult> sent = session.SendCommandAsync(XsrSemanticId_Parse("plugin.save"));
+        // plugin.download.start is registered; plugin.save would be rejected locally.
+        ValueTask<XsrResult> sent = session.SendCommandAsync(XsrSemanticId_Parse("plugin.download.start"));
 
         SidecarFrame request = await DataPlaneReceiveAsync(plugin);
         await plugin.SendAsync(Result(request, success: false, value: string.Empty, error: "plugin.disk_full"));
@@ -45,6 +47,7 @@ internal static partial class Program
     {
         (SidecarHostSession session, SidecarConnection plugin, _, _) = await ActivatedSession();
 
+        // Queries use the query contract table; plugin.download.status is the registered query.
         Task<XsrResult<string>> sent = session
             .SendQueryAsync(XsrSemanticId_Parse("plugin.download.status"))
             .AsTask();
@@ -61,8 +64,16 @@ internal static partial class Program
     {
         (SidecarHostSession session, SidecarConnection plugin, _, _) = await ActivatedSession();
 
+        // An unregistered command is rejected locally (capability boundary) without IPC.
+        XsrResult unregistered = await session.SendCommandAsync(XsrSemanticId_Parse("plugin.never"));
+        AssertFalse(unregistered.IsSuccess);
+        AssertEqual(XsrRuntimeErrors.RouteNotFoundCode, unregistered.Error!.Code);
+        AssertEqual(0, session.PendingCount);
+
+        // A registered command that never completes hits the timeout and releases the pending
+        // exchange.
         XsrResult result = await session.SendCommandAsync(
-            XsrSemanticId_Parse("plugin.never"),
+            XsrSemanticId_Parse("plugin.download.start"),
             timeout: TimeSpan.FromMilliseconds(50));
 
         AssertFalse(result.IsSuccess);
@@ -77,14 +88,15 @@ internal static partial class Program
         XsrStateId progress = mirror.TryResolve(XsrSemanticId_Parse("plugin.download.progress"))
             ?? throw new InvalidOperationException("The mirrored state is missing.");
 
+        // The snapshot holds revision 1 ("0"); deltas advance to 2 and 3.
         await plugin.SendAsync(Delta("plugin.download.progress", "50"));
-        await WaitUntil(() => mirror.Store.Read<string>(progress).Revision == 1);
+        await WaitUntil(() => mirror.Store.Read<string>(progress).Revision == 2);
         XsrStateValue<string> value = mirror.Store.Read<string>(progress);
         AssertEqual("50", value.Value);
         AssertTrue(value.IsAvailable);
 
         await plugin.SendAsync(Delta("plugin.download.progress", "100"));
-        await WaitUntil(() => mirror.Store.Read<string>(progress).Revision == 2);
+        await WaitUntil(() => mirror.Store.Read<string>(progress).Revision == 3);
         AssertEqual("100", mirror.Store.Read<string>(progress).Value);
 
         await plugin.SendAsync(new SidecarFrame(
@@ -131,7 +143,7 @@ internal static partial class Program
             ?? throw new InvalidOperationException("The mirrored state is missing.");
 
         await plugin.SendAsync(Delta("plugin.download.progress", "80"));
-        await WaitUntil(() => mirror.Store.Read<string>(progress).Revision == 1);
+        await WaitUntil(() => mirror.Store.Read<string>(progress).Revision == 2);
 
         await plugin.SendAsync(new SidecarFrame(
             SidecarProtocol.Version,
@@ -158,13 +170,14 @@ internal static partial class Program
 
         // RegisterOneState drives the whole registration sequence itself.
         SidecarStateMirror mirror = await RegisterOneState(session, pluginConnection);
+        await SnapshotAndReady(session, pluginConnection);
         await session.ActivateAsync();
         XsrStateId progress = mirror.TryResolve(XsrSemanticId_Parse("plugin.download.progress"))
             ?? throw new InvalidOperationException("The mirrored state is missing.");
 
         Task loop = session.RunReceiveLoopAsync().AsTask();
         await pluginConnection.SendAsync(Delta("plugin.download.progress", "5"));
-        await WaitUntil(() => mirror.Store.Read<string>(progress).Revision == 1);
+        await WaitUntil(() => mirror.Store.Read<string>(progress).Revision == 2);
 
         pluginStream.Close();
         await loop.WaitAsync(TimeSpan.FromSeconds(5));
@@ -184,7 +197,7 @@ internal static partial class Program
             ?? throw new InvalidOperationException("The mirrored state is missing.");
 
         await firstPlugin.SendAsync(Delta("plugin.download.progress", "80"));
-        await WaitUntil(() => firstMirror.Store.Read<string>(firstProgress).Revision == 1);
+        await WaitUntil(() => firstMirror.Store.Read<string>(firstProgress).Revision == 2);
         await firstPlugin.SendAsync(new SidecarFrame(
             SidecarProtocol.Version,
             SidecarMessageType.Crash,
@@ -202,7 +215,7 @@ internal static partial class Program
             ?? throw new InvalidOperationException("The mirrored state is missing.");
 
         await secondPlugin.SendAsync(Delta("plugin.download.progress", "95"));
-        await WaitUntil(() => secondMirror.Store.Read<string>(secondProgress).Revision == 1);
+        await WaitUntil(() => secondMirror.Store.Read<string>(secondProgress).Revision == 2);
         AssertEqual("95", secondMirror.Store.Read<string>(secondProgress).Value);
         AssertTrue(secondMirror.Store.Read<string>(secondProgress).IsAvailable);
 
@@ -223,9 +236,11 @@ internal static partial class Program
     {
         (SidecarHostSession session, SidecarConnection plugin, _, Task loop) = await ActivatedSession(maxPending: 2);
 
-        ValueTask<XsrResult> first = session.SendCommandAsync(XsrSemanticId_Parse("plugin.a"));
-        ValueTask<XsrResult> second = session.SendCommandAsync(XsrSemanticId_Parse("plugin.b"));
-        ValueTask<XsrResult> third = session.SendCommandAsync(XsrSemanticId_Parse("plugin.c"));
+        // The registered command, flooded to the pending cap: the fifth rejects with the
+        // stable backpressure error.
+        ValueTask<XsrResult> first = session.SendCommandAsync(XsrSemanticId_Parse("plugin.download.start"));
+        ValueTask<XsrResult> second = session.SendCommandAsync(XsrSemanticId_Parse("plugin.download.start"));
+        ValueTask<XsrResult> third = session.SendCommandAsync(XsrSemanticId_Parse("plugin.download.start"));
 
         XsrResult rejected = await third;
         AssertFalse(rejected.IsSuccess);
@@ -256,11 +271,45 @@ internal static partial class Program
         int maxPending = 1024)
     {
         (SidecarHostSession session, SidecarConnection plugin) = await HandshakeAndRegister(maxPending);
+        await SnapshotAndReady(session, plugin);
         await session.ActivateAsync();
         await DataPlaneReceiveAsync(plugin); // drain the ACTIVATE frame
         SidecarStateMirror mirror = session.Mirror!;
         Task loop = session.RunReceiveLoopAsync().AsTask();
         return (session, plugin, mirror, loop);
+    }
+
+    /// <summary>
+    /// Delivers the plugin-side state snapshot and drains the host's READY.
+    /// </summary>
+    private static async ValueTask SnapshotAndReady(
+        SidecarHostSession session,
+        SidecarConnection plugin,
+        uint contractId = 1,
+        string value = "0")
+    {
+        ValueTask snapshot = session.AcceptStateSnapshotAsync();
+        await plugin.SendAsync(new SidecarFrame(
+            SidecarProtocol.Version,
+            SidecarMessageType.StateSnapshotBegin,
+            SidecarFrameTraits.None,
+            SidecarCorrelationId.Create(),
+            SidecarStateSnapshot.EncodeBegin(1)));
+        await plugin.SendAsync(new SidecarFrame(
+            SidecarProtocol.Version,
+            SidecarMessageType.StateSnapshotItem,
+            SidecarFrameTraits.None,
+            SidecarCorrelationId.Create(),
+            SidecarStateSnapshot.EncodeItem(contractId, value)));
+        await plugin.SendAsync(new SidecarFrame(
+            SidecarProtocol.Version,
+            SidecarMessageType.StateSnapshotEnd,
+            SidecarFrameTraits.None,
+            SidecarCorrelationId.Create(),
+            Array.Empty<byte>()));
+        await snapshot;
+        SidecarFrame ready = await DataPlaneReceiveAsync(plugin);
+        AssertEqual(SidecarMessageType.Ready, ready.MessageType);
     }
 
     private static async ValueTask<(SidecarHostSession, SidecarConnection)> HandshakeAndRegister(
@@ -279,8 +328,9 @@ internal static partial class Program
             SidecarMessageType.RegisterBegin,
             SidecarFrameTraits.None,
             SidecarCorrelationId.Create(),
-            SidecarRegistration.EncodeBegin(3)));
+            SidecarRegistration.EncodeBegin(4)));
         await pluginConnection.SendAsync(Item(SidecarRegistrationKind.Command, "plugin.download.start"));
+        await pluginConnection.SendAsync(Item(SidecarRegistrationKind.Query, "plugin.download.status"));
         await pluginConnection.SendAsync(Item(SidecarRegistrationKind.State, "plugin.download.progress"));
         await pluginConnection.SendAsync(Item(SidecarRegistrationKind.Event, "plugin.download.completed"));
         await pluginConnection.SendAsync(new SidecarFrame(
@@ -327,19 +377,20 @@ internal static partial class Program
         request.CorrelationId,
         SidecarDataPlane.EncodeResult(success, value, error));
 
-    private static SidecarFrame Delta(string semantic, string value) => new(
+    // State contract ID 1 and event contract ID 1: the first of each kind declared.
+    private static SidecarFrame Delta(string _, string value) => new(
         SidecarProtocol.Version,
         SidecarMessageType.StateDelta,
         SidecarFrameTraits.None,
         SidecarCorrelationId.Create(),
-        SidecarDataPlane.EncodeStateDelta(XsrSemanticId.Parse(semantic), value));
+        SidecarDataPlane.EncodeStateDelta(1, value));
 
-    private static SidecarFrame Event(string semantic, string payload) => new(
+    private static SidecarFrame Event(string _, string payload) => new(
         SidecarProtocol.Version,
         SidecarMessageType.Event,
         SidecarFrameTraits.None,
         SidecarCorrelationId.Create(),
-        SidecarDataPlane.EncodeEvent(XsrSemanticId.Parse(semantic), payload));
+        SidecarDataPlane.EncodeEvent(1, payload));
 
     private static async ValueTask WaitUntil(Func<bool> condition, int attempts = 200)
     {

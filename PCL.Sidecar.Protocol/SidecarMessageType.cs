@@ -2,8 +2,9 @@ namespace PCL.Sidecar.Protocol;
 
 /// <summary>
 /// The Sidecar message types. The control plane carries session lifecycle; the data plane
-/// carries commands, queries, state, events, and streams. Numbers are append-only after
-/// protocol v1: existing numbers never change meaning and gaps are permanent.
+/// carries commands, queries, state, events, and streams. Numbers are append-only while the
+/// protocol is in 1.0-draft (pre-freeze): existing numbers never change meaning and gaps are
+/// filled only with new messages. Freezing happens before the Plugin SDK RC.
 /// </summary>
 public enum SidecarMessageType : ushort
 {
@@ -18,6 +19,10 @@ public enum SidecarMessageType : ushort
     Deactivate = 13,
     HealthPing = 16,
     HealthPong = 17,
+    StateSnapshotBegin = 14,
+    StateSnapshotItem = 15,
+    StateSnapshotEnd = 18,
+    Cancel = 19,
     Crash = 24,
     Shutdown = 30,
 

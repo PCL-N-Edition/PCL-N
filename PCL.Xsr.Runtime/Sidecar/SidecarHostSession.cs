@@ -97,8 +97,9 @@ public sealed partial class SidecarHostSession : IDisposable
 
     /// <summary>
     /// Accepts REGISTER_BEGIN/ITEM*/END and builds the per-session state mirror. States mirror
-    /// as string cells starting unavailable; commands, queries, and events become registration
-    /// entries.
+    /// declarations become registration entries carrying session-local contract IDs (per-kind
+    /// ordinals in declaration order). Registration alone does NOT make the session ready: the
+    /// state snapshot must follow, and READY goes on the wire only after it commits.
     /// </summary>
     public async ValueTask<SidecarStateMirror> AcceptRegistrationAsync(CancellationToken cancellationToken = default)
     {
@@ -109,6 +110,7 @@ public sealed partial class SidecarHostSession : IDisposable
             cancellationToken).ConfigureAwait(false);
         uint count = SidecarRegistration.DecodeBegin(begin.Payload.Span);
         List<SidecarRegistrationEntry> entries = new((int)count);
+        Dictionary<SidecarRegistrationKind, uint> ordinals = [];
 
         for (uint index = 0; index < count; index++)
         {
@@ -122,15 +124,62 @@ public sealed partial class SidecarHostSession : IDisposable
                 throw Fail($"The sidecar registered '{semantic}' twice.");
             }
 
-            entries.Add(new SidecarRegistrationEntry(item.Kind, semantic));
+            ordinals[item.Kind] = ordinals.TryGetValue(item.Kind, out uint ordinal) ? ordinal + 1 : 1;
+            uint contractId = ordinals[item.Kind];
+            entries.Add(new SidecarRegistrationEntry(item.Kind, semantic, contractId, item.Flags, item.CodecId));
         }
 
         _ = await ReceiveOrFail(SidecarMessageType.RegisterEnd, cancellationToken).ConfigureAwait(false);
 
         _registration = new SidecarRegistrationSet(entries);
         _mirror = BuildMirror(entries);
-        Transition(SidecarSessionState.Ready);
         return _mirror;
+    }
+
+    /// <summary>
+    /// Accepts STATE_SNAPSHOT_BEGIN/ITEM*/END, committing the snapshot into the fresh mirror, and
+    /// then sends READY — the wire lifecycle finally carries READY as the snapshot-committed
+    /// marker. Only after this returns is the mirror coherent and the session ready to activate.
+    /// </summary>
+    public async ValueTask AcceptStateSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowState(SidecarSessionState.Registering);
+        if (_mirror is null || _registration is null)
+        {
+            throw Fail("The session cannot accept a snapshot before registration.");
+        }
+
+        SidecarFrame begin = await ReceiveOrFail(
+            SidecarMessageType.StateSnapshotBegin,
+            cancellationToken).ConfigureAwait(false);
+        uint count = SidecarStateSnapshot.DecodeBegin(begin.Payload.Span);
+
+        for (uint index = 0; index < count; index++)
+        {
+            SidecarFrame itemFrame = await ReceiveOrFail(
+                SidecarMessageType.StateSnapshotItem,
+                cancellationToken).ConfigureAwait(false);
+            (uint contractId, string value) = SidecarStateSnapshot.DecodeItem(itemFrame.Payload.Span);
+            SidecarRegistrationEntry? entry = _registration.Entries.FirstOrDefault(
+                candidate => candidate.Kind == SidecarRegistrationKind.State && candidate.ContractId == contractId);
+            if (entry is null || _mirror.TryResolve(entry.SemanticId) is not { } stateId)
+            {
+                throw Fail($"The snapshot references unknown state contract {contractId}.");
+            }
+
+            _mirror.Store.Publish(stateId, value, cancellationToken);
+        }
+
+        _ = await ReceiveOrFail(SidecarMessageType.StateSnapshotEnd, cancellationToken).ConfigureAwait(false);
+
+        await _connection.SendAsync(new SidecarFrame(
+            SidecarProtocol.Version,
+            SidecarMessageType.Ready,
+            SidecarFrameTraits.None,
+            SidecarCorrelationId.Create(),
+            Array.Empty<byte>()),
+            cancellationToken).ConfigureAwait(false);
+        Transition(SidecarSessionState.Ready);
     }
 
     /// <summary>
@@ -155,7 +204,8 @@ public sealed partial class SidecarHostSession : IDisposable
     }
 
     /// <summary>
-    /// Sends DEACTIVATE, returning the session to ready. Runtime behavior stops on the sidecar.
+    /// Sends DEACTIVATE, returning the session to ready without re-registration. Runtime
+    /// behavior stops on the sidecar.
     /// </summary>
     public async ValueTask DeactivateAsync(CancellationToken cancellationToken = default)
     {
@@ -167,7 +217,7 @@ public sealed partial class SidecarHostSession : IDisposable
             SidecarCorrelationId.Create(),
             Array.Empty<byte>()),
             cancellationToken).ConfigureAwait(false);
-        Transition(SidecarSessionState.Registering);
+        Transition(SidecarSessionState.Ready);
     }
 
     /// <summary>

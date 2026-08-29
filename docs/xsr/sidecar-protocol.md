@@ -41,6 +41,8 @@ Data plane messages include command/result, query/result, state delta, event, an
 
 Every frame carries protocol version, message type, flags, correlation ID, and payload length. The payload codec supports optional fields, unknown-field skipping, schema generation, forward/backward compatibility, and low-allocation decoding.
 
+Registration establishes session-local numeric contract IDs (per-kind ordinals); the data plane executes by contract ID, and semantic strings ride only registration, diagnostics, and tracing. Registration closes with a state snapshot (BEGIN/ITEM*/END) that the host commits before emitting READY, so reconnect replaces the mirror atomically. CANCEL carries a correlation ID so host-side cancellation aborts sidecar operations.
+
 JSON is allowed for manifests, diagnostics, and debug dumps. It is forbidden on the production data-plane hot path. A fixed, non-extensible CLR struct layout is also forbidden as the wire ABI.
 
 ## Dispatch

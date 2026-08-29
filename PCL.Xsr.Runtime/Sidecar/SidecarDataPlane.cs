@@ -1,28 +1,29 @@
 using PCL.Sidecar.Protocol;
-using PCL.Xsr;
 
 namespace PCL.Xsr.Runtime;
 
 /// <summary>
-/// Encodes and decodes the data-plane payloads for one session. Field IDs are frozen for
-/// protocol v1; values are string-encoded until the generated typed codecs arrive.
+/// Encodes and decodes the data-plane payloads for one session. Every request, delta, and event
+/// carries the session-local uint32 contract ID assigned at registration — semantic strings
+/// never cross the data plane. Field IDs are frozen for the protocol draft; values are
+/// string-encoded under codec 0 until the generated typed codecs arrive.
 /// </summary>
 public static class SidecarDataPlane
 {
     /// <summary>
     /// Encodes a command or query request: the semantic ID and its argument.
     /// </summary>
-    public static byte[] EncodeRequest(XsrSemanticId semantic, string? argument)
+    public static byte[] EncodeRequest(uint contractId, string? argument)
     {
         SidecarPayloadWriter writer = new();
-        writer.WriteString(1, semantic.Value);
+        writer.WriteUInt32(1, contractId);
         writer.WriteString(2, argument ?? string.Empty);
         return writer.ToArray();
     }
 
-    public static (XsrSemanticId Semantic, string Argument) DecodeRequest(ReadOnlySpan<byte> payload)
+    public static (uint ContractId, string Argument) DecodeRequest(ReadOnlySpan<byte> payload)
     {
-        XsrSemanticId semantic = default;
+        uint contractId = 0;
         string argument = string.Empty;
         SidecarPayloadReader reader = new(payload);
         while (reader.HasMore)
@@ -31,7 +32,7 @@ public static class SidecarDataPlane
             switch (field.Id)
             {
                 case 1:
-                    semantic = XsrSemanticId.Parse(field.ReadString());
+                    contractId = field.ReadUInt32();
                     break;
                 case 2:
                     argument = field.ReadString();
@@ -39,12 +40,12 @@ public static class SidecarDataPlane
             }
         }
 
-        if (!semantic.IsAssigned)
+        if (contractId == 0)
         {
-            throw new SidecarProtocolException("The request payload carries no semantic ID.");
+            throw new SidecarProtocolException("The request payload carries no contract ID.");
         }
 
-        return (semantic, argument);
+        return (contractId, argument);
     }
 
     /// <summary>
@@ -88,17 +89,17 @@ public static class SidecarDataPlane
     /// <summary>
     /// Encodes a state delta: the semantic ID and the string-encoded value.
     /// </summary>
-    public static byte[] EncodeStateDelta(XsrSemanticId semantic, string value)
+    public static byte[] EncodeStateDelta(uint contractId, string value)
     {
         SidecarPayloadWriter writer = new();
-        writer.WriteString(1, semantic.Value);
+        writer.WriteUInt32(1, contractId);
         writer.WriteString(2, value);
         return writer.ToArray();
     }
 
-    public static (XsrSemanticId Semantic, string Value) DecodeStateDelta(ReadOnlySpan<byte> payload)
+    public static (uint ContractId, string Value) DecodeStateDelta(ReadOnlySpan<byte> payload)
     {
-        XsrSemanticId semantic = default;
+        uint contractId = 0;
         string value = string.Empty;
         SidecarPayloadReader reader = new(payload);
         while (reader.HasMore)
@@ -107,7 +108,7 @@ public static class SidecarDataPlane
             switch (field.Id)
             {
                 case 1:
-                    semantic = XsrSemanticId.Parse(field.ReadString());
+                    contractId = field.ReadUInt32();
                     break;
                 case 2:
                     value = field.ReadString();
@@ -115,20 +116,20 @@ public static class SidecarDataPlane
             }
         }
 
-        if (!semantic.IsAssigned)
+        if (contractId == 0)
         {
-            throw new SidecarProtocolException("The state delta payload carries no semantic ID.");
+            throw new SidecarProtocolException("The state delta payload carries no contract ID.");
         }
 
-        return (semantic, value);
+        return (contractId, value);
     }
 
     /// <summary>
-    /// Encodes an event: the semantic ID and its payload. Events are never coalesced.
+    /// Encodes an event: the contract ID and its payload. Events are never coalesced.
     /// </summary>
-    public static byte[] EncodeEvent(XsrSemanticId semantic, string payload) =>
-        EncodeStateDelta(semantic, payload);
+    public static byte[] EncodeEvent(uint contractId, string payload) =>
+        EncodeStateDelta(contractId, payload);
 
-    public static (XsrSemanticId Semantic, string Payload) DecodeEvent(ReadOnlySpan<byte> payload) =>
+    public static (uint ContractId, string Payload) DecodeEvent(ReadOnlySpan<byte> payload) =>
         DecodeStateDelta(payload);
 }
