@@ -93,6 +93,69 @@ public sealed class SidecarStateMirror
 
     public XsrStateId? TryResolve(XsrSemanticId semantic) =>
         Store.TryResolve(semantic, out XsrStateId stateId) ? stateId : null;
+
+    /// <summary>
+    /// Creates the mirror for one session's declared states, with each cell typed by its
+    /// declared codec.
+    /// </summary>
+    public static SidecarStateMirror Create(
+        string pluginName,
+        IReadOnlyList<SidecarRegistrationEntry> stateEntries)
+    {
+        XsrStateStoreBuilder builder = new();
+        foreach (SidecarRegistrationEntry entry in stateEntries)
+        {
+            switch (entry.CodecId)
+            {
+                case SidecarValueCodecs.Utf8String:
+                    builder.Cell<string>(entry.SemanticId, pluginName);
+                    break;
+                case SidecarValueCodecs.Bool:
+                    builder.Cell<bool>(entry.SemanticId, pluginName);
+                    break;
+                case SidecarValueCodecs.I32:
+                    builder.Cell<int>(entry.SemanticId, pluginName);
+                    break;
+                case SidecarValueCodecs.I64:
+                    builder.Cell<long>(entry.SemanticId, pluginName);
+                    break;
+                case SidecarValueCodecs.F64:
+                    builder.Cell<double>(entry.SemanticId, pluginName);
+                    break;
+                case SidecarValueCodecs.Bytes:
+                case SidecarValueCodecs.GeneratedDto:
+                    builder.Cell<byte[]>(entry.SemanticId, pluginName);
+                    break;
+                default:
+                    throw new SidecarProtocolException(
+                        $"The state '{entry.SemanticId}' declares unknown codec {entry.CodecId}.");
+            }
+        }
+
+        return new SidecarStateMirror(pluginName, builder.Build());
+    }
+
+    /// <summary>
+    /// Publishes one raw codec-encoded wire value into the declared typed cell.
+    /// </summary>
+    public long PublishFromWire(SidecarRegistrationEntry entry, byte[] encodedValue)
+    {
+        XsrStateId stateId = TryResolve(entry.SemanticId)
+            ?? throw new SidecarProtocolException(
+                $"The state '{entry.SemanticId}' is not part of this mirror.");
+        object value = SidecarValueCodecs.Decode(entry.CodecId, encodedValue);
+        return entry.CodecId switch
+        {
+            SidecarValueCodecs.Utf8String => Store.Publish(stateId, (string)value),
+            SidecarValueCodecs.Bool => Store.Publish(stateId, (bool)value),
+            SidecarValueCodecs.I32 => Store.Publish(stateId, (int)value),
+            SidecarValueCodecs.I64 => Store.Publish(stateId, (long)value),
+            SidecarValueCodecs.F64 => Store.Publish(stateId, (double)value),
+            SidecarValueCodecs.Bytes or SidecarValueCodecs.GeneratedDto => Store.Publish(stateId, (byte[])value),
+            _ => throw new SidecarProtocolException(
+                $"The state '{entry.SemanticId}' declares unknown codec {entry.CodecId}."),
+        };
+    }
 }
 
 /// <summary>

@@ -238,17 +238,17 @@ public sealed partial class SidecarHostSession
 
     private void ApplyStateDelta(ReadOnlySpan<byte> payload)
     {
-        (uint contractId, string value) = SidecarDataPlane.DecodeStateDelta(payload);
+        (uint contractId, byte[] encodedValue) = SidecarDataPlane.DecodeStateDelta(payload);
         SidecarRegistrationEntry? entry = _registration?.Entries.FirstOrDefault(
             candidate => candidate.Kind == SidecarRegistrationKind.State && candidate.ContractId == contractId);
-        if (entry is null || _mirror?.TryResolve(entry.SemanticId) is not { } stateId)
+        if (entry is null || _mirror is null)
         {
             // A delta for an undeclared contract is dropped; the mirror only carries declared
             // cells.
             return;
         }
 
-        _mirror.Store.Publish(stateId, value);
+        _mirror.PublishFromWire(entry, encodedValue);
     }
 
     private void DeliverEvent(ReadOnlySpan<byte> payload)

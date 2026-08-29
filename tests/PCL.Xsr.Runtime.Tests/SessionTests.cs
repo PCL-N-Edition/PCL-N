@@ -68,7 +68,7 @@ internal static partial class Program
             SidecarMessageType.StateSnapshotItem,
             SidecarFrameTraits.None,
             SidecarCorrelationId.Create(),
-            SidecarStateSnapshot.EncodeItem(1, "0")));
+            SidecarStateSnapshot.EncodeItem(1, "0"u8.ToArray())));
         await pluginConnection.SendAsync(new SidecarFrame(
             SidecarProtocol.Version,
             SidecarMessageType.StateSnapshotEnd,

@@ -1,3 +1,4 @@
+using System.Text;
 using PCL.Sidecar.Protocol;
 using PCL.Sidecar.Transport;
 using PCL.Xsr;
@@ -300,7 +301,7 @@ internal static partial class Program
             SidecarMessageType.StateSnapshotItem,
             SidecarFrameTraits.None,
             SidecarCorrelationId.Create(),
-            SidecarStateSnapshot.EncodeItem(contractId, value)));
+            SidecarStateSnapshot.EncodeItem(contractId, Encoding.UTF8.GetBytes(value))));
         await plugin.SendAsync(new SidecarFrame(
             SidecarProtocol.Version,
             SidecarMessageType.StateSnapshotEnd,
@@ -383,7 +384,7 @@ internal static partial class Program
         SidecarMessageType.StateDelta,
         SidecarFrameTraits.None,
         SidecarCorrelationId.Create(),
-        SidecarDataPlane.EncodeStateDelta(1, value));
+        SidecarDataPlane.EncodeStateDelta(1u, Encoding.UTF8.GetBytes(value)));
 
     private static SidecarFrame Event(string _, string payload) => new(
         SidecarProtocol.Version,
@@ -405,6 +406,41 @@ internal static partial class Program
         }
 
         throw new TimeoutException("The expected condition was not reached in time.");
+    }
+
+    /// <summary>
+    /// Accepts a snapshot with the given items on the session and drains the host READY.
+    /// </summary>
+    private static async ValueTask SnapshotAll(
+        SidecarHostSession session,
+        SidecarConnection plugin,
+        params (uint ContractId, byte[] Value)[] items)
+    {
+        ValueTask snapshot = session.AcceptStateSnapshotAsync();
+        await plugin.SendAsync(new SidecarFrame(
+            SidecarProtocol.Version,
+            SidecarMessageType.StateSnapshotBegin,
+            SidecarFrameTraits.None,
+            SidecarCorrelationId.Create(),
+            SidecarStateSnapshot.EncodeBegin((uint)items.Length)));
+        foreach ((uint contractId, byte[] encodedValue) in items)
+        {
+            await plugin.SendAsync(new SidecarFrame(
+                SidecarProtocol.Version,
+                SidecarMessageType.StateSnapshotItem,
+                SidecarFrameTraits.None,
+                SidecarCorrelationId.Create(),
+                SidecarStateSnapshot.EncodeItem(contractId, encodedValue)));
+        }
+
+        await plugin.SendAsync(new SidecarFrame(
+            SidecarProtocol.Version,
+            SidecarMessageType.StateSnapshotEnd,
+            SidecarFrameTraits.None,
+            SidecarCorrelationId.Create(),
+            Array.Empty<byte>()));
+        await snapshot;
+        await DataPlaneReceiveAsync(plugin); // drain READY
     }
 
     private static Task<SidecarFrame> DataPlaneReceiveAsync(SidecarConnection connection) =>

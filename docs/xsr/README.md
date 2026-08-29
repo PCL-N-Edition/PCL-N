@@ -44,6 +44,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-403-sidecar-session.md](migrations/XSR-403-sidecar-session.md) — host session lifecycle, registration, and the state mirror
 - [migrations/XSR-404-data-plane-and-reconnect.md](migrations/XSR-404-data-plane-and-reconnect.md) — data plane, bounded exchanges, crash recovery, and reconnect
 - [migrations/XSR-405-execute-by-id.md](migrations/XSR-405-execute-by-id.md) — session-local contract IDs, snapshot lifecycle, capability boundary, protocol draft
+- [migrations/XSR-406-transactional-snapshot-typed-codecs.md](migrations/XSR-406-transactional-snapshot-typed-codecs.md) — transactional snapshots, typed codec registry, content-addressed host cache
 
 ## Decision process
 

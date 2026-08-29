@@ -1,10 +1,9 @@
-
 namespace PCL.Sidecar.Protocol;
 
 /// <summary>
-/// Classifies one registration declaration. UiModule and Resource declarations make
-/// render-local plugin pages possible: the host caches the declared module and opening it
-/// performs zero IPC.
+/// Classifies one registration declaration. UiModule and Resource declarations carry their
+/// content inline: the host caches the module and resources at registration, so opening a
+/// registered plugin page performs zero IPC.
 /// </summary>
 public enum SidecarRegistrationKind : uint
 {
@@ -18,14 +17,19 @@ public enum SidecarRegistrationKind : uint
 
 /// <summary>
 /// One registration declaration: a kind, the stable semantic identifier, capability flags, and
-/// the payload codec contract for state declarations. Codec 0 is the UTF-8 string codec; other
-/// codes are reserved for the generated typed codecs.
+/// the payload codec contract for state declarations (codec 0 = UTF-8 string; 1 = Bool; 2 =
+/// Int32; 3 = Int64; 4 = Float64; 5 = Bytes; 6 = schema-contracted DTO blob). UiModule and
+/// Resource declarations additionally carry the content payload, its SHA-256 hash, and — for
+/// UiModule — the semicolon-separated resource semantic references it requires.
 /// </summary>
 public readonly record struct SidecarRegistrationItem(
     SidecarRegistrationKind Kind,
     string SemanticId,
     uint Flags,
-    uint CodecId);
+    uint CodecId,
+    byte[]? Payload = null,
+    byte[]? ContentHash = null,
+    string? RequiredResources = null);
 
 /// <summary>
 /// Encodes and decodes the REGISTER_* payloads: RegisterBegin carries the declaration count,
@@ -64,6 +68,21 @@ public static class SidecarRegistration
         writer.WriteString(2, item.SemanticId);
         writer.WriteUInt32(3, item.Flags);
         writer.WriteUInt32(4, item.CodecId);
+        if (item.Payload is { } payload)
+        {
+            writer.WriteBytes(5, payload);
+        }
+
+        if (item.ContentHash is { } hash)
+        {
+            writer.WriteBytes(6, hash);
+        }
+
+        if (item.RequiredResources is { } resources)
+        {
+            writer.WriteString(7, resources);
+        }
+
         return writer.ToArray();
     }
 
@@ -73,6 +92,9 @@ public static class SidecarRegistration
         string semanticId = string.Empty;
         uint flags = 0;
         uint codecId = 0;
+        byte[]? content = null;
+        byte[]? hash = null;
+        string? requiredResources = null;
         SidecarPayloadReader reader = new(payload);
         while (reader.HasMore)
         {
@@ -91,6 +113,15 @@ public static class SidecarRegistration
                 case 4:
                     codecId = field.ReadUInt32();
                     break;
+                case 5:
+                    content = field.ReadBytes();
+                    break;
+                case 6:
+                    hash = field.ReadBytes();
+                    break;
+                case 7:
+                    requiredResources = field.ReadString();
+                    break;
             }
         }
 
@@ -104,22 +135,39 @@ public static class SidecarRegistration
             throw new SidecarProtocolException("The registration item carries no semantic ID.");
         }
 
-        if (codecId != 0)
+        var declaredKind = (SidecarRegistrationKind)kind;
+        if (codecId != 0 && declaredKind != SidecarRegistrationKind.State)
         {
             throw new SidecarProtocolException(
-                $"The registration item declares codec {codecId}; only codec 0 (UTF-8 string) exists in this protocol draft.");
+                "Only state declarations carry a payload codec contract.");
         }
 
-        return new SidecarRegistrationItem((SidecarRegistrationKind)kind, semanticId, flags, codecId);
+        if (declaredKind is SidecarRegistrationKind.UiModule or SidecarRegistrationKind.Resource)
+        {
+            if (content is null || hash is null || hash.Length != 32)
+            {
+                throw new SidecarProtocolException(
+                    $"The {kind} declaration '{semanticId}' must carry its content and SHA-256 hash.");
+            }
+        }
+
+        return new SidecarRegistrationItem(
+            (SidecarRegistrationKind)kind,
+            semanticId,
+            flags,
+            codecId,
+            content,
+            hash,
+            requiredResources);
     }
 
     public static byte[] EncodeEnd() => [];
 }
 
 /// <summary>
-/// Encodes and decodes the STATE_SNAPSHOT_* payloads the sidecar sends after REGISTER_END. The
-/// host commits the snapshot into the fresh mirror, sends READY, and only then does activation
-/// expose it — the reconnect atomicity contract.
+/// Encodes and decodes the STATE_SNAPSHOT_* payloads the sidecar sends after REGISTER_END. Item
+/// values are raw codec-encoded bytes; the host validates the complete snapshot against the
+/// registration and commits it atomically before sending READY.
 /// </summary>
 public static class SidecarStateSnapshot
 {
@@ -146,20 +194,21 @@ public static class SidecarStateSnapshot
     }
 
     /// <summary>
-    /// Encodes one snapshot item: the session-local state contract ID and its string value.
+    /// Encodes one snapshot item: the session-local state contract ID and the raw codec-encoded
+    /// value.
     /// </summary>
-    public static byte[] EncodeItem(uint contractId, string value)
+    public static byte[] EncodeItem(uint contractId, ReadOnlySpan<byte> encodedValue)
     {
         SidecarPayloadWriter writer = new();
         writer.WriteUInt32(1, contractId);
-        writer.WriteString(2, value);
+        writer.WriteBytes(2, encodedValue);
         return writer.ToArray();
     }
 
-    public static (uint ContractId, string Value) DecodeItem(ReadOnlySpan<byte> payload)
+    public static (uint ContractId, byte[] EncodedValue) DecodeItem(ReadOnlySpan<byte> payload)
     {
         uint contractId = 0;
-        string value = string.Empty;
+        byte[]? encodedValue = null;
         SidecarPayloadReader reader = new(payload);
         while (reader.HasMore)
         {
@@ -170,7 +219,7 @@ public static class SidecarStateSnapshot
                     contractId = field.ReadUInt32();
                     break;
                 case 2:
-                    value = field.ReadString();
+                    encodedValue = field.ReadBytes();
                     break;
             }
         }
@@ -180,7 +229,12 @@ public static class SidecarStateSnapshot
             throw new SidecarProtocolException("The snapshot item carries no contract ID.");
         }
 
-        return (contractId, value);
+        if (encodedValue is null)
+        {
+            throw new SidecarProtocolException("The snapshot item carries no value.");
+        }
+
+        return (contractId, encodedValue);
     }
 
     public static byte[] EncodeEnd() => [];

@@ -69,6 +69,12 @@ public sealed partial class SidecarHostSession : IDisposable
     public SidecarStateMirror? Mirror => _mirror;
 
     /// <summary>
+    /// Gets the content cache populated at registration: UI modules and resources are served
+    /// from here with zero IPC.
+    /// </summary>
+    public SidecarHostCache Cache { get; } = new();
+
+    /// <summary>
     /// Sends HELLO and awaits WELCOME, enforcing the negotiated protocol version.
     /// </summary>
     public async ValueTask HandshakeAsync(CancellationToken cancellationToken = default)
@@ -110,6 +116,7 @@ public sealed partial class SidecarHostSession : IDisposable
             cancellationToken).ConfigureAwait(false);
         uint count = SidecarRegistration.DecodeBegin(begin.Payload.Span);
         List<SidecarRegistrationEntry> entries = new((int)count);
+        Dictionary<XsrSemanticId, SidecarRegistrationItem> declarations = [];
         Dictionary<SidecarRegistrationKind, uint> ordinals = [];
 
         for (uint index = 0; index < count; index++)
@@ -126,13 +133,53 @@ public sealed partial class SidecarHostSession : IDisposable
 
             ordinals[item.Kind] = ordinals.TryGetValue(item.Kind, out uint ordinal) ? ordinal + 1 : 1;
             uint contractId = ordinals[item.Kind];
+            declarations[semantic] = item;
             entries.Add(new SidecarRegistrationEntry(item.Kind, semantic, contractId, item.Flags, item.CodecId));
         }
 
         _ = await ReceiveOrFail(SidecarMessageType.RegisterEnd, cancellationToken).ConfigureAwait(false);
 
+        // Registration is the capability boundary AND the content transfer: UI modules and
+        // resources carry their payload inline, verified and cached here so later opens read
+        // locally. A UI module that references resources missing from this registration is
+        // rejected.
+        foreach (SidecarRegistrationEntry entry in entries)
+        {
+            if (entry.Kind == SidecarRegistrationKind.UiModule)
+            {
+                SidecarRegistrationItem declaration = declarations[entry.SemanticId];
+                foreach (string required in declaration.RequiredResources?
+                             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                         ?? [])
+                {
+                    if (!entries.Any(candidate =>
+                            candidate.Kind == SidecarRegistrationKind.Resource
+                            && candidate.SemanticId.Equals(XsrSemanticId.Parse(required))))
+                    {
+                        throw Fail(
+                            $"The UI module '{entry.SemanticId}' references missing resource '{required}'.");
+                    }
+                }
+            }
+        }
+
         _registration = new SidecarRegistrationSet(entries);
-        _mirror = BuildMirror(entries);
+        _mirror = SidecarStateMirror.Create(
+            PluginName,
+            entries.Where(entry => entry.Kind == SidecarRegistrationKind.State).ToList());
+        foreach (SidecarRegistrationEntry entry in entries)
+        {
+            SidecarRegistrationItem declaration = declarations[entry.SemanticId];
+            if (entry.Kind == SidecarRegistrationKind.UiModule && declaration.Payload is { } module)
+            {
+                Cache.AddUiModule(entry.SemanticId, module, declaration.ContentHash!);
+            }
+            else if (entry.Kind == SidecarRegistrationKind.Resource && declaration.Payload is { } resource)
+            {
+                Cache.AddResource(entry.SemanticId, resource, declaration.ContentHash!);
+            }
+        }
+
         return _mirror;
     }
 
@@ -153,24 +200,72 @@ public sealed partial class SidecarHostSession : IDisposable
             SidecarMessageType.StateSnapshotBegin,
             cancellationToken).ConfigureAwait(false);
         uint count = SidecarStateSnapshot.DecodeBegin(begin.Payload.Span);
+        List<SidecarRegistrationEntry> stateEntries = _registration.Entries
+            .Where(entry => entry.Kind == SidecarRegistrationKind.State)
+            .ToList();
+        Dictionary<uint, (SidecarRegistrationEntry Entry, byte[] EncodedValue)> collected = [];
 
-        for (uint index = 0; index < count; index++)
+        // Collect and validate the whole snapshot before touching the mirror: unknown
+        // contracts, duplicates, missing states, and codec mismatches all fail the session
+        // terminally without any mutation. The commit below is therefore atomic against this
+        // validated set.
+        try
         {
-            SidecarFrame itemFrame = await ReceiveOrFail(
-                SidecarMessageType.StateSnapshotItem,
-                cancellationToken).ConfigureAwait(false);
-            (uint contractId, string value) = SidecarStateSnapshot.DecodeItem(itemFrame.Payload.Span);
-            SidecarRegistrationEntry? entry = _registration.Entries.FirstOrDefault(
-                candidate => candidate.Kind == SidecarRegistrationKind.State && candidate.ContractId == contractId);
-            if (entry is null || _mirror.TryResolve(entry.SemanticId) is not { } stateId)
+            for (uint index = 0; index < count; index++)
             {
-                throw Fail($"The snapshot references unknown state contract {contractId}.");
+                SidecarFrame itemFrame = await ReceiveOrFail(
+                    SidecarMessageType.StateSnapshotItem,
+                    cancellationToken).ConfigureAwait(false);
+                (uint contractId, byte[] encodedValue) = SidecarStateSnapshot.DecodeItem(itemFrame.Payload.Span);
+                SidecarRegistrationEntry? entry = stateEntries.FirstOrDefault(
+                    candidate => candidate.ContractId == contractId);
+                if (entry is null)
+                {
+                    throw Fail($"The snapshot references unknown state contract {contractId}.");
+                }
+
+                if (collected.ContainsKey(contractId))
+                {
+                    throw Fail($"The snapshot declares state contract {contractId} twice.");
+                }
+
+                try
+                {
+                    SidecarValueCodecs.Validate(entry.CodecId, encodedValue);
+                }
+                catch (SidecarProtocolException exception)
+                {
+                    throw Fail(exception.Message);
+                }
+
+                collected[contractId] = (entry, encodedValue);
             }
 
-            _mirror.Store.Publish(stateId, value, cancellationToken);
+            _ = await ReceiveOrFail(SidecarMessageType.StateSnapshotEnd, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (collected.Count != stateEntries.Count)
+            {
+                IEnumerable<uint> missing = stateEntries
+                    .Select(entry => entry.ContractId)
+                    .Where(id => !collected.ContainsKey(id));
+                throw Fail(
+                    $"The snapshot is missing states {string.Join(", ", missing)}; a coherent snapshot must cover every declared state.");
+            }
+        }
+        catch (SidecarProtocolException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            throw Fail($"The snapshot failed: {exception.Message}");
         }
 
-        _ = await ReceiveOrFail(SidecarMessageType.StateSnapshotEnd, cancellationToken).ConfigureAwait(false);
+        foreach ((SidecarRegistrationEntry entry, byte[] encodedValue) in collected.Values)
+        {
+            _mirror.PublishFromWire(entry, encodedValue);
+        }
 
         await _connection.SendAsync(new SidecarFrame(
             SidecarProtocol.Version,
@@ -237,19 +332,6 @@ public sealed partial class SidecarHostSession : IDisposable
     }
 
     public void Dispose() => _connection.Dispose();
-
-    private SidecarStateMirror BuildMirror(IReadOnlyList<SidecarRegistrationEntry> entries)
-    {
-        XsrStateStoreBuilder builder = new();
-        foreach (SidecarRegistrationEntry entry in entries.Where(entry => entry.Kind == SidecarRegistrationKind.State))
-        {
-            // Sidecar state values arrive as string-encoded payloads from the data plane; typed
-            // mirrors come with the generated codecs.
-            builder.Cell<string>(entry.SemanticId, PluginName);
-        }
-
-        return new SidecarStateMirror(PluginName, builder.Build());
-    }
 
     private async ValueTask<SidecarFrame> ReceiveOrFail(
         SidecarMessageType expected,

@@ -87,20 +87,20 @@ public static class SidecarDataPlane
     }
 
     /// <summary>
-    /// Encodes a state delta: the semantic ID and the string-encoded value.
+    /// Encodes a state delta: the session-local contract ID and the raw codec-encoded value.
     /// </summary>
-    public static byte[] EncodeStateDelta(uint contractId, string value)
+    public static byte[] EncodeStateDelta(uint contractId, ReadOnlySpan<byte> encodedValue)
     {
         SidecarPayloadWriter writer = new();
         writer.WriteUInt32(1, contractId);
-        writer.WriteString(2, value);
+        writer.WriteBytes(2, encodedValue);
         return writer.ToArray();
     }
 
-    public static (uint ContractId, string Value) DecodeStateDelta(ReadOnlySpan<byte> payload)
+    public static (uint ContractId, byte[] EncodedValue) DecodeStateDelta(ReadOnlySpan<byte> payload)
     {
         uint contractId = 0;
-        string value = string.Empty;
+        byte[]? encodedValue = null;
         SidecarPayloadReader reader = new(payload);
         while (reader.HasMore)
         {
@@ -111,7 +111,7 @@ public static class SidecarDataPlane
                     contractId = field.ReadUInt32();
                     break;
                 case 2:
-                    value = field.ReadString();
+                    encodedValue = field.ReadBytes();
                     break;
             }
         }
@@ -121,15 +121,49 @@ public static class SidecarDataPlane
             throw new SidecarProtocolException("The state delta payload carries no contract ID.");
         }
 
-        return (contractId, value);
+        if (encodedValue is null)
+        {
+            throw new SidecarProtocolException("The state delta payload carries no value.");
+        }
+
+        return (contractId, encodedValue);
     }
 
     /// <summary>
-    /// Encodes an event: the contract ID and its payload. Events are never coalesced.
+    /// Encodes an event: the contract ID and its UTF-8 text payload. Events are never coalesced.
     /// </summary>
-    public static byte[] EncodeEvent(uint contractId, string payload) =>
-        EncodeStateDelta(contractId, payload);
+    public static byte[] EncodeEvent(uint contractId, string payload)
+    {
+        SidecarPayloadWriter writer = new();
+        writer.WriteUInt32(1, contractId);
+        writer.WriteString(2, payload);
+        return writer.ToArray();
+    }
 
-    public static (uint ContractId, string Payload) DecodeEvent(ReadOnlySpan<byte> payload) =>
-        DecodeStateDelta(payload);
+    public static (uint ContractId, string Payload) DecodeEvent(ReadOnlySpan<byte> payload)
+    {
+        uint contractId = 0;
+        string text = string.Empty;
+        SidecarPayloadReader reader = new(payload);
+        while (reader.HasMore)
+        {
+            SidecarPayloadField field = reader.ReadNext();
+            switch (field.Id)
+            {
+                case 1:
+                    contractId = field.ReadUInt32();
+                    break;
+                case 2:
+                    text = field.ReadString();
+                    break;
+            }
+        }
+
+        if (contractId == 0)
+        {
+            throw new SidecarProtocolException("The event payload carries no contract ID.");
+        }
+
+        return (contractId, text);
+    }
 }
