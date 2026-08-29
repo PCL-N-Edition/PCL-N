@@ -138,7 +138,13 @@ public sealed class SidecarIpcListener : IDisposable
         File.SetUnixFileMode(socketPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
-    private string SocketPath => _unixDirectory is null ? _pipeName : Path.Combine(_unixDirectory, _pipeName);
+    /// <summary>
+    /// Gets the endpoint the connector dialls: the pipe name on Windows, and on Unix the short
+    /// socket path inside the guarded directory (Unix socket paths cap at ~104 bytes).
+    /// </summary>
+    public string Endpoint => OperatingSystem.IsWindows() ? _pipeName : SocketPath;
+
+    private string SocketPath => _unixDirectory is null ? _pipeName : Path.Combine(_unixDirectory, "s.sock");
 
     [SupportedOSPlatform("linux")]
     [SupportedOSPlatform("macos")]
@@ -155,12 +161,6 @@ public sealed class SidecarIpcListener : IDisposable
             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         return directory;
     }
-
-    /// <summary>
-    /// Gets the endpoint the connector dialls: the pipe name on Windows, the full socket path on
-    /// Unix (inside the randomized 0700 directory).
-    /// </summary>
-    public string Endpoint => OperatingSystem.IsWindows() ? _pipeName : SocketPath;
 
     private NamedPipeServerStream CreateWindowsPipe()
     {
