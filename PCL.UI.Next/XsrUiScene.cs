@@ -32,8 +32,10 @@ public readonly record struct XsrUiSceneNode(
     XsrUiSemanticRole Role,
     string? Label,
     string? Text,
+    string? ImageSource,
     bool IsFocused,
-    double? AnimationProgress)
+    double? AnimationProgress,
+    double? AnimationValue)
 {
     public bool HasRole => Role != XsrUiSemanticRole.None;
 }

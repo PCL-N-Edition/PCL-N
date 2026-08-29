@@ -53,6 +53,13 @@ internal static partial class Program
         ("coalesced state becomes visible without manual flush", Sync(CoalescedStateBecomesVisibleWithoutManualFlush)),
         ("animator advances and completes", Sync(AnimatorAdvancesAndCompletes)),
         ("reduced motion completes animations immediately", Sync(ReducedMotionCompletesAnimationsImmediately)),
+        // XSR-206: renderer kernel completion.
+        ("easing curves are deterministic", Sync(EasingCurvesAreDeterministic)),
+        ("animator applies easing and keyframes", Sync(AnimatorAppliesEasingAndKeyframes)),
+        ("keyframes hold boundary values", Sync(KeyframesHoldBoundaryValues)),
+        ("scroll offsets children and clamps", Sync(ScrollOffsetsChildrenAndClamps)),
+        ("scroll hit test follows offset", Sync(ScrollHitTestFollowsOffset)),
+        ("image source carries to the scene", Sync(ImageSourceCarriesToTheScene)),
     ];
 
     private static async Task<int> Main()
@@ -88,6 +95,17 @@ internal static partial class Program
         if (!EqualityComparer<T>.Default.Equals(expected, actual))
         {
             throw new InvalidOperationException($"Expected '{expected}' but received '{actual}'.");
+        }
+    }
+
+    private static void AssertClose(double expected, double actual)
+    {
+        if (Math.Abs(expected - actual) > 1e-9)
+        {
+            throw new InvalidOperationException(
+                string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"Expected {expected} but received {actual}."));
         }
     }
 

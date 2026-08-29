@@ -20,6 +20,7 @@ public sealed class XsrUiRenderer
     private XsrUiEntityId _pressed;
     private XsrUiEntityId _focused;
     private readonly Dictionary<int, XsrUiSize> _desiredSizes = [];
+    private readonly Dictionary<int, XsrUiSize> _stackContentSizes = [];
     private readonly Dictionary<int, XsrUiRect> _paintRects = [];
     private readonly Dictionary<int, XsrUiRect> _arrangedSlots = [];
     private readonly HashSet<int> _measuredThisPass = [];
@@ -120,6 +121,7 @@ public sealed class XsrUiRenderer
             PruneDeadCacheEntries();
         }
 
+
         Layout(_root, new XsrUiRect(0, 0, _viewport.Width, _viewport.Height));
 
         XsrUiSceneNode[] nodes = CollectNodes(_root, depth: 0);
@@ -177,6 +179,11 @@ public sealed class XsrUiRenderer
         foreach (int id in _arrangedSlots.Keys.Where(id => !_tree.IsIndexAlive(id)).ToArray())
         {
             _ = _arrangedSlots.Remove(id);
+        }
+
+        foreach (int id in _stackContentSizes.Keys.Where(id => !_tree.IsIndexAlive(id)).ToArray())
+        {
+            _ = _stackContentSizes.Remove(id);
         }
     }
 
@@ -249,6 +256,7 @@ public sealed class XsrUiRenderer
             height = stack.Direction == XsrUiOrientation.Horizontal ? cross : main;
             width += padding.Horizontal;
             height += padding.Vertical;
+            _stackContentSizes[entity.Index] = new XsrUiSize(width, height);
         }
 
         // Explicit sizes constrain the content box; padding adds on top of them.
@@ -328,8 +336,26 @@ public sealed class XsrUiRenderer
             return;
         }
 
-        double cursor = stack.Direction == XsrUiOrientation.Vertical ? contentY : contentX;
+        XsrUiScroll? scroll = _tree.GetComponent<XsrUiScroll>(entity);
+        if (scroll is not null)
+        {
+            // Clamp scroll offsets to the measured content extent; children are placed into
+            // slots shifted by the offset, so hit testing follows scrolled content for free.
+            XsrUiSize content = _stackContentSizes.TryGetValue(entity.Index, out XsrUiSize stackSize)
+                ? stackSize
+                : desired;
+            double maxOffsetX = Math.Max(0, content.Width - contentWidth);
+            double maxOffsetY = Math.Max(0, content.Height - contentHeight);
+            scroll.OffsetX = Math.Clamp(scroll.OffsetX, 0, maxOffsetX);
+            scroll.OffsetY = Math.Clamp(scroll.OffsetY, 0, maxOffsetY);
+        }
+
+        double scrollX = scroll?.OffsetX ?? 0;
+        double scrollY = scroll?.OffsetY ?? 0;
+        double cursor = (stack.Direction == XsrUiOrientation.Vertical ? contentY : contentX) - (stack.Direction == XsrUiOrientation.Vertical ? scrollY : scrollX);
         double crossAvailable = stack.Direction == XsrUiOrientation.Vertical ? contentWidth : contentHeight;
+        double crossOrigin = stack.Direction == XsrUiOrientation.Vertical ? contentX : contentY;
+        double crossScroll = stack.Direction == XsrUiOrientation.Vertical ? scrollX : scrollY;
         foreach (XsrUiEntityId child in _tree.Children(entity))
         {
             if (!IsVisible(child))
@@ -362,8 +388,8 @@ public sealed class XsrUiRenderer
             };
 
             XsrUiRect childSlot = stack.Direction == XsrUiOrientation.Vertical
-                ? new XsrUiRect(contentX + crossOffset, cursor, crossSize, childMain)
-                : new XsrUiRect(cursor, contentY + crossOffset, childMain, crossSize);
+                ? new XsrUiRect(crossOrigin + crossOffset - crossScroll, cursor, crossSize, childMain)
+                : new XsrUiRect(cursor, crossOrigin + crossOffset - crossScroll, childMain, crossSize);
 
             Layout(child, childSlot);
             cursor += childMain + stack.Spacing;
@@ -541,6 +567,29 @@ public sealed class XsrUiRenderer
     }
 
     /// <summary>
+    /// Routes one wheel scroll to the nearest scroll container under the point, walking up the
+    /// hierarchy. Offsets clamp during the next arrange.
+    /// </summary>
+    public bool PointerScroll(XsrUiPoint point, double deltaY, double deltaX = 0)
+    {
+        XsrUiEntityId entity = HitTest(point);
+        while (entity.IsAssigned && _tree.IsAlive(entity))
+        {
+            if (_tree.GetComponent<XsrUiScroll>(entity) is { } scroll)
+            {
+                scroll.OffsetX = Math.Max(0, scroll.OffsetX + deltaX);
+                scroll.OffsetY = Math.Max(0, scroll.OffsetY + deltaY);
+                _tree.MarkDirty(entity, XsrUiDirtyKinds.Layout);
+                return true;
+            }
+
+            entity = _tree.Parent(entity);
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Routes one keyboard key: Tab moves focus, Enter and Space activate the focused entity,
     /// Back pops navigation through the intent sink as a plain false (navigation is owned by
     /// composition). Returns true when the key was handled.
@@ -598,6 +647,8 @@ public sealed class XsrUiRenderer
         XsrUiRect rect = _paintRects.TryGetValue(entity.Index, out XsrUiRect paintRect)
             ? paintRect
             : default;
+        XsrUiAnimation? animation = _tree.GetComponent<XsrUiAnimation>(entity);
+        XsrUiImage? image = _tree.GetComponent<XsrUiImage>(entity);
         nodes.Add(new XsrUiSceneNode(
             entity,
             rect,
@@ -605,8 +656,10 @@ public sealed class XsrUiRenderer
             semantic?.Role ?? XsrUiSemanticRole.None,
             semantic?.Label,
             content,
+            image?.Source,
             _tree.GetComponent<XsrUiInput>(entity)?.IsFocused ?? false,
-            _tree.GetComponent<XsrUiAnimation>(entity)?.Progress));
+            animation?.Progress,
+            animation is { Keyframes.Count: > 0 } ? animation.Value : null));
 
         foreach (XsrUiEntityId child in _tree.Children(entity))
         {

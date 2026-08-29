@@ -112,6 +112,31 @@ public sealed class XsrUiCommandBinding(XsrSemanticId command)
 }
 
 /// <summary>
+/// Scroll offsets of one stacking container. Offsets are renderer-local ephemeral state,
+/// clamped to the measured content extent during arrange; wheel routing adjusts them.
+/// </summary>
+public sealed class XsrUiScroll
+{
+    public double OffsetX { get; set; }
+
+    public double OffsetY { get; set; }
+}
+
+/// <summary>
+/// One media slot. The kernel carries only the source reference; decoding and drawing belong to
+/// backends.
+/// </summary>
+public sealed class XsrUiImage
+{
+    public XsrUiImage(string source)
+    {
+        Source = source;
+    }
+
+    public string Source { get; set; }
+}
+
+/// <summary>
 /// Marks one entity as an input target: focusable for keyboard navigation, clickable for
 /// pointer activation. Hover, pressed, and focus flags are renderer-local ephemeral state.
 /// </summary>

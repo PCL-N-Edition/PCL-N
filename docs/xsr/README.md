@@ -32,6 +32,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-203-input-navigation-overlay.md](migrations/XSR-203-input-navigation-overlay.md) — pointer and keyboard input, navigation, overlays, accessibility
 - [migrations/XSR-204-renderer-gates.md](migrations/XSR-204-renderer-gates.md) — deterministic benchmark gates and renderer CI
 - [migrations/XSR-205-animation-and-review-fixes.md](migrations/XSR-205-animation-and-review-fixes.md) — animation kernel, generational handles, thread-safe state bridge
+- [migrations/XSR-206-renderer-completion.md](migrations/XSR-206-renderer-completion.md) — easing, keyframes, scroll, and the media slot
 
 ## Decision process
 
