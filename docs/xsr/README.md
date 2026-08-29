@@ -54,6 +54,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-507-update-block-contracts.md](migrations/XSR-507-update-block-contracts.md) — update block data contracts: FastCDC chunking, gzip/zstd block codecs, local block index
 - [migrations/XSR-508-update-eligibility.md](migrations/XSR-508-update-eligibility.md) — one-way upgrade gate: legacy 1.4.x crosses into 2.0.0, downgrades never offered
 - [migrations/XSR-509-update-package-planning.md](migrations/XSR-509-update-package-planning.md) — update package planning: variant selection, cheapest patch path, patch-versus-full by size
+- [migrations/XSR-510-update-discovery-transport.md](migrations/XSR-510-update-discovery-transport.md) — update discovery and transport: index fetch, multi-tag walk, HEAD probe, eligibility gate
 
 ## Decision process
 

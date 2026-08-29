@@ -314,7 +314,7 @@ internal static partial class Program
             "v1.4.12",
             identity,
             "1.4.1",
-            [middle, SampleIndex(fromVersion: "1.4.2", patchSize: 4_000_000)])!;
+            [SampleIndex(fromVersion: "1.4.2", patchSize: 4_000_000), middle])!;
 
         AssertTrue(package.UsesPatch);
         AssertEqual(2, package.PatchSteps.Count);

@@ -77,11 +77,12 @@ public sealed class UpdatePackagePlanner
     }
 
     /// <summary>
-    /// Plans the block/patch update for one target release from the given loaded indexes.
-    /// Returns null when no index or no matching variant is usable and the caller must fall
-    /// back to <see cref="PlanFull"/>. <paramref name="fullPackageBytes"/> is the HEAD size of
-    /// the full package when known; a patch chain that is not cheaper than the full package is
-    /// dropped in favor of the full download.
+    /// Plans the block/patch update for one target release from the given loaded indexes. The
+    /// first source is the target release; hop sources discovered by walking backwards follow
+    /// in walk order. Returns null when no index or no matching variant is usable and the
+    /// caller must fall back to <see cref="PlanFull"/>. <paramref name="fullPackageBytes"/> is
+    /// the HEAD size of the full package when known; a patch chain that is not cheaper than
+    /// the full package is dropped in favor of the full download.
     /// </summary>
     public UpdatePackage? PlanFromIndex(
         string targetTag,
@@ -97,7 +98,7 @@ public sealed class UpdatePackagePlanner
             return null;
         }
 
-        UpdatePatchIndexSource target = indexes[^1];
+        UpdatePatchIndexSource target = indexes[0];
         UpdatePatchVariantDto? targetVariant = FindVariant(target.Index, identity);
         if (targetVariant is null || string.IsNullOrWhiteSpace(targetVariant.TargetAssetName))
         {
