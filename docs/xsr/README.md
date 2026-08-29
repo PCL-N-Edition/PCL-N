@@ -61,6 +61,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-514-littleskin-oauth-appearance.md](migrations/XSR-514-littleskin-oauth-appearance.md) — LittleSkin OAuth (device flow, closet, texture upload) and Microsoft skin/cape services
 - [migrations/XSR-515-file-capability.md](migrations/XSR-515-file-capability.md) — File capability: canonical data folders and the safe atomic file port
 - [migrations/XSR-516-payload-extraction-patch-orchestration.md](migrations/XSR-516-payload-extraction-patch-orchestration.md) — payload extraction (zip/tar) and HDiffPatch orchestration with binary chains and scatter ops
+- [migrations/XSR-517-network-telemetry.md](migrations/XSR-517-network-telemetry.md) — Network probing with latency and opt-in Telemetry buffering/flush with a pending state cell
 
 ## Decision process
 

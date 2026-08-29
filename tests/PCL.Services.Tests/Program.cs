@@ -114,6 +114,12 @@ internal static partial class Program
         ("littleskin texture upload uses the minecraft token", LittleSkinTextureUploadUsesMinecraftToken),
         ("microsoft skin upload parses the active texture", MicrosoftSkinUploadParsesActiveTexture),
         ("microsoft cape service lists and activates", MicrosoftCapeServiceListsAndActivates),
+        // XSR-517: Network and Telemetry families.
+        ("network probes report reachability and latency", NetworkProbesReportReachabilityAndLatency),
+        ("telemetry without consent records nothing", Sync(TelemetryWithoutConsentRecordsNothing)),
+        ("telemetry buffers with bounded eviction", Sync(TelemetryBuffersWithBoundedEviction)),
+        ("telemetry flush uploads and clears or retains", TelemetryFlushUploadsAndClearsOrRetains),
+        ("telemetry batch serialization is stable", Sync(TelemetryBatchSerializationIsStable)),
         // XSR-515: File capability.
         ("the folder tree resolves canonical names", Sync(FolderTreeResolvesCanonicalNames)),
         ("traversal is refused on every port operation", Sync(TraversalIsRefusedOnEveryPortOperation)),
