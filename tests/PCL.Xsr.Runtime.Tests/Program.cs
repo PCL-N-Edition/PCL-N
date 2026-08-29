@@ -38,6 +38,11 @@ internal static partial class Program
         ("state contract mismatches are rejected", Sync(StateContractMismatchesAreRejected)),
         ("state builder rejects reuse and duplicates", Sync(StateBuilderRejectsReuseAndDuplicates)),
         ("state supports concurrent readers and publishers", Sync(StateSupportsConcurrentReadersAndPublishers)),
+        // XSR-403: sidecar host session.
+        ("session completes the locked lifecycle", SessionCompletesTheLockedLifecycle),
+        ("session handshake rejects version mismatch", SessionHandshakeRejectsVersionMismatch),
+        ("session registration rejects duplicates", SessionRegistrationRejectsDuplicates),
+        ("session fails on unexpected message", SessionFailsOnUnexpectedMessage),
         ("events assign deterministic typed identifiers", Sync(EventsAssignDeterministicTypedIdentifiers)),
         ("events share sequence space inside declared scope", Sync(EventsShareSequenceSpaceInsideDeclaredScope)),
         ("events order per scope key independently", Sync(EventsOrderPerScopeKeyIndependently)),
@@ -216,7 +221,8 @@ internal static partial class Program
         XsrRegistrySnapshot<string> snapshot = registry.Seal();
         XsrRuntimeId runtimeId = RequiredRuntimeId(snapshot, XsrSemanticId.Parse("state.progress"));
 
-        for (int index = 0; index < 1_000; index++)
+        // A large warmup settles tiered compilation before the measured loop.
+        for (int index = 0; index < 200_000; index++)
         {
             _ = snapshot.TryGet(runtimeId, out _);
         }
@@ -266,6 +272,21 @@ internal static partial class Program
         {
             throw new InvalidOperationException($"Expected '{expected}' but received '{actual}'.");
         }
+    }
+
+    private static async Task AssertThrowsAsync<TException>(Func<Task> action)
+        where TException : Exception
+    {
+        try
+        {
+            await action();
+        }
+        catch (TException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"Expected exception {typeof(TException).Name}.");
     }
 
     private static void AssertThrows<TException>(Action action)

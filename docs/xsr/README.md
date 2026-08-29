@@ -41,6 +41,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-212-generated-control-catalog.md](migrations/XSR-212-generated-control-catalog.md) — required UI.Next control directory and early generated compiler catalog
 - [migrations/XSR-401-sidecar-protocol.md](migrations/XSR-401-sidecar-protocol.md) — Sidecar frames, message numbers, and the TLV payload codec
 - [migrations/XSR-402-sidecar-transport.md](migrations/XSR-402-sidecar-transport.md) — frame transport and the connection lifecycle
+- [migrations/XSR-403-sidecar-session.md](migrations/XSR-403-sidecar-session.md) — host session lifecycle, registration, and the state mirror
 
 ## Decision process
 

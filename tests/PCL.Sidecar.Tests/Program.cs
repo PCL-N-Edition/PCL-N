@@ -26,6 +26,7 @@ internal static partial class Program
         ("peer close ends receive with stream end", PeerCloseEndsReceiveWithStreamEnd),
         ("close is idempotent and rejects further use", CloseIsIdempotentAndRejectsFurtherUse),
         ("send cancellation is observed", SendCancellationIsObserved),
+        ("ipc stream round trips frames", IpcStreamRoundTripsFrames),
     ];
 
     private static async Task<int> Main()

@@ -18,6 +18,8 @@ internal static class Program
             [
                 "PCL.Contracts",
                 "PCL.Core",
+                "PCL.Sidecar.Protocol",
+                "PCL.Sidecar.Transport",
                 "PCL.Xsr.Abstractions",
                 "PCL.Xsr.Diagnostics",
                 "PCL.Xsr.State",
