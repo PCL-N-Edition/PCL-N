@@ -106,7 +106,9 @@ Wave 3 is complete. The parser enforces a deterministic XML boundary, the compil
 | XSR-401 | Sidecar protocol surface: frames, message numbers, payload codec with unknown-field skipping | complete |
 | XSR-402 | reliable local transport with connection lifecycle | complete |
 | XSR-403 | session lifecycle, registration, state mirror, and local IPC factories | complete |
-| XSR-404 | crash recovery, reconnect, and command/query forwarding | pending |
+| XSR-404 | data plane, crash recovery, reconnect, and command/query forwarding | complete |
+
+Wave 4 is complete. The Sidecar Fabric provides the versioned binary protocol with unknown-field skipping, the framed transport with an explicit connection lifecycle, the host session over the locked handshake and registration flow, the per-session state mirror the renderer reads with zero IPC, the bounded data plane with correlated results and stable errors, ordered event delivery, and crash/reconnect semantics where a new session replaces the mirror only after a coherent snapshot. Exit evidence: the protocol, transport, session, and data-plane suites pass under CoreCLR and NativeAOT, the architecture gate carries the Sidecar project graph with reflection tokens forbidden in Compiler and Runtime, and CI runs the full sequence on every push.
 
 ## Cutover gate
 

@@ -10,7 +10,7 @@ namespace PCL.Xsr.Runtime;
 /// the per-session state mirror. Every await validates the expected message type; any deviation
 /// fails the session terminally. One session per connection; reconnection creates a new session.
 /// </summary>
-public sealed class SidecarHostSession : IDisposable
+public sealed partial class SidecarHostSession : IDisposable
 {
     private readonly object _gate = new();
 
@@ -27,13 +27,15 @@ public sealed class SidecarHostSession : IDisposable
         SidecarConnection connection,
         string pluginName,
         ISidecarSessionObserver? observer = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        int maxPending = 1024)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
         ArgumentException.ThrowIfNullOrWhiteSpace(pluginName);
         PluginName = pluginName;
         _observer = observer;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _maxPending = maxPending;
     }
 
     public string PluginName { get; }

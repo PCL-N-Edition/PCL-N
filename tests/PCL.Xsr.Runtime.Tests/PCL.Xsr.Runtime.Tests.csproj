@@ -10,5 +10,8 @@
     <ProjectReference Include="../../PCL.Xsr.Runtime/PCL.Xsr.Runtime.csproj" />
     <ProjectReference Include="../../PCL.Xsr.State/PCL.Xsr.State.csproj" />
     <ProjectReference Include="../../PCL.Xsr.Diagnostics/PCL.Xsr.Diagnostics.csproj" />
+    <ProjectReference Include="../../PCL.Sidecar.Protocol/PCL.Sidecar.Protocol.csproj" />
+    <ProjectReference Include="../../PCL.Sidecar.Transport/PCL.Sidecar.Transport.csproj" />
+    <ProjectReference Include="../../PCL.Xsr.Diagnostics/PCL.Xsr.Diagnostics.csproj" />
   </ItemGroup>
 </Project>
