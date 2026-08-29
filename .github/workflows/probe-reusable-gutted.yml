@@ -1,0 +1,34 @@
+name: Token probe reusable (gutted real)
+
+permissions:
+  contents: write
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        description: Release tag to PATCH (no-op body update)
+        required: true
+        type: string
+    secrets:
+      GPG_PRIVATE_KEY:
+        required: true
+      GPG_PASSPHRASE:
+        required: true
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
+
+jobs:
+  publish-assets:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: No-op write probe via the real gh-release action
+        uses: softprops/action-gh-release@v2.5.0
+        with:
+          tag_name: ${{ inputs.tag_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

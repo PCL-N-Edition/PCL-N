@@ -1,0 +1,27 @@
+name: Token probe (real reusable gutted)
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/token-probe
+
+concurrency:
+  group: probe-real-reusable
+  cancel-in-progress: false
+
+jobs:
+  reusable:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/probe-reusable-gutted.yml
+    with:
+      tag_name: v1.4.12-beta
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
