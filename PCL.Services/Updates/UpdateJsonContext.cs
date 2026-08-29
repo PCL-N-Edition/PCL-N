@@ -11,4 +11,8 @@ namespace PCL.Services.Updates;
 [JsonSerializable(typeof(UpdateChunkingParameters))]
 [JsonSerializable(typeof(UpdateBlockFull))]
 [JsonSerializable(typeof(UpdateBlockDelta))]
-internal sealed partial class UpdateJsonContext : JsonSerializerContext;
+[JsonSerializable(typeof(UpdatePatchIndexDto))]
+[JsonSerializable(typeof(UpdatePatchStrategyDto))]
+[JsonSerializable(typeof(UpdatePatchVariantDto))]
+[JsonSerializable(typeof(UpdatePatchDto))]
+public sealed partial class UpdateJsonContext : JsonSerializerContext;
