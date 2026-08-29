@@ -57,6 +57,13 @@ internal static partial class Program
         ("the local block index round trips the installed map", LocalBlockIndexRoundTripsTheInstalledMap),
         ("the local block index verifies before reusing chunks", LocalBlockIndexVerifiesBeforeReusingChunks),
         ("the local block index reads verified windows", LocalBlockIndexReadsVerifiedWindows),
+        // One-way upgrade policy.
+        ("the legacy one-four line crosses into two point zero", Sync(LegacyOneFourCrossesIntoTwoPointZero)),
+        ("alpha beta stable ordering is monotonic", Sync(AlphaBetaStableOrderingIsMonotonic)),
+        ("the same version is a no-op", Sync(SameVersionIsANoOp)),
+        ("ci builds hop by commit", Sync(CiBuildsHopByCommit)),
+        ("unrecognized versions are refused", Sync(UnrecognizedVersionsAreRefused)),
+        ("version parsing normalizes legacy shapes", Sync(VersionParsingNormalizesLegacyShapes)),
         ("transfer state mirrors active downloads", TransferStateMirrorsActiveDownloads),
         ("the file writer rejects short resume offsets", FileDownloadWriterRejectsShortResume),
         ("doubles round trip through full precision", DoubleRoundTripsThroughFullPrecision),

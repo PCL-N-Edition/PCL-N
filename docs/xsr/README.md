@@ -52,6 +52,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-505-segmented-download.md](migrations/XSR-505-segmented-download.md) — segmented parallel download: range planning, part-file assembly, fallback for non-segmented sources
 - [migrations/XSR-506-account-capability.md](migrations/XSR-506-account-capability.md) — account capability: legacy launch profile file compatibility with credential-free state views
 - [migrations/XSR-507-update-block-contracts.md](migrations/XSR-507-update-block-contracts.md) — update block data contracts: FastCDC chunking, gzip/zstd block codecs, local block index
+- [migrations/XSR-508-update-eligibility.md](migrations/XSR-508-update-eligibility.md) — one-way upgrade gate: legacy 1.4.x crosses into 2.0.0, downgrades never offered
 
 ## Decision process
 

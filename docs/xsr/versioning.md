@@ -54,6 +54,25 @@ The product version does not version every XSR contract. These axes remain indep
 
 For example, XSR product `2.0.0.beta.1` may validate Plugin SDK `1.0.0-rc.1`, private PCL.Plugin runtime `1.0.0`, and Sidecar Protocol v1. A product release never implies a bump to any of those independent versions.
 
+## Upgrade path (one-way)
+
+The update flow is one-way, and `UpdateEligibility` in `PCL.Services` is its single decision
+point:
+
+- The legacy `1.4.x` line may upgrade to any `2.0.0` build — alpha, beta, or stable. The
+  major-version crossing is intentional and is the migration bridge for every existing
+  installation.
+- A launcher on any `2.0.0` build is never offered a lower version. Downgrades do not exist:
+  not to `1.4.x`, not to an older alpha, not to a CI build ranked below the running channel
+  (stage order within one numeric version is stable > beta > alpha > ci).
+- The candidate equal to the running version is a no-op. Two CI builds of the same numeric
+  version differ only by commit, so moving between them is allowed while returning to the
+  same commit is a no-op.
+
+The comparison consumes both grammars: the canonical dotted XSR forms above and the legacy
+display/tag shapes (`1.4.11`, `v1.4.11-release`, `1.1.8 beta`). Versions outside both
+grammars are refused, never guessed.
+
 ## Build inputs
 
 New XSR projects import `eng/xsr/Xsr.Version.props`. Builds may set:
