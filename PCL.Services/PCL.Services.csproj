@@ -5,6 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../PCL.Contracts/PCL.Contracts.csproj" />
     <ProjectReference Include="../PCL.Core/PCL.Core.csproj" />
     <ProjectReference Include="../PCL.Domain/PCL.Domain.csproj" />

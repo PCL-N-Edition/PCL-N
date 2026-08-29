@@ -51,6 +51,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-504-download-capability.md](migrations/XSR-504-download-capability.md) — download capability: failover with resume, per-destination coalescing, active transfers as state
 - [migrations/XSR-505-segmented-download.md](migrations/XSR-505-segmented-download.md) — segmented parallel download: range planning, part-file assembly, fallback for non-segmented sources
 - [migrations/XSR-506-account-capability.md](migrations/XSR-506-account-capability.md) — account capability: legacy launch profile file compatibility with credential-free state views
+- [migrations/XSR-507-update-block-contracts.md](migrations/XSR-507-update-block-contracts.md) — update block data contracts: FastCDC chunking, gzip/zstd block codecs, local block index
 
 ## Decision process
 
