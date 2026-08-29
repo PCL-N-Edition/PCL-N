@@ -126,6 +126,9 @@ jobs:
       - name: Test Sidecar host session and data plane
         run: dotnet run --project tests/PCL.Xsr.Runtime.Tests/PCL.Xsr.Runtime.Tests.csproj --configuration Release --no-build
 
+      - name: Test foundation services
+        run: dotnet run --project tests/PCL.Services.Tests/PCL.Services.Tests.csproj --configuration Release --no-build
+
       - name: Enforce UI.Next benchmark gates
         run: dotnet run --project PCL.UI.Next.Benchmarks/PCL.UI.Next.Benchmarks.csproj --configuration Release --no-build
 

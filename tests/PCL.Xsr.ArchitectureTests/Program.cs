@@ -59,6 +59,7 @@ internal static class Program
             ["PCL.UI.Next.Tests"] = ["PCL.Xsr.Abstractions", "PCL.Xsr.State", "PCL.UI.Next"],
             ["PCL.Pxml.Tests"] = ["PCL.Pxml.Compiler", "PCL.Pxml.Runtime", "PCL.UI.Next", "PCL.Xsr.Abstractions", "PCL.Xsr.State"],
             ["PCL.Sidecar.Tests"] = ["PCL.Sidecar.Protocol", "PCL.Sidecar.Transport"],
+            ["PCL.Services.Tests"] = ["PCL.Services", "PCL.Xsr.State"],
         };
 
     private static readonly HashSet<string> ExecutableProjects =
@@ -70,6 +71,7 @@ internal static class Program
             "PCL.UI.Next.Tests",
             "PCL.Pxml.Tests",
             "PCL.Sidecar.Tests",
+            "PCL.Services.Tests",
         ];
 
     private static readonly HashSet<string> GeneratorProjects =
@@ -84,6 +86,7 @@ internal static class Program
             "PCL.UI.Next",
             "PCL.Pxml.Compiler",
             "PCL.Pxml.Runtime",
+            "PCL.Services",
         ];
 
     public static int Main(string[] args)

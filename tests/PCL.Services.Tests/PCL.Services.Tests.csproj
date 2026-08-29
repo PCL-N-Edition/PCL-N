@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Executable contract tests for the XSR foundation services.</Description>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../PCL.Services/PCL.Services.csproj" />
+    <ProjectReference Include="../../PCL.Xsr.State/PCL.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>
