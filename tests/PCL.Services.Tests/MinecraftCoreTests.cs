@@ -1,17 +1,17 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using PCL.Services.Composition;
+using PCL.Services.Minecraft;
 using PCL.Services.Minecraft.Assets;
-using PCL.Services.Minecraft.Java;
-using PCL.Services.Minecraft.Libraries;
-using PCL.Services.Minecraft.Launch;
-using PCL.Services.Minecraft.ModLoaders;
 using PCL.Services.Minecraft.Crash;
 using PCL.Services.Minecraft.Downloads;
-using PCL.Services.Composition;
+using PCL.Services.Minecraft.Java;
+using PCL.Services.Minecraft.Launch;
+using PCL.Services.Minecraft.Libraries;
+using PCL.Services.Minecraft.ModLoaders;
 using PCL.Xsr;
 using PCL.Xsr.Runtime;
-using PCL.Services.Minecraft;
 
 namespace PCL.Services.Tests;
 
@@ -243,12 +243,16 @@ internal static partial class Program
             File.WriteAllText(Path.Combine(versionDirectory, "1.20.1.json"), "{\"id\":\"1.20.1\",\"type\":\"release\"}");
             MinecraftRuntime runtime = MinecraftRuntimeComposer.Compose();
             AssertEqual(1, runtime.Commands.Count);
-            AssertEqual(2, runtime.Queries.Count);
+            AssertEqual(3, runtime.Queries.Count);
             AssertTrue(runtime.Queries.TryResolve(MinecraftRouteIds.VersionsRead, out XsrQueryId versionsId));
             XsrResult<IReadOnlyList<MinecraftVersionDescriptor>> versions = await runtime.Queries.QueryAsync<MinecraftVersionsQuery, IReadOnlyList<MinecraftVersionDescriptor>>(versionsId, new MinecraftVersionsQuery(root));
             AssertTrue(versions.IsSuccess);
             AssertEqual(1, versions.Value.Count);
             AssertEqual("1.20.1", versions.Value[0].Id);
+            AssertTrue(runtime.Queries.TryResolve(MinecraftRouteIds.InstancesRead, out XsrQueryId instancesId));
+            XsrResult<IReadOnlyList<MinecraftInstanceDescriptor>> instances = await runtime.Queries.QueryAsync<MinecraftInstancesQuery, IReadOnlyList<MinecraftInstanceDescriptor>>(instancesId, new MinecraftInstancesQuery(root));
+            AssertTrue(instances.IsSuccess);
+            AssertEqual(1, instances.Value.Count);
             AssertTrue(runtime.Queries.TryResolve(MinecraftRouteIds.CrashAnalyze, out XsrQueryId crashId));
             XsrResult<MinecraftLaunchFaultReport> report = await runtime.Queries.QueryAsync<MinecraftCrashAnalyzeQuery, MinecraftLaunchFaultReport>(crashId, new MinecraftCrashAnalyzeQuery(["OutOfMemoryError: Java heap space"]));
             AssertTrue(report.IsSuccess);

@@ -2,8 +2,8 @@ using PCL.Services.Accounts;
 using PCL.Services.Composition;
 using PCL.Services.Files;
 using PCL.Services.Foundation;
-using PCL.Services.Settings;
 using PCL.Services.Minecraft;
+using PCL.Services.Settings;
 
 namespace PCL.Desktop;
 

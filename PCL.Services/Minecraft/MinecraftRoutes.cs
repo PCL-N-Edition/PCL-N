@@ -5,12 +5,14 @@ using PCL.Xsr;
 namespace PCL.Services.Minecraft;
 
 public sealed record MinecraftVersionsQuery(string MinecraftRootDirectory);
+public sealed record MinecraftInstancesQuery(string MinecraftRootDirectory);
 public sealed record MinecraftLaunchCommand(MinecraftLaunchRequest Request);
 public sealed record MinecraftCrashAnalyzeQuery(IReadOnlyList<string> Evidence, string? Stage = null, string? LastClassName = null);
 
 public static class MinecraftRouteIds
 {
     public static readonly XsrSemanticId VersionsRead = XsrSemanticId.Parse("minecraft.versions.read");
+    public static readonly XsrSemanticId InstancesRead = XsrSemanticId.Parse("minecraft.instances.read");
     public static readonly XsrSemanticId Launch = XsrSemanticId.Parse("minecraft.launch");
     public static readonly XsrSemanticId CrashAnalyze = XsrSemanticId.Parse("minecraft.crash.analyze");
 }
@@ -67,5 +69,15 @@ public static class MinecraftQueries
             MinecraftLaunchFaultReport report = MinecraftLaunchFaultAnalyzer.AnalyzeText(query.Evidence, query.Stage, query.LastClassName);
             return ValueTask.FromResult(XsrResult.Success(report));
         };
-}
 
+    public static XsrQueryHandler<MinecraftInstancesQuery, IReadOnlyList<MinecraftInstanceDescriptor>> CreateInstancesHandler(MinecraftInstanceDiscovery discovery) =>
+        async (query, cancellationToken) =>
+        {
+            ArgumentNullException.ThrowIfNull(query);
+            ArgumentNullException.ThrowIfNull(discovery);
+            try { return XsrResult.Success<IReadOnlyList<MinecraftInstanceDescriptor>>(await discovery.DiscoverAsync(query.MinecraftRootDirectory, cancellationToken).ConfigureAwait(false)); }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+            { return XsrResult.Failure<IReadOnlyList<MinecraftInstanceDescriptor>>(MinecraftErrors.InvalidRequest(exception.Message)); }
+        };
+}
