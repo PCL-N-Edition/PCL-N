@@ -7,6 +7,7 @@ internal static partial class Program
         // XSR-501: settings capability contract.
         ("schema defaults are visible and available", Sync(SchemaDefaultsAreVisibleAndAvailable)),
         ("set then get round trips every type", SetThenGetRoundTripsEveryType),
+        ("raw values round trip every declared type", RawValuesRoundTripEveryDeclaredType),
         ("unknown keys are rejected stably", UnknownKeyIsRejectedStably),
         ("type mismatches are rejected stably", TypeMismatchIsRejectedStably),
         ("null values are rejected and text is port-agnostic", NullValuesAreRejectedAndTextIsPortAgnostic),

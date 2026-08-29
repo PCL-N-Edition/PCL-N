@@ -72,6 +72,46 @@ internal static partial class Program
         return ValueTask.CompletedTask;
     }
 
+    internal static ValueTask RawValuesRoundTripEveryDeclaredType()
+    {
+        InMemorySettingsPort port = new();
+        var (service, _) = CreateService(port);
+
+        (string Key, string Raw, Action<SettingsService, string>)[] cases =
+        [
+            (KeyToggle, "true", static (settings, key) =>
+                AssertTrue(settings.GetValue<bool>(key).TryGetValue(out bool value) && value)),
+            (KeyCount, "64", static (settings, key) =>
+                AssertTrue(settings.GetValue<int>(key).TryGetValue(out int value) && value == 64)),
+            (KeyBig, "9223372036854770000", static (settings, key) =>
+                AssertTrue(settings.GetValue<long>(key).TryGetValue(out long value) && value == 9_223_372_036_854_770_000L)),
+            (KeyRatio, "2.5", static (settings, key) =>
+                AssertTrue(settings.GetValue<double>(key).TryGetValue(out double value) && value == 2.5d)),
+            (KeyLabel, "dark", static (settings, key) =>
+                AssertTrue(settings.GetValue<string>(key).TryGetValue(out string? value) && value == "dark")),
+        ];
+
+        foreach ((string key, string raw, Action<SettingsService, string> assertTyped) in cases)
+        {
+            AssertTrue(service.SetRawValue(key, raw).IsSuccess);
+            AssertTrue(service.GetRawValue(key).TryGetValue(out string? encoded) && encoded == raw);
+            assertTyped(service, key);
+            AssertTrue(port.Load().TryGetValue(key, out string? persisted) && persisted == raw);
+        }
+
+        SettingsService restarted = CreateSchemaService(port);
+        foreach ((string key, string raw, Action<SettingsService, string> assertTyped) in cases)
+        {
+            AssertTrue(restarted.GetRawValue(key).TryGetValue(out string? encoded) && encoded == raw);
+            assertTyped(restarted, key);
+        }
+
+        XsrResult malformed = service.SetRawValue(KeyToggle, "not-a-bool");
+        AssertFalse(malformed.IsSuccess);
+        AssertEqual(SettingsErrors.InvalidValueCode, malformed.Error!.Code);
+        return ValueTask.CompletedTask;
+    }
+
     internal static ValueTask UnknownKeyIsRejectedStably()
     {
         var (service, _) = CreateService(new InMemorySettingsPort());

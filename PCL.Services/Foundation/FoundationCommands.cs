@@ -28,7 +28,7 @@ public static class FoundationCommands
         ArgumentNullException.ThrowIfNull(settings);
         return (command, _) =>
         {
-            XsrResult result = settings.SetValue(command.Key, command.Value);
+            XsrResult result = settings.SetRawValue(command.Key, command.Value);
             return ValueTask.FromResult(result);
         };
     }
@@ -67,10 +67,7 @@ public static class FoundationQueries
         (query, _) =>
         {
             ArgumentNullException.ThrowIfNull(settings);
-            XsrResult<string> result = settings.GetValue<string>(query.Key);
-            return ValueTask.FromResult(result.IsSuccess
-                ? XsrResult.Success(result.Value)
-                : XsrResult.Failure<string>(result.Error!));
+            return ValueTask.FromResult(settings.GetRawValue(query.Key));
         };
 }
 

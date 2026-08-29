@@ -251,6 +251,54 @@ public sealed class SettingsService
     }
 
     /// <summary>
+    /// Sets one setting from its schema-encoded raw value: the raw form is decoded to the
+    /// declared type, then the write is durable-first — persist before publish. This is the
+    /// command-layer entry point: commands carry raw values, the service owns typing.
+    /// </summary>
+    public XsrResult SetRawValue(string key, string raw)
+    {
+        if (!TryDefine<object?>(key, out SettingDefinition? definition))
+        {
+            return XsrResult.Failure(SettingsErrors.UnknownKey(key));
+        }
+
+        if (!SettingValues.TryDecode(definition, raw, out object? typed) || typed is null)
+        {
+            return XsrResult.Failure(SettingsErrors.InvalidValue(
+                key, $"the value does not parse as {definition.ValueType}."));
+        }
+
+        lock (_gate)
+        {
+            Dictionary<string, string> snapshot = CurrentEntries();
+            snapshot[definition.Key.Value] = SettingValues.Encode(definition, typed);
+            XsrResult saved = Persist(snapshot, definition.Key.Value);
+            if (!saved.IsSuccess)
+            {
+                return saved;
+            }
+
+            Publish(definition, typed);
+            StateStore.MarkAvailability(_ids[definition.Key], XsrStateAvailability.Available);
+            return XsrResult.Success();
+        }
+    }
+
+    /// <summary>
+    /// Reads one setting as its schema-encoded raw value, whatever its declared type. The
+    /// command/query layer never needs to know the type.
+    /// </summary>
+    public XsrResult<string> GetRawValue(string key)
+    {
+        if (!TryDefine<object?>(key, out SettingDefinition? definition))
+        {
+            return XsrResult.Failure<string>(SettingsErrors.UnknownKey(key));
+        }
+
+        return XsrResult.Success(SettingValues.Encode(definition, ReadBoxed(definition)));
+    }
+
+    /// <summary>
     /// Restores every setting to its schema default and persists one atomic replacement.
     /// Durable-first: the defaults are persisted before anything is published; a save failure
     /// leaves the state untouched.
