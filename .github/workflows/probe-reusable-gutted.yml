@@ -26,26 +26,27 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      - name: Replicate the gh-release action PATCH payload via gh CLI
+      - name: Bisect the PATCH payload field that triggers 403
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           release_id=378414427
-          body="$(gh api "repos/PCL-N-Edition/PCL-N/releases/$release_id" --jq .body)"
-          payload="$(jq -n \
-            --arg tag_name "v1.4.12-beta" \
-            --arg target_commitish "190a53a4724f229db6541c7e5c03f35df2a6d301" \
-            --arg name "PCL N v1.4.12 Beta" \
-            --arg body "$body" \
-            --argjson draft false \
-            --argjson prerelease true \
-            '{tag_name:$tag_name, target_commitish:$target_commitish, name:$name, body:$body, draft:$draft, prerelease:$prerelease}')"
-          echo "PATCH payload:"
-          echo "$payload" | jq -c .
-          if gh api -X PATCH "repos/PCL-N-Edition/PCL-N/releases/$release_id" --input - <<<"$payload" --jq .id >/dev/null 2>&1; then
-            echo "FULL-PAYLOAD-PATCH-OK"
-          else
-            echo "FULL-PAYLOAD-PATCH-403"
-          fi
+          base="repos/PCL-N-Edition/PCL-N/releases/$release_id"
+          body="$(gh api "$base" --jq .body)"
+
+          try() {
+            local label="$1" payload="$2"
+            if gh api -X PATCH "$base" --input - <<<"$payload" --jq .id >/dev/null 2>&1; then
+              echo "$label-OK"
+            else
+              echo "$label-403"
+            fi
+          }
+
+          try BODY-ONLY      "$(jq -n --arg body "$body" '{body:$body}')"
+          try PLUS-TAGNAME   "$(jq -n --arg body "$body" --arg tag_name "v1.4.12-beta" '{body:$body, tag_name:$tag_name}')"
+          try PLUS-COMMITISH "$(jq -n --arg body "$body" --arg target_commitish "190a53a4724f229db6541c7e5c03f35df2a6d301" '{body:$body, target_commitish:$target_commitish}')"
+          try PLUS-NAME      "$(jq -n --arg body "$body" --arg name "PCL N v1.4.12 Beta" '{body:$body, name:$name}')"
+          try PLUS-FLAGS     "$(jq -n --arg body "$body" --argjson draft false --argjson prerelease true '{body:$body, draft:$draft, prerelease:$prerelease}')"
