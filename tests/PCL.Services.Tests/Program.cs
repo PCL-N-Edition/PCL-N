@@ -152,6 +152,10 @@ internal static partial class Program
         ("timestamps come from the time provider", Sync(TimestampsComeFromTimeProvider)),
         ("display text matches the legacy format", Sync(DisplayTextMatchesLegacyFormat)),
         ("concurrent writes keep sequence and order", Sync(ConcurrentWritesKeepSequenceAndOrder)),
+        // XSR-601: Minecraft version and instance discovery.
+        ("minecraft version classifier matches canonical aliases", Sync(MinecraftVersionClassifierMatchesCanonicalAliases)),
+        ("minecraft version discovery uses stable safe resolution", Sync(MinecraftVersionDiscoveryUsesStableSafeResolution)),
+        ("minecraft instance metadata round trips atomically", MinecraftInstanceMetadataRoundTripsAtomically),
     ];
 
     private static async Task<int> Main()
