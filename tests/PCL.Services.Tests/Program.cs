@@ -42,6 +42,12 @@ internal static partial class Program
         ("segmented range mismatches fail over to the next source", SegmentedRangeMismatchFailsOverToNextSource),
         ("segmented truncated sources fail over to the next source", SegmentedTruncatedSourceFailsOverToNextSource),
         ("segmented progress reaches completed at full length", SegmentedProgressReachesCompletedAtFullLength),
+        // XSR-506: account capability contract.
+        ("launch profiles round trip the legacy json shape", ProfilePortRoundTripsLegacyJsonShape),
+        ("the profile port quarantines unreadable files", ProfilePortQuarantinesUnreadableFiles),
+        ("profiles persist across restarts", ProfilesPersistAcrossRestarts),
+        ("invalid profiles and indexes are rejected stably", InvalidProfilesAndIndexesAreRejectedStably),
+        ("failed saves change nothing observable", FailedSavesChangeNothingObservable),
         ("transfer state mirrors active downloads", TransferStateMirrorsActiveDownloads),
         ("the file writer rejects short resume offsets", FileDownloadWriterRejectsShortResume),
         ("doubles round trip through full precision", DoubleRoundTripsThroughFullPrecision),
