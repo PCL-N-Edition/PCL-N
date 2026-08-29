@@ -43,11 +43,11 @@ callbacks.
 
 ## Deliberate scope
 
-Segmented parallel transfer (`MaxParallelSegments > 1`) is rejected eagerly with
-`NotSupportedException` rather than silently degrading to one stream; it lands as its own
-unit with the segmented connection contract, part-file assembly, and progress aggregation
-the legacy engine implemented. The legacy immediate rewrite of a 416-discarded source list
-is unchanged otherwise.
+Segmented parallel transfer (`MaxParallelSegments > 1`) was rejected eagerly in this unit
+rather than silently degrading to one stream; it landed as XSR-505 with the segmented
+connection contract, part-file assembly, and progress aggregation the legacy engine
+implemented. The legacy immediate rewrite of a 416-discarded source list is unchanged
+otherwise.
 
 ## Verification
 

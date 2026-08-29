@@ -281,29 +281,34 @@ internal static partial class Program
         }
     }
 
-    internal static ValueTask SegmentedRequestsAreRejectedUntilSupported()
+    internal static ValueTask SegmentedDownloadAssemblesParallelParts()
     {
         string directory = CreateTempDirectory();
         try
         {
-            DownloadService service = new();
-            bool threw = false;
-            try
+            string destination = Path.Combine(directory, "file.bin");
+            byte[] payload = new byte[100];
+            for (int index = 0; index < payload.Length; index++)
             {
-                service.DownloadAsync(new DownloadRequest
-                {
-                    Sources = ["mem://a"],
-                    DestinationPath = Path.Combine(directory, "file.bin"),
-                    ConnectionFactory = _ => new FakeConnection(1, [0x01]),
-                    MaxParallelSegments = 4,
-                });
-            }
-            catch (NotSupportedException)
-            {
-                threw = true;
+                payload[index] = (byte)(index * 3 + 1);
             }
 
-            AssertTrue(threw);
+            // 16-byte minimum segments turn 100 bytes into 7 logical segments capped at 4 parallel.
+            DownloadService service = new(minimumSegmentBytes: 16);
+            DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
+            {
+                Sources = ["mem://fast"],
+                DestinationPath = destination,
+                ConnectionFactory = _ => new FakeSegmentedConnection(payload),
+                MaxParallelSegments = 4,
+            }).GetAwaiter().GetResult();
+
+            AssertTrue(result.Success);
+            AssertEqual("mem://fast", result.SuccessfulSource);
+            AssertEqual(100, result.TotalBytes);
+            AssertTrue(File.ReadAllBytes(destination).SequenceEqual(payload));
+            AssertTrue(Directory.GetFiles(directory, "*.PCLSegment.*").Length == 0);
+            AssertFalse(File.Exists(destination + ".PCLDownloading"));
         }
         finally
         {
@@ -311,6 +316,254 @@ internal static partial class Program
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    internal static ValueTask SegmentedFallsBackToSingleStreamWhenUnsupported()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string destination = Path.Combine(directory, "file.bin");
+            DownloadService service = new(minimumSegmentBytes: 16);
+            DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
+            {
+                Sources = ["mem://plain"],
+                DestinationPath = destination,
+                ConnectionFactory = _ => new FakeConnection(3, [0x01], [0x02], [0x03]),
+                MaxParallelSegments = 4,
+            }).GetAwaiter().GetResult();
+
+            AssertTrue(result.Success);
+            AssertTrue(File.ReadAllBytes(destination) is [0x01, 0x02, 0x03]);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    internal static ValueTask SegmentedFallsBackForFilesBelowTheSegmentFloor()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string destination = Path.Combine(directory, "file.bin");
+            // Segmented-capable connection, but the payload is far below the segment floor
+            // configured here, so the engine must use the single-stream path.
+            DownloadService service = new(minimumSegmentBytes: 1024 * 1024);
+            DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
+            {
+                Sources = ["mem://seg"],
+                DestinationPath = destination,
+                ConnectionFactory = _ => new FakeSegmentedConnection([0x0A, 0x0B, 0x0C]),
+                MaxParallelSegments = 4,
+            }).GetAwaiter().GetResult();
+
+            AssertTrue(result.Success);
+            AssertTrue(File.ReadAllBytes(destination) is [0x0A, 0x0B, 0x0C]);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    internal static ValueTask SegmentedRangeMismatchFailsOverToNextSource()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string destination = Path.Combine(directory, "file.bin");
+            byte[] payload = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
+            DownloadService service = new(minimumSegmentBytes: 4);
+            DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
+            {
+                Sources = ["mem://liar", "mem://honest"],
+                DestinationPath = destination,
+                ConnectionFactory = source => source == "mem://liar"
+                    ? new LyingSegmentedConnection(payload)
+                    : new FakeSegmentedConnection(payload),
+                MaxParallelSegments = 4,
+            }).GetAwaiter().GetResult();
+
+            AssertTrue(result.Success);
+            AssertEqual("mem://honest", result.SuccessfulSource);
+            AssertTrue(File.ReadAllBytes(destination).SequenceEqual(payload));
+            AssertTrue(Directory.GetFiles(directory, "*.PCLSegment.*").Length == 0);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    internal static ValueTask SegmentedTruncatedSourceFailsOverToNextSource()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string destination = Path.Combine(directory, "file.bin");
+            byte[] payload = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
+            DownloadService service = new(minimumSegmentBytes: 4);
+            DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
+            {
+                Sources = ["mem://short", "mem://whole"],
+                DestinationPath = destination,
+                ConnectionFactory = source => source == "mem://short"
+                    ? new TruncatedSegmentedConnection(payload)
+                    : new FakeSegmentedConnection(payload),
+                MaxParallelSegments = 4,
+            }).GetAwaiter().GetResult();
+
+            AssertTrue(result.Success);
+            AssertEqual("mem://whole", result.SuccessfulSource);
+            AssertEqual(1, result.Errors.Count);
+            AssertEqual("mem://short", result.Errors[0].Source);
+            AssertTrue(File.ReadAllBytes(destination).SequenceEqual(payload));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    internal static ValueTask SegmentedProgressReachesCompletedAtFullLength()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string destination = Path.Combine(directory, "file.bin");
+            byte[] payload = new byte[64];
+            DownloadService service = new(minimumSegmentBytes: 16);
+            DownloadProgress? completed = null;
+            List<DownloadProgress> downloading = [];
+            service.DownloadAsync(new DownloadRequest
+            {
+                Sources = ["mem://fast"],
+                DestinationPath = destination,
+                ConnectionFactory = _ => new FakeSegmentedConnection(payload),
+                MaxParallelSegments = 4,
+            }, progress =>
+            {
+                if (progress.Stage == DownloadStage.Downloading)
+                {
+                    downloading.Add(progress);
+                }
+                else if (progress.Stage == DownloadStage.Completed)
+                {
+                    completed = progress;
+                }
+            }).GetAwaiter().GetResult();
+
+            AssertTrue(completed is not null);
+            AssertEqual(64, completed!.Value.DownloadedBytes);
+            AssertEqual(64, completed.Value.TotalBytes);
+            AssertTrue(downloading.All(progress => progress.TotalBytes == 64 && progress.DownloadedBytes <= 64));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private sealed class FakeSegmentedConnection(byte[] data) : ISegmentedDownloadConnection
+    {
+        private long _begin;
+        private long _end = data.Length - 1;
+        private long _served;
+
+        public ValueTask<DownloadConnectionInfo> StartAsync(long beginOffset, CancellationToken cancellationToken = default)
+        {
+            _begin = beginOffset;
+            _end = data.Length - 1;
+            _served = 0;
+            return ValueTask.FromResult(new DownloadConnectionInfo(data.Length, beginOffset, data.Length - 1, true));
+        }
+
+        public ValueTask<DownloadConnectionInfo> StartSegmentAsync(long beginOffset, long endOffset, CancellationToken cancellationToken = default)
+        {
+            _begin = beginOffset;
+            _end = endOffset;
+            _served = 0;
+            return ValueTask.FromResult(new DownloadConnectionInfo(data.Length, beginOffset, endOffset, true));
+        }
+
+        public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            long remaining = _end - _begin + 1 - _served;
+            if (remaining <= 0)
+            {
+                return 0;
+            }
+
+            int take = (int)Math.Min(buffer.Length, Math.Min(remaining, 3));
+            data.AsSpan((int)(_begin + _served), take).CopyTo(buffer.Span);
+            _served += take;
+            return take;
+        }
+
+        public ValueTask StopAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    }
+
+    private sealed class LyingSegmentedConnection(byte[] data) : ISegmentedDownloadConnection
+    {
+        public ValueTask<DownloadConnectionInfo> StartAsync(long beginOffset, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new DownloadConnectionInfo(data.Length, beginOffset, data.Length - 1, true));
+
+        public ValueTask<DownloadConnectionInfo> StartSegmentAsync(long beginOffset, long endOffset, CancellationToken cancellationToken = default)
+        {
+            // Probe requests look healthy; only real segment requests report a wrong range.
+            long offset = beginOffset == 0 && endOffset == 0 ? 0 : beginOffset + 1;
+            return ValueTask.FromResult(new DownloadConnectionInfo(data.Length, offset, endOffset, true));
+        }
+
+        public ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => ValueTask.FromResult(0);
+
+        public ValueTask StopAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    }
+
+    private sealed class TruncatedSegmentedConnection(byte[] data) : ISegmentedDownloadConnection
+    {
+        private long _end = -1;
+        private long _served;
+
+        public ValueTask<DownloadConnectionInfo> StartAsync(long beginOffset, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new DownloadConnectionInfo(data.Length, beginOffset, data.Length - 1, true));
+
+        public ValueTask<DownloadConnectionInfo> StartSegmentAsync(long beginOffset, long endOffset, CancellationToken cancellationToken = default)
+        {
+            _end = endOffset;
+            _served = 0;
+            return ValueTask.FromResult(new DownloadConnectionInfo(data.Length, beginOffset, endOffset, true));
+        }
+
+        public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            // Serve at most half of each segment, then end the stream early.
+            long expected = _end + 1;
+            if (_served >= expected / 2 || buffer.Length == 0)
+            {
+                return 0;
+            }
+
+            buffer.Span[0] = 0xFF;
+            _served++;
+            return 1;
+        }
+
+        public ValueTask StopAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     }
 
     internal static ValueTask TransferStateMirrorsActiveDownloads()

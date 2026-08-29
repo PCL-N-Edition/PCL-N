@@ -25,6 +25,23 @@ public interface IDownloadConnection
 }
 
 /// <summary>
+/// One download connection that also accepts explicit byte-range requests for parallel
+/// segmented transfers. Range requests return the negotiated range; a server-side mismatch is
+/// a transfer failure.
+/// </summary>
+public interface ISegmentedDownloadConnection : IDownloadConnection
+{
+    /// <summary>
+    /// Starts one segment covering <paramref name="beginOffset"/> through
+    /// <paramref name="endOffset"/> inclusive.
+    /// </summary>
+    ValueTask<DownloadConnectionInfo> StartSegmentAsync(
+        long beginOffset,
+        long endOffset,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// One transfer destination writer. Writers own resume semantics: existing bytes survive a
 /// restart, offset zero restarts from scratch, and finishing commits the destination.
 /// </summary>
