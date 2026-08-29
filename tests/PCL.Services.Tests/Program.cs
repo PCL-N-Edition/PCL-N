@@ -120,6 +120,10 @@ internal static partial class Program
         ("telemetry buffers with bounded eviction", Sync(TelemetryBuffersWithBoundedEviction)),
         ("telemetry flush uploads and clears or retains", TelemetryFlushUploadsAndClearsOrRetains),
         ("telemetry batch serialization is stable", Sync(TelemetryBatchSerializationIsStable)),
+        // XSR-518: helper hand-off and restart scheduling.
+        ("replacement process arguments follow the helper contract", Sync(ReplacementProcessArgumentsFollowTheHelperContract)),
+        ("the scheduler validates artifacts before launch", Sync(SchedulerValidatesArtifactsBeforeLaunch)),
+        ("staged path helpers sanitize versions", Sync(StagedPathHelpersSanitizeVersions)),
         // XSR-515: File capability.
         ("the folder tree resolves canonical names", Sync(FolderTreeResolvesCanonicalNames)),
         ("traversal is refused on every port operation", Sync(TraversalIsRefusedOnEveryPortOperation)),

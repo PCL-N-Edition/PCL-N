@@ -168,6 +168,24 @@ public static class UpdateStaging
     /// <summary>How many files landed and how many managed leftovers were removed.</summary>
     public readonly record struct UpdateInstallSummary(int FilesApplied, int FilesDeleted);
 
+    /// <summary>
+    /// Builds the hidden staged path next to the running executable where a verified update
+    /// waits for the hand-off. Version characters that are invalid in file names become
+    /// underscores.
+    /// </summary>
+    public static string BuildStagedPath(string currentPath, string version)
+    {
+        string directory = Path.GetDirectoryName(currentPath) ?? Environment.CurrentDirectory;
+        string name = Path.GetFileName(currentPath);
+        return Path.Combine(directory, $".{name}.{SanitizeFileName(version)}.update");
+    }
+
+    public static string SanitizeFileName(string value)
+    {
+        HashSet<char> invalid = [.. Path.GetInvalidFileNameChars()];
+        return new string(value.Select(character => invalid.Contains(character) ? '_' : character).ToArray());
+    }
+
     private static void VerifyFileEntry(string path, UpdateFileEntry file)
     {
         FileInfo info = new(path);
