@@ -62,6 +62,23 @@ NativeAOT in CI; architecture gate green including the Desktop trim gate over th
 Foundation Runtime (the trimmed binary composes five services, three command routes, and one
 query route over one host state store and runs).
 
+## Wave 6 status (complete)
+
+Minecraft core is now represented as portable Services contracts and a composition edge; no
+legacy ViewModel or UI dependency is carried into the branch:
+
+| Unit | Commit | Outcome |
+|---|---|---|
+| XSR-601 | `6a61b7b4` | version classification, safe local discovery, and instance metadata persistence |
+| XSR-602 | `806ecbde` | Java selection, asset/index resolution, and library/classpath contracts |
+| XSR-603 | `2d6f74f8` | ModLoader detection, launch planning, process lifecycle, and crash analysis |
+| XSR-604 | `5f3bed3b` | formal Minecraft command/query router composition |
+| XSR-605 | `4add2898` + `fd8d6fc2` | runtime/client/asset acquisition, ARM64 parity, instance discovery, and final evidence |
+
+Exit evidence: `tests/PCL.Services.Tests` passes 146 executable tests under CoreCLR and
+NativeAOT; the full solution builds cleanly; the architecture gate covers 27 projects; Desktop
+trim publish succeeds; and `dotnet format` reports no changes.
+
 ## Closed migration unit
 
 Every task has an ID and a narrow, testable outcome:
