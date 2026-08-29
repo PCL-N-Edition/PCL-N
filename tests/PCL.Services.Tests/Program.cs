@@ -101,6 +101,12 @@ internal static partial class Program
         ("yggdrasil failures surface the server message", YggdrasilFailureSurfacesServerMessage),
         ("yggdrasil server normalization and jwt expiry work", Sync(YggdrasilServerNormalizationAndJwtExpiry)),
         ("login results feed the persisted roster", LoginResultsFeedThePersistedRoster),
+        // XSR-516: payload extraction and patch orchestration.
+        ("zip payloads extract with traversal refusal", Sync(ZipPayloadsExtractWithTraversalRefusal)),
+        ("tar payloads extract with modes", TarPayloadsExtractWithModes),
+        ("the hpatchz tool runs through the process port", HpatchzToolRunsThroughTheProcessPort),
+        ("binary patch chains verify download and apply", BinaryPatchChainsVerifyDownloadAndApply),
+        ("scatter ops produce a verified staged tree", ScatterOpsProduceAVerifiedStagedTree),
         // XSR-514: LittleSkin OAuth and appearance services.
         ("the littleskin device flow runs to tokens", LittleSkinDeviceFlowRunsToEnd),
         ("littleskin token paths and invalid client behave", LittleSkinTokenPathsAndInvalidClient),

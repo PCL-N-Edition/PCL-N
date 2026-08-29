@@ -16,4 +16,6 @@ namespace PCL.Services.Updates;
 [JsonSerializable(typeof(UpdatePatchVariantDto))]
 [JsonSerializable(typeof(UpdatePatchDto))]
 [JsonSerializable(typeof(UpdateInstallPlan))]
+[JsonSerializable(typeof(UpdateScatterPatchManifest))]
+[JsonSerializable(typeof(UpdateScatterPatchOperation))]
 public sealed partial class UpdateJsonContext : JsonSerializerContext;
