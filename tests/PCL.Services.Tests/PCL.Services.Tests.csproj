@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../PCL.Services/PCL.Services.csproj" />
     <ProjectReference Include="../../PCL.Xsr.State/PCL.Xsr.State.csproj" />
   </ItemGroup>

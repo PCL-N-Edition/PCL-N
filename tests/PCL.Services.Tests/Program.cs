@@ -82,6 +82,11 @@ internal static partial class Program
         ("the multi-tag walk loads previous indexes until a path is found", MultiTagWalkLoadsPreviousIndexesUntilPathFound),
         ("the walk stops when the previous target is not newer", WalkStopsWhenPreviousTargetIsNotNewer),
         ("head failures fall back to the index archive size", HeadFailureFallsBackToIndexArchiveSize),
+        // XSR-511: signature and delta codecs.
+        ("vcdiff decodes add copy and run instructions", Sync(VcdiffDecodesAddCopyAndRunInstructions)),
+        ("vcdiff rejects unsupported and corrupt deltas", Sync(VcdiffRejectsUnsupportedAndCorruptDeltas)),
+        ("gpg verifier accepts a genuine detached signature", GpgVerifierAcceptsGenuineDetachedSignature),
+        ("gpg verifier rejects tampered foreign and unpinned keys", GpgVerifierRejectsTamperedForeignAndUnpinnedKeys),
         ("transfer state mirrors active downloads", TransferStateMirrorsActiveDownloads),
         ("the file writer rejects short resume offsets", FileDownloadWriterRejectsShortResume),
         ("doubles round trip through full precision", DoubleRoundTripsThroughFullPrecision),
