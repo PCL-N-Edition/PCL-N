@@ -19,12 +19,13 @@ composition, and unverified AOT evidence — and locks the review fixes (durable
 - Foundation command/query handlers: `FoundationCommands` /
   `FoundationQueries` express foundation operations against the XSR handler delegates
   (`settings.set`, `telemetry.consent`, `accounts.upsert-profile`, `settings.get`). The
-  composition root registers them into the real `XsrCommandRouterBuilder` — PCL.Services
-  stays free of the runtime dependency while the router path is the only command path.
-- Desktop composition: `PCL.Desktop/Program.cs` now composes the real foundation over
-  `AppFolders.ResolveDefault()` (five services, one store) instead of an empty shell, so the
-  trim gate analyzes the live call graph. The trimmed binary runs and prints the composed
-  service count.
+  follow-up composition edge in XSR-520 registers them through `FoundationRuntimeComposer` into
+  the real `XsrCommandRouterBuilder` / `XsrQueryRouterBuilder`; PCL.Services stays free of the
+  runtime dependency while the router path is the only command path.
+- Desktop composition: `PCL.Desktop/Program.cs` composes the real foundation over
+  `AppFolders.ResolveDefault()` (five services, one store) and then its formal runtime routes,
+  so the trim gate analyzes the live call graph. The trimmed binary runs and prints the service
+  and route counts.
 - CI evidence: a NativeAOT publish-and-execute step for `tests/PCL.Services.Tests` now runs
   in the workflow — the analytics were analyzer-contract only before; the whole foundation
   (auth crypto, archives, update payloads) now executes under NativeAOT per commit.
@@ -37,13 +38,15 @@ composition, and unverified AOT evidence — and locks the review fixes (durable
 
 ## Verification
 
-`tests/PCL.Services.Tests` grows to 128 executable tests. The two acceptance tests are the
-headline: `foundation composition end to end` builds the shared store through the
-composition, routes a `settings.set` command through the real `XsrCommandRouter` into
-`SettingsService`, observes the publication at the UI bridge, drains it, loads a PXML text
-bound to `settings.theme`, and asserts the rendered scene text changes `light` → `dark`;
-`cross capability page has no state id collisions` loads one page binding state from four
-capabilities (settings/account/download/telemetry) plus logging, asserts every binding
-resolves in the shared store with distinct runtime ids, seeds all capabilities, and proves a
-settings publication dirties exactly the settings-bound entity. Runs under CoreCLR and
-NativeAOT in CI.
+`tests/PCL.Services.Tests` grows to 130 executable tests. The acceptance tests build the shared
+store and `FoundationRuntime` through the formal composition API rather than registering routes
+inside the test. They route a `settings.set` command through the real `XsrCommandRouter` into
+`SettingsService`, query the raw value through the paired router, and dispatch the schema I32
+setting that the former `string` generic path rejected. They observe the publication at the UI
+bridge, drain it, load a PXML text bound to `settings.theme`, and assert the rendered scene text
+changes `light` → `dark`; `cross capability page has no state id collisions` loads one page
+binding state from four capabilities (settings/account/download/telemetry) plus logging, asserts
+every binding resolves in the shared store with distinct runtime ids, seeds all capabilities, and
+proves a settings publication dirties exactly the settings-bound entity. A separate acceptance
+test proves composed downloads log to the host `LogService`. Runs under CoreCLR and NativeAOT in
+CI.

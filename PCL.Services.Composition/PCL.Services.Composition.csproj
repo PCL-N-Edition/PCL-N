@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Composition-layer wiring between the foundation services and the XSR runtime routers.</Description>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PCL.Services/PCL.Services.csproj" />
+    <ProjectReference Include="../PCL.Xsr.Runtime/PCL.Xsr.Runtime.csproj" />
+  </ItemGroup>
+</Project>

@@ -98,6 +98,7 @@ internal static partial class Program
         ("unsafe paths are refused everywhere", Sync(UnsafePathsAreRefusedEverywhere)),
         // XSR-519: Wave 5 acceptance integration.
         ("foundation composition end to end", FoundationCompositionEndToEnd),
+        ("foundation downloads use composed logging", FoundationDownloadsUseComposedLogging),
         ("cross capability page has no state id collisions", CrossCapabilityPageHasNoStateIdCollisions),
         // XSR-513: online account flows.
         ("the microsoft device login runs the full chain", MicrosoftDeviceLoginRunsTheFullChain),

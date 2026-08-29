@@ -19,6 +19,7 @@
   </Folder>
   <Folder Name="/Services/">
     <Project Path="PCL.Services/PCL.Services.csproj" />
+    <Project Path="PCL.Services.Composition/PCL.Services.Composition.csproj" />
   </Folder>
   <Folder Name="/Renderer/">
     <Project Path="PCL.UI.Next/PCL.UI.Next.csproj" />

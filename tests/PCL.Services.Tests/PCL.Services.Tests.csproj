@@ -13,6 +13,7 @@
     <ProjectReference Include="../../PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj" />
     <ProjectReference Include="../../PCL.Pxml.Runtime/PCL.Pxml.Runtime.csproj" />
     <ProjectReference Include="../../PCL.Services/PCL.Services.csproj" />
+    <ProjectReference Include="../../PCL.Services.Composition/PCL.Services.Composition.csproj" />
     <ProjectReference Include="../../PCL.UI.Next/PCL.UI.Next.csproj" />
     <ProjectReference Include="../../PCL.Xsr.Runtime/PCL.Xsr.Runtime.csproj" />
     <ProjectReference Include="../../PCL.Xsr.State/PCL.Xsr.State.csproj" />

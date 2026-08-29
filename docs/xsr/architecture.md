@@ -23,20 +23,14 @@ The first project in each family is created only when a closed migration unit ne
 ## Runtime shape
 
 ```text
-                         PCL.Desktop
-                    composition root only
-                               |
-                               v
-                        PCL.Xsr.Runtime
-             +-----------------+-----------------+
-             |                 |                 |
-             v                 v                 v
-       PCL.Services.*     PCL.Xsr.State      PCL.UI.Next
-             |                 |                 |
-             +-----------------+-----------------+
-                               |
-                               v
-                    Domain / Contracts / Core
+PCL.Desktop (composition root)
+  ├─> PCL.Services.Composition ──> PCL.Services.*
+  │                  └───────────> PCL.Xsr.Runtime
+  ├─> PCL.UI.Next
+  └─> platform backends
+
+PCL.Services.* + PCL.Xsr.Runtime + PCL.UI.Next
+  └─> PCL.Xsr.State / abstractions ──> Domain / Contracts / Core
 
         Host process                    Plugin process
   PCL.Xsr.Runtime + UI.Next  <------>  Sidecar Fabric v2
@@ -50,7 +44,7 @@ X coordinates service registration, command/query routing, state, events, scopes
 |---|---|
 | `PCL.Core`, `PCL.Domain`, `PCL.Contracts` | portable primitives, domain rules, and stable cross-module contracts |
 | `PCL.Xsr.*` | runtime abstractions, routing, state, transport, diagnostics, and generated code |
-| `PCL.Services.*` | business capabilities grouped by change ownership |
+| `PCL.Services.*` | business capabilities grouped by change ownership; `PCL.Services.Composition` is the explicit edge that binds those capabilities to Runtime routers |
 | `PCL.UI.Next` | canonical semantic renderer |
 | `PCL.UI.Next.Backend.*` | platform rendering, windows, native input, IME, clipboard, and accessibility bridges |
 | `PCL.Pxml.*` | authoring language, compiler, IR, generators, and runtime loading |
@@ -85,6 +79,9 @@ The sealed registry is part of the XSR abstractions kernel: routing, state, even
 ## Ownership and composition
 
 - Services own business behavior and publish state/events.
+- `PCL.Services.Foundation` owns Foundation route IDs and typed handler factories; the separate
+  `PCL.Services.Composition` project owns Runtime-router registration so service assemblies do
+  not reference `PCL.Xsr.Runtime`.
 - The state store owns observable system facts and their revisions.
 - Renderers project state and emit intent without becoming a second source of truth.
 - Platform projects own OS-specific implementations behind portable contracts.

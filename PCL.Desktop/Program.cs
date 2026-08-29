@@ -1,7 +1,7 @@
 using PCL.Services.Accounts;
+using PCL.Services.Composition;
 using PCL.Services.Files;
 using PCL.Services.Foundation;
-using PCL.Services.Logging;
 using PCL.Services.Settings;
 
 namespace PCL.Desktop;
@@ -25,7 +25,10 @@ internal static class Program
             new LauncherSettingsJsonPort(System.IO.Path.Combine(settingsFolder, "settings.json"), settingsSchema),
             settingsSchema,
             new LaunchProfileFilePort(System.IO.Path.Combine(profilesFolder, "profiles.json")));
+        FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host);
 
-        Console.WriteLine($"PCL Nexa foundation composed: {host.Services.Count} services over one host state store.");
+        Console.WriteLine(
+            $"PCL Nexa foundation composed: {runtime.Host.Services.Count} services, "
+            + $"{runtime.Commands.Count} command routes, {runtime.Queries.Count} query routes over one host state store.");
     }
 }

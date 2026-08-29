@@ -1,6 +1,7 @@
 using System.Text;
 using PCL.Pxml;
 using PCL.Services.Accounts;
+using PCL.Services.Composition;
 using PCL.Services.Downloads;
 using PCL.Services.Files;
 using PCL.Services.Foundation;
@@ -65,51 +66,58 @@ internal static partial class Program
 
     internal static async ValueTask FoundationCompositionEndToEnd()
     {
-        // Phase 1+2: declare all foundation state into one builder, build once, construct
-        // every service over the shared store. The UI bridge observes the store.
+        // The composition root owns both phases and returns the one host store plus its sealed
+        // command/query routers. The UI bridge observes the same store used by every service.
         XsrUiTree tree = new();
         XsrUiStateBridge bridge = new(tree);
         SettingsSchema schema = CompositionSchema();
-        XsrStateStoreBuilder builder = FoundationState.CreateBuilder(settingsSchema: schema);
-        XsrStateStore store = builder.Build(bridge);
-
         InMemorySettingsPort settingsPort = new();
-        var settings = new SettingsService(store, schema, settingsPort);
-        var logging = new LogService(store);
-        var downloads = new DownloadService(store);
         LaunchProfileFilePort profilePort = new(System.IO.Path.Combine(
             System.IO.Path.GetTempPath(), "pcl-services-tests", Guid.NewGuid().ToString("N"), "profiles.json"));
-        var accounts = new AccountService(store, profilePort);
-        var telemetry = new TelemetryService(store);
-
-        // The command router routes the foundation command into the service.
-        XsrCommandRouterBuilder routerBuilder = new();
-        routerBuilder.Register(
-            XsrSemanticId.Parse("settings.set"),
-            FoundationCommands.CreateSettingsSetHandler(settings));
         RecordingDispatchObserver observer = new();
-        XsrCommandRouter router = routerBuilder.Build(observer);
+        FoundationHost host = FoundationComposer.Compose(settingsPort, schema, profilePort, bridge);
+        FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host, observer);
 
-        AssertTrue(router.TryResolve(XsrSemanticId.Parse("settings.set"), out XsrCommandId commandId));
+        AssertEqual(3, runtime.Commands.Count);
+        AssertEqual(1, runtime.Queries.Count);
+        AssertTrue(runtime.Commands.TryResolve(FoundationRouteIds.SettingsSet, out XsrCommandId commandId));
+        AssertTrue(runtime.Commands.TryResolve(FoundationRouteIds.TelemetryConsent, out _));
+        AssertTrue(runtime.Commands.TryResolve(FoundationRouteIds.AccountUpsertProfile, out _));
+        AssertTrue(runtime.Queries.TryResolve(FoundationRouteIds.SettingsGet, out XsrQueryId queryId));
 
         // The page: one PXML text bound to settings.theme renders "light" before the command.
         PxmlHostIr ir = new(TextNode("settings.theme", "light"));
         XsrUiEntityId page = tree.Create("page-root");
-        XsrUiEntityId textEntity = PxmlUiLoader.Load(ir, tree, store, page);
-        XsrUiRenderer renderer = new(tree, store);
+        XsrUiEntityId textEntity = PxmlUiLoader.Load(ir, tree, host.StateStore, page);
+        XsrUiRenderer renderer = new(tree, host.StateStore);
         renderer.SetRoot(page);
         XsrUiScene beforeScene = renderer.Render();
         string? beforeText = beforeScene.Nodes.First(static node => node.Text is not null).Text;
         AssertEqual("light", beforeText);
 
         // UI intent → router → service → state → bridge → drain → render.
-        XsrCommandDispatch dispatch = router.Dispatch(commandId, new SettingsSetCommand("settings.theme", "dark"));
+        XsrCommandDispatch dispatch = runtime.Commands.Dispatch(
+            commandId, new SettingsSetCommand("settings.theme", "dark"));
         AssertTrue(dispatch.Acceptance.IsSuccess);
         AssertTrue((await dispatch.Completion).IsSuccess);
-        AssertTrue(settings.GetValue<string>("settings.theme").TryGetValue(out string? theme) && theme == "dark");
+        AssertTrue(host.Settings.GetValue<string>("settings.theme").TryGetValue(out string? theme) && theme == "dark");
+
+        XsrResult<string> queried = await runtime.Queries.QueryAsync<SettingsGetQuery, string>(
+            queryId, new SettingsGetQuery("settings.theme"));
+        AssertTrue(queried.TryGetValue(out string? queriedTheme) && queriedTheme == "dark");
+
+        // The same wire command must use the schema type rather than infer string: the I32
+        // setting was the regression that the former handler rejected as a type mismatch.
+        AssertTrue((await runtime.Commands.Dispatch(
+            commandId, new SettingsSetCommand("settings.download.thread", "64")).Completion).IsSuccess);
+        AssertTrue(host.Settings.GetValue<int>("settings.download.thread")
+            .TryGetValue(out int threadCount) && threadCount == 64);
+        XsrResult<string> queriedThreadCount = await runtime.Queries.QueryAsync<SettingsGetQuery, string>(
+            queryId, new SettingsGetQuery("settings.download.thread"));
+        AssertTrue(queriedThreadCount.TryGetValue(out string? rawThreadCount) && rawThreadCount == "64");
 
         AssertTrue(bridge.PendingCount > 0);
-        bridge.DrainAndMark(store);
+        bridge.DrainAndMark(host.StateStore);
         AssertTrue(tree.DirtyEntities().Any(entity => entity == textEntity));
         XsrUiScene afterScene = renderer.Render();
         string? afterText = afterScene.Nodes.First(static node => node.Text is not null).Text;
@@ -119,21 +127,49 @@ internal static partial class Program
         AssertTrue(observer.Completed.Count > 0);
     }
 
+    internal static async ValueTask FoundationDownloadsUseComposedLogging()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            SettingsSchema schema = CompositionSchema();
+            FoundationHost host = FoundationComposer.Compose(
+                new InMemorySettingsPort(),
+                schema,
+                new LaunchProfileFilePort(Path.Combine(directory, "profiles.json")));
+
+            DownloadTransferResult result = await host.Downloads.DownloadAsync(new DownloadRequest
+            {
+                Sources = ["mem://download"],
+                DestinationPath = Path.Combine(directory, "payload.bin"),
+                ConnectionFactory = _ => new FakeConnection(1, [0x42]),
+            });
+
+            AssertTrue(result.Success);
+            AssertTrue(host.Logging.GetSnapshot().Any(entry =>
+                entry.Module == DownloadService.LogModuleName
+                && entry.Message.Contains("下载", StringComparison.Ordinal)));
+            AssertTrue(ReferenceEquals(host.Logging.StateStore, host.Downloads.StateStore));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     internal static async ValueTask CrossCapabilityPageHasNoStateIdCollisions()
     {
         XsrUiTree tree = new();
         XsrUiStateBridge bridge = new(tree);
         SettingsSchema schema = CompositionSchema();
-        XsrStateStoreBuilder builder = FoundationState.CreateBuilder(settingsSchema: schema);
-        XsrStateStore store = builder.Build(bridge);
-
-        var settings = new SettingsService(store, schema, new InMemorySettingsPort());
-        var logging = new LogService(store);
-        var downloads = new DownloadService(store);
         LaunchProfileFilePort profilePort = new(System.IO.Path.Combine(
             System.IO.Path.GetTempPath(), "pcl-services-tests", Guid.NewGuid().ToString("N"), "profiles.json"));
-        var accounts = new AccountService(store, profilePort);
-        var telemetry = new TelemetryService(store);
+        FoundationHost host = FoundationComposer.Compose(new InMemorySettingsPort(), schema, profilePort, bridge);
+        FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host);
+        XsrStateStore store = host.StateStore;
+        LogService logging = host.Logging;
+        AccountService accounts = host.Accounts;
+        TelemetryService telemetry = host.Telemetry;
 
         // Every capability's entries live in one store with distinct runtime ids.
         XsrStateId theme = store.Resolve(XsrSemanticId.Parse("settings.theme"));
@@ -181,15 +217,11 @@ internal static partial class Program
 
         // Dispatching settings.set dirties only the settings-bound entity: state identity is
         // exact, not per-store guesswork.
-        XsrCommandRouterBuilder routerBuilder = new();
-        routerBuilder.Register(
-            XsrSemanticId.Parse("settings.set"),
-            FoundationCommands.CreateSettingsSetHandler(settings));
-        XsrCommandRouter router = routerBuilder.Build(new RecordingDispatchObserver());
-        XsrCommandId commandId = router.TryResolve(XsrSemanticId.Parse("settings.set"), out XsrCommandId resolved)
+        XsrCommandId commandId = runtime.Commands.TryResolve(FoundationRouteIds.SettingsSet, out XsrCommandId resolved)
             ? resolved
             : throw new InvalidOperationException("settings.set route missing.");
-        AssertTrue((await router.Dispatch(commandId, new SettingsSetCommand("settings.theme", "dark")).Completion).IsSuccess);
+        AssertTrue((await runtime.Commands.Dispatch(
+            commandId, new SettingsSetCommand("settings.theme", "dark")).Completion).IsSuccess);
 
         bridge.DrainAndMark(store);
         IReadOnlyList<XsrUiEntityId> dirty = tree.DirtyEntities();

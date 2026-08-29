@@ -6,12 +6,13 @@ Dependencies point toward portable policy and stable contracts. Platform framewo
 
 ```text
 Desktop
-  -> XSR Runtime
   -> Services composition
+       -> Services + XSR Runtime
   -> UI.Next
   -> Platform implementations
 
 Services.* -> XSR abstractions/state + Domain + Contracts + Core + Platform.Abstractions
+Services.Composition -> Services + XSR Runtime
 UI.Next    -> renderer contracts + Domain/Core value types when explicitly approved
 Backends   -> UI.Next + platform framework
 Domain     -> Core only
@@ -31,6 +32,11 @@ References not shown are denied by default for new XSR projects.
 | Sidecar protocol/transport | plugin business assemblies and Host UI types |
 
 `PCL.Sidecar.Protocol` has no dependency on product Core, Contracts, or XSR assemblies. `PCL.Sidecar.Transport` depends only on Protocol. Both sides of the process boundary consume these independently versioned surfaces without exchanging Host CLR objects.
+
+`PCL.Services.Foundation` must not reference `PCL.Xsr.Runtime`. Its route IDs and handler
+factories remain portable service contracts. `PCL.Services.Composition` is the narrow approved
+edge that takes a `FoundationHost`, registers those factories in the Runtime builders, and
+returns the sealed command/query routers to Desktop.
 
 `PCL.UI.Next.Backend.Avalonia` is the only new-architecture project family allowed to expose Avalonia implementation types, and those types must not leak through UI.Next public contracts.
 

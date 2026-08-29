@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="../PCL.Pxml.Runtime/PCL.Pxml.Runtime.csproj" />
     <ProjectReference Include="../PCL.Services/PCL.Services.csproj" />
+    <ProjectReference Include="../PCL.Services.Composition/PCL.Services.Composition.csproj" />
     <ProjectReference Include="../PCL.Sidecar.Protocol/PCL.Sidecar.Protocol.csproj" />
     <ProjectReference Include="../PCL.Sidecar.Transport/PCL.Sidecar.Transport.csproj" />
     <ProjectReference Include="../PCL.UI.Next/PCL.UI.Next.csproj" />

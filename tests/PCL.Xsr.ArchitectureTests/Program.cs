@@ -34,6 +34,7 @@ internal static class Program
                 "PCL.Xsr.Abstractions",
                 "PCL.Xsr.State",
             ],
+            ["PCL.Services.Composition"] = ["PCL.Services", "PCL.Xsr.Runtime"],
             ["PCL.UI.Next"] = ["PCL.Core", "PCL.Xsr.Abstractions", "PCL.Xsr.State"],
             ["PCL.UI.Next.Backend.Avalonia"] = ["PCL.UI.Next"],
             ["PCL.UI.Next.DevTools"] = ["PCL.UI.Next", "PCL.Xsr.Diagnostics"],
@@ -48,6 +49,7 @@ internal static class Program
             [
                 "PCL.Pxml.Runtime",
                 "PCL.Services",
+                "PCL.Services.Composition",
                 "PCL.Sidecar.Protocol",
                 "PCL.Sidecar.Transport",
                 "PCL.UI.Next",
@@ -60,7 +62,7 @@ internal static class Program
             ["PCL.Pxml.Tests"] = ["PCL.Pxml.Compiler", "PCL.Pxml.Runtime", "PCL.UI.Next", "PCL.Xsr.Abstractions", "PCL.Xsr.State"],
             ["PCL.Sidecar.Tests"] = ["PCL.Sidecar.Protocol", "PCL.Sidecar.Transport"],
             ["PCL.Services.Tests"] =
-            ["PCL.Pxml.Compiler", "PCL.Pxml.Runtime", "PCL.Services", "PCL.UI.Next", "PCL.Xsr.Runtime", "PCL.Xsr.State"],
+            ["PCL.Pxml.Compiler", "PCL.Pxml.Runtime", "PCL.Services", "PCL.Services.Composition", "PCL.UI.Next", "PCL.Xsr.Runtime", "PCL.Xsr.State"],
         };
 
     private static readonly HashSet<string> ExecutableProjects =
@@ -88,6 +90,7 @@ internal static class Program
             "PCL.Pxml.Compiler",
             "PCL.Pxml.Runtime",
             "PCL.Services",
+            "PCL.Services.Composition",
         ];
 
     public static int Main(string[] args)

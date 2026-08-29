@@ -128,6 +128,13 @@ internal static partial class Program
         XsrResult malformed = service.SetValue("not a semantic id", 1);
         AssertFalse(malformed.IsSuccess);
         AssertEqual(SettingsErrors.UnknownKeyCode, malformed.Error!.Code);
+
+        XsrResult rawMissingWrite = service.SetRawValue("settings.test.missing", "1");
+        AssertFalse(rawMissingWrite.IsSuccess);
+        AssertEqual(SettingsErrors.UnknownKeyCode, rawMissingWrite.Error!.Code);
+        XsrResult<string> rawMissingRead = service.GetRawValue("settings.test.missing");
+        AssertFalse(rawMissingRead.IsSuccess);
+        AssertEqual(SettingsErrors.UnknownKeyCode, rawMissingRead.Error!.Code);
         return ValueTask.CompletedTask;
     }
 
@@ -213,6 +220,12 @@ internal static partial class Program
         AssertTrue(service.GetValue<int>(KeyCount).TryGetValue(out int after) && after == 3);
 
         XsrStateId id = service.StateStore.Resolve(XsrSemanticId.Parse(KeyCount));
+        AssertEqual(1L, service.StateStore.Read<int>(id).Revision);
+
+        XsrResult rawFailed = service.SetRawValue(KeyCount, "78");
+        AssertFalse(rawFailed.IsSuccess);
+        AssertEqual(SettingsErrors.PersistFailedCode, rawFailed.Error!.Code);
+        AssertTrue(service.GetValue<int>(KeyCount).TryGetValue(out int afterRaw) && afterRaw == 3);
         AssertEqual(1L, service.StateStore.Read<int>(id).Revision);
         return ValueTask.CompletedTask;
     }

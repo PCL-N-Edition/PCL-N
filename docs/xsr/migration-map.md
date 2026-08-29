@@ -22,7 +22,7 @@ There is no periodic `dev -> refactor/xsr` merge. A legacy fix is forward-ported
 | 2 Renderer kernel | stable UI.Next ECS, scene, layout, input, navigation, overlay, accessibility | deterministic contract and benchmark gates |
 | 3 PXML | parser through generated UI.Next IR and runtime loader | no runtime reflection binding |
 | 4 Sidecar Fabric v2 | registration, command/query, state mirror, event, UI/resources, recovery | protocol, crash, reconnect, and performance gates |
-| 5 Foundation services | Settings through Account/Update | capability parity and data compatibility — complete (XSR-501…519, see below) |
+| 5 Foundation services | Settings through Account/Update | capability parity and data compatibility — complete (XSR-501…520, see below) |
 | 6 Minecraft core | discovery, instances, Java, assets, libraries, launch, crash analysis | canonical corpus parity |
 | 7 Product UI | product vertical slices rendered through PXML/UI.Next | UX and accessibility parity |
 | 8 Plugin SDK 1.0 | stable API, package, manifest, UI IR, permissions, testing, analyzers | compatibility baseline and validation plugins |
@@ -31,8 +31,8 @@ There is no periodic `dev -> refactor/xsr` merge. A legacy fix is forward-ported
 
 ## Wave 5 status (complete)
 
-Foundation services are composed over one shared host state store with command/query
-handlers exposed to the composition root, and the update loop runs end to end
+Foundation services are composed over one shared host state store with formal command/query
+routers sealed in `PCL.Services.Composition`, and the update loop runs end to end
 (discovery → eligibility → plan → download → verify → stage → install → restart):
 
 | Unit | Commit | Outcome |
@@ -54,11 +54,13 @@ handlers exposed to the composition root, and the update loop runs end to end
 | XSR-516 | `a200d492`+`378f8d51` | payload extraction (zip/tar) and HDiffPatch orchestration |
 | XSR-517 | `a273efb7` | network probing and opt-in telemetry |
 | XSR-518 | `8a1100e5`+`e0deb40a` | helper hand-off and restart scheduling |
-| XSR-519 | this commit | unified host state composition, foundation command/query registration, cross-capability PXML integration test, NativeAOT CI evidence |
+| XSR-519 | `98e78477` | unified host state composition, foundation handler contracts, cross-capability PXML integration test, NativeAOT CI evidence |
+| XSR-520 | `a33184f1` + this commit | raw typed settings, formal Foundation Runtime composition, and unified download logging |
 
-Exit evidence: `tests/PCL.Services.Tests` (130+ executable tests) green under CoreCLR and
+Exit evidence: `tests/PCL.Services.Tests` (130 executable tests) green under CoreCLR and
 NativeAOT in CI; architecture gate green including the Desktop trim gate over the composed
-foundation (the trimmed binary composes five services over one host state store and runs).
+Foundation Runtime (the trimmed binary composes five services, three command routes, and one
+query route over one host state store and runs).
 
 ## Closed migration unit
 

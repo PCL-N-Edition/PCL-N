@@ -45,19 +45,40 @@ public static class FoundationState
 /// </summary>
 public sealed class FoundationHost
 {
-    private readonly List<object> _services = [];
+    private readonly IReadOnlyList<object> _services;
 
-    public FoundationHost(XsrStateStore stateStore)
+    internal FoundationHost(
+        XsrStateStore stateStore,
+        LogService logging,
+        DownloadService downloads,
+        AccountService accounts,
+        TelemetryService telemetry,
+        SettingsService settings)
     {
         StateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
+        Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+        Downloads = downloads ?? throw new ArgumentNullException(nameof(downloads));
+        Accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
+        Telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
+        Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _services = Array.AsReadOnly<object>([Logging, Downloads, Accounts, Telemetry, Settings]);
     }
 
     public XsrStateStore StateStore { get; }
 
+    public LogService Logging { get; }
+
+    public DownloadService Downloads { get; }
+
+    public AccountService Accounts { get; }
+
+    public TelemetryService Telemetry { get; }
+
+    public SettingsService Settings { get; }
+
     /// <summary>Registered services in activation order (for composition diagnostics).</summary>
     public IReadOnlyList<object> Services => _services;
 
-    internal void Register<T>(T service) where T : class => _services.Add(service);
 }
 
 /// <summary>
@@ -72,7 +93,6 @@ public static class FoundationComposer
         ILaunchProfilePort profilePort,
         IXsrStateObserver? observer = null,
         TimeProvider? clock = null,
-        LogService? log = null,
         int logCapacity = 2_000,
         int downloadBufferSize = 128 * 1024,
         long minimumSegmentBytes = 8 * 1024 * 1024,
@@ -86,17 +106,11 @@ public static class FoundationComposer
         XsrStateStore store = builder.Build(observer);
 
         var logging = new LogService(store, logCapacity, clock);
-        var downloads = new DownloadService(store, downloadBufferSize, log, minimumSegmentBytes);
+        var downloads = new DownloadService(store, downloadBufferSize, logging, minimumSegmentBytes);
         var accounts = new AccountService(store, profilePort);
         var telemetry = new TelemetryService(store, telemetryCapacity);
         var settings = new SettingsService(store, settingsSchema, settingsPort);
 
-        FoundationHost host = new(store);
-        host.Register(logging);
-        host.Register(downloads);
-        host.Register(accounts);
-        host.Register(telemetry);
-        host.Register(settings);
-        return host;
+        return new FoundationHost(store, logging, downloads, accounts, telemetry, settings);
     }
 }
