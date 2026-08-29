@@ -461,13 +461,24 @@ jobs:
             --local-root block-dist \
             --require-remote
 
+      # Not softprops/action-gh-release: it always echoes target_commitish back
+      # into its update PATCH, and GitHub rejects that field from GITHUB_TOKEN
+      # when the release was created with a SHA target (403 "Resource not
+      # accessible by integration" — the token has contents:write; the PATCH
+      # payload is what is refused). The changelog job owns the release
+      # body/name, so uploading assets directly needs no release update at all.
       - name: Upload user download assets to the existing GitHub release
-        uses: softprops/action-gh-release@v2.5.0
-        with:
-          tag_name: ${{ inputs.tag_name }}
-          files: dist/downloads/*
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$(find dist/downloads -maxdepth 1 -type f -print -quit)" || {
+            echo "::error::No download assets staged for upload"
+            exit 1
+          }
+          gh release upload '${{ inputs.tag_name }}' dist/downloads/* \
+            --repo '${{ github.repository }}' --clobber
 
       - name: Publish updater assets and channel marker to Cloudflare R2
         shell: bash
