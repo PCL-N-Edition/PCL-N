@@ -99,6 +99,15 @@ Wave 2 is complete. The renderer kernel provides the entity tree, deterministic 
 
 Wave 3 is complete. The parser enforces a deterministic XML boundary, the compiler consumes a required UI.Next-owned control directory expanded into physical generated source, the typed IR carries finite runtime recipes and binding tables, and the transactional loader produces the same scene as hand-built entities. Exit evidence: default and substitute catalogs compile incrementally, malformed and missing catalogs fail deterministically, text and visibility state bindings drive rendering, Compiler and Runtime contain no reflection or named-control dispatch, and the complete pipeline passes CoreCLR, NativeAOT, architecture, format, benchmark, and trim gates.
 
+## Wave 4 work items
+
+| ID | Work item | Status |
+|---|---|---|
+| XSR-401 | Sidecar protocol surface: frames, message numbers, payload codec with unknown-field skipping | complete |
+| XSR-402 | reliable local transport with connection lifecycle | pending |
+| XSR-403 | session lifecycle, registration, and state mirror | pending |
+| XSR-404 | crash recovery, reconnect, and command/query forwarding | pending |
+
 ## Cutover gate
 
 Before XSR replaces the legacy architecture, startup, downloads, instances, Minecraft launch, accounts, settings, updates, cloud, online play, plugins, OOBE, crash recovery, AOT, and trim must pass. Plugin SDK 1.0, Sidecar Protocol v1, Manifest/Package v1, and Plugin UI IR v1 must be frozen with compatibility tests.
