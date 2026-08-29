@@ -1,4 +1,8 @@
-# PCL N XSR migration
+# PCL Nexa XSR migration
+
+On this branch the launcher's product name is **PCL Nexa**; the standalone "Nexa Launcher"
+naming is reserved for the official rename later. Repository, solution, project, and
+namespace identifiers still carry the PCL N lineage and are deliberately untouched.
 
 `refactor/xsr` is a clean-slate architecture branch. It contains the new .NET 10 XSR project graph and the first Wave 1 runtime primitive, but no migrated launcher behavior, legacy build pipeline, or vendored/submodule implementation.
 

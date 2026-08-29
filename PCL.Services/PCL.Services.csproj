@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Composition boundary for PCL N business capability services.</Description>
+    <Description>Composition boundary for PCL Nexa business capability services.</Description>
     <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 

@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <XsrProductName Condition="'$(XsrProductName)' == ''">PCL Nexa</XsrProductName>
     <XsrVersionPrefix Condition="'$(XsrVersionPrefix)' == ''">2.0.0</XsrVersionPrefix>
     <XsrVersionChannel Condition="'$(XsrVersionChannel)' == ''">alpha</XsrVersionChannel>
     <XsrVersionSequence Condition="'$(XsrVersionSequence)' == ''">1</XsrVersionSequence>
@@ -13,6 +14,7 @@
     <XsrPackageVersion Condition="'$(XsrVersionChannel)' == 'alpha' or '$(XsrVersionChannel)' == 'beta'">$(XsrVersionPrefix)-$(XsrVersionChannel).$(XsrVersionSequence)</XsrPackageVersion>
     <XsrPackageVersion Condition="'$(XsrVersionChannel)' == 'ci'">$(XsrVersionPrefix)-ci.$(XsrCommitShort)</XsrPackageVersion>
 
+    <Product>$(XsrProductName)</Product>
     <Version>$(XsrPackageVersion)</Version>
     <PackageVersion>$(XsrPackageVersion)</PackageVersion>
     <InformationalVersion>$(XsrProductVersion)</InformationalVersion>

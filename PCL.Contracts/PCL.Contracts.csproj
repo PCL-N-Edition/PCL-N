@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Stable cross-module contracts for PCL N capabilities.</Description>
+    <Description>Stable cross-module contracts for PCL Nexa capabilities.</Description>
   </PropertyGroup>
 
   <ItemGroup>

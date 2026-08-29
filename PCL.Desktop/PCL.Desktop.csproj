@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <Description>Thin PCL N process bootstrap and XSR composition root.</Description>
+    <Description>Thin PCL Nexa process bootstrap and XSR composition root.</Description>
   </PropertyGroup>
 
   <ItemGroup>

@@ -2,7 +2,7 @@
 
 ## Direction
 
-XSR is the long-term architecture of PCL N:
+XSR is the long-term architecture of PCL Nexa:
 
 ```text
 X = execution and exchange runtime

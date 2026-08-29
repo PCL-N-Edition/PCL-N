@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Portable primitives shared by the PCL N XSR architecture.</Description>
+    <Description>Portable primitives shared by the PCL Nexa XSR architecture.</Description>
   </PropertyGroup>
 </Project>

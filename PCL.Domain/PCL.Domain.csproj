@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Framework-independent PCL N domain rules and invariants.</Description>
+    <Description>Framework-independent PCL Nexa domain rules and invariants.</Description>
   </PropertyGroup>
 
   <ItemGroup>
