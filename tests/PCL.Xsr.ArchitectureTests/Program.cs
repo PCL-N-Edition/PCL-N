@@ -56,7 +56,7 @@ internal static class Program
             ["PCL.Xsr.Runtime.Tests"] = ["PCL.Xsr.Abstractions", "PCL.Xsr.Runtime", "PCL.Xsr.State", "PCL.Xsr.Diagnostics"],
             ["PCL.UI.Next.Tests"] = ["PCL.Xsr.Abstractions", "PCL.Xsr.State", "PCL.UI.Next"],
                         ["PCL.Pxml.Tests"] = ["PCL.Pxml.Compiler", "PCL.Pxml.Runtime", "PCL.UI.Next", "PCL.Xsr.Abstractions", "PCL.Xsr.State"],
-            ["PCL.Sidecar.Tests"] = ["PCL.Sidecar.Protocol"],
+            ["PCL.Sidecar.Tests"] = ["PCL.Sidecar.Protocol", "PCL.Sidecar.Transport"],
         };
 
     private static readonly HashSet<string> ExecutableProjects =

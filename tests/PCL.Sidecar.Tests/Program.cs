@@ -4,34 +4,47 @@ namespace PCL.Sidecar.Tests;
 
 internal static partial class Program
 {
-    private static readonly (string Name, Action Body)[] TestCases =
+    private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
         // XSR-401: Sidecar protocol surface.
-        ("frames round trip header and payload", FrameRoundTripsHeaderAndPayload),
-        ("payload fields round trip every type", PayloadFieldsRoundTripEveryType),
-        ("unknown fields are skipped by length", UnknownFieldsAreSkippedByLength),
-        ("frame magic and versions are enforced", FrameMagicAndVersionsAreEnforced),
-        ("truncated and oversized frames are rejected", TruncatedAndOversizedFramesAreRejected),
-        ("unknown message types are rejected", UnknownMessageTypesAreRejected),
-        ("message numbers are frozen", MessageNumbersAreFrozen),
-        ("ascending field ids are enforced", AscendingFieldIdsAreEnforced),
-        ("tag mismatches are rejected on read", TagMismatchesAreRejectedOnRead),
-        ("malformed payloads fail deterministically", MalformedPayloadsFailDeterministically),
-        ("frame decode allocates only the payload", FrameDecodeAllocatesOnlyThePayload),
-        ("correlation ids are stable identities", CorrelationIdsAreStableIdentities),
+        ("frames round trip header and payload", Sync(FrameRoundTripsHeaderAndPayload)),
+        ("payload fields round trip every type", Sync(PayloadFieldsRoundTripEveryType)),
+        ("unknown fields are skipped by length", Sync(UnknownFieldsAreSkippedByLength)),
+        ("frame magic and versions are enforced", Sync(FrameMagicAndVersionsAreEnforced)),
+        ("truncated and oversized frames are rejected", Sync(TruncatedAndOversizedFramesAreRejected)),
+        ("unknown message types are rejected", Sync(UnknownMessageTypesAreRejected)),
+        ("message numbers are frozen", Sync(MessageNumbersAreFrozen)),
+        ("ascending field ids are enforced", Sync(AscendingFieldIdsAreEnforced)),
+        ("tag mismatches are rejected on read", Sync(TagMismatchesAreRejectedOnRead)),
+        ("malformed payloads fail deterministically", Sync(MalformedPayloadsFailDeterministically)),
+        ("frame decode allocates only the payload", Sync(FrameDecodeAllocatesOnlyThePayload)),
+        ("correlation ids are stable identities", Sync(CorrelationIdsAreStableIdentities)),
+        // XSR-402: transport and connection lifecycle.
+        ("connection round trips frames over loopback", ConnectionRoundTripsFramesOverLoopback),
+        ("concurrent sends never interleave", ConcurrentSendsNeverInterleave),
+        ("protocol failures move the connection to failed", ProtocolFailuresMoveTheConnectionToFailed),
+        ("peer close ends receive with stream end", PeerCloseEndsReceiveWithStreamEnd),
+        ("close is idempotent and rejects further use", CloseIsIdempotentAndRejectsFurtherUse),
+        ("send cancellation is observed", SendCancellationIsObserved),
     ];
 
-    private static int Main()
+    private static async Task<int> Main()
     {
-        foreach ((string name, Action body) in TestCases)
+        foreach ((string name, Func<ValueTask> body) in TestCases)
         {
-            body();
+            await body().ConfigureAwait(false);
             Console.WriteLine($"PASS: {name}");
         }
 
         Console.WriteLine($"Sidecar protocol tests passed: {TestCases.Length}.");
         return 0;
     }
+
+    private static Func<ValueTask> Sync(Action action) => () =>
+    {
+        action();
+        return ValueTask.CompletedTask;
+    };
 
     private static void AssertTrue(bool value)
     {

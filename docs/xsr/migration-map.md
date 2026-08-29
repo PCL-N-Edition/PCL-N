@@ -104,7 +104,7 @@ Wave 3 is complete. The parser enforces a deterministic XML boundary, the compil
 | ID | Work item | Status |
 |---|---|---|
 | XSR-401 | Sidecar protocol surface: frames, message numbers, payload codec with unknown-field skipping | complete |
-| XSR-402 | reliable local transport with connection lifecycle | pending |
+| XSR-402 | reliable local transport with connection lifecycle | complete |
 | XSR-403 | session lifecycle, registration, and state mirror | pending |
 | XSR-404 | crash recovery, reconnect, and command/query forwarding | pending |
 

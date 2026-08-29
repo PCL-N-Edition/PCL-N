@@ -7,5 +7,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../PCL.Sidecar.Protocol/PCL.Sidecar.Protocol.csproj" />
+    <ProjectReference Include="../../PCL.Sidecar.Transport/PCL.Sidecar.Transport.csproj" />
   </ItemGroup>
 </Project>
