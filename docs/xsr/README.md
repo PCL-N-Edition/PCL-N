@@ -58,6 +58,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-511-update-signing-delta-codecs.md](migrations/XSR-511-update-signing-delta-codecs.md) — update signature and delta codecs: pinned-key GPG verification, RFC 3284 VCDIFF decoder
 - [migrations/XSR-512-staged-install-core.md](migrations/XSR-512-staged-install-core.md) — staged install core: verify/flatten/plan/apply with safe paths, re-verification, and managed deletes
 - [migrations/XSR-513-online-account-flows.md](migrations/XSR-513-online-account-flows.md) — online account flows: Microsoft device-code chain, Yggdrasil validate/refresh, roster bridge
+- [migrations/XSR-514-littleskin-oauth-appearance.md](migrations/XSR-514-littleskin-oauth-appearance.md) — LittleSkin OAuth (device flow, closet, texture upload) and Microsoft skin/cape services
 
 ## Decision process
 

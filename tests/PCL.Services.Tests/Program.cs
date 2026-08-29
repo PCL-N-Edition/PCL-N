@@ -101,6 +101,13 @@ internal static partial class Program
         ("yggdrasil failures surface the server message", YggdrasilFailureSurfacesServerMessage),
         ("yggdrasil server normalization and jwt expiry work", Sync(YggdrasilServerNormalizationAndJwtExpiry)),
         ("login results feed the persisted roster", LoginResultsFeedThePersistedRoster),
+        // XSR-514: LittleSkin OAuth and appearance services.
+        ("the littleskin device flow runs to tokens", LittleSkinDeviceFlowRunsToEnd),
+        ("littleskin token paths and invalid client behave", LittleSkinTokenPathsAndInvalidClient),
+        ("littleskin profiles session closet and apply run", LittleSkinProfilesSessionClosetAndApply),
+        ("littleskin texture upload uses the minecraft token", LittleSkinTextureUploadUsesMinecraftToken),
+        ("microsoft skin upload parses the active texture", MicrosoftSkinUploadParsesActiveTexture),
+        ("microsoft cape service lists and activates", MicrosoftCapeServiceListsAndActivates),
         ("transfer state mirrors active downloads", TransferStateMirrorsActiveDownloads),
         ("the file writer rejects short resume offsets", FileDownloadWriterRejectsShortResume),
         ("doubles round trip through full precision", DoubleRoundTripsThroughFullPrecision),
