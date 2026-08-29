@@ -43,5 +43,6 @@
     <Project Path="tests/PCL.Xsr.Runtime.Tests/PCL.Xsr.Runtime.Tests.csproj" />
     <Project Path="tests/PCL.UI.Next.Tests/PCL.UI.Next.Tests.csproj" />
     <Project Path="tests/PCL.Pxml.Tests/PCL.Pxml.Tests.csproj" />
+    <Project Path="tests/PCL.Sidecar.Tests/PCL.Sidecar.Tests.csproj" />
   </Folder>
 </Solution>

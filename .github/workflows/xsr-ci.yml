@@ -120,6 +120,9 @@ jobs:
             --output "${{ runner.temp }}/pxml-aot"
           "${{ runner.temp }}/pxml-aot/PCL.Pxml.Tests"
 
+      - name: Test Sidecar protocol
+        run: dotnet run --project tests/PCL.Sidecar.Tests/PCL.Sidecar.Tests.csproj --configuration Release --no-build
+
       - name: Enforce UI.Next benchmark gates
         run: dotnet run --project PCL.UI.Next.Benchmarks/PCL.UI.Next.Benchmarks.csproj --configuration Release --no-build
 
