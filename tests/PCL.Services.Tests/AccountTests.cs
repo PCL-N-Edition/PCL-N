@@ -194,6 +194,21 @@ internal static partial class Program
         return ValueTask.CompletedTask;
     }
 
+    internal static void ProviderIdEqualityIsCaseInsensitive()
+    {
+        AccountProviderId upper = AccountProviderId.Parse("Microsoft");
+        AccountProviderId lower = AccountProviderId.Parse("microsoft");
+
+        AssertTrue(upper == lower);
+        AssertFalse(upper != lower);
+        AssertTrue(upper.Equals(lower));
+        AssertTrue(upper.Equals("MICROSOFT"));
+        AssertFalse(upper.Equals("littleskin"));
+        AssertTrue(upper.GetHashCode() == lower.GetHashCode());
+        AssertTrue(upper.Equals((object)lower));
+        AssertEqual("Microsoft", upper.ToString());
+    }
+
     internal static ValueTask FailedSavesChangeNothingObservable()
     {
         string directory = CreateTempDirectory();

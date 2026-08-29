@@ -110,6 +110,85 @@ internal static partial class Program
         }
     }
 
+    internal static void SymlinkEscapeIsRejected()
+    {
+        string root = CreateTempDirectory();
+        string outside = CreateTempDirectory();
+        try
+        {
+            AppFolders folders = new(root);
+            SafeFilePort port = new(folders);
+
+            // A directory link inside the tree pointing at a folder outside it.
+            string linkPath = Path.Combine(root, FolderNames.Cache, "link");
+            bool linkCreated = true;
+            try
+            {
+                Directory.CreateSymbolicLink(linkPath, outside);
+            }
+            catch (IOException)
+            {
+                linkCreated = false; // Platform without symlink privileges: nothing to assert here.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                linkCreated = false;
+            }
+
+            if (linkCreated)
+            {
+                bool writeRejected = false;
+                try
+                {
+                    port.WriteTextAsync(FolderNames.Cache, "link/file.bin", "escape").GetAwaiter().GetResult();
+                }
+                catch (InvalidDataException failure)
+                {
+                    writeRejected = failure.Message.Contains("目录链接", StringComparison.Ordinal);
+                }
+
+                AssertTrue(writeRejected);
+                AssertEqual(0, Directory.GetFiles(outside, "*", SearchOption.AllDirectories).Length);
+                AssertFalse(port.Exists(FolderNames.Cache, "link/file.bin"));
+            }
+
+            // A planted symlinked FILE is refused too (where the platform allows creating one).
+            string fileLink = Path.Combine(root, FolderNames.Cache, "planted.bin");
+            string realFile = Path.Combine(outside, "real.bin");
+            File.WriteAllBytes(realFile, [0x01]);
+            try
+            {
+                File.CreateSymbolicLink(fileLink, realFile);
+            }
+            catch (IOException)
+            {
+                return;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return;
+            }
+
+            bool fileLinkRejected = false;
+            try
+            {
+                port.WriteBytesAsync(FolderNames.Cache, "planted.bin", [0x02]).GetAwaiter().GetResult();
+            }
+            catch (InvalidDataException)
+            {
+                fileLinkRejected = true;
+            }
+
+            AssertTrue(fileLinkRejected);
+            AssertTrue(File.ReadAllBytes(realFile).SequenceEqual<byte>([0x01]));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(outside, recursive: true);
+        }
+    }
+
     internal static async ValueTask SizeCapAndDefaultRootResolutionBehave()
     {
         string directory = CreateTempDirectory();

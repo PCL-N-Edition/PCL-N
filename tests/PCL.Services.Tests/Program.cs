@@ -15,6 +15,7 @@ internal static partial class Program
         ("failed save returns a stable error and mutates nothing", FailedSaveReturnsStableErrorAndMutatesNothing),
         ("failed load keeps defaults but marks unavailable", FailedLoadKeepsDefaultsButMarksUnavailable),
         ("reset value and reset all restore defaults", ResetValueAndResetAllRestoreDefaults),
+        ("reset all with a failed save mutates nothing", ResetAllFailedSaveMutatesNothing),
         ("the state observer sees every applied change", StateObserverSeesEveryAppliedChange),
         ("the file port round trips and skips malformed lines", FilePortRoundTripsAndSkipsMalformedLines),
         ("the file port writes sorted ordinal entries", FilePortWritesSortedOrdinalEntries),
@@ -48,6 +49,7 @@ internal static partial class Program
         ("profiles persist across restarts", ProfilesPersistAcrossRestarts),
         ("invalid profiles and indexes are rejected stably", InvalidProfilesAndIndexesAreRejectedStably),
         ("failed saves change nothing observable", FailedSavesChangeNothingObservable),
+        ("provider id equality is case insensitive", Sync(ProviderIdEqualityIsCaseInsensitive)),
         // XSR-507: update block data contracts.
         ("chunk profiles match the legacy bounds", ChunkProfilesMatchLegacyBounds),
         ("chunking is deterministic and covers the file", ChunkerIsDeterministicAndCoversTheFile),
@@ -129,6 +131,7 @@ internal static partial class Program
         ("traversal is refused on every port operation", Sync(TraversalIsRefusedOnEveryPortOperation)),
         ("text and bytes round trip atomically", TextAndBytesRoundTripAtomically),
         ("size cap and default root resolution behave", SizeCapAndDefaultRootResolutionBehave),
+        ("symlink escapes are rejected", Sync(SymlinkEscapeIsRejected)),
         ("transfer state mirrors active downloads", TransferStateMirrorsActiveDownloads),
         ("the file writer rejects short resume offsets", FileDownloadWriterRejectsShortResume),
         ("doubles round trip through full precision", DoubleRoundTripsThroughFullPrecision),

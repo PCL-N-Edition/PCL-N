@@ -94,7 +94,11 @@ public sealed class AppFolders
 /// <summary>
 /// The safe file port over the application data tree: UTF-8 text and bytes with atomic
 /// writes (temporary file + replace), a per-file size cap, traversal refusal, and
-/// missing-reads-as-null semantics. Ownership stays with the caller of each folder name.
+/// missing-reads-as-null semantics. Containment is enforced against the real filesystem, not
+/// just the path string: any ancestor directory (or the destination itself) that is a
+/// symlink or junction pointing outside the tree refuses the operation, so a planted link
+/// cannot turn a root-relative write into an out-of-root write. Ownership stays with the
+/// caller of each folder name.
 /// </summary>
 public sealed class SafeFilePort
 {
@@ -114,9 +118,44 @@ public sealed class SafeFilePort
         _maxBytes = maxBytes;
     }
 
-    /// <summary>Whether one file exists in the tree.</summary>
-    public bool Exists(string folderName, string relativePath) =>
-        File.Exists(_folders.ResolveSafePath(folderName, relativePath));
+    /// <summary>Whether one file exists in the tree. Link escape checks apply.</summary>
+    public bool Exists(string folderName, string relativePath)
+    {
+        string path = _folders.ResolveSafePath(folderName, relativePath);
+        EnsureNoLinkEscape(_folders.Root, path);
+        return File.Exists(path);
+    }
+
+    /// <summary>
+    /// Walks the destination directory chain from the tree root down and refuses when any
+    /// existing element is a symlink/junction (its target would redirect the write outside
+    /// the tree), or when the destination file itself is a link.
+    /// </summary>
+    private static void EnsureNoLinkEscape(string root, string destination)
+    {
+        string fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
+        string fullDestination = Path.GetFullPath(destination);
+        string? current = null;
+        string relative = Path.GetRelativePath(fullRoot, fullDestination);
+        foreach (string segment in relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = current is null
+                ? Path.Combine(fullRoot, segment)
+                : Path.Combine(current, segment);
+            if (!Directory.Exists(current) && !File.Exists(current))
+            {
+                return; // Nothing exists beyond here, so no link can be followed either.
+            }
+
+            string? linkTarget = File.Exists(current)
+                ? new FileInfo(current).LinkTarget
+                : new DirectoryInfo(current).LinkTarget;
+            if (linkTarget is not null)
+            {
+                throw new InvalidDataException($"路径包含目录链接，已拒绝访问：{current}");
+            }
+        }
+    }
 
     /// <summary>Reads one UTF-8 text file; a missing file reads as null.</summary>
     public async Task<string?> TryReadTextAsync(
@@ -125,6 +164,7 @@ public sealed class SafeFilePort
         CancellationToken cancellationToken = default)
     {
         string path = _folders.ResolveSafePath(folderName, relativePath);
+        EnsureNoLinkEscape(_folders.Root, path);
         if (!File.Exists(path))
         {
             return null;
@@ -140,6 +180,7 @@ public sealed class SafeFilePort
         CancellationToken cancellationToken = default)
     {
         string path = _folders.ResolveSafePath(folderName, relativePath);
+        EnsureNoLinkEscape(_folders.Root, path);
         if (!File.Exists(path))
         {
             return null;
@@ -173,6 +214,7 @@ public sealed class SafeFilePort
         }
 
         string destination = _folders.ResolveSafePath(folderName, relativePath);
+        EnsureNoLinkEscape(_folders.Root, destination);
         string? directory = Path.GetDirectoryName(destination);
         if (!string.IsNullOrEmpty(directory))
         {
@@ -209,6 +251,7 @@ public sealed class SafeFilePort
     public bool Delete(string folderName, string relativePath)
     {
         string path = _folders.ResolveSafePath(folderName, relativePath);
+        EnsureNoLinkEscape(_folders.Root, path);
         if (!File.Exists(path))
         {
             return false;

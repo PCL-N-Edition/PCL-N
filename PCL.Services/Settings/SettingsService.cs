@@ -243,13 +243,14 @@ public sealed class SettingsService
 
     /// <summary>
     /// Restores every setting to its schema default and persists one atomic replacement.
+    /// Durable-first: the defaults are persisted before anything is published; a save failure
+    /// leaves the state untouched.
     /// </summary>
     public XsrResult ResetAll()
     {
         lock (_gate)
         {
             Dictionary<string, string> snapshot = [];
-            string lastKey = string.Empty;
             foreach (SettingDefinition definition in Schema.Definitions)
             {
                 if (!SettingValues.TryDecode(definition, definition.DefaultValue, out object? defaultValue)
@@ -260,12 +261,26 @@ public sealed class SettingsService
                 }
 
                 snapshot[definition.Key.Value] = SettingValues.Encode(definition, defaultValue);
-                lastKey = definition.Key.Value;
-                Publish(definition, defaultValue);
+            }
+
+            XsrResult saved = Persist(snapshot, snapshot.Keys.FirstOrDefault() ?? string.Empty);
+            if (!saved.IsSuccess)
+            {
+                return saved;
+            }
+
+            foreach (SettingDefinition definition in Schema.Definitions)
+            {
+                object value = SettingValues.TryDecode(definition, definition.DefaultValue, out object? decoded)
+                    && decoded is not null
+                    ? decoded
+                    : throw new InvalidOperationException(
+                        $"The default of '{definition.Key}' does not parse under its declared type.");
+                Publish(definition, value);
                 StateStore.MarkAvailability(_ids[definition.Key], XsrStateAvailability.Available);
             }
 
-            return Persist(snapshot, lastKey);
+            return XsrResult.Success();
         }
     }
 

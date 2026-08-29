@@ -166,6 +166,33 @@ internal static partial class Program
         return ValueTask.CompletedTask;
     }
 
+    internal static ValueTask ResetAllFailedSaveMutatesNothing()
+    {
+        ThrowingSettingsPort port = new(loadShouldThrow: false, saveShouldThrow: false);
+        SettingsService service = new(TestSchema().Build(), port);
+
+        AssertTrue(service.SetValue(KeyCount, 77).IsSuccess);
+        AssertTrue(service.SetValue(KeyLabel, "changed").IsSuccess);
+        XsrStateId countId = service.StateStore.Resolve(XsrSemanticId.Parse(KeyCount));
+        XsrStateId labelId = service.StateStore.Resolve(XsrSemanticId.Parse(KeyLabel));
+        long countRevision = service.StateStore.Read<int>(countId).Revision;
+        long labelRevision = service.StateStore.Read<string>(labelId).Revision;
+
+        port.SaveShouldThrow = true;
+        XsrResult failed = service.ResetAll();
+        AssertFalse(failed.IsSuccess);
+        AssertEqual(SettingsErrors.PersistFailedCode, failed.Error!.Code);
+        AssertEqual(XsrErrorKind.Unavailable, failed.Error.Kind);
+
+        // Nothing observable moved: values, revisions, and availability all unchanged.
+        AssertTrue(service.GetValue<int>(KeyCount).TryGetValue(out int count) && count == 77);
+        AssertTrue(service.GetValue<string>(KeyLabel).TryGetValue(out string? label) && label == "changed");
+        AssertEqual(countRevision, service.StateStore.Read<int>(countId).Revision);
+        AssertEqual(labelRevision, service.StateStore.Read<string>(labelId).Revision);
+        AssertEqual(3, port.SaveCallCount);
+        return ValueTask.CompletedTask;
+    }
+
     internal static ValueTask FailedLoadKeepsDefaultsButMarksUnavailable()
     {
         ThrowingSettingsPort port = new(loadShouldThrow: true, saveShouldThrow: false);
@@ -329,13 +356,21 @@ internal static partial class Program
     private sealed class ThrowingSettingsPort : ISettingsPort
     {
         private readonly bool _loadShouldThrow;
-        private readonly bool _saveShouldThrow;
+        private bool _saveShouldThrow;
 
         public ThrowingSettingsPort(bool loadShouldThrow, bool saveShouldThrow)
         {
             _loadShouldThrow = loadShouldThrow;
             _saveShouldThrow = saveShouldThrow;
         }
+
+        public bool SaveShouldThrow
+        {
+            get => _saveShouldThrow;
+            set => _saveShouldThrow = value;
+        }
+
+        public int SaveCallCount { get; private set; }
 
         public IReadOnlyDictionary<string, string> Load()
         {
@@ -349,6 +384,7 @@ internal static partial class Program
 
         public void Save(IReadOnlyDictionary<string, string> values)
         {
+            SaveCallCount++;
             if (_saveShouldThrow)
             {
                 throw new IOException("simulated save failure");
