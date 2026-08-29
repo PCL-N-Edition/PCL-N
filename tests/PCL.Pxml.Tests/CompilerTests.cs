@@ -3,6 +3,23 @@ namespace PCL.Pxml.Tests;
 
 internal static partial class Program
 {
+    private static void GeneratedControlCatalogIsCompleteAndDeterministic()
+    {
+        AssertSequence(
+            ["Page", "StackPanel", "Text", "Button", "Image"],
+            PxmlControlCatalog.Names.ToArray());
+        AssertEqual(1, (int)PxmlIrNodeKind.Page);
+        AssertEqual(2, (int)PxmlIrNodeKind.StackPanel);
+        AssertEqual(3, (int)PxmlIrNodeKind.Text);
+        AssertEqual(4, (int)PxmlIrNodeKind.Button);
+        AssertEqual(5, (int)PxmlIrNodeKind.Image);
+
+        if (PxmlControlCatalog.Names is IList<string> names)
+        {
+            AssertThrows<NotSupportedException>(() => names[0] = "Mutated");
+        }
+    }
+
     private static void CompileSimplePage()
     {
         PxmlUiIr ir = Compile("""
@@ -14,11 +31,14 @@ internal static partial class Program
             """);
 
         AssertEqual(PxmlIrNodeKind.Page, ir.Root.Kind);
+        AssertEqual(PxmlRuntimeRecipe.Element, ir.Root.Recipe);
         AssertEqual(PxmlIrNodeKind.StackPanel, ir.Root.Children[0].Kind);
+        AssertEqual(PxmlRuntimeRecipe.StackLayout, ir.Root.Children[0].Recipe);
         AssertEqual(XsrUiSemanticRole_None(), ir.Root.Children[0].Role);
         AssertEqual(XsrUiOrientation.Horizontal, ir.Root.Children[0].Orientation);
         AssertEqual(4, ir.Root.Children[0].Spacing);
         AssertEqual(PxmlIrNodeKind.Text, ir.Root.Children[0].Children[0].Kind);
+        AssertEqual(PxmlRuntimeRecipe.Text, ir.Root.Children[0].Children[0].Recipe);
         AssertEqual("ready", ir.Root.Children[0].Children[0].Content);
     }
 
@@ -51,6 +71,7 @@ internal static partial class Program
         AssertEqual(1, stack.Bindings.Count);
         AssertEqual("panel.open", stack.Bindings[0].StatePath);
         AssertEqual(XsrUiStateProperty.Visibility, stack.Bindings[0].Property);
+        AssertEqual(XsrUiDirtyKinds.State, stack.Bindings[0].DirtyKinds);
     }
 
     private static void CompileButtonDefaultsAndCommand()
@@ -62,6 +83,7 @@ internal static partial class Program
             """);
 
         PxmlIrNode button = ir.Root.Children[0];
+        AssertEqual(PxmlRuntimeRecipe.CommandInput, button.Recipe);
         AssertTrue(button.Clickable);
         AssertTrue(button.Focusable);
         AssertEqual("app.save", button.Command);
@@ -125,6 +147,41 @@ internal static partial class Program
         AssertThrows<PxmlCompileException>(() => Compile("""
             <Page xmlns="N">
               <Image />
+            </Page>
+            """));
+        AssertThrows<PxmlCompileException>(() => Compile("""
+            <Page xmlns="N">
+              <Text Content="x" Width="NaN" />
+            </Page>
+            """));
+    }
+
+    private static void CompileRejectsBindingsAbsentFromTheControlModel()
+    {
+        AssertThrows<PxmlCompileException>(() => Compile("""
+            <Page xmlns="N">
+              <Text Content="x" Width="{state layout.width}" />
+            </Page>
+            """));
+        AssertThrows<PxmlCompileException>(() => Compile("""
+            <Page xmlns="N">
+              <Button Label="{state action.label}" />
+            </Page>
+            """));
+        AssertThrows<PxmlCompileException>(() => Compile("""
+            <Page xmlns="N">
+              <Image Source="{state image.source}" />
+            </Page>
+            """));
+    }
+
+    private static void CompileEnforcesGeneratedChildPolicy()
+    {
+        AssertThrows<PxmlCompileException>(() => Compile("""
+            <Page xmlns="N">
+              <Text Content="outer">
+                <Button Label="invalid child" />
+              </Text>
             </Page>
             """));
     }

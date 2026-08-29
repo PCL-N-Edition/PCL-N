@@ -3,15 +3,16 @@ using PCL.UI.Next;
 namespace PCL.Pxml;
 
 /// <summary>
-/// The closed set of PXML element kinds. The compiler maps element names onto these kinds
-/// through a static table — never reflection.
+/// The finite, renderer-facing component recipe carried by compiled nodes. Control names and
+/// property models come from the external catalog; recipes are the stable AOT-safe bridge into
+/// UI.Next components.
 /// </summary>
-public enum PxmlIrNodeKind
+public enum PxmlRuntimeRecipe
 {
-    Page = 1,
-    StackPanel = 2,
+    Element = 1,
+    StackLayout = 2,
     Text = 3,
-    Button = 4,
+    CommandInput = 4,
     Image = 5,
 }
 
@@ -29,6 +30,8 @@ public sealed record PxmlIrBinding(string StatePath, XsrUiStateProperty Property
 public sealed record PxmlIrNode
 {
     public PxmlIrNodeKind Kind { get; init; }
+
+    public PxmlRuntimeRecipe Recipe { get; init; }
 
     public IReadOnlyList<PxmlIrNode> Children { get; init; } = [];
 

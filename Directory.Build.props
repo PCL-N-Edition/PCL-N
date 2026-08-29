@@ -12,5 +12,6 @@
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <IsPackable>false</IsPackable>
+    <PxmlControlCatalogDirectory Condition="'$(PxmlControlCatalogDirectory)' == ''">$(MSBuildThisFileDirectory)PCL.UI.Next/PxmlControls</PxmlControlCatalogDirectory>
   </PropertyGroup>
 </Project>

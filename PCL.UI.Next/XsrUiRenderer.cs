@@ -396,8 +396,16 @@ public sealed class XsrUiRenderer
         }
     }
 
-    private bool IsVisible(XsrUiEntityId entity) =>
-        _tree.GetComponent<XsrUiElement>(entity)?.IsVisible ?? true;
+    private bool IsVisible(XsrUiEntityId entity)
+    {
+        XsrUiElement? element = _tree.GetComponent<XsrUiElement>(entity);
+        if (element?.BoundVisibility is { } bound && bound.IsAssigned)
+        {
+            return _state.ReadAppliedValue(bound) is bool visible && visible;
+        }
+
+        return element?.IsVisible ?? true;
+    }
 
     /// <summary>
     /// Resolves the top-most scene entity at one point. Hit testing reads the last produced

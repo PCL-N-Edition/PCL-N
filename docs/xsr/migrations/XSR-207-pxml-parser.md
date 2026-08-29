@@ -15,7 +15,7 @@ Wave 3 starts the PXML pipeline: the structural grammar and parser that turn PXM
 
 ## Non-goals
 
-Element/attribute semantics, unknown-element rejection, binding resolution against the state store, and the UI.Next IR are XSR-208; the runtime loader is XSR-209. Source generation over PXML schemas is deferred until the Plugin UI IR unit defines the schema surface it generates from.
+Element/attribute semantics, unknown-element rejection, binding resolution against the state store, and the UI.Next IR are XSR-208; the runtime loader is XSR-209. XSR-212 later moved the control schema surface into the UI.Next-owned catalog and implemented its compile-time generator; the structural parser remains independent of that catalog.
 
 ## Verification
 

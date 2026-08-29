@@ -194,6 +194,10 @@ public sealed class XsrUiTree
         {
             BindState(entity, TextDependency(text.BoundState));
         }
+        else if (component is XsrUiElement element)
+        {
+            BindState(entity, VisibilityDependency(element.BoundVisibility));
+        }
 
         MarkDirty(entity, XsrUiDirtyKinds.Structure);
     }
@@ -446,10 +450,19 @@ public sealed class XsrUiTree
         {
             UnbindState(entity, TextDependency(text.BoundState));
         }
+        else if (typeof(T) == typeof(XsrUiElement)
+            && value.Components.TryGetValue(typeof(T), out object? previousElement)
+            && previousElement is XsrUiElement element)
+        {
+            UnbindState(entity, VisibilityDependency(element.BoundVisibility));
+        }
     }
 
     private static XsrUiStateDependency TextDependency(XsrStateId state) =>
         new(state, XsrUiStateProperty.Text, XsrUiDirtyKinds.Paint);
+
+    private static XsrUiStateDependency VisibilityDependency(XsrStateId state) =>
+        new(state, XsrUiStateProperty.Visibility, XsrUiDirtyKinds.State);
 
     private XsrUiEntityId IndexToHandle(int index) =>
         new(index, _generations.TryGetValue(index, out uint generation) ? generation : 0);

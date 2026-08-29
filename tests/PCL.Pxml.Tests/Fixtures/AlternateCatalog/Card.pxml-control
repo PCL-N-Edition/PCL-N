@@ -1,0 +1,9 @@
+# Alternate catalog fixture: proves the compiler has no built-in control-name list.
+schema=1
+id=1
+name=Card
+role=Dialog
+recipe=Element
+children=true
+property=Show|Boolean|Visibility|Visibility|State|false|true
+property=Title|String|Label|None|None|false|

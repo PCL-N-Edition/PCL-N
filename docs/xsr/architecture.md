@@ -61,6 +61,8 @@ X coordinates service registration, command/query routing, state, events, scopes
 
 The target list is not a requirement to create an empty project for every name. A project is introduced only when it has a clear owner and a dependency boundary worth enforcing.
 
+PXML-visible control models are owned by UI.Next in an explicitly configured catalog directory, not by `PCL.Pxml.Compiler`. `PCL.Pxml.Generators` consumes that directory as build-time `AdditionalFiles` and expands the complete, validated catalog into compiler-generated source before semantic compilation. The compiler consumes only the generated table and generic typed-value rules; runtime never reads catalog files or performs reflection binding.
+
 ## Communication model
 
 XSR has four distinct primitives:

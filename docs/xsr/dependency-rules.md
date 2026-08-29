@@ -34,6 +34,8 @@ References not shown are denied by default for new XSR projects.
 
 `PCL.UI.Next.Backend.Avalonia` is the only new-architecture project family allowed to expose Avalonia implementation types, and those types must not leak through UI.Next public contracts.
 
+`PCL.Pxml.Generators` is a build-only Roslyn component with no product-project reference. `PCL.Pxml.Compiler` consumes it as an analyzer and receives UI.Next-owned control descriptors only through the configured `AdditionalFiles` catalog; generated code may use the compiler's existing UI.Next contract reference but the generator assembly must not reference UI.Next or Compiler.
+
 ## Enforcement
 
 The initial project graph is defined in [migrations/XSR-002-project-graph.md](migrations/XSR-002-project-graph.md). `PCL.Xsr.ArchitectureTests` scans every project, rejects unregistered or external project references, enforces the locked direct-reference graph, verifies generator and executable roles, and prevents Avalonia packages outside the backend.

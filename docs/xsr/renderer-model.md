@@ -6,6 +6,7 @@
 
 ```text
 PXML
+  -> UI.Next-owned control catalog expanded by the compile-time generator
   -> semantic analysis
   -> UI.Next IR
   -> entity/component template
@@ -50,6 +51,8 @@ Services own business facts and effects. Renderer-local state is limited to ephe
 Plugin PXML compiles to a stable Plugin UI IR. The Host registers and locally instantiates that IR. Opening a registered plugin page performs zero Sidecar IPC; bindings read the Host state mirror and commands resolve to runtime IDs.
 
 UI.Next internals are not Plugin SDK. ECS entities, components, scene nodes, and backend controls never cross the plugin compatibility boundary.
+
+The PXML compiler does not define the control surface. A required build input points to the complete control-model directory; generation expands that directory into a closed per-build catalog before PXML semantic compilation. Adding or removing a PXML-visible control therefore changes the UI.Next-owned catalog and its generated compiler input, not a hand-written compiler switch.
 
 ## Performance and accessibility gates
 

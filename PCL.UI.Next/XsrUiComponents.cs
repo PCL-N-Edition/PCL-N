@@ -52,6 +52,8 @@ public sealed class XsrUiElement
 {
     public bool IsVisible { get; set; } = true;
 
+    public XsrStateId BoundVisibility { get; set; }
+
     public double? Width { get; set; }
 
     public double? Height { get; set; }

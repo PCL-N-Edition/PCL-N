@@ -31,6 +31,7 @@ internal static partial class Program
         ("sibling rects follow slot changes", Sync(SiblingRectsFollowSlotChanges)),
         ("shrink keeps siblings correct too", Sync(ShrinkKeepsSiblingsCorrectToo)),
         ("state bound text renders applied value", Sync(StateBoundTextRendersAppliedValue)),
+        ("state bound visibility updates scene and layout", Sync(StateBoundVisibilityUpdatesSceneAndLayout)),
         ("scene order is depth first pre order", Sync(SceneOrderIsDepthFirstPreOrder)),
         ("render without root throws", Sync(RenderWithoutRootThrows)),
         ("viewport change relayouts", Sync(ViewportChangeRelayouts)),

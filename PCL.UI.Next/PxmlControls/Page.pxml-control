@@ -1,0 +1,13 @@
+# PXML control descriptor v1
+schema=1
+id=1
+name=Page
+role=Page
+recipe=Element
+children=true
+property=Width|Double|Width|None|None|false|
+property=Height|Double|Height|None|None|false|
+property=Margin|Thickness|Margin|None|None|false|
+property=Padding|Thickness|Padding|None|None|false|
+property=IsVisible|Boolean|Visibility|Visibility|State|false|true
+property=Label|String|Label|None|None|false|

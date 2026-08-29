@@ -36,10 +36,10 @@ internal static class Program
             ["PCL.UI.Next.Backend.Avalonia"] = ["PCL.UI.Next"],
             ["PCL.UI.Next.DevTools"] = ["PCL.UI.Next", "PCL.Xsr.Diagnostics"],
             ["PCL.UI.Next.Benchmarks"] = ["PCL.UI.Next", "PCL.Xsr.State"],
-            ["PCL.Pxml.Compiler"] = ["PCL.Core", "PCL.UI.Next"],
+            ["PCL.Pxml.Compiler"] = ["PCL.Core", "PCL.Pxml.Generators", "PCL.UI.Next"],
             ["PCL.Pxml.Runtime"] =
             ["PCL.Core", "PCL.Pxml.Compiler", "PCL.UI.Next", "PCL.Xsr.Abstractions", "PCL.Xsr.State"],
-            ["PCL.Pxml.Generators"] = ["PCL.Pxml.Compiler"],
+            ["PCL.Pxml.Generators"] = [],
             ["PCL.Sidecar.Protocol"] = [],
             ["PCL.Sidecar.Transport"] = ["PCL.Sidecar.Protocol"],
             ["PCL.Desktop"] =
@@ -72,7 +72,15 @@ internal static class Program
         ["PCL.Pxml.Generators", "PCL.Xsr.Generators"];
 
     private static readonly HashSet<string> AotCompatibleProjects =
-        ["PCL.Xsr.Abstractions", "PCL.Xsr.Runtime", "PCL.Xsr.State", "PCL.Xsr.Diagnostics", "PCL.UI.Next"];
+        [
+            "PCL.Xsr.Abstractions",
+            "PCL.Xsr.Runtime",
+            "PCL.Xsr.State",
+            "PCL.Xsr.Diagnostics",
+            "PCL.UI.Next",
+            "PCL.Pxml.Compiler",
+            "PCL.Pxml.Runtime",
+        ];
 
     public static int Main(string[] args)
     {
@@ -84,6 +92,7 @@ internal static class Program
         ValidateProjects(repositoryRoot, projectPaths, failures);
         ValidateSolution(repositoryRoot, failures);
         ValidateCommonBuildProperties(repositoryRoot, failures);
+        ValidatePxmlControlCatalog(repositoryRoot, projectPaths, failures);
         ValidateAcyclicGraph(failures);
 
         if (failures.Count == 0)
@@ -334,6 +343,151 @@ internal static class Program
         foreach (string project in AllowedReferences.Keys)
         {
             Visit(project, visiting, visited, failures);
+        }
+    }
+
+    private static void ValidatePxmlControlCatalog(
+        string repositoryRoot,
+        Dictionary<string, string> projectPaths,
+        List<string> failures)
+    {
+        string propsPath = Path.Combine(repositoryRoot, "Directory.Build.props");
+        XDocument props = XDocument.Load(propsPath);
+        string? configuredDirectory = Property(props, "PxmlControlCatalogDirectory");
+        if (string.IsNullOrWhiteSpace(configuredDirectory)
+            || !configuredDirectory.Replace('\\', '/').EndsWith("PCL.UI.Next/PxmlControls", StringComparison.Ordinal))
+        {
+            failures.Add("Directory.Build.props must explicitly select the UI.Next-owned PxmlControlCatalogDirectory.");
+        }
+
+        string catalogDirectory = Path.Combine(repositoryRoot, "PCL.UI.Next", "PxmlControls");
+        string[] descriptors = Directory.Exists(catalogDirectory)
+            ? Directory.GetFiles(catalogDirectory, "*.pxml-control", SearchOption.TopDirectoryOnly)
+            : [];
+        if (descriptors.Length == 0)
+        {
+            failures.Add("The UI.Next PXML control catalog must contain .pxml-control descriptors.");
+        }
+
+        if (!projectPaths.TryGetValue("PCL.Pxml.Compiler", out string? compilerProjectPath))
+        {
+            return;
+        }
+
+        XDocument compilerProject = XDocument.Load(compilerProjectPath);
+        if (!string.Equals(Property(compilerProject, "EmitCompilerGeneratedFiles"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add("PCL.Pxml.Compiler must materialize compiler-generated files for inspection.");
+        }
+
+        string? generatedPath = Property(compilerProject, "CompilerGeneratedFilesOutputPath");
+        if (generatedPath is null
+            || !generatedPath.Contains("$(BaseIntermediateOutputPath)", StringComparison.Ordinal)
+            || !generatedPath.Replace('\\', '/').EndsWith("Generated", StringComparison.Ordinal))
+        {
+            failures.Add("PCL.Pxml.Compiler generated files must stay under BaseIntermediateOutputPath.");
+        }
+
+        bool includesCatalog = Elements(compilerProject, "PxmlControlDefinition")
+            .Select(element => element.Attribute("Include")?.Value)
+            .Any(value => value?.Contains("$(PxmlControlCatalogDirectory)", StringComparison.Ordinal) == true
+                && value.EndsWith("*.pxml-control", StringComparison.Ordinal));
+        if (!includesCatalog)
+        {
+            failures.Add("PCL.Pxml.Compiler must enumerate PxmlControlCatalogDirectory as .pxml-control inputs.");
+        }
+
+        bool passesAdditionalFiles = Elements(compilerProject, "AdditionalFiles")
+            .Select(element => element.Attribute("Include")?.Value)
+            .Any(value => string.Equals(value, "@(PxmlControlDefinition)", StringComparison.Ordinal));
+        if (!passesAdditionalFiles)
+        {
+            failures.Add("PCL.Pxml.Compiler must pass every control descriptor to the generator as AdditionalFiles.");
+        }
+
+        string[] compileCacheInputs = Elements(compilerProject, "CoreCompileCache")
+            .Select(element => element.Attribute("Include")?.Value ?? string.Empty)
+            .ToArray();
+        if (!compileCacheInputs.Contains("$(PxmlControlCatalogDirectory)", StringComparer.Ordinal)
+            || !compileCacheInputs.Contains("@(PxmlControlDefinition)", StringComparer.Ordinal))
+        {
+            failures.Add("PCL.Pxml.Compiler must fingerprint the selected catalog path and file set for incremental builds.");
+        }
+
+        XElement? validationTarget = Elements(compilerProject, "Target")
+            .FirstOrDefault(element => string.Equals(
+                element.Attribute("Name")?.Value,
+                "ValidatePxmlControlCatalog",
+                StringComparison.Ordinal));
+        string validationText = validationTarget?.ToString(SaveOptions.DisableFormatting) ?? string.Empty;
+        if (validationTarget is null
+            || !validationText.Contains("PxmlControlCatalogDirectory", StringComparison.Ordinal)
+            || !validationText.Contains("PxmlControlDefinition", StringComparison.Ordinal))
+        {
+            failures.Add("PCL.Pxml.Compiler must fail before CoreCompile when the catalog path is missing or empty.");
+        }
+
+        XElement? generatorReference = Elements(compilerProject, "ProjectReference")
+            .FirstOrDefault(element => element.Attribute("Include")?.Value.Replace('\\', '/')
+                .EndsWith("PCL.Pxml.Generators/PCL.Pxml.Generators.csproj", StringComparison.Ordinal) == true);
+        if (generatorReference is null
+            || !string.Equals(generatorReference.Attribute("OutputItemType")?.Value, "Analyzer", StringComparison.Ordinal)
+            || !string.Equals(generatorReference.Attribute("ReferenceOutputAssembly")?.Value, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add("PCL.Pxml.Compiler must consume PCL.Pxml.Generators only as an analyzer.");
+        }
+
+        string compilerSource = File.ReadAllText(Path.Combine(repositoryRoot, "PCL.Pxml.Compiler", "PxmlCompiler.cs"));
+        string[] forbiddenControlNames = ["\"Page\"", "\"StackPanel\"", "\"Text\"", "\"Button\"", "\"Image\""];
+        foreach (string forbiddenName in forbiddenControlNames)
+        {
+            if (compilerSource.Contains(forbiddenName, StringComparison.Ordinal))
+            {
+                failures.Add($"PCL.Pxml.Compiler must not embed control model name {forbiddenName}.");
+            }
+        }
+
+        string loaderSource = File.ReadAllText(Path.Combine(repositoryRoot, "PCL.Pxml.Runtime", "PxmlUiLoader.cs"));
+        string[] forbiddenLoaderKinds =
+        [
+            "PxmlIrNodeKind.Page",
+            "PxmlIrNodeKind.StackPanel",
+            "PxmlIrNodeKind.Text",
+            "PxmlIrNodeKind.Button",
+            "PxmlIrNodeKind.Image",
+        ];
+        foreach (string forbiddenKind in forbiddenLoaderKinds)
+        {
+            if (loaderSource.Contains(forbiddenKind, StringComparison.Ordinal))
+            {
+                failures.Add($"PCL.Pxml.Runtime must dispatch generated controls through recipes, not {forbiddenKind}.");
+            }
+        }
+
+        string irSource = File.ReadAllText(Path.Combine(repositoryRoot, "PCL.Pxml.Compiler", "PxmlIr.cs"));
+        if (irSource.Contains("enum PxmlIrNodeKind", StringComparison.Ordinal))
+        {
+            failures.Add("PxmlIrNodeKind must be generated from the configured control catalog.");
+        }
+
+        if (projectPaths.TryGetValue("PCL.Pxml.Generators", out string? generatorProjectPath))
+        {
+            XDocument generatorProject = XDocument.Load(generatorProjectPath);
+            if (!string.Equals(Property(generatorProject, "TargetFramework"), "netstandard2.0", StringComparison.Ordinal))
+            {
+                failures.Add("PCL.Pxml.Generators must target netstandard2.0 for compiler-host compatibility.");
+            }
+
+            XElement? roslynPackage = Elements(generatorProject, "PackageReference")
+                .FirstOrDefault(element => string.Equals(
+                    element.Attribute("Include")?.Value,
+                    "Microsoft.CodeAnalysis.CSharp",
+                    StringComparison.Ordinal));
+            if (roslynPackage is null
+                || !string.Equals(roslynPackage.Attribute("PrivateAssets")?.Value, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                failures.Add("PCL.Pxml.Generators must keep Roslyn dependencies private.");
+            }
         }
     }
 

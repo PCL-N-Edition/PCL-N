@@ -56,8 +56,11 @@ public sealed class PxmlUiLoader
         XsrUiTree tree,
         XsrStateStore state)
     {
+        PxmlIrBinding? visibilityBinding = node.Bindings.FirstOrDefault(
+            binding => binding.Property == XsrUiStateProperty.Visibility);
         if (node.Width is not null || node.Height is not null
-            || node.Margin != default || node.Padding != default || !node.IsVisible)
+            || node.Margin != default || node.Padding != default || !node.IsVisible
+            || visibilityBinding is not null)
         {
             tree.SetComponent(entity, new XsrUiElement
             {
@@ -66,54 +69,59 @@ public sealed class PxmlUiLoader
                 Margin = node.Margin,
                 Padding = node.Padding,
                 IsVisible = node.IsVisible,
+                BoundVisibility = visibilityBinding is null
+                    ? default
+                    : ResolveState(state, visibilityBinding.StatePath),
             });
         }
 
-        if (node.Kind == PxmlIrNodeKind.StackPanel)
+        switch (node.Recipe)
         {
-            tree.SetComponent(entity, new XsrUiStackPanel(node.Orientation) { Spacing = node.Spacing });
-            if (node.Scrollable)
-            {
-                tree.SetComponent(entity, new XsrUiScroll());
-            }
-        }
-
-        if (node.Kind == PxmlIrNodeKind.Text)
-        {
-            XsrUiText text = new(node.Content ?? string.Empty);
-            PxmlIrBinding? textBinding = node.Bindings.FirstOrDefault(
-                binding => binding.Property == XsrUiStateProperty.Text);
-            if (textBinding is not null)
-            {
-                text.BoundState = ResolveState(state, textBinding.StatePath);
-            }
-
-            tree.SetComponent(entity, text);
-        }
-
-        if (node.Kind == PxmlIrNodeKind.Button)
-        {
-            tree.SetComponent(entity, new XsrUiInput
-            {
-                Focusable = node.Focusable,
-                Clickable = node.Clickable,
-            });
-
-            if (node.Command is not null)
-            {
-                if (!XsrSemanticId.TryParse(node.Command, out XsrSemanticId commandId))
+            case PxmlRuntimeRecipe.Element:
+                break;
+            case PxmlRuntimeRecipe.StackLayout:
+                tree.SetComponent(entity, new XsrUiStackPanel(node.Orientation) { Spacing = node.Spacing });
+                if (node.Scrollable)
                 {
-                    throw new PxmlLoadException(
-                        $"The command '{node.Command}' is not a valid semantic identifier.");
+                    tree.SetComponent(entity, new XsrUiScroll());
                 }
 
-                tree.SetComponent(entity, new XsrUiCommandBinding(commandId));
-            }
-        }
+                break;
+            case PxmlRuntimeRecipe.Text:
+                XsrUiText text = new(node.Content ?? string.Empty);
+                PxmlIrBinding? textBinding = node.Bindings.FirstOrDefault(
+                    binding => binding.Property == XsrUiStateProperty.Text);
+                if (textBinding is not null)
+                {
+                    text.BoundState = ResolveState(state, textBinding.StatePath);
+                }
 
-        if (node.Kind == PxmlIrNodeKind.Image)
-        {
-            tree.SetComponent(entity, new XsrUiImage(node.ImageSource ?? string.Empty));
+                tree.SetComponent(entity, text);
+                break;
+            case PxmlRuntimeRecipe.CommandInput:
+                tree.SetComponent(entity, new XsrUiInput
+                {
+                    Focusable = node.Focusable,
+                    Clickable = node.Clickable,
+                });
+
+                if (node.Command is not null)
+                {
+                    if (!XsrSemanticId.TryParse(node.Command, out XsrSemanticId commandId))
+                    {
+                        throw new PxmlLoadException(
+                            $"The command '{node.Command}' is not a valid semantic identifier.");
+                    }
+
+                    tree.SetComponent(entity, new XsrUiCommandBinding(commandId));
+                }
+
+                break;
+            case PxmlRuntimeRecipe.Image:
+                tree.SetComponent(entity, new XsrUiImage(node.ImageSource ?? string.Empty));
+                break;
+            default:
+                throw new PxmlLoadException($"The runtime recipe '{node.Recipe}' is unsupported.");
         }
 
         if (node.Role != XsrUiSemanticRole.None || node.Label is not null)

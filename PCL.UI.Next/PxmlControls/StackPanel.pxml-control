@@ -1,0 +1,16 @@
+# PXML control descriptor v1
+schema=1
+id=2
+name=StackPanel
+role=None
+recipe=StackLayout
+children=true
+property=Width|Double|Width|None|None|false|
+property=Height|Double|Height|None|None|false|
+property=Margin|Thickness|Margin|None|None|false|
+property=Padding|Thickness|Padding|None|None|false|
+property=IsVisible|Boolean|Visibility|Visibility|State|false|true
+property=Label|String|Label|None|None|false|
+property=Orientation|Orientation|Orientation|None|None|false|Vertical
+property=Spacing|Double|Spacing|None|None|false|0
+property=Scroll|Boolean|Scrollable|None|None|false|false

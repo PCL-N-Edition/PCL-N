@@ -4,9 +4,9 @@ using PCL.UI.Next;
 namespace PCL.Pxml;
 
 /// <summary>
-/// Compiles a PXML DOM into the UI.Next IR. Element and property semantics come from static,
-/// closed tables — there is no reflection anywhere in the pipeline. Unknown elements,
-/// properties, or malformed values are compile errors with the failing name in the message.
+/// Compiles a structural PXML document through the control catalog generated from the required
+/// build-time directory. The compiler owns generic literal parsing and typed IR slots only; it
+/// contains no hand-written control-name or per-control property table.
 /// </summary>
 public static class PxmlCompiler
 {
@@ -18,263 +18,252 @@ public static class PxmlCompiler
 
     private static PxmlIrNode CompileNode(PxmlElement element)
     {
-        return element.Name switch
+        if (!PxmlGeneratedControlCatalog.TryGet(element.Name, out PxmlControlModel model))
         {
-            "Page" => CompileContainer(element, PxmlIrNodeKind.Page, XsrUiSemanticRole.Page),
-            "StackPanel" => CompileStackPanel(element),
-            "Text" => CompileText(element),
-            "Button" => CompileButton(element),
-            "Image" => CompileImage(element),
-            _ => throw Fail(element.Name, null, "is not a known PXML element"),
-        };
-    }
+            throw Fail(element.Name, null, "is not present in the configured PXML control catalog");
+        }
 
-    private static PxmlIrNode CompileContainer(PxmlElement element, PxmlIrNodeKind kind, XsrUiSemanticRole role)
-    {
-        return Build(element, kind, role, supportsCommand: false, allowContent: false);
-    }
-
-    private static PxmlIrNode CompileStackPanel(PxmlElement element)
-    {
-        PxmlIrNode node = Build(element, PxmlIrNodeKind.StackPanel, XsrUiSemanticRole.None, supportsCommand: false, allowContent: false);
-        node = node with
+        if (!model.AllowsChildren && element.Children.Count != 0)
         {
-            Orientation = ParseEnum<XsrUiOrientation>(element, "Orientation", defaultValue: XsrUiOrientation.Vertical),
-            Spacing = ParseDouble(element, "Spacing", defaultValue: 0),
-            Scrollable = ParseBool(element, "Scroll", defaultValue: false),
-        };
-        return node;
-    }
+            throw Fail(element.Name, null, "does not accept child elements");
+        }
 
-    private static PxmlIrNode CompileText(PxmlElement element)
-    {
-        PxmlIrNode node = Build(element, PxmlIrNodeKind.Text, XsrUiSemanticRole.Text, supportsCommand: false, allowContent: true);
-        string? content = node.Bindings.FirstOrDefault(binding => binding.Property == XsrUiStateProperty.Text) is null
-            ? element.FindProperty("Content")?.Text
-            : null;
-        return node with { Content = content };
-    }
-
-    private static PxmlIrNode CompileButton(PxmlElement element)
-    {
-        PxmlIrNode node = Build(element, PxmlIrNodeKind.Button, XsrUiSemanticRole.Button, supportsCommand: true, allowContent: false);
-        return node with
-        {
-            Focusable = ParseBool(element, "Focusable", defaultValue: true),
-            Clickable = ParseBool(element, "Clickable", defaultValue: true),
-        };
-    }
-
-    private static PxmlIrNode CompileImage(PxmlElement element)
-    {
-        PxmlIrNode node = Build(element, PxmlIrNodeKind.Image, XsrUiSemanticRole.Image, supportsCommand: false, allowContent: false);
-        string? source = Require(element, "Source")?.Text;
-        return node with { ImageSource = source };
-    }
-
-    private static PxmlIrNode Build(
-        PxmlElement element,
-        PxmlIrNodeKind kind,
-        XsrUiSemanticRole role,
-        bool supportsCommand,
-        bool allowContent)
-    {
+        NodeBuilder builder = new(model.Kind, model.Recipe, model.Role);
         List<PxmlIrBinding> bindings = [];
-        double? width = null;
-        double? height = null;
-        XsrUiThickness margin = default;
-        XsrUiThickness padding = default;
-        bool isVisible = true;
-        string? label = null;
-        string? command = null;
 
-        if (!KnownProperties(kind).IsSupersetOf(element.Attributes.Select(property => property.Name)))
+        foreach (PxmlControlPropertyModel property in model.Properties)
         {
-            string unknown = element.Attributes
-                .Select(property => property.Name)
-                .First(name => !KnownProperties(kind).Contains(name));
-            throw Fail(element.Name, unknown, "is not valid on this element");
-        }
-
-        width = ParseNullableDouble(element, "Width");
-        height = ParseNullableDouble(element, "Height");
-        margin = ParseThickness(element, "Margin");
-        padding = ParseThickness(element, "Padding");
-
-        PxmlValue? visibility = element.FindProperty("IsVisible");
-        if (visibility is { } visibleValue)
-        {
-            isVisible = ParseBool(element, "IsVisible", defaultValue: true, overrideRaw: visibleValue);
-            if (visibleValue.Kind == PxmlValueKind.StateBinding)
+            if (property.DefaultValue is not null)
             {
-                bindings.Add(new PxmlIrBinding(visibleValue.Text, XsrUiStateProperty.Visibility, XsrUiDirtyKinds.Paint));
+                ApplyLiteral(element.Name, property, property.DefaultValue, builder);
             }
         }
 
-        PxmlValue? labelValue = element.FindProperty("Label");
-        label = labelValue?.Text;
-
-        if (element.FindProperty("Content") is { } contentValue
-            && contentValue.Kind == PxmlValueKind.StateBinding)
+        foreach (PxmlProperty attribute in element.Attributes)
         {
-            bindings.Add(new PxmlIrBinding(contentValue.Text, XsrUiStateProperty.Text, XsrUiDirtyKinds.Paint));
-        }
-
-        if (supportsCommand && element.FindProperty("Command") is { } commandValue)
-        {
-            if (commandValue.Kind != PxmlValueKind.Literal)
+            if (!model.TryGetProperty(attribute.Name, out PxmlControlPropertyModel property))
             {
-                throw Fail(element.Name, "Command", "must reference a command by plain semantic ID");
+                throw Fail(element.Name, attribute.Name, "is not declared by this control model");
             }
 
-            if (commandValue.Text.Length == 0
-                || commandValue.Text.Any(character => char.IsWhiteSpace(character) || char.IsControl(character)))
+            if (attribute.Value.Kind == PxmlValueKind.StateBinding)
             {
-                throw Fail(element.Name, "Command", "needs one non-empty semantic ID without whitespace");
+                if (property.BindingProperty is not { } bindingProperty)
+                {
+                    throw Fail(element.Name, attribute.Name, "does not support a state binding");
+                }
+
+                bindings.Add(new PxmlIrBinding(
+                    attribute.Value.Text,
+                    bindingProperty,
+                    property.BindingDirtyKinds));
+                continue;
             }
 
-            command = commandValue.Text;
+            ApplyLiteral(element.Name, property, attribute.Value.Text, builder);
         }
 
-        return new PxmlIrNode
+        foreach (PxmlControlPropertyModel property in model.Properties)
         {
-            Kind = kind,
-            Children = [.. element.Children.Select(CompileNode)],
-            Width = width,
-            Height = height,
-            Margin = margin,
-            Padding = padding,
-            IsVisible = isVisible,
-            Label = label,
-            Role = role,
-            Focusable = kind == PxmlIrNodeKind.Button && ParseBool(element, "Focusable", defaultValue: true),
-            Clickable = kind == PxmlIrNodeKind.Button && ParseBool(element, "Clickable", defaultValue: true),
-            Command = command,
-            Bindings = bindings,
-        };
+            if (property.Required && element.FindProperty(property.Name) is null)
+            {
+                throw Fail(element.Name, property.Name, "is required by this control model");
+            }
+        }
+
+        return builder.Build(
+            [.. element.Children.Select(CompileNode)],
+            bindings);
     }
 
-    private static void Reject(PxmlElement element, string property, bool condition)
+    private static void ApplyLiteral(
+        string elementName,
+        PxmlControlPropertyModel property,
+        string raw,
+        NodeBuilder builder)
     {
-        if (condition && element.FindProperty(property) is not null)
+        switch (property.ValueKind)
         {
-            throw Fail(element.Name, property, "is not valid on this element");
-        }
-    }
-
-    private static PxmlValue? Require(PxmlElement element, string property)
-    {
-        return element.FindProperty(property)
-            ?? throw Fail(element.Name, property, "is required on this element");
-    }
-
-    private static double ParseDouble(PxmlElement element, string property, double defaultValue) =>
-        ParseNullableDouble(element, property, overrideRaw: element.FindProperty(property)) ?? defaultValue;
-
-    private static double? ParseNullableDouble(PxmlElement element, string property, PxmlValue? overrideRaw = null)
-    {
-        PxmlValue? value = overrideRaw ?? element.FindProperty(property);
-        if (value is null || value.Value.Kind == PxmlValueKind.StateBinding)
-        {
-            return null;
-        }
-
-        if (!double.TryParse(
-                value!.Value.Text,
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out double parsed))
-        {
-            throw Fail(element.Name, property, "needs an invariant-culture number");
-        }
-
-        return parsed;
-    }
-
-    private static bool ParseBool(PxmlElement element, string property, bool defaultValue, PxmlValue? overrideRaw = null)
-    {
-        PxmlValue? value = overrideRaw ?? element.FindProperty(property);
-        if (value is null || value.Value.Kind == PxmlValueKind.StateBinding)
-        {
-            return defaultValue;
-        }
-
-        return value!.Value.Text switch
-        {
-            "true" => true,
-            "false" => false,
-            _ => throw Fail(element.Name, property, "needs the literal 'true' or 'false'"),
-        };
-    }
-
-    private static XsrUiThickness ParseThickness(PxmlElement element, string property)
-    {
-        PxmlValue? value = element.FindProperty(property);
-        if (value is null || value.Value.Kind == PxmlValueKind.StateBinding)
-        {
-            return default;
-        }
-
-        string[] parts = value!.Value.Text.Split(',');
-        switch (parts.Length)
-        {
-            case 1:
-                double uniform = ParseNumber(element, property, parts[0]);
-                return new XsrUiThickness(uniform, uniform, uniform, uniform);
-            case 4:
-                return new XsrUiThickness(
-                    ParseNumber(element, property, parts[0]),
-                    ParseNumber(element, property, parts[1]),
-                    ParseNumber(element, property, parts[2]),
-                    ParseNumber(element, property, parts[3]));
+            case PxmlControlValueKind.Double:
+                builder.Set(property.Target, ParseDouble(elementName, property.Name, raw));
+                break;
+            case PxmlControlValueKind.Thickness:
+                builder.Set(property.Target, ParseThickness(elementName, property.Name, raw));
+                break;
+            case PxmlControlValueKind.Boolean:
+                builder.Set(property.Target, ParseBoolean(elementName, property.Name, raw));
+                break;
+            case PxmlControlValueKind.Orientation:
+                builder.Set(property.Target, ParseOrientation(elementName, property.Name, raw));
+                break;
+            case PxmlControlValueKind.String:
+                builder.Set(property.Target, raw);
+                break;
+            case PxmlControlValueKind.SemanticId:
+                ValidateSemanticId(elementName, property.Name, raw);
+                builder.Set(property.Target, raw);
+                break;
             default:
-                throw Fail(element.Name, property, "needs one number or four comma-separated numbers");
+                throw new InvalidOperationException(
+                    $"The generated control catalog uses unsupported value kind '{property.ValueKind}'.");
         }
     }
 
-    private static double ParseNumber(PxmlElement element, string property, string raw)
+    private static double ParseDouble(string elementName, string propertyName, string raw)
     {
-        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed))
+        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed)
+            || !double.IsFinite(parsed))
         {
-            throw Fail(element.Name, property, "needs invariant-culture numbers");
+            throw Fail(elementName, propertyName, "needs a finite invariant-culture number");
         }
 
         return parsed;
     }
 
-    private static T ParseEnum<T>(PxmlElement element, string property, T defaultValue)
-        where T : struct, Enum
+    private static XsrUiThickness ParseThickness(string elementName, string propertyName, string raw)
     {
-        PxmlValue? value = element.FindProperty(property);
-        if (value is null || value.Value.Kind == PxmlValueKind.StateBinding)
+        string[] parts = raw.Split(',');
+        if (parts.Length == 1)
         {
-            return defaultValue;
+            double uniform = ParseDouble(elementName, propertyName, parts[0]);
+            return new XsrUiThickness(uniform, uniform, uniform, uniform);
         }
 
-        if (!Enum.TryParse(value!.Value.Text, ignoreCase: false, out T parsed) || !Enum.IsDefined(parsed))
+        if (parts.Length == 4)
         {
-            throw Fail(element.Name, property, $"needs one of {string.Join(", ", Enum.GetNames<T>())}");
+            return new XsrUiThickness(
+                ParseDouble(elementName, propertyName, parts[0]),
+                ParseDouble(elementName, propertyName, parts[1]),
+                ParseDouble(elementName, propertyName, parts[2]),
+                ParseDouble(elementName, propertyName, parts[3]));
         }
 
-        return parsed;
+        throw Fail(elementName, propertyName, "needs one number or four comma-separated numbers");
     }
 
-    private static HashSet<string> KnownProperties(PxmlIrNodeKind kind)
+    private static bool ParseBoolean(string elementName, string propertyName, string raw) => raw switch
     {
-        HashSet<string> common = ["Width", "Height", "Margin", "Padding", "IsVisible", "Label"];
-        return kind switch
+        "true" => true,
+        "false" => false,
+        _ => throw Fail(elementName, propertyName, "needs the literal 'true' or 'false'"),
+    };
+
+    private static XsrUiOrientation ParseOrientation(string elementName, string propertyName, string raw) => raw switch
+    {
+        "Vertical" => XsrUiOrientation.Vertical,
+        "Horizontal" => XsrUiOrientation.Horizontal,
+        _ => throw Fail(elementName, propertyName, "needs one of Vertical, Horizontal"),
+    };
+
+    private static void ValidateSemanticId(string elementName, string propertyName, string raw)
+    {
+        if (raw.Length == 0 || raw.Any(character => char.IsWhiteSpace(character) || char.IsControl(character)))
         {
-            PxmlIrNodeKind.Page => common,
-            PxmlIrNodeKind.StackPanel => [.. common, "Orientation", "Spacing", "Scroll"],
-            PxmlIrNodeKind.Text => [.. common, "Content"],
-            PxmlIrNodeKind.Button => [.. common, "Command", "Focusable", "Clickable"],
-            PxmlIrNodeKind.Image => [.. common, "Source"],
-            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
-        };
+            throw Fail(elementName, propertyName, "needs one non-empty semantic ID without whitespace");
+        }
     }
 
     private static PxmlCompileException Fail(string element, string? property, string problem) =>
         new(property is null
             ? $"The element '{element}' {problem}."
             : $"The property '{property}' on '{element}' {problem}.");
+
+    private sealed class NodeBuilder(
+        PxmlIrNodeKind kind,
+        PxmlRuntimeRecipe recipe,
+        XsrUiSemanticRole role)
+    {
+        private double? _width;
+        private double? _height;
+        private XsrUiThickness _margin;
+        private XsrUiThickness _padding;
+        private bool _isVisible = true;
+        private XsrUiOrientation _orientation;
+        private double _spacing;
+        private bool _scrollable;
+        private string? _content;
+        private string? _label;
+        private bool _focusable;
+        private bool _clickable;
+        private string? _command;
+        private string? _imageSource;
+
+        public void Set(PxmlIrPropertyTarget target, object value)
+        {
+            switch (target)
+            {
+                case PxmlIrPropertyTarget.Width:
+                    _width = (double)value;
+                    break;
+                case PxmlIrPropertyTarget.Height:
+                    _height = (double)value;
+                    break;
+                case PxmlIrPropertyTarget.Margin:
+                    _margin = (XsrUiThickness)value;
+                    break;
+                case PxmlIrPropertyTarget.Padding:
+                    _padding = (XsrUiThickness)value;
+                    break;
+                case PxmlIrPropertyTarget.Visibility:
+                    _isVisible = (bool)value;
+                    break;
+                case PxmlIrPropertyTarget.Label:
+                    _label = (string)value;
+                    break;
+                case PxmlIrPropertyTarget.Orientation:
+                    _orientation = (XsrUiOrientation)value;
+                    break;
+                case PxmlIrPropertyTarget.Spacing:
+                    _spacing = (double)value;
+                    break;
+                case PxmlIrPropertyTarget.Scrollable:
+                    _scrollable = (bool)value;
+                    break;
+                case PxmlIrPropertyTarget.Content:
+                    _content = (string)value;
+                    break;
+                case PxmlIrPropertyTarget.Command:
+                    _command = (string)value;
+                    break;
+                case PxmlIrPropertyTarget.Focusable:
+                    _focusable = (bool)value;
+                    break;
+                case PxmlIrPropertyTarget.Clickable:
+                    _clickable = (bool)value;
+                    break;
+                case PxmlIrPropertyTarget.ImageSource:
+                    _imageSource = (string)value;
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"The generated control catalog uses unsupported IR target '{target}'.");
+            }
+        }
+
+        public PxmlIrNode Build(
+            IReadOnlyList<PxmlIrNode> children,
+            IReadOnlyList<PxmlIrBinding> bindings) =>
+            new()
+            {
+                Kind = kind,
+                Recipe = recipe,
+                Children = children,
+                Width = _width,
+                Height = _height,
+                Margin = _margin,
+                Padding = _padding,
+                IsVisible = _isVisible,
+                Orientation = _orientation,
+                Spacing = _spacing,
+                Scrollable = _scrollable,
+                Content = _content,
+                Label = _label,
+                Role = role,
+                Focusable = _focusable,
+                Clickable = _clickable,
+                Command = _command,
+                ImageSource = _imageSource,
+                Bindings = bindings,
+            };
+    }
 }

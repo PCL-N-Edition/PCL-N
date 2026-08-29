@@ -1,0 +1,14 @@
+# PXML control descriptor v1
+schema=1
+id=3
+name=Text
+role=Text
+recipe=Text
+children=false
+property=Width|Double|Width|None|None|false|
+property=Height|Double|Height|None|None|false|
+property=Margin|Thickness|Margin|None|None|false|
+property=Padding|Thickness|Padding|None|None|false|
+property=IsVisible|Boolean|Visibility|Visibility|State|false|true
+property=Label|String|Label|None|None|false|
+property=Content|String|Content|Text|Paint|false|

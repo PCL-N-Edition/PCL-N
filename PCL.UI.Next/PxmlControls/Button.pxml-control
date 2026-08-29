@@ -1,0 +1,16 @@
+# PXML control descriptor v1
+schema=1
+id=4
+name=Button
+role=Button
+recipe=CommandInput
+children=false
+property=Width|Double|Width|None|None|false|
+property=Height|Double|Height|None|None|false|
+property=Margin|Thickness|Margin|None|None|false|
+property=Padding|Thickness|Padding|None|None|false|
+property=IsVisible|Boolean|Visibility|Visibility|State|false|true
+property=Label|String|Label|None|None|false|
+property=Command|SemanticId|Command|None|None|false|
+property=Focusable|Boolean|Focusable|None|None|false|true
+property=Clickable|Boolean|Clickable|None|None|false|true

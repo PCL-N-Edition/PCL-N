@@ -21,6 +21,7 @@ internal static partial class Program
         ("DTD and qualified properties are rejected", DtdAndQualifiedPropertiesAreRejected),
         ("document-level comments are accepted", DocumentLevelCommentsAreAccepted),
         // XSR-208: PXML to UI.Next IR compilation.
+        ("generated control catalog is complete and deterministic", GeneratedControlCatalogIsCompleteAndDeterministic),
         ("compile simple page", CompileSimplePage),
         ("compile text state binding", CompileTextStateBinding),
         ("compile visibility binding", CompileVisibilityBinding),
@@ -28,9 +29,12 @@ internal static partial class Program
         ("compile thickness and size", CompileThicknessAndSize),
         ("compile rejects unknown element and property", CompileRejectsUnknownElementAndProperty),
         ("compile rejects malformed values", CompileRejectsMalformedValues),
+        ("compile rejects bindings absent from the control model", CompileRejectsBindingsAbsentFromTheControlModel),
+        ("compile enforces generated child policy", CompileEnforcesGeneratedChildPolicy),
         // XSR-209: runtime loader.
         ("loader produces same scene as hand built tree", LoaderProducesSameSceneAsHandBuiltTree),
         ("loaded bindings drive rendering", LoadedBindingsDriveRendering),
+        ("loaded visibility bindings drive rendering", LoadedVisibilityBindingsDriveRendering),
         ("loader rejects unknown state paths", LoaderRejectsUnknownStatePaths),
         ("loader failures leave the tree unchanged", LoaderFailuresLeaveTheTreeUnchanged),
     ];
@@ -54,6 +58,8 @@ internal static partial class Program
             throw new InvalidOperationException("Expected true but received false.");
         }
     }
+
+    private static void AssertFalse(bool value) => AssertTrue(!value);
 
     private static void AssertEqual<T>(T expected, T actual)
     {

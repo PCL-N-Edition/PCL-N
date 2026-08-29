@@ -2,10 +2,31 @@
   <PropertyGroup>
     <Description>Compiler from PXML authoring documents to UI.Next intermediate representation.</Description>
     <IsAotCompatible>true</IsAotCompatible>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)$(Configuration)/$(TargetFramework)/Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../PCL.Core/PCL.Core.csproj" />
     <ProjectReference Include="../PCL.UI.Next/PCL.UI.Next.csproj" />
+    <ProjectReference Include="../PCL.Pxml.Generators/PCL.Pxml.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <ItemGroup Condition="'$(PxmlControlCatalogDirectory)' != ''">
+    <PxmlControlDefinition Include="$(PxmlControlCatalogDirectory)/**/*.pxml-control" />
+    <AdditionalFiles Include="@(PxmlControlDefinition)" />
+    <CoreCompileCache Include="$(PxmlControlCatalogDirectory)" />
+    <CoreCompileCache Include="@(PxmlControlDefinition)" />
+  </ItemGroup>
+
+  <Target Name="ValidatePxmlControlCatalog" BeforeTargets="CoreCompile">
+    <Error Condition="'$(PxmlControlCatalogDirectory)' == ''"
+           Text="PxmlControlCatalogDirectory is required and must identify the complete PXML control directory." />
+    <Error Condition="'$(PxmlControlCatalogDirectory)' != '' and !Exists('$(PxmlControlCatalogDirectory)')"
+           Text="PxmlControlCatalogDirectory '$(PxmlControlCatalogDirectory)' does not exist." />
+    <Error Condition="'@(PxmlControlDefinition)' == ''"
+           Text="PxmlControlCatalogDirectory '$(PxmlControlCatalogDirectory)' contains no .pxml-control files." />
+  </Target>
 </Project>

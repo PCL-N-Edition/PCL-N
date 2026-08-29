@@ -74,6 +74,29 @@ internal static partial class Program
         AssertEqual("v2.0.0.alpha.1", textNode.Text);
     }
 
+    private static void LoadedVisibilityBindingsDriveRendering()
+    {
+        XsrUiTree tree = new();
+        XsrUiStateBridge bridge = new(tree);
+        XsrStateStore store = BuildStore(bridge);
+        XsrUiEntityId root = PxmlUiLoader.Load(
+            Compile("""
+                <Page xmlns="N">
+                  <Text Content="conditional" IsVisible="{state ui.visible}" />
+                </Page>
+                """),
+            tree,
+            store,
+            tree.Create("load-root"));
+        XsrUiRenderer renderer = new(tree, store, stateBridge: bridge);
+        renderer.SetRoot(root);
+
+        AssertFalse(renderer.Render().Nodes.Any(node => node.Text == "conditional"));
+
+        _ = store.Publish(store.Resolve("ui.visible".AsPxmlStateId()), true);
+        AssertTrue(renderer.Render().Nodes.Any(node => node.Text == "conditional"));
+    }
+
     private static void LoaderRejectsUnknownStatePaths()
     {
         XsrUiTree tree = new();
@@ -131,6 +154,7 @@ internal static partial class Program
     {
         XsrStateStoreBuilder states = new();
         states.Cell<string>("ui.version".AsPxmlStateId(), "Update");
+        states.Cell<bool>("ui.visible".AsPxmlStateId(), "UI");
         return states.Build(bridge);
     }
 

@@ -5,6 +5,42 @@ namespace PCL.UI.Next.Tests;
 
 internal static partial class Program
 {
+    private static void StateBoundVisibilityUpdatesSceneAndLayout()
+    {
+        XsrUiTree tree = new();
+        XsrStateStoreBuilder states = new();
+        states.Cell<bool>("render.visible".AsXsrId(), "UI");
+        XsrUiStateBridge bridge = new(tree);
+        XsrStateStore store = states.Build(bridge);
+        XsrStateId visibility = store.Resolve("render.visible".AsXsrId());
+
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        XsrUiEntityId conditional = tree.Create("conditional");
+        tree.SetComponent(conditional, new XsrUiElement
+        {
+            Height = 10,
+            BoundVisibility = visibility,
+        });
+        tree.SetComponent(conditional, new XsrUiText("conditional"));
+        tree.Attach(conditional, root);
+        XsrUiEntityId sibling = tree.Create("sibling");
+        tree.SetComponent(sibling, new XsrUiElement { Height = 10 });
+        tree.SetComponent(sibling, new XsrUiText("sibling"));
+        tree.Attach(sibling, root);
+
+        XsrUiRenderer renderer = new(tree, store, stateBridge: bridge);
+        renderer.SetRoot(root);
+        XsrUiScene hidden = renderer.Render();
+        AssertFalse(hidden.Nodes.Any(node => node.Text == "conditional"));
+        AssertEqual(0d, hidden.Nodes.Single(node => node.Text == "sibling").Rect.Y);
+
+        _ = store.Publish(visibility, true);
+        XsrUiScene visible = renderer.Render();
+        AssertTrue(visible.Nodes.Any(node => node.Text == "conditional"));
+        AssertEqual(10d, visible.Nodes.Single(node => node.Text == "sibling").Rect.Y);
+    }
+
     private static void DerivedStateDrivesBoundText()
     {
         // Reviewer regression: an entity bound to a DERIVED entry must re-render when the
