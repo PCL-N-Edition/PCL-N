@@ -4,6 +4,9 @@ using System.Text.Json.Nodes;
 using PCL.Services.Minecraft.Assets;
 using PCL.Services.Minecraft.Java;
 using PCL.Services.Minecraft.Libraries;
+using PCL.Services.Minecraft.Launch;
+using PCL.Services.Minecraft.ModLoaders;
+using PCL.Services.Minecraft.Crash;
 using PCL.Services.Minecraft;
 
 namespace PCL.Services.Tests;
@@ -167,6 +170,63 @@ internal static partial class Program
         AssertFalse(plan.Entries.Contains(native.LocalPath));
         AssertTrue(plan.Entries.Contains("head.jar"));
         AssertTrue(plan.Entries.Contains("optifine.jar"));
+    }
+
+    internal static void MinecraftModLoaderAndLaunchPlanAreDeterministic()
+    {
+        JsonObject manifest = JsonNode.Parse("""
+            {
+              "id": "fabric-loader-0.16.5",
+              "mainClass": "net.fabricmc.loader.impl.launch.knot.KnotClient",
+              "arguments": { "game": ["--username", "${auth_player_name}", "--gameDir", "${game_directory}", "--assetsDir", "${assets_root}", "--version", "${version_name}"] },
+              "libraries": [{ "name": "org.example:client:1.0" }]
+            }
+            """)!.AsObject();
+        MinecraftModLoaderDescriptor loader = MinecraftModLoaderDetector.Detect(manifest);
+        AssertEqual(MinecraftModLoaderKind.Fabric, loader.Kind);
+        AssertEqual("0.16.5", loader.Version);
+        MinecraftLaunchPlan plan = MinecraftLaunchPlanner.CreatePlan(new MinecraftLaunchRequest
+        {
+            VersionJson = manifest,
+            VersionId = "fabric-loader-0.16.5",
+            InstanceDirectory = Path.Combine(Path.GetTempPath(), "minecraft-instance"),
+            MinecraftRootDirectory = Path.Combine(Path.GetTempPath(), "minecraft-root"),
+            PlayerName = "Steve",
+            PlayerUuid = "uuid",
+            JavaExecutablePath = "java",
+            MemoryMegabytes = 4096,
+            JavaMajorVersion = 21,
+            OperatingSystem = MinecraftLibraryOperatingSystem.Linux,
+        });
+        AssertEqual("net.fabricmc.loader.impl.launch.knot.KnotClient", plan.Arguments.First(argument => argument.Contains("KnotClient", StringComparison.Ordinal)));
+        AssertTrue(plan.Arguments.Contains("Steve"));
+        AssertTrue(plan.Arguments.Contains("-Xmx4096m"));
+        AssertTrue(plan.Arguments.Contains("-Dfile.encoding=COMPAT"));
+        AssertEqual(Path.GetFullPath(Path.Combine(Path.GetTempPath(), "minecraft-instance")), plan.WorkingDirectory);
+        AssertTrue(plan.ToStartInfo().ArgumentList.Contains("-Xmx4096m"));
+    }
+
+    internal static void MinecraftCrashAnalysisAndDependencyParsingAreStructured()
+    {
+        MinecraftLaunchFaultReport java = MinecraftLaunchFaultAnalyzer.Analyze(new DllNotFoundException("Unable to load jvm.dll"), "JvmStarting");
+        AssertEqual(MinecraftLaunchFaultCode.JavaRuntimeMissing, java.Code);
+        AssertEqual("JVM", java.Subsystem);
+        AssertTrue(java.AllowedActions.Contains(MinecraftRepairActionKind.SelectCompatibleJava));
+        MinecraftLaunchFaultReport graphics = MinecraftLaunchFaultAnalyzer.AnalyzeText(["GLFW error: failed to create window"], "MinecraftClient", "org.lwjgl.glfw.GLFW");
+        AssertEqual(MinecraftLaunchFaultCode.GraphicsInitializationFailed, graphics.Code);
+        AssertEqual("Graphics", graphics.Subsystem);
+
+        IReadOnlyList<MinecraftMissingDependency> missing = MinecraftMissingDependencyParser.Parse([
+            "Mod sodium requires mod 'Fabric API' (fabric-api) version 0.100.0 or later, which is missing!",
+            "Mod example requires cloth-config any version, which is missing!",
+            "Mod farmersdelight requires version [1.2,) of bookshelf",
+        ]);
+        AssertEqual(3, missing.Count);
+        AssertEqual("fabric-api", missing[0].ModId);
+        AssertEqual("0.100.0", missing[0].RequiredVersion);
+        AssertEqual("cloth-config", missing[1].ModId);
+        AssertNull(missing[1].RequiredVersion);
+        AssertEqual("bookshelf", missing[2].ModId);
     }
 
     private static JavaRuntimeCandidate Candidate(string home, Version version, JavaBrand brand, bool isJre) =>

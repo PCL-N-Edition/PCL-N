@@ -23,7 +23,7 @@ There is no periodic `dev -> refactor/xsr` merge. A legacy fix is forward-ported
 | 3 PXML | parser through generated UI.Next IR and runtime loader | no runtime reflection binding |
 | 4 Sidecar Fabric v2 | registration, command/query, state mirror, event, UI/resources, recovery | protocol, crash, reconnect, and performance gates |
 | 5 Foundation services | Settings through Account/Update | capability parity and data compatibility — complete (XSR-501…520, see below) |
-| 6 Minecraft core | discovery, instances, Java, assets, libraries, launch, crash analysis | canonical corpus parity — in progress (XSR-601/602 complete) |
+| 6 Minecraft core | discovery, instances, Java, assets, libraries, launch, crash analysis | canonical corpus parity — in progress (XSR-601/602/603 complete) |
 | 7 Product UI | product vertical slices rendered through PXML/UI.Next | UX and accessibility parity |
 | 8 Plugin SDK 1.0 | stable API, package, manifest, UI IR, permissions, testing, analyzers | compatibility baseline and validation plugins |
 | 9 Plugin ecosystem | runtime, internal plugins, IDE, market, legacy adapter | real plugin migration evidence |

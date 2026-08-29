@@ -159,6 +159,8 @@ internal static partial class Program
         ("minecraft Java selection honors manifest and availability", MinecraftJavaSelectionHonorsManifestAndAvailability),
         ("minecraft assets resolve canonical object paths", Sync(MinecraftAssetsResolveCanonicalObjectPaths)),
         ("minecraft libraries and classpath honor rules", Sync(MinecraftLibrariesAndClasspathHonorRules)),
+        ("minecraft ModLoader and launch plan are deterministic", Sync(MinecraftModLoaderAndLaunchPlanAreDeterministic)),
+        ("minecraft crash analysis and dependency parsing are structured", Sync(MinecraftCrashAnalysisAndDependencyParsingAreStructured)),
     ];
 
     private static async Task<int> Main()
