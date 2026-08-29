@@ -34,14 +34,6 @@ public sealed record MinecraftAssetListRequest
     public required string InstanceDirectory { get; init; }
 }
 
-public sealed record MinecraftAssetDownloadFile(
-    string Url,
-    string LocalPath,
-    string Hash,
-    long ExpectedSize);
-
-public sealed record MinecraftAssetDownloadPlan(IReadOnlyList<MinecraftAssetDownloadFile> Files);
-
 public static class MinecraftAssetIndexResolver
 {
     public const string LegacyIndexName = "legacy";
@@ -132,19 +124,6 @@ public static class MinecraftAssetListResolver
 
     public static string GetObjectUrl(string hash) => $"https://resources.download.minecraft.net/{GetHashPrefix(hash)}/{hash}";
 
-    public static MinecraftAssetDownloadPlan CreateDownloadPlan(IEnumerable<MinecraftAssetToken> assets, Func<string, bool>? isUsable = null)
-    {
-        ArgumentNullException.ThrowIfNull(assets);
-        List<MinecraftAssetDownloadFile> files = [];
-        foreach (MinecraftAssetToken asset in assets)
-        {
-            if (isUsable?.Invoke(asset.LocalPath) == true) continue;
-            files.Add(new MinecraftAssetDownloadFile(GetObjectUrl(asset.Hash), asset.LocalPath, asset.Hash, asset.Size));
-        }
-
-        return new MinecraftAssetDownloadPlan(files);
-    }
-
     private static string Contained(string root, params string[] segments)
     {
         string candidate = Path.GetFullPath(Path.Combine(new[] { root }.Concat(segments).ToArray()));
@@ -162,4 +141,3 @@ public static class MinecraftAssetListResolver
         return normalized.Replace('/', Path.DirectorySeparatorChar);
     }
 }
-

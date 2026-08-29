@@ -7,6 +7,7 @@ using PCL.Services.Minecraft.Libraries;
 using PCL.Services.Minecraft.Launch;
 using PCL.Services.Minecraft.ModLoaders;
 using PCL.Services.Minecraft.Crash;
+using PCL.Services.Minecraft.Downloads;
 using PCL.Services.Composition;
 using PCL.Xsr;
 using PCL.Xsr.Runtime;
@@ -122,7 +123,7 @@ internal static partial class Program
         })[0];
         AssertEqual(Path.Combine(root, "assets", "objects", "ab", "abcdef1234"), asset.LocalPath);
         AssertEqual("https://resources.download.minecraft.net/ab/abcdef1234", MinecraftAssetListResolver.GetObjectUrl(asset.Hash));
-        AssertEqual(1, MinecraftAssetListResolver.CreateDownloadPlan([asset]).Files.Count);
+        AssertEqual(1, MinecraftAssetDownloadPlanner.CreatePlan(new MinecraftAssetDownloadPlanRequest { Assets = [asset] }).Files.Count);
 
         bool rejected = false;
         try
@@ -257,6 +258,195 @@ internal static partial class Program
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    internal static async ValueTask MinecraftJavaRuntimePackagePlannerValidatesManifest()
+    {
+        JavaRuntimePlatform platform = new(JavaRuntimeOperatingSystem.Win32, JavaRuntimeArchitecture.X64);
+        AssertEqual("windows-x64", platform.ToMojangKey());
+        JavaRuntimePackageDescriptor packageDescriptor = JavaRuntimePackagePlanner.SelectPackage("""
+            { "windows-x64": { "java-runtime-gamma": [{ "version": { "name": "21.0.2" }, "manifest": { "url": "https://example.invalid/runtime.json" } }] } }
+            """, platform, "java-runtime-gamma");
+        AssertEqual("21.0.2", packageDescriptor.VersionName);
+        JavaRuntimeDownloadPlan plan = JavaRuntimePackagePlanner.CreateDownloadPlan(packageDescriptor, """
+            { "files": { "bin/java": { "executable": true, "downloads": { "raw": { "url": "https://example.invalid/java", "sha1": "0123456789abcdef0123456789abcdef01234567", "size": 1234 } } } } }
+            """, Path.Combine(Path.GetTempPath(), "minecraft-runtime"));
+        AssertEqual(1, plan.Files.Count);
+        AssertTrue(plan.Files[0].Executable);
+        AssertTrue(plan.Files[0].TargetPath.EndsWith(Path.Combine("java-runtime-gamma", "bin", "java"), StringComparison.Ordinal));
+        bool rejected = false;
+        try
+        {
+            JavaRuntimePackagePlanner.CreateDownloadPlan(packageDescriptor, "{\"files\":{\"../escape\":{\"downloads\":{\"raw\":{\"url\":\"x\",\"sha1\":\"x\",\"size\":1}}}}}", Path.Combine(Path.GetTempPath(), "minecraft-runtime"));
+        }
+        catch (InvalidOperationException) { rejected = true; }
+        AssertTrue(rejected);
+        _ = await new JavaRuntimeDownloadPlanService(new FakeJavaRuntimeMetadataProvider()).CreatePlanAsync("java-runtime-gamma", platform, Path.Combine(Path.GetTempPath(), "minecraft-runtime"));
+    }
+
+    internal static void MinecraftDownloadPlannersRespectExistingFiles()
+    {
+        MinecraftAssetToken asset = new() { LocalPath = Path.Combine("root", "assets", "objects", "ab", "abcdef"), SourcePath = "foo", Hash = "abcdef", Size = 42 };
+        PCL.Services.Minecraft.Downloads.MinecraftAssetDownloadPlan skipped = MinecraftAssetDownloadPlanner.CreatePlan(new MinecraftAssetDownloadPlanRequest
+        {
+            Assets = [asset],
+            ExistingFiles = new Dictionary<string, MinecraftAssetFileState>(StringComparer.Ordinal) { [asset.LocalPath] = new MinecraftAssetFileState(true, 42) },
+        });
+        AssertEqual(0, skipped.Files.Count);
+        PCL.Services.Minecraft.Downloads.MinecraftAssetDownloadPlan forced = MinecraftAssetDownloadPlanner.CreatePlan(new MinecraftAssetDownloadPlanRequest { Assets = [asset], CheckHash = true });
+        AssertEqual(1, forced.Files.Count);
+        MinecraftClientJarDownloadPlan client = MinecraftClientDownloadPlanner.CreateClientJarPlan(new MinecraftClientJarDownloadPlanRequest
+        {
+            VersionJson = JsonNode.Parse("{\"downloads\":{\"client\":{\"url\":\"https://example.invalid/client.jar\",\"size\":2048,\"sha1\":\"abc\"}}}")!.AsObject(),
+            InstanceDirectory = Path.Combine(Path.GetTempPath(), "instance"),
+            VersionName = "1.20.1",
+        });
+        AssertEqual(MinecraftClientDownloadFailureReason.None, client.FailureReason);
+        AssertEqual(2048L, client.File!.ActualSize);
+        AssertTrue(MinecraftDownloadSourcePlanner.GetAssetSources("http://resources.download.minecraft.net/ab/abcdef", true)[0].StartsWith("https://", StringComparison.Ordinal));
+    }
+
+    internal static void MinecraftJavaPreferenceParserPreservesLegacySemantics()
+    {
+        AssertTrue(JavaPreferenceParser.Parse("") is AutoSelectJavaPreference);
+        AssertTrue(JavaPreferenceParser.Parse(JavaPreferenceParser.LegacyUseGlobalText) is UseGlobalJavaPreference);
+        string absolute = OperatingSystem.IsWindows() ? @"C:\Java\bin\java.exe" : "/opt/java/bin/java";
+        AssertEqual(absolute, ((ExistingJavaPreference)JavaPreferenceParser.Parse(absolute)).JavaExecutablePath);
+        AssertTrue(JavaPreferenceParser.Parse(@"jre\bin\java.exe") is UseGlobalJavaPreference);
+        string escapedAbsolute = absolute.Replace("\\", "\\\\", StringComparison.Ordinal);
+        AssertEqual(absolute, ((ExistingJavaPreference)JavaPreferenceParser.Parse("{\"kind\":\"exist\",\"JavaExePath\":\"" + escapedAbsolute + "\"}")).JavaExecutablePath);
+        string baseDirectory = CreateTempDirectory();
+        try
+        {
+            AssertTrue(JavaPreferenceParser.Parse("{\"kind\":\"relative\",\"RelativePath\":\"jre/bin/java\"}", baseDirectory) is UseRelativeJavaPreference);
+            AssertTrue(JavaPreferenceParser.Parse("{\"kind\":\"relative\",\"RelativePath\":\"../outside/java\"}", baseDirectory) is UseGlobalJavaPreference);
+            AssertTrue(JavaPreferenceParser.Parse("{not-json") is UseGlobalJavaPreference);
+        }
+        finally { Directory.Delete(baseDirectory, recursive: true); }
+    }
+
+    internal static void MinecraftLibrariesUseArm64CompatibilityArtifacts()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "minecraft-arm64-root");
+        JsonObject manifest = JsonNode.Parse("""
+            {
+              "libraries": [
+                { "name": "org.lwjgl:lwjgl:3.2.2", "downloads": { "artifact": { "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar", "sha1": "old", "size": 1 } } },
+                { "name": "org.lwjgl:lwjgl:3.2.2", "natives": { "linux": "natives-linux" }, "downloads": { "classifiers": { "natives-linux": { "path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-linux.jar", "sha1": "old-native", "size": 2 } } } },
+                { "name": "org.lwjgl.lwjgl:lwjgl-platform:2.9.4-nightly-20150209", "natives": { "linux": "natives-linux" } }
+              ]
+            }
+            """)!.AsObject();
+        IReadOnlyList<MinecraftLibraryToken> libraries = MinecraftLibraryResolver.Resolve(new MinecraftLibraryResolutionRequest
+        {
+            VersionJson = manifest,
+            MinecraftRootDirectory = root,
+            OperatingSystem = MinecraftLibraryOperatingSystem.Linux,
+            IsArm64Architecture = true,
+            Is64BitArchitecture = true,
+        });
+        AssertTrue(libraries.Any(token => token.OriginalName == "org.lwjgl:lwjgl:3.3.2" && token.Sha1 == "4421d94af68e35dcaa31737a6fc59136a1e61b94"));
+        AssertTrue(libraries.Any(token => token.OriginalName == "org.lwjgl:lwjgl:3.3.2:natives-linux-arm64" && token.Sha1 == "8bd89332c90a90e6bc4aa997a25c05b7db02c90a"));
+        AssertTrue(libraries.Any(token => token.OriginalName == "org.glavo.hmcl:lwjgl2-natives:2.9.3-linux-arm64"));
+    }
+
+    internal static void MinecraftLaunchPlanMergesInheritedAndModernArguments()
+    {
+        JsonObject inherited = JsonNode.Parse("""
+            { "mainClass": "net.minecraft.client.main.Main", "arguments": { "jvm": ["-Dparent=true"], "game": ["--versionType", "${version_type}"] }, "libraries": [{ "name": "org.example:parent:1.0" }] }
+            """)!.AsObject();
+        JsonObject current = JsonNode.Parse("""
+            { "id": "loader-1", "arguments": { "jvm": ["--sun-misc-unsafe-memory-access=allow", "-cp", "${classpath}"], "game": [{ "rules": [{ "action": "allow", "os": { "name": "windows" } }], "value": ["--username", "${auth_player_name}"] }] }, "libraries": [{ "name": "org.example:current:1.0" }] }
+            """)!.AsObject();
+        MinecraftLaunchPlan plan = MinecraftLaunchPlanner.CreatePlan(new MinecraftLaunchRequest
+        {
+            VersionJson = current,
+            InheritedVersionJsons = [inherited],
+            VersionId = "loader-1",
+            InstanceDirectory = Path.Combine(Path.GetTempPath(), "minecraft-launch-instance"),
+            MinecraftRootDirectory = Path.Combine(Path.GetTempPath(), "minecraft-launch-root"),
+            PlayerName = "Steve",
+            PlayerUuid = "uuid",
+            JavaMajorVersion = 23,
+            OperatingSystem = MinecraftLibraryOperatingSystem.Win32,
+        });
+        AssertTrue(plan.Arguments.Contains("-Dparent=true"));
+        AssertTrue(plan.Arguments.Contains("--sun-misc-unsafe-memory-access=allow"));
+        AssertTrue(plan.Arguments.Contains("Steve"));
+        AssertTrue(plan.Arguments.Contains("${version_type}") is false);
+        AssertEqual(2, plan.Libraries.Count);
+    }
+
+    internal static void MinecraftDownloadSourcePlannerCoversOfficialAndUnlistedMirrors()
+    {
+        string[] thirdParty = MinecraftDownloadSourcePlanner.GetLibrarySources("https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1/forge.jar", true);
+        AssertEqual(2, thirdParty.Length);
+        AssertTrue(thirdParty.All(source => source.StartsWith("https://bmclapi2.bangbang93.com/", StringComparison.Ordinal)));
+        string[] unlisted = MinecraftDownloadSourcePlanner.GetLauncherOrMetaSources("https://zkitefly.github.io/unlisted-versions-of-minecraft/1.0.json", true);
+        AssertTrue(unlisted.Any(source => source.StartsWith("https://alist.8mi.tech/", StringComparison.Ordinal)));
+    }
+
+    internal static async ValueTask MinecraftJavaRuntimeInstallerVerifiesAndInstalls()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string relative = OperatingSystem.IsWindows() ? "bin/java.exe" : "bin/java";
+            const string sha1 = "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d";
+            string platformKey = JavaRuntimeInstaller.DetectPlatform().ToMojangKey();
+            FakeInstallerMetadataProvider metadata = new(platformKey, relative, sha1);
+            using HttpClient client = new(new StaticHttpMessageHandler("hello"));
+            using JavaRuntimeInstaller installer = new(new JavaRuntimeDownloadPlanService(metadata), client);
+            List<JavaRuntimeInstallProgress> progress = [];
+            string executable = await installer.InstallAsync("java-runtime-test", root, new Progress<JavaRuntimeInstallProgress>(progress.Add));
+            AssertTrue(File.Exists(executable));
+            AssertTrue(progress.Any(item => item.Progress >= 1d));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private sealed class FakeJavaRuntimeMetadataProvider : IJavaRuntimeMetadataProvider
+    {
+        public ValueTask<string> GetRuntimeIndexAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult("{\"windows-x64\":{\"java-runtime-gamma\":[{\"version\":{\"name\":\"21.0.2\"},\"manifest\":{\"url\":\"https://example.invalid/runtime.json\"}}]}}");
+        public ValueTask<string> GetManifestAsync(string manifestUrl, CancellationToken cancellationToken = default) => ValueTask.FromResult("{\"files\":{\"bin/java\":{\"executable\":true,\"downloads\":{\"raw\":{\"url\":\"https://example.invalid/java\",\"sha1\":\"0123456789abcdef0123456789abcdef01234567\",\"size\":1234}}}}}");
+    }
+
+    private sealed class FakeInstallerMetadataProvider(string platformKey, string relativePath, string sha1) : IJavaRuntimeMetadataProvider
+    {
+        public ValueTask<string> GetRuntimeIndexAsync(CancellationToken cancellationToken = default)
+        {
+            JsonObject root = new();
+            JsonArray versions = JsonNode.Parse("[{\"version\":{\"name\":\"21.0.2\"},\"manifest\":{\"url\":\"https://example.invalid/java.json\"}}]")!.AsArray();
+            root[platformKey] = new JsonObject
+            {
+                ["java-runtime-test"] = versions,
+            };
+            return ValueTask.FromResult(root.ToJsonString());
+        }
+
+        public ValueTask<string> GetManifestAsync(string manifestUrl, CancellationToken cancellationToken = default)
+        {
+            JsonObject root = new()
+            {
+                ["files"] = new JsonObject
+                {
+                    [relativePath] = new JsonObject
+                    {
+                        ["executable"] = true,
+                        ["downloads"] = new JsonObject
+                        {
+                            ["raw"] = new JsonObject { ["url"] = "https://example.invalid/java", ["sha1"] = sha1, ["size"] = 5 },
+                        },
+                    },
+                },
+            };
+            return ValueTask.FromResult(root.ToJsonString());
+        }
+    }
+
+    private sealed class StaticHttpMessageHandler(string payload) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(payload) });
     }
 
     private static JavaRuntimeCandidate Candidate(string home, Version version, JavaBrand brand, bool isJre) =>

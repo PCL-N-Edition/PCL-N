@@ -38,13 +38,17 @@ public sealed record MinecraftLaunchRequest
     public MinecraftLaunchIdentityMode IdentityMode { get; init; }
     public string? Server { get; init; }
     public string? WorldName { get; init; }
+    public DateTimeOffset? ReleaseTime { get; init; }
+    public string? NativesDirectory { get; init; }
     public string LauncherName { get; init; } = "PCL-N";
     public string VersionType { get; init; } = "PCL-N";
     public bool UseSystemGlfw { get; init; }
     public bool HasCleanroom { get; init; }
     public MinecraftLibraryOperatingSystem OperatingSystem { get; init; } = MinecraftLibraryOperatingSystem.Unknown;
+    public string OperatingSystemVersion { get; init; } = string.Empty;
     public bool Is64BitArchitecture { get; init; } = true;
     public bool IsArm64Architecture { get; init; }
+    public IReadOnlyDictionary<string, bool> Features { get; init; } = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed record MinecraftLaunchPlan(
@@ -82,12 +86,14 @@ public static class MinecraftLaunchPlanner
         string instance = Path.GetFullPath(request.InstanceDirectory);
         MinecraftModLoaderDescriptor loader = MinecraftModLoaderDetector.Detect(request.VersionJson);
         bool hasCleanroom = request.HasCleanroom || loader.Kind == MinecraftModLoaderKind.Cleanroom;
+        JsonObject effectiveManifest = MergeManifests(request.VersionJson, request.InheritedVersionJsons);
         IReadOnlyList<MinecraftLibraryToken> libraries = MinecraftLibraryResolver.Resolve(new MinecraftLibraryResolutionRequest
         {
-            VersionJson = request.VersionJson,
+            VersionJson = effectiveManifest,
             MinecraftRootDirectory = root,
             TargetInstanceDirectory = instance,
             OperatingSystem = request.OperatingSystem,
+            OperatingSystemVersion = request.OperatingSystemVersion,
             Is64BitArchitecture = request.Is64BitArchitecture,
             IsArm64Architecture = request.IsArm64Architecture,
             UseSystemGlfw = request.UseSystemGlfw,
@@ -100,23 +106,30 @@ public static class MinecraftLaunchPlanner
         });
         string gameDirectory = request.IsolatedGameDirectory ? instance : root;
         string assetsRoot = Path.Combine(root, "assets");
-        string assetsIndex = request.VersionJson["assetIndex"]?["id"]?.ToString() ?? request.VersionJson["assets"]?.ToString() ?? "legacy";
-        string mainClass = request.VersionJson["mainClass"]?.ToString() ?? "net.minecraft.client.main.Main";
+        string assetsIndex = effectiveManifest["assetIndex"]?["id"]?.ToString() ?? effectiveManifest["assets"]?.ToString() ?? "legacy";
+        string mainClass = effectiveManifest["mainClass"]?.ToString() ?? loader.MainClass ?? "net.minecraft.client.main.Main";
         List<string> args = [];
         if (!string.IsNullOrWhiteSpace(request.AuthlibInjectorPath))
         {
-            args.Add("-javaagent:" + request.AuthlibInjectorPath);
-            if (!string.IsNullOrWhiteSpace(request.AuthlibServer)) args.Add("=" + request.AuthlibServer);
+            string agent = "-javaagent:" + request.AuthlibInjectorPath;
+            if (!string.IsNullOrWhiteSpace(request.AuthlibServer)) agent += "=" + request.AuthlibServer;
+            args.Add(agent);
+            if (!string.IsNullOrWhiteSpace(request.AuthlibPrefetchedMetadata))
+            {
+                string encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(request.AuthlibPrefetchedMetadata));
+                args.Add("-Dauthlibinjector.yggdrasil.prefetched=" + encoded);
+            }
         }
         args.Add("-Xmx" + Math.Max(256, request.MemoryMegabytes) + "m");
         if (request.JavaMajorVersion >= 18) args.Add("-Dfile.encoding=COMPAT");
+        AddVersionJvmArguments(args, effectiveManifest, request);
         AddTokens(args, request.CustomJvmArguments);
         args.Add("-cp");
         args.Add(string.Join(Path.PathSeparator, classpath.Entries));
         args.Add(mainClass);
 
-        List<string> gameArgs = ReadGameArguments(request.VersionJson, request.InheritedVersionJsons);
-        if (gameArgs.Count == 0) gameArgs = Tokenize(request.VersionJson["minecraftArguments"]?.ToString());
+        List<string> gameArgs = ReadGameArguments(effectiveManifest, request);
+        if (gameArgs.Count == 0) gameArgs = Tokenize(effectiveManifest["minecraftArguments"]?.ToString());
         foreach (string token in gameArgs)
         {
             string value = ReplaceToken(token, request, gameDirectory, assetsRoot, assetsIndex);
@@ -141,37 +154,165 @@ public static class MinecraftLaunchPlanner
             args.Add("--height"); args.Add(request.Height.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
         if (request.Fullscreen) args.Add("--fullscreen");
-        if (!string.IsNullOrWhiteSpace(request.Server)) { args.Add("--server"); args.Add(request.Server!); }
-        if (!string.IsNullOrWhiteSpace(request.WorldName)) { args.Add("--world"); args.Add(request.WorldName!); }
+        AddJoinArguments(args, request);
         return new MinecraftLaunchPlan(request.JavaExecutablePath, instance, args, classpath.Entries, libraries, loader);
     }
 
-    private static List<string> ReadGameArguments(JsonObject json, IReadOnlyList<JsonObject> inherited)
+    private static List<string> ReadGameArguments(JsonObject json, MinecraftLaunchRequest request)
     {
         JsonArray? game = json["arguments"]?["game"]?.AsArray();
-        if (game is null)
-        {
-            foreach (JsonObject parent in inherited)
-            {
-                game = parent["arguments"]?["game"]?.AsArray();
-                if (game is not null) break;
-            }
-        }
         if (game is null) return [];
-        List<string> result = [];
-        foreach (JsonNode? node in game)
+        return ReadArgumentArray(game, request);
+    }
+
+    private static void AddVersionJvmArguments(List<string> target, JsonObject manifest, MinecraftLaunchRequest request)
+    {
+        JsonArray? jvm = manifest["arguments"]?["jvm"]?.AsArray();
+        if (jvm is null) return;
+        foreach (string value in ReadArgumentArray(jvm, request))
         {
-            if (node is JsonValue value && value.TryGetValue<string>(out string? text) && !string.IsNullOrEmpty(text)) result.Add(text);
-            else if (node is JsonObject conditional && conditional["value"] is JsonNode conditionalValue && IsRuleAllowed(conditional["rules"]))
+            string replaced = ReplaceToken(value, request, request.IsolatedGameDirectory ? request.InstanceDirectory : request.MinecraftRootDirectory, Path.Combine(request.MinecraftRootDirectory, "assets"), manifest["assetIndex"]?["id"]?.ToString() ?? manifest["assets"]?.ToString() ?? "legacy");
+            if (replaced is "-cp" or "-classpath" || replaced == "${classpath}") continue;
+            if (replaced.Length > 0) target.Add(replaced);
+        }
+    }
+
+    private static List<string> ReadArgumentArray(JsonArray array, MinecraftLaunchRequest request)
+    {
+        List<string> result = [];
+        foreach (JsonNode? node in array)
+        {
+            if (node is JsonValue value && value.TryGetValue<string>(out string? text) && !string.IsNullOrEmpty(text))
             {
-                if (conditionalValue is JsonArray values) result.AddRange(values.Select(item => item?.ToString() ?? string.Empty).Where(static item => item.Length > 0));
-                else if (conditionalValue.ToString().Length > 0) result.Add(conditionalValue.ToString());
+                result.Add(text);
+                continue;
+            }
+
+            if (node is JsonObject conditional && conditional["value"] is JsonNode conditionalValue && IsRuleAllowed(conditional["rules"], request))
+            {
+                if (conditionalValue is JsonArray values)
+                {
+                    result.AddRange(values.Select(item => item?.ToString() ?? string.Empty).Where(static item => item.Length > 0));
+                }
+                else if (conditionalValue.ToString().Length > 0)
+                {
+                    result.Add(conditionalValue.ToString());
+                }
             }
         }
         return result;
     }
 
-    private static bool IsRuleAllowed(JsonNode? node) => node is not JsonArray rules || rules.Count == 0 || !rules.OfType<JsonObject>().Any(rule => string.Equals(rule["action"]?.ToString(), "disallow", StringComparison.OrdinalIgnoreCase));
+    private static bool IsRuleAllowed(JsonNode? node, MinecraftLaunchRequest request)
+    {
+        if (node is not JsonArray rules || rules.Count == 0) return true;
+        bool hasAllow = rules.OfType<JsonObject>().Any(rule => string.Equals(rule["action"]?.ToString(), "allow", StringComparison.OrdinalIgnoreCase));
+        bool allowed = false;
+        foreach (JsonObject rule in rules.OfType<JsonObject>())
+        {
+            if (!MatchesRule(rule, request)) continue;
+            string action = rule["action"]?.ToString() ?? "allow";
+            if (action.Equals("disallow", StringComparison.OrdinalIgnoreCase)) return false;
+            allowed = true;
+        }
+        return !hasAllow || allowed;
+    }
+
+    private static bool MatchesRule(JsonObject rule, MinecraftLaunchRequest request)
+    {
+        if (rule["os"] is JsonObject os)
+        {
+            string currentOs = request.OperatingSystem switch
+            {
+                MinecraftLibraryOperatingSystem.Win32 => "windows",
+                MinecraftLibraryOperatingSystem.Linux => "linux",
+                MinecraftLibraryOperatingSystem.MacOs => "osx",
+                _ => "unknown",
+            };
+            if (os["name"] is JsonNode name && !string.Equals(name.ToString(), currentOs, StringComparison.OrdinalIgnoreCase)) return false;
+            if (os["arch"] is JsonNode arch)
+            {
+                string currentArch = request.IsArm64Architecture ? "arm64" : request.Is64BitArchitecture ? "x86_64" : "x86";
+                string expected = arch.ToString().ToLowerInvariant();
+                if (expected is "aarch64") expected = "arm64";
+                if (expected is "amd64") expected = "x86_64";
+                if (!string.Equals(expected, currentArch, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            if (os["version"] is JsonNode required && request.OperatingSystem == MinecraftLibraryOperatingSystem.Unknown) return false;
+            if (os["version"] is JsonNode version && !string.IsNullOrWhiteSpace(request.OperatingSystemVersion) && !request.OperatingSystemVersion.StartsWith(version.ToString(), StringComparison.OrdinalIgnoreCase)) return false;
+        }
+        if (rule["features"] is JsonObject features)
+        {
+            foreach ((string name, JsonNode? expected) in features)
+            {
+                bool required = bool.TryParse(expected?.ToString(), out bool parsed) && parsed;
+                if (!request.Features.TryGetValue(name, out bool actual) || actual != required) return false;
+            }
+        }
+        return true;
+    }
+
+    private static JsonObject MergeManifests(JsonObject current, IReadOnlyList<JsonObject> inherited)
+    {
+        JsonObject result = new();
+        foreach (JsonObject manifest in inherited.Reverse())
+        {
+            foreach ((string key, JsonNode? value) in manifest)
+                result[key] = value?.DeepClone();
+        }
+        foreach ((string key, JsonNode? value) in current)
+        {
+            if (key is "libraries" or "arguments") continue;
+            result[key] = value?.DeepClone();
+        }
+
+        JsonArray libraries = [];
+        foreach (JsonObject manifest in inherited.Reverse())
+            if (manifest["libraries"] is JsonArray parentLibraries) foreach (JsonNode? library in parentLibraries) libraries.Add(library?.DeepClone());
+        if (current["libraries"] is JsonArray currentLibraries) foreach (JsonNode? library in currentLibraries) libraries.Add(library?.DeepClone());
+        if (libraries.Count > 0) result["libraries"] = libraries;
+
+        JsonObject arguments = new();
+        foreach (JsonObject manifest in inherited.Reverse())
+            if (manifest["arguments"] is JsonObject parentArguments)
+                foreach ((string key, JsonNode? value) in parentArguments)
+                    if (value is JsonArray parentArray) arguments[key] = parentArray.DeepClone();
+        if (current["arguments"] is JsonObject currentArguments)
+        {
+            foreach ((string key, JsonNode? value) in currentArguments)
+            {
+                if (value is JsonArray currentArray && arguments[key] is JsonArray existing)
+                {
+                    JsonArray combined = [];
+                    foreach (JsonNode? item in existing) combined.Add(item?.DeepClone());
+                    foreach (JsonNode? item in currentArray) combined.Add(item?.DeepClone());
+                    arguments[key] = combined;
+                }
+                else arguments[key] = value?.DeepClone();
+            }
+        }
+        if (arguments.Count > 0) result["arguments"] = arguments;
+        return result;
+    }
+
+    private static void AddJoinArguments(List<string> args, MinecraftLaunchRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.Server))
+        {
+            if (request.ReleaseTime is { } release && release >= new DateTimeOffset(2023, 1, 1, 0, 0, 0, TimeSpan.Zero))
+            {
+                args.Add("--quickPlayMultiplayer");
+                args.Add(request.Server!);
+            }
+            else
+            {
+                string[] split = request.Server!.Split(':', 2);
+                args.Add("--server"); args.Add(split[0]);
+                if (split.Length == 2 && int.TryParse(split[1], out _)) { args.Add("--port"); args.Add(split[1]); }
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(request.WorldName)) args.AddRange(["--quickPlaySingleplayer", request.WorldName!]);
+    }
 
     private static string ReplaceToken(string value, MinecraftLaunchRequest request, string gameDirectory, string assetsRoot, string assetsIndex) =>
         value.Replace("${auth_player_name}", request.PlayerName, StringComparison.Ordinal)

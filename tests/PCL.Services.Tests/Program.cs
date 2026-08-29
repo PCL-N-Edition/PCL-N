@@ -162,6 +162,13 @@ internal static partial class Program
         ("minecraft ModLoader and launch plan are deterministic", Sync(MinecraftModLoaderAndLaunchPlanAreDeterministic)),
         ("minecraft crash analysis and dependency parsing are structured", Sync(MinecraftCrashAnalysisAndDependencyParsingAreStructured)),
         ("minecraft runtime composition registers routes", MinecraftRuntimeCompositionRegistersRoutes),
+        ("minecraft Java runtime package planner validates manifest", MinecraftJavaRuntimePackagePlannerValidatesManifest),
+        ("minecraft download planners respect existing files", Sync(MinecraftDownloadPlannersRespectExistingFiles)),
+        ("minecraft Java preference parser preserves legacy semantics", Sync(MinecraftJavaPreferenceParserPreservesLegacySemantics)),
+        ("minecraft libraries use ARM64 compatibility artifacts", Sync(MinecraftLibrariesUseArm64CompatibilityArtifacts)),
+        ("minecraft launch plan merges inherited and modern arguments", Sync(MinecraftLaunchPlanMergesInheritedAndModernArguments)),
+        ("minecraft download source planner covers official and unlisted mirrors", Sync(MinecraftDownloadSourcePlannerCoversOfficialAndUnlistedMirrors)),
+        ("minecraft Java runtime installer verifies and installs", MinecraftJavaRuntimeInstallerVerifiesAndInstalls),
     ];
 
     private static async Task<int> Main()

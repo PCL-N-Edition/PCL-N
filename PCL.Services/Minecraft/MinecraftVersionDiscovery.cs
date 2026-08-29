@@ -46,8 +46,9 @@ public static class MinecraftVersionPaths
         if (json is null) return null;
         string directoryPath = Path.GetDirectoryName(json) ?? string.Empty;
         string name = Path.GetFileNameWithoutExtension(json);
-        return FindFile(directoryPath, name + ".jar") ??
-               FindFile(directoryPath, directoryPath.Length == 0 ? string.Empty : new DirectoryInfo(directoryPath).Name + ".jar");
+        if (FindFile(directoryPath, name + ".jar") is { } byJsonName) return byJsonName;
+        if (TryReadDescriptor(json, out string? id, out _) && IsSafeReference(id) && FindFile(directoryPath, id + ".jar") is { } byId) return byId;
+        return FindFile(directoryPath, directoryPath.Length == 0 ? string.Empty : new DirectoryInfo(directoryPath).Name + ".jar");
     }
 
     public static bool IsSafeReference(string? value) =>
@@ -101,8 +102,8 @@ public static class MinecraftVersionPaths
             if (!TryReadDescriptor(path, out string? id, out JsonElement root)) continue;
             bool looksLike = !string.IsNullOrWhiteSpace(id) || root.TryGetProperty("mainClass", out _) ||
                              root.TryGetProperty("inheritsFrom", out _) || root.TryGetProperty("jar", out _) ||
-                             root.TryGetProperty("libraries", out _) || root.TryGetProperty("downloads", out _) ||
-                             root.TryGetProperty("arguments", out _) || root.TryGetProperty("minecraftArguments", out _);
+                             root.TryGetProperty("clientVersion", out _) || root.TryGetProperty("libraries", out _) || root.TryGetProperty("downloads", out _) ||
+                             root.TryGetProperty("arguments", out _) || root.TryGetProperty("minecraftArguments", out _) || root.TryGetProperty("patches", out _);
             parsed.Add((path, id, looksLike));
         }
 
@@ -157,7 +158,10 @@ public sealed class MinecraftVersionDiscovery
         if (!Directory.Exists(versionsDirectory)) return [];
 
         List<MinecraftVersionDescriptor> result = [];
-        foreach (string directory in Directory.GetDirectories(versionsDirectory).Order(StringComparer.OrdinalIgnoreCase))
+        string[] directories;
+        try { directories = Directory.GetDirectories(versionsDirectory).Order(StringComparer.OrdinalIgnoreCase).ToArray(); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return []; }
+        foreach (string directory in directories)
         {
             string? jsonPath = MinecraftVersionPaths.FindPrimaryJson(directory);
             if (jsonPath is null || !MinecraftVersionPaths.TryReadDescriptor(jsonPath, out string? jsonId, out JsonElement json)) continue;

@@ -1,6 +1,162 @@
 using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace PCL.Services.Minecraft.Java;
+
+public enum JavaRuntimeOperatingSystem
+{
+    Win32,
+    Linux,
+    MacOs,
+}
+
+public enum JavaRuntimeArchitecture
+{
+    X86,
+    X64,
+    Arm64,
+}
+
+public readonly record struct JavaRuntimePlatform(JavaRuntimeOperatingSystem OperatingSystem, JavaRuntimeArchitecture Architecture)
+{
+    public string ToMojangKey() => OperatingSystem switch
+    {
+        JavaRuntimeOperatingSystem.Win32 => Architecture switch { JavaRuntimeArchitecture.X86 => "windows-x86", JavaRuntimeArchitecture.Arm64 => "windows-arm64", _ => "windows-x64" },
+        JavaRuntimeOperatingSystem.Linux => Architecture == JavaRuntimeArchitecture.X86 ? "linux-i386" : "linux",
+        JavaRuntimeOperatingSystem.MacOs => Architecture == JavaRuntimeArchitecture.Arm64 ? "mac-os-arm64" : "mac-os",
+        _ => throw new ArgumentOutOfRangeException(nameof(OperatingSystem)),
+    };
+}
+
+public sealed record JavaRuntimePackageDescriptor(string ComponentName, string VersionName, string ManifestUrl);
+public sealed record JavaRuntimeDownloadFile(string RelativePath, string TargetPath, string Url, string Sha1, long Size, bool Executable = false);
+public sealed record JavaRuntimeDownloadPlan(string ComponentName, string VersionName, string ManifestUrl, string TargetDirectory, IReadOnlyList<JavaRuntimeDownloadFile> Files);
+
+public interface IJavaRuntimeMetadataProvider
+{
+    ValueTask<string> GetRuntimeIndexAsync(CancellationToken cancellationToken = default);
+    ValueTask<string> GetManifestAsync(string manifestUrl, CancellationToken cancellationToken = default);
+}
+
+public static class JavaRuntimePackagePlanner
+{
+    private static readonly HashSet<string> IgnoredSha1 = ["12976a6c2b227cbac58969c1455444596c894656", "c80e4bab46e34d02826eab226a4441d0970f2aba", "84d2102ad171863db04e7ee22a259d1f6c5de4a5"];
+
+    public static JavaRuntimePackageDescriptor SelectPackage(string runtimeIndexJson, JavaRuntimePlatform platform, string requestedComponent)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(runtimeIndexJson);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedComponent);
+        using JsonDocument document = JsonDocument.Parse(runtimeIndexJson);
+        if (!document.RootElement.TryGetProperty(platform.ToMojangKey(), out JsonElement platformElement)) throw new InvalidOperationException($"Mojang did not publish a Java runtime for {platform.ToMojangKey()}.");
+        if (platformElement.TryGetProperty(requestedComponent, out JsonElement exact)) return CreateDescriptor(requestedComponent, FirstVersion(exact));
+        foreach (JsonProperty component in platformElement.EnumerateObject())
+        {
+            try
+            {
+                JsonElement first = FirstVersion(component.Value);
+                string version = Required(first, "version", "name");
+                if (version.StartsWith(requestedComponent, StringComparison.OrdinalIgnoreCase)) return CreateDescriptor(component.Name, first);
+            }
+            catch (InvalidOperationException)
+            {
+                // Ignore malformed catalog entries while still allowing a valid sibling to be selected.
+            }
+        }
+
+        throw new InvalidOperationException($"No Java runtime component matches {requestedComponent}.");
+    }
+
+    public static JavaRuntimeDownloadPlan CreateDownloadPlan(JavaRuntimePackageDescriptor packageDescriptor, string manifestJson, string runtimeRootDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(packageDescriptor);
+        ArgumentException.ThrowIfNullOrWhiteSpace(manifestJson);
+        ArgumentException.ThrowIfNullOrWhiteSpace(runtimeRootDirectory);
+        string runtimeRoot = Path.GetFullPath(runtimeRootDirectory);
+        string targetDirectory = ResolveComponentDirectory(runtimeRoot, packageDescriptor.ComponentName);
+        using JsonDocument document = JsonDocument.Parse(manifestJson);
+        if (!document.RootElement.TryGetProperty("files", out JsonElement filesElement) || filesElement.ValueKind != JsonValueKind.Object) throw new InvalidOperationException("Java runtime manifest does not contain files.");
+        List<JavaRuntimeDownloadFile> files = [];
+        foreach (JsonProperty property in filesElement.EnumerateObject())
+        {
+            if (!property.Value.TryGetProperty("downloads", out JsonElement downloads) || !downloads.TryGetProperty("raw", out JsonElement raw)) continue;
+            string url = Required(raw, "url");
+            string sha1 = Required(raw, "sha1");
+            long size = raw.GetProperty("size").GetInt64();
+            if (IgnoredSha1.Contains(sha1)) continue;
+            string target = ResolveContained(targetDirectory, property.Name);
+            bool executable = property.Value.TryGetProperty("executable", out JsonElement executableElement) && executableElement.ValueKind == JsonValueKind.True;
+            files.Add(new JavaRuntimeDownloadFile(property.Name, target, url, sha1, size, executable));
+        }
+
+        return new JavaRuntimeDownloadPlan(packageDescriptor.ComponentName, packageDescriptor.VersionName, packageDescriptor.ManifestUrl, targetDirectory, files);
+    }
+
+    private static JsonElement FirstVersion(JsonElement component) => component.ValueKind == JsonValueKind.Array && component.GetArrayLength() > 0 ? component[0] : throw new InvalidOperationException("Java runtime component has no versions.");
+    private static JavaRuntimePackageDescriptor CreateDescriptor(string component, JsonElement version) => new(component, Required(version, "version", "name"), Required(version, "manifest", "url"));
+    private static string Required(JsonElement element, string property, string? nested = null)
+    {
+        JsonElement value = nested is null ? element.GetProperty(property) : element.GetProperty(property).GetProperty(nested);
+        string? text = value.GetString();
+        return string.IsNullOrWhiteSpace(text) ? throw new InvalidOperationException($"Java runtime manifest field '{property}' is empty.") : text;
+    }
+    private static string ResolveContained(string root, string relative)
+    {
+        string normalized = relative.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+        if (Path.IsPathRooted(normalized) || normalized.Split(Path.DirectorySeparatorChar).Any(static segment => segment is "" or "." or "..")) throw new InvalidOperationException("Java runtime file escapes its target directory.");
+        string target = Path.GetFullPath(Path.Combine(root, normalized));
+        string prefix = Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar;
+        if (!target.StartsWith(prefix, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) throw new InvalidOperationException("Java runtime file escapes its target directory.");
+        return target;
+    }
+
+    private static string ResolveComponentDirectory(string runtimeRoot, string componentName)
+    {
+        if (string.IsNullOrWhiteSpace(componentName) || Path.IsPathRooted(componentName) || componentName.Split(['/', '\\'], StringSplitOptions.None).Any(static segment => segment is "" or "." or ".."))
+            throw new InvalidOperationException("Java runtime component has an unsafe name.");
+        return ResolveContained(runtimeRoot, componentName);
+    }
+}
+
+public sealed class JavaRuntimeDownloadPlanService(IJavaRuntimeMetadataProvider metadataProvider)
+{
+    private readonly IJavaRuntimeMetadataProvider _metadataProvider = metadataProvider ?? throw new ArgumentNullException(nameof(metadataProvider));
+
+    public async ValueTask<JavaRuntimeDownloadPlan> CreatePlanAsync(string requestedComponent, JavaRuntimePlatform platform, string runtimeRootDirectory, CancellationToken cancellationToken = default)
+    {
+        string index = await _metadataProvider.GetRuntimeIndexAsync(cancellationToken).ConfigureAwait(false);
+        JavaRuntimePackageDescriptor packageDescriptor = JavaRuntimePackagePlanner.SelectPackage(index, platform, requestedComponent);
+        string manifest = await _metadataProvider.GetManifestAsync(packageDescriptor.ManifestUrl, cancellationToken).ConfigureAwait(false);
+        return JavaRuntimePackagePlanner.CreateDownloadPlan(packageDescriptor, manifest, runtimeRootDirectory);
+    }
+
+    /// <summary>Returns the launcher-scoped runtime directory without coupling Services to a platform project.</summary>
+    public ValueTask<JavaRuntimeDownloadPlan> CreatePlanAsync(
+        string requestedComponent,
+        JavaRuntimePlatform platform,
+        IJavaRuntimePathProvider pathProvider,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(pathProvider);
+        return CreatePlanAsync(
+            requestedComponent,
+            platform,
+            GetDefaultRuntimeRoot(pathProvider.ApplicationDataDirectory),
+            cancellationToken);
+    }
+
+    public static string GetDefaultRuntimeRoot(string applicationDataDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(applicationDataDirectory);
+        return Path.Combine(Path.GetFullPath(applicationDataDirectory), ".minecraft", "runtime");
+    }
+}
+
+/// <summary>Minimal path seam owned by Services; platform adapters can implement it without a reverse reference.</summary>
+public interface IJavaRuntimePathProvider
+{
+    string ApplicationDataDirectory { get; }
+}
 
 public enum JavaBrand
 {
@@ -319,10 +475,67 @@ public static class JavaPreferenceParser
 
     public static JavaPreference Parse(string? rawPreference, string? relativePathBaseDirectory = null)
     {
-        if (string.IsNullOrWhiteSpace(rawPreference) || string.Equals(rawPreference.Trim(), LegacyUseGlobalText, StringComparison.OrdinalIgnoreCase)) return new UseGlobalJavaPreference();
-        string text = rawPreference.Trim();
-        if (text.Equals("auto", StringComparison.OrdinalIgnoreCase) || text.Equals("自动选择", StringComparison.OrdinalIgnoreCase)) return new AutoSelectJavaPreference();
-        if (text.StartsWith("relative:", StringComparison.OrdinalIgnoreCase)) return new UseRelativeJavaPreference(text[9..].Trim());
-        return Path.IsPathRooted(text) ? new ExistingJavaPreference(Path.GetFullPath(text)) : new UseRelativeJavaPreference(text);
+        JavaPreference preference = TryParseJson(rawPreference) ?? ParseLegacy(rawPreference);
+        return Normalize(preference, relativePathBaseDirectory);
+    }
+
+    private static JavaPreference? TryParseJson(string? rawPreference)
+    {
+        if (string.IsNullOrWhiteSpace(rawPreference) || !rawPreference.TrimStart().StartsWith('{')) return null;
+        try
+        {
+            JsonObject? json = JsonNode.Parse(rawPreference)?.AsObject();
+            string? kind = json?["kind"]?.ToString();
+            if (kind is null) return null;
+            return kind.ToLowerInvariant() switch
+            {
+                "auto" => new AutoSelectJavaPreference(),
+                "global" => new UseGlobalJavaPreference(),
+                "exist" => ReadString(json, "JavaExePath") is { } path ? new ExistingJavaPreference(path) : null,
+                "relative" => ReadString(json, "RelativePath") is { } relativePath ? new UseRelativeJavaPreference(relativePath) : null,
+                _ => null,
+            };
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static JavaPreference ParseLegacy(string? rawPreference)
+    {
+        string? trimmed = rawPreference?.Trim();
+        if (string.IsNullOrEmpty(trimmed)) return new AutoSelectJavaPreference();
+        return string.Equals(trimmed, LegacyUseGlobalText, StringComparison.Ordinal) ? new UseGlobalJavaPreference() : new ExistingJavaPreference(trimmed);
+    }
+
+    private static JavaPreference Normalize(JavaPreference preference, string? relativePathBaseDirectory) => preference switch
+    {
+        ExistingJavaPreference existing when !Path.IsPathRooted(existing.JavaExecutablePath) => new UseGlobalJavaPreference(),
+        UseRelativeJavaPreference relative when !IsSafeRelativePath(relative.RelativePath, relativePathBaseDirectory) => new UseGlobalJavaPreference(),
+        _ => preference,
+    };
+
+    private static bool IsSafeRelativePath(string relativePath, string? baseDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) || string.IsNullOrWhiteSpace(baseDirectory) || Path.IsPathRooted(relativePath)) return false;
+        try
+        {
+            string baseFullPath = EnsureTrailingSeparator(Path.GetFullPath(baseDirectory));
+            string resolvedPath = Path.GetFullPath(Path.Combine(baseFullPath, relativePath));
+            return resolvedPath.StartsWith(baseFullPath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static string EnsureTrailingSeparator(string directory) => directory.EndsWith(Path.DirectorySeparatorChar) || directory.EndsWith(Path.AltDirectorySeparatorChar) ? directory : directory + Path.DirectorySeparatorChar;
+
+    private static string? ReadString(JsonObject? json, string propertyName)
+    {
+        string? value = json?[propertyName]?.ToString();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 }
