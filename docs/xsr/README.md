@@ -33,6 +33,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-204-renderer-gates.md](migrations/XSR-204-renderer-gates.md) — deterministic benchmark gates and renderer CI
 - [migrations/XSR-205-animation-and-review-fixes.md](migrations/XSR-205-animation-and-review-fixes.md) — animation kernel, generational handles, thread-safe state bridge
 - [migrations/XSR-206-renderer-completion.md](migrations/XSR-206-renderer-completion.md) — easing, keyframes, scroll, and the media slot
+- [migrations/XSR-207-pxml-parser.md](migrations/XSR-207-pxml-parser.md) — PXML grammar and the structural parser
 
 ## Decision process
 

@@ -1,0 +1,72 @@
+namespace PCL.Pxml.Tests;
+
+internal static partial class Program
+{
+    private static readonly (string Name, Action Body)[] TestCases =
+    [
+        // XSR-207: PXML grammar and parser.
+        ("simple document parses structurally", SimpleDocumentParsesStructurally),
+        ("state bindings are recognized", StateBindingsAreRecognized),
+        ("nested children keep document order", NestedChildrenKeepDocumentOrder),
+        ("comments and whitespace are ignored", CommentsAndWhitespaceAreIgnored),
+        ("duplicate properties are rejected", DuplicatePropertiesAreRejected),
+        ("malformed bindings are rejected", MalformedBindingsAreRejected),
+        ("text content is rejected", TextContentIsRejected),
+        ("documents without one root are rejected", DocumentsWithoutOneRootAreRejected),
+        ("foreign namespaces are rejected", ForeignNamespacesAreRejected),
+    ];
+
+    private static int Main()
+    {
+        foreach ((string name, Action body) in TestCases)
+        {
+            body();
+            Console.WriteLine($"PASS: {name}");
+        }
+
+        Console.WriteLine($"PXML compiler tests passed: {TestCases.Length}.");
+        return 0;
+    }
+
+    private static void AssertTrue(bool value)
+    {
+        if (!value)
+        {
+            throw new InvalidOperationException("Expected true but received false.");
+        }
+    }
+
+    private static void AssertEqual<T>(T expected, T actual)
+    {
+        if (!EqualityComparer<T>.Default.Equals(expected, actual))
+        {
+            throw new InvalidOperationException($"Expected '{expected}' but received '{actual}'.");
+        }
+    }
+
+    private static void AssertSequence<T>(T[] expected, T[] actual)
+        where T : IEquatable<T>
+    {
+        if (expected.Length != actual.Length
+            || !expected.Zip(actual, (left, right) => left.Equals(right)).All(equal => equal))
+        {
+            throw new InvalidOperationException(
+                $"Expected sequence [{string.Join(", ", expected)}] but received [{string.Join(", ", actual)}].");
+        }
+    }
+
+    private static void AssertThrows<TException>(Action action)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (TException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"Expected exception {typeof(TException).Name}.");
+    }
+}
