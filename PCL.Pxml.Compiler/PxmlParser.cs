@@ -26,23 +26,28 @@ public static class PxmlParser
             throw new PxmlParseException("The PXML document is empty.");
         }
 
-        XmlDocument document = new();
+        XmlDocument document = new()
+        {
+            XmlResolver = null,
+        };
         try
         {
-            document.LoadXml(text);
+            XmlReaderSettings settings = new()
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+            };
+            using StringReader source = new(text);
+            using XmlReader reader = XmlReader.Create(source, settings);
+            document.Load(reader);
         }
-        catch (XmlException exception)
+        catch (XmlException)
         {
-            throw new PxmlParseException($"The PXML document is not well-formed XML: {exception.Message}");
+            throw new PxmlParseException("The PXML document is not well-formed XML or uses a prohibited DTD.");
         }
 
         XmlElement root = document.DocumentElement
             ?? throw new PxmlParseException("The PXML document has no root element.");
-        if (document.DocumentElement!.NextSibling is not null)
-        {
-            throw new PxmlParseException("The PXML document must contain exactly one root element.");
-        }
-
         ValidateNamespace(root);
         return new PxmlDocument(ReadElement(root));
     }
@@ -81,9 +86,17 @@ public static class PxmlParser
         HashSet<string> seen = [];
         foreach (XmlAttribute attribute in element.Attributes)
         {
-            if (attribute.Prefix == "xmlns" || attribute.Name == "xmlns")
+            if (attribute.NamespaceURI == "http://www.w3.org/2000/xmlns/")
             {
                 continue;
+            }
+
+            if (!string.IsNullOrEmpty(attribute.NamespaceURI) || !string.IsNullOrEmpty(attribute.Prefix))
+            {
+                throw new PxmlParseException(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"The attribute '{attribute.Name}' on '{element.LocalName}' uses a namespace; PXML properties must be unqualified."));
             }
 
             if (!seen.Add(attribute.LocalName))
@@ -115,6 +128,13 @@ public static class PxmlParser
                         string.Create(
                             CultureInfo.InvariantCulture,
                             $"The element '{element.LocalName}' carries text content; PXML elements are attribute-only."));
+                case XmlComment or XmlWhitespace:
+                    break;
+                default:
+                    throw new PxmlParseException(
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"The element '{element.LocalName}' contains unsupported XML node '{node.NodeType}'."));
             }
         }
 

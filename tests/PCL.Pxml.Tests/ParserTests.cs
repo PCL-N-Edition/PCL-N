@@ -128,4 +128,33 @@ internal static partial class Program
             </Page>
             """));
     }
+
+    private static void DtdAndQualifiedPropertiesAreRejected()
+    {
+        AssertThrows<PxmlParseException>(() => PxmlParser.Parse("""
+            <!DOCTYPE Page [<!ENTITY value "expanded">]>
+            <Page xmlns="https://pcln.dev/pxml/2026">
+              <Text Content="&value;" />
+            </Page>
+            """));
+        AssertThrows<PxmlParseException>(() => PxmlParser.Parse("""
+            <Page xmlns="https://pcln.dev/pxml/2026" xmlns:x="https://example.com/property">
+              <Text x:Content="not-a-pxml-property" />
+            </Page>
+            """));
+    }
+
+    private static void DocumentLevelCommentsAreAccepted()
+    {
+        PxmlDocument document = PxmlParser.Parse("""
+            <!-- before -->
+            <Page xmlns="https://pcln.dev/pxml/2026">
+              <Text Content="kept" />
+            </Page>
+            <!-- after -->
+            """);
+
+        AssertEqual("Page", document.Root.Name);
+        AssertEqual(1, document.Root.Children.Count);
+    }
 }

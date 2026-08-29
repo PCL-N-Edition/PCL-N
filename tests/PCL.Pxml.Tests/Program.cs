@@ -18,6 +18,8 @@ internal static partial class Program
         ("text content is rejected", TextContentIsRejected),
         ("documents without one root are rejected", DocumentsWithoutOneRootAreRejected),
         ("foreign namespaces are rejected", ForeignNamespacesAreRejected),
+        ("DTD and qualified properties are rejected", DtdAndQualifiedPropertiesAreRejected),
+        ("document-level comments are accepted", DocumentLevelCommentsAreAccepted),
         // XSR-208: PXML to UI.Next IR compilation.
         ("compile simple page", CompileSimplePage),
         ("compile text state binding", CompileTextStateBinding),
@@ -30,6 +32,7 @@ internal static partial class Program
         ("loader produces same scene as hand built tree", LoaderProducesSameSceneAsHandBuiltTree),
         ("loaded bindings drive rendering", LoadedBindingsDriveRendering),
         ("loader rejects unknown state paths", LoaderRejectsUnknownStatePaths),
+        ("loader failures leave the tree unchanged", LoaderFailuresLeaveTheTreeUnchanged),
     ];
 
     private static int Main()

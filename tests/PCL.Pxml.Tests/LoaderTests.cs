@@ -1,5 +1,5 @@
-using PCL.Xsr;
 using PCL.UI.Next;
+using PCL.Xsr;
 using PCL.Xsr.State;
 
 namespace PCL.Pxml.Tests;
@@ -88,6 +88,30 @@ internal static partial class Program
             tree,
             store,
             tree.Create("root")));
+    }
+
+    private static void LoaderFailuresLeaveTheTreeUnchanged()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = BuildStore();
+        XsrUiEntityId parent = tree.Create("root");
+        int countBefore = tree.Count;
+
+        AssertThrows<PxmlLoadException>(() => PxmlUiLoader.Load(
+            Compile("""
+                <Page xmlns="N">
+                  <StackPanel>
+                    <Text Content="created-before-failure" />
+                    <Text Content="{state missing.state}" />
+                  </StackPanel>
+                </Page>
+                """),
+            tree,
+            store,
+            parent));
+
+        AssertEqual(countBefore, tree.Count);
+        AssertEqual(0, tree.Children(parent).Count);
     }
 
     private static PxmlUiIr CompilePage()

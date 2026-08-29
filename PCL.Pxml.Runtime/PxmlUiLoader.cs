@@ -32,18 +32,30 @@ public sealed class PxmlUiLoader
             throw new PxmlLoadException($"The load parent '{parent}' is not alive.");
         }
 
-        return LoadNode(ir.Root, tree, state, parent);
+        XsrUiEntityId root = tree.Create(ir.Root.Kind.ToString());
+        bool committed = false;
+        try
+        {
+            PopulateNode(ir.Root, root, tree, state);
+            tree.Attach(root, parent);
+            committed = true;
+            return root;
+        }
+        finally
+        {
+            if (!committed && tree.IsAlive(root))
+            {
+                tree.Destroy(root);
+            }
+        }
     }
 
-    private static XsrUiEntityId LoadNode(
+    private static void PopulateNode(
         PxmlIrNode node,
+        XsrUiEntityId entity,
         XsrUiTree tree,
-        XsrStateStore state,
-        XsrUiEntityId parent)
+        XsrStateStore state)
     {
-        XsrUiEntityId entity = tree.Create(node.Kind.ToString());
-        tree.Attach(entity, parent);
-
         if (node.Width is not null || node.Height is not null
             || node.Margin != default || node.Padding != default || !node.IsVisible)
         {
@@ -89,7 +101,13 @@ public sealed class PxmlUiLoader
 
             if (node.Command is not null)
             {
-                tree.SetComponent(entity, new XsrUiCommandBinding(XsrSemanticId.Parse(node.Command)));
+                if (!XsrSemanticId.TryParse(node.Command, out XsrSemanticId commandId))
+                {
+                    throw new PxmlLoadException(
+                        $"The command '{node.Command}' is not a valid semantic identifier.");
+                }
+
+                tree.SetComponent(entity, new XsrUiCommandBinding(commandId));
             }
         }
 
@@ -113,10 +131,10 @@ public sealed class PxmlUiLoader
 
         foreach (PxmlIrNode child in node.Children)
         {
-            LoadNode(child, tree, state, entity);
+            XsrUiEntityId childEntity = tree.Create(child.Kind.ToString());
+            tree.Attach(childEntity, entity);
+            PopulateNode(child, childEntity, tree, state);
         }
-
-        return entity;
     }
 
     private static XsrStateId ResolveState(XsrStateStore state, string path)
