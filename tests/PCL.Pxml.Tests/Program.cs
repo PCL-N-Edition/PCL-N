@@ -14,6 +14,14 @@ internal static partial class Program
         ("text content is rejected", TextContentIsRejected),
         ("documents without one root are rejected", DocumentsWithoutOneRootAreRejected),
         ("foreign namespaces are rejected", ForeignNamespacesAreRejected),
+        // XSR-208: PXML to UI.Next IR compilation.
+        ("compile simple page", CompileSimplePage),
+        ("compile text state binding", CompileTextStateBinding),
+        ("compile visibility binding", CompileVisibilityBinding),
+        ("compile button defaults and command", CompileButtonDefaultsAndCommand),
+        ("compile thickness and size", CompileThicknessAndSize),
+        ("compile rejects unknown element and property", CompileRejectsUnknownElementAndProperty),
+        ("compile rejects malformed values", CompileRejectsMalformedValues),
     ];
 
     private static int Main()
@@ -41,6 +49,15 @@ internal static partial class Program
         if (!EqualityComparer<T>.Default.Equals(expected, actual))
         {
             throw new InvalidOperationException($"Expected '{expected}' but received '{actual}'.");
+        }
+    }
+
+    private static void AssertNull<T>(T? value)
+        where T : class
+    {
+        if (value is not null)
+        {
+            throw new InvalidOperationException("Expected null but received a value.");
         }
     }
 

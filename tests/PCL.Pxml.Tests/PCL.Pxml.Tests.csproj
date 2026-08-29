@@ -6,5 +6,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj" />
+    <ProjectReference Include="../../PCL.UI.Next/PCL.UI.Next.csproj" />
   </ItemGroup>
 </Project>
