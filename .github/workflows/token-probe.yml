@@ -1,0 +1,29 @@
+name: Token probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/token-probe
+      - dev
+
+jobs:
+  direct:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: PATCH release body with its own content (no-op write probe)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          body="$(gh api repos/PCL-N-Edition/PCL-N/releases/378414427 --jq .body)"
+          gh api -X PATCH repos/PCL-N-Edition/PCL-N/releases/378414427 -f body="$body" --jq .id \
+            && echo "DIRECT-WRITE-OK" \
+            || echo "DIRECT-WRITE-403"
+
+  reusable:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/probe-reusable.yml
