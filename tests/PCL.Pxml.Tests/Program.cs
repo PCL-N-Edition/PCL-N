@@ -1,3 +1,7 @@
+using PCL.UI.Next;
+using PCL.Xsr;
+using PCL.Xsr.State;
+
 namespace PCL.Pxml.Tests;
 
 internal static partial class Program
@@ -22,6 +26,10 @@ internal static partial class Program
         ("compile thickness and size", CompileThicknessAndSize),
         ("compile rejects unknown element and property", CompileRejectsUnknownElementAndProperty),
         ("compile rejects malformed values", CompileRejectsMalformedValues),
+        // XSR-209: runtime loader.
+        ("loader produces same scene as hand built tree", LoaderProducesSameSceneAsHandBuiltTree),
+        ("loaded bindings drive rendering", LoadedBindingsDriveRendering),
+        ("loader rejects unknown state paths", LoaderRejectsUnknownStatePaths),
     ];
 
     private static int Main()

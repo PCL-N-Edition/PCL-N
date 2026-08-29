@@ -38,7 +38,7 @@ internal static class Program
             ["PCL.UI.Next.Benchmarks"] = ["PCL.UI.Next", "PCL.Xsr.State"],
             ["PCL.Pxml.Compiler"] = ["PCL.Core", "PCL.UI.Next"],
             ["PCL.Pxml.Runtime"] =
-            ["PCL.Core", "PCL.UI.Next", "PCL.Xsr.Abstractions", "PCL.Xsr.State"],
+            ["PCL.Core", "PCL.Pxml.Compiler", "PCL.UI.Next", "PCL.Xsr.Abstractions", "PCL.Xsr.State"],
             ["PCL.Pxml.Generators"] = ["PCL.Pxml.Compiler"],
             ["PCL.Sidecar.Protocol"] = [],
             ["PCL.Sidecar.Transport"] = ["PCL.Sidecar.Protocol"],
@@ -55,7 +55,7 @@ internal static class Program
             ["PCL.Xsr.ArchitectureTests"] = [],
             ["PCL.Xsr.Runtime.Tests"] = ["PCL.Xsr.Abstractions", "PCL.Xsr.Runtime", "PCL.Xsr.State", "PCL.Xsr.Diagnostics"],
             ["PCL.UI.Next.Tests"] = ["PCL.Xsr.Abstractions", "PCL.Xsr.State", "PCL.UI.Next"],
-            ["PCL.Pxml.Tests"] = ["PCL.Pxml.Compiler", "PCL.UI.Next"],
+            ["PCL.Pxml.Tests"] = ["PCL.Pxml.Compiler", "PCL.Pxml.Runtime", "PCL.UI.Next", "PCL.Xsr.Abstractions", "PCL.Xsr.State"],
         };
 
     private static readonly HashSet<string> ExecutableProjects =

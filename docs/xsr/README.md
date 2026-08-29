@@ -35,6 +35,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-206-renderer-completion.md](migrations/XSR-206-renderer-completion.md) — easing, keyframes, scroll, and the media slot
 - [migrations/XSR-207-pxml-parser.md](migrations/XSR-207-pxml-parser.md) — PXML grammar and the structural parser
 - [migrations/XSR-208-pxml-ir-compiler.md](migrations/XSR-208-pxml-ir-compiler.md) — PXML compilation to the typed UI.Next IR
+- [migrations/XSR-209-pxml-loader.md](migrations/XSR-209-pxml-loader.md) — runtime loader with hand-built parity
 
 ## Decision process
 

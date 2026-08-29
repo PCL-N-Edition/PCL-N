@@ -1,11 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Runtime loader and binder for precompiled PXML UI.Next artifacts.</Description>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../PCL.Core/PCL.Core.csproj" />
     <ProjectReference Include="../PCL.UI.Next/PCL.UI.Next.csproj" />
+    <ProjectReference Include="../PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj" />
     <ProjectReference Include="../PCL.Xsr.Abstractions/PCL.Xsr.Abstractions.csproj" />
     <ProjectReference Include="../PCL.Xsr.State/PCL.Xsr.State.csproj" />
   </ItemGroup>
