@@ -93,11 +93,11 @@ Wave 2 is complete. The renderer kernel provides the entity tree, deterministic 
 | XSR-207 | PXML grammar and structural parser | complete |
 | XSR-208 | PXML to UI.Next IR compilation with the binding table | complete; catalog model superseded by XSR-212 |
 | XSR-209 | runtime loader with hand-built scene parity | complete |
+| XSR-210 | PXML NativeAOT, architecture, and CI acceptance gates | complete |
 | XSR-211 | parser security boundary and transactional loader review fixes | complete |
 | XSR-212 | required external control catalog and early compile-time expansion | complete |
-| XSR-210 | PXML NativeAOT, architecture, and CI acceptance gates | pending |
 
-Wave 3 remains in progress until the generated control catalog replaces the compiler-owned model and the complete parser-to-renderer pipeline passes the acceptance gates.
+Wave 3 is complete. The parser enforces a deterministic XML boundary, the compiler consumes a required UI.Next-owned control directory expanded into physical generated source, the typed IR carries finite runtime recipes and binding tables, and the transactional loader produces the same scene as hand-built entities. Exit evidence: default and substitute catalogs compile incrementally, malformed and missing catalogs fail deterministically, text and visibility state bindings drive rendering, Compiler and Runtime contain no reflection or named-control dispatch, and the complete pipeline passes CoreCLR, NativeAOT, architecture, format, benchmark, and trim gates.
 
 ## Cutover gate
 

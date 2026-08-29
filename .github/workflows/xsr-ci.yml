@@ -14,7 +14,7 @@ jobs:
   build:
     name: Build and architecture gates
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Check out source
@@ -30,6 +30,56 @@ jobs:
 
       - name: Build
         run: dotnet build PCL-N.slnx --configuration Release --no-restore -p:XsrVersionChannel=ci
+
+      - name: Validate generated PXML control catalogs
+        shell: bash
+        run: |
+          generated_catalog="$(find PCL.Pxml.Compiler/obj/Release -name PxmlControlCatalog.g.cs -print -quit)"
+          if [[ -z "${generated_catalog}" ]] || ! grep -q "PxmlIrNodeKind.Page" "${generated_catalog}"; then
+            echo "The default PXML control catalog was not materialized." >&2
+            exit 1
+          fi
+
+          dotnet build PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:XsrVersionChannel=ci \
+            -p:PxmlControlCatalogDirectory="${GITHUB_WORKSPACE}/tests/PCL.Pxml.Tests/Fixtures/AlternateCatalog"
+          if ! grep -q "PxmlIrNodeKind.Card" "${generated_catalog}"; then
+            echo "The alternate PXML control catalog was not expanded." >&2
+            exit 1
+          fi
+
+          invalid_log="${RUNNER_TEMP}/pxml-invalid-catalog.log"
+          if dotnet build PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:XsrVersionChannel=ci \
+            -p:PxmlControlCatalogDirectory="${GITHUB_WORKSPACE}/tests/PCL.Pxml.Tests/Fixtures/InvalidCatalog" \
+            2>&1 | tee "${invalid_log}"; then
+            echo "The invalid PXML control catalog unexpectedly compiled." >&2
+            exit 1
+          fi
+          grep -q "PXMLGEN002" "${invalid_log}"
+
+          missing_catalog="${RUNNER_TEMP}/pxml-catalog-does-not-exist"
+          if [[ -e "${missing_catalog}" ]]; then
+            echo "The missing-catalog fixture path unexpectedly exists." >&2
+            exit 1
+          fi
+          if dotnet msbuild PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj \
+            -target:ValidatePxmlControlCatalog \
+            -nologo \
+            -p:PxmlControlCatalogDirectory="${missing_catalog}"; then
+            echo "A missing PXML control catalog unexpectedly passed validation." >&2
+            exit 1
+          fi
+
+          dotnet build PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:XsrVersionChannel=ci
+          grep -q "PxmlIrNodeKind.Page" "${generated_catalog}"
 
       - name: Test XSR runtime kernel
         run: dotnet run --project tests/PCL.Xsr.Runtime.Tests/PCL.Xsr.Runtime.Tests.csproj --configuration Release --no-build
@@ -57,11 +107,27 @@ jobs:
             --output "${{ runner.temp }}/uinext-aot"
           "${{ runner.temp }}/uinext-aot/PCL.UI.Next.Tests"
 
+      - name: Test PXML compiler pipeline
+        run: dotnet run --project tests/PCL.Pxml.Tests/PCL.Pxml.Tests.csproj --configuration Release --no-build
+
+      - name: Publish and run NativeAOT PXML tests
+        run: |
+          dotnet publish tests/PCL.Pxml.Tests/PCL.Pxml.Tests.csproj \
+            --configuration Release \
+            -p:XsrVersionChannel=ci \
+            -p:PublishAot=true \
+            -p:StripSymbols=true \
+            --output "${{ runner.temp }}/pxml-aot"
+          "${{ runner.temp }}/pxml-aot/PCL.Pxml.Tests"
+
       - name: Enforce UI.Next benchmark gates
         run: dotnet run --project PCL.UI.Next.Benchmarks/PCL.UI.Next.Benchmarks.csproj --configuration Release --no-build
 
       - name: Enforce architecture boundaries
         run: dotnet run --project tests/PCL.Xsr.ArchitectureTests/PCL.Xsr.ArchitectureTests.csproj --configuration Release --no-build -- --repo-root .
+
+      - name: Verify source formatting
+        run: dotnet format PCL-N.slnx --no-restore --verify-no-changes --diagnostics IDE0055 IMPORTS
 
       - name: Analyze trimmed desktop composition
         run: >-

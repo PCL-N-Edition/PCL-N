@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
-using PCL.Xsr.State;
 using PCL.UI.Next;
+using PCL.Xsr.State;
 
 namespace PCL.UI.Next.Benchmarks;
 

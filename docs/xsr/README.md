@@ -36,6 +36,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-207-pxml-parser.md](migrations/XSR-207-pxml-parser.md) — PXML grammar and the structural parser
 - [migrations/XSR-208-pxml-ir-compiler.md](migrations/XSR-208-pxml-ir-compiler.md) — PXML compilation to the typed UI.Next IR
 - [migrations/XSR-209-pxml-loader.md](migrations/XSR-209-pxml-loader.md) — runtime loader with hand-built parity
+- [migrations/XSR-210-pxml-gates.md](migrations/XSR-210-pxml-gates.md) — PXML NativeAOT, generated-catalog, and Wave 3 acceptance gates
 - [migrations/XSR-211-pxml-review-hardening.md](migrations/XSR-211-pxml-review-hardening.md) — parser boundary and transactional loader review fixes
 - [migrations/XSR-212-generated-control-catalog.md](migrations/XSR-212-generated-control-catalog.md) — required UI.Next control directory and early generated compiler catalog
 

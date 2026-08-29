@@ -93,6 +93,7 @@ internal static class Program
         ValidateSolution(repositoryRoot, failures);
         ValidateCommonBuildProperties(repositoryRoot, failures);
         ValidatePxmlControlCatalog(repositoryRoot, projectPaths, failures);
+        ValidateWave3Ci(repositoryRoot, failures);
         ValidateAcyclicGraph(failures);
 
         if (failures.Count == 0)
@@ -436,31 +437,101 @@ internal static class Program
         {
             failures.Add("PCL.Pxml.Compiler must consume PCL.Pxml.Generators only as an analyzer.");
         }
+        else
+        {
+            string[] removedPublishProperties = (generatorReference.Attribute("GlobalPropertiesToRemove")?.Value ?? string.Empty)
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            string[] requiredRemovedProperties =
+                [
+                    "PublishAot",
+                    "PublishTrimmed",
+                    "PublishSingleFile",
+                    "PublishReadyToRun",
+                    "SelfContained",
+                    "RuntimeIdentifier",
+                ];
+            foreach (string requiredProperty in requiredRemovedProperties)
+            {
+                if (!removedPublishProperties.Contains(requiredProperty, StringComparer.Ordinal))
+                {
+                    failures.Add(
+                        $"PCL.Pxml.Compiler must not propagate '{requiredProperty}' to its build-only generator reference.");
+                }
+            }
+        }
 
         string compilerSource = File.ReadAllText(Path.Combine(repositoryRoot, "PCL.Pxml.Compiler", "PxmlCompiler.cs"));
-        string[] forbiddenControlNames = ["\"Page\"", "\"StackPanel\"", "\"Text\"", "\"Button\"", "\"Image\""];
-        foreach (string forbiddenName in forbiddenControlNames)
+        string[] controlNames = descriptors
+            .SelectMany(File.ReadLines)
+            .Where(line => line.StartsWith("name=", StringComparison.Ordinal))
+            .Select(line => line.Substring("name=".Length).Trim())
+            .Where(name => name.Length != 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        foreach (string controlName in controlNames)
         {
-            if (compilerSource.Contains(forbiddenName, StringComparison.Ordinal))
+            if (compilerSource.Contains($"\"{controlName}\"", StringComparison.Ordinal))
             {
-                failures.Add($"PCL.Pxml.Compiler must not embed control model name {forbiddenName}.");
+                failures.Add($"PCL.Pxml.Compiler must not embed generated control model name '{controlName}'.");
             }
         }
 
         string loaderSource = File.ReadAllText(Path.Combine(repositoryRoot, "PCL.Pxml.Runtime", "PxmlUiLoader.cs"));
-        string[] forbiddenLoaderKinds =
-        [
-            "PxmlIrNodeKind.Page",
-            "PxmlIrNodeKind.StackPanel",
-            "PxmlIrNodeKind.Text",
-            "PxmlIrNodeKind.Button",
-            "PxmlIrNodeKind.Image",
-        ];
-        foreach (string forbiddenKind in forbiddenLoaderKinds)
+        foreach (string controlName in controlNames)
         {
+            string forbiddenKind = $"PxmlIrNodeKind.{controlName}";
             if (loaderSource.Contains(forbiddenKind, StringComparison.Ordinal))
             {
                 failures.Add($"PCL.Pxml.Runtime must dispatch generated controls through recipes, not {forbiddenKind}.");
+            }
+        }
+
+        string[] forbiddenReflectionTokens =
+        [
+            "System.Reflection",
+            "Activator.",
+            "BindingFlags",
+            "MethodInfo",
+            "PropertyInfo",
+            ".GetMethod(",
+            ".GetProperty(",
+            "Type.GetType(",
+        ];
+        foreach (string projectDirectoryName in new[] { "PCL.Pxml.Compiler", "PCL.Pxml.Runtime" })
+        {
+            string projectDirectory = Path.Combine(repositoryRoot, projectDirectoryName);
+            foreach (string sourcePath in Directory.EnumerateFiles(projectDirectory, "*.cs", SearchOption.AllDirectories))
+            {
+                string relativePath = Path.GetRelativePath(projectDirectory, sourcePath).Replace('\\', '/');
+                if (relativePath.StartsWith("bin/", StringComparison.Ordinal)
+                    || relativePath.StartsWith("obj/", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                string source = File.ReadAllText(sourcePath);
+                foreach (string forbiddenToken in forbiddenReflectionTokens)
+                {
+                    if (source.Contains(forbiddenToken, StringComparison.Ordinal))
+                    {
+                        failures.Add(
+                            $"{projectDirectoryName}/{relativePath} contains forbidden runtime-reflection token '{forbiddenToken}'.");
+                    }
+                }
+
+                if (projectDirectoryName == "PCL.Pxml.Runtime")
+                {
+                    string[] forbiddenCatalogIoTokens =
+                        ["System.IO", "File.", "Directory.", "PxmlControlCatalogDirectory", ".pxml-control"];
+                    foreach (string forbiddenToken in forbiddenCatalogIoTokens)
+                    {
+                        if (source.Contains(forbiddenToken, StringComparison.Ordinal))
+                        {
+                            failures.Add(
+                                $"{projectDirectoryName}/{relativePath} contains forbidden runtime catalog-I/O token '{forbiddenToken}'.");
+                        }
+                    }
+                }
             }
         }
 
@@ -478,6 +549,39 @@ internal static class Program
                 failures.Add("PCL.Pxml.Generators must target netstandard2.0 for compiler-host compatibility.");
             }
 
+            string[] isolatedPublishProperties =
+            [
+                "PublishAot",
+                "PublishTrimmed",
+                "PublishSingleFile",
+                "PublishReadyToRun",
+                "SelfContained",
+                "RuntimeIdentifier",
+            ];
+            string[] localProperties = (generatorProject.Root?.Attribute("TreatAsLocalProperty")?.Value ?? string.Empty)
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (string isolatedProperty in isolatedPublishProperties)
+            {
+                if (!localProperties.Contains(isolatedProperty, StringComparer.Ordinal))
+                {
+                    failures.Add($"PCL.Pxml.Generators must treat '{isolatedProperty}' as a local build-tool property.");
+                }
+            }
+
+            foreach (string disabledProperty in isolatedPublishProperties.Where(
+                         property => property != "RuntimeIdentifier"))
+            {
+                if (!string.Equals(Property(generatorProject, disabledProperty), "false", StringComparison.OrdinalIgnoreCase))
+                {
+                    failures.Add($"PCL.Pxml.Generators must disable inherited '{disabledProperty}'.");
+                }
+            }
+
+            if (!string.IsNullOrEmpty(Property(generatorProject, "RuntimeIdentifier")))
+            {
+                failures.Add("PCL.Pxml.Generators must clear inherited RuntimeIdentifier values.");
+            }
+
             XElement? roslynPackage = Elements(generatorProject, "PackageReference")
                 .FirstOrDefault(element => string.Equals(
                     element.Attribute("Include")?.Value,
@@ -487,6 +591,38 @@ internal static class Program
                 || !string.Equals(roslynPackage.Attribute("PrivateAssets")?.Value, "all", StringComparison.OrdinalIgnoreCase))
             {
                 failures.Add("PCL.Pxml.Generators must keep Roslyn dependencies private.");
+            }
+        }
+    }
+
+    private static void ValidateWave3Ci(string repositoryRoot, List<string> failures)
+    {
+        string workflowPath = Path.Combine(repositoryRoot, ".github", "workflows", "xsr-ci.yml");
+        if (!File.Exists(workflowPath))
+        {
+            failures.Add("The XSR CI workflow is missing.");
+            return;
+        }
+
+        string workflow = File.ReadAllText(workflowPath);
+        string[] requiredFragments =
+        [
+            "dotnet run --project tests/PCL.Pxml.Tests/PCL.Pxml.Tests.csproj",
+            "dotnet publish tests/PCL.Pxml.Tests/PCL.Pxml.Tests.csproj",
+            "-p:PublishAot=true",
+            "pxml-aot/PCL.Pxml.Tests",
+            "PxmlControlCatalogDirectory",
+            "Fixtures/AlternateCatalog",
+            "Fixtures/InvalidCatalog",
+            "PXMLGEN002",
+            "PxmlControlCatalog.g.cs",
+            "dotnet format PCL-N.slnx --no-restore --verify-no-changes --diagnostics IDE0055 IMPORTS",
+        ];
+        foreach (string requiredFragment in requiredFragments)
+        {
+            if (!workflow.Contains(requiredFragment, StringComparison.Ordinal))
+            {
+                failures.Add($"The XSR CI workflow is missing the Wave 3 gate fragment '{requiredFragment}'.");
             }
         }
     }
