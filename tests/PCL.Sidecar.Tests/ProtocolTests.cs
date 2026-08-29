@@ -66,7 +66,7 @@ internal static partial class Program
         AssertEqual(2.5, reader.ReadNext().ReadDouble());
         AssertEqual(guid, reader.ReadNext().ReadGuid());
         AssertEqual("你好, sidecar", reader.ReadNext().ReadString());
-                AssertTrue(reader.ReadNext().ReadBytes().SequenceEqual(new byte[] { 1, 2, 3, 250 }));
+        AssertTrue(reader.ReadNext().ReadBytes().SequenceEqual(new byte[] { 1, 2, 3, 250 }));
         AssertFalse(reader.HasMore);
     }
 

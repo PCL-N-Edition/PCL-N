@@ -1,7 +1,7 @@
-using PCL.Xsr;
-using PCL.Xsr.State;
 using PCL.Sidecar.Protocol;
 using PCL.Sidecar.Transport;
+using PCL.Xsr;
+using PCL.Xsr.State;
 
 namespace PCL.Xsr.Runtime;
 
