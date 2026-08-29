@@ -28,6 +28,17 @@ internal static partial class Program
         ("the json port treats a missing file as empty", JsonPortMissingFileIsEmpty),
         ("the json port preserves unknown fields and keys", JsonPortPreservesUnknownContent),
         ("settings over the json port persist end to end", SettingsOverJsonPortEndToEnd),
+        // XSR-504: download capability contract.
+        ("downloads fail over across sources", DownloadFailsOverAcrossSources),
+        ("downloads fail when every source fails", DownloadFailsWhenEverySourceFails),
+        ("writer temp files survive for resume", WriterTempFileSurvivesForResume),
+        ("concurrent downloaders share one transfer", ConcurrentDownloadersShareOneTransfer),
+        ("progress stages flow in order", ProgressStagesFlowInOrder),
+        ("throwing progress handlers keep the transfer alive", ThrowingProgressHandlerKeepsTransferAlive),
+        ("cancellation rejects the transfer", CancellationRejectsTheTransfer),
+        ("segmented requests are rejected until supported", SegmentedRequestsAreRejectedUntilSupported),
+        ("transfer state mirrors active downloads", TransferStateMirrorsActiveDownloads),
+        ("the file writer rejects short resume offsets", FileDownloadWriterRejectsShortResume),
         ("doubles round trip through full precision", DoubleRoundTripsThroughFullPrecision),
         // XSR-502: logging capability contract.
         ("log level gate defaults to info and falls back stably", Sync(LogLevelGateDefaultsToInfoAndFallsBackStably)),

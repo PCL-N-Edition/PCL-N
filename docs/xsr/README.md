@@ -48,6 +48,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-501-settings-capability.md](migrations/XSR-501-settings-capability.md) — Wave 5 settings capability: schema, durable-first writes, stable errors, legacy file compatibility
 - [migrations/XSR-502-logging-capability.md](migrations/XSR-502-logging-capability.md) — Wave 5 logging capability: bounded redacted ring as ordered state, level gate, no static sink
 - [migrations/XSR-503-launcher-settings-compatibility.md](migrations/XSR-503-launcher-settings-compatibility.md) — launcher settings JSON compatibility: full legacy key universe, quarantine recovery, atomic saves
+- [migrations/XSR-504-download-capability.md](migrations/XSR-504-download-capability.md) — download capability: failover with resume, per-destination coalescing, active transfers as state
 
 ## Decision process
 
