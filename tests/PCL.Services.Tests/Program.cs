@@ -19,6 +19,18 @@ internal static partial class Program
         ("the file port round trips and skips malformed lines", FilePortRoundTripsAndSkipsMalformedLines),
         ("the file port writes sorted ordinal entries", FilePortWritesSortedOrdinalEntries),
         ("doubles round trip through full precision", DoubleRoundTripsThroughFullPrecision),
+        // XSR-502: logging capability contract.
+        ("log level gate defaults to info and falls back stably", Sync(LogLevelGateDefaultsToInfoAndFallsBackStably)),
+        ("modules are normalized before storage", Sync(ModulesAreNormalizedBeforeStorage)),
+        ("messages and exceptions are redacted before storage", Sync(MessagesAndExceptionsAreRedactedBeforeStorage)),
+        ("the ring evicts oldest beyond capacity", Sync(RingEvictsOldestBeyondCapacity)),
+        ("the state collection mirrors the snapshot", Sync(StateCollectionMirrorsSnapshot)),
+        ("clear empties the ring and state", Sync(ClearEmptiesRingAndState)),
+        ("the redactor covers the legacy secret patterns", Sync(RedactorCoversLegacySecretPatterns)),
+        ("observers see appends and never break writes", Sync(ObserversSeeAppendsAndNeverBreakWrites)),
+        ("timestamps come from the time provider", Sync(TimestampsComeFromTimeProvider)),
+        ("display text matches the legacy format", Sync(DisplayTextMatchesLegacyFormat)),
+        ("concurrent writes keep sequence and order", Sync(ConcurrentWritesKeepSequenceAndOrder)),
     ];
 
     private static async Task<int> Main()

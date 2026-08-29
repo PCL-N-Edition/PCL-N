@@ -46,6 +46,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-405-execute-by-id.md](migrations/XSR-405-execute-by-id.md) — session-local contract IDs, snapshot lifecycle, capability boundary, protocol draft
 - [migrations/XSR-406-transactional-snapshot-typed-codecs.md](migrations/XSR-406-transactional-snapshot-typed-codecs.md) — transactional snapshots, typed codec registry, content-addressed host cache
 - [migrations/XSR-501-settings-capability.md](migrations/XSR-501-settings-capability.md) — Wave 5 settings capability: schema, durable-first writes, stable errors, legacy file compatibility
+- [migrations/XSR-502-logging-capability.md](migrations/XSR-502-logging-capability.md) — Wave 5 logging capability: bounded redacted ring as ordered state, level gate, no static sink
 
 ## Decision process
 
