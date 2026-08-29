@@ -32,6 +32,12 @@ public sealed record MinecraftLaunchRequest
     public string? CustomJvmArguments { get; init; }
     public string? CustomGameArguments { get; init; }
     public IReadOnlyList<string> ClasspathHeadEntries { get; init; } = [];
+
+    /// <summary>
+    /// The resolved client/version JAR. When omitted the planner derives
+    /// <c>&lt;instance&gt;/&lt;versionId&gt;.jar</c>, and the derived path must exist.
+    /// </summary>
+    public string? ClientJarPath { get; init; }
     public string? AuthlibInjectorPath { get; init; }
     public string? AuthlibServer { get; init; }
     public string? AuthlibPrefetchedMetadata { get; init; }
@@ -41,6 +47,7 @@ public sealed record MinecraftLaunchRequest
     public DateTimeOffset? ReleaseTime { get; init; }
     public string? NativesDirectory { get; init; }
     public string LauncherName { get; init; } = "PCL-N";
+    public string LauncherVersion { get; init; } = "2.0.0";
     public string VersionType { get; init; } = "PCL-N";
     public bool UseSystemGlfw { get; init; }
     public bool HasCleanroom { get; init; }
@@ -59,6 +66,9 @@ public sealed record MinecraftLaunchPlan(
     IReadOnlyList<MinecraftLibraryToken> Libraries,
     MinecraftModLoaderDescriptor ModLoader)
 {
+    /// <summary>The directory where native libraries must be extracted before launch.</summary>
+    public string NativesDirectory { get; init; } = string.Empty;
+
     public ProcessStartInfo ToStartInfo()
     {
         ProcessStartInfo startInfo = new(JavaExecutablePath)
@@ -98,15 +108,31 @@ public static class MinecraftLaunchPlanner
             IsArm64Architecture = request.IsArm64Architecture,
             UseSystemGlfw = request.UseSystemGlfw,
         });
+        if (!MinecraftVersionPaths.IsSafeReference(request.VersionId))
+        {
+            throw new InvalidDataException($"The version id is not a safe file name: {request.VersionId}");
+        }
+
+        string clientJar = Path.GetFullPath(request.ClientJarPath
+            ?? Path.Combine(instance, request.VersionId + ".jar"));
+        if (!File.Exists(clientJar))
+        {
+            throw new FileNotFoundException(
+                "The Minecraft client JAR is missing; download it before launching.", clientJar);
+        }
+
         MinecraftClasspathPlan classpath = MinecraftClasspathPlanner.CreatePlan(new MinecraftClasspathPlanRequest
         {
             Libraries = libraries,
-            ClasspathHeadEntries = request.ClasspathHeadEntries,
+            ClasspathHeadEntries = [clientJar, .. request.ClasspathHeadEntries],
             HasCleanroom = hasCleanroom,
         });
         string gameDirectory = request.IsolatedGameDirectory ? instance : root;
         string assetsRoot = Path.Combine(root, "assets");
         string assetsIndex = effectiveManifest["assetIndex"]?["id"]?.ToString() ?? effectiveManifest["assets"]?.ToString() ?? "legacy";
+        string nativesDirectory = Path.GetFullPath(request.NativesDirectory ?? Path.Combine(instance, "natives"));
+        string classpathSeparator = Path.PathSeparator.ToString();
+        string libraryDirectory = Path.Combine(root, "libraries");
         string mainClass = effectiveManifest["mainClass"]?.ToString() ?? loader.MainClass ?? "net.minecraft.client.main.Main";
         List<string> args = [];
         if (!string.IsNullOrWhiteSpace(request.AuthlibInjectorPath))
@@ -122,7 +148,7 @@ public static class MinecraftLaunchPlanner
         }
         args.Add("-Xmx" + Math.Max(256, request.MemoryMegabytes) + "m");
         if (request.JavaMajorVersion >= 18) args.Add("-Dfile.encoding=COMPAT");
-        AddVersionJvmArguments(args, effectiveManifest, request);
+        AddVersionJvmArguments(args, effectiveManifest, request, gameDirectory, assetsRoot, assetsIndex, nativesDirectory, classpathSeparator, libraryDirectory);
         AddTokens(args, request.CustomJvmArguments);
         args.Add("-cp");
         args.Add(string.Join(Path.PathSeparator, classpath.Entries));
@@ -132,10 +158,10 @@ public static class MinecraftLaunchPlanner
         if (gameArgs.Count == 0) gameArgs = Tokenize(effectiveManifest["minecraftArguments"]?.ToString());
         foreach (string token in gameArgs)
         {
-            string value = ReplaceToken(token, request, gameDirectory, assetsRoot, assetsIndex);
+            string value = ReplaceToken(token, request, gameDirectory, assetsRoot, assetsIndex, nativesDirectory, classpathSeparator, libraryDirectory, request.LauncherVersion);
             if (value.Length > 0) args.Add(value);
         }
-        if (!string.IsNullOrWhiteSpace(request.CustomGameArguments)) AddTokens(args, ReplaceToken(request.CustomGameArguments!, request, gameDirectory, assetsRoot, assetsIndex));
+        if (!string.IsNullOrWhiteSpace(request.CustomGameArguments)) AddTokens(args, ReplaceToken(request.CustomGameArguments!, request, gameDirectory, assetsRoot, assetsIndex, nativesDirectory, classpathSeparator, libraryDirectory, request.LauncherVersion));
         if (gameArgs.Count == 0)
         {
             args.Add("--username"); args.Add(request.PlayerName);
@@ -155,7 +181,11 @@ public static class MinecraftLaunchPlanner
         }
         if (request.Fullscreen) args.Add("--fullscreen");
         AddJoinArguments(args, request);
-        return new MinecraftLaunchPlan(request.JavaExecutablePath, instance, args, classpath.Entries, libraries, loader);
+        EnsureNoUnresolvedTokens(args);
+        return new MinecraftLaunchPlan(request.JavaExecutablePath, instance, args, classpath.Entries, libraries, loader)
+        {
+            NativesDirectory = nativesDirectory,
+        };
     }
 
     private static List<string> ReadGameArguments(JsonObject json, MinecraftLaunchRequest request)
@@ -165,14 +195,23 @@ public static class MinecraftLaunchPlanner
         return ReadArgumentArray(game, request);
     }
 
-    private static void AddVersionJvmArguments(List<string> target, JsonObject manifest, MinecraftLaunchRequest request)
+    private static void AddVersionJvmArguments(
+        List<string> target,
+        JsonObject manifest,
+        MinecraftLaunchRequest request,
+        string gameDirectory,
+        string assetsRoot,
+        string assetsIndex,
+        string nativesDirectory,
+        string classpathSeparator,
+        string libraryDirectory)
     {
         JsonArray? jvm = manifest["arguments"]?["jvm"]?.AsArray();
         if (jvm is null) return;
         foreach (string value in ReadArgumentArray(jvm, request))
         {
-            string replaced = ReplaceToken(value, request, request.IsolatedGameDirectory ? request.InstanceDirectory : request.MinecraftRootDirectory, Path.Combine(request.MinecraftRootDirectory, "assets"), manifest["assetIndex"]?["id"]?.ToString() ?? manifest["assets"]?.ToString() ?? "legacy");
-            if (replaced is "-cp" or "-classpath" || replaced == "${classpath}") continue;
+            string replaced = ReplaceToken(value, request, gameDirectory, assetsRoot, assetsIndex, nativesDirectory, classpathSeparator, libraryDirectory, request.LauncherVersion);
+            if (replaced is "-cp" or "-classpath" || replaced.Contains(MinecraftLaunchPlanner.UnresolvedTokenMarker, StringComparison.Ordinal)) continue;
             if (replaced.Length > 0) target.Add(replaced);
         }
     }
@@ -206,16 +245,19 @@ public static class MinecraftLaunchPlanner
     private static bool IsRuleAllowed(JsonNode? node, MinecraftLaunchRequest request)
     {
         if (node is not JsonArray rules || rules.Count == 0) return true;
-        bool hasAllow = rules.OfType<JsonObject>().Any(rule => string.Equals(rule["action"]?.ToString(), "allow", StringComparison.OrdinalIgnoreCase));
+
+        // Mojang evaluates rules in order: the LAST matching rule decides. No match means the
+        // value is not used.
         bool allowed = false;
+        bool matched = false;
         foreach (JsonObject rule in rules.OfType<JsonObject>())
         {
             if (!MatchesRule(rule, request)) continue;
-            string action = rule["action"]?.ToString() ?? "allow";
-            if (action.Equals("disallow", StringComparison.OrdinalIgnoreCase)) return false;
-            allowed = true;
+            matched = true;
+            allowed = !string.Equals(rule["action"]?.ToString(), "disallow", StringComparison.OrdinalIgnoreCase);
         }
-        return !hasAllow || allowed;
+
+        return matched && allowed;
     }
 
     private static bool MatchesRule(JsonObject rule, MinecraftLaunchRequest request)
@@ -239,14 +281,21 @@ public static class MinecraftLaunchPlanner
                 if (!string.Equals(expected, currentArch, StringComparison.OrdinalIgnoreCase)) return false;
             }
             if (os["version"] is JsonNode required && request.OperatingSystem == MinecraftLibraryOperatingSystem.Unknown) return false;
-            if (os["version"] is JsonNode version && !string.IsNullOrWhiteSpace(request.OperatingSystemVersion) && !request.OperatingSystemVersion.StartsWith(version.ToString(), StringComparison.OrdinalIgnoreCase)) return false;
+            // The manifest contract for os.version is a regular expression over the OS version.
+            if (os["version"] is JsonNode version)
+            {
+                if (string.IsNullOrWhiteSpace(request.OperatingSystemVersion)) return false;
+                if (!System.Text.RegularExpressions.Regex.IsMatch(request.OperatingSystemVersion, version.ToString())) return false;
+            }
         }
         if (rule["features"] is JsonObject features)
         {
             foreach ((string name, JsonNode? expected) in features)
             {
                 bool required = bool.TryParse(expected?.ToString(), out bool parsed) && parsed;
-                if (!request.Features.TryGetValue(name, out bool actual) || actual != required) return false;
+                // An absent feature participates as false.
+                bool actual = request.Features.TryGetValue(name, out bool value) && value;
+                if (actual != required) return false;
             }
         }
         return true;
@@ -314,8 +363,21 @@ public static class MinecraftLaunchPlanner
         if (!string.IsNullOrWhiteSpace(request.WorldName)) args.AddRange(["--quickPlaySingleplayer", request.WorldName!]);
     }
 
-    private static string ReplaceToken(string value, MinecraftLaunchRequest request, string gameDirectory, string assetsRoot, string assetsIndex) =>
-        value.Replace("${auth_player_name}", request.PlayerName, StringComparison.Ordinal)
+    private const string UnresolvedTokenMarker = "PCL-UNRESOLVED-TOKEN";
+
+    private static string ReplaceToken(
+        string value,
+        MinecraftLaunchRequest request,
+        string gameDirectory,
+        string assetsRoot,
+        string assetsIndex,
+        string nativesDirectory,
+        string classpathSeparator,
+        string libraryDirectory,
+        string launcherVersion)
+    {
+        string replaced = value
+            .Replace("${auth_player_name}", request.PlayerName, StringComparison.Ordinal)
             .Replace("${version_name}", request.VersionId, StringComparison.Ordinal)
             .Replace("${game_directory}", gameDirectory, StringComparison.Ordinal)
             .Replace("${assets_root}", assetsRoot, StringComparison.Ordinal)
@@ -326,7 +388,34 @@ public static class MinecraftLaunchPlanner
             .Replace("${version_type}", request.VersionType, StringComparison.Ordinal)
             .Replace("${resolution_width}", request.Width.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)
             .Replace("${resolution_height}", request.Height.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)
-            .Replace("${launcher_name}", request.LauncherName, StringComparison.Ordinal);
+            .Replace("${launcher_name}", request.LauncherName, StringComparison.Ordinal)
+            .Replace("${launcher_version}", launcherVersion, StringComparison.Ordinal)
+            .Replace("${natives_directory}", nativesDirectory, StringComparison.Ordinal)
+            .Replace("${classpath_separator}", classpathSeparator, StringComparison.Ordinal)
+            .Replace("${library_directory}", libraryDirectory, StringComparison.Ordinal)
+            .Replace("${user_properties}", "{}", StringComparison.Ordinal);
+        if (replaced.Contains("${", StringComparison.Ordinal))
+        {
+            // Mark instead of throwing inside argument assembly: plan creation fails once the
+            // full argv is known, so callers see the offending argument verbatim.
+            replaced = replaced.Replace("${", UnresolvedTokenMarker, StringComparison.Ordinal);
+        }
+
+        return replaced;
+    }
+
+    private static void EnsureNoUnresolvedTokens(IReadOnlyList<string> arguments)
+    {
+        foreach (string argument in arguments)
+        {
+            if (argument.Contains(UnresolvedTokenMarker, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    "The launch arguments contain an unresolved ${...} token: "
+                    + argument.Replace(UnresolvedTokenMarker, "${", StringComparison.Ordinal));
+            }
+        }
+    }
 
     private static void AddTokens(List<string> target, string? commandLine)
     {

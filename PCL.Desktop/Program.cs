@@ -27,7 +27,7 @@ internal static class Program
             settingsSchema,
             new LaunchProfileFilePort(System.IO.Path.Combine(profilesFolder, "profiles.json")));
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host);
-        MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose();
+        MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose(hostStore: runtime.Host.StateStore);
 
         Console.WriteLine(
             $"PCL Nexa foundation composed: {runtime.Host.Services.Count} services, "

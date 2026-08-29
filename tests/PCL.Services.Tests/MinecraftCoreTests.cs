@@ -93,7 +93,12 @@ internal static partial class Program
             Candidate("jdk-21", new Version(21, 0, 2), JavaBrand.Microsoft, false),
         ];
         JavaSelectionResult result = await new JavaSelectionService(new InMemoryJavaLocator(candidates)).SelectAsync(
-            new MinecraftJavaRequirementRequest { HasReliableVanillaVersion = true, VanillaVersion = new Version(20, 0, 5) });
+            new MinecraftJavaRequirementRequest { HasReliableVanillaVersion = true, VanillaVersion = new Version(1, 20, 5) });
+        if (!result.Success)
+        {
+            Console.WriteLine("DIAG select reason=" + result.FailureReason + " detail=" + result.Detail);
+        }
+
         AssertTrue(result.Success);
         AssertEqual(Path.GetFullPath("jdk-21"), result.SelectedJava!.Installation.JavaHome);
 
@@ -195,6 +200,7 @@ internal static partial class Program
             VersionId = "fabric-loader-0.16.5",
             InstanceDirectory = Path.Combine(Path.GetTempPath(), "minecraft-instance"),
             MinecraftRootDirectory = Path.Combine(Path.GetTempPath(), "minecraft-root"),
+            ClientJarPath = Path.GetTempFileName(),
             PlayerName = "Steve",
             PlayerUuid = "uuid",
             JavaExecutablePath = "java",
@@ -369,6 +375,7 @@ internal static partial class Program
             VersionId = "loader-1",
             InstanceDirectory = Path.Combine(Path.GetTempPath(), "minecraft-launch-instance"),
             MinecraftRootDirectory = Path.Combine(Path.GetTempPath(), "minecraft-launch-root"),
+            ClientJarPath = Path.GetTempFileName(),
             PlayerName = "Steve",
             PlayerUuid = "uuid",
             JavaMajorVersion = 23,
@@ -390,6 +397,11 @@ internal static partial class Program
         AssertTrue(unlisted.Any(source => source.StartsWith("https://alist.8mi.tech/", StringComparison.Ordinal)));
     }
 
+    private sealed class SynchronousProgress<T>(Action<T> sink) : IProgress<T>
+    {
+        public void Report(T value) => sink(value);
+    }
+
     internal static async ValueTask MinecraftJavaRuntimeInstallerVerifiesAndInstalls()
     {
         string root = CreateTempDirectory();
@@ -402,7 +414,8 @@ internal static partial class Program
             using HttpClient client = new(new StaticHttpMessageHandler("hello"));
             using JavaRuntimeInstaller installer = new(new JavaRuntimeDownloadPlanService(metadata), client);
             List<JavaRuntimeInstallProgress> progress = [];
-            string executable = await installer.InstallAsync("java-runtime-test", root, new Progress<JavaRuntimeInstallProgress>(progress.Add));
+            var synchronousProgress = new SynchronousProgress<JavaRuntimeInstallProgress>(progress.Add);
+            string executable = await installer.InstallAsync("java-runtime-test", root, synchronousProgress);
             AssertTrue(File.Exists(executable));
             AssertTrue(progress.Any(item => item.Progress >= 1d));
         }

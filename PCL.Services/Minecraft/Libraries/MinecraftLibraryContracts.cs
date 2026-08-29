@@ -304,7 +304,7 @@ public static class MinecraftLibraryResolver
             parts[2] = replacementVersion;
             string coordinate = string.Join(':', parts) + ":" + LinuxArm64Classifier;
             string path = GetNativeCoordinatePath(coordinate, minecraftRoot, LinuxArm64Classifier);
-            token = CreateToken(coordinate, path, CreateMavenCentralUrl(path, minecraftRoot), metadata.Sha1, metadata.Size, isNatives: false, isLocal: false);
+            token = CreateToken(coordinate, path, CreateMavenCentralUrl(path, minecraftRoot), metadata.Sha1, metadata.Size, isNatives: true, isLocal: false);
             return true;
         }
         if (LegacyLwjgl2NativeCoordinates.Contains(originalName))

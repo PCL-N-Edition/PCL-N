@@ -1,6 +1,7 @@
 using PCL.Services.Minecraft;
 using PCL.Services.Minecraft.Process;
 using PCL.Xsr.Runtime;
+using PCL.Xsr.State;
 
 namespace PCL.Services.Composition;
 
@@ -40,11 +41,12 @@ public static class MinecraftRuntimeComposer
         MinecraftVersionDiscovery? discovery = null,
         MinecraftProcessService? processes = null,
         IXsrDispatchObserver? observer = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        XsrStateStore? hostStore = null)
     {
         MinecraftVersionDiscovery versionDiscovery = discovery ?? new MinecraftVersionDiscovery();
         MinecraftInstanceDiscovery instanceDiscovery = new(versionDiscovery);
-        MinecraftProcessService processService = processes ?? new MinecraftProcessService();
+        MinecraftProcessService processService = processes ?? new MinecraftProcessService(hostStore: hostStore);
         IXsrDispatchObserver dispatchObserver = observer ?? NullDispatchObserver.Instance;
         XsrCommandRouterBuilder commandBuilder = new();
         commandBuilder.Register(MinecraftRouteIds.Launch, MinecraftCommands.CreateLaunchHandler(processService));

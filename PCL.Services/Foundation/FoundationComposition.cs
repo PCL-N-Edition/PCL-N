@@ -2,6 +2,7 @@ using PCL.Services.Accounts;
 using PCL.Services.Downloads;
 using PCL.Services.Files;
 using PCL.Services.Logging;
+using PCL.Services.Minecraft.Process;
 using PCL.Services.Settings;
 using PCL.Services.Telemetry;
 using PCL.Xsr.State;
@@ -34,6 +35,7 @@ public static class FoundationState
         DownloadService.DeclareState(builder);
         AccountService.DeclareState(builder);
         TelemetryService.DeclareState(builder);
+        MinecraftProcessStateComposition.DeclareState(builder);
         return builder;
     }
 }
