@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -54,15 +55,41 @@ def _iter_full_blocks(document: dict[str, Any]):
             yield full if isinstance(full, dict) else chunk
 
 
-def _probe_with_retry(client, key: str, attempts: int = 8) -> tuple[bytes, int] | None:
+_probe_throttle_until = 0.0
+_probe_throttle_lock = threading.Lock()
+
+
+def _extend_probe_throttle(seconds: float) -> None:
+    # Cloudflare throttles the CAS inspection endpoint in penalty windows that
+    # outlast per-request backoff. Share one cooldown across all probe workers
+    # so the sweep stops hammering entirely until the window likely reopens.
+    global _probe_throttle_until
+    with _probe_throttle_lock:
+        _probe_throttle_until = max(_probe_throttle_until, time.time() + seconds)
+
+
+def _wait_out_probe_throttle() -> None:
+    while True:
+        with _probe_throttle_lock:
+            remaining = _probe_throttle_until - time.time()
+        if remaining <= 0:
+            return
+        time.sleep(min(remaining, 5.0))
+
+
+def _probe_with_retry(client, key: str, attempts: int = 30) -> tuple[bytes, int] | None:
     last_error: Exception | None = None
     for attempt in range(attempts):
+        _wait_out_probe_throttle()
         try:
             return client.inspect_object(key, 4)
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             if attempt + 1 >= attempts:
                 break
+            if "throttled" in str(exc).lower():
+                _extend_probe_throttle(min(60.0, 8.0 * (2 ** min(attempt, 3))))
+                continue
             time.sleep(min(12.0, 0.35 * (2**attempt)))
     assert last_error is not None
     raise RuntimeError(f"cannot inspect remote CAS object {key}: {last_error}") from last_error
