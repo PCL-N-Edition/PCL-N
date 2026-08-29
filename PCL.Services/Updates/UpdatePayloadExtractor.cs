@@ -34,13 +34,14 @@ public static class UpdatePayloadExtractor
             string destination = ResolveArchiveEntryPath(stagedRoot, entry.FullName);
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
 
-            int? unixMode = RestoreZipUnixMode(entry, destination);
+            int? unixMode = ReadZipUnixMode(entry);
             inventory.Add(await ExtractAndHashAsync(
                 entry.Open(),
                 destination,
                 entry.Length,
                 NormalizeArchiveEntryPath(entry.FullName),
                 unixMode).ConfigureAwait(false));
+            ApplyUnixMode(destination, unixMode);
         }
 
         return inventory;
@@ -92,6 +93,7 @@ public static class UpdatePayloadExtractor
                 entry.Length,
                 NormalizeArchiveEntryPath(entry.Name),
                 unixMode).ConfigureAwait(false));
+            ApplyUnixMode(destination, unixMode);
         }
 
         return inventory;
@@ -172,19 +174,19 @@ public static class UpdatePayloadExtractor
         return resolved;
     }
 
-    private static int? RestoreZipUnixMode(ZipArchiveEntry entry, string destination)
+    private static int? ReadZipUnixMode(ZipArchiveEntry entry)
     {
         int external = (int)(entry.ExternalAttributes >> 16);
-        if (external <= 0)
+        return external > 0 ? external & 0xFFF : null;
+    }
+
+    private static void ApplyUnixMode(string destination, int? mode)
+    {
+        if (mode is null or < 0 || OperatingSystem.IsWindows())
         {
-            return null;
+            return;
         }
 
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(destination, (UnixFileMode)(external & 0xFFF));
-        }
-
-        return external & 0xFFF;
+        File.SetUnixFileMode(destination, (UnixFileMode)mode.Value);
     }
 }
