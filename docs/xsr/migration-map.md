@@ -91,7 +91,7 @@ Wave 2 is complete. The renderer kernel provides the entity tree, deterministic 
 | ID | Work item | Status |
 |---|---|---|
 | XSR-207 | PXML grammar and structural parser | complete |
-| XSR-208 | PXML to UI.Next IR compilation with the binding table | complete; catalog model superseded by XSR-212 |
+| XSR-208 | PXML to host-internal IR compilation with the binding table | complete; catalog model superseded by XSR-212, artifact explicitly not the Plugin UI IR v1 ABI |
 | XSR-209 | runtime loader with hand-built scene parity | complete |
 | XSR-210 | PXML NativeAOT, architecture, and CI acceptance gates | complete |
 | XSR-211 | parser security boundary and transactional loader review fixes | complete |

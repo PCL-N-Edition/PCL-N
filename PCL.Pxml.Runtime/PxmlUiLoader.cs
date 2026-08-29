@@ -12,14 +12,15 @@ public sealed class PxmlLoadException(string message) : InvalidOperationExceptio
 }
 
 /// <summary>
-/// Loads a compiled PXML IR into a live entity tree. State paths resolve against the concrete
-/// store, bindings become binding records, commands become semantic-ID command bindings. The
-/// loader is a fixed mapping over closed IR data — no reflection, no runtime parsing.
+/// Loads a compiled PXML host IR into a live entity tree. Validated semantic IDs resolve
+/// against the concrete store, bindings become binding records, commands become semantic-ID
+/// command bindings. The loader is a fixed mapping over closed IR data — no reflection, no
+/// runtime parsing.
 /// </summary>
 public sealed class PxmlUiLoader
 {
     public static XsrUiEntityId Load(
-        PxmlUiIr ir,
+        PxmlHostIr ir,
         XsrUiTree tree,
         XsrStateStore state,
         XsrUiEntityId parent)
@@ -71,7 +72,7 @@ public sealed class PxmlUiLoader
                 IsVisible = node.IsVisible,
                 BoundVisibility = visibilityBinding is null
                     ? default
-                    : ResolveState(state, visibilityBinding.StatePath),
+                    : ResolveState(state, visibilityBinding.State),
             });
         }
 
@@ -93,7 +94,7 @@ public sealed class PxmlUiLoader
                     binding => binding.Property == XsrUiStateProperty.Text);
                 if (textBinding is not null)
                 {
-                    text.BoundState = ResolveState(state, textBinding.StatePath);
+                    text.BoundState = ResolveState(state, textBinding.State);
                 }
 
                 tree.SetComponent(entity, text);
@@ -107,13 +108,8 @@ public sealed class PxmlUiLoader
 
                 if (node.Command is not null)
                 {
-                    if (!XsrSemanticId.TryParse(node.Command, out XsrSemanticId commandId))
-                    {
-                        throw new PxmlLoadException(
-                            $"The command '{node.Command}' is not a valid semantic identifier.");
-                    }
-
-                    tree.SetComponent(entity, new XsrUiCommandBinding(commandId));
+                    // The IR carries a validated semantic ID; no repeated parsing.
+                    tree.SetComponent(entity, new XsrUiCommandBinding(node.Command.Value));
                 }
 
                 break;
@@ -132,7 +128,7 @@ public sealed class PxmlUiLoader
         foreach (PxmlIrBinding binding in node.Bindings)
         {
             tree.BindState(entity, new XsrUiStateDependency(
-                ResolveState(state, binding.StatePath),
+                ResolveState(state, binding.State),
                 binding.Property,
                 binding.DirtyKinds));
         }
@@ -145,13 +141,14 @@ public sealed class PxmlUiLoader
         }
     }
 
-    private static XsrStateId ResolveState(XsrStateStore state, string path)
+    private static XsrStateId ResolveState(XsrStateStore state, XsrSemanticId semanticId)
     {
-        XsrSemanticId semanticId = XsrSemanticId.Parse(path);
+        // The IR already carries a validated semantic ID; load time only resolves it through
+        // the registry — no repeated parsing.
         if (!state.TryResolve(semanticId, out XsrStateId stateId))
         {
             throw new PxmlLoadException(
-                $"The state path '{path}' is not registered in the target state store.");
+                $"The state '{semanticId}' is not registered in the target state store.");
         }
 
         return stateId;

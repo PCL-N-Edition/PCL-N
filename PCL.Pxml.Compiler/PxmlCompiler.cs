@@ -1,5 +1,6 @@
 using System.Globalization;
 using PCL.UI.Next;
+using PCL.Xsr;
 
 namespace PCL.Pxml;
 
@@ -10,10 +11,10 @@ namespace PCL.Pxml;
 /// </summary>
 public static class PxmlCompiler
 {
-    public static PxmlUiIr Compile(PxmlDocument document)
+    public static PxmlHostIr Compile(PxmlDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
-        return new PxmlUiIr(CompileNode(document.Root));
+        return new PxmlHostIr(CompileNode(document.Root));
     }
 
     private static PxmlIrNode CompileNode(PxmlElement element)
@@ -54,7 +55,7 @@ public static class PxmlCompiler
                 }
 
                 bindings.Add(new PxmlIrBinding(
-                    attribute.Value.Text,
+                    ParseSemanticId(element.Name, attribute.Name, attribute.Value.Text),
                     bindingProperty,
                     property.BindingDirtyKinds));
                 continue;
@@ -100,8 +101,7 @@ public static class PxmlCompiler
                 builder.Set(property.Target, raw);
                 break;
             case PxmlControlValueKind.SemanticId:
-                ValidateSemanticId(elementName, property.Name, raw);
-                builder.Set(property.Target, raw);
+                builder.Set(property.Target, ParseSemanticId(elementName, property.Name, raw));
                 break;
             default:
                 throw new InvalidOperationException(
@@ -155,11 +155,17 @@ public static class PxmlCompiler
         _ => throw Fail(elementName, propertyName, "needs one of Vertical, Horizontal"),
     };
 
-    private static void ValidateSemanticId(string elementName, string propertyName, string raw)
+    private static XsrSemanticId ParseSemanticId(string elementName, string propertyName, string raw)
     {
-        if (raw.Length == 0 || raw.Any(character => char.IsWhiteSpace(character) || char.IsControl(character)))
+        // Semantic IDs are validated and parsed here, so the IR carries validated IDs and load
+        // time only resolves them through the registry.
+        try
         {
-            throw Fail(elementName, propertyName, "needs one non-empty semantic ID without whitespace");
+            return XsrSemanticId.Parse(raw);
+        }
+        catch (ArgumentException exception)
+        {
+            throw Fail(elementName, propertyName, $"needs a valid semantic ID ({exception.Message})");
         }
     }
 
@@ -185,7 +191,7 @@ public static class PxmlCompiler
         private string? _label;
         private bool _focusable;
         private bool _clickable;
-        private string? _command;
+        private XsrSemanticId? _command;
         private string? _imageSource;
 
         public void Set(PxmlIrPropertyTarget target, object value)
@@ -223,7 +229,7 @@ public static class PxmlCompiler
                     _content = (string)value;
                     break;
                 case PxmlIrPropertyTarget.Command:
-                    _command = (string)value;
+                    _command = (XsrSemanticId)value;
                     break;
                 case PxmlIrPropertyTarget.Focusable:
                     _focusable = (bool)value;

@@ -10,7 +10,7 @@ Wave 3 adds the compiler that turns the structural PXML DOM into the typed UI.Ne
 - Presentation properties compile to typed IR fields: invariant-culture doubles for sizes and spacing, strict `true`/`false` booleans, one-or-four-number thicknesses, and case-sensitive enum names. Malformed values are compile errors.
 - The compiled binding table is a list of `(StatePath, Property, DirtyKinds)` records per node: `Content="{state path}"` on Text binds the text slot with paint dirt, and `IsVisible="{state path}"` binds the visibility slot with state dirt so layout and paint are recomputed. Commands compile on Button only, as plain semantic-ID references — a command is never a state binding.
 - Button defaults: focusable and clickable true unless overridden. Image requires `Source`. Page and StackPanel carry no command or content.
-- State paths remain unresolved strings in the IR; resolution against a concrete state store happens at load time (XSR-209), keeping the compiler free of store dependencies.
+- Semantic IDs are parsed and validated at compile time: the IR carries `XsrSemanticId` values for bindings and commands, so load time only resolves IDs through the registry (XSR-209) and never re-parses strings. The artifact is the host-internal `PxmlHostIr` — deliberately not the Plugin UI IR v1 stable ABI, which arrives with the Plugin SDK carrying format/schema versions, unknown-field skipping, resource references, serialization, compatibility, and security validation.
 - All failures throw `PxmlCompileException` with the failing element and property in the message.
 
 ## Non-goals

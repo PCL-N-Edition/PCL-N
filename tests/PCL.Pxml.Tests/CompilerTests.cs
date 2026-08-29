@@ -1,4 +1,5 @@
 using PCL.UI.Next;
+using PCL.Xsr;
 namespace PCL.Pxml.Tests;
 
 internal static partial class Program
@@ -22,7 +23,7 @@ internal static partial class Program
 
     private static void CompileSimplePage()
     {
-        PxmlUiIr ir = Compile("""
+        PxmlHostIr ir = Compile("""
             <Page xmlns="N">
               <StackPanel Orientation="Horizontal" Spacing="4">
                 <Text Content="ready" />
@@ -44,7 +45,7 @@ internal static partial class Program
 
     private static void CompileTextStateBinding()
     {
-        PxmlUiIr ir = Compile("""
+        PxmlHostIr ir = Compile("""
             <Page xmlns="N">
               <Text Content="{state account.name}" />
             </Page>
@@ -53,14 +54,14 @@ internal static partial class Program
         PxmlIrNode text = ir.Root.Children[0];
         AssertNull(text.Content);
         AssertEqual(1, text.Bindings.Count);
-        AssertEqual("account.name", text.Bindings[0].StatePath);
+        AssertEqual("account.name", text.Bindings[0].State.Value);
         AssertEqual(XsrUiStateProperty.Text, text.Bindings[0].Property);
         AssertTrue(text.Bindings[0].DirtyKinds.HasFlag(XsrUiDirtyKinds.Paint));
     }
 
     private static void CompileVisibilityBinding()
     {
-        PxmlUiIr ir = Compile("""
+        PxmlHostIr ir = Compile("""
             <Page xmlns="N">
               <StackPanel IsVisible="{state panel.open}" Scroll="true" />
             </Page>
@@ -69,14 +70,14 @@ internal static partial class Program
         PxmlIrNode stack = ir.Root.Children[0];
         AssertTrue(stack.Scrollable);
         AssertEqual(1, stack.Bindings.Count);
-        AssertEqual("panel.open", stack.Bindings[0].StatePath);
+        AssertEqual("panel.open", stack.Bindings[0].State.Value);
         AssertEqual(XsrUiStateProperty.Visibility, stack.Bindings[0].Property);
         AssertEqual(XsrUiDirtyKinds.State, stack.Bindings[0].DirtyKinds);
     }
 
     private static void CompileButtonDefaultsAndCommand()
     {
-        PxmlUiIr ir = Compile("""
+        PxmlHostIr ir = Compile("""
             <Page xmlns="N">
               <Button Label="Save" Command="app.save" />
             </Page>
@@ -86,13 +87,14 @@ internal static partial class Program
         AssertEqual(PxmlRuntimeRecipe.CommandInput, button.Recipe);
         AssertTrue(button.Clickable);
         AssertTrue(button.Focusable);
-        AssertEqual("app.save", button.Command);
+        XsrSemanticId command = button.Command!.Value;
+        AssertEqual("app.save", command.Value);
         AssertEqual(XsrUiSemanticRole_Button(), button.Role);
     }
 
     private static void CompileThicknessAndSize()
     {
-        PxmlUiIr ir = Compile("""
+        PxmlHostIr ir = Compile("""
             <Page xmlns="N">
               <Text Content="x" Width="80" Height="24" Margin="4" Padding="1,2,3,4" />
             </Page>
@@ -190,7 +192,7 @@ internal static partial class Program
 
     private static XsrUiSemanticRole XsrUiSemanticRole_Button() => XsrUiSemanticRole.Button;
 
-    private static PxmlUiIr Compile(string text)
+    private static PxmlHostIr Compile(string text)
     {
         PxmlDocument document = PxmlParser.Parse(text.Replace("xmlns=\"N\"", "xmlns=\"https://pcln.dev/pxml/2026\""));
         return PxmlCompiler.Compile(document);

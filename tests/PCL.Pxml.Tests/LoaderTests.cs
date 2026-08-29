@@ -137,7 +137,7 @@ internal static partial class Program
         AssertEqual(0, tree.Children(parent).Count);
     }
 
-    private static PxmlUiIr CompilePage()
+    private static PxmlHostIr CompilePage()
     {
         return Compile("""
             <Page xmlns="N">

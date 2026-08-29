@@ -1,4 +1,5 @@
 using PCL.UI.Next;
+using PCL.Xsr;
 
 namespace PCL.Pxml;
 
@@ -17,11 +18,12 @@ public enum PxmlRuntimeRecipe
 }
 
 /// <summary>
-/// One state binding in the compiled IR: the state path with the renderer property slot it
-/// feeds and the dirty kinds the entity receives when the entry changes. This is the compiled
-/// form of the PXML binding table.
+/// One state binding in the compiled IR: the validated semantic state ID with the renderer
+/// property slot it feeds and the dirty kinds the entity receives when the entry changes. This
+/// is the compiled form of the PXML binding table. The ID was validated at compile time; load
+/// time only resolves it through the registry.
 /// </summary>
-public sealed record PxmlIrBinding(string StatePath, XsrUiStateProperty Property, XsrUiDirtyKinds DirtyKinds);
+public sealed record PxmlIrBinding(XsrSemanticId State, XsrUiStateProperty Property, XsrUiDirtyKinds DirtyKinds);
 
 /// <summary>
 /// One compiled UI node: typed presentation values ready for the runtime loader. IR nodes are
@@ -61,7 +63,10 @@ public sealed record PxmlIrNode
 
     public bool Clickable { get; init; }
 
-    public string? Command { get; init; }
+    /// <summary>
+    /// Gets the validated semantic command ID, or null when the node carries no command.
+    /// </summary>
+    public XsrSemanticId? Command { get; init; }
 
     public string? ImageSource { get; init; }
 
@@ -69,10 +74,14 @@ public sealed record PxmlIrNode
 }
 
 /// <summary>
-/// One compiled PXML artifact: the immutable IR root. The IR carries state paths, not resolved
-/// IDs — resolution against a concrete state store happens at load time.
+/// One compiled PXML artifact: the immutable, host-internal IR root. Semantic IDs are parsed
+/// and validated here, not at load time. This artifact is deliberately NOT the Plugin UI IR
+/// v1 stable ABI — that surface is a separately versioned contract with format and schema
+/// versions, unknown-field skipping, resource references, serialization, compatibility, and
+/// security validation, delivered with the Plugin SDK. Nothing in this file is frozen for
+/// plugin consumption.
 /// </summary>
-public sealed class PxmlUiIr(PxmlIrNode root)
+public sealed class PxmlHostIr(PxmlIrNode root)
 {
     public PxmlIrNode Root { get; } = root ?? throw new ArgumentNullException(nameof(root));
 }

@@ -36,7 +36,7 @@ internal static class Program
             ["PCL.UI.Next.Backend.Avalonia"] = ["PCL.UI.Next"],
             ["PCL.UI.Next.DevTools"] = ["PCL.UI.Next", "PCL.Xsr.Diagnostics"],
             ["PCL.UI.Next.Benchmarks"] = ["PCL.UI.Next", "PCL.Xsr.State"],
-            ["PCL.Pxml.Compiler"] = ["PCL.Core", "PCL.Pxml.Generators", "PCL.UI.Next"],
+            ["PCL.Pxml.Compiler"] = ["PCL.Core", "PCL.Pxml.Generators", "PCL.Xsr.Abstractions", "PCL.UI.Next"],
             ["PCL.Pxml.Runtime"] =
             ["PCL.Core", "PCL.Pxml.Compiler", "PCL.UI.Next", "PCL.Xsr.Abstractions", "PCL.Xsr.State"],
             ["PCL.Pxml.Generators"] = [],

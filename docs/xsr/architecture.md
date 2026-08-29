@@ -67,6 +67,8 @@ PXML-visible control models are owned by UI.Next in an explicitly configured cat
 
 XSR has four distinct primitives:
 
+The PXML compiler produces a host-internal IR (`PxmlHostIr`): validated semantic IDs, typed presentation values, and binding records. It is deliberately not the Plugin UI IR v1 stable ABI. Plugin UI IR v1 is a separately versioned surface — format version, schema version, unknown-field skipping, resource references, serialization, compatibility, and security validation — delivered with the Plugin SDK; the compiler will gain that output alongside the host-internal one, and nothing in the current IR is frozen for plugin consumption.
+
 - Command: request an action. It is asynchronous and may be accepted before business completion.
 - Query: request a one-time result. It is asynchronous, cancellable, and absent from render paths.
 - State: represent a durable current fact. It is the renderer's primary input.
