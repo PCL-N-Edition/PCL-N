@@ -2,6 +2,9 @@ name: Token probe
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - ci/token-probe
 
 jobs:
   direct:
