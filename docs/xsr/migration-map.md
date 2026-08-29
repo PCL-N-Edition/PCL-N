@@ -22,12 +22,43 @@ There is no periodic `dev -> refactor/xsr` merge. A legacy fix is forward-ported
 | 2 Renderer kernel | stable UI.Next ECS, scene, layout, input, navigation, overlay, accessibility | deterministic contract and benchmark gates |
 | 3 PXML | parser through generated UI.Next IR and runtime loader | no runtime reflection binding |
 | 4 Sidecar Fabric v2 | registration, command/query, state mirror, event, UI/resources, recovery | protocol, crash, reconnect, and performance gates |
-| 5 Foundation services | Settings through Account/Update | capability parity and data compatibility |
+| 5 Foundation services | Settings through Account/Update | capability parity and data compatibility — complete (XSR-501…519, see below) |
 | 6 Minecraft core | discovery, instances, Java, assets, libraries, launch, crash analysis | canonical corpus parity |
 | 7 Product UI | product vertical slices rendered through PXML/UI.Next | UX and accessibility parity |
 | 8 Plugin SDK 1.0 | stable API, package, manifest, UI IR, permissions, testing, analyzers | compatibility baseline and validation plugins |
 | 9 Plugin ecosystem | runtime, internal plugins, IDE, market, legacy adapter | real plugin migration evidence |
 | 10 Cutover | XSR becomes `dev`; legacy deletion begins | complete product and compatibility gate |
+
+## Wave 5 status (complete)
+
+Foundation services are composed over one shared host state store with command/query
+handlers exposed to the composition root, and the update loop runs end to end
+(discovery → eligibility → plan → download → verify → stage → install → restart):
+
+| Unit | Commit | Outcome |
+|---|---|---|
+| XSR-501 | `8aca8559` | settings capability (schema, durable-first writes, stable errors) |
+| XSR-502 | `8b92b2f6` | logging capability (bounded redacted ring as ordered state) |
+| XSR-503 | `4b6abed2` | launcher settings JSON compatibility (103 legacy keys, quarantine) |
+| XSR-504/505 | `ac3e896a`/`f18e7ce2` | downloads: failover, resume, segmented parallel |
+| XSR-506 | `7f7dca4b` | account roster with credential-free published views |
+| XSR-507 | `2b587037` | update block data contracts (FastCDC, gzip/zstd, local index) |
+| XSR-508 | `b3788b4c` | one-way update eligibility (1.4.x → 2.0.0, downgrades never) |
+| XSR-509 | `e53d9e67` | update package planning (variant, patch path, patch-vs-full) |
+| XSR-510 | `69ba2ef0` | update discovery/transport (index fetch, hop walk, HEAD probe) |
+| XSR-511 | `d93d127d` | signature/delta codecs (pinned-key GPG, RFC 3284 VCDIFF) |
+| XSR-512 | `9b5b03e7` | staged install core (verify/flatten/plan/apply) |
+| XSR-513 | `6cd574ee` | online account flows (Microsoft device chain, Yggdrasil) |
+| XSR-514 | `93de2c86` | LittleSkin OAuth and appearance services |
+| XSR-515 | `c109a475` | file capability (canonical folders, safe atomic port) |
+| XSR-516 | `a200d492`+`378f8d51` | payload extraction (zip/tar) and HDiffPatch orchestration |
+| XSR-517 | `a273efb7` | network probing and opt-in telemetry |
+| XSR-518 | `8a1100e5`+`e0deb40a` | helper hand-off and restart scheduling |
+| XSR-519 | this commit | unified host state composition, foundation command/query registration, cross-capability PXML integration test, NativeAOT CI evidence |
+
+Exit evidence: `tests/PCL.Services.Tests` (130+ executable tests) green under CoreCLR and
+NativeAOT in CI; architecture gate green including the Desktop trim gate over the composed
+foundation (the trimmed binary composes five services over one host state store and runs).
 
 ## Closed migration unit
 

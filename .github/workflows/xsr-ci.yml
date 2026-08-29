@@ -129,6 +129,11 @@ jobs:
       - name: Test foundation services
         run: dotnet run --project tests/PCL.Services.Tests/PCL.Services.Tests.csproj --configuration Release --no-build
 
+      - name: Publish and run NativeAOT foundation tests
+        run: |
+          dotnet publish tests/PCL.Services.Tests/PCL.Services.Tests.csproj             --configuration Release             -p:XsrVersionChannel=ci             -p:PublishAot=true             -p:StripSymbols=true             --output "${{ runner.temp }}/foundation-aot"
+          "${{ runner.temp }}/foundation-aot/PCL.Services.Tests"
+
       - name: Enforce UI.Next benchmark gates
         run: dotnet run --project PCL.UI.Next.Benchmarks/PCL.UI.Next.Benchmarks.csproj --configuration Release --no-build
 

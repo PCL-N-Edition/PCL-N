@@ -17,6 +17,13 @@ internal static partial class Program
         AccessToken = accessToken,
     };
 
+    private static AccountService CreateAccountService(ILaunchProfilePort port)
+    {
+        XsrStateStoreBuilder builder = new();
+        AccountService.DeclareState(builder);
+        return new AccountService(builder.Build(), port);
+    }
+
     internal static ValueTask ProfilePortRoundTripsLegacyJsonShape()
     {
         string directory = CreateTempDirectory();
@@ -93,7 +100,7 @@ internal static partial class Program
             AssertTrue(File.Exists(port.QuarantinePath));
             AssertTrue(File.ReadAllText(port.QuarantinePath).Contains("\"schemaVersion\": 2", StringComparison.Ordinal));
 
-            AccountService service = new(port);
+            AccountService service = CreateAccountService(port);
             AssertTrue(service.LoadError is not null);
             AssertEqual(AccountErrors.PersistFailedCode, service.LoadError!.Code);
             AssertEqual(0, service.GetViews().Count);
@@ -121,7 +128,7 @@ internal static partial class Program
         try
         {
             string path = Path.Combine(directory, "profiles.json");
-            AccountService first = new(new LaunchProfileFilePort(path));
+            AccountService first = CreateAccountService(new LaunchProfileFilePort(path));
             AssertTrue(first.AddProfile(SampleProfile("Steve", "tok-1")).TryGetValue(out int steve) && steve == 0);
             AssertTrue(first.AddProfile(new LaunchProfile
             {
@@ -131,7 +138,7 @@ internal static partial class Program
                 AuthServer = "https://example/auth",
             }).TryGetValue(out int herobrine) && herobrine == 1);
 
-            AccountService restarted = new(new LaunchProfileFilePort(path));
+            AccountService restarted = CreateAccountService(new LaunchProfileFilePort(path));
             IReadOnlyList<LaunchProfileView> views = restarted.GetViews();
             AssertEqual(2, views.Count);
             AssertTrue(views[0].Username == "Steve" && views[0].Kind == LaunchProfileKind.Offline);
@@ -145,7 +152,7 @@ internal static partial class Program
             AssertEqual(0, afterRemove[0].Index);
             AssertEqual("Notch", afterRemove[0].Username);
 
-            AccountService final = new(new LaunchProfileFilePort(path));
+            AccountService final = CreateAccountService(new LaunchProfileFilePort(path));
             IReadOnlyList<LaunchProfileView> finalViews = final.GetViews();
             AssertEqual(1, finalViews.Count);
             AssertEqual("Notch", finalViews[0].Username);
@@ -164,7 +171,7 @@ internal static partial class Program
         try
         {
             string path = Path.Combine(directory, "profiles.json");
-            AccountService service = new(new LaunchProfileFilePort(path));
+            AccountService service = CreateAccountService(new LaunchProfileFilePort(path));
 
             XsrResult<int> noUsername = service.AddProfile(SampleProfile(username: "  "));
             AssertFalse(noUsername.IsSuccess);
@@ -215,7 +222,7 @@ internal static partial class Program
         try
         {
             ThrowingProfilePort port = new();
-            AccountService service = new(port);
+            AccountService service = CreateAccountService(port);
             AssertTrue(service.AddProfile(SampleProfile("Steve")).TryGetValue(out int index) && index == 0);
 
             port.SaveShouldThrow = true;

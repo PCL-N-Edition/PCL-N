@@ -243,7 +243,7 @@ internal static partial class Program
         try
         {
             string path = System.IO.Path.Combine(directory, "profiles.json");
-            AccountService accounts = new(new LaunchProfileFilePort(path));
+            AccountService accounts = CreateAccountService(new LaunchProfileFilePort(path));
 
             MicrosoftMinecraftLoginResult microsoft = new(
                 "Steve", "uuid-ms", "ms-access", "ms-refresh", "https://skin/steve", true);

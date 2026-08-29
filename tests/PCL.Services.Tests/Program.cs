@@ -95,6 +95,9 @@ internal static partial class Program
         ("plan building inventories managed leftovers", Sync(BuildPlanInventoriesManagedLeftovers)),
         ("applying a plan places files and runs deletes", Sync(ApplyPlanPlacesFilesAndRunsDeletes)),
         ("unsafe paths are refused everywhere", Sync(UnsafePathsAreRefusedEverywhere)),
+        // XSR-519: Wave 5 acceptance integration.
+        ("foundation composition end to end", FoundationCompositionEndToEnd),
+        ("cross capability page has no state id collisions", CrossCapabilityPageHasNoStateIdCollisions),
         // XSR-513: online account flows.
         ("the microsoft device login runs the full chain", MicrosoftDeviceLoginRunsTheFullChain),
         ("microsoft declined and expired are distinct errors", MicrosoftDeclinedAndExpiredAreDistinctErrors),

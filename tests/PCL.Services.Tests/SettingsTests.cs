@@ -25,9 +25,20 @@ internal static partial class Program
         .AddFloat64(KeyRatio, 0.5d)
         .AddString(KeyLabel, "default");
 
+    private static (SettingsService Service, XsrStateStore Store) CreateService(
+        ISettingsPort port,
+        IXsrStateObserver? observer = null)
+    {
+        SettingsSchema schema = TestSchema().Build();
+        XsrStateStoreBuilder builder = new();
+        SettingsService.DeclareState(builder, schema);
+        XsrStateStore store = builder.Build(observer);
+        return (new SettingsService(store, schema, port), store);
+    }
+
     internal static void SchemaDefaultsAreVisibleAndAvailable()
     {
-        SettingsService service = new(TestSchema().Build(), new InMemorySettingsPort());
+        var (service, _) = CreateService(new InMemorySettingsPort());
 
         AssertEqual(0, service.SkippedEntryCount);
         AssertTrue(service.LoadError is null);
@@ -45,7 +56,7 @@ internal static partial class Program
 
     internal static ValueTask SetThenGetRoundTripsEveryType()
     {
-        SettingsService service = new(TestSchema().Build(), new InMemorySettingsPort());
+        var (service, _) = CreateService(new InMemorySettingsPort());
 
         AssertTrue(service.SetValue(KeyToggle, true).IsSuccess);
         AssertTrue(service.SetValue(KeyCount, 42).IsSuccess);
@@ -63,7 +74,7 @@ internal static partial class Program
 
     internal static ValueTask UnknownKeyIsRejectedStably()
     {
-        SettingsService service = new(TestSchema().Build(), new InMemorySettingsPort());
+        var (service, _) = CreateService(new InMemorySettingsPort());
 
         XsrResult<int> missingRead = service.GetValue<int>("settings.test.missing");
         AssertFalse(missingRead.IsSuccess);
@@ -82,7 +93,7 @@ internal static partial class Program
 
     internal static ValueTask TypeMismatchIsRejectedStably()
     {
-        SettingsService service = new(TestSchema().Build(), new InMemorySettingsPort());
+        var (service, _) = CreateService(new InMemorySettingsPort());
 
         XsrResult<int> wrongRead = service.GetValue<int>(KeyToggle);
         AssertFalse(wrongRead.IsSuccess);
@@ -97,7 +108,7 @@ internal static partial class Program
 
     internal static ValueTask NullValuesAreRejectedAndTextIsPortAgnostic()
     {
-        SettingsService service = new(TestSchema().Build(), new InMemorySettingsPort());
+        var (service, _) = CreateService(new InMemorySettingsPort());
 
         // The service treats text values as opaque; format constraints belong to the port
         // carrying them. The equals sign, line breaks, and control characters are fine here.
@@ -117,14 +128,14 @@ internal static partial class Program
     internal static ValueTask SetPersistsAndSurvivesRestart()
     {
         InMemorySettingsPort port = new();
-        SettingsService first = new(TestSchema().Build(), port);
+        SettingsService first = CreateSchemaService(port);
 
         AssertTrue(first.SetValue(KeyCount, 11).IsSuccess);
         AssertTrue(first.SetValue(KeyLabel, "kept").IsSuccess);
         AssertTrue(port.Load().TryGetValue(KeyCount, out string? rawCount) && rawCount == "11");
         AssertTrue(port.Load().TryGetValue(KeyLabel, out string? rawLabel) && rawLabel == "kept");
 
-        SettingsService restarted = new(TestSchema().Build(), port);
+        SettingsService restarted = CreateSchemaService(port);
         AssertTrue(restarted.GetValue<int>(KeyCount).TryGetValue(out int count) && count == 11);
         AssertTrue(restarted.GetValue<string>(KeyLabel).TryGetValue(out string? label) && label == "kept");
         AssertTrue(restarted.GetValue<bool>(KeyToggle).TryGetValue(out bool toggle) && !toggle);
@@ -141,7 +152,7 @@ internal static partial class Program
             ["legacy.removed.key"] = "1",
         });
 
-        SettingsService service = new(TestSchema().Build(), port);
+        var (service, _) = CreateService(port);
         AssertEqual(2, service.SkippedEntryCount);
         AssertTrue(service.GetValue<int>(KeyCount).TryGetValue(out int count) && count == 9);
         AssertTrue(service.GetValue<bool>(KeyToggle).TryGetValue(out bool toggle) && !toggle);
@@ -152,7 +163,7 @@ internal static partial class Program
     internal static ValueTask FailedSaveReturnsStableErrorAndMutatesNothing()
     {
         ThrowingSettingsPort port = new(loadShouldThrow: false, saveShouldThrow: true);
-        SettingsService service = new(TestSchema().Build(), port);
+        var (service, _) = CreateService(port);
 
         AssertTrue(service.GetValue<int>(KeyCount).TryGetValue(out int before) && before == 3);
         XsrResult failed = service.SetValue(KeyCount, 77);
@@ -169,7 +180,7 @@ internal static partial class Program
     internal static ValueTask ResetAllFailedSaveMutatesNothing()
     {
         ThrowingSettingsPort port = new(loadShouldThrow: false, saveShouldThrow: false);
-        SettingsService service = new(TestSchema().Build(), port);
+        var (service, _) = CreateService(port);
 
         AssertTrue(service.SetValue(KeyCount, 77).IsSuccess);
         AssertTrue(service.SetValue(KeyLabel, "changed").IsSuccess);
@@ -193,10 +204,18 @@ internal static partial class Program
         return ValueTask.CompletedTask;
     }
 
+    private static SettingsService CreateSchemaService(ISettingsPort port)
+    {
+        SettingsSchema schema = TestSchema().Build();
+        XsrStateStoreBuilder builder = new();
+        SettingsService.DeclareState(builder, schema);
+        return new SettingsService(builder.Build(), schema, port);
+    }
+
     internal static ValueTask FailedLoadKeepsDefaultsButMarksUnavailable()
     {
         ThrowingSettingsPort port = new(loadShouldThrow: true, saveShouldThrow: false);
-        SettingsService service = new(TestSchema().Build(), port);
+        var (service, _) = CreateService(port);
 
         AssertTrue(service.LoadError is not null);
         AssertEqual(SettingsErrors.PersistFailedCode, service.LoadError!.Code);
@@ -214,7 +233,7 @@ internal static partial class Program
     internal static ValueTask ResetValueAndResetAllRestoreDefaults()
     {
         InMemorySettingsPort port = new();
-        SettingsService service = new(TestSchema().Build(), port);
+        var (service, _) = CreateService(port);
         AssertTrue(service.SetValue(KeyCount, 100).IsSuccess);
         AssertTrue(service.SetValue(KeyLabel, "changed").IsSuccess);
 
@@ -242,7 +261,7 @@ internal static partial class Program
     internal static ValueTask StateObserverSeesEveryAppliedChange()
     {
         RecordingObserver observer = new();
-        SettingsService service = new(TestSchema().Build(), new InMemorySettingsPort(), observer);
+        var (service, _) = CreateService(new InMemorySettingsPort(), observer);
 
         AssertTrue(observer.Changes.Count >= 5);
         int duringStartup = observer.Changes.Count;
@@ -285,7 +304,7 @@ internal static partial class Program
             AssertTrue(repaired.Count == 2);
             AssertTrue(repaired[KeyCount] == "21" && repaired["legacy.unknown"] == "7");
 
-            SettingsService service = new(TestSchema().Build(), port);
+            var (service, _) = CreateService(port);
             AssertEqual(1, service.SkippedEntryCount);
             AssertTrue(service.GetValue<int>(KeyCount).TryGetValue(out int count) && count == 21);
             AssertTrue(service.GetValue<bool>(KeyToggle).TryGetValue(out bool toggle) && !toggle);
@@ -335,12 +354,12 @@ internal static partial class Program
     internal static ValueTask DoubleRoundTripsThroughFullPrecision()
     {
         InMemorySettingsPort port = new();
-        SettingsService service = new(TestSchema().Build(), port);
+        var (service, _) = CreateService(port);
         double original = 1d / 3d;
         AssertTrue(service.SetValue(KeyRatio, original).IsSuccess);
         AssertTrue(port.Load()[KeyRatio] == original.ToString("R", CultureInfo.InvariantCulture));
 
-        SettingsService restarted = new(TestSchema().Build(), port);
+        SettingsService restarted = CreateSchemaService(port);
         AssertTrue(restarted.GetValue<double>(KeyRatio).TryGetValue(out double restored));
         AssertTrue(restored.Equals(original));
         return ValueTask.CompletedTask;

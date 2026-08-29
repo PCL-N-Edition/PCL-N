@@ -62,13 +62,22 @@ internal static partial class Program
         public ValueTask StopAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     }
 
+    private static DownloadService CreateDownloadService(
+        long minimumSegmentBytes = 8 * 1024 * 1024,
+        IXsrStateObserver? observer = null)
+    {
+        XsrStateStoreBuilder builder = new();
+        DownloadService.DeclareState(builder);
+        return new DownloadService(builder.Build(observer), minimumSegmentBytes: minimumSegmentBytes);
+    }
+
     internal static ValueTask DownloadFailsOverAcrossSources()
     {
         string directory = CreateTempDirectory();
         try
         {
             string destination = Path.Combine(directory, "file.bin");
-            DownloadService service = new();
+            DownloadService service = CreateDownloadService();
             byte[][] second = [[0xAB], [0xCD]];
             DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
             {
@@ -99,7 +108,7 @@ internal static partial class Program
         try
         {
             string destination = Path.Combine(directory, "file.bin");
-            DownloadService service = new();
+            DownloadService service = CreateDownloadService();
             DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
             {
                 Sources = ["mem://a", "mem://b"],
@@ -129,7 +138,7 @@ internal static partial class Program
             string tempPath = destination + ".PCLDownloading";
             File.WriteAllBytes(tempPath, [0x11, 0x22, 0x33]);
 
-            DownloadService service = new();
+            DownloadService service = CreateDownloadService();
             FakeConnection connection = new(
                 6,
                 [0x44, 0x55, 0x66]);
@@ -159,7 +168,7 @@ internal static partial class Program
         try
         {
             string destination = Path.Combine(directory, "file.bin");
-            DownloadService service = new();
+            DownloadService service = CreateDownloadService();
             FakeConnection connection = new(2, [0x01], [0x02]);
             List<DownloadProgress> first = [];
             List<DownloadProgress> second = [];
@@ -195,7 +204,7 @@ internal static partial class Program
         try
         {
             string destination = Path.Combine(directory, "file.bin");
-            DownloadService service = new();
+            DownloadService service = CreateDownloadService();
             List<DownloadStage> stages = [];
             service.DownloadAsync(new DownloadRequest
             {
@@ -227,7 +236,7 @@ internal static partial class Program
         try
         {
             string destination = Path.Combine(directory, "file.bin");
-            DownloadService service = new();
+            DownloadService service = CreateDownloadService();
             DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
             {
                 Sources = ["mem://a"],
@@ -252,7 +261,7 @@ internal static partial class Program
         try
         {
             string destination = Path.Combine(directory, "file.bin");
-            DownloadService service = new();
+            DownloadService service = CreateDownloadService();
             using CancellationTokenSource cancellation = new();
             Task<DownloadTransferResult> task = service.DownloadAsync(new DownloadRequest
             {
@@ -294,7 +303,7 @@ internal static partial class Program
             }
 
             // 16-byte minimum segments turn 100 bytes into 7 logical segments capped at 4 parallel.
-            DownloadService service = new(minimumSegmentBytes: 16);
+            DownloadService service = CreateDownloadService(minimumSegmentBytes: 16);
             DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
             {
                 Sources = ["mem://fast"],
@@ -324,7 +333,7 @@ internal static partial class Program
         try
         {
             string destination = Path.Combine(directory, "file.bin");
-            DownloadService service = new(minimumSegmentBytes: 16);
+            DownloadService service = CreateDownloadService(minimumSegmentBytes: 16);
             DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
             {
                 Sources = ["mem://plain"],
@@ -352,7 +361,7 @@ internal static partial class Program
             string destination = Path.Combine(directory, "file.bin");
             // Segmented-capable connection, but the payload is far below the segment floor
             // configured here, so the engine must use the single-stream path.
-            DownloadService service = new(minimumSegmentBytes: 1024 * 1024);
+            DownloadService service = CreateDownloadService(minimumSegmentBytes: 1024 * 1024);
             DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
             {
                 Sources = ["mem://seg"],
@@ -379,7 +388,7 @@ internal static partial class Program
         {
             string destination = Path.Combine(directory, "file.bin");
             byte[] payload = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
-            DownloadService service = new(minimumSegmentBytes: 4);
+            DownloadService service = CreateDownloadService(minimumSegmentBytes: 4);
             DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
             {
                 Sources = ["mem://liar", "mem://honest"],
@@ -410,7 +419,7 @@ internal static partial class Program
         {
             string destination = Path.Combine(directory, "file.bin");
             byte[] payload = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
-            DownloadService service = new(minimumSegmentBytes: 4);
+            DownloadService service = CreateDownloadService(minimumSegmentBytes: 4);
             DownloadTransferResult result = service.DownloadAsync(new DownloadRequest
             {
                 Sources = ["mem://short", "mem://whole"],
@@ -442,7 +451,7 @@ internal static partial class Program
         {
             string destination = Path.Combine(directory, "file.bin");
             byte[] payload = new byte[64];
-            DownloadService service = new(minimumSegmentBytes: 16);
+            DownloadService service = CreateDownloadService(minimumSegmentBytes: 16);
             DownloadProgress? completed = null;
             List<DownloadProgress> downloading = [];
             service.DownloadAsync(new DownloadRequest
@@ -573,7 +582,7 @@ internal static partial class Program
         {
             string destination = Path.Combine(directory, "file.bin");
             string other = Path.Combine(directory, "other.bin");
-            DownloadService service = new();
+            DownloadService service = CreateDownloadService();
             SlowConnection slowConnection = new([0x01, 0x02]);
             Task<DownloadTransferResult> slow = service.DownloadAsync(new DownloadRequest
             {

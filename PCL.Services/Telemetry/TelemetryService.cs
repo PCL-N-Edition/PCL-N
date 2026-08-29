@@ -40,14 +40,22 @@ public sealed class TelemetryService
     private readonly XsrStateId _pendingId;
     private int _consentField;
 
-    public TelemetryService(int capacity = 500, IXsrStateObserver? observer = null)
+    /// <summary>
+    /// Two-phase composition, declaration phase: registers the pending-count cell into the
+    /// shared host builder.
+    /// </summary>
+    public static void DeclareState(XsrStateStoreBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.Cell<int>(PendingKey, OwnerName);
+    }
+
+    public TelemetryService(XsrStateStore store, int capacity = 500)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacity);
         _capacity = capacity;
         _events = new Queue<TelemetryEvent>(capacity);
-        XsrStateStoreBuilder builder = new();
-        builder.Cell<int>(PendingKey, OwnerName);
-        _store = builder.Build(observer);
+        _store = store ?? throw new ArgumentNullException(nameof(store));
         _pendingId = _store.Resolve(PendingKey);
         _store.Publish(_pendingId, 0, CancellationToken.None);
     }

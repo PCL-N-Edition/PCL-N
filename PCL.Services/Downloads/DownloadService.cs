@@ -39,24 +39,32 @@ public sealed class DownloadService
     private readonly object _stateGate = new();
     private readonly LogService? _log;
 
+    /// <summary>
+    /// Two-phase composition, declaration phase: registers the active-transfers collection
+    /// into the shared host builder.
+    /// </summary>
+    public static void DeclareState(XsrStateStoreBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.Collection<DownloadTransferView, string>(
+            TransfersKey,
+            OwnerName,
+            static view => view.DestinationPath);
+    }
+
     public DownloadService(
+        XsrStateStore store,
         int bufferSize = DefaultBufferSize,
-        IXsrStateObserver? observer = null,
         LogService? log = null,
         long minimumSegmentBytes = DefaultMinimumSegmentBytes)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSize);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(minimumSegmentBytes);
 
+        _store = store ?? throw new ArgumentNullException(nameof(store));
         _bufferSize = bufferSize;
         _minimumSegmentBytes = minimumSegmentBytes;
         _log = log;
-        XsrStateStoreBuilder builder = new();
-        builder.Collection<DownloadTransferView, string>(
-            TransfersKey,
-            OwnerName,
-            static view => view.DestinationPath);
-        _store = builder.Build(observer);
         _transfersId = _store.Resolve(TransfersKey);
     }
 

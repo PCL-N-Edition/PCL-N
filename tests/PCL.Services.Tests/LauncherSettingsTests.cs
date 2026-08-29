@@ -19,6 +19,17 @@ internal static partial class Program
         return directory;
     }
 
+    private static SettingsService CreateLauncherService(string directory, string settingsName = "settings.json")
+    {
+        SettingsSchema schema = LauncherDefaults.CreateSchema();
+        XsrStateStoreBuilder builder = new();
+        SettingsService.DeclareState(builder, schema);
+        return new SettingsService(
+            builder.Build(),
+            schema,
+            new LauncherSettingsJsonPort(System.IO.Path.Combine(directory, settingsName), schema));
+    }
+
     internal static ValueTask LauncherSchemaMatchesLegacyDefaults()
     {
         SettingsSchema schema = LauncherDefaults.CreateSchema();
@@ -133,7 +144,7 @@ internal static partial class Program
             AssertTrue(File.Exists(port.QuarantinePath));
             AssertTrue(File.ReadAllText(port.QuarantinePath).Contains("\"schemaVersion\": 2", StringComparison.Ordinal));
 
-            SettingsService service = new(LauncherDefaults.CreateSchema(), port);
+            SettingsService service = CreateLauncherSchemaService(port);
             AssertTrue(service.LoadError is not null);
             AssertEqual(SettingsErrors.PersistFailedCode, service.LoadError!.Code);
             AssertTrue(service.GetValue<int>("LaunchArgumentWindowWidth").TryGetValue(out int width) && width == 854);
@@ -170,7 +181,7 @@ internal static partial class Program
             AssertTrue(loaded["SystemDebugMode"] == "true" && loaded["LaunchRamCustom"] == "7" && loaded["UiLogoText"] == "ok");
             AssertTrue(File.Exists(port.QuarantinePath));
 
-            SettingsService service = new(LauncherDefaults.CreateSchema(), port);
+            SettingsService service = CreateLauncherSchemaService(port);
             AssertTrue(service.LoadError is null);
             AssertTrue(service.GetValue<bool>("SystemDebugMode").TryGetValue(out bool debug) && debug);
             AssertTrue(service.GetValue<int>("LaunchRamCustom").TryGetValue(out int ram) && ram == 7);
@@ -192,7 +203,7 @@ internal static partial class Program
             LauncherSettingsJsonPort port = new(path, LauncherDefaults.CreateSchema());
             AssertEqual(0, port.Load().Count);
 
-            SettingsService service = new(LauncherDefaults.CreateSchema(), port);
+            SettingsService service = CreateLauncherSchemaService(port);
             AssertTrue(service.LoadError is null);
             AssertEqual(0, service.SkippedEntryCount);
             AssertTrue(service.GetValue<string>("UiLanguage").TryGetValue(out string? language) && language == "auto");
@@ -221,7 +232,7 @@ internal static partial class Program
                 """);
 
             LauncherSettingsJsonPort port = new(path, LauncherDefaults.CreateSchema());
-            SettingsService service = new(LauncherDefaults.CreateSchema(), port);
+            SettingsService service = CreateLauncherSchemaService(port);
             AssertTrue(service.SetValue("SystemDebugMode", true).IsSuccess);
 
             using JsonDocument saved = JsonDocument.Parse(File.ReadAllText(path));
@@ -246,7 +257,7 @@ internal static partial class Program
         try
         {
             string path = System.IO.Path.Combine(directory, "settings.json");
-            SettingsService first = new(LauncherDefaults.CreateSchema(), new LauncherSettingsJsonPort(path, LauncherDefaults.CreateSchema()));
+            SettingsService first = CreateLauncherPathService(path);
 
             AssertTrue(first.GetValue<string>("LaunchAdvanceJvm").TryGetValue(out string? jvm)
                 && jvm.StartsWith("-XX:+UseG1GC", StringComparison.Ordinal));
@@ -261,7 +272,7 @@ internal static partial class Program
                 AssertTrue(written.RootElement.GetProperty("automaticallyRepairGameIssues").GetBoolean());
             }
 
-            SettingsService restarted = new(LauncherDefaults.CreateSchema(), new LauncherSettingsJsonPort(path, LauncherDefaults.CreateSchema()));
+            SettingsService restarted = CreateLauncherPathService(path);
             AssertTrue(restarted.GetValue<int>("LaunchRamCustom").TryGetValue(out int ram) && ram == 32);
             AssertTrue(restarted.GetValue<string>("UiLogoText").TryGetValue(out string? logo) && logo == "cat launcher");
             AssertTrue(restarted.GetValue<string>("SystemHttpProxy").TryGetValue(out string? proxy) && proxy == "http://127.0.0.1:7890");
@@ -275,13 +286,29 @@ internal static partial class Program
         return ValueTask.CompletedTask;
     }
 
+    private static SettingsService CreateLauncherSchemaService(ISettingsPort port)
+    {
+        SettingsSchema schema = LauncherDefaults.CreateSchema();
+        XsrStateStoreBuilder builder = new();
+        SettingsService.DeclareState(builder, schema);
+        return new SettingsService(builder.Build(), schema, port);
+    }
+
+    private static SettingsService CreateLauncherPathService(string path)
+    {
+        SettingsSchema schema = LauncherDefaults.CreateSchema();
+        XsrStateStoreBuilder builder = new();
+        SettingsService.DeclareState(builder, schema);
+        return new SettingsService(builder.Build(), schema, new LauncherSettingsJsonPort(path, schema));
+    }
+
     internal static ValueTask LinePortRejectsUnrepresentableValues()
     {
         string directory = CreateTempDirectory();
         try
         {
             string path = System.IO.Path.Combine(directory, "settings.ini");
-            SettingsService service = new(TestSchema().Build(), new SettingsFilePort(path));
+            var (service, _) = CreateService(new SettingsFilePort(path));
 
             XsrResult rejected = service.SetValue(KeyLabel, "two\nlines");
             AssertFalse(rejected.IsSuccess);

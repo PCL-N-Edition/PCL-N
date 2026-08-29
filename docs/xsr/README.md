@@ -63,6 +63,8 @@ The user-requested constraints take precedence:
 - [migrations/XSR-516-payload-extraction-patch-orchestration.md](migrations/XSR-516-payload-extraction-patch-orchestration.md) — payload extraction (zip/tar) and HDiffPatch orchestration with binary chains and scatter ops
 - [migrations/XSR-517-network-telemetry.md](migrations/XSR-517-network-telemetry.md) — Network probing with latency and opt-in Telemetry buffering/flush with a pending state cell
 - [migrations/XSR-518-helper-handoff-restart.md](migrations/XSR-518-helper-handoff-restart.md) — helper hand-off and restart scheduling: artifact validation, replacement process contract, launch port
+- [migrations/XSR-519-wave5-acceptance-integration.md](migrations/XSR-519-wave5-acceptance-integration.md) — Wave 5 acceptance: unified host state composition, foundation command routing, cross-capability PXML integration
+- [migrations/XSR-518-helper-handoff-restart.md](migrations/XSR-518-helper-handoff-restart.md) — helper hand-off and restart scheduling: artifact validation, replacement process contract, launch port
 
 ## Decision process
 

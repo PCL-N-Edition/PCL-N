@@ -28,19 +28,26 @@ public sealed class LogService
     private int _maximumLevel = (int)LogLevel.Info;
     private long _sequence;
 
-    public LogService(int capacity = 2_000, IXsrStateObserver? observer = null, TimeProvider? clock = null)
+    /// <summary>
+    /// Two-phase composition, declaration phase: registers the ordered entries collection
+    /// into the shared host builder.
+    /// </summary>
+    public static void DeclareState(XsrStateStoreBuilder builder)
     {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacity);
-
-        _capacity = capacity;
-        _clock = clock ?? TimeProvider.System;
-
-        XsrStateStoreBuilder builder = new();
+        ArgumentNullException.ThrowIfNull(builder);
         builder.Collection<LogEntry, long>(
             EntriesKey,
             OwnerName,
             static entry => entry.Sequence);
-        _store = builder.Build(observer);
+    }
+
+    public LogService(XsrStateStore store, int capacity = 2_000, TimeProvider? clock = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacity);
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+
+        _capacity = capacity;
+        _clock = clock ?? TimeProvider.System;
         _entriesId = _store.Resolve(EntriesKey);
     }
 

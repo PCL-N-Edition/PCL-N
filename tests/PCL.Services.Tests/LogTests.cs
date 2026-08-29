@@ -25,9 +25,19 @@ internal static partial class Program
         public void OnChanged(XsrStateChange change) => throw new InvalidOperationException("observer fault");
     }
 
+    private static LogService CreateLogService(
+        int capacity = 2_000,
+        IXsrStateObserver? observer = null,
+        TimeProvider? clock = null)
+    {
+        XsrStateStoreBuilder builder = new();
+        LogService.DeclareState(builder);
+        return new LogService(builder.Build(observer), capacity, clock);
+    }
+
     internal static void LogLevelGateDefaultsToInfoAndFallsBackStably()
     {
-        LogService service = new();
+        LogService service = CreateLogService();
         AssertTrue(service.IsEnabled(LogLevel.Error));
         AssertTrue(service.IsEnabled(LogLevel.Warn));
         AssertTrue(service.IsEnabled(LogLevel.Info));
@@ -47,7 +57,7 @@ internal static partial class Program
 
     internal static void ModulesAreNormalizedBeforeStorage()
     {
-        LogService service = new();
+        LogService service = CreateLogService();
         service.Write(LogLevel.Info, "  Launch  ", "trimmed");
         service.Write(LogLevel.Warn, "", "blank module");
         service.Write(LogLevel.Error, "   ", "whitespace module");
@@ -61,7 +71,7 @@ internal static partial class Program
 
     internal static void MessagesAndExceptionsAreRedactedBeforeStorage()
     {
-        LogService service = new();
+        LogService service = CreateLogService();
         service.Write(LogLevel.Warn, "net", "login failed with password=hunter2 tonight");
         service.Write(LogLevel.Error, "net", "boom", "at login\nAuthorization: Bearer abc123");
 
@@ -78,7 +88,7 @@ internal static partial class Program
 
     internal static void RingEvictsOldestBeyondCapacity()
     {
-        LogService service = new(capacity: 4);
+        LogService service = CreateLogService(capacity: 4);
         for (int index = 1; index <= 6; index++)
         {
             service.Write(LogLevel.Info, "ring", $"entry {index}");
@@ -94,7 +104,7 @@ internal static partial class Program
 
     internal static void StateCollectionMirrorsSnapshot()
     {
-        LogService service = new(capacity: 8);
+        LogService service = CreateLogService(capacity: 8);
         for (int index = 1; index <= 10; index++)
         {
             service.Write(LogLevel.Warn, "mirror", $"m{index}");
@@ -114,7 +124,7 @@ internal static partial class Program
 
     internal static void ClearEmptiesRingAndState()
     {
-        LogService service = new();
+        LogService service = CreateLogService();
         service.Write(LogLevel.Info, "clear", "one");
         service.Write(LogLevel.Info, "clear", "two");
         service.Clear();
@@ -146,7 +156,7 @@ internal static partial class Program
     internal static void ObserversSeeAppendsAndNeverBreakWrites()
     {
         RecordingLogObserver recorder = new();
-        LogService service = new(capacity: 16, recorder);
+        LogService service = CreateLogService(capacity: 16, recorder);
         service.Write(LogLevel.Info, "obs", "one");
         service.Write(LogLevel.Info, "obs", "two");
 
@@ -156,7 +166,7 @@ internal static partial class Program
         AssertEqual(XsrStateKind.Collection, last.Kind);
         AssertEqual(XsrStateChangeReason.CollectionDeltaApplied, last.Reason);
 
-        LogService hostile = new(capacity: 16, new ThrowingLogObserver());
+        LogService hostile = CreateLogService(capacity: 16, new ThrowingLogObserver());
         hostile.Write(LogLevel.Error, "obs", "must not throw");
         AssertEqual(1, hostile.GetSnapshot().Count);
     }
@@ -164,7 +174,7 @@ internal static partial class Program
     internal static void TimestampsComeFromTimeProvider()
     {
         DateTimeOffset now = new(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
-        LogService service = new(clock: new FixedClock(now));
+        LogService service = CreateLogService(clock: new FixedClock(now));
         service.Write(LogLevel.Info, "clock", "when");
         IReadOnlyList<LogEntry> snapshot = service.GetSnapshot();
         AssertEqual(1, snapshot.Count);
@@ -188,7 +198,7 @@ internal static partial class Program
 
     internal static void ConcurrentWritesKeepSequenceAndOrder()
     {
-        LogService service = new();
+        LogService service = CreateLogService();
         service.MaximumLevel = LogLevel.RealTime;
         const int writers = 8;
         const int perWriter = 25;

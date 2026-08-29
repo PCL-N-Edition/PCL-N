@@ -41,6 +41,13 @@ internal static partial class Program
         }
     }
 
+    private static TelemetryService CreateTelemetryService(int capacity = 500, IXsrStateObserver? observer = null)
+    {
+        XsrStateStoreBuilder builder = new();
+        TelemetryService.DeclareState(builder);
+        return new TelemetryService(builder.Build(observer), capacity);
+    }
+
     internal static async ValueTask NetworkProbesReportReachabilityAndLatency()
     {
         DictionaryHandler handler = new();
@@ -77,7 +84,7 @@ internal static partial class Program
 
     internal static void TelemetryWithoutConsentRecordsNothing()
     {
-        TelemetryService service = new();
+        TelemetryService service = CreateTelemetryService();
         AssertFalse(service.Consent);
 
         service.Record("app.started", new Dictionary<string, string> { ["v"] = "2.0.0.alpha.1" });
@@ -87,7 +94,7 @@ internal static partial class Program
 
     internal static void TelemetryBuffersWithBoundedEviction()
     {
-        TelemetryService service = new(capacity: 3);
+        TelemetryService service = CreateTelemetryService(capacity: 3);
         service.Consent = true;
         for (int index = 1; index <= 5; index++)
         {
@@ -101,7 +108,7 @@ internal static partial class Program
 
     internal static async ValueTask TelemetryFlushUploadsAndClearsOrRetains()
     {
-        TelemetryService service = new();
+        TelemetryService service = CreateTelemetryService();
         service.Consent = true;
         service.Record("app.started", new Dictionary<string, string> { ["v"] = "1" });
         service.Record("app.ready");

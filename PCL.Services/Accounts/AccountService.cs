@@ -47,16 +47,23 @@ public sealed class AccountService
     private readonly XsrStateId _profilesId;
     private List<LaunchProfile> _profiles;
 
-    public AccountService(ILaunchProfilePort port, IXsrStateObserver? observer = null)
+    /// <summary>
+    /// Two-phase composition, declaration phase: registers the roster collection into the
+    /// shared host builder.
+    /// </summary>
+    public static void DeclareState(XsrStateStoreBuilder builder)
     {
-        _port = port ?? throw new ArgumentNullException(nameof(port));
-
-        XsrStateStoreBuilder builder = new();
+        ArgumentNullException.ThrowIfNull(builder);
         builder.Collection<LaunchProfileView, int>(
             ProfilesKey,
             OwnerName,
             static view => view.Index);
-        _store = builder.Build(observer);
+    }
+
+    public AccountService(XsrStateStore store, ILaunchProfilePort port)
+    {
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _port = port ?? throw new ArgumentNullException(nameof(port));
         _profilesId = _store.Resolve(ProfilesKey);
 
         List<LaunchProfile> loaded;

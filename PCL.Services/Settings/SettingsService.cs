@@ -53,12 +53,16 @@ public sealed class SettingsService
     private readonly object _gate = new();
     private readonly Dictionary<XsrSemanticId, XsrStateId> _ids;
 
-    public SettingsService(SettingsSchema schema, ISettingsPort port, IXsrStateObserver? observer = null)
+    /// <summary>
+    /// Two-phase composition, declaration phase: registers one typed cell per schema
+    /// definition into the shared host builder. The store is built once for the whole host,
+    /// so settings state lives next to every other foundation state without identifier
+    /// collisions.
+    /// </summary>
+    public static void DeclareState(XsrStateStoreBuilder builder, SettingsSchema schema)
     {
-        Schema = schema ?? throw new ArgumentNullException(nameof(schema));
-        _port = port ?? throw new ArgumentNullException(nameof(port));
-
-        XsrStateStoreBuilder builder = new();
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(schema);
         foreach (SettingDefinition definition in schema.Definitions)
         {
             switch (definition.ValueType)
@@ -83,8 +87,13 @@ public sealed class SettingsService
                         $"The schema uses unsupported value type '{definition.ValueType}'.");
             }
         }
+    }
 
-        StateStore = builder.Build(observer);
+    public SettingsService(XsrStateStore store, SettingsSchema schema, ISettingsPort port)
+    {
+        Schema = schema ?? throw new ArgumentNullException(nameof(schema));
+        _port = port ?? throw new ArgumentNullException(nameof(port));
+        StateStore = store ?? throw new ArgumentNullException(nameof(store));
         _ids = [];
         foreach (SettingDefinition definition in schema.Definitions)
         {
