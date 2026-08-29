@@ -56,6 +56,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-509-update-package-planning.md](migrations/XSR-509-update-package-planning.md) — update package planning: variant selection, cheapest patch path, patch-versus-full by size
 - [migrations/XSR-510-update-discovery-transport.md](migrations/XSR-510-update-discovery-transport.md) — update discovery and transport: index fetch, multi-tag walk, HEAD probe, eligibility gate
 - [migrations/XSR-511-update-signing-delta-codecs.md](migrations/XSR-511-update-signing-delta-codecs.md) — update signature and delta codecs: pinned-key GPG verification, RFC 3284 VCDIFF decoder
+- [migrations/XSR-512-staged-install-core.md](migrations/XSR-512-staged-install-core.md) — staged install core: verify/flatten/plan/apply with safe paths, re-verification, and managed deletes
 
 ## Decision process
 

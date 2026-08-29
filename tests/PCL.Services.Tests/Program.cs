@@ -87,6 +87,12 @@ internal static partial class Program
         ("vcdiff rejects unsupported and corrupt deltas", Sync(VcdiffRejectsUnsupportedAndCorruptDeltas)),
         ("gpg verifier accepts a genuine detached signature", GpgVerifierAcceptsGenuineDetachedSignature),
         ("gpg verifier rejects tampered foreign and unpinned keys", GpgVerifierRejectsTamperedForeignAndUnpinnedKeys),
+        // XSR-512: staged install core.
+        ("staged tree verification rejects mismatches", Sync(StagedTreeVerificationRejectsMismatches)),
+        ("flattening collapses single package wrapper roots", Sync(FlattenSingleRootCollapsesWrapperFolders)),
+        ("plan building inventories managed leftovers", Sync(BuildPlanInventoriesManagedLeftovers)),
+        ("applying a plan places files and runs deletes", Sync(ApplyPlanPlacesFilesAndRunsDeletes)),
+        ("unsafe paths are refused everywhere", Sync(UnsafePathsAreRefusedEverywhere)),
         ("transfer state mirrors active downloads", TransferStateMirrorsActiveDownloads),
         ("the file writer rejects short resume offsets", FileDownloadWriterRejectsShortResume),
         ("doubles round trip through full precision", DoubleRoundTripsThroughFullPrecision),
