@@ -67,13 +67,7 @@ public sealed class SettingsSchemaBuilder
 
     public SettingsSchemaBuilder AddString(string key, string defaultValue)
     {
-        ArgumentException.ThrowIfNullOrEmpty(defaultValue);
-        if (defaultValue.Any(character => character is '\n' or '\r' or '='))
-        {
-            throw new ArgumentException(
-                "A string setting default cannot contain line breaks or the equals sign.", nameof(defaultValue));
-        }
-
+        ArgumentNullException.ThrowIfNull(defaultValue);
         return Add(SettingValueType.Text, key, defaultValue);
     }
 

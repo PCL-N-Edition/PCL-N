@@ -109,6 +109,12 @@ public sealed class SettingsFilePort : ISettingsPort
             foreach ((string key, string value) in values.OrderBy(static entry => entry.Key, StringComparer.Ordinal))
             {
                 SettingValues.ValidateKey(key);
+                if (!SettingValues.FitsOnOneLine(value))
+                {
+                    throw new ArgumentException(
+                        $"The value of '{key}' cannot be represented in the settings line format.");
+                }
+
                 writer.Write(key);
                 writer.Write(" = ");
                 writer.WriteLine(value);
@@ -134,7 +140,11 @@ public static class SettingValues
         }
     }
 
-    public static bool IsValidString(string value) =>
+    /// <summary>
+    /// Whether one raw value fits on one line of the legacy line format. This is a constraint
+    /// of the line port only; other ports (such as the launcher JSON file) carry full text.
+    /// </summary>
+    public static bool FitsOnOneLine(string value) =>
         !value.Any(character => character is '\n' or '\r' or '=' || char.IsControl(character));
 
     public static string Encode(SettingDefinition definition, object value) => definition.ValueType switch
@@ -143,15 +153,9 @@ public static class SettingValues
         SettingValueType.I32 => ((int)value).ToString(CultureInfo.InvariantCulture),
         SettingValueType.I64 => ((long)value).ToString(CultureInfo.InvariantCulture),
         SettingValueType.F64 => ((double)value).ToString("R", CultureInfo.InvariantCulture),
-        SettingValueType.Text => EncodeText((string)value),
+        SettingValueType.Text => (string)value,
         _ => throw new InvalidOperationException($"The schema uses unsupported value type '{definition.ValueType}'."),
     };
-
-    private static string EncodeText(string value) =>
-        IsValidString(value)
-            ? value
-            : throw new ArgumentException(
-                "String settings cannot contain line breaks, control characters, or the equals sign.");
 
     public static bool TryDecode(SettingDefinition definition, string raw, out object? value)
     {
@@ -191,13 +195,8 @@ public static class SettingValues
 
                 break;
             case SettingValueType.Text:
-                if (IsValidString(raw))
-                {
-                    value = raw;
-                    return true;
-                }
-
-                break;
+                value = raw;
+                return true;
             default:
                 throw new InvalidOperationException($"The schema uses unsupported value type '{definition.ValueType}'.");
         }

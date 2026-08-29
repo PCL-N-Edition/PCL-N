@@ -95,23 +95,22 @@ internal static partial class Program
         return ValueTask.CompletedTask;
     }
 
-    internal static ValueTask InvalidValuesAreRejectedStably()
+    internal static ValueTask NullValuesAreRejectedAndTextIsPortAgnostic()
     {
         SettingsService service = new(TestSchema().Build(), new InMemorySettingsPort());
 
-        foreach (string bad in (string[])["line\nbreak", "a=b", "carriage\rreturn", "\u0007bell"])
+        // The service treats text values as opaque; format constraints belong to the port
+        // carrying them. The equals sign, line breaks, and control characters are fine here.
+        foreach (string value in (string[])["a=b", "line\nbreak", "\u0007bell", ""])
         {
-            XsrResult rejected = service.SetValue(KeyLabel, bad);
-            AssertFalse(rejected.IsSuccess);
-            AssertEqual(SettingsErrors.InvalidValueCode, rejected.Error!.Code);
-            AssertEqual(XsrErrorKind.Rejected, rejected.Error.Kind);
+            AssertTrue(service.SetValue(KeyLabel, value).IsSuccess);
+            AssertTrue(service.GetValue<string>(KeyLabel).TryGetValue(out string? stored) && stored == value);
         }
 
         XsrResult nullRejected = service.SetValue<string?>(KeyLabel, null);
         AssertFalse(nullRejected.IsSuccess);
         AssertEqual(SettingsErrors.InvalidValueCode, nullRejected.Error!.Code);
-
-        AssertTrue(service.GetValue<string>(KeyLabel).TryGetValue(out string? label) && label == "default");
+        AssertEqual(XsrErrorKind.Rejected, nullRejected.Error.Kind);
         return ValueTask.CompletedTask;
     }
 

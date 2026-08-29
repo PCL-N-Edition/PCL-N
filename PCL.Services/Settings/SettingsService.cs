@@ -210,7 +210,7 @@ public sealed class SettingsService
         {
             Dictionary<string, string> snapshot = CurrentEntries();
             snapshot[definition.Key.Value] = raw;
-            XsrResult saved = Persist(snapshot);
+            XsrResult saved = Persist(snapshot, definition.Key.Value);
             if (!saved.IsSuccess)
             {
                 return saved;
@@ -249,6 +249,7 @@ public sealed class SettingsService
         lock (_gate)
         {
             Dictionary<string, string> snapshot = [];
+            string lastKey = string.Empty;
             foreach (SettingDefinition definition in Schema.Definitions)
             {
                 if (!SettingValues.TryDecode(definition, definition.DefaultValue, out object? defaultValue)
@@ -259,11 +260,12 @@ public sealed class SettingsService
                 }
 
                 snapshot[definition.Key.Value] = SettingValues.Encode(definition, defaultValue);
+                lastKey = definition.Key.Value;
                 Publish(definition, defaultValue);
                 StateStore.MarkAvailability(_ids[definition.Key], XsrStateAvailability.Available);
             }
 
-            return Persist(snapshot);
+            return Persist(snapshot, lastKey);
         }
     }
 
@@ -295,7 +297,7 @@ public sealed class SettingsService
         {
             Dictionary<string, string> snapshot = CurrentEntries();
             snapshot[definition.Key.Value] = SettingValues.Encode(definition, typed);
-            XsrResult saved = Persist(snapshot);
+            XsrResult saved = Persist(snapshot, definition.Key.Value);
             if (!saved.IsSuccess)
             {
                 return saved;
@@ -307,12 +309,16 @@ public sealed class SettingsService
         }
     }
 
-    private XsrResult Persist(Dictionary<string, string> snapshot)
+    private XsrResult Persist(Dictionary<string, string> snapshot, string pendingKey)
     {
         try
         {
             _port.Save(snapshot);
             return XsrResult.Success();
+        }
+        catch (ArgumentException failure)
+        {
+            return XsrResult.Failure(SettingsErrors.InvalidValue(pendingKey, failure.Message));
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or NotSupportedException)
         {

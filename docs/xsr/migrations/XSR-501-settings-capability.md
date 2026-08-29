@@ -30,9 +30,10 @@ data-compatibility requirement of the legacy `key = value` settings files.
   file and an atomic move, entries are written in ordinal key order.
 - Data compatibility: the file format is the legacy `key = value` line format with a
   `# pcl-settings v1` header. Parsing skips comments, blank and malformed lines; values use
-  invariant culture with round-trip (`R`) doubles and `true`/`false` literals. Text settings
-  cannot carry line breaks, control characters, or the equals sign so one line stays one
-  entry — enforced at both set and schema-declaration time.
+  invariant culture with round-trip (`R`) doubles and `true`/`false` literals. Format
+  constraints belong to the port: the line port rejects values that cannot fit one line at
+  save time, while the service treats text values as opaque (amended in XSR-503 when the
+  launcher JSON port needed full text for JVM arguments).
 - Degraded startup: a failed load keeps schema defaults visible but marks every cell
   `Unavailable` and records the stable error in `LoadError`; the next successful write
   restores availability. Malformed or undeclared persisted entries are counted in
