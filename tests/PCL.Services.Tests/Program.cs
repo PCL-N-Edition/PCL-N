@@ -161,6 +161,7 @@ internal static partial class Program
         ("minecraft libraries and classpath honor rules", Sync(MinecraftLibrariesAndClasspathHonorRules)),
         ("minecraft ModLoader and launch plan are deterministic", Sync(MinecraftModLoaderAndLaunchPlanAreDeterministic)),
         ("minecraft crash analysis and dependency parsing are structured", Sync(MinecraftCrashAnalysisAndDependencyParsingAreStructured)),
+        ("minecraft runtime composition registers routes", MinecraftRuntimeCompositionRegistersRoutes),
     ];
 
     private static async Task<int> Main()

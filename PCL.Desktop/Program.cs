@@ -3,6 +3,7 @@ using PCL.Services.Composition;
 using PCL.Services.Files;
 using PCL.Services.Foundation;
 using PCL.Services.Settings;
+using PCL.Services.Minecraft;
 
 namespace PCL.Desktop;
 
@@ -26,9 +27,11 @@ internal static class Program
             settingsSchema,
             new LaunchProfileFilePort(System.IO.Path.Combine(profilesFolder, "profiles.json")));
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host);
+        MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose();
 
         Console.WriteLine(
             $"PCL Nexa foundation composed: {runtime.Host.Services.Count} services, "
-            + $"{runtime.Commands.Count} command routes, {runtime.Queries.Count} query routes over one host state store.");
+            + $"{runtime.Commands.Count} command routes, {runtime.Queries.Count} query routes over one host state store; "
+            + $"Minecraft routes: {minecraft.Commands.Count} commands/{minecraft.Queries.Count} queries.");
     }
 }
