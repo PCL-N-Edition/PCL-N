@@ -65,7 +65,6 @@ The user-requested constraints take precedence:
 - [migrations/XSR-518-helper-handoff-restart.md](migrations/XSR-518-helper-handoff-restart.md) — helper hand-off and restart scheduling: artifact validation, replacement process contract, launch port
 - [migrations/XSR-519-wave5-acceptance-integration.md](migrations/XSR-519-wave5-acceptance-integration.md) — Wave 5 acceptance: unified host state composition, foundation command routing, cross-capability PXML integration
 - [migrations/XSR-520-foundation-correctness-closure.md](migrations/XSR-520-foundation-correctness-closure.md) — Wave 5 review closure: raw typed settings, formal Foundation runtime composition, unified download logging
-- [migrations/XSR-518-helper-handoff-restart.md](migrations/XSR-518-helper-handoff-restart.md) — helper hand-off and restart scheduling: artifact validation, replacement process contract, launch port
 
 ## Decision process
 
@@ -78,3 +77,4 @@ Any change to a locked boundary requires:
 5. review before implementation depends on the new boundary.
 
 Public API baselines describe the accepted surface; changing a baseline never turns a breaking change into a compatible one.
+- [migrations/XSR-606-minecraft-launch-hardening.md](migrations/XSR-606-minecraft-launch-hardening.md) — Minecraft launch hardening: Java conflicts, token coverage, natives extraction, process state
