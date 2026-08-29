@@ -59,6 +59,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-512-staged-install-core.md](migrations/XSR-512-staged-install-core.md) — staged install core: verify/flatten/plan/apply with safe paths, re-verification, and managed deletes
 - [migrations/XSR-513-online-account-flows.md](migrations/XSR-513-online-account-flows.md) — online account flows: Microsoft device-code chain, Yggdrasil validate/refresh, roster bridge
 - [migrations/XSR-514-littleskin-oauth-appearance.md](migrations/XSR-514-littleskin-oauth-appearance.md) — LittleSkin OAuth (device flow, closet, texture upload) and Microsoft skin/cape services
+- [migrations/XSR-515-file-capability.md](migrations/XSR-515-file-capability.md) — File capability: canonical data folders and the safe atomic file port
 
 ## Decision process
 

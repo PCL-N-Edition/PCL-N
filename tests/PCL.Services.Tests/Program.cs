@@ -108,6 +108,11 @@ internal static partial class Program
         ("littleskin texture upload uses the minecraft token", LittleSkinTextureUploadUsesMinecraftToken),
         ("microsoft skin upload parses the active texture", MicrosoftSkinUploadParsesActiveTexture),
         ("microsoft cape service lists and activates", MicrosoftCapeServiceListsAndActivates),
+        // XSR-515: File capability.
+        ("the folder tree resolves canonical names", Sync(FolderTreeResolvesCanonicalNames)),
+        ("traversal is refused on every port operation", Sync(TraversalIsRefusedOnEveryPortOperation)),
+        ("text and bytes round trip atomically", TextAndBytesRoundTripAtomically),
+        ("size cap and default root resolution behave", SizeCapAndDefaultRootResolutionBehave),
         ("transfer state mirrors active downloads", TransferStateMirrorsActiveDownloads),
         ("the file writer rejects short resume offsets", FileDownloadWriterRejectsShortResume),
         ("doubles round trip through full precision", DoubleRoundTripsThroughFullPrecision),
