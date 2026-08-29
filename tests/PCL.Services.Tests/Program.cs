@@ -156,6 +156,9 @@ internal static partial class Program
         ("minecraft version classifier matches canonical aliases", Sync(MinecraftVersionClassifierMatchesCanonicalAliases)),
         ("minecraft version discovery uses stable safe resolution", Sync(MinecraftVersionDiscoveryUsesStableSafeResolution)),
         ("minecraft instance metadata round trips atomically", MinecraftInstanceMetadataRoundTripsAtomically),
+        ("minecraft Java selection honors manifest and availability", MinecraftJavaSelectionHonorsManifestAndAvailability),
+        ("minecraft assets resolve canonical object paths", Sync(MinecraftAssetsResolveCanonicalObjectPaths)),
+        ("minecraft libraries and classpath honor rules", Sync(MinecraftLibrariesAndClasspathHonorRules)),
     ];
 
     private static async Task<int> Main()

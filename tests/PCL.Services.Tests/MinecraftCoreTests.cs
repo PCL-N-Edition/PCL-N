@@ -1,5 +1,9 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using PCL.Services.Minecraft.Assets;
+using PCL.Services.Minecraft.Java;
+using PCL.Services.Minecraft.Libraries;
 using PCL.Services.Minecraft;
 
 namespace PCL.Services.Tests;
@@ -71,6 +75,106 @@ internal static partial class Program
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    internal static async ValueTask MinecraftJavaSelectionHonorsManifestAndAvailability()
+    {
+        JavaRuntimeCandidate[] candidates =
+        [
+            Candidate("jdk-17", new Version(17, 0, 10), JavaBrand.EclipseTemurin, false),
+            Candidate("jdk-21-disabled", new Version(21, 0, 1), JavaBrand.EclipseTemurin, false) with { IsEnabled = false },
+            Candidate("jdk-21", new Version(21, 0, 2), JavaBrand.Microsoft, false),
+        ];
+        JavaSelectionResult result = await new JavaSelectionService(new InMemoryJavaLocator(candidates)).SelectAsync(
+            new MinecraftJavaRequirementRequest { HasReliableVanillaVersion = true, VanillaVersion = new Version(20, 0, 5) });
+        AssertTrue(result.Success);
+        AssertEqual(Path.GetFullPath("jdk-21"), result.SelectedJava!.Installation.JavaHome);
+
+        JavaRequirementResolution future = MinecraftJavaRequirementResolver.Resolve(new MinecraftJavaRequirementRequest
+        {
+            ReleaseTime = new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
+            ManifestJavaMajorVersion = 25,
+            ManifestJavaComponent = "java-runtime-delta",
+        });
+        AssertTrue(future.Success);
+        AssertEqual("java-runtime-delta", future.RecommendedComponent);
+        AssertTrue(future.Range.Contains(new Version(25, 0)));
+        AssertFalse(future.Range.Contains(new Version(21, 0)));
+    }
+
+    internal static void MinecraftAssetsResolveCanonicalObjectPaths()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "minecraft-assets-root");
+        JsonObject index = JsonNode.Parse("""
+            { "objects": { "minecraft/sounds/menu.ogg": { "hash": "abcdef1234", "size": 42 } } }
+            """)!.AsObject();
+        MinecraftAssetToken asset = MinecraftAssetListResolver.GetAssetList(new MinecraftAssetListRequest
+        {
+            IndexJson = index,
+            MinecraftRootDirectory = root,
+            InstanceDirectory = Path.Combine(root, "versions", "1.20.1"),
+        })[0];
+        AssertEqual(Path.Combine(root, "assets", "objects", "ab", "abcdef1234"), asset.LocalPath);
+        AssertEqual("https://resources.download.minecraft.net/ab/abcdef1234", MinecraftAssetListResolver.GetObjectUrl(asset.Hash));
+        AssertEqual(1, MinecraftAssetListResolver.CreateDownloadPlan([asset]).Files.Count);
+
+        bool rejected = false;
+        try
+        {
+            MinecraftAssetListResolver.GetAssetList(new MinecraftAssetListRequest
+            {
+                IndexJson = JsonNode.Parse("{\"objects\":{\"../escape\":{\"hash\":\"abcdef\",\"size\":1}}}")!.AsObject(),
+                MinecraftRootDirectory = root,
+                InstanceDirectory = Path.Combine(root, "instance"),
+            });
+        }
+        catch (InvalidDataException) { rejected = true; }
+        AssertTrue(rejected);
+    }
+
+    internal static void MinecraftLibrariesAndClasspathHonorRules()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "minecraft-library-root");
+        JsonObject manifest = JsonNode.Parse("""
+            {
+              "libraries": [
+                { "name": "org.example:client:1.0", "downloads": { "artifact": { "path": "org/example/client/1.0/client-1.0.jar", "url": "https://repo.example/client.jar", "sha1": "abcdef", "size": 12 } } },
+                { "name": "org.example:linux:1.0", "rules": [{ "action": "allow", "os": { "name": "linux" } }] },
+                { "name": "org.example:windows:1.0", "rules": [{ "action": "allow", "os": { "name": "windows" } }] },
+                { "name": "org.example:native:1.0", "natives": { "linux": "natives-linux" }, "downloads": { "classifiers": { "natives-linux": { "path": "org/example/native/1.0/native-1.0-natives-linux.jar", "url": "https://repo.example/native.jar" } } } }
+              ]
+            }
+            """)!.AsObject();
+        IReadOnlyList<MinecraftLibraryToken> libraries = MinecraftLibraryResolver.Resolve(new MinecraftLibraryResolutionRequest
+        {
+            VersionJson = manifest,
+            MinecraftRootDirectory = root,
+            OperatingSystem = MinecraftLibraryOperatingSystem.Linux,
+            Is64BitArchitecture = true,
+        });
+        AssertEqual(3, libraries.Count);
+        AssertTrue(libraries.Any(token => token.OriginalName == "org.example:linux:1.0"));
+        AssertFalse(libraries.Any(token => token.OriginalName == "org.example:windows:1.0"));
+        MinecraftLibraryToken native = libraries.Single(token => token.IsNatives);
+        AssertTrue(native.LocalPath.EndsWith("native-1.0-natives-linux.jar", StringComparison.Ordinal));
+        AssertEqual("org/example/client/1.0/client-1.0.jar", Path.GetRelativePath(Path.Combine(root, "libraries"), libraries[0].LocalPath).Replace('\\', '/'));
+
+        MinecraftClasspathPlan plan = MinecraftClasspathPlanner.CreatePlan(new MinecraftClasspathPlanRequest
+        {
+            Libraries = [native, new MinecraftLibraryToken { OriginalName = "optifine:OptiFine:HD_U_I7", NameWithoutVersion = "optifine:OptiFine", LocalPath = "optifine.jar" }, new MinecraftLibraryToken { OriginalName = "org.example:client:1.0", LocalPath = "client.jar" }],
+            ClasspathHeadEntries = ["head.jar"],
+        });
+        AssertFalse(plan.Entries.Contains(native.LocalPath));
+        AssertTrue(plan.Entries.Contains("head.jar"));
+        AssertTrue(plan.Entries.Contains("optifine.jar"));
+    }
+
+    private static JavaRuntimeCandidate Candidate(string home, Version version, JavaBrand brand, bool isJre) =>
+        new(new JavaInstallation(home, Path.Combine(home, "bin", "java"), null, version, brand, JavaArchitecture.X64, true, isJre));
+
+    private sealed class InMemoryJavaLocator(IReadOnlyList<JavaRuntimeCandidate> candidates) : IJavaRuntimeLocator
+    {
+        public ValueTask<IReadOnlyList<JavaRuntimeCandidate>> FindAllAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(candidates);
     }
 
 }
