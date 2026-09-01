@@ -11,13 +11,11 @@ tests.
 
 ## Locked contract
 
-- Java requirements: `JavaVersionRange.TryIntersect` implements mathematical intersection
+- Java ranges: `JavaVersionRange.TryIntersect` implements mathematical intersection
   (minimum = max, maximum = min) and returns false for disjoint ranges; the resolver surfaces
-  that as `ConflictingRequirements` instead of widening. `MinecraftGameVersion` is a separate
-  domain coordinate, so shorthand and normal Minecraft versions are normalized to their true
-  1.x tuple before era gates. Gates: ≥1.20.5 → Java 21, <1.13 → Java 8, legacy Forge <1.12
-  → Java 7, OptiFine 1.8–1.12 → Java 8. Manifest exact-major requirements are intersected
-  with those gates and cannot silently widen them.
+  that as `ConflictingRequirements` instead of widening. The Minecraft version coordinate and
+  Java `Version` are separate domains. The historical fallback matrix and manifest precedence
+  are locked by XSR-608; loader constraints still intersect the selected base requirement.
 - Launch tokens: the full Mojang vocabulary is covered — auth/version/game/assets tokens
   plus `natives_directory`, `classpath_separator`, `library_directory`, `launcher_version`,
   `clientid`, `auth_xuid`, and `user_properties`. Any remaining `${...}` after replacement
@@ -54,11 +52,12 @@ tests.
 ## Corpus
 
 `CanonicalCorpusProducesConsistentLaunchSnapshots` uses a de-identified, deterministic fixture
-matrix covering legacy `minecraftArguments`, modern JVM/game arguments, 1.7/1.12/1.16/1.20.1/
-1.20.5/1.20.6/1.21 boundaries, Forge, Fabric, Quilt, NeoForge, OptiFine, Cleanroom, inherited
-loader chains, and Linux ARM64 LWJGL. Each fixture asserts the expected Java lower bound (the
-field is no longer discarded), manifest component when present, main class, library/native
-split, client-JAR selection, classpath, memory argument, and absence of unresolved tokens.
+matrix covering legacy `minecraftArguments`, modern JVM/game arguments, 1.7/1.12/1.16/1.17/
+1.18/1.20.1/1.20.5/1.20.6/1.21 boundaries, calendar 26.1, Forge, Fabric, Quilt, NeoForge,
+OptiFine, Cleanroom, inherited loader chains, and Linux ARM64 LWJGL. Each fixture asserts the
+expected Java lower bound (the field is no longer discarded), manifest component when present,
+main class, library/native split, client-JAR selection, classpath, memory argument, and absence
+of unresolved tokens.
 
 ## Verification
 

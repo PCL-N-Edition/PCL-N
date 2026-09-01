@@ -23,7 +23,7 @@ There is no periodic `dev -> refactor/xsr` merge. A legacy fix is forward-ported
 | 3 PXML | parser through generated UI.Next IR and runtime loader | no runtime reflection binding |
 | 4 Sidecar Fabric v2 | registration, command/query, state mirror, event, UI/resources, recovery | protocol, crash, reconnect, and performance gates |
 | 5 Foundation services | Settings through Account/Update | capability parity and data compatibility — complete (XSR-501…520, see below) |
-| 6 Minecraft core | discovery, instances, Java, assets, libraries, launch, process, crash analysis | canonical corpus parity — complete (XSR-601…606) |
+| 6 Minecraft core | discovery, instances, Java, assets, libraries, launch, process, crash analysis | canonical corpus parity — complete (XSR-601…606, XSR-608) |
 | 7 Product UI | product vertical slices rendered through PXML/UI.Next | UX and accessibility parity |
 | 8 Plugin SDK 1.0 | stable API, package, manifest, UI IR, permissions, testing, analyzers | compatibility baseline and validation plugins |
 | 9 Plugin ecosystem | runtime, internal plugins, IDE, market, legacy adapter | real plugin migration evidence |
@@ -75,8 +75,9 @@ legacy ViewModel or UI dependency is carried into the branch:
 | XSR-604 | `5f3bed3b` | formal Minecraft command/query router composition |
 | XSR-605 | `4add2898` + `fd8d6fc2` | runtime/client/asset acquisition, ARM64 parity, instance discovery, and final evidence |
 | XSR-606 | `fcaf7fa6` + `10d72a09` + `c566bc3f` + `1ee58542` + `d70ddff2` | acceptance hardening: Minecraft/Java version domains and conflicts, full token coverage with strict unknown-token rejection, automatic inherited client-JAR and `jar`-alias resolution, ARM64 natives, launch-integrated extraction, shared process state and cancel route, common Mojang rules, safe download paths, and the expanded corpus |
+| XSR-608 | `1dba7f82` | Java policy closure: Legacy/Calendar version schemes, manifest-first Java selection, the 1.16.5/1.17/1.18/1.20.5/26.1 matrix, corrected corpus goldens, and Java 7/8 selection regressions |
 
-Exit evidence: `tests/PCL.Services.Tests` passes 165 executable tests under CoreCLR and
+Exit evidence: `tests/PCL.Services.Tests` passes 170 executable tests under CoreCLR and
 NativeAOT; Runtime, UI.Next, PXML, and Sidecar CoreCLR/AOT gates pass; the UI.Next benchmark
 gate and 27-project architecture gate pass; Desktop trim publish succeeds; and `dotnet format`
 reports no changes.
