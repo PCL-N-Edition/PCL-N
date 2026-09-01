@@ -78,3 +78,5 @@ Any change to a locked boundary requires:
 
 Public API baselines describe the accepted surface; changing a baseline never turns a breaking change into a compatible one.
 - [migrations/XSR-606-minecraft-launch-hardening.md](migrations/XSR-606-minecraft-launch-hardening.md) — Minecraft launch hardening: Java conflicts, token coverage, natives extraction, process state
+- [migrations/XSR-608-minecraft-java-policy.md](migrations/XSR-608-minecraft-java-policy.md) — Minecraft Java policy closure: version schemes, manifest-first selection, and the historical compatibility matrix
+- [migrations/XSR-609-minecraft-library-artifact-native-pair.md](migrations/XSR-609-minecraft-library-artifact-native-pair.md) — Minecraft library artifact/native pairing: preserve ordinary classpath JARs beside native classifiers
