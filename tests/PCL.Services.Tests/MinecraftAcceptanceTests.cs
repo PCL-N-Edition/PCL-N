@@ -323,6 +323,27 @@ internal static partial class Program
 
             int cpIndex = plan.Arguments.ToList().IndexOf("-cp");
             AssertTrue(plan.Arguments[cpIndex + 1].StartsWith(baseJar, StringComparison.Ordinal));
+
+            // Legacy loader manifests use a `jar` alias instead of inheritsFrom. The alias must
+            // win even when the loader has its own auxiliary JAR in the instance directory.
+            string loaderJar = Path.Combine(instance, "fabric-loader-alias.jar");
+            File.WriteAllBytes(loaderJar, [0x02]);
+            MinecraftLaunchPlan aliasPlan = MinecraftLaunchPlanner.CreatePlan(new MinecraftLaunchRequest
+            {
+                VersionJson = new JsonObject
+                {
+                    ["id"] = "fabric-loader-alias",
+                    ["jar"] = "1.20.1",
+                    ["mainClass"] = "net.fabricmc.loader.impl.launch.knot.KnotClient",
+                },
+                VersionId = "fabric-loader-alias",
+                InstanceDirectory = instance,
+                MinecraftRootDirectory = directory,
+                PlayerName = "Steve",
+                PlayerUuid = "uuid-1",
+            });
+            AssertTrue(aliasPlan.IsInheritedClientJar);
+            AssertEqual(Path.GetFullPath(baseJar), aliasPlan.ClientJarPath);
         }
         finally
         {

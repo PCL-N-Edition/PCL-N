@@ -114,6 +114,19 @@ public static class MinecraftClientJarResolver
                 Path.Combine(root, "versions", parent, parent + ".jar"));
         }
 
+        string? jarAlias = manifest?["jar"]?.ToString();
+        if (!string.IsNullOrWhiteSpace(jarAlias) && !string.Equals(jarAlias, versionId, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!MinecraftVersionPaths.IsSafeReference(jarAlias))
+                throw new InvalidDataException($"The base jar alias is not a safe file name: {jarAlias}");
+            if (TryResolveChain(jarAlias, null, manifests, root, instance, inherited: true, visited, out resolution))
+                return true;
+
+            throw new FileNotFoundException(
+                "The Minecraft base JAR alias is missing; download the base version before launching.",
+                Path.Combine(root, "versions", jarAlias, jarAlias + ".jar"));
+        }
+
         string? path = FindJar(root, instance, versionId);
         if (path is null) return false;
         resolution = new(path, versionId, inherited);
