@@ -164,6 +164,7 @@ public static class MinecraftLibraryResolver
             bool local = string.Equals(library["hint"]?.ToString(), "local", StringComparison.OrdinalIgnoreCase);
             try
             {
+                string? declaredClassifier = GetCoordinateClassifier(coordinate);
                 string? rootUrl = BuildRootUrl(library["url"]?.ToString(), coordinate);
                 if (library["natives"] is JsonObject natives)
                 {
@@ -202,14 +203,14 @@ public static class MinecraftLibraryResolver
                 JsonObject? artifact = library["downloads"]?["artifact"]?.AsObject();
                 string localPath = local && !string.IsNullOrWhiteSpace(request.TargetInstanceDirectory)
                     ? Contained(Path.GetFullPath(request.TargetInstanceDirectory!), "libraries", GetLocalLibraryFileName(coordinate))
-                    : ResolveArtifactPath(root, artifact?["path"]?.ToString(), coordinate, classifier: null);
+                    : ResolveArtifactPath(root, artifact?["path"]?.ToString(), coordinate, declaredClassifier);
                 MinecraftLibraryToken artifactToken = CreateToken(
                     coordinate,
                     localPath,
                     rootUrl ?? artifact?["url"]?.ToString(),
                     artifact?["sha1"]?.ToString(),
                     ParseSize(artifact?["size"]),
-                    isNatives: false,
+                    isNatives: IsNativeClassifier(declaredClassifier),
                     local);
                 MinecraftLibraryToken? resolvedArtifact = ResolveArchitectureSpecificArtifact(artifactToken, root, request);
                 if (resolvedArtifact is not null) result.Add(resolvedArtifact);
@@ -293,6 +294,7 @@ public static class MinecraftLibraryResolver
             Url = CreateMavenCentralUrl(nativePath, minecraftRoot),
             Sha1 = nativeMetadata.Sha1,
             Size = nativeMetadata.Size,
+            IsNatives = true,
         };
     }
 
@@ -370,8 +372,19 @@ public static class MinecraftLibraryResolver
     {
         if (string.IsNullOrWhiteSpace(baseUrl)) return null;
         string relative = GetCoordinatePath(coordinate, string.Empty, includeMinecraftRoot: false).Replace(Path.DirectorySeparatorChar, '/');
+        string? classifier = GetCoordinateClassifier(coordinate);
+        if (IsNativeClassifier(classifier)) relative = Path.ChangeExtension(relative, null)!.Replace(Path.DirectorySeparatorChar, '/') + "-" + classifier + ".jar";
         return baseUrl.TrimEnd('/') + "/" + relative;
     }
+
+    private static string? GetCoordinateClassifier(string coordinate)
+    {
+        string[] parts = coordinate.Split(':');
+        return parts.Length == 4 ? parts[3] : null;
+    }
+
+    private static bool IsNativeClassifier(string? classifier) =>
+        classifier?.StartsWith("natives-", StringComparison.OrdinalIgnoreCase) == true;
 
     private static string[] ParseCoordinate(string coordinate)
     {

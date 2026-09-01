@@ -392,6 +392,12 @@ internal static partial class Program
                                 ["natives-linux"] = new JsonObject { ["path"] = "org/lwjgl/lwjgl/3.3.2/lwjgl-3.3.2-natives-linux.jar", ["sha1"] = "bb", ["size"] = 3 },
                             },
                         },
+                    },
+                    new JsonObject
+                    {
+                        // Some third-party manifests put the native classifier in the coordinate
+                        // instead of using the separate `natives` map.
+                        ["name"] = "org.lwjgl:lwjgl:3.2.2:natives-linux",
                     }),
             };
 
@@ -408,6 +414,7 @@ internal static partial class Program
             AssertTrue(arm64 is not null);
             MinecraftLibraryToken arm64Token = arm64!;
             AssertTrue(arm64Token.IsNatives);
+            AssertTrue(libraries.Any(static token => token.OriginalName == "org.lwjgl:lwjgl:3.3.2:natives-linux-arm64" && token.IsNatives));
 
             // Classpath planner excludes natives.
             MinecraftClasspathPlan classpath = MinecraftClasspathPlanner.CreatePlan(new MinecraftClasspathPlanRequest
