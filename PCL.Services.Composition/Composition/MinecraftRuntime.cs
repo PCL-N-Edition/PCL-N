@@ -47,9 +47,12 @@ public static class MinecraftRuntimeComposer
         MinecraftVersionDiscovery versionDiscovery = discovery ?? new MinecraftVersionDiscovery();
         MinecraftInstanceDiscovery instanceDiscovery = new(versionDiscovery);
         MinecraftProcessService processService = processes ?? new MinecraftProcessService(hostStore: hostStore);
+        if (hostStore is not null && !ReferenceEquals(hostStore, processService.StateStore))
+            throw new ArgumentException("The Minecraft process service must publish into the supplied host state store.", nameof(processes));
         IXsrDispatchObserver dispatchObserver = observer ?? NullDispatchObserver.Instance;
         XsrCommandRouterBuilder commandBuilder = new();
         commandBuilder.Register(MinecraftRouteIds.Launch, MinecraftCommands.CreateLaunchHandler(processService));
+        commandBuilder.Register(MinecraftRouteIds.ProcessCancel, MinecraftCommands.CreateCancelProcessHandler(processService));
         XsrQueryRouterBuilder queryBuilder = new();
         queryBuilder.Register(MinecraftRouteIds.VersionsRead, MinecraftQueries.CreateVersionsHandler(versionDiscovery));
         queryBuilder.Register(MinecraftRouteIds.InstancesRead, MinecraftQueries.CreateInstancesHandler(instanceDiscovery));

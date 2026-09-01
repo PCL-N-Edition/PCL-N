@@ -54,6 +54,8 @@ public static class MinecraftVersionPaths
     public static bool IsSafeReference(string? value) =>
         !string.IsNullOrWhiteSpace(value) && value.Length <= 180 && value is not "." and not ".." &&
         !Path.IsPathRooted(value) && value.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
+        !value.Contains(':', StringComparison.Ordinal) &&
+        value.IndexOfAny(['/', '\\']) < 0 && !value.Any(char.IsControl) &&
         string.Equals(Path.GetFileName(value), value, StringComparison.Ordinal);
 
     private static string? FindJsonByNameOrId(string? directory, string reference)

@@ -8,6 +8,7 @@ using PCL.Services.Minecraft.Launch;
 using PCL.Services.Minecraft.Libraries;
 using PCL.Services.Minecraft.Process;
 using PCL.Xsr;
+using PCL.Xsr.State;
 
 namespace PCL.Services.Tests;
 
@@ -49,6 +50,51 @@ internal static partial class Program
         AssertEqual(new Version(1, 8, 0, 512), eight.Maximum);
     }
 
+    internal static void MinecraftJavaGatesUseNormalizedCoordinates()
+    {
+        JavaRequirementResolution modern = MinecraftJavaRequirementResolver.Resolve(new MinecraftJavaRequirementRequest
+        {
+            HasReliableVanillaVersion = true,
+            VanillaVersion = new Version(1, 20, 5),
+        });
+        AssertTrue(modern.Success);
+        AssertEqual(JavaVersionRange.ForMajor(21), modern.Range);
+
+        JavaRequirementResolution preModern = MinecraftJavaRequirementResolver.Resolve(new MinecraftJavaRequirementRequest
+        {
+            HasReliableVanillaVersion = true,
+            VanillaVersion = new Version(1, 20, 4),
+        });
+        AssertTrue(preModern.Success);
+        AssertEqual(JavaVersionRange.Any, preModern.Range);
+
+        JavaRequirementResolution shorthand = MinecraftJavaRequirementResolver.Resolve(new MinecraftJavaRequirementRequest
+        {
+            HasReliableVanillaVersion = true,
+            VanillaVersion = new Version(20, 5),
+        });
+        AssertTrue(shorthand.Success);
+        AssertEqual(JavaVersionRange.ForMajor(21), shorthand.Range);
+
+        JavaRequirementResolution cleanroom25 = MinecraftJavaRequirementResolver.Resolve(new MinecraftJavaRequirementRequest
+        {
+            HasCleanroom = true,
+            CleanroomVersion = "0.5.1-beta",
+        });
+        AssertTrue(cleanroom25.Success);
+        AssertEqual(JavaVersionRange.ForMajor(25), cleanroom25.Range);
+
+        JavaRequirementResolution cleanroomWithLegacyJava8 = MinecraftJavaRequirementResolver.Resolve(new MinecraftJavaRequirementRequest
+        {
+            HasCleanroom = true,
+            CleanroomVersion = "0.5.1-beta",
+            HasReliableVanillaVersion = true,
+            VanillaVersion = new Version(1, 8, 9),
+        });
+        AssertFalse(cleanroomWithLegacyJava8.Success);
+        AssertEqual(JavaRequirementFailureReason.ConflictingRequirements, cleanroomWithLegacyJava8.FailureReason);
+    }
+
     internal static async ValueTask ModernJvmTokensAllResolve()
     {
         string directory = CreateTempDirectory();
@@ -69,6 +115,8 @@ internal static partial class Program
                     ["jvm"] = new JsonArray(
                         "-Djava.library.path=${natives_directory}",
                         "-Djna.nosys=true",
+                        "-Dlauncher=${launcher_name}/${launcher_version}",
+                        "-Dlibrary=${library_directory}",
                         "${classpath_separator}"),
                     ["game"] = new JsonArray(
                         "--username ${auth_player_name}",
@@ -102,6 +150,8 @@ internal static partial class Program
             }
 
             AssertTrue(plan.Arguments.Contains("-Djava.library.path=" + natives));
+            AssertTrue(plan.Arguments.Contains("-Dlauncher=PCL-N/2.0.0"));
+            AssertTrue(plan.Arguments.Any(argument => argument.StartsWith("-Dlibrary=", StringComparison.Ordinal)));
             AssertTrue(plan.Arguments.Contains("--gameDir " + instance, StringComparer.Ordinal));
 
             // The derived client JAR is automatically the classpath head.
@@ -158,6 +208,45 @@ internal static partial class Program
         {
             Directory.Delete(directory, recursive: true);
         }
+
+        await Task.CompletedTask;
+    }
+
+    internal static async ValueTask UnknownJvmTokenFailsPlanning()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string instance = Path.Combine(directory, "instance");
+            Directory.CreateDirectory(instance);
+            string client = Path.Combine(instance, "unknown-jvm.jar");
+            File.WriteAllBytes(client, [0x01]);
+            bool failed = false;
+            try
+            {
+                _ = MinecraftLaunchPlanner.CreatePlan(new MinecraftLaunchRequest
+                {
+                    VersionJson = new JsonObject
+                    {
+                        ["mainClass"] = "net.minecraft.client.main.Main",
+                        ["arguments"] = new JsonObject { ["jvm"] = new JsonArray("-Dfuture=${future_jvm_token}") },
+                    },
+                    VersionId = "unknown-jvm",
+                    InstanceDirectory = instance,
+                    MinecraftRootDirectory = directory,
+                    PlayerName = "Steve",
+                    PlayerUuid = "uuid-1",
+                    ClientJarPath = client,
+                });
+            }
+            catch (InvalidDataException failure)
+            {
+                failed = failure.Message.Contains("future_jvm_token", StringComparison.Ordinal);
+            }
+
+            AssertTrue(failed);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
 
         await Task.CompletedTask;
     }
@@ -239,6 +328,43 @@ internal static partial class Program
         {
             Directory.Delete(directory, recursive: true);
         }
+
+        await Task.CompletedTask;
+    }
+
+    internal static async ValueTask InheritedLaunchResolvesBaseClientJarAutomatically()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string instance = Path.Combine(directory, "instance");
+            string baseDirectory = Path.Combine(directory, "versions", "1.20.1");
+            Directory.CreateDirectory(instance);
+            Directory.CreateDirectory(baseDirectory);
+            string baseJar = Path.Combine(baseDirectory, "1.20.1.jar");
+            File.WriteAllBytes(baseJar, [0x01]);
+
+            MinecraftLaunchPlan plan = MinecraftLaunchPlanner.CreatePlan(new MinecraftLaunchRequest
+            {
+                VersionJson = new JsonObject
+                {
+                    ["id"] = "fabric-loader-0.16.5-1.20.1",
+                    ["inheritsFrom"] = "1.20.1",
+                    ["mainClass"] = "net.fabricmc.loader.impl.launch.knot.KnotClient",
+                    ["libraries"] = new JsonArray(),
+                },
+                VersionId = "fabric-loader-0.16.5-1.20.1",
+                InstanceDirectory = instance,
+                MinecraftRootDirectory = directory,
+                PlayerName = "Steve",
+                PlayerUuid = "uuid-1",
+            });
+
+            AssertTrue(plan.IsInheritedClientJar);
+            AssertEqual(Path.GetFullPath(baseJar), plan.ClientJarPath);
+            AssertEqual(Path.GetFullPath(baseJar), plan.ClasspathEntries[0]);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
 
         await Task.CompletedTask;
     }
@@ -485,5 +611,178 @@ internal static partial class Program
         });
 
         AssertTrue(plan.Arguments.Contains("--no-custom-resolution", StringComparer.Ordinal));
+    }
+
+    internal static void MinecraftLibraryRulesUseSharedEvaluator()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            JsonObject manifest = new()
+            {
+                ["libraries"] = new JsonArray(
+                    new JsonObject
+                    {
+                        ["name"] = "org.example:ordered:1.0",
+                        ["rules"] = new JsonArray(
+                            new JsonObject { ["action"] = "disallow", ["os"] = new JsonObject { ["name"] = "windows" } },
+                            new JsonObject { ["action"] = "allow", ["os"] = new JsonObject { ["name"] = "windows" } }),
+                    },
+                    new JsonObject
+                    {
+                        ["name"] = "org.example:regex:1.0",
+                        ["rules"] = new JsonArray(new JsonObject { ["action"] = "allow", ["os"] = new JsonObject { ["name"] = "windows", ["version"] = "^10\\." } }),
+                    },
+                    new JsonObject
+                    {
+                        ["name"] = "org.example:feature:1.0",
+                        ["rules"] = new JsonArray(new JsonObject { ["action"] = "allow", ["features"] = new JsonObject { ["has_custom_resolution"] = false } }),
+                    }),
+            };
+
+            IReadOnlyList<MinecraftLibraryToken> resolved = MinecraftLibraryResolver.Resolve(new MinecraftLibraryResolutionRequest
+            {
+                VersionJson = manifest,
+                MinecraftRootDirectory = CreateTempDirectory(),
+                OperatingSystem = MinecraftLibraryOperatingSystem.Win32,
+                OperatingSystemVersion = "10.0.22631",
+            });
+            AssertTrue(resolved.Any(token => token.OriginalName == "org.example:ordered:1.0"));
+            AssertTrue(resolved.Any(token => token.OriginalName == "org.example:regex:1.0"));
+            AssertTrue(resolved.Any(token => token.OriginalName == "org.example:feature:1.0"));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    internal static async ValueTask MinecraftLaunchRouteStagesNativesBeforeProcessStart()
+    {
+        string directory = CreateTempDirectory();
+        MinecraftProcessService? processes = null;
+        try
+        {
+            string root = Path.Combine(directory, "root");
+            string instance = Path.Combine(directory, "instance");
+            string natives = Path.Combine(instance, "natives");
+            Directory.CreateDirectory(instance);
+            string client = Path.Combine(instance, "1.20.1.jar");
+            File.WriteAllBytes(client, [0x01]);
+
+            string nativeJar = Path.Combine(root, "libraries", "org", "example", "native", "1.0", "native-1.0-natives-linux.jar");
+            Directory.CreateDirectory(Path.GetDirectoryName(nativeJar)!);
+            using (FileStream stream = File.Create(nativeJar))
+            using (ZipArchive archive = new(stream, ZipArchiveMode.Create))
+            {
+                ZipArchiveEntry entry = archive.CreateEntry("libnative.so");
+                using Stream output = entry.Open();
+                output.Write([0x42]);
+            }
+
+            JsonObject manifest = new()
+            {
+                ["id"] = "1.20.1",
+                ["mainClass"] = "net.minecraft.client.main.Main",
+                ["arguments"] = new JsonObject
+                {
+                    ["jvm"] = new JsonArray("-Djava.library.path=${natives_directory}"),
+                    ["game"] = new JsonArray("--username", "${auth_player_name}"),
+                },
+                ["libraries"] = new JsonArray(new JsonObject
+                {
+                    ["name"] = "org.example:native:1.0",
+                    ["natives"] = new JsonObject { ["linux"] = "natives-linux" },
+                    ["downloads"] = new JsonObject
+                    {
+                        ["classifiers"] = new JsonObject
+                        {
+                            ["natives-linux"] = new JsonObject { ["path"] = "org/example/native/1.0/native-1.0-natives-linux.jar" },
+                        },
+                    },
+                }),
+            };
+
+            XsrStateStoreBuilder builder = new();
+            MinecraftProcessStateComposition.DeclareState(builder);
+            XsrStateStore store = builder.Build();
+            processes = new MinecraftProcessService(new ExtractionCheckingProcessPort(Path.Combine(natives, "libnative.so")), store);
+            MinecraftLaunchExecutor executor = new(processes);
+            XsrCommandHandler<MinecraftLaunchCommand> launch = MinecraftCommands.CreateLaunchHandler(executor);
+            XsrResult result = await launch(new MinecraftLaunchCommand(new MinecraftLaunchRequest
+            {
+                VersionJson = manifest,
+                VersionId = "1.20.1",
+                InstanceDirectory = instance,
+                MinecraftRootDirectory = root,
+                PlayerName = "Steve",
+                PlayerUuid = "uuid-1",
+                OperatingSystem = MinecraftLibraryOperatingSystem.Linux,
+                NativesDirectory = natives,
+            }), CancellationToken.None);
+
+            AssertTrue(result.IsSuccess);
+            AssertTrue(File.Exists(Path.Combine(natives, "libnative.so")));
+            MinecraftProcessSnapshot session = processes.ListSessions().Single();
+            XsrCollectionSnapshot<MinecraftProcessSnapshot> state = store.ReadCollection<MinecraftProcessSnapshot>(
+                store.Resolve(MinecraftProcessStateComposition.SessionsKey));
+            AssertTrue(state.Items.Any(item => item.SessionId == session.SessionId));
+
+            XsrResult cancelled = await MinecraftCommands.CreateCancelProcessHandler(processes)(
+                new MinecraftCancelProcessCommand(session.SessionId), CancellationToken.None);
+            AssertTrue(cancelled.IsSuccess);
+        }
+        finally
+        {
+            if (processes is not null) await processes.DisposeAsync();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    internal static void MinecraftDownloadPathsRejectManifestTraversal()
+    {
+        bool unsafeClientRejected = false;
+        try
+        {
+            _ = PCL.Services.Minecraft.Downloads.MinecraftClientDownloadPlanner.CreateClientJarPlan(new PCL.Services.Minecraft.Downloads.MinecraftClientJarDownloadPlanRequest
+            {
+                VersionJson = new JsonObject
+                {
+                    ["downloads"] = new JsonObject
+                    {
+                        ["client"] = new JsonObject { ["url"] = "https://example.invalid/client.jar" },
+                    },
+                },
+                InstanceDirectory = CreateTempDirectory(),
+                VersionName = "../../outside",
+            });
+        }
+        catch (InvalidDataException) { unsafeClientRejected = true; }
+        AssertTrue(unsafeClientRejected);
+
+        bool unsafeIndexRejected = false;
+        try
+        {
+            _ = PCL.Services.Minecraft.Downloads.MinecraftClientDownloadPlanner.CreateAssetIndexPlan(new PCL.Services.Minecraft.Downloads.MinecraftAssetIndexDownloadPlanRequest
+            {
+                VersionJson = new JsonObject
+                {
+                    ["assetIndex"] = new JsonObject
+                    {
+                        ["id"] = "../../outside",
+                        ["url"] = "https://example.invalid/assets.json",
+                    },
+                },
+                MinecraftRootDirectory = CreateTempDirectory(),
+            });
+        }
+        catch (InvalidDataException) { unsafeIndexRejected = true; }
+        AssertTrue(unsafeIndexRejected);
+    }
+
+    private sealed class ExtractionCheckingProcessPort(string requiredNativePath) : IMinecraftProcessPort
+    {
+        public ValueTask<System.Diagnostics.Process> StartAsync(System.Diagnostics.ProcessStartInfo startInfo, CancellationToken cancellationToken = default)
+        {
+            if (!File.Exists(requiredNativePath)) throw new InvalidOperationException("Native extraction did not complete before process start.");
+            return ValueTask.FromResult(CreateSleepProcess(2));
+        }
     }
 }

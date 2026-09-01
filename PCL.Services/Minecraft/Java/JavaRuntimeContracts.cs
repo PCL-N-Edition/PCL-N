@@ -340,10 +340,7 @@ public static class MinecraftJavaRequirementResolver
     /// Version(1,8,0) instead of Version(8,0), so era gates order correctly.
     /// </summary>
     public static Version NormalizeVanilla(Version vanilla)
-    {
-        if (vanilla.Major == 1) return vanilla;
-        return new Version(1, vanilla.Major, vanilla.Minor);
-    }
+        => MinecraftGameVersion.FromVersion(vanilla).ToVersion();
 
     public static JavaRequirementResolution Resolve(MinecraftJavaRequirementRequest request)
     {
@@ -358,7 +355,13 @@ public static class MinecraftJavaRequirementResolver
                 return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.InvalidVersionMetadata, "Cleanroom version metadata is invalid.");
             }
 
-            if (!range.TryIntersect(cleanroom!.Major >= 5 ? JavaVersionRange.ForMajor(25) : JavaVersionRange.ForMajor(21), out range))
+            // Cleanroom uses a 0.x version line; 0.5.0 and later require Java 25, while
+            // pre-0.5 builds require Java 21. Compare the loader's own coordinate rather than
+            // looking only at the major component (which would misclassify 0.5.1 as Java 21).
+            JavaVersionRange cleanroomRange = cleanroom! >= new Version(0, 5)
+                ? JavaVersionRange.ForMajor(25)
+                : JavaVersionRange.ForMajor(21);
+            if (!range.TryIntersect(cleanroomRange, out range))
             {
                 return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
             }
@@ -368,15 +371,15 @@ public static class MinecraftJavaRequirementResolver
         {
             // Minecraft "1.8" parses as Version(8,0), which sorts AFTER "1.20.5" numerically.
             // Normalize to the true 1.x-era tuple before applying the gates.
-            Version version = NormalizeVanilla(rawVersion);
-            if (version >= new Version(1, 20, 5))
+            MinecraftGameVersion version = MinecraftGameVersion.FromVersion(rawVersion);
+            if (version >= new MinecraftGameVersion(1, 20, 5))
             {
                 if (!range.TryIntersect(JavaVersionRange.ForMajor(21), out range))
                 {
                     return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
                 }
             }
-            else if (version < new Version(13, 0, 0))
+            else if (version < new MinecraftGameVersion(1, 13, 0))
             {
                 if (!range.TryIntersect(JavaVersionRange.ForMajor(8), out range))
                 {
@@ -384,7 +387,7 @@ public static class MinecraftJavaRequirementResolver
                 }
             }
 
-            if (request.HasForge && version < new Version(12, 0, 0) && IsLegacyForge(request.ForgeVersion))
+            if (request.HasForge && version < new MinecraftGameVersion(1, 12, 0) && IsLegacyForge(request.ForgeVersion))
             {
                 if (!range.TryIntersect(JavaVersionRange.ForMajor(7), out range))
                 {
@@ -392,7 +395,7 @@ public static class MinecraftJavaRequirementResolver
                 }
             }
 
-            if (request.HasOptiFine && version >= new Version(8, 0, 0) && version < new Version(13, 0, 0))
+            if (request.HasOptiFine && version >= new MinecraftGameVersion(1, 8, 0) && version < new MinecraftGameVersion(1, 13, 0))
             {
                 if (!range.TryIntersect(JavaVersionRange.ForMajor(8), out range))
                 {
@@ -409,7 +412,7 @@ public static class MinecraftJavaRequirementResolver
             }
         }
 
-        if (request.HasLabyMod && request.VanillaVersion is { } labyVersion && labyVersion < new Version(13, 0, 0))
+        if (request.HasLabyMod && request.HasReliableVanillaVersion && request.VanillaVersion is { } rawLabyVersion && MinecraftGameVersion.FromVersion(rawLabyVersion) < new MinecraftGameVersion(1, 13, 0))
         {
             if (!range.TryIntersect(JavaVersionRange.ForMajor(8), out range))
             {

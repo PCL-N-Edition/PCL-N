@@ -83,6 +83,8 @@ public static class MinecraftClientDownloadPlanner
         ArgumentNullException.ThrowIfNull(request.VersionJson);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.InstanceDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.VersionName);
+        if (!MinecraftVersionPaths.IsSafeReference(request.VersionName))
+            throw new InvalidDataException($"The version name is not a safe file name: {request.VersionName}");
         string? url = request.VersionJson["downloads"]?["client"]?["url"]?.ToString();
         if (string.IsNullOrWhiteSpace(url)) return new MinecraftClientJarDownloadPlan(null, MinecraftClientDownloadFailureReason.NoClientJarDownloadInfo);
         JsonObject? client = request.VersionJson["downloads"]?["client"]?.AsObject();
@@ -90,7 +92,7 @@ public static class MinecraftClientDownloadPlanner
         return new MinecraftClientJarDownloadPlan(new MinecraftClientJarDownloadFile
         {
             Url = url,
-            LocalPath = Path.Combine(Path.GetFullPath(request.InstanceDirectory), request.VersionName + ".jar"),
+            LocalPath = Contained(Path.GetFullPath(request.InstanceDirectory), request.VersionName + ".jar"),
             MinimumSize = MinimumClientJarSize,
             ActualSize = actualSize,
             Sha1 = client?["sha1"]?.ToString(),
@@ -109,13 +111,30 @@ public static class MinecraftClientDownloadPlanner
         });
         if (resolution.IndexJson is null) return new MinecraftAssetIndexDownloadPlan { UsedLegacyFallback = resolution.UsedLegacyFallback };
         string id = resolution.IndexJson["id"]?.ToString() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(id) && !MinecraftVersionPaths.IsSafeReference(id))
+            throw new InvalidDataException($"The asset index id is not a safe file name: {id}");
+        string? url = string.IsNullOrWhiteSpace(resolution.IndexJson["url"]?.ToString()) ? null : resolution.IndexJson["url"]!.ToString();
+        string? localPath = string.IsNullOrWhiteSpace(id)
+            ? null
+            : Contained(Path.GetFullPath(request.MinecraftRootDirectory), "assets", "indexes", id + ".json");
         return new MinecraftAssetIndexDownloadPlan
         {
-            IndexId = id,
-            Url = string.IsNullOrWhiteSpace(resolution.IndexJson["url"]?.ToString()) ? null : resolution.IndexJson["url"]!.ToString(),
-            LocalPath = Path.Combine(Path.GetFullPath(request.MinecraftRootDirectory), "assets", "indexes", id + ".json"),
+            IndexId = string.IsNullOrWhiteSpace(id) ? null : id,
+            Url = url,
+            LocalPath = localPath,
             UsedLegacyFallback = resolution.UsedLegacyFallback,
         };
+    }
+
+    private static string Contained(string root, params string[] parts)
+    {
+        string fullRoot = Path.GetFullPath(root);
+        string candidate = Path.GetFullPath(Path.Combine(new[] { fullRoot }.Concat(parts).ToArray()));
+        string prefix = Path.TrimEndingDirectorySeparator(fullRoot) + Path.DirectorySeparatorChar;
+        StringComparison comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (!candidate.StartsWith(prefix, comparison))
+            throw new InvalidDataException("The download path escapes its root.");
+        return candidate;
     }
 }
 

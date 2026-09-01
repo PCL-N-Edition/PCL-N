@@ -24,7 +24,9 @@ public static class MinecraftNativesExtractor
         foreach (string jarPath in nativeJarPaths)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!File.Exists(jarPath)) continue;
+            ArgumentException.ThrowIfNullOrWhiteSpace(jarPath);
+            if (!File.Exists(jarPath))
+                throw new FileNotFoundException("The native library archive is missing.", jarPath);
             await using FileStream stream = new(
                 jarPath,
                 FileMode.Open,
@@ -33,6 +35,23 @@ public static class MinecraftNativesExtractor
                 64 * 1024,
                 FileOptions.SequentialScan);
             using ZipArchive archive = new(stream, ZipArchiveMode.Read);
+            // Validate every entry before writing any file. A malicious archive therefore cannot
+            // leave a partially extracted native set behind when a later entry is unsafe.
+            foreach (ZipArchiveEntry entry in archive.Entries)
+            {
+                string normalized = entry.FullName.Replace('\\', '/');
+                if (normalized.StartsWith("META-INF/", StringComparison.OrdinalIgnoreCase)
+                    || normalized.Equals("META-INF", StringComparison.OrdinalIgnoreCase)
+                    || normalized.EndsWith('/'))
+                    continue;
+
+                string destination = Path.GetFullPath(Path.Combine(fullRoot, normalized));
+                string prefix = Path.TrimEndingDirectorySeparator(fullRoot) + Path.DirectorySeparatorChar;
+                StringComparison comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                if (!destination.StartsWith(prefix, comparison))
+                    throw new InvalidDataException($"Native archive entry escapes the natives directory: {entry.FullName}");
+            }
+
             foreach (ZipArchiveEntry entry in archive.Entries)
             {
                 string normalized = entry.FullName.Replace('\\', '/');
@@ -44,11 +63,6 @@ public static class MinecraftNativesExtractor
                 }
 
                 string destination = Path.GetFullPath(Path.Combine(fullRoot, normalized));
-                if (!destination.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-                {
-                    throw new InvalidDataException($"Native archive entry escapes the natives directory: {entry.FullName}");
-                }
-
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                 await using (Stream source = entry.Open())
                 await using (FileStream output = File.Create(destination))

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using PCL.Services.Minecraft;
 
 namespace PCL.Services.Minecraft.Libraries;
 
@@ -20,6 +21,7 @@ public sealed record MinecraftLibraryResolutionRequest
     public bool Is64BitArchitecture { get; init; }
     public bool IsArm64Architecture { get; init; }
     public string OperatingSystemVersion { get; init; } = string.Empty;
+    public IReadOnlyDictionary<string, bool> Features { get; init; } = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
     public bool UseSystemGlfw { get; init; }
 }
 
@@ -151,7 +153,14 @@ public static class MinecraftLibraryResolver
         {
             if (node is not JsonObject library) continue;
             string? coordinate = library["name"]?.ToString();
-            if (string.IsNullOrWhiteSpace(coordinate) || !IsRuleAllowed(library["rules"], request)) continue;
+            if (string.IsNullOrWhiteSpace(coordinate) || !MinecraftRuleEvaluator.IsAllowed(
+                    library["rules"],
+                    MinecraftRuleContext.From(
+                        request.OperatingSystem,
+                        request.OperatingSystemVersion,
+                        request.Is64BitArchitecture,
+                        request.IsArm64Architecture,
+                        request.Features))) continue;
             bool local = string.Equals(library["hint"]?.ToString(), "local", StringComparison.OrdinalIgnoreCase);
             try
             {
@@ -350,37 +359,6 @@ public static class MinecraftLibraryResolver
         MinecraftLibraryOperatingSystem.MacOs => "osx",
         _ => "unknown",
     };
-
-    private static bool IsRuleAllowed(JsonNode? rulesNode, MinecraftLibraryResolutionRequest request)
-    {
-        if (rulesNode is not JsonArray rules || rules.Count == 0) return true;
-        bool hasAllow = rules.OfType<JsonObject>().Any(rule => !string.Equals(rule["action"]?.ToString(), "disallow", StringComparison.OrdinalIgnoreCase));
-        bool allowed = false;
-        foreach (JsonNode? node in rules)
-        {
-            if (node is not JsonObject rule) continue;
-            if (!RuleMatches(rule["os"]?.AsObject(), request)) continue;
-            string action = rule["action"]?.ToString() ?? "allow";
-            if (action.Equals("disallow", StringComparison.OrdinalIgnoreCase)) return false;
-            allowed = true;
-        }
-
-        return !hasAllow || allowed;
-    }
-
-    private static bool RuleMatches(JsonObject? os, MinecraftLibraryResolutionRequest request)
-    {
-        if (os is null) return true;
-        string current = request.OperatingSystem switch { MinecraftLibraryOperatingSystem.Win32 => "windows", MinecraftLibraryOperatingSystem.Linux => "linux", MinecraftLibraryOperatingSystem.MacOs => "osx", _ => "unknown" };
-        if (os["name"] is JsonNode name && !string.Equals(name.ToString(), current, StringComparison.OrdinalIgnoreCase)) return false;
-        if (os["arch"] is JsonNode arch)
-        {
-            string currentArch = request.IsArm64Architecture ? "arm64" : request.Is64BitArchitecture ? "x86_64" : "x86";
-            if (!string.Equals(arch.ToString(), currentArch, StringComparison.OrdinalIgnoreCase)) return false;
-        }
-
-        return true;
-    }
 
     private static string ResolveArtifactPath(string root, string? manifestPath, string coordinate, string? classifier)
     {

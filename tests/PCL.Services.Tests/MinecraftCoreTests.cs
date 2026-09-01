@@ -248,7 +248,7 @@ internal static partial class Program
             Directory.CreateDirectory(versionDirectory);
             File.WriteAllText(Path.Combine(versionDirectory, "1.20.1.json"), "{\"id\":\"1.20.1\",\"type\":\"release\"}");
             MinecraftRuntime runtime = MinecraftRuntimeComposer.Compose();
-            AssertEqual(1, runtime.Commands.Count);
+            AssertEqual(2, runtime.Commands.Count);
             AssertEqual(3, runtime.Queries.Count);
             AssertTrue(runtime.Queries.TryResolve(MinecraftRouteIds.VersionsRead, out XsrQueryId versionsId));
             XsrResult<IReadOnlyList<MinecraftVersionDescriptor>> versions = await runtime.Queries.QueryAsync<MinecraftVersionsQuery, IReadOnlyList<MinecraftVersionDescriptor>>(versionsId, new MinecraftVersionsQuery(root));
@@ -263,6 +263,7 @@ internal static partial class Program
             XsrResult<MinecraftLaunchFaultReport> report = await runtime.Queries.QueryAsync<MinecraftCrashAnalyzeQuery, MinecraftLaunchFaultReport>(crashId, new MinecraftCrashAnalyzeQuery(["OutOfMemoryError: Java heap space"]));
             AssertTrue(report.IsSuccess);
             AssertEqual(MinecraftLaunchFaultCode.OutOfMemory, report.Value.Code);
+            AssertTrue(runtime.Commands.TryResolve(MinecraftRouteIds.ProcessCancel, out _));
         }
         finally
         {
