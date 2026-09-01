@@ -211,6 +211,7 @@ public static class MinecraftLibraryResolver
         bool isLocal)
     {
         if (natives is null) return null;
+        if (request.UseSystemGlfw && IsGlfw(coordinate)) return null;
         string? classifier = GetNativeClassifier(natives, request);
         if (classifier is null) return null;
 
@@ -242,7 +243,7 @@ public static class MinecraftLibraryResolver
             BuildRootUrl(library["url"]?.ToString(), nativeUrlCoordinate) ?? classifierNode?["url"]?.ToString(),
             classifierNode?["sha1"]?.ToString(),
             ParseSize(classifierNode?["size"]),
-            isNatives: !request.UseSystemGlfw || !IsGlfw(coordinate),
+            isNatives: true,
             isLocal);
         return token;
     }

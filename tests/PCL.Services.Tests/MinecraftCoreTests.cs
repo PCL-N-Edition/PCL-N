@@ -233,6 +233,83 @@ internal static partial class Program
         AssertEqual(artifact.LocalPath, classpath.Entries[0]);
     }
 
+    internal static void SystemGlfwKeepsOrdinaryArtifact()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "minecraft-system-glfw-root");
+        JsonObject manifest = JsonNode.Parse("""
+            {
+              "libraries": [
+                {
+                  "name": "org.lwjgl:lwjgl-glfw:3.3.2",
+                  "downloads": {
+                    "artifact": { "path": "org/lwjgl/lwjgl-glfw/3.3.2/lwjgl-glfw-3.3.2.jar" },
+                    "classifiers": {
+                      "natives-linux": { "path": "org/lwjgl/lwjgl-glfw/3.3.2/lwjgl-glfw-3.3.2-natives-linux.jar" }
+                    }
+                  },
+                  "natives": { "linux": "natives-linux" }
+                }
+              ]
+            }
+            """)!.AsObject();
+
+        IReadOnlyList<MinecraftLibraryToken> libraries = MinecraftLibraryResolver.Resolve(new MinecraftLibraryResolutionRequest
+        {
+            VersionJson = manifest,
+            MinecraftRootDirectory = root,
+            OperatingSystem = MinecraftLibraryOperatingSystem.Linux,
+            Is64BitArchitecture = true,
+            UseSystemGlfw = true,
+        });
+
+        AssertEqual(1, libraries.Count);
+        MinecraftLibraryToken artifact = libraries.Single();
+        AssertFalse(artifact.IsNatives);
+        AssertTrue(artifact.LocalPath.EndsWith("lwjgl-glfw-3.3.2.jar", StringComparison.Ordinal));
+
+        MinecraftClasspathPlan classpath = MinecraftClasspathPlanner.CreatePlan(new MinecraftClasspathPlanRequest
+        {
+            Libraries = libraries,
+        });
+        AssertEqual(1, classpath.Entries.Count);
+        AssertEqual(artifact.LocalPath, classpath.Entries[0]);
+    }
+
+    internal static void SystemGlfwDropsNativeClassifier()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "minecraft-system-glfw-arm64-root");
+        JsonObject manifest = JsonNode.Parse("""
+            {
+              "libraries": [
+                {
+                  "name": "org.lwjgl:lwjgl-glfw:3.3.2",
+                  "downloads": {
+                    "artifact": { "path": "org/lwjgl/lwjgl-glfw/3.3.2/lwjgl-glfw-3.3.2.jar" },
+                    "classifiers": {
+                      "natives-linux": { "path": "org/lwjgl/lwjgl-glfw/3.3.2/lwjgl-glfw-3.3.2-natives-linux.jar" }
+                    }
+                  },
+                  "natives": { "linux": "natives-linux" }
+                }
+              ]
+            }
+            """)!.AsObject();
+
+        IReadOnlyList<MinecraftLibraryToken> libraries = MinecraftLibraryResolver.Resolve(new MinecraftLibraryResolutionRequest
+        {
+            VersionJson = manifest,
+            MinecraftRootDirectory = root,
+            OperatingSystem = MinecraftLibraryOperatingSystem.Linux,
+            Is64BitArchitecture = true,
+            IsArm64Architecture = true,
+            UseSystemGlfw = true,
+        });
+
+        AssertEqual(1, libraries.Count);
+        AssertTrue(libraries.All(static token => !token.IsNatives));
+        AssertTrue(libraries[0].LocalPath.EndsWith("lwjgl-glfw-3.3.2.jar", StringComparison.Ordinal));
+    }
+
     internal static void MinecraftModLoaderAndLaunchPlanAreDeterministic()
     {
         JsonObject manifest = JsonNode.Parse("""
