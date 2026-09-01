@@ -65,6 +65,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-518-helper-handoff-restart.md](migrations/XSR-518-helper-handoff-restart.md) — helper hand-off and restart scheduling: artifact validation, replacement process contract, launch port
 - [migrations/XSR-519-wave5-acceptance-integration.md](migrations/XSR-519-wave5-acceptance-integration.md) — Wave 5 acceptance: unified host state composition, foundation command routing, cross-capability PXML integration
 - [migrations/XSR-520-foundation-correctness-closure.md](migrations/XSR-520-foundation-correctness-closure.md) — Wave 5 review closure: raw typed settings, formal Foundation runtime composition, unified download logging
+- [migrations/XSR-701-product-shell.md](migrations/XSR-701-product-shell.md) — Wave 7 product shell foundation: shared UI.Next chrome with Experimental and LiquidGlass presentations
 
 ## Decision process
 

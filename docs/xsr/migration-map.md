@@ -83,6 +83,17 @@ NativeAOT; Runtime, UI.Next, PXML, and Sidecar CoreCLR/AOT gates pass; the UI.Ne
 gate and 27-project architecture gate pass; Desktop trim publish succeeds; and `dotnet format`
 reports no changes.
 
+## Wave 7 status (in progress)
+
+Wave 7 begins with the shared product shell. The semantic title bar, primary navigation rail, and
+content host are composed in UI.Next and presented by an Avalonia edge in two switchable styles:
+the current Experimental baseline and an Apple-inspired LiquidGlass treatment. Product pages and
+PXML vertical slices remain subsequent units.
+
+| Unit | Commit | Outcome |
+|---|---|---|
+| XSR-701 | `b9a5bc54` + `6992acd8` | shared shell contract, deterministic chrome layout, Experimental/LiquidGlass palettes, PXML shell template, Avalonia custom controls, and Desktop composition |
+
 ## Closed migration unit
 
 Every task has an ID and a narrow, testable outcome:
