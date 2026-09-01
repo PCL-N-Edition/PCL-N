@@ -1,9 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Avalonia windowing, input, accessibility, and render submission backend for UI.Next.</Description>
+    <!-- The project identity is a locked architecture name; CA1716 treats UI.Next as a keyword. -->
+    <!-- Window close owns disposal of custom controls; Avalonia Window is the lifetime boundary. -->
+    <NoWarn>$(NoWarn);CA1001;CA1716</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
     <ProjectReference Include="../PCL.UI.Next/PCL.UI.Next.csproj" />
   </ItemGroup>
 </Project>

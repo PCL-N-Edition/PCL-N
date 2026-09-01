@@ -1,0 +1,17 @@
+<Shell xmlns="https://pcln.dev/pxml/2026" Label="PCL Nexa">
+  <TitleBar>
+    <Text Content="PCL Nexa" />
+    <Text Content="2.0.0.alpha.1" />
+  </TitleBar>
+  <StackPanel Orientation="Horizontal" StretchLastChild="true">
+    <Navigation>
+      <NavigationItem Label="主页" Content="⌂  主页" Command="ui.navigation.home" />
+      <NavigationItem Label="下载" Content="↓  下载" Command="ui.navigation.downloads" />
+      <NavigationItem Label="实例" Content="◈  实例" Command="ui.navigation.instances" />
+      <NavigationItem Label="资源" Content="◇  资源" Command="ui.navigation.library" />
+      <NavigationItem Label="账户" Content="◯  账户" Command="ui.navigation.accounts" />
+      <NavigationItem Label="设置" Content="⚙  设置" Command="ui.navigation.settings" />
+    </Navigation>
+    <ContentHost Padding="28,24,28,24" />
+  </StackPanel>
+</Shell>

@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Ui/Shell.pxml" />
     <ProjectReference Include="../PCL.Pxml.Runtime/PCL.Pxml.Runtime.csproj" />
     <ProjectReference Include="../PCL.Services/PCL.Services.csproj" />
     <ProjectReference Include="../PCL.Services.Composition/PCL.Services.Composition.csproj" />
