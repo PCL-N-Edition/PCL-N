@@ -19,6 +19,10 @@ Java classes.
   the ordinary artifact from the same entry.
 - A classifier URL built from a library repository base uses the classifier coordinate; when no
   repository base is present, the explicit classifier download URL is used.
+- When `UseSystemGlfw` is enabled, the ordinary GLFW artifact is retained but its native
+  classifier is omitted before ARM64 replacement; native omission never reclassifies the
+  classifier as a classpath artifact. Every token returned by the native-classifier resolver has
+  `IsNatives = true`.
 - `MinecraftClasspathPlanner` continues to exclude only tokens marked `IsNatives`; therefore a
   standard LWJGL entry contributes its ordinary JAR to `-cp` while its native archive is staged
   separately.
@@ -30,11 +34,13 @@ The Services tests include a standard LWJGL-shaped entry containing both
 their paths and checksums, native classification, artifact-first ordering, and a classpath that
 contains only the ordinary JAR. The ARM64 acceptance fixture also asserts that the compatibility
 artifact survives beside the ARM64 native token and reaches the classpath planner.
+The `SystemGlfwKeepsOrdinaryArtifact` and `SystemGlfwDropsNativeClassifier` regressions lock
+the system-GLFW contract, with the latter exercising Linux ARM64 before native replacement.
 
 ## Verification
 
-`tests/PCL.Services.Tests` passes the complete executable suite (171 tests after this unit) under
+`tests/PCL.Services.Tests` passes the complete executable suite (173 tests after this unit) under
 both CoreCLR and Foundation NativeAOT, including the standard artifact/native pair and ARM64
-classpath regressions. The solution Release build is warning-free. The architecture gate, UI.Next
-benchmark gate, exact source-format gate, and trimmed Desktop publish also pass for commit
-`4ce6eb69`.
+classpath regressions plus system-GLFW filtering. The solution Release build is warning-free. The
+architecture gate, UI.Next benchmark gate, exact source-format gate, and trimmed Desktop publish
+also pass for commit `220a5e74`.

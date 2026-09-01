@@ -76,9 +76,9 @@ legacy ViewModel or UI dependency is carried into the branch:
 | XSR-605 | `4add2898` + `fd8d6fc2` | runtime/client/asset acquisition, ARM64 parity, instance discovery, and final evidence |
 | XSR-606 | `fcaf7fa6` + `10d72a09` + `c566bc3f` + `1ee58542` + `d70ddff2` | acceptance hardening: Minecraft/Java version domains and conflicts, full token coverage with strict unknown-token rejection, automatic inherited client-JAR and `jar`-alias resolution, ARM64 natives, launch-integrated extraction, shared process state and cancel route, common Mojang rules, safe download paths, and the expanded corpus |
 | XSR-608 | `1dba7f82` | Java policy closure: Legacy/Calendar version schemes, manifest-first Java selection, the 1.16.5/1.17/1.18/1.20.5/26.1 matrix, corrected corpus goldens, and Java 7/8 selection regressions |
-| XSR-609 | `4ce6eb69` | preserve Mojang ordinary library artifacts alongside native classifiers; keep classpath JARs and native extraction tokens independent |
+| XSR-609 | `4ce6eb69` + `220a5e74` | preserve Mojang ordinary library artifacts alongside native classifiers; keep classpath JARs and native extraction tokens independent, including system-GLFW filtering |
 
-Exit evidence: `tests/PCL.Services.Tests` passes 171 executable tests under CoreCLR and
+Exit evidence: `tests/PCL.Services.Tests` passes 173 executable tests under CoreCLR and
 NativeAOT; Runtime, UI.Next, PXML, and Sidecar CoreCLR/AOT gates pass; the UI.Next benchmark
 gate and 27-project architecture gate pass; Desktop trim publish succeeds; and `dotnet format`
 reports no changes.
