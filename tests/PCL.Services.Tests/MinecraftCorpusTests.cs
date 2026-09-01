@@ -14,8 +14,8 @@ using PCL.Xsr.State;
 namespace PCL.Services.Tests;
 
 // Canonical corpus: representative manifests covering the shape matrix (legacy
-// minecraftArguments, modern arguments, Java boundaries, loader inheritance, ARM64 LWJGL,
-// and the major third-party loader families). The fixtures are deliberately de-identified, but
+// minecraftArguments, modern arguments, Java boundaries (including calendar 26.1), loader
+// inheritance, ARM64 LWJGL, and the major third-party loader families). The fixtures are deliberately de-identified, but
 // keep the fields that affect the launch contract. Every case asserts the derived Java
 // requirement, selected component, main class, library/native split, and classpath head.
 internal static partial class Program
@@ -43,7 +43,19 @@ internal static partial class Program
         new(
             "1.16.5-modern",
             """{"id":"1.16.5","arguments":{"jvm":["-Djava.library.path=${natives_directory}"],"game":["--username ${auth_player_name}"]},"mainClass":"net.minecraft.client.main.Main","releaseTime":"2021-01-14T00:00:00+00:00","libraries":[{"name":"org.example:modern:1.0"}]}""",
-            "1.16.5", null, "net.minecraft.client.main.Main", "1.7"),
+            "1.16.5", null, "net.minecraft.client.main.Main", "1.8"),
+        new(
+            "1.17.1",
+            """{"id":"1.17.1","arguments":{"game":["--username ${auth_player_name}"]},"mainClass":"net.minecraft.client.main.Main","releaseTime":"2021-06-06T00:00:00+00:00","libraries":[{"name":"org.example:java16:1.0"}]}""",
+            "1.17.1", null, "net.minecraft.client.main.Main", "16.0"),
+        new(
+            "1.18.2",
+            """{"id":"1.18.2","arguments":{"game":["--username ${auth_player_name}"]},"mainClass":"net.minecraft.client.main.Main","releaseTime":"2022-02-28T00:00:00+00:00","libraries":[{"name":"org.example:java17:1.0"}]}""",
+            "1.18.2", null, "net.minecraft.client.main.Main", "17.0"),
+        new(
+            "1.20.1-vanilla",
+            """{"id":"1.20.1","arguments":{"game":["--username ${auth_player_name}"]},"mainClass":"net.minecraft.client.main.Main","releaseTime":"2023-06-07T00:00:00+00:00","libraries":[{"name":"org.example:java17:1.0"}]}""",
+            "1.20.1", null, "net.minecraft.client.main.Main", "17.0"),
         new(
             "1.20.5-java21",
             """{"id":"1.20.5","arguments":{"jvm":["--add-modules=jdk.incubator.vector"],"game":["--username ${auth_player_name}"]},"mainClass":"net.minecraft.client.main.Main","javaVersion":{"majorVersion":21,"component":"java-runtime-gamma"},"releaseTime":"2024-04-23T00:00:00+00:00","libraries":[{"name":"org.example:c21:1.0"}]}""",
@@ -51,7 +63,7 @@ internal static partial class Program
         new(
             "fabric-1.20.1-inherited",
             """{"id":"fabric-loader-0.16.5-1.20.1","inheritsFrom":"1.20.1","arguments":{"game":["-DFabricMechanisms=true"]},"mainClass":"net.fabricmc.loader.impl.launch.knot.KnotClient","libraries":[{"name":"org.example:fabric:1.0"}]}""",
-            "1.20.1", null, "net.fabricmc.loader.impl.launch.knot.KnotClient", "1.7"),
+            "1.20.1", null, "net.fabricmc.loader.impl.launch.knot.KnotClient", "17.0"),
         new(
             "cleanroom-java25",
             """{"id":"cleanroom-5.0","arguments":{"game":["--username ${auth_player_name}"]},"mainClass":"com.cleanroommc.launcher.CleanroomMain","libraries":[{"name":"org.example:cleanroom:1.0"}]}""",
@@ -63,7 +75,7 @@ internal static partial class Program
         new(
             "quilt-1.20.1",
             """{"id":"quilt-loader-0.27.1-1.20.1","mainClass":"org.quiltmc.loader.impl.launch.knot.KnotClient","arguments":{"game":["--username ${auth_player_name}"]},"libraries":[{"name":"org.quiltmc:quilt-loader:0.27.1"}]}""",
-            "1.20.1", null, "org.quiltmc.loader.impl.launch.knot.KnotClient", "1.7"),
+            "1.20.1", null, "org.quiltmc.loader.impl.launch.knot.KnotClient", "17.0"),
         new(
             "neoforge-1.20.6",
             """{"id":"neoforge-20.6.119-1.20.6","mainClass":"net.neoforged.fml.loading.targets.CommonLaunchHandler","arguments":{"game":["--username ${auth_player_name}"]},"libraries":[{"name":"net.neoforged:neoforge:20.6.119"}]}""",
@@ -77,9 +89,13 @@ internal static partial class Program
             """{"id":"1.21.1","mainClass":"net.minecraft.client.main.Main","arguments":{"jvm":["-Djava.library.path=${natives_directory}"],"game":["--version ${version_name}"]},"libraries":[{"name":"org.example:modern-21:1.0"}]}""",
             "1.21.1", null, "net.minecraft.client.main.Main", "21.0"),
         new(
+            "26.1-calendar",
+            """{"id":"26.1","arguments":{"game":["--username ${auth_player_name}"]},"mainClass":"net.minecraft.client.main.Main","releaseTime":"2026-04-01T00:00:00+00:00","libraries":[{"name":"org.example:java25:1.0"}]}""",
+            "26.1", null, "net.minecraft.client.main.Main", "25.0"),
+        new(
             "arm64-lwjgl",
             """{"id":"1.20.1-arm64","mainClass":"net.minecraft.client.main.Main","libraries":[{"name":"org.lwjgl:lwjgl:3.3.2","natives":{"linux":"natives-linux"},"downloads":{"classifiers":{"natives-linux":{"path":"org/lwjgl/lwjgl/3.3.2/lwjgl-3.3.2-natives-linux.jar"}}}}]}""",
-            "1.20.1", null, "net.minecraft.client.main.Main", "1.7", IsArm64: true),
+            "1.20.1", null, "net.minecraft.client.main.Main", "17.0", IsArm64: true),
     ];
 
     internal static async ValueTask CanonicalCorpusProducesConsistentLaunchSnapshots()

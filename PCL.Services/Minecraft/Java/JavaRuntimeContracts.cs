@@ -296,6 +296,16 @@ public readonly record struct JavaVersionRange
 
 public sealed record MinecraftJavaRequirementRequest
 {
+    /// <summary>
+    /// The typed Minecraft coordinate. New callers should prefer this over
+    /// <see cref="VanillaVersion"/> so calendar versions cannot be confused with Java versions.
+    /// </summary>
+    public MinecraftGameVersion? MinecraftVersion { get; init; }
+
+    /// <summary>
+    /// Compatibility input for callers that still provide a parsed <see cref="Version"/>.
+    /// It is interpreted as a Minecraft coordinate, never as a Java version.
+    /// </summary>
     public Version? VanillaVersion { get; init; }
     public bool HasReliableVanillaVersion { get; init; }
     public DateTimeOffset? ReleaseTime { get; init; }
@@ -334,10 +344,15 @@ public static class MinecraftJavaRequirementResolver
 {
     private static readonly DateTimeOffset ManifestJava21Boundary = new(2024, 4, 2, 0, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset ManifestJava25Boundary = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    private static readonly MinecraftGameVersion CalendarJava25Boundary = new(MinecraftVersionScheme.Calendar, 26, 1, 0);
+    private static readonly MinecraftGameVersion LegacyJava8Maximum = new(MinecraftVersionScheme.Legacy, 1, 16, 5);
+    private static readonly MinecraftGameVersion LegacyJava17Boundary = new(MinecraftVersionScheme.Legacy, 1, 18, 0);
+    private static readonly MinecraftGameVersion LegacyJava21Boundary = new(MinecraftVersionScheme.Legacy, 1, 20, 5);
 
     /// <summary>
-    /// Normalizes a parsed Minecraft version to its true 1.x-era tuple: "1.8" becomes
-    /// Version(1,8,0) instead of Version(8,0), so era gates order correctly.
+    /// Normalizes a parsed Minecraft version at the compatibility boundary. Historical
+    /// shorthand such as "20.5" becomes Version(1,20,5), while calendar "26.1" remains
+    /// Version(26,1,0) and is never mistaken for a 1.x release.
     /// </summary>
     public static Version NormalizeVanilla(Version vanilla)
         => MinecraftGameVersion.FromVersion(vanilla).ToVersion();
@@ -345,8 +360,38 @@ public static class MinecraftJavaRequirementResolver
     public static JavaRequirementResolution Resolve(MinecraftJavaRequirementRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        JavaVersionRange range = JavaVersionRange.Any;
+        // Mojang's javaVersion is the authoritative runtime contract. Apply the historical
+        // Minecraft-era fallback only when that metadata is absent, then intersect loader
+        // constraints. This keeps a valid calendar 26.1/Java 25 manifest from conflicting
+        // with a stale 1.x inference.
+        JavaVersionRange range;
         string? component = null;
+        MinecraftGameVersion? version = GetEffectiveMinecraftVersion(request);
+        if (request.ManifestJavaMajorVersion is int manifestMajor)
+        {
+            if (manifestMajor < 7)
+                return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.InvalidVersionMetadata, "Manifest Java major version is below 7.");
+            range = JavaVersionRange.ForMajor(manifestMajor);
+            component = request.ManifestJavaComponent;
+        }
+        else if (version is { } minecraftVersion)
+        {
+            range = GetVanillaFallback(minecraftVersion);
+        }
+        else if (request.ReleaseTime is { } release && release >= ManifestJava25Boundary)
+        {
+            range = JavaVersionRange.ForMajor(25);
+            component = request.ManifestJavaComponent;
+        }
+        else if (request.ReleaseTime is { } snapshot && snapshot >= ManifestJava21Boundary)
+        {
+            range = JavaVersionRange.ForMajor(21);
+            component = request.ManifestJavaComponent;
+        }
+        else
+        {
+            range = JavaVersionRange.Any;
+        }
 
         if (request.HasCleanroom)
         {
@@ -361,88 +406,73 @@ public static class MinecraftJavaRequirementResolver
             JavaVersionRange cleanroomRange = cleanroom! >= new Version(0, 5)
                 ? JavaVersionRange.ForMajor(25)
                 : JavaVersionRange.ForMajor(21);
-            if (!range.TryIntersect(cleanroomRange, out range))
-            {
-                return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
-            }
+            if (!TryIntersect(ref range, cleanroomRange, out JavaRequirementResolution? failure))
+                return failure!;
         }
 
-        if (request.HasReliableVanillaVersion && request.VanillaVersion is { } rawVersion)
+        if (version is { } minecraft)
         {
-            // Minecraft "1.8" parses as Version(8,0), which sorts AFTER "1.20.5" numerically.
-            // Normalize to the true 1.x-era tuple before applying the gates.
-            MinecraftGameVersion version = MinecraftGameVersion.FromVersion(rawVersion);
-            if (version >= new MinecraftGameVersion(1, 20, 5))
+            if (request.HasForge && minecraft < new MinecraftGameVersion(MinecraftVersionScheme.Legacy, 1, 12, 0) && IsLegacyForge(request.ForgeVersion))
             {
-                if (!range.TryIntersect(JavaVersionRange.ForMajor(21), out range))
-                {
-                    return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
-                }
-            }
-            else if (version < new MinecraftGameVersion(1, 13, 0))
-            {
-                if (!range.TryIntersect(JavaVersionRange.ForMajor(8), out range))
-                {
-                    return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
-                }
+                if (!TryIntersect(ref range, JavaVersionRange.ForMajor(7), out JavaRequirementResolution? failure))
+                    return failure!;
             }
 
-            if (request.HasForge && version < new MinecraftGameVersion(1, 12, 0) && IsLegacyForge(request.ForgeVersion))
+            if (request.HasOptiFine && minecraft >= new MinecraftGameVersion(MinecraftVersionScheme.Legacy, 1, 8, 0) && minecraft < new MinecraftGameVersion(MinecraftVersionScheme.Legacy, 1, 13, 0))
             {
-                if (!range.TryIntersect(JavaVersionRange.ForMajor(7), out range))
-                {
-                    return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
-                }
+                if (!TryIntersect(ref range, JavaVersionRange.ForMajor(8), out JavaRequirementResolution? failure))
+                    return failure!;
             }
 
-            if (request.HasOptiFine && version >= new MinecraftGameVersion(1, 8, 0) && version < new MinecraftGameVersion(1, 13, 0))
+            if (request.HasLabyMod && minecraft < new MinecraftGameVersion(MinecraftVersionScheme.Legacy, 1, 13, 0))
             {
-                if (!range.TryIntersect(JavaVersionRange.ForMajor(8), out range))
-                {
-                    return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
-                }
+                if (!TryIntersect(ref range, JavaVersionRange.ForMajor(8), out JavaRequirementResolution? failure))
+                    return failure!;
             }
         }
 
         if (request.HasLiteLoader)
         {
-            if (!range.TryIntersect(new JavaVersionRange(new Version(1, 8), JavaVersionRange.Java8Maximum), out range))
-            {
-                return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
-            }
-        }
-
-        if (request.HasLabyMod && request.HasReliableVanillaVersion && request.VanillaVersion is { } rawLabyVersion && MinecraftGameVersion.FromVersion(rawLabyVersion) < new MinecraftGameVersion(1, 13, 0))
-        {
-            if (!range.TryIntersect(JavaVersionRange.ForMajor(8), out range))
-            {
-                return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
-            }
-        }
-
-        if (request.ManifestJavaMajorVersion is int manifestMajor)
-        {
-            if (manifestMajor < 7) return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.InvalidVersionMetadata, "Manifest Java major version is below 7.");
-            if (!range.TryIntersect(JavaVersionRange.ForMajor(manifestMajor), out range))
-                return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
-            component = request.ManifestJavaComponent;
-        }
-        else if (!request.HasReliableVanillaVersion && request.ReleaseTime is { } release && release >= ManifestJava25Boundary)
-        {
-            if (!range.TryIntersect(JavaVersionRange.ForMajor(25), out range))
-                return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
-            component = request.ManifestJavaComponent;
-        }
-        else if (!request.HasReliableVanillaVersion && request.ReleaseTime is { } snapshot && snapshot >= ManifestJava21Boundary)
-        {
-            if (!range.TryIntersect(JavaVersionRange.ForMajor(21), out range))
-                return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
-            component = request.ManifestJavaComponent;
+            if (!TryIntersect(ref range, new JavaVersionRange(new Version(1, 8), JavaVersionRange.Java8Maximum), out JavaRequirementResolution? failure))
+                return failure!;
         }
 
         if (range.Minimum > range.Maximum)
             return JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Minecraft metadata contains incompatible Java requirements.");
         return JavaRequirementResolution.Valid(range, component);
+    }
+
+    private static MinecraftGameVersion? GetEffectiveMinecraftVersion(MinecraftJavaRequirementRequest request)
+    {
+        if (request.MinecraftVersion is { } typed) return typed;
+        if (!request.HasReliableVanillaVersion) return null;
+        return request.VanillaVersion is { } raw ? MinecraftGameVersion.FromVersion(raw) : null;
+    }
+
+    private static JavaVersionRange GetVanillaFallback(MinecraftGameVersion version)
+    {
+        if (version.IsCalendar)
+            return version >= CalendarJava25Boundary ? JavaVersionRange.ForMajor(25) : JavaVersionRange.Any;
+        if (version <= LegacyJava8Maximum)
+            return JavaVersionRange.ForMajor(8);
+        if (version < LegacyJava17Boundary)
+            return JavaVersionRange.ForMajor(16);
+        if (version < LegacyJava21Boundary)
+            return JavaVersionRange.ForMajor(17);
+        return JavaVersionRange.ForMajor(21);
+    }
+
+    private static bool TryIntersect(ref JavaVersionRange current, JavaVersionRange required, out JavaRequirementResolution? failure)
+    {
+        if (current.TryIntersect(required, out JavaVersionRange result))
+        {
+            current = result;
+            failure = null;
+            return true;
+        }
+
+        failure = JavaRequirementResolution.Invalid(JavaRequirementFailureReason.ConflictingRequirements, "Overlapping Java version requirements are disjoint.");
+        return false;
     }
 
     private static bool IsLegacyForge(string? value) => string.IsNullOrWhiteSpace(value) || value.StartsWith("9.", StringComparison.Ordinal) || value.StartsWith("10.", StringComparison.Ordinal);
