@@ -181,6 +181,58 @@ internal static partial class Program
         AssertTrue(plan.Entries.Contains("optifine.jar"));
     }
 
+    internal static void MinecraftLibraryArtifactAndNativeClassifierBothResolve()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "minecraft-library-pair-root");
+        JsonObject manifest = JsonNode.Parse("""
+            {
+              "libraries": [
+                {
+                  "name": "org.lwjgl:lwjgl:3.3.2",
+                  "downloads": {
+                    "artifact": {
+                      "path": "org/lwjgl/lwjgl/3.3.2/lwjgl-3.3.2.jar",
+                      "url": "https://repo.example/lwjgl.jar",
+                      "sha1": "artifact-sha1"
+                    },
+                    "classifiers": {
+                      "natives-linux": {
+                        "path": "org/lwjgl/lwjgl/3.3.2/lwjgl-3.3.2-natives-linux.jar",
+                        "url": "https://repo.example/lwjgl-natives-linux.jar",
+                        "sha1": "native-sha1"
+                      }
+                    }
+                  },
+                  "natives": { "linux": "natives-linux" }
+                }
+              ]
+            }
+            """)!.AsObject();
+
+        IReadOnlyList<MinecraftLibraryToken> libraries = MinecraftLibraryResolver.Resolve(new MinecraftLibraryResolutionRequest
+        {
+            VersionJson = manifest,
+            MinecraftRootDirectory = root,
+            OperatingSystem = MinecraftLibraryOperatingSystem.Linux,
+            Is64BitArchitecture = true,
+        });
+
+        AssertEqual(2, libraries.Count);
+        MinecraftLibraryToken artifact = libraries.Single(static token => !token.IsNatives);
+        MinecraftLibraryToken native = libraries.Single(static token => token.IsNatives);
+        AssertTrue(artifact.LocalPath.EndsWith("lwjgl-3.3.2.jar", StringComparison.Ordinal));
+        AssertEqual("artifact-sha1", artifact.Sha1);
+        AssertTrue(native.LocalPath.EndsWith("lwjgl-3.3.2-natives-linux.jar", StringComparison.Ordinal));
+        AssertEqual("native-sha1", native.Sha1);
+
+        MinecraftClasspathPlan classpath = MinecraftClasspathPlanner.CreatePlan(new MinecraftClasspathPlanRequest
+        {
+            Libraries = libraries,
+        });
+        AssertEqual(1, classpath.Entries.Count);
+        AssertEqual(artifact.LocalPath, classpath.Entries[0]);
+    }
+
     internal static void MinecraftModLoaderAndLaunchPlanAreDeterministic()
     {
         JsonObject manifest = JsonNode.Parse("""

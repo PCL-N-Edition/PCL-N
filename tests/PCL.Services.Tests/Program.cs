@@ -146,6 +146,7 @@ internal static partial class Program
         ("vanilla launch contains client jar", VanillaLaunchContainsClientJar),
         ("inherited launch uses base client jar when provided", InheritedLaunchUsesBaseClientJarWhenProvided),
         ("inherited launch resolves base client jar automatically", InheritedLaunchResolvesBaseClientJarAutomatically),
+        ("library artifact and native classifier both resolve", Sync(MinecraftLibraryArtifactAndNativeClassifierBothResolve)),
         ("arm64 native is not on classpath", Arm64NativeIsNotOnClasspath),
         ("natives are extracted before launch", NativesAreExtractedBeforeLaunch),
         ("mojang rule order matches manifest semantics", Sync(MojangRuleOrderMatchesManifestSemantics)),

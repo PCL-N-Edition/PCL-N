@@ -165,55 +165,32 @@ public static class MinecraftLibraryResolver
             try
             {
                 string? declaredClassifier = GetCoordinateClassifier(coordinate);
-                string? rootUrl = BuildRootUrl(library["url"]?.ToString(), coordinate);
-                if (library["natives"] is JsonObject natives)
+                JsonObject? natives = library["natives"] as JsonObject;
+                JsonObject? artifact = library["downloads"]?["artifact"]?.AsObject();
+
+                // A Mojang library entry can describe both the ordinary artifact and one or
+                // more platform classifiers. Resolve the ordinary artifact independently so
+                // the native classifier does not swallow the classpath dependency.
+                if (artifact is not null || natives is null)
                 {
-                    string? classifier = GetNativeClassifier(natives, request);
-                    if (classifier is null) continue;
-                    JsonObject? classifierNode = library["downloads"]?["classifiers"]?[classifier]?.AsObject();
-                    bool hasArm64Classifier = request.OperatingSystem == MinecraftLibraryOperatingSystem.Linux &&
-                        request.IsArm64Architecture &&
-                        string.Equals(classifier, LinuxArm64Classifier, StringComparison.Ordinal) &&
-                        classifierNode is not null;
-                    if (!hasArm64Classifier && TryResolveLinuxArm64Native(coordinate, classifier, root, request, local, out MinecraftLibraryToken? arm64Native))
-                    {
-                        if (arm64Native is not null) result.Add(arm64Native);
-                        continue;
-                    }
-                    if (classifierNode is null)
-                    {
-                        string fallbackKey = "natives-" + GetNativeOsKey(request.OperatingSystem);
-                        if (!string.Equals(fallbackKey, classifier, StringComparison.Ordinal))
-                            classifierNode = library["downloads"]?["classifiers"]?[fallbackKey]?.AsObject();
-                    }
-                    MinecraftLibraryToken token = CreateToken(
+                    string? rootUrl = BuildRootUrl(library["url"]?.ToString(), coordinate);
+                    string localPath = local && !string.IsNullOrWhiteSpace(request.TargetInstanceDirectory)
+                        ? Contained(Path.GetFullPath(request.TargetInstanceDirectory!), "libraries", GetLocalLibraryFileName(coordinate))
+                        : ResolveArtifactPath(root, artifact?["path"]?.ToString(), coordinate, declaredClassifier);
+                    MinecraftLibraryToken artifactToken = CreateToken(
                         coordinate,
-                        ResolveArtifactPath(root, classifierNode?["path"]?.ToString(), coordinate, classifier),
-                        rootUrl ?? classifierNode?["url"]?.ToString(),
-                        classifierNode?["sha1"]?.ToString(),
-                        ParseSize(classifierNode?["size"]),
-                        isNatives: !request.UseSystemGlfw || !IsGlfw(coordinate),
+                        localPath,
+                        rootUrl ?? artifact?["url"]?.ToString(),
+                        artifact?["sha1"]?.ToString(),
+                        ParseSize(artifact?["size"]),
+                        isNatives: IsNativeClassifier(declaredClassifier),
                         local);
-                    if (request.OperatingSystem == MinecraftLibraryOperatingSystem.Linux && request.IsArm64Architecture && UnsupportedLegacyNativeCoordinates.Contains(coordinate))
-                        continue;
-                    result.Add(token);
-                    continue;
+                    MinecraftLibraryToken? resolvedArtifact = ResolveArchitectureSpecificArtifact(artifactToken, root, request);
+                    if (resolvedArtifact is not null) result.Add(resolvedArtifact);
                 }
 
-                JsonObject? artifact = library["downloads"]?["artifact"]?.AsObject();
-                string localPath = local && !string.IsNullOrWhiteSpace(request.TargetInstanceDirectory)
-                    ? Contained(Path.GetFullPath(request.TargetInstanceDirectory!), "libraries", GetLocalLibraryFileName(coordinate))
-                    : ResolveArtifactPath(root, artifact?["path"]?.ToString(), coordinate, declaredClassifier);
-                MinecraftLibraryToken artifactToken = CreateToken(
-                    coordinate,
-                    localPath,
-                    rootUrl ?? artifact?["url"]?.ToString(),
-                    artifact?["sha1"]?.ToString(),
-                    ParseSize(artifact?["size"]),
-                    isNatives: IsNativeClassifier(declaredClassifier),
-                    local);
-                MinecraftLibraryToken? resolvedArtifact = ResolveArchitectureSpecificArtifact(artifactToken, root, request);
-                if (resolvedArtifact is not null) result.Add(resolvedArtifact);
+                MinecraftLibraryToken? nativeToken = ResolveNativeToken(coordinate, library, natives, root, request, local);
+                if (nativeToken is not null) result.Add(nativeToken);
             }
             catch (InvalidDataException)
             {
@@ -223,6 +200,51 @@ public static class MinecraftLibraryResolver
         }
 
         return result;
+    }
+
+    private static MinecraftLibraryToken? ResolveNativeToken(
+        string coordinate,
+        JsonObject library,
+        JsonObject? natives,
+        string minecraftRoot,
+        MinecraftLibraryResolutionRequest request,
+        bool isLocal)
+    {
+        if (natives is null) return null;
+        string? classifier = GetNativeClassifier(natives, request);
+        if (classifier is null) return null;
+
+        JsonObject? classifierNode = library["downloads"]?["classifiers"]?[classifier]?.AsObject();
+        bool hasArm64Classifier = request.OperatingSystem == MinecraftLibraryOperatingSystem.Linux &&
+            request.IsArm64Architecture &&
+            string.Equals(classifier, LinuxArm64Classifier, StringComparison.Ordinal) &&
+            classifierNode is not null;
+        if (!hasArm64Classifier && TryResolveLinuxArm64Native(coordinate, classifier, minecraftRoot, request, isLocal, out MinecraftLibraryToken? arm64Native))
+            return arm64Native;
+
+        if (classifierNode is null)
+        {
+            string fallbackKey = "natives-" + GetNativeOsKey(request.OperatingSystem);
+            if (!string.Equals(fallbackKey, classifier, StringComparison.Ordinal))
+                classifierNode = library["downloads"]?["classifiers"]?[fallbackKey]?.AsObject();
+        }
+
+        if (request.OperatingSystem == MinecraftLibraryOperatingSystem.Linux &&
+            request.IsArm64Architecture &&
+            UnsupportedLegacyNativeCoordinates.Contains(coordinate)) return null;
+
+        string nativeUrlCoordinate = GetCoordinateClassifier(coordinate) is null
+            ? coordinate + ":" + classifier
+            : coordinate;
+        MinecraftLibraryToken token = CreateToken(
+            coordinate,
+            ResolveArtifactPath(minecraftRoot, classifierNode?["path"]?.ToString(), coordinate, classifier),
+            BuildRootUrl(library["url"]?.ToString(), nativeUrlCoordinate) ?? classifierNode?["url"]?.ToString(),
+            classifierNode?["sha1"]?.ToString(),
+            ParseSize(classifierNode?["size"]),
+            isNatives: !request.UseSystemGlfw || !IsGlfw(coordinate),
+            isLocal);
+        return token;
     }
 
     public static string GetCoordinatePath(string coordinate, string minecraftRootDirectory, bool includeMinecraftRoot = true)

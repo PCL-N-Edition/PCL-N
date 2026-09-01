@@ -564,6 +564,8 @@ internal static partial class Program
             AssertTrue(arm64Token.IsNatives);
             AssertTrue(libraries.Any(static token => token.OriginalName == "org.lwjgl:lwjgl:3.3.2:natives-linux-arm64" && token.IsNatives));
 
+            MinecraftLibraryToken artifact = libraries.Single(static token => !token.IsNatives && token.LocalPath.EndsWith("lwjgl-3.3.2.jar", StringComparison.Ordinal));
+
             // Classpath planner excludes natives.
             MinecraftClasspathPlan classpath = MinecraftClasspathPlanner.CreatePlan(new MinecraftClasspathPlanRequest
             {
@@ -571,6 +573,7 @@ internal static partial class Program
                 HasCleanroom = false,
             });
             AssertFalse(classpath.Entries.Any(static entry => entry.Contains("natives", StringComparison.OrdinalIgnoreCase)));
+            AssertTrue(classpath.Entries.Contains(artifact.LocalPath, StringComparer.Ordinal));
         }
         finally
         {
