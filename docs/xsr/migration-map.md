@@ -74,7 +74,7 @@ legacy ViewModel or UI dependency is carried into the branch:
 | XSR-603 | `2d6f74f8` | ModLoader detection, launch planning, process lifecycle, and crash analysis |
 | XSR-604 | `5f3bed3b` | formal Minecraft command/query router composition |
 | XSR-605 | `4add2898` + `fd8d6fc2` | runtime/client/asset acquisition, ARM64 parity, instance discovery, and final evidence |
-| XSR-606 | `fcaf7fa6` + `10d72a09` | acceptance hardening: Minecraft/Java version domains and conflicts, full token coverage with strict unknown-token rejection, automatic inherited client-JAR resolution, ARM64 natives, launch-integrated extraction, shared process state and cancel route, common Mojang rules, safe download paths, and the expanded corpus |
+| XSR-606 | `fcaf7fa6` + `10d72a09` + `c566bc3f` | acceptance hardening: Minecraft/Java version domains and conflicts, full token coverage with strict unknown-token rejection, automatic inherited client-JAR resolution, ARM64 natives, launch-integrated extraction, shared process state and cancel route, common Mojang rules, safe download paths, and the expanded corpus |
 
 Exit evidence: `tests/PCL.Services.Tests` passes 165 executable tests under CoreCLR and
 NativeAOT; Runtime, UI.Next, PXML, and Sidecar CoreCLR/AOT gates pass; the UI.Next benchmark
