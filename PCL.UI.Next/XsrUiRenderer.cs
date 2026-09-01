@@ -356,12 +356,12 @@ public sealed class XsrUiRenderer
         double crossAvailable = stack.Direction == XsrUiOrientation.Vertical ? contentWidth : contentHeight;
         double crossOrigin = stack.Direction == XsrUiOrientation.Vertical ? contentX : contentY;
         double crossScroll = stack.Direction == XsrUiOrientation.Vertical ? scrollX : scrollY;
-        foreach (XsrUiEntityId child in _tree.Children(entity))
+        XsrUiEntityId[] visibleChildren = [.. _tree.Children(entity).Where(IsVisible)];
+        double availableMain = stack.Direction == XsrUiOrientation.Vertical ? contentHeight : contentWidth;
+        double consumedMain = 0;
+        for (int childIndex = 0; childIndex < visibleChildren.Length; childIndex++)
         {
-            if (!IsVisible(child))
-            {
-                continue;
-            }
+            XsrUiEntityId child = visibleChildren[childIndex];
 
             XsrUiSize childDesired = _desiredSizes.TryGetValue(child.Index, out XsrUiSize size)
                 ? size
@@ -371,6 +371,10 @@ public sealed class XsrUiRenderer
             double childMain = stack.Direction == XsrUiOrientation.Vertical
                 ? childDesired.Height + childMargin.Vertical
                 : childDesired.Width + childMargin.Horizontal;
+            if (stack.StretchLastChild && childIndex == visibleChildren.Length - 1)
+            {
+                childMain = Math.Max(childMain, Math.Max(0, availableMain - consumedMain));
+            }
             XsrUiAlignment crossAlignment = stack.Direction == XsrUiOrientation.Vertical
                 ? childElement?.HorizontalAlignment ?? XsrUiAlignment.Stretch
                 : childElement?.VerticalAlignment ?? XsrUiAlignment.Stretch;
@@ -393,6 +397,7 @@ public sealed class XsrUiRenderer
 
             Layout(child, childSlot);
             cursor += childMain + stack.Spacing;
+            consumedMain += childMain + stack.Spacing;
         }
     }
 
@@ -657,6 +662,8 @@ public sealed class XsrUiRenderer
             : default;
         XsrUiAnimation? animation = _tree.GetComponent<XsrUiAnimation>(entity);
         XsrUiImage? image = _tree.GetComponent<XsrUiImage>(entity);
+        XsrUiVisualStyle? visualStyle = _tree.GetComponent<XsrUiVisualStyle>(entity);
+        XsrUiSelection? selection = _tree.GetComponent<XsrUiSelection>(entity);
         nodes.Add(new XsrUiSceneNode(
             entity,
             rect,
@@ -667,7 +674,9 @@ public sealed class XsrUiRenderer
             image?.Source,
             _tree.GetComponent<XsrUiInput>(entity)?.IsFocused ?? false,
             animation?.Progress,
-            animation is { Keyframes.Count: > 0 } ? animation.Value : null));
+            animation is { Keyframes.Count: > 0 } ? animation.Value : null,
+            visualStyle?.Snapshot() ?? default,
+            selection?.IsSelected ?? false));
 
         foreach (XsrUiEntityId child in _tree.Children(entity))
         {

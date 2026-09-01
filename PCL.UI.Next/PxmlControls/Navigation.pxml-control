@@ -1,17 +1,16 @@
 # PXML control descriptor v1
 schema=1
-id=2
-name=StackPanel
-role=None
+id=8
+name=Navigation
+role=Navigation
 recipe=StackLayout
 children=true
-property=Width|Double|Width|None|None|false|
+property=Width|Double|Width|None|None|false|236
 property=Height|Double|Height|None|None|false|
 property=Margin|Thickness|Margin|None|None|false|
 property=Padding|Thickness|Padding|None|None|false|
 property=IsVisible|Boolean|Visibility|Visibility|State|false|true
-property=Label|String|Label|None|None|false|
+property=Label|String|Label|None|None|false|主导航
 property=Orientation|Orientation|Orientation|None|None|false|Vertical
-property=Spacing|Double|Spacing|None|None|false|0
+property=Spacing|Double|Spacing|None|None|false|6
 property=StretchLastChild|Boolean|StretchLastChild|None|None|false|false
-property=Scroll|Boolean|Scrollable|None|None|false|false

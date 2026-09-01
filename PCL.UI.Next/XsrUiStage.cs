@@ -25,6 +25,38 @@ public sealed class XsrUiStage
         Navigation = new XsrUiNavigator(tree, ContentHost);
     }
 
+    /// <summary>
+    /// Creates a stage over a tree that was already populated by a compiled PXML template. The
+    /// stage does not create or reparent entities in this overload; the template owns its root and
+    /// content host, while the stage supplies renderer, overlay, and page-navigation services.
+    /// </summary>
+    public XsrUiStage(
+        XsrUiTree tree,
+        XsrStateStore state,
+        XsrUiEntityId root,
+        XsrUiEntityId contentHost,
+        IXsrUiIntentSink? sink = null)
+    {
+        _tree = tree ?? throw new ArgumentNullException(nameof(tree));
+        ArgumentNullException.ThrowIfNull(state);
+        if (!tree.IsAlive(root))
+        {
+            throw new InvalidOperationException($"The stage root '{root}' is not alive.");
+        }
+
+        if (!tree.IsAlive(contentHost))
+        {
+            throw new InvalidOperationException($"The stage content host '{contentHost}' is not alive.");
+        }
+
+        Tree = tree;
+        Root = root;
+        ContentHost = contentHost;
+        Renderer = new XsrUiRenderer(tree, state, sink);
+        Renderer.SetRoot(Root);
+        Navigation = new XsrUiNavigator(tree, ContentHost);
+    }
+
     public XsrUiTree Tree { get; }
 
     public XsrUiEntityId Root { get; }

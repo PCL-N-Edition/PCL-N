@@ -7,13 +7,18 @@ internal static partial class Program
     private static void GeneratedControlCatalogIsCompleteAndDeterministic()
     {
         AssertSequence(
-            ["Page", "StackPanel", "Text", "Button", "Image"],
+            ["Page", "StackPanel", "Text", "Button", "Image", "Shell", "TitleBar", "Navigation", "NavigationItem", "ContentHost"],
             PxmlControlCatalog.Names.ToArray());
         AssertEqual(1, (int)PxmlIrNodeKind.Page);
         AssertEqual(2, (int)PxmlIrNodeKind.StackPanel);
         AssertEqual(3, (int)PxmlIrNodeKind.Text);
         AssertEqual(4, (int)PxmlIrNodeKind.Button);
         AssertEqual(5, (int)PxmlIrNodeKind.Image);
+        AssertEqual(6, (int)PxmlIrNodeKind.Shell);
+        AssertEqual(7, (int)PxmlIrNodeKind.TitleBar);
+        AssertEqual(8, (int)PxmlIrNodeKind.Navigation);
+        AssertEqual(9, (int)PxmlIrNodeKind.NavigationItem);
+        AssertEqual(10, (int)PxmlIrNodeKind.ContentHost);
 
         if (PxmlControlCatalog.Names is IList<string> names)
         {
@@ -90,6 +95,30 @@ internal static partial class Program
         XsrSemanticId command = button.Command!.Value;
         AssertEqual("app.save", command.Value);
         AssertEqual(XsrUiSemanticRole_Button(), button.Role);
+    }
+
+    private static void CompileShellControlsAndStretchContract()
+    {
+        PxmlHostIr ir = Compile("""
+            <Shell xmlns="N">
+              <TitleBar />
+              <StackPanel Orientation="Horizontal" StretchLastChild="true">
+                <Navigation>
+                  <NavigationItem Label="主页" Content="⌂  主页" Command="ui.navigation.home" />
+                </Navigation>
+                <ContentHost />
+              </StackPanel>
+            </Shell>
+            """);
+
+        AssertEqual(PxmlRuntimeRecipe.StackLayout, ir.Root.Recipe);
+        AssertTrue(ir.Root.StretchLastChild);
+        AssertEqual(XsrUiSemanticRole.TitleBar, ir.Root.Children[0].Role);
+        PxmlIrNode body = ir.Root.Children[1];
+        AssertTrue(body.StretchLastChild);
+        AssertEqual(XsrUiSemanticRole.Navigation, body.Children[0].Role);
+        AssertEqual(XsrUiSemanticRole.NavigationItem, body.Children[0].Children[0].Role);
+        AssertEqual("⌂  主页", body.Children[0].Children[0].Content);
     }
 
     private static void CompileThicknessAndSize()

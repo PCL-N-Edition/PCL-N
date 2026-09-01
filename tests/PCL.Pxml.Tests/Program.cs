@@ -26,6 +26,7 @@ internal static partial class Program
         ("compile text state binding", CompileTextStateBinding),
         ("compile visibility binding", CompileVisibilityBinding),
         ("compile button defaults and command", CompileButtonDefaultsAndCommand),
+        ("compile shell controls and stretch contract", CompileShellControlsAndStretchContract),
         ("compile thickness and size", CompileThicknessAndSize),
         ("compile rejects unknown element and property", CompileRejectsUnknownElementAndProperty),
         ("compile rejects malformed values", CompileRejectsMalformedValues),
@@ -37,6 +38,7 @@ internal static partial class Program
         ("loaded visibility bindings drive rendering", LoadedVisibilityBindingsDriveRendering),
         ("loader rejects unknown state paths", LoaderRejectsUnknownStatePaths),
         ("loader failures leave the tree unchanged", LoaderFailuresLeaveTheTreeUnchanged),
+        ("PXML shell template loads into UI.Next shell", PxmlShellTemplateLoadsIntoUiNextShell),
     ];
 
     private static int Main()

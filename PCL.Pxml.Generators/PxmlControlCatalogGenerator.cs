@@ -41,6 +41,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
     private static readonly HashSet<string> Roles = new(StringComparer.Ordinal)
     {
         "None", "Text", "Button", "Page", "List", "ListItem", "Image", "ProgressBar", "Dialog",
+        "TitleBar", "Navigation", "NavigationItem", "Content",
     };
 
     private static readonly HashSet<string> ValueKinds = new(StringComparer.Ordinal)
@@ -56,7 +57,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
     private static readonly HashSet<string> Targets = new(StringComparer.Ordinal)
     {
         "Width", "Height", "Margin", "Padding", "Visibility", "Label", "Orientation",
-        "Spacing", "Scrollable", "Content", "Command", "Focusable", "Clickable", "ImageSource",
+        "Spacing", "StretchLastChild", "Scrollable", "Content", "Command", "Focusable", "Clickable", "ImageSource",
     };
 
     private static readonly HashSet<string> BindingProperties = new(StringComparer.Ordinal)
@@ -661,7 +662,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                 return target == "Margin" || target == "Padding";
             case "Boolean":
                 return target == "Visibility" || target == "Scrollable"
-                    || target == "Focusable" || target == "Clickable";
+                    || target == "Focusable" || target == "Clickable" || target == "StretchLastChild";
             case "Orientation":
                 return target == "Orientation";
             case "String":
@@ -686,11 +687,13 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
             case "Element":
                 return false;
             case "StackLayout":
-                return target == "Orientation" || target == "Spacing" || target == "Scrollable";
+                return target == "Orientation" || target == "Spacing" || target == "Scrollable"
+                    || target == "StretchLastChild";
             case "Text":
                 return target == "Content";
             case "CommandInput":
-                return target == "Command" || target == "Focusable" || target == "Clickable";
+                return target == "Command" || target == "Focusable" || target == "Clickable"
+                    || target == "Content";
             case "Image":
                 return target == "ImageSource";
             default:

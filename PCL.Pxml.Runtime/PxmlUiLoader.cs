@@ -81,7 +81,11 @@ public sealed class PxmlUiLoader
             case PxmlRuntimeRecipe.Element:
                 break;
             case PxmlRuntimeRecipe.StackLayout:
-                tree.SetComponent(entity, new XsrUiStackPanel(node.Orientation) { Spacing = node.Spacing });
+                tree.SetComponent(entity, new XsrUiStackPanel(node.Orientation)
+                {
+                    Spacing = node.Spacing,
+                    StretchLastChild = node.StretchLastChild,
+                });
                 if (node.Scrollable)
                 {
                     tree.SetComponent(entity, new XsrUiScroll());
@@ -110,6 +114,11 @@ public sealed class PxmlUiLoader
                 {
                     // The IR carries a validated semantic ID; no repeated parsing.
                     tree.SetComponent(entity, new XsrUiCommandBinding(node.Command.Value));
+                }
+
+                if (node.Content is not null)
+                {
+                    tree.SetComponent(entity, new XsrUiText(node.Content));
                 }
 
                 break;

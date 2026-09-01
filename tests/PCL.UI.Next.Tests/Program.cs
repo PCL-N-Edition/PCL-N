@@ -61,6 +61,10 @@ internal static partial class Program
         ("scroll offsets children and clamps", Sync(ScrollOffsetsChildrenAndClamps)),
         ("scroll hit test follows offset", Sync(ScrollHitTestFollowsOffset)),
         ("image source carries to the scene", Sync(ImageSourceCarriesToTheScene)),
+        // XSR-701: product shell foundation.
+        ("dual shell styles share semantic chrome", Sync(DualShellStylesShareSemanticChrome)),
+        ("shell navigation selection updates scene and intent", Sync(ShellNavigationSelectionUpdatesSceneAndIntent)),
+        ("shell rejects unknown navigation selection", Sync(ShellRejectsUnknownNavigationSelection)),
     ];
 
     private static async Task<int> Main()

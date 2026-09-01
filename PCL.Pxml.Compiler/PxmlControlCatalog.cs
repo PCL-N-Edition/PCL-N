@@ -36,6 +36,7 @@ internal enum PxmlIrPropertyTarget
     Focusable = 12,
     Clickable = 13,
     ImageSource = 14,
+    StretchLastChild = 15,
 }
 
 internal sealed class PxmlControlPropertyModel

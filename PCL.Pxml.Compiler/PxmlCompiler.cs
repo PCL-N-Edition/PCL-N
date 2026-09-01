@@ -186,6 +186,7 @@ public static class PxmlCompiler
         private bool _isVisible = true;
         private XsrUiOrientation _orientation;
         private double _spacing;
+        private bool _stretchLastChild;
         private bool _scrollable;
         private string? _content;
         private string? _label;
@@ -221,6 +222,9 @@ public static class PxmlCompiler
                     break;
                 case PxmlIrPropertyTarget.Spacing:
                     _spacing = (double)value;
+                    break;
+                case PxmlIrPropertyTarget.StretchLastChild:
+                    _stretchLastChild = (bool)value;
                     break;
                 case PxmlIrPropertyTarget.Scrollable:
                     _scrollable = (bool)value;
@@ -261,6 +265,7 @@ public static class PxmlCompiler
                 IsVisible = _isVisible,
                 Orientation = _orientation,
                 Spacing = _spacing,
+                StretchLastChild = _stretchLastChild,
                 Scrollable = _scrollable,
                 Content = _content,
                 Label = _label,

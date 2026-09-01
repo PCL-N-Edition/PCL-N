@@ -75,6 +75,13 @@ public sealed class XsrUiStackPanel(XsrUiOrientation direction)
     public XsrUiOrientation Direction { get; set; } = direction;
 
     public double Spacing { get; set; }
+
+    /// <summary>
+    /// Gives the final visible child the remaining main-axis space. This is intentionally
+    /// opt-in: a normal stack keeps its intrinsic size, while shell rows can reserve the rest
+    /// of the viewport for the content host.
+    /// </summary>
+    public bool StretchLastChild { get; set; }
 }
 
 /// <summary>
@@ -102,6 +109,10 @@ public enum XsrUiSemanticRole
     Image = 6,
     ProgressBar = 7,
     Dialog = 8,
+    TitleBar = 9,
+    Navigation = 10,
+    NavigationItem = 11,
+    Content = 12,
 }
 
 /// <summary>
@@ -153,6 +164,87 @@ public sealed class XsrUiInput
     public bool IsPressed { get; set; }
 
     public bool IsFocused { get; set; }
+}
+
+/// <summary>
+/// Selection state for mutually exclusive navigation or list items. Selection is a semantic
+/// renderer fact, separate from focus and pointer-pressed state.
+/// </summary>
+public sealed class XsrUiSelection
+{
+    public bool IsSelected { get; set; }
+}
+
+/// <summary>
+/// Backend-neutral RGBA color. UI.Next carries color values as data; a platform backend decides
+/// how the value is turned into a native brush or draw command.
+/// </summary>
+public readonly record struct XsrUiColor(byte Red, byte Green, byte Blue, byte Alpha = 255)
+{
+    public static XsrUiColor FromRgb(byte red, byte green, byte blue) => new(red, green, blue);
+
+    public static XsrUiColor Transparent => new(0, 0, 0, 0);
+}
+
+/// <summary>
+/// Describes the material treatment of a surface without naming a platform compositor.
+/// </summary>
+public enum XsrUiSurfaceKind
+{
+    None = 0,
+    Solid = 1,
+    Translucent = 2,
+    Glass = 3,
+}
+
+/// <summary>
+/// Immutable visual facts copied from an entity into the render scene. The default value means
+/// that the backend should use its own neutral fallback.
+/// </summary>
+public readonly record struct XsrUiVisualStyleSnapshot(
+    XsrUiColor Background,
+    XsrUiColor Foreground,
+    XsrUiColor Border,
+    XsrUiSurfaceKind Surface,
+    double Opacity,
+    double CornerRadius,
+    double BorderWidth,
+    double BlurRadius)
+{
+    public bool IsDefined => Surface != XsrUiSurfaceKind.None || Opacity != 0;
+}
+
+/// <summary>
+/// Mutable visual component owned by the render-thread tree. Mutating a component must be
+/// followed by <see cref="XsrUiTree.MarkDirty(XsrUiEntityId, XsrUiDirtyKinds)"/> by its owner.
+/// </summary>
+public sealed class XsrUiVisualStyle
+{
+    public XsrUiColor Background { get; set; } = XsrUiColor.Transparent;
+
+    public XsrUiColor Foreground { get; set; } = XsrUiColor.FromRgb(255, 255, 255);
+
+    public XsrUiColor Border { get; set; } = XsrUiColor.Transparent;
+
+    public XsrUiSurfaceKind Surface { get; set; } = XsrUiSurfaceKind.None;
+
+    public double Opacity { get; set; } = 1;
+
+    public double CornerRadius { get; set; }
+
+    public double BorderWidth { get; set; }
+
+    public double BlurRadius { get; set; }
+
+    public XsrUiVisualStyleSnapshot Snapshot() => new(
+        Background,
+        Foreground,
+        Border,
+        Surface,
+        Opacity,
+        CornerRadius,
+        BorderWidth,
+        BlurRadius);
 }
 
 /// <summary>

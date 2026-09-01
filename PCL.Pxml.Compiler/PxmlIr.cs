@@ -51,6 +51,8 @@ public sealed record PxmlIrNode
 
     public double Spacing { get; init; }
 
+    public bool StretchLastChild { get; init; }
+
     public bool Scrollable { get; init; }
 
     public string? Content { get; init; }
