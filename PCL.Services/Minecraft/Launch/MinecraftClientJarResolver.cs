@@ -59,18 +59,18 @@ public static class MinecraftClientJarResolver
         foreach (JsonObject inheritedManifest in request.InheritedVersionJsons)
         {
             string? inheritedId = inheritedManifest["id"]?.ToString();
-            if (!string.IsNullOrWhiteSpace(inheritedId) &&
-                MinecraftVersionPaths.IsSafeReference(inheritedId) &&
-                FindJar(root, instance, inheritedId) is { } inheritedPath)
+            if (!string.IsNullOrWhiteSpace(inheritedId) && !MinecraftVersionPaths.IsSafeReference(inheritedId))
+                throw new InvalidDataException($"The inherited version id is not a safe file name: {inheritedId}");
+            if (!string.IsNullOrWhiteSpace(inheritedId) && FindJar(root, instance, inheritedId) is { } inheritedPath)
                 return new(inheritedPath, inheritedId, true);
         }
 
         // A supplied manifest can use "jar" to name the base artifact while keeping a loader id
         // as its own id. Treat that alias as another safe reference before failing.
         string? jarAlias = request.VersionJson["jar"]?.ToString();
-        if (!string.IsNullOrWhiteSpace(jarAlias) &&
-            MinecraftVersionPaths.IsSafeReference(jarAlias) &&
-            FindJar(root, instance, jarAlias) is { } aliased)
+        if (!string.IsNullOrWhiteSpace(jarAlias) && !MinecraftVersionPaths.IsSafeReference(jarAlias))
+            throw new InvalidDataException($"The base jar alias is not a safe file name: {jarAlias}");
+        if (!string.IsNullOrWhiteSpace(jarAlias) && FindJar(root, instance, jarAlias) is { } aliased)
             return new(aliased, jarAlias, true);
 
         string conventional = Path.Combine(instance, request.VersionId + ".jar");
@@ -92,7 +92,8 @@ public static class MinecraftClientJarResolver
         resolution = null;
         if (!MinecraftVersionPaths.IsSafeReference(versionId))
             throw new InvalidDataException($"The inherited version id is not a safe file name: {versionId}");
-        if (!visited.Add(versionId)) return false;
+        if (!visited.Add(versionId))
+            throw new InvalidDataException($"The Minecraft version inheritance chain contains a cycle at '{versionId}'.");
 
         JsonObject? manifest = knownManifest ?? FindManifest(manifests, versionId, null, inherited);
         if (manifest is null && MinecraftVersionPaths.ResolveJsonPath(root, instance, versionId) is { } jsonPath)
@@ -101,9 +102,17 @@ public static class MinecraftClientJarResolver
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException) { }
         }
         string? parent = manifest?["inheritsFrom"]?.ToString();
-        if (!string.IsNullOrWhiteSpace(parent) && MinecraftVersionPaths.IsSafeReference(parent) &&
-            TryResolveChain(parent, null, manifests, root, instance, inherited: true, visited, out resolution))
-            return true;
+        if (!string.IsNullOrWhiteSpace(parent))
+        {
+            if (!MinecraftVersionPaths.IsSafeReference(parent))
+                throw new InvalidDataException($"The inherited version id is not a safe file name: {parent}");
+            if (TryResolveChain(parent, null, manifests, root, instance, inherited: true, visited, out resolution))
+                return true;
+
+            throw new FileNotFoundException(
+                "The inherited Minecraft client JAR is missing; download the base version before launching.",
+                Path.Combine(root, "versions", parent, parent + ".jar"));
+        }
 
         string? path = FindJar(root, instance, versionId);
         if (path is null) return false;
