@@ -10,21 +10,23 @@ namespace PCL.UI.Next.Backend.Avalonia;
 /// </summary>
 internal static class AvaloniaMotionTokens
 {
-    /// <summary>Linear splash fade-out after the shell window reports opened.</summary>
-    public const int SplashFadeMilliseconds = 280;
+    /// <summary>
+    /// The startup reveal: a smooth mask expands from the small circle behind the inherited
+    /// splash icon out to the full window (legacy circular-reveal timing).
+    /// </summary>
+    public const int StartupRevealMilliseconds = 340;
 
-    public const int WindowFadeMilliseconds = 250;
+    /// <summary>Close reverses the reveal: the window collapses back into the icon circle.</summary>
+    public const int CloseCollapseMilliseconds = 280;
 
-    /// <summary>The window rises into place; critically damped, no overshoot bounce.</summary>
-    public const int WindowRiseMilliseconds = 600;
+    /// <summary>Radius of the circle the reveal starts from, just behind the 112 px icon.</summary>
+    public const double StartupRevealStartRadius = 68;
 
-    public const int WindowRotateMilliseconds = 500;
+    /// <summary>The inherited icon bounces slightly upward before it folds away.</summary>
+    public const int IconBounceMilliseconds = 110;
 
-    public const int WindowEntranceDelayMilliseconds = 100;
-
-    public const double WindowEntranceRisePixels = 60;
-
-    public const double WindowEntranceAngleDegrees = -4;
+    /// <summary>The final stage where the icon shrinks into (or out of) the content.</summary>
+    public const int IconCollapseMilliseconds = 190;
 
     /// <summary>Press responds on pointer-down; the release settles without a bounce.</summary>
     public const double PressScale = 0.97;

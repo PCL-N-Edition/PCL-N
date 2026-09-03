@@ -210,7 +210,9 @@ public readonly record struct XsrUiVisualStyleSnapshot(
     double Opacity,
     double CornerRadius,
     double BorderWidth,
-    double BlurRadius)
+    double BlurRadius,
+    double FontSize,
+    double FontWeight)
 {
     public bool IsDefined => Surface != XsrUiSurfaceKind.None || Opacity != 0;
 }
@@ -243,6 +245,18 @@ public sealed class XsrUiVisualStyle
 
     public double BlurRadius { get; set; }
 
+    /// <summary>
+    /// Gets or sets the text size in logical pixels. Zero means the backend picks the size
+    /// implied by the entity's semantic role.
+    /// </summary>
+    public double FontSize { get; set; }
+
+    /// <summary>
+    /// Gets or sets the text weight on the common 100..900 scale. 400 means normal; the backend
+    /// maps values of roughly 600 and above to its semibold face.
+    /// </summary>
+    public double FontWeight { get; set; } = 400;
+
     public XsrUiVisualStyleSnapshot Snapshot() => new(
         Background,
         Foreground,
@@ -252,7 +266,9 @@ public sealed class XsrUiVisualStyle
         Opacity,
         CornerRadius,
         BorderWidth,
-        BlurRadius);
+        BlurRadius,
+        FontSize,
+        FontWeight);
 }
 
 /// <summary>

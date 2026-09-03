@@ -43,7 +43,7 @@ internal static class Program
             new XsrUiShellOptions
             {
                 Style = ResolveShellStyle(args),
-                Title = "PCL Nexa",
+                Title = "Nexa Launcher",
                 Version = "2.0.0.alpha.1",
             },
             uiIntents);

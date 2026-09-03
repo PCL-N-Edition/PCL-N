@@ -33,7 +33,7 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
         Height = XsrUiShell.TitleBarHeight;
         VerticalAlignment = VerticalAlignment.Top;
         Spacing = 4;
-        Margin = new Thickness(0, (XsrUiShell.TitleBarHeight - ButtonSize) / 2, 12, 0);
+        Margin = new Thickness(0, 0, 12, 0);
 
         WindowActionButton minimize = CreateButton("lucide/minus", "最小化窗口");
         minimize.Click += (_, _) => MinimizeRequested?.Invoke(this, EventArgs.Empty);
@@ -100,6 +100,7 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
         {
             Width = ButtonSize;
             Height = ButtonSize;
+            VerticalAlignment = VerticalAlignment.Center;
             Padding = new Thickness(0);
             Background = Brushes.Transparent;
             BorderBrush = Brushes.Transparent;

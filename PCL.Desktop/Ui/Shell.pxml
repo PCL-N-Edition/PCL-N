@@ -1,10 +1,9 @@
-<Shell xmlns="https://pcln.dev/pxml/2026" Label="PCL Nexa">
+<Shell xmlns="https://pcln.dev/pxml/2026" Label="Nexa Launcher">
   <TitleBar Height="52">
-    <Text Content="PCL Nexa" />
-    <Text Content="2.0.0.alpha.1" />
+    <Text Content="Nexa Launcher" Margin="20,0,0,0" Width="240" />
   </TitleBar>
   <StackPanel Orientation="Horizontal" StretchLastChild="true">
-    <Navigation Width="48">
+    <Navigation Width="48" StretchLastChild="true">
       <NavigationItem Label="启动" Content="启动" Icon="lucide/play" Command="ui.navigation.launch" />
       <NavigationItem Label="安装" Content="安装" Icon="lucide/package-plus" Command="ui.navigation.download" />
       <NavigationItem Label="资源" Content="资源" Icon="lucide/blocks" Command="ui.navigation.community" />

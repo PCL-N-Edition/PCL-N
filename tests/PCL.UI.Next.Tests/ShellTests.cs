@@ -51,6 +51,15 @@ internal static partial class Program
         AssertEqual(0, selectedItem.VisualStyle.BorderWidth);
         AssertEqual(0, selectedItem.VisualStyle.Background.Alpha);
         AssertTrue(selectedItem.VisualStyle.Hover.Alpha > 0);
+
+        // The title-bar product title carries the legacy typography: 17 px semibold in the
+        // palette's title text color.
+        XsrUiEntityId titleText = experimental.Tree.Children(experimental.TitleBar)
+            .First(child => experimental.Tree.GetComponent<XsrUiText>(child) is not null);
+        XsrUiVisualStyleSnapshot titleStyle = Node(experimentalScene, titleText).VisualStyle;
+        AssertEqual(XsrUiShell.TitleFontSize, titleStyle.FontSize);
+        AssertEqual(XsrUiShell.TitleFontWeight, titleStyle.FontWeight);
+        AssertEqual(experimental.Palette.TitleBarText, titleStyle.Foreground);
     }
 
     private static void ShellNavigationSelectionUpdatesSceneAndIntent()
@@ -98,20 +107,35 @@ internal static partial class Program
         AssertEqual(XsrUiSemanticRole.Button, toggle.Role);
         AssertTrue(toggle.IsClickable);
 
+        // The toggle is pinned to the bottom of the rail, inset by the bottom margin.
+        XsrUiSceneNode navigationNode = Node(scene, shell.Navigation);
+        AssertEqual(
+            navigationNode.Rect.Y + navigationNode.Rect.Height - XsrUiShell.RailBottomInset,
+            toggle.Rect.Y + toggle.Rect.Height);
+
         shell.ToggleNavigationExpanded();
         AssertTrue(shell.IsNavigationExpanded);
         scene = shell.Render(new XsrUiSize(1024, 700));
         AssertEqual(XsrUiShell.ExpandedRailWidth, Node(scene, shell.Navigation).Rect.Width);
+
+        // Items always span the full rail width so the selection pill never shifts sideways
+        // when the rail expands; only the rail width and the revealed labels change.
         XsrUiEntityId firstItem = shell.NavigationEntities[shell.NavigationItems[0].Id];
         XsrUiSceneNode item = Node(scene, firstItem);
-        AssertEqual(XsrUiShell.ExpandedRailWidth - 16, item.Rect.Width);
-        AssertEqual(8, item.Rect.X);
+        AssertEqual(XsrUiShell.ExpandedRailWidth, item.Rect.Width);
+        AssertEqual(0, item.Rect.X);
+
+        // The toggle reveals the collapse label while expanded.
+        AssertEqual(
+            XsrUiShell.NavigationToggleCollapseLabel,
+            Node(scene, shell.NavigationToggle).Text);
 
         shell.SetNavigationExpanded(false);
         AssertFalse(shell.IsNavigationExpanded);
         scene = shell.Render(new XsrUiSize(1024, 700));
         AssertEqual(XsrUiShell.CollapsedRailWidth, Node(scene, shell.Navigation).Rect.Width);
         AssertEqual(0, Node(scene, firstItem).Rect.X);
+        AssertEqual(string.Empty, Node(scene, shell.NavigationToggle).Text);
     }
 
     private static void ShellRailToggleIntentExpandsThroughRenderer()

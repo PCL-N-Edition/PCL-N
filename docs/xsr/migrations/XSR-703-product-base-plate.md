@@ -22,11 +22,17 @@ so interruptions stay continuous.
   composition still rejects a replacement navigation list; future changes are explicit PXML and
   contract edits.
 - The shell owns a rail toggle entity (`XsrUiShell.NavigationToggle`, button role, command
-  `ui.navigation.expand`) in both composition paths. `ToggleNavigationExpanded` /
-  `SetNavigationExpanded` rewrite the rail width and item margins (8 px horizontal when
-  expanded). Item text is always the destination label; whether the label is drawn beside the
-  icon is a backend presentation decision derived from the committed item width. Expansion is
-  ephemeral presentation mechanics owned by the shell and never becomes product state.
+  `ui.navigation.expand`) pinned to the bottom of the rail (stack `StretchLastChild` with end
+  alignment) in both composition paths. `ToggleNavigationExpanded` / `SetNavigationExpanded`
+  rewrite the rail width; items always span the full rail width and the toggle reveals its
+  "收起" label while expanded. Item text is always the destination label; whether the label is
+  drawn beside the icon is a backend presentation decision derived from the committed item
+  width. Expansion is ephemeral presentation mechanics owned by the shell and never becomes
+  product state.
+- The title bar displays the product title "Nexa Launcher" with the legacy typography tokens:
+  17 px semibold in the palette's title text color (`TitleFontSize`/`TitleFontWeight` on the
+  visual style), with secondary title text at 12 px. `XsrUiVisualStyle` gained `FontSize` (0 =
+  role default) and `FontWeight` (400 = normal) as backend-neutral text facts.
 - The Experimental palette mirrors the legacy light theme: solid accent title bar
   `#1370f3` with white text, light window `#fbfbfb`, soft rail `#f3f7fc`, text `#343d4a`, and a
   `#d5e6fd` hover tint. The selected destination presents as a 5×20 accent selection pill plus
@@ -52,11 +58,13 @@ so interruptions stay continuous.
 ## Window and startup behavior (legacy parity)
 
 - Startup shows a frameless 136×136 transparent topmost splash with the product icon at
-  112 px, then shows the shell window underneath; the splash fades out linearly over 280 ms
-  once the shell window is on screen (guarded once, with a background-priority force dismiss).
-  Missing brand assets skip the splash — decoration is never a startup dependency. The icon
-  assets are brand migration from the legacy checkout, embedded as plain managed resources of
-  `PCL.Desktop` and resolved by the backend by stream, not through any asset framework.
+  112 px, then shows the shell window underneath. The window's circular reveal starts at the
+  surface's first committed scene (never over a blank window) and, when it completes, the
+  window's own icon copy — identical pixels at the identical screen position — takes over and
+  the splash closes instantly, so the icon never leaves the screen. Missing brand assets skip
+  the splash — decoration is never a startup dependency. The icon assets are brand migration
+  from the legacy checkout, embedded as plain managed resources of `PCL.Desktop` and resolved
+  by the backend by stream, not through any asset framework.
 - The shell window is 850×500 (min 810×470), centered, `WindowDecorations.None`, per-pixel
   transparent. Its surface is a 10 px-outset rounded (8 px) clip hosting the scene, over a
   matching soft shadow (`0 0 6 #48000000`). Maximized windows drop the margin, rounding, and
@@ -66,7 +74,13 @@ so interruptions stay continuous.
 - Window actions remain the sole backend overlay: three 28 px circular buttons (minimize,
   maximize, close) with legacy parity geometry (4 px gaps, 12 px from the right edge, centered
   in the 52 px bar). Their tint follows the scene title-bar foreground; the maximize glyph
-  swaps to `pcl/window-restore` while maximized.
+  swaps to `pcl/window-restore` while maximized. The close button routes through the backend's
+  own close request because a programmatic `Close()` bypasses the cancelable `OnClosing` path
+  on some platforms; system closes (Alt+F4) cancel through `OnClosing` and join the same
+  collapse sequence.
+- The scene surface paints with a transparent hit-test brush: its scene-node children are
+  deliberately not hit-testable, so without it every pointer interaction would fall through to
+  the window.
 
 ## Motion (fluid-interface rules)
 
@@ -78,13 +92,18 @@ clock keeps every rule testable and allocation-bounded:
 - press scales to 0.97 on pointer-down over 120 ms and settles back on release;
 - hover fades are 120 ms in, 180 ms out, mirrored and interruptible;
 - the selection pill grows over 300 ms (ease-out) and collapses over 120 ms (ease-in);
-- the rail expansion animates the rail-subtree and content-subtree rects over 200 ms, always
-  restarting from the currently presented rect;
-- the window entrance is a 100 ms-delayed fade (250 ms) plus rise 60→0 (600 ms) and rotate
-  −4°→0 (500 ms), critically damped with no overshoot;
-- the splash fade is 280 ms linear.
-- Reduced motion (renderer flag) applies every fact immediately and skips the window
-  transform; the splash fade remains.
+- the rail expansion animates the rail-subtree and content-subtree rects over 200 ms on the
+  same shared clock. A navigation-width change starts the interpolation and commits that arrive
+  while it plays (the press, hover, and selection of the very click) re-target it from the
+  currently presented value instead of snapping; rail items keep full rail width in both
+  states, so the selection pill never shifts sideways during expansion, and expanded rows
+  indent icons past the pill and reveal labels plus the toggle's collapse label ("收起");
+- startup: the circular reveal expands over 340 ms starting at the first committed scene, then
+  the inherited icon bounces 1→1.12→0 (110 ms up, 190 ms collapse) as the product content
+  takes over;
+- close reverses the sequence: the mask contracts over 280 ms while the icon bounces back in
+  0→1.12→1, then the icon folds away (190 ms) and the window closes for real;
+- reduced motion (renderer flag) applies every fact immediately and skips the mask sequences.
 
 ## Boundary compliance
 
@@ -97,14 +116,14 @@ only non-scene control.
 
 ## Deliberate scope
 
-- The rail toggle sits below the items rather than pinned to the rail bottom; bottom pinning
-  needs a fill-remaining spacer primitive in the renderer and is deferred.
 - Icons are the nine embedded paths this plate needs; a lucide expansion or per-theme icon
   packs can extend `AvaloniaUiIcons` without contract changes.
 - The legacy `UiLauncherLogo` splash setting and first-run wizard hand-off are not migrated;
   the splash is unconditional until settings surfaces exist.
 - Dark-mode palettes beyond the two shell styles, page enter/exit transitions, and the
   window-transparency setting belong to the product page slices that attach to `Content`.
+- The deterministic text metric under-reserves width for proportional fonts; authored title
+  texts carry an explicit width until the renderer grows real font metrics.
 
 ## Verification
 

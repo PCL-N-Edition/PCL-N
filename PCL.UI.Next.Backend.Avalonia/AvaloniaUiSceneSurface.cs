@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Automation;
@@ -25,8 +24,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     private readonly Dictionary<XsrUiEntityId, AvaloniaUiSceneNodeControl> _controls = [];
     private readonly Dictionary<int, XsrUiRect> _presentedRects = [];
     private readonly Dictionary<int, (XsrUiRect From, XsrUiRect To)> _railAnimation = [];
-    private readonly Stopwatch _railClock = new();
-    private readonly DispatcherTimer _railTimer;
+    private readonly Dictionary<int, double> _railProgress = [];
     private XsrUiScene? _scene;
     private double _lastNavigationWidth;
     private bool _commitQueued;
@@ -36,17 +34,15 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     {
         _shell = shell ?? throw new ArgumentNullException(nameof(shell));
         Focusable = true;
+        // A transparent brush makes the surface itself hit-testable. Without it the panel never
+        // receives pointers (its scene-node children are deliberately not hit-testable), and
+        // every click, hover, drag, and double-click would fall through to the window.
+        Background = Brushes.Transparent;
         ClipToBounds = true;
         _shell.Tree.RenderInvalidated += OnTreeRenderInvalidated;
         _shell.StateBridge?.RenderRequested += OnStateRenderRequested;
         SizeChanged += (_, _) => RequestCommit();
         AttachedToVisualTree += (_, _) => RequestCommit();
-
-        _railTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(AvaloniaMotionTokens.FrameMilliseconds),
-        };
-        _railTimer.Tick += OnRailAnimationTick;
     }
 
     /// <summary>The last immutable scene committed to native drawing controls.</summary>
@@ -127,7 +123,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
             _disposed = true;
         }
 
-        _railTimer.Stop();
+        AvaloniaUiMotion.CancelAll(this);
         _shell.Tree.RenderInvalidated -= OnTreeRenderInvalidated;
         if (_shell.StateBridge is not null)
         {
@@ -137,6 +133,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         _controls.Clear();
         _presentedRects.Clear();
         _railAnimation.Clear();
+        _railProgress.Clear();
         Children.Clear();
         GC.SuppressFinalize(this);
     }
@@ -298,8 +295,10 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     /// <summary>
     /// Entities whose rectangles follow the navigation rail expansion (the rail subtree and the
     /// content subtree). Their rect changes are presented through a short critically damped
-    /// interpolation instead of snapping, and the interpolation always restarts from the
-    /// currently presented value so interrupted transitions stay continuous.
+    /// interpolation instead of snapping. While the interpolation clock is running, later
+    /// commits keep re-targeting it from the currently presented value — the press, hover, and
+    /// selection facts of the very click that started the expansion arrive as extra commits and
+    /// must not snap the animation away.
     /// </summary>
     private HashSet<int> CollectRailAnimatedEntities(XsrUiScene scene)
     {
@@ -333,12 +332,13 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
             ancestors.Push(node);
         }
 
-        if (!railTransition)
+        // Animate only a navigation-width change and the commits that arrive while it plays;
+        // unrelated rect changes (for example window resizes) keep snapping.
+        if (!railTransition && _railAnimation.Count == 0)
         {
             return [];
         }
 
-        StartRailAnimationClock();
         return animated;
     }
 
@@ -348,58 +348,53 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         {
             _presentedRects.Remove(node.Entity.Index);
             _railAnimation.Remove(node.Entity.Index);
+            _railProgress.Remove(node.Entity.Index);
             return;
         }
 
         XsrUiRect target = node.Rect;
+        bool running = _railAnimation.ContainsKey(node.Entity.Index);
         XsrUiRect from = _presentedRects.TryGetValue(node.Entity.Index, out XsrUiRect presented)
             ? presented
             : target;
-        if (from.Equals(target))
+        if (!running && from.Equals(target))
         {
             _presentedRects.Remove(node.Entity.Index);
-            _railAnimation.Remove(node.Entity.Index);
             return;
         }
 
-        _presentedRects[node.Entity.Index] = from;
-        _railAnimation[node.Entity.Index] = (from, target);
-    }
+        // A running entry re-targets from the currently presented value; an unchanged target
+        // keeps its entry alive so sibling commits (press, hover, selection) cannot snap the
+        // interpolation away mid-gesture. The shared motion clock drives the presented value.
+        int index = node.Entity.Index;
+        _presentedRects[index] = from;
+        _railAnimation[index] = (from, target);
+        double start = _railProgress.TryGetValue(index, out double progress) ? progress : 0;
+        _railProgress[index] = start;
+        AvaloniaUiMotion.Animate(
+            this,
+            index,
+            () => _railProgress.TryGetValue(index, out double value) ? value : 1,
+            value =>
+            {
+                _railProgress[index] = value;
+                if (_railAnimation.TryGetValue(index, out (XsrUiRect From, XsrUiRect To) segment))
+                {
+                    _presentedRects[index] = LerpRect(segment.From, segment.To, value);
+                }
 
-    private void StartRailAnimationClock()
-    {
-        if (!_railTimer.IsEnabled)
-        {
-            _railClock.Restart();
-            _railTimer.Start();
-        }
-    }
-
-    private void OnRailAnimationTick(object? sender, EventArgs e)
-    {
-        if (_railAnimation.Count == 0)
-        {
-            _railTimer.Stop();
-            _railClock.Reset();
-            return;
-        }
-
-        double progress = _railClock.Elapsed.TotalMilliseconds
-            / AvaloniaMotionTokens.RailExpandMilliseconds;
-        double eased = progress >= 1 ? 1 : 1 - Math.Pow(1 - progress, 3);
-        foreach ((int entityIndex, (XsrUiRect from, XsrUiRect to)) in _railAnimation)
-        {
-            _presentedRects[entityIndex] = LerpRect(from, to, eased);
-        }
-
-        InvalidateArrange();
-        InvalidateVisual();
-        if (progress >= 1)
-        {
-            _railTimer.Stop();
-            _railClock.Reset();
-            _railAnimation.Clear();
-        }
+                InvalidateArrange();
+                InvalidateVisual();
+            },
+            1,
+            AvaloniaMotionTokens.RailExpandMilliseconds,
+            progress => progress,
+            completed: () =>
+            {
+                _railProgress.Remove(index);
+                _railAnimation.Remove(index);
+                _presentedRects.Remove(index);
+            });
     }
 
     private XsrUiRect PresentedRect(XsrUiEntityId entity)
@@ -753,19 +748,25 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
 
         DrawHoverOverlay(context, rect, style);
 
-        // Collapsed rail items center the vector icon and hide the label; expanded items lead
-        // with the icon and draw the label after it. Any other node with an icon and no text
-        // (the rail toggle) centers its icon too.
+        // Collapsed rail items center the vector icon and hide the label; expanded rail rows
+        // clear the selection pill, lead with the icon, and draw the label after it. Any other
+        // icon-bearing node without text (or a collapsed rail item) centers its icon.
         bool collapsedRailItem = _node.Role == XsrUiSemanticRole.NavigationItem
             && Bounds.Width <= CollapsedRailCenteringWidth;
         bool textVisible = _node.Text is { Length: > 0 } && !collapsedRailItem;
+        bool railRow = textVisible && Bounds.Width > CollapsedRailCenteringWidth;
         if (_node.ImageSource is { Length: > 0 } iconSource
             && AvaloniaUiIcons.TryGetGeometry(iconSource, out IReadOnlyList<Geometry> iconPaths))
         {
             double scale = NavigationIconSize / AvaloniaUiIcons.ViewBoxSize;
-            double iconX = textVisible
-                ? 0
-                : Math.Max(0, (Bounds.Width - NavigationIconSize) / 2);
+
+            // The selection pill occupies the left edge of expanded item rows, so icons indent
+            // past it; rows without a pill (the rail toggle) keep the same indent for alignment.
+            double iconX = railRow
+                ? PillWidth + 4
+                : textVisible
+                    ? 0
+                    : Math.Max(0, (Bounds.Width - NavigationIconSize) / 2);
             double iconY = Math.Max(0, (Bounds.Height - NavigationIconSize) / 2);
             IBrush iconBrush = Brush(style.Foreground) ?? new SolidColorBrush(Colors.White);
             Pen iconPen = new(iconBrush, AvaloniaUiIcons.StrokeWidth * scale)
@@ -784,7 +785,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
 
             if (textVisible)
             {
-                DrawText(context, style, NavigationIconSize + NavigationIconTextGap);
+                DrawText(context, style, iconX + NavigationIconSize + NavigationIconTextGap);
             }
         }
         else if (textVisible)
@@ -846,12 +847,16 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         }
 
         IBrush foreground = Brush(style.Foreground) ?? new SolidColorBrush(Colors.White);
+        // Explicit visual-style typography wins; otherwise the semantic role decides, mirroring
+        // the legacy sizes (17 px title, 12 px rail items, 14 px body text).
+        double fontSize = style.FontSize > 0 ? style.FontSize : FontSizeFor(_node);
+        FontWeight weight = style.FontWeight >= 600 ? FontWeight.SemiBold : FontWeight.Normal;
         FormattedText formatted = new(
             text,
             CultureInfo.CurrentUICulture,
             FlowDirection.LeftToRight,
-            new Typeface(FontFamily.Default),
-            FontSizeFor(_node),
+            new Typeface(FontFamily.Default, FontStyle.Normal, weight),
+            fontSize,
             foreground);
         double y = Math.Max(0, (Bounds.Height - formatted.Height) / 2);
         context.DrawText(formatted, new Point(x, y));
@@ -862,7 +867,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     private static double FontSizeFor(XsrUiSceneNode node) => node.Role switch
     {
         XsrUiSemanticRole.TitleBar => 17,
-        XsrUiSemanticRole.NavigationItem => 14,
+        XsrUiSemanticRole.NavigationItem => 12,
         XsrUiSemanticRole.Text => 14,
         _ => 14,
     };

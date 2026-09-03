@@ -63,6 +63,7 @@ public static class AvaloniaUiShellHost
     private sealed class ShellApplication : Application
     {
         private AvaloniaSplashWindow? _splash;
+        private DispatcherTimer? _splashFallback;
 
         public override void OnFrameworkInitializationCompleted()
         {
@@ -80,25 +81,50 @@ public static class AvaloniaUiShellHost
                     _splash.Show();
                 }
 
+                // A second stream: the shell window consumes it for the taskbar icon and the
+                // close-collapse overlay, independent of the splash's copy.
                 AvaloniaUiShellWindow shell = new(
                     CurrentShell,
-                    TryOpenProductAsset("PCL.Desktop.Assets.icon.ico"));
-                shell.Opened += OnShellWindowOpened;
+                    TryOpenProductAsset("PCL.Desktop.Assets.icon.png"));
+                shell.StartupRevealCompleted += OnStartupRevealCompleted;
                 desktop.MainWindow = shell;
                 shell.Show();
 
                 if (_splash is not null)
                 {
-                    // Hard guarantee that the splash never outlives startup even if the Opened
-                    // event is missed; the guarded dismiss makes the second call a no-op.
-                    Dispatcher.UIThread.Post(DismissSplash, DispatcherPriority.Background);
+                    // Hard guarantee that the splash never outlives startup even if the reveal
+                    // event is missed; the guarded dismiss makes every later call a no-op.
+                    _splashFallback = new DispatcherTimer
+                    {
+                        Interval = TimeSpan.FromSeconds(2),
+                    };
+                    _splashFallback.Tick += (_, _) =>
+                    {
+                        _splashFallback?.Stop();
+                        DismissSplash();
+                    };
+                    _splashFallback.Start();
                 }
             }
 
             base.OnFrameworkInitializationCompleted();
         }
 
-        private void OnShellWindowOpened(object? sender, EventArgs e) => DismissSplash();
+        private void OnStartupRevealCompleted(object? sender, EventArgs e)
+        {
+            _splashFallback?.Stop();
+
+            // The window's own icon copy took over at the exact splash position, so the splash
+            // closes instantly instead of fading — the icon never leaves the screen.
+            AvaloniaSplashWindow? splash = _splash;
+            if (splash is null)
+            {
+                return;
+            }
+
+            _splash = null;
+            splash.Close();
+        }
 
         private void DismissSplash()
         {
@@ -109,7 +135,7 @@ public static class AvaloniaUiShellHost
             }
 
             _splash = null;
-            splash.DismissWithFade(TimeSpan.FromMilliseconds(AvaloniaMotionTokens.SplashFadeMilliseconds));
+            splash.Close();
         }
     }
 }

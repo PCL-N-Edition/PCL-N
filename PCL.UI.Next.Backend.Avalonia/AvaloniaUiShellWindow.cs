@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using PCL.UI.Next;
 
 namespace PCL.UI.Next.Backend.Avalonia;
@@ -11,13 +12,16 @@ namespace PCL.UI.Next.Backend.Avalonia;
 /// Native window lifetime around one UI.Next scene surface. The window owns the frameless
 /// chrome: a transparent window whose rounded, shadowed surface hosts the scene, a drag-through
 /// title bar with double-click maximize, eight invisible resize grips, and the sole native
-/// overlay (window actions). Product geometry is committed by
+/// overlay (window actions). Startup and close run the dedicated icon-circle animation: the
+/// window reveals from the small circle behind the inherited splash icon, and closing collapses
+/// it back into that circle. Product geometry is committed by
 /// <see cref="AvaloniaUiSceneSurface"/> from the immutable renderer scene.
 /// </summary>
 public sealed class AvaloniaUiShellWindow : Window
 {
     private const double ChromeMargin = 10;
     private const double ChromeCornerRadius = 8;
+    private const double CloseIconSize = 112;
 
     private static readonly BoxShadows WindowShadow = new(new BoxShadow
     {
@@ -32,6 +36,13 @@ public sealed class AvaloniaUiShellWindow : Window
     private readonly Border _shadowSurface;
     private readonly Border _chromeSurface;
     private readonly Grid _root;
+    private readonly Bitmap? _closeIcon;
+    private EllipseGeometry? _revealMask;
+    private Image? _startupIcon;
+    private ScaleTransform? _startupIconScale;
+    private ScaleTransform? _closeIconScale;
+    private bool _awaitingFirstSceneCommit;
+    private bool _closeAnimationStarted;
     private bool _disposed;
 
     public AvaloniaUiShellWindow(XsrUiShell shell, Stream? iconStream = null)
@@ -55,10 +66,11 @@ public sealed class AvaloniaUiShellWindow : Window
         TransparencyLevelHint = [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None];
         if (iconStream is not null)
         {
-            Icon = new WindowIcon(iconStream);
+            // The same product icon closes the loop: taskbar icon at rest, and the image the
+            // window collapses into on close.
+            _closeIcon = new Bitmap(iconStream);
+            Icon = new WindowIcon(_closeIcon);
         }
-
-        Opacity = shell.Renderer.ReducedMotion ? 1 : 0;
 
         _shadowSurface = new Border
         {
@@ -86,7 +98,7 @@ public sealed class AvaloniaUiShellWindow : Window
         };
         _windowActions.MinimizeRequested += (_, _) => WindowState = WindowState.Minimized;
         _windowActions.MaximizeRequested += OnMaximizeRequested;
-        _windowActions.CloseRequested += (_, _) => Close();
+        _windowActions.CloseRequested += (_, _) => RequestClose();
 
         // This overlay has no application layout. The scene surface below remains the sole
         // projection of PXML/UI.Next entities; these controls are native window affordances.
@@ -107,15 +119,64 @@ public sealed class AvaloniaUiShellWindow : Window
         PropertyChanged += OnWindowPropertyChanged;
     }
 
+    /// <summary>
+    /// Raised once the startup reveal has fully expanded (or was skipped under reduced motion).
+    /// The host dismisses the splash at this point, so the icon never leaves the screen until
+    /// the window has taken over.
+    /// </summary>
+    public event EventHandler? StartupRevealCompleted;
+
     protected override void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
-        RunEntranceAnimation();
+        if (_shell.Renderer.ReducedMotion)
+        {
+            StartupRevealCompleted?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        // The reveal must expand over rendered content, so it starts at the surface's first
+        // committed scene rather than at Opened — otherwise the mask grows across a blank
+        // window and the product UI simply pops in when the first frame lands.
+        _awaitingFirstSceneCommit = true;
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        base.OnClosing(e);
+        if (_closeAnimationStarted || _shell.Renderer.ReducedMotion)
+        {
+            return;
+        }
+
+        // System-initiated closes (Alt+F4, taskbar) arrive here; the window-action close button
+        // routes through RequestClose because a programmatic Close bypasses this override on
+        // some platforms. Either way the collapse plays once before the real close.
+        e.Cancel = true;
+        _closeAnimationStarted = true;
+        PlayCloseCollapse();
+    }
+
+    /// <summary>
+    /// Plays the close collapse and then closes for real. The collapse runs exactly once; a
+    /// close request that arrives while it plays falls through to the plain close.
+    /// </summary>
+    private void RequestClose()
+    {
+        if (_closeAnimationStarted || _shell.Renderer.ReducedMotion)
+        {
+            Close();
+            return;
+        }
+
+        _closeAnimationStarted = true;
+        PlayCloseCollapse();
     }
 
     protected override void OnClosed(EventArgs e)
     {
         _disposed = true;
+        AvaloniaUiMotion.CancelAll(this);
         PropertyChanged -= OnWindowPropertyChanged;
         _surface.TitleBarDragRequested -= OnTitleBarDragRequested;
         _surface.SceneCommitted -= OnSceneCommitted;
@@ -125,44 +186,219 @@ public sealed class AvaloniaUiShellWindow : Window
     }
 
     /// <summary>
-    /// Fades the window in and lets it rise and straighten into place. The settle is critically
-    /// damped (no overshoot) and starts from the presented value; reduced motion keeps only the
-    /// fade, and full reduced-motion runs skip the entrance entirely.
+    /// Expands a smooth circular mask from the small circle that sits just behind the inherited
+    /// splash icon out to the full window. Both windows are screen-centered, so the icon and the
+    /// mask share one center; the window's own copy of the icon sits under the splash and takes
+    /// over seamlessly when it closes. Reduced motion skips the mask entirely.
     /// </summary>
-    private void RunEntranceAnimation()
+    private void RunStartupReveal()
     {
-        if (Opacity >= 1)
+        double width = Bounds.Width;
+        double height = Bounds.Height;
+        if (width <= 0 || height <= 0)
+        {
+            OnStartupRevealCompleted();
+            return;
+        }
+
+        Point center = new(width / 2, height / 2);
+        double fullRadius = Math.Sqrt((width * width) + (height * height)) / 2;
+        EllipseGeometry mask = new()
+        {
+            Center = center,
+            RadiusX = AvaloniaMotionTokens.StartupRevealStartRadius,
+            RadiusY = AvaloniaMotionTokens.StartupRevealStartRadius,
+        };
+        _revealMask = mask;
+        _root.Clip = mask;
+        if (_closeIcon is not null)
+        {
+            // The icon the window inherits from the splash: identical pixels at the identical
+            // position, revealed underneath the splash and animated after it hands off.
+            _startupIconScale = new ScaleTransform(1, 1);
+            _startupIcon = new Image
+            {
+                Source = _closeIcon,
+                Width = CloseIconSize,
+                Height = CloseIconSize,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+                RenderTransform = _startupIconScale,
+                RenderTransformOrigin = RelativePoint.Center,
+            };
+            _root.Children.Add(_startupIcon);
+        }
+
+        AvaloniaUiMotion.Animate(
+            this,
+            "startup-reveal",
+            () => mask.RadiusX,
+            value =>
+            {
+                mask.RadiusX = value;
+                mask.RadiusY = value;
+
+                // Mutating the clip geometry alone does not invalidate the visual tree; the
+                // mask would otherwise apply only for the first frame and never redraw.
+                _root.InvalidateVisual();
+            },
+            fullRadius,
+            AvaloniaMotionTokens.StartupRevealMilliseconds,
+            AvaloniaUiMotion.EaseOut,
+            completed: OnStartupRevealCompleted);
+    }
+
+    private void OnStartupRevealCompleted()
+    {
+        if (_disposed)
         {
             return;
         }
 
-        TranslateTransform translate = new(0, AvaloniaMotionTokens.WindowEntranceRisePixels);
-        RotateTransform rotate = new(AvaloniaMotionTokens.WindowEntranceAngleDegrees);
-        _root.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
-        _root.RenderTransform = new TransformGroup { Children = { translate, rotate } };
-
-        int piecesRemaining = 2;
-        void OnPieceCompleted()
+        _root.Clip = null;
+        _revealMask = null;
+        StartupRevealCompleted?.Invoke(this, EventArgs.Empty);
+        if (_startupIcon is not null && _startupIconScale is not null)
         {
-            piecesRemaining--;
-            if (piecesRemaining == 0 && !_disposed)
-            {
-                _root.RenderTransform = null;
-            }
+            // The icon continues where the splash left off: a small bounce upward, then it
+            // shrinks into the content and is removed.
+            ScaleTransform scale = _startupIconScale;
+            Image icon = _startupIcon;
+            AvaloniaUiMotion.Animate(
+                this, ("startup-icon", "up"), () => scale.ScaleX, value =>
+                {
+                    scale.ScaleX = value;
+                    scale.ScaleY = value;
+                },
+                1.12,
+                AvaloniaMotionTokens.IconBounceMilliseconds,
+                AvaloniaUiMotion.EaseOut,
+                completed: () => AvaloniaUiMotion.Animate(
+                    this, ("startup-icon", "down"), () => scale.ScaleX, value =>
+                    {
+                        scale.ScaleX = value;
+                        scale.ScaleY = value;
+                    },
+                    0,
+                    AvaloniaMotionTokens.IconCollapseMilliseconds,
+                    AvaloniaUiMotion.EaseIn,
+                    completed: () =>
+                    {
+                        if (!_disposed)
+                        {
+                            _root.Children.Remove(icon);
+                        }
+                    }));
+        }
+    }
+
+    private void PlayCloseCollapse()
+    {
+        double width = Bounds.Width;
+        double height = Bounds.Height;
+        if (width <= 0 || height <= 0)
+        {
+            Close();
+            return;
         }
 
-        double delay = AvaloniaMotionTokens.WindowEntranceDelayMilliseconds;
+        // Close reverses the startup sequence: the mask contracts back into the icon circle
+        // while the icon bounces back in, then the icon folds away and the window closes.
+        Point center = new(width / 2, height / 2);
+        double fullRadius = Math.Sqrt((width * width) + (height * height)) / 2;
+        EllipseGeometry mask = new()
+        {
+            Center = center,
+            RadiusX = fullRadius,
+            RadiusY = fullRadius,
+        };
+        _revealMask = mask;
+        _root.Clip = mask;
+
+        int piecesRemaining = _closeIcon is null ? 1 : 2;
+        void OnCollapsePieceCompleted()
+        {
+            piecesRemaining--;
+            if (piecesRemaining != 0 || _disposed)
+            {
+                return;
+            }
+
+            AvaloniaUiMotion.Animate(
+                this,
+                "close-icon-fold",
+                () => _closeIconScale?.ScaleX ?? 0,
+                value =>
+                {
+                    if (_closeIconScale is not null)
+                    {
+                        _closeIconScale.ScaleX = value;
+                        _closeIconScale.ScaleY = value;
+                    }
+                },
+                0,
+                _closeIconScale is null ? 1 : AvaloniaMotionTokens.IconCollapseMilliseconds,
+                AvaloniaUiMotion.EaseIn,
+                completed: () =>
+                {
+                    _root.Clip = null;
+                    _revealMask = null;
+                    Close();
+                });
+        }
+
         AvaloniaUiMotion.Animate(
-            this, "opacity", () => Opacity, value => Opacity = value, 1,
-            AvaloniaMotionTokens.WindowFadeMilliseconds, delayMilliseconds: delay);
-        AvaloniaUiMotion.Animate(
-            this, "rise", () => translate.Y, value => translate.Y = value, 0,
-            AvaloniaMotionTokens.WindowRiseMilliseconds, delayMilliseconds: delay,
-            completed: OnPieceCompleted);
-        AvaloniaUiMotion.Animate(
-            this, "straighten", () => rotate.Angle, value => rotate.Angle = value, 0,
-            AvaloniaMotionTokens.WindowRotateMilliseconds, delayMilliseconds: delay,
-            completed: OnPieceCompleted);
+            this,
+            "close-collapse",
+            () => mask.RadiusX,
+            value =>
+            {
+                mask.RadiusX = value;
+                mask.RadiusY = value;
+                _root.InvalidateVisual();
+            },
+            AvaloniaMotionTokens.StartupRevealStartRadius,
+            AvaloniaMotionTokens.CloseCollapseMilliseconds,
+            AvaloniaUiMotion.EaseIn,
+            completed: OnCollapsePieceCompleted);
+
+        if (_closeIcon is not null)
+        {
+            _closeIconScale = new ScaleTransform(0, 0);
+            Image iconOverlay = new()
+            {
+                Source = _closeIcon,
+                Width = CloseIconSize,
+                Height = CloseIconSize,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+                RenderTransform = _closeIconScale,
+                RenderTransformOrigin = RelativePoint.Center,
+            };
+            _root.Children.Add(iconOverlay);
+            ScaleTransform scale = _closeIconScale;
+            AvaloniaUiMotion.Animate(
+                this, ("close-icon", "up"), () => scale.ScaleX, value =>
+                {
+                    scale.ScaleX = value;
+                    scale.ScaleY = value;
+                },
+                1.12,
+                AvaloniaMotionTokens.CloseCollapseMilliseconds / 2,
+                AvaloniaUiMotion.EaseOut,
+                completed: () => AvaloniaUiMotion.Animate(
+                    this, ("close-icon", "settle"), () => scale.ScaleX, value =>
+                    {
+                        scale.ScaleX = value;
+                        scale.ScaleY = value;
+                    },
+                    1,
+                    AvaloniaMotionTokens.CloseCollapseMilliseconds / 2,
+                    AvaloniaUiMotion.EaseIn,
+                    completed: OnCollapsePieceCompleted));
+        }
     }
 
     private IEnumerable<Border> CreateResizeGrips()
@@ -253,8 +489,15 @@ public sealed class AvaloniaUiShellWindow : Window
             : [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None];
     }
 
-    private void OnSceneCommitted(object? sender, AvaloniaUiSceneCommittedEventArgs e) =>
+    private void OnSceneCommitted(object? sender, AvaloniaUiSceneCommittedEventArgs e)
+    {
         ApplyTransparencyHint(e.Scene);
+        if (_awaitingFirstSceneCommit && !_disposed)
+        {
+            _awaitingFirstSceneCommit = false;
+            RunStartupReveal();
+        }
+    }
 
     private void OnTitleBarDragRequested(object? sender, PointerPressedEventArgs e)
     {

@@ -63,7 +63,7 @@ public sealed class XsrUiShellOptions
 {
     public XsrUiShellStyle Style { get; init; } = XsrUiShellStyle.Experimental;
 
-    public string Title { get; init; } = "PCL Nexa";
+    public string Title { get; init; } = "Nexa Launcher";
 
     public string Version { get; init; } = "2.0.0.alpha.1";
 
@@ -343,7 +343,10 @@ public sealed class XsrUiShell
         XsrUiEntityId title = Tree.Create("title");
         Tree.SetComponent(title, new XsrUiElement
         {
+            // The deterministic text metric under-reserves width for proportional fonts; the
+            // title owns generous space so the real glyph run is never clipped.
             Margin = new XsrUiThickness(20, 0, 0, 0),
+            Width = 240,
             VerticalAlignment = XsrUiAlignment.Center,
         });
         Tree.SetComponent(title, new XsrUiText(options.Title));
@@ -371,7 +374,11 @@ public sealed class XsrUiShell
         {
             Width = CollapsedRailWidth,
         });
-        Tree.SetComponent(Navigation, new XsrUiStackPanel(XsrUiOrientation.Vertical) { Spacing = 6 });
+        Tree.SetComponent(Navigation, new XsrUiStackPanel(XsrUiOrientation.Vertical)
+        {
+            Spacing = 6,
+            StretchLastChild = true,
+        });
         Tree.SetComponent(Navigation, new XsrUiSemantic(XsrUiSemanticRole.Navigation, "主导航"));
         Tree.SetComponent(Navigation, new XsrUiVisualStyle());
         Tree.Attach(Navigation, Body);
@@ -636,11 +643,15 @@ public sealed class XsrUiShell
         Tree.SetComponent(toggle, new XsrUiElement
         {
             Height = NavigationItemHeight,
+
+            // The rail stretches its last child over the leftover height; end alignment pins the
+            // toggle to the bottom of the rail like the legacy hamburger.
+            VerticalAlignment = XsrUiAlignment.End,
             Margin = new XsrUiThickness(0, 6, 0, RailBottomInset),
             HorizontalAlignment = XsrUiAlignment.Stretch,
-            VerticalAlignment = XsrUiAlignment.Center,
         });
         Tree.SetComponent(toggle, new XsrUiImage("lucide/menu"));
+        Tree.SetComponent(toggle, new XsrUiText(string.Empty));
         Tree.SetComponent(toggle, new XsrUiSemantic(XsrUiSemanticRole.Button, "导航开关"));
         Tree.SetComponent(toggle, new XsrUiInput { Focusable = true, Clickable = true });
         Tree.SetComponent(toggle, new XsrUiCommandBinding(XsrUiShellIds.NavigationExpand));
@@ -655,11 +666,25 @@ public sealed class XsrUiShell
     /// <summary>Insets the rail toggle from the bottom edge.</summary>
     public const double RailBottomInset = 12;
 
-    private static XsrUiThickness ItemMargin(int index, bool expanded)
+    /// <summary>The collapse label shown beside the rail toggle while expanded.</summary>
+    public const string NavigationToggleCollapseLabel = "收起";
+
+    /// <summary>The title-bar product-title text size in logical pixels.</summary>
+    public const double TitleFontSize = 17;
+
+    /// <summary>Secondary title-bar text size (for example a version label).</summary>
+    public const double TitleSecondaryFontSize = 12;
+
+    /// <summary>The title-bar product-title weight on the 100..900 scale.</summary>
+    public const double TitleFontWeight = 600;
+
+    private static XsrUiThickness ItemMargin(int index)
     {
-        double horizontal = expanded ? 8 : 0;
+        // Rail items always span the full rail width: the selection pill stays pinned to the
+        // rail's left edge and the icon/label offsets come from the backend presentation, so
+        // expansion never shifts the chrome sideways.
         double top = index == 0 ? RailTopInset : 0;
-        return new XsrUiThickness(horizontal, top, horizontal, 0);
+        return new XsrUiThickness(0, top, 0, 0);
     }
 
     private void ApplyNavigationExpansion()
@@ -671,17 +696,29 @@ public sealed class XsrUiShell
             Tree.MarkDirty(Navigation, XsrUiDirtyKinds.Layout);
         }
 
-        // Item text stays the destination label; whether the label is drawn next to the icon is
-        // a presentation decision the backend derives from the committed item width.
+        // The toggle carries the collapse label ("收起") while expanded and collapses to
+        // icon-only; item labels are always the destination text and the backend decides
+        // whether the committed item width reveals them.
         for (int index = 0; index < NavigationItems.Count; index++)
         {
             XsrUiEntityId entity = _navigationEntities[NavigationItems[index].Id];
             XsrUiElement? element = Tree.GetComponent<XsrUiElement>(entity);
-            XsrUiThickness margin = ItemMargin(index, IsNavigationExpanded);
+            XsrUiThickness margin = ItemMargin(index);
             if (element is not null && element.Margin != margin)
             {
                 element.Margin = margin;
                 Tree.MarkDirty(entity, XsrUiDirtyKinds.Layout);
+            }
+        }
+
+        if (_navigationToggle != default
+            && Tree.GetComponent<XsrUiText>(_navigationToggle) is { } toggleText)
+        {
+            string content = IsNavigationExpanded ? NavigationToggleCollapseLabel : string.Empty;
+            if (!string.Equals(toggleText.Content, content, StringComparison.Ordinal))
+            {
+                toggleText.Content = content;
+                Tree.MarkDirty(_navigationToggle, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
             }
         }
     }
@@ -746,6 +783,39 @@ public sealed class XsrUiShell
                 cornerRadius: 0,
                 blurRadius: 0,
                 borderWidth: 0);
+        }
+
+        ApplyTitleTextStyles();
+    }
+
+    /// <summary>
+    /// Applies the title-bar typography: the product title is the legacy 17 px semibold white
+    /// title, and any further text (for example a version label) drops to the 12 px secondary
+    /// size. Both keep the title-bar text color from the palette.
+    /// </summary>
+    private void ApplyTitleTextStyles()
+    {
+        int textIndex = 0;
+        foreach (XsrUiEntityId child in Tree.Children(TitleBar))
+        {
+            if (Tree.GetComponent<XsrUiText>(child) is null)
+            {
+                continue;
+            }
+
+            bool primary = textIndex == 0;
+            XsrUiVisualStyle? visual = Tree.GetComponent<XsrUiVisualStyle>(child);
+            if (visual is null)
+            {
+                visual = new XsrUiVisualStyle();
+                Tree.SetComponent(child, visual);
+            }
+
+            visual.Foreground = Palette.TitleBarText;
+            visual.FontSize = primary ? TitleFontSize : TitleSecondaryFontSize;
+            visual.FontWeight = primary ? TitleFontWeight : 400;
+            Tree.MarkDirty(child, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
+            textIndex++;
         }
     }
 
