@@ -186,6 +186,20 @@ public sealed class AccountService
     public IReadOnlyList<LaunchProfileView> GetViews() =>
         _store.ReadCollection<LaunchProfileView>(_profilesId).Items;
 
+    /// <summary>
+    /// Resolves one full launch profile inside the Services boundary. Credentials are returned
+    /// only to trusted launch/account orchestration and are never published into host state.
+    /// </summary>
+    public XsrResult<LaunchProfile> GetProfile(int index)
+    {
+        lock (_gate)
+        {
+            return index >= 0 && index < _profiles.Count
+                ? XsrResult.Success(_profiles[index])
+                : XsrResult.Failure<LaunchProfile>(AccountErrors.ProfileNotFound(index));
+        }
+    }
+
     private static XsrResult Validate(LaunchProfile profile)
     {
         if (profile is null)

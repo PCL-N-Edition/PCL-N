@@ -96,6 +96,11 @@ internal static partial class Program
         ("plan building inventories managed leftovers", Sync(BuildPlanInventoriesManagedLeftovers)),
         ("applying a plan places files and runs deletes", Sync(ApplyPlanPlacesFilesAndRunsDeletes)),
         ("unsafe paths are refused everywhere", Sync(UnsafePathsAreRefusedEverywhere)),
+        // XSR-706: product launch orchestration inputs.
+        ("offline identity falls back to the vanilla uuid", Sync(OfflineIdentityFallsBackToVanillaUuid)),
+        ("launch coordinator builds a complete low level request", Async(LaunchCoordinatorBuildsCompleteLowLevelRequest)),
+        ("launch coordinator rejects incomplete inheritance", Async(LaunchCoordinatorRejectsIncompleteInheritance)),
+        ("production minecraft runtime registers product start", Sync(ProductionMinecraftRuntimeRegistersStartRoute)),
         // XSR-519: Wave 5 acceptance integration.
         ("foundation composition end to end", FoundationCompositionEndToEnd),
         ("foundation downloads use composed logging", FoundationDownloadsUseComposedLogging),
@@ -215,6 +220,11 @@ internal static partial class Program
     {
         action();
         return ValueTask.CompletedTask;
+    };
+
+    private static Func<ValueTask> Async(Func<Task> action) => async () =>
+    {
+        await action().ConfigureAwait(false);
     };
 
     internal static void AssertTrue(bool value)

@@ -237,6 +237,11 @@ public sealed record JavaRuntimeCandidate(
 public interface IJavaRuntimeLocator
 {
     ValueTask<IReadOnlyList<JavaRuntimeCandidate>> FindAllAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Inspects one explicitly selected executable without widening to other runtimes.</summary>
+    ValueTask<JavaRuntimeCandidate?> InspectAsync(
+        string javaExecutablePath,
+        CancellationToken cancellationToken = default);
 }
 
 public abstract record JavaPreference;
@@ -509,14 +514,39 @@ public sealed class JavaSelectionService(IJavaRuntimeLocator locator)
     private readonly IJavaRuntimeLocator _locator = locator ?? throw new ArgumentNullException(nameof(locator));
 
     public async ValueTask<JavaSelectionResult> SelectAsync(MinecraftJavaRequirementRequest request, CancellationToken cancellationToken = default)
+        => await SelectAsync(request, new AutoSelectJavaPreference(), cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Selects against the resolved Java contract while honoring an explicit per-instance Java
+    /// executable. An explicit executable is inspected and either accepted as compatible or
+    /// rejected; it never silently falls through to a different runtime.
+    /// </summary>
+    public async ValueTask<JavaSelectionResult> SelectAsync(
+        MinecraftJavaRequirementRequest request,
+        JavaPreference preference,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(preference);
         JavaRequirementResolution requirement = MinecraftJavaRequirementResolver.Resolve(request);
         if (!requirement.Success)
             return new JavaSelectionResult { Success = false, Requirement = requirement, FailureReason = JavaSelectionFailureReason.InvalidVersionMetadata, Detail = requirement.Detail };
 
         IReadOnlyList<JavaRuntimeCandidate> candidates;
-        try { candidates = await _locator.FindAllAsync(cancellationToken).ConfigureAwait(false); }
+        try
+        {
+            if (preference is ExistingJavaPreference existing)
+            {
+                JavaRuntimeCandidate? inspected = await _locator
+                    .InspectAsync(existing.JavaExecutablePath, cancellationToken)
+                    .ConfigureAwait(false);
+                candidates = inspected is null ? [] : [inspected];
+            }
+            else
+            {
+                candidates = await _locator.FindAllAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
         {
             return new JavaSelectionResult { Success = false, Requirement = requirement, FailureReason = JavaSelectionFailureReason.LocatorUnavailable, Detail = exception.Message };

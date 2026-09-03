@@ -602,6 +602,16 @@ internal static partial class Program
     private sealed class InMemoryJavaLocator(IReadOnlyList<JavaRuntimeCandidate> candidates) : IJavaRuntimeLocator
     {
         public ValueTask<IReadOnlyList<JavaRuntimeCandidate>> FindAllAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(candidates);
+
+        public ValueTask<JavaRuntimeCandidate?> InspectAsync(
+            string javaExecutablePath,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(candidates.FirstOrDefault(candidate => string.Equals(
+                candidate.Installation.JavaExecutablePath,
+                Path.GetFullPath(javaExecutablePath),
+                OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal)));
     }
 
 }

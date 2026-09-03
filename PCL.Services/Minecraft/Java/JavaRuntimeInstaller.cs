@@ -10,11 +10,21 @@ public sealed record JavaRuntimeInstallProgress(
     int TotalFiles,
     string? Detail = null);
 
+/// <summary>Acquisition seam used by launch orchestration and deterministic tests.</summary>
+public interface IJavaRuntimeInstaller
+{
+    Task<string> InstallAsync(
+        string requestedComponent,
+        string runtimeRootDirectory,
+        IProgress<JavaRuntimeInstallProgress>? progress = null,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// Installs a planned Mojang runtime with resumable, hash-verified file replacement.
 /// The installer owns no global state and can therefore be hosted by a command handler.
 /// </summary>
-public sealed class JavaRuntimeInstaller : IDisposable
+public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
 {
     private readonly JavaRuntimeDownloadPlanService _planService;
     private readonly HttpClient _httpClient;
