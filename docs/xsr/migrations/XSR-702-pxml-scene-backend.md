@@ -50,6 +50,8 @@ to `XsrUiShell.Stage.ContentHost` is therefore the same page that the user sees.
 `PCL.UI.Next.Tests` proves a context-created bridge observes a host store, requests a frame, and
 refreshes a shell-bound scene without manual dirty marking. `PCL.UI.Next.Backend.Avalonia.Tests`
 calls the real native automation peers and proves focus, invoke, and navigation selection return to
-the renderer rather than a shell shortcut. The Desktop `--validate-shell` smoke path compiles the
-real embedded PXML template and renders the complete scene. CoreCLR, NativeAOT, architecture,
-formatting, and trimmed Desktop gates remain required before closing the unit.
+the renderer rather than a shell shortcut. A NativeAOT Desktop `--validate-shell` smoke path
+composes the Foundation host, embedded PXML, UI.Next shell, state bridge, and scene renderer without
+opening an Avalonia window. A separate trimmed Desktop publish remains the static composition
+analysis. CoreCLR, NativeAOT, architecture, formatting, and trimmed Desktop gates remain required
+before closing the unit.

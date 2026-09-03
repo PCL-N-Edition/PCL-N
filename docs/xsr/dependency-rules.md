@@ -46,7 +46,7 @@ returns the sealed command/query routers to Desktop.
 
 The initial project graph is defined in [migrations/XSR-002-project-graph.md](migrations/XSR-002-project-graph.md). `PCL.Xsr.ArchitectureTests` scans every project, rejects unregistered or external project references, enforces the locked direct-reference graph, verifies generator and executable roles, and prevents Avalonia packages outside the backend.
 
-The migration-branch CI builds the full solution, runs the architecture executable, validates the selected XSR product version during build, and publishes a trimmed Desktop composition. Source analyzers follow as compilable APIs are introduced.
+The migration-branch CI builds the full solution, runs the architecture executable, validates the selected XSR product version during build, publishes and executes the NativeAOT Desktop `--validate-shell` smoke path, and publishes a trimmed Desktop composition. Source analyzers follow as compilable APIs are introduced.
 
 The gate applies these rules strictly to new project families; there is no legacy-project exception list on this branch. Expanding an allowed set to acknowledge a new dependency is an architecture decision and requires a matching document change.
 

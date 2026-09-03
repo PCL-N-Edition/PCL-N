@@ -146,6 +146,16 @@ jobs:
       - name: Verify source formatting
         run: dotnet format PCL-N.slnx --no-restore --verify-no-changes --diagnostics IDE0055 IMPORTS
 
+      - name: Publish and run NativeAOT Desktop shell smoke
+        run: |
+          dotnet publish PCL.Desktop/PCL.Desktop.csproj \
+            --configuration Release \
+            -p:XsrVersionChannel=ci \
+            -p:PublishAot=true \
+            -p:StripSymbols=true \
+            --output "${{ runner.temp }}/pcl-desktop-aot"
+          "${{ runner.temp }}/pcl-desktop-aot/PCL.Desktop" --validate-shell
+
       - name: Analyze trimmed desktop composition
         run: >-
           dotnet publish PCL.Desktop/PCL.Desktop.csproj
