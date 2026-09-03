@@ -117,3 +117,19 @@ accessible text.
 - Desktop, Services, PXML, and UI.Next tests pass under their CoreCLR and applicable NativeAOT
   gates; architecture, formatting, Desktop NativeAOT `--validate-shell`, and trimmed Desktop
   `--validate-shell` all pass.
+
+## Evidence
+
+The implementation is split into the boundary document (`5a483cf4`), Services coordinator
+(`ec2ba7f3`), PXML/UI.Next identity and semantics (`ba9de495`), Desktop vertical slice
+(`56ee0d2a`), and formatting closure (`d8bb07d0`). Local acceptance on win-x64 produced:
+
+- Release solution build: 29 projects, 0 warnings, 0 errors.
+- Services: 177 managed tests and the same 177 tests from the published NativeAOT executable.
+- PXML/UI: 33 PXML tests, 66 UI.Next tests, 4 Avalonia backend tests, and 8 Desktop tests.
+- Architecture: all 29 project boundaries plus the Services-to-Desktop semantic dependency gate.
+- UI.Next benchmark: allocation, incremental-layout, scene-integrity, and throughput gates passed.
+- Desktop NativeAOT and link-trimmed executables both ran `--validate-shell` successfully and
+  rendered the composed PXML shell as 42 semantic scene nodes without starting a GUI.
+- `dotnet format PCL-N.slnx --no-restore --verify-no-changes --diagnostics IDE0055 IMPORTS`
+  completed with no changes.
