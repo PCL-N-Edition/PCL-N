@@ -41,6 +41,8 @@ internal static partial class Program
         ("pointer press on non clickable is not handled", Sync(PointerPressOnNonClickableIsNotHandled)),
         ("pointer release outside does not activate", Sync(PointerReleaseOutsideDoesNotActivate)),
         ("pointer move tracks hover", Sync(PointerMoveTracksHover)),
+        ("pointer leaving input requests repaint", Sync(PointerLeavingInputRequestsRepaint)),
+        ("pointer exited clears hover immediately", Sync(PointerExitedClearsHoverImmediately)),
         ("focus cycles through focusable entities", Sync(FocusCyclesThroughFocusableEntities)),
         ("keyboard activation emits intent", Sync(KeyboardActivationEmitsIntent)),
         ("focused entity is visible in the scene", Sync(FocusedEntityIsVisibleInTheScene)),

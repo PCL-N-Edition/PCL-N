@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Focused executable tests for the UI.Next Avalonia scene and accessibility bridge.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../PCL.UI.Next.Backend.Avalonia/PCL.UI.Next.Backend.Avalonia.csproj" />
+    <ProjectReference Include="../../PCL.Xsr.Abstractions/PCL.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../../PCL.Xsr.State/PCL.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>

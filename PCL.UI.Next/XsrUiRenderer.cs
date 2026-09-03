@@ -484,13 +484,16 @@ public sealed class XsrUiRenderer
     }
 
     /// <summary>
-    /// Routes a pointer move, updating hover state on input entities.
+    /// Routes a pointer move, updating hover state on input entities. The return value reports
+    /// whether presentation state changed, so a backend can commit a frame when the pointer
+    /// leaves an input as well as when it enters one.
     /// </summary>
     public bool PointerMoved(XsrUiPoint point)
     {
         XsrUiEntityId entity = HitTest(point);
         XsrUiInput? input = entity.IsAssigned ? _tree.GetComponent<XsrUiInput>(entity) : null;
         bool overInput = input is not null;
+        bool changed = false;
 
         if (_hovered.IsAssigned && !_tree.IsAlive(_hovered))
         {
@@ -500,10 +503,11 @@ public sealed class XsrUiRenderer
         if (_hovered.IsAssigned && !_hovered.Equals(entity))
         {
             XsrUiInput? previous = _tree.GetComponent<XsrUiInput>(_hovered);
-            if (previous is not null)
+            if (previous is { IsHovered: true })
             {
                 previous.IsHovered = false;
                 _tree.MarkDirty(_hovered, XsrUiDirtyKinds.Paint);
+                changed = true;
             }
         }
 
@@ -512,10 +516,10 @@ public sealed class XsrUiRenderer
         {
             input.IsHovered = true;
             _tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
-            return true;
+            changed = true;
         }
 
-        return overInput;
+        return changed;
     }
 
     /// <summary>
@@ -624,7 +628,11 @@ public sealed class XsrUiRenderer
         };
     }
 
-    private bool Activate(XsrUiEntityId entity)
+    /// <summary>
+    /// Activates one command-bound entity and emits a renderer-generated correlation ID. Native
+    /// input, keyboard input, and accessibility providers all use this one path.
+    /// </summary>
+    public bool Activate(XsrUiEntityId entity)
     {
         if (!_tree.IsAlive(entity))
         {

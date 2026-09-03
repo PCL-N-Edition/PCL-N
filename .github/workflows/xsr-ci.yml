@@ -97,6 +97,9 @@ jobs:
       - name: Test UI.Next renderer kernel
         run: dotnet run --project tests/PCL.UI.Next.Tests/PCL.UI.Next.Tests.csproj --configuration Release --no-build
 
+      - name: Test Avalonia scene backend
+        run: dotnet run --project tests/PCL.UI.Next.Backend.Avalonia.Tests/PCL.UI.Next.Backend.Avalonia.Tests.csproj --configuration Release --no-build
+
       - name: Publish and run NativeAOT renderer tests
         run: |
           dotnet publish tests/PCL.UI.Next.Tests/PCL.UI.Next.Tests.csproj \

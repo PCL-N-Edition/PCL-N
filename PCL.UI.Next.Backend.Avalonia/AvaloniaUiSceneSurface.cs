@@ -254,7 +254,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
             XsrUiSceneNode node = scene[index];
             if (!_controls.TryGetValue(node.Entity, out AvaloniaUiSceneNodeControl? control))
             {
-                control = new AvaloniaUiSceneNodeControl();
+                control = new AvaloniaUiSceneNodeControl(RouteAutomationFocus, RouteAutomationInvoke);
                 _controls.Add(node.Entity, control);
                 Children.Add(control);
             }
@@ -268,9 +268,77 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
             }
         }
 
+        ConfigureSelectionRelationships(scene);
+
         InvalidateMeasure();
         InvalidateArrange();
         InvalidateVisual();
+    }
+
+    private void ConfigureSelectionRelationships(XsrUiScene scene)
+    {
+        foreach (AvaloniaUiSceneNodeControl control in _controls.Values)
+        {
+            control.ResetSelectionRelationships();
+        }
+
+        Stack<XsrUiSceneNode> ancestors = [];
+        for (int index = 0; index < scene.Count; index++)
+        {
+            XsrUiSceneNode node = scene[index];
+            while (ancestors.Count > node.Depth)
+            {
+                _ = ancestors.Pop();
+            }
+
+            if (node.Role == XsrUiSemanticRole.NavigationItem
+                && _controls.TryGetValue(node.Entity, out AvaloniaUiSceneNodeControl? item))
+            {
+                foreach (XsrUiSceneNode ancestor in ancestors)
+                {
+                    if (ancestor.Role != XsrUiSemanticRole.Navigation
+                        || !_controls.TryGetValue(ancestor.Entity, out AvaloniaUiSceneNodeControl? navigation))
+                    {
+                        continue;
+                    }
+
+                    item.SetSelectionContainer(navigation);
+                    navigation.AddSelectionItem(item);
+                    break;
+                }
+            }
+
+            ancestors.Push(node);
+        }
+    }
+
+    private void RouteAutomationFocus(XsrUiEntityId entity) => RouteAutomationAction(entity, activate: false);
+
+    private void RouteAutomationInvoke(XsrUiEntityId entity) => RouteAutomationAction(entity, activate: true);
+
+    private void RouteAutomationAction(XsrUiEntityId entity, bool activate)
+    {
+        lock (_commitGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+        }
+
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => RouteAutomationAction(entity, activate));
+            return;
+        }
+
+        _ = _shell.Renderer.Focus(entity);
+        if (activate)
+        {
+            _ = _shell.Renderer.Activate(entity);
+        }
+
+        CommitScene();
     }
 
     private bool IsTitleBarPoint(XsrUiPoint point) => _scene is not null
@@ -308,16 +376,31 @@ public sealed class AvaloniaUiSceneCommittedEventArgs(XsrUiScene scene) : EventA
 /// </summary>
 internal sealed class AvaloniaUiSceneNodeControl : Control
 {
+    private readonly Action<XsrUiEntityId> _focusFromAutomation;
+    private readonly Action<XsrUiEntityId> _invokeFromAutomation;
+    private readonly List<AvaloniaUiSceneNodeControl> _selectionItems = [];
     private XsrUiSceneNode _node;
+    private AvaloniaUiSceneNodeControl? _selectionContainer;
 
-    public AvaloniaUiSceneNodeControl()
+    internal AvaloniaUiSceneNodeControl(
+        Action<XsrUiEntityId> focusFromAutomation,
+        Action<XsrUiEntityId> invokeFromAutomation)
     {
+        _focusFromAutomation = focusFromAutomation ?? throw new ArgumentNullException(nameof(focusFromAutomation));
+        _invokeFromAutomation = invokeFromAutomation ?? throw new ArgumentNullException(nameof(invokeFromAutomation));
         IsHitTestVisible = false;
         ClipToBounds = true;
     }
 
+    internal XsrUiSceneNode Node => _node;
+
+    internal AvaloniaUiSceneNodeControl? SelectionContainer => _selectionContainer;
+
+    internal IReadOnlyList<AvaloniaUiSceneNodeControl> SelectionItems => _selectionItems;
+
     public void Apply(XsrUiSceneNode node)
     {
+        XsrUiSceneNode previous = _node;
         _node = node;
         string name = node.Label ?? node.Text ?? node.Role.ToString();
         AutomationProperties.SetName(this, name);
@@ -327,7 +410,56 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         AutomationProperties.SetControlTypeOverride(this, ControlTypeFor(node.Role, node.IsClickable));
         AutomationProperties.SetHelpText(this, node.IsSelected ? "selected" : node.Role.ToString());
         AutomationProperties.SetIsControlElementOverride(this, node.HasRole || node.IsFocusable || node.IsClickable);
+        if (previous.IsSelected != node.IsSelected
+            && ControlAutomationPeer.FromElement(this) is { } peer)
+        {
+            peer.RaisePropertyChangedEvent(
+                SelectionItemPatternIdentifiers.IsSelectedProperty,
+                previous.IsSelected,
+                node.IsSelected);
+        }
+
         InvalidateVisual();
+    }
+
+    internal void ResetSelectionRelationships()
+    {
+        _selectionContainer = null;
+        _selectionItems.Clear();
+    }
+
+    internal void SetSelectionContainer(AvaloniaUiSceneNodeControl selectionContainer)
+    {
+        _selectionContainer = selectionContainer ?? throw new ArgumentNullException(nameof(selectionContainer));
+    }
+
+    internal void AddSelectionItem(AvaloniaUiSceneNodeControl item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        _selectionItems.Add(item);
+    }
+
+    internal void FocusFromAutomation() => _focusFromAutomation(Node.Entity);
+
+    internal void InvokeFromAutomation() => _invokeFromAutomation(Node.Entity);
+
+    protected override AutomationPeer OnCreateAutomationPeer()
+    {
+        if (_node.Role == XsrUiSemanticRole.Navigation)
+        {
+            return new AvaloniaUiSceneNavigationAutomationPeer(this);
+        }
+
+        if (_node.Role == XsrUiSemanticRole.NavigationItem
+            && _node.IsClickable
+            && _selectionContainer is not null)
+        {
+            return new AvaloniaUiSceneNavigationItemAutomationPeer(this);
+        }
+
+        return _node.IsClickable
+            ? new AvaloniaUiSceneInvokeAutomationPeer(this)
+            : new AvaloniaUiSceneNodeAutomationPeer(this);
     }
 
     public override void Render(DrawingContext context)

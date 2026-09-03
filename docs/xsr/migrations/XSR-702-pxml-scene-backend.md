@@ -20,10 +20,15 @@ to `XsrUiShell.Stage.ContentHost` is therefore the same page that the user sees.
   navigation destination directly. Renderer activation produces the correlation ID and sends the
   semantic command through `IXsrUiIntentSink`; `XsrUiShell` then owns local selection and the
   Desktop composition-edge dispatcher exposes the intent to later explicit typed bindings.
+- `XsrUiRenderer.PointerMoved()` reports whether it changed presentation state, rather than whether
+  the pointer currently rests on an input. This guarantees that leaving a hovered entity schedules
+  a repaint immediately, including when the pointer enters empty content or exits the window.
 - The scene carries focusable, clickable, hovered, and pressed facts in addition to the existing
   semantic role, label, focus, selection, text, geometry, and visual facts. Avalonia accessibility
-  control type/name mappings are produced from those scene facts rather than hand-maintained
-  navigation metadata.
+  control type/name mappings and custom automation peers are produced from those scene facts rather
+  than hand-maintained navigation metadata. Native accessibility focus and invoke actions route to
+  `XsrUiRenderer.Focus()` and `XsrUiRenderer.Activate()`; a navigation selection provider exposes
+  scene-selected items and routes selection through the same activation path.
 - `XsrUiRuntimeContext` creates one entity tree and its `XsrUiStateBridge` before Foundation
   composition. Desktop passes that bridge to `FoundationComposer.Compose(observer: ...)`, then
   loads the PXML template into the same tree and injects the bridge into the shell renderer.
@@ -43,6 +48,8 @@ to `XsrUiShell.Stage.ContentHost` is therefore the same page that the user sees.
 ## Verification
 
 `PCL.UI.Next.Tests` proves a context-created bridge observes a host store, requests a frame, and
-refreshes a shell-bound scene without manual dirty marking. The Desktop `--validate-shell` smoke
-path compiles the real embedded PXML template and renders the complete scene. CoreCLR, NativeAOT,
-architecture, formatting, and trimmed Desktop gates remain required before closing the unit.
+refreshes a shell-bound scene without manual dirty marking. `PCL.UI.Next.Backend.Avalonia.Tests`
+calls the real native automation peers and proves focus, invoke, and navigation selection return to
+the renderer rather than a shell shortcut. The Desktop `--validate-shell` smoke path compiles the
+real embedded PXML template and renders the complete scene. CoreCLR, NativeAOT, architecture,
+formatting, and trimmed Desktop gates remain required before closing the unit.

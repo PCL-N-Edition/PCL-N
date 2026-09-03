@@ -118,16 +118,60 @@ internal static partial class Program
         XsrUiInput? alphaInput = tree.GetComponent<XsrUiInput>(alpha);
         AssertTrue(alphaInput!.IsHovered);
 
-        // The same point keeps hovering without further changes.
-        AssertTrue(renderer.PointerMoved(new XsrUiPoint(50, 20)));
+        // The same point keeps hovering without another presentation change.
+        AssertFalse(renderer.PointerMoved(new XsrUiPoint(50, 20)));
 
         AssertTrue(renderer.PointerMoved(new XsrUiPoint(50, 60)));
         AssertFalse(alphaInput.IsHovered);
         AssertTrue(tree.GetComponent<XsrUiInput>(beta)!.IsHovered);
 
         // Moving over a non-input entity clears hover.
-        AssertFalse(renderer.PointerMoved(new XsrUiPoint(500, 500)));
+        AssertTrue(renderer.PointerMoved(new XsrUiPoint(500, 500)));
         AssertFalse(tree.GetComponent<XsrUiInput>(beta)!.IsHovered);
+    }
+
+    private static void PointerLeavingInputRequestsRepaint()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        XsrUiEntityId button = tree.Create("button");
+        tree.SetComponent(button, new XsrUiElement { Width = 100, Height = 40 });
+        tree.SetComponent(button, new XsrUiInput { Clickable = true });
+        tree.Attach(button, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        _ = renderer.Render();
+
+        AssertTrue(renderer.PointerMoved(new XsrUiPoint(50, 20)));
+        AssertTrue(renderer.Render()[1].IsHovered);
+
+        // The root is a non-input target. Clearing the previous hover still requires a frame.
+        AssertTrue(renderer.PointerMoved(new XsrUiPoint(500, 500)));
+        AssertFalse(renderer.Render()[1].IsHovered);
+    }
+
+    private static void PointerExitedClearsHoverImmediately()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        XsrUiEntityId button = tree.Create("button");
+        tree.SetComponent(button, new XsrUiElement { Width = 100, Height = 40 });
+        tree.SetComponent(button, new XsrUiInput { Clickable = true });
+        tree.Attach(button, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        _ = renderer.Render();
+
+        AssertTrue(renderer.PointerMoved(new XsrUiPoint(50, 20)));
+        AssertTrue(renderer.Render()[1].IsHovered);
+
+        // Avalonia maps PointerExited to an out-of-scene point.
+        AssertTrue(renderer.PointerMoved(new XsrUiPoint(-1, -1)));
+        AssertFalse(renderer.Render()[1].IsHovered);
     }
 
     private static void FocusCyclesThroughFocusableEntities()
