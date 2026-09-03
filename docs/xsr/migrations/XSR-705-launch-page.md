@@ -46,7 +46,11 @@ PXML expresses those facts through backend-neutral stack weight, minimum/maximum
 alignment properties. UI.Next resolves the weighted slots deterministically; the Avalonia backend
 continues to consume only the committed scene and must not recreate the legacy Grid.
 
-## Launch flow
+## Launch flow (superseded by XSR-706)
+
+The temporary XSR-705 implementation below is historical evidence only. XSR-706 replaces this
+boundary with the product-level `minecraft.start` coordinator; Desktop no longer performs any of
+these low-level steps.
 
 Attach publishes the account summary from the `accounts.profiles` roster (first profile, or
 "未选择账户"), requests the instance query, and publishes the first discovered instance as the
