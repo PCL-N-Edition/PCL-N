@@ -23,7 +23,7 @@ internal static partial class Program
 
     private static readonly (string Name, Action Body)[] TestCases =
     [
-        ("launch page composes with bound summaries and status", LaunchPageComposesWithBoundSummaries),
+        ("launch page replicates the legacy card layout with bound facts", LaunchPageReplicatesLegacyLayout),
         ("navigation intents route between launch and placeholder pages", NavigationIntentsRouteBetweenPages),
         ("launch intent without instances reports the idle status", LaunchIntentWithoutInstancesReportsIdleStatus),
     ];
@@ -36,23 +36,44 @@ internal static partial class Program
         MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose();
         LaunchPageController controller = new(shell, intents, minecraft, store, Path.Combine(Path.GetTempPath(), "nexa-launch-test", "minecraft"));
         controller.Attach();
+        controller.WaitUntilIdle().GetAwaiter().GetResult();
         return (shell, intents, store, controller);
     }
 
-    private static void LaunchPageComposesWithBoundSummaries()
+    private static void LaunchPageReplicatesLegacyLayout()
     {
         (XsrUiShell shell, _, XsrStateStore store, _) = ComposeLaunchPage();
-        XsrUiScene scene = shell.Render(new XsrUiSize(1024, 700));
+        XsrUiScene scene = shell.Render(new XsrUiSize(1280, 800));
 
-        // The launch page is the initial route: its state-bound texts resolve through the host
-        // store cells and the launch command is present.
-        AssertTrue(scene.Nodes.Any(node => node.Label == "启动游戏" && node.Text == "启动"));
-        AssertEqual(
-            "未选择账户",
-            scene.Nodes.First(node => node.Label == "账户摘要").Text);
-        AssertEqual(
-            "就绪",
-            scene.Nodes.First(node => node.Label == "启动状态").Text);
+        // The launch page replicates the legacy experimental home: an account card (账户 +
+        // 实验 badge + name + summary), a version card with the picker row and accent launch
+        // button, and the community about card.
+        AssertTrue(scene.Nodes.Any(node => node.Label == "LaunchButton" && node.Text == "下载游戏"));
+        AssertEqual("账户", scene.Nodes.First(node => node.Label == "AccountHeader").Text);
+        AssertEqual("实验", scene.Nodes.First(node => node.Label == "AccountBadge").Text);
+        AssertEqual("版本", scene.Nodes.First(node => node.Label == "VersionHeader").Text);
+        AssertTrue(scene.Nodes.Any(node => node.Label == "AboutTitle" && node.Text == "关于 PCL N Edition"));
+
+        // Facts flow from host state cells.
+        AssertEqual(ReadCell(store, LaunchPageStateComposition.ProfileNameKey),
+            scene.Nodes.First(node => node.Label == "AccountName").Text);
+        AssertEqual(ReadCell(store, LaunchPageStateComposition.InstanceSummaryKey),
+            scene.Nodes.First(node => node.Label == "VersionName").Text);
+
+        // Legacy typography carries through the scene: section headers 12 px semibold, the
+        // instance name 16 px semibold.
+        XsrUiSceneNode header = scene.Nodes.First(node => node.Label == "AccountHeader");
+        AssertEqual(12, header.VisualStyle.FontSize);
+        AssertEqual(600, header.VisualStyle.FontWeight);
+        XsrUiSceneNode versionName = scene.Nodes.First(node => node.Label == "VersionName");
+        AssertEqual(16, versionName.VisualStyle.FontSize);
+        AssertEqual(600, versionName.VisualStyle.FontWeight);
+
+        // No instance under the test root: the button offers the download action and the
+        // picker row explains how to select or install a version.
+        AssertEqual("未找到可启动的游戏版本", ReadCell(store, LaunchPageStateComposition.InstanceSummaryKey));
+        AssertEqual("使用右上角按钮选择或安装版本", ReadCell(store, LaunchPageStateComposition.InstanceDetailKey));
+        AssertEqual("下载游戏", scene.Nodes.First(node => node.Label == "LaunchButton").Text);
         AssertEqual("就绪", ReadCell(store, LaunchPageStateComposition.StatusKey));
     }
 
@@ -61,13 +82,13 @@ internal static partial class Program
         (XsrUiShell shell, DesktopUiIntentSink intents, _, _) = ComposeLaunchPage();
 
         Emit(intents, "ui.navigation.settings");
-        XsrUiScene placeholder = shell.Render(new XsrUiSize(1024, 700));
+        XsrUiScene placeholder = shell.Render(new XsrUiSize(1280, 800));
         AssertTrue(placeholder.Nodes.Any(node => node.Text == "该分区将在后续单元中迁移。"));
-        AssertFalse(placeholder.Nodes.Any(node => node.Label == "启动游戏"));
+        AssertFalse(placeholder.Nodes.Any(node => node.Label == "LaunchButton"));
 
         Emit(intents, "ui.navigation.launch");
-        XsrUiScene launch = shell.Render(new XsrUiSize(1024, 700));
-        AssertTrue(launch.Nodes.Any(node => node.Label == "启动游戏" && node.Text == "启动"));
+        XsrUiScene launch = shell.Render(new XsrUiSize(1280, 800));
+        AssertTrue(launch.Nodes.Any(node => node.Label == "LaunchButton"));
         AssertFalse(launch.Nodes.Any(node => node.Text == "该分区将在后续单元中迁移。"));
     }
 

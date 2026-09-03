@@ -10,11 +10,17 @@ namespace PCL.Services.Minecraft.Launch;
 /// </summary>
 public static class LaunchPageStateComposition
 {
+    public static readonly XsrSemanticId ProfileNameKey =
+        XsrSemanticId.Parse("launch.profile.name");
+
     public static readonly XsrSemanticId ProfileSummaryKey =
         XsrSemanticId.Parse("launch.profile.summary");
 
     public static readonly XsrSemanticId InstanceSummaryKey =
         XsrSemanticId.Parse("launch.instance.summary");
+
+    public static readonly XsrSemanticId InstanceDetailKey =
+        XsrSemanticId.Parse("launch.instance.detail");
 
     public static readonly XsrSemanticId StatusKey =
         XsrSemanticId.Parse("launch.status");
@@ -24,8 +30,10 @@ public static class LaunchPageStateComposition
     public static void DeclareState(XsrStateStoreBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
+        builder.Cell<string>(ProfileNameKey, Owner);
         builder.Cell<string>(ProfileSummaryKey, Owner);
         builder.Cell<string>(InstanceSummaryKey, Owner);
+        builder.Cell<string>(InstanceDetailKey, Owner);
         builder.Cell<string>(StatusKey, Owner);
     }
 }

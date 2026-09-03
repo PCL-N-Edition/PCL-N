@@ -13,11 +13,14 @@ using PCL.Xsr.State;
 namespace PCL.Desktop.Ui;
 
 /// <summary>
-/// The product launch page: the first vertical slice attached to the shell's content host. It
-/// reads launch summaries and status from host state cells, emits the launch intent through the
-/// renderer's normal sink, and dispatches the real Minecraft launch command through the
-/// composed runtime routers. Navigation intents route between this page and placeholders for
-/// destinations whose slices have not landed yet.
+/// The product launch page: the first vertical slice attached to the shell's content host,
+/// replicating the legacy experimental launch home's information architecture — an account
+/// card (账户 / 实验 badge / name / summary), a version card (版本 header, instance picker row,
+/// the big accent launch button, status line), and the community about card. It reads its
+/// facts from host state cells, emits the launch intent through the renderer's normal sink,
+/// and dispatches the real Minecraft launch command through the composed runtime routers.
+/// Navigation intents route between this page and placeholders for destinations whose slices
+/// have not landed yet.
 /// </summary>
 internal sealed class LaunchPageController
 {
@@ -27,6 +30,28 @@ internal sealed class LaunchPageController
 
     private const string NavigationCommandPrefix = "ui.navigation.";
 
+    // The legacy experimental launch-home palette (light theme).
+    private static readonly XsrUiColor CardBackground = new(255, 255, 255, 241);
+    private static readonly XsrUiColor CardBorder = new(224, 234, 253);
+    private static readonly XsrUiColor PickerBackground = new(238, 242, 247);
+    private static readonly XsrUiColor PrimaryText = new(52, 61, 74);
+    private static readonly XsrUiColor SecondaryText = new(122, 138, 153);
+    private static readonly XsrUiColor BadgeBackground = new(224, 234, 253);
+    private static readonly XsrUiColor BadgeText = new(11, 91, 203);
+    private static readonly XsrUiColor LaunchButtonBackground = new(11, 91, 203);
+    private static readonly XsrUiColor LaunchButtonHover = new(19, 112, 243);
+
+    private const string NoAccountName = "未选择账户";
+    private const string NoAccountSummary = "登录与档案管理在这里完成。";
+    private const string AccountReadySummary = "账户已就绪，可以开始游戏。";
+    private const string AccountNeedLoginSummary = "请选择或创建一个账户档案后再启动。";
+    private const string ScanningInstances = "正在扫描本地版本…";
+    private const string NoInstances = "未找到可启动的游戏版本";
+    private const string SelectFromToolbar = "使用右上角按钮选择或安装版本";
+    private const string InstanceSettingsAction = "版本设置";
+    private const string DownloadLabel = "下载游戏";
+    private const string LaunchLabel = "启动游戏";
+
     private readonly XsrUiShell _shell;
     private readonly DesktopUiIntentSink _intents;
     private readonly MinecraftRuntime _minecraft;
@@ -34,6 +59,8 @@ internal sealed class LaunchPageController
     private readonly string _minecraftRootDirectory;
     private readonly XsrUiEntityId _launchPage;
     private readonly XsrUiEntityId _placeholderPage;
+    private readonly Dictionary<string, XsrUiEntityId> _pageEntities;
+    private Task _refreshTask = Task.CompletedTask;
     private MinecraftInstanceDescriptor? _selectedInstance;
 
     public LaunchPageController(
@@ -53,7 +80,7 @@ internal sealed class LaunchPageController
         _minecraft = minecraft;
         _store = store;
         _minecraftRootDirectory = minecraftRootDirectory;
-        _launchPage = LoadLaunchPage();
+        (_launchPage, _pageEntities) = LoadLaunchPage();
         _placeholderPage = BuildPlaceholderPage();
     }
 
@@ -63,9 +90,47 @@ internal sealed class LaunchPageController
         _intents.IntentEmitted += OnIntentEmitted;
         ShowLaunch();
         Publish(LaunchPageStateComposition.StatusKey, "就绪");
-        Publish(LaunchPageStateComposition.InstanceSummaryKey, "正在扫描实例…");
+        Publish(LaunchPageStateComposition.ProfileNameKey, NoAccountName);
+        Publish(LaunchPageStateComposition.ProfileSummaryKey, NoAccountSummary);
+        Publish(LaunchPageStateComposition.InstanceSummaryKey, ScanningInstances);
+        Publish(LaunchPageStateComposition.InstanceDetailKey, SelectFromToolbar);
         PublishProfileSummary();
-        _ = RefreshInstancesAsync();
+        _refreshTask = RefreshInstancesAsync();
+    }
+
+    /// <summary>Completes when the in-flight instance scan has published its facts.</summary>
+    public Task WaitUntilIdle() => _refreshTask;
+
+    /// <summary>
+    /// Re-queries the installed instances and re-commits the version card facts. Exposed for
+    /// tests so the asynchronous scan can be awaited deterministically.
+    /// </summary>
+    public async Task RefreshInstancesAsync()
+    {
+        if (!_minecraft.Queries.TryResolve(MinecraftRouteIds.InstancesRead, out XsrQueryId queryId))
+        {
+            return;
+        }
+
+        XsrResult<IReadOnlyList<MinecraftInstanceDescriptor>> result = await _minecraft.Queries
+            .QueryAsync<MinecraftInstancesQuery, IReadOnlyList<MinecraftInstanceDescriptor>>(
+                queryId,
+                new MinecraftInstancesQuery(_minecraftRootDirectory))
+            .ConfigureAwait(true);
+        if (result.IsSuccess && result.Value is { Count: > 0 } instances)
+        {
+            _selectedInstance = instances[0];
+            Publish(LaunchPageStateComposition.InstanceSummaryKey, instances[0].Id);
+            Publish(LaunchPageStateComposition.InstanceDetailKey, InstanceSettingsAction);
+            SetLaunchButtonLabel(LaunchLabel);
+        }
+        else
+        {
+            _selectedInstance = null;
+            Publish(LaunchPageStateComposition.InstanceSummaryKey, NoInstances);
+            Publish(LaunchPageStateComposition.InstanceDetailKey, SelectFromToolbar);
+            SetLaunchButtonLabel(DownloadLabel);
+        }
     }
 
     private void OnIntentEmitted(object? sender, DesktopUiIntentEventArgs e)
@@ -75,7 +140,7 @@ internal sealed class LaunchPageController
         {
             ShowLaunch();
             PublishProfileSummary();
-            _ = RefreshInstancesAsync();
+            _refreshTask = RefreshInstancesAsync();
         }
         else if (command.Value.StartsWith(NavigationCommandPrefix, StringComparison.Ordinal))
         {
@@ -107,39 +172,16 @@ internal sealed class LaunchPageController
 
     private void PublishProfileSummary()
     {
-        IReadOnlyList<LaunchProfileView> profiles = _store
-            .ReadCollection<LaunchProfileView>(_store.Resolve(AccountService.ProfilesKey))
-            .Items;
-        LaunchProfileView profile = profiles.Count > 0 ? profiles[0] : default;
-        string summary = profiles.Count > 0
-            ? $"{profile.Username}（{profile.Info}）"
-            : "未选择账户";
-        Publish(LaunchPageStateComposition.ProfileSummaryKey, summary);
-    }
-
-    private async Task RefreshInstancesAsync()
-    {
-        if (!_minecraft.Queries.TryResolve(MinecraftRouteIds.InstancesRead, out XsrQueryId queryId))
+        IReadOnlyList<LaunchProfileView> profiles = ReadProfiles();
+        if (profiles.Count > 0)
         {
-            return;
-        }
-
-        XsrResult<IReadOnlyList<MinecraftInstanceDescriptor>> result = await _minecraft.Queries
-            .QueryAsync<MinecraftInstancesQuery, IReadOnlyList<MinecraftInstanceDescriptor>>(
-                queryId,
-                new MinecraftInstancesQuery(_minecraftRootDirectory))
-            .ConfigureAwait(true);
-        if (result.IsSuccess && result.Value is { Count: > 0 } instances)
-        {
-            _selectedInstance = instances[0];
-            Publish(
-                LaunchPageStateComposition.InstanceSummaryKey,
-                $"{instances[0].Metadata.Description}（{instances[0].VersionId}）");
+            Publish(LaunchPageStateComposition.ProfileNameKey, profiles[0].Username);
+            Publish(LaunchPageStateComposition.ProfileSummaryKey, AccountReadySummary);
         }
         else
         {
-            _selectedInstance = null;
-            Publish(LaunchPageStateComposition.InstanceSummaryKey, "未找到实例");
+            Publish(LaunchPageStateComposition.ProfileNameKey, NoAccountName);
+            Publish(LaunchPageStateComposition.ProfileSummaryKey, NoAccountSummary);
         }
     }
 
@@ -151,7 +193,14 @@ internal sealed class LaunchPageController
             return;
         }
 
-        Publish(LaunchPageStateComposition.StatusKey, "正在启动…");
+        IReadOnlyList<LaunchProfileView> profiles = ReadProfiles();
+        if (profiles.Count == 0)
+        {
+            Publish(LaunchPageStateComposition.StatusKey, AccountNeedLoginSummary);
+            return;
+        }
+
+        Publish(LaunchPageStateComposition.StatusKey, "正在启动 Minecraft…");
         try
         {
             string versionJsonPath = Path.Combine(
@@ -160,15 +209,15 @@ internal sealed class LaunchPageController
             JsonObject versionJson = JsonNode.Parse(await File.ReadAllTextAsync(versionJsonPath).ConfigureAwait(true)) as JsonObject
                 ?? throw new InvalidDataException($"The version JSON '{versionJsonPath}' is not an object.");
 
-            (string playerName, string playerUuid) = ResolveIdentity();
+            LaunchProfileView profile = profiles[0];
             MinecraftLaunchRequest request = new()
             {
                 VersionJson = versionJson,
                 VersionId = _selectedInstance.VersionId,
                 InstanceDirectory = _selectedInstance.DirectoryPath,
                 MinecraftRootDirectory = _minecraftRootDirectory,
-                PlayerName = playerName,
-                PlayerUuid = playerUuid,
+                PlayerName = profile.Username,
+                PlayerUuid = profile.Uuid,
                 IdentityMode = MinecraftLaunchIdentityMode.Offline,
             };
 
@@ -184,7 +233,7 @@ internal sealed class LaunchPageController
             XsrResult result = await dispatch.Completion.ConfigureAwait(true);
             Publish(
                 LaunchPageStateComposition.StatusKey,
-                result.IsSuccess ? "已启动" : $"启动失败：{result.Error?.Message}");
+                result.IsSuccess ? "Minecraft 已启动" : $"启动失败：{result.Error?.Message}");
         }
         catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException)
         {
@@ -192,38 +241,26 @@ internal sealed class LaunchPageController
         }
     }
 
-    // CA5351: the vanilla offline identifier is specified as an MD5-based v3 UUID; the hash
-    // derives a player identifier and protects nothing.
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5351:Do Not Use Broken Cryptographic Algorithms", Justification = "Minecraft offline UUID v3 derivation")]
-    private (string Name, string Uuid) ResolveIdentity()
-    {
-        IReadOnlyList<LaunchProfileView> profiles = _store
-            .ReadCollection<LaunchProfileView>(_store.Resolve(AccountService.ProfilesKey))
-            .Items;
-        if (profiles.Count > 0)
-        {
-            LaunchProfileView profile = profiles[0];
-            return (profile.Username, profile.Uuid);
-        }
-
-        // Offline identity fallback: the vanilla offline UUID is a v3 (MD5) UUID over
-        // "OfflinePlayer:" + name.
-        string name = "Player";
-        // The vanilla offline identifier is a v3 (MD5) UUID by specification; this is an
-        // identifier derivation, not a cryptographic primitive.
-        byte[] hash = System.Security.Cryptography.MD5.HashData(
-            System.Text.Encoding.UTF8.GetBytes($"OfflinePlayer:{name}"));
-        hash[6] = (byte)((hash[6] & 0x0F) | 0x30);
-        hash[8] = (byte)((hash[8] & 0x3F) | 0x80);
-        return (name, new Guid(hash).ToString("N"));
-    }
+    private IReadOnlyList<LaunchProfileView> ReadProfiles() =>
+        _store.ReadCollection<LaunchProfileView>(_store.Resolve(AccountService.ProfilesKey)).Items;
 
     private void Publish(XsrSemanticId key, string value)
     {
         _store.Publish(_store.Resolve(key), value);
     }
 
-    private XsrUiEntityId LoadLaunchPage()
+    private void SetLaunchButtonLabel(string label)
+    {
+        if (_pageEntities.TryGetValue("LaunchButton", out XsrUiEntityId button)
+            && _shell.Tree.GetComponent<XsrUiText>(button) is { } text
+            && !string.Equals(text.Content, label, StringComparison.Ordinal))
+        {
+            text.Content = label;
+            _shell.Tree.MarkDirty(button, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
+        }
+    }
+
+    private (XsrUiEntityId Page, Dictionary<string, XsrUiEntityId> Entities) LoadLaunchPage()
     {
         PxmlDocument document = PxmlParser.Parse(ReadEmbeddedResource("Ui.LaunchPage.pxml"));
         PxmlHostIr ir = PxmlCompiler.Compile(document);
@@ -231,7 +268,128 @@ internal sealed class LaunchPageController
         XsrUiEntityId page = PxmlUiLoader.Load(ir, _shell.Tree, _store, host);
         _shell.Tree.Detach(page);
         _shell.Tree.Destroy(host);
-        return page;
+
+        Dictionary<string, XsrUiEntityId> entities = [];
+        _shell.Tree.Walk(
+            page,
+            entity =>
+            {
+                if (_shell.Tree.GetComponent<XsrUiSemantic>(entity)?.Label is { Length: > 0 } label)
+                {
+                    entities[label] = entity;
+                }
+
+                return true;
+            });
+        StyleLaunchPage(page, entities);
+        return (page, entities);
+    }
+
+    /// <summary>
+    /// Applies the legacy experimental launch-home styling that the PXML control vocabulary
+    /// cannot express: card surfaces, section typography, the badge, the picker row, and the
+    /// accent launch button. Labels name the roles; facts stay in state cells.
+    /// </summary>
+    private void StyleLaunchPage(XsrUiEntityId page, Dictionary<string, XsrUiEntityId> entities)
+    {
+        StyleCard(entities, "CardAccount");
+        StyleCard(entities, "CardVersion");
+        StyleCard(entities, "CardAbout");
+        StyleText(entities, "AccountHeader", SecondaryText, fontSize: 12, weight: 600);
+        StyleText(entities, "VersionHeader", SecondaryText, fontSize: 12, weight: 600);
+        StyleText(entities, "AboutTitle", PrimaryText, fontSize: 13, weight: 600);
+        StyleText(entities, "AboutMessage", SecondaryText, fontSize: 12);
+        StyleText(entities, "AccountSummary", SecondaryText, fontSize: 13);
+        StyleText(entities, "LaunchStatus", SecondaryText, fontSize: 12);
+        StyleText(entities, "VersionAction", SecondaryText, fontSize: 11);
+        if (entities.TryGetValue("AccountBadge", out XsrUiEntityId badge))
+        {
+            ApplyVisual(badge, BadgeBackground, BadgeText, cornerRadius: 6);
+            StyleText(badge, BadgeText, fontSize: 10, weight: 600);
+        }
+
+        if (entities.TryGetValue("AccountName", out XsrUiEntityId accountName))
+        {
+            StyleText(accountName, PrimaryText, fontSize: 16, weight: 600);
+        }
+
+        if (entities.TryGetValue("VersionName", out XsrUiEntityId versionName))
+        {
+            StyleText(versionName, PrimaryText, fontSize: 16, weight: 600);
+        }
+
+        if (entities.TryGetValue("InstanceRow", out XsrUiEntityId pickerRow))
+        {
+            ApplyVisual(pickerRow, PickerBackground, PrimaryText, cornerRadius: 12);
+        }
+
+        if (entities.TryGetValue("LaunchButton", out XsrUiEntityId button))
+        {
+            // Legacy accent button: normal #0b5bcb, hover #1370f3, white 13 px semibold label.
+            ApplyVisual(
+                button,
+                LaunchButtonBackground,
+                new XsrUiColor(255, 255, 255),
+                cornerRadius: 11,
+                hover: LaunchButtonHover);
+            StyleText(button, new XsrUiColor(255, 255, 255), fontSize: 13, weight: 600);
+        }
+    }
+
+    private void StyleCard(Dictionary<string, XsrUiEntityId> entities, string label)
+    {
+        if (entities.TryGetValue(label, out XsrUiEntityId card))
+        {
+            ApplyVisual(card, CardBackground, PrimaryText, cornerRadius: 16, border: CardBorder);
+        }
+    }
+
+    private void StyleText(Dictionary<string, XsrUiEntityId> entities, string label, XsrUiColor foreground, double fontSize, double weight = 400)
+    {
+        if (entities.TryGetValue(label, out XsrUiEntityId entity))
+        {
+            StyleText(entity, foreground, fontSize, weight);
+        }
+    }
+
+    private void StyleText(XsrUiEntityId entity, XsrUiColor foreground, double fontSize, double weight = 400)
+    {
+        XsrUiVisualStyle visual = RequireVisual(entity);
+        visual.Foreground = foreground;
+        visual.FontSize = fontSize;
+        visual.FontWeight = weight;
+        _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint | XsrUiDirtyKinds.Layout);
+    }
+
+    private void ApplyVisual(
+        XsrUiEntityId entity,
+        XsrUiColor background,
+        XsrUiColor foreground,
+        double cornerRadius,
+        XsrUiColor? border = null,
+        XsrUiColor? hover = null)
+    {
+        XsrUiVisualStyle visual = RequireVisual(entity);
+        visual.Background = background;
+        visual.Foreground = foreground;
+        visual.Border = border ?? XsrUiColor.Transparent;
+        visual.BorderWidth = border is null ? 0 : 1;
+        visual.Hover = hover ?? XsrUiColor.Transparent;
+        visual.Surface = XsrUiSurfaceKind.Solid;
+        visual.CornerRadius = cornerRadius;
+        _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
+    }
+
+    private XsrUiVisualStyle RequireVisual(XsrUiEntityId entity)
+    {
+        XsrUiVisualStyle? visual = _shell.Tree.GetComponent<XsrUiVisualStyle>(entity);
+        if (visual is null)
+        {
+            visual = new XsrUiVisualStyle();
+            _shell.Tree.SetComponent(entity, visual);
+        }
+
+        return visual;
     }
 
     private XsrUiEntityId BuildPlaceholderPage()

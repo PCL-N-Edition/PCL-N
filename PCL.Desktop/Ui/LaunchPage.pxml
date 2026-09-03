@@ -1,8 +1,25 @@
 <Page xmlns="https://pcln.dev/pxml/2026" Label="启动页">
-  <StackPanel Orientation="Vertical" Spacing="16">
-    <Text Label="账户摘要" Content="{state launch.profile.summary}" />
-    <Text Label="实例摘要" Content="{state launch.instance.summary}" />
-    <Button Label="启动游戏" Content="启动" Command="ui.launch.start" />
-    <Text Label="启动状态" Content="{state launch.status}" />
+  <StackPanel Orientation="Horizontal" Spacing="16">
+    <StackPanel Orientation="Vertical" Spacing="14" Width="280" Label="CardAccount">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Text Label="AccountHeader" Content="账户" />
+        <Text Label="AccountBadge" Content="实验" />
+      </StackPanel>
+      <Text Label="AccountName" Content="{state launch.profile.name}" />
+      <Text Label="AccountSummary" Content="{state launch.profile.summary}" />
+    </StackPanel>
+    <StackPanel Orientation="Vertical" Spacing="12" Label="CardVersion">
+      <Text Label="VersionHeader" Content="版本" />
+      <StackPanel Orientation="Vertical" Spacing="2" Label="InstanceRow">
+        <Text Label="VersionName" Content="{state launch.instance.summary}" />
+        <Text Label="VersionAction" Content="{state launch.instance.detail}" />
+      </StackPanel>
+      <Button Label="LaunchButton" Content="下载游戏" Command="ui.launch.start" Height="44" />
+      <Text Label="LaunchStatus" Content="{state launch.status}" />
+    </StackPanel>
+    <StackPanel Orientation="Vertical" Spacing="8" Width="300" Label="CardAbout">
+      <Text Label="AboutTitle" Content="关于 PCL N Edition" />
+      <Text Label="AboutMessage" Content="PCL N Edition 与官方 PCL 项目独立维护，部分功能与行为可能有所不同。" />
+    </StackPanel>
   </StackPanel>
 </Page>
