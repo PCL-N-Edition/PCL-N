@@ -48,6 +48,18 @@ internal static class Program
             },
             uiIntents);
 
+        // The launch page is the first product vertical slice: it routes navigation intents to
+        // pages inside the shell content host and dispatches the real launch command.
+        LaunchPageController launchPage = new(
+            shell,
+            uiIntents,
+            minecraft,
+            runtime.Host.StateStore,
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                ".minecraft"));
+        launchPage.Attach();
+
         Console.WriteLine(
             $"PCL Nexa foundation composed: {runtime.Host.Services.Count} services, "
             + $"{runtime.Commands.Count} command routes, {runtime.Queries.Count} query routes over one host state store; "

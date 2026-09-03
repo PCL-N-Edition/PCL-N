@@ -132,6 +132,9 @@ jobs:
       - name: Test foundation services
         run: dotnet run --project tests/PCL.Services.Tests/PCL.Services.Tests.csproj --configuration Release --no-build
 
+      - name: Test desktop composition
+        run: dotnet run --project tests/PCL.Desktop.Tests/PCL.Desktop.Tests.csproj --configuration Release --no-build
+
       - name: Publish and run NativeAOT foundation tests
         run: |
           dotnet publish tests/PCL.Services.Tests/PCL.Services.Tests.csproj             --configuration Release             -p:XsrVersionChannel=ci             -p:PublishAot=true             -p:StripSymbols=true             --output "${{ runner.temp }}/foundation-aot"

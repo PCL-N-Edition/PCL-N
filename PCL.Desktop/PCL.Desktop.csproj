@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Ui/Shell.pxml" />
+    <EmbeddedResource Include="Ui/LaunchPage.pxml" />
     <EmbeddedResource Include="Assets/icon.png" />
     <EmbeddedResource Include="Assets/icon.ico" />
     <ProjectReference Include="../PCL.Pxml.Runtime/PCL.Pxml.Runtime.csproj" />

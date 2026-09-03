@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Executable tests for the Desktop composition root: launch page routing, state binding, and intent dispatch.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../PCL.Desktop/PCL.Desktop.csproj" />
+    <ProjectReference Include="../../PCL.Services/PCL.Services.csproj" />
+    <ProjectReference Include="../../PCL.Services.Composition/PCL.Services.Composition.csproj" />
+    <ProjectReference Include="../../PCL.UI.Next/PCL.UI.Next.csproj" />
+    <ProjectReference Include="../../PCL.Xsr.State/PCL.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>

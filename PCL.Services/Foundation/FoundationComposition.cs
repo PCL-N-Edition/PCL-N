@@ -2,6 +2,7 @@ using PCL.Services.Accounts;
 using PCL.Services.Downloads;
 using PCL.Services.Files;
 using PCL.Services.Logging;
+using PCL.Services.Minecraft.Launch;
 using PCL.Services.Minecraft.Process;
 using PCL.Services.Settings;
 using PCL.Services.Telemetry;
@@ -36,6 +37,7 @@ public static class FoundationState
         AccountService.DeclareState(builder);
         TelemetryService.DeclareState(builder);
         MinecraftProcessStateComposition.DeclareState(builder);
+        LaunchPageStateComposition.DeclareState(builder);
         return builder;
     }
 }

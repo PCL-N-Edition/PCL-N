@@ -1,0 +1,55 @@
+# XSR-705 Wave 7 launch page
+
+## Outcome
+
+The first product vertical slice attaches to the shell: the launch page. Renderer navigation
+intents now drive real page routing inside the content host, the page reads its summaries and
+status through `launch.*` host state cells, and the start intent dispatches the real
+`minecraft.launch` command through the composed runtime routers with the discovered instance
+and the account identity.
+
+## Page and routing
+
+- `PCL.Desktop/Ui/LaunchPage.pxml` is an embedded PXML page (account summary, instance
+  summary, launch button, status text) compiled at startup through the same parser/compiler/
+  loader pipeline as the shell. Its dynamic texts bind to host state cells
+  (`launch.profile.summary`, `launch.instance.summary`, `launch.status`), declared by
+  `LaunchPageStateComposition` in the Minecraft launch family's state block; empty cells carry
+  no implicit default — the controller publishes the initial facts when it attaches.
+- `LaunchPageController` (Desktop composition root, internal, covered through
+  `InternalsVisibleTo`) subscribes to the renderer intent sink. `ui.navigation.launch` shows
+  the launch page, every other `ui.navigation.*` destination shows a placeholder page, and
+  `ui.launch.start` starts the launch flow. Destination switches use
+  `XsrUiNavigator.Replace` — the navigator's back stack stays reserved for hierarchical
+  drill-in, never for moving between primary destinations.
+- Program resolves the Minecraft root (for now `%APPDATA%/.minecraft`; settings plumbing is a
+  later slice), composes the controller after the shell, and attaches it.
+
+## Launch flow
+
+Attach publishes the account summary from the `accounts.profiles` roster (first profile, or
+"未选择账户"), requests the instance query, and publishes the first discovered instance as the
+instance summary. The start intent requires a selected instance: without one the status cell
+reports "未找到可启动的实例" and nothing dispatches. With one, the controller loads
+`<instance>/<versionId>.json`, resolves the offline identity (roster profile first, otherwise
+the vanilla offline v3 UUID derivation over "OfflinePlayer:" + name), dispatches
+`MinecraftRouteIds.Launch`, and publishes "正在启动…", "已启动", or the stable error message
+into the status cell. The renderer only ever reads these cells through the state bridge.
+
+## Verification and tests
+
+New executable suite `tests/PCL.Desktop.Tests` (registered in the solution, the architecture
+gate's project graph, and CI as "Test desktop composition"): the launch page composes with its
+bound summaries and status, navigation intents route between the launch and placeholder pages,
+and a start intent without instances reports the idle status without dispatching. The full
+launch dispatch chain (planner → executor → process port) remains covered by the
+`PCL.Services.Tests` corpus tests; a full end-to-end launch with a real version JSON on disk
+is deferred to the launch settings slice, which also owns the Minecraft root setting.
+
+## Deliberate scope
+
+- No instance selection yet: the slice launches the first discovered instance; a selector is
+  the next page unit.
+- The Minecraft root directory is not yet a setting; the placeholder pages carry no content.
+- Online accounts (Microsoft/ThirdParty identity modes) keep their roster summary but launch
+  offline in this slice.

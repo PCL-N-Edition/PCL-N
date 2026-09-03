@@ -69,6 +69,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-702-pxml-scene-backend.md](migrations/XSR-702-pxml-scene-backend.md) — Wave 7 PXML-to-scene Avalonia backend closure
 - [migrations/XSR-703-product-base-plate.md](migrations/XSR-703-product-base-plate.md) — Wave 7 legacy-experimental base plate: title bar, icon rail, splash, frameless chrome, embedded icons, and fluid-interface motion
 - [migrations/XSR-704-base-plate-runtime-hardening.md](migrations/XSR-704-base-plate-runtime-hardening.md) — Wave 7 base plate runtime hardening: desktop lifetime contract, UI.Next-owned rail geometry animation, live reduced-motion policy
+- [migrations/XSR-705-launch-page.md](migrations/XSR-705-launch-page.md) — Wave 7 launch page vertical slice: PXML page in the content host, navigation routing, launch state cells, and real launch dispatch
 
 ## Decision process
 

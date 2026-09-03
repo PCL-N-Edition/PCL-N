@@ -1,0 +1,8 @@
+<Page xmlns="https://pcln.dev/pxml/2026" Label="启动页">
+  <StackPanel Orientation="Vertical" Spacing="16">
+    <Text Label="账户摘要" Content="{state launch.profile.summary}" />
+    <Text Label="实例摘要" Content="{state launch.instance.summary}" />
+    <Button Label="启动游戏" Content="启动" Command="ui.launch.start" />
+    <Text Label="启动状态" Content="{state launch.status}" />
+  </StackPanel>
+</Page>
