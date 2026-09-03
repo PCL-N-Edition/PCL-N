@@ -1,25 +1,59 @@
 <Page xmlns="https://pcln.dev/pxml/2026" Label="启动页">
   <StackPanel Orientation="Horizontal" Spacing="16">
-    <StackPanel Orientation="Vertical" Spacing="14" Width="280" Label="CardAccount">
-      <StackPanel Orientation="Horizontal" Spacing="8">
-        <Text Label="AccountHeader" Content="账户" />
-        <Text Label="AccountBadge" Content="实验" />
+    <StackPanel Orientation="Vertical" Weight="0.92" MinWidth="240" MaxWidth="360" Label="CardAccount">
+      <StackPanel Orientation="Vertical" Weight="1" Margin="20,18,20,18" Label="AccountContent">
+        <StackPanel Orientation="Horizontal" Spacing="8" StretchLastChild="true"
+                    Margin="0,0,0,12" Label="AccountHeaderRow">
+          <Text Label="AccountHeader" Content="账户" Height="16" />
+          <StackPanel Orientation="Vertical" HorizontalAlignment="End" Label="AccountBadge">
+            <Text Label="AccountBadgeText" Content="实验" Height="12" Margin="7,2,7,2" />
+          </StackPanel>
+        </StackPanel>
+        <StackPanel Orientation="Vertical" Weight="1" MinHeight="160" Label="AccountBody">
+          <Text Label="AccountName" Content="{state launch.profile.name}" />
+        </StackPanel>
+        <Text Label="AccountSummary" Content="{state launch.profile.summary}"
+              Height="18" Margin="0,12,0,0" />
       </StackPanel>
-      <Text Label="AccountName" Content="{state launch.profile.name}" />
-      <Text Label="AccountSummary" Content="{state launch.profile.summary}" />
     </StackPanel>
-    <StackPanel Orientation="Vertical" Spacing="12" Label="CardVersion">
-      <Text Label="VersionHeader" Content="版本" />
-      <StackPanel Orientation="Vertical" Spacing="2" Label="InstanceRow">
-        <Text Label="VersionName" Content="{state launch.instance.summary}" />
-        <Text Label="VersionAction" Content="{state launch.instance.detail}" />
+
+    <StackPanel Orientation="Vertical" Spacing="12" Weight="1.35" MinWidth="280" Label="RightColumn">
+      <StackPanel Orientation="Vertical" Label="CardVersion">
+        <StackPanel Orientation="Vertical" Spacing="10" Margin="16,14,16,14" Label="VersionContent">
+          <StackPanel Orientation="Horizontal" StretchLastChild="true" Label="VersionHeaderRow">
+            <Text Label="VersionHeader" Content="版本" VerticalAlignment="Center" />
+            <Button Label="InstanceListButton" Content="≡" Command="ui.launch.instances"
+                    Width="28" Height="28" HorizontalAlignment="End" />
+          </StackPanel>
+          <StackPanel Orientation="Vertical" Label="InstanceRow">
+            <StackPanel Orientation="Horizontal" Spacing="10" Margin="12,10,12,10" Label="InstanceRowContent">
+              <StackPanel Orientation="Vertical" Spacing="1" Weight="1" VerticalAlignment="Center"
+                          Label="InstanceCopy">
+                <Text Label="VersionName" Content="{state launch.instance.summary}" Height="20" />
+                <Text Label="VersionAction" Content="{state launch.instance.detail}" Height="15" />
+              </StackPanel>
+              <StackPanel Orientation="Vertical" StretchLastChild="true" Width="26" Height="26"
+                          HorizontalAlignment="End" VerticalAlignment="Center" Label="InstanceChevron">
+                <Text Label="InstanceChevronText" Content="›"
+                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </StackPanel>
+            </StackPanel>
+          </StackPanel>
+          <Button Label="LaunchButton" Content="下载游戏" Command="ui.launch.start" Height="44" />
+        </StackPanel>
       </StackPanel>
-      <Button Label="LaunchButton" Content="下载游戏" Command="ui.launch.start" Height="44" />
-      <Text Label="LaunchStatus" Content="{state launch.status}" />
-    </StackPanel>
-    <StackPanel Orientation="Vertical" Spacing="8" Width="300" Label="CardAbout">
-      <Text Label="AboutTitle" Content="关于 PCL N Edition" />
-      <Text Label="AboutMessage" Content="PCL N Edition 与官方 PCL 项目独立维护，部分功能与行为可能有所不同。" />
+
+      <StackPanel Orientation="Vertical" Weight="1" Label="CardAbout">
+        <StackPanel Orientation="Vertical" Spacing="8" Weight="1" Margin="18,14,32,14" Label="AboutContent">
+          <Text Label="AboutTitle" Content="关于 PCL N Edition" Height="28"
+                VerticalAlignment="Center" />
+          <StackPanel Orientation="Vertical" Spacing="8" Weight="1" Label="AboutCopy">
+            <Text Label="AboutMessage" Content="PCL N Edition 与官方 PCL 项目独立维护，部分功能与行为可能有所不同。"
+                  Height="20" />
+            <Text Label="LaunchStatus" Content="{state launch.status}" Height="18" />
+          </StackPanel>
+        </StackPanel>
+      </StackPanel>
     </StackPanel>
   </StackPanel>
 </Page>

@@ -25,6 +25,27 @@ and the account identity.
 - Program resolves the Minecraft root (for now `%APPDATA%/.minecraft`; settings plumbing is a
   later slice), composes the controller after the shell, and attaches it.
 
+## Layout parity
+
+The legacy checkout's `PCL.Desktop/Features/Launching/Views/PageLaunchHomeExperimental.axaml`
+is the normative layout reference for the Experimental launch page. The migrated page keeps its
+exact idle-page structure instead of flattening the three cards into one horizontal row:
+
+- the content inset is the shell-owned `28,24` padding;
+- the page body is `0.92*`, `16 px`, `1.35*`, with the account column constrained to
+  `240..360 px` and the right column to at least `280 px`;
+- the account card stretches for the full page height, uses `20,18` padding, keeps the badge at
+  the far edge of its header, and pins the account summary to the card bottom;
+- the right column contains an intrinsic-height version card, a `12 px` gap, and a community card
+  which consumes all remaining height;
+- the version card uses `16,14` padding, a trailing 28 px instance-list affordance, the
+  `12,10` single-line picker row with a trailing 26 px chevron affordance, and the 44 px launch
+  button; the community card uses `18,14,32,14` padding.
+
+PXML expresses those facts through backend-neutral stack weight, minimum/maximum size, and
+alignment properties. UI.Next resolves the weighted slots deterministically; the Avalonia backend
+continues to consume only the committed scene and must not recreate the legacy Grid.
+
 ## Launch flow
 
 Attach publishes the account summary from the `accounts.profiles` roster (first profile, or
@@ -40,8 +61,9 @@ into the status cell. The renderer only ever reads these cells through the state
 
 New executable suite `tests/PCL.Desktop.Tests` (registered in the solution, the architecture
 gate's project graph, and CI as "Test desktop composition"): the launch page composes with its
-bound summaries and status, navigation intents route between the launch and placeholder pages,
-and a start intent without instances reports the idle status without dispatching. The full
+bound summaries and status, its wide, default, and minimum-window scenes preserve the locked
+column/card geometry without overlap, navigation intents route between the launch and placeholder
+pages, and a start intent without instances reports the idle status without dispatching. The full
 launch dispatch chain (planner → executor → process port) remains covered by the
 `PCL.Services.Tests` corpus tests; a full end-to-end launch with a real version JSON on disk
 is deferred to the launch settings slice, which also owns the Minecraft root setting.

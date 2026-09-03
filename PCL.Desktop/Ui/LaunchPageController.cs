@@ -292,20 +292,20 @@ internal sealed class LaunchPageController
     /// </summary>
     private void StyleLaunchPage(XsrUiEntityId page, Dictionary<string, XsrUiEntityId> entities)
     {
-        StyleCard(entities, "CardAccount");
-        StyleCard(entities, "CardVersion");
-        StyleCard(entities, "CardAbout");
+        StyleCard(entities, "CardAccount", cornerRadius: 16);
+        StyleCard(entities, "CardVersion", cornerRadius: 16);
+        StyleCard(entities, "CardAbout", cornerRadius: 18);
         StyleText(entities, "AccountHeader", SecondaryText, fontSize: 12, weight: 600);
         StyleText(entities, "VersionHeader", SecondaryText, fontSize: 12, weight: 600);
-        StyleText(entities, "AboutTitle", PrimaryText, fontSize: 13, weight: 600);
-        StyleText(entities, "AboutMessage", SecondaryText, fontSize: 12);
+        StyleText(entities, "AboutTitle", SecondaryText, fontSize: 12, weight: 600);
+        StyleText(entities, "AboutMessage", PrimaryText, fontSize: 14, weight: 600);
         StyleText(entities, "AccountSummary", SecondaryText, fontSize: 13);
-        StyleText(entities, "LaunchStatus", SecondaryText, fontSize: 12);
+        StyleText(entities, "LaunchStatus", SecondaryText, fontSize: 13);
         StyleText(entities, "VersionAction", SecondaryText, fontSize: 11);
         if (entities.TryGetValue("AccountBadge", out XsrUiEntityId badge))
         {
             ApplyVisual(badge, BadgeBackground, BadgeText, cornerRadius: 6);
-            StyleText(badge, BadgeText, fontSize: 10, weight: 600);
+            StyleText(entities, "AccountBadgeText", BadgeText, fontSize: 10, weight: 600);
         }
 
         if (entities.TryGetValue("AccountName", out XsrUiEntityId accountName))
@@ -323,6 +323,29 @@ internal sealed class LaunchPageController
             ApplyVisual(pickerRow, PickerBackground, PrimaryText, cornerRadius: 12);
         }
 
+        if (entities.TryGetValue("InstanceListButton", out XsrUiEntityId instanceListButton))
+        {
+            ApplyVisual(
+                instanceListButton,
+                XsrUiColor.Transparent,
+                SecondaryText,
+                cornerRadius: 14,
+                hover: BadgeBackground);
+            StyleText(instanceListButton, SecondaryText, fontSize: 16, weight: 600);
+            AlignText(instanceListButton, XsrUiTextAlignment.Center);
+        }
+
+        if (entities.TryGetValue("InstanceChevron", out XsrUiEntityId instanceChevron))
+        {
+            ApplyVisual(
+                instanceChevron,
+                CardBackground,
+                SecondaryText,
+                cornerRadius: 13,
+                border: CardBorder);
+            StyleText(entities, "InstanceChevronText", SecondaryText, fontSize: 18);
+        }
+
         if (entities.TryGetValue("LaunchButton", out XsrUiEntityId button))
         {
             // Legacy accent button: normal #0b5bcb, hover #1370f3, white 13 px semibold label.
@@ -333,14 +356,18 @@ internal sealed class LaunchPageController
                 cornerRadius: 11,
                 hover: LaunchButtonHover);
             StyleText(button, new XsrUiColor(255, 255, 255), fontSize: 13, weight: 600);
+            AlignText(button, XsrUiTextAlignment.Center);
         }
     }
 
-    private void StyleCard(Dictionary<string, XsrUiEntityId> entities, string label)
+    private void StyleCard(
+        Dictionary<string, XsrUiEntityId> entities,
+        string label,
+        double cornerRadius)
     {
         if (entities.TryGetValue(label, out XsrUiEntityId card))
         {
-            ApplyVisual(card, CardBackground, PrimaryText, cornerRadius: 16, border: CardBorder);
+            ApplyVisual(card, CardBackground, PrimaryText, cornerRadius, border: CardBorder);
         }
     }
 
@@ -359,6 +386,12 @@ internal sealed class LaunchPageController
         visual.FontSize = fontSize;
         visual.FontWeight = weight;
         _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint | XsrUiDirtyKinds.Layout);
+    }
+
+    private void AlignText(XsrUiEntityId entity, XsrUiTextAlignment alignment)
+    {
+        RequireVisual(entity).TextAlignment = alignment;
+        _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
     }
 
     private void ApplyVisual(
