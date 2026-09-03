@@ -1,8 +1,8 @@
+using PCL.Services.Foundation;
 using PCL.Services.Minecraft;
 using PCL.Services.Minecraft.Java;
 using PCL.Services.Minecraft.Launch;
 using PCL.Services.Minecraft.Process;
-using PCL.Services.Foundation;
 using PCL.Xsr.Runtime;
 using PCL.Xsr.State;
 
