@@ -122,6 +122,37 @@ internal static partial class Program
         AssertEqual(new XsrUiRect(310, 0, 690, 100), scene.Nodes.First(node => node.Label == "right").Rect);
     }
 
+    private static void LoadedDynamicButtonTextAndSemanticLabelStaySynchronized()
+    {
+        XsrUiTree tree = new();
+        XsrUiStateBridge bridge = new(tree);
+        XsrStateStore store = BuildStore(bridge);
+        XsrStateId action = store.Resolve("action.label".AsPxmlStateId());
+        _ = store.Publish(action, "下载游戏");
+        XsrUiEntityId root = PxmlUiLoader.Load(
+            Compile("""
+                <Page xmlns="N" Key="LaunchPage">
+                  <Button Key="LaunchButton" Label="{state action.label}"
+                          Content="{state action.label}" Command="ui.launch.primary" />
+                </Page>
+                """),
+            tree,
+            store,
+            tree.Create("load-root"));
+        XsrUiRenderer renderer = new(tree, store, stateBridge: bridge);
+        renderer.SetRoot(root);
+
+        XsrUiSceneNode download = renderer.Render().Nodes.Single(node => node.Role == XsrUiSemanticRole.Button);
+        AssertEqual("LaunchButton", tree.Name(download.Entity));
+        AssertEqual("下载游戏", download.Text);
+        AssertEqual("下载游戏", download.Label);
+
+        _ = store.Publish(action, "启动游戏");
+        XsrUiSceneNode launch = renderer.Render().Nodes.Single(node => node.Role == XsrUiSemanticRole.Button);
+        AssertEqual("启动游戏", launch.Text);
+        AssertEqual("启动游戏", launch.Label);
+    }
+
     private static void LoaderRejectsUnknownStatePaths()
     {
         XsrUiTree tree = new();
@@ -179,6 +210,7 @@ internal static partial class Program
     {
         XsrStateStoreBuilder states = new();
         states.Cell<string>("ui.version".AsPxmlStateId(), "Update");
+        states.Cell<string>("action.label".AsPxmlStateId(), "UI");
         states.Cell<bool>("ui.visible".AsPxmlStateId(), "UI");
         return states.Build(bridge);
     }

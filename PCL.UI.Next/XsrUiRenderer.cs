@@ -819,6 +819,7 @@ public sealed class XsrUiRenderer
         XsrUiSemantic? semantic = _tree.GetComponent<XsrUiSemantic>(entity);
         XsrUiText? text = _tree.GetComponent<XsrUiText>(entity);
         string? content = text is null ? null : ResolveText(text);
+        string? semanticLabel = ResolveSemanticLabel(semantic);
 
         XsrUiRect rect = _paintRects.TryGetValue(entity.Index, out XsrUiRect paintRect)
             ? paintRect
@@ -833,7 +834,7 @@ public sealed class XsrUiRenderer
             rect,
             depth,
             semantic?.Role ?? XsrUiSemanticRole.None,
-            semantic?.Label,
+            semanticLabel,
             content,
             image?.Source,
             input?.IsFocused ?? false,
@@ -861,6 +862,17 @@ public sealed class XsrUiRenderer
         }
 
         object? value = _state.ReadAppliedValue(bound);
+        return Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    private string? ResolveSemanticLabel(XsrUiSemantic? semantic)
+    {
+        if (semantic is null || !semantic.BoundLabel.IsAssigned)
+        {
+            return semantic?.Label;
+        }
+
+        object? value = _state.ReadAppliedValue(semantic.BoundLabel);
         return Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
     }
 

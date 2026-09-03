@@ -59,12 +59,12 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
         "Width", "Height", "MinWidth", "MaxWidth", "MinHeight", "MaxHeight", "Weight",
         "HorizontalAlignment", "VerticalAlignment", "Margin", "Padding", "Visibility", "Label",
         "Orientation", "Spacing", "StretchLastChild", "Scrollable", "Content", "Command",
-        "Focusable", "Clickable", "ImageSource",
+        "Focusable", "Clickable", "ImageSource", "Key",
     };
 
     private static readonly HashSet<string> BindingProperties = new(StringComparer.Ordinal)
     {
-        "None", "Text", "Visibility",
+        "None", "Text", "Visibility", "SemanticLabel",
     };
 
     private static readonly HashSet<string> DirtyKinds = new(StringComparer.Ordinal)
@@ -240,14 +240,20 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                     errors.Add($"IR target '{property.Target}' is not supported by recipe '{recipe}'");
                 }
 
-                if (property.Binding == "Text" && (recipe != "Text" || property.Target != "Content"))
+                if (property.Binding == "Text"
+                    && (property.Target != "Content" || recipe is not ("Text" or "CommandInput")))
                 {
-                    errors.Add("the Text binding must target Content on the Text recipe");
+                    errors.Add("the Text binding must target Content on the Text or CommandInput recipe");
                 }
 
                 if (property.Binding == "Visibility" && property.Target != "Visibility")
                 {
                     errors.Add("the Visibility binding must target Visibility");
+                }
+
+                if (property.Binding == "SemanticLabel" && property.Target != "Label")
+                {
+                    errors.Add("the SemanticLabel binding must target Label");
                 }
             }
         }
@@ -315,13 +321,16 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
             valid = false;
         }
 
-        if (binding == "Text" && kind != "String" || binding == "Visibility" && kind != "Boolean")
+        if ((binding is "Text" or "SemanticLabel") && kind != "String"
+            || binding == "Visibility" && kind != "Boolean")
         {
             errors.Add($"line {lineNumber} binding '{binding}' is incompatible with '{kind}'");
             valid = false;
         }
 
-        if (binding == "Text" && dirty != "Layout,Paint" || binding == "Visibility" && dirty != "State")
+        if (binding == "Text" && dirty != "Layout,Paint"
+            || binding == "Visibility" && dirty != "State"
+            || binding == "SemanticLabel" && dirty != "Paint")
         {
             errors.Add($"line {lineNumber} binding '{binding}' uses an incompatible dirty-kind set '{dirty}'");
             valid = false;
@@ -675,7 +684,8 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
             case "Alignment":
                 return target == "HorizontalAlignment" || target == "VerticalAlignment";
             case "String":
-                return target == "Label" || target == "Content" || target == "ImageSource";
+                return target == "Label" || target == "Content" || target == "ImageSource"
+                    || target == "Key";
             case "SemanticId":
                 return target == "Command";
             default:
@@ -689,7 +699,8 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
             || target == "MinWidth" || target == "MaxWidth"
             || target == "MinHeight" || target == "MaxHeight" || target == "Weight"
             || target == "HorizontalAlignment" || target == "VerticalAlignment"
-            || target == "Margin" || target == "Padding" || target == "Visibility" || target == "Label")
+            || target == "Margin" || target == "Padding" || target == "Visibility"
+            || target == "Label" || target == "Key")
         {
             return true;
         }

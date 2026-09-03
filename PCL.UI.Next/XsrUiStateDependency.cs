@@ -12,6 +12,7 @@ public enum XsrUiStateProperty
     Text = 1,
     Visibility = 2,
     Enabled = 3,
+    SemanticLabel = 4,
 }
 
 /// <summary>

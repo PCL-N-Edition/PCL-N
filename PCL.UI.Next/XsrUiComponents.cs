@@ -107,6 +107,9 @@ public sealed class XsrUiSemantic(XsrUiSemanticRole role, string? label = null)
     public XsrUiSemanticRole Role { get; set; } = role;
 
     public string? Label { get; set; } = label;
+
+    /// <summary>Optional host state whose applied string value is the current accessible label.</summary>
+    public XsrStateId BoundLabel { get; set; }
 }
 
 /// <summary>

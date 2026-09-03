@@ -160,6 +160,43 @@ internal static partial class Program
         AssertEqual(XsrUiAlignment.Center, stack.VerticalAlignment);
     }
 
+    private static void CompileSeparatesEntityKeysFromSemanticLabels()
+    {
+        PxmlHostIr ir = Compile("""
+            <Page xmlns="N" Key="LaunchPage" Label="启动页">
+              <Button Key="LaunchButton" Label="{state action.label}"
+                      Content="{state action.label}" Command="ui.launch.primary" />
+            </Page>
+            """);
+
+        AssertEqual("LaunchPage", ir.Root.Key);
+        AssertEqual("启动页", ir.Root.Label);
+        PxmlIrNode button = ir.Root.Children[0];
+        AssertEqual("LaunchButton", button.Key);
+        AssertNull(button.Label);
+        AssertEqual(2, button.Bindings.Count);
+        AssertTrue(button.Bindings.Any(binding =>
+            binding.Property == XsrUiStateProperty.Text
+            && binding.State.Value == "action.label"));
+        AssertTrue(button.Bindings.Any(binding =>
+            binding.Property == XsrUiStateProperty.SemanticLabel
+            && binding.State.Value == "action.label"));
+    }
+
+    private static void CompileRejectsDuplicateEntityKeys()
+    {
+        AssertThrows<PxmlCompileException>(() => Compile("""
+            <Page xmlns="N" Key="Duplicate">
+              <Text Key="Duplicate" Content="x" />
+            </Page>
+            """));
+        AssertThrows<PxmlCompileException>(() => Compile("""
+            <Page xmlns="N">
+              <Text Key="bad key" Content="x" />
+            </Page>
+            """));
+    }
+
     private static void CompileRejectsUnknownElementAndProperty()
     {
         AssertThrows<PxmlCompileException>(() => Compile("""
@@ -213,11 +250,6 @@ internal static partial class Program
         AssertThrows<PxmlCompileException>(() => Compile("""
             <Page xmlns="N">
               <Text Content="x" Width="{state layout.width}" />
-            </Page>
-            """));
-        AssertThrows<PxmlCompileException>(() => Compile("""
-            <Page xmlns="N">
-              <Button Label="{state action.label}" />
             </Page>
             """));
         AssertThrows<PxmlCompileException>(() => Compile("""

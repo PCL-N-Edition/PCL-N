@@ -14,10 +14,11 @@ public static class PxmlCompiler
     public static PxmlHostIr Compile(PxmlDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
-        return new PxmlHostIr(CompileNode(document.Root));
+        HashSet<string> keys = new(StringComparer.Ordinal);
+        return new PxmlHostIr(CompileNode(document.Root, keys));
     }
 
-    private static PxmlIrNode CompileNode(PxmlElement element)
+    private static PxmlIrNode CompileNode(PxmlElement element, HashSet<string> keys)
     {
         if (!PxmlGeneratedControlCatalog.TryGet(element.Name, out PxmlControlModel model))
         {
@@ -72,8 +73,13 @@ public static class PxmlCompiler
             }
         }
 
+        if (builder.Key is { } key && !keys.Add(key))
+        {
+            throw Fail(element.Name, "Key", $"duplicates the document key '{key}'");
+        }
+
         return builder.Build(
-            [.. element.Children.Select(CompileNode)],
+            [.. element.Children.Select(child => CompileNode(child, keys))],
             bindings);
     }
 
@@ -98,7 +104,11 @@ public static class PxmlCompiler
                 builder.Set(property.Target, ParseOrientation(elementName, property.Name, raw));
                 break;
             case PxmlControlValueKind.String:
-                builder.Set(property.Target, raw);
+                builder.Set(
+                    property.Target,
+                    property.Target == PxmlIrPropertyTarget.Key
+                        ? ParseKey(elementName, property.Name, raw)
+                        : raw);
                 break;
             case PxmlControlValueKind.SemanticId:
                 builder.Set(property.Target, ParseSemanticId(elementName, property.Name, raw));
@@ -181,6 +191,21 @@ public static class PxmlCompiler
         }
     }
 
+    private static string ParseKey(string elementName, string propertyName, string raw)
+    {
+        if (raw.Length is 0 or > 128
+            || !string.Equals(raw, raw.Trim(), StringComparison.Ordinal)
+            || raw.Any(static character => char.IsWhiteSpace(character) || char.IsControl(character)))
+        {
+            throw Fail(
+                elementName,
+                propertyName,
+                "needs 1..128 non-whitespace, non-control characters without surrounding whitespace");
+        }
+
+        return raw;
+    }
+
     private static PxmlCompileException Fail(string element, string? property, string problem) =>
         new(property is null
             ? $"The element '{element}' {problem}."
@@ -209,10 +234,13 @@ public static class PxmlCompiler
         private bool _scrollable;
         private string? _content;
         private string? _label;
+        private string? _key;
         private bool _focusable;
         private bool _clickable;
         private XsrSemanticId? _command;
         private string? _imageSource;
+
+        public string? Key => _key;
 
         public void Set(PxmlIrPropertyTarget target, object value)
         {
@@ -257,6 +285,9 @@ public static class PxmlCompiler
                 case PxmlIrPropertyTarget.Label:
                     _label = (string)value;
                     break;
+                case PxmlIrPropertyTarget.Key:
+                    _key = (string)value;
+                    break;
                 case PxmlIrPropertyTarget.Orientation:
                     _orientation = (XsrUiOrientation)value;
                     break;
@@ -295,6 +326,7 @@ public static class PxmlCompiler
             IReadOnlyList<PxmlIrBinding> bindings) =>
             new()
             {
+                Key = _key,
                 Kind = kind,
                 Recipe = recipe,
                 Children = children,

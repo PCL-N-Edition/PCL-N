@@ -33,7 +33,7 @@ public sealed class PxmlUiLoader
             throw new PxmlLoadException($"The load parent '{parent}' is not alive.");
         }
 
-        XsrUiEntityId root = tree.Create(ir.Root.Kind.ToString());
+        XsrUiEntityId root = tree.Create(ir.Root.Key ?? ir.Root.Kind.ToString());
         bool committed = false;
         try
         {
@@ -128,9 +128,17 @@ public sealed class PxmlUiLoader
                     tree.SetComponent(entity, new XsrUiCommandBinding(node.Command.Value));
                 }
 
-                if (node.Content is not null)
+                PxmlIrBinding? commandTextBinding = node.Bindings.FirstOrDefault(
+                    binding => binding.Property == XsrUiStateProperty.Text);
+                if (node.Content is not null || commandTextBinding is not null)
                 {
-                    tree.SetComponent(entity, new XsrUiText(node.Content));
+                    XsrUiText commandText = new(node.Content ?? string.Empty);
+                    if (commandTextBinding is not null)
+                    {
+                        commandText.BoundState = ResolveState(state, commandTextBinding.State);
+                    }
+
+                    tree.SetComponent(entity, commandText);
                 }
 
                 if (node.ImageSource is not null)
@@ -146,9 +154,17 @@ public sealed class PxmlUiLoader
                 throw new PxmlLoadException($"The runtime recipe '{node.Recipe}' is unsupported.");
         }
 
-        if (node.Role != XsrUiSemanticRole.None || node.Label is not null)
+        PxmlIrBinding? semanticBinding = node.Bindings.FirstOrDefault(
+            binding => binding.Property == XsrUiStateProperty.SemanticLabel);
+        if (node.Role != XsrUiSemanticRole.None || node.Label is not null || semanticBinding is not null)
         {
-            tree.SetComponent(entity, new XsrUiSemantic(node.Role, node.Label));
+            XsrUiSemantic semantic = new(node.Role, node.Label);
+            if (semanticBinding is not null)
+            {
+                semantic.BoundLabel = ResolveState(state, semanticBinding.State);
+            }
+
+            tree.SetComponent(entity, semantic);
         }
 
         foreach (PxmlIrBinding binding in node.Bindings)
@@ -161,7 +177,7 @@ public sealed class PxmlUiLoader
 
         foreach (PxmlIrNode child in node.Children)
         {
-            XsrUiEntityId childEntity = tree.Create(child.Kind.ToString());
+            XsrUiEntityId childEntity = tree.Create(child.Key ?? child.Kind.ToString());
             tree.Attach(childEntity, entity);
             PopulateNode(child, childEntity, tree, state);
         }

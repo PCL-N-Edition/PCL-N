@@ -31,6 +31,9 @@ public sealed record PxmlIrBinding(XsrSemanticId State, XsrUiStateProperty Prope
 /// </summary>
 public sealed record PxmlIrNode
 {
+    /// <summary>Optional document-unique internal entity key; never an accessibility label.</summary>
+    public string? Key { get; init; }
+
     public PxmlIrNodeKind Kind { get; init; }
 
     public PxmlRuntimeRecipe Recipe { get; init; }

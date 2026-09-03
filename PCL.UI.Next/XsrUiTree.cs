@@ -205,6 +205,10 @@ public sealed class XsrUiTree
         {
             BindState(entity, VisibilityDependency(element.BoundVisibility));
         }
+        else if (component is XsrUiSemantic semantic)
+        {
+            BindState(entity, SemanticLabelDependency(semantic.BoundLabel));
+        }
 
         MarkDirty(entity, XsrUiDirtyKinds.Structure);
     }
@@ -465,6 +469,12 @@ public sealed class XsrUiTree
         {
             UnbindState(entity, VisibilityDependency(element.BoundVisibility));
         }
+        else if (typeof(T) == typeof(XsrUiSemantic)
+            && value.Components.TryGetValue(typeof(T), out object? previousSemantic)
+            && previousSemantic is XsrUiSemantic semantic)
+        {
+            UnbindState(entity, SemanticLabelDependency(semantic.BoundLabel));
+        }
     }
 
     private static XsrUiStateDependency TextDependency(XsrStateId state) =>
@@ -472,6 +482,9 @@ public sealed class XsrUiTree
 
     private static XsrUiStateDependency VisibilityDependency(XsrStateId state) =>
         new(state, XsrUiStateProperty.Visibility, XsrUiDirtyKinds.State);
+
+    private static XsrUiStateDependency SemanticLabelDependency(XsrStateId state) =>
+        new(state, XsrUiStateProperty.SemanticLabel, XsrUiDirtyKinds.Paint);
 
     private XsrUiEntityId IndexToHandle(int index) =>
         new(index, _generations.TryGetValue(index, out uint generation) ? generation : 0);

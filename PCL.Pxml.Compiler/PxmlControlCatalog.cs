@@ -45,6 +45,7 @@ internal enum PxmlIrPropertyTarget
     Weight = 20,
     HorizontalAlignment = 21,
     VerticalAlignment = 22,
+    Key = 23,
 }
 
 internal sealed class PxmlControlPropertyModel
