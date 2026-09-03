@@ -1,5 +1,10 @@
+using Avalonia;
 using Avalonia.Automation.Peers;
 using Avalonia.Automation.Provider;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Headless;
+using Avalonia.Threading;
 using PCL.UI.Next;
 using PCL.UI.Next.Backend.Avalonia;
 using PCL.Xsr;
@@ -14,6 +19,7 @@ internal static class Program
         ("automation invoke and focus route through the renderer", AutomationInvokeAndFocusRouteThroughRenderer),
         ("navigation peers expose selection and route selection through invoke", NavigationPeersExposeSelectionAndRouteSelection),
         ("selection and hover facts present under reduced motion", SelectionAndHoverFactsPresentUnderReducedMotion),
+        ("lifetime: splash never owns the process and main window close terminates", LifetimeSplashNeverOwnsProcessAndMainWindowCloseTerminates),
     ];
 
     private static int Main()
@@ -51,7 +57,7 @@ internal static class Program
                 _ = renderer.Focus(entity);
                 _ = renderer.Activate(entity);
             },
-            reducedMotion: true);
+            reducedMotion: () => true);
         control.Apply(Node(scene, button));
 
         AutomationPeer peer = ControlAutomationPeer.CreatePeerForElement(control);
@@ -63,7 +69,7 @@ internal static class Program
         AssertEqual(1, intents.Count);
         AssertEqual(button, intents.Drain()[0].Source);
 
-        AvaloniaUiSceneNodeControl text = new(_ => { }, _ => { }, reducedMotion: true);
+        AvaloniaUiSceneNodeControl text = new(_ => { }, _ => { }, reducedMotion: () => true);
         text.Apply(new XsrUiSceneNode(
             tree.Create("text"),
             new XsrUiRect(0, 0, 10, 10),
@@ -87,9 +93,9 @@ internal static class Program
         int focusCount = 0;
         int invokeCount = 0;
 
-        AvaloniaUiSceneNodeControl navigation = new(_ => focusCount++, _ => invokeCount++, reducedMotion: true);
-        AvaloniaUiSceneNodeControl selected = new(_ => focusCount++, _ => invokeCount++, reducedMotion: true);
-        AvaloniaUiSceneNodeControl other = new(_ => focusCount++, _ => invokeCount++, reducedMotion: true);
+        AvaloniaUiSceneNodeControl navigation = new(_ => focusCount++, _ => invokeCount++, reducedMotion: () => true);
+        AvaloniaUiSceneNodeControl selected = new(_ => focusCount++, _ => invokeCount++, reducedMotion: () => true);
+        AvaloniaUiSceneNodeControl other = new(_ => focusCount++, _ => invokeCount++, reducedMotion: () => true);
         navigation.Apply(Node(navigationEntity, XsrUiSemanticRole.Navigation));
         selected.Apply(Node(
             selectedEntity,
@@ -129,7 +135,7 @@ internal static class Program
         // synchronous even though the animated path eases the same values.
         XsrUiTree tree = new();
         XsrUiEntityId itemEntity = tree.Create("item");
-        AvaloniaUiSceneNodeControl item = new(_ => { }, _ => { }, reducedMotion: true);
+        AvaloniaUiSceneNodeControl item = new(_ => { }, _ => { }, reducedMotion: () => true);
 
         item.Apply(Node(itemEntity, XsrUiSemanticRole.NavigationItem, selected: true, focusable: true, clickable: true));
         AssertEqual(1, item.PresentedPillScale);
@@ -150,6 +156,86 @@ internal static class Program
         item.Apply(Node(itemEntity, XsrUiSemanticRole.NavigationItem, focusable: true, clickable: true));
         AssertEqual(0, item.PresentedHoverOpacity);
         AssertEqual(0, item.PresentedPillScale);
+    }
+
+    // A 1x1 transparent PNG so the splash has a decodable icon without an asset dependency.
+    private const string TinyPngBase64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+    private static MemoryStream TinyPng() => new MemoryStream(Convert.FromBase64String(TinyPngBase64));
+
+    private sealed class LifetimeProbeApp : Application
+    {
+        public static Func<Stream?>? SplashIconFactory { get; set; }
+
+        public static ShutdownMode ObservedShutdownMode { get; private set; }
+
+        public static Window? ObservedMainWindow { get; private set; }
+
+        public static int ObservedWindowCount { get; private set; }
+
+        public static bool ReachedEndOfLifetime { get; private set; }
+
+        public static void MarkTerminated() => ReachedEndOfLifetime = true;
+
+        public static void Reset(bool withSplash)
+        {
+            SplashIconFactory = withSplash ? TinyPng : (Func<Stream?>?)null;
+            ObservedShutdownMode = default;
+            ObservedMainWindow = null;
+            ObservedWindowCount = 0;
+            ReachedEndOfLifetime = false;
+        }
+
+        public override void OnFrameworkInitializationCompleted()
+        {
+            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                XsrStateStore store = new XsrStateStoreBuilder().Build();
+                XsrUiShell shell = XsrUiShellComposer.Compose(store);
+                // Reduced motion keeps the startup handoff synchronous for the test.
+                shell.Renderer.ReducedMotion = true;
+                AvaloniaUiShellWindow window = AvaloniaUiShellLifetime.Compose(
+                    desktop,
+                    shell,
+                    SplashIconFactory?.Invoke(),
+                    null);
+
+                ObservedShutdownMode = desktop.ShutdownMode;
+                ObservedMainWindow = desktop.MainWindow;
+                ObservedWindowCount = desktop.Windows.Count;
+
+                // Closing the main window exercises the automatic lifetime contract: the run
+                // must terminate and return to the caller.
+                Dispatcher.UIThread.Post(
+                    () => window.Close(),
+                    DispatcherPriority.Background);
+            }
+
+            base.OnFrameworkInitializationCompleted();
+        }
+
+
+    }
+
+    private static void LifetimeSplashNeverOwnsProcessAndMainWindowCloseTerminates()
+    {
+        LifetimeProbeApp.Reset(withSplash: true);
+        AppBuilder.Configure<LifetimeProbeApp>()
+            .UseHeadless(new AvaloniaHeadlessPlatformOptions())
+            .StartWithClassicDesktopLifetime([]);
+
+        // Reaching this line at all proves the lifetime terminated on main-window close instead
+        // of leaving the process running under OnExplicitShutdown.
+        LifetimeProbeApp.MarkTerminated();
+        AssertTrue(LifetimeProbeApp.ReachedEndOfLifetime);
+        AssertEqual(ShutdownMode.OnMainWindowClose, LifetimeProbeApp.ObservedShutdownMode);
+        AssertTrue(LifetimeProbeApp.ObservedMainWindow is AvaloniaUiShellWindow);
+        // Under reduced motion the handoff is synchronous: the splash closed the moment the
+        // shell window took over the icon, leaving exactly the shell window alive — and its
+        // close did not terminate the process early, proving the splash never owned the
+        // lifetime.
+        AssertEqual(1, LifetimeProbeApp.ObservedWindowCount);
     }
 
     private static XsrUiSceneNode Node(XsrUiScene scene, XsrUiEntityId entity) =>

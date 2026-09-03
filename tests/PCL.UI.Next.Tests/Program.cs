@@ -72,6 +72,8 @@ internal static partial class Program
         // XSR-703: product base plate.
         ("shell rail toggle expands and collapses", Sync(ShellRailToggleExpandsAndCollapses)),
         ("shell rail toggle intent expands through the renderer", Sync(ShellRailToggleIntentExpandsThroughRenderer)),
+        ("rail presentation matches hit test during motion", Sync(RailPresentationMatchesHitTestDuringMotion)),
+        ("reduced motion skips rail presentation motion", Sync(ReducedMotionSkipsRailPresentationMotion)),
     ];
 
     private static async Task<int> Main()

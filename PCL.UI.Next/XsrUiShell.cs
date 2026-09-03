@@ -545,8 +545,6 @@ public sealed class XsrUiShell
     /// <summary>Whether the navigation rail currently shows item labels beside the icons.</summary>
     public bool IsNavigationExpanded { get; private set; }
 
-    private double RailWidth => IsNavigationExpanded ? ExpandedRailWidth : CollapsedRailWidth;
-
     /// <summary>
     /// Changes the presentation palette while preserving the semantic tree and current route.
     /// </summary>
@@ -610,12 +608,54 @@ public sealed class XsrUiShell
         }
 
         IsNavigationExpanded = expanded;
+        if (Renderer.ReducedMotion)
+        {
+            // Reduced motion is a presentation contract: skip the geometry interpolation and
+            // commit the final rail width immediately.
+            SetRailPresentationProgress(expanded ? 1 : 0);
+        }
+
         ApplyNavigationExpansion();
         NavigationExpandedChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Flips the navigation rail between its icon rail and expanded forms.</summary>
     public void ToggleNavigationExpanded() => SetNavigationExpanded(!IsNavigationExpanded);
+
+    /// <summary>
+    /// The ephemeral presentation progress of the rail: 0 is fully collapsed, 1 fully expanded.
+    /// This is renderer-local presentation state, not product truth — the semantic target is
+    /// <see cref="IsNavigationExpanded"/>. The committed rail geometry derives from it, so the
+    /// scene, the hit test, and the drawn frame always share one geometry while it plays.
+    /// </summary>
+    public double RailPresentationProgress { get; private set; }
+
+    /// <summary>
+    /// Sets the rail presentation progress and re-commits the rail geometry. Presentation
+    /// drivers (the backend motion clock) call this once per frame; it is a no-op at rest.
+    /// </summary>
+    public void SetRailPresentationProgress(double value)
+    {
+        double clamped = Math.Clamp(value, 0, 1);
+        if (RailPresentationProgress == clamped)
+        {
+            return;
+        }
+
+        RailPresentationProgress = clamped;
+        ApplyRailPresentation();
+    }
+
+    /// <summary>
+    /// Maps presentation progress to the committed rail width with a critically damped
+    /// ease-out; the presentation contract for animated rail geometry.
+    /// </summary>
+    public static double RailWidthFor(double progress)
+    {
+        double clamped = Math.Clamp(progress, 0, 1);
+        double eased = 1 - Math.Pow(1 - clamped, 3);
+        return CollapsedRailWidth + ((ExpandedRailWidth - CollapsedRailWidth) * eased);
+    }
 
     /// <summary>
     /// Runs the deterministic UI.Next layout pass for one viewport.
@@ -628,13 +668,34 @@ public sealed class XsrUiShell
 
     /// <summary>
     /// Shared composition tail for both construction paths: the shell-owned rail toggle, the
-    /// palette, and the canonical collapsed rail layout.
+    /// palette, the canonical item margins, and the collapsed rail presentation.
     /// </summary>
     private void FinishComposition()
     {
         _navigationToggle = CreateNavigationToggle();
+        ApplyNavigationItemMargins();
         ApplyPalette();
         ApplyNavigationExpansion();
+        ApplyRailPresentation();
+    }
+
+    /// <summary>
+    /// Commits the canonical static item margins once: full rail width in both states, with the
+    /// first item inset from the title bar. Expansion animates the rail width, never margins.
+    /// </summary>
+    private void ApplyNavigationItemMargins()
+    {
+        for (int index = 0; index < NavigationItems.Count; index++)
+        {
+            XsrUiEntityId entity = _navigationEntities[NavigationItems[index].Id];
+            XsrUiElement? element = Tree.GetComponent<XsrUiElement>(entity);
+            XsrUiThickness margin = ItemMargin(index);
+            if (element is not null && element.Margin != margin)
+            {
+                element.Margin = margin;
+                Tree.MarkDirty(entity, XsrUiDirtyKinds.Layout);
+            }
+        }
     }
 
     private XsrUiEntityId CreateNavigationToggle()
@@ -687,30 +748,35 @@ public sealed class XsrUiShell
         return new XsrUiThickness(0, top, 0, 0);
     }
 
-    private void ApplyNavigationExpansion()
+    /// <summary>
+    /// Re-commits the rail geometry from the ephemeral presentation progress. Width is the only
+    /// animated fact: item labels and the collapse label are target-time decisions committed by
+    /// <see cref="ApplyNavigationExpansionTargets"/>.
+    /// </summary>
+    private void ApplyRailPresentation()
     {
         XsrUiElement? rail = Tree.GetComponent<XsrUiElement>(Navigation);
-        if (rail is not null && rail.Width != RailWidth)
+        if (rail is null)
         {
-            rail.Width = RailWidth;
+            return;
+        }
+
+        double width = RailWidthFor(RailPresentationProgress);
+        if (rail.Width != width)
+        {
+            rail.Width = width;
             Tree.MarkDirty(Navigation, XsrUiDirtyKinds.Layout);
         }
+    }
 
-        // The toggle carries the collapse label ("收起") while expanded and collapses to
-        // icon-only; item labels are always the destination text and the backend decides
-        // whether the committed item width reveals them.
-        for (int index = 0; index < NavigationItems.Count; index++)
-        {
-            XsrUiEntityId entity = _navigationEntities[NavigationItems[index].Id];
-            XsrUiElement? element = Tree.GetComponent<XsrUiElement>(entity);
-            XsrUiThickness margin = ItemMargin(index);
-            if (element is not null && element.Margin != margin)
-            {
-                element.Margin = margin;
-                Tree.MarkDirty(entity, XsrUiDirtyKinds.Layout);
-            }
-        }
-
+    /// <summary>
+    /// Commits the target-time presentation facts of the rail state: the toggle carries the
+    /// collapse label ("收起") while expanded and collapses to icon-only. Item labels are always
+    /// the destination text; whether the backend draws them beside the icon follows the
+    /// committed item width, which passes the label-reveal threshold as the rail animates.
+    /// </summary>
+    private void ApplyNavigationExpansion()
+    {
         if (_navigationToggle != default
             && Tree.GetComponent<XsrUiText>(_navigationToggle) is { } toggleText)
         {

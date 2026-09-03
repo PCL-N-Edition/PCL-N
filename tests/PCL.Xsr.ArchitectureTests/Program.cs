@@ -270,8 +270,14 @@ internal static class Program
                 failures.Add($"{projectName} bypasses the project graph with internal package '{packageName}'.");
             }
 
+            // Avalonia.Headless is the one sanctioned exception outside the backend project: the
+            // backend test project runs the real desktop lifetime headlessly for regression
+            // tests and must never leak the platform into product projects.
+            bool headlessLifetimeTestPackage = string.Equals(projectName, "PCL.UI.Next.Backend.Avalonia.Tests", StringComparison.Ordinal)
+                && string.Equals(packageName, "Avalonia.Headless", StringComparison.Ordinal);
             if (!string.Equals(projectName, "PCL.UI.Next.Backend.Avalonia", StringComparison.Ordinal)
-                && packageName.StartsWith("Avalonia", StringComparison.OrdinalIgnoreCase))
+                && packageName.StartsWith("Avalonia", StringComparison.OrdinalIgnoreCase)
+                && !headlessLifetimeTestPackage)
             {
                 failures.Add($"{projectName} must not reference Avalonia package '{packageName}'.");
             }

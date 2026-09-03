@@ -35,6 +35,7 @@ public sealed class AvaloniaUiShellWindow : Window
     private readonly AvaloniaNativeWindowActions _windowActions;
     private readonly Border _shadowSurface;
     private readonly Border _chromeSurface;
+    private readonly Grid _maskedContent;
     private readonly Grid _root;
     private readonly Bitmap? _closeIcon;
     private EllipseGeometry? _revealMask;
@@ -91,7 +92,7 @@ public sealed class AvaloniaUiShellWindow : Window
         _surface = new AvaloniaUiSceneSurface(shell);
         _surface.TitleBarDragRequested += OnTitleBarDragRequested;
         _surface.SceneCommitted += OnSceneCommitted;
-        _windowActions = new AvaloniaNativeWindowActions(_surface)
+        _windowActions = new AvaloniaNativeWindowActions(_surface, () => _shell.Renderer.ReducedMotion)
         {
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Top,
@@ -107,13 +108,19 @@ public sealed class AvaloniaUiShellWindow : Window
         chrome.Children.Add(_windowActions);
         _chromeSurface.Child = chrome;
 
-        _root = new Grid();
-        _root.Children.Add(_shadowSurface);
-        _root.Children.Add(_chromeSurface);
+        // Everything the circular mask may clip lives in this subtree; the product icon is a
+        // sibling above it so the reveal can collapse to (or expand from) radius zero while
+        // the icon stays fully visible.
+        _maskedContent = new Grid();
+        _maskedContent.Children.Add(_shadowSurface);
+        _maskedContent.Children.Add(_chromeSurface);
         foreach (Border grip in CreateResizeGrips())
         {
-            _root.Children.Add(grip);
+            _maskedContent.Children.Add(grip);
         }
+
+        _root = new Grid();
+        _root.Children.Add(_maskedContent);
 
         Content = _root;
         PropertyChanged += OnWindowPropertyChanged;
@@ -186,10 +193,10 @@ public sealed class AvaloniaUiShellWindow : Window
     }
 
     /// <summary>
-    /// Expands a smooth circular mask from the small circle that sits just behind the inherited
-    /// splash icon out to the full window. Both windows are screen-centered, so the icon and the
-    /// mask share one center; the window's own copy of the icon sits under the splash and takes
-    /// over seamlessly when it closes. Reduced motion skips the mask entirely.
+    /// Expands a smooth circular mask from radius zero out to the full window. The product icon
+    /// is deliberately outside the masked subtree, so the reveal never clips it: the splash
+    /// shows the icon, the mask grows behind it, and the window's own icon copy takes over when
+    /// the splash closes. Reduced motion skips the mask entirely.
     /// </summary>
     private void RunStartupReveal()
     {
@@ -206,15 +213,15 @@ public sealed class AvaloniaUiShellWindow : Window
         EllipseGeometry mask = new()
         {
             Center = center,
-            RadiusX = AvaloniaMotionTokens.StartupRevealStartRadius,
-            RadiusY = AvaloniaMotionTokens.StartupRevealStartRadius,
+            RadiusX = 0,
+            RadiusY = 0,
         };
         _revealMask = mask;
-        _root.Clip = mask;
+        _maskedContent.Clip = mask;
         if (_closeIcon is not null)
         {
             // The icon the window inherits from the splash: identical pixels at the identical
-            // position, revealed underneath the splash and animated after it hands off.
+            // position, layered above the mask so it never disappears with the reveal.
             _startupIconScale = new ScaleTransform(1, 1);
             _startupIcon = new Image
             {
@@ -241,7 +248,7 @@ public sealed class AvaloniaUiShellWindow : Window
 
                 // Mutating the clip geometry alone does not invalidate the visual tree; the
                 // mask would otherwise apply only for the first frame and never redraw.
-                _root.InvalidateVisual();
+                _maskedContent.InvalidateVisual();
             },
             fullRadius,
             AvaloniaMotionTokens.StartupRevealMilliseconds,
@@ -256,7 +263,7 @@ public sealed class AvaloniaUiShellWindow : Window
             return;
         }
 
-        _root.Clip = null;
+        _maskedContent.Clip = null;
         _revealMask = null;
         StartupRevealCompleted?.Invoke(this, EventArgs.Empty);
         if (_startupIcon is not null && _startupIconScale is not null)
@@ -303,8 +310,9 @@ public sealed class AvaloniaUiShellWindow : Window
             return;
         }
 
-        // Close reverses the startup sequence: the mask contracts back into the icon circle
-        // while the icon bounces back in, then the icon folds away and the window closes.
+        // Close reverses the startup sequence: the window content contracts back to radius
+        // zero while the icon bounces back in above it, then the icon folds away and the
+        // window closes for real.
         Point center = new(width / 2, height / 2);
         double fullRadius = Math.Sqrt((width * width) + (height * height)) / 2;
         EllipseGeometry mask = new()
@@ -314,7 +322,7 @@ public sealed class AvaloniaUiShellWindow : Window
             RadiusY = fullRadius,
         };
         _revealMask = mask;
-        _root.Clip = mask;
+        _maskedContent.Clip = mask;
 
         int piecesRemaining = _closeIcon is null ? 1 : 2;
         void OnCollapsePieceCompleted()
@@ -342,7 +350,7 @@ public sealed class AvaloniaUiShellWindow : Window
                 AvaloniaUiMotion.EaseIn,
                 completed: () =>
                 {
-                    _root.Clip = null;
+                    _maskedContent.Clip = null;
                     _revealMask = null;
                     Close();
                 });
@@ -356,9 +364,9 @@ public sealed class AvaloniaUiShellWindow : Window
             {
                 mask.RadiusX = value;
                 mask.RadiusY = value;
-                _root.InvalidateVisual();
+                _maskedContent.InvalidateVisual();
             },
-            AvaloniaMotionTokens.StartupRevealStartRadius,
+            0,
             AvaloniaMotionTokens.CloseCollapseMilliseconds,
             AvaloniaUiMotion.EaseIn,
             completed: OnCollapsePieceCompleted);

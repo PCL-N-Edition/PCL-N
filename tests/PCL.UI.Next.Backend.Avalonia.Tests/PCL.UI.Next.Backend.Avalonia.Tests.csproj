@@ -5,6 +5,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Headless is a test-only platform: it runs the real desktop lifetime for regression
+         tests without a display and must never leak into product projects. -->
+    <PackageReference Include="Avalonia.Headless" Version="12.1.0" />
     <ProjectReference Include="../../PCL.UI.Next.Backend.Avalonia/PCL.UI.Next.Backend.Avalonia.csproj" />
     <ProjectReference Include="../../PCL.Xsr.Abstractions/PCL.Xsr.Abstractions.csproj" />
     <ProjectReference Include="../../PCL.Xsr.State/PCL.Xsr.State.csproj" />

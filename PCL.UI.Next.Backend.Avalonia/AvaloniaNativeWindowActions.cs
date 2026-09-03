@@ -23,23 +23,25 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
     private readonly AvaloniaUiSceneSurface _surface;
     private readonly AvaloniaUiSvgIcon _maximizeIcon;
     private readonly List<WindowActionButton> _buttons = [];
+    private readonly Func<bool> _reducedMotion;
     private XsrUiColor _foreground = XsrUiColor.FromRgb(255, 255, 255);
     private bool _disposed;
 
-    public AvaloniaNativeWindowActions(AvaloniaUiSceneSurface surface)
+    public AvaloniaNativeWindowActions(AvaloniaUiSceneSurface surface, Func<bool> reducedMotion)
     {
         _surface = surface ?? throw new ArgumentNullException(nameof(surface));
+        _reducedMotion = reducedMotion ?? throw new ArgumentNullException(nameof(reducedMotion));
         Orientation = Orientation.Horizontal;
         Height = XsrUiShell.TitleBarHeight;
         VerticalAlignment = VerticalAlignment.Top;
         Spacing = 4;
         Margin = new Thickness(0, 0, 12, 0);
 
-        WindowActionButton minimize = CreateButton("lucide/minus", "最小化窗口");
+        WindowActionButton minimize = CreateButton("lucide/minus", "最小化窗口", _reducedMotion);
         minimize.Click += (_, _) => MinimizeRequested?.Invoke(this, EventArgs.Empty);
-        WindowActionButton maximize = CreateButton("lucide/square", "最大化窗口");
+        WindowActionButton maximize = CreateButton("lucide/square", "最大化窗口", _reducedMotion);
         maximize.Click += (_, _) => MaximizeRequested?.Invoke(this, EventArgs.Empty);
-        WindowActionButton close = CreateButton("lucide/x", "关闭窗口");
+        WindowActionButton close = CreateButton("lucide/x", "关闭窗口", _reducedMotion);
         close.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
         _maximizeIcon = maximize.Icon;
         Children.Add(minimize);
@@ -70,8 +72,8 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static WindowActionButton CreateButton(string icon, string automationName) =>
-        new(icon, automationName);
+    private static WindowActionButton CreateButton(string icon, string automationName, Func<bool> reducedMotion) =>
+        new(icon, automationName, reducedMotion);
 
     private void OnSceneCommitted(object? sender, AvaloniaUiSceneCommittedEventArgs e)
     {
@@ -96,8 +98,9 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
     /// </summary>
     private sealed class WindowActionButton : Button
     {
-        internal WindowActionButton(string icon, string automationName)
+        internal WindowActionButton(string icon, string automationName, Func<bool> reducedMotion)
         {
+            _reducedMotion = reducedMotion ?? throw new ArgumentNullException(nameof(reducedMotion));
             Width = ButtonSize;
             Height = ButtonSize;
             VerticalAlignment = VerticalAlignment.Center;
@@ -151,6 +154,7 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
         private readonly Border _hoverCircle;
         private readonly AvaloniaUiSvgIcon _icon;
         private readonly ScaleTransform _press;
+        private readonly Func<bool> _reducedMotion;
         private double _hoverTarget;
 
         internal AvaloniaUiSvgIcon Icon => _icon;
@@ -175,6 +179,12 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
             }
 
             _hoverTarget = target;
+            if (_reducedMotion())
+            {
+                _hoverCircle.Opacity = target;
+                return;
+            }
+
             AvaloniaUiMotion.Animate(
                 this,
                 "hover",
@@ -188,6 +198,13 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
 
         private void SetPressScale(double scale)
         {
+            if (_reducedMotion())
+            {
+                _press.ScaleX = scale;
+                _press.ScaleY = scale;
+                return;
+            }
+
             AvaloniaUiMotion.Animate(
                 this, "scale-x", () => _press.ScaleX, value => _press.ScaleX = value,
                 scale, AvaloniaMotionTokens.PressMilliseconds);

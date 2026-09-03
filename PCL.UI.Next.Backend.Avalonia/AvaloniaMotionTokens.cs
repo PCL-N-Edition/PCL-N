@@ -16,11 +16,8 @@ internal static class AvaloniaMotionTokens
     /// </summary>
     public const int StartupRevealMilliseconds = 340;
 
-    /// <summary>Close reverses the reveal: the window collapses back into the icon circle.</summary>
+    /// <summary>Close reverses the reveal: the window content collapses back to radius zero.</summary>
     public const int CloseCollapseMilliseconds = 280;
-
-    /// <summary>Radius of the circle the reveal starts from, just behind the 112 px icon.</summary>
-    public const double StartupRevealStartRadius = 68;
 
     /// <summary>The inherited icon bounces slightly upward before it folds away.</summary>
     public const int IconBounceMilliseconds = 110;

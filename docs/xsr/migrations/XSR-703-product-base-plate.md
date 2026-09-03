@@ -131,6 +131,6 @@ only non-scene control.
 behavior and its renderer intent path (60 tests). `PCL.Pxml.Tests` compile the Icon property
 and load icon-carrying command inputs into the shell template (28 tests). The backend tests
 prove automation peers unchanged and that selection/hover facts present synchronously under
-reduced motion (3 tests). `--validate-shell` compiles the new PXML base plate and renders 12
+reduced motion (3 tests). `--validate-shell` compiles the new PXML base plate and renders 11
 semantic nodes under both NativeAOT and trimmed publishes; the windowed app was launched on a
 real desktop to prove the splash/chrome/entrance path end to end.

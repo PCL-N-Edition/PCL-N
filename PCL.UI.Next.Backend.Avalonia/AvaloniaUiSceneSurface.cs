@@ -14,19 +14,17 @@ namespace PCL.UI.Next.Backend.Avalonia;
 /// The Avalonia backend commit surface for one immutable UI.Next scene. It never reads UI tree
 /// components or rebuilds shell layout: PXML/UI.Next own structure and geometry, while this
 /// class owns final drawing, native input translation, and native accessibility properties.
-/// Presentation motion (hover, press, selection, and the rail expansion) animates between
-/// committed scene facts, always starting from the currently presented value.
+/// Node-local presentation motion (hover, press, selection) animates between committed scene
+/// facts from the currently presented value; structural geometry such as the rail expansion is
+/// animated inside UI.Next itself, so the scene, the hit test, and the drawn frame always share
+/// one geometry.
 /// </summary>
 public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
 {
     private readonly XsrUiShell _shell;
     private readonly object _commitGate = new();
     private readonly Dictionary<XsrUiEntityId, AvaloniaUiSceneNodeControl> _controls = [];
-    private readonly Dictionary<int, XsrUiRect> _presentedRects = [];
-    private readonly Dictionary<int, (XsrUiRect From, XsrUiRect To)> _railAnimation = [];
-    private readonly Dictionary<int, double> _railProgress = [];
     private XsrUiScene? _scene;
-    private double _lastNavigationWidth;
     private bool _commitQueued;
     private bool _disposed;
 
@@ -41,6 +39,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         ClipToBounds = true;
         _shell.Tree.RenderInvalidated += OnTreeRenderInvalidated;
         _shell.StateBridge?.RenderRequested += OnStateRenderRequested;
+        _shell.NavigationExpandedChanged += OnNavigationExpandedChanged;
         SizeChanged += (_, _) => RequestCommit();
         AttachedToVisualTree += (_, _) => RequestCommit();
     }
@@ -125,15 +124,13 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
 
         AvaloniaUiMotion.CancelAll(this);
         _shell.Tree.RenderInvalidated -= OnTreeRenderInvalidated;
+        _shell.NavigationExpandedChanged -= OnNavigationExpandedChanged;
         if (_shell.StateBridge is not null)
         {
             _shell.StateBridge.RenderRequested -= OnStateRenderRequested;
         }
 
         _controls.Clear();
-        _presentedRects.Clear();
-        _railAnimation.Clear();
-        _railProgress.Clear();
         Children.Clear();
         GC.SuppressFinalize(this);
     }
@@ -150,10 +147,17 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
 
     protected override Size ArrangeOverride(Size finalSize)
     {
+        if (_scene is null)
+        {
+            return finalSize;
+        }
+
         foreach ((XsrUiEntityId entity, AvaloniaUiSceneNodeControl control) in _controls)
         {
-            XsrUiRect rect = PresentedRect(entity);
-            control.Arrange(new Rect(rect.X, rect.Y, rect.Width, rect.Height));
+            if (TryGetNode(_scene, entity, out XsrUiSceneNode node))
+            {
+                control.Arrange(new Rect(node.Rect.X, node.Rect.Y, node.Rect.Width, node.Rect.Height));
+            }
         }
 
         return finalSize;
@@ -257,11 +261,8 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
 
             Children.Remove(control);
             _controls.Remove(entity);
-            _presentedRects.Remove(entity.Index);
-            _railAnimation.Remove(entity.Index);
         }
 
-        HashSet<int> railAnimated = CollectRailAnimatedEntities(scene);
         for (int index = 0; index < scene.Count; index++)
         {
             XsrUiSceneNode node = scene[index];
@@ -270,13 +271,12 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
                 control = new AvaloniaUiSceneNodeControl(
                     RouteAutomationFocus,
                     RouteAutomationInvoke,
-                    _shell.Renderer.ReducedMotion);
+                    () => _shell.Renderer.ReducedMotion);
                 _controls.Add(node.Entity, control);
                 Children.Add(control);
             }
 
             control.Apply(node);
-            UpdatePresentedRect(node, railAnimated.Contains(node.Entity.Index));
             int currentIndex = Children.IndexOf(control);
             if (currentIndex != index)
             {
@@ -293,127 +293,28 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     }
 
     /// <summary>
-    /// Entities whose rectangles follow the navigation rail expansion (the rail subtree and the
-    /// content subtree). Their rect changes are presented through a short critically damped
-    /// interpolation instead of snapping. While the interpolation clock is running, later
-    /// commits keep re-targeting it from the currently presented value — the press, hover, and
-    /// selection facts of the very click that started the expansion arrive as extra commits and
-    /// must not snap the animation away.
+    /// Drives the shell's rail presentation progress on the shared motion clock. The geometry
+    /// itself lives in UI.Next: every progress step re-commits the rail width there, which
+    /// re-renders the scene, so the hit test and the drawn frame always share the presented
+    /// geometry. Reduced motion never starts a track — the shell has already snapped the
+    /// progress to its target.
     /// </summary>
-    private HashSet<int> CollectRailAnimatedEntities(XsrUiScene scene)
+    private void OnNavigationExpandedChanged(object? sender, EventArgs e)
     {
-        HashSet<int> animated = [];
-        bool railTransition = false;
-        Stack<XsrUiSceneNode> ancestors = [];
-        for (int index = 0; index < scene.Count; index++)
+        if (_shell.Renderer.ReducedMotion)
         {
-            XsrUiSceneNode node = scene[index];
-            while (ancestors.Count > node.Depth)
-            {
-                _ = ancestors.Pop();
-            }
-
-            bool inRail = node.Role == XsrUiSemanticRole.Navigation
-                || ancestors.Any(ancestor => ancestor.Role == XsrUiSemanticRole.Navigation);
-            bool inContent = node.Role == XsrUiSemanticRole.Content
-                || ancestors.Any(ancestor => ancestor.Role == XsrUiSemanticRole.Content);
-            if (inRail || inContent)
-            {
-                animated.Add(node.Entity.Index);
-            }
-
-            if (node.Role == XsrUiSemanticRole.Navigation)
-            {
-                railTransition = _lastNavigationWidth > 0
-                    && Math.Abs(node.Rect.Width - _lastNavigationWidth) > 0.5;
-                _lastNavigationWidth = node.Rect.Width;
-            }
-
-            ancestors.Push(node);
-        }
-
-        // Animate only a navigation-width change and the commits that arrive while it plays;
-        // unrelated rect changes (for example window resizes) keep snapping.
-        if (!railTransition && _railAnimation.Count == 0)
-        {
-            return [];
-        }
-
-        return animated;
-    }
-
-    private void UpdatePresentedRect(XsrUiSceneNode node, bool animates)
-    {
-        if (!animates)
-        {
-            _presentedRects.Remove(node.Entity.Index);
-            _railAnimation.Remove(node.Entity.Index);
-            _railProgress.Remove(node.Entity.Index);
             return;
         }
 
-        XsrUiRect target = node.Rect;
-        bool running = _railAnimation.ContainsKey(node.Entity.Index);
-        XsrUiRect from = _presentedRects.TryGetValue(node.Entity.Index, out XsrUiRect presented)
-            ? presented
-            : target;
-        if (!running && from.Equals(target))
-        {
-            _presentedRects.Remove(node.Entity.Index);
-            return;
-        }
-
-        // A running entry re-targets from the currently presented value; an unchanged target
-        // keeps its entry alive so sibling commits (press, hover, selection) cannot snap the
-        // interpolation away mid-gesture. The shared motion clock drives the presented value.
-        int index = node.Entity.Index;
-        _presentedRects[index] = from;
-        _railAnimation[index] = (from, target);
-        double start = _railProgress.TryGetValue(index, out double progress) ? progress : 0;
-        _railProgress[index] = start;
         AvaloniaUiMotion.Animate(
             this,
-            index,
-            () => _railProgress.TryGetValue(index, out double value) ? value : 1,
-            value =>
-            {
-                _railProgress[index] = value;
-                if (_railAnimation.TryGetValue(index, out (XsrUiRect From, XsrUiRect To) segment))
-                {
-                    _presentedRects[index] = LerpRect(segment.From, segment.To, value);
-                }
-
-                InvalidateArrange();
-                InvalidateVisual();
-            },
-            1,
+            "rail-presentation",
+            () => _shell.RailPresentationProgress,
+            value => _shell.SetRailPresentationProgress(value),
+            _shell.IsNavigationExpanded ? 1 : 0,
             AvaloniaMotionTokens.RailExpandMilliseconds,
-            progress => progress,
-            completed: () =>
-            {
-                _railProgress.Remove(index);
-                _railAnimation.Remove(index);
-                _presentedRects.Remove(index);
-            });
+            progress => progress);
     }
-
-    private XsrUiRect PresentedRect(XsrUiEntityId entity)
-    {
-        if (_scene is null || !TryGetNode(_scene, entity, out XsrUiSceneNode node))
-        {
-            return default;
-        }
-
-        return _presentedRects.TryGetValue(entity.Index, out XsrUiRect presented)
-            ? presented
-            : node.Rect;
-    }
-
-    private static XsrUiRect LerpRect(XsrUiRect from, XsrUiRect to, double progress) => new(
-        from.X + ((to.X - from.X) * progress),
-        from.Y + ((to.Y - from.Y) * progress),
-        from.Width + ((to.Width - from.Width) * progress),
-        from.Height + ((to.Height - from.Height) * progress));
 
     private void ConfigureSelectionRelationships(XsrUiScene scene)
     {
@@ -524,6 +425,12 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     private const double NavigationIconSize = 20;
     private const double NavigationIconTextGap = 8;
 
+    /// <summary>
+    /// Expanded rail rows keep the icon at the collapsed rail's centered position, so expanding
+    /// never moves it sideways; the icon offset also clears the selection pill.
+    /// </summary>
+    private const double RailRowIconOffset = 14;
+
     private static readonly StyledProperty<double> HoverOpacityProperty =
         AvaloniaProperty.Register<AvaloniaUiSceneNodeControl, double>(nameof(HoverOpacity));
 
@@ -532,7 +439,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
 
     private readonly Action<XsrUiEntityId> _focusFromAutomation;
     private readonly Action<XsrUiEntityId> _invokeFromAutomation;
-    private readonly bool _reducedMotion;
+    private readonly Func<bool> _reducedMotion;
     private readonly ScaleTransform _pressScale = new(1, 1);
     private readonly List<AvaloniaUiSceneNodeControl> _selectionItems = [];
     private XsrUiSceneNode _node;
@@ -542,11 +449,11 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     internal AvaloniaUiSceneNodeControl(
         Action<XsrUiEntityId> focusFromAutomation,
         Action<XsrUiEntityId> invokeFromAutomation,
-        bool reducedMotion)
+        Func<bool> reducedMotion)
     {
         _focusFromAutomation = focusFromAutomation ?? throw new ArgumentNullException(nameof(focusFromAutomation));
         _invokeFromAutomation = invokeFromAutomation ?? throw new ArgumentNullException(nameof(invokeFromAutomation));
-        _reducedMotion = reducedMotion;
+        _reducedMotion = reducedMotion ?? throw new ArgumentNullException(nameof(reducedMotion));
         IsHitTestVisible = false;
         ClipToBounds = true;
         RenderTransform = _pressScale;
@@ -657,7 +564,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     /// </summary>
     private void AnimateFact(AvaloniaProperty property, double target, double durationMilliseconds, Func<double, double>? easing = null)
     {
-        if (_reducedMotion)
+        if (_reducedMotion())
         {
             AvaloniaUiMotion.Cancel(this, property);
             SetValue(property, target);
@@ -676,7 +583,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
 
     private void SetPressScale(double scale)
     {
-        if (_reducedMotion)
+        if (_reducedMotion())
         {
             AvaloniaUiMotion.Cancel(this, ScaleTransform.ScaleXProperty);
             AvaloniaUiMotion.Cancel(this, ScaleTransform.ScaleYProperty);
@@ -749,8 +656,9 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         DrawHoverOverlay(context, rect, style);
 
         // Collapsed rail items center the vector icon and hide the label; expanded rail rows
-        // clear the selection pill, lead with the icon, and draw the label after it. Any other
-        // icon-bearing node without text (or a collapsed rail item) centers its icon.
+        // keep the icon exactly where the collapsed state centered it (past the selection
+        // pill) and reveal the label after it. Any other icon-bearing node without text (or a
+        // collapsed rail item) centers its icon too.
         bool collapsedRailItem = _node.Role == XsrUiSemanticRole.NavigationItem
             && Bounds.Width <= CollapsedRailCenteringWidth;
         bool textVisible = _node.Text is { Length: > 0 } && !collapsedRailItem;
@@ -759,11 +667,8 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
             && AvaloniaUiIcons.TryGetGeometry(iconSource, out IReadOnlyList<Geometry> iconPaths))
         {
             double scale = NavigationIconSize / AvaloniaUiIcons.ViewBoxSize;
-
-            // The selection pill occupies the left edge of expanded item rows, so icons indent
-            // past it; rows without a pill (the rail toggle) keep the same indent for alignment.
             double iconX = railRow
-                ? PillWidth + 4
+                ? RailRowIconOffset
                 : textVisible
                     ? 0
                     : Math.Max(0, (Bounds.Width - NavigationIconSize) / 2);

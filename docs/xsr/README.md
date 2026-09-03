@@ -68,6 +68,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-701-product-shell.md](migrations/XSR-701-product-shell.md) — Wave 7 product shell foundation: shared UI.Next chrome with Experimental and LiquidGlass presentations
 - [migrations/XSR-702-pxml-scene-backend.md](migrations/XSR-702-pxml-scene-backend.md) — Wave 7 PXML-to-scene Avalonia backend closure
 - [migrations/XSR-703-product-base-plate.md](migrations/XSR-703-product-base-plate.md) — Wave 7 legacy-experimental base plate: title bar, icon rail, splash, frameless chrome, embedded icons, and fluid-interface motion
+- [migrations/XSR-704-base-plate-runtime-hardening.md](migrations/XSR-704-base-plate-runtime-hardening.md) — Wave 7 base plate runtime hardening: desktop lifetime contract, UI.Next-owned rail geometry animation, live reduced-motion policy
 
 ## Decision process
 

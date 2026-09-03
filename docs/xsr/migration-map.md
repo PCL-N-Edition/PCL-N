@@ -95,6 +95,7 @@ PXML vertical slices remain subsequent units.
 | XSR-701 | `b9a5bc54` + `6992acd8` | shared shell contract, deterministic chrome layout, Experimental/LiquidGlass palettes, PXML shell template, Avalonia custom controls, and Desktop composition |
 | XSR-702 | `e32bd67a` + `2ac07654` | scene-only Avalonia backend commit, production state bridge, immediate hover invalidation, interactive native accessibility bridge, and fixed PXML shell navigation contract |
 | XSR-703 | `e634a657` + follow-up | legacy-experimental base plate: 52 px title bar, 48↔120 px icon rail with shell-owned expand toggle, four launch/download/community/settings destinations, embedded lucide icon registry, splash + frameless rounded shadowed window chrome, resize grips, and fluid-interface motion on a shared frame clock |
+| XSR-704 | this commit | base plate runtime hardening: desktop lifetime through `AvaloniaUiShellLifetime` with `OnMainWindowClose` (splash never owns the process, headless regression test), rail expansion geometry animated inside UI.Next so scene/hit-test/drawing share one truth, and reduced motion as a live policy |
 
 ## Closed migration unit
 

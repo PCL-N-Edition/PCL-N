@@ -94,6 +94,7 @@ internal static partial class Program
 
     private static void ShellRailToggleExpandsAndCollapses()
     {
+        // RailExpandStartsAtCollapsedRect: the committed rail rests at the collapsed width.
         XsrStateStore store = new XsrStateStoreBuilder().Build();
         XsrUiShell shell = XsrUiShellComposer.Compose(store);
         AssertFalse(shell.IsNavigationExpanded);
@@ -113,29 +114,86 @@ internal static partial class Program
             navigationNode.Rect.Y + navigationNode.Rect.Height - XsrUiShell.RailBottomInset,
             toggle.Rect.Y + toggle.Rect.Height);
 
+        // Flipping the target moves no geometry by itself; the presentation driver advances the
+        // committed width through the shell's presentation progress.
         shell.ToggleNavigationExpanded();
         AssertTrue(shell.IsNavigationExpanded);
         scene = shell.Render(new XsrUiSize(1024, 700));
-        AssertEqual(XsrUiShell.ExpandedRailWidth, Node(scene, shell.Navigation).Rect.Width);
+        AssertEqual(XsrUiShell.CollapsedRailWidth, Node(scene, shell.Navigation).Rect.Width);
 
-        // Items always span the full rail width so the selection pill never shifts sideways
-        // when the rail expands; only the rail width and the revealed labels change.
+        // RailExpandHasIntermediateGeometry: every committed progress step is the scene truth,
+        // and items keep the full (presented) rail width so the pill never shifts sideways.
+        shell.SetRailPresentationProgress(0.5);
+        scene = shell.Render(new XsrUiSize(1024, 700));
+        AssertEqual(XsrUiShell.RailWidthFor(0.5), Node(scene, shell.Navigation).Rect.Width);
+        AssertTrue(Node(scene, shell.Navigation).Rect.Width > XsrUiShell.CollapsedRailWidth);
+        AssertTrue(Node(scene, shell.Navigation).Rect.Width < XsrUiShell.ExpandedRailWidth);
         XsrUiEntityId firstItem = shell.NavigationEntities[shell.NavigationItems[0].Id];
-        XsrUiSceneNode item = Node(scene, firstItem);
-        AssertEqual(XsrUiShell.ExpandedRailWidth, item.Rect.Width);
-        AssertEqual(0, item.Rect.X);
+        AssertEqual(XsrUiShell.RailWidthFor(0.5), Node(scene, firstItem).Rect.Width);
+        AssertEqual(0, Node(scene, firstItem).Rect.X);
 
-        // The toggle reveals the collapse label while expanded.
+        // The toggle reveals the collapse label at target time.
         AssertEqual(
             XsrUiShell.NavigationToggleCollapseLabel,
             Node(scene, shell.NavigationToggle).Text);
 
+        // RailExpandEndsAtExpandedRect.
+        shell.SetRailPresentationProgress(1);
+        scene = shell.Render(new XsrUiSize(1024, 700));
+        AssertEqual(XsrUiShell.ExpandedRailWidth, Node(scene, shell.Navigation).Rect.Width);
+        AssertEqual(
+            XsrUiShell.NavigationToggleCollapseLabel,
+            Node(scene, shell.NavigationToggle).Text);
+
+        // RailRetargetStartsFromPresentedRect / RailRetargetHasNoJump: collapsing moves no
+        // geometry until the driver advances the progress back toward the collapsed width.
         shell.SetNavigationExpanded(false);
         AssertFalse(shell.IsNavigationExpanded);
         scene = shell.Render(new XsrUiSize(1024, 700));
+        AssertEqual(XsrUiShell.ExpandedRailWidth, Node(scene, shell.Navigation).Rect.Width);
+        AssertEqual(string.Empty, Node(scene, shell.NavigationToggle).Text);
+
+        shell.SetRailPresentationProgress(0);
+        scene = shell.Render(new XsrUiSize(1024, 700));
         AssertEqual(XsrUiShell.CollapsedRailWidth, Node(scene, shell.Navigation).Rect.Width);
         AssertEqual(0, Node(scene, firstItem).Rect.X);
-        AssertEqual(string.Empty, Node(scene, shell.NavigationToggle).Text);
+    }
+
+    private static void RailPresentationMatchesHitTestDuringMotion()
+    {
+        // HitTestMatchesPresentedGeometryDuringRailMotion: the renderer's hit test reads the
+        // same presented geometry the backend arranges, so a point that is visually over the
+        // moving rail can never land in the content.
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiShell shell = XsrUiShellComposer.Compose(store);
+        XsrUiPoint inExpandedRailOnly = new(100, 300);
+        shell.Render(new XsrUiSize(1024, 700));
+        AssertEqual(shell.Content, shell.Renderer.HitTest(inExpandedRailOnly));
+
+        shell.SetNavigationExpanded(true);
+        shell.SetRailPresentationProgress(0.75);
+        shell.Render(new XsrUiSize(1024, 700));
+        AssertTrue(XsrUiShell.RailWidthFor(0.75) >= inExpandedRailOnly.X);
+        AssertTrue(shell.Renderer.HitTest(inExpandedRailOnly) != shell.Content);
+    }
+
+    private static void ReducedMotionSkipsRailPresentationMotion()
+    {
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiShell shell = XsrUiShellComposer.Compose(store);
+        shell.Renderer.ReducedMotion = true;
+
+        shell.ToggleNavigationExpanded();
+        AssertTrue(shell.IsNavigationExpanded);
+        AssertEqual(
+            XsrUiShell.ExpandedRailWidth,
+            Node(shell.Render(new XsrUiSize(1024, 700)), shell.Navigation).Rect.Width);
+
+        shell.SetNavigationExpanded(false);
+        AssertFalse(shell.IsNavigationExpanded);
+        AssertEqual(
+            XsrUiShell.CollapsedRailWidth,
+            Node(shell.Render(new XsrUiSize(1024, 700)), shell.Navigation).Rect.Width);
     }
 
     private static void ShellRailToggleIntentExpandsThroughRenderer()
@@ -154,6 +212,9 @@ internal static partial class Program
 
         AssertTrue(shell.IsNavigationExpanded);
         AssertEqual(XsrUiShellIds.NavigationExpand, intents.Drain()[0].Command);
+
+        // The intent flips the semantic target; the presentation driver commits the geometry.
+        shell.SetRailPresentationProgress(1);
         XsrUiScene expanded = shell.Render(new XsrUiSize(1024, 700));
         AssertEqual(XsrUiShell.ExpandedRailWidth, Node(expanded, shell.Navigation).Rect.Width);
     }
