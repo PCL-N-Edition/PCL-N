@@ -78,60 +78,62 @@ public sealed class XsrUiShellOptions
 public readonly record struct XsrUiShellPalette(
     XsrUiColor WindowBackground,
     XsrUiColor TitleBarBackground,
+    XsrUiColor TitleBarText,
     XsrUiColor NavigationBackground,
     XsrUiColor ContentBackground,
     XsrUiColor SurfaceBorder,
     XsrUiColor PrimaryText,
     XsrUiColor SecondaryText,
     XsrUiColor Accent,
-    XsrUiColor ActiveNavigationBackground,
-    XsrUiColor ActiveNavigationText,
+    XsrUiColor NavigationHover,
+    XsrUiColor SelectedNavigationText,
     XsrUiColor NavigationIcon,
     XsrUiSurfaceKind TitleBarSurface,
     XsrUiSurfaceKind NavigationSurface,
     XsrUiSurfaceKind ContentSurface,
-    XsrUiSurfaceKind ActiveNavigationSurface,
     double CornerRadius,
     double BlurRadius,
     double BorderWidth)
 {
     public static XsrUiShellPalette For(XsrUiShellStyle style) => style switch
     {
+        // The Experimental style mirrors the legacy experimental base plate: a solid accent title
+        // bar with white text over a light window, an icon rail, and a soft accent hover tint.
         XsrUiShellStyle.Experimental => new(
-            WindowBackground: new XsrUiColor(14, 23, 35),
-            TitleBarBackground: new XsrUiColor(27, 40, 56),
-            NavigationBackground: new XsrUiColor(21, 34, 49),
-            ContentBackground: new XsrUiColor(14, 23, 35),
-            SurfaceBorder: new XsrUiColor(47, 65, 84),
-            PrimaryText: new XsrUiColor(245, 247, 250),
-            SecondaryText: new XsrUiColor(154, 169, 184),
-            Accent: new XsrUiColor(76, 158, 255),
-            ActiveNavigationBackground: new XsrUiColor(46, 94, 148),
-            ActiveNavigationText: new XsrUiColor(255, 255, 255),
-            NavigationIcon: new XsrUiColor(185, 198, 211),
+            WindowBackground: new XsrUiColor(251, 251, 251),
+            TitleBarBackground: new XsrUiColor(19, 112, 243),
+            TitleBarText: new XsrUiColor(255, 255, 255),
+            NavigationBackground: new XsrUiColor(243, 247, 252),
+            ContentBackground: new XsrUiColor(251, 251, 251),
+            SurfaceBorder: new XsrUiColor(224, 234, 253),
+            PrimaryText: new XsrUiColor(52, 61, 74),
+            SecondaryText: new XsrUiColor(122, 138, 153),
+            Accent: new XsrUiColor(19, 112, 243),
+            NavigationHover: new XsrUiColor(213, 230, 253),
+            SelectedNavigationText: new XsrUiColor(11, 91, 203),
+            NavigationIcon: new XsrUiColor(52, 61, 74),
             TitleBarSurface: XsrUiSurfaceKind.Solid,
             NavigationSurface: XsrUiSurfaceKind.Solid,
             ContentSurface: XsrUiSurfaceKind.Solid,
-            ActiveNavigationSurface: XsrUiSurfaceKind.Solid,
             CornerRadius: 8,
             BlurRadius: 0,
             BorderWidth: 1),
         XsrUiShellStyle.LiquidGlass => new(
             WindowBackground: new XsrUiColor(8, 17, 30),
             TitleBarBackground: new XsrUiColor(32, 47, 66, 224),
+            TitleBarText: new XsrUiColor(246, 249, 255),
             NavigationBackground: new XsrUiColor(255, 255, 255, 24),
             ContentBackground: new XsrUiColor(11, 21, 35, 232),
             SurfaceBorder: new XsrUiColor(255, 255, 255, 54),
             PrimaryText: new XsrUiColor(246, 249, 255),
             SecondaryText: new XsrUiColor(191, 207, 224),
             Accent: new XsrUiColor(106, 169, 255),
-            ActiveNavigationBackground: new XsrUiColor(106, 169, 255, 78),
-            ActiveNavigationText: new XsrUiColor(255, 255, 255),
+            NavigationHover: new XsrUiColor(106, 169, 255, 78),
+            SelectedNavigationText: new XsrUiColor(255, 255, 255),
             NavigationIcon: new XsrUiColor(207, 222, 240),
             TitleBarSurface: XsrUiSurfaceKind.Glass,
             NavigationSurface: XsrUiSurfaceKind.Translucent,
             ContentSurface: XsrUiSurfaceKind.Solid,
-            ActiveNavigationSurface: XsrUiSurfaceKind.Glass,
             CornerRadius: 14,
             BlurRadius: 24,
             BorderWidth: 1),
@@ -145,6 +147,8 @@ public readonly record struct XsrUiShellPalette(
 public static class XsrUiShellIds
 {
     public static readonly XsrSemanticId NavigationSelect = XsrSemanticId.Parse("ui.navigation.select");
+
+    public static readonly XsrSemanticId NavigationExpand = XsrSemanticId.Parse("ui.navigation.expand");
 
     public static readonly XsrSemanticId StyleToggle = XsrSemanticId.Parse("ui.shell.style.toggle");
 
@@ -254,14 +258,24 @@ public sealed class XsrUiShellTemplate
 /// </summary>
 public sealed class XsrUiShell
 {
+    /// <summary>The canonical title bar height in logical pixels.</summary>
+    public const double TitleBarHeight = 52;
+
+    /// <summary>The collapsed icon-rail width in logical pixels.</summary>
+    public const double CollapsedRailWidth = 48;
+
+    /// <summary>The expanded rail width in logical pixels.</summary>
+    public const double ExpandedRailWidth = 120;
+
+    /// <summary>The canonical navigation item height in logical pixels.</summary>
+    public const double NavigationItemHeight = 42;
+
     private static readonly XsrUiShellNavigationItem[] BuiltInNavigationItems =
     [
-        new("navigation.home", "主页", "⌂"),
-        new("navigation.downloads", "下载", "↓"),
-        new("navigation.instances", "实例", "◈"),
-        new("navigation.library", "资源", "◇"),
-        new("navigation.accounts", "账户", "◯"),
-        new("navigation.settings", "设置", "⚙"),
+        new("navigation.launch", "启动", "lucide/play"),
+        new("navigation.download", "安装", "lucide/package-plus"),
+        new("navigation.community", "资源", "lucide/blocks"),
+        new("navigation.settings", "设置", "lucide/settings"),
     ];
 
     public static IReadOnlyList<XsrUiShellNavigationItem> DefaultNavigationItems =>
@@ -270,6 +284,7 @@ public sealed class XsrUiShell
     private readonly Dictionary<XsrSemanticId, XsrUiEntityId> _navigationEntities = [];
     private readonly Dictionary<XsrUiEntityId, XsrSemanticId> _navigationIds = [];
     private readonly IXsrUiIntentSink? _externalIntentSink;
+    private XsrUiEntityId _navigationToggle;
 
     public XsrUiShell(
         XsrStateStore state,
@@ -319,7 +334,7 @@ public sealed class XsrUiShell
         TitleBar = Tree.Create("title-bar");
         Tree.SetComponent(TitleBar, new XsrUiElement
         {
-            Height = 58,
+            Height = TitleBarHeight,
         });
         Tree.SetComponent(TitleBar, new XsrUiStackPanel(XsrUiOrientation.Horizontal));
         Tree.SetComponent(TitleBar, new XsrUiSemantic(XsrUiSemanticRole.TitleBar, "标题栏"));
@@ -354,7 +369,7 @@ public sealed class XsrUiShell
         Navigation = Tree.Create("main-navigation");
         Tree.SetComponent(Navigation, new XsrUiElement
         {
-            Width = 236,
+            Width = CollapsedRailWidth,
         });
         Tree.SetComponent(Navigation, new XsrUiStackPanel(XsrUiOrientation.Vertical) { Spacing = 6 });
         Tree.SetComponent(Navigation, new XsrUiSemantic(XsrUiSemanticRole.Navigation, "主导航"));
@@ -362,28 +377,29 @@ public sealed class XsrUiShell
         Tree.Attach(Navigation, Body);
 
         Tree.Detach(Content);
-        Tree.SetComponent(Content, new XsrUiElement
-        {
-        });
+        Tree.SetComponent(Content, new XsrUiElement());
         Tree.SetComponent(Content, new XsrUiSemantic(XsrUiSemanticRole.Content, "内容区域"));
         Tree.SetComponent(Content, new XsrUiVisualStyle());
         Tree.Attach(Content, Body);
 
-        XsrSemanticId initial = options.InitialNavigationId
-            ?? navigationItems[0].Id;
+        XsrSemanticId initial = options.InitialNavigationId ?? navigationItems[0].Id;
+        if (!_navigationEntities.ContainsKey(initial))
+        {
+            throw new ArgumentException($"Initial navigation ID '{initial}' is not registered.", nameof(options));
+        }
+
         for (int index = 0; index < navigationItems.Length; index++)
         {
             XsrUiShellNavigationItem item = navigationItems[index];
             XsrUiEntityId entity = Tree.Create($"navigation-item:{item.Id.Value}");
             Tree.SetComponent(entity, new XsrUiElement
             {
-                Height = 44,
-                Margin = new XsrUiThickness(12, 0, 12, 0),
-                Padding = new XsrUiThickness(12, 0, 12, 0),
+                Height = NavigationItemHeight,
                 HorizontalAlignment = XsrUiAlignment.Stretch,
                 VerticalAlignment = XsrUiAlignment.Center,
             });
-            Tree.SetComponent(entity, new XsrUiText($"{item.Icon}  {item.Label}"));
+            Tree.SetComponent(entity, new XsrUiImage(item.Icon));
+            Tree.SetComponent(entity, new XsrUiText(item.Label));
             Tree.SetComponent(entity, new XsrUiSemantic(XsrUiSemanticRole.NavigationItem, item.Label));
             Tree.SetComponent(entity, new XsrUiInput { Focusable = true, Clickable = true });
             Tree.SetComponent(entity, new XsrUiCommandBinding(item.Command));
@@ -394,13 +410,8 @@ public sealed class XsrUiShell
             _navigationIds[entity] = item.Id;
         }
 
-        if (!_navigationEntities.ContainsKey(initial))
-        {
-            throw new ArgumentException($"Initial navigation ID '{initial}' is not registered.", nameof(options));
-        }
-
         SelectedNavigationId = initial;
-        ApplyPalette();
+        FinishComposition();
     }
 
     /// <summary>
@@ -475,10 +486,12 @@ public sealed class XsrUiShell
 
         SelectedNavigationId = initial;
         Stage = new XsrUiStage(Tree, state, Root, Content, new ShellIntentSink(this), stateBridge);
-        ApplyPalette();
+        FinishComposition();
     }
 
     public event EventHandler<XsrUiShellNavigationChangedEventArgs>? NavigationChanged;
+
+    public event EventHandler? NavigationExpandedChanged;
 
     public event EventHandler? StyleChanged;
 
@@ -505,6 +518,9 @@ public sealed class XsrUiShell
 
     public XsrUiEntityId Content { get; }
 
+    /// <summary>The shell-owned rail expand/collapse affordance.</summary>
+    public XsrUiEntityId NavigationToggle => _navigationToggle;
+
     public IReadOnlyList<XsrUiShellNavigationItem> NavigationItems { get; }
 
     public string Title { get; }
@@ -518,6 +534,11 @@ public sealed class XsrUiShell
     public XsrUiShellStyle Style { get; private set; }
 
     public XsrUiShellPalette Palette { get; private set; }
+
+    /// <summary>Whether the navigation rail currently shows item labels beside the icons.</summary>
+    public bool IsNavigationExpanded { get; private set; }
+
+    private double RailWidth => IsNavigationExpanded ? ExpandedRailWidth : CollapsedRailWidth;
 
     /// <summary>
     /// Changes the presentation palette while preserving the semantic tree and current route.
@@ -571,12 +592,98 @@ public sealed class XsrUiShell
         _navigationIds.TryGetValue(entity, out XsrSemanticId id) && Select(id);
 
     /// <summary>
+    /// Expands or collapses the navigation rail. Expansion is ephemeral presentation mechanics
+    /// owned by the shell; it never becomes product state.
+    /// </summary>
+    public void SetNavigationExpanded(bool expanded)
+    {
+        if (IsNavigationExpanded == expanded)
+        {
+            return;
+        }
+
+        IsNavigationExpanded = expanded;
+        ApplyNavigationExpansion();
+        NavigationExpandedChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Flips the navigation rail between its icon rail and expanded forms.</summary>
+    public void ToggleNavigationExpanded() => SetNavigationExpanded(!IsNavigationExpanded);
+
+    /// <summary>
     /// Runs the deterministic UI.Next layout pass for one viewport.
     /// </summary>
     public XsrUiScene Render(XsrUiSize viewport)
     {
         Renderer.Viewport = viewport;
         return Renderer.Render();
+    }
+
+    /// <summary>
+    /// Shared composition tail for both construction paths: the shell-owned rail toggle, the
+    /// palette, and the canonical collapsed rail layout.
+    /// </summary>
+    private void FinishComposition()
+    {
+        _navigationToggle = CreateNavigationToggle();
+        ApplyPalette();
+        ApplyNavigationExpansion();
+    }
+
+    private XsrUiEntityId CreateNavigationToggle()
+    {
+        XsrUiEntityId toggle = Tree.Create("navigation-toggle");
+        Tree.SetComponent(toggle, new XsrUiElement
+        {
+            Height = NavigationItemHeight,
+            Margin = new XsrUiThickness(0, 6, 0, RailBottomInset),
+            HorizontalAlignment = XsrUiAlignment.Stretch,
+            VerticalAlignment = XsrUiAlignment.Center,
+        });
+        Tree.SetComponent(toggle, new XsrUiImage("lucide/menu"));
+        Tree.SetComponent(toggle, new XsrUiSemantic(XsrUiSemanticRole.Button, "导航开关"));
+        Tree.SetComponent(toggle, new XsrUiInput { Focusable = true, Clickable = true });
+        Tree.SetComponent(toggle, new XsrUiCommandBinding(XsrUiShellIds.NavigationExpand));
+        Tree.SetComponent(toggle, new XsrUiVisualStyle());
+        Tree.Attach(toggle, Navigation);
+        return toggle;
+    }
+
+    /// <summary>Insets the first rail item from the title bar, mirroring the legacy rail.</summary>
+    public const double RailTopInset = 10;
+
+    /// <summary>Insets the rail toggle from the bottom edge.</summary>
+    public const double RailBottomInset = 12;
+
+    private static XsrUiThickness ItemMargin(int index, bool expanded)
+    {
+        double horizontal = expanded ? 8 : 0;
+        double top = index == 0 ? RailTopInset : 0;
+        return new XsrUiThickness(horizontal, top, horizontal, 0);
+    }
+
+    private void ApplyNavigationExpansion()
+    {
+        XsrUiElement? rail = Tree.GetComponent<XsrUiElement>(Navigation);
+        if (rail is not null && rail.Width != RailWidth)
+        {
+            rail.Width = RailWidth;
+            Tree.MarkDirty(Navigation, XsrUiDirtyKinds.Layout);
+        }
+
+        // Item text stays the destination label; whether the label is drawn next to the icon is
+        // a presentation decision the backend derives from the committed item width.
+        for (int index = 0; index < NavigationItems.Count; index++)
+        {
+            XsrUiEntityId entity = _navigationEntities[NavigationItems[index].Id];
+            XsrUiElement? element = Tree.GetComponent<XsrUiElement>(entity);
+            XsrUiThickness margin = ItemMargin(index, IsNavigationExpanded);
+            if (element is not null && element.Margin != margin)
+            {
+                element.Margin = margin;
+                Tree.MarkDirty(entity, XsrUiDirtyKinds.Layout);
+            }
+        }
     }
 
     private void ApplyPalette()
@@ -586,6 +693,7 @@ public sealed class XsrUiShell
             Palette.WindowBackground,
             Palette.PrimaryText,
             XsrUiColor.Transparent,
+            XsrUiColor.Transparent,
             XsrUiSurfaceKind.Solid,
             cornerRadius: 0,
             blurRadius: 0,
@@ -593,8 +701,9 @@ public sealed class XsrUiShell
         ApplyVisual(
             TitleBar,
             Palette.TitleBarBackground,
-            Palette.PrimaryText,
+            Palette.TitleBarText,
             Palette.SurfaceBorder,
+            XsrUiColor.Transparent,
             Palette.TitleBarSurface,
             Palette.CornerRadius,
             Palette.BlurRadius,
@@ -604,6 +713,7 @@ public sealed class XsrUiShell
             Palette.NavigationBackground,
             Palette.PrimaryText,
             Palette.SurfaceBorder,
+            XsrUiColor.Transparent,
             Palette.NavigationSurface,
             Palette.CornerRadius,
             Palette.BlurRadius,
@@ -613,26 +723,44 @@ public sealed class XsrUiShell
             Palette.ContentBackground,
             Palette.PrimaryText,
             XsrUiColor.Transparent,
+            XsrUiColor.Transparent,
             Palette.ContentSurface,
-            Palette.CornerRadius,
+            0,
             0,
             0);
 
         foreach (XsrUiShellNavigationItem item in NavigationItems)
         {
-            XsrSemanticId id = item.Id;
-            XsrUiEntityId entity = _navigationEntities[id];
-            bool selected = id == SelectedNavigationId;
-            ApplyVisual(
-                entity,
-                selected ? Palette.ActiveNavigationBackground : XsrUiColor.Transparent,
-                selected ? Palette.ActiveNavigationText : Palette.PrimaryText,
-                selected ? Palette.Accent : XsrUiColor.Transparent,
-                selected ? Palette.ActiveNavigationSurface : XsrUiSurfaceKind.None,
-                selected ? Palette.CornerRadius : 0,
-                selected ? Palette.BlurRadius : 0,
-                selected ? Palette.BorderWidth : 0);
+            ApplyItemVisual(_navigationEntities[item.Id], item.Id == SelectedNavigationId);
         }
+
+        if (_navigationToggle != default)
+        {
+            ApplyVisual(
+                _navigationToggle,
+                XsrUiColor.Transparent,
+                Palette.PrimaryText,
+                XsrUiColor.Transparent,
+                Palette.NavigationHover,
+                XsrUiSurfaceKind.None,
+                cornerRadius: 0,
+                blurRadius: 0,
+                borderWidth: 0);
+        }
+    }
+
+    private void ApplyItemVisual(XsrUiEntityId entity, bool selected)
+    {
+        ApplyVisual(
+            entity,
+            XsrUiColor.Transparent,
+            selected ? Palette.SelectedNavigationText : Palette.PrimaryText,
+            selected ? Palette.Accent : XsrUiColor.Transparent,
+            Palette.NavigationHover,
+            XsrUiSurfaceKind.None,
+            cornerRadius: 0,
+            blurRadius: 0,
+            borderWidth: 0);
     }
 
     private void SetSelection(XsrUiEntityId entity, bool selected)
@@ -641,15 +769,7 @@ public sealed class XsrUiShell
             ?? throw new InvalidOperationException("A shell navigation entity lost its selection component.");
         selection.IsSelected = selected;
         Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
-        ApplyVisual(
-            entity,
-            selected ? Palette.ActiveNavigationBackground : XsrUiColor.Transparent,
-            selected ? Palette.ActiveNavigationText : Palette.PrimaryText,
-            selected ? Palette.Accent : XsrUiColor.Transparent,
-            selected ? Palette.ActiveNavigationSurface : XsrUiSurfaceKind.None,
-            selected ? Palette.CornerRadius : 0,
-            selected ? Palette.BlurRadius : 0,
-            selected ? Palette.BorderWidth : 0);
+        ApplyItemVisual(entity, selected);
     }
 
     private void ApplyVisual(
@@ -657,6 +777,7 @@ public sealed class XsrUiShell
         XsrUiColor background,
         XsrUiColor foreground,
         XsrUiColor border,
+        XsrUiColor hover,
         XsrUiSurfaceKind surface,
         double cornerRadius,
         double blurRadius,
@@ -671,6 +792,7 @@ public sealed class XsrUiShell
         visual.Background = background;
         visual.Foreground = foreground;
         visual.Border = border;
+        visual.Hover = hover;
         visual.Surface = surface;
         // Background alpha expresses translucency; the element itself remains opaque so a
         // transparent navigation highlight does not make its label disappear.
@@ -686,6 +808,11 @@ public sealed class XsrUiShell
         public void Emit(XsrSemanticId command, XsrUiEntityId source, XsrCorrelationId correlationId)
         {
             _ = owner.Select(source);
+            if (command == XsrUiShellIds.NavigationExpand)
+            {
+                owner.ToggleNavigationExpanded();
+            }
+
             if (command == XsrUiShellIds.StyleToggle)
             {
                 owner.SetStyle(

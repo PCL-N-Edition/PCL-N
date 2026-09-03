@@ -205,6 +205,7 @@ public readonly record struct XsrUiVisualStyleSnapshot(
     XsrUiColor Background,
     XsrUiColor Foreground,
     XsrUiColor Border,
+    XsrUiColor Hover,
     XsrUiSurfaceKind Surface,
     double Opacity,
     double CornerRadius,
@@ -226,6 +227,12 @@ public sealed class XsrUiVisualStyle
 
     public XsrUiColor Border { get; set; } = XsrUiColor.Transparent;
 
+    /// <summary>
+    /// Gets or sets the transient pointer-hover tint. Zero alpha means the backend picks its own
+    /// neutral hover treatment.
+    /// </summary>
+    public XsrUiColor Hover { get; set; } = XsrUiColor.Transparent;
+
     public XsrUiSurfaceKind Surface { get; set; } = XsrUiSurfaceKind.None;
 
     public double Opacity { get; set; } = 1;
@@ -240,6 +247,7 @@ public sealed class XsrUiVisualStyle
         Background,
         Foreground,
         Border,
+        Hover,
         Surface,
         Opacity,
         CornerRadius,

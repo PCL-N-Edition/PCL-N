@@ -41,9 +41,10 @@ public static class PxmlShellComposer
         ArgumentNullException.ThrowIfNull(state);
         options ??= new XsrUiShellOptions();
 
-        // The checked-in product shell deliberately owns its six product destinations. A
-        // composition root must not claim a custom navigation contract when the PXML template
-        // cannot render it; future product navigation changes are explicit PXML edits.
+        // The checked-in product shell deliberately owns its four product destinations, matching
+        // the legacy experimental navigation registry. A composition root must not claim a
+        // custom navigation contract when the PXML template cannot render it; future product
+        // navigation changes are explicit PXML edits.
         if (options.NavigationItems is not null)
         {
             throw new ArgumentException(

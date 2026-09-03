@@ -20,9 +20,17 @@ internal static partial class Program
         AssertEqual(XsrUiSemanticRole.TitleBar, Node(experimentalScene, experimental.TitleBar).Role);
         AssertEqual(XsrUiSemanticRole.Navigation, Node(experimentalScene, experimental.Navigation).Role);
         AssertEqual(XsrUiSemanticRole.Content, Node(experimentalScene, experimental.Content).Role);
-        AssertEqual(new XsrUiRect(0, 0, 1200, 58), Node(experimentalScene, experimental.TitleBar).Rect);
-        AssertEqual(new XsrUiRect(0, 58, 236, 742), Node(experimentalScene, experimental.Navigation).Rect);
-        AssertEqual(new XsrUiRect(236, 58, 964, 742), Node(experimentalScene, experimental.Content).Rect);
+        AssertEqual(new XsrUiRect(0, 0, 1200, XsrUiShell.TitleBarHeight), Node(experimentalScene, experimental.TitleBar).Rect);
+        AssertEqual(
+            new XsrUiRect(0, XsrUiShell.TitleBarHeight, XsrUiShell.CollapsedRailWidth, 800 - XsrUiShell.TitleBarHeight),
+            Node(experimentalScene, experimental.Navigation).Rect);
+        AssertEqual(
+            new XsrUiRect(
+                XsrUiShell.CollapsedRailWidth,
+                XsrUiShell.TitleBarHeight,
+                1200 - XsrUiShell.CollapsedRailWidth,
+                800 - XsrUiShell.TitleBarHeight),
+            Node(experimentalScene, experimental.Content).Rect);
 
         XsrUiSceneNode experimentalRoot = Node(experimentalScene, experimental.Root);
         XsrUiSceneNode liquidRoot = Node(liquidScene, liquidGlass.Root);
@@ -32,6 +40,17 @@ internal static partial class Program
         AssertTrue(liquidRoot.VisualStyle.Background != experimentalRoot.VisualStyle.Background);
         AssertTrue(liquidGlass.Palette.BlurRadius > experimental.Palette.BlurRadius);
         AssertTrue(Node(experimentalScene, experimental.NavigationEntities[experimental.SelectedNavigationId]).IsSelected);
+
+        // The selected rail destination presents as the accent selection pill (carried on the
+        // border channel) rather than a filled background, matching the legacy experimental
+        // base plate. Every rail item carries a hover tint for the backend to fade in.
+        XsrUiSceneNode selectedItem = Node(
+            experimentalScene,
+            experimental.NavigationEntities[experimental.SelectedNavigationId]);
+        AssertEqual(experimental.Palette.Accent, selectedItem.VisualStyle.Border);
+        AssertEqual(0, selectedItem.VisualStyle.BorderWidth);
+        AssertEqual(0, selectedItem.VisualStyle.Background.Alpha);
+        AssertTrue(selectedItem.VisualStyle.Hover.Alpha > 0);
     }
 
     private static void ShellNavigationSelectionUpdatesSceneAndIntent()
@@ -62,6 +81,57 @@ internal static partial class Program
         AssertFalse(shell.Select(unknown));
         AssertEqual(shell.NavigationItems[0].Id, shell.SelectedNavigationId);
         AssertFalse(shell.Select(default(XsrUiEntityId)));
+    }
+
+    private static void ShellRailToggleExpandsAndCollapses()
+    {
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiShell shell = XsrUiShellComposer.Compose(store);
+        AssertFalse(shell.IsNavigationExpanded);
+        AssertEqual(
+            XsrUiShell.CollapsedRailWidth,
+            Node(shell.Render(new XsrUiSize(1024, 700)), shell.Navigation).Rect.Width);
+
+        // The shell owns the toggle affordance: a clickable button role with the expand command.
+        XsrUiScene scene = shell.Render(new XsrUiSize(1024, 700));
+        XsrUiSceneNode toggle = Node(scene, shell.NavigationToggle);
+        AssertEqual(XsrUiSemanticRole.Button, toggle.Role);
+        AssertTrue(toggle.IsClickable);
+
+        shell.ToggleNavigationExpanded();
+        AssertTrue(shell.IsNavigationExpanded);
+        scene = shell.Render(new XsrUiSize(1024, 700));
+        AssertEqual(XsrUiShell.ExpandedRailWidth, Node(scene, shell.Navigation).Rect.Width);
+        XsrUiEntityId firstItem = shell.NavigationEntities[shell.NavigationItems[0].Id];
+        XsrUiSceneNode item = Node(scene, firstItem);
+        AssertEqual(XsrUiShell.ExpandedRailWidth - 16, item.Rect.Width);
+        AssertEqual(8, item.Rect.X);
+
+        shell.SetNavigationExpanded(false);
+        AssertFalse(shell.IsNavigationExpanded);
+        scene = shell.Render(new XsrUiSize(1024, 700));
+        AssertEqual(XsrUiShell.CollapsedRailWidth, Node(scene, shell.Navigation).Rect.Width);
+        AssertEqual(0, Node(scene, firstItem).Rect.X);
+    }
+
+    private static void ShellRailToggleIntentExpandsThroughRenderer()
+    {
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiIntentBuffer intents = new();
+        XsrUiShell shell = XsrUiShellComposer.Compose(store, intentSink: intents);
+        XsrUiScene scene = shell.Render(new XsrUiSize(1024, 700));
+        XsrUiSceneNode toggle = Node(scene, shell.NavigationToggle);
+        XsrUiPoint point = new(toggle.Rect.X + 4, toggle.Rect.Y + 4);
+
+        AssertTrue(shell.Renderer.PointerMoved(point));
+        AssertTrue(Node(shell.Render(new XsrUiSize(1024, 700)), shell.NavigationToggle).IsHovered);
+        AssertTrue(shell.Renderer.PointerPressed(point));
+        AssertTrue(shell.Renderer.PointerReleased(point));
+
+        AssertTrue(shell.IsNavigationExpanded);
+        AssertEqual(XsrUiShellIds.NavigationExpand, intents.Drain()[0].Command);
+        XsrUiScene expanded = shell.Render(new XsrUiSize(1024, 700));
+        AssertEqual(XsrUiShell.ExpandedRailWidth, Node(expanded, shell.Navigation).Rect.Width);
     }
 
     private static void ShellRuntimeContextDrainsHostPublications()

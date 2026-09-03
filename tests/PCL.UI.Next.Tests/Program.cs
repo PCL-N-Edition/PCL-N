@@ -69,6 +69,9 @@ internal static partial class Program
         ("shell rejects unknown navigation selection", Sync(ShellRejectsUnknownNavigationSelection)),
         ("shell runtime context drains host publications", Sync(ShellRuntimeContextDrainsHostPublications)),
         ("shell style toggle uses renderer intent and scene input facts", Sync(ShellStyleToggleUsesRendererIntentAndSceneInputFacts)),
+        // XSR-703: product base plate.
+        ("shell rail toggle expands and collapses", Sync(ShellRailToggleExpandsAndCollapses)),
+        ("shell rail toggle intent expands through the renderer", Sync(ShellRailToggleIntentExpandsThroughRenderer)),
     ];
 
     private static async Task<int> Main()

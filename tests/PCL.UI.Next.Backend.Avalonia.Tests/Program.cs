@@ -13,6 +13,7 @@ internal static class Program
     [
         ("automation invoke and focus route through the renderer", AutomationInvokeAndFocusRouteThroughRenderer),
         ("navigation peers expose selection and route selection through invoke", NavigationPeersExposeSelectionAndRouteSelection),
+        ("selection and hover facts present under reduced motion", SelectionAndHoverFactsPresentUnderReducedMotion),
     ];
 
     private static int Main()
@@ -49,7 +50,8 @@ internal static class Program
             {
                 _ = renderer.Focus(entity);
                 _ = renderer.Activate(entity);
-            });
+            },
+            reducedMotion: true);
         control.Apply(Node(scene, button));
 
         AutomationPeer peer = ControlAutomationPeer.CreatePeerForElement(control);
@@ -61,7 +63,7 @@ internal static class Program
         AssertEqual(1, intents.Count);
         AssertEqual(button, intents.Drain()[0].Source);
 
-        AvaloniaUiSceneNodeControl text = new(_ => { }, _ => { });
+        AvaloniaUiSceneNodeControl text = new(_ => { }, _ => { }, reducedMotion: true);
         text.Apply(new XsrUiSceneNode(
             tree.Create("text"),
             new XsrUiRect(0, 0, 10, 10),
@@ -85,9 +87,9 @@ internal static class Program
         int focusCount = 0;
         int invokeCount = 0;
 
-        AvaloniaUiSceneNodeControl navigation = new(_ => focusCount++, _ => invokeCount++);
-        AvaloniaUiSceneNodeControl selected = new(_ => focusCount++, _ => invokeCount++);
-        AvaloniaUiSceneNodeControl other = new(_ => focusCount++, _ => invokeCount++);
+        AvaloniaUiSceneNodeControl navigation = new(_ => focusCount++, _ => invokeCount++, reducedMotion: true);
+        AvaloniaUiSceneNodeControl selected = new(_ => focusCount++, _ => invokeCount++, reducedMotion: true);
+        AvaloniaUiSceneNodeControl other = new(_ => focusCount++, _ => invokeCount++, reducedMotion: true);
         navigation.Apply(Node(navigationEntity, XsrUiSemanticRole.Navigation));
         selected.Apply(Node(
             selectedEntity,
@@ -121,6 +123,35 @@ internal static class Program
         AssertEqual(0, focusCount);
     }
 
+    private static void SelectionAndHoverFactsPresentUnderReducedMotion()
+    {
+        // Reduced motion applies every scene fact immediately, so the assertions below are
+        // synchronous even though the animated path eases the same values.
+        XsrUiTree tree = new();
+        XsrUiEntityId itemEntity = tree.Create("item");
+        AvaloniaUiSceneNodeControl item = new(_ => { }, _ => { }, reducedMotion: true);
+
+        item.Apply(Node(itemEntity, XsrUiSemanticRole.NavigationItem, selected: true, focusable: true, clickable: true));
+        AssertEqual(1, item.PresentedPillScale);
+        AssertEqual(0, item.PresentedHoverOpacity);
+
+        item.Apply(Node(itemEntity, XsrUiSemanticRole.NavigationItem, focusable: true, clickable: true));
+        AssertEqual(0, item.PresentedPillScale);
+
+        item.Apply(Node(
+            itemEntity,
+            XsrUiSemanticRole.NavigationItem,
+            selected: false,
+            focusable: true,
+            clickable: true,
+            hovered: true));
+        AssertEqual(1, item.PresentedHoverOpacity);
+
+        item.Apply(Node(itemEntity, XsrUiSemanticRole.NavigationItem, focusable: true, clickable: true));
+        AssertEqual(0, item.PresentedHoverOpacity);
+        AssertEqual(0, item.PresentedPillScale);
+    }
+
     private static XsrUiSceneNode Node(XsrUiScene scene, XsrUiEntityId entity) =>
         scene.Nodes.Single(node => node.Entity.Equals(entity));
 
@@ -129,7 +160,8 @@ internal static class Program
         XsrUiSemanticRole role,
         bool selected = false,
         bool focusable = false,
-        bool clickable = false) =>
+        bool clickable = false,
+        bool hovered = false) =>
         new(
             entity,
             new XsrUiRect(0, 0, 100, 40),
@@ -144,7 +176,8 @@ internal static class Program
             default,
             selected,
             focusable,
-            clickable);
+            clickable,
+            hovered);
 
     private static T AssertNotNull<T>(T? value)
         where T : class =>

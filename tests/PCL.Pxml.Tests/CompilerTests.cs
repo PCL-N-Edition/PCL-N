@@ -104,7 +104,7 @@ internal static partial class Program
               <TitleBar />
               <StackPanel Orientation="Horizontal" StretchLastChild="true">
                 <Navigation>
-                  <NavigationItem Label="主页" Content="⌂  主页" Command="ui.navigation.home" />
+                  <NavigationItem Label="主页" Content="主页" Icon="lucide/play" Command="ui.navigation.home" />
                 </Navigation>
                 <ContentHost />
               </StackPanel>
@@ -118,7 +118,8 @@ internal static partial class Program
         AssertTrue(body.StretchLastChild);
         AssertEqual(XsrUiSemanticRole.Navigation, body.Children[0].Role);
         AssertEqual(XsrUiSemanticRole.NavigationItem, body.Children[0].Children[0].Role);
-        AssertEqual("⌂  主页", body.Children[0].Children[0].Content);
+        AssertEqual("主页", body.Children[0].Children[0].Content);
+        AssertEqual("lucide/play", body.Children[0].Children[0].ImageSource);
     }
 
     private static void CompileThicknessAndSize()

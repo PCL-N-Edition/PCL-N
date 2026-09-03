@@ -15,8 +15,8 @@ internal static partial class Program
               </TitleBar>
               <StackPanel Orientation="Horizontal" StretchLastChild="true">
                 <Navigation>
-                  <NavigationItem Label="主页" Content="⌂  主页" Command="ui.navigation.home" />
-                  <NavigationItem Label="设置" Content="⚙  设置" Command="ui.navigation.settings" />
+                  <NavigationItem Label="主页" Content="主页" Icon="lucide/play" Command="ui.navigation.home" />
+                  <NavigationItem Label="设置" Content="设置" Icon="lucide/settings" Command="ui.navigation.settings" />
                 </Navigation>
                 <ContentHost />
               </StackPanel>
@@ -39,8 +39,8 @@ internal static partial class Program
             tree.GetComponent<XsrUiSemantic>(child)?.Role == XsrUiSemanticRole.Content);
         XsrUiShellNavigationItem[] items =
         [
-            new("navigation.home", "主页", "⌂"),
-            new("navigation.settings", "设置", "⚙"),
+            new("navigation.home", "主页", "lucide/play"),
+            new("navigation.settings", "设置", "lucide/settings"),
         ];
         Dictionary<PCL.Xsr.XsrSemanticId, XsrUiEntityId> entities = [];
         foreach ((XsrUiShellNavigationItem item, XsrUiEntityId entity) in items.Zip(
@@ -55,9 +55,18 @@ internal static partial class Program
             new XsrUiShellOptions { Title = "PCL Nexa", Version = "2.0.0.alpha.1" });
         XsrUiScene scene = shell.Render(new XsrUiSize(800, 600));
         AssertEqual(XsrUiSemanticRole.TitleBar, scene.Nodes.First(node => node.Entity.Equals(titleBar)).Role);
-        AssertEqual("⌂  主页", scene.Nodes.First(node => node.Entity.Equals(entities[items[0].Id])).Text);
+        AssertEqual("主页", scene.Nodes.First(node => node.Entity.Equals(entities[items[0].Id])).Text);
+        AssertEqual(
+            "lucide/play",
+            scene.Nodes.First(node => node.Entity.Equals(entities[items[0].Id])).ImageSource);
         AssertTrue(scene.Nodes.First(node => node.Entity.Equals(entities[items[0].Id])).IsSelected);
         AssertEqual(XsrUiSurfaceKind.Solid, scene.Nodes.First(node => node.Entity.Equals(root)).VisualStyle.Surface);
+
+        // The shell owns the rail toggle and normalizes the canonical collapsed rail width.
+        AssertTrue(tree.IsAlive(shell.NavigationToggle));
+        AssertEqual(
+            XsrUiShell.CollapsedRailWidth,
+            scene.Nodes.First(node => node.Entity.Equals(navigation)).Rect.Width);
 
         // The PXML ContentHost is the actual UI.Next stage host. A future product page attaches
         // here and therefore becomes part of the same render scene a backend commits.

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Automation;
@@ -14,13 +15,20 @@ namespace PCL.UI.Next.Backend.Avalonia;
 /// The Avalonia backend commit surface for one immutable UI.Next scene. It never reads UI tree
 /// components or rebuilds shell layout: PXML/UI.Next own structure and geometry, while this
 /// class owns final drawing, native input translation, and native accessibility properties.
+/// Presentation motion (hover, press, selection, and the rail expansion) animates between
+/// committed scene facts, always starting from the currently presented value.
 /// </summary>
 public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
 {
     private readonly XsrUiShell _shell;
     private readonly object _commitGate = new();
     private readonly Dictionary<XsrUiEntityId, AvaloniaUiSceneNodeControl> _controls = [];
+    private readonly Dictionary<int, XsrUiRect> _presentedRects = [];
+    private readonly Dictionary<int, (XsrUiRect From, XsrUiRect To)> _railAnimation = [];
+    private readonly Stopwatch _railClock = new();
+    private readonly DispatcherTimer _railTimer;
     private XsrUiScene? _scene;
+    private double _lastNavigationWidth;
     private bool _commitQueued;
     private bool _disposed;
 
@@ -33,6 +41,12 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         _shell.StateBridge?.RenderRequested += OnStateRenderRequested;
         SizeChanged += (_, _) => RequestCommit();
         AttachedToVisualTree += (_, _) => RequestCommit();
+
+        _railTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(AvaloniaMotionTokens.FrameMilliseconds),
+        };
+        _railTimer.Tick += OnRailAnimationTick;
     }
 
     /// <summary>The last immutable scene committed to native drawing controls.</summary>
@@ -113,6 +127,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
             _disposed = true;
         }
 
+        _railTimer.Stop();
         _shell.Tree.RenderInvalidated -= OnTreeRenderInvalidated;
         if (_shell.StateBridge is not null)
         {
@@ -120,6 +135,8 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         }
 
         _controls.Clear();
+        _presentedRects.Clear();
+        _railAnimation.Clear();
         Children.Clear();
         GC.SuppressFinalize(this);
     }
@@ -138,12 +155,8 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     {
         foreach ((XsrUiEntityId entity, AvaloniaUiSceneNodeControl control) in _controls)
         {
-            if (_scene is null || !TryGetNode(_scene, entity, out XsrUiSceneNode node))
-            {
-                continue;
-            }
-
-            control.Arrange(new Rect(node.Rect.X, node.Rect.Y, node.Rect.Width, node.Rect.Height));
+            XsrUiRect rect = PresentedRect(entity);
+            control.Arrange(new Rect(rect.X, rect.Y, rect.Width, rect.Height));
         }
 
         return finalSize;
@@ -247,19 +260,26 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
 
             Children.Remove(control);
             _controls.Remove(entity);
+            _presentedRects.Remove(entity.Index);
+            _railAnimation.Remove(entity.Index);
         }
 
+        HashSet<int> railAnimated = CollectRailAnimatedEntities(scene);
         for (int index = 0; index < scene.Count; index++)
         {
             XsrUiSceneNode node = scene[index];
             if (!_controls.TryGetValue(node.Entity, out AvaloniaUiSceneNodeControl? control))
             {
-                control = new AvaloniaUiSceneNodeControl(RouteAutomationFocus, RouteAutomationInvoke);
+                control = new AvaloniaUiSceneNodeControl(
+                    RouteAutomationFocus,
+                    RouteAutomationInvoke,
+                    _shell.Renderer.ReducedMotion);
                 _controls.Add(node.Entity, control);
                 Children.Add(control);
             }
 
             control.Apply(node);
+            UpdatePresentedRect(node, railAnimated.Contains(node.Entity.Index));
             int currentIndex = Children.IndexOf(control);
             if (currentIndex != index)
             {
@@ -274,6 +294,131 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         InvalidateArrange();
         InvalidateVisual();
     }
+
+    /// <summary>
+    /// Entities whose rectangles follow the navigation rail expansion (the rail subtree and the
+    /// content subtree). Their rect changes are presented through a short critically damped
+    /// interpolation instead of snapping, and the interpolation always restarts from the
+    /// currently presented value so interrupted transitions stay continuous.
+    /// </summary>
+    private HashSet<int> CollectRailAnimatedEntities(XsrUiScene scene)
+    {
+        HashSet<int> animated = [];
+        bool railTransition = false;
+        Stack<XsrUiSceneNode> ancestors = [];
+        for (int index = 0; index < scene.Count; index++)
+        {
+            XsrUiSceneNode node = scene[index];
+            while (ancestors.Count > node.Depth)
+            {
+                _ = ancestors.Pop();
+            }
+
+            bool inRail = node.Role == XsrUiSemanticRole.Navigation
+                || ancestors.Any(ancestor => ancestor.Role == XsrUiSemanticRole.Navigation);
+            bool inContent = node.Role == XsrUiSemanticRole.Content
+                || ancestors.Any(ancestor => ancestor.Role == XsrUiSemanticRole.Content);
+            if (inRail || inContent)
+            {
+                animated.Add(node.Entity.Index);
+            }
+
+            if (node.Role == XsrUiSemanticRole.Navigation)
+            {
+                railTransition = _lastNavigationWidth > 0
+                    && Math.Abs(node.Rect.Width - _lastNavigationWidth) > 0.5;
+                _lastNavigationWidth = node.Rect.Width;
+            }
+
+            ancestors.Push(node);
+        }
+
+        if (!railTransition)
+        {
+            return [];
+        }
+
+        StartRailAnimationClock();
+        return animated;
+    }
+
+    private void UpdatePresentedRect(XsrUiSceneNode node, bool animates)
+    {
+        if (!animates)
+        {
+            _presentedRects.Remove(node.Entity.Index);
+            _railAnimation.Remove(node.Entity.Index);
+            return;
+        }
+
+        XsrUiRect target = node.Rect;
+        XsrUiRect from = _presentedRects.TryGetValue(node.Entity.Index, out XsrUiRect presented)
+            ? presented
+            : target;
+        if (from.Equals(target))
+        {
+            _presentedRects.Remove(node.Entity.Index);
+            _railAnimation.Remove(node.Entity.Index);
+            return;
+        }
+
+        _presentedRects[node.Entity.Index] = from;
+        _railAnimation[node.Entity.Index] = (from, target);
+    }
+
+    private void StartRailAnimationClock()
+    {
+        if (!_railTimer.IsEnabled)
+        {
+            _railClock.Restart();
+            _railTimer.Start();
+        }
+    }
+
+    private void OnRailAnimationTick(object? sender, EventArgs e)
+    {
+        if (_railAnimation.Count == 0)
+        {
+            _railTimer.Stop();
+            _railClock.Reset();
+            return;
+        }
+
+        double progress = _railClock.Elapsed.TotalMilliseconds
+            / AvaloniaMotionTokens.RailExpandMilliseconds;
+        double eased = progress >= 1 ? 1 : 1 - Math.Pow(1 - progress, 3);
+        foreach ((int entityIndex, (XsrUiRect from, XsrUiRect to)) in _railAnimation)
+        {
+            _presentedRects[entityIndex] = LerpRect(from, to, eased);
+        }
+
+        InvalidateArrange();
+        InvalidateVisual();
+        if (progress >= 1)
+        {
+            _railTimer.Stop();
+            _railClock.Reset();
+            _railAnimation.Clear();
+        }
+    }
+
+    private XsrUiRect PresentedRect(XsrUiEntityId entity)
+    {
+        if (_scene is null || !TryGetNode(_scene, entity, out XsrUiSceneNode node))
+        {
+            return default;
+        }
+
+        return _presentedRects.TryGetValue(entity.Index, out XsrUiRect presented)
+            ? presented
+            : node.Rect;
+    }
+
+    private static XsrUiRect LerpRect(XsrUiRect from, XsrUiRect to, double progress) => new(
+        from.X + ((to.X - from.X) * progress),
+        from.Y + ((to.Y - from.Y) * progress),
+        from.Width + ((to.Width - from.Width) * progress),
+        from.Height + ((to.Height - from.Height) * progress));
 
     private void ConfigureSelectionRelationships(XsrUiScene scene)
     {
@@ -372,25 +517,62 @@ public sealed class AvaloniaUiSceneCommittedEventArgs(XsrUiScene scene) : EventA
 
 /// <summary>
 /// One final-drawing and accessibility projection of an immutable scene node. It intentionally
-/// has no knowledge of PXML controls, tree components, shell navigation, or services.
+/// has no knowledge of PXML controls, tree components, shell navigation, or services. Hover,
+/// press, and selection presentation animate between scene facts; reduced motion applies every
+/// fact immediately.
 /// </summary>
 internal sealed class AvaloniaUiSceneNodeControl : Control
 {
+    private const double CollapsedRailCenteringWidth = 50;
+    private const double PillWidth = 5;
+    private const double PillHeight = 20;
+    private const double NavigationIconSize = 20;
+    private const double NavigationIconTextGap = 8;
+
+    private static readonly StyledProperty<double> HoverOpacityProperty =
+        AvaloniaProperty.Register<AvaloniaUiSceneNodeControl, double>(nameof(HoverOpacity));
+
+    private static readonly StyledProperty<double> PillScaleProperty =
+        AvaloniaProperty.Register<AvaloniaUiSceneNodeControl, double>(nameof(PillScale));
+
     private readonly Action<XsrUiEntityId> _focusFromAutomation;
     private readonly Action<XsrUiEntityId> _invokeFromAutomation;
+    private readonly bool _reducedMotion;
+    private readonly ScaleTransform _pressScale = new(1, 1);
     private readonly List<AvaloniaUiSceneNodeControl> _selectionItems = [];
     private XsrUiSceneNode _node;
     private AvaloniaUiSceneNodeControl? _selectionContainer;
+    private bool _applied;
 
     internal AvaloniaUiSceneNodeControl(
         Action<XsrUiEntityId> focusFromAutomation,
-        Action<XsrUiEntityId> invokeFromAutomation)
+        Action<XsrUiEntityId> invokeFromAutomation,
+        bool reducedMotion)
     {
         _focusFromAutomation = focusFromAutomation ?? throw new ArgumentNullException(nameof(focusFromAutomation));
         _invokeFromAutomation = invokeFromAutomation ?? throw new ArgumentNullException(nameof(invokeFromAutomation));
+        _reducedMotion = reducedMotion;
         IsHitTestVisible = false;
         ClipToBounds = true;
+        RenderTransform = _pressScale;
+        RenderTransformOrigin = RelativePoint.Center;
     }
+
+    private double HoverOpacity
+    {
+        get => GetValue(HoverOpacityProperty);
+        set => SetValue(HoverOpacityProperty, value);
+    }
+
+    private double PillScale
+    {
+        get => GetValue(PillScaleProperty);
+        set => SetValue(PillScaleProperty, value);
+    }
+
+    internal double PresentedHoverOpacity => HoverOpacity;
+
+    internal double PresentedPillScale => PillScale;
 
     internal XsrUiSceneNode Node => _node;
 
@@ -410,15 +592,46 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         AutomationProperties.SetControlTypeOverride(this, ControlTypeFor(node.Role, node.IsClickable));
         AutomationProperties.SetHelpText(this, node.IsSelected ? "selected" : node.Role.ToString());
         AutomationProperties.SetIsControlElementOverride(this, node.HasRole || node.IsFocusable || node.IsClickable);
-        if (previous.IsSelected != node.IsSelected
-            && ControlAutomationPeer.FromElement(this) is { } peer)
+
+        if (!_applied || previous.IsSelected != node.IsSelected)
         {
-            peer.RaisePropertyChangedEvent(
-                SelectionItemPatternIdentifiers.IsSelectedProperty,
-                previous.IsSelected,
-                node.IsSelected);
+            if (node.Role == XsrUiSemanticRole.NavigationItem)
+            {
+                AnimateFact(
+                    PillScaleProperty,
+                    node.IsSelected ? 1 : 0,
+                    node.IsSelected
+                        ? AvaloniaMotionTokens.SelectionInMilliseconds
+                        : AvaloniaMotionTokens.SelectionOutMilliseconds,
+                    node.IsSelected ? null : AvaloniaUiMotion.EaseIn);
+            }
+
+            if (ControlAutomationPeer.FromElement(this) is { } peer)
+            {
+                peer.RaisePropertyChangedEvent(
+                    SelectionItemPatternIdentifiers.IsSelectedProperty,
+                    previous.IsSelected,
+                    node.IsSelected);
+            }
         }
 
+        if (!_applied || previous.IsHovered != node.IsHovered)
+        {
+            AnimateFact(
+                HoverOpacityProperty,
+                node.IsHovered ? 1 : 0,
+                node.IsHovered
+                    ? AvaloniaMotionTokens.HoverMilliseconds
+                    : AvaloniaMotionTokens.HoverOutMilliseconds);
+        }
+
+        if (!_applied || previous.IsPressed != node.IsPressed)
+        {
+            double scale = node.IsPressed ? AvaloniaMotionTokens.PressScale : 1;
+            SetPressScale(scale);
+        }
+
+        _applied = true;
         InvalidateVisual();
     }
 
@@ -442,6 +655,63 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     internal void FocusFromAutomation() => _focusFromAutomation(Node.Entity);
 
     internal void InvokeFromAutomation() => _invokeFromAutomation(Node.Entity);
+
+    /// <summary>
+    /// Presents one scene-fact value, animating from its currently presented value. Reduced
+    /// motion applies the fact immediately.
+    /// </summary>
+    private void AnimateFact(AvaloniaProperty property, double target, double durationMilliseconds, Func<double, double>? easing = null)
+    {
+        if (_reducedMotion)
+        {
+            AvaloniaUiMotion.Cancel(this, property);
+            SetValue(property, target);
+            return;
+        }
+
+        AvaloniaUiMotion.Animate(
+            this,
+            property,
+            () => (double)GetValue(property)!,
+            value => SetValue(property, value),
+            target,
+            durationMilliseconds,
+            easing);
+    }
+
+    private void SetPressScale(double scale)
+    {
+        if (_reducedMotion)
+        {
+            AvaloniaUiMotion.Cancel(this, ScaleTransform.ScaleXProperty);
+            AvaloniaUiMotion.Cancel(this, ScaleTransform.ScaleYProperty);
+            _pressScale.ScaleX = scale;
+            _pressScale.ScaleY = scale;
+            return;
+        }
+
+        AvaloniaUiMotion.Animate(
+            this, ScaleTransform.ScaleXProperty, () => _pressScale.ScaleX, value => _pressScale.ScaleX = value,
+            scale, AvaloniaMotionTokens.PressMilliseconds);
+        AvaloniaUiMotion.Animate(
+            this, ScaleTransform.ScaleYProperty, () => _pressScale.ScaleY, value => _pressScale.ScaleY = value,
+            scale, AvaloniaMotionTokens.PressMilliseconds);
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (e.Property == HoverOpacityProperty || e.Property == PillScaleProperty)
+        {
+            InvalidateVisual();
+        }
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+        AvaloniaUiMotion.CancelAll(this);
+    }
 
     protected override AutomationPeer OnCreateAutomationPeer()
     {
@@ -481,29 +751,48 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
             context.DrawRectangle(background, border, rect);
         }
 
-        if (_node.IsHovered && !_node.IsSelected)
+        DrawHoverOverlay(context, rect, style);
+
+        // Collapsed rail items center the vector icon and hide the label; expanded items lead
+        // with the icon and draw the label after it. Any other node with an icon and no text
+        // (the rail toggle) centers its icon too.
+        bool collapsedRailItem = _node.Role == XsrUiSemanticRole.NavigationItem
+            && Bounds.Width <= CollapsedRailCenteringWidth;
+        bool textVisible = _node.Text is { Length: > 0 } && !collapsedRailItem;
+        if (_node.ImageSource is { Length: > 0 } iconSource
+            && AvaloniaUiIcons.TryGetGeometry(iconSource, out IReadOnlyList<Geometry> iconPaths))
         {
-            context.DrawRectangle(
-                new SolidColorBrush(Color.FromArgb(32, 255, 255, 255)),
-                null,
-                style.CornerRadius > 0
-                    ? new RoundedRect(rect, new CornerRadius(style.CornerRadius))
-                    : new RoundedRect(rect));
+            double scale = NavigationIconSize / AvaloniaUiIcons.ViewBoxSize;
+            double iconX = textVisible
+                ? 0
+                : Math.Max(0, (Bounds.Width - NavigationIconSize) / 2);
+            double iconY = Math.Max(0, (Bounds.Height - NavigationIconSize) / 2);
+            IBrush iconBrush = Brush(style.Foreground) ?? new SolidColorBrush(Colors.White);
+            Pen iconPen = new(iconBrush, AvaloniaUiIcons.StrokeWidth * scale)
+            {
+                LineCap = PenLineCap.Round,
+                LineJoin = PenLineJoin.Round,
+            };
+            using (context.PushTransform(
+                Matrix.CreateTranslation(iconX, iconY) * Matrix.CreateScale(scale, scale)))
+            {
+                foreach (Geometry path in iconPaths)
+                {
+                    context.DrawGeometry(null, iconPen, path);
+                }
+            }
+
+            if (textVisible)
+            {
+                DrawText(context, style, NavigationIconSize + NavigationIconTextGap);
+            }
+        }
+        else if (textVisible)
+        {
+            DrawText(context, style, 0);
         }
 
-        if (_node.Text is { Length: > 0 } text)
-        {
-            IBrush foreground = Brush(style.Foreground) ?? new SolidColorBrush(Colors.White);
-            FormattedText formatted = new(
-                text,
-                CultureInfo.CurrentUICulture,
-                FlowDirection.LeftToRight,
-                new Typeface(FontFamily.Default),
-                FontSizeFor(_node),
-                foreground);
-            double y = Math.Max(0, (Bounds.Height - formatted.Height) / 2);
-            context.DrawText(formatted, new Point(0, y));
-        }
+        DrawSelectionPill(context, style);
 
         if (_node.IsFocused)
         {
@@ -512,6 +801,60 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
                 new Pen(Brush(new XsrUiColor(255, 255, 255, 210))!, 1),
                 new RoundedRect(rect.Deflate(1), new CornerRadius(Math.Max(0, style.CornerRadius - 1))));
         }
+    }
+
+    private void DrawHoverOverlay(DrawingContext context, Rect rect, XsrUiVisualStyleSnapshot style)
+    {
+        double opacity = HoverOpacity;
+        if (opacity <= 0 || style.Hover.Alpha == 0)
+        {
+            return;
+        }
+
+        byte alpha = (byte)Math.Round(style.Hover.Alpha * Math.Clamp(opacity, 0, 1));
+        IBrush hover = new SolidColorBrush(Color.FromArgb(alpha, style.Hover.Red, style.Hover.Green, style.Hover.Blue));
+        context.DrawRectangle(
+            hover,
+            null,
+            style.CornerRadius > 0
+                ? new RoundedRect(rect, new CornerRadius(style.CornerRadius))
+                : new RoundedRect(rect));
+    }
+
+    private void DrawSelectionPill(DrawingContext context, XsrUiVisualStyleSnapshot style)
+    {
+        double scale = PillScale;
+        if (_node.Role != XsrUiSemanticRole.NavigationItem || scale <= 0)
+        {
+            return;
+        }
+
+        XsrUiColor pill = style.Border.Alpha > 0 ? style.Border : style.Foreground;
+        double height = PillHeight * Math.Clamp(scale, 0, 1);
+        double y = Math.Max(0, (Bounds.Height - height) / 2);
+        context.DrawRectangle(
+            new SolidColorBrush(Color.FromArgb(pill.Alpha, pill.Red, pill.Green, pill.Blue)),
+            null,
+            new RoundedRect(new Rect(0, y, PillWidth, height), new CornerRadius(PillWidth / 2)));
+    }
+
+    private void DrawText(DrawingContext context, XsrUiVisualStyleSnapshot style, double x)
+    {
+        if (_node.Text is not { Length: > 0 } text)
+        {
+            return;
+        }
+
+        IBrush foreground = Brush(style.Foreground) ?? new SolidColorBrush(Colors.White);
+        FormattedText formatted = new(
+            text,
+            CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            new Typeface(FontFamily.Default),
+            FontSizeFor(_node),
+            foreground);
+        double y = Math.Max(0, (Bounds.Height - formatted.Height) / 2);
+        context.DrawText(formatted, new Point(x, y));
     }
 
     protected override Size MeasureOverride(Size availableSize) => availableSize;

@@ -1,17 +1,14 @@
 <Shell xmlns="https://pcln.dev/pxml/2026" Label="PCL Nexa">
-  <TitleBar>
+  <TitleBar Height="52">
     <Text Content="PCL Nexa" />
     <Text Content="2.0.0.alpha.1" />
-    <Button Label="切换 UI 风格" Content="玻璃" Command="ui.shell.style.toggle" />
   </TitleBar>
   <StackPanel Orientation="Horizontal" StretchLastChild="true">
-    <Navigation>
-      <NavigationItem Label="主页" Content="⌂  主页" Command="ui.navigation.home" />
-      <NavigationItem Label="下载" Content="↓  下载" Command="ui.navigation.downloads" />
-      <NavigationItem Label="实例" Content="◈  实例" Command="ui.navigation.instances" />
-      <NavigationItem Label="资源" Content="◇  资源" Command="ui.navigation.library" />
-      <NavigationItem Label="账户" Content="◯  账户" Command="ui.navigation.accounts" />
-      <NavigationItem Label="设置" Content="⚙  设置" Command="ui.navigation.settings" />
+    <Navigation Width="48">
+      <NavigationItem Label="启动" Content="启动" Icon="lucide/play" Command="ui.navigation.launch" />
+      <NavigationItem Label="安装" Content="安装" Icon="lucide/package-plus" Command="ui.navigation.download" />
+      <NavigationItem Label="资源" Content="资源" Icon="lucide/blocks" Command="ui.navigation.community" />
+      <NavigationItem Label="设置" Content="设置" Icon="lucide/settings" Command="ui.navigation.settings" />
     </Navigation>
     <ContentHost Padding="28,24,28,24" />
   </StackPanel>

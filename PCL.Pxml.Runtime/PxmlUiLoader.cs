@@ -121,6 +121,11 @@ public sealed class PxmlUiLoader
                     tree.SetComponent(entity, new XsrUiText(node.Content));
                 }
 
+                if (node.ImageSource is not null)
+                {
+                    tree.SetComponent(entity, new XsrUiImage(node.ImageSource));
+                }
+
                 break;
             case PxmlRuntimeRecipe.Image:
                 tree.SetComponent(entity, new XsrUiImage(node.ImageSource ?? string.Empty));

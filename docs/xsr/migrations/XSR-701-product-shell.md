@@ -1,5 +1,11 @@
 # XSR-701 Wave 7 product shell foundation
 
+> **Superseded in part by XSR-703.** The shell geometry (58 px title bar, 236 px rail), the six
+> fixed destinations, the dark Experimental palette, and the title-bar style-toggle button below
+> were replaced by the legacy-experimental base plate in
+> [XSR-703](XSR-703-product-base-plate.md). The renderer/backend boundary rules on this page
+> remain in force.
+
 ## Outcome
 
 Wave 7 starts with the product chrome that every vertical slice shares: a top title bar, a
@@ -16,11 +22,12 @@ immutable UI.Next scene and no longer recreates a parallel application visual tr
   content host have stable entity handles and accessibility roles (`TitleBar`, `Navigation`,
   `NavigationItem`, and `Content`). Navigation IDs are `XsrSemanticId` values and never depend on
   Avalonia control names.
-- The checked-in PXML product shell owns the six product destinations `navigation.home`,
-  `navigation.downloads`, `navigation.instances`, `navigation.library`, `navigation.accounts`,
-  and `navigation.settings`. Its Desktop composition rejects a replacement navigation list rather
-  than pretending a fixed PXML template is dynamic. A future product navigation change is an
-  explicit PXML and migration-contract change.
+- The checked-in PXML product shell owns the primary destinations. ~~Six destinations
+  `navigation.home` … `navigation.settings`.~~ **XSR-703 replaced these with the four
+  legacy-experimental destinations `navigation.launch`, `navigation.download`,
+  `navigation.community`, and `navigation.settings`.** Its Desktop composition rejects a
+  replacement navigation list rather than pretending a fixed PXML template is dynamic. A future
+  product navigation change is an explicit PXML and migration-contract change.
 - `Experimental` and `LiquidGlass` share layout, input, focus, selection, commands, and content
   ownership. They differ only through `XsrUiShellPalette` and backend-neutral visual tokens.
   Experimental uses opaque surfaces and a compact high-contrast active rail item. LiquidGlass uses
@@ -37,9 +44,12 @@ immutable UI.Next scene and no longer recreates a parallel application visual tr
   action overlay owns only minimize/maximize/close. `PCL.Desktop` creates the UI runtime context
   before Foundation, passes its state bridge as the one host-store observer, compiles the PXML shell
   into that same tree, and starts the backend host.
-- The title bar is 58 logical pixels and the navigation rail is 236 logical pixels in the
-  canonical UI.Next layout. The final child of the root/body stack stretches into remaining
-  viewport space so the content host is never dependent on caller-provided filler controls.
+- ~~The title bar is 58 logical pixels and the navigation rail is 236 logical pixels in the
+  canonical UI.Next layout.~~ **XSR-703: the title bar is 52 logical pixels and the navigation
+  rail is a 48 px icon rail that expands to 120 px; see
+  [XSR-703](XSR-703-product-base-plate.md).** The final child of the root/body stack stretches
+  into remaining viewport space so the content host is never dependent on caller-provided filler
+  controls.
 - Desktop starts in `Experimental` by default; `--ui-style=liquid-glass` (or
   `--liquid-glass`) selects the alternate presentation. `--validate-shell` compiles the embedded
   PXML template, renders its semantic scene, and exits without opening a native window for CI and

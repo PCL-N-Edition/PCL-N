@@ -693,7 +693,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                 return target == "Content";
             case "CommandInput":
                 return target == "Command" || target == "Focusable" || target == "Clickable"
-                    || target == "Content";
+                    || target == "Content" || target == "ImageSource";
             case "Image":
                 return target == "ImageSource";
             default:
