@@ -64,6 +64,63 @@ internal static partial class Program
         AssertFalse(shell.Select(default(XsrUiEntityId)));
     }
 
+    private static void ShellRuntimeContextDrainsHostPublications()
+    {
+        // Production creates the UI context before its host store. This verifies the same bridge
+        // observes the store and is injected into the shell renderer rather than only into a
+        // hand-wired test renderer.
+        XsrUiRuntimeContext context = new();
+        XsrStateStoreBuilder states = new();
+        states.Cell<string>("shell.status".AsXsrId(), "Shell");
+        XsrStateStore store = states.Build(context.StateBridge);
+        XsrUiShell shell = XsrUiShellComposer.Compose(store, stateBridge: context.StateBridge);
+        AssertTrue(ReferenceEquals(context.Tree, shell.Tree));
+        AssertTrue(ReferenceEquals(context.StateBridge, shell.StateBridge));
+
+        XsrUiEntityId status = shell.Tree.Create("status");
+        shell.Tree.SetComponent(status, new XsrUiText(string.Empty)
+        {
+            BoundState = store.Resolve("shell.status".AsXsrId()),
+        });
+        shell.Tree.Attach(status, shell.Content);
+        _ = shell.Render(new XsrUiSize(1024, 700));
+
+        int renderRequests = 0;
+        context.StateBridge.RenderRequested += (_, _) => renderRequests++;
+        _ = store.Publish(store.Resolve("shell.status".AsXsrId()), "connected");
+
+        AssertEqual(1, renderRequests);
+        XsrUiScene refreshed = shell.Render(new XsrUiSize(1024, 700));
+        AssertEqual("connected", Node(refreshed, status).Text);
+    }
+
+    private static void ShellStyleToggleUsesRendererIntentAndSceneInputFacts()
+    {
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiIntentBuffer intents = new();
+        XsrUiShell shell = XsrUiShellComposer.Compose(store, intentSink: intents);
+        XsrUiEntityId toggle = shell.Tree.Create("style-toggle");
+        shell.Tree.SetComponent(toggle, new XsrUiText("玻璃"));
+        shell.Tree.SetComponent(toggle, new XsrUiInput { Focusable = true, Clickable = true });
+        shell.Tree.SetComponent(toggle, new XsrUiCommandBinding(XsrUiShellIds.StyleToggle));
+        shell.Tree.Attach(toggle, shell.TitleBar);
+
+        XsrUiScene initial = shell.Render(new XsrUiSize(1024, 700));
+        XsrUiSceneNode toggleNode = Node(initial, toggle);
+        AssertTrue(toggleNode.IsFocusable);
+        AssertTrue(toggleNode.IsClickable);
+        XsrUiPoint point = new(toggleNode.Rect.X + 1, toggleNode.Rect.Y + 1);
+
+        AssertTrue(shell.Renderer.PointerMoved(point));
+        AssertTrue(Node(shell.Render(new XsrUiSize(1024, 700)), toggle).IsHovered);
+        AssertTrue(shell.Renderer.PointerPressed(point));
+        AssertTrue(Node(shell.Render(new XsrUiSize(1024, 700)), toggle).IsPressed);
+        AssertTrue(shell.Renderer.PointerReleased(point));
+
+        AssertTrue(shell.Style == XsrUiShellStyle.LiquidGlass);
+        AssertEqual(XsrUiShellIds.StyleToggle, intents.Drain().Single().Command);
+    }
+
     private static XsrUiSceneNode Node(XsrUiScene scene, XsrUiEntityId entity) =>
         scene.Nodes.First(node => node.Entity.Equals(entity));
 }

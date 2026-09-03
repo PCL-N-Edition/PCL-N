@@ -13,14 +13,19 @@ public sealed class XsrUiStage
     private readonly XsrUiTree _tree;
     private readonly List<XsrUiEntityId> _overlays = [];
 
-    public XsrUiStage(XsrUiTree tree, XsrStateStore state, IXsrUiIntentSink? sink = null)
+    public XsrUiStage(
+        XsrUiTree tree,
+        XsrStateStore state,
+        IXsrUiIntentSink? sink = null,
+        XsrUiStateBridge? stateBridge = null)
     {
         _tree = tree ?? throw new ArgumentNullException(nameof(tree));
+        ValidateStateBridge(tree, stateBridge);
         Tree = tree;
         Root = tree.Create("stage");
         ContentHost = tree.Create("content-host");
         tree.Attach(ContentHost, Root);
-        Renderer = new XsrUiRenderer(tree, state, sink);
+        Renderer = new XsrUiRenderer(tree, state, sink, stateBridge);
         Renderer.SetRoot(Root);
         Navigation = new XsrUiNavigator(tree, ContentHost);
     }
@@ -35,10 +40,12 @@ public sealed class XsrUiStage
         XsrStateStore state,
         XsrUiEntityId root,
         XsrUiEntityId contentHost,
-        IXsrUiIntentSink? sink = null)
+        IXsrUiIntentSink? sink = null,
+        XsrUiStateBridge? stateBridge = null)
     {
         _tree = tree ?? throw new ArgumentNullException(nameof(tree));
         ArgumentNullException.ThrowIfNull(state);
+        ValidateStateBridge(tree, stateBridge);
         if (!tree.IsAlive(root))
         {
             throw new InvalidOperationException($"The stage root '{root}' is not alive.");
@@ -52,7 +59,7 @@ public sealed class XsrUiStage
         Tree = tree;
         Root = root;
         ContentHost = contentHost;
-        Renderer = new XsrUiRenderer(tree, state, sink);
+        Renderer = new XsrUiRenderer(tree, state, sink, stateBridge);
         Renderer.SetRoot(Root);
         Navigation = new XsrUiNavigator(tree, ContentHost);
     }
@@ -113,4 +120,14 @@ public sealed class XsrUiStage
     }
 
     public IReadOnlyList<XsrUiEntityId> Overlays => _overlays;
+
+    private static void ValidateStateBridge(XsrUiTree tree, XsrUiStateBridge? stateBridge)
+    {
+        if (stateBridge is not null && !ReferenceEquals(tree, stateBridge.Tree))
+        {
+            throw new ArgumentException(
+                "The state bridge must observe the stage's render tree.",
+                nameof(stateBridge));
+        }
+    }
 }

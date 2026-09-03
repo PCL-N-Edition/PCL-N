@@ -226,6 +226,13 @@ public sealed class XsrUiRenderer
         double width = 0;
         double height = 0;
 
+        if (_tree.GetComponent<XsrUiText>(entity) is { } text)
+        {
+            XsrUiSize textSize = MeasureText(ResolveText(text));
+            width = textSize.Width;
+            height = textSize.Height;
+        }
+
         XsrUiStackPanel? stack = _tree.GetComponent<XsrUiStackPanel>(entity);
         if (stack is not null)
         {
@@ -650,12 +657,7 @@ public sealed class XsrUiRenderer
 
         XsrUiSemantic? semantic = _tree.GetComponent<XsrUiSemantic>(entity);
         XsrUiText? text = _tree.GetComponent<XsrUiText>(entity);
-        string? content = text?.Content;
-        if (text?.BoundState is { } bound && bound.IsAssigned)
-        {
-            object? value = _state.ReadAppliedValue(bound);
-            content = Convert.ToString(value, CultureInfo.InvariantCulture);
-        }
+        string? content = text is null ? null : ResolveText(text);
 
         XsrUiRect rect = _paintRects.TryGetValue(entity.Index, out XsrUiRect paintRect)
             ? paintRect
@@ -664,6 +666,7 @@ public sealed class XsrUiRenderer
         XsrUiImage? image = _tree.GetComponent<XsrUiImage>(entity);
         XsrUiVisualStyle? visualStyle = _tree.GetComponent<XsrUiVisualStyle>(entity);
         XsrUiSelection? selection = _tree.GetComponent<XsrUiSelection>(entity);
+        XsrUiInput? input = _tree.GetComponent<XsrUiInput>(entity);
         nodes.Add(new XsrUiSceneNode(
             entity,
             rect,
@@ -672,15 +675,52 @@ public sealed class XsrUiRenderer
             semantic?.Label,
             content,
             image?.Source,
-            _tree.GetComponent<XsrUiInput>(entity)?.IsFocused ?? false,
+            input?.IsFocused ?? false,
             animation?.Progress,
             animation is { Keyframes.Count: > 0 } ? animation.Value : null,
             visualStyle?.Snapshot() ?? default,
-            selection?.IsSelected ?? false));
+            selection?.IsSelected ?? false,
+            input?.Focusable ?? false,
+            input?.Clickable ?? false,
+            input?.IsHovered ?? false,
+            input?.IsPressed ?? false));
 
         foreach (XsrUiEntityId child in _tree.Children(entity))
         {
             CollectNode(child, depth + 1, nodes);
         }
+    }
+
+    private string ResolveText(XsrUiText text)
+    {
+        XsrStateId bound = text.BoundState;
+        if (!bound.IsAssigned)
+        {
+            return text.Content;
+        }
+
+        object? value = _state.ReadAppliedValue(bound);
+        return Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    // UI.Next uses a deliberately deterministic, backend-neutral text metric. Native backends
+    // select their own typeface at commit time, but intrinsic text sizing must be available before
+    // any backend exists so PXML layout (including title and command text) has real hit geometry.
+    private static XsrUiSize MeasureText(string text)
+    {
+        double width = 0;
+        foreach (char character in text)
+        {
+            if (character == '\t')
+            {
+                width += 28;
+            }
+            else if (!char.IsControl(character))
+            {
+                width += character <= 0x7f ? 7 : 14;
+            }
+        }
+
+        return new XsrUiSize(width, 20);
     }
 }

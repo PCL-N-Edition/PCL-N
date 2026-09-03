@@ -58,5 +58,13 @@ internal static partial class Program
         AssertEqual("⌂  主页", scene.Nodes.First(node => node.Entity.Equals(entities[items[0].Id])).Text);
         AssertTrue(scene.Nodes.First(node => node.Entity.Equals(entities[items[0].Id])).IsSelected);
         AssertEqual(XsrUiSurfaceKind.Solid, scene.Nodes.First(node => node.Entity.Equals(root)).VisualStyle.Surface);
+
+        // The PXML ContentHost is the actual UI.Next stage host. A future product page attaches
+        // here and therefore becomes part of the same render scene a backend commits.
+        XsrUiEntityId page = tree.Create("home-page");
+        tree.SetComponent(page, new XsrUiText("Home PXML content"));
+        shell.Stage.Navigation.Push(page);
+        XsrUiScene pageScene = shell.Render(new XsrUiSize(800, 600));
+        AssertTrue(pageScene.Nodes.Any(node => node.Entity.Equals(page) && node.Text == "Home PXML content"));
     }
 }

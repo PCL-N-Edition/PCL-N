@@ -319,7 +319,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
             valid = false;
         }
 
-        if (binding == "Text" && dirty != "Paint" || binding == "Visibility" && dirty != "State")
+        if (binding == "Text" && dirty != "Layout,Paint" || binding == "Visibility" && dirty != "State")
         {
             errors.Add($"line {lineNumber} binding '{binding}' uses an incompatible dirty-kind set '{dirty}'");
             valid = false;

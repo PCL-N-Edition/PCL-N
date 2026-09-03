@@ -261,7 +261,12 @@ internal static partial class Program
         AssertTrue(tree.DirtyKinds(entity).HasFlag(XsrUiDirtyKinds.State));
 
         // Unbinding the text record keeps the visibility record.
-        tree.UnbindState(entity, new XsrUiStateDependency(name, XsrUiStateProperty.Text, XsrUiDirtyKinds.Paint));
+        tree.UnbindState(
+            entity,
+            new XsrUiStateDependency(
+                name,
+                XsrUiStateProperty.Text,
+                XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint));
         AssertEqual([], tree.StateDependents(name).ToArray());
         AssertSequence(new[] { entity }, tree.StateDependents(valid).ToArray());
     }

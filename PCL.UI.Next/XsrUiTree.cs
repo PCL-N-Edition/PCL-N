@@ -22,6 +22,13 @@ public sealed class XsrUiTree
     private int _nextIndex = 1;
 
     /// <summary>
+    /// Raised when a renderable mutation marks the tree dirty. The event is notification-only:
+    /// consumers must never inspect or mutate the tree from a foreign thread. Backends use it to
+    /// schedule a render-thread frame after navigation, style, or template changes.
+    /// </summary>
+    public event EventHandler? RenderInvalidated;
+
+    /// <summary>
     /// Gets the number of live entities.
     /// </summary>
     public int Count => _entities.Count;
@@ -241,6 +248,8 @@ public sealed class XsrUiTree
 
             ancestor = current.Parent;
         }
+
+        RenderInvalidated?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -459,7 +468,7 @@ public sealed class XsrUiTree
     }
 
     private static XsrUiStateDependency TextDependency(XsrStateId state) =>
-        new(state, XsrUiStateProperty.Text, XsrUiDirtyKinds.Paint);
+        new(state, XsrUiStateProperty.Text, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
 
     private static XsrUiStateDependency VisibilityDependency(XsrStateId state) =>
         new(state, XsrUiStateProperty.Visibility, XsrUiDirtyKinds.State);

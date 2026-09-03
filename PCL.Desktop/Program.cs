@@ -24,22 +24,29 @@ internal static class Program
         string profilesFolder = folders.EnsureFolder(FolderNames.Profiles);
 
         SettingsSchema settingsSchema = LauncherDefaults.CreateSchema();
+        // This context exists before the host store is built. Its observer is therefore the
+        // production publication path, and PXML later loads into the very same render tree.
+        XsrUiRuntimeContext uiRuntime = new();
+        DesktopUiIntentSink uiIntents = new();
 
         FoundationHost host = FoundationComposer.Compose(
             new LauncherSettingsJsonPort(System.IO.Path.Combine(settingsFolder, "settings.json"), settingsSchema),
             settingsSchema,
-            new LaunchProfileFilePort(System.IO.Path.Combine(profilesFolder, "profiles.json")));
+            new LaunchProfileFilePort(System.IO.Path.Combine(profilesFolder, "profiles.json")),
+            observer: uiRuntime.StateBridge);
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host);
         MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose(hostStore: runtime.Host.StateStore);
 
         XsrUiShell shell = PxmlShellComposer.Compose(
             runtime.Host.StateStore,
+            uiRuntime,
             new XsrUiShellOptions
             {
                 Style = ResolveShellStyle(args),
                 Title = "PCL Nexa",
                 Version = "2.0.0.alpha.1",
-            });
+            },
+            uiIntents);
 
         Console.WriteLine(
             $"PCL Nexa foundation composed: {runtime.Host.Services.Count} services, "

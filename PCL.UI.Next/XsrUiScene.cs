@@ -37,7 +37,11 @@ public readonly record struct XsrUiSceneNode(
     double? AnimationProgress,
     double? AnimationValue,
     XsrUiVisualStyleSnapshot VisualStyle = default,
-    bool IsSelected = false)
+    bool IsSelected = false,
+    bool IsFocusable = false,
+    bool IsClickable = false,
+    bool IsHovered = false,
+    bool IsPressed = false)
 {
     public bool HasRole => Role != XsrUiSemanticRole.None;
 }

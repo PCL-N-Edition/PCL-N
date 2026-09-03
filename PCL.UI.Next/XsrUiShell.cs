@@ -146,6 +146,8 @@ public static class XsrUiShellIds
 {
     public static readonly XsrSemanticId NavigationSelect = XsrSemanticId.Parse("ui.navigation.select");
 
+    public static readonly XsrSemanticId StyleToggle = XsrSemanticId.Parse("ui.shell.style.toggle");
+
     public static readonly XsrSemanticId WindowMinimize = XsrSemanticId.Parse("ui.window.minimize");
 
     public static readonly XsrSemanticId WindowMaximize = XsrSemanticId.Parse("ui.window.maximize");
@@ -272,7 +274,8 @@ public sealed class XsrUiShell
     public XsrUiShell(
         XsrStateStore state,
         XsrUiShellOptions? options = null,
-        IXsrUiIntentSink? intentSink = null)
+        IXsrUiIntentSink? intentSink = null,
+        XsrUiStateBridge? stateBridge = null)
     {
         ArgumentNullException.ThrowIfNull(state);
         options ??= new XsrUiShellOptions();
@@ -302,8 +305,9 @@ public sealed class XsrUiShell
         Style = options.Style;
         Palette = XsrUiShellPalette.For(Style);
 
-        Tree = new XsrUiTree();
-        Stage = new XsrUiStage(Tree, state, new ShellIntentSink(this));
+        Tree = stateBridge?.Tree ?? new XsrUiTree();
+        StateBridge = stateBridge;
+        Stage = new XsrUiStage(Tree, state, new ShellIntentSink(this), stateBridge);
         Root = Stage.Root;
         Content = Stage.ContentHost;
 
@@ -407,7 +411,8 @@ public sealed class XsrUiShell
         XsrStateStore state,
         XsrUiShellTemplate template,
         XsrUiShellOptions? options = null,
-        IXsrUiIntentSink? intentSink = null)
+        IXsrUiIntentSink? intentSink = null,
+        XsrUiStateBridge? stateBridge = null)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(template);
@@ -437,6 +442,13 @@ public sealed class XsrUiShell
         Style = options.Style;
         Palette = XsrUiShellPalette.For(Style);
         Tree = template.Tree;
+        if (stateBridge is not null && !ReferenceEquals(stateBridge.Tree, Tree))
+        {
+            throw new ArgumentException(
+                "The state bridge must observe the PXML template tree.",
+                nameof(stateBridge));
+        }
+        StateBridge = stateBridge;
         Root = template.Root;
         TitleBar = template.TitleBar;
         Body = template.Body;
@@ -462,7 +474,7 @@ public sealed class XsrUiShell
         }
 
         SelectedNavigationId = initial;
-        Stage = new XsrUiStage(Tree, state, Root, Content, new ShellIntentSink(this));
+        Stage = new XsrUiStage(Tree, state, Root, Content, new ShellIntentSink(this), stateBridge);
         ApplyPalette();
     }
 
@@ -471,6 +483,13 @@ public sealed class XsrUiShell
     public event EventHandler? StyleChanged;
 
     public XsrUiTree Tree { get; }
+
+    /// <summary>
+    /// The optional host-store observer bound to this shell's render tree. A native backend uses
+    /// its render request signal only to schedule a frame; the renderer remains the sole drain
+    /// point.
+    /// </summary>
+    public XsrUiStateBridge? StateBridge { get; }
 
     public XsrUiStage Stage { get; }
 
@@ -667,6 +686,14 @@ public sealed class XsrUiShell
         public void Emit(XsrSemanticId command, XsrUiEntityId source, XsrCorrelationId correlationId)
         {
             _ = owner.Select(source);
+            if (command == XsrUiShellIds.StyleToggle)
+            {
+                owner.SetStyle(
+                    owner.Style == XsrUiShellStyle.Experimental
+                        ? XsrUiShellStyle.LiquidGlass
+                        : XsrUiShellStyle.Experimental);
+            }
+
             owner._externalIntentSink?.Emit(command, source, correlationId);
         }
     }
@@ -680,13 +707,15 @@ public static class XsrUiShellComposer
     public static XsrUiShell Compose(
         XsrStateStore state,
         XsrUiShellOptions? options = null,
-        IXsrUiIntentSink? intentSink = null) =>
-        new(state, options, intentSink);
+        IXsrUiIntentSink? intentSink = null,
+        XsrUiStateBridge? stateBridge = null) =>
+        new(state, options, intentSink, stateBridge);
 
     public static XsrUiShell Compose(
         XsrStateStore state,
         XsrUiShellTemplate template,
         XsrUiShellOptions? options = null,
-        IXsrUiIntentSink? intentSink = null) =>
-        new(state, template, options, intentSink);
+        IXsrUiIntentSink? intentSink = null,
+        XsrUiStateBridge? stateBridge = null) =>
+        new(state, template, options, intentSink, stateBridge);
 }

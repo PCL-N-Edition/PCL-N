@@ -11,4 +11,4 @@ property=Margin|Thickness|Margin|None|None|false|
 property=Padding|Thickness|Padding|None|None|false|
 property=IsVisible|Boolean|Visibility|Visibility|State|false|true
 property=Label|String|Label|None|None|false|
-property=Content|String|Content|Text|Paint|false|
+property=Content|String|Content|Text|Layout,Paint|false|

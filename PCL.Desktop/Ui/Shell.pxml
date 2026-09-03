@@ -2,6 +2,7 @@
   <TitleBar>
     <Text Content="PCL Nexa" />
     <Text Content="2.0.0.alpha.1" />
+    <Button Label="切换 UI 风格" Content="玻璃" Command="ui.shell.style.toggle" />
   </TitleBar>
   <StackPanel Orientation="Horizontal" StretchLastChild="true">
     <Navigation>

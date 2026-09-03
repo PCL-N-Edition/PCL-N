@@ -22,6 +22,20 @@ public sealed class XsrUiStateBridge : IXsrStateObserver
     }
 
     /// <summary>
+    /// The render-thread tree that will receive dirty marks during
+    /// <see cref="DrainAndMark"/>. Composition roots use this to prove that the observer and
+    /// the renderer operate on the same tree.
+    /// </summary>
+    public XsrUiTree Tree => _tree;
+
+    /// <summary>
+    /// Raised after a publisher queues the first pending state ID for a frame. The callback can
+    /// run on an arbitrary publisher thread; a backend must marshal it to its render thread and
+    /// then call the renderer, which performs the actual drain.
+    /// </summary>
+    public event EventHandler? RenderRequested;
+
+    /// <summary>
     /// Gets the number of state entries waiting to be drained. Thread-safe.
     /// </summary>
     public int PendingCount
@@ -45,9 +59,16 @@ public sealed class XsrUiStateBridge : IXsrStateObserver
             return;
         }
 
+        bool requestRender;
         lock (_gate)
         {
+            requestRender = _pending.Count == 0;
             _pending.Add(change.Id);
+        }
+
+        if (requestRender)
+        {
+            RenderRequested?.Invoke(this, EventArgs.Empty);
         }
     }
 

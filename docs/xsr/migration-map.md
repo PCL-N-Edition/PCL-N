@@ -93,6 +93,7 @@ PXML vertical slices remain subsequent units.
 | Unit | Commit | Outcome |
 |---|---|---|
 | XSR-701 | `b9a5bc54` + `6992acd8` | shared shell contract, deterministic chrome layout, Experimental/LiquidGlass palettes, PXML shell template, Avalonia custom controls, and Desktop composition |
+| XSR-702 | pending | scene-only Avalonia backend commit, production state bridge, native input/accessibility bridge, and fixed PXML shell navigation contract |
 
 ## Closed migration unit
 

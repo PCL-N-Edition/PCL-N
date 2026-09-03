@@ -18,13 +18,42 @@ public static class PxmlShellComposer
         XsrStateStore state,
         XsrUiShellOptions? options = null,
         IXsrUiIntentSink? intentSink = null)
+        => ComposeCore(state, runtimeContext: null, options, intentSink);
+
+    /// <summary>
+    /// Composes the checked-in product shell into a runtime context created before the host
+    /// state store. Its bridge is therefore the store observer and the renderer's frame-boundary
+    /// dirty bridge, not a test-only side path.
+    /// </summary>
+    public static XsrUiShell Compose(
+        XsrStateStore state,
+        XsrUiRuntimeContext runtimeContext,
+        XsrUiShellOptions? options = null,
+        IXsrUiIntentSink? intentSink = null)
+        => ComposeCore(state, runtimeContext ?? throw new ArgumentNullException(nameof(runtimeContext)), options, intentSink);
+
+    private static XsrUiShell ComposeCore(
+        XsrStateStore state,
+        XsrUiRuntimeContext? runtimeContext,
+        XsrUiShellOptions? options,
+        IXsrUiIntentSink? intentSink)
     {
         ArgumentNullException.ThrowIfNull(state);
         options ??= new XsrUiShellOptions();
 
+        // The checked-in product shell deliberately owns its six product destinations. A
+        // composition root must not claim a custom navigation contract when the PXML template
+        // cannot render it; future product navigation changes are explicit PXML edits.
+        if (options.NavigationItems is not null)
+        {
+            throw new ArgumentException(
+                "The checked-in PXML product shell has a fixed navigation contract.",
+                nameof(options));
+        }
+
         PxmlDocument document = PxmlParser.Parse(ReadTemplate());
         PxmlHostIr ir = PxmlCompiler.Compile(document);
-        XsrUiTree tree = new();
+        XsrUiTree tree = runtimeContext?.Tree ?? new();
         XsrUiEntityId templateHost = tree.Create("pxml-shell-host");
         XsrUiEntityId root = PxmlUiLoader.Load(ir, tree, state, templateHost);
         tree.Detach(root);
@@ -69,13 +98,13 @@ public static class PxmlShellComposer
             if (tree.GetComponent<XsrUiText>(titleChildren[0]) is { } titleText)
             {
                 titleText.Content = options.Title;
-                tree.MarkDirty(titleChildren[0], XsrUiDirtyKinds.Paint);
+                tree.MarkDirty(titleChildren[0], XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
             }
 
             if (tree.GetComponent<XsrUiText>(titleChildren[1]) is { } versionText)
             {
                 versionText.Content = options.Version;
-                tree.MarkDirty(titleChildren[1], XsrUiDirtyKinds.Paint);
+                tree.MarkDirty(titleChildren[1], XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
             }
         }
 
@@ -88,7 +117,12 @@ public static class PxmlShellComposer
             content,
             defaults,
             navigationEntities);
-        return XsrUiShellComposer.Compose(state, template, options, intentSink);
+        return XsrUiShellComposer.Compose(
+            state,
+            template,
+            options,
+            intentSink,
+            runtimeContext?.StateBridge);
     }
 
     private static XsrUiEntityId FindDirectChild(XsrUiTree tree, XsrUiEntityId parent, XsrUiSemanticRole role) =>

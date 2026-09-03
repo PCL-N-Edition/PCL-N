@@ -65,6 +65,8 @@ internal static partial class Program
         ("dual shell styles share semantic chrome", Sync(DualShellStylesShareSemanticChrome)),
         ("shell navigation selection updates scene and intent", Sync(ShellNavigationSelectionUpdatesSceneAndIntent)),
         ("shell rejects unknown navigation selection", Sync(ShellRejectsUnknownNavigationSelection)),
+        ("shell runtime context drains host publications", Sync(ShellRuntimeContextDrainsHostPublications)),
+        ("shell style toggle uses renderer intent and scene input facts", Sync(ShellStyleToggleUsesRendererIntentAndSceneInputFacts)),
     ];
 
     private static async Task<int> Main()
