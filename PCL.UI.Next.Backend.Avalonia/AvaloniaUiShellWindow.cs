@@ -145,7 +145,14 @@ public sealed class AvaloniaUiShellWindow : Window
         // The reveal must expand over rendered content, so it starts at the surface's first
         // committed scene rather than at Opened — otherwise the mask grows across a blank
         // window and the product UI simply pops in when the first frame lands.
-        _awaitingFirstSceneCommit = true;
+        if (_surface.Scene is not null)
+        {
+            RunStartupReveal();
+        }
+        else
+        {
+            _awaitingFirstSceneCommit = true;
+        }
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -253,7 +260,8 @@ public sealed class AvaloniaUiShellWindow : Window
             fullRadius,
             AvaloniaMotionTokens.StartupRevealMilliseconds,
             AvaloniaUiMotion.EaseOut,
-            completed: OnStartupRevealCompleted);
+            completed: OnStartupRevealCompleted,
+            reducedMotion: () => _shell.Renderer.ReducedMotion);
     }
 
     private void OnStartupRevealCompleted()
@@ -369,7 +377,8 @@ public sealed class AvaloniaUiShellWindow : Window
             0,
             AvaloniaMotionTokens.CloseCollapseMilliseconds,
             AvaloniaUiMotion.EaseIn,
-            completed: OnCollapsePieceCompleted);
+            completed: OnCollapsePieceCompleted,
+            reducedMotion: () => _shell.Renderer.ReducedMotion);
 
         if (_closeIcon is not null)
         {

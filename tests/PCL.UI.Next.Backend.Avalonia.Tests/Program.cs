@@ -176,6 +176,10 @@ internal static class Program
 
         public static bool ReachedEndOfLifetime { get; private set; }
 
+        public static bool RunRailReducedMotionScenario { get; set; }
+
+        public static double ObservedRailProgressAfterCollapse { get; internal set; } = double.NaN;
+
         public static void MarkTerminated() => ReachedEndOfLifetime = true;
 
         public static void Reset(bool withSplash)
@@ -185,6 +189,8 @@ internal static class Program
             ObservedMainWindow = null;
             ObservedWindowCount = 0;
             ReachedEndOfLifetime = false;
+            RunRailReducedMotionScenario = false;
+            ObservedRailProgressAfterCollapse = double.NaN;
         }
 
         public override void OnFrameworkInitializationCompleted()
@@ -205,6 +211,12 @@ internal static class Program
                 ObservedMainWindow = desktop.MainWindow;
                 ObservedWindowCount = desktop.Windows.Count;
 
+                if (RunRailReducedMotionScenario)
+                {
+                    _ = RunRailScenarioAsync(window, shell);
+                    return;
+                }
+
                 // Closing the main window exercises the automatic lifetime contract: the run
                 // must terminate and return to the caller.
                 Dispatcher.UIThread.Post(
@@ -221,6 +233,7 @@ internal static class Program
     private static void LifetimeSplashNeverOwnsProcessAndMainWindowCloseTerminates()
     {
         LifetimeProbeApp.Reset(withSplash: true);
+        LifetimeProbeApp.RunRailReducedMotionScenario = true;
         AppBuilder.Configure<LifetimeProbeApp>()
             .UseHeadless(new AvaloniaHeadlessPlatformOptions())
             .StartWithClassicDesktopLifetime([]);
@@ -236,6 +249,30 @@ internal static class Program
         // close did not terminate the process early, proving the splash never owned the
         // lifetime.
         AssertEqual(1, LifetimeProbeApp.ObservedWindowCount);
+
+        // ReducedMotionCancelsRunningRailMotion: after the mid-flight policy flip and the
+        // collapse, the settled progress must still be the collapsed fact.
+        AssertEqual(0, LifetimeProbeApp.ObservedRailProgressAfterCollapse);
+    }
+
+    private static async Task RunRailScenarioAsync(AvaloniaUiShellWindow window, XsrUiShell shell)
+    {
+        try
+        {
+            // ReducedMotionCancelsRunningRailMotion: start the expansion normally, flip the
+            // policy mid-flight, then collapse. The shell snaps the progress to the collapsed
+            // fact and the running track must never write the expansion back over it.
+            shell.SetNavigationExpanded(true);
+            await Task.Delay(30).ConfigureAwait(true);
+            shell.Renderer.ReducedMotion = true;
+            shell.SetNavigationExpanded(false);
+            await Task.Delay(300).ConfigureAwait(true);
+            LifetimeProbeApp.ObservedRailProgressAfterCollapse = shell.RailPresentationProgress;
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     private static XsrUiSceneNode Node(XsrUiScene scene, XsrUiEntityId entity) =>

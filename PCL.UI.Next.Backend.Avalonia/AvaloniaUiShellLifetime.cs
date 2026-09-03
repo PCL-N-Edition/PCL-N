@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Threading;
 using PCL.UI.Next;
 
 namespace PCL.UI.Next.Backend.Avalonia;
@@ -30,10 +31,29 @@ public static class AvaloniaUiShellLifetime
 
         AvaloniaSplashWindow? splash = splashIcon is null ? null : new AvaloniaSplashWindow(splashIcon);
         AvaloniaUiShellWindow window = new(shell, windowIcon);
-        window.StartupRevealCompleted += (_, _) => splash?.Close();
         if (splash is not null)
         {
             splash.Show();
+            // Hard guarantee that a lost reveal event can never leave the topmost splash stuck
+            // over the launcher: whichever side reaches the icon first closes it, and the
+            // guarded close makes every other caller a no-op.
+            DispatcherTimer fallback = new() { Interval = TimeSpan.FromSeconds(2) };
+            bool splashClosed = false;
+            void CloseSplash()
+            {
+                if (splashClosed)
+                {
+                    return;
+                }
+
+                splashClosed = true;
+                fallback.Stop();
+                splash.Close();
+            }
+
+            window.StartupRevealCompleted += (_, _) => CloseSplash();
+            fallback.Tick += (_, _) => CloseSplash();
+            fallback.Start();
         }
 
         desktop.MainWindow = window;

@@ -25,7 +25,10 @@ internal static class AvaloniaUiMotion
     /// <summary>
     /// Animates one double value from its current presented value to the target. A repeat call
     /// for the same owner/value pair replaces the running animation; zero duration jumps
-    /// straight to the target.
+    /// straight to the target. The optional <paramref name="reducedMotion"/> policy is checked
+    /// on every frame: the moment it turns true, the track writes its target and completes, so
+    /// a live policy change settles running motion instead of letting it keep writing stale
+    /// values over facts that were applied immediately.
     /// </summary>
     public static void Animate(
         object owner,
@@ -36,7 +39,8 @@ internal static class AvaloniaUiMotion
         double durationMilliseconds,
         Func<double, double>? easing = null,
         double delayMilliseconds = 0,
-        Action? completed = null)
+        Action? completed = null,
+        Func<bool>? reducedMotion = null)
     {
         lock (Gate)
         {
@@ -58,6 +62,7 @@ internal static class AvaloniaUiMotion
                 From = read(),
                 DurationMilliseconds = durationMilliseconds,
                 Completed = completed,
+                ReducedMotion = reducedMotion,
             };
             EnsureClock();
         }
@@ -101,6 +106,8 @@ internal static class AvaloniaUiMotion
         public required double DurationMilliseconds { get; init; }
 
         public Action? Completed { get; init; }
+
+        public Func<bool>? ReducedMotion { get; init; }
     }
 
     private static double ElapsedMilliseconds()
@@ -138,6 +145,16 @@ internal static class AvaloniaUiMotion
             double now = ElapsedMilliseconds();
             foreach (((object owner, object value), Track track) in Active)
             {
+                // A live reduced-motion policy settles the track on the frame after the flag
+                // flips: the final value is written once and the track completes, so no stale
+                // animation can keep writing over facts that were applied immediately.
+                if (track.ReducedMotion?.Invoke() == true)
+                {
+                    track.Write(track.Target);
+                    finished.Add((owner, value));
+                    continue;
+                }
+
                 double progress = Math.Clamp(
                     (now - track.StartMilliseconds) / track.DurationMilliseconds,
                     0,

@@ -181,6 +181,7 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
             _hoverTarget = target;
             if (_reducedMotion())
             {
+                AvaloniaUiMotion.Cancel(this, "hover");
                 _hoverCircle.Opacity = target;
                 return;
             }
@@ -193,13 +194,16 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
                 target,
                 target > 0
                     ? AvaloniaMotionTokens.HoverMilliseconds
-                    : AvaloniaMotionTokens.HoverOutMilliseconds);
+                    : AvaloniaMotionTokens.HoverOutMilliseconds,
+                reducedMotion: () => _reducedMotion());
         }
 
         private void SetPressScale(double scale)
         {
             if (_reducedMotion())
             {
+                AvaloniaUiMotion.Cancel(this, "scale-x");
+                AvaloniaUiMotion.Cancel(this, "scale-y");
                 _press.ScaleX = scale;
                 _press.ScaleY = scale;
                 return;
@@ -207,10 +211,12 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
 
             AvaloniaUiMotion.Animate(
                 this, "scale-x", () => _press.ScaleX, value => _press.ScaleX = value,
-                scale, AvaloniaMotionTokens.PressMilliseconds);
+                scale, AvaloniaMotionTokens.PressMilliseconds,
+                reducedMotion: () => _reducedMotion());
             AvaloniaUiMotion.Animate(
                 this, "scale-y", () => _press.ScaleY, value => _press.ScaleY = value,
-                scale, AvaloniaMotionTokens.PressMilliseconds);
+                scale, AvaloniaMotionTokens.PressMilliseconds,
+                reducedMotion: () => _reducedMotion());
         }
     }
 }

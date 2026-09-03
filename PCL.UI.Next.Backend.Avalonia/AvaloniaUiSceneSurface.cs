@@ -303,6 +303,9 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     {
         if (_shell.Renderer.ReducedMotion)
         {
+            // The shell already snapped the progress; make sure no older track can write over
+            // the settled fact.
+            AvaloniaUiMotion.Cancel(this, "rail-presentation");
             return;
         }
 
@@ -313,7 +316,8 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
             value => _shell.SetRailPresentationProgress(value),
             _shell.IsNavigationExpanded ? 1 : 0,
             AvaloniaMotionTokens.RailExpandMilliseconds,
-            progress => progress);
+            progress => progress,
+            reducedMotion: () => _shell.Renderer.ReducedMotion);
     }
 
     private void ConfigureSelectionRelationships(XsrUiScene scene)
@@ -578,7 +582,8 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
             value => SetValue(property, value),
             target,
             durationMilliseconds,
-            easing);
+            easing,
+            reducedMotion: () => _reducedMotion());
     }
 
     private void SetPressScale(double scale)
@@ -594,10 +599,12 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
 
         AvaloniaUiMotion.Animate(
             this, ScaleTransform.ScaleXProperty, () => _pressScale.ScaleX, value => _pressScale.ScaleX = value,
-            scale, AvaloniaMotionTokens.PressMilliseconds);
+            scale, AvaloniaMotionTokens.PressMilliseconds,
+            reducedMotion: () => _reducedMotion());
         AvaloniaUiMotion.Animate(
             this, ScaleTransform.ScaleYProperty, () => _pressScale.ScaleY, value => _pressScale.ScaleY = value,
-            scale, AvaloniaMotionTokens.PressMilliseconds);
+            scale, AvaloniaMotionTokens.PressMilliseconds,
+            reducedMotion: () => _reducedMotion());
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs e)
