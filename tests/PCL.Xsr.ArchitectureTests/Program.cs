@@ -107,6 +107,7 @@ internal static class Program
         ValidateProjects(repositoryRoot, projectPaths, failures);
         ValidateSolution(repositoryRoot, failures);
         ValidateCommonBuildProperties(repositoryRoot, failures);
+        ValidateServicesDoNotNameDesktop(repositoryRoot, failures);
         ValidatePxmlControlCatalog(repositoryRoot, projectPaths, failures);
         ValidateWave3Ci(repositoryRoot, failures);
         ValidateAcyclicGraph(failures);
@@ -124,6 +125,32 @@ internal static class Program
         }
 
         return 1;
+    }
+
+    private static void ValidateServicesDoNotNameDesktop(
+        string repositoryRoot,
+        List<string> failures)
+    {
+        string servicesDirectory = Path.Combine(repositoryRoot, "PCL.Services");
+        foreach (string sourcePath in Directory.EnumerateFiles(
+                     servicesDirectory,
+                     "*.cs",
+                     SearchOption.AllDirectories))
+        {
+            if (IsBuildOutput(sourcePath))
+            {
+                continue;
+            }
+
+            string source = File.ReadAllText(sourcePath);
+            if (source.Contains("PCL.Desktop", StringComparison.Ordinal))
+            {
+                string relativePath = Path.GetRelativePath(repositoryRoot, sourcePath)
+                    .Replace('\\', '/');
+                failures.Add(
+                    $"{relativePath} names the Desktop product layer; UI projection state belongs to the composition root.");
+            }
+        }
     }
 
     private static string ResolveRepositoryRoot(string[] args)

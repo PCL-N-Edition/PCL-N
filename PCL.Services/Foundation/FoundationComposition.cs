@@ -2,7 +2,6 @@ using PCL.Services.Accounts;
 using PCL.Services.Downloads;
 using PCL.Services.Files;
 using PCL.Services.Logging;
-using PCL.Services.Minecraft.Launch;
 using PCL.Services.Minecraft.Process;
 using PCL.Services.Settings;
 using PCL.Services.Telemetry;
@@ -37,7 +36,6 @@ public static class FoundationState
         AccountService.DeclareState(builder);
         TelemetryService.DeclareState(builder);
         MinecraftProcessStateComposition.DeclareState(builder);
-        LaunchPageStateComposition.DeclareState(builder);
         return builder;
     }
 }
@@ -100,13 +98,15 @@ public static class FoundationComposer
         int logCapacity = 2_000,
         int downloadBufferSize = 128 * 1024,
         long minimumSegmentBytes = 8 * 1024 * 1024,
-        int telemetryCapacity = 500)
+        int telemetryCapacity = 500,
+        Action<XsrStateStoreBuilder>? declareHostState = null)
     {
         ArgumentNullException.ThrowIfNull(settingsPort);
         ArgumentNullException.ThrowIfNull(settingsSchema);
         ArgumentNullException.ThrowIfNull(profilePort);
 
         XsrStateStoreBuilder builder = FoundationState.CreateBuilder(settingsSchema);
+        declareHostState?.Invoke(builder);
         XsrStateStore store = builder.Build(observer);
 
         var logging = new LogService(store, logCapacity, clock);

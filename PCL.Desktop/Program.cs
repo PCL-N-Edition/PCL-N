@@ -22,6 +22,9 @@ internal static class Program
         folders.EnsureFolder(FolderNames.Logs);
         string settingsFolder = folders.EnsureFolder(FolderNames.Settings);
         string profilesFolder = folders.EnsureFolder(FolderNames.Profiles);
+        string minecraftRootDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            ".minecraft");
 
         SettingsSchema settingsSchema = LauncherDefaults.CreateSchema();
         // This context exists before the host store is built. Its observer is therefore the
@@ -33,9 +36,12 @@ internal static class Program
             new LauncherSettingsJsonPort(System.IO.Path.Combine(settingsFolder, "settings.json"), settingsSchema),
             settingsSchema,
             new LaunchProfileFilePort(System.IO.Path.Combine(profilesFolder, "profiles.json")),
-            observer: uiRuntime.StateBridge);
+            observer: uiRuntime.StateBridge,
+            declareHostState: LaunchPageState.DeclareState);
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host);
-        MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose(hostStore: runtime.Host.StateStore);
+        using MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose(
+            host,
+            minecraftRootDirectory);
 
         XsrUiShell shell = PxmlShellComposer.Compose(
             runtime.Host.StateStore,
@@ -50,14 +56,12 @@ internal static class Program
 
         // The launch page is the first product vertical slice: it routes navigation intents to
         // pages inside the shell content host and dispatches the real launch command.
-        LaunchPageController launchPage = new(
+        using LaunchPageController launchPage = new(
             shell,
             uiIntents,
             minecraft,
             runtime.Host.StateStore,
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                ".minecraft"));
+            minecraftRootDirectory);
         launchPage.Attach();
 
         Console.WriteLine(

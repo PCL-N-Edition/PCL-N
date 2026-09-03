@@ -1,10 +1,7 @@
-using System.IO;
-using System.Text.Json.Nodes;
 using PCL.Pxml;
 using PCL.Services.Accounts;
 using PCL.Services.Composition;
 using PCL.Services.Minecraft;
-using PCL.Services.Minecraft.Launch;
 using PCL.UI.Next;
 using PCL.Xsr;
 using PCL.Xsr.Runtime;
@@ -18,15 +15,19 @@ namespace PCL.Desktop.Ui;
 /// card (账户 / 实验 badge / name / summary), a version card (版本 header, instance picker row,
 /// the big accent launch button, status line), and the community about card. It reads its
 /// facts from host state cells, emits the launch intent through the renderer's normal sink,
-/// and dispatches the real Minecraft launch command through the composed runtime routers.
+/// and dispatches the product-level Minecraft start command through the composed runtime routers.
 /// Navigation intents route between this page and placeholders for destinations whose slices
 /// have not landed yet.
 /// </summary>
-internal sealed class LaunchPageController
+internal sealed class LaunchPageController : IDisposable
 {
     private static readonly XsrSemanticId LaunchRoute = XsrSemanticId.Parse("ui.navigation.launch");
 
-    private static readonly XsrSemanticId LaunchStartCommand = XsrSemanticId.Parse("ui.launch.start");
+    private static readonly XsrSemanticId LaunchPrimaryCommand = XsrSemanticId.Parse("ui.launch.primary");
+
+    private static readonly XsrSemanticId LaunchInstancesCommand = XsrSemanticId.Parse("ui.launch.instances");
+
+    private static readonly XsrSemanticId DownloadNavigationId = XsrSemanticId.Parse("navigation.download");
 
     private const string NavigationCommandPrefix = "ui.navigation.";
 
@@ -56,30 +57,42 @@ internal sealed class LaunchPageController
     private readonly DesktopUiIntentSink _intents;
     private readonly MinecraftRuntime _minecraft;
     private readonly XsrStateStore _store;
-    private readonly string _minecraftRootDirectory;
+    private readonly ILaunchPageInstanceSource _instanceSource;
     private readonly XsrUiEntityId _launchPage;
     private readonly XsrUiEntityId _placeholderPage;
     private readonly Dictionary<string, XsrUiEntityId> _pageEntities;
+    private readonly object _refreshGate = new();
+    private readonly CancellationTokenSource _lifetimeCancellation = new();
+    private CancellationTokenSource? _refreshCancellation;
     private Task _refreshTask = Task.CompletedTask;
-    private MinecraftInstanceDescriptor? _selectedInstance;
+    private long _refreshGeneration;
+    private bool _attached;
+    private bool _disposed;
 
     public LaunchPageController(
         XsrUiShell shell,
         DesktopUiIntentSink intents,
         MinecraftRuntime minecraft,
         XsrStateStore store,
-        string minecraftRootDirectory)
+        string minecraftRootDirectory,
+        ILaunchPageInstanceSource? instanceSource = null)
     {
         ArgumentNullException.ThrowIfNull(shell);
         ArgumentNullException.ThrowIfNull(intents);
         ArgumentNullException.ThrowIfNull(minecraft);
         ArgumentNullException.ThrowIfNull(store);
-        ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
+        if (instanceSource is null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
+        }
         _shell = shell;
         _intents = intents;
         _minecraft = minecraft;
         _store = store;
-        _minecraftRootDirectory = minecraftRootDirectory;
+        _instanceSource = instanceSource
+            ?? new MinecraftRuntimeLaunchPageInstanceSource(
+                minecraft.Queries,
+                minecraftRootDirectory);
         (_launchPage, _pageEntities) = LoadLaunchPage();
         _placeholderPage = BuildPlaceholderPage();
     }
@@ -87,68 +100,162 @@ internal sealed class LaunchPageController
     /// <summary>Subscribes to renderer intents and shows the initial launch page.</summary>
     public void Attach()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_attached)
+        {
+            return;
+        }
+
+        _attached = true;
         _intents.IntentEmitted += OnIntentEmitted;
         ShowLaunch();
-        Publish(LaunchPageStateComposition.StatusKey, "就绪");
-        Publish(LaunchPageStateComposition.ProfileNameKey, NoAccountName);
-        Publish(LaunchPageStateComposition.ProfileSummaryKey, NoAccountSummary);
-        Publish(LaunchPageStateComposition.InstanceSummaryKey, ScanningInstances);
-        Publish(LaunchPageStateComposition.InstanceDetailKey, SelectFromToolbar);
+        Publish(LaunchPageState.StatusKey, "就绪");
+        Publish(LaunchPageState.ProfileNameKey, NoAccountName);
+        Publish(LaunchPageState.ProfileSummaryKey, NoAccountSummary);
+        Publish(LaunchPageState.InstanceSummaryKey, ScanningInstances);
+        Publish(LaunchPageState.InstanceDetailKey, SelectFromToolbar);
+        Publish(LaunchPageState.SelectedInstanceKey, string.Empty);
+        Publish(LaunchPageState.ActionLabelKey, DownloadLabel);
         PublishProfileSummary();
-        _refreshTask = RefreshInstancesAsync();
+        _ = QueueRefresh();
     }
 
     /// <summary>Completes when the in-flight instance scan has published its facts.</summary>
-    public Task WaitUntilIdle() => _refreshTask;
+    public Task WaitUntilIdle()
+    {
+        lock (_refreshGate)
+        {
+            return _refreshTask;
+        }
+    }
 
     /// <summary>
     /// Re-queries the installed instances and re-commits the version card facts. Exposed for
     /// tests so the asynchronous scan can be awaited deterministically.
     /// </summary>
-    public async Task RefreshInstancesAsync()
+    public Task RefreshInstancesAsync() => QueueRefresh();
+
+    public void Dispose()
     {
-        if (!_minecraft.Queries.TryResolve(MinecraftRouteIds.InstancesRead, out XsrQueryId queryId))
+        if (_disposed)
         {
             return;
         }
 
-        XsrResult<IReadOnlyList<MinecraftInstanceDescriptor>> result = await _minecraft.Queries
-            .QueryAsync<MinecraftInstancesQuery, IReadOnlyList<MinecraftInstanceDescriptor>>(
-                queryId,
-                new MinecraftInstancesQuery(_minecraftRootDirectory))
-            .ConfigureAwait(true);
-        if (result.IsSuccess && result.Value is { Count: > 0 } instances)
+        _disposed = true;
+        if (_attached)
         {
-            _selectedInstance = instances[0];
-            Publish(LaunchPageStateComposition.InstanceSummaryKey, instances[0].Id);
-            Publish(LaunchPageStateComposition.InstanceDetailKey, InstanceSettingsAction);
-            SetLaunchButtonLabel(LaunchLabel);
+            _intents.IntentEmitted -= OnIntentEmitted;
+            _attached = false;
         }
-        else
+
+        _lifetimeCancellation.Cancel();
+        lock (_refreshGate)
         {
-            _selectedInstance = null;
-            Publish(LaunchPageStateComposition.InstanceSummaryKey, NoInstances);
-            Publish(LaunchPageStateComposition.InstanceDetailKey, SelectFromToolbar);
-            SetLaunchButtonLabel(DownloadLabel);
+            _refreshCancellation?.Cancel();
+            _refreshCancellation?.Dispose();
+            _refreshCancellation = null;
+        }
+
+        _lifetimeCancellation.Dispose();
+    }
+
+    private Task QueueRefresh()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        CancellationTokenSource? previous;
+        Task task;
+        lock (_refreshGate)
+        {
+            previous = _refreshCancellation;
+            _refreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                _lifetimeCancellation.Token);
+            long generation = ++_refreshGeneration;
+            task = RefreshGenerationAsync(generation, _refreshCancellation.Token);
+            _refreshTask = task;
+        }
+
+        previous?.Cancel();
+        previous?.Dispose();
+        return task;
+    }
+
+    private async Task RefreshGenerationAsync(long generation, CancellationToken cancellationToken)
+    {
+        XsrResult<IReadOnlyList<MinecraftInstanceDescriptor>> result;
+        try
+        {
+            result = await _instanceSource.ReadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        lock (_refreshGate)
+        {
+            if (_disposed || cancellationToken.IsCancellationRequested || generation != _refreshGeneration)
+            {
+                return;
+            }
+
+            if (result.IsSuccess && result.Value is { Count: > 0 } instances)
+            {
+                MinecraftInstanceDescriptor selected = instances[0];
+                Publish(LaunchPageState.SelectedInstanceKey, selected.Id);
+                Publish(LaunchPageState.InstanceSummaryKey, selected.Id);
+                Publish(LaunchPageState.InstanceDetailKey, InstanceSettingsAction);
+                Publish(LaunchPageState.ActionLabelKey, LaunchLabel);
+            }
+            else
+            {
+                Publish(LaunchPageState.SelectedInstanceKey, string.Empty);
+                Publish(LaunchPageState.InstanceSummaryKey, NoInstances);
+                Publish(LaunchPageState.InstanceDetailKey, SelectFromToolbar);
+                Publish(LaunchPageState.ActionLabelKey, DownloadLabel);
+                if (!result.IsSuccess)
+                {
+                    Publish(
+                        LaunchPageState.StatusKey,
+                        $"实例扫描失败：{result.Error?.Message}");
+                }
+            }
         }
     }
 
     private void OnIntentEmitted(object? sender, DesktopUiIntentEventArgs e)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         XsrSemanticId command = e.Intent.Command;
         if (command == LaunchRoute)
         {
             ShowLaunch();
             PublishProfileSummary();
-            _refreshTask = RefreshInstancesAsync();
+            _ = QueueRefresh();
+        }
+        else if (command == LaunchPrimaryCommand)
+        {
+            string instanceId = ReadCell(LaunchPageState.SelectedInstanceKey);
+            if (string.IsNullOrWhiteSpace(instanceId))
+            {
+                NavigateToDownload();
+            }
+            else
+            {
+                _ = StartLaunchAsync(instanceId);
+            }
+        }
+        else if (command == LaunchInstancesCommand)
+        {
+            NavigateToDownload();
         }
         else if (command.Value.StartsWith(NavigationCommandPrefix, StringComparison.Ordinal))
         {
             ShowPlaceholder();
-        }
-        else if (command == LaunchStartCommand)
-        {
-            _ = StartLaunchAsync();
         }
     }
 
@@ -170,74 +277,54 @@ internal sealed class LaunchPageController
         }
     }
 
+    private void NavigateToDownload()
+    {
+        _ = _shell.Select(DownloadNavigationId);
+        ShowPlaceholder();
+        Publish(LaunchPageState.StatusKey, "请在安装页选择或下载游戏版本");
+    }
+
     private void PublishProfileSummary()
     {
         IReadOnlyList<LaunchProfileView> profiles = ReadProfiles();
         if (profiles.Count > 0)
         {
-            Publish(LaunchPageStateComposition.ProfileNameKey, profiles[0].Username);
-            Publish(LaunchPageStateComposition.ProfileSummaryKey, AccountReadySummary);
+            Publish(LaunchPageState.ProfileNameKey, profiles[0].Username);
+            Publish(LaunchPageState.ProfileSummaryKey, AccountReadySummary);
         }
         else
         {
-            Publish(LaunchPageStateComposition.ProfileNameKey, NoAccountName);
-            Publish(LaunchPageStateComposition.ProfileSummaryKey, NoAccountSummary);
+            Publish(LaunchPageState.ProfileNameKey, NoAccountName);
+            Publish(LaunchPageState.ProfileSummaryKey, NoAccountSummary);
         }
     }
 
-    private async Task StartLaunchAsync()
+    private async Task StartLaunchAsync(string instanceId)
     {
-        if (_selectedInstance is null)
-        {
-            Publish(LaunchPageStateComposition.StatusKey, "未找到可启动的实例");
-            return;
-        }
-
         IReadOnlyList<LaunchProfileView> profiles = ReadProfiles();
         if (profiles.Count == 0)
         {
-            Publish(LaunchPageStateComposition.StatusKey, AccountNeedLoginSummary);
+            Publish(LaunchPageState.StatusKey, AccountNeedLoginSummary);
             return;
         }
 
-        Publish(LaunchPageStateComposition.StatusKey, "正在启动 Minecraft…");
-        try
+        Publish(LaunchPageState.StatusKey, "正在启动 Minecraft…");
+        if (!_minecraft.Commands.TryResolve(MinecraftRouteIds.Start, out XsrCommandId commandId))
         {
-            string versionJsonPath = Path.Combine(
-                _selectedInstance.DirectoryPath,
-                $"{_selectedInstance.VersionId}.json");
-            JsonObject versionJson = JsonNode.Parse(await File.ReadAllTextAsync(versionJsonPath).ConfigureAwait(true)) as JsonObject
-                ?? throw new InvalidDataException($"The version JSON '{versionJsonPath}' is not an object.");
-
-            LaunchProfileView profile = profiles[0];
-            MinecraftLaunchRequest request = new()
-            {
-                VersionJson = versionJson,
-                VersionId = _selectedInstance.VersionId,
-                InstanceDirectory = _selectedInstance.DirectoryPath,
-                MinecraftRootDirectory = _minecraftRootDirectory,
-                PlayerName = profile.Username,
-                PlayerUuid = profile.Uuid,
-                IdentityMode = MinecraftLaunchIdentityMode.Offline,
-            };
-
-            if (!_minecraft.Commands.TryResolve(MinecraftRouteIds.Launch, out XsrCommandId commandId))
-            {
-                Publish(LaunchPageStateComposition.StatusKey, "启动失败：启动命令未注册。");
-                return;
-            }
-
-            XsrCommandDispatch dispatch = _minecraft.Commands.Dispatch(
-                commandId,
-                new MinecraftLaunchCommand(request));
-            XsrResult result = await dispatch.Completion.ConfigureAwait(true);
-            Publish(
-                LaunchPageStateComposition.StatusKey,
-                result.IsSuccess ? "Minecraft 已启动" : $"启动失败：{result.Error?.Message}");
+            Publish(LaunchPageState.StatusKey, "启动失败：产品启动命令未注册。");
+            return;
         }
-        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException)
+
+        XsrCommandDispatch dispatch = _minecraft.Commands.Dispatch(
+            commandId,
+            new MinecraftStartCommand(instanceId, profiles[0].Index),
+            cancellationToken: _lifetimeCancellation.Token);
+        XsrResult result = await dispatch.Completion.ConfigureAwait(false);
+        if (!_disposed)
         {
-            Publish(LaunchPageStateComposition.StatusKey, $"启动失败：{exception.Message}");
+            Publish(
+                LaunchPageState.StatusKey,
+                result.IsSuccess ? "Minecraft 已启动" : $"启动失败：{result.Error?.Message}");
         }
     }
 
@@ -249,16 +336,8 @@ internal sealed class LaunchPageController
         _store.Publish(_store.Resolve(key), value);
     }
 
-    private void SetLaunchButtonLabel(string label)
-    {
-        if (_pageEntities.TryGetValue("LaunchButton", out XsrUiEntityId button)
-            && _shell.Tree.GetComponent<XsrUiText>(button) is { } text
-            && !string.Equals(text.Content, label, StringComparison.Ordinal))
-        {
-            text.Content = label;
-            _shell.Tree.MarkDirty(button, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
-        }
-    }
+    private string ReadCell(XsrSemanticId key) =>
+        _store.Read<string>(_store.Resolve(key)).Value ?? string.Empty;
 
     private (XsrUiEntityId Page, Dictionary<string, XsrUiEntityId> Entities) LoadLaunchPage()
     {
@@ -274,9 +353,10 @@ internal sealed class LaunchPageController
             page,
             entity =>
             {
-                if (_shell.Tree.GetComponent<XsrUiSemantic>(entity)?.Label is { Length: > 0 } label)
+                string key = _shell.Tree.Name(entity);
+                if (key.Length > 0)
                 {
-                    entities[label] = entity;
+                    entities[key] = entity;
                 }
 
                 return true;
@@ -288,7 +368,7 @@ internal sealed class LaunchPageController
     /// <summary>
     /// Applies the legacy experimental launch-home styling that the PXML control vocabulary
     /// cannot express: card surfaces, section typography, the badge, the picker row, and the
-    /// accent launch button. Labels name the roles; facts stay in state cells.
+    /// accent launch button. PXML keys name internal handles; semantic labels remain human text.
     /// </summary>
     private void StyleLaunchPage(XsrUiEntityId page, Dictionary<string, XsrUiEntityId> entities)
     {
