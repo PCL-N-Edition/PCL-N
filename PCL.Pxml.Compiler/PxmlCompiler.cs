@@ -103,6 +103,9 @@ public static class PxmlCompiler
             case PxmlControlValueKind.SemanticId:
                 builder.Set(property.Target, ParseSemanticId(elementName, property.Name, raw));
                 break;
+            case PxmlControlValueKind.Alignment:
+                builder.Set(property.Target, ParseAlignment(elementName, property.Name, raw));
+                break;
             default:
                 throw new InvalidOperationException(
                     $"The generated control catalog uses unsupported value kind '{property.ValueKind}'.");
@@ -155,6 +158,15 @@ public static class PxmlCompiler
         _ => throw Fail(elementName, propertyName, "needs one of Vertical, Horizontal"),
     };
 
+    private static XsrUiAlignment ParseAlignment(string elementName, string propertyName, string raw) => raw switch
+    {
+        "Stretch" => XsrUiAlignment.Stretch,
+        "Start" => XsrUiAlignment.Start,
+        "Center" => XsrUiAlignment.Center,
+        "End" => XsrUiAlignment.End,
+        _ => throw Fail(elementName, propertyName, "needs one of Stretch, Start, Center, End"),
+    };
+
     private static XsrSemanticId ParseSemanticId(string elementName, string propertyName, string raw)
     {
         // Semantic IDs are validated and parsed here, so the IR carries validated IDs and load
@@ -181,6 +193,13 @@ public static class PxmlCompiler
     {
         private double? _width;
         private double? _height;
+        private double? _minWidth;
+        private double? _maxWidth;
+        private double? _minHeight;
+        private double? _maxHeight;
+        private double _weight;
+        private XsrUiAlignment _horizontalAlignment;
+        private XsrUiAlignment _verticalAlignment;
         private XsrUiThickness _margin;
         private XsrUiThickness _padding;
         private bool _isVisible = true;
@@ -204,6 +223,27 @@ public static class PxmlCompiler
                     break;
                 case PxmlIrPropertyTarget.Height:
                     _height = (double)value;
+                    break;
+                case PxmlIrPropertyTarget.MinWidth:
+                    _minWidth = (double)value;
+                    break;
+                case PxmlIrPropertyTarget.MaxWidth:
+                    _maxWidth = (double)value;
+                    break;
+                case PxmlIrPropertyTarget.MinHeight:
+                    _minHeight = (double)value;
+                    break;
+                case PxmlIrPropertyTarget.MaxHeight:
+                    _maxHeight = (double)value;
+                    break;
+                case PxmlIrPropertyTarget.Weight:
+                    _weight = (double)value;
+                    break;
+                case PxmlIrPropertyTarget.HorizontalAlignment:
+                    _horizontalAlignment = (XsrUiAlignment)value;
+                    break;
+                case PxmlIrPropertyTarget.VerticalAlignment:
+                    _verticalAlignment = (XsrUiAlignment)value;
                     break;
                 case PxmlIrPropertyTarget.Margin:
                     _margin = (XsrUiThickness)value;
@@ -260,6 +300,13 @@ public static class PxmlCompiler
                 Children = children,
                 Width = _width,
                 Height = _height,
+                MinWidth = _minWidth,
+                MaxWidth = _maxWidth,
+                MinHeight = _minHeight,
+                MaxHeight = _maxHeight,
+                Weight = _weight,
+                HorizontalAlignment = _horizontalAlignment,
+                VerticalAlignment = _verticalAlignment,
                 Margin = _margin,
                 Padding = _padding,
                 IsVisible = _isVisible,

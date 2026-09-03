@@ -250,9 +250,14 @@ public sealed class XsrUiRenderer
                     Math.Max(0, contentWidth - padding.Horizontal),
                     Math.Max(0, contentHeight - padding.Vertical));
                 XsrUiSize childDesired = Measure(child, childAvailable);
+                XsrUiThickness childMargin = _tree.GetComponent<XsrUiElement>(child)?.Margin ?? default;
                 bool isMainWidth = stack.Direction == XsrUiOrientation.Horizontal;
-                double childMain = isMainWidth ? childDesired.Width : childDesired.Height;
-                double childCross = isMainWidth ? childDesired.Height : childDesired.Width;
+                double childMain = isMainWidth
+                    ? childDesired.Width + childMargin.Horizontal
+                    : childDesired.Height + childMargin.Vertical;
+                double childCross = isMainWidth
+                    ? childDesired.Height + childMargin.Vertical
+                    : childDesired.Width + childMargin.Horizontal;
                 main += childMain;
                 cross = Math.Max(cross, childCross);
                 children++;
@@ -277,6 +282,9 @@ public sealed class XsrUiRenderer
             height = explicitHeight + padding.Vertical;
         }
 
+        width = ConstrainDimension(width, element?.MinWidth, element?.MaxWidth, padding.Horizontal);
+        height = ConstrainDimension(height, element?.MinHeight, element?.MaxHeight, padding.Vertical);
+
         XsrUiSize desired = new(width, height);
         _desiredSizes[entity.Index] = desired;
         return desired;
@@ -295,8 +303,16 @@ public sealed class XsrUiRenderer
 
         double contentDesiredW = element?.Width ?? Math.Max(0, desired.Width - padding.Horizontal);
         double contentDesiredH = element?.Height ?? Math.Max(0, desired.Height - padding.Vertical);
-        double borderDesiredW = contentDesiredW + padding.Horizontal;
-        double borderDesiredH = contentDesiredH + padding.Vertical;
+        double borderDesiredW = ConstrainDimension(
+            contentDesiredW + padding.Horizontal,
+            element?.MinWidth,
+            element?.MaxWidth,
+            padding.Horizontal);
+        double borderDesiredH = ConstrainDimension(
+            contentDesiredH + padding.Vertical,
+            element?.MinHeight,
+            element?.MaxHeight,
+            padding.Vertical);
 
         // Stretch fills the slot only when no explicit size constrains the axis.
         bool stretchW = (element?.HorizontalAlignment ?? XsrUiAlignment.Stretch) == XsrUiAlignment.Stretch
@@ -304,8 +320,20 @@ public sealed class XsrUiRenderer
         bool stretchH = (element?.VerticalAlignment ?? XsrUiAlignment.Stretch) == XsrUiAlignment.Stretch
             && element?.Height is null;
 
-        double borderW = stretchW ? slotW : Math.Min(slotW, borderDesiredW);
-        double borderH = stretchH ? slotH : Math.Min(slotH, borderDesiredH);
+        double borderW = Math.Min(
+            slotW,
+            ConstrainDimension(
+                stretchW ? slotW : borderDesiredW,
+                element?.MinWidth,
+                element?.MaxWidth,
+                padding.Horizontal));
+        double borderH = Math.Min(
+            slotH,
+            ConstrainDimension(
+                stretchH ? slotH : borderDesiredH,
+                element?.MinHeight,
+                element?.MaxHeight,
+                padding.Vertical));
         XsrUiAlignment horizontal = element?.HorizontalAlignment ?? XsrUiAlignment.Stretch;
         XsrUiAlignment vertical = element?.VerticalAlignment ?? XsrUiAlignment.Stretch;
         double borderX = slotX + (horizontal switch
@@ -365,6 +393,12 @@ public sealed class XsrUiRenderer
         double crossScroll = stack.Direction == XsrUiOrientation.Vertical ? scrollX : scrollY;
         XsrUiEntityId[] visibleChildren = [.. _tree.Children(entity).Where(IsVisible)];
         double availableMain = stack.Direction == XsrUiOrientation.Vertical ? contentHeight : contentWidth;
+        Dictionary<int, double> weightedMainSizes = AllocateWeightedMainSizes(
+            stack.Direction,
+            visibleChildren,
+            availableMain,
+            stack.Spacing);
+        bool hasWeightedChildren = weightedMainSizes.Count != 0;
         double consumedMain = 0;
         for (int childIndex = 0; childIndex < visibleChildren.Length; childIndex++)
         {
@@ -375,10 +409,14 @@ public sealed class XsrUiRenderer
                 : Measure(child, new XsrUiSize(contentWidth, contentHeight));
             XsrUiElement? childElement = _tree.GetComponent<XsrUiElement>(child);
             XsrUiThickness childMargin = childElement?.Margin ?? default;
-            double childMain = stack.Direction == XsrUiOrientation.Vertical
-                ? childDesired.Height + childMargin.Vertical
-                : childDesired.Width + childMargin.Horizontal;
-            if (stack.StretchLastChild && childIndex == visibleChildren.Length - 1)
+            double childMain = weightedMainSizes.TryGetValue(child.Index, out double weightedMain)
+                ? weightedMain
+                : stack.Direction == XsrUiOrientation.Vertical
+                    ? childDesired.Height + childMargin.Vertical
+                    : childDesired.Width + childMargin.Horizontal;
+            if (!hasWeightedChildren
+                && stack.StretchLastChild
+                && childIndex == visibleChildren.Length - 1)
             {
                 childMain = Math.Max(childMain, Math.Max(0, availableMain - consumedMain));
             }
@@ -407,6 +445,121 @@ public sealed class XsrUiRenderer
             consumedMain += childMain + stack.Spacing;
         }
     }
+
+    private Dictionary<int, double> AllocateWeightedMainSizes(
+        XsrUiOrientation direction,
+        XsrUiEntityId[] children,
+        double availableMain,
+        double spacing)
+    {
+        List<WeightedSlot> weighted = [];
+        double remaining = Math.Max(0, availableMain - Math.Max(0, children.Length - 1) * spacing);
+        foreach (XsrUiEntityId child in children)
+        {
+            XsrUiElement? element = _tree.GetComponent<XsrUiElement>(child);
+            double weight = Math.Max(0, element?.Weight ?? 0);
+            XsrUiSize desired = _desiredSizes.TryGetValue(child.Index, out XsrUiSize cached)
+                ? cached
+                : default;
+            XsrUiThickness margin = element?.Margin ?? default;
+            if (weight == 0)
+            {
+                remaining -= direction == XsrUiOrientation.Vertical
+                    ? desired.Height + margin.Vertical
+                    : desired.Width + margin.Horizontal;
+                continue;
+            }
+
+            XsrUiThickness padding = element?.Padding ?? default;
+            double minimum = direction == XsrUiOrientation.Vertical
+                ? ConstraintWithBox(element?.MinHeight, padding.Vertical, margin.Vertical, fallback: 0)
+                : ConstraintWithBox(element?.MinWidth, padding.Horizontal, margin.Horizontal, fallback: 0);
+            double maximum = direction == XsrUiOrientation.Vertical
+                ? ConstraintWithBox(element?.MaxHeight, padding.Vertical, margin.Vertical, double.PositiveInfinity)
+                : ConstraintWithBox(element?.MaxWidth, padding.Horizontal, margin.Horizontal, double.PositiveInfinity);
+            weighted.Add(new WeightedSlot(child.Index, weight, minimum, Math.Max(minimum, maximum)));
+        }
+
+        if (weighted.Count == 0)
+        {
+            return [];
+        }
+
+        Dictionary<int, double> result = [];
+        List<WeightedSlot> unresolved = [.. weighted];
+        remaining = Math.Max(0, remaining);
+        double remainingWeight = unresolved.Sum(slot => slot.Weight);
+        while (unresolved.Count > 0)
+        {
+            double unit = remainingWeight > 0 ? remaining / remainingWeight : 0;
+            int constrainedIndex = -1;
+            double constrainedSize = 0;
+            for (int index = 0; index < unresolved.Count; index++)
+            {
+                WeightedSlot slot = unresolved[index];
+                double proposed = unit * slot.Weight;
+                if (proposed < slot.Minimum)
+                {
+                    constrainedIndex = index;
+                    constrainedSize = slot.Minimum;
+                    break;
+                }
+
+                if (proposed > slot.Maximum)
+                {
+                    constrainedIndex = index;
+                    constrainedSize = slot.Maximum;
+                    break;
+                }
+            }
+
+            if (constrainedIndex < 0)
+            {
+                foreach (WeightedSlot slot in unresolved)
+                {
+                    result[slot.EntityIndex] = unit * slot.Weight;
+                }
+
+                break;
+            }
+
+            WeightedSlot constrained = unresolved[constrainedIndex];
+            result[constrained.EntityIndex] = constrainedSize;
+            remaining = Math.Max(0, remaining - constrainedSize);
+            remainingWeight -= constrained.Weight;
+            unresolved.RemoveAt(constrainedIndex);
+        }
+
+        return result;
+    }
+
+    private static double ConstraintWithBox(
+        double? contentConstraint,
+        double padding,
+        double margin,
+        double fallback) =>
+        contentConstraint is { } value
+            ? Math.Max(0, value) + padding + margin
+            : fallback;
+
+    private static double ConstrainDimension(
+        double value,
+        double? minimumContent,
+        double? maximumContent,
+        double padding)
+    {
+        double minimum = Math.Max(0, minimumContent ?? 0) + padding;
+        double maximum = maximumContent is { } declaredMaximum
+            ? Math.Max(minimum, Math.Max(0, declaredMaximum) + padding)
+            : double.PositiveInfinity;
+        return Math.Clamp(Math.Max(0, value), minimum, maximum);
+    }
+
+    private readonly record struct WeightedSlot(
+        int EntityIndex,
+        double Weight,
+        double Minimum,
+        double Maximum);
 
     private bool IsVisible(XsrUiEntityId entity)
     {

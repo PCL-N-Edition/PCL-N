@@ -46,7 +46,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
 
     private static readonly HashSet<string> ValueKinds = new(StringComparer.Ordinal)
     {
-        "Double", "Thickness", "Boolean", "Orientation", "String", "SemanticId",
+        "Double", "Thickness", "Boolean", "Orientation", "String", "SemanticId", "Alignment",
     };
 
     private static readonly HashSet<string> Recipes = new(StringComparer.Ordinal)
@@ -56,8 +56,10 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
 
     private static readonly HashSet<string> Targets = new(StringComparer.Ordinal)
     {
-        "Width", "Height", "Margin", "Padding", "Visibility", "Label", "Orientation",
-        "Spacing", "StretchLastChild", "Scrollable", "Content", "Command", "Focusable", "Clickable", "ImageSource",
+        "Width", "Height", "MinWidth", "MaxWidth", "MinHeight", "MaxHeight", "Weight",
+        "HorizontalAlignment", "VerticalAlignment", "Margin", "Padding", "Visibility", "Label",
+        "Orientation", "Spacing", "StretchLastChild", "Scrollable", "Content", "Command",
+        "Focusable", "Clickable", "ImageSource",
     };
 
     private static readonly HashSet<string> BindingProperties = new(StringComparer.Ordinal)
@@ -643,6 +645,8 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                         && !double.IsInfinity(thickness));
             case "Orientation":
                 return value == "Vertical" || value == "Horizontal";
+            case "Alignment":
+                return value == "Stretch" || value == "Start" || value == "Center" || value == "End";
             case "SemanticId":
                 return value.Length > 0 && !value.Any(character => char.IsWhiteSpace(character) || char.IsControl(character));
             case "String":
@@ -657,7 +661,10 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
         switch (kind)
         {
             case "Double":
-                return target == "Width" || target == "Height" || target == "Spacing";
+                return target == "Width" || target == "Height"
+                    || target == "MinWidth" || target == "MaxWidth"
+                    || target == "MinHeight" || target == "MaxHeight"
+                    || target == "Weight" || target == "Spacing";
             case "Thickness":
                 return target == "Margin" || target == "Padding";
             case "Boolean":
@@ -665,6 +672,8 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                     || target == "Focusable" || target == "Clickable" || target == "StretchLastChild";
             case "Orientation":
                 return target == "Orientation";
+            case "Alignment":
+                return target == "HorizontalAlignment" || target == "VerticalAlignment";
             case "String":
                 return target == "Label" || target == "Content" || target == "ImageSource";
             case "SemanticId":
@@ -676,8 +685,11 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
 
     private static bool IsTargetSupportedByRecipe(string recipe, string target)
     {
-        if (target == "Width" || target == "Height" || target == "Margin" || target == "Padding"
-            || target == "Visibility" || target == "Label")
+        if (target == "Width" || target == "Height"
+            || target == "MinWidth" || target == "MaxWidth"
+            || target == "MinHeight" || target == "MaxHeight" || target == "Weight"
+            || target == "HorizontalAlignment" || target == "VerticalAlignment"
+            || target == "Margin" || target == "Padding" || target == "Visibility" || target == "Label")
         {
             return true;
         }

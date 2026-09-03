@@ -41,6 +41,20 @@ public sealed record PxmlIrNode
 
     public double? Height { get; init; }
 
+    public double? MinWidth { get; init; }
+
+    public double? MaxWidth { get; init; }
+
+    public double? MinHeight { get; init; }
+
+    public double? MaxHeight { get; init; }
+
+    public double Weight { get; init; }
+
+    public XsrUiAlignment HorizontalAlignment { get; init; }
+
+    public XsrUiAlignment VerticalAlignment { get; init; }
+
     public XsrUiThickness Margin { get; init; }
 
     public XsrUiThickness Padding { get; init; }

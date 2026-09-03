@@ -18,6 +18,7 @@ internal enum PxmlControlValueKind
     Orientation = 4,
     String = 5,
     SemanticId = 6,
+    Alignment = 7,
 }
 
 internal enum PxmlIrPropertyTarget
@@ -37,6 +38,13 @@ internal enum PxmlIrPropertyTarget
     Clickable = 13,
     ImageSource = 14,
     StretchLastChild = 15,
+    MinWidth = 16,
+    MaxWidth = 17,
+    MinHeight = 18,
+    MaxHeight = 19,
+    Weight = 20,
+    HorizontalAlignment = 21,
+    VerticalAlignment = 22,
 }
 
 internal sealed class PxmlControlPropertyModel

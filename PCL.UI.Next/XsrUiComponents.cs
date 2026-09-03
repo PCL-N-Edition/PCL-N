@@ -58,6 +58,20 @@ public sealed class XsrUiElement
 
     public double? Height { get; set; }
 
+    public double? MinWidth { get; set; }
+
+    public double? MaxWidth { get; set; }
+
+    public double? MinHeight { get; set; }
+
+    public double? MaxHeight { get; set; }
+
+    /// <summary>
+    /// Shares the parent's remaining stack-axis space with weighted siblings. Zero keeps the
+    /// element at its desired size; positive values behave like star-sized rows or columns.
+    /// </summary>
+    public double Weight { get; set; }
+
     public XsrUiThickness Margin { get; set; }
 
     public XsrUiThickness Padding { get; set; }
@@ -197,6 +211,14 @@ public enum XsrUiSurfaceKind
     Glass = 3,
 }
 
+/// <summary>Horizontal placement of text inside its scene rectangle.</summary>
+public enum XsrUiTextAlignment
+{
+    Start = 0,
+    Center = 1,
+    End = 2,
+}
+
 /// <summary>
 /// Immutable visual facts copied from an entity into the render scene. The default value means
 /// that the backend should use its own neutral fallback.
@@ -212,7 +234,8 @@ public readonly record struct XsrUiVisualStyleSnapshot(
     double BorderWidth,
     double BlurRadius,
     double FontSize,
-    double FontWeight)
+    double FontWeight,
+    XsrUiTextAlignment TextAlignment)
 {
     public bool IsDefined => Surface != XsrUiSurfaceKind.None || Opacity != 0;
 }
@@ -257,6 +280,8 @@ public sealed class XsrUiVisualStyle
     /// </summary>
     public double FontWeight { get; set; } = 400;
 
+    public XsrUiTextAlignment TextAlignment { get; set; }
+
     public XsrUiVisualStyleSnapshot Snapshot() => new(
         Background,
         Foreground,
@@ -268,7 +293,8 @@ public sealed class XsrUiVisualStyle
         BorderWidth,
         BlurRadius,
         FontSize,
-        FontWeight);
+        FontWeight,
+        TextAlignment);
 }
 
 /// <summary>

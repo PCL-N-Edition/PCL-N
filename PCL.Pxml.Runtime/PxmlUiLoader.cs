@@ -60,6 +60,11 @@ public sealed class PxmlUiLoader
         PxmlIrBinding? visibilityBinding = node.Bindings.FirstOrDefault(
             binding => binding.Property == XsrUiStateProperty.Visibility);
         if (node.Width is not null || node.Height is not null
+            || node.MinWidth is not null || node.MaxWidth is not null
+            || node.MinHeight is not null || node.MaxHeight is not null
+            || node.Weight != 0
+            || node.HorizontalAlignment != XsrUiAlignment.Stretch
+            || node.VerticalAlignment != XsrUiAlignment.Stretch
             || node.Margin != default || node.Padding != default || !node.IsVisible
             || visibilityBinding is not null)
         {
@@ -67,6 +72,13 @@ public sealed class PxmlUiLoader
             {
                 Width = node.Width,
                 Height = node.Height,
+                MinWidth = node.MinWidth,
+                MaxWidth = node.MaxWidth,
+                MinHeight = node.MinHeight,
+                MaxHeight = node.MaxHeight,
+                Weight = node.Weight,
+                HorizontalAlignment = node.HorizontalAlignment,
+                VerticalAlignment = node.VerticalAlignment,
                 Margin = node.Margin,
                 Padding = node.Padding,
                 IsVisible = node.IsVisible,

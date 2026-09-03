@@ -45,7 +45,7 @@ children=false
 property=Focusable|Boolean|Focusable|None|None|false|true
 ```
 
-`recipe` maps a control onto one of the loader's finite renderer-component recipes (`Element`, `StackLayout`, `Text`, `CommandInput`, or `Image`); the loader never branches on a control name. `children` declares whether the control accepts child elements. A property row is `Name|ValueKind|IrTarget|BindingProperty|DirtyKinds|Required|Default`. Empty defaults are allowed. Names and IDs are unique; IDs are positive and contiguous. Invalid kinds, targets, roles, recipes, bindings, binding-to-target/dirty-kind combinations, defaults, duplicate properties, and duplicate IR targets are generator errors.
+`recipe` maps a control onto one of the loader's finite renderer-component recipes (`Element`, `StackLayout`, `Text`, `CommandInput`, or `Image`); the loader never branches on a control name. `children` declares whether the control accepts child elements. A property row is `Name|ValueKind|IrTarget|BindingProperty|DirtyKinds|Required|Default`. Empty defaults are allowed. The shared element property set includes explicit/minimum/maximum size, stack weight, margin/padding, and horizontal/vertical alignment; `Alignment` literals are the closed `Stretch`, `Start`, `Center`, and `End` set. Names and IDs are unique; IDs are positive and contiguous. Invalid kinds, targets, roles, recipes, bindings, binding-to-target/dirty-kind combinations, defaults, duplicate properties, and duplicate IR targets are generator errors.
 
 ## Review fixes folded into the model
 

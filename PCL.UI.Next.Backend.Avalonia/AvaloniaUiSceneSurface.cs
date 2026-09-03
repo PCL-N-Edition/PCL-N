@@ -770,8 +770,14 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
             new Typeface(FontFamily.Default, FontStyle.Normal, weight),
             fontSize,
             foreground);
+        double alignedX = style.TextAlignment switch
+        {
+            XsrUiTextAlignment.Center => Math.Max(x, (Bounds.Width - formatted.Width) / 2),
+            XsrUiTextAlignment.End => Math.Max(x, Bounds.Width - formatted.Width),
+            _ => x,
+        };
         double y = Math.Max(0, (Bounds.Height - formatted.Height) / 2);
-        context.DrawText(formatted, new Point(x, y));
+        context.DrawText(formatted, new Point(alignedX, y));
     }
 
     protected override Size MeasureOverride(Size availableSize) => availableSize;

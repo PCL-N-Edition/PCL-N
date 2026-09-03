@@ -140,6 +140,26 @@ internal static partial class Program
         AssertEqual(4, text.Padding.Bottom);
     }
 
+    private static void CompileWeightedConstrainedAlignment()
+    {
+        PxmlHostIr ir = Compile("""
+            <Page xmlns="N">
+              <StackPanel Weight="0.92" MinWidth="240" MaxWidth="360"
+                          MinHeight="100" MaxHeight="420"
+                          HorizontalAlignment="End" VerticalAlignment="Center" />
+            </Page>
+            """);
+
+        PxmlIrNode stack = ir.Root.Children[0];
+        AssertEqual(0.92, stack.Weight);
+        AssertEqual(240, stack.MinWidth!.Value);
+        AssertEqual(360, stack.MaxWidth!.Value);
+        AssertEqual(100, stack.MinHeight!.Value);
+        AssertEqual(420, stack.MaxHeight!.Value);
+        AssertEqual(XsrUiAlignment.End, stack.HorizontalAlignment);
+        AssertEqual(XsrUiAlignment.Center, stack.VerticalAlignment);
+    }
+
     private static void CompileRejectsUnknownElementAndProperty()
     {
         AssertThrows<PxmlCompileException>(() => Compile("""

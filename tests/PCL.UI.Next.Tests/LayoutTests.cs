@@ -110,6 +110,109 @@ internal static partial class Program
         AssertEqual(new XsrUiRect(700, 40, 100, 40), scene[2].Rect);
     }
 
+    private static void WeightedStackDistributesStarSlotsAndHonorsLimits()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Horizontal) { Spacing = 20 });
+        XsrUiEntityId left = tree.Create("left");
+        tree.SetComponent(left, new XsrUiElement
+        {
+            Weight = 0.92,
+            MinWidth = 240,
+            MaxWidth = 360,
+        });
+        XsrUiEntityId right = tree.Create("right");
+        tree.SetComponent(right, new XsrUiElement
+        {
+            Weight = 1.35,
+            MinWidth = 280,
+        });
+        tree.Attach(left, root);
+        tree.Attach(right, root);
+
+        XsrUiRenderer renderer = new(tree, store) { Viewport = new XsrUiSize(1000, 200) };
+        renderer.SetRoot(root);
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(new XsrUiRect(0, 0, 360, 200), scene[1].Rect);
+        AssertEqual(new XsrUiRect(380, 0, 620, 200), scene[2].Rect);
+    }
+
+    private static void WeightedStackFillsRemainingVerticalSpace()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical) { Spacing = 12 });
+        XsrUiEntityId fixedCard = tree.Create("fixed");
+        tree.SetComponent(fixedCard, new XsrUiElement { Height = 100 });
+        XsrUiEntityId remainingCard = tree.Create("remaining");
+        tree.SetComponent(remainingCard, new XsrUiElement { Weight = 1 });
+        tree.Attach(fixedCard, root);
+        tree.Attach(remainingCard, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(new XsrUiRect(0, 0, 800, 100), scene[1].Rect);
+        AssertEqual(new XsrUiRect(0, 112, 800, 488), scene[2].Rect);
+    }
+
+    private static void MaximumSizeAndEndAlignmentConstrainPaintRect()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        XsrUiEntityId child = tree.Create("child");
+        tree.SetComponent(child, new XsrUiElement
+        {
+            Width = 500,
+            Height = 300,
+            MaxWidth = 360,
+            MaxHeight = 200,
+            HorizontalAlignment = XsrUiAlignment.End,
+            VerticalAlignment = XsrUiAlignment.End,
+        });
+        tree.Attach(child, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(new XsrUiRect(440, 400, 360, 200), scene[1].Rect);
+    }
+
+    private static void StackMeasurementIncludesChildMargins()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        XsrUiEntityId nested = tree.Create("nested");
+        tree.SetComponent(nested, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        XsrUiEntityId inset = tree.Create("inset");
+        tree.SetComponent(inset, new XsrUiElement
+        {
+            Height = 20,
+            Margin = new XsrUiThickness(0, 5, 0, 7),
+        });
+        XsrUiEntityId following = tree.Create("following");
+        tree.SetComponent(following, new XsrUiElement { Height = 10 });
+        tree.Attach(nested, root);
+        tree.Attach(following, root);
+        tree.Attach(inset, nested);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(new XsrUiRect(0, 5, 800, 20), scene[2].Rect);
+        AssertEqual(new XsrUiRect(0, 32, 800, 10), scene[3].Rect);
+    }
+
     private static void InvisibleEntitiesLeaveSceneAndLayout()
     {
         XsrUiTree tree = new();

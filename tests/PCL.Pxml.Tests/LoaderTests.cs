@@ -97,6 +97,31 @@ internal static partial class Program
         AssertTrue(renderer.Render().Nodes.Any(node => node.Text == "conditional"));
     }
 
+    private static void LoadedWeightedLayoutFactsDriveRendering()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = BuildStore();
+        XsrUiEntityId root = PxmlUiLoader.Load(
+            Compile("""
+                <Page xmlns="N">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <StackPanel Label="left" Weight="1" MinWidth="200" MaxWidth="300" />
+                    <StackPanel Label="right" Weight="2" MinWidth="280" />
+                  </StackPanel>
+                </Page>
+                """),
+            tree,
+            store,
+            tree.Create("load-root"));
+        XsrUiRenderer renderer = new(tree, store) { Viewport = new XsrUiSize(1000, 100) };
+        renderer.SetRoot(root);
+
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(new XsrUiRect(0, 0, 300, 100), scene.Nodes.First(node => node.Label == "left").Rect);
+        AssertEqual(new XsrUiRect(310, 0, 690, 100), scene.Nodes.First(node => node.Label == "right").Rect);
+    }
+
     private static void LoaderRejectsUnknownStatePaths()
     {
         XsrUiTree tree = new();
