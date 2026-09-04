@@ -30,6 +30,7 @@ internal static partial class Program
         ("maximum size and end alignment constrain paint rect", Sync(MaximumSizeAndEndAlignmentConstrainPaintRect)),
         ("stack measurement includes child margins", Sync(StackMeasurementIncludesChildMargins)),
         ("invisible entities leave scene and layout", Sync(InvisibleEntitiesLeaveSceneAndLayout)),
+        ("hidden list mutations invalidate cached layout before reopening", Sync(HiddenListMutationsInvalidateLayout)),
         ("clean tree returns same scene", Sync(CleanTreeReturnsSameScene)),
         ("dirty leaf relayouts only its subtree", Sync(DirtyLeafRelayoutsOnlyItsSubtree)),
         ("sibling rects follow slot changes", Sync(SiblingRectsFollowSlotChanges)),

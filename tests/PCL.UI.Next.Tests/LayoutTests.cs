@@ -235,6 +235,45 @@ internal static partial class Program
         AssertEqual(new XsrUiRect(0, 0, 100, 40), scene[1].Rect);
     }
 
+    private static void HiddenListMutationsInvalidateLayout()
+    {
+        XsrUiTree tree = new();
+        XsrUiRenderer renderer = new(tree, new XsrStateStoreBuilder().Build());
+        XsrUiEntityId root = tree.Create("root"), panel = tree.Create("panel"), rows = tree.Create("rows");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        tree.SetComponent(panel, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        tree.SetComponent(rows, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        XsrUiElement visibility = new() { Weight = 1 };
+        tree.SetComponent(panel, visibility);
+        tree.SetComponent(rows, new XsrUiElement { Weight = 1 });
+        tree.Attach(panel, root); tree.Attach(rows, panel);
+        renderer.SetRoot(root);
+        _ = renderer.Render(); // caches an empty list
+        visibility.IsVisible = false;
+        tree.MarkDirty(panel, XsrUiDirtyKinds.Layout);
+        _ = renderer.Render();
+        XsrUiEntityId row = tree.Create("new row");
+        tree.SetComponent(row, new XsrUiElement { Height = 56 });
+        tree.Attach(row, rows);
+        XsrUiScene hidden = renderer.Render();
+        AssertFalse(hidden.Nodes.Any(node => node.Entity == row));
+        AssertTrue(ReferenceEquals(hidden, renderer.Render())); // no hidden-dirt frame loop
+        visibility.IsVisible = true;
+        tree.MarkDirty(panel, XsrUiDirtyKinds.Layout);
+        AssertEqual(56d, renderer.Render().Nodes.Single(node => node.Entity == row).Rect.Height);
+        visibility.IsVisible = false;
+        tree.MarkDirty(panel, XsrUiDirtyKinds.Layout);
+        _ = renderer.Render();
+        tree.Destroy(row);
+        XsrUiEntityId replacement = tree.Create("replacement");
+        tree.SetComponent(replacement, new XsrUiElement { Height = 72 });
+        tree.Attach(replacement, rows);
+        _ = renderer.Render();
+        visibility.IsVisible = true;
+        tree.MarkDirty(panel, XsrUiDirtyKinds.Layout);
+        AssertEqual(72d, renderer.Render().Nodes.Single(node => node.Entity == replacement).Rect.Height);
+    }
+
     private static void CleanTreeReturnsSameScene()
     {
         XsrUiRenderer renderer = BuildSingleLeafRenderer(out XsrUiScene first);

@@ -41,7 +41,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
     private static readonly HashSet<string> Roles = new(StringComparer.Ordinal)
     {
         "None", "Text", "Button", "Page", "List", "ListItem", "Image", "ProgressBar", "Dialog",
-        "TitleBar", "Navigation", "NavigationItem", "Content",
+        "TitleBar", "Navigation", "NavigationItem", "Content", "TextInput",
     };
 
     private static readonly HashSet<string> ValueKinds = new(StringComparer.Ordinal)
@@ -51,7 +51,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
 
     private static readonly HashSet<string> Recipes = new(StringComparer.Ordinal)
     {
-        "Element", "StackLayout", "Text", "CommandInput", "Image", "VerticalPager",
+        "Element", "StackLayout", "Text", "CommandInput", "Image", "VerticalPager", "TextInput",
     };
 
     private static readonly HashSet<string> Targets = new(StringComparer.Ordinal)
@@ -59,7 +59,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
         "Width", "Height", "MinWidth", "MaxWidth", "MinHeight", "MaxHeight", "Weight",
         "HorizontalAlignment", "VerticalAlignment", "Margin", "Padding", "Visibility", "Label",
         "Orientation", "Spacing", "StretchLastChild", "Scrollable", "Content", "Command",
-        "Focusable", "Clickable", "ImageSource", "Key",
+        "Focusable", "Clickable", "ImageSource", "Key", "Placeholder", "IsPassword", "Enabled",
     };
 
     private static readonly HashSet<string> BindingProperties = new(StringComparer.Ordinal)
@@ -678,14 +678,14 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                 return target == "Margin" || target == "Padding";
             case "Boolean":
                 return target == "Visibility" || target == "Scrollable"
-                    || target == "Focusable" || target == "Clickable" || target == "StretchLastChild";
+                    || target == "Focusable" || target == "Clickable" || target == "StretchLastChild" || target == "IsPassword" || target == "Enabled";
             case "Orientation":
                 return target == "Orientation";
             case "Alignment":
                 return target == "HorizontalAlignment" || target == "VerticalAlignment";
             case "String":
                 return target == "Label" || target == "Content" || target == "ImageSource"
-                    || target == "Key";
+                    || target == "Key" || target == "Placeholder";
             case "SemanticId":
                 return target == "Command";
             default:
@@ -719,6 +719,8 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                     || target == "Content" || target == "ImageSource";
             case "Image":
                 return target == "ImageSource";
+            case "TextInput":
+                return target == "Placeholder" || target == "IsPassword" || target == "Enabled";
             default:
                 return false;
         }

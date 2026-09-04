@@ -7,7 +7,7 @@ internal static partial class Program
     private static void GeneratedControlCatalogIsCompleteAndDeterministic()
     {
         AssertSequence(
-            ["Page", "StackPanel", "Text", "Button", "Image", "Shell", "TitleBar", "Navigation", "NavigationItem", "ContentHost", "VerticalPager"],
+            ["Page", "StackPanel", "Text", "Button", "Image", "Shell", "TitleBar", "Navigation", "NavigationItem", "ContentHost", "VerticalPager", "TextInput"],
             PxmlControlCatalog.Names.ToArray());
         AssertEqual(1, (int)PxmlIrNodeKind.Page);
         AssertEqual(2, (int)PxmlIrNodeKind.StackPanel);
@@ -20,6 +20,7 @@ internal static partial class Program
         AssertEqual(9, (int)PxmlIrNodeKind.NavigationItem);
         AssertEqual(10, (int)PxmlIrNodeKind.ContentHost);
         AssertEqual(11, (int)PxmlIrNodeKind.VerticalPager);
+        AssertEqual(12, (int)PxmlIrNodeKind.TextInput);
 
         if (PxmlControlCatalog.Names is IList<string> names)
         {

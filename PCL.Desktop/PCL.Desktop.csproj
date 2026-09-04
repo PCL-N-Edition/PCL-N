@@ -8,6 +8,8 @@
     <EmbeddedResource Include="Ui/Shell.pxml" />
     <EmbeddedResource Include="Ui/LaunchPage.pxml" />
     <EmbeddedResource Include="Ui/AccountProfileRow.pxml" />
+    <EmbeddedResource Include="Ui/AccountForm.pxml" />
+    <EmbeddedResource Include="Ui/AccountChoiceRow.pxml" />
     <EmbeddedResource Include="Ui/VersionSubpage.pxml" />
     <EmbeddedResource Include="Assets/icon.png" />
     <EmbeddedResource Include="Assets/icon.ico" />

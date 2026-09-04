@@ -16,6 +16,7 @@ public enum PxmlRuntimeRecipe
     CommandInput = 4,
     Image = 5,
     VerticalPager = 6,
+    TextInput = 7,
 }
 
 /// <summary>
@@ -89,6 +90,9 @@ public sealed record PxmlIrNode
     public XsrSemanticId? Command { get; init; }
 
     public string? ImageSource { get; init; }
+    public string? Placeholder { get; init; }
+    public bool IsPassword { get; init; }
+    public bool Enabled { get; init; } = true;
 
     public IReadOnlyList<PxmlIrBinding> Bindings { get; init; } = [];
 }

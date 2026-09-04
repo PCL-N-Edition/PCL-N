@@ -18,6 +18,10 @@ internal static class LaunchPageState
     public static readonly XsrSemanticId AccountSelectedVisibleKey = XsrSemanticId.Parse("launch.account.selected-visible");
     public static readonly XsrSemanticId AccountCanReturnKey = XsrSemanticId.Parse("launch.account.can-return");
     public static readonly XsrSemanticId AccountHintKey = XsrSemanticId.Parse("launch.account.hint");
+    public static readonly XsrSemanticId AccountHintVisibleKey = XsrSemanticId.Parse("launch.account.hint-visible");
+    public static readonly XsrSemanticId AccountTitleKey = XsrSemanticId.Parse("launch.account.title");
+    public static readonly XsrSemanticId AccountBackVisibleKey = XsrSemanticId.Parse("launch.account.back-visible");
+    public static readonly XsrSemanticId AccountAddVisibleKey = XsrSemanticId.Parse("launch.account.add-visible");
     public static readonly XsrSemanticId InstanceSummaryKey = XsrSemanticId.Parse("launch.instance.summary");
     public static readonly XsrSemanticId InstanceAvailableKey = XsrSemanticId.Parse("launch.instance.available");
     public static readonly XsrSemanticId SelectedInstanceKey = XsrSemanticId.Parse("launch.selected.instance");
@@ -32,6 +36,7 @@ internal static class LaunchPageState
     public static void DeclareState(XsrStateStoreBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
+        AccountFormState.DeclareState(builder);
         builder.Cell<string>(ProfileNameKey, OwnerName);
         builder.Cell<string>(ProfileKindKey, OwnerName);
         builder.Cell<bool>(AccountPickerKey, OwnerName);
@@ -39,6 +44,10 @@ internal static class LaunchPageState
         builder.Cell<bool>(AccountSelectedVisibleKey, OwnerName);
         builder.Cell<bool>(AccountCanReturnKey, OwnerName);
         builder.Cell<string>(AccountHintKey, OwnerName);
+        builder.Cell<bool>(AccountHintVisibleKey, OwnerName);
+        builder.Cell<string>(AccountTitleKey, OwnerName);
+        builder.Cell<bool>(AccountBackVisibleKey, OwnerName);
+        builder.Cell<bool>(AccountAddVisibleKey, OwnerName);
         builder.Cell<string>(InstanceSummaryKey, OwnerName);
         builder.Cell<bool>(InstanceAvailableKey, OwnerName);
         builder.Cell<string>(SelectedInstanceKey, OwnerName);

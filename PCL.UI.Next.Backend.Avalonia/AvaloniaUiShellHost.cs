@@ -16,15 +16,17 @@ namespace PCL.UI.Next.Backend.Avalonia;
 public static class AvaloniaUiShellHost
 {
     private static XsrUiShell? _shell;
+    private static AvaloniaUiPlatformActions? _platformActions;
 
     /// <summary>
     /// Builds an Avalonia app configured for the supplied shell. Keeping this separate from
     /// <see cref="Run"/> makes the composition edge testable without starting a native loop.
     /// </summary>
-    public static AppBuilder Build(XsrUiShell shell)
+    public static AppBuilder Build(XsrUiShell shell, AvaloniaUiPlatformActions? platformActions = null)
     {
         ArgumentNullException.ThrowIfNull(shell);
         _shell = shell;
+        _platformActions = platformActions;
         return AppBuilder.Configure<ShellApplication>().UsePlatformDetect();
     }
 
@@ -32,9 +34,9 @@ public static class AvaloniaUiShellHost
     /// Starts the classic desktop lifetime: splash first, then the shell window with the splash
     /// dismissing on top of it.
     /// </summary>
-    public static int Run(XsrUiShell shell, string[]? args = null)
+    public static int Run(XsrUiShell shell, string[]? args = null, AvaloniaUiPlatformActions? platformActions = null)
     {
-        return Build(shell).StartWithClassicDesktopLifetime(args ?? []);
+        return Build(shell, platformActions).StartWithClassicDesktopLifetime(args ?? []);
     }
 
     private static XsrUiShell CurrentShell =>
@@ -68,11 +70,12 @@ public static class AvaloniaUiShellHost
             {
                 // A second stream per consumer: the splash, the taskbar icon, and the
                 // close-collapse overlay each decode their own copy of the product icon.
-                AvaloniaUiShellLifetime.Compose(
+                AvaloniaUiShellWindow window = AvaloniaUiShellLifetime.Compose(
                     desktop,
                     CurrentShell,
                     TryOpenProductAsset("PCL.Desktop.Assets.icon.png"),
                     TryOpenProductAsset("PCL.Desktop.Assets.icon.png"));
+                _platformActions?.Attach(window);
             }
 
             base.OnFrameworkInitializationCompleted();

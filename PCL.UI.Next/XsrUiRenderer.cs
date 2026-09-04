@@ -131,6 +131,21 @@ public sealed partial class XsrUiRenderer
 
         Layout(_root, new XsrUiRect(0, 0, _viewport.Width, _viewport.Height));
 
+        // Hidden subtrees were not measured this frame. Their dirt is still acknowledged below,
+        // so discard stale layout caches first: a later visibility change must measure new rows
+        // rather than reuse the empty/old list's desired size and recycled entity rectangles.
+        _tree.Walk(_root, entity =>
+        {
+            if (_tree.HasDirtyLayoutSubtree(entity) && !_measuredThisPass.Contains(entity.Index))
+            {
+                _desiredSizes.Remove(entity.Index);
+                _stackContentSizes.Remove(entity.Index);
+                _arrangedSlots.Remove(entity.Index);
+                _paintRects.Remove(entity.Index);
+            }
+            return true;
+        }, entity => _tree.HasDirtyLayoutSubtree(entity));
+
         XsrUiSceneNode[] nodes = CollectNodes(_root, depth: 0);
         _sceneVersion++;
         _scene = new XsrUiScene(_sceneVersion, nodes);
@@ -655,6 +670,8 @@ public sealed partial class XsrUiRenderer
         bool pagerGesture = BeginPagerGesture(point);
         XsrUiEntityId entity = InputAt(point);
         XsrUiInput? input = entity.IsAssigned ? _tree.GetComponent<XsrUiInput>(entity) : null;
+        if (entity.IsAssigned && _tree.GetComponent<XsrUiTextInput>(entity) is not null && IsEnabled(input))
+            return Focus(entity, showIndicator: false);
         if (entity.IsAssigned && input is { Clickable: true } && IsEnabled(input))
         {
             _ = Focus(entity, showIndicator: false);
@@ -735,7 +752,11 @@ public sealed partial class XsrUiRenderer
     /// Moves keyboard focus to the next focusable entity in scene (tab) order, wrapping around.
     /// Returns false when no focusable entity exists.
     /// </summary>
-    public bool FocusNext()
+    public bool FocusNext() => MoveFocus(1);
+
+    public bool FocusPrevious() => MoveFocus(-1);
+
+    private bool MoveFocus(int step)
     {
         if (_scene is null)
         {
@@ -762,7 +783,7 @@ public sealed partial class XsrUiRenderer
         }
 
         int currentIndex = focusable.FindIndex(entity => entity.Equals(_focused));
-        int next = (currentIndex + 1) % focusable.Count;
+        int next = (currentIndex + step + focusable.Count) % focusable.Count;
         return Focus(focusable[next]);
     }
 
@@ -878,8 +899,8 @@ public sealed partial class XsrUiRenderer
         return true;
     }
 
-    private bool IsEnabled(XsrUiInput? input) => input is null || !input.BoundEnabled.IsAssigned
-        || _state.ReadAppliedValue(input.BoundEnabled) is true;
+    private bool IsEnabled(XsrUiInput? input) => input is null || (input.Enabled
+        && (!input.BoundEnabled.IsAssigned || _state.ReadAppliedValue(input.BoundEnabled) is true));
 
     private bool IsInVisibleTree(XsrUiEntityId entity)
     {
@@ -970,7 +991,8 @@ public sealed partial class XsrUiRenderer
             enabled && (input?.IsFocusVisible ?? false),
             input?.CapsuleExpansionProgress ?? 0,
             _tree.GetComponent<XsrUiPager>(entity)?.Snapshot(),
-            accessible));
+            accessible,
+            _tree.GetComponent<XsrUiTextInput>(entity)?.Snapshot()));
 
         XsrUiPager? pageContainer = _tree.GetComponent<XsrUiPager>(entity);
         XsrUiRect? childClip = pageContainer is not null || _tree.GetComponent<XsrUiScroll>(entity) is not null

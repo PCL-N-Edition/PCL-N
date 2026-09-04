@@ -23,6 +23,7 @@ internal static partial class Program
         // XSR-208: PXML to UI.Next IR compilation.
         ("generated control catalog is complete and deterministic", GeneratedControlCatalogIsCompleteAndDeterministic),
         ("vertical pager compiles loads and routes keyboard pages", VerticalPagerCompilesLoadsAndRoutesKeyboardPages),
+        ("text input drafts never expose passwords", TextInputDraftsNeverExposePasswords),
         ("compile simple page", CompileSimplePage),
         ("compile text state binding", CompileTextStateBinding),
         ("compile visibility binding", CompileVisibilityBinding),

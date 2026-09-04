@@ -4,6 +4,9 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("profile imports validate deduplicate and persist before publication", Sync(ProfileImportIsValidatedDeduplicatedAndDurable)),
+        ("legacy import never repairs or writes source data", LegacyImportNeverRepairsOrWritesSource),
+        ("account authorization addresses stay on provider origins", Sync(AccountAuthorizationUrlsStayOnProviderOrigins)),
         // XSR-501: settings capability contract.
         ("schema defaults are visible and available", Sync(SchemaDefaultsAreVisibleAndAvailable)),
         ("set then get round trips every type", SetThenGetRoundTripsEveryType),

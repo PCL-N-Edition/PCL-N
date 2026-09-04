@@ -19,7 +19,7 @@ namespace PCL.UI.Next.Backend.Avalonia;
 /// animated inside UI.Next itself, so the scene, the hit test, and the drawn frame always share
 /// one geometry.
 /// </summary>
-public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
+public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
 {
     private readonly XsrUiShell _shell;
     private readonly object _commitGate = new();
@@ -202,6 +202,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         XsrUiPoint point = new(position.X, position.Y);
         bool handled = _shell.Renderer.PointerPressed(point);
         CommitScene();
+        BeginTextSelection(position, e.ClickCount);
         if (handled)
         {
             e.Pointer.Capture(this);
@@ -221,6 +222,8 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         base.OnPointerReleased(e);
         Point position = e.GetPosition(this);
         bool handled = _shell.Renderer.PointerReleased(new XsrUiPoint(position.X, position.Y));
+        handled |= _textSelecting.IsAssigned;
+        _textSelecting = default;
         e.Pointer.Capture(null);
         CommitScene();
         e.Handled = handled;
@@ -230,6 +233,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     {
         base.OnPointerMoved(e);
         Point position = e.GetPosition(this);
+        if (ExtendTextSelection(position)) return;
         if (_shell.Renderer.PointerMoved(new XsrUiPoint(position.X, position.Y)))
         {
             CommitScene();
@@ -249,6 +253,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
     {
         base.OnPointerCaptureLost(e);
+        _textSelecting = default;
         if (_shell.Renderer.CancelPointerGesture()) CommitScene();
     }
 
@@ -269,6 +274,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+        if (HandleTextEditingKey(e)) { e.Handled = true; return; }
         XsrUiKey? key = e.Key switch
         {
             Key.Tab => XsrUiKey.Tab,
@@ -311,7 +317,11 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
                 control = new AvaloniaUiSceneNodeControl(
                     RouteAutomationFocus,
                     RouteAutomationInvoke,
-                    () => _shell.Renderer.ReducedMotion);
+                    () => _shell.Renderer.ReducedMotion,
+                    new AvaloniaUiTextInputActions(
+                        (entity, value) => { _shell.Renderer.SetTextInputValue(entity, value); CommitScene(); },
+                        (entity, start, end) => { _shell.Renderer.SetTextSelection(entity, start, end); CommitScene(); },
+                        (entity, value) => { _shell.Renderer.SetTextPreedit(entity, value); CommitScene(); }));
                 _controls.Add(node.Entity, control);
                 Children.Add(control);
             }
@@ -551,7 +561,7 @@ public sealed class AvaloniaUiSceneCommittedEventArgs(XsrUiScene scene) : EventA
 /// press, and selection presentation animate between scene facts; reduced motion applies every
 /// fact immediately.
 /// </summary>
-internal sealed class AvaloniaUiSceneNodeControl : Control
+internal sealed partial class AvaloniaUiSceneNodeControl : Control
 {
     private const double CollapsedRailCenteringWidth = 50;
     private const double PillWidth = 5;
@@ -589,7 +599,8 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     internal AvaloniaUiSceneNodeControl(
         Action<XsrUiEntityId> focusFromAutomation,
         Action<XsrUiEntityId> invokeFromAutomation,
-        Func<bool> reducedMotion)
+        Func<bool> reducedMotion,
+        AvaloniaUiTextInputActions? textInputActions = null)
     {
         _focusFromAutomation = focusFromAutomation ?? throw new ArgumentNullException(nameof(focusFromAutomation));
         _invokeFromAutomation = invokeFromAutomation ?? throw new ArgumentNullException(nameof(invokeFromAutomation));
@@ -599,6 +610,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         ClipToBounds = true;
         RenderTransform = _pressScale;
         RenderTransformOrigin = RelativePoint.Center;
+        InitializeTextInput(textInputActions);
     }
 
     private double HoverOpacity
@@ -637,6 +649,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     {
         XsrUiSceneNode previous = _node;
         _node = node;
+        UpdateTextInput(previous.TextInput, node.TextInput);
         IsEnabled = node.IsEnabled;
         Focusable = node.IsFocusable;
         Clip = node.ClipRect is { } clip
@@ -828,6 +841,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
 
     protected override AutomationPeer OnCreateAutomationPeer()
     {
+        if (_node.TextInput is not null) return new AvaloniaUiSceneTextAutomationPeer(this);
         if (_node.Role == XsrUiSemanticRole.Navigation)
         {
             return new AvaloniaUiSceneNavigationAutomationPeer(this);
@@ -919,6 +933,11 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         }
 
         DrawHoverOverlay(context, rect, style);
+        if (_node.TextInput is { } textInput)
+        {
+            DrawTextInput(context, rect, style, textInput);
+            return;
+        }
 
         // Collapsed rail items center the vector icon and hide the label; expanded rail rows
         // keep the icon exactly where the collapsed state centered it (past the selection
@@ -1160,6 +1179,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         XsrUiSemanticRole.Navigation => AutomationControlType.List,
         XsrUiSemanticRole.TitleBar => AutomationControlType.TitleBar,
         XsrUiSemanticRole.Text => AutomationControlType.Text,
+        XsrUiSemanticRole.TextInput => AutomationControlType.Edit,
         XsrUiSemanticRole.Image => AutomationControlType.Image,
         XsrUiSemanticRole.ProgressBar => AutomationControlType.ProgressBar,
         XsrUiSemanticRole.Dialog => AutomationControlType.Window,

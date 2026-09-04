@@ -167,6 +167,8 @@ internal sealed class LaunchPageController : IDisposable
         }
     }
 
+    internal XsrUiEntityId AccountBody => _pageEntities["AccountBody"];
+
     /// <summary>
     /// Re-queries the installed instances and re-commits the version card facts. Exposed for
     /// tests so the asynchronous scan can be awaited deterministically.
@@ -526,12 +528,20 @@ internal sealed class LaunchPageController : IDisposable
 
         bool hasSelection = roster.Items.Any(profile => profile.Index == selected);
         bool picker = !hasSelection || _store.ReadAppliedValue(_store.Resolve(LaunchPageState.AccountPickerKey)) is true;
-        Publish(LaunchPageState.AccountRosterVisibleKey, picker);
-        Publish(LaunchPageState.AccountSelectedVisibleKey, !picker);
+        bool onboarding = _store.ReadAppliedValue(_store.Resolve(AccountFormState.Open)) is true;
+        Publish(LaunchPageState.AccountRosterVisibleKey, picker && !onboarding);
+        Publish(LaunchPageState.AccountSelectedVisibleKey, !picker && !onboarding);
         Publish(LaunchPageState.AccountCanReturnKey, hasSelection);
-        Publish(LaunchPageState.AccountHintKey, roster.Count == 0
-            ? "还没有账户档案。\n请先创建或导入档案。"
-            : "选择用于启动游戏的档案");
+        Publish(LaunchPageState.AccountTitleKey, onboarding
+            ? _store.ReadAppliedValue(_store.Resolve(AccountFormState.Key("title"))) as string ?? "添加账户"
+            : picker && hasSelection ? "切换档案" : "账户");
+        Publish(LaunchPageState.AccountBackVisibleKey, onboarding || (picker && hasSelection));
+        Publish(LaunchPageState.AccountAddVisibleKey, !onboarding);
+        Publish(LaunchPageState.AccountHintVisibleKey, roster.Count == 0 || roster.Availability == XsrStateAvailability.Unavailable);
+        Publish(LaunchPageState.AccountHintKey, roster.Availability == XsrStateAvailability.Unavailable
+            ? "账户档案读取失败。\n请检查文件或导入备份。" : roster.Count == 0
+            ? "还没有账户档案。\n点击上方＋添加，或导入旧档案。"
+            : string.Empty);
         if (_presentedAccountPicker is { } previous && previous != picker
             && _shell.Stage.Navigation.Current == _launchPage)
         {
@@ -749,7 +759,7 @@ internal sealed class LaunchPageController : IDisposable
         StyleCard(entities, "CardAccount", cornerRadius: XsrUiCornerRadii.Surface);
         StyleCard(entities, "CardVersion", cornerRadius: XsrUiCornerRadii.Surface);
         StyleCard(entities, "CardAbout", cornerRadius: XsrUiCornerRadii.Surface);
-        StyleText(entities, "AccountHeader", SecondaryText, fontSize: 12, weight: 600);
+        StyleText(entities, "AccountHeader", PrimaryText, fontSize: 18, weight: 600);
         StyleText(entities, "VersionHeader", SecondaryText, fontSize: 12, weight: 600);
         StyleText(entities, "AboutTitle", SecondaryText, fontSize: 12, weight: 600);
         StyleText(entities, "TriviaTitle", SecondaryText, fontSize: 12, weight: 600);
@@ -763,11 +773,14 @@ internal sealed class LaunchPageController : IDisposable
             ApplyVisual(entities[key], BadgeText, PrimaryText, cornerRadius: 3);
         StyleText(entities, "AccountKind", ProfileSecondaryText, fontSize: 13);
         StyleText(entities, "AccountHint", ProfileSecondaryText, fontSize: 12);
-        StyleText(entities, "AccountPickerTitle", PrimaryText, fontSize: 18, weight: 600);
         StyleText(entities, "LaunchFeedback", SecondaryText, fontSize: 12);
         _shell.Tree.GetComponent<XsrUiVisualStyle>(entities["AccountHint"])!.WrapText = true;
         ApplyVisual(entities["AccountAvatarSurface"], ProfileSurface, BadgeText, XsrUiCornerRadii.Surface);
-        ApplyVisual(entities["AccountPickerBack"], ProfileSurface, ProfileSecondaryText, XsrUiCornerRadii.Pill(32), hover: BadgeBackground);
+        ApplyVisual(entities["AccountBack"], ProfileSurface, ProfileSecondaryText, XsrUiCornerRadii.Pill(32), hover: BadgeBackground);
+        ApplyVisual(entities["AccountAdd"], ProfileSurface, BadgeText, XsrUiCornerRadii.Pill(28), hover: BadgeBackground);
+        ApplyVisual(entities["AccountImport"], ProfileSurface, BadgeText, XsrUiCornerRadii.Pill(34), hover: BadgeBackground);
+        StyleText(entities, "AccountImport", BadgeText, 13, 600);
+        AlignText(entities, "AccountImport", XsrUiTextAlignment.Center);
         StyleText(entities, "AccountAvatar", BadgeText, fontSize: 14);
         foreach (string key in new[] { "AccountName", "AccountKind" })
             AlignText(entities, key, XsrUiTextAlignment.Center);
@@ -779,13 +792,6 @@ internal sealed class LaunchPageController : IDisposable
             AlignText(entities, "AccountSwitchText", XsrUiTextAlignment.Center);
         }
         StyleText(entities, "VersionAction", SecondaryText, fontSize: 11);
-        if (entities.TryGetValue("AccountBadge", out XsrUiEntityId badge))
-        {
-            ApplyVisual(badge, BadgeBackground, BadgeText, cornerRadius: XsrUiCornerRadii.Compact);
-            StyleText(entities, "AccountBadgeText", BadgeText, fontSize: 10, weight: 600);
-            AlignText(entities, "AccountBadgeText", XsrUiTextAlignment.Center);
-        }
-
         if (entities.TryGetValue("AccountName", out XsrUiEntityId accountName))
         {
             StyleText(accountName, PrimaryText, fontSize: 22, weight: 600);

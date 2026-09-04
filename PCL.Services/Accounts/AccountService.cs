@@ -163,6 +163,53 @@ public sealed class AccountService
         }
     }
 
+    /// <summary>Imports a fully validated batch in one durable write, preserving existing identities.</summary>
+    public XsrResult<int> ImportProfiles(IReadOnlyList<LaunchProfile> profiles)
+    {
+        ArgumentNullException.ThrowIfNull(profiles);
+        if (profiles.Count > 256) return XsrResult.Failure<int>(AccountErrors.InvalidProfile("Too many imported profiles."));
+        List<LaunchProfile> normalized = [];
+        foreach (LaunchProfile profile in profiles)
+        {
+            XsrResult valid = Validate(profile);
+            if (!valid.IsSuccess) return XsrResult.Failure<int>(valid.Error!);
+            normalized.Add(profile with
+            {
+                Info = profile.Info ?? "",
+                Uuid = profile.Uuid ?? "",
+                Logo = profile.Logo ?? "",
+                SvgIcon = profile.SvgIcon ?? "lucide/user",
+                AuthServer = profile.AuthServer ?? "",
+                AccessToken = profile.AccessToken ?? "",
+                RefreshToken = profile.RefreshToken ?? "",
+                ProviderAccessToken = profile.ProviderAccessToken ?? "",
+                ClientToken = profile.ClientToken ?? "",
+            });
+        }
+        lock (_gate)
+        {
+            List<LaunchProfile> merged = [.. _profiles];
+            foreach (LaunchProfile profile in normalized)
+            {
+                if (!merged.Any(existing => existing.Kind == profile.Kind
+                    && string.Equals(existing.AuthServer.TrimEnd('/'), profile.AuthServer.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)
+                    && (profile.Uuid.Length > 0
+                        ? string.Equals(existing.Uuid, profile.Uuid, StringComparison.OrdinalIgnoreCase)
+                        : string.Equals(existing.Username, profile.Username, StringComparison.OrdinalIgnoreCase))))
+                    merged.Add(profile);
+            }
+            int added = merged.Count - _profiles.Count;
+            if (added == 0) return XsrResult.Success(0);
+            XsrResult saved = Persist(merged);
+            if (!saved.IsSuccess) return XsrResult.Failure<int>(saved.Error!);
+            _profiles = merged;
+            if (_selectedIndex < 0) _selectedIndex = 0;
+            PublishAll();
+            PublishSelection();
+            return XsrResult.Success(added);
+        }
+    }
+
     /// <summary>
     /// Replaces the profile at the given index and persists the whole list atomically.
     /// </summary>

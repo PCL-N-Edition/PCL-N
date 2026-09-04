@@ -239,6 +239,9 @@ public static class PxmlCompiler
         private bool _clickable;
         private XsrSemanticId? _command;
         private string? _imageSource;
+        private string? _placeholder;
+        private bool _isPassword;
+        private bool _enabled = true;
 
         public string? Key => _key;
 
@@ -315,6 +318,15 @@ public static class PxmlCompiler
                 case PxmlIrPropertyTarget.ImageSource:
                     _imageSource = (string)value;
                     break;
+                case PxmlIrPropertyTarget.Placeholder:
+                    _placeholder = (string)value;
+                    break;
+                case PxmlIrPropertyTarget.IsPassword:
+                    _isPassword = (bool)value;
+                    break;
+                case PxmlIrPropertyTarget.Enabled:
+                    _enabled = (bool)value;
+                    break;
                 default:
                     throw new InvalidOperationException(
                         $"The generated control catalog uses unsupported IR target '{target}'.");
@@ -353,6 +365,9 @@ public static class PxmlCompiler
                 Clickable = _clickable,
                 Command = _command,
                 ImageSource = _imageSource,
+                Placeholder = _placeholder,
+                IsPassword = _isPassword,
+                Enabled = _enabled,
                 Bindings = bindings,
             };
     }

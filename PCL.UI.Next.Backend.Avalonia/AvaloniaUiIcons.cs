@@ -27,6 +27,7 @@ internal static class AvaloniaUiIcons
         ],
         ["lucide/chevron-right"] = ["m9 6 6 6-6 6"],
         ["lucide/check"] = ["m20 6-11 11-5-5"],
+        ["lucide/plus"] = ["M12 5v14", "M5 12h14"],
         ["lucide/arrow-right-left"] = ["M8 3 4 7l4 4", "M4 7h16", "m16 21 4-4-4-4", "M20 17H4"],
         ["lucide/info"] = ["M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", "M12 11v6", "M12 7h.01"],
         ["lucide/chevron-up"] = ["m18 15-6-6-6 6"],

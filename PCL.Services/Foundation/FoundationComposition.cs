@@ -34,6 +34,7 @@ public static class FoundationState
         LogService.DeclareState(builder);
         DownloadService.DeclareState(builder);
         AccountService.DeclareState(builder);
+        AccountOnboardingState.DeclareState(builder);
         TelemetryService.DeclareState(builder);
         MinecraftProcessStateComposition.DeclareState(builder);
         return builder;

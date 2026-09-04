@@ -1,0 +1,38 @@
+<StackPanel xmlns="https://pcln.dev/pxml/2026" Key="AccountForm" Weight="1" Spacing="12" Scroll="true"
+            IsVisible="{state account.form.open}">
+  <StackPanel Key="ProviderChoices" Spacing="8" IsVisible="{state account.form.providers}">
+    <Button Key="ProviderMicrosoft" Label="Microsoft 账户" Content="Microsoft 账户" Height="42" Command="ui.account.microsoft" />
+    <Button Key="ProviderLittleSkin" Label="LittleSkin 账户" Content="LittleSkin 账户" Height="42" Command="ui.account.littleskin" />
+    <Button Key="ProviderThirdParty" Label="第三方账户" Content="第三方账户" Height="42" Command="ui.account.third-party" />
+    <Button Key="ProviderOffline" Label="离线档案" Content="离线档案" Height="42" Command="ui.account.offline" />
+    <Button Key="ProviderImport" Label="导入旧档案" Content="导入旧档案…" Height="34" Margin="0,8,0,0" Command="ui.account.import" />
+  </StackPanel>
+  <StackPanel Key="OfflineForm" Spacing="8" IsVisible="{state account.form.offline}">
+    <Text Content="游戏名称" Height="18" />
+    <TextInput Key="OfflineName" Label="离线游戏名称" Placeholder="Player" Enabled="{state account.form.submit}" />
+    <Text Key="OfflineHelp" Content="1–16 位英文字母、数字或下划线" Height="32" />
+  </StackPanel>
+  <StackPanel Key="ThirdPartyForm" Spacing="8" IsVisible="{state account.form.third-party}">
+    <TextInput Key="AuthServer" Label="认证服务器地址" Placeholder="https://认证服务器" Enabled="{state account.form.submit}" />
+    <TextInput Key="AuthUsername" Label="登录名或邮箱" Placeholder="登录名或邮箱" Enabled="{state account.form.submit}" />
+    <TextInput Key="AuthPassword" Label="密码" Placeholder="密码" IsPassword="true" Enabled="{state account.form.submit}" />
+    <Text Key="ServerPrivacy" Content="登录信息仅发送到你填写的认证服务器。" Height="36" />
+  </StackPanel>
+  <StackPanel Key="ImportForm" Spacing="8" IsVisible="{state account.form.import}">
+    <Text Key="ImportHelp" Content="导入旧 PCL 档案，不修改旧文件。" Height="36" />
+    <TextInput Key="ImportPath" Label="档案文件路径" Placeholder="launch-profiles.json" Enabled="{state account.form.submit}" />
+    <Button Key="BrowseProfiles" Label="选择档案文件" Content="选择文件…" Height="34" Command="ui.account.browse" />
+    <StackPanel Key="ImportCandidates" Spacing="6" />
+  </StackPanel>
+  <StackPanel Key="DeviceCode" Spacing="10" IsVisible="{state account.form.code}">
+    <Text Key="UserCode" Content="{state account.form.user-code}" Height="34" />
+    <Button Key="OpenAuthorization" Label="在浏览器中授权" Content="在浏览器中授权" Height="38" Command="ui.account.authorize" />
+    <Button Key="CopyUserCode" Label="复制授权码" Content="复制授权码" Height="32" Command="ui.account.copy-code" />
+  </StackPanel>
+  <StackPanel Key="CharacterChoices" Spacing="6" IsVisible="{state account.form.characters}" />
+  <Text Key="FormStatus" Content="{state account.form.status}" Height="64" IsVisible="{state account.form.status-visible}" />
+  <Text Key="FormFeedback" Content="{state account.form.feedback}" Height="36" IsVisible="{state account.form.feedback-visible}" />
+  <Button Key="FormSubmit" Label="{state account.form.submit-label}" Content="{state account.form.submit-label}" Height="38"
+          Command="ui.account.submit" IsVisible="{state account.form.submit}" />
+  <Button Key="FormCancel" Label="取消登录" Content="取消" Height="34" Command="ui.account.cancel" IsVisible="{state account.form.busy}" />
+</StackPanel>

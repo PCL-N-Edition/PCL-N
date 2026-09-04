@@ -44,7 +44,10 @@ internal static partial class Program
             AssertTrue(shell.Renderer.Focus(change.Entity));
             AssertTrue(shell.Renderer.HandleKey(XsrUiKey.Enter));
             scene = shell.Render(new XsrUiSize(810, 470));
-            AssertTrue(HasKey(shell, scene, "AccountPickerBack"));
+            AssertTrue(HasKey(shell, scene, "AccountBack"));
+            AssertEqual("切换档案", FindByKey(shell, scene, "AccountHeader").Text);
+            AssertFalse(HasKey(shell, scene, "AccountHint"));
+            AssertFalse(HasKey(shell, scene, "AccountPickerTitle"));
             AssertTrue(HasKey(shell, scene, "ProfileCheck:0"));
             AssertFalse(HasKey(shell, scene, "ProfileCheck:1"));
             AssertEqual(FindByKey(shell, scene, "account-row:0").Entity, shell.Renderer.Focused);
@@ -62,7 +65,7 @@ internal static partial class Program
             AssertTrue(FindByKey(shell, scene, "AccountSwitch").IsFocusVisible);
             AssertTrue(shell.Renderer.Activate(change.Entity));
             scene = shell.Render(new XsrUiSize(810, 470));
-            AssertTrue(shell.Renderer.Activate(FindByKey(shell, scene, "AccountPickerBack").Entity));
+            AssertTrue(shell.Renderer.Activate(FindByKey(shell, scene, "AccountBack").Entity));
             scene = shell.Render(new XsrUiSize(810, 470));
             AssertEqual("Second", FindByKey(shell, scene, "AccountName").Text);
             AssertFalse(HasKey(shell, scene, "AccountRows"));

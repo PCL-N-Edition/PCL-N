@@ -130,6 +130,7 @@ public enum XsrUiSemanticRole
     Navigation = 10,
     NavigationItem = 11,
     Content = 12,
+    TextInput = 13,
 }
 
 /// <summary>
@@ -178,6 +179,7 @@ public sealed class XsrUiInput
     public bool Focusable { get; set; }
 
     public bool Clickable { get; set; }
+    public bool Enabled { get; set; } = true;
 
     /// <summary>
     /// The optional state that drives clickability: when assigned and the applied value is

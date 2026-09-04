@@ -1,0 +1,17 @@
+# PXML control descriptor v1
+schema=1
+id=12
+name=TextInput
+role=TextInput
+recipe=TextInput
+children=false
+property=Width|Double|Width|None|None|false|
+property=Height|Double|Height|None|None|false|40
+property=Weight|Double|Weight|None|None|false|0
+property=Margin|Thickness|Margin|None|None|false|
+property=IsVisible|Boolean|Visibility|Visibility|State|false|true
+property=Key|String|Key|None|None|false|
+property=Label|String|Label|SemanticLabel|Paint|true|
+property=Placeholder|String|Placeholder|None|None|false|
+property=IsPassword|Boolean|IsPassword|None|None|false|false
+property=Enabled|Boolean|Enabled|Enabled|State|false|true

@@ -39,6 +39,7 @@ internal static class Program
             observer: uiRuntime.StateBridge,
             declareHostState: LaunchPageState.DeclareState);
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host);
+        using AccountOnboardingRuntime accounts = AccountOnboardingRuntimeComposer.Compose(host);
         using MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose(
             host,
             minecraftRootDirectory);
@@ -63,6 +64,9 @@ internal static class Program
             runtime.Commands,
             runtime.Host.StateStore,
             minecraftRootDirectory);
+        AvaloniaUiPlatformActions platformActions = new();
+        using AccountFormController accountForm = new(shell, uiIntents, accounts.Commands,
+            runtime.Host.StateStore, launchPage.AccountBody, new NativeAccountUiEffects(platformActions));
         launchPage.Attach();
 
         Console.WriteLine(
@@ -77,7 +81,7 @@ internal static class Program
             return 0;
         }
 
-        return AvaloniaUiShellHost.Run(shell, args);
+        return AvaloniaUiShellHost.Run(shell, args, platformActions);
     }
 
     private static XsrUiShellStyle ResolveShellStyle(string[] args) =>

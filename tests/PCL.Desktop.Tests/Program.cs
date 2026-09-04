@@ -27,6 +27,12 @@ internal static partial class Program
 
     private static readonly (string Name, Action Body)[] TestCases =
     [
+        ("imported profiles remain visible when the picker reopens", ImportedProfilesRemainVisibleWhenPickerReopens),
+        ("account forms share one header and create offline profiles", AccountFormsUseOneHeaderAndCreateOfflineProfiles),
+        ("Microsoft onboarding reuses services and rejects late cancelled completion", MicrosoftOnboardingUsesServiceAndDiscardsLateCancellation),
+        ("third-party onboarding masks passwords and uses the chosen server", ThirdPartyOnboardingMasksPasswordsAndUsesConfiguredServer),
+        ("LittleSkin onboarding selects characters with separate token kinds", LittleSkinOnboardingChoosesCharacterAndKeepsTokenKindsSeparate),
+        ("account failures and stale file pickers stay in the current view", AccountFailuresAndLateFilePickerStayInCurrentView),
         ("launch page replicates the legacy card layout with bound facts", LaunchPageReplicatesLegacyLayout),
         ("launch page matches legacy geometry across wide, default, and minimum windows", LaunchPageMatchesLegacyGeometry),
         ("navigation intents route between launch and placeholder pages", NavigationIntentsRouteBetweenPages),
@@ -59,7 +65,7 @@ internal static partial class Program
         AssertEqual("下载游戏", FindByKey(fixture.Shell, scene, "LaunchButton").Text);
         AssertTrue(FindByKey(fixture.Shell, scene, "LaunchButton").IsClickable);
         AssertEqual("账户", FindByKey(fixture.Shell, scene, "AccountHeader").Text);
-        AssertEqual("Alpha", FindByKey(fixture.Shell, scene, "AccountBadgeText").Text);
+        AssertFalse(HasKey(fixture.Shell, scene, "AccountBadgeText"));
         AssertEqual("版本", FindByKey(fixture.Shell, scene, "VersionHeader").Text);
         AssertEqual("关于 PCL N Edition", FindByKey(fixture.Shell, scene, "AboutTitle").Text);
 
@@ -70,7 +76,7 @@ internal static partial class Program
             FindByKey(fixture.Shell, scene, "VersionName").Text);
 
         XsrUiSceneNode header = FindByKey(fixture.Shell, scene, "AccountHeader");
-        AssertEqual(12, header.VisualStyle.FontSize);
+        AssertEqual(18, header.VisualStyle.FontSize);
         AssertEqual(600, header.VisualStyle.FontWeight);
         XsrUiSceneNode versionName = FindByKey(fixture.Shell, scene, "VersionName");
         AssertEqual(20, versionName.VisualStyle.FontSize);
@@ -118,7 +124,7 @@ internal static partial class Program
         XsrUiRect account = FindByKey(shell, scene, "CardAccount").Rect;
         XsrUiRect version = FindByKey(shell, scene, "CardVersion").Rect;
         XsrUiRect about = FindByKey(shell, scene, "CardAbout").Rect;
-        XsrUiRect accountBadge = FindByKey(shell, scene, "AccountBadge").Rect;
+        XsrUiRect accountAdd = FindByKey(shell, scene, "AccountAdd").Rect;
         XsrUiRect accountHeader = FindByKey(shell, scene, "AccountHeaderRow").Rect;
         XsrUiRect accountContent = FindByKey(shell, scene, "AccountContent").Rect;
         XsrUiRect accountBody = FindByKey(shell, scene, "AccountBody").Rect;
@@ -130,8 +136,8 @@ internal static partial class Program
         AssertRectClose(
             new XsrUiRect(version.X, contentY + versionCardHeight + rightCardGap, expectedRightWidth, contentHeight - versionCardHeight - rightCardGap),
             about);
-        AssertClose(accountContent.X + accountContent.Width, accountBadge.X + accountBadge.Width);
-        AssertClose(16, accountHeader.Height);
+        AssertClose(accountContent.X + accountContent.Width, accountAdd.X + accountAdd.Width);
+        AssertClose(32, accountHeader.Height);
         AssertClose(accountContent.Y + accountContent.Height, accountBody.Y + accountBody.Height);
         AssertTrue(version.Y + version.Height <= about.Y);
     }
@@ -378,7 +384,12 @@ internal static partial class Program
             ILaunchPageInstanceSource source,
             MinecraftRuntime? minecraft = null,
             bool addProfile = false,
-            bool ownsMinecraftRuntime = true)
+            bool ownsMinecraftRuntime = true,
+            HttpClient? accountHttp = null,
+            IMicrosoftMinecraftAuthService? microsoft = null,
+            IAccountUiEffects? accountEffects = null,
+            LegacyProfileImport? imports = null,
+            AccountOnboardingOptions? accountOptions = null)
         {
             _temporaryDirectory = Path.Combine(
                 Path.GetTempPath(),
@@ -392,6 +403,9 @@ internal static partial class Program
                 schema, new LaunchProfileFilePort(Path.Combine(_temporaryDirectory, "profiles.json")),
                 observer: uiRuntime.StateBridge, declareHostState: LaunchPageState.DeclareState);
             Foundation = FoundationRuntimeComposer.Compose(host);
+            Onboarding = AccountOnboardingRuntimeComposer.Compose(host, accountHttp,
+                accountOptions ?? new AccountOnboardingOptions("fixture-client", null),
+                imports ?? new LegacyProfileImport(() => []), microsoft: microsoft);
             Store = host.StateStore;
             Intents = new DesktopUiIntentSink();
             Shell = PxmlShellComposer.Compose(Store, uiRuntime, intentSink: Intents);
@@ -415,19 +429,25 @@ internal static partial class Program
                 Store,
                 Path.Combine(_temporaryDirectory, "minecraft"),
                 source);
+            AccountForm = new AccountFormController(Shell, Intents, Onboarding.Commands, Store, Controller.AccountBody, accountEffects);
             Controller.Attach();
         }
 
         public XsrUiShell Shell { get; }
+        public string TemporaryDirectory => _temporaryDirectory;
         public FoundationRuntime Foundation { get; }
         public DesktopUiIntentSink Intents { get; }
         public XsrStateStore Store { get; }
         public MinecraftRuntime Minecraft { get; }
         public AccountService Service { get; }
         public LaunchPageController Controller { get; }
+        public AccountOnboardingRuntime Onboarding { get; }
+        public AccountFormController AccountForm { get; }
 
         public void Dispose()
         {
+            AccountForm.Dispose();
+            Onboarding.Dispose();
             Controller.Dispose();
             if (_ownsMinecraftRuntime)
             {

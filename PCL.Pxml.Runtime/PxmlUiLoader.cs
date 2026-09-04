@@ -90,6 +90,16 @@ public sealed class PxmlUiLoader
 
         switch (node.Recipe)
         {
+            case PxmlRuntimeRecipe.TextInput:
+                tree.SetComponent(entity, new XsrUiTextInput { Placeholder = node.Placeholder ?? string.Empty, IsPassword = node.IsPassword });
+                PxmlIrBinding? inputEnabled = node.Bindings.FirstOrDefault(binding => binding.Property == XsrUiStateProperty.Enabled);
+                tree.SetComponent(entity, new XsrUiInput
+                {
+                    Focusable = true,
+                    Enabled = node.Enabled,
+                    BoundEnabled = inputEnabled is null ? default : ResolveState(state, inputEnabled.State),
+                });
+                break;
             case PxmlRuntimeRecipe.Element:
                 break;
             case PxmlRuntimeRecipe.VerticalPager:

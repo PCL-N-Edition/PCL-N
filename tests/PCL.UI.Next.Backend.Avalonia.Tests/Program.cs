@@ -16,7 +16,7 @@ using PCL.Xsr.State;
 
 namespace PCL.UI.Next.Backend.Avalonia.Tests;
 
-internal static class Program
+internal static partial class Program
 {
     private static readonly (string Name, Action Body)[] TestCases =
     [
@@ -332,6 +332,7 @@ internal static class Program
         {
             await Task.Delay(30).ConfigureAwait(true);
             VerifyAccessibleContentAndNativeFocus(window, shell, surface);
+            VerifyNativeTextEditing(window, shell, surface);
             VerifyWindowActionFeedback(window, surface);
             await VerifySpringIgnoresStaleSceneReads().ConfigureAwait(true);
             await VerifyCapsuleGeometryClock(shell, surface).ConfigureAwait(true);

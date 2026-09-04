@@ -46,6 +46,9 @@ internal enum PxmlIrPropertyTarget
     HorizontalAlignment = 21,
     VerticalAlignment = 22,
     Key = 23,
+    Placeholder = 24,
+    IsPassword = 25,
+    Enabled = 26,
 }
 
 internal sealed class PxmlControlPropertyModel
