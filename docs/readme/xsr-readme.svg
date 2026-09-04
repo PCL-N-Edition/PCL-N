@@ -1,0 +1,327 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="2920" viewBox="0 0 1200 2920" role="img" aria-labelledby="title desc">
+  <title id="title">PCL Nexa — XSR migration</title>
+  <desc id="desc">A visual overview of the PCL Nexa clean-slate XSR architecture migration on refactor/xsr.</desc>
+  <defs>
+    <linearGradient id="heroGlow" x1="0" y1="0" x2="1" y2="1">
+      <stop class="glowA" offset="0" stop-color="#5AC8FA" stop-opacity="0.28"/>
+      <stop class="glowB" offset="0.48" stop-color="#007AFF" stop-opacity="0.12"/>
+      <stop class="glowC" offset="1" stop-color="#AF52DE" stop-opacity="0.18"/>
+    </linearGradient>
+    <linearGradient id="accentGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#5E5CE6"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="24" flood-color="#000000" flood-opacity="0.10"/>
+    </filter>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="12" flood-color="#000000" flood-opacity="0.07"/>
+    </filter>
+    <style><![CDATA[
+      svg { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+      .bg { fill:#F5F5F7; }
+      .surface { fill:#FFFFFF; fill-opacity:.78; stroke:#FFFFFF; stroke-opacity:.90; }
+      .surface2 { fill:#FFFFFF; fill-opacity:.54; stroke:#000000; stroke-opacity:.055; }
+      .surface3 { fill:#FFFFFF; fill-opacity:.34; stroke:#FFFFFF; stroke-opacity:.75; }
+      .text { fill:#1D1D1F; }
+      .secondary { fill:#6E6E73; }
+      .tertiary { fill:#8E8E93; }
+      .rule { stroke:#000000; stroke-opacity:.075; }
+      .hairline { stroke:#000000; stroke-opacity:.09; }
+      .accentText { fill:#007AFF; }
+      .success { fill:#34C759; }
+      .warning { fill:#FF9F0A; }
+      .pending { fill:#8E8E93; }
+      .chip { fill:#007AFF; fill-opacity:.08; stroke:#007AFF; stroke-opacity:.18; }
+      .chipText { fill:#0066CC; }
+      .mono { font-family: "SFMono-Regular", ui-monospace, "Cascadia Code", Consolas, monospace; }
+      .title { font-size:92px; font-weight:700; letter-spacing:-4.8px; }
+      .display { font-size:54px; font-weight:700; letter-spacing:-2.2px; }
+      .h2 { font-size:34px; font-weight:700; letter-spacing:-.8px; }
+      .h3 { font-size:24px; font-weight:650; letter-spacing:-.25px; }
+      .body { font-size:22px; font-weight:450; }
+      .bodyStrong { font-size:22px; font-weight:650; }
+      .small { font-size:18px; font-weight:500; }
+      .caption { font-size:16px; font-weight:550; letter-spacing:.15px; }
+      .micro { font-size:14px; font-weight:650; letter-spacing:.6px; }
+      .code { font-size:18px; font-weight:500; }
+      @media (prefers-color-scheme: dark) {
+        .bg { fill:#000000; }
+        .surface { fill:#1C1C1E; fill-opacity:.72; stroke:#FFFFFF; stroke-opacity:.13; }
+        .surface2 { fill:#2C2C2E; fill-opacity:.62; stroke:#FFFFFF; stroke-opacity:.08; }
+        .surface3 { fill:#2C2C2E; fill-opacity:.34; stroke:#FFFFFF; stroke-opacity:.12; }
+        .text { fill:#F5F5F7; }
+        .secondary { fill:#AEAEB2; }
+        .tertiary { fill:#8E8E93; }
+        .rule { stroke:#FFFFFF; stroke-opacity:.10; }
+        .hairline { stroke:#FFFFFF; stroke-opacity:.12; }
+        .accentText { fill:#0A84FF; }
+        .chip { fill:#0A84FF; fill-opacity:.14; stroke:#0A84FF; stroke-opacity:.28; }
+        .chipText { fill:#64D2FF; }
+      }
+    ]]></style>
+  </defs>
+
+  <rect class="bg" width="1200" height="2920" rx="34"/>
+  <circle cx="1030" cy="120" r="300" fill="url(#heroGlow)"/>
+  <circle cx="140" cy="530" r="270" fill="url(#heroGlow)" opacity=".45"/>
+
+  <g transform="translate(72 70)">
+    <g transform="translate(0 0)">
+      <rect width="122" height="38" rx="19" class="chip"/>
+      <circle cx="21" cy="19" r="5" fill="#34C759"/>
+      <text x="36" y="25" class="micro chipText">XSR / 2.0</text>
+    </g>
+
+    <text x="0" y="142" class="title text">PCL Nexa</text>
+    <switch>
+      <text systemLanguage="zh" x="2" y="202" class="h2 secondary">从零重构，而不是在旧架构上继续堆叠。</text>
+      <text x="2" y="202" class="h2 secondary">Rebuilt from first principles, not layered onto legacy.</text>
+    </switch>
+
+    <text x="2" y="258" class="body secondary">refactor/xsr · .NET 10 · NativeAOT · PXML · UI.Next · Sidecar Fabric</text>
+
+    <g transform="translate(0 322)">
+      <rect width="1056" height="262" rx="36" class="surface" filter="url(#shadow)"/>
+      <g transform="translate(34 34)">
+        <rect width="96" height="96" rx="28" fill="url(#accentGradient)"/>
+        <path d="M25 63V33h15l16 20 16-20h15v30H73V48L57 68 41 48v15z" fill="white"/>
+      </g>
+      <text x="168" y="82" class="micro tertiary">ARCHITECTURE CONTRACT</text>
+      <text x="168" y="126" class="display text">X · S · R</text>
+      <text x="168" y="170" class="body secondary">Execution &amp; Exchange · Services · Semantic Renderer</text>
+      <switch>
+        <text systemLanguage="zh" x="168" y="212" class="small secondary">模块化单体 + 唯一的插件进程边界。状态先行，渲染路径零 IPC。</text>
+        <text x="168" y="212" class="small secondary">Modular monolith, one plugin-process boundary. State-first, zero IPC in render paths.</text>
+      </switch>
+    </g>
+  </g>
+
+  <g transform="translate(72 748)">
+    <switch>
+      <text systemLanguage="zh" x="0" y="0" class="h2 text">一个架构，三种职责。</text>
+      <text x="0" y="0" class="h2 text">One architecture. Three responsibilities.</text>
+    </switch>
+    <switch>
+      <text systemLanguage="zh" x="0" y="38" class="body secondary">把所有权写进依赖边界，让性能、可测性与迁移路径成为架构属性。</text>
+      <text x="0" y="38" class="body secondary">Ownership is encoded in dependencies, so performance and testability are architectural properties.</text>
+    </switch>
+
+    <g transform="translate(0 86)">
+      <rect width="336" height="332" rx="30" class="surface2" filter="url(#softShadow)"/>
+      <circle cx="46" cy="48" r="18" fill="#0A84FF"/>
+      <text x="78" y="57" class="h3 text">X / Runtime</text>
+      <switch>
+        <text systemLanguage="zh" x="30" y="112" class="bodyStrong text">执行与交换内核</text>
+        <text x="30" y="112" class="bodyStrong text">Execution &amp; exchange</text>
+      </switch>
+      <switch>
+        <text systemLanguage="zh" x="30" y="152" class="small secondary">注册表、命令 / 查询、状态、</text>
+        <text x="30" y="152" class="small secondary">Registry, command/query, state,</text>
+      </switch>
+      <switch>
+        <text systemLanguage="zh" x="30" y="180" class="small secondary">事件、生命周期、调度、诊断。</text>
+        <text x="30" y="180" class="small secondary">events, lifetimes, scheduling, traces.</text>
+      </switch>
+      <line x1="30" y1="226" x2="306" y2="226" class="rule"/>
+      <text x="30" y="266" class="micro tertiary">HOT PATH</text>
+      <switch>
+        <text systemLanguage="zh" x="30" y="298" class="small text">稳定 ID · 有界队列 · 可取消</text>
+        <text x="30" y="298" class="small text">Stable IDs · bounded queues · cancel</text>
+      </switch>
+    </g>
+
+    <g transform="translate(360 86)">
+      <rect width="336" height="332" rx="30" class="surface2" filter="url(#softShadow)"/>
+      <circle cx="46" cy="48" r="18" fill="#34C759"/>
+      <text x="78" y="57" class="h3 text">S / Services</text>
+      <switch>
+        <text systemLanguage="zh" x="30" y="112" class="bodyStrong text">业务能力所有权</text>
+        <text x="30" y="112" class="bodyStrong text">Capability ownership</text>
+      </switch>
+      <switch>
+        <text systemLanguage="zh" x="30" y="152" class="small secondary">设置、账号、下载、更新、</text>
+        <text x="30" y="152" class="small secondary">Settings, account, download, update,</text>
+      </switch>
+      <switch>
+        <text systemLanguage="zh" x="30" y="180" class="small secondary">Minecraft 与组合边界。</text>
+        <text x="30" y="180" class="small secondary">Minecraft, and composition edges.</text>
+      </switch>
+      <line x1="30" y1="226" x2="306" y2="226" class="rule"/>
+      <text x="30" y="266" class="micro tertiary">SOURCE OF TRUTH</text>
+      <switch>
+        <text systemLanguage="zh" x="30" y="298" class="small text">服务发布状态，不拥有呈现</text>
+        <text x="30" y="298" class="small text">State owner · presentation-free</text>
+      </switch>
+    </g>
+
+    <g transform="translate(720 86)">
+      <rect width="336" height="332" rx="30" class="surface2" filter="url(#softShadow)"/>
+      <circle cx="46" cy="48" r="18" fill="#AF52DE"/>
+      <text x="78" y="57" class="h3 text">R / UI.Next</text>
+      <switch>
+        <text systemLanguage="zh" x="30" y="112" class="bodyStrong text">语义渲染器</text>
+        <text x="30" y="112" class="bodyStrong text">Semantic renderer</text>
+      </switch>
+      <switch>
+        <text systemLanguage="zh" x="30" y="152" class="small secondary">实体树、布局、场景、输入、</text>
+        <text x="30" y="152" class="small secondary">Entity tree, layout, scene, input,</text>
+      </switch>
+      <switch>
+        <text systemLanguage="zh" x="30" y="180" class="small secondary">无障碍、动画与 PXML。</text>
+        <text x="30" y="180" class="small secondary">accessibility, motion, and PXML.</text>
+      </switch>
+      <line x1="30" y1="226" x2="306" y2="226" class="rule"/>
+      <text x="30" y="266" class="micro tertiary">BACKEND-FREE</text>
+      <switch>
+        <text systemLanguage="zh" x="30" y="298" class="small text">不可变 Scene · 平台边缘提交</text>
+        <text x="30" y="298" class="small text">Immutable scene · backend edge</text>
+      </switch>
+    </g>
+  </g>
+
+  <g transform="translate(72 1250)">
+    <switch>
+      <text systemLanguage="zh" x="0" y="0" class="h2 text">运行时形状。</text>
+      <text x="0" y="0" class="h2 text">Runtime shape.</text>
+    </switch>
+    <switch>
+      <text systemLanguage="zh" x="0" y="38" class="body secondary">宿主保持简单；插件动态执行被隔离到唯一的进程外边界。</text>
+      <text x="0" y="38" class="body secondary">The host stays simple; dynamic plugin execution is isolated behind one process boundary.</text>
+    </switch>
+
+    <g transform="translate(0 86)">
+      <rect width="1056" height="446" rx="34" class="surface" filter="url(#shadow)"/>
+      <rect x="32" y="32" width="684" height="382" rx="26" class="surface2"/>
+      <text x="62" y="72" class="micro tertiary">HOST PROCESS</text>
+
+      <g transform="translate(62 102)">
+        <rect width="624" height="62" rx="18" class="surface3"/>
+        <text x="24" y="39" class="bodyStrong text">PCL.Desktop</text>
+        <text x="440" y="39" class="small secondary">composition root</text>
+      </g>
+      <path d="M374 164V192" class="hairline" stroke-width="2"/>
+
+      <g transform="translate(62 194)">
+        <rect width="300" height="78" rx="20" class="surface3"/>
+        <text x="22" y="33" class="bodyStrong text">PCL.Services.*</text>
+        <text x="22" y="59" class="caption secondary">Foundation · Minecraft</text>
+      </g>
+      <g transform="translate(386 194)">
+        <rect width="300" height="78" rx="20" class="surface3"/>
+        <text x="22" y="33" class="bodyStrong text">PCL.UI.Next</text>
+        <text x="22" y="59" class="caption secondary">PXML · immutable scene</text>
+      </g>
+
+      <g transform="translate(62 300)">
+        <rect width="624" height="80" rx="20" fill="url(#accentGradient)" opacity=".95"/>
+        <text x="24" y="35" class="bodyStrong" fill="white">PCL.Xsr.Runtime</text>
+        <text x="24" y="61" class="caption" fill="white" opacity=".82">routing · state · events · scopes · diagnostics</text>
+      </g>
+
+      <path d="M716 223H770" stroke="#0A84FF" stroke-width="3" stroke-dasharray="8 8"/>
+      <path d="M760 214L775 223 760 232" fill="none" stroke="#0A84FF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <rect x="792" y="80" width="232" height="286" rx="28" class="surface2"/>
+      <text x="820" y="120" class="micro tertiary">PLUGIN PROCESS</text>
+      <circle cx="844" cy="168" r="20" fill="#AF52DE"/>
+      <text x="878" y="177" class="h3 text">Sidecar</text>
+      <text x="820" y="222" class="bodyStrong text">Fabric v2</text>
+      <switch>
+        <text systemLanguage="zh" x="820" y="258" class="small secondary">协议 · 传输 · 会话</text>
+        <text x="820" y="258" class="small secondary">protocol · transport · session</text>
+      </switch>
+      <switch>
+        <text systemLanguage="zh" x="820" y="286" class="small secondary">状态镜像 · 崩溃恢复</text>
+        <text x="820" y="286" class="small secondary">state mirror · recovery</text>
+      </switch>
+      <switch>
+        <text systemLanguage="zh" x="820" y="328" class="caption accentText">渲染侧读取镜像：0 IPC</text>
+        <text x="820" y="328" class="caption accentText">render reads mirror: 0 IPC</text>
+      </switch>
+    </g>
+  </g>
+
+  <g transform="translate(72 1860)">
+    <switch>
+      <text systemLanguage="zh" x="0" y="0" class="h2 text">迁移不是一次大爆炸。</text>
+      <text x="0" y="0" class="h2 text">Migration without the big bang.</text>
+    </switch>
+    <switch>
+      <text systemLanguage="zh" x="0" y="38" class="body secondary">每个迁移单元都要以测试、AOT / trim、架构门禁和必要的基准测试闭环。</text>
+      <text x="0" y="38" class="body secondary">Every unit closes with tests, AOT/trim, architecture gates, and benchmarks when needed.</text>
+    </switch>
+
+    <g transform="translate(0 88)">
+      <rect width="1056" height="310" rx="34" class="surface2"/>
+      <text x="34" y="44" class="micro tertiary">CURRENT MIGRATION MAP</text>
+
+      <g transform="translate(34 78)">
+        <circle cx="12" cy="12" r="12" class="success"/><text x="34" y="19" class="small text">X kernel</text>
+        <circle cx="178" cy="12" r="12" class="success"/><text x="200" y="19" class="small text">Renderer</text>
+        <circle cx="358" cy="12" r="12" class="success"/><text x="380" y="19" class="small text">PXML</text>
+        <circle cx="500" cy="12" r="12" class="success"/><text x="522" y="19" class="small text">Sidecar</text>
+        <circle cx="662" cy="12" r="12" class="success"/><text x="684" y="19" class="small text">Foundation</text>
+        <circle cx="856" cy="12" r="12" class="success"/><text x="878" y="19" class="small text">Minecraft</text>
+      </g>
+
+      <line x1="46" y1="150" x2="1010" y2="150" class="rule"/>
+
+      <g transform="translate(34 176)">
+        <circle cx="12" cy="12" r="12" class="warning"/>
+        <switch>
+          <text systemLanguage="zh" x="34" y="19" class="bodyStrong text">Wave 7 · Product UI 正在进行</text>
+          <text x="34" y="19" class="bodyStrong text">Wave 7 · Product UI in progress</text>
+        </switch>
+        <switch>
+          <text systemLanguage="zh" x="34" y="52" class="small secondary">共享 Shell、UI.Next → Avalonia 场景后端、启动页与编排已落地；后续继续补齐产品纵向切片。</text>
+          <text x="34" y="52" class="small secondary">Shell, scene backend, launch page and orchestration are landed; product vertical slices continue.</text>
+        </switch>
+      </g>
+
+      <g transform="translate(34 250)">
+        <circle cx="8" cy="8" r="8" class="pending"/><text x="28" y="14" class="caption secondary">Wave 8 Plugin SDK 1.0</text>
+        <circle cx="350" cy="8" r="8" class="pending"/><text x="370" y="14" class="caption secondary">Wave 9 Ecosystem</text>
+        <circle cx="656" cy="8" r="8" class="pending"/><text x="676" y="14" class="caption secondary">Wave 10 Cutover</text>
+      </g>
+    </g>
+  </g>
+
+  <g transform="translate(72 2336)">
+    <switch>
+      <text systemLanguage="zh" x="0" y="0" class="h2 text">构建。验证。再迁移。</text>
+      <text x="0" y="0" class="h2 text">Build. Verify. Then migrate.</text>
+    </switch>
+    <switch>
+      <text systemLanguage="zh" x="0" y="38" class="body secondary">项目图本身就是可执行的架构边界，不把“能编译”误当作“迁移完成”。</text>
+      <text x="0" y="38" class="body secondary">The project graph is an enforceable boundary; compiling is not treated as migration parity.</text>
+    </switch>
+
+    <g transform="translate(0 88)">
+      <rect width="1056" height="224" rx="30" class="surface" filter="url(#softShadow)"/>
+      <rect x="28" y="30" width="1000" height="70" rx="18" class="surface2"/>
+      <circle cx="52" cy="65" r="5" fill="#FF5F57"/><circle cx="70" cy="65" r="5" fill="#FEBC2E"/><circle cx="88" cy="65" r="5" fill="#28C840"/>
+      <text x="118" y="72" class="code mono text">dotnet build PCL-N.slnx</text>
+
+      <rect x="28" y="118" width="1000" height="78" rx="18" class="surface2"/>
+      <text x="50" y="150" class="code mono text">dotnet run --project tests/PCL.Xsr.ArchitectureTests/</text>
+      <text x="50" y="177" class="code mono text">PCL.Xsr.ArchitectureTests.csproj -- --repo-root .</text>
+    </g>
+  </g>
+
+  <g transform="translate(72 2734)">
+    <line x1="0" y1="0" x2="1056" y2="0" class="rule"/>
+    <g transform="translate(0 34)">
+      <rect width="182" height="36" rx="18" class="chip"/>
+      <text x="18" y="24" class="caption chipText">2.0.0.alpha.N</text>
+    </g>
+    <switch>
+      <text systemLanguage="zh" x="0" y="106" class="small secondary">PCL Nexa 是本分支的产品名；仓库、解决方案、项目与命名空间仍保留 PCL N 血缘。</text>
+      <text x="0" y="106" class="small secondary">PCL Nexa is the branch product name; repository, solution, project and namespace lineage remains PCL N.</text>
+    </switch>
+    <switch>
+      <text systemLanguage="zh" x="0" y="140" class="caption tertiary">下方按钮可打开独立 SVG 文档，文本可直接选择与复制。</text>
+      <text x="0" y="140" class="caption tertiary">Use the button below to open the standalone SVG document with selectable text.</text>
+    </switch>
+  </g>
+</svg>

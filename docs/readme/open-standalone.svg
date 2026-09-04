@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="112" viewBox="0 0 1200 112" role="img" aria-labelledby="title desc">
+  <title id="title">Open standalone SVG document</title>
+  <desc id="desc">Opens a standalone SVG version whose text can be selected and copied.</desc>
+  <defs>
+    <linearGradient id="button" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0A84FF"/><stop offset="1" stop-color="#5E5CE6"/></linearGradient>
+    <style><![CDATA[
+      svg { font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+      .label { font-size:22px; font-weight:650; fill:white; }
+      .hint { font-size:16px; font-weight:500; fill:white; opacity:.76; }
+    ]]></style>
+  </defs>
+  <rect x="1" y="1" width="1198" height="110" rx="28" fill="url(#button)"/>
+  <g transform="translate(34 24)">
+    <rect width="64" height="64" rx="20" fill="white" fill-opacity=".16" stroke="white" stroke-opacity=".22"/>
+    <path d="M22 42L42 22M28 22h14v14" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <switch>
+    <text systemLanguage="zh" x="124" y="49" class="label">打开独立 SVG 文档</text>
+    <text x="124" y="49" class="label">Open standalone SVG document</text>
+  </switch>
+  <switch>
+    <text systemLanguage="zh" x="124" y="77" class="hint">顶层 SVG · 文本可选择 / 复制 · 同一份实时文档</text>
+    <text x="124" y="77" class="hint">Top-level SVG · selectable text · same live document</text>
+  </switch>
+  <circle cx="1138" cy="56" r="24" fill="white" fill-opacity=".14"/>
+  <path d="M1129 56h18m-7-7 7 7-7 7" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
