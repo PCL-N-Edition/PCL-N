@@ -25,6 +25,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     private readonly object _commitGate = new();
     private readonly Dictionary<XsrUiEntityId, AvaloniaUiSceneNodeControl> _controls = [];
     private XsrUiScene? _scene;
+    private XsrUiEntityId _lastPageRoot;
     private bool _commitQueued;
     private bool _disposed;
 
@@ -46,6 +47,13 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
 
     /// <summary>The last immutable scene committed to native drawing controls.</summary>
     public XsrUiScene? Scene => _scene;
+
+    internal bool TryGetPresentedEnterProgress(XsrUiEntityId entity, out double value)
+    {
+        value = 1;
+        return _controls.TryGetValue(entity, out AvaloniaUiSceneNodeControl? control)
+            && (value = control.PresentedEnterProgress) is >= 0 and <= 1;
+    }
 
     /// <summary>
     /// Raised when a pointer press lands on the PXML title-bar surface rather than a clickable
@@ -286,10 +294,61 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         }
 
         ConfigureSelectionRelationships(scene);
+        RunPageEnterAnimationsIfNavigated(scene);
 
         InvalidateMeasure();
         InvalidateArrange();
         InvalidateVisual();
+    }
+
+    /// <summary>
+    /// Page enter (segment-play): when the navigator's current page changes, the entering
+    /// page's children fade and rise into place with a per-child stagger; the motion then
+    /// completes autonomously and a rapid page swap re-targets onto the newest page. Reduced
+    /// motion applies the final state immediately.
+    /// </summary>
+    private void RunPageEnterAnimationsIfNavigated(XsrUiScene scene)
+    {
+        XsrUiEntityId pageRoot = _shell.Stage.Navigation.Current;
+        if (pageRoot.Equals(_lastPageRoot))
+        {
+            return;
+        }
+
+        _lastPageRoot = pageRoot;
+        if (!pageRoot.IsAssigned || _shell.Renderer.ReducedMotion)
+        {
+            return;
+        }
+
+        int pageIndex = scene.Nodes
+            .Select((node, index) => (node, index))
+            .Where(pair => pair.node.Entity.Equals(pageRoot))
+            .Select(pair => pair.index)
+            .FirstOrDefault(-1);
+        if (pageIndex < 0)
+        {
+            return;
+        }
+
+        int depth = scene.Nodes[pageIndex].Depth;
+        int childIndex = 0;
+        for (int index = pageIndex + 1; index < scene.Count; index++)
+        {
+            XsrUiSceneNode node = scene.Nodes[index];
+            if (node.Depth <= depth)
+            {
+                break;
+            }
+
+            if (!_controls.TryGetValue(node.Entity, out AvaloniaUiSceneNodeControl? control))
+            {
+                continue;
+            }
+
+            control.RunEnterAnimation(Math.Min(childIndex, AvaloniaMotionTokens.PageEnterMaxChildren));
+            childIndex++;
+        }
     }
 
     /// <summary>
@@ -441,6 +500,9 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     private static readonly StyledProperty<double> PillScaleProperty =
         AvaloniaProperty.Register<AvaloniaUiSceneNodeControl, double>(nameof(PillScale));
 
+    private static readonly StyledProperty<double> EnterProgressProperty =
+        AvaloniaProperty.Register<AvaloniaUiSceneNodeControl, double>(nameof(EnterProgress));
+
     private readonly Action<XsrUiEntityId> _focusFromAutomation;
     private readonly Action<XsrUiEntityId> _invokeFromAutomation;
     private readonly Func<bool> _reducedMotion;
@@ -476,9 +538,17 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         set => SetValue(PillScaleProperty, value);
     }
 
+    private double EnterProgress
+    {
+        get => GetValue(EnterProgressProperty);
+        set => SetValue(EnterProgressProperty, value);
+    }
+
     internal double PresentedHoverOpacity => HoverOpacity;
 
     internal double PresentedPillScale => PillScale;
+
+    internal double PresentedEnterProgress => EnterProgress;
 
     internal XsrUiSceneNode Node => _node;
 
@@ -563,6 +633,32 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     internal void InvokeFromAutomation() => _invokeFromAutomation(Node.Entity);
 
     /// <summary>
+    /// Plays the page-enter presentation for one node: fade plus a small rise, after the
+    /// node's stagger delay. Reduced motion applies the final state immediately.
+    /// </summary>
+    internal void RunEnterAnimation(int staggerIndex)
+    {
+        AvaloniaUiMotion.Cancel(this, "enter");
+        if (_reducedMotion())
+        {
+            SetValue(EnterProgressProperty, 1);
+            return;
+        }
+
+        SetValue(EnterProgressProperty, 0);
+        AvaloniaUiMotion.Animate(
+            this,
+            "enter",
+            () => (double)GetValue(EnterProgressProperty)!,
+            value => SetValue(EnterProgressProperty, value),
+            1,
+            AvaloniaMotionTokens.PageEnterMilliseconds,
+            AvaloniaUiMotion.EaseOut,
+            delayMilliseconds: staggerIndex * AvaloniaMotionTokens.PageEnterStaggerMilliseconds,
+            reducedMotion: _reducedMotion);
+    }
+
+    /// <summary>
     /// Presents one scene-fact value, animating from its currently presented value. Reduced
     /// motion applies the fact immediately.
     /// </summary>
@@ -610,7 +706,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
-        if (e.Property == HoverOpacityProperty || e.Property == PillScaleProperty)
+        if (e.Property == HoverOpacityProperty || e.Property == PillScaleProperty || e.Property == EnterProgressProperty)
         {
             InvalidateVisual();
         }
@@ -646,6 +742,25 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         base.Render(context);
         Rect rect = new(Bounds.Size);
         XsrUiVisualStyleSnapshot style = _node.VisualStyle;
+        double enter = EnterProgress;
+        if (enter < 1)
+        {
+            // Page enter: the node rises from 10 px below and fades in with its stagger slot.
+            using (context.PushTransform(Matrix.CreateTranslation(
+                0, AvaloniaMotionTokens.PageEnterOffsetYPixels * (1 - enter))))
+            using (context.PushOpacity(Math.Clamp(enter, 0, 1)))
+            {
+                DrawContent(context, rect, style);
+            }
+
+            return;
+        }
+
+        DrawContent(context, rect, style);
+    }
+
+    private void DrawContent(DrawingContext context, Rect rect, XsrUiVisualStyleSnapshot style)
+    {
         IBrush? background = Brush(style.Background);
         IPen? border = style.BorderWidth > 0 ? new Pen(Brush(style.Border), style.BorderWidth) : null;
         if (style.CornerRadius > 0)

@@ -133,6 +133,8 @@ public sealed class AvaloniaUiShellWindow : Window
     /// </summary>
     public event EventHandler? StartupRevealCompleted;
 
+    internal AvaloniaUiSceneSurface Surface => _surface;
+
     protected override void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
@@ -298,6 +300,7 @@ public sealed class AvaloniaUiShellWindow : Window
                     0,
                     AvaloniaMotionTokens.IconCollapseMilliseconds,
                     AvaloniaUiMotion.EaseIn,
+                    reducedMotion: () => _shell.Renderer.ReducedMotion,
                     completed: () =>
                     {
                         if (!_disposed)
@@ -361,7 +364,8 @@ public sealed class AvaloniaUiShellWindow : Window
                     _maskedContent.Clip = null;
                     _revealMask = null;
                     Close();
-                });
+                },
+                reducedMotion: () => _shell.Renderer.ReducedMotion);
         }
 
         AvaloniaUiMotion.Animate(
@@ -414,7 +418,8 @@ public sealed class AvaloniaUiShellWindow : Window
                     1,
                     AvaloniaMotionTokens.CloseCollapseMilliseconds / 2,
                     AvaloniaUiMotion.EaseIn,
-                    completed: OnCollapsePieceCompleted));
+                    completed: OnCollapsePieceCompleted,
+                    reducedMotion: () => _shell.Renderer.ReducedMotion));
         }
     }
 

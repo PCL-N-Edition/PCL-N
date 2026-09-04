@@ -1,12 +1,18 @@
 namespace PCL.UI.Next.Backend.Avalonia;
 
 /// <summary>
-/// The motion vocabulary for the product shell. Timings mirror the legacy experimental base
-/// plate; the easing character follows fluid-interface guidance: click-driven changes settle
-/// critically damped without overshoot, pointer feedback starts on pointer-down, and every
-/// animated value starts from the current presented value so an interruption stays continuous.
-/// Reduced motion replaces all of it with immediate value changes (the callers already render
-/// the end state).
+/// The single source of truth for product motion timing, classified per the oil-motion runtime
+/// contract. Every animation is one of three controllers and must not grow page-local constants:
+/// - <c>segment-play</c>: input selects a state, the motion then completes on its own and a
+///   reverse input cancels the running play before retracing from the currently presented
+///   value (hover, press, selection, rail expansion, launch card swaps);
+/// - <c>scrub</c>: an input value maps continuously onto the presented state (the rail
+///   presentation progress pumped by the shell);
+/// - <c>autonomous</c>: the motion advances by time alone (startup reveal, close collapse,
+///   page enter, icon bounce), with the contract's static state as the reduced-motion
+///   fallback.
+/// Fast repeated inputs keep only the newest target: every track is replaceable and
+/// cancellable, and each track carries the live reduced-motion policy.
 /// </summary>
 internal static class AvaloniaMotionTokens
 {
@@ -21,6 +27,18 @@ internal static class AvaloniaMotionTokens
 
     /// <summary>The inherited icon bounces slightly upward before it folds away.</summary>
     public const int IconBounceMilliseconds = 110;
+
+    /// <summary>
+    /// Page enter (segment-play, autonomous completion): the entering page's children fade
+    /// and rise into place with a per-child stagger, mirroring the legacy page enter.
+    /// </summary>
+    public const int PageEnterMilliseconds = 240;
+
+    public const int PageEnterStaggerMilliseconds = 14;
+
+    public const int PageEnterMaxChildren = 36;
+
+    public const double PageEnterOffsetYPixels = 10;
 
     /// <summary>The final stage where the icon shrinks into (or out of) the content.</summary>
     public const int IconCollapseMilliseconds = 190;

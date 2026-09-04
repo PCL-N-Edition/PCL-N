@@ -180,6 +180,10 @@ internal static class Program
 
         public static double ObservedRailProgressAfterCollapse { get; internal set; } = double.NaN;
 
+        public static double ObservedPageEnterProgressAfterReducedMotion { get; internal set; } = double.NaN;
+
+        public static bool ObservedPageEnterStarted { get; internal set; }
+
         public static void MarkTerminated() => ReachedEndOfLifetime = true;
 
         public static void Reset(bool withSplash)
@@ -191,6 +195,8 @@ internal static class Program
             ReachedEndOfLifetime = false;
             RunRailReducedMotionScenario = false;
             ObservedRailProgressAfterCollapse = double.NaN;
+            ObservedPageEnterProgressAfterReducedMotion = double.NaN;
+            ObservedPageEnterStarted = false;
         }
 
         public override void OnFrameworkInitializationCompleted()
@@ -213,7 +219,7 @@ internal static class Program
 
                 if (RunRailReducedMotionScenario)
                 {
-                    _ = RunRailScenarioAsync(window, shell);
+                    _ = RunMotionScenariosAsync(window, shell, window.Surface);
                     return;
                 }
 
@@ -253,9 +259,17 @@ internal static class Program
         // ReducedMotionCancelsRunningRailMotion: after the mid-flight policy flip and the
         // collapse, the settled progress must still be the collapsed fact.
         AssertEqual(0, LifetimeProbeApp.ObservedRailProgressAfterCollapse);
+
+        // ReducedMotionSettlesRunningPageEnter: the page enter animation started and the
+        // mid-flight policy flip settled it to the final state.
+        AssertTrue(LifetimeProbeApp.ObservedPageEnterStarted);
+        AssertEqual(1, LifetimeProbeApp.ObservedPageEnterProgressAfterReducedMotion);
     }
 
-    private static async Task RunRailScenarioAsync(AvaloniaUiShellWindow window, XsrUiShell shell)
+    private static async Task RunMotionScenariosAsync(
+        AvaloniaUiShellWindow window,
+        XsrUiShell shell,
+        AvaloniaUiSceneSurface surface)
     {
         try
         {
@@ -268,6 +282,46 @@ internal static class Program
             shell.SetNavigationExpanded(false);
             await Task.Delay(300).ConfigureAwait(true);
             LifetimeProbeApp.ObservedRailProgressAfterCollapse = shell.RailPresentationProgress;
+
+            // ReducedMotionSettlesRunningPageEnter: build a page outside the navigator, swap
+            // it in, and confirm the enter animation started; flipping the policy then settles
+            // the running enter track to its final state.
+            shell.Renderer.ReducedMotion = false;
+            XsrUiEntityId page = shell.Tree.Create("scenario-page");
+            shell.Tree.SetComponent(page, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+            shell.Tree.SetComponent(page, new XsrUiSemantic(XsrUiSemanticRole.Page, "scenario"));
+            XsrUiEntityId text = shell.Tree.Create("scenario-page-text");
+            shell.Tree.SetComponent(text, new XsrUiText("场景页面"));
+            shell.Tree.SetComponent(text, new XsrUiSemantic(XsrUiSemanticRole.Text, "场景页面"));
+            shell.Tree.Attach(text, page);
+            shell.Stage.Navigation.Replace(page);
+
+            DateTime deadline = DateTime.UtcNow.AddSeconds(2);
+            double started = 1;
+            while (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(16).ConfigureAwait(true);
+                if (surface.TryGetPresentedEnterProgress(text, out started) && started < 1)
+                {
+                    break;
+                }
+            }
+
+            LifetimeProbeApp.ObservedPageEnterStarted = started < 1;
+
+            shell.Renderer.ReducedMotion = true;
+            deadline = DateTime.UtcNow.AddSeconds(2);
+            double settled = double.NaN;
+            while (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(16).ConfigureAwait(true);
+                if (surface.TryGetPresentedEnterProgress(text, out settled) && settled >= 1)
+                {
+                    break;
+                }
+            }
+
+            LifetimeProbeApp.ObservedPageEnterProgressAfterReducedMotion = settled;
         }
         finally
         {
