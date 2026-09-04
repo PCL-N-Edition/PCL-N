@@ -60,7 +60,7 @@ internal static class Program
             shell,
             uiIntents,
             minecraft,
-            runtime.Host.Accounts,
+            runtime.Commands,
             runtime.Host.StateStore,
             minecraftRootDirectory);
         launchPage.Attach();

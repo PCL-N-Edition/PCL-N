@@ -52,12 +52,14 @@ internal static class AvaloniaMotionTokens
     public const int HoverMilliseconds = 120;
 
     public const int HoverOutMilliseconds = 180;
+    public const double CapsuleSpringResponseSeconds = .3;
 
     public const int SelectionInMilliseconds = 300;
 
     public const int SelectionOutMilliseconds = 120;
 
-    public const int RailExpandMilliseconds = 200;
+    public const double RailSpringResponseSeconds = .34;
+    public const double PagerSpringResponseSeconds = .34;
 
     /// <summary>The splash and hover fade clocks tick at display cadence.</summary>
     public const int FrameMilliseconds = 16;

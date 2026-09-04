@@ -93,19 +93,12 @@ public static class PxmlShellComposer
             navigationEntities.Add(expected.Id, entity);
         }
 
-        XsrUiEntityId[] titleChildren = [.. tree.Children(titleBar)];
-        if (titleChildren.Length >= 2)
+        foreach (XsrUiEntityId child in tree.Children(titleBar))
         {
-            if (tree.GetComponent<XsrUiText>(titleChildren[0]) is { } titleText)
+            if (tree.Name(child) == "TitleMain" && tree.GetComponent<XsrUiText>(child) is { } titleText)
             {
                 titleText.Content = options.Title;
-                tree.MarkDirty(titleChildren[0], XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
-            }
-
-            if (tree.GetComponent<XsrUiText>(titleChildren[1]) is { } versionText)
-            {
-                versionText.Content = options.Version;
-                tree.MarkDirty(titleChildren[1], XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
+                tree.MarkDirty(child, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
             }
         }
 

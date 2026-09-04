@@ -1,6 +1,10 @@
 <Shell xmlns="https://pcln.dev/pxml/2026" Label="Nexa Launcher">
   <TitleBar Height="52">
-    <Text Content="Nexa Launcher" Margin="20,0,0,0" Width="240" />
+    <Text Key="TitleMain" Content="Nexa Launcher" Margin="20,0,0,0" Width="240" />
+    <Button Key="TitleBack" Label="返回上一级" Icon="lucide/arrow-left" Command="ui.page.back"
+            Width="30" Height="30" Margin="12,0,0,0" VerticalAlignment="Center" IsVisible="false" />
+    <Text Key="TitleSubpage" Content="" Height="24" Margin="6,0,120,0" Weight="1"
+          VerticalAlignment="Center" IsVisible="false" />
   </TitleBar>
   <StackPanel Orientation="Horizontal" StretchLastChild="true">
     <Navigation Width="48" StretchLastChild="true">

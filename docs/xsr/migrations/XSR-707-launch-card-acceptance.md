@@ -118,5 +118,22 @@ architecture and formatting gates, and Desktop NativeAOT/trimmed `--validate-she
 
 ## Evidence
 
-Pending implementation and validation. Earlier account and motion commits are retained; this
-unit hardens their integration rather than treating their presence as acceptance evidence.
+Validated locally on Windows with .NET 10:
+
+- Release solution build: zero warnings/errors; formatting verification and `git diff --check` passed.
+- CoreCLR suites: Services 177, UI.Next 68, PXML 35, Desktop composition 19, Avalonia backend
+  6 top-level cases (including native peer/focus/invoke, captured drag, spring interruption,
+  delayed-scene-read regression, caption input and close-shadow scenarios).
+- Architecture: 29 projects passed; renderer benchmark gates passed, including zero allocation
+  on clean frames and no layout for paint-only changes.
+- Desktop NativeAOT and trimmed publishes passed. Both executables ran `--validate-shell`
+  successfully for Experimental and LiquidGlass, each producing 50 scene nodes. Local Windows
+  AOT disables debug-symbol generation to fit the build host's memory; CI uses its normal flags.
+- Skia/headless images inspected at 850x500: both palettes, expanded settings capsule, blank
+  title-bar-backed subpage, both widget pages and an intermediate slide frame. Geometry tests
+  also cover 810x470 and 1280x800, both rail states and intermediate progress.
+
+Native automation discovery/focus/invoke has executable evidence. Actual Narrator speech and
+Windows DWM minimize/maximize/close appearance still require an interactive OS check; headless
+testing is not presented as proof of those platform effects. No full login/edit/skin page,
+optional shortcut dock or version editor content is claimed in this unit.

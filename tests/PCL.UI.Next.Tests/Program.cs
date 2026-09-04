@@ -78,6 +78,8 @@ internal static partial class Program
         ("shell rail toggle intent expands through the renderer", Sync(ShellRailToggleIntentExpandsThroughRenderer)),
         ("rail presentation matches hit test during motion", Sync(RailPresentationMatchesHitTestDuringMotion)),
         ("reduced motion skips rail presentation motion", Sync(ReducedMotionSkipsRailPresentationMotion)),
+        ("pager clips pages and excludes inactive input and accessibility", Sync(PagerClipsPagesAndExcludesInactiveInput)),
+        ("pager supports wheel keyboard drag cancellation and reduced motion", Sync(PagerSupportsAllInputPaths)),
     ];
 
     private static async Task<int> Main()

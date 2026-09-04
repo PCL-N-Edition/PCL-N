@@ -98,7 +98,12 @@ internal static partial class Program
         XsrUiScene scrolled = renderer.Render();
         XsrUiScroll scroll = tree.GetComponent<XsrUiScroll>(root)!;
         AssertEqual(300, scroll.OffsetY);
-        AssertEqual(new XsrUiRect(0, -300, 100, 40), scrolled[1].Rect);
+        // Fully offscreen rows are absent from the scene/accessibility projection. The first
+        // partially visible row retains its layout rect and carries the viewport clip.
+        AssertEqual("row-7", tree.Name(scrolled[1].Entity));
+        AssertEqual(new XsrUiRect(0, -20, 100, 40), scrolled[1].Rect);
+        AssertEqual(new XsrUiRect(0, 0, 100, 20), scrolled[1].ClipRect!.Value);
+        AssertFalse(renderer.HitTest(new XsrUiPoint(50, -10)).IsAssigned);
 
         // Scrolling back up returns to the origin.
         AssertTrue(renderer.PointerScroll(new XsrUiPoint(50, 50), deltaY: -1000));
@@ -130,6 +135,7 @@ internal static partial class Program
         // Beta moved into the viewport at y=0; alpha scrolled out above.
         AssertEqual(new XsrUiRect(0, 0, 100, 40), scene.Nodes.First(node => node.Entity.Equals(beta)).Rect);
         AssertEqual(beta, renderer.HitTest(new XsrUiPoint(50, 20)));
+        AssertFalse(scene.Nodes.Any(node => node.Entity == alpha));
     }
 
     private static void ImageSourceCarriesToTheScene()

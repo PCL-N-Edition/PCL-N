@@ -151,7 +151,7 @@ internal static partial class Program
         AssertFalse(shell.IsNavigationExpanded);
         scene = shell.Render(new XsrUiSize(1024, 700));
         AssertEqual(XsrUiShell.ExpandedRailWidth, Node(scene, shell.Navigation).Rect.Width);
-        AssertEqual(string.Empty, Node(scene, shell.NavigationToggle).Text);
+        AssertEqual(XsrUiShell.NavigationToggleCollapseLabel, Node(scene, shell.NavigationToggle).Text);
 
         shell.SetRailPresentationProgress(0);
         scene = shell.Render(new XsrUiSize(1024, 700));

@@ -7,8 +7,8 @@ namespace PCL.UI.Next.Backend.Avalonia;
 /// The shared frame clock behind backend presentation motion. Every animated value starts from
 /// its currently presented value, so a new animation on the same value replaces a running one
 /// continuously and a cancellation freezes the presented value — the fluid-interface
-/// interruption contract. Values settle critically damped (cubic ease-out) unless a caller
-/// asks for the mirrored ease-in collapse. The renderer-side animator cannot be used here
+/// interruption contract. Timeline transitions use cubic easing; directly interactive capsules
+/// use a critically damped spring carrying velocity across retargets. The renderer-side animator cannot be used here
 /// because native window affordances and transform properties are outside the UI.Next tree.
 /// </summary>
 internal static class AvaloniaUiMotion
@@ -68,6 +68,54 @@ internal static class AvaloniaUiMotion
         }
     }
 
+    /// <summary>Retargets a no-bounce spring from its presented position and current velocity.</summary>
+    public static void AnimateSpring(object owner, object value, Func<double> read, Action<double> write,
+        double target, double responseSeconds, Func<bool> reducedMotion, double? initialVelocity = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(responseSeconds);
+        lock (Gate)
+        {
+            bool retargeting = Active.TryGetValue((owner, value), out Track? previous)
+                && previous.SpringResponseSeconds is not null;
+            double velocity = initialVelocity ?? (retargeting ? previous!.Velocity : 0);
+            Active.Remove((owner, value));
+            if (reducedMotion())
+            {
+                write(target);
+                return;
+            }
+            double now = ElapsedMilliseconds();
+            double position = retargeting ? previous!.Position : read();
+            Active[(owner, value)] = new Track
+            {
+                Read = read,
+                Write = write,
+                From = position,
+                Position = position,
+                Target = target,
+                Easing = EaseOut,
+                StartMilliseconds = now,
+                DurationMilliseconds = 0,
+                SpringResponseSeconds = responseSeconds,
+                Velocity = velocity,
+                LastMilliseconds = now,
+                ReducedMotion = reducedMotion,
+            };
+            EnsureClock();
+        }
+    }
+
+    internal static (double Position, double Velocity) StepCriticalSpring(
+        double position, double velocity, double target, double seconds, double responseSeconds)
+    {
+        double omega = 2 * Math.PI / responseSeconds;
+        double displacement = position - target;
+        double coefficient = velocity + omega * displacement;
+        double decay = Math.Exp(-omega * seconds);
+        return (target + (displacement + coefficient * seconds) * decay,
+            (velocity - omega * coefficient * seconds) * decay);
+    }
+
     /// <summary>Stops one animated value, freezing it at the currently presented value.</summary>
     public static void Cancel(object owner, object value)
     {
@@ -108,6 +156,10 @@ internal static class AvaloniaUiMotion
         public Action? Completed { get; init; }
 
         public Func<bool>? ReducedMotion { get; init; }
+        public double? SpringResponseSeconds { get; init; }
+        public double Velocity { get; set; }
+        public double Position { get; set; }
+        public double LastMilliseconds { get; set; }
     }
 
     private static double ElapsedMilliseconds()
@@ -152,6 +204,21 @@ internal static class AvaloniaUiMotion
                 {
                     track.Write(track.Target);
                     finished.Add((owner, value));
+                    continue;
+                }
+
+                if (track.SpringResponseSeconds is { } response)
+                {
+                    // Scene commits are asynchronous. Feeding a previous scene position back
+                    // into the integrator mixes old position with new velocity and causes jitter.
+                    (double position, double velocity) = StepCriticalSpring(track.Position, track.Velocity,
+                        track.Target, Math.Max(0, now - track.LastMilliseconds) / 1000, response);
+                    track.Position = position;
+                    track.Velocity = velocity;
+                    track.LastMilliseconds = now;
+                    bool settled = Math.Abs(position - track.Target) < .0001 && Math.Abs(velocity) < .001;
+                    track.Write(settled ? track.Target : position);
+                    if (settled) finished.Add((owner, value));
                     continue;
                 }
 

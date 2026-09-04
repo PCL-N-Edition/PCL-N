@@ -92,6 +92,10 @@ public sealed class PxmlUiLoader
         {
             case PxmlRuntimeRecipe.Element:
                 break;
+            case PxmlRuntimeRecipe.VerticalPager:
+                tree.SetComponent(entity, new XsrUiPager());
+                tree.SetComponent(entity, new XsrUiInput { Focusable = true });
+                break;
             case PxmlRuntimeRecipe.StackLayout:
                 tree.SetComponent(entity, new XsrUiStackPanel(node.Orientation)
                 {
@@ -116,11 +120,20 @@ public sealed class PxmlUiLoader
                 tree.SetComponent(entity, text);
                 break;
             case PxmlRuntimeRecipe.CommandInput:
-                tree.SetComponent(entity, new XsrUiInput
+                XsrUiInput commandInput = new()
                 {
                     Focusable = node.Focusable,
                     Clickable = node.Clickable,
-                });
+                };
+                PxmlIrBinding? enabledBinding = node.Bindings.FirstOrDefault(
+                    binding => binding.Property == XsrUiStateProperty.Enabled);
+                if (enabledBinding is not null)
+                {
+                    // Clickability follows the bound state fact, mirroring BoundVisibility.
+                    commandInput.BoundEnabled = ResolveState(state, enabledBinding.State);
+                }
+
+                tree.SetComponent(entity, commandInput);
 
                 if (node.Command is not null)
                 {

@@ -48,6 +48,7 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
         Children.Add(maximize);
         Children.Add(close);
         _buttons.AddRange([minimize, maximize, close]);
+        foreach (WindowActionButton button in _buttons) button.ApplyForeground(_foreground);
 
         _surface.SceneCommitted += OnSceneCommitted;
     }
@@ -96,7 +97,7 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
     /// One circular window action: a translucent circle fades in behind the vector icon on hover
     /// and the whole button scales down on press.
     /// </summary>
-    private sealed class WindowActionButton : Button
+    internal sealed class WindowActionButton : Button
     {
         internal WindowActionButton(string icon, string automationName, Func<bool> reducedMotion)
         {
@@ -109,6 +110,7 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
             BorderBrush = Brushes.Transparent;
             BorderThickness = new Thickness(0);
             Focusable = false;
+            FocusAdorner = null;
 
             AutomationProperties.SetName(this, automationName);
 
@@ -116,7 +118,7 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
             {
                 Width = ButtonSize,
                 Height = ButtonSize,
-                CornerRadius = new CornerRadius(ButtonSize / 2),
+                CornerRadius = new CornerRadius(XsrUiCornerRadii.Pill(ButtonSize)),
                 Opacity = 0,
             };
             _icon = new AvaloniaUiSvgIcon
@@ -135,20 +137,6 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
 
             PointerEntered += (_, _) => AnimateHover(1);
             PointerExited += (_, _) => AnimateHover(0);
-            PointerPressed += (_, e) =>
-            {
-                if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
-                {
-                    SetPressScale(AvaloniaMotionTokens.PressScale);
-                }
-            };
-            PointerReleased += (_, e) =>
-            {
-                if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
-                {
-                    SetPressScale(1);
-                }
-            };
         }
 
         private readonly Border _hoverCircle;
@@ -158,6 +146,24 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
         private double _hoverTarget;
 
         internal AvaloniaUiSvgIcon Icon => _icon;
+        internal double PresentedHoverOpacity => _hoverCircle.Opacity;
+        internal double PresentedPressScale => _press.ScaleX;
+        internal IBrush? HoverBrush => _hoverCircle.Background;
+
+        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs e)
+        {
+            base.OnPropertyChanged(e);
+            // Button handles the pointer events itself. Observe its authoritative pressed
+            // state so handled events, cancelled presses and keyboard activation all settle.
+            if (e.Property == IsPressedProperty && _press is not null)
+                SetPressScale(IsPressed ? .9 : 1);
+        }
+
+        protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            AvaloniaUiMotion.CancelAll(this);
+            base.OnDetachedFromVisualTree(e);
+        }
 
         internal void ApplyForeground(XsrUiColor foreground)
         {
@@ -200,7 +206,7 @@ internal sealed class AvaloniaNativeWindowActions : StackPanel, IDisposable
 
         private void SetPressScale(double scale)
         {
-            if (_reducedMotion())
+            if (_reducedMotion() || scale < 1)
             {
                 AvaloniaUiMotion.Cancel(this, "scale-x");
                 AvaloniaUiMotion.Cancel(this, "scale-y");

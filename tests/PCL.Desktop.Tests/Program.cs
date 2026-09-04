@@ -4,6 +4,7 @@ using PCL.Services.Composition;
 using PCL.Services.Foundation;
 using PCL.Services.Minecraft;
 using PCL.Services.Minecraft.Process;
+using PCL.Services.Settings;
 using PCL.UI.Next;
 using PCL.Xsr;
 using PCL.Xsr.Runtime;
@@ -36,6 +37,15 @@ internal static partial class Program
         ("launch primary dispatches the product start command", LaunchPrimaryDispatchesProductStartCommand),
         ("expand navigation never replaces the launch page", ExpandNavigationNeverReplacesTheLaunchPage),
         ("account card lists profiles and switches the selection", AccountCardListsProfilesAndSwitchesSelection),
+        ("rail animation retains content and version card containment", RailAnimationRetainsContentAndCardContainment),
+        ("account roster publication stays on the render thread and preserves rows", AccountRosterUpdatesAtFrameBoundary),
+        ("long account rosters scroll within the card", AccountRosterScrollsWithinCard),
+        ("selected profile is used by the product launch route", SelectedProfileIsUsedByLaunch),
+        ("unavailable launch cannot be invoked by pointer keyboard or automation", UnavailableLaunchCannotBeInvoked),
+        ("version subpages have independent routes and restore navigation focus", VersionSubpagesHaveIndependentRoutesAndRestoreFocus),
+        ("pointer focus does not draw keyboard focus rings", PointerFocusDoesNotDrawKeyboardFocusRings),
+        ("capsules occupy their presented width and remain beside the version name", CapsulesOccupyPresentedWidth),
+        ("launch widgets preserve original content and page through real intents", LaunchWidgetsPreserveOriginalContent),
     ];
 
     private static void LaunchPageReplicatesLegacyLayout()
@@ -45,14 +55,14 @@ internal static partial class Program
         XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(1280, 800));
 
         AssertEqual("下载游戏", FindByKey(fixture.Shell, scene, "LaunchButton").Text);
+        AssertTrue(FindByKey(fixture.Shell, scene, "LaunchButton").IsClickable);
         AssertEqual("账户", FindByKey(fixture.Shell, scene, "AccountHeader").Text);
-        AssertEqual("实验", FindByKey(fixture.Shell, scene, "AccountBadgeText").Text);
+        AssertEqual("Alpha", FindByKey(fixture.Shell, scene, "AccountBadgeText").Text);
         AssertEqual("版本", FindByKey(fixture.Shell, scene, "VersionHeader").Text);
         AssertEqual("关于 PCL N Edition", FindByKey(fixture.Shell, scene, "AboutTitle").Text);
 
-        AssertEqual(
-            ReadCell(fixture.Store, LaunchPageState.ProfileNameKey),
-            FindByKey(fixture.Shell, scene, "AccountName").Text);
+        AssertTrue(FindByKey(fixture.Shell, scene, "AccountHint").Text!.Contains("还没有账户档案", StringComparison.Ordinal));
+        AssertFalse(HasKey(fixture.Shell, scene, "AccountName"));
         AssertEqual(
             ReadCell(fixture.Store, LaunchPageState.InstanceSummaryKey),
             FindByKey(fixture.Shell, scene, "VersionName").Text);
@@ -61,15 +71,16 @@ internal static partial class Program
         AssertEqual(12, header.VisualStyle.FontSize);
         AssertEqual(600, header.VisualStyle.FontWeight);
         XsrUiSceneNode versionName = FindByKey(fixture.Shell, scene, "VersionName");
-        AssertEqual(16, versionName.VisualStyle.FontSize);
+        AssertEqual(20, versionName.VisualStyle.FontSize);
         AssertEqual(600, versionName.VisualStyle.FontWeight);
         AssertEqual(
             XsrUiTextAlignment.Center,
             FindByKey(fixture.Shell, scene, "LaunchButton").VisualStyle.TextAlignment);
 
         AssertEqual("未找到可启动的游戏版本", ReadCell(fixture.Store, LaunchPageState.InstanceSummaryKey));
-        AssertEqual("使用右上角按钮选择或安装版本", ReadCell(fixture.Store, LaunchPageState.InstanceDetailKey));
+        // Downloading a game does not require an account. Only launch requires selection.
         AssertEqual("下载游戏", ReadCell(fixture.Store, LaunchPageState.ActionLabelKey));
+        AssertTrue(FindByKey(fixture.Shell, scene, "LaunchButton").IsClickable);
         AssertEqual(string.Empty, ReadCell(fixture.Store, LaunchPageState.SelectedInstanceKey));
         AssertEqual("就绪", ReadCell(fixture.Store, LaunchPageState.StatusKey));
     }
@@ -94,7 +105,7 @@ internal static partial class Program
         const double contentY = 76;
         const double columnGap = 16;
         const double rightCardGap = 12;
-        const double versionCardHeight = 176;
+        const double versionCardHeight = 184;
         double distributableWidth = contentWidth - columnGap;
         double expectedAccountWidth = Math.Min(360, distributableWidth * 0.92 / (0.92 + 1.35));
         double expectedRightWidth = distributableWidth - expectedAccountWidth;
@@ -152,9 +163,10 @@ internal static partial class Program
         Emit(fixture.Intents, "ui.navigation.launch");
         fixture.Controller.WaitUntilIdle().GetAwaiter().GetResult();
         Emit(fixture.Intents, "ui.launch.instances");
-        AssertEqual(XsrSemanticId.Parse("navigation.download"), fixture.Shell.SelectedNavigationId);
-        AssertTrue(fixture.Shell.Render(new XsrUiSize(1280, 800)).Nodes.Any(
-            node => node.Text == "该分区将在后续单元中迁移。"));
+        XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(1280, 800));
+        AssertTrue(HasKey(fixture.Shell, scene, "VersionListPage"));
+        AssertEqual("版本列表", FindByKey(fixture.Shell, scene, "TitleSubpage").Text);
+        AssertFalse(HasKey(fixture.Shell, scene, "LaunchButton"));
     }
 
     private static void LaunchPageSemanticsNeverExposeInternalKeys()
@@ -173,7 +185,7 @@ internal static partial class Program
     private static void InstanceScanPublishesWithoutForeignTreeMutation()
     {
         ControllableInstanceSource source = new();
-        using LaunchPageFixture fixture = new(source);
+        using LaunchPageFixture fixture = new(source, addProfile: true);
         _ = fixture.Shell.Render(new XsrUiSize(1280, 800));
         XsrUiEntityId[] dirtyBeforeWorker = [.. fixture.Shell.Tree.DirtyEntities()];
 
@@ -245,12 +257,12 @@ internal static partial class Program
             Kind = LaunchProfileKind.Microsoft,
         }).IsSuccess);
 
-        // Re-activating the page rebuilds the account rows from the roster.
-        Emit(fixture.Intents, "ui.navigation.settings");
-        Emit(fixture.Intents, "ui.navigation.launch");
         fixture.Controller.WaitUntilIdle().GetAwaiter().GetResult();
-
         XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(1280, 800));
+        AssertEqual("Player", FindByKey(fixture.Shell, scene, "AccountName").Text);
+        AssertEqual("离线账户", FindByKey(fixture.Shell, scene, "AccountKind").Text);
+        AssertTrue(fixture.Shell.Renderer.Activate(FindByKey(fixture.Shell, scene, "AccountSwitch").Entity));
+        scene = fixture.Shell.Render(new XsrUiSize(1280, 800));
         AssertTrue(HasKey(fixture.Shell, scene, "account-row:0"));
         AssertTrue(HasKey(fixture.Shell, scene, "account-row:1"));
 
@@ -261,15 +273,24 @@ internal static partial class Program
 
         XsrUiEntityId secondRow = FindEntity(fixture.Shell, "account-row:1");
         AssertTrue(secondRow.IsAssigned);
-        Emit(fixture.Intents, "ui.account.select", secondRow);
+        // Text and icon children must route real pointer input to the template's button.
+        XsrUiRect name = FindByKey(fixture.Shell, scene, "ProfileName:1").Rect;
+        XsrUiPoint click = new(name.X + 8, name.Y + 8);
+        AssertTrue(fixture.Shell.Renderer.PointerPressed(click));
+        AssertTrue(fixture.Shell.Renderer.PointerReleased(click));
+        AssertTrue(SpinWait.SpinUntil(() => fixture.Service.SelectedIndex == 1, TimeSpan.FromSeconds(2)));
+        scene = fixture.Shell.Render(new XsrUiSize(1280, 800));
         AssertEqual(1, fixture.Service.SelectedIndex);
         AssertEqual(1, ReadCellInt(fixture.Store, AccountService.SelectedKey));
         AssertEqual("Second", ReadCell(fixture.Store, LaunchPageState.ProfileNameKey));
         AssertEqual("账户已就绪，可以开始游戏。", ReadCell(fixture.Store, LaunchPageState.ProfileSummaryKey));
 
+        AssertEqual("Second", FindByKey(fixture.Shell, scene, "AccountName").Text);
+        AssertEqual("Microsoft 账户", FindByKey(fixture.Shell, scene, "AccountKind").Text);
+        AssertFalse(HasKey(fixture.Shell, scene, "account-row:1"));
+        AssertTrue(fixture.Shell.Renderer.Activate(FindByKey(fixture.Shell, scene, "AccountSwitch").Entity));
         scene = fixture.Shell.Render(new XsrUiSize(1280, 800));
-        AssertTrue(scene.Nodes.Single(node =>
-            string.Equals(fixture.Shell.Tree.Name(node.Entity), "account-row:1", StringComparison.Ordinal)).IsSelected);
+        AssertTrue(FindByKey(fixture.Shell, scene, "account-row:1").IsSelected);
     }
 
     private static int ReadCellInt(XsrStateStore store, XsrSemanticId key) =>
@@ -361,16 +382,18 @@ internal static partial class Program
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_temporaryDirectory);
             XsrUiRuntimeContext uiRuntime = new();
-            XsrStateStoreBuilder builder = FoundationState.CreateBuilder();
-            LaunchPageState.DeclareState(builder);
-            Store = builder.Build(uiRuntime.StateBridge);
+            SettingsSchema schema = LauncherDefaults.CreateSchema();
+            FoundationHost host = FoundationComposer.Compose(
+                new LauncherSettingsJsonPort(Path.Combine(_temporaryDirectory, "settings.json"), schema),
+                schema, new LaunchProfileFilePort(Path.Combine(_temporaryDirectory, "profiles.json")),
+                observer: uiRuntime.StateBridge, declareHostState: LaunchPageState.DeclareState);
+            Foundation = FoundationRuntimeComposer.Compose(host);
+            Store = host.StateStore;
             Intents = new DesktopUiIntentSink();
             Shell = PxmlShellComposer.Compose(Store, uiRuntime, intentSink: Intents);
             Minecraft = minecraft ?? MinecraftRuntimeComposer.Compose();
             _ownsMinecraftRuntime = minecraft is null || ownsMinecraftRuntime;
-            Service = new AccountService(
-                Store,
-                new LaunchProfileFilePort(Path.Combine(_temporaryDirectory, "profiles.json")));
+            Service = host.Accounts;
             if (addProfile)
             {
                 AssertTrue(Service.AddProfile(new LaunchProfile
@@ -384,7 +407,7 @@ internal static partial class Program
                 Shell,
                 Intents,
                 Minecraft,
-                Service,
+                Foundation.Commands,
                 Store,
                 Path.Combine(_temporaryDirectory, "minecraft"),
                 source);
@@ -392,6 +415,7 @@ internal static partial class Program
         }
 
         public XsrUiShell Shell { get; }
+        public FoundationRuntime Foundation { get; }
         public DesktopUiIntentSink Intents { get; }
         public XsrStateStore Store { get; }
         public MinecraftRuntime Minecraft { get; }

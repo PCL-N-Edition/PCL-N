@@ -6,12 +6,25 @@
                     Margin="0,0,0,12" Key="AccountHeaderRow">
           <Text Key="AccountHeader" Content="账户" Height="16" />
           <StackPanel Orientation="Vertical" HorizontalAlignment="End" Key="AccountBadge">
-            <Text Key="AccountBadgeText" Content="实验" Height="12" Margin="7,2,7,2" />
+            <Text Key="AccountBadgeText" Content="Alpha" Height="14" Margin="7,1,7,1" />
           </StackPanel>
         </StackPanel>
         <StackPanel Orientation="Vertical" Weight="1" MinHeight="160" Key="AccountBody">
-          <Text Key="AccountName" Content="{state launch.profile.name}" />
-          <StackPanel Orientation="Vertical" Spacing="6" Key="AccountRows" />
+          <StackPanel Orientation="Vertical" Weight="1" Spacing="10" Key="AccountSelected"
+                      IsVisible="{state launch.account.selected-visible}">
+            <Image Key="AccountAvatar" Label="账户头像" Source="lucide/user" Width="64" Height="64"
+                   HorizontalAlignment="Center" Margin="0,24,0,0" />
+            <Text Key="AccountName" Content="{state launch.profile.name}" Height="24" />
+            <Text Key="AccountKind" Content="{state launch.profile.kind}" Height="18" />
+            <Text Key="AccountInfo" Content="{state launch.profile.info}" Height="18" />
+            <Button Key="AccountSwitch" Label="切换档案" Content="切换档案" Command="ui.account.switch"
+                    Height="36" Width="120" HorizontalAlignment="Center" Margin="0,6,0,0" />
+          </StackPanel>
+          <StackPanel Orientation="Vertical" Weight="1" Spacing="10" Key="AccountPicker"
+                      IsVisible="{state launch.account.roster-visible}">
+            <Text Key="AccountHint" Content="{state launch.account.hint}" Height="40" />
+            <StackPanel Orientation="Vertical" Weight="1" Spacing="6" Scroll="true" Key="AccountRows" />
+          </StackPanel>
         </StackPanel>
         <Text Key="AccountSummary" Content="{state launch.profile.summary}"
               Height="18" Margin="0,12,0,0" />
@@ -23,36 +36,51 @@
         <StackPanel Orientation="Vertical" Spacing="10" Margin="16,14,16,14" Key="VersionContent">
           <StackPanel Orientation="Horizontal" StretchLastChild="true" Key="VersionHeaderRow">
             <Text Key="VersionHeader" Content="版本" VerticalAlignment="Center" />
-            <Button Key="InstanceListButton" Label="版本列表" Content="≡" Command="ui.launch.instances"
-                    Width="28" Height="28" HorizontalAlignment="End" />
+            <Button Key="InstanceListButton" Label="版本列表" Content="版本列表" Command="ui.launch.instances"
+                    Icon="lucide/menu" Width="98" Height="36" HorizontalAlignment="End" />
           </StackPanel>
           <StackPanel Orientation="Vertical" Key="InstanceRow">
-            <StackPanel Orientation="Horizontal" Spacing="10" Margin="12,10,12,10" Key="InstanceRowContent">
-              <StackPanel Orientation="Vertical" Spacing="1" Weight="1" VerticalAlignment="Center"
-                          Key="InstanceCopy">
-                <Text Key="VersionName" Content="{state launch.instance.summary}" Height="20" />
-                <Text Key="VersionAction" Content="{state launch.instance.detail}" Height="15" />
-              </StackPanel>
-              <StackPanel Orientation="Vertical" StretchLastChild="true" Width="26" Height="26"
-                          HorizontalAlignment="End" VerticalAlignment="Center" Key="InstanceChevron">
-                <Text Key="InstanceChevronText" Content="›"
-                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <StackPanel Orientation="Horizontal" Spacing="12" Margin="12,10,12,10" Key="InstanceRowContent">
+              <Text Key="VersionName" Content="{state launch.instance.summary}" Height="30"
+                    Weight="1" VerticalAlignment="Center" />
+              <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="End" Key="VersionActions">
+                <Button Key="InstanceModify" Label="修改" Content="修改" Command="ui.launch.modify"
+                        Icon="lucide/wrench" Width="72" Height="36" Clickable="{state launch.instance.available}" />
+                <Button Key="InstanceSettings" Label="设置" Content="设置" Command="ui.launch.settings"
+                        Icon="lucide/settings" Width="72" Height="36" Clickable="{state launch.instance.available}" />
               </StackPanel>
             </StackPanel>
           </StackPanel>
           <Button Key="LaunchButton" Label="{state launch.action.label}"
-                  Content="{state launch.action.label}" Command="ui.launch.primary" Height="44" />
+                  Content="{state launch.action.label}" Command="ui.launch.primary" Height="44"
+                  Clickable="{state launch.action.enabled}" />
         </StackPanel>
       </StackPanel>
 
       <StackPanel Orientation="Vertical" Weight="1" Key="CardAbout">
-        <StackPanel Orientation="Vertical" Spacing="8" Weight="1" Margin="18,14,32,14" Key="AboutContent">
-          <Text Key="AboutTitle" Content="关于 PCL N Edition" Height="28"
-                VerticalAlignment="Center" />
-          <StackPanel Orientation="Vertical" Spacing="8" Weight="1" Key="AboutCopy">
-            <Text Key="AboutMessage" Content="PCL N Edition 与官方 PCL 项目独立维护，部分功能与行为可能有所不同。"
-                  Height="20" />
+        <StackPanel Orientation="Horizontal" Spacing="8" Weight="1" Margin="18,14,10,14" Key="AboutContent">
+          <StackPanel Orientation="Vertical" Spacing="8" Weight="1">
+            <VerticalPager Key="LaunchWidgetPager" Label="启动页信息卡片，可使用上下方向键翻页" Weight="1">
+              <StackPanel Orientation="Vertical" Spacing="8" Key="AboutCopy">
+                <Text Key="AboutTitle" Content="关于 PCL N Edition" Height="24" />
+                <Text Key="AboutMessage" Content="PCL N Edition 与官方 PCL 项目独立维护，部分功能与行为可能有所不同。" Height="56" />
+              </StackPanel>
+              <Button Key="TriviaPage" Label="你知道吗？点击换一条" Command="ui.launch.hint.refresh">
+                <StackPanel Orientation="Vertical" Spacing="8">
+                  <Text Key="TriviaTitle" Content="你知道吗？" Height="24" />
+                  <Text Key="TriviaMessage" Content="{state launch.widget.hint}" Height="56" />
+                </StackPanel>
+              </Button>
+            </VerticalPager>
             <Text Key="LaunchStatus" Content="{state launch.status}" Height="18" />
+          </StackPanel>
+          <StackPanel Orientation="Vertical" Key="WidgetIndicators" Width="6" Spacing="8" VerticalAlignment="Center">
+            <Button Key="WidgetAboutIndicator" Label="{state launch.widget.about-label}" Command="ui.launch.widget.about" Width="6" Height="16">
+              <StackPanel Key="WidgetAboutDot" Width="6" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Button>
+            <Button Key="WidgetTriviaIndicator" Label="{state launch.widget.trivia-label}" Command="ui.launch.widget.trivia" Width="6" Height="6">
+              <StackPanel Key="WidgetTriviaDot" Width="6" Height="6" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Button>
           </StackPanel>
         </StackPanel>
       </StackPanel>

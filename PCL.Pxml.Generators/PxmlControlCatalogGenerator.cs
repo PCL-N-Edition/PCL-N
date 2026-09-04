@@ -51,7 +51,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
 
     private static readonly HashSet<string> Recipes = new(StringComparer.Ordinal)
     {
-        "Element", "StackLayout", "Text", "CommandInput", "Image",
+        "Element", "StackLayout", "Text", "CommandInput", "Image", "VerticalPager",
     };
 
     private static readonly HashSet<string> Targets = new(StringComparer.Ordinal)
@@ -64,7 +64,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
 
     private static readonly HashSet<string> BindingProperties = new(StringComparer.Ordinal)
     {
-        "None", "Text", "Visibility", "SemanticLabel",
+        "None", "Text", "Visibility", "Enabled", "SemanticLabel",
     };
 
     private static readonly HashSet<string> DirtyKinds = new(StringComparer.Ordinal)
@@ -322,14 +322,14 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
         }
 
         if ((binding is "Text" or "SemanticLabel") && kind != "String"
-            || binding == "Visibility" && kind != "Boolean")
+            || binding is "Visibility" or "Enabled" && kind != "Boolean")
         {
             errors.Add($"line {lineNumber} binding '{binding}' is incompatible with '{kind}'");
             valid = false;
         }
 
         if (binding == "Text" && dirty != "Layout,Paint"
-            || binding == "Visibility" && dirty != "State"
+            || binding is "Visibility" or "Enabled" && dirty != "State"
             || binding == "SemanticLabel" && dirty != "Paint")
         {
             errors.Add($"line {lineNumber} binding '{binding}' uses an incompatible dirty-kind set '{dirty}'");

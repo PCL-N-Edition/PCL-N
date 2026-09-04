@@ -15,6 +15,7 @@ public enum PxmlRuntimeRecipe
     Text = 3,
     CommandInput = 4,
     Image = 5,
+    VerticalPager = 6,
 }
 
 /// <summary>

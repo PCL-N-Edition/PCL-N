@@ -115,7 +115,7 @@ public readonly record struct XsrUiShellPalette(
             TitleBarSurface: XsrUiSurfaceKind.Solid,
             NavigationSurface: XsrUiSurfaceKind.Solid,
             ContentSurface: XsrUiSurfaceKind.Solid,
-            CornerRadius: 8,
+            CornerRadius: XsrUiCornerRadii.Surface,
             BlurRadius: 0,
             BorderWidth: 1),
         XsrUiShellStyle.LiquidGlass => new(
@@ -134,7 +134,7 @@ public readonly record struct XsrUiShellPalette(
             TitleBarSurface: XsrUiSurfaceKind.Glass,
             NavigationSurface: XsrUiSurfaceKind.Translucent,
             ContentSurface: XsrUiSurfaceKind.Solid,
-            CornerRadius: 14,
+            CornerRadius: XsrUiCornerRadii.Surface,
             BlurRadius: 24,
             BorderWidth: 1),
         _ => throw new ArgumentOutOfRangeException(nameof(style), style, "Unknown shell style."),
@@ -647,14 +647,13 @@ public sealed class XsrUiShell
     }
 
     /// <summary>
-    /// Maps presentation progress to the committed rail width with a critically damped
-    /// ease-out; the presentation contract for animated rail geometry.
+    /// Maps presented spring progress linearly to committed geometry. Easing belongs to the
+    /// presentation clock, so applying another curve here would distort velocity on reversal.
     /// </summary>
     public static double RailWidthFor(double progress)
     {
         double clamped = Math.Clamp(progress, 0, 1);
-        double eased = 1 - Math.Pow(1 - clamped, 3);
-        return CollapsedRailWidth + ((ExpandedRailWidth - CollapsedRailWidth) * eased);
+        return CollapsedRailWidth + ((ExpandedRailWidth - CollapsedRailWidth) * clamped);
     }
 
     /// <summary>
@@ -751,7 +750,7 @@ public sealed class XsrUiShell
     /// <summary>
     /// Re-commits the rail geometry from the ephemeral presentation progress. Width is the only
     /// animated fact: item labels and the collapse label are target-time decisions committed by
-    /// <see cref="ApplyNavigationExpansionTargets"/>.
+    /// <see cref="ApplyNavigationExpansion"/>.
     /// </summary>
     private void ApplyRailPresentation()
     {
@@ -780,7 +779,8 @@ public sealed class XsrUiShell
         if (_navigationToggle != default
             && Tree.GetComponent<XsrUiText>(_navigationToggle) is { } toggleText)
         {
-            string content = IsNavigationExpanded ? NavigationToggleCollapseLabel : string.Empty;
+            // Like destination labels, this is revealed by committed row width, not target time.
+            string content = NavigationToggleCollapseLabel;
             if (!string.Equals(toggleText.Content, content, StringComparison.Ordinal))
             {
                 toggleText.Content = content;
@@ -808,7 +808,7 @@ public sealed class XsrUiShell
             Palette.SurfaceBorder,
             XsrUiColor.Transparent,
             Palette.TitleBarSurface,
-            Palette.CornerRadius,
+            0,
             Palette.BlurRadius,
             Palette.BorderWidth);
         ApplyVisual(
@@ -818,7 +818,7 @@ public sealed class XsrUiShell
             Palette.SurfaceBorder,
             XsrUiColor.Transparent,
             Palette.NavigationSurface,
-            Palette.CornerRadius,
+            0,
             Palette.BlurRadius,
             Palette.BorderWidth);
         ApplyVisual(
@@ -846,9 +846,12 @@ public sealed class XsrUiShell
                 XsrUiColor.Transparent,
                 Palette.NavigationHover,
                 XsrUiSurfaceKind.None,
-                cornerRadius: 0,
+                cornerRadius: XsrUiCornerRadii.Inset,
                 blurRadius: 0,
                 borderWidth: 0);
+            XsrUiVisualStyle toggleStyle = Tree.GetComponent<XsrUiVisualStyle>(_navigationToggle)!;
+            toggleStyle.NavigationLayout = true;
+            toggleStyle.FontSize = 12;
         }
 
         ApplyTitleTextStyles();
@@ -894,9 +897,10 @@ public sealed class XsrUiShell
             selected ? Palette.Accent : XsrUiColor.Transparent,
             Palette.NavigationHover,
             XsrUiSurfaceKind.None,
-            cornerRadius: 0,
+            cornerRadius: XsrUiCornerRadii.Inset,
             blurRadius: 0,
             borderWidth: 0);
+        Tree.GetComponent<XsrUiVisualStyle>(entity)!.NavigationLayout = true;
     }
 
     private void SetSelection(XsrUiEntityId entity, bool selected)

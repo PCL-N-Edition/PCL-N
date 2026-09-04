@@ -1,9 +1,12 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Chrome;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Styling;
 using PCL.UI.Next;
 
 namespace PCL.UI.Next.Backend.Avalonia;
@@ -20,7 +23,7 @@ namespace PCL.UI.Next.Backend.Avalonia;
 public sealed class AvaloniaUiShellWindow : Window
 {
     private const double ChromeMargin = 10;
-    private const double ChromeCornerRadius = 8;
+    private const double ChromeCornerRadius = XsrUiCornerRadii.Surface;
     private const double CloseIconSize = 112;
 
     private static readonly BoxShadows WindowShadow = new(new BoxShadow
@@ -58,8 +61,18 @@ public sealed class AvaloniaUiShellWindow : Window
         CanResize = true;
         ShowInTaskbar = true;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        WindowDecorations = WindowDecorations.None;
+        // Keep WS_CAPTION / resizable-window styles on Windows so DWM owns native min/max
+        // transitions. Only suppress Avalonia's drawn decorations, not the native capability.
+        WindowDecorations = OperatingSystem.IsWindows() ? WindowDecorations.Full : WindowDecorations.None;
         ExtendClientAreaToDecorationsHint = true;
+        if (OperatingSystem.IsWindows())
+        {
+            Resources[typeof(WindowDrawnDecorations)] = new ControlTheme
+            {
+                TargetType = typeof(WindowDrawnDecorations),
+                Setters = { new Setter(WindowDrawnDecorations.TemplateProperty, new EmptyWindowDecorationsTemplate()) },
+            };
+        }
         // Per-pixel alpha keeps the rounded corners and the outer shadow seam-free; the scene
         // paints the opaque application surface itself.
         Background = Brushes.Transparent;
@@ -135,9 +148,18 @@ public sealed class AvaloniaUiShellWindow : Window
 
     internal AvaloniaUiSceneSurface Surface => _surface;
 
+    private sealed class EmptyWindowDecorationsTemplate : IWindowDrawnDecorationsTemplate
+    {
+        public TemplateResult<WindowDrawnDecorationsContent> Build() =>
+            new(new WindowDrawnDecorationsContent(), new NameScope());
+
+        object ITemplate.Build() => Build().Result;
+    }
+
     protected override void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
+        _ = AvaloniaWindowsFrame.SuppressBorder(this);
         if (_shell.Renderer.ReducedMotion)
         {
             StartupRevealCompleted?.Invoke(this, EventArgs.Empty);
@@ -313,6 +335,13 @@ public sealed class AvaloniaUiShellWindow : Window
 
     private void PlayCloseCollapse()
     {
+        // The circular reveal clips scene content, not the system's outside shadow.
+        _awaitingFirstSceneCommit = false;
+        AvaloniaUiMotion.Cancel(this, "startup-reveal");
+        TransparencyLevelHint = [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None];
+        AvaloniaWindowsFrame.SetNonClientRendering(this, enabled: false);
+        _shadowSurface.IsVisible = false;
+        _shadowSurface.BoxShadow = default;
         double width = Bounds.Width;
         double height = Bounds.Height;
         if (width <= 0 || height <= 0)
@@ -478,6 +507,7 @@ public sealed class AvaloniaUiShellWindow : Window
             bool maximized = e.NewValue is WindowState state && state == WindowState.Maximized;
             _windowActions.SetMaximized(maximized);
             UpdateChromeForState(maximized);
+            _ = AvaloniaWindowsFrame.SuppressBorder(this);
         }
     }
 
@@ -491,7 +521,7 @@ public sealed class AvaloniaUiShellWindow : Window
         CornerRadius radius = maximized ? new CornerRadius(0) : new CornerRadius(ChromeCornerRadius);
         _shadowSurface.Margin = margin;
         _shadowSurface.CornerRadius = radius;
-        _shadowSurface.BoxShadow = maximized ? default : WindowShadow;
+        _shadowSurface.BoxShadow = maximized || _closeAnimationStarted ? default : WindowShadow;
         _chromeSurface.Margin = margin;
         _chromeSurface.CornerRadius = radius;
     }
@@ -503,6 +533,7 @@ public sealed class AvaloniaUiShellWindow : Window
 
     private void ApplyTransparencyHint(XsrUiScene scene)
     {
+        if (_closeAnimationStarted) return;
         XsrUiSurfaceKind titleSurface = scene.Nodes
             .FirstOrDefault(node => node.Role == XsrUiSemanticRole.TitleBar)
             .VisualStyle.Surface;

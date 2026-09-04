@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Avalonia windowing, input, accessibility, and render submission backend for UI.Next.</Description>
+    <!-- Source-generated native DWM interop remains confined to this platform edge. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- The project identity is a locked architecture name; CA1716 treats UI.Next as a keyword. -->
     <!-- Window close owns disposal of custom controls; Avalonia Window is the lifetime boundary. -->
     <NoWarn>$(NoWarn);CA1001;CA1716</NoWarn>

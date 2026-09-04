@@ -24,15 +24,22 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     private readonly XsrUiShell _shell;
     private readonly object _commitGate = new();
     private readonly Dictionary<XsrUiEntityId, AvaloniaUiSceneNodeControl> _controls = [];
+    private readonly Dictionary<XsrUiEntityId, double> _capsuleTargets = [];
+    private readonly Dictionary<XsrUiEntityId, long> _pagerRevisions = [];
     private XsrUiScene? _scene;
     private XsrUiEntityId _lastPageRoot;
     private bool _commitQueued;
     private bool _disposed;
+    private bool _initialFocusAssigned;
 
     public AvaloniaUiSceneSurface(XsrUiShell shell)
     {
         _shell = shell ?? throw new ArgumentNullException(nameof(shell));
         Focusable = true;
+        FocusAdorner = null;
+        KeyboardNavigation.SetTabNavigation(this, KeyboardNavigationMode.None);
+        AutomationProperties.SetName(this, shell.Title);
+        AutomationProperties.SetAccessibilityView(this, AccessibilityView.Control);
         // A transparent brush makes the surface itself hit-testable. Without it the panel never
         // receives pointers (its scene-node children are deliberately not hit-testable), and
         // every click, hover, drag, and double-click would fall through to the window.
@@ -110,12 +117,29 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         }
 
         XsrUiScene next = _shell.Render(new XsrUiSize(Bounds.Width, Bounds.Height));
+        if (!_initialFocusAssigned)
+        {
+            XsrUiSceneNode initial = next.Nodes.FirstOrDefault(node => node.IsFocusable && node.IsFocused);
+            if (!initial.Entity.IsAssigned) initial = next.Nodes.FirstOrDefault(node => node.IsFocusable && node.IsSelected);
+            if (!initial.Entity.IsAssigned) initial = next.Nodes.FirstOrDefault(node => node.IsFocusable);
+            if (initial.Entity.IsAssigned)
+            {
+                _initialFocusAssigned = true;
+                if (!initial.IsFocused)
+                {
+                    _shell.Renderer.Focus(initial.Entity, showIndicator: false);
+                    next = _shell.Render(new XsrUiSize(Bounds.Width, Bounds.Height));
+                }
+            }
+        }
         if (_scene is null || _scene.Version != next.Version)
         {
             _scene = next;
             ApplyScene(next);
             SceneCommitted?.Invoke(this, new AvaloniaUiSceneCommittedEventArgs(next));
         }
+        // Attachment can make native focus available without changing the scene version.
+        SynchronizeNativeFocus(next);
     }
 
     public void Dispose()
@@ -174,19 +198,13 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
-        _ = Focus();
         Point position = e.GetPosition(this);
         XsrUiPoint point = new(position.X, position.Y);
-        XsrUiEntityId target = _shell.Renderer.HitTest(point);
-        if (target.IsAssigned)
-        {
-            _ = _shell.Renderer.Focus(target);
-        }
-
         bool handled = _shell.Renderer.PointerPressed(point);
         CommitScene();
         if (handled)
         {
+            e.Pointer.Capture(this);
             e.Handled = true;
             return;
         }
@@ -203,6 +221,7 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         base.OnPointerReleased(e);
         Point position = e.GetPosition(this);
         bool handled = _shell.Renderer.PointerReleased(new XsrUiPoint(position.X, position.Y));
+        e.Pointer.Capture(null);
         CommitScene();
         e.Handled = handled;
     }
@@ -220,10 +239,17 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
     protected override void OnPointerExited(PointerEventArgs e)
     {
         base.OnPointerExited(e);
+        if (e.Pointer.Captured == this) return;
         if (_shell.Renderer.PointerMoved(new XsrUiPoint(-1, -1)))
         {
             CommitScene();
         }
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        if (_shell.Renderer.CancelPointerGesture()) CommitScene();
     }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
@@ -248,6 +274,8 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
             Key.Tab => XsrUiKey.Tab,
             Key.Enter => XsrUiKey.Enter,
             Key.Space => XsrUiKey.Space,
+            Key.Up => XsrUiKey.Up,
+            Key.Down => XsrUiKey.Down,
             _ => null,
         };
         if (key is { } routed && _shell.Renderer.HandleKey(routed))
@@ -269,6 +297,10 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
 
             Children.Remove(control);
             _controls.Remove(entity);
+            _capsuleTargets.Remove(entity);
+            _pagerRevisions.Remove(entity);
+            AvaloniaUiMotion.Cancel(this, ("capsule", entity));
+            AvaloniaUiMotion.Cancel(this, ("pager", entity));
         }
 
         for (int index = 0; index < scene.Count; index++)
@@ -285,6 +317,8 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
             }
 
             control.Apply(node);
+            DriveCapsuleGeometry(node);
+            DrivePagerGeometry(node);
             int currentIndex = Children.IndexOf(control);
             if (currentIndex != index)
             {
@@ -299,6 +333,44 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
         InvalidateMeasure();
         InvalidateArrange();
         InvalidateVisual();
+    }
+
+    private void SynchronizeNativeFocus(XsrUiScene scene)
+    {
+        XsrUiSceneNode focused = scene.Nodes.FirstOrDefault(node => node.IsFocused && node.IsFocusable);
+        if (focused.Entity.IsAssigned && _controls.TryGetValue(focused.Entity, out AvaloniaUiSceneNodeControl? control)
+            && !control.IsFocused)
+            control.Focus(focused.IsFocusVisible ? NavigationMethod.Tab : NavigationMethod.Pointer);
+    }
+
+    private void DriveCapsuleGeometry(XsrUiSceneNode node)
+    {
+        if (!node.VisualStyle.HoverExpand) return;
+        double target = node.IsEnabled && (node.IsHovered || node.IsFocusVisible) ? 1 : 0;
+        if (_capsuleTargets.TryGetValue(node.Entity, out double previous) && previous == target) return;
+        _capsuleTargets[node.Entity] = target;
+        AvaloniaUiMotion.AnimateSpring(this, ("capsule", node.Entity),
+            () => _scene is not null && TryGetNode(_scene, node.Entity, out XsrUiSceneNode current)
+                ? current.CapsuleExpansionProgress : node.CapsuleExpansionProgress,
+            progress => _shell.Renderer.SetCapsulePresentationProgress(node.Entity, progress),
+            target, AvaloniaMotionTokens.CapsuleSpringResponseSeconds, () => _shell.Renderer.ReducedMotion);
+    }
+
+    private void DrivePagerGeometry(XsrUiSceneNode node)
+    {
+        if (node.Pager is not { } pager) return;
+        if (_pagerRevisions.TryGetValue(node.Entity, out long revision) && revision == pager.Revision) return;
+        _pagerRevisions[node.Entity] = pager.Revision;
+        if (pager.IsDragging)
+        {
+            AvaloniaUiMotion.Cancel(this, ("pager", node.Entity));
+            return;
+        }
+        AvaloniaUiMotion.AnimateSpring(this, ("pager", node.Entity), () => pager.Position,
+            position => _shell.Renderer.SetPagerPresentationPosition(node.Entity, position),
+            pager.PageIndex, AvaloniaMotionTokens.PagerSpringResponseSeconds,
+            () => _shell.Renderer.ReducedMotion,
+            pager.ReleaseVelocity == 0 ? null : pager.ReleaseVelocity);
     }
 
     /// <summary>
@@ -368,14 +440,13 @@ public sealed class AvaloniaUiSceneSurface : Panel, IDisposable
             return;
         }
 
-        AvaloniaUiMotion.Animate(
+        AvaloniaUiMotion.AnimateSpring(
             this,
             "rail-presentation",
             () => _shell.RailPresentationProgress,
             value => _shell.SetRailPresentationProgress(value),
             _shell.IsNavigationExpanded ? 1 : 0,
-            AvaloniaMotionTokens.RailExpandMilliseconds,
-            progress => progress,
+            AvaloniaMotionTokens.RailSpringResponseSeconds,
             reducedMotion: () => _shell.Renderer.ReducedMotion);
     }
 
@@ -487,6 +558,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     private const double PillHeight = 20;
     private const double NavigationIconSize = 20;
     private const double NavigationIconTextGap = 8;
+    private const double CapsuleCaptionIconGap = 6;
 
     /// <summary>
     /// Expanded rail rows keep the icon at the collapsed rail's centered position, so expanding
@@ -501,7 +573,9 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         AvaloniaProperty.Register<AvaloniaUiSceneNodeControl, double>(nameof(PillScale));
 
     private static readonly StyledProperty<double> EnterProgressProperty =
-        AvaloniaProperty.Register<AvaloniaUiSceneNodeControl, double>(nameof(EnterProgress));
+        AvaloniaProperty.Register<AvaloniaUiSceneNodeControl, double>(
+            nameof(EnterProgress),
+            defaultValue: 1);
 
     private readonly Action<XsrUiEntityId> _focusFromAutomation;
     private readonly Action<XsrUiEntityId> _invokeFromAutomation;
@@ -521,6 +595,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         _invokeFromAutomation = invokeFromAutomation ?? throw new ArgumentNullException(nameof(invokeFromAutomation));
         _reducedMotion = reducedMotion ?? throw new ArgumentNullException(nameof(reducedMotion));
         IsHitTestVisible = false;
+        FocusAdorner = null;
         ClipToBounds = true;
         RenderTransform = _pressScale;
         RenderTransformOrigin = RelativePoint.Center;
@@ -550,6 +625,8 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
 
     internal double PresentedEnterProgress => EnterProgress;
 
+    internal double PresentedPillExpand => _node.CapsuleExpansionProgress;
+
     internal XsrUiSceneNode Node => _node;
 
     internal AvaloniaUiSceneNodeControl? SelectionContainer => _selectionContainer;
@@ -560,14 +637,26 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     {
         XsrUiSceneNode previous = _node;
         _node = node;
+        IsEnabled = node.IsEnabled;
+        Focusable = node.IsFocusable;
+        Clip = node.ClipRect is { } clip
+            ? new RectangleGeometry(new Rect(clip.X - node.Rect.X, clip.Y - node.Rect.Y, clip.Width, clip.Height))
+            : null;
         string name = node.Label ?? node.Text ?? node.Role.ToString();
+        string previousName = previous.Label ?? previous.Text ?? previous.Role.ToString();
         AutomationProperties.SetName(this, name);
         AutomationProperties.SetAutomationId(this, string.Create(
             CultureInfo.InvariantCulture,
             $"xsr-{node.Entity.Index}-{node.Entity.Generation}"));
         AutomationProperties.SetControlTypeOverride(this, ControlTypeFor(node.Role, node.IsClickable));
         AutomationProperties.SetHelpText(this, node.IsSelected ? "selected" : node.Role.ToString());
-        AutomationProperties.SetIsControlElementOverride(this, node.HasRole || node.IsFocusable || node.IsClickable);
+        AutomationProperties.SetIsControlElementOverride(this,
+            node.IsAccessible && (node.HasRole || node.IsFocusable || node.IsClickable));
+        AutomationProperties.SetAccessibilityView(this,
+            node.IsAccessible && (node.HasRole || node.IsFocusable || node.IsClickable)
+                ? AccessibilityView.Content : AccessibilityView.Raw);
+        if (_applied && name != previousName && ControlAutomationPeer.FromElement(this) is { } namePeer)
+            namePeer.RaisePropertyChangedEvent(AutomationElementIdentifiers.NameProperty, previousName, name);
 
         if (!_applied || previous.IsSelected != node.IsSelected)
         {
@@ -591,14 +680,31 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
             }
         }
 
-        if (!_applied || previous.IsHovered != node.IsHovered)
+        if (!_applied || previous.IsHovered != node.IsHovered || previous.IsFocusVisible != node.IsFocusVisible
+            || previous.IsEnabled != node.IsEnabled)
         {
-            AnimateFact(
-                HoverOpacityProperty,
-                node.IsHovered ? 1 : 0,
-                node.IsHovered
-                    ? AvaloniaMotionTokens.HoverMilliseconds
-                    : AvaloniaMotionTokens.HoverOutMilliseconds);
+            if (!node.IsEnabled)
+            {
+                // Disabled nodes never expand or light up.
+                AnimateFact(HoverOpacityProperty, 0, AvaloniaMotionTokens.HoverOutMilliseconds);
+            }
+            else if (node.VisualStyle.HoverExpand)
+            {
+                // Expansion geometry comes from the scene, never a second paint-only width.
+                AnimateFact(
+                    HoverOpacityProperty,
+                    0,
+                    AvaloniaMotionTokens.HoverOutMilliseconds);
+            }
+            else
+            {
+                AnimateFact(
+                    HoverOpacityProperty,
+                    node.IsHovered ? 1 : 0,
+                    node.IsHovered
+                        ? AvaloniaMotionTokens.HoverMilliseconds
+                        : AvaloniaMotionTokens.HoverOutMilliseconds);
+            }
         }
 
         if (!_applied || previous.IsPressed != node.IsPressed)
@@ -684,7 +790,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
 
     private void SetPressScale(double scale)
     {
-        if (_reducedMotion())
+        if (_reducedMotion() || scale < 1)
         {
             AvaloniaUiMotion.Cancel(this, ScaleTransform.ScaleXProperty);
             AvaloniaUiMotion.Cancel(this, ScaleTransform.ScaleYProperty);
@@ -706,7 +812,9 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
-        if (e.Property == HoverOpacityProperty || e.Property == PillScaleProperty || e.Property == EnterProgressProperty)
+        if (e.Property == HoverOpacityProperty
+            || e.Property == PillScaleProperty
+            || e.Property == EnterProgressProperty)
         {
             InvalidateVisual();
         }
@@ -732,7 +840,7 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
             return new AvaloniaUiSceneNavigationItemAutomationPeer(this);
         }
 
-        return _node.IsClickable
+        return _node.Role == XsrUiSemanticRole.Button || _node.IsClickable
             ? new AvaloniaUiSceneInvokeAutomationPeer(this)
             : new AvaloniaUiSceneNodeAutomationPeer(this);
     }
@@ -743,9 +851,38 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         Rect rect = new(Bounds.Size);
         XsrUiVisualStyleSnapshot style = _node.VisualStyle;
         double enter = EnterProgress;
+
+        // Disabled nodes keep their layout and draw dimmed, so position and hit routing stay
+        // stable while the state reads as unavailable.
+        if (!_node.IsEnabled && _node.IsAccessible)
+        {
+            using (context.PushOpacity(0.45))
+            {
+                DrawWithEnter(context, rect, style, 1);
+            }
+
+            return;
+        }
+
         if (enter < 1)
         {
-            // Page enter: the node rises from 10 px below and fades in with its stagger slot.
+            using (context.PushTransform(Matrix.CreateTranslation(
+                0, AvaloniaMotionTokens.PageEnterOffsetYPixels * (1 - enter))))
+            using (context.PushOpacity(Math.Clamp(enter, 0, 1)))
+            {
+                DrawContent(context, rect, style);
+            }
+
+            return;
+        }
+
+        DrawContent(context, rect, style);
+    }
+
+    private void DrawWithEnter(DrawingContext context, Rect rect, XsrUiVisualStyleSnapshot style, double enter)
+    {
+        if (enter < 1)
+        {
             using (context.PushTransform(Matrix.CreateTranslation(
                 0, AvaloniaMotionTokens.PageEnterOffsetYPixels * (1 - enter))))
             using (context.PushOpacity(Math.Clamp(enter, 0, 1)))
@@ -761,6 +898,12 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
 
     private void DrawContent(DrawingContext context, Rect rect, XsrUiVisualStyleSnapshot style)
     {
+        if (style.HoverExpand)
+        {
+            DrawHoverPill(context, rect, style);
+            return;
+        }
+
         IBrush? background = Brush(style.Background);
         IPen? border = style.BorderWidth > 0 ? new Pen(Brush(style.Border), style.BorderWidth) : null;
         if (style.CornerRadius > 0)
@@ -781,28 +924,30 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         // keep the icon exactly where the collapsed state centered it (past the selection
         // pill) and reveal the label after it. Any other icon-bearing node without text (or a
         // collapsed rail item) centers its icon too.
-        bool collapsedRailItem = _node.Role == XsrUiSemanticRole.NavigationItem
+        bool collapsedRailItem = style.NavigationLayout
             && Bounds.Width <= CollapsedRailCenteringWidth;
         bool textVisible = _node.Text is { Length: > 0 } && !collapsedRailItem;
-        bool railRow = textVisible && Bounds.Width > CollapsedRailCenteringWidth;
+        bool railRow = textVisible && style.NavigationLayout;
         if (_node.ImageSource is { Length: > 0 } iconSource
             && AvaloniaUiIcons.TryGetGeometry(iconSource, out IReadOnlyList<Geometry> iconPaths))
         {
-            double scale = NavigationIconSize / AvaloniaUiIcons.ViewBoxSize;
+            double iconSize = _node.Role == XsrUiSemanticRole.Image
+                ? Math.Min(Bounds.Width, Bounds.Height) : NavigationIconSize;
+            double scale = iconSize / AvaloniaUiIcons.ViewBoxSize;
             double iconX = railRow
                 ? RailRowIconOffset
                 : textVisible
                     ? 0
-                    : Math.Max(0, (Bounds.Width - NavigationIconSize) / 2);
-            double iconY = Math.Max(0, (Bounds.Height - NavigationIconSize) / 2);
+                    : Math.Max(0, (Bounds.Width - iconSize) / 2);
+            double iconY = Math.Max(0, (Bounds.Height - iconSize) / 2);
             IBrush iconBrush = Brush(style.Foreground) ?? new SolidColorBrush(Colors.White);
-            Pen iconPen = new(iconBrush, AvaloniaUiIcons.StrokeWidth * scale)
+            Pen iconPen = new(iconBrush, AvaloniaUiIcons.StrokeWidth)
             {
                 LineCap = PenLineCap.Round,
                 LineJoin = PenLineJoin.Round,
             };
             using (context.PushTransform(
-                Matrix.CreateTranslation(iconX, iconY) * Matrix.CreateScale(scale, scale)))
+                Matrix.CreateScale(scale, scale) * Matrix.CreateTranslation(iconX, iconY)))
             {
                 foreach (Geometry path in iconPaths)
                 {
@@ -822,11 +967,11 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
 
         DrawSelectionPill(context, style);
 
-        if (_node.IsFocused)
+        if (_node.IsFocusVisible)
         {
             context.DrawRectangle(
                 null,
-                new Pen(Brush(new XsrUiColor(255, 255, 255, 210))!, 1),
+                new Pen(Brush(new XsrUiColor(11, 91, 203))!, 2),
                 new RoundedRect(rect.Deflate(1), new CornerRadius(Math.Max(0, style.CornerRadius - 1))));
         }
     }
@@ -885,6 +1030,8 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
             new Typeface(FontFamily.Default, FontStyle.Normal, weight),
             fontSize,
             foreground);
+        if (style.WrapText && Bounds.Width > x)
+            formatted.MaxTextWidth = Bounds.Width - x;
         double alignedX = style.TextAlignment switch
         {
             XsrUiTextAlignment.Center => Math.Max(x, (Bounds.Width - formatted.Width) / 2),
@@ -894,6 +1041,103 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
         double y = Math.Max(0, (Bounds.Height - formatted.Height) / 2);
         context.DrawText(formatted, new Point(alignedX, y));
     }
+
+    /// <summary>
+    /// Hover-expanding capsule: at rest an icon circle pinned to the node's right edge; on
+    /// hover/focus the pill grows leftward from that circle and the node's scene text fades in
+    /// beside the icon. Layout and hit regions are already the presented width in the scene.
+    /// </summary>
+    private void DrawHoverPill(DrawingContext context, Rect rect, XsrUiVisualStyleSnapshot style)
+    {
+        double progress = Math.Clamp(_node.CapsuleExpansionProgress, 0, 1);
+        double pillHeight = rect.Height;
+        double fontSize = style.FontSize > 0 ? style.FontSize : 13;
+        double pillWidth = rect.Width;
+        double pillX = rect.Right - pillWidth;
+        var pillRect = new Rect(pillX, rect.Y, pillWidth, rect.Height);
+        IBrush? pillBackground = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+            GradientStops =
+            [
+                new GradientStop(Color.FromArgb(245, 255, 255, 255), 0),
+                new GradientStop(Color.FromArgb(style.Background.Alpha, style.Background.Red,
+                    style.Background.Green, style.Background.Blue), 1),
+            ],
+        };
+        IPen? pillBorder = style.BorderWidth > 0 ? new Pen(Brush(style.Border), style.BorderWidth) : null;
+        context.DrawRectangle(
+            pillBackground,
+            pillBorder,
+            new RoundedRect(pillRect, new CornerRadius(pillHeight / 2)));
+
+        // Keep the icon anchored at the trailing edge throughout expansion and reversal.
+        double iconX = rect.Right - (pillHeight + NavigationIconSize) / 2;
+        double iconY = Math.Max(0, (rect.Height - NavigationIconSize) / 2);
+        if (_node.ImageSource is { Length: > 0 } iconSource
+            && AvaloniaUiIcons.TryGetGeometry(iconSource, out IReadOnlyList<Geometry> iconPaths))
+        {
+            double scale = NavigationIconSize / AvaloniaUiIcons.ViewBoxSize;
+            IBrush iconBrush = Brush(style.Foreground) ?? new SolidColorBrush(Colors.White);
+            Pen iconPen = new(iconBrush, AvaloniaUiIcons.StrokeWidth)
+            {
+                LineCap = PenLineCap.Round,
+                LineJoin = PenLineJoin.Round,
+            };
+            using (context.PushTransform(
+                Matrix.CreateScale(scale, scale) * Matrix.CreateTranslation(iconX, iconY)))
+            {
+                foreach (Geometry path in iconPaths)
+                {
+                    context.DrawGeometry(null, iconPen, path);
+                }
+            }
+        }
+        else if (_node.Text is { Length: > 0 } glyph)
+        {
+            IBrush glyphBrush = Brush(style.Foreground) ?? new SolidColorBrush(Colors.White);
+            FormattedText glyphText = new(
+                glyph,
+                CultureInfo.CurrentUICulture,
+                FlowDirection.LeftToRight,
+                new Typeface(FontFamily.Default, FontStyle.Normal, FontWeightFor(style)),
+                Math.Max(12, style.FontSize > 0 ? style.FontSize : 14),
+                glyphBrush);
+            double glyphX = rect.Right - ((pillHeight + glyphText.Width) / 2);
+            double glyphY = Math.Max(0, (rect.Height - glyphText.Height) / 2);
+            context.DrawText(glyphText, new Point(glyphX, glyphY));
+        }
+
+        if (progress > 0.01 && _node.Text is { Length: > 0 } label)
+        {
+            byte alpha = (byte)Math.Round(255 * progress);
+            IBrush labelBrush = new SolidColorBrush(Color.FromArgb(
+                alpha,
+                style.Foreground.Red,
+                style.Foreground.Green,
+                style.Foreground.Blue));
+            FormattedText labelText = new(
+                label,
+                CultureInfo.CurrentUICulture,
+                FlowDirection.LeftToRight,
+                new Typeface(FontFamily.Default, FontStyle.Normal, FontWeightFor(style)),
+                fontSize,
+                labelBrush);
+            double labelX = iconX - CapsuleCaptionIconGap - labelText.Width;
+            double labelY = Math.Max(0, (rect.Height - labelText.Height) / 2);
+            using (context.PushClip(new Rect(pillX + 8, rect.Y,
+                Math.Max(0, iconX - CapsuleCaptionIconGap - (pillX + 8)), rect.Height)))
+                context.DrawText(labelText, new Point(labelX, labelY));
+        }
+
+        if (_node.IsFocusVisible)
+            context.DrawRectangle(null, new Pen(Brush(new XsrUiColor(11, 91, 203))!, 2),
+                new RoundedRect(pillRect.Deflate(2), new CornerRadius(pillHeight / 2 - 2)));
+    }
+
+    private static FontWeight FontWeightFor(XsrUiVisualStyleSnapshot style) =>
+        style.FontWeight >= 600 ? FontWeight.SemiBold : FontWeight.Normal;
 
     protected override Size MeasureOverride(Size availableSize) => availableSize;
 

@@ -172,15 +172,26 @@ public sealed class XsrUiImage
 /// </summary>
 public sealed class XsrUiInput
 {
+    /// <summary>Renderer-owned capsule geometry; never a product state value.</summary>
+    public double CapsuleExpansionProgress { get; internal set; }
+
     public bool Focusable { get; set; }
 
     public bool Clickable { get; set; }
+
+    /// <summary>
+    /// The optional state that drives clickability: when assigned and the applied value is
+    /// false, the node presents and routes as disabled even though its base Clickable stays
+    /// true. Mirrors <see cref="XsrUiElement.BoundVisibility"/>.
+    /// </summary>
+    public XsrStateId BoundEnabled { get; set; }
 
     public bool IsHovered { get; set; }
 
     public bool IsPressed { get; set; }
 
     public bool IsFocused { get; set; }
+    public bool IsFocusVisible { get; set; }
 }
 
 /// <summary>
@@ -231,6 +242,7 @@ public readonly record struct XsrUiVisualStyleSnapshot(
     XsrUiColor Foreground,
     XsrUiColor Border,
     XsrUiColor Hover,
+    bool HoverExpand,
     XsrUiSurfaceKind Surface,
     double Opacity,
     double CornerRadius,
@@ -238,7 +250,9 @@ public readonly record struct XsrUiVisualStyleSnapshot(
     double BlurRadius,
     double FontSize,
     double FontWeight,
-    XsrUiTextAlignment TextAlignment)
+    XsrUiTextAlignment TextAlignment,
+    bool NavigationLayout = false,
+    bool WrapText = false)
 {
     public bool IsDefined => Surface != XsrUiSurfaceKind.None || Opacity != 0;
 }
@@ -260,6 +274,15 @@ public sealed class XsrUiVisualStyle
     /// neutral hover treatment.
     /// </summary>
     public XsrUiColor Hover { get; set; } = XsrUiColor.Transparent;
+
+    /// <summary>
+    /// Gets or sets whether this node presents as a hover-expanding capsule: an icon circle at
+    /// rest that grows leftward on hover or focus to reveal its scene text. The node's hit
+    /// region follows renderer-owned presentation progress rather than reserving expanded space.
+    /// </summary>
+    public bool HoverExpand { get; set; }
+    public bool NavigationLayout { get; set; }
+    public bool WrapText { get; set; }
 
     public XsrUiSurfaceKind Surface { get; set; } = XsrUiSurfaceKind.None;
 
@@ -290,6 +313,7 @@ public sealed class XsrUiVisualStyle
         Foreground,
         Border,
         Hover,
+        HoverExpand,
         Surface,
         Opacity,
         CornerRadius,
@@ -297,7 +321,9 @@ public sealed class XsrUiVisualStyle
         BlurRadius,
         FontSize,
         FontWeight,
-        TextAlignment);
+        TextAlignment,
+        NavigationLayout,
+        WrapText);
 }
 
 /// <summary>
@@ -309,4 +335,6 @@ public enum XsrUiKey
     Enter = 2,
     Space = 3,
     Back = 4,
+    Up = 5,
+    Down = 6,
 }

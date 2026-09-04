@@ -209,6 +209,10 @@ public sealed class XsrUiTree
         {
             BindState(entity, SemanticLabelDependency(semantic.BoundLabel));
         }
+        else if (component is XsrUiInput input)
+        {
+            BindState(entity, EnabledDependency(input.BoundEnabled));
+        }
 
         MarkDirty(entity, XsrUiDirtyKinds.Structure);
     }
@@ -475,6 +479,12 @@ public sealed class XsrUiTree
         {
             UnbindState(entity, SemanticLabelDependency(semantic.BoundLabel));
         }
+        else if (typeof(T) == typeof(XsrUiInput)
+            && value.Components.TryGetValue(typeof(T), out object? previousInput)
+            && previousInput is XsrUiInput input)
+        {
+            UnbindState(entity, EnabledDependency(input.BoundEnabled));
+        }
     }
 
     private static XsrUiStateDependency TextDependency(XsrStateId state) =>
@@ -485,6 +495,9 @@ public sealed class XsrUiTree
 
     private static XsrUiStateDependency SemanticLabelDependency(XsrStateId state) =>
         new(state, XsrUiStateProperty.SemanticLabel, XsrUiDirtyKinds.Paint);
+
+    private static XsrUiStateDependency EnabledDependency(XsrStateId state) =>
+        new(state, XsrUiStateProperty.Enabled, XsrUiDirtyKinds.State);
 
     private XsrUiEntityId IndexToHandle(int index) =>
         new(index, _generations.TryGetValue(index, out uint generation) ? generation : 0);

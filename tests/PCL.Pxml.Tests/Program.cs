@@ -22,6 +22,7 @@ internal static partial class Program
         ("document-level comments are accepted", DocumentLevelCommentsAreAccepted),
         // XSR-208: PXML to UI.Next IR compilation.
         ("generated control catalog is complete and deterministic", GeneratedControlCatalogIsCompleteAndDeterministic),
+        ("vertical pager compiles loads and routes keyboard pages", VerticalPagerCompilesLoadsAndRoutesKeyboardPages),
         ("compile simple page", CompileSimplePage),
         ("compile text state binding", CompileTextStateBinding),
         ("compile visibility binding", CompileVisibilityBinding),
@@ -41,6 +42,7 @@ internal static partial class Program
         ("loaded visibility bindings drive rendering", LoadedVisibilityBindingsDriveRendering),
         ("loaded weighted layout facts drive rendering", LoadedWeightedLayoutFactsDriveRendering),
         ("loaded dynamic button text and semantic label stay synchronized", LoadedDynamicButtonTextAndSemanticLabelStaySynchronized),
+        ("template buttons route child input and obey enabled state", TemplateButtonsRouteChildInputAndObeyEnabledState),
         ("loader rejects unknown state paths", LoaderRejectsUnknownStatePaths),
         ("loader failures leave the tree unchanged", LoaderFailuresLeaveTheTreeUnchanged),
         ("PXML shell template loads into UI.Next shell", PxmlShellTemplateLoadsIntoUiNextShell),

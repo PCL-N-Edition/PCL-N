@@ -41,7 +41,13 @@ public readonly record struct XsrUiSceneNode(
     bool IsFocusable = false,
     bool IsClickable = false,
     bool IsHovered = false,
-    bool IsPressed = false)
+    bool IsPressed = false,
+    bool IsEnabled = true,
+    XsrUiRect? ClipRect = null,
+    bool IsFocusVisible = false,
+    double CapsuleExpansionProgress = 0,
+    XsrUiPagerSnapshot? Pager = null,
+    bool IsAccessible = true)
 {
     public bool HasRole => Role != XsrUiSemanticRole.None;
 }

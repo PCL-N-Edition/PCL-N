@@ -1,6 +1,7 @@
 using PCL.Pxml;
 using PCL.Services.Accounts;
 using PCL.Services.Composition;
+using PCL.Services.Foundation;
 using PCL.Services.Minecraft;
 using PCL.UI.Next;
 using PCL.Xsr;
@@ -26,24 +27,17 @@ internal sealed class LaunchPageController : IDisposable
     private static readonly XsrSemanticId LaunchPrimaryCommand = XsrSemanticId.Parse("ui.launch.primary");
 
     private static readonly XsrSemanticId LaunchInstancesCommand = XsrSemanticId.Parse("ui.launch.instances");
+    private static readonly XsrSemanticId LaunchSettingsCommand = XsrSemanticId.Parse("ui.launch.settings");
+    private static readonly XsrSemanticId LaunchModifyCommand = XsrSemanticId.Parse("ui.launch.modify");
+    private static readonly XsrSemanticId PageBackCommand = XsrSemanticId.Parse("ui.page.back");
+    private static readonly XsrSemanticId WidgetAboutCommand = XsrSemanticId.Parse("ui.launch.widget.about");
+    private static readonly XsrSemanticId WidgetTriviaCommand = XsrSemanticId.Parse("ui.launch.widget.trivia");
+    private static readonly XsrSemanticId WidgetHintCommand = XsrSemanticId.Parse("ui.launch.hint.refresh");
 
     private static readonly XsrSemanticId AccountSelectCommand = XsrSemanticId.Parse("ui.account.select");
+    private static readonly XsrSemanticId AccountSwitchCommand = XsrSemanticId.Parse("ui.account.switch");
 
     private static readonly XsrSemanticId DownloadNavigationId = XsrSemanticId.Parse("navigation.download");
-
-    private const string NavigationCommandPrefix = "ui.navigation.";
-
-    // The shell-owned presentation commands share the ui.navigation prefix but are not
-    // destinations: routing them away used to wipe the page on every rail expand/collapse.
-    private static readonly XsrSemanticId NavigationExpandCommand = XsrSemanticId.Parse("ui.navigation.expand");
-
-    private static readonly HashSet<string> DestinationCommandValues =
-    [
-        "ui.navigation.launch",
-        "ui.navigation.download",
-        "ui.navigation.community",
-        "ui.navigation.settings",
-    ];
 
     // The legacy experimental launch-home palette (light theme).
     private static readonly XsrUiColor CardBackground = new(255, 255, 255, 241);
@@ -62,23 +56,33 @@ internal sealed class LaunchPageController : IDisposable
     private const string AccountNeedLoginSummary = "请选择或创建一个账户档案后再启动。";
     private const string ScanningInstances = "正在扫描本地版本…";
     private const string NoInstances = "未找到可启动的游戏版本";
-    private const string SelectFromToolbar = "使用右上角按钮选择或安装版本";
-    private const string InstanceSettingsAction = "版本设置";
+    private const string NoSelectedProfileLabel = "未选择档案";
     private const string DownloadLabel = "下载游戏";
     private const string LaunchLabel = "启动游戏";
 
     private readonly XsrUiShell _shell;
     private readonly DesktopUiIntentSink _intents;
     private readonly MinecraftRuntime _minecraft;
-    private readonly AccountService _accounts;
+    private readonly XsrCommandRouter _foundationCommands;
     private readonly XsrStateStore _store;
     private readonly ILaunchPageInstanceSource _instanceSource;
     private readonly XsrUiEntityId _launchPage;
     private readonly XsrUiEntityId _placeholderPage;
+    private readonly XsrUiEntityId _versionListPage;
+    private readonly XsrUiEntityId _versionSettingsPage;
+    private readonly XsrUiEntityId _versionModifyPage;
+    private readonly Dictionary<string, XsrUiEntityId> _titleEntities = [];
+    private readonly Stack<XsrUiEntityId> _returnFocus = [];
     private readonly Dictionary<string, XsrUiEntityId> _pageEntities;
     private readonly Dictionary<int, XsrUiEntityId> _accountRowEntities = [];
     private readonly Dictionary<XsrUiEntityId, int> _accountRowIndexes = [];
-    private XsrUiEntityId _accountRowsHost;
+    private readonly PxmlHostIr _accountRowTemplate = PxmlCompiler.Compile(
+        PxmlParser.Parse(ReadEmbeddedResource("Ui.AccountProfileRow.pxml")));
+    private long _accountRosterRevision = -1;
+    private int _presentedAccountIndex = -2;
+    private int _presentedWidgetIndex = -1;
+    private double _indicatorPosition = double.NaN;
+    private int _hintIndex = Random.Shared.Next(LaunchWidgetHints.BuiltIn.Count);
     private readonly object _refreshGate = new();
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private CancellationTokenSource? _refreshCancellation;
@@ -91,7 +95,7 @@ internal sealed class LaunchPageController : IDisposable
         XsrUiShell shell,
         DesktopUiIntentSink intents,
         MinecraftRuntime minecraft,
-        AccountService accounts,
+        XsrCommandRouter foundationCommands,
         XsrStateStore store,
         string minecraftRootDirectory,
         ILaunchPageInstanceSource? instanceSource = null)
@@ -99,7 +103,7 @@ internal sealed class LaunchPageController : IDisposable
         ArgumentNullException.ThrowIfNull(shell);
         ArgumentNullException.ThrowIfNull(intents);
         ArgumentNullException.ThrowIfNull(minecraft);
-        ArgumentNullException.ThrowIfNull(accounts);
+        ArgumentNullException.ThrowIfNull(foundationCommands);
         ArgumentNullException.ThrowIfNull(store);
         if (instanceSource is null)
         {
@@ -108,7 +112,7 @@ internal sealed class LaunchPageController : IDisposable
         _shell = shell;
         _intents = intents;
         _minecraft = minecraft;
-        _accounts = accounts;
+        _foundationCommands = foundationCommands;
         _store = store;
         _instanceSource = instanceSource
             ?? new MinecraftRuntimeLaunchPageInstanceSource(
@@ -116,6 +120,14 @@ internal sealed class LaunchPageController : IDisposable
                 minecraftRootDirectory);
         (_launchPage, _pageEntities) = LoadLaunchPage();
         _placeholderPage = BuildPlaceholderPage();
+        _versionListPage = LoadVersionSubpage("VersionListPage", "版本列表");
+        _versionSettingsPage = LoadVersionSubpage("VersionSettingsPage", "版本设置");
+        _versionModifyPage = LoadVersionSubpage("VersionModifyPage", "版本修改");
+        _shell.Tree.Walk(_shell.TitleBar, entity =>
+        {
+            _titleEntities[_shell.Tree.Name(entity)] = entity;
+            return true;
+        });
     }
 
     /// <summary>Subscribes to renderer intents and shows the initial launch page.</summary>
@@ -129,16 +141,18 @@ internal sealed class LaunchPageController : IDisposable
 
         _attached = true;
         _intents.IntentEmitted += OnIntentEmitted;
+        _shell.Renderer.FramePreparing += OnFramePreparing;
+        _shell.StyleChanged += OnShellStyleChanged;
         ShowLaunch();
         Publish(LaunchPageState.StatusKey, "就绪");
         Publish(LaunchPageState.ProfileNameKey, NoAccountName);
         Publish(LaunchPageState.ProfileSummaryKey, NoAccountSummary);
         Publish(LaunchPageState.InstanceSummaryKey, ScanningInstances);
-        Publish(LaunchPageState.InstanceDetailKey, SelectFromToolbar);
         Publish(LaunchPageState.SelectedInstanceKey, string.Empty);
         Publish(LaunchPageState.ActionLabelKey, DownloadLabel);
-        PublishProfileSummary();
-        BuildAccountRows();
+        RefreshAccountPresentation();
+        RefreshWidgetPresentation();
+        Publish(LaunchPageState.WidgetHintKey, LaunchWidgetHints.BuiltIn[_hintIndex]);
         _ = QueueRefresh();
     }
 
@@ -168,6 +182,8 @@ internal sealed class LaunchPageController : IDisposable
         if (_attached)
         {
             _intents.IntentEmitted -= OnIntentEmitted;
+            _shell.Renderer.FramePreparing -= OnFramePreparing;
+            _shell.StyleChanged -= OnShellStyleChanged;
             _attached = false;
         }
 
@@ -226,15 +242,11 @@ internal sealed class LaunchPageController : IDisposable
                 MinecraftInstanceDescriptor selected = instances[0];
                 Publish(LaunchPageState.SelectedInstanceKey, selected.Id);
                 Publish(LaunchPageState.InstanceSummaryKey, selected.Id);
-                Publish(LaunchPageState.InstanceDetailKey, InstanceSettingsAction);
-                Publish(LaunchPageState.ActionLabelKey, LaunchLabel);
             }
             else
             {
                 Publish(LaunchPageState.SelectedInstanceKey, string.Empty);
                 Publish(LaunchPageState.InstanceSummaryKey, NoInstances);
-                Publish(LaunchPageState.InstanceDetailKey, SelectFromToolbar);
-                Publish(LaunchPageState.ActionLabelKey, DownloadLabel);
                 if (!result.IsSuccess)
                 {
                     Publish(
@@ -242,7 +254,40 @@ internal sealed class LaunchPageController : IDisposable
                         $"实例扫描失败：{result.Error?.Message}");
                 }
             }
+
+            UpdateLaunchButton();
         }
+    }
+
+    /// <summary>
+    /// Publishes primary-action facts only. Downloading does not require an account; launching
+    /// requires a selected profile. Safe from an instance worker as well as the render thread.
+    /// </summary>
+    private void UpdateLaunchButton()
+    {
+        bool hasProfile = ReadProfiles().Any(profile => profile.Index == SelectedAccountIndex);
+        bool hasInstance = !string.IsNullOrWhiteSpace(ReadCell(LaunchPageState.SelectedInstanceKey));
+        string label;
+        bool enabled;
+        if (!hasInstance)
+        {
+            label = DownloadLabel;
+            enabled = true;
+        }
+        else if (!hasProfile)
+        {
+            label = NoSelectedProfileLabel;
+            enabled = false;
+        }
+        else
+        {
+            label = LaunchLabel;
+            enabled = true;
+        }
+
+        Publish(LaunchPageState.ActionLabelKey, label);
+        Publish(LaunchPageState.ActionEnabledKey, enabled);
+        Publish(LaunchPageState.InstanceAvailableKey, hasInstance);
     }
 
     private void OnIntentEmitted(object? sender, DesktopUiIntentEventArgs e)
@@ -273,16 +318,45 @@ internal sealed class LaunchPageController : IDisposable
         }
         else if (command == LaunchInstancesCommand)
         {
-            NavigateToDownload();
+            OpenSubpage(_versionListPage, e.Intent.Source);
+        }
+        else if (command == LaunchSettingsCommand)
+        {
+            OpenSubpage(_versionSettingsPage, e.Intent.Source);
+        }
+        else if (command == LaunchModifyCommand)
+        {
+            OpenSubpage(_versionModifyPage, e.Intent.Source);
+        }
+        else if (command == PageBackCommand)
+        {
+            if (_shell.Stage.Navigation.Pop() && _returnFocus.TryPop(out XsrUiEntityId focus))
+            {
+                UpdateTitleBar();
+                _shell.Renderer.Focus(focus, IsKeyboardIntent(e.Intent.Source));
+            }
+        }
+        else if (command == WidgetAboutCommand || command == WidgetTriviaCommand)
+        {
+            XsrUiEntityId pager = _pageEntities["LaunchWidgetPager"];
+            int current = _shell.Tree.GetComponent<XsrUiPager>(pager)!.PageIndex;
+            _ = _shell.Renderer.MovePager(pager, (command == WidgetTriviaCommand ? 1 : 0) - current);
+        }
+        else if (command == WidgetHintCommand)
+        {
+            _hintIndex = (_hintIndex + Random.Shared.Next(1, LaunchWidgetHints.BuiltIn.Count)) % LaunchWidgetHints.BuiltIn.Count;
+            Publish(LaunchPageState.WidgetHintKey, LaunchWidgetHints.BuiltIn[_hintIndex]);
         }
         else if (command == AccountSelectCommand)
         {
-            if (_accountRowIndexes.TryGetValue(e.Intent.Source, out int index)
-                && _accounts.SelectProfile(index) is null)
+            if (_accountRowIndexes.TryGetValue(e.Intent.Source, out int index))
             {
-                PublishProfileSummary();
-                StyleAccountRows();
+                _ = SelectAccountAsync(index, _accountRosterRevision);
             }
+        }
+        else if (command == AccountSwitchCommand)
+        {
+            Publish(LaunchPageState.AccountPickerKey, true);
         }
         else if (IsDestinationCommand(command))
         {
@@ -290,13 +364,28 @@ internal sealed class LaunchPageController : IDisposable
         }
     }
 
-    private static bool IsDestinationCommand(XsrSemanticId command) =>
-        command.Value.StartsWith(NavigationCommandPrefix, StringComparison.Ordinal)
-        && DestinationCommandValues.Contains(command.Value)
-        && command != NavigationExpandCommand;
+    private bool IsDestinationCommand(XsrSemanticId command) =>
+        _shell.NavigationItems.Any(item => item.Command == command);
+
+    private async Task SelectAccountAsync(int index, long revision)
+    {
+        if (!_foundationCommands.TryResolve(FoundationRouteIds.AccountSelectProfile, out XsrCommandId route))
+        {
+            Publish(LaunchPageState.StatusKey, "账户切换命令未注册。");
+            return;
+        }
+
+        XsrResult result = await _foundationCommands.Dispatch(route,
+            new AccountSelectProfileCommand(index, revision), cancellationToken: _lifetimeCancellation.Token)
+            .Completion.ConfigureAwait(false);
+        if (_disposed) return;
+        if (result.IsSuccess) Publish(LaunchPageState.AccountPickerKey, false);
+        else Publish(LaunchPageState.StatusKey, $"切换档案失败：{result.Error?.Message}");
+    }
 
     private void ShowLaunch()
     {
+        ClearSubpageHistory();
         if (!_shell.Stage.Navigation.Current.Equals(_launchPage))
         {
             // Destination switches replace the page: the navigator's back stack is reserved
@@ -304,7 +393,132 @@ internal sealed class LaunchPageController : IDisposable
             _shell.Stage.Navigation.Replace(_launchPage);
         }
 
-        BuildAccountRows();
+    }
+
+    private bool IsKeyboardIntent(XsrUiEntityId source) => source.IsAssigned
+        && _shell.Tree.IsAlive(source) && _shell.Tree.GetComponent<XsrUiInput>(source)?.IsFocusVisible == true;
+
+    private void ClearSubpageHistory()
+    {
+        while (_shell.Stage.Navigation.Depth > 1) _shell.Stage.Navigation.Pop();
+        _returnFocus.Clear();
+        UpdateTitleBar();
+    }
+
+    private void OpenSubpage(XsrUiEntityId page, XsrUiEntityId source)
+    {
+        if (_shell.Stage.Navigation.Current == page) return;
+        bool keyboard = IsKeyboardIntent(source);
+        _returnFocus.Push(source);
+        _shell.Stage.Navigation.Push(page);
+        UpdateTitleBar();
+        _shell.Renderer.Focus(_titleEntities["TitleBack"], keyboard);
+    }
+
+    private void OnShellStyleChanged(object? sender, EventArgs e) => UpdateTitleBar();
+
+    private void UpdateTitleBar()
+    {
+        bool subpage = _shell.Stage.Navigation.Depth > 1;
+        foreach (string key in new[] { "TitleMain", "TitleBack", "TitleSubpage" })
+        {
+            XsrUiEntityId entity = _titleEntities[key];
+            _shell.Tree.GetComponent<XsrUiElement>(entity)!.IsVisible = key == "TitleMain" ? !subpage : subpage;
+            XsrUiVisualStyle style = RequireVisual(entity);
+            style.Foreground = _shell.Palette.TitleBarText;
+            style.FontSize = 17;
+            style.FontWeight = 600;
+            if (key == "TitleBack")
+            {
+                style.Hover = new XsrUiColor(255, 255, 255, 50);
+                style.CornerRadius = XsrUiCornerRadii.Pill(30);
+            }
+            if (key == "TitleSubpage")
+                _shell.Tree.GetComponent<XsrUiText>(entity)!.Content = subpage
+                    ? _shell.Tree.GetComponent<XsrUiSemantic>(_shell.Stage.Navigation.Current)?.Label ?? string.Empty
+                    : string.Empty;
+            _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
+        }
+    }
+
+    private XsrUiEntityId LoadVersionSubpage(string key, string title)
+    {
+        PxmlHostIr template = PxmlCompiler.Compile(PxmlParser.Parse(ReadEmbeddedResource("Ui.VersionSubpage.pxml")));
+        PxmlIrNode Project(PxmlIrNode node) => node with
+        {
+            Key = node.Key == "VersionSubpage" ? key : node.Key,
+            Label = node.Key == "VersionSubpage" ? title : node.Label,
+            Children = [.. node.Children.Select(Project)],
+        };
+        XsrUiEntityId parent = _shell.Tree.Create("subpage-loader");
+        XsrUiEntityId page = PxmlUiLoader.Load(new PxmlHostIr(Project(template.Root)), _shell.Tree, _store, parent);
+        _shell.Tree.Detach(page);
+        _shell.Tree.Destroy(parent);
+        return page;
+    }
+
+    private void OnFramePreparing(object? sender, EventArgs e)
+    {
+        RefreshAccountPresentation();
+        RefreshWidgetPresentation();
+    }
+
+    private void RefreshWidgetPresentation()
+    {
+        XsrUiPager pager = _shell.Tree.GetComponent<XsrUiPager>(_pageEntities["LaunchWidgetPager"])!;
+        int index = pager.PageIndex;
+        if (index != _presentedWidgetIndex)
+        {
+            _presentedWidgetIndex = index;
+            Publish(LaunchPageState.WidgetAboutLabelKey, index == 0 ? "关于 PCL N Edition，当前卡片" : "查看关于 PCL N Edition");
+            Publish(LaunchPageState.WidgetTriviaLabelKey, index == 1 ? "你知道吗，当前卡片" : "查看你知道吗");
+        }
+        double position = Math.Clamp(pager.Position, 0, 1);
+        if (position == _indicatorPosition) return;
+        _indicatorPosition = position;
+        UpdateWidgetDot("WidgetAboutDot", "WidgetAboutIndicator", 1 - position);
+        UpdateWidgetDot("WidgetTriviaDot", "WidgetTriviaIndicator", position);
+    }
+
+    private void UpdateWidgetDot(string key, string buttonKey, double activation)
+    {
+        XsrUiEntityId entity = _pageEntities[key];
+        _shell.Tree.GetComponent<XsrUiElement>(entity)!.Height = 6 + 10 * activation;
+        XsrUiEntityId button = _pageEntities[buttonKey];
+        _shell.Tree.GetComponent<XsrUiElement>(button)!.Height = 6 + 10 * activation;
+        _shell.Tree.GetComponent<XsrUiVisualStyle>(entity)!.Background = new XsrUiColor(11, 91, 203,
+            (byte)Math.Round(64 + 191 * activation));
+        _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
+        _shell.Tree.MarkDirty(button, XsrUiDirtyKinds.Layout);
+    }
+
+    private void RefreshAccountPresentation()
+    {
+        XsrCollectionSnapshot<LaunchProfileView> roster = _store.ReadCollection<LaunchProfileView>(
+            _store.Resolve(AccountService.ProfilesKey));
+        int selected = SelectedAccountIndex;
+        if (roster.Revision != _accountRosterRevision)
+        {
+            BuildAccountRows(roster.Items);
+            _accountRosterRevision = roster.Revision;
+            _presentedAccountIndex = -2;
+        }
+
+        if (selected != _presentedAccountIndex)
+        {
+            StyleAccountRows();
+            _presentedAccountIndex = selected;
+        }
+
+        bool hasSelection = roster.Items.Any(profile => profile.Index == selected);
+        bool picker = !hasSelection || _store.ReadAppliedValue(_store.Resolve(LaunchPageState.AccountPickerKey)) is true;
+        Publish(LaunchPageState.AccountRosterVisibleKey, picker);
+        Publish(LaunchPageState.AccountSelectedVisibleKey, !picker);
+        Publish(LaunchPageState.AccountHintKey, roster.Count == 0
+            ? "还没有账户档案。\n请先创建或导入档案。"
+            : "请选择一个账户档案。");
+        PublishProfileSummary();
+        UpdateLaunchButton();
     }
 
     /// <summary>
@@ -312,14 +526,13 @@ internal sealed class LaunchPageController : IDisposable
     /// selected one highlighted. Rows emit <see cref="AccountSelectCommand"/> with themselves
     /// as the intent source, so the renderer keeps owning invocation and correlation.
     /// </summary>
-    private void BuildAccountRows()
+    private void BuildAccountRows(IReadOnlyList<LaunchProfileView> profiles)
     {
         if (!_pageEntities.TryGetValue("AccountRows", out XsrUiEntityId rowsHost))
         {
             return;
         }
 
-        _accountRowsHost = rowsHost;
         XsrUiTree tree = _shell.Tree;
         foreach (XsrUiEntityId row in _accountRowEntities.Values)
         {
@@ -329,35 +542,11 @@ internal sealed class LaunchPageController : IDisposable
         _accountRowEntities.Clear();
         _accountRowIndexes.Clear();
 
-        IReadOnlyList<LaunchProfileView> profiles = ReadProfiles();
         foreach (LaunchProfileView profile in profiles)
         {
-            XsrUiEntityId row = tree.Create($"account-row:{profile.Index}");
-            tree.SetComponent(row, new XsrUiElement
-            {
-                Height = 52,
-                HorizontalAlignment = XsrUiAlignment.Stretch,
-            });
-            tree.SetComponent(row, new XsrUiStackPanel(XsrUiOrientation.Vertical) { Spacing = 2 });
-            tree.SetComponent(row, new XsrUiSemantic(XsrUiSemanticRole.Button, profile.Username));
-            tree.SetComponent(row, new XsrUiInput { Focusable = true, Clickable = true });
-            tree.SetComponent(row, new XsrUiCommandBinding(AccountSelectCommand));
-            tree.SetComponent(row, new XsrUiSelection { IsSelected = profile.Index == _accounts.SelectedIndex });
-            tree.SetComponent(row, new XsrUiVisualStyle());
-            tree.Attach(row, rowsHost);
-
-            XsrUiEntityId name = tree.Create($"account-row-name:{profile.Index}");
-            tree.SetComponent(name, new XsrUiText(profile.Username));
-            tree.SetComponent(name, new XsrUiSemantic(XsrUiSemanticRole.Text, profile.Username));
-            tree.SetComponent(name, new XsrUiVisualStyle());
-            tree.Attach(name, row);
-
-            XsrUiEntityId info = tree.Create($"account-row-info:{profile.Index}");
-            tree.SetComponent(info, new XsrUiText(profile.Info));
-            tree.SetComponent(info, new XsrUiSemantic(XsrUiSemanticRole.Text, profile.Info));
-            tree.SetComponent(info, new XsrUiVisualStyle());
-            tree.Attach(info, row);
-
+            XsrUiEntityId row = PxmlUiLoader.Load(new PxmlHostIr(ProjectProfileNode(_accountRowTemplate.Root, profile)),
+                tree, _store, rowsHost);
+            tree.SetComponent(row, new XsrUiSelection());
             _accountRowEntities[profile.Index] = row;
             _accountRowIndexes[row] = profile.Index;
         }
@@ -366,11 +555,34 @@ internal sealed class LaunchPageController : IDisposable
         StyleAccountRows();
     }
 
+    private static PxmlIrNode ProjectProfileNode(PxmlIrNode node, LaunchProfileView profile) => node with
+    {
+        Key = node.Key == "AccountRow" ? $"account-row:{profile.Index}" : $"{node.Key}:{profile.Index}",
+        Label = node.Key == "AccountRow" ? $"选择 {profile.Username}，{ProfileKind(profile.Kind)}" : node.Label,
+        Content = node.Key switch
+        {
+            "ProfileName" => profile.Username,
+            "ProfileDetail" => string.IsNullOrWhiteSpace(profile.Info) ? ProfileKind(profile.Kind) : profile.Info,
+            _ => node.Content,
+        },
+        Children = [.. node.Children.Select(child => ProjectProfileNode(child, profile))],
+    };
+
+    private static string ProfileKind(LaunchProfileKind kind) => kind switch
+    {
+        LaunchProfileKind.Microsoft => "Microsoft 账户",
+        LaunchProfileKind.ThirdParty => "第三方账户",
+        LaunchProfileKind.Offline => "离线账户",
+        LaunchProfileKind.LittleSkin => "LittleSkin 账户",
+        LaunchProfileKind.NCloud => "NCloud 账户",
+        _ => "账户档案",
+    };
+
     private void StyleAccountRows()
     {
         foreach ((int index, XsrUiEntityId row) in _accountRowEntities)
         {
-            bool selected = index == _accounts.SelectedIndex;
+            bool selected = index == SelectedAccountIndex;
             if (_shell.Tree.GetComponent<XsrUiSelection>(row) is { } selection)
             {
                 selection.IsSelected = selected;
@@ -380,21 +592,21 @@ internal sealed class LaunchPageController : IDisposable
                 row,
                 selected ? BadgeBackground : XsrUiColor.Transparent,
                 PrimaryText,
-                cornerRadius: 8);
-            if (_shell.Tree.Children(row).FirstOrDefault(child =>
-                    _shell.Tree.GetComponent<XsrUiText>(child) is not null) is { } nameText
-                && RequireVisual(nameText) is { } nameVisual)
+                cornerRadius: XsrUiCornerRadii.Inset, hover: PickerBackground);
+            _shell.Tree.Walk(row, entity =>
             {
-                nameVisual.FontWeight = selected ? 600 : 400;
-                nameVisual.Foreground = selected ? BadgeText : PrimaryText;
-                nameVisual.FontSize = 14;
-                _shell.Tree.MarkDirty(nameText, XsrUiDirtyKinds.Paint);
-            }
+                string key = _shell.Tree.Name(entity);
+                bool detail = key.StartsWith("ProfileDetail:", StringComparison.Ordinal);
+                StyleText(entity, detail ? SecondaryText : selected ? BadgeText : PrimaryText,
+                    fontSize: detail ? 12 : 14, weight: detail ? 400 : 600);
+                return true;
+            });
         }
     }
 
     private void ShowPlaceholder()
     {
+        ClearSubpageHistory();
         if (!_shell.Stage.Navigation.Current.Equals(_placeholderPage))
         {
             _shell.Stage.Navigation.Replace(_placeholderPage);
@@ -411,23 +623,28 @@ internal sealed class LaunchPageController : IDisposable
     private void PublishProfileSummary()
     {
         IReadOnlyList<LaunchProfileView> profiles = ReadProfiles();
-        if (profiles.Count > 0)
+        int index = SelectedAccountIndex;
+        if (index >= 0 && index < profiles.Count)
         {
-            int index = Math.Clamp(_accounts.SelectedIndex, 0, profiles.Count - 1);
             Publish(LaunchPageState.ProfileNameKey, profiles[index].Username);
             Publish(LaunchPageState.ProfileSummaryKey, AccountReadySummary);
+            Publish(LaunchPageState.ProfileKindKey, ProfileKind(profiles[index].Kind));
+            Publish(LaunchPageState.ProfileInfoKey, profiles[index].Info);
         }
         else
         {
             Publish(LaunchPageState.ProfileNameKey, NoAccountName);
             Publish(LaunchPageState.ProfileSummaryKey, NoAccountSummary);
+            Publish(LaunchPageState.ProfileKindKey, string.Empty);
+            Publish(LaunchPageState.ProfileInfoKey, string.Empty);
         }
     }
 
     private async Task StartLaunchAsync(string instanceId)
     {
         IReadOnlyList<LaunchProfileView> profiles = ReadProfiles();
-        if (profiles.Count == 0 || _accounts.SelectedIndex < 0)
+        int selected = SelectedAccountIndex;
+        if (!profiles.Any(profile => profile.Index == selected))
         {
             Publish(LaunchPageState.StatusKey, AccountNeedLoginSummary);
             return;
@@ -442,7 +659,7 @@ internal sealed class LaunchPageController : IDisposable
 
         XsrCommandDispatch dispatch = _minecraft.Commands.Dispatch(
             commandId,
-            new MinecraftStartCommand(instanceId, _accounts.SelectedIndex),
+            new MinecraftStartCommand(instanceId, selected),
             cancellationToken: _lifetimeCancellation.Token);
         XsrResult result = await dispatch.Completion.ConfigureAwait(false);
         if (!_disposed)
@@ -453,11 +670,15 @@ internal sealed class LaunchPageController : IDisposable
         }
     }
 
-    private IReadOnlyList<LaunchProfileView> ReadProfiles() => _accounts.GetViews();
+    private int SelectedAccountIndex => _store.ReadAppliedValue(_store.Resolve(AccountService.SelectedKey)) is int index ? index : -1;
 
-    private void Publish(XsrSemanticId key, string value)
+    private IReadOnlyList<LaunchProfileView> ReadProfiles() =>
+        _store.ReadCollection<LaunchProfileView>(_store.Resolve(AccountService.ProfilesKey)).Items;
+
+    private void Publish<T>(XsrSemanticId key, T value)
     {
-        _store.Publish(_store.Resolve(key), value);
+        XsrStateId id = _store.Resolve(key);
+        if (!Equals(_store.ReadAppliedValue(id), value)) _store.Publish(id, value);
     }
 
     private string ReadCell(XsrSemanticId key) =>
@@ -496,20 +717,41 @@ internal sealed class LaunchPageController : IDisposable
     /// </summary>
     private void StyleLaunchPage(XsrUiEntityId page, Dictionary<string, XsrUiEntityId> entities)
     {
-        StyleCard(entities, "CardAccount", cornerRadius: 16);
-        StyleCard(entities, "CardVersion", cornerRadius: 16);
-        StyleCard(entities, "CardAbout", cornerRadius: 18);
+        StyleCard(entities, "CardAccount", cornerRadius: XsrUiCornerRadii.Surface);
+        StyleCard(entities, "CardVersion", cornerRadius: XsrUiCornerRadii.Surface);
+        StyleCard(entities, "CardAbout", cornerRadius: XsrUiCornerRadii.Surface);
         StyleText(entities, "AccountHeader", SecondaryText, fontSize: 12, weight: 600);
         StyleText(entities, "VersionHeader", SecondaryText, fontSize: 12, weight: 600);
         StyleText(entities, "AboutTitle", SecondaryText, fontSize: 12, weight: 600);
+        StyleText(entities, "TriviaTitle", SecondaryText, fontSize: 12, weight: 600);
         StyleText(entities, "AboutMessage", PrimaryText, fontSize: 14, weight: 600);
+        StyleText(entities, "TriviaMessage", PrimaryText, fontSize: 14, weight: 600);
+        foreach (string key in new[] { "AboutMessage", "TriviaMessage" })
+            _shell.Tree.GetComponent<XsrUiVisualStyle>(entities[key])!.WrapText = true;
+        foreach (string key in new[] { "WidgetAboutIndicator", "WidgetTriviaIndicator" })
+            ApplyVisual(entities[key], XsrUiColor.Transparent, PrimaryText, cornerRadius: 3, hover: BadgeBackground);
+        foreach (string key in new[] { "WidgetAboutDot", "WidgetTriviaDot" })
+            ApplyVisual(entities[key], BadgeText, PrimaryText, cornerRadius: 3);
         StyleText(entities, "AccountSummary", SecondaryText, fontSize: 13);
+        StyleText(entities, "AccountKind", SecondaryText, fontSize: 12);
+        StyleText(entities, "AccountInfo", SecondaryText, fontSize: 12);
+        StyleText(entities, "AccountHint", BadgeText, fontSize: 13);
+        StyleText(entities, "AccountAvatar", BadgeText, fontSize: 14);
+        foreach (string key in new[] { "AccountName", "AccountKind", "AccountInfo" })
+            AlignText(entities, key, XsrUiTextAlignment.Center);
+        if (entities.TryGetValue("AccountSwitch", out XsrUiEntityId switchButton))
+        {
+            ApplyVisual(switchButton, PickerBackground, PrimaryText, XsrUiCornerRadii.Pill(36), border: CardBorder, hover: BadgeBackground);
+            StyleText(switchButton, PrimaryText, 13, 600);
+            AlignText(switchButton, XsrUiTextAlignment.Center);
+        }
         StyleText(entities, "LaunchStatus", SecondaryText, fontSize: 13);
         StyleText(entities, "VersionAction", SecondaryText, fontSize: 11);
         if (entities.TryGetValue("AccountBadge", out XsrUiEntityId badge))
         {
-            ApplyVisual(badge, BadgeBackground, BadgeText, cornerRadius: 6);
+            ApplyVisual(badge, BadgeBackground, BadgeText, cornerRadius: XsrUiCornerRadii.Compact);
             StyleText(entities, "AccountBadgeText", BadgeText, fontSize: 10, weight: 600);
+            AlignText(entities, "AccountBadgeText", XsrUiTextAlignment.Center);
         }
 
         if (entities.TryGetValue("AccountName", out XsrUiEntityId accountName))
@@ -519,35 +761,41 @@ internal sealed class LaunchPageController : IDisposable
 
         if (entities.TryGetValue("VersionName", out XsrUiEntityId versionName))
         {
-            StyleText(versionName, PrimaryText, fontSize: 16, weight: 600);
+            StyleText(versionName, PrimaryText, fontSize: 20, weight: 600);
         }
 
         if (entities.TryGetValue("InstanceRow", out XsrUiEntityId pickerRow))
         {
-            ApplyVisual(pickerRow, PickerBackground, PrimaryText, cornerRadius: 12);
+            ApplyVisual(pickerRow, PickerBackground, PrimaryText, cornerRadius: XsrUiCornerRadii.Inset);
         }
 
         if (entities.TryGetValue("InstanceListButton", out XsrUiEntityId instanceListButton))
         {
+            // Hover-expanding capsule: at rest an icon circle pinned to the right edge; on
+            // hover the pill grows leftward and the function name fades in beside the icon.
             ApplyVisual(
                 instanceListButton,
-                XsrUiColor.Transparent,
-                SecondaryText,
-                cornerRadius: 14,
-                hover: BadgeBackground);
-            StyleText(instanceListButton, SecondaryText, fontSize: 16, weight: 600);
+                PickerBackground,
+                PrimaryText,
+                cornerRadius: XsrUiCornerRadii.Pill(36),
+                border: CardBorder,
+                hoverExpand: true);
+            StyleText(instanceListButton, PrimaryText, fontSize: 13, weight: 600);
             AlignText(instanceListButton, XsrUiTextAlignment.Center);
         }
 
-        if (entities.TryGetValue("InstanceChevron", out XsrUiEntityId instanceChevron))
+        foreach (string key in new[] { "InstanceSettings", "InstanceModify" })
         {
+            XsrUiEntityId action = entities[key];
             ApplyVisual(
-                instanceChevron,
-                CardBackground,
-                SecondaryText,
-                cornerRadius: 13,
-                border: CardBorder);
-            StyleText(entities, "InstanceChevronText", SecondaryText, fontSize: 18);
+                action,
+                PickerBackground,
+                PrimaryText,
+                cornerRadius: XsrUiCornerRadii.Pill(36),
+                border: CardBorder,
+                hoverExpand: true);
+            StyleText(action, PrimaryText, fontSize: 13, weight: 600);
+            AlignText(action, XsrUiTextAlignment.Center);
         }
 
         if (entities.TryGetValue("LaunchButton", out XsrUiEntityId button))
@@ -557,7 +805,7 @@ internal sealed class LaunchPageController : IDisposable
                 button,
                 LaunchButtonBackground,
                 new XsrUiColor(255, 255, 255),
-                cornerRadius: 11,
+                cornerRadius: XsrUiCornerRadii.Pill(44),
                 hover: LaunchButtonHover);
             StyleText(button, new XsrUiColor(255, 255, 255), fontSize: 13, weight: 600);
             AlignText(button, XsrUiTextAlignment.Center);
@@ -592,6 +840,14 @@ internal sealed class LaunchPageController : IDisposable
         _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint | XsrUiDirtyKinds.Layout);
     }
 
+    private void AlignText(Dictionary<string, XsrUiEntityId> entities, string key, XsrUiTextAlignment alignment)
+    {
+        if (entities.TryGetValue(key, out XsrUiEntityId entity))
+        {
+            AlignText(entity, alignment);
+        }
+    }
+
     private void AlignText(XsrUiEntityId entity, XsrUiTextAlignment alignment)
     {
         RequireVisual(entity).TextAlignment = alignment;
@@ -604,7 +860,8 @@ internal sealed class LaunchPageController : IDisposable
         XsrUiColor foreground,
         double cornerRadius,
         XsrUiColor? border = null,
-        XsrUiColor? hover = null)
+        XsrUiColor? hover = null,
+        bool hoverExpand = false)
     {
         XsrUiVisualStyle visual = RequireVisual(entity);
         visual.Background = background;
@@ -612,6 +869,7 @@ internal sealed class LaunchPageController : IDisposable
         visual.Border = border ?? XsrUiColor.Transparent;
         visual.BorderWidth = border is null ? 0 : 1;
         visual.Hover = hover ?? XsrUiColor.Transparent;
+        visual.HoverExpand = hoverExpand;
         visual.Surface = XsrUiSurfaceKind.Solid;
         visual.CornerRadius = cornerRadius;
         _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
