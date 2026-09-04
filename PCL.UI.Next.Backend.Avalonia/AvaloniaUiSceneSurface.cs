@@ -928,7 +928,11 @@ internal sealed class AvaloniaUiSceneNodeControl : Control
             && Bounds.Width <= CollapsedRailCenteringWidth;
         bool textVisible = _node.Text is { Length: > 0 } && !collapsedRailItem;
         bool railRow = textVisible && style.NavigationLayout;
-        if (_node.ImageSource is { Length: > 0 } iconSource
+        if (_node.ImageSource is { Length: > 0 } avatarSource && AvaloniaUiAvatars.TryDraw(context, avatarSource, rect))
+        {
+            if (textVisible) DrawText(context, style, 0);
+        }
+        else if (_node.ImageSource is { Length: > 0 } iconSource
             && AvaloniaUiIcons.TryGetGeometry(iconSource, out IReadOnlyList<Geometry> iconPaths))
         {
             double iconSize = _node.Role == XsrUiSemanticRole.Image

@@ -9,6 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Assets/Avatars/Steve.png" />
+    <EmbeddedResource Include="Assets/Avatars/Alex.png" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
     <ProjectReference Include="../PCL.UI.Next/PCL.UI.Next.csproj" />
   </ItemGroup>

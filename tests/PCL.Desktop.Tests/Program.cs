@@ -46,6 +46,8 @@ internal static partial class Program
         ("pointer focus does not draw keyboard focus rings", PointerFocusDoesNotDrawKeyboardFocusRings),
         ("capsules occupy their presented width and remain beside the version name", CapsulesOccupyPresentedWidth),
         ("launch widgets preserve original content and page through real intents", LaunchWidgetsPreserveOriginalContent),
+        ("profile presentation uses Apple hierarchy inside the experimental layout", ProfilePresentationUsesAppleHierarchy),
+        ("operational feedback remains beside the launch action without idle footers", OperationalFeedbackRemainsBesideLaunchAction),
     ];
 
     private static void LaunchPageReplicatesLegacyLayout()
@@ -82,7 +84,10 @@ internal static partial class Program
         AssertEqual("下载游戏", ReadCell(fixture.Store, LaunchPageState.ActionLabelKey));
         AssertTrue(FindByKey(fixture.Shell, scene, "LaunchButton").IsClickable);
         AssertEqual(string.Empty, ReadCell(fixture.Store, LaunchPageState.SelectedInstanceKey));
-        AssertEqual("就绪", ReadCell(fixture.Store, LaunchPageState.StatusKey));
+        AssertEqual(string.Empty, ReadCell(fixture.Store, LaunchPageState.StatusKey));
+        AssertFalse(HasKey(fixture.Shell, scene, "LaunchStatus"));
+        AssertFalse(HasKey(fixture.Shell, scene, "LaunchFeedback"));
+        AssertFalse(HasKey(fixture.Shell, scene, "AccountSummary"));
     }
 
     private static void LaunchPageMatchesLegacyGeometry()
@@ -116,7 +121,7 @@ internal static partial class Program
         XsrUiRect accountBadge = FindByKey(shell, scene, "AccountBadge").Rect;
         XsrUiRect accountHeader = FindByKey(shell, scene, "AccountHeaderRow").Rect;
         XsrUiRect accountContent = FindByKey(shell, scene, "AccountContent").Rect;
-        XsrUiRect accountSummary = FindByKey(shell, scene, "AccountSummary").Rect;
+        XsrUiRect accountBody = FindByKey(shell, scene, "AccountBody").Rect;
 
         AssertRectClose(new XsrUiRect(contentX, contentY, expectedAccountWidth, contentHeight), account);
         AssertRectClose(
@@ -127,8 +132,7 @@ internal static partial class Program
             about);
         AssertClose(accountContent.X + accountContent.Width, accountBadge.X + accountBadge.Width);
         AssertClose(16, accountHeader.Height);
-        AssertClose(18, accountSummary.Height);
-        AssertClose(accountContent.Y + accountContent.Height, accountSummary.Y + accountSummary.Height);
+        AssertClose(accountContent.Y + accountContent.Height, accountBody.Y + accountBody.Height);
         AssertTrue(version.Y + version.Height <= about.Y);
     }
 
@@ -283,7 +287,7 @@ internal static partial class Program
         AssertEqual(1, fixture.Service.SelectedIndex);
         AssertEqual(1, ReadCellInt(fixture.Store, AccountService.SelectedKey));
         AssertEqual("Second", ReadCell(fixture.Store, LaunchPageState.ProfileNameKey));
-        AssertEqual("账户已就绪，可以开始游戏。", ReadCell(fixture.Store, LaunchPageState.ProfileSummaryKey));
+        AssertFalse(HasKey(fixture.Shell, scene, "AccountSummary"));
 
         AssertEqual("Second", FindByKey(fixture.Shell, scene, "AccountName").Text);
         AssertEqual("Microsoft 账户", FindByKey(fixture.Shell, scene, "AccountKind").Text);

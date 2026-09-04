@@ -140,8 +140,8 @@ internal static partial class Program
         foreach (XsrUiSceneNode node in scene.Nodes.Where(node => node.ClipRect is not null && accountRows.Contains(node.Entity)))
             AssertContains(viewport, node.ClipRect!.Value);
         AssertContains(FindByKey(fixture.Shell, scene, "CardAccount").Rect, viewport);
-        XsrUiRect footer = FindByKey(fixture.Shell, scene, "AccountSummary").Rect;
-        XsrUiEntityId hit = fixture.Shell.Renderer.HitTest(new XsrUiPoint(footer.X + 2, footer.Y + 2));
+        XsrUiRect card = FindByKey(fixture.Shell, scene, "CardAccount").Rect;
+        XsrUiEntityId hit = fixture.Shell.Renderer.HitTest(new XsrUiPoint(card.X + 2, card.Y + card.Height - 2));
         AssertFalse(fixture.Shell.Tree.Name(hit).StartsWith("account-row:", StringComparison.Ordinal));
     }
 

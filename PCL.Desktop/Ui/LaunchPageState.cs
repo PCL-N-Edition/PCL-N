@@ -12,12 +12,11 @@ internal static class LaunchPageState
     public const string OwnerName = "PCL.Desktop.LaunchPage";
 
     public static readonly XsrSemanticId ProfileNameKey = XsrSemanticId.Parse("launch.profile.name");
-    public static readonly XsrSemanticId ProfileSummaryKey = XsrSemanticId.Parse("launch.profile.summary");
     public static readonly XsrSemanticId ProfileKindKey = XsrSemanticId.Parse("launch.profile.kind");
-    public static readonly XsrSemanticId ProfileInfoKey = XsrSemanticId.Parse("launch.profile.info");
     public static readonly XsrSemanticId AccountPickerKey = XsrSemanticId.Parse("launch.account.picker");
     public static readonly XsrSemanticId AccountRosterVisibleKey = XsrSemanticId.Parse("launch.account.roster-visible");
     public static readonly XsrSemanticId AccountSelectedVisibleKey = XsrSemanticId.Parse("launch.account.selected-visible");
+    public static readonly XsrSemanticId AccountCanReturnKey = XsrSemanticId.Parse("launch.account.can-return");
     public static readonly XsrSemanticId AccountHintKey = XsrSemanticId.Parse("launch.account.hint");
     public static readonly XsrSemanticId InstanceSummaryKey = XsrSemanticId.Parse("launch.instance.summary");
     public static readonly XsrSemanticId InstanceAvailableKey = XsrSemanticId.Parse("launch.instance.available");
@@ -25,6 +24,7 @@ internal static class LaunchPageState
     public static readonly XsrSemanticId ActionLabelKey = XsrSemanticId.Parse("launch.action.label");
     public static readonly XsrSemanticId ActionEnabledKey = XsrSemanticId.Parse("launch.action.enabled");
     public static readonly XsrSemanticId StatusKey = XsrSemanticId.Parse("launch.status");
+    public static readonly XsrSemanticId StatusVisibleKey = XsrSemanticId.Parse("launch.status.visible");
     public static readonly XsrSemanticId WidgetAboutLabelKey = XsrSemanticId.Parse("launch.widget.about-label");
     public static readonly XsrSemanticId WidgetTriviaLabelKey = XsrSemanticId.Parse("launch.widget.trivia-label");
     public static readonly XsrSemanticId WidgetHintKey = XsrSemanticId.Parse("launch.widget.hint");
@@ -33,12 +33,11 @@ internal static class LaunchPageState
     {
         ArgumentNullException.ThrowIfNull(builder);
         builder.Cell<string>(ProfileNameKey, OwnerName);
-        builder.Cell<string>(ProfileSummaryKey, OwnerName);
         builder.Cell<string>(ProfileKindKey, OwnerName);
-        builder.Cell<string>(ProfileInfoKey, OwnerName);
         builder.Cell<bool>(AccountPickerKey, OwnerName);
         builder.Cell<bool>(AccountRosterVisibleKey, OwnerName);
         builder.Cell<bool>(AccountSelectedVisibleKey, OwnerName);
+        builder.Cell<bool>(AccountCanReturnKey, OwnerName);
         builder.Cell<string>(AccountHintKey, OwnerName);
         builder.Cell<string>(InstanceSummaryKey, OwnerName);
         builder.Cell<bool>(InstanceAvailableKey, OwnerName);
@@ -46,6 +45,7 @@ internal static class LaunchPageState
         builder.Cell<string>(ActionLabelKey, OwnerName);
         builder.Cell<bool>(ActionEnabledKey, OwnerName);
         builder.Cell<string>(StatusKey, OwnerName);
+        builder.Cell<bool>(StatusVisibleKey, OwnerName);
         builder.Cell<string>(WidgetAboutLabelKey, OwnerName);
         builder.Cell<string>(WidgetTriviaLabelKey, OwnerName);
         builder.Cell<string>(WidgetHintKey, OwnerName);

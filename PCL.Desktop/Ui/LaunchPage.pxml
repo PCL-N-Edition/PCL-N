@@ -10,24 +10,35 @@
           </StackPanel>
         </StackPanel>
         <StackPanel Orientation="Vertical" Weight="1" MinHeight="160" Key="AccountBody">
-          <StackPanel Orientation="Vertical" Weight="1" Spacing="10" Key="AccountSelected"
+          <StackPanel Orientation="Vertical" Weight="1" Key="AccountSelected"
                       IsVisible="{state launch.account.selected-visible}">
-            <Image Key="AccountAvatar" Label="账户头像" Source="lucide/user" Width="64" Height="64"
-                   HorizontalAlignment="Center" Margin="0,24,0,0" />
-            <Text Key="AccountName" Content="{state launch.profile.name}" Height="24" />
-            <Text Key="AccountKind" Content="{state launch.profile.kind}" Height="18" />
-            <Text Key="AccountInfo" Content="{state launch.profile.info}" Height="18" />
-            <Button Key="AccountSwitch" Label="切换档案" Content="切换档案" Command="ui.account.switch"
-                    Height="36" Width="120" HorizontalAlignment="Center" Margin="0,6,0,0" />
+            <StackPanel Key="AccountIdentity" Orientation="Vertical" Weight="1" VerticalAlignment="Center">
+              <StackPanel Key="AccountAvatarSurface" Width="88" Height="88" HorizontalAlignment="Center">
+                <Image Key="AccountAvatar" Label="账户默认头像" Source="pcl/avatar/steve" Width="72" Height="72"
+                       Weight="1" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </StackPanel>
+              <Text Key="AccountName" Content="{state launch.profile.name}" Height="30" Margin="0,16,0,0" />
+              <Text Key="AccountKind" Content="{state launch.profile.kind}" Height="20" Margin="0,4,0,0" />
+              <Button Key="AccountSwitch" Label="切换档案" Command="ui.account.switch"
+                      Height="36" Width="112" HorizontalAlignment="Center" Margin="0,20,0,0">
+                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
+                  <Image Key="AccountSwitchIcon" Source="lucide/arrow-right-left" Width="16" Height="16" VerticalAlignment="Center" />
+                  <Text Key="AccountSwitchText" Content="切换档案" Width="56" Height="20" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
           </StackPanel>
           <StackPanel Orientation="Vertical" Weight="1" Spacing="10" Key="AccountPicker"
                       IsVisible="{state launch.account.roster-visible}">
-            <Text Key="AccountHint" Content="{state launch.account.hint}" Height="40" />
-            <StackPanel Orientation="Vertical" Weight="1" Spacing="6" Scroll="true" Key="AccountRows" />
+            <StackPanel Orientation="Horizontal" Spacing="8" Key="AccountPickerHeader" Height="32">
+              <Text Key="AccountPickerTitle" Content="账户档案" Weight="1" VerticalAlignment="Center" />
+              <Button Key="AccountPickerBack" Label="返回当前档案" Icon="lucide/x" Width="32" Height="32"
+                      Command="ui.account.dismiss" IsVisible="{state launch.account.can-return}" />
+            </StackPanel>
+            <Text Key="AccountHint" Content="{state launch.account.hint}" Height="36" />
+            <StackPanel Orientation="Vertical" Weight="1" MaxHeight="300" Spacing="6" Scroll="true" Key="AccountRows" />
           </StackPanel>
         </StackPanel>
-        <Text Key="AccountSummary" Content="{state launch.profile.summary}"
-              Height="18" Margin="0,12,0,0" />
       </StackPanel>
     </StackPanel>
 
@@ -54,6 +65,8 @@
           <Button Key="LaunchButton" Label="{state launch.action.label}"
                   Content="{state launch.action.label}" Command="ui.launch.primary" Height="44"
                   Clickable="{state launch.action.enabled}" />
+          <Text Key="LaunchFeedback" Content="{state launch.status}" Height="18"
+                IsVisible="{state launch.status.visible}" />
         </StackPanel>
       </StackPanel>
 
@@ -72,7 +85,6 @@
                 </StackPanel>
               </Button>
             </VerticalPager>
-            <Text Key="LaunchStatus" Content="{state launch.status}" Height="18" />
           </StackPanel>
           <StackPanel Orientation="Vertical" Key="WidgetIndicators" Width="6" Spacing="8" VerticalAlignment="Center">
             <Button Key="WidgetAboutIndicator" Label="{state launch.widget.about-label}" Command="ui.launch.widget.about" Width="6" Height="16">
