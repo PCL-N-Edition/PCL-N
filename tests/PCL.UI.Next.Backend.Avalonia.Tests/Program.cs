@@ -449,7 +449,7 @@ internal static partial class Program
         window.MouseDown(center, MouseButton.Left, RawInputModifiers.None);
         window.MouseUp(center, MouseButton.Left, RawInputModifiers.None);
         AssertTrue(!shadow.IsVisible && shadow.BoxShadow.Count == 0);
-        shell.SetStyle(XsrUiShellStyle.LiquidGlass);
+        shell.SetNavigationExpanded(!shell.IsNavigationExpanded);
         surface.CommitScene();
         window.WindowState = WindowState.Maximized;
         window.WindowState = WindowState.Normal;

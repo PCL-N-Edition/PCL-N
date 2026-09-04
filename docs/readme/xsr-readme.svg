@@ -162,7 +162,7 @@
       <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="158" class="small secondary">啟動、安裝、資源和設定分開放好，</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="158" class="small secondary">启动、安装、资源和设置分开放好，</text><text x="30" y="158" class="small secondary">Launch, install, resources and settings stay separate</text></switch>
       <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="188" class="small secondary">也支援減少動態效果和無障礙功能。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="188" class="small secondary">也支持减少动态效果和无障碍功能。</text><text x="30" y="188" class="small secondary">with reduced motion and accessibility support.</text></switch>
       <line x1="30" y1="228" x2="486" y2="228" class="rule"/>
-      <text x="30" y="260" class="caption secondary">Experimental · Liquid Glass · Reduced Motion</text>
+      <text x="30" y="260" class="caption secondary">Experimental · PXML · Reduced Motion</text>
     </g>
   </g>
 

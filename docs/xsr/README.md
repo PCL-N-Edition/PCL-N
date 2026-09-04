@@ -65,12 +65,13 @@ The user-requested constraints take precedence:
 - [migrations/XSR-518-helper-handoff-restart.md](migrations/XSR-518-helper-handoff-restart.md) — helper hand-off and restart scheduling: artifact validation, replacement process contract, launch port
 - [migrations/XSR-519-wave5-acceptance-integration.md](migrations/XSR-519-wave5-acceptance-integration.md) — Wave 5 acceptance: unified host state composition, foundation command routing, cross-capability PXML integration
 - [migrations/XSR-520-foundation-correctness-closure.md](migrations/XSR-520-foundation-correctness-closure.md) — Wave 5 review closure: raw typed settings, formal Foundation runtime composition, unified download logging
-- [migrations/XSR-701-product-shell.md](migrations/XSR-701-product-shell.md) — Wave 7 product shell foundation: shared UI.Next chrome with Experimental and LiquidGlass presentations
+- [migrations/XSR-701-product-shell.md](migrations/XSR-701-product-shell.md) — Wave 7 product shell foundation: shared UI.Next chrome with the Experimental presentation
 - [migrations/XSR-702-pxml-scene-backend.md](migrations/XSR-702-pxml-scene-backend.md) — Wave 7 PXML-to-scene Avalonia backend closure
 - [migrations/XSR-703-product-base-plate.md](migrations/XSR-703-product-base-plate.md) — Wave 7 legacy-experimental base plate: title bar, icon rail, splash, frameless chrome, embedded icons, and fluid-interface motion
 - [migrations/XSR-704-base-plate-runtime-hardening.md](migrations/XSR-704-base-plate-runtime-hardening.md) — Wave 7 base plate runtime hardening: desktop lifetime contract, UI.Next-owned rail geometry animation, live reduced-motion policy
 - [migrations/XSR-705-launch-page.md](migrations/XSR-705-launch-page.md) — historical Wave 7 launch-page layout/navigation slice; its temporary direct launch flow is superseded by XSR-706
 - [migrations/XSR-706-launch-orchestration-and-ui-state.md](migrations/XSR-706-launch-orchestration-and-ui-state.md) — product-level launch orchestration, Desktop-owned projection state, generation-safe discovery, and PXML key/accessibility separation
+- [migrations/XSR-712-defer-liquid-glass.md](migrations/XSR-712-defer-liquid-glass.md) — Experimental-only product style; defer the alternate visual redesign while preserving motion and capsule controls
 
 ## Decision process
 

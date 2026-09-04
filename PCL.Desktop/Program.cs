@@ -74,7 +74,8 @@ internal static class Program
         // Level policy: alpha/beta/ci builds and console-attached launches run at RealTime so
         // every XSR operation is traceable; release builds default to Info for users.
         bool prereleaseChannel = !string.IsNullOrWhiteSpace(ResolveVersionChannel());
-        bool consoleAttached = GetConsoleWindow() != IntPtr.Zero || Console.IsOutputRedirected;
+        bool consoleAttached = Console.IsOutputRedirected
+            || (OperatingSystem.IsWindows() && GetConsoleWindow() != IntPtr.Zero);
         if (consoleAttached || prereleaseChannel)
         {
             host.Logging.MaximumLevel = LogLevel.RealTime;
@@ -113,7 +114,6 @@ internal static class Program
             uiRuntime,
             new XsrUiShellOptions
             {
-                Style = ResolveShellStyle(args),
                 Title = "Nexa Launcher",
                 Version = "2.0.0.alpha.1",
             },
@@ -153,10 +153,4 @@ internal static class Program
         return exitCode;
     }
 
-    private static XsrUiShellStyle ResolveShellStyle(string[] args) =>
-        args.Any(argument =>
-            string.Equals(argument, "--ui-style=liquid-glass", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(argument, "--liquid-glass", StringComparison.OrdinalIgnoreCase))
-            ? XsrUiShellStyle.LiquidGlass
-            : XsrUiShellStyle.Experimental;
 }

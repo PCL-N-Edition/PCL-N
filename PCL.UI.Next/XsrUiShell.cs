@@ -4,13 +4,11 @@ using PCL.Xsr.State;
 namespace PCL.UI.Next;
 
 /// <summary>
-/// Selects the product shell presentation. Both variants share the same semantic tree and
-/// navigation IDs; only the palette and material tokens change.
+/// Selects the supported product shell presentation. Additional styles are deferred.
 /// </summary>
 public enum XsrUiShellStyle
 {
     Experimental = 0,
-    LiquidGlass = 1,
 }
 
 /// <summary>
@@ -73,7 +71,7 @@ public sealed class XsrUiShellOptions
 }
 
 /// <summary>
-/// Backend-neutral material tokens for the two product shell variants.
+/// Backend-neutral material tokens for the product shell.
 /// </summary>
 public readonly record struct XsrUiShellPalette(
     XsrUiColor WindowBackground,
@@ -118,25 +116,6 @@ public readonly record struct XsrUiShellPalette(
             CornerRadius: XsrUiCornerRadii.Surface,
             BlurRadius: 0,
             BorderWidth: 1),
-        XsrUiShellStyle.LiquidGlass => new(
-            WindowBackground: new XsrUiColor(8, 17, 30),
-            TitleBarBackground: new XsrUiColor(32, 47, 66, 224),
-            TitleBarText: new XsrUiColor(246, 249, 255),
-            NavigationBackground: new XsrUiColor(255, 255, 255, 24),
-            ContentBackground: new XsrUiColor(11, 21, 35, 232),
-            SurfaceBorder: new XsrUiColor(255, 255, 255, 54),
-            PrimaryText: new XsrUiColor(246, 249, 255),
-            SecondaryText: new XsrUiColor(191, 207, 224),
-            Accent: new XsrUiColor(106, 169, 255),
-            NavigationHover: new XsrUiColor(106, 169, 255, 78),
-            SelectedNavigationText: new XsrUiColor(255, 255, 255),
-            NavigationIcon: new XsrUiColor(207, 222, 240),
-            TitleBarSurface: XsrUiSurfaceKind.Glass,
-            NavigationSurface: XsrUiSurfaceKind.Translucent,
-            ContentSurface: XsrUiSurfaceKind.Solid,
-            CornerRadius: XsrUiCornerRadii.Surface,
-            BlurRadius: 24,
-            BorderWidth: 1),
         _ => throw new ArgumentOutOfRangeException(nameof(style), style, "Unknown shell style."),
     };
 }
@@ -149,8 +128,6 @@ public static class XsrUiShellIds
     public static readonly XsrSemanticId NavigationSelect = XsrSemanticId.Parse("ui.navigation.select");
 
     public static readonly XsrSemanticId NavigationExpand = XsrSemanticId.Parse("ui.navigation.expand");
-
-    public static readonly XsrSemanticId StyleToggle = XsrSemanticId.Parse("ui.shell.style.toggle");
 
     public static readonly XsrSemanticId WindowMinimize = XsrSemanticId.Parse("ui.window.minimize");
 
@@ -555,8 +532,9 @@ public sealed class XsrUiShell
             return;
         }
 
+        XsrUiShellPalette palette = XsrUiShellPalette.For(style);
         Style = style;
-        Palette = XsrUiShellPalette.For(style);
+        Palette = palette;
         ApplyPalette();
         StyleChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -965,14 +943,6 @@ public sealed class XsrUiShell
             if (command == XsrUiShellIds.NavigationExpand)
             {
                 owner.ToggleNavigationExpanded();
-            }
-
-            if (command == XsrUiShellIds.StyleToggle)
-            {
-                owner.SetStyle(
-                    owner.Style == XsrUiShellStyle.Experimental
-                        ? XsrUiShellStyle.LiquidGlass
-                        : XsrUiShellStyle.Experimental);
             }
 
             owner._externalIntentSink?.Emit(command, source, correlationId);

@@ -1,6 +1,6 @@
 namespace PCL.UI.Next;
 
-/// <summary>Shared corner hierarchy for product surfaces in both shell styles.</summary>
+/// <summary>Shared corner hierarchy for product surfaces.</summary>
 public static class XsrUiCornerRadii
 {
     public const double Surface = 16;

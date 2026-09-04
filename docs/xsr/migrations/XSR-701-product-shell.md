@@ -6,12 +6,15 @@
 > [XSR-703](XSR-703-product-base-plate.md). The renderer/backend boundary rules on this page
 > remain in force.
 
+> **Style scope updated by [XSR-712](XSR-712-defer-liquid-glass.md).** LiquidGlass is deferred;
+> only the Experimental product presentation is currently available.
+
 ## Outcome
 
 Wave 7 starts with the product chrome that every vertical slice shares: a top title bar, a
 primary left navigation rail, and a content host. The chrome is authored in the checked-in
 `PCL.Desktop/Ui/Shell.pxml`, compiled through the control catalog into UI.Next entities, and can be
-presented in either the current Experimental style or the Apple-inspired LiquidGlass style.
+presented in the current Experimental style.
 
 XSR-702 tightens the initial shell into the renderer-model boundary: the backend commits the
 immutable UI.Next scene and no longer recreates a parallel application visual tree.
@@ -28,16 +31,13 @@ immutable UI.Next scene and no longer recreates a parallel application visual tr
   `navigation.community`, and `navigation.settings`.** Its Desktop composition rejects a
   replacement navigation list rather than pretending a fixed PXML template is dynamic. A future
   product navigation change is an explicit PXML and migration-contract change.
-- `Experimental` and `LiquidGlass` share layout, input, focus, selection, commands, and content
-  ownership. They differ only through `XsrUiShellPalette` and backend-neutral visual tokens.
-  Experimental uses opaque surfaces and a compact high-contrast active rail item. LiquidGlass uses
-  layered translucent surfaces, a restrained white border, rounded active items, and an optional
-  compositor blur. If a platform cannot provide blur, the translucent fallback remains valid and
-  readable; no fake screenshot or bitmap blur is required.
+- `Experimental` is the only product presentation. It uses opaque surfaces and a compact
+  high-contrast active rail item. The former LiquidGlass palette is removed by XSR-712; generic
+  backend-neutral material tokens are not an available product theme.
 - `SetStyle` changes the palette in place and preserves the selected destination. Pointer and
   keyboard activation select the same destination and emit the item's semantic command through the
-  normal UI intent sink. The PXML title bar owns the style-toggle command; minimize/maximize/close
-  remain native window actions.
+  normal UI intent sink. There is no product style-toggle command; minimize/maximize/close remain
+  native window actions.
 - `PCL.UI.Next` remains backend-free. `PCL.UI.Next.Backend.Avalonia` is the only project that
   references `Avalonia.Desktop`. Its `AvaloniaUiSceneSurface` consumes the immutable scene only and
   owns final drawing, native input translation, and accessibility mapping. The small native window
@@ -50,8 +50,8 @@ immutable UI.Next scene and no longer recreates a parallel application visual tr
   [XSR-703](XSR-703-product-base-plate.md).** The final child of the root/body stack stretches
   into remaining viewport space so the content host is never dependent on caller-provided filler
   controls.
-- Desktop starts in `Experimental` by default; `--ui-style=liquid-glass` (or
-  `--liquid-glass`) selects the alternate presentation. `--validate-shell` compiles the embedded
+- Desktop starts in `Experimental`; old LiquidGlass arguments no longer select another style.
+  `--validate-shell` compiles the embedded
   PXML template, renders its semantic scene, and exits without opening a native window for CI and
   smoke checks.
 
@@ -73,8 +73,8 @@ to the existing `Content` entity through PXML/UI.Next in subsequent Wave 7 units
 
 ## Verification
 
-`PCL.UI.Next.Tests` covers both palettes, canonical title/navigation/content geometry, selected
-state persistence across style changes, pointer activation, intent emission, unknown-route
+`PCL.UI.Next.Tests` covers the Experimental palette, canonical title/navigation/content geometry,
+removed-style rejection without state mutation, pointer activation, intent emission, unknown-route
 rejection, and the production-ready state-bridge context. The Avalonia backend and Desktop
 composition build against `Avalonia.Desktop` 12.1.0; the architecture gate continues to allow that
 package only at the backend boundary.

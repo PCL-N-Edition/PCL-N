@@ -86,9 +86,9 @@ reports no changes.
 ## Wave 7 status (in progress)
 
 Wave 7 begins with the shared product shell. The semantic title bar, primary navigation rail, and
-content host are composed in UI.Next and presented by an Avalonia edge in two switchable styles:
-the current Experimental baseline and an Apple-inspired LiquidGlass treatment. Product pages and
-PXML vertical slices remain subsequent units.
+content host are composed in UI.Next and presented by an Avalonia edge in the Experimental style.
+LiquidGlass is deferred and removed from selectable product styles by XSR-712. Product pages and
+PXML vertical slices continue over the shared shell.
 
 | Unit | Commit | Outcome |
 |---|---|---|
@@ -98,6 +98,7 @@ PXML vertical slices remain subsequent units.
 | XSR-704 | `c8abfdb3` + `a47e5761` | base plate runtime hardening: desktop lifetime through `AvaloniaUiShellLifetime` with `OnMainWindowClose` (splash never owns the process, headless regression test), rail expansion geometry animated inside UI.Next so scene/hit-test/drawing share one truth, and reduced motion as a live policy |
 | XSR-705 | `0b3bd472` + `9098384c` + `fb700ab3` + `79b2d261` | historical launch-page vertical slice: PXML/state-bound legacy Experimental layout parity and destination navigation; its temporary direct `minecraft.launch` flow is superseded by XSR-706 |
 | XSR-706 | `5a483cf4` + `ec2ba7f3` + `ba9de495` + `56ee0d2a` + `d8bb07d0` | launch acceptance closure: Desktop emits `minecraft.start` with instance/account identity only; Services resolves inheritance, platform, account, Java and settings; Desktop owns generation-safe projection state; PXML `Key` is separated from dynamic accessible `Label`; managed, NativeAOT, trimming, architecture, formatting and benchmark gates pass |
+| XSR-712 | follow-up | defer LiquidGlass: Experimental-only product style, no alternate palette or style-toggle activation; preserve independent motion and capsule controls |
 
 ## Closed migration unit
 

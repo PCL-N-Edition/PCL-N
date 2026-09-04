@@ -5,18 +5,13 @@ namespace PCL.UI.Next.Tests;
 
 internal static partial class Program
 {
-    private static void DualShellStylesShareSemanticChrome()
+    private static void ExperimentalShellPreservesSemanticChrome()
     {
         XsrStateStore store = new XsrStateStoreBuilder().Build();
         XsrUiShell experimental = XsrUiShellComposer.Compose(store);
-        XsrUiShell liquidGlass = XsrUiShellComposer.Compose(
-            store,
-            new XsrUiShellOptions { Style = XsrUiShellStyle.LiquidGlass });
-
         XsrUiScene experimentalScene = experimental.Render(new XsrUiSize(1200, 800));
-        XsrUiScene liquidScene = liquidGlass.Render(new XsrUiSize(1200, 800));
-        AssertEqual(experimental.NavigationItems.Count, liquidGlass.NavigationItems.Count);
-        AssertEqual(experimental.SelectedNavigationId, liquidGlass.SelectedNavigationId);
+        AssertEqual(1, Enum.GetValues<XsrUiShellStyle>().Length);
+        AssertEqual(XsrUiShellStyle.Experimental, experimental.Style);
         AssertEqual(XsrUiSemanticRole.TitleBar, Node(experimentalScene, experimental.TitleBar).Role);
         AssertEqual(XsrUiSemanticRole.Navigation, Node(experimentalScene, experimental.Navigation).Role);
         AssertEqual(XsrUiSemanticRole.Content, Node(experimentalScene, experimental.Content).Role);
@@ -33,12 +28,9 @@ internal static partial class Program
             Node(experimentalScene, experimental.Content).Rect);
 
         XsrUiSceneNode experimentalRoot = Node(experimentalScene, experimental.Root);
-        XsrUiSceneNode liquidRoot = Node(liquidScene, liquidGlass.Root);
         AssertEqual(XsrUiSurfaceKind.Solid, experimentalRoot.VisualStyle.Surface);
         AssertEqual(XsrUiSurfaceKind.Solid, Node(experimentalScene, experimental.TitleBar).VisualStyle.Surface);
-        AssertEqual(XsrUiSurfaceKind.Glass, Node(liquidScene, liquidGlass.TitleBar).VisualStyle.Surface);
-        AssertTrue(liquidRoot.VisualStyle.Background != experimentalRoot.VisualStyle.Background);
-        AssertTrue(liquidGlass.Palette.BlurRadius > experimental.Palette.BlurRadius);
+        AssertEqual(0d, experimental.Palette.BlurRadius);
         AssertTrue(Node(experimentalScene, experimental.NavigationEntities[experimental.SelectedNavigationId]).IsSelected);
 
         // The selected rail destination presents as the accent selection pill (carried on the
@@ -249,15 +241,16 @@ internal static partial class Program
         AssertEqual("connected", Node(refreshed, status).Text);
     }
 
-    private static void ShellStyleToggleUsesRendererIntentAndSceneInputFacts()
+    private static void RemovedShellStyleCannotChangePresentation()
     {
         XsrStateStore store = new XsrStateStoreBuilder().Build();
         XsrUiIntentBuffer intents = new();
         XsrUiShell shell = XsrUiShellComposer.Compose(store, intentSink: intents);
         XsrUiEntityId toggle = shell.Tree.Create("style-toggle");
-        shell.Tree.SetComponent(toggle, new XsrUiText("玻璃"));
+        XsrSemanticId removedCommand = XsrSemanticId.Parse("ui.shell.style.toggle");
+        shell.Tree.SetComponent(toggle, new XsrUiText("旧风格请求"));
         shell.Tree.SetComponent(toggle, new XsrUiInput { Focusable = true, Clickable = true });
-        shell.Tree.SetComponent(toggle, new XsrUiCommandBinding(XsrUiShellIds.StyleToggle));
+        shell.Tree.SetComponent(toggle, new XsrUiCommandBinding(removedCommand));
         shell.Tree.Attach(toggle, shell.TitleBar);
 
         XsrUiScene initial = shell.Render(new XsrUiSize(1024, 700));
@@ -272,8 +265,16 @@ internal static partial class Program
         AssertTrue(Node(shell.Render(new XsrUiSize(1024, 700)), toggle).IsPressed);
         AssertTrue(shell.Renderer.PointerReleased(point));
 
-        AssertTrue(shell.Style == XsrUiShellStyle.LiquidGlass);
-        AssertEqual(XsrUiShellIds.StyleToggle, intents.Drain().Single().Command);
+        AssertEqual(XsrUiShellStyle.Experimental, shell.Style);
+        AssertEqual(removedCommand, intents.Drain().Single().Command);
+        XsrUiShellPalette palette = shell.Palette;
+        XsrSemanticId selected = shell.SelectedNavigationId;
+        AssertThrows<ArgumentOutOfRangeException>(() => shell.SetStyle((XsrUiShellStyle)1));
+        AssertThrows<ArgumentOutOfRangeException>(() => XsrUiShellComposer.Compose(store,
+            new XsrUiShellOptions { Style = (XsrUiShellStyle)1 }));
+        AssertEqual(XsrUiShellStyle.Experimental, shell.Style);
+        AssertEqual(palette, shell.Palette);
+        AssertEqual(selected, shell.SelectedNavigationId);
     }
 
     private static XsrUiSceneNode Node(XsrUiScene scene, XsrUiEntityId entity) =>
