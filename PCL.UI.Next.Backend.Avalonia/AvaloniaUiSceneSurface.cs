@@ -593,6 +593,7 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
     private readonly Action<XsrUiEntityId> _invokeFromAutomation;
     private readonly Func<bool> _reducedMotion;
     private readonly ScaleTransform _pressScale = new(1, 1);
+    private readonly ScaleTransform _enterScale = new(1, 1);
     private readonly List<AvaloniaUiSceneNodeControl> _selectionItems = [];
     private XsrUiSceneNode _node;
     private AvaloniaUiSceneNodeControl? _selectionContainer;
