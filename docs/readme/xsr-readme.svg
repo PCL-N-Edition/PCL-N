@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="2460" viewBox="0 0 1200 2460" role="img" aria-labelledby="title desc">
-  <title id="title">PCL Nexa — Minecraft launcher</title>
-  <desc id="desc">PCL Nexa user-facing product introduction for the XSR alpha line.</desc>
+  <title id="title">PCL Nexa Minecraft launcher</title>
+  <desc id="desc">PCL Nexa 2.0 Alpha overview for Minecraft players.</desc>
   <defs>
     <linearGradient id="heroGlow" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#5AC8FA" stop-opacity="0.30"/>
@@ -27,13 +27,11 @@
       .secondary { fill:#6E6E73; }
       .tertiary { fill:#8E8E93; }
       .rule { stroke:#000000; stroke-opacity:.075; }
-      .accentText { fill:#007AFF; }
       .success { fill:#34C759; }
       .warning { fill:#FF9F0A; }
       .chip { fill:#007AFF; fill-opacity:.08; stroke:#007AFF; stroke-opacity:.18; }
       .chipText { fill:#0066CC; }
       .title { font-size:92px; font-weight:700; letter-spacing:-4.8px; }
-      .display { font-size:54px; font-weight:700; letter-spacing:-2.2px; }
       .h2 { font-size:34px; font-weight:700; letter-spacing:-.8px; }
       .h3 { font-size:24px; font-weight:650; letter-spacing:-.25px; }
       .body { font-size:22px; font-weight:450; }
@@ -50,7 +48,6 @@
         .secondary { fill:#AEAEB2; }
         .tertiary { fill:#8E8E93; }
         .rule { stroke:#FFFFFF; stroke-opacity:.10; }
-        .accentText { fill:#0A84FF; }
         .chip { fill:#0A84FF; fill-opacity:.14; stroke:#0A84FF; stroke-opacity:.28; }
         .chipText { fill:#64D2FF; }
       }
@@ -71,16 +68,17 @@
         <text x="36" y="25" class="micro chipText">ALPHA PREVIEW</text>
       </switch>
     </g>
+
     <text x="0" y="142" class="title text">PCL Nexa</text>
     <switch>
-      <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="2" y="202" class="h2 secondary">更輕、更快，也更像一個現代桌面應用。</text>
-      <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="2" y="202" class="h2 secondary">更轻、更快，也更像一个现代桌面应用。</text>
-      <text x="2" y="202" class="h2 secondary">A lighter, faster, more modern Minecraft launcher.</text>
+      <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="2" y="202" class="h2 secondary">一個更省心的 Minecraft 啟動器。</text>
+      <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="2" y="202" class="h2 secondary">一个更省心的 Minecraft 启动器。</text>
+      <text x="2" y="202" class="h2 secondary">A Minecraft launcher that asks less from you.</text>
     </switch>
     <switch>
-      <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="2" y="252" class="body secondary">為 PCL N 使用者打造的下一代體驗，從啟動、安裝到帳號管理重新整理。</text>
-      <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="2" y="252" class="body secondary">为 PCL N 用户打造的下一代体验，从启动、安装到账号管理重新整理。</text>
-      <text x="2" y="252" class="body secondary">The next-generation PCL experience, redesigned around the tasks you use every day.</text>
+      <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="2" y="252" class="body secondary">我們正在重做啟動、下載、帳號、更新和介面。能自動處理的事，就交給啟動器。</text>
+      <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="2" y="252" class="body secondary">我们正在重做启动、下载、账号、更新和界面。能自动处理的事，就交给启动器。</text>
+      <text x="2" y="252" class="body secondary">Launch, downloads, accounts, updates and the interface are being rebuilt around everyday use.</text>
     </switch>
 
     <g transform="translate(0 310)">
@@ -90,69 +88,69 @@
         <path d="M22 57V27h13l14 18 14-18h13v30H64V41L49 60 34 41v16z" fill="white"/>
       </g>
       <switch>
-        <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="146" y="62" class="micro tertiary">名稱變更</text>
-        <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="146" y="62" class="micro tertiary">名称变更</text>
-        <text x="146" y="62" class="micro tertiary">NAME TRANSITION</text>
+        <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="146" y="62" class="micro tertiary">名稱還會再變一次</text>
+        <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="146" y="62" class="micro tertiary">名字还会再变一次</text>
+        <text x="146" y="62" class="micro tertiary">ONE MORE NAME CHANGE</text>
       </switch>
       <switch>
-        <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="146" y="105" class="h3 text">Alpha 結束後，產品將正式更名為 Nexa Launcher。</text>
-        <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="146" y="105" class="h3 text">Alpha 结束后，产品将正式更名为 Nexa Launcher。</text>
-        <text x="146" y="105" class="h3 text">After Alpha, the product will be renamed to Nexa Launcher.</text>
+        <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="146" y="105" class="h3 text">Alpha 結束後，產品會正式改名為 Nexa Launcher。</text>
+        <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="146" y="105" class="h3 text">Alpha 结束后，产品会正式改名为 Nexa Launcher。</text>
+        <text x="146" y="105" class="h3 text">After Alpha, the product will be called Nexa Launcher.</text>
       </switch>
       <switch>
-        <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="146" y="145" class="small secondary">目前仍使用「PCL Nexa」作為過渡名稱；倉庫與專案識別將保留 PCL N 血緣。</text>
-        <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="146" y="145" class="small secondary">目前仍使用“PCL Nexa”作为过渡名称；仓库与项目标识将保留 PCL N 血缘。</text>
-        <text x="146" y="145" class="small secondary">“PCL Nexa” remains the transition name during Alpha; repository lineage stays PCL N.</text>
+        <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="146" y="145" class="small secondary">Alpha 期間繼續使用 PCL Nexa。倉庫和內部名稱會在後面慢慢調整。</text>
+        <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="146" y="145" class="small secondary">Alpha 期间继续使用 PCL Nexa。仓库和内部名称会在后面慢慢调整。</text>
+        <text x="146" y="145" class="small secondary">PCL Nexa stays for Alpha. Repository and internal names will change later.</text>
       </switch>
     </g>
   </g>
 
   <g transform="translate(72 700)">
     <switch>
-      <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="0" class="h2 text">把常用的事，做得更順。</text>
-      <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="0" class="h2 text">把常用的事，做得更顺。</text>
-      <text x="0" y="0" class="h2 text">Everyday tasks, made smoother.</text>
+      <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="0" class="h2 text">日常啟動遊戲，應該少操點心。</text>
+      <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="0" class="h2 text">日常启动游戏，应该少操点心。</text>
+      <text x="0" y="0" class="h2 text">Starting the game should take less work.</text>
     </switch>
     <switch>
-      <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="40" class="body secondary">少一些等待與跳轉，讓啟動器專注在 Minecraft 本身。</text>
-      <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="40" class="body secondary">少一些等待与跳转，让启动器专注在 Minecraft 本身。</text>
-      <text x="0" y="40" class="body secondary">Less waiting and less friction between you and the game.</text>
+      <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="40" class="body secondary">實例、Java、帳號和更新，能自動處理的就交給啟動器。</text>
+      <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="40" class="body secondary">实例、Java、账号和更新，能自动处理的就交给启动器。</text>
+      <text x="0" y="40" class="body secondary">Instances, Java, accounts and updates are handled for you whenever possible.</text>
     </switch>
 
     <g transform="translate(0 92)">
       <rect width="516" height="286" rx="30" class="surface2" filter="url(#softShadow)"/>
       <circle cx="48" cy="50" r="20" fill="#0A84FF"/>
       <path d="M43 39l15 11-15 11z" fill="white"/>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="82" y="58" class="h3 text">啟動</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="82" y="58" class="h3 text">启动</text><text x="82" y="58" class="h3 text">Launch</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="114" class="bodyStrong text">實例、帳號與 Java 選擇在一次流程裡完成。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="114" class="bodyStrong text">实例、账号与 Java 选择在一次流程里完成。</text><text x="30" y="114" class="bodyStrong text">Instances, accounts, and Java in one flow.</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="158" class="small secondary">啟動器會解析繼承、平台與設定，</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="158" class="small secondary">启动器会解析继承、平台与设置，</text><text x="30" y="158" class="small secondary">Nexa resolves the details behind the launch,</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="188" class="small secondary">讓你只需要選擇要玩的版本與身份。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="188" class="small secondary">让你只需要选择要玩的版本与身份。</text><text x="30" y="188" class="small secondary">so you can focus on the instance and identity.</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="82" y="58" class="h3 text">啟動 Minecraft</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="82" y="58" class="h3 text">启动 Minecraft</text><text x="82" y="58" class="h3 text">Launch Minecraft</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="114" class="bodyStrong text">選好實例和帳號，剩下的交給啟動器。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="114" class="bodyStrong text">选好实例和账号，剩下的交给启动器。</text><text x="30" y="114" class="bodyStrong text">Pick an instance and account. Nexa handles the rest.</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="158" class="small secondary">它會找出需要的 Java，準備資源和依賴，</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="158" class="small secondary">它会找出需要的 Java，准备资源和依赖，</text><text x="30" y="158" class="small secondary">It chooses Java and prepares the files</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="188" class="small secondary">遊戲崩潰時也會留下資訊方便排查。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="188" class="small secondary">游戏崩溃时也会留下信息方便排查。</text><text x="30" y="188" class="small secondary">needed to launch, with useful crash information.</text></switch>
       <line x1="30" y1="228" x2="486" y2="228" class="rule"/>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="260" class="caption secondary">原版 · ModLoader · 多實例</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="260" class="caption secondary">原版 · ModLoader · 多实例</text><text x="30" y="260" class="caption secondary">Vanilla · ModLoader · multi-instance</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="260" class="caption secondary">原版 · ModLoader · 多實例</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="260" class="caption secondary">原版 · ModLoader · 多实例</text><text x="30" y="260" class="caption secondary">Vanilla · ModLoader · multiple instances</text></switch>
     </g>
 
     <g transform="translate(540 92)">
       <rect width="516" height="286" rx="30" class="surface2" filter="url(#softShadow)"/>
       <circle cx="48" cy="50" r="20" fill="#34C759"/>
       <path d="M39 50h18M48 41v18" stroke="white" stroke-width="3" stroke-linecap="round"/>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="82" y="58" class="h3 text">安裝與更新</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="82" y="58" class="h3 text">安装与更新</text><text x="82" y="58" class="h3 text">Install &amp; update</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="114" class="bodyStrong text">支援斷點續傳、分段下載與安全更新。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="114" class="bodyStrong text">支持断点续传、分段下载与安全更新。</text><text x="30" y="114" class="bodyStrong text">Resumable downloads and safer updates.</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="158" class="small secondary">遇到來源失敗可自動切換，更新在套用前</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="158" class="small secondary">遇到来源失败可自动切换，更新在应用前</text><text x="30" y="158" class="small secondary">Sources can fail over automatically, while updates</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="188" class="small secondary">會經過驗證與分階段安裝。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="188" class="small secondary">会经过验证与分阶段安装。</text><text x="30" y="188" class="small secondary">are verified before staged installation.</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="82" y="58" class="h3 text">下載和更新</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="82" y="58" class="h3 text">下载和更新</text><text x="82" y="58" class="h3 text">Downloads and updates</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="114" class="bodyStrong text">下載中斷了能繼續，來源掛了會自動換。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="114" class="bodyStrong text">下载中断了能继续，来源挂了会自动换。</text><text x="30" y="114" class="bodyStrong text">Interrupted downloads resume. Failed sources switch.</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="158" class="small secondary">大檔案可以分段下載。更新下載完後，</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="158" class="small secondary">大文件可以分段下载。更新下载完后，</text><text x="30" y="158" class="small secondary">Large files can download in parts. Updates are</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="188" class="small secondary">啟動器會先檢查檔案，再開始安裝。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="188" class="small secondary">启动器会先检查文件，再开始安装。</text><text x="30" y="188" class="small secondary">checked before installation starts.</text></switch>
       <line x1="30" y1="228" x2="486" y2="228" class="rule"/>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="260" class="caption secondary">續傳 · 多來源 · 簽章驗證</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="260" class="caption secondary">续传 · 多来源 · 签名验证</text><text x="30" y="260" class="caption secondary">Resume · failover · signature verification</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="260" class="caption secondary">續傳 · 分段下載 · 自動換源</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="260" class="caption secondary">续传 · 分段下载 · 自动换源</text><text x="30" y="260" class="caption secondary">Resume · segmented downloads · source switching</text></switch>
     </g>
 
     <g transform="translate(0 402)">
       <rect width="516" height="286" rx="30" class="surface2" filter="url(#softShadow)"/>
       <circle cx="48" cy="50" r="20" fill="#AF52DE"/>
       <circle cx="48" cy="46" r="7" fill="none" stroke="white" stroke-width="2.5"/><path d="M37 63c3-8 19-8 22 0" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="82" y="58" class="h3 text">帳號與外觀</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="82" y="58" class="h3 text">账号与外观</text><text x="82" y="58" class="h3 text">Accounts &amp; appearance</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="114" class="bodyStrong text">Microsoft、Yggdrasil 與 LittleSkin 都在同一處。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="114" class="bodyStrong text">Microsoft、Yggdrasil 与 LittleSkin 都在同一处。</text><text x="30" y="114" class="bodyStrong text">Microsoft, Yggdrasil, and LittleSkin together.</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="158" class="small secondary">登入、切換身份，以及支援的皮膚 / 披風</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="158" class="small secondary">登录、切换身份，以及支持的皮肤 / 披风</text><text x="30" y="158" class="small secondary">Sign in, switch profiles, and manage supported</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="188" class="small secondary">管理都能沿用一致的操作方式。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="188" class="small secondary">管理都能沿用一致的操作方式。</text><text x="30" y="188" class="small secondary">skin and cape flows from one place.</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="82" y="58" class="h3 text">帳號和外觀</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="82" y="58" class="h3 text">账号和外观</text><text x="82" y="58" class="h3 text">Accounts and appearance</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="114" class="bodyStrong text">常用帳號放在一起，切換時不用來回找。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="114" class="bodyStrong text">常用账号放在一起，切换时不用来回找。</text><text x="30" y="114" class="bodyStrong text">Keep your accounts together and switch quickly.</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="158" class="small secondary">支援 Microsoft、Yggdrasil 和 LittleSkin。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="158" class="small secondary">支持 Microsoft、Yggdrasil 和 LittleSkin。</text><text x="30" y="158" class="small secondary">Microsoft, Yggdrasil and LittleSkin are supported.</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="188" class="small secondary">支援的皮膚和披風也能在啟動器裡處理。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="188" class="small secondary">支持的皮肤和披风也能在启动器里处理。</text><text x="30" y="188" class="small secondary">Supported skins and capes can be managed here too.</text></switch>
       <line x1="30" y1="228" x2="486" y2="228" class="rule"/>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="260" class="caption secondary">多帳號 · OAuth · 外觀服務</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="260" class="caption secondary">多账号 · OAuth · 外观服务</text><text x="30" y="260" class="caption secondary">Multi-account · OAuth · appearance services</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="260" class="caption secondary">Microsoft · Yggdrasil · LittleSkin</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="260" class="caption secondary">Microsoft · Yggdrasil · LittleSkin</text><text x="30" y="260" class="caption secondary">Microsoft · Yggdrasil · LittleSkin</text></switch>
     </g>
 
     <g transform="translate(540 402)">
@@ -160,31 +158,43 @@
       <circle cx="48" cy="50" r="20" fill="#FF9F0A"/>
       <path d="M39 44h18M39 50h18M39 56h13" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
       <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="82" y="58" class="h3 text">新的介面</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="82" y="58" class="h3 text">新的界面</text><text x="82" y="58" class="h3 text">A new interface</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="114" class="bodyStrong text">熟悉的導覽方式，重新整理成更清爽的桌面體驗。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="114" class="bodyStrong text">熟悉的导航方式，重新整理成更清爽的桌面体验。</text><text x="30" y="114" class="bodyStrong text">Familiar navigation, rebuilt for a cleaner desktop feel.</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="158" class="small secondary">啟動、安裝、資源與設定保留清楚分區，</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="158" class="small secondary">启动、安装、资源与设置保留清楚分区，</text><text x="30" y="158" class="small secondary">Launch, install, resources, and settings stay</text></switch>
-      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="188" class="small secondary">並加入流暢動畫與無障礙支援。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="188" class="small secondary">并加入流畅动画与无障碍支持。</text><text x="30" y="188" class="small secondary">clearly separated, with motion and accessibility.</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="114" class="bodyStrong text">常用入口還在熟悉的位置，用起來不必重新學。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="114" class="bodyStrong text">常用入口还在熟悉的位置，用起来不必重新学。</text><text x="30" y="114" class="bodyStrong text">Familiar places stay familiar, so there is less to relearn.</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="158" class="small secondary">啟動、安裝、資源和設定分開放好，</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="158" class="small secondary">启动、安装、资源和设置分开放好，</text><text x="30" y="158" class="small secondary">Launch, install, resources and settings stay separate</text></switch>
+      <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="30" y="188" class="small secondary">也支援減少動態效果和無障礙功能。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="30" y="188" class="small secondary">也支持减少动态效果和无障碍功能。</text><text x="30" y="188" class="small secondary">with reduced motion and accessibility support.</text></switch>
       <line x1="30" y1="228" x2="486" y2="228" class="rule"/>
       <text x="30" y="260" class="caption secondary">Experimental · Liquid Glass · Reduced Motion</text>
     </g>
   </g>
 
   <g transform="translate(72 1538)">
-    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="0" class="h2 text">從 PCL N 自然過渡。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="0" class="h2 text">从 PCL N 自然过渡。</text><text x="0" y="0" class="h2 text">A natural path forward from PCL N.</text></switch>
-    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="40" class="body secondary">這不是另一個無關的新啟動器，而是 PCL N 2.0 的下一階段。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="40" class="body secondary">这不是另一个无关的新启动器，而是 PCL N 2.0 的下一阶段。</text><text x="0" y="40" class="body secondary">This is the next stage of PCL N 2.0, not an unrelated launcher.</text></switch>
+    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="0" class="h2 text">從 PCL N 升到 2.0。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="0" class="h2 text">从 PCL N 升到 2.0。</text><text x="0" y="0" class="h2 text">Moving from PCL N to 2.0.</text></switch>
+    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="40" class="body secondary">PCL Nexa 就是 PCL N 2.0 Alpha 期間使用的名字。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="40" class="body secondary">PCL Nexa 就是 PCL N 2.0 Alpha 期间使用的名字。</text><text x="0" y="40" class="body secondary">PCL Nexa is the name used for PCL N during the 2.0 Alpha period.</text></switch>
+
     <g transform="translate(0 90)">
       <rect width="1056" height="306" rx="34" class="surface" filter="url(#shadow)"/>
-      <g transform="translate(34 32)"><rect width="988" height="74" rx="24" class="surface3"/><circle cx="30" cy="37" r="9" class="success"/><switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="56" y="45" class="bodyStrong text">既有 1.4.x 使用者可沿升級路徑進入 2.0 系列。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="56" y="45" class="bodyStrong text">现有 1.4.x 用户可沿升级路径进入 2.0 系列。</text><text x="56" y="45" class="bodyStrong text">Existing 1.4.x users have an upgrade path into the 2.0 line.</text></switch></g>
-      <g transform="translate(34 124)"><rect width="988" height="74" rx="24" class="surface3"/><circle cx="30" cy="37" r="9" class="warning"/><switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="56" y="45" class="bodyStrong text">2.0 不提供向舊版本降級；Alpha 使用者應把它視為預覽版本。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="56" y="45" class="bodyStrong text">2.0 不提供向旧版本降级；Alpha 用户应把它视为预览版本。</text><text x="56" y="45" class="bodyStrong text">2.0 does not offer downgrades; Alpha should be treated as a preview.</text></switch></g>
-      <g transform="translate(34 216)"><rect width="988" height="58" rx="20" class="surface3"/><switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="26" y="37" class="small secondary">目前版本線：2.0.0.alpha.N · 穩定版將使用 2.0.0</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="26" y="37" class="small secondary">当前版本线：2.0.0.alpha.N · 稳定版将使用 2.0.0</text><text x="26" y="37" class="small secondary">Current line: 2.0.0.alpha.N · stable release: 2.0.0</text></switch></g>
+      <g transform="translate(34 32)">
+        <rect width="988" height="74" rx="24" class="surface3"/>
+        <circle cx="30" cy="37" r="9" class="success"/>
+        <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="56" y="45" class="bodyStrong text">PCL N 1.4.x 可以直接升到 2.0。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="56" y="45" class="bodyStrong text">PCL N 1.4.x 可以直接升到 2.0。</text><text x="56" y="45" class="bodyStrong text">PCL N 1.4.x can upgrade directly to 2.0.</text></switch>
+      </g>
+      <g transform="translate(34 124)">
+        <rect width="988" height="74" rx="24" class="surface3"/>
+        <circle cx="30" cy="37" r="9" class="warning"/>
+        <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="56" y="45" class="bodyStrong text">升到 2.0 後不提供降級。Alpha 仍然是預覽版本。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="56" y="45" class="bodyStrong text">升到 2.0 后不提供降级。Alpha 仍然是预览版本。</text><text x="56" y="45" class="bodyStrong text">After moving to 2.0, downgrades are not offered. Alpha is still a preview.</text></switch>
+      </g>
+      <g transform="translate(34 216)">
+        <rect width="988" height="58" rx="20" class="surface3"/>
+        <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="26" y="37" class="small secondary">目前版本 2.0.0.alpha.N · 穩定版會使用 2.0.0</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="26" y="37" class="small secondary">目前版本 2.0.0.alpha.N · 稳定版会使用 2.0.0</text><text x="26" y="37" class="small secondary">Current version 2.0.0.alpha.N · stable will use 2.0.0</text></switch>
+      </g>
     </g>
   </g>
 
   <g transform="translate(72 2040)">
     <rect width="1056" height="292" rx="34" class="surface2" filter="url(#softShadow)"/>
-    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="38" y="58" class="micro tertiary">目前狀態</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="38" y="58" class="micro tertiary">当前状态</text><text x="38" y="58" class="micro tertiary">CURRENT STATUS</text></switch>
-    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="38" y="106" class="h2 text">仍在 Alpha 重構與產品化階段。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="38" y="106" class="h2 text">仍在 Alpha 重构与产品化阶段。</text><text x="38" y="106" class="h2 text">Still in Alpha reconstruction and productization.</text></switch>
-    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="38" y="154" class="body secondary">核心服務與 Minecraft 啟動鏈已完成主要遷移；產品介面仍在持續補齊。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="38" y="154" class="body secondary">核心服务与 Minecraft 启动链已完成主要迁移；产品界面仍在持续补齐。</text><text x="38" y="154" class="body secondary">Core services and Minecraft launch are migrated; product UI work is still ongoing.</text></switch>
-    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="38" y="198" class="small secondary">如果你只是想日常遊玩，請優先使用已發布的穩定版本；這個分支更適合提前體驗與跟進進度。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="38" y="198" class="small secondary">如果你只是想日常游玩，请优先使用已发布的稳定版本；这个分支更适合提前体验与跟进进度。</text><text x="38" y="198" class="small secondary">For daily play, prefer a released stable build; this branch is best for previews and progress tracking.</text></switch>
+    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="38" y="58" class="micro tertiary">現在做到哪裡</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="38" y="58" class="micro tertiary">现在做到哪里</text><text x="38" y="58" class="micro tertiary">WHERE THINGS STAND</text></switch>
+    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="38" y="106" class="h2 text">能用了，但還沒做完。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="38" y="106" class="h2 text">能用了，但还没做完。</text><text x="38" y="106" class="h2 text">Usable now, but not finished yet.</text></switch>
+    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="38" y="154" class="body secondary">啟動、下載、帳號和更新已經有主要功能。介面和其他頁面還在繼續補。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="38" y="154" class="body secondary">启动、下载、账号和更新已经有主要功能。界面和其他页面还在继续补。</text><text x="38" y="154" class="body secondary">Launch, downloads, accounts and updates are mostly there. More interface work is still in progress.</text></switch>
+    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="38" y="198" class="small secondary">只想穩定玩遊戲的話，先用正式版。想提前看看 2.0，可以試這個 Alpha 分支。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="38" y="198" class="small secondary">只想稳定玩游戏的话，先用正式版。想提前看看 2.0，可以试这个 Alpha 分支。</text><text x="38" y="198" class="small secondary">For stable daily play, use a released build. Try this Alpha branch if you want an early look at 2.0.</text></switch>
     <line x1="38" y1="232" x2="1018" y2="232" class="rule"/>
     <text x="38" y="267" class="caption secondary">PCL Nexa · PCL N 2.0 Alpha · refactor/xsr</text>
   </g>
