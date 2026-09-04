@@ -34,6 +34,9 @@ internal static class AvaloniaMotionTokens
     /// </summary>
     public const int PageEnterMilliseconds = 240;
 
+    /// <summary>Per-member delay spreading a transition group in sequence.</summary>
+    public const int PageEnterStaggerMilliseconds = 14;
+
     /// <summary>The final stage where the icon shrinks into (or out of) the content.</summary>
     public const int IconCollapseMilliseconds = 190;
 
