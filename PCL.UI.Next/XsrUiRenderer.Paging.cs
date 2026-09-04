@@ -15,9 +15,16 @@ public sealed partial class XsrUiRenderer
     /// <summary>Moves by one page in the supplied direction; endpoints do not wrap.</summary>
     public bool MovePager(XsrUiEntityId entity, int direction)
     {
+        return entity.IsAssigned && _tree.IsAlive(entity) && _tree.GetComponent<XsrUiPager>(entity) is { } pager
+            && SelectPagerPage(entity, pager.PageIndex + Math.Sign(direction));
+    }
+
+    /// <summary>Selects an absolute page, including a non-adjacent indicator target.</summary>
+    public bool SelectPagerPage(XsrUiEntityId entity, int pageIndex)
+    {
         if (!entity.IsAssigned || !_tree.IsAlive(entity)
             || _tree.GetComponent<XsrUiPager>(entity) is not { } pager) return false;
-        int index = Math.Clamp(pager.PageIndex + Math.Sign(direction), 0, Math.Max(0, pager.PageCount - 1));
+        int index = Math.Clamp(pageIndex, 0, Math.Max(0, pager.PageCount - 1));
         if (index == pager.PageIndex) return false;
         if (_gesturePager == entity)
         {

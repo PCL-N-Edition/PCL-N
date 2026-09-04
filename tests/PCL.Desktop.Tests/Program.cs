@@ -59,6 +59,8 @@ internal static partial class Program
         ("launch widgets preserve original content and page through real intents", LaunchWidgetsPreserveOriginalContent),
         ("profile presentation uses Apple hierarchy inside the experimental layout", ProfilePresentationUsesAppleHierarchy),
         ("account capsules and wardrobe navigation preserve geometry", AccountCapsulesAndWardrobeRoutePreserveGeometry),
+        ("capsules ignore geometry-only hover moves", CapsulesIgnoreGeometryOnlyHoverMoves),
+        ("navigation retains outgoing layers and live hit geometry", NavigationMotionHasOutgoingLayersAndLiveHitGeometry),
         ("skin route publishes media through host state into the rendered profile", SkinRoutePublishesIntoRenderedProfile),
         ("delete actions persist only the requested profile and reject stale rows", DeleteActionsPersistAndRejectStaleRows),
         ("trivia rotates every three seconds without foreign tree writes and stops on disposal", TriviaTimerPublishesOnlyStateAndStops),

@@ -70,7 +70,8 @@ internal static class AvaloniaUiMotion
 
     /// <summary>Retargets a no-bounce spring from its presented position and current velocity.</summary>
     public static void AnimateSpring(object owner, object value, Func<double> read, Action<double> write,
-        double target, double responseSeconds, Func<bool> reducedMotion, double? initialVelocity = null)
+        double target, double responseSeconds, Func<bool> reducedMotion, double? initialVelocity = null,
+        bool readCurrentPosition = false, double delayMilliseconds = 0)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(responseSeconds);
         lock (Gate)
@@ -85,7 +86,8 @@ internal static class AvaloniaUiMotion
                 return;
             }
             double now = ElapsedMilliseconds();
-            double position = retargeting ? previous!.Position : read();
+            double start = now + (retargeting ? 0 : Math.Max(0, delayMilliseconds));
+            double position = retargeting && !readCurrentPosition ? previous!.Position : read();
             Active[(owner, value)] = new Track
             {
                 Read = read,
@@ -94,11 +96,11 @@ internal static class AvaloniaUiMotion
                 Position = position,
                 Target = target,
                 Easing = EaseOut,
-                StartMilliseconds = now,
+                StartMilliseconds = start,
                 DurationMilliseconds = 0,
                 SpringResponseSeconds = responseSeconds,
                 Velocity = velocity,
-                LastMilliseconds = now,
+                LastMilliseconds = start,
                 ReducedMotion = reducedMotion,
             };
             EnsureClock();
@@ -209,6 +211,7 @@ internal static class AvaloniaUiMotion
 
                 if (track.SpringResponseSeconds is { } response)
                 {
+                    if (now < track.StartMilliseconds) continue;
                     // Scene commits are asynchronous. Feeding a previous scene position back
                     // into the integrator mixes old position with new velocity and causes jitter.
                     (double position, double velocity) = StepCriticalSpring(track.Position, track.Velocity,

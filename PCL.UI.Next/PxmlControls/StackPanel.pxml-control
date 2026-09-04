@@ -25,3 +25,4 @@ property=StretchLastChild|Boolean|StretchLastChild|None|None|false|false
 property=Scroll|Boolean|Scrollable|None|None|false|false
 property=TransitionKey|String|TransitionKey|TransitionKey|Paint|false|
 property=TransitionOffsetX|Double|TransitionOffsetX|None|None|false|0
+property=TransitionOffsetY|Double|TransitionOffsetY|None|None|false|0

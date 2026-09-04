@@ -89,6 +89,7 @@ internal sealed class LaunchPageController : IDisposable
     private long _accountRosterRevision = -1;
     private int _presentedAccountIndex = -2;
     private bool? _presentedAccountPicker;
+    private string? _accountMotionKey;
     private bool _accountKeyboardFocus;
     private int _presentedWidgetIndex = -1;
     private double _indicatorPosition = double.NaN;
@@ -363,8 +364,7 @@ internal sealed class LaunchPageController : IDisposable
         else if (command == WidgetAboutCommand || command == WidgetTriviaCommand || command == WidgetEchoCommand)
         {
             XsrUiEntityId pager = _pageEntities["LaunchWidgetPager"];
-            int current = _shell.Tree.GetComponent<XsrUiPager>(pager)!.PageIndex;
-            _ = _shell.Renderer.MovePager(pager, (command == WidgetTriviaCommand ? 1 : command == WidgetEchoCommand ? 2 : 0) - current);
+            _ = _shell.Renderer.SelectPagerPage(pager, command == WidgetTriviaCommand ? 1 : command == WidgetEchoCommand ? 2 : 0);
         }
         else if (command == WidgetHintCommand)
         {
@@ -474,9 +474,13 @@ internal sealed class LaunchPageController : IDisposable
     private void UpdateTitleBar()
     {
         int depth = _shell.Stage.Navigation.Depth;
+        XsrUiTransition main = _shell.Tree.GetComponent<XsrUiTransition>(_titleEntities["TitleMain"])!;
+        XsrUiTransition title = _shell.Tree.GetComponent<XsrUiTransition>(_titleEntities["TitleSubpage"])!;
+        main.Source = _titleEntities["TitleSubpage"];
+        title.Source = _titleEntities["TitleMain"];
         if (depth != _titleNavigationDepth)
         {
-            _shell.Tree.GetComponent<XsrUiTransition>(_titleEntities["TitleNavigation"])!.OffsetX = depth > _titleNavigationDepth ? 32 : -32;
+            main.OffsetX = title.OffsetX = depth > _titleNavigationDepth ? 128 : -128;
             _titleNavigationDepth = depth;
         }
         bool subpage = _shell.Stage.Navigation.Depth > 1;
@@ -589,9 +593,15 @@ internal sealed class LaunchPageController : IDisposable
         bool hasSelection = roster.Items.Any(profile => profile.Index == selected);
         bool picker = !hasSelection || _store.ReadAppliedValue(_store.Resolve(LaunchPageState.AccountPickerKey)) is true;
         bool onboarding = _store.ReadAppliedValue(_store.Resolve(AccountFormState.Open)) is true;
-        Publish(LaunchPageState.AccountTransitionKey, onboarding
+        string motionKey = onboarding
             ? "form:" + ReadCell(AccountFormState.Mode) + ":" + _store.Read<AccountLoginSnapshot>(_store.Resolve(AccountOnboardingState.Login)).Value?.Phase
-            : picker ? "roster" : "selected:" + selected);
+            : picker ? "roster" : "selected:" + selected;
+        Publish(LaunchPageState.AccountTransitionKey, motionKey);
+        if (_accountMotionKey != motionKey)
+        {
+            XsrUiTransition.ConfigureIndependent(_shell.Tree, _pageEntities["AccountBody"], "account:" + motionKey);
+            _accountMotionKey = motionKey;
+        }
         Publish(LaunchPageState.AccountRosterVisibleKey, picker && !onboarding);
         Publish(LaunchPageState.AccountSelectedVisibleKey, !picker && !onboarding);
         Publish(LaunchPageState.AccountCanReturnKey, hasSelection);

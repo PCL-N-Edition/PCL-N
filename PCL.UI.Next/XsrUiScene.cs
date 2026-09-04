@@ -52,17 +52,25 @@ public readonly record struct XsrUiSceneNode(
     XsrUiRasterImage? RasterImage = null,
     string? TransitionKey = null,
     double TransitionOffsetX = 0,
-    double TransitionPresentedOffsetX = 0)
+    double TransitionPresentedOffsetX = 0,
+    double TransitionOffsetY = 0,
+    double PresentationOpacity = 1,
+    double TransitionPresentedOffsetY = 0,
+    int TransitionEntryOrder = -1)
 {
     public bool HasRole => Role != XsrUiSemanticRole.None;
 }
 
 /// <summary>
-/// One immutable render scene: the ordered draw list of one frame. Node order is the
-/// deterministic depth-first pre-order of the entity tree; later nodes draw above earlier ones.
+/// One outgoing presentation group. It is not part of the live tree, input, or accessibility.
 /// </summary>
-public sealed class XsrUiScene(long version, XsrUiSceneNode[] nodes)
+public sealed record XsrUiOutgoingLayer(XsrUiEntityId Group, IReadOnlyList<XsrUiSceneNode> Nodes, bool BehindSelf = false);
+
+/// <summary>Immutable, depth-first live draw list plus bounded non-interactive outgoing layers.</summary>
+public sealed class XsrUiScene(long version, XsrUiSceneNode[] nodes, IReadOnlyList<XsrUiOutgoingLayer>? outgoing = null)
 {
+    /// <summary>Bounded presentation snapshots. Never part of input or accessibility traversal.</summary>
+    public IReadOnlyList<XsrUiOutgoingLayer> Outgoing { get; } = outgoing ?? [];
     public long Version { get; } = version;
 
     private readonly XsrUiSceneNode[] _nodes = nodes;

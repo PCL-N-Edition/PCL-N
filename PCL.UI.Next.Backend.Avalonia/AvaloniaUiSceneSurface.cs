@@ -25,6 +25,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     private readonly XsrUiShell _shell;
     private readonly object _commitGate = new();
     private readonly Dictionary<XsrUiEntityId, AvaloniaUiSceneNodeControl> _controls = [];
+    private readonly List<AvaloniaUiSceneNodeControl> _outgoingControls = [];
     private readonly Dictionary<XsrUiEntityId, double> _capsuleTargets = [];
     private readonly Dictionary<XsrUiEntityId, long> _pagerRevisions = [];
     private XsrUiScene? _scene;
@@ -38,6 +39,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     public AvaloniaUiSceneSurface(XsrUiShell shell)
     {
         _shell = shell ?? throw new ArgumentNullException(nameof(shell));
+        UseLayoutRounding = false;
         Focusable = true;
         FocusAdorner = null;
         KeyboardNavigation.SetTabNavigation(this, KeyboardNavigationMode.None);
@@ -166,6 +168,8 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
         }
 
         foreach (AvaloniaUiSceneNodeControl control in _controls.Values) control.ReleasePresentation();
+        foreach (AvaloniaUiSceneNodeControl control in _outgoingControls) control.ReleasePresentation();
+        _outgoingControls.Clear();
         _controls.Clear();
         Children.Clear();
         GC.SuppressFinalize(this);
@@ -196,6 +200,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
             }
         }
 
+        ArrangeOutgoingLayers();
         return finalSize;
     }
 
@@ -297,6 +302,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
 
     private void ApplyScene(XsrUiScene scene)
     {
+        foreach (AvaloniaUiSceneNodeControl control in _outgoingControls) Children.Remove(control);
         HashSet<XsrUiEntityId> current = scene.Nodes.Select(node => node.Entity).ToHashSet();
         foreach ((XsrUiEntityId entity, AvaloniaUiSceneNodeControl control) in _controls.ToArray())
         {
@@ -312,6 +318,8 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
             _pagerRevisions.Remove(entity);
             AvaloniaUiMotion.Cancel(this, ("capsule", entity));
             AvaloniaUiMotion.Cancel(this, ("pager", entity));
+            AvaloniaUiMotion.Cancel(this, ("slide-x", entity));
+            AvaloniaUiMotion.Cancel(this, ("slide-y", entity));
         }
 
         for (int index = 0; index < scene.Count; index++)
@@ -344,6 +352,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
 
         ConfigureSelectionRelationships(scene);
         RunPageEnterAnimationsIfNavigated(scene);
+        ApplyOutgoingLayers(scene);
 
         InvalidateMeasure();
         InvalidateArrange();
@@ -389,8 +398,8 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     }
 
     /// <summary>
-    /// Page/content enter: navigation and reusable scene transition keys fade a group together.
-    /// Rapid swaps continue from presented opacity; reduced motion applies the final state.
+    /// Runs each declared spatial track independently. Undeclared scenes retain a simple
+    /// compatibility fade; product pages with spatial controls never receive an extra group fade.
     /// </summary>
     private void RunPageEnterAnimationsIfNavigated(XsrUiScene scene)
     {
@@ -399,36 +408,51 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
         _lastPageRoot = pageRoot;
         _lastNavigation = _shell.SelectedNavigationId;
         HashSet<XsrUiEntityId> animated = [], retained = [];
+        bool hasSpatialContent = false, inPage = false;
+        int pageDepth = 0;
+        foreach (XsrUiSceneNode candidate in scene.Nodes)
+        {
+            if (candidate.Entity == pageRoot) { inPage = true; pageDepth = candidate.Depth; }
+            else if (inPage && candidate.Depth <= pageDepth) break;
+            if (inPage && (candidate.TransitionOffsetX != 0 || candidate.TransitionOffsetY != 0))
+            { hasSpatialContent = true; break; }
+        }
         for (int index = 0; index < scene.Count; index++)
         {
             XsrUiSceneNode node = scene[index];
-            bool changed = navigated && node.Entity == pageRoot;
+            bool changed = navigated && node.Entity == pageRoot && !hasSpatialContent;
             if (node.TransitionKey is { } key)
             {
                 retained.Add(node.Entity);
-                changed |= _transitionKeys.TryGetValue(node.Entity, out string? before) && before != key;
+                changed |= _transitionKeys.TryGetValue(node.Entity, out string? before) ? before != key
+                    : node.TransitionPresentedOffsetX != 0 || node.TransitionPresentedOffsetY != 0;
                 _transitionKeys[node.Entity] = key;
             }
             if (!changed) continue;
-            if (node.TransitionOffsetX != 0)
+            if (node.TransitionOffsetX != 0 || node.TransitionOffsetY != 0)
             {
                 XsrUiEntityId target = node.Entity;
-                AvaloniaUiMotion.AnimateSpring(this, "slide:" + target,
+                double delay = Math.Clamp(node.TransitionEntryOrder, 0, AvaloniaMotionTokens.PageEnterMaximumStaggerIndex)
+                    * AvaloniaMotionTokens.PageEnterStaggerMilliseconds;
+                AvaloniaUiMotion.AnimateSpring(this, ("slide-x", target),
                     () => _shell.Renderer.GetTransitionOffset(target),
                     value => _shell.Renderer.SetTransitionOffset(target, value),
-                    0, AvaloniaMotionTokens.SlideSpringResponseSeconds,
-                    () => _shell.Renderer.ReducedMotion);
+                    0, AvaloniaMotionTokens.NavigationSpringResponseSeconds,
+                    () => _shell.Renderer.ReducedMotion, readCurrentPosition: true, delayMilliseconds: delay);
+                AvaloniaUiMotion.AnimateSpring(this, ("slide-y", target),
+                    () => _shell.Renderer.GetTransitionOffsetY(target),
+                    value => _shell.Renderer.SetTransitionOffsetY(target, value),
+                    0, AvaloniaMotionTokens.ContentSpringResponseSeconds,
+                    () => _shell.Renderer.ReducedMotion, readCurrentPosition: true, delayMilliseconds: delay);
                 continue;
             }
             // A card and its descendants form one layer; chrome keeps its background in place.
-            // Sibling layers stagger so related cards enter as a sequence, not one flash.
             int first = node.Role == XsrUiSemanticRole.TitleBar ? index + 1 : index;
-            int layer = 0;
             for (int child = first; child < scene.Count && (child == index || scene[child].Depth > node.Depth); child++)
             {
                 XsrUiEntityId entity = scene[child].Entity;
                 if (animated.Add(entity) && _controls.TryGetValue(entity, out AvaloniaUiSceneNodeControl? control))
-                    control.RunEnterAnimation(layer++);
+                    control.RunEnterAnimation();
             }
         }
         foreach (XsrUiEntityId entity in _transitionKeys.Keys.Where(entity => !retained.Contains(entity)).ToArray())
@@ -609,6 +633,7 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
         _invokeFromAutomation = invokeFromAutomation ?? throw new ArgumentNullException(nameof(invokeFromAutomation));
         _reducedMotion = reducedMotion ?? throw new ArgumentNullException(nameof(reducedMotion));
         IsHitTestVisible = false;
+        UseLayoutRounding = false;
         FocusAdorner = null;
         ClipToBounds = true;
         RenderTransform = new TransformGroup { Children = { _enterScale, _pressScale } };
@@ -652,6 +677,7 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
     {
         XsrUiSceneNode previous = _node;
         _node = node;
+        Opacity = node.PresentationOpacity;
         UpdateRaster(node.RasterImage);
         UpdateTextInput(previous.TextInput, node.TextInput);
         IsEnabled = node.IsEnabled;
@@ -759,7 +785,7 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
     /// Fades one member of a transition group without translating/clipping its text.
     /// Reduced motion applies the final state immediately.
     /// </summary>
-    internal void RunEnterAnimation(int staggerIndex)
+    internal void RunEnterAnimation()
     {
         AvaloniaUiMotion.Cancel(this, "enter");
         if (_reducedMotion())
@@ -778,24 +804,7 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
             1,
             AvaloniaMotionTokens.PageEnterMilliseconds,
             AvaloniaUiMotion.EaseOut,
-            delayMilliseconds: Math.Min(staggerIndex, 8) * AvaloniaMotionTokens.PageEnterStaggerMilliseconds,
             reducedMotion: _reducedMotion);
-        const double fromScale = 0.985;
-        _enterScale.ScaleX = fromScale;
-        _enterScale.ScaleY = fromScale;
-        AvaloniaUiMotion.Animate(
-            this,
-            "enter-scale",
-            () => _enterScale.ScaleX,
-            value =>
-            {
-                _enterScale.ScaleX = value;
-                _enterScale.ScaleY = value;
-            },
-            1,
-            AvaloniaMotionTokens.PageEnterMilliseconds,
-            AvaloniaUiMotion.EaseOut,
-            delayMilliseconds: Math.Min(staggerIndex, 8) * AvaloniaMotionTokens.PageEnterStaggerMilliseconds);
     }
 
     /// <summary>

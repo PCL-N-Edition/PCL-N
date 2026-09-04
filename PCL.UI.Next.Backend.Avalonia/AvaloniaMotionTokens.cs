@@ -34,8 +34,9 @@ internal static class AvaloniaMotionTokens
     /// </summary>
     public const int PageEnterMilliseconds = 240;
 
-    /// <summary>Per-member delay spreading a transition group in sequence.</summary>
+    /// <summary>Individual controls enter in reading order, without delaying direct manipulation.</summary>
     public const int PageEnterStaggerMilliseconds = 14;
+    public const int PageEnterMaximumStaggerIndex = 16;
 
     /// <summary>The final stage where the icon shrinks into (or out of) the content.</summary>
     public const int IconCollapseMilliseconds = 190;
@@ -56,7 +57,8 @@ internal static class AvaloniaMotionTokens
     public const int SelectionOutMilliseconds = 120;
 
     public const double RailSpringResponseSeconds = .34;
-    public const double SlideSpringResponseSeconds = .38;
+    public const double NavigationSpringResponseSeconds = .36;
+    public const double ContentSpringResponseSeconds = .32;
     public const double PagerSpringResponseSeconds = .34;
 
     /// <summary>The splash and hover fade clocks tick at display cadence.</summary>

@@ -24,3 +24,6 @@ property=Icon|String|ImageSource|None|None|false|
 property=Command|SemanticId|Command|None|None|false|
 property=Focusable|Boolean|Focusable|None|None|false|true
 property=Clickable|Boolean|Clickable|Enabled|State|false|true
+property=TransitionKey|String|TransitionKey|TransitionKey|Paint|false|
+property=TransitionOffsetX|Double|TransitionOffsetX|None|None|false|0
+property=TransitionOffsetY|Double|TransitionOffsetY|None|None|false|0

@@ -19,3 +19,6 @@ property=Padding|Thickness|Padding|None|None|false|
 property=IsVisible|Boolean|Visibility|Visibility|State|false|true
 property=Key|String|Key|None|None|false|
 property=Label|String|Label|SemanticLabel|Paint|false|内容区域
+property=TransitionKey|String|TransitionKey|TransitionKey|Paint|false|
+property=TransitionOffsetX|Double|TransitionOffsetX|None|None|false|0
+property=TransitionOffsetY|Double|TransitionOffsetY|None|None|false|0

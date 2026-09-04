@@ -1,12 +1,14 @@
 <Shell xmlns="https://pcln.dev/pxml/2026" Label="Nexa Launcher">
   <TitleBar Height="52">
-    <StackPanel Key="TitleNavigation" Orientation="Horizontal" Weight="1"
-                TransitionKey="{state launch.navigation.title}" TransitionOffsetX="32">
-      <Text Key="TitleMain" Content="Nexa Launcher" Margin="20,0,0,0" Width="240" />
+    <StackPanel Key="TitleNavigation" Orientation="Horizontal" Weight="1">
+      <Text Key="TitleMain" Content="Nexa Launcher" Margin="20,0,0,0" Width="240"
+            TransitionKey="{state launch.navigation.title}" TransitionOffsetX="-128" />
       <Button Key="TitleBack" Label="返回上一级" Icon="lucide/arrow-left" Command="ui.page.back"
-              Width="30" Height="30" Margin="12,0,0,0" VerticalAlignment="Center" IsVisible="false" />
+              Width="30" Height="30" Margin="12,0,0,0" VerticalAlignment="Center" IsVisible="false"
+              TransitionKey="{state launch.navigation.title}" TransitionOffsetX="-8" />
       <Text Key="TitleSubpage" Content="" Height="30" Margin="6,0,0,0" Weight="1"
-            VerticalAlignment="Center" IsVisible="false" />
+            VerticalAlignment="Center" IsVisible="false"
+            TransitionKey="{state launch.navigation.title}" TransitionOffsetX="128" />
     </StackPanel>
   </TitleBar>
   <StackPanel Orientation="Horizontal" StretchLastChild="true">
@@ -16,6 +18,6 @@
       <NavigationItem Label="资源" Content="资源" Icon="lucide/blocks" Command="ui.navigation.community" />
       <NavigationItem Label="设置" Content="设置" Icon="lucide/settings" Command="ui.navigation.settings" />
     </Navigation>
-    <ContentHost Padding="28,24,28,24" />
+    <ContentHost Padding="28,24,28,24" TransitionKey="navigation" />
   </StackPanel>
 </Shell>

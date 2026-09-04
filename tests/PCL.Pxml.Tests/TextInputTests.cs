@@ -23,6 +23,12 @@ internal static partial class Program
         store.Publish(key, "picker");
         AssertEqual("picker", renderer.Render().Nodes.Single(node => node.Entity == group).TransitionKey);
         AssertEqual(32d, renderer.Render().Nodes.Single(node => node.Entity == group).TransitionOffsetX);
+
+        XsrUiEntityId label = PxmlUiLoader.Load(Compile("""
+            <Text xmlns="N" Content="{state content.key}" TransitionKey="{state content.key}" TransitionOffsetY="6" />
+            """), tree, store, root);
+        AssertTrue(tree.GetComponent<XsrUiTransition>(label)!.MovesSelf);
+        AssertEqual(6d, renderer.Render().Nodes.Single(node => node.Entity == label).TransitionOffsetY);
     }
 
     private static void TextInputDraftsNeverExposePasswords()

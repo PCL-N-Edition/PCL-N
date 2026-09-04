@@ -9,6 +9,17 @@ internal static partial class Program
 {
     private static async Task VerifyTransitionGroupsAndMedia(XsrUiShell shell, AvaloniaUiSceneSurface surface)
     {
+        // Native arrange must preserve the scene's fractional trailing edge throughout expansion.
+        AvaloniaUiSceneNodeControl capsule = new(_ => { }, _ => { }, () => true);
+        for (int step = 0; step <= 100; step++)
+        {
+            double width = 36 + 74 * step / 100d;
+            capsule.Measure(new global::Avalonia.Size(200, 36));
+            capsule.Arrange(new global::Avalonia.Rect(200 - width, 0, width, 36));
+            AssertTrue(Math.Abs(capsule.Bounds.Right - 200) < .000001);
+            AssertTrue(Math.Abs(capsule.Bounds.Width - width) < .000001);
+        }
+        capsule.ReleasePresentation();
         XsrUiEntityId previous = shell.Stage.Navigation.Current;
         bool wasReduced = shell.Renderer.ReducedMotion;
         var previousNavigation = shell.SelectedNavigationId;
@@ -63,10 +74,60 @@ internal static partial class Program
         media.Raster = null; shell.Tree.MarkDirty(image, XsrUiDirtyKinds.Paint); surface.CommitScene();
         AssertFalse(control.HasDecodedRaster);
         AssertEqual("pcl/avatar/steve", control.Node.ImageSource);
+        // A detached page loses its native tracks, but its renderer presentation survives.
+        bodyTransition.OffsetX = 24; bodyTransition.Key = "resume-slide";
+        shell.Tree.MarkDirty(group, XsrUiDirtyKinds.Paint); surface.CommitScene();
+        AssertEqual(24d, shell.Renderer.GetTransitionOffset(group));
+        XsrUiEntityId temporary = shell.Tree.Create("temporary-page");
+        shell.Stage.Navigation.Replace(temporary); surface.CommitScene();
+        shell.Stage.Navigation.Replace(page); surface.CommitScene();
+        DateTime deadline = DateTime.UtcNow.AddSeconds(2);
+        while (shell.Renderer.GetTransitionOffset(group) != 0 && DateTime.UtcNow < deadline) await Task.Delay(16);
+        AssertEqual(0d, shell.Renderer.GetTransitionOffset(group));
+        shell.Tree.Destroy(temporary);
+
+        // Independent content motion must not move its parent, sibling image, or hit geometry separately.
+        shell.Renderer.ReducedMotion = true;
+        XsrUiTransition labelTransition = new() { Key = "before", MovesSelf = true, OffsetY = 6 };
+        shell.Tree.SetComponent(text, labelTransition); surface.CommitScene();
+        double siblingY = surface.Scene!.Nodes.Single(node => node.Entity == image).Rect.Y;
+        double labelY = surface.Scene.Nodes.Single(node => node.Entity == text).Rect.Y;
+        shell.Renderer.ReducedMotion = false;
+        labelTransition.Key = "after";
+        shell.Tree.MarkDirty(text, XsrUiDirtyKinds.Paint); surface.CommitScene();
+        AssertEqual(labelY + 6, surface.Scene!.Nodes.Single(node => node.Entity == text).Rect.Y);
+        AssertEqual(siblingY, surface.Scene.Nodes.Single(node => node.Entity == image).Rect.Y);
+        AssertTrue(surface.Scene.Outgoing.Any(layer => layer.Group == text && layer.BehindSelf));
+        await Task.Delay(40);
+        double live = shell.Renderer.GetTransitionOffsetY(text);
+        AssertTrue(live is > 0 and < 6);
+        labelTransition.Key = "reverse";
+        shell.Tree.MarkDirty(text, XsrUiDirtyKinds.Paint); surface.CommitScene();
+        AssertEqual(live, shell.Renderer.GetTransitionOffsetY(text));
+        shell.Renderer.ReducedMotion = true; surface.CommitScene();
+        AssertEqual(0d, shell.Renderer.GetTransitionOffsetY(text));
+        AssertEqual(0, surface.Scene!.Outgoing.Count);
+
+        // The reading-order ordinal drives a real delayed spring, not a simultaneous fade.
+        XsrUiTransition imageTransition = new() { Key = "sequence", MovesSelf = true, StaggerEntry = true, OffsetY = 6 };
+        labelTransition.StaggerEntry = true; labelTransition.Key = "sequence";
+        shell.Tree.SetComponent(image, imageTransition);
+        shell.Tree.MarkDirty(text, XsrUiDirtyKinds.Paint); surface.CommitScene();
+        AssertEqual(0, surface.Scene!.Nodes.Single(node => node.Entity == text).TransitionEntryOrder);
+        AssertEqual(1, surface.Scene.Nodes.Single(node => node.Entity == image).TransitionEntryOrder);
+        shell.Renderer.ReducedMotion = false;
+        labelTransition.Key = imageTransition.Key = "sequence-next";
+        shell.Tree.MarkDirty(text, XsrUiDirtyKinds.Paint); shell.Tree.MarkDirty(image, XsrUiDirtyKinds.Paint);
+        surface.CommitScene();
+        AssertEqual(0d, surface.Scene!.Nodes.Single(node => node.Entity == image).PresentationOpacity);
+        await Task.Delay(40);
+        AssertTrue(shell.Renderer.GetTransitionOffsetY(text) < shell.Renderer.GetTransitionOffsetY(image));
+        shell.Renderer.ReducedMotion = true; surface.CommitScene();
+        AssertEqual(1d, surface.Scene!.Nodes.Single(node => node.Entity == image).PresentationOpacity);
         shell.Renderer.ReducedMotion = wasReduced;
         shell.Select(previousNavigation);
         shell.Tree.SetComponent(shell.TitleBar, previousTitle ?? new XsrUiTransition());
         if (previous.IsAssigned) { shell.Stage.Navigation.Replace(previous); surface.CommitScene(); shell.Tree.Destroy(page); }
-        Console.WriteLine("PASS: grouped content/title transitions, retargeting, reused pages, reduced motion and raster lifetime");
+        Console.WriteLine("PASS: independent motion, live retargeting, legacy transitions, reused pages, reduced motion and raster lifetime");
     }
 }

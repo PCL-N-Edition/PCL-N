@@ -183,6 +183,8 @@ public sealed class PxmlUiLoader
             {
                 Key = node.TransitionKey,
                 OffsetX = node.TransitionOffsetX,
+                OffsetY = node.TransitionOffsetY,
+                MovesSelf = node.Recipe is PxmlRuntimeRecipe.Text or PxmlRuntimeRecipe.CommandInput or PxmlRuntimeRecipe.Image,
                 BoundKey = transitionBinding is null ? default : ResolveState(state, transitionBinding.State),
             });
 

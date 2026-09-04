@@ -20,3 +20,6 @@ property=IsVisible|Boolean|Visibility|Visibility|State|false|true
 property=Key|String|Key|None|None|false|
 property=Label|String|Label|SemanticLabel|Paint|false|
 property=Content|String|Content|Text|Layout,Paint|false|
+property=TransitionKey|String|TransitionKey|TransitionKey|Paint|false|
+property=TransitionOffsetX|Double|TransitionOffsetX|None|None|false|0
+property=TransitionOffsetY|Double|TransitionOffsetY|None|None|false|0

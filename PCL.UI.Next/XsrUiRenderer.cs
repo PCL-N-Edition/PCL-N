@@ -17,6 +17,7 @@ public sealed partial class XsrUiRenderer
     private readonly IXsrUiIntentSink? _sink;
     private readonly XsrUiStateBridge? _stateBridge;
     private XsrUiEntityId _hovered;
+    private XsrUiPoint _hoverDecisionPoint = new(double.NegativeInfinity, double.NegativeInfinity);
     private XsrUiEntityId _pressed;
     private XsrUiEntityId _focused;
     private readonly Dictionary<int, XsrUiSize> _desiredSizes = [];
@@ -46,7 +47,17 @@ public sealed partial class XsrUiRenderer
     /// Gets or sets whether animation-heavy presentation should reduce motion. The flag is a
     /// presentation contract; backends and animation drivers must honor it.
     /// </summary>
-    public bool ReducedMotion { get; set; }
+    private bool _reducedMotion;
+    public bool ReducedMotion
+    {
+        get => _reducedMotion;
+        set
+        {
+            if (_reducedMotion == value) return;
+            _reducedMotion = value;
+            if (_root.IsAssigned && _tree.IsAlive(_root)) _tree.MarkDirty(_root, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
+        }
+    }
 
     /// <summary>
     /// Render-thread composition hook for materializing state-backed PXML templates. Runs before
@@ -148,7 +159,7 @@ public sealed partial class XsrUiRenderer
 
         XsrUiSceneNode[] nodes = CollectNodes(_root, depth: 0);
         _sceneVersion++;
-        _scene = new XsrUiScene(_sceneVersion, nodes);
+        _scene = new XsrUiScene(_sceneVersion, nodes, _outgoingLayers.ToArray());
         LastLayoutVisits = _layoutVisits;
 
         _tree.Walk(_root, entity =>
@@ -618,6 +629,19 @@ public sealed partial class XsrUiRenderer
     public double GetTransitionOffset(XsrUiEntityId entity) =>
         _tree.IsAlive(entity) ? _tree.GetComponent<XsrUiTransition>(entity)?.PresentedOffsetX ?? 0 : 0;
 
+    public void SetTransitionOffsetY(XsrUiEntityId entity, double offset)
+    {
+        if (!_tree.IsAlive(entity) || _tree.GetComponent<XsrUiTransition>(entity) is not { } transition) return;
+        if (!double.IsFinite(offset)) throw new ArgumentOutOfRangeException(nameof(offset));
+        double value = ReducedMotion ? 0 : offset;
+        if (transition.PresentedOffsetY == value) return;
+        transition.PresentedOffsetY = value;
+        _tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
+    }
+
+    public double GetTransitionOffsetY(XsrUiEntityId entity) =>
+        _tree.IsAlive(entity) ? _tree.GetComponent<XsrUiTransition>(entity)?.PresentedOffsetY ?? 0 : 0;
+
     /// <summary>Advances local capsule geometry on the render thread, driven by a presentation clock.</summary>
     public void SetCapsulePresentationProgress(XsrUiEntityId entity, double progress)
     {
@@ -731,6 +755,14 @@ public sealed partial class XsrUiRenderer
     {
         if (MovePagerGesture(point)) return true;
         XsrUiEntityId entity = InputAt(point);
+        // Layout can synthesize pointer moves without physical motion. Do not let a
+        // capsule change its own target because its or a neighbour's width changed.
+        double dx = point.X - _hoverDecisionPoint.X, dy = point.Y - _hoverDecisionPoint.Y;
+        if (point.X >= 0 && point.Y >= 0 && entity != _hovered && _hovered.IsAssigned
+            && _tree.IsAlive(_hovered) && IsInVisibleTree(_hovered)
+            && _tree.GetComponent<XsrUiVisualStyle>(_hovered)?.HoverExpand == true
+            && dx * dx + dy * dy <= 9) entity = _hovered;
+        else _hoverDecisionPoint = point;
         XsrUiInput? input = entity.IsAssigned ? _tree.GetComponent<XsrUiInput>(entity) : null;
         bool overInput = input is not null && IsEnabled(input);
         bool changed = false;
@@ -944,15 +976,19 @@ public sealed partial class XsrUiRenderer
         return default;
     }
 
+    private readonly List<XsrUiOutgoingLayer> _outgoingLayers = [];
+    private readonly Dictionary<string, int> _entryOrders = [];
     private XsrUiSceneNode[] CollectNodes(XsrUiEntityId root, int depth)
     {
+        _outgoingLayers.Clear();
+        _entryOrders.Clear();
         List<XsrUiSceneNode> nodes = [];
         CollectNode(root, depth, nodes);
         return [.. nodes];
     }
 
     private void CollectNode(XsrUiEntityId entity, int depth, List<XsrUiSceneNode> nodes,
-        XsrUiRect? clip = null, bool accessible = true, double offsetX = 0)
+        XsrUiRect? clip = null, bool accessible = true, double offsetX = 0, double offsetY = 0, double opacity = 1)
     {
         if (!IsVisible(entity))
         {
@@ -972,16 +1008,19 @@ public sealed partial class XsrUiRenderer
         XsrUiTransition? transition = _tree.GetComponent<XsrUiTransition>(entity);
         string? transitionKey = transition?.BoundKey.IsAssigned == true
             ? _state.ReadAppliedValue(transition.BoundKey) as string ?? string.Empty : transition?.Key;
+        rect = rect with { X = rect.X + offsetX, Y = rect.Y + offsetY };
         if (transition is not null)
         {
-            if (transition.HasPresentedKey && transition.PresentedKey != transitionKey
-                && Math.Abs(transition.PresentedOffsetX) < .01) transition.PresentedOffsetX = transition.OffsetX;
-            transition.HasPresentedKey = true;
-            transition.PresentedKey = transitionKey;
-            if (ReducedMotion) transition.PresentedOffsetX = 0;
-            offsetX += transition.PresentedOffsetX;
+            XsrUiEntityId parent = _tree.Parent(entity);
+            XsrUiRect bounds = transition.MovesSelf && parent.IsAssigned && _paintRects.TryGetValue(parent.Index, out XsrUiRect parentBounds)
+                ? parentBounds with { X = parentBounds.X + offsetX, Y = parentBounds.Y + offsetY } : rect;
+            PrepareTransition(entity, transition, transitionKey, bounds, clip);
+            if (transition.MovesSelf)
+            {
+                rect = rect with { X = rect.X + transition.PresentedOffsetX, Y = rect.Y + transition.PresentedOffsetY };
+                clip = clip is { } outer ? Intersect(bounds, outer) : bounds;
+            }
         }
-        rect = rect with { X = rect.X + offsetX };
         XsrUiVisualStyle? visualStyle = _tree.GetComponent<XsrUiVisualStyle>(entity);
         XsrUiSelection? selection = _tree.GetComponent<XsrUiSelection>(entity);
         XsrUiInput? input = _tree.GetComponent<XsrUiInput>(entity);
@@ -998,6 +1037,16 @@ public sealed partial class XsrUiRenderer
         }
         XsrUiRect? visibleClip = clip is { } parentClip ? Intersect(rect, parentClip) : null;
         if (visibleClip is { Width: <= 0 } or { Height: <= 0 }) return;
+        int entryOrder = -1;
+        if (transition is { StaggerEntry: true } && transitionKey is not null && accessible)
+        {
+            entryOrder = _entryOrders.GetValueOrDefault(transitionKey);
+            _entryOrders[transitionKey] = entryOrder + 1;
+            double remaining = Math.Clamp(Math.Max(
+                transition.StartOffsetX == 0 ? 0 : transition.PresentedOffsetX / transition.StartOffsetX,
+                transition.StartOffsetY == 0 ? 0 : transition.PresentedOffsetY / transition.StartOffsetY), 0, 1);
+            opacity *= 1 - remaining;
+        }
         nodes.Add(new XsrUiSceneNode(
             entity,
             rect,
@@ -1023,18 +1072,25 @@ public sealed partial class XsrUiRenderer
             accessible,
             _tree.GetComponent<XsrUiTextInput>(entity)?.Snapshot(),
             image?.Raster,
-            transitionKey, transition?.OffsetX ?? 0, transition?.PresentedOffsetX ?? 0));
+            transitionKey, transition?.OffsetX ?? 0, transition?.PresentedOffsetX ?? 0,
+            transition?.OffsetY ?? 0, opacity, transition?.PresentedOffsetY ?? 0, entryOrder));
 
         XsrUiPager? pageContainer = _tree.GetComponent<XsrUiPager>(entity);
-        XsrUiRect? childClip = pageContainer is not null || _tree.GetComponent<XsrUiScroll>(entity) is not null
+        XsrUiRect? childClip = transition is { MovesSelf: false, OffsetX: not 0 } or { MovesSelf: false, OffsetY: not 0 }
+            || pageContainer is not null || _tree.GetComponent<XsrUiScroll>(entity) is not null
             ? visibleClip ?? rect
             : clip;
+        if (transition is { MovesSelf: false })
+        {
+            offsetX += transition.PresentedOffsetX;
+            offsetY += transition.PresentedOffsetY;
+        }
 
         int pageIndex = 0;
         foreach (XsrUiEntityId child in _tree.Children(entity).Where(IsVisible))
         {
             CollectNode(child, depth + 1, nodes, childClip,
-                accessible && (pageContainer is null || pageContainer.PageIndex == pageIndex), offsetX);
+                accessible && (pageContainer is null || pageContainer.PageIndex == pageIndex), offsetX, offsetY, opacity);
             pageIndex++;
         }
     }

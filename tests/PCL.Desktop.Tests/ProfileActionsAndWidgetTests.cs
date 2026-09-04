@@ -10,6 +10,7 @@ internal static partial class Program
     private static void DeleteActionsPersistAndRejectStaleRows()
     {
         using LaunchPageFixture fixture = new(new ImmediateInstanceSource([]), addProfile: true);
+        fixture.Shell.Renderer.ReducedMotion = true;
         fixture.Service.AddProfile(new LaunchProfile { Username = "Second" });
         fixture.Service.AddProfile(new LaunchProfile { Username = "Third" });
         AccountClick(fixture, "AccountSwitch");

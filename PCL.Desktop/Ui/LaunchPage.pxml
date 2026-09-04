@@ -3,14 +3,15 @@
     <StackPanel Orientation="Vertical" Weight="0.92" MinWidth="240" MaxWidth="360" Key="CardAccount">
       <StackPanel Orientation="Vertical" Weight="1" Margin="20,18,20,18" Key="AccountContent">
         <StackPanel Orientation="Horizontal" Spacing="8" Height="32"
-                    Margin="0,0,0,12" Key="AccountHeaderRow" TransitionKey="{state launch.account.title}">
+                    Margin="0,0,0,12" Key="AccountHeaderRow">
           <Button Key="AccountBack" Label="返回账户" Icon="lucide/arrow-left" Width="32" Height="32"
                   Command="ui.account.back" IsVisible="{state launch.account.back-visible}" />
-          <Text Key="AccountHeader" Content="{state launch.account.title}" Weight="1" VerticalAlignment="Center" />
+          <Text Key="AccountHeader" Content="{state launch.account.title}" Weight="1" VerticalAlignment="Center"
+                TransitionKey="{state launch.account.title}" TransitionOffsetY="6" />
           <Button Key="AccountAdd" Label="添加账户" Icon="lucide/plus" Width="28" Height="28" VerticalAlignment="Center"
                   Command="ui.account.add" IsVisible="{state launch.account.add-visible}" />
         </StackPanel>
-        <StackPanel Orientation="Vertical" Weight="1" MinHeight="160" Key="AccountBody" TransitionKey="{state launch.account.transition}">
+        <StackPanel Orientation="Vertical" Weight="1" MinHeight="160" Key="AccountBody">
           <StackPanel Orientation="Vertical" Weight="1" Key="AccountSelected"
                       IsVisible="{state launch.account.selected-visible}">
             <StackPanel Key="AccountIdentity" Orientation="Vertical" Weight="1" VerticalAlignment="Center">
@@ -78,7 +79,8 @@
               <Button Key="TriviaPage" Label="你知道吗？点击换一条" Command="ui.launch.hint.refresh">
                 <StackPanel Orientation="Vertical" Spacing="8">
                   <Text Key="TriviaTitle" Content="你知道吗？" Height="24" />
-                  <Text Key="TriviaMessage" Content="{state launch.widget.hint}" Height="56" />
+                  <Text Key="TriviaMessage" Content="{state launch.widget.hint}" Height="56"
+                        TransitionKey="{state launch.widget.hint}" TransitionOffsetY="6" />
                 </StackPanel>
               </Button>
               <StackPanel Key="EchoPage" Orientation="Vertical" Spacing="8">

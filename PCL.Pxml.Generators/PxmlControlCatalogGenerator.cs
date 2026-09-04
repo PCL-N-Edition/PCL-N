@@ -59,7 +59,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
         "Width", "Height", "MinWidth", "MaxWidth", "MinHeight", "MaxHeight", "Weight",
         "HorizontalAlignment", "VerticalAlignment", "Margin", "Padding", "Visibility", "Label",
         "Orientation", "Spacing", "StretchLastChild", "Scrollable", "Content", "Command",
-        "Focusable", "Clickable", "ImageSource", "Key", "Placeholder", "IsPassword", "Enabled", "TransitionKey", "TransitionOffsetX",
+        "Focusable", "Clickable", "ImageSource", "Key", "Placeholder", "IsPassword", "Enabled", "TransitionKey", "TransitionOffsetX", "TransitionOffsetY",
     };
 
     private static readonly HashSet<string> BindingProperties = new(StringComparer.Ordinal)
@@ -673,7 +673,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                 return target == "Width" || target == "Height"
                     || target == "MinWidth" || target == "MaxWidth"
                     || target == "MinHeight" || target == "MaxHeight"
-                    || target == "Weight" || target == "Spacing" || target == "TransitionOffsetX";
+                    || target == "Weight" || target == "Spacing" || target == "TransitionOffsetX" || target == "TransitionOffsetY";
             case "Thickness":
                 return target == "Margin" || target == "Padding";
             case "Boolean":
@@ -700,7 +700,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
             || target == "MinHeight" || target == "MaxHeight" || target == "Weight"
             || target == "HorizontalAlignment" || target == "VerticalAlignment"
             || target == "Margin" || target == "Padding" || target == "Visibility"
-            || target == "Label" || target == "Key")
+            || target == "Label" || target == "Key" || target is "TransitionKey" or "TransitionOffsetX" or "TransitionOffsetY")
         {
             return true;
         }
