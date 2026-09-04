@@ -2,17 +2,22 @@
 
 ## Scope locked before implementation
 
-1:1 replication of the legacy experimental launch overlay (`PageLaunchHomeExperimental`):
-a full-page scrim with one centered card (width 420, min height 360, padding 32/36/32/28,
-corner radius 20) narrating the launch while it runs.
+1:1 replication of the legacy launching card (`PageLaunchHomeExperimental`'s centered card:
+width 420, min height 360, padding 32/36/32/28, corner radius 20) — presented as its own
+navigation page, not an overlay: dispatching the launch pushes `LaunchingPage` onto the
+navigation stage (title-bar subpage title `正在启动`), and failure, cancellation, or the
+game process ending pops back to the launch page. Real-device review rejected the
+full-page-scrim overlay: the card lost its visual boundary against the scrim and the page
+flow reads better as a dedicated page.
 
 - Card rows, top to bottom: loader glyph, title (`正在启动` / `游戏已启动`), instance name,
   a 4 px progress bar (corner radius 2, track surface, accent fill), four key/value rows —
   当前步骤 (stage), 登录方式 (method), 启动进度 (percent, `P0`), 下载速度 (visible only
   while a speed is reported) — the trivia hint box, and a full-width cancel button.
-- The idle launch page fades under the overlay while it is visible and regains input when
-  the overlay hides. Cancel asks the pipeline to stop, shows `已请求取消启动`, and returns
-  to the idle page.
+- Cancel asks the pipeline to stop, shows `已请求取消启动`, and pops back to the launch
+  page. The title-bar back action is refused while a launch pipeline is running.
+- Key/value rows use a fixed-width label column (64px) so the value column aligns, matching
+  the legacy two-column stage rows.
 
 ### Launch progress contract (migrated from the legacy stage model)
 
@@ -55,12 +60,15 @@ corner radius 20) narrating the launch while it runs.
 - UI.Next: the Progress element lays out its fill from the presented value;
   `SetProgressPresentation` marks layout dirty; reduced motion snaps. PXML compiles the
   element and its `Value` binding.
-- Desktop: dispatching the launch intent shows the overlay with reset facts (progress 0,
-  `初始化`, `等待账户档案`, random trivia); stage/percent/method/speed follow the state
-  cells; `游戏已启动` replaces the title when launched; dispatch failure, cancel, or a
-  terminal process session hides the overlay and restores the idle page.
-- The overlay presentation is desktop-owned projection state (`launch.launching.*` cells);
-  services never learns about the overlay.
+- Desktop: dispatching the launch intent enters the launching page with reset facts
+  (progress 0, `初始化`, `等待账户档案`, random trivia); stage/percent/method/speed follow
+  the state cells; `游戏已启动` replaces the title when launched; dispatch failure,
+  cancel, or a terminal process session pops back to the launch page. The no-profile
+  preflight stays on the launch page and never enters the launching page.
+- The launching display strings are desktop-owned projection state (`launch.launching.*`
+  cells); services never learns about the page.
+- Log messages are English-only (review rule): services log facts in English, the desktop
+  controller owns the Chinese display strings.
 
 ## Notes
 

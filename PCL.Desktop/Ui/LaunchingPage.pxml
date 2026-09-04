@@ -1,0 +1,46 @@
+<Page xmlns="https://pcln.dev/pxml/2026" Key="LaunchingPage" Label="正在启动">
+  <ContentHost Key="LaunchingHost">
+    <StackPanel Orientation="Vertical" Key="LaunchingCard" Width="420" Padding="32,36,32,28"
+                HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="0">
+      <Image Key="LaunchingIcon" Source="lucide/loader-circle" Width="48" Height="48"
+             HorizontalAlignment="Center" />
+      <Text Key="LaunchingTitle" Content="{state launch.launching.title}" Height="34"
+            HorizontalAlignment="Center" Margin="0,16,0,0" />
+      <Text Key="LaunchingName" Content="{state launch.launching.name}" Height="22"
+            HorizontalAlignment="Center" Margin="0,6,0,0" />
+      <StackPanel Orientation="Vertical" Key="LaunchingBody" Margin="0,20,0,0">
+        <ContentHost Key="LaunchProgressTrack" Height="4">
+          <Progress Key="LaunchProgressFill" Value="{state minecraft.launch.progress}" Height="4"
+                    Label="启动进度条" />
+        </ContentHost>
+        <StackPanel Orientation="Horizontal" Key="LaunchingStageRow" Margin="0,16,0,0">
+          <Text Key="LaunchingStageLabel" Content="当前步骤" Width="64" Height="18" />
+          <Text Key="LaunchingStageValue" Content="{state launch.launching.stage}" Height="18" Weight="1" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Key="LaunchingMethodRow" Margin="0,8,0,0">
+          <Text Key="LaunchingMethodLabel" Content="登录方式" Width="64" Height="18" />
+          <Text Key="LaunchingMethodValue" Content="{state launch.launching.method}" Height="18" Weight="1" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Key="LaunchingPercentRow" Margin="0,8,0,0">
+          <Text Key="LaunchingPercentLabel" Content="启动进度" Width="64" Height="18" />
+          <Text Key="LaunchingPercentValue" Content="{state launch.launching.percent}" Height="18" Weight="1" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Key="LaunchingSpeedRow" Margin="0,8,0,0"
+                    IsVisible="{state launch.launching.speed-visible}">
+          <Text Key="LaunchingSpeedLabel" Content="下载速度" Width="64" Height="18" />
+          <Text Key="LaunchingSpeedValue" Content="{state launch.launching.speed}" Height="18" Weight="1" />
+        </StackPanel>
+        <ContentHost Key="LaunchingHintBox" Margin="0,16,0,0" Padding="12,12,12,12"
+                     IsVisible="{state launch.launching.hint-visible}">
+          <StackPanel Orientation="Vertical" Spacing="4">
+            <Text Key="LaunchingHintTitle" Content="启动贴士" Height="16" HorizontalAlignment="Center" />
+            <Text Key="LaunchingHintValue" Content="{state launch.launching.hint}" Height="32"
+                  HorizontalAlignment="Center" />
+          </StackPanel>
+        </ContentHost>
+      </StackPanel>
+      <Button Key="LaunchingCancelButton" Label="取消" Content="取消" Command="ui.launch.cancel"
+              Height="40" Margin="0,24,0,0" />
+    </StackPanel>
+  </ContentHost>
+</Page>

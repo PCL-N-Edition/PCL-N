@@ -59,7 +59,6 @@ internal sealed class LaunchPageController : IDisposable
     private static readonly XsrUiColor LaunchButtonHover = new(19, 112, 243);
     private static readonly XsrUiColor ProfileSecondaryText = new(96, 108, 124);
     private static readonly XsrUiColor ProfileSurface = new(244, 246, 250);
-    private static readonly XsrUiColor LaunchingScrim = new(255, 255, 255, 205);
     private static readonly XsrUiColor LaunchProgressTrack = new(224, 234, 253);
     private static readonly XsrUiColor LaunchProgressFill = new(11, 91, 203);
 
@@ -85,6 +84,9 @@ internal sealed class LaunchPageController : IDisposable
     };
 
     private bool _launchInProgress;
+    private bool _launchingViaKeyboard;
+    private XsrUiEntityId _launchingPage;
+    private Dictionary<string, XsrUiEntityId> _launchingEntities = [];
 
     /// <summary>The composition root attaches this observer to the shared store fan-out.</summary>
     public IXsrStateObserver StateObserver { get; }
@@ -173,6 +175,7 @@ internal sealed class LaunchPageController : IDisposable
         _versionSettingsPage = LoadVersionSubpage("VersionSettingsPage", "版本设置");
         _versionModifyPage = LoadVersionSubpage("VersionModifyPage", "版本修改");
         _wardrobePage = LoadVersionSubpage("AccountWardrobePage", "更衣橱");
+        (_launchingPage, _launchingEntities) = LoadLaunchingPage();
         _shell.Tree.Walk(_shell.TitleBar, entity =>
         {
             _titleEntities[_shell.Tree.Name(entity)] = entity;
@@ -365,7 +368,7 @@ internal sealed class LaunchPageController : IDisposable
             }
             else
             {
-                _ = StartLaunchAsync(instanceId);
+                _ = StartLaunchAsync(instanceId, e.Intent.Source);
             }
         }
         else if (command == LaunchCancelCommand)
@@ -390,6 +393,11 @@ internal sealed class LaunchPageController : IDisposable
         }
         else if (command == PageBackCommand)
         {
+            if (_launchInProgress)
+            {
+                return;
+            }
+
             if (_shell.Stage.Navigation.Pop() && _returnFocus.TryPop(out XsrUiEntityId focus))
             {
                 UpdateTitleBar();
@@ -556,6 +564,69 @@ internal sealed class LaunchPageController : IDisposable
         _shell.Tree.Detach(page);
         _shell.Tree.Destroy(parent);
         return page;
+    }
+
+    /// <summary>
+    /// Loads the dedicated launching page: the legacy launching card (centered 420px card with
+    /// the progress bar, key/value rows, trivia hint, and cancel) as its own navigation page.
+    /// </summary>
+    private (XsrUiEntityId Page, Dictionary<string, XsrUiEntityId> Entities) LoadLaunchingPage()
+    {
+        PxmlDocument document = PxmlParser.Parse(ReadEmbeddedResource("Ui.LaunchingPage.pxml"));
+        PxmlHostIr ir = PxmlCompiler.Compile(document);
+        XsrUiEntityId parent = _shell.Tree.Create("launching-page-loader");
+        XsrUiEntityId page = PxmlUiLoader.Load(ir, _shell.Tree, _store, parent);
+        _shell.Tree.Detach(page);
+        _shell.Tree.Destroy(parent);
+
+        Dictionary<string, XsrUiEntityId> entities = [];
+        _shell.Tree.Walk(
+            page,
+            entity =>
+            {
+                string key = _shell.Tree.Name(entity);
+                if (key.Length > 0)
+                {
+                    entities[key] = entity;
+                }
+
+                return true;
+            });
+
+        XsrUiVisualStyle card = RequireVisual(entities["LaunchingCard"]);
+        card.Background = CardBackground;
+        card.Foreground = PrimaryText;
+        card.Border = CardBorder;
+        card.BorderWidth = 1;
+        card.Surface = XsrUiSurfaceKind.Solid;
+        card.CornerRadius = XsrUiCornerRadii.Surface;
+        _shell.Tree.MarkDirty(entities["LaunchingCard"], XsrUiDirtyKinds.Paint);
+        StyleText(entities, "LaunchingTitle", PrimaryText, 22, 600);
+        StyleText(entities, "LaunchingName", SecondaryText, 14);
+        foreach ((string label, string value) in new[]
+        {
+            ("LaunchingStageLabel", "LaunchingStageValue"),
+            ("LaunchingMethodLabel", "LaunchingMethodValue"),
+            ("LaunchingPercentLabel", "LaunchingPercentValue"),
+            ("LaunchingSpeedLabel", "LaunchingSpeedValue"),
+        })
+        {
+            StyleText(entities, label, SecondaryText, 12);
+            StyleText(entities, value, PrimaryText, 12);
+        }
+
+        StyleText(entities, "LaunchingHintTitle", SecondaryText, 11, 600);
+        StyleText(entities, "LaunchingHintValue", SecondaryText, 12);
+        AlignText(entities, "LaunchingHintTitle", XsrUiTextAlignment.Center);
+        AlignText(entities, "LaunchingHintValue", XsrUiTextAlignment.Center);
+        ApplyVisual(entities["LaunchProgressTrack"], LaunchProgressTrack, PrimaryText, cornerRadius: 2);
+        ApplyVisual(entities["LaunchProgressFill"], LaunchProgressFill, LaunchProgressFill, cornerRadius: 2);
+        ApplyVisual(entities["LaunchingHintBox"], PickerBackground, PrimaryText, XsrUiCornerRadii.Inset);
+        ApplyVisual(entities["LaunchingCancelButton"], PickerBackground, PrimaryText,
+            XsrUiCornerRadii.Pill(40));
+        StyleText(entities, "LaunchingCancelButton", PrimaryText, 14, 600);
+        AlignText(entities, "LaunchingCancelButton", XsrUiTextAlignment.Center);
+        return (page, entities);
     }
 
     private void OnFramePreparing(object? sender, EventArgs e)
@@ -812,7 +883,7 @@ internal sealed class LaunchPageController : IDisposable
         }
     }
 
-    private async Task StartLaunchAsync(string instanceId)
+    private async Task StartLaunchAsync(string instanceId, XsrUiEntityId source)
     {
         IReadOnlyList<LaunchProfileView> profiles = ReadProfiles();
         int selected = SelectedAccountIndex;
@@ -828,10 +899,11 @@ internal sealed class LaunchPageController : IDisposable
             return;
         }
 
-        // The overlay replicates the legacy launching card: reset facts, narrate the pipeline
-        // through the launch progress cells, and hand input back on failure or cancellation.
+        ShowLaunchingPage(source);
+
+        // The launching page replicates the legacy launching card: reset facts, narrate the
+        // pipeline through the launch progress cells, and return on failure or cancellation.
         _launchInProgress = true;
-        Publish(LaunchPageState.LaunchingVisibleKey, true);
         Publish(LaunchPageState.LaunchingTitleKey, "正在启动");
         Publish(LaunchPageState.LaunchingNameKey, ReadCell(LaunchPageState.InstanceSummaryKey));
         Publish(LaunchPageState.LaunchingStageKey, "初始化");
@@ -860,7 +932,7 @@ internal sealed class LaunchPageController : IDisposable
         }
 
         Publish(LaunchPageState.StatusKey, $"启动失败：{result.Error?.Message}");
-        HideLaunchingOverlay();
+        CloseLaunchingPage();
     }
 
     private async Task CancelLaunchAsync()
@@ -879,14 +951,38 @@ internal sealed class LaunchPageController : IDisposable
 
         if (!_disposed)
         {
-            HideLaunchingOverlay();
+            CloseLaunchingPage();
         }
     }
 
-    private void HideLaunchingOverlay()
+    /// <summary>
+    /// Opens the dedicated launching page (a navigation push, mirroring the subpage flow) and
+    /// records where to restore focus when it closes.
+    /// </summary>
+    private void ShowLaunchingPage(XsrUiEntityId source)
+    {
+        if (_shell.Stage.Navigation.Current == _launchingPage) return;
+        _launchingViaKeyboard = IsKeyboardIntent(source);
+        _returnFocus.Push(source);
+        _shell.Stage.Navigation.Push(_launchingPage);
+        UpdateTitleBar();
+        _shell.Renderer.Focus(_launchingEntities.GetValueOrDefault("LaunchingCancelButton"), _launchingViaKeyboard);
+    }
+
+    private void CloseLaunchingPage()
     {
         _launchInProgress = false;
-        Publish(LaunchPageState.LaunchingVisibleKey, false);
+        if (_shell.Stage.Navigation.Current != _launchingPage)
+        {
+            return;
+        }
+
+        _ = _shell.Stage.Navigation.Pop();
+        UpdateTitleBar();
+        if (_returnFocus.TryPop(out XsrUiEntityId focus))
+        {
+            _shell.Renderer.Focus(focus, _launchingViaKeyboard);
+        }
     }
 
     /// <summary>
@@ -948,7 +1044,7 @@ internal sealed class LaunchPageController : IDisposable
                 && launched
                 && owner.AllSessionsTerminal())
             {
-                owner.HideLaunchingOverlay();
+                owner.CloseLaunchingPage();
             }
         }
     }
@@ -1088,7 +1184,6 @@ internal sealed class LaunchPageController : IDisposable
             AlignText(action, XsrUiTextAlignment.Center);
         }
 
-        StyleLaunchingOverlay(entities);
 
         if (entities.TryGetValue("LaunchButton", out XsrUiEntityId button))
         {
@@ -1102,39 +1197,6 @@ internal sealed class LaunchPageController : IDisposable
             StyleText(button, new XsrUiColor(255, 255, 255), fontSize: 13, weight: 600);
             AlignText(button, XsrUiTextAlignment.Center);
         }
-    }
-
-    /// <summary>
-    /// Styles the launching overlay to the legacy card: translucent scrim over the idle page,
-    /// an opaque rounded card, the 4px progress track, muted labels with primary values, the
-    /// trivia hint box, and the gray cancel button.
-    /// </summary>
-    private void StyleLaunchingOverlay(Dictionary<string, XsrUiEntityId> entities)
-    {
-        ApplyVisual(entities["LaunchingOverlay"], LaunchingScrim, PrimaryText, cornerRadius: 0);
-        ApplyVisual(entities["LaunchingCard"], CardBackground, PrimaryText,
-            XsrUiCornerRadii.Surface, border: CardBorder);
-        StyleText(entities, "LaunchingTitle", PrimaryText, 22, 600);
-        StyleText(entities, "LaunchingName", SecondaryText, 14);
-        StyleText(entities, "LaunchingStageLabel", SecondaryText, 12);
-        StyleText(entities, "LaunchingStageValue", PrimaryText, 12);
-        StyleText(entities, "LaunchingMethodLabel", SecondaryText, 12);
-        StyleText(entities, "LaunchingMethodValue", PrimaryText, 12);
-        StyleText(entities, "LaunchingPercentLabel", SecondaryText, 12);
-        StyleText(entities, "LaunchingPercentValue", PrimaryText, 12);
-        StyleText(entities, "LaunchingSpeedLabel", SecondaryText, 12);
-        StyleText(entities, "LaunchingSpeedValue", PrimaryText, 12);
-        StyleText(entities, "LaunchingHintTitle", SecondaryText, 11, 600);
-        StyleText(entities, "LaunchingHintValue", SecondaryText, 12);
-        AlignText(entities, "LaunchingHintTitle", XsrUiTextAlignment.Center);
-        AlignText(entities, "LaunchingHintValue", XsrUiTextAlignment.Center);
-        ApplyVisual(entities["LaunchProgressTrack"], LaunchProgressTrack, PrimaryText, cornerRadius: 2);
-        ApplyVisual(entities["LaunchProgressFill"], LaunchProgressFill, LaunchProgressFill, cornerRadius: 2);
-        ApplyVisual(entities["LaunchingHintBox"], PickerBackground, PrimaryText, XsrUiCornerRadii.Inset);
-        ApplyVisual(entities["LaunchingCancelButton"], PickerBackground, PrimaryText,
-            XsrUiCornerRadii.Pill(40));
-        StyleText(entities, "LaunchingCancelButton", PrimaryText, 14, 600);
-        AlignText(entities, "LaunchingCancelButton", XsrUiTextAlignment.Center);
     }
 
     private void StyleCard(

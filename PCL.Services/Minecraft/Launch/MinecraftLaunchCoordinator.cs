@@ -109,11 +109,11 @@ public sealed class MinecraftLaunchCoordinator
         CancellationTokenSource? launch = _activeLaunch;
         if (launch is null)
         {
-            _log?.Debug("Launch", "启动取消被忽略：没有进行中的启动管线。");
+            _log?.Debug("Launch", "Launch cancellation ignored: no pipeline is running.");
             return false;
         }
 
-        _log?.Info("Launch", "已请求取消当前启动管线。");
+        _log?.Info("Launch", "Launch pipeline cancellation requested.");
         launch.Cancel();
         return true;
     }

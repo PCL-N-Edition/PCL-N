@@ -9,8 +9,9 @@ using PCL.Xsr.State;
 
 namespace PCL.Desktop.Tests;
 
-// XSR-712: the launching overlay replicates the legacy launching card — reset facts on show,
-// narration from the launch progress cells, and the overlay closing on failure or cancel.
+// XSR-712: the launching page replicates the legacy launching card as its own navigation
+// page — reset facts on entry, narration from the launch progress cells, and the page
+// closing (navigation pop) on failure or cancel.
 internal static partial class Program
 {
     private static LaunchPageFixture ComposeLaunchOverlayFixture(RecordingStartRoute recording)
@@ -38,8 +39,9 @@ internal static partial class Program
         RecordingStartRoute recording = new();
         using LaunchPageFixture fixture = ComposeLaunchOverlayFixture(recording);
         SelectFirstAccountAndLaunch(fixture, recording);
+        AssertTrue(SpinWait.SpinUntil(
+            () => fixture.Shell.Stage.Navigation.Depth == 2, TimeSpan.FromSeconds(2)));
         XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(850, 500));
-        AssertTrue(HasKey(fixture.Shell, scene, "LaunchingOverlay"));
         AssertEqual("正在启动", FindByKey(fixture.Shell, scene, "LaunchingTitle").Text);
         AssertEqual("初始化", FindByKey(fixture.Shell, scene, "LaunchingStageValue").Text);
         AssertEqual("等待账户档案", FindByKey(fixture.Shell, scene, "LaunchingMethodValue").Text);
@@ -89,10 +91,7 @@ internal static partial class Program
         using LaunchPageFixture fixture = ComposeLaunchOverlayFixture(recording);
         SelectFirstAccountAndLaunch(fixture, recording);
         AssertTrue(SpinWait.SpinUntil(
-            () => !(fixture.Store.ReadAppliedValue(fixture.Store.Resolve(LaunchPageState.LaunchingVisibleKey)) is bool visible && visible),
-            TimeSpan.FromSeconds(2)));
-        XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(850, 500));
-        AssertFalse(HasKey(fixture.Shell, scene, "LaunchingOverlay"));
+            () => fixture.Shell.Stage.Navigation.Depth == 1, TimeSpan.FromSeconds(2)));
     }
 
     private static void LaunchOverlayCancelHidesOverlay()
@@ -103,9 +102,6 @@ internal static partial class Program
         XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(850, 500));
         AssertTrue(fixture.Shell.Renderer.Activate(FindByKey(fixture.Shell, scene, "LaunchingCancelButton").Entity));
         AssertTrue(SpinWait.SpinUntil(
-            () => !(fixture.Store.ReadAppliedValue(fixture.Store.Resolve(LaunchPageState.LaunchingVisibleKey)) is bool visible && visible),
-            TimeSpan.FromSeconds(2)));
-        scene = fixture.Shell.Render(new XsrUiSize(850, 500));
-        AssertFalse(HasKey(fixture.Shell, scene, "LaunchingOverlay"));
+            () => fixture.Shell.Stage.Navigation.Depth == 1, TimeSpan.FromSeconds(2)));
     }
 }
