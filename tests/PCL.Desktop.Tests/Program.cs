@@ -34,6 +34,8 @@ internal static partial class Program
         ("instance scan publishes state without mutating the tree from its worker", InstanceScanPublishesWithoutForeignTreeMutation),
         ("an older instance scan cannot overwrite the latest generation", OlderInstanceScanCannotOverwriteLatestGeneration),
         ("launch primary dispatches the product start command", LaunchPrimaryDispatchesProductStartCommand),
+        ("expand navigation never replaces the launch page", ExpandNavigationNeverReplacesTheLaunchPage),
+        ("account card lists profiles and switches the selection", AccountCardListsProfilesAndSwitchesSelection),
     ];
 
     private static void LaunchPageReplicatesLegacyLayout()
@@ -221,6 +223,58 @@ internal static partial class Program
             TimeSpan.FromSeconds(2)));
     }
 
+    private static void ExpandNavigationNeverReplacesTheLaunchPage()
+    {
+        using LaunchPageFixture fixture = new(new ImmediateInstanceSource([]));
+        fixture.Controller.WaitUntilIdle().GetAwaiter().GetResult();
+
+        // The rail expand/collapse toggle is shell presentation, not a destination: it must
+        // never route the content host to the placeholder page.
+        Emit(fixture.Intents, "ui.navigation.expand");
+        XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(1280, 800));
+        AssertTrue(HasKey(fixture.Shell, scene, "LaunchButton"));
+        AssertFalse(scene.Nodes.Any(node => node.Text == "该分区将在后续单元中迁移。"));
+    }
+
+    private static void AccountCardListsProfilesAndSwitchesSelection()
+    {
+        using LaunchPageFixture fixture = new(new ImmediateInstanceSource([]), addProfile: true);
+        AssertTrue(fixture.Service.AddProfile(new LaunchProfile
+        {
+            Username = "Second",
+            Kind = LaunchProfileKind.Microsoft,
+        }).IsSuccess);
+
+        // Re-activating the page rebuilds the account rows from the roster.
+        Emit(fixture.Intents, "ui.navigation.settings");
+        Emit(fixture.Intents, "ui.navigation.launch");
+        fixture.Controller.WaitUntilIdle().GetAwaiter().GetResult();
+
+        XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(1280, 800));
+        AssertTrue(HasKey(fixture.Shell, scene, "account-row:0"));
+        AssertTrue(HasKey(fixture.Shell, scene, "account-row:1"));
+
+        // The first profile is selected by default; switching publishes the fact and updates
+        // the account presentation.
+        AssertEqual(0, fixture.Service.SelectedIndex);
+        AssertEqual("Player", ReadCell(fixture.Store, LaunchPageState.ProfileNameKey));
+
+        XsrUiEntityId secondRow = FindEntity(fixture.Shell, "account-row:1");
+        AssertTrue(secondRow.IsAssigned);
+        Emit(fixture.Intents, "ui.account.select", secondRow);
+        AssertEqual(1, fixture.Service.SelectedIndex);
+        AssertEqual(1, ReadCellInt(fixture.Store, AccountService.SelectedKey));
+        AssertEqual("Second", ReadCell(fixture.Store, LaunchPageState.ProfileNameKey));
+        AssertEqual("账户已就绪，可以开始游戏。", ReadCell(fixture.Store, LaunchPageState.ProfileSummaryKey));
+
+        scene = fixture.Shell.Render(new XsrUiSize(1280, 800));
+        AssertTrue(scene.Nodes.Single(node =>
+            string.Equals(fixture.Shell.Tree.Name(node.Entity), "account-row:1", StringComparison.Ordinal)).IsSelected);
+    }
+
+    private static int ReadCellInt(XsrStateStore store, XsrSemanticId key) =>
+        (int?)store.ReadAppliedValue(store.Resolve(key)) ?? -1;
+
     private static MinecraftRuntime CreateRecordingRuntime(RecordingStartRoute recording)
     {
         NoopDispatchObserver observer = new();
@@ -263,6 +317,30 @@ internal static partial class Program
     private static void Emit(DesktopUiIntentSink intents, string command) =>
         intents.Emit(XsrSemanticId.Parse(command), default, XsrCorrelationId.Create());
 
+    private static void Emit(
+        DesktopUiIntentSink intents,
+        string command,
+        XsrUiEntityId source) =>
+        intents.Emit(XsrSemanticId.Parse(command), source, XsrCorrelationId.Create());
+
+    private static XsrUiEntityId FindEntity(XsrUiShell shell, string key)
+    {
+        XsrUiEntityId found = default;
+        shell.Tree.Walk(
+            shell.Stage.Root,
+            entity =>
+            {
+                if (string.Equals(shell.Tree.Name(entity), key, StringComparison.Ordinal))
+                {
+                    found = entity;
+                    return false;
+                }
+
+                return true;
+            });
+        return found;
+    }
+
     private static string ReadCell(XsrStateStore store, XsrSemanticId key) =>
         (string?)store.ReadAppliedValue(store.Resolve(key)) ?? string.Empty;
 
@@ -290,12 +368,12 @@ internal static partial class Program
             Shell = PxmlShellComposer.Compose(Store, uiRuntime, intentSink: Intents);
             Minecraft = minecraft ?? MinecraftRuntimeComposer.Compose();
             _ownsMinecraftRuntime = minecraft is null || ownsMinecraftRuntime;
+            Service = new AccountService(
+                Store,
+                new LaunchProfileFilePort(Path.Combine(_temporaryDirectory, "profiles.json")));
             if (addProfile)
             {
-                AccountService accounts = new(
-                    Store,
-                    new LaunchProfileFilePort(Path.Combine(_temporaryDirectory, "profiles.json")));
-                AssertTrue(accounts.AddProfile(new LaunchProfile
+                AssertTrue(Service.AddProfile(new LaunchProfile
                 {
                     Username = "Player",
                     Kind = LaunchProfileKind.Offline,
@@ -306,6 +384,7 @@ internal static partial class Program
                 Shell,
                 Intents,
                 Minecraft,
+                Service,
                 Store,
                 Path.Combine(_temporaryDirectory, "minecraft"),
                 source);
@@ -316,6 +395,7 @@ internal static partial class Program
         public DesktopUiIntentSink Intents { get; }
         public XsrStateStore Store { get; }
         public MinecraftRuntime Minecraft { get; }
+        public AccountService Service { get; }
         public LaunchPageController Controller { get; }
 
         public void Dispose()

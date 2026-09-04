@@ -51,6 +51,9 @@ public sealed class AccountService
     /// Two-phase composition, declaration phase: registers the roster collection into the
     /// shared host builder.
     /// </summary>
+    /// <summary>The index of the profile the product currently launches with.</summary>
+    public static readonly XsrSemanticId SelectedKey = XsrSemanticId.Parse("accounts.selected");
+
     public static void DeclareState(XsrStateStoreBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -58,6 +61,7 @@ public sealed class AccountService
             ProfilesKey,
             OwnerName,
             static view => view.Index);
+        builder.Cell<int>(SelectedKey, OwnerName);
     }
 
     public AccountService(XsrStateStore store, ILaunchProfilePort port)
@@ -78,6 +82,7 @@ public sealed class AccountService
         }
 
         _profiles = loaded;
+        _selectedIndex = loaded.Count > 0 ? 0 : -1;
         lock (_gate)
         {
             PublishAll();
@@ -86,6 +91,40 @@ public sealed class AccountService
                 _store.MarkAvailability(_profilesId, XsrStateAvailability.Unavailable);
             }
         }
+
+        if (_selectedIndex >= 0)
+        {
+            _store.Publish(_store.Resolve(SelectedKey), _selectedIndex);
+        }
+    }
+
+    private int _selectedIndex = -1;
+
+    /// <summary>
+    /// The profile the product currently launches with, or -1 when the roster is empty.
+    /// Selection is session state published as <see cref="SelectedKey"/>; the roster file is
+    /// untouched by switching.
+    /// </summary>
+    public int SelectedIndex => _selectedIndex;
+
+    /// <summary>
+    /// Switches the active profile. The selection is durable-first: it is validated against the
+    /// roster and only then published, so state never shows a profile that cannot launch.
+    /// </summary>
+    public XsrError? SelectProfile(int index)
+    {
+        lock (_gate)
+        {
+            if (index < 0 || index >= _profiles.Count)
+            {
+                return AccountErrors.ProfileNotFound(index);
+            }
+
+            _selectedIndex = index;
+        }
+
+        _store.Publish(_store.Resolve(SelectedKey), index);
+        return null;
     }
 
     public XsrStateStore StateStore => _store;
@@ -117,6 +156,10 @@ public sealed class AccountService
 
             _profiles = updated;
             PublishAll();
+            if (_selectedIndex < 0 && _profiles.Count > 0)
+            {
+                _selectedIndex = 0;
+            }
             return XsrResult.Success(_profiles.Count - 1);
         }
     }

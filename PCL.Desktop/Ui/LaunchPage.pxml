@@ -11,6 +11,7 @@
         </StackPanel>
         <StackPanel Orientation="Vertical" Weight="1" MinHeight="160" Key="AccountBody">
           <Text Key="AccountName" Content="{state launch.profile.name}" />
+          <StackPanel Orientation="Vertical" Spacing="6" Key="AccountRows" />
         </StackPanel>
         <Text Key="AccountSummary" Content="{state launch.profile.summary}"
               Height="18" Margin="0,12,0,0" />
