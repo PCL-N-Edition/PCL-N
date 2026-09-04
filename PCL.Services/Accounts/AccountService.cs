@@ -1,3 +1,4 @@
+using PCL.Services.Logging;
 using PCL.Xsr;
 using PCL.Xsr.State;
 
@@ -45,6 +46,7 @@ public sealed class AccountService
     private readonly object _gate = new();
     private readonly XsrStateStore _store;
     private readonly XsrStateId _profilesId;
+    private readonly LogService? _log;
     private List<LaunchProfile> _profiles;
 
     /// <summary>The index of the profile the product currently launches with.</summary>
@@ -60,10 +62,11 @@ public sealed class AccountService
         builder.Cell<int>(SelectedKey, OwnerName);
     }
 
-    public AccountService(XsrStateStore store, ILaunchProfilePort port)
+    public AccountService(XsrStateStore store, ILaunchProfilePort port, LogService? log = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _port = port ?? throw new ArgumentNullException(nameof(port));
+        _log = log;
         _profilesId = _store.Resolve(ProfilesKey);
 
         List<LaunchProfile> loaded;
@@ -75,10 +78,12 @@ public sealed class AccountService
         {
             LoadError = AccountErrors.PersistFailed(failure.Message);
             loaded = [];
+            _log?.Warn("Account", $"档案列表读取失败：{failure.Message}");
         }
 
         _profiles = loaded;
         _selectedIndex = loaded.Count > 0 ? 0 : -1;
+        _log?.Info("Account", $"已加载 {loaded.Count} 个启动档案。");
         lock (_gate)
         {
             PublishAll();
@@ -122,6 +127,7 @@ public sealed class AccountService
             _selectedIndex = index;
             PublishSelection();
         }
+        _log?.Info("Account", $"切换启动档案到 #{index}。");
         return null;
     }
 
@@ -159,6 +165,7 @@ public sealed class AccountService
             }
             PublishAll();
             PublishSelection();
+            _log?.Info("Account", $"新增档案 {profile.Username}（#{_profiles.Count - 1}），共 {_profiles.Count} 个。");
             return XsrResult.Success(_profiles.Count - 1);
         }
     }
@@ -206,6 +213,7 @@ public sealed class AccountService
             if (_selectedIndex < 0) _selectedIndex = 0;
             PublishAll();
             PublishSelection();
+            _log?.Info("Account", $"导入 {added} 个档案，共 {_profiles.Count} 个。");
             return XsrResult.Success(added);
         }
     }
@@ -273,6 +281,7 @@ public sealed class AccountService
                 : Math.Min(_selectedIndex, _profiles.Count - 1);
             PublishAll();
             PublishSelection();
+            _log?.Info("Account", $"移除档案 #{index}，剩余 {_profiles.Count} 个。");
             return XsrResult.Success();
         }
     }

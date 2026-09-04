@@ -113,9 +113,9 @@ public static class FoundationComposer
 
         var logging = new LogService(store, logCapacity, clock);
         var downloads = new DownloadService(store, downloadBufferSize, logging, minimumSegmentBytes);
-        var accounts = new AccountService(store, profilePort);
+        var accounts = new AccountService(store, profilePort, logging);
         var telemetry = new TelemetryService(store, telemetryCapacity);
-        var settings = new SettingsService(store, settingsSchema, settingsPort);
+        var settings = new SettingsService(store, settingsSchema, settingsPort, logging);
 
         return new FoundationHost(store, logging, downloads, accounts, telemetry, settings);
     }

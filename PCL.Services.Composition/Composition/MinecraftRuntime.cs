@@ -65,7 +65,7 @@ public static class MinecraftRuntimeComposer
         XsrStateStore? hostStore = null)
     {
         MinecraftVersionDiscovery versionDiscovery = discovery ?? new MinecraftVersionDiscovery();
-        MinecraftInstanceDiscovery instanceDiscovery = new(versionDiscovery);
+        MinecraftInstanceDiscovery instanceDiscovery = new(versionDiscovery: versionDiscovery);
         MinecraftProcessService processService = processes ?? new MinecraftProcessService(hostStore: hostStore);
         if (hostStore is not null && !ReferenceEquals(hostStore, processService.StateStore))
             throw new ArgumentException("The Minecraft process service must publish into the supplied host state store.", nameof(processes));
@@ -109,7 +109,7 @@ public static class MinecraftRuntimeComposer
             : Path.GetFullPath(javaRuntimeRootDirectory);
 
         MinecraftVersionDiscovery versionDiscovery = discovery ?? new MinecraftVersionDiscovery();
-        MinecraftInstanceDiscovery instanceDiscovery = new(versionDiscovery);
+        MinecraftInstanceDiscovery instanceDiscovery = new(host.Logging, versionDiscovery);
         MinecraftProcessService processService = processes ?? new MinecraftProcessService(hostStore: host.StateStore);
         if (!ReferenceEquals(host.StateStore, processService.StateStore))
         {
@@ -144,7 +144,8 @@ public static class MinecraftRuntimeComposer
             new JavaSelectionService(locator),
             installer,
             executor,
-            platform);
+            platform,
+            host.Logging);
         IXsrDispatchObserver dispatchObserver = observer ?? NullDispatchObserver.Instance;
         XsrCommandRouterBuilder commandBuilder = new();
         commandBuilder.Register(MinecraftRouteIds.Start, MinecraftCommands.CreateStartHandler(coordinator));

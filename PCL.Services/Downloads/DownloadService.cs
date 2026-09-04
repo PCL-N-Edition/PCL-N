@@ -348,6 +348,8 @@ public sealed class DownloadService
                 long begin = totalLength * segmentIndex / segmentCount;
                 long end = totalLength * (segmentIndex + 1) / segmentCount - 1;
                 string partPath = partPrefix + segmentIndex.ToString(CultureInfo.InvariantCulture);
+                _log?.Write(LogLevel.RealTime, LogModuleName,
+                    $"分段开始 #{segmentIndex}；范围={begin}-{end}；来源={DescribeSource(source)}。");
                 transfers[segmentIndex] = DownloadSegmentAsync(
                     request,
                     source,
@@ -366,6 +368,8 @@ public sealed class DownloadService
             }
 
             await Task.WhenAll(transfers).ConfigureAwait(false);
+            _log?.Write(LogLevel.RealTime, LogModuleName,
+                $"全部分段就绪；目标={destinationPath}；分段={segmentCount}。");
 
             IDownloadWriter writer = request.WriterFactory(destinationPath)
                 ?? throw new InvalidOperationException($"No download writer was created for {destinationPath}.");
@@ -487,6 +491,8 @@ public sealed class DownloadService
                     throw new EndOfStreamException($"The download segment is incomplete: {segmentBytes[segmentIndex]}/{expected}.");
                 }
 
+                _log?.Write(LogLevel.RealTime, LogModuleName,
+                    $"分段完成 #{segmentIndex}；字节={expected}；来源={DescribeSource(source)}。");
                 await target.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
             finally

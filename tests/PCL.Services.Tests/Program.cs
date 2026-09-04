@@ -109,6 +109,9 @@ internal static partial class Program
         // XSR-519: Wave 5 acceptance integration.
         ("foundation composition end to end", FoundationCompositionEndToEnd),
         ("foundation downloads use composed logging", FoundationDownloadsUseComposedLogging),
+        ("file sink appends and survives io errors", Sync(FileSinkAppendsAndSurvivesIoErrors)),
+        ("console sink disables instead of throwing", Sync(ConsoleSinkDisablesInsteadOfThrowing)),
+        ("level gate policy holds across tiers", Sync(LevelGatePolicyHoldsAcrossTiers)),
         ("cross capability page has no state id collisions", CrossCapabilityPageHasNoStateIdCollisions),
         // XSR-513: online account flows.
         ("the microsoft device login runs the full chain", MicrosoftDeviceLoginRunsTheFullChain),

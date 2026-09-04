@@ -1,3 +1,5 @@
+using PCL.Services.Logging;
+
 namespace PCL.Services.Downloads;
 
 /// <summary>
@@ -9,19 +11,22 @@ namespace PCL.Services.Downloads;
 public sealed class FileDownloadWriter : IDownloadWriter, IDisposable, IAsyncDisposable
 {
     private const int RetryCount = 5;
+    private const string LogModuleName = "Download";
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(100);
 
     private readonly string _finalPath;
     private readonly string _tempPath;
+    private readonly LogService? _log;
     private FileStream? _stream;
 
-    public FileDownloadWriter(string finalPath, string tempExtension = ".PCLDownloading")
+    public FileDownloadWriter(string finalPath, string tempExtension = ".PCLDownloading", LogService? log = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(finalPath);
         ArgumentNullException.ThrowIfNull(tempExtension);
 
         _finalPath = Path.GetFullPath(finalPath);
         _tempPath = _finalPath + tempExtension;
+        _log = log;
     }
 
     public bool IsSupportParallel => false;
@@ -97,6 +102,8 @@ public sealed class FileDownloadWriter : IDownloadWriter, IDisposable, IAsyncDis
             }
             catch (IOException) when (retry < RetryCount)
             {
+                _log?.Write(LogLevel.RealTime, LogModuleName,
+                    $"临时文件重命名被占用，重试 {retry}/{RetryCount}：{_tempPath}");
                 await Task.Delay(RetryDelay, cancellationToken).ConfigureAwait(false);
             }
             catch (IOException)

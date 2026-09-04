@@ -1,3 +1,4 @@
+using PCL.Services.Logging;
 using PCL.Xsr;
 using PCL.Xsr.State;
 
@@ -52,6 +53,7 @@ public sealed class SettingsService
     private readonly ISettingsPort _port;
     private readonly object _gate = new();
     private readonly Dictionary<XsrSemanticId, XsrStateId> _ids;
+    private readonly LogService? _log;
 
     /// <summary>
     /// Two-phase composition, declaration phase: registers one typed cell per schema
@@ -89,11 +91,12 @@ public sealed class SettingsService
         }
     }
 
-    public SettingsService(XsrStateStore store, SettingsSchema schema, ISettingsPort port)
+    public SettingsService(XsrStateStore store, SettingsSchema schema, ISettingsPort port, LogService? log = null)
     {
         Schema = schema ?? throw new ArgumentNullException(nameof(schema));
         _port = port ?? throw new ArgumentNullException(nameof(port));
         StateStore = store ?? throw new ArgumentNullException(nameof(store));
+        _log = log;
         _ids = [];
         foreach (SettingDefinition definition in schema.Definitions)
         {
@@ -109,6 +112,7 @@ public sealed class SettingsService
         {
             LoadError = SettingsErrors.PersistFailed(failure.Message);
             persisted = new Dictionary<string, string>(StringComparer.Ordinal);
+            _log?.Warn("Settings", $"设置读取失败，全部回退默认：{failure.Message}");
         }
 
         foreach (SettingDefinition definition in schema.Definitions)
@@ -146,6 +150,12 @@ public sealed class SettingsService
                 SkippedEntryCount++;
             }
         }
+
+        _log?.Info(
+            "Settings",
+            LoadError is null
+                ? $"设置已加载：{persisted.Count} 项，跳过 {SkippedEntryCount} 项。"
+                : $"设置加载失败（已回退默认），跳过 {SkippedEntryCount} 项。");
     }
 
     public SettingsSchema Schema { get; }
@@ -227,6 +237,7 @@ public sealed class SettingsService
 
             Publish(definition, (object)value);
             StateStore.MarkAvailability(_ids[definition.Key], XsrStateAvailability.Available);
+            _log?.Info("Settings", $"设置 {definition.Key.Value} = {raw}");
             return XsrResult.Success();
         }
     }

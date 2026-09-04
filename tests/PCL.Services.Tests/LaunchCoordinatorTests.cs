@@ -95,8 +95,8 @@ internal static partial class Program
             InMemoryJavaLocator locator = new([candidate]);
             NeverJavaInstaller installer = new();
             MinecraftInstanceDiscovery instances = new(
-                new MinecraftVersionDiscovery(),
-                metadataStore);
+                versionDiscovery: new MinecraftVersionDiscovery(),
+                metadataStore: metadataStore);
             MinecraftProcessService processes = new(hostStore: host.StateStore);
             MinecraftLaunchCoordinator coordinator = new(
                 root,
@@ -174,7 +174,7 @@ internal static partial class Program
             MinecraftLaunchCoordinator coordinator = new(
                 root,
                 Path.Combine(root, "runtime"),
-                new MinecraftInstanceDiscovery(new MinecraftVersionDiscovery(), metadataStore),
+                new MinecraftInstanceDiscovery(versionDiscovery: new MinecraftVersionDiscovery(), metadataStore: metadataStore),
                 host.Accounts,
                 host.Settings,
                 new JavaSelectionService(new InMemoryJavaLocator([])),

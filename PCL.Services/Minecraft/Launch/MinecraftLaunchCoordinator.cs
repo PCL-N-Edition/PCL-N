@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using PCL.Services.Accounts;
+using PCL.Services.Logging;
 using PCL.Services.Minecraft.Java;
 using PCL.Services.Minecraft.Libraries;
 using PCL.Services.Minecraft.ModLoaders;
@@ -50,6 +51,7 @@ public sealed class MinecraftLaunchCoordinator
 {
     private readonly string _minecraftRootDirectory;
     private readonly string _javaRuntimeRootDirectory;
+    private readonly LogService? _log;
     private readonly MinecraftInstanceDiscovery _instances;
     private readonly AccountService _accounts;
     private readonly SettingsService _settings;
@@ -67,12 +69,14 @@ public sealed class MinecraftLaunchCoordinator
         JavaSelectionService javaSelection,
         IJavaRuntimeInstaller javaInstaller,
         MinecraftLaunchExecutor executor,
-        MinecraftLaunchPlatform? platform = null)
+        MinecraftLaunchPlatform? platform = null,
+        LogService? log = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(javaRuntimeRootDirectory);
         _minecraftRootDirectory = Path.GetFullPath(minecraftRootDirectory);
         _javaRuntimeRootDirectory = Path.GetFullPath(javaRuntimeRootDirectory);
+        _log = log;
         _instances = instances ?? throw new ArgumentNullException(nameof(instances));
         _accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -182,20 +186,25 @@ public sealed class MinecraftLaunchCoordinator
         int accountIndex,
         CancellationToken cancellationToken = default)
     {
+        Info($"开始启动实例 {instanceId}（账户 #{accountIndex}）");
         XsrResult<MinecraftLaunchPreparation> preparation = await PrepareAsync(
             instanceId,
             accountIndex,
             cancellationToken).ConfigureAwait(false);
         if (!preparation.IsSuccess)
         {
+            Warn($"实例 {instanceId} 启动准备失败：{preparation.Error?.Message}");
             return XsrResult.Failure(preparation.Error!);
         }
+
+        Info($"已选择 Java {preparation.Value.Request.JavaMajorVersion}（{preparation.Value.Request.JavaExecutablePath}）");
 
         try
         {
             MinecraftLaunchPlan plan = MinecraftLaunchPlanner.CreatePlan(preparation.Value.Request);
             await _executor.ExecuteAsync(plan, preparation.Value.Instance.Id, cancellationToken)
                 .ConfigureAwait(false);
+            Info($"Minecraft 已启动（{instanceId}，pid 见进程列表）");
             return XsrResult.Success();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -208,9 +217,14 @@ public sealed class MinecraftLaunchCoordinator
             or InvalidOperationException
             or ArgumentException)
         {
+            Warn($"实例 {instanceId} 启动失败：{exception.Message}");
             return XsrResult.Failure(MinecraftErrors.LaunchFailed(exception.Message));
         }
     }
+
+    private void Info(string message) => _log?.Write(LogLevel.Info, "Launch", message);
+
+    private void Warn(string message) => _log?.Write(LogLevel.Warn, "Launch", message);
 
     private async ValueTask<XsrResult<ResolvedJava>> ResolveJavaAsync(
         JavaSelectionResult selection,
