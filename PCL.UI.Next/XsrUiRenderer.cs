@@ -820,8 +820,10 @@ public sealed partial class XsrUiRenderer
 
         if (_focused.IsAssigned && !_focused.Equals(entity))
         {
-            XsrUiInput? previous = _tree.GetComponent<XsrUiInput>(_focused);
-            if (previous is not null)
+            // The previously focused entity may have been destroyed by a rebuild between the
+            // two interactions; unfocusing a dead handle must not throw.
+            if (_tree.IsAlive(_focused)
+                && _tree.GetComponent<XsrUiInput>(_focused) is { } previous)
             {
                 previous.IsFocused = false;
                 previous.IsFocusVisible = false;
