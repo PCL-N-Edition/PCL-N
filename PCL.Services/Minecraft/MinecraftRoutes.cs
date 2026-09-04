@@ -9,6 +9,7 @@ public sealed record MinecraftInstancesQuery(string MinecraftRootDirectory);
 public sealed record MinecraftStartCommand(string InstanceId, int AccountIndex);
 public sealed record MinecraftLaunchCommand(MinecraftLaunchRequest Request);
 public sealed record MinecraftCancelProcessCommand(Guid SessionId);
+public sealed record MinecraftCancelLaunchCommand;
 public sealed record MinecraftCrashAnalyzeQuery(IReadOnlyList<string> Evidence, string? Stage = null, string? LastClassName = null);
 
 public static class MinecraftRouteIds
@@ -17,6 +18,7 @@ public static class MinecraftRouteIds
     public static readonly XsrSemanticId InstancesRead = XsrSemanticId.Parse("minecraft.instances.read");
     public static readonly XsrSemanticId Start = XsrSemanticId.Parse("minecraft.start");
     public static readonly XsrSemanticId Launch = XsrSemanticId.Parse("minecraft.launch");
+    public static readonly XsrSemanticId LaunchCancel = XsrSemanticId.Parse("minecraft.launch.cancel");
     public static readonly XsrSemanticId ProcessCancel = XsrSemanticId.Parse("minecraft.process.cancel");
     public static readonly XsrSemanticId CrashAnalyze = XsrSemanticId.Parse("minecraft.crash.analyze");
 }
@@ -65,7 +67,7 @@ public static class MinecraftCommands
             try
             {
                 MinecraftLaunchPlan plan = MinecraftLaunchPlanner.CreatePlan(command.Request);
-                await executor.ExecuteAsync(plan, command.Request.VersionId, cancellationToken).ConfigureAwait(false);
+                await executor.ExecuteAsync(plan, command.Request.VersionId, cancellationToken: cancellationToken).ConfigureAwait(false);
                 return XsrResult.Success();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -86,6 +88,17 @@ public static class MinecraftCommands
             return ValueTask.FromResult(processService.TryCancel(command.SessionId)
                 ? XsrResult.Success()
                 : XsrResult.Failure(MinecraftErrors.ProcessNotFound(command.SessionId)));
+        };
+
+    public static XsrCommandHandler<MinecraftCancelLaunchCommand> CreateCancelLaunchHandler(
+        Launch.MinecraftLaunchCoordinator coordinator) =>
+        (command, _) =>
+        {
+            ArgumentNullException.ThrowIfNull(command);
+            ArgumentNullException.ThrowIfNull(coordinator);
+            return ValueTask.FromResult(coordinator.CancelActiveLaunch()
+                ? XsrResult.Success()
+                : XsrResult.Failure(MinecraftErrors.InvalidRequest("no launch pipeline is running.")));
         };
 }
 

@@ -17,6 +17,7 @@ public enum PxmlRuntimeRecipe
     Image = 5,
     VerticalPager = 6,
     TextInput = 7,
+    Progress = 8,
 }
 
 /// <summary>
@@ -96,6 +97,9 @@ public sealed record PxmlIrNode
     public string? TransitionKey { get; init; }
     public double TransitionOffsetX { get; init; }
     public double TransitionOffsetY { get; init; }
+
+    /// <summary>The static progress value; the state binding feeds the live target.</summary>
+    public double Value { get; init; }
 
     public IReadOnlyList<PxmlIrBinding> Bindings { get; init; } = [];
 }

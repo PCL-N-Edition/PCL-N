@@ -14,6 +14,9 @@ public enum XsrUiStateProperty
     Enabled = 3,
     SemanticLabel = 4,
     TransitionKey = 5,
+
+    /// <summary>Feeds a progress presentation target (a double clamped to 0..1).</summary>
+    Value = 6,
 }
 
 /// <summary>

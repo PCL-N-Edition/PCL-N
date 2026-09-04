@@ -221,7 +221,8 @@ internal static partial class Program
             AssertTrue(runtime.LaunchCoordinator is not null);
             AssertTrue(runtime.Commands.TryResolve(MinecraftRouteIds.Start, out _));
             AssertTrue(runtime.Commands.TryResolve(MinecraftRouteIds.Launch, out _));
-            AssertEqual(3, runtime.Commands.Count);
+            AssertTrue(runtime.Commands.TryResolve(MinecraftRouteIds.LaunchCancel, out _));
+            AssertEqual(4, runtime.Commands.Count);
         }
         finally
         {

@@ -49,9 +49,14 @@ public sealed record MinecraftLaunchPreparation(
 /// </summary>
 public sealed class MinecraftLaunchCoordinator
 {
+    private static readonly TimeSpan StageHeartbeatInterval = TimeSpan.FromMilliseconds(120);
+    private const double StageHeartbeatStep = 0.05d;
+    private const double StageHeartbeatCeiling = 0.92d;
+
     private readonly string _minecraftRootDirectory;
     private readonly string _javaRuntimeRootDirectory;
     private readonly LogService? _log;
+    private readonly MinecraftLaunchProgressPublisher? _progress;
     private readonly MinecraftInstanceDiscovery _instances;
     private readonly AccountService _accounts;
     private readonly SettingsService _settings;
@@ -59,6 +64,7 @@ public sealed class MinecraftLaunchCoordinator
     private readonly IJavaRuntimeInstaller _javaInstaller;
     private readonly MinecraftLaunchExecutor _executor;
     private readonly MinecraftLaunchPlatform _platform;
+    private CancellationTokenSource? _activeLaunch;
 
     public MinecraftLaunchCoordinator(
         string minecraftRootDirectory,
@@ -70,13 +76,15 @@ public sealed class MinecraftLaunchCoordinator
         IJavaRuntimeInstaller javaInstaller,
         MinecraftLaunchExecutor executor,
         MinecraftLaunchPlatform? platform = null,
-        LogService? log = null)
+        LogService? log = null,
+        MinecraftLaunchProgressPublisher? progress = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(javaRuntimeRootDirectory);
         _minecraftRootDirectory = Path.GetFullPath(minecraftRootDirectory);
         _javaRuntimeRootDirectory = Path.GetFullPath(javaRuntimeRootDirectory);
         _log = log;
+        _progress = progress;
         _instances = instances ?? throw new ArgumentNullException(nameof(instances));
         _accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -90,6 +98,24 @@ public sealed class MinecraftLaunchCoordinator
                 "The launch platform must identify a concrete Mojang operating system.",
                 nameof(platform));
         }
+    }
+
+    /// <summary>
+    /// Cancels the active launch pipeline between stages. Returns false when no launch is
+    /// running; the game process itself is cancelled through the process service instead.
+    /// </summary>
+    public bool CancelActiveLaunch()
+    {
+        CancellationTokenSource? launch = _activeLaunch;
+        if (launch is null)
+        {
+            _log?.Debug("Launch", "启动取消被忽略：没有进行中的启动管线。");
+            return false;
+        }
+
+        _log?.Info("Launch", "已请求取消当前启动管线。");
+        launch.Cancel();
+        return true;
     }
 
     public async ValueTask<XsrResult<MinecraftLaunchPreparation>> PrepareAsync(
@@ -121,25 +147,57 @@ public sealed class MinecraftLaunchCoordinator
             }
 
             operation?.Stage("resolve_account");
-            XsrResult<LaunchProfile> profileResult = _accounts.GetProfile(accountIndex);
+            string method = string.Empty;
+            XsrResult<MinecraftLaunchIdentity> identityResult =
+                XsrResult.Failure<MinecraftLaunchIdentity>(MinecraftErrors.InvalidRequest("the account was not resolved."));
+            XsrResult<LaunchProfile> profileResult =
+                XsrResult.Failure<LaunchProfile>(MinecraftErrors.InvalidRequest("the account was not resolved."));
+            await RunStageAsync(
+                MinecraftLaunchStages.Login,
+                completedBefore: 0d,
+                MinecraftLaunchStages.LoginWeight,
+                method,
+                async token =>
+                {
+                    profileResult = _accounts.GetProfile(accountIndex);
+                    if (!profileResult.IsSuccess)
+                    {
+                        return;
+                    }
+
+                    identityResult = ResolveIdentity(profileResult.Value);
+                },
+                cancellationToken).ConfigureAwait(false);
             if (!profileResult.IsSuccess)
             {
                 operation?.Reject(profileResult.Error!.Code.Value);
                 return XsrResult.Failure<MinecraftLaunchPreparation>(profileResult.Error!);
             }
 
-            XsrResult<MinecraftLaunchIdentity> identityResult = ResolveIdentity(profileResult.Value);
             if (!identityResult.IsSuccess)
             {
                 operation?.Reject(identityResult.Error!.Code.Value);
                 return XsrResult.Failure<MinecraftLaunchPreparation>(identityResult.Error!);
             }
 
+            method = identityResult.Value.Mode.ToString().ToLowerInvariant();
+
             operation?.Stage("resolve_manifests");
-            MinecraftResolvedVersionManifests manifests = await MinecraftVersionJsonReader
-                .ResolveAsync(instance, _minecraftRootDirectory, cancellationToken)
-                .ConfigureAwait(false);
-            MinecraftModLoaderDescriptor loader = MinecraftModLoaderDetector.Detect(manifests.Current);
+            MinecraftResolvedVersionManifests manifests = default!;
+            MinecraftModLoaderDescriptor loader = default!;
+            await RunStageAsync(
+                MinecraftLaunchStages.CompleteFiles,
+                MinecraftLaunchStages.LoginWeight,
+                MinecraftLaunchStages.CompleteFilesWeight,
+                method,
+                async token =>
+                {
+                    manifests = await MinecraftVersionJsonReader
+                        .ResolveAsync(instance, _minecraftRootDirectory, token)
+                        .ConfigureAwait(false);
+                    loader = MinecraftModLoaderDetector.Detect(manifests.Current);
+                },
+                cancellationToken).ConfigureAwait(false);
             _log?.Debug("Launch", $"Effective manifest resolved instance={instanceId} inherited={manifests.Inherited.Count} loader={loader.Kind}");
             MinecraftJavaRequirementRequest javaRequest = CreateJavaRequirement(
                 instance,
@@ -150,14 +208,25 @@ public sealed class MinecraftLaunchCoordinator
                 ? new ExistingJavaPreference(instance.Metadata.SelectedJavaPath)
                 : new AutoSelectJavaPreference();
             operation?.Stage("select_java", $"os={_platform.OperatingSystem} os_version={_platform.OperatingSystemVersion} arm64={_platform.IsArm64Architecture} manifest_major={javaRequest.ManifestJavaMajorVersion}");
-            JavaSelectionResult java = await _javaSelection
-                .SelectAsync(javaRequest, preference, cancellationToken)
-                .ConfigureAwait(false);
-            XsrResult<ResolvedJava> resolvedJava = await ResolveJavaAsync(
-                java,
-                preference,
-                loader.Kind is MinecraftModLoaderKind.Forge or MinecraftModLoaderKind.NeoForge,
-                operation, cancellationToken).ConfigureAwait(false);
+            JavaSelectionResult java = default!;
+            XsrResult<ResolvedJava> resolvedJava = XsrResult.Failure<ResolvedJava>(MinecraftErrors.JavaUnavailable("java was not resolved."));
+            await RunStageAsync(
+                MinecraftLaunchStages.GetJava,
+                MinecraftLaunchStages.LoginWeight + MinecraftLaunchStages.CompleteFilesWeight,
+                MinecraftLaunchStages.GetJavaWeight,
+                method,
+                async token =>
+                {
+                    java = await _javaSelection
+                        .SelectAsync(javaRequest, preference, token)
+                        .ConfigureAwait(false);
+                    resolvedJava = await ResolveJavaAsync(
+                        java,
+                        preference,
+                        loader.Kind is MinecraftModLoaderKind.Forge or MinecraftModLoaderKind.NeoForge,
+                        operation, token).ConfigureAwait(false);
+                },
+                cancellationToken).ConfigureAwait(false);
             if (!resolvedJava.IsSuccess)
             {
                 operation?.Reject(resolvedJava.Error!.Code.Value);
@@ -207,29 +276,78 @@ public sealed class MinecraftLaunchCoordinator
         CancellationToken cancellationToken = default)
     {
         using LogOperation? operation = _log?.BeginOperation("Launch", "StartMinecraft", $"instance={instanceId} account_index={accountIndex}");
+        using CancellationTokenSource launchCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _activeLaunch = launchCancellation;
+        CancellationToken launchToken = launchCancellation.Token;
         try
         {
+            _progress?.Start();
             operation?.Stage("prepare");
             XsrResult<MinecraftLaunchPreparation> preparation = await PrepareAsync(
-                instanceId, accountIndex, cancellationToken).ConfigureAwait(false);
+                instanceId, accountIndex, launchToken).ConfigureAwait(false);
             if (!preparation.IsSuccess)
             {
                 operation?.Reject(preparation.Error!.Code.Value);
+                _progress?.Stop();
                 return XsrResult.Failure(preparation.Error!);
             }
 
+            string method = preparation.Value.Request.IdentityMode.ToString().ToLowerInvariant();
             operation?.Stage("create_plan");
-            MinecraftLaunchPlan plan = MinecraftLaunchPlanner.CreatePlan(preparation.Value.Request);
+            MinecraftLaunchPlan plan = default!;
+            await RunStageAsync(
+                MinecraftLaunchStages.GetArguments,
+                MinecraftLaunchStages.LoginWeight
+                    + MinecraftLaunchStages.CompleteFilesWeight
+                    + MinecraftLaunchStages.GetJavaWeight,
+                MinecraftLaunchStages.GetArgumentsWeight,
+                method,
+                token =>
+                {
+                    plan = MinecraftLaunchPlanner.CreatePlan(preparation.Value.Request);
+                    return Task.CompletedTask;
+                },
+                launchToken).ConfigureAwait(false);
+
             operation?.Stage("execute_plan", $"native_archives={plan.NativeLibraries.Count}");
-            Process.MinecraftProcessSession session = await _executor.ExecuteAsync(plan, preparation.Value.Instance.Id, cancellationToken)
+            double extractCompleted =
+                MinecraftLaunchStages.LoginWeight
+                + MinecraftLaunchStages.CompleteFilesWeight
+                + MinecraftLaunchStages.GetJavaWeight
+                + MinecraftLaunchStages.GetArgumentsWeight;
+            _progress?.Report(new MinecraftLaunchStageReport(
+                MinecraftLaunchStages.ExtractNatives,
+                MinecraftLaunchStages.ProgressAt(extractCompleted),
+                Method: method));
+            Process.MinecraftProcessSession session = await _executor.ExecuteAsync(
+                plan,
+                preparation.Value.Instance.Id,
+                stage: stageToken =>
+                {
+                    if (stageToken == MinecraftLaunchStages.StartProcess)
+                    {
+                        _progress?.Report(new MinecraftLaunchStageReport(
+                            MinecraftLaunchStages.StartProcess,
+                            MinecraftLaunchStages.ProgressAt(
+                                extractCompleted + MinecraftLaunchStages.ExtractNativesWeight),
+                            Method: method));
+                    }
+                },
+                launchToken)
                 .ConfigureAwait(false);
+            _progress?.Report(new MinecraftLaunchStageReport(
+                MinecraftLaunchStages.End,
+                MinecraftLaunchStages.ProgressAt(MinecraftLaunchStages.Total),
+                IsLaunched: true,
+                Method: method));
             operation?.Complete($"session={session.Snapshot.SessionId} pid={session.Snapshot.ProcessId} state={session.Snapshot.State}");
             return XsrResult.Success();
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (launchToken.IsCancellationRequested)
         {
             operation?.Cancel();
-            throw;
+            _progress?.Stop();
+            return XsrResult.Failure(MinecraftErrors.LaunchFailed("the launch was cancelled."));
         }
         catch (Exception exception) when (exception is IOException
             or UnauthorizedAccessException
@@ -238,13 +356,71 @@ public sealed class MinecraftLaunchCoordinator
             or ArgumentException)
         {
             operation?.Fail(exception);
+            _progress?.Stop();
             return XsrResult.Failure(MinecraftErrors.LaunchFailed(exception.Message));
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
         {
             operation?.Fail(exception);
+            _progress?.Stop();
             throw;
         }
+        finally
+        {
+            _activeLaunch = null;
+        }
+    }
+
+    /// <summary>
+    /// Runs one pipeline stage with the legacy heartbeat: the stage enters at its completed
+    /// weight, soft progress advances by one step per heartbeat (clamped inside the stage),
+    /// and the stage completes at its full weight. Stages without a progress publisher run
+    /// unchanged.
+    /// </summary>
+    private async ValueTask RunStageAsync(
+        string stage,
+        double completedBefore,
+        double stageWeight,
+        string method,
+        Func<CancellationToken, Task> work,
+        CancellationToken cancellationToken)
+    {
+        if (_progress is null)
+        {
+            await work(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        _progress.Report(new MinecraftLaunchStageReport(
+            stage,
+            MinecraftLaunchStages.ProgressAt(completedBefore),
+            Method: method));
+        Task workTask = work(cancellationToken);
+        double softFraction = 0d;
+        while (!workTask.IsCompleted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            softFraction = Math.Min(StageHeartbeatCeiling, softFraction + StageHeartbeatStep);
+            _progress.Report(new MinecraftLaunchStageReport(
+                stage,
+                MinecraftLaunchStages.ProgressAt(completedBefore + (stageWeight * softFraction)),
+                Method: method));
+            try
+            {
+                await Task.WhenAny(workTask, Task.Delay(StageHeartbeatInterval, cancellationToken))
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (workTask.IsCompleted)
+            {
+                break;
+            }
+        }
+
+        await workTask.ConfigureAwait(false);
+        _progress.Report(new MinecraftLaunchStageReport(
+            stage,
+            MinecraftLaunchStages.ProgressAt(completedBefore + stageWeight),
+            Method: method));
     }
 
     private async ValueTask<XsrResult<ResolvedJava>> ResolveJavaAsync(

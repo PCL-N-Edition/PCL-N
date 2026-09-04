@@ -1,8 +1,11 @@
+using System.Globalization;
 using PCL.Pxml;
 using PCL.Services.Accounts;
 using PCL.Services.Composition;
 using PCL.Services.Foundation;
 using PCL.Services.Minecraft;
+using PCL.Services.Minecraft.Launch;
+using PCL.Services.Minecraft.Process;
 using PCL.UI.Next;
 using PCL.Xsr;
 using PCL.Xsr.Runtime;
@@ -40,6 +43,7 @@ internal sealed class LaunchPageController : IDisposable
     private static readonly XsrSemanticId AccountSwitchCommand = XsrSemanticId.Parse("ui.account.switch");
     private static readonly XsrSemanticId AccountWardrobeCommand = XsrSemanticId.Parse("ui.account.wardrobe");
     private static readonly XsrSemanticId AccountDismissCommand = XsrSemanticId.Parse("ui.account.dismiss");
+    private static readonly XsrSemanticId LaunchCancelCommand = XsrSemanticId.Parse("ui.launch.cancel");
 
     private static readonly XsrSemanticId DownloadNavigationId = XsrSemanticId.Parse("navigation.download");
 
@@ -55,9 +59,35 @@ internal sealed class LaunchPageController : IDisposable
     private static readonly XsrUiColor LaunchButtonHover = new(19, 112, 243);
     private static readonly XsrUiColor ProfileSecondaryText = new(96, 108, 124);
     private static readonly XsrUiColor ProfileSurface = new(244, 246, 250);
+    private static readonly XsrUiColor LaunchingScrim = new(255, 255, 255, 205);
+    private static readonly XsrUiColor LaunchProgressTrack = new(224, 234, 253);
+    private static readonly XsrUiColor LaunchProgressFill = new(11, 91, 203);
 
     private const string NoAccountName = "未选择账户";
     private const string AccountNeedLoginSummary = "请选择或创建一个账户档案后再启动。";
+
+    private static readonly Dictionary<string, string> LaunchStageDisplay = new(StringComparer.Ordinal)
+    {
+        ["get_java"] = "获取 Java",
+        ["login"] = "登录",
+        ["complete_files"] = "补全文件",
+        ["get_arguments"] = "获取启动参数",
+        ["extract_natives"] = "解压 Natives",
+        ["pre_launch"] = "预启动处理",
+        ["start_process"] = "启动进程",
+        ["end"] = "完成",
+    };
+
+    private static readonly Dictionary<string, string> LaunchMethodDisplay = new(StringComparer.Ordinal)
+    {
+        ["offline"] = "离线模式",
+        ["microsoft"] = "微软登录",
+    };
+
+    private bool _launchInProgress;
+
+    /// <summary>The composition root attaches this observer to the shared store fan-out.</summary>
+    public IXsrStateObserver StateObserver { get; }
     private const string ScanningInstances = "正在扫描本地版本…";
     private const string NoInstances = "未找到可启动的游戏版本";
     private const string NoSelectedProfileLabel = "未选择档案";
@@ -132,6 +162,7 @@ internal sealed class LaunchPageController : IDisposable
         _accountCommands = accountCommands;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _store = store;
+        StateObserver = new LaunchingStateObserver(this);
         _instanceSource = instanceSource
             ?? new MinecraftRuntimeLaunchPageInstanceSource(
                 minecraft.Queries,
@@ -336,6 +367,10 @@ internal sealed class LaunchPageController : IDisposable
             {
                 _ = StartLaunchAsync(instanceId);
             }
+        }
+        else if (command == LaunchCancelCommand)
+        {
+            _ = CancelLaunchAsync();
         }
         else if (command == LaunchInstancesCommand)
         {
@@ -787,25 +822,142 @@ internal sealed class LaunchPageController : IDisposable
             return;
         }
 
-        Publish(LaunchPageState.StatusKey, "正在启动 Minecraft…");
         if (!_minecraft.Commands.TryResolve(MinecraftRouteIds.Start, out XsrCommandId commandId))
         {
             Publish(LaunchPageState.StatusKey, "启动失败：产品启动命令未注册。");
             return;
         }
 
+        // The overlay replicates the legacy launching card: reset facts, narrate the pipeline
+        // through the launch progress cells, and hand input back on failure or cancellation.
+        _launchInProgress = true;
+        Publish(LaunchPageState.LaunchingVisibleKey, true);
+        Publish(LaunchPageState.LaunchingTitleKey, "正在启动");
+        Publish(LaunchPageState.LaunchingNameKey, ReadCell(LaunchPageState.InstanceSummaryKey));
+        Publish(LaunchPageState.LaunchingStageKey, "初始化");
+        Publish(LaunchPageState.LaunchingMethodKey, "等待账户档案");
+        Publish(LaunchPageState.LaunchingPercentKey, "0%");
+        Publish(LaunchPageState.LaunchingSpeedVisibleKey, false);
+        Publish(LaunchPageState.LaunchingHintKey, LaunchWidgetHints.BuiltIn[_hintIndex]);
+        Publish(LaunchPageState.LaunchingHintVisibleKey, true);
+        RefreshLaunchingDisplay();
+
         XsrCommandDispatch dispatch = _minecraft.Commands.Dispatch(
             commandId,
             new MinecraftStartCommand(instanceId, selected),
             cancellationToken: _lifetimeCancellation.Token);
         XsrResult result = await dispatch.Completion.ConfigureAwait(false);
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (result.IsSuccess)
+        {
+            // The pipeline keeps narrating (游戏已启动) until the process session ends.
+            Publish(LaunchPageState.StatusKey, "Minecraft 已启动");
+            return;
+        }
+
+        Publish(LaunchPageState.StatusKey, $"启动失败：{result.Error?.Message}");
+        HideLaunchingOverlay();
+    }
+
+    private async Task CancelLaunchAsync()
+    {
+        if (!_launchInProgress)
+        {
+            return;
+        }
+
+        Publish(LaunchPageState.LaunchingStageKey, "已请求取消启动");
+        if (_minecraft.Commands.TryResolve(MinecraftRouteIds.LaunchCancel, out XsrCommandId route))
+        {
+            await _minecraft.Commands.Dispatch(route, new MinecraftCancelLaunchCommand(),
+                cancellationToken: _lifetimeCancellation.Token).Completion.ConfigureAwait(false);
+        }
+
         if (!_disposed)
         {
-            Publish(
-                LaunchPageState.StatusKey,
-                result.IsSuccess ? "Minecraft 已启动" : $"启动失败：{result.Error?.Message}");
+            HideLaunchingOverlay();
         }
     }
+
+    private void HideLaunchingOverlay()
+    {
+        _launchInProgress = false;
+        Publish(LaunchPageState.LaunchingVisibleKey, false);
+    }
+
+    /// <summary>
+    /// Projects the services launch progress cells into the overlay display strings: stage
+    /// tokens become legacy stage labels, the progress fraction formats as whole percent, and
+    /// the title switches to the launched state once the pipeline reports the game running.
+    /// </summary>
+    private void RefreshLaunchingDisplay()
+    {
+        string stage = ReadServiceCell(MinecraftLaunchProgressState.StageKey);
+        if (stage.Length > 0)
+        {
+            Publish(LaunchPageState.LaunchingStageKey,
+                LaunchStageDisplay.GetValueOrDefault(stage, stage));
+        }
+
+        double progress = _store.ReadAppliedValue(_store.Resolve(MinecraftLaunchProgressState.ProgressKey)) is double value
+            ? Math.Clamp(value, 0d, 1d)
+            : 0d;
+        Publish(LaunchPageState.LaunchingPercentKey, Math.Round(progress * 100) + "%");
+
+        string method = ReadServiceCell(MinecraftLaunchProgressState.MethodKey);
+        Publish(LaunchPageState.LaunchingMethodKey,
+            method.Length == 0 ? "等待账户档案" : LaunchMethodDisplay.GetValueOrDefault(method, method));
+
+        string speed = ReadServiceCell(MinecraftLaunchProgressState.SpeedKey);
+        Publish(LaunchPageState.LaunchingSpeedKey, speed);
+        Publish(LaunchPageState.LaunchingSpeedVisibleKey, speed.Length > 0);
+
+        bool launched = _store.ReadAppliedValue(_store.Resolve(MinecraftLaunchProgressState.LaunchedKey)) is bool running && running;
+        Publish(LaunchPageState.LaunchingTitleKey, launched ? "游戏已启动" : "正在启动");
+    }
+
+    private string ReadServiceCell(XsrSemanticId key) =>
+        Convert.ToString(_store.ReadAppliedValue(_store.Resolve(key)), CultureInfo.InvariantCulture) ?? string.Empty;
+
+    /// <summary>
+    /// Receives host state publications. Launch progress changes refresh the overlay; a
+    /// terminal process session while the game was reported launched closes it, mirroring the
+    /// legacy flow that returns to the launch page when the game exits.
+    /// </summary>
+    private sealed class LaunchingStateObserver(LaunchPageController owner) : IXsrStateObserver
+    {
+        public void OnChanged(XsrStateChange change)
+        {
+            if (change.SemanticId.Equals(MinecraftLaunchProgressState.StageKey)
+                || change.SemanticId.Equals(MinecraftLaunchProgressState.ProgressKey)
+                || change.SemanticId.Equals(MinecraftLaunchProgressState.MethodKey)
+                || change.SemanticId.Equals(MinecraftLaunchProgressState.SpeedKey)
+                || change.SemanticId.Equals(MinecraftLaunchProgressState.LaunchedKey))
+            {
+                owner.RefreshLaunchingDisplay();
+                return;
+            }
+
+            if (owner._launchInProgress
+                && change.SemanticId.Equals(MinecraftProcessStateComposition.SessionsKey)
+                && owner._store.ReadAppliedValue(owner._store.Resolve(MinecraftLaunchProgressState.LaunchedKey)) is bool launched
+                && launched
+                && owner.AllSessionsTerminal())
+            {
+                owner.HideLaunchingOverlay();
+            }
+        }
+    }
+
+    private bool AllSessionsTerminal() =>
+        _store.ReadCollection<MinecraftProcessSnapshot>(_store.Resolve(MinecraftProcessStateComposition.SessionsKey))
+            .Items.All(snapshot => snapshot.State
+                is MinecraftProcessState.Exited or MinecraftProcessState.Failed or MinecraftProcessState.Cancelled);
+
 
     private int SelectedAccountIndex => _store.ReadAppliedValue(_store.Resolve(AccountService.SelectedKey)) is int index ? index : -1;
 
@@ -936,6 +1088,8 @@ internal sealed class LaunchPageController : IDisposable
             AlignText(action, XsrUiTextAlignment.Center);
         }
 
+        StyleLaunchingOverlay(entities);
+
         if (entities.TryGetValue("LaunchButton", out XsrUiEntityId button))
         {
             // Legacy accent button: normal #0b5bcb, hover #1370f3, white 13 px semibold label.
@@ -948,6 +1102,39 @@ internal sealed class LaunchPageController : IDisposable
             StyleText(button, new XsrUiColor(255, 255, 255), fontSize: 13, weight: 600);
             AlignText(button, XsrUiTextAlignment.Center);
         }
+    }
+
+    /// <summary>
+    /// Styles the launching overlay to the legacy card: translucent scrim over the idle page,
+    /// an opaque rounded card, the 4px progress track, muted labels with primary values, the
+    /// trivia hint box, and the gray cancel button.
+    /// </summary>
+    private void StyleLaunchingOverlay(Dictionary<string, XsrUiEntityId> entities)
+    {
+        ApplyVisual(entities["LaunchingOverlay"], LaunchingScrim, PrimaryText, cornerRadius: 0);
+        ApplyVisual(entities["LaunchingCard"], CardBackground, PrimaryText,
+            XsrUiCornerRadii.Surface, border: CardBorder);
+        StyleText(entities, "LaunchingTitle", PrimaryText, 22, 600);
+        StyleText(entities, "LaunchingName", SecondaryText, 14);
+        StyleText(entities, "LaunchingStageLabel", SecondaryText, 12);
+        StyleText(entities, "LaunchingStageValue", PrimaryText, 12);
+        StyleText(entities, "LaunchingMethodLabel", SecondaryText, 12);
+        StyleText(entities, "LaunchingMethodValue", PrimaryText, 12);
+        StyleText(entities, "LaunchingPercentLabel", SecondaryText, 12);
+        StyleText(entities, "LaunchingPercentValue", PrimaryText, 12);
+        StyleText(entities, "LaunchingSpeedLabel", SecondaryText, 12);
+        StyleText(entities, "LaunchingSpeedValue", PrimaryText, 12);
+        StyleText(entities, "LaunchingHintTitle", SecondaryText, 11, 600);
+        StyleText(entities, "LaunchingHintValue", SecondaryText, 12);
+        AlignText(entities, "LaunchingHintTitle", XsrUiTextAlignment.Center);
+        AlignText(entities, "LaunchingHintValue", XsrUiTextAlignment.Center);
+        ApplyVisual(entities["LaunchProgressTrack"], LaunchProgressTrack, PrimaryText, cornerRadius: 2);
+        ApplyVisual(entities["LaunchProgressFill"], LaunchProgressFill, LaunchProgressFill, cornerRadius: 2);
+        ApplyVisual(entities["LaunchingHintBox"], PickerBackground, PrimaryText, XsrUiCornerRadii.Inset);
+        ApplyVisual(entities["LaunchingCancelButton"], PickerBackground, PrimaryText,
+            XsrUiCornerRadii.Pill(40));
+        StyleText(entities, "LaunchingCancelButton", PrimaryText, 14, 600);
+        AlignText(entities, "LaunchingCancelButton", XsrUiTextAlignment.Center);
     }
 
     private void StyleCard(

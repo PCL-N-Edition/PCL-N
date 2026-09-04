@@ -52,6 +52,7 @@ internal enum PxmlIrPropertyTarget
     TransitionKey = 27,
     TransitionOffsetX = 28,
     TransitionOffsetY = 29,
+    Value = 30,
 }
 
 internal sealed class PxmlControlPropertyModel

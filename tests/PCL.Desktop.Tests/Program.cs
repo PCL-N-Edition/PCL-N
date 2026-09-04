@@ -3,6 +3,7 @@ using PCL.Services.Accounts;
 using PCL.Services.Composition;
 using PCL.Services.Foundation;
 using PCL.Services.Minecraft;
+using PCL.Services.Minecraft.Launch;
 using PCL.Services.Minecraft.Process;
 using PCL.Services.Settings;
 using PCL.UI.Next;
@@ -53,6 +54,11 @@ internal static partial class Program
         ("operation log state logs real time but quiet domains stay silent", StateChangesLogRealTimeButQuietDomainsStaySilent),
         ("operation log composite fans out to both observers", CompositeStateObserverFansOutToBothObservers),
         ("operation log lifecycle and scheduler log at their tiers", LifecycleAndSchedulerLogAtTheirTiers),
+        // XSR-712: launching overlay.
+        ("launch overlay shows reset facts when launch starts", LaunchOverlayShowsResetFactsWhenLaunchStarts),
+        ("launch overlay narrates progress cells", LaunchOverlayNarratesProgressCells),
+        ("launch overlay closes on failure", LaunchOverlayClosesOnFailure),
+        ("launch overlay cancel hides overlay", LaunchOverlayCancelHidesOverlay),
         ("version subpages have independent routes and restore navigation focus", VersionSubpagesHaveIndependentRoutesAndRestoreFocus),
         ("pointer focus does not draw keyboard focus rings", PointerFocusDoesNotDrawKeyboardFocusRings),
         ("capsules occupy their presented width and remain beside the version name", CapsulesOccupyPresentedWidth),
@@ -410,11 +416,12 @@ internal static partial class Program
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_temporaryDirectory);
             XsrUiRuntimeContext uiRuntime = new();
+            XsrCompositeStateObserver storeObservation = new(uiRuntime.StateBridge, null);
             SettingsSchema schema = LauncherDefaults.CreateSchema();
             FoundationHost host = FoundationComposer.Compose(
                 new LauncherSettingsJsonPort(Path.Combine(_temporaryDirectory, "settings.json"), schema),
                 schema, new LaunchProfileFilePort(Path.Combine(_temporaryDirectory, "profiles.json")),
-                observer: uiRuntime.StateBridge, declareHostState: LaunchPageState.DeclareState);
+                observer: storeObservation, declareHostState: LaunchPageState.DeclareState);
             Foundation = FoundationRuntimeComposer.Compose(host);
             Onboarding = AccountOnboardingRuntimeComposer.Compose(host, accountHttp,
                 accountOptions ?? new AccountOnboardingOptions("fixture-client", null),
@@ -443,6 +450,7 @@ internal static partial class Program
                 Path.Combine(_temporaryDirectory, "minecraft"),
                 source, accountCommands: enableSkins ? Onboarding.Commands : null, timeProvider: timeProvider);
             AccountForm = new AccountFormController(Shell, Intents, Onboarding.Commands, Store, Controller.AccountBody, accountEffects);
+            storeObservation.Add(Controller.StateObserver);
             Controller.Attach();
         }
 
@@ -529,12 +537,36 @@ internal static partial class Program
     {
         public MinecraftStartCommand? LastCommand { get; private set; }
 
+        public XsrResult Outcome { get; set; } = XsrResult.Success();
+
+        public XsrStateStore? ProgressStore { get; set; }
+
+        public string? Stage { get; set; }
+
+        public double StageProgress { get; set; } = -1d;
+
+        public string? Method { get; set; }
+
         public ValueTask<XsrResult> Handle(
             MinecraftStartCommand command,
             CancellationToken cancellationToken)
         {
             LastCommand = command;
-            return ValueTask.FromResult(XsrResult.Success());
+            if (ProgressStore is not null && !string.IsNullOrWhiteSpace(Stage))
+            {
+                ProgressStore.Publish(ProgressStore.Resolve(MinecraftLaunchProgressState.StageKey), Stage, cancellationToken);
+                if (StageProgress >= 0)
+                {
+                    ProgressStore.Publish(ProgressStore.Resolve(MinecraftLaunchProgressState.ProgressKey), StageProgress, cancellationToken);
+                }
+
+                ProgressStore.Publish(
+                    ProgressStore.Resolve(MinecraftLaunchProgressState.MethodKey),
+                    Method ?? string.Empty,
+                    cancellationToken);
+            }
+
+            return ValueTask.FromResult(Outcome);
         }
     }
 

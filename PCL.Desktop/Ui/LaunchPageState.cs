@@ -36,6 +36,19 @@ internal static class LaunchPageState
     public static readonly XsrSemanticId WidgetEchoLabelKey = XsrSemanticId.Parse("launch.widget.echo-label");
     public static readonly XsrSemanticId WidgetHintKey = XsrSemanticId.Parse("launch.widget.hint");
 
+    // Launching overlay presentation, desktop-owned: services publishes stage tokens and
+    // numbers; these cells carry the display strings and visibility the overlay binds to.
+    public static readonly XsrSemanticId LaunchingVisibleKey = XsrSemanticId.Parse("launch.launching.visible");
+    public static readonly XsrSemanticId LaunchingTitleKey = XsrSemanticId.Parse("launch.launching.title");
+    public static readonly XsrSemanticId LaunchingNameKey = XsrSemanticId.Parse("launch.launching.name");
+    public static readonly XsrSemanticId LaunchingStageKey = XsrSemanticId.Parse("launch.launching.stage");
+    public static readonly XsrSemanticId LaunchingMethodKey = XsrSemanticId.Parse("launch.launching.method");
+    public static readonly XsrSemanticId LaunchingPercentKey = XsrSemanticId.Parse("launch.launching.percent");
+    public static readonly XsrSemanticId LaunchingSpeedKey = XsrSemanticId.Parse("launch.launching.speed");
+    public static readonly XsrSemanticId LaunchingSpeedVisibleKey = XsrSemanticId.Parse("launch.launching.speed-visible");
+    public static readonly XsrSemanticId LaunchingHintKey = XsrSemanticId.Parse("launch.launching.hint");
+    public static readonly XsrSemanticId LaunchingHintVisibleKey = XsrSemanticId.Parse("launch.launching.hint-visible");
+
     public static void DeclareState(XsrStateStoreBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -64,5 +77,15 @@ internal static class LaunchPageState
         builder.Cell<string>(WidgetTriviaLabelKey, OwnerName);
         builder.Cell<string>(WidgetEchoLabelKey, OwnerName);
         builder.Cell<string>(WidgetHintKey, OwnerName);
+        builder.Cell<bool>(LaunchingVisibleKey, OwnerName);
+        builder.Cell<string>(LaunchingTitleKey, OwnerName);
+        builder.Cell<string>(LaunchingNameKey, OwnerName);
+        builder.Cell<string>(LaunchingStageKey, OwnerName);
+        builder.Cell<string>(LaunchingMethodKey, OwnerName);
+        builder.Cell<string>(LaunchingPercentKey, OwnerName);
+        builder.Cell<string>(LaunchingSpeedKey, OwnerName);
+        builder.Cell<bool>(LaunchingSpeedVisibleKey, OwnerName);
+        builder.Cell<string>(LaunchingHintKey, OwnerName);
+        builder.Cell<bool>(LaunchingHintVisibleKey, OwnerName);
     }
 }

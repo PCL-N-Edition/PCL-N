@@ -158,9 +158,35 @@ public sealed class XsrOperationLog
 public sealed class XsrCompositeStateObserver(IXsrStateObserver? primary, IXsrStateObserver? secondary)
     : IXsrStateObserver
 {
+    private readonly object _gate = new();
+    private readonly List<IXsrStateObserver> _late = [];
+
+    /// <summary>
+    /// Attaches one more observer after composition (for example a controller that joined the
+    /// store fan-out late). Later observers see every publication from attach time onward.
+    /// </summary>
+    public void Add(IXsrStateObserver observer)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+        lock (_gate)
+        {
+            _late.Add(observer);
+        }
+    }
+
     public void OnChanged(XsrStateChange change)
     {
         primary?.OnChanged(change);
         secondary?.OnChanged(change);
+        IXsrStateObserver[] late;
+        lock (_gate)
+        {
+            late = [.. _late];
+        }
+
+        foreach (IXsrStateObserver observer in late)
+        {
+            observer.OnChanged(change);
+        }
     }
 }

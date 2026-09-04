@@ -145,11 +145,13 @@ public static class MinecraftRuntimeComposer
             installer,
             executor,
             platform,
-            host.Logging);
+            host.Logging,
+            new MinecraftLaunchProgressPublisher(host.StateStore));
         IXsrDispatchObserver dispatchObserver = observer ?? NullDispatchObserver.Instance;
         XsrCommandRouterBuilder commandBuilder = new();
         commandBuilder.Register(MinecraftRouteIds.Start, MinecraftCommands.CreateStartHandler(coordinator));
         commandBuilder.Register(MinecraftRouteIds.Launch, MinecraftCommands.CreateLaunchHandler(executor));
+        commandBuilder.Register(MinecraftRouteIds.LaunchCancel, MinecraftCommands.CreateCancelLaunchHandler(coordinator));
         commandBuilder.Register(MinecraftRouteIds.ProcessCancel, MinecraftCommands.CreateCancelProcessHandler(processService));
         XsrQueryRouterBuilder queryBuilder = new();
         queryBuilder.Register(MinecraftRouteIds.VersionsRead, MinecraftQueries.CreateVersionsHandler(versionDiscovery));

@@ -245,6 +245,7 @@ public static class PxmlCompiler
         private string? _transitionKey;
         private double _transitionOffsetX;
         private double _transitionOffsetY;
+        private double _value;
 
         public string? Key => _key;
 
@@ -339,6 +340,9 @@ public static class PxmlCompiler
                 case PxmlIrPropertyTarget.TransitionOffsetY:
                     _transitionOffsetY = (double)value;
                     break;
+                case PxmlIrPropertyTarget.Value:
+                    _value = (double)value;
+                    break;
                 default:
                     throw new InvalidOperationException(
                         $"The generated control catalog uses unsupported IR target '{target}'.");
@@ -383,6 +387,7 @@ public static class PxmlCompiler
                 TransitionKey = _transitionKey,
                 TransitionOffsetX = _transitionOffsetX,
                 TransitionOffsetY = _transitionOffsetY,
+                Value = _value,
                 Bindings = bindings,
             };
     }

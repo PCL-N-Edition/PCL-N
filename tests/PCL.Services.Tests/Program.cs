@@ -121,6 +121,11 @@ internal static partial class Program
         ("file sink appends and survives io errors", Sync(FileSinkAppendsAndSurvivesIoErrors)),
         ("console sink disables instead of throwing", Sync(ConsoleSinkDisablesInsteadOfThrowing)),
         ("level gate policy holds across tiers", Sync(LevelGatePolicyHoldsAcrossTiers)),
+        // XSR-712: launch progress narration.
+        ("launch stage weights match the legacy table", Sync(LaunchStageWeightsMatchLegacyTable)),
+        ("progress publisher writes coherent cells", Sync(ProgressPublisherWritesCoherentCells)),
+        ("cancel active launch without launch returns false", Sync(CancelActiveLaunchWithoutLaunchReturnsFalse)),
+        ("launch pipeline narrates stages and reaches launched", LaunchPipelineNarratesStagesAndReachesLaunchedAsync),
         ("cross capability page has no state id collisions", CrossCapabilityPageHasNoStateIdCollisions),
         // XSR-513: online account flows.
         ("the microsoft device login runs the full chain", MicrosoftDeviceLoginRunsTheFullChain),

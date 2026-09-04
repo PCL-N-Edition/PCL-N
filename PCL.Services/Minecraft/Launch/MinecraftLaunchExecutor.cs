@@ -22,6 +22,7 @@ public sealed class MinecraftLaunchExecutor
     public async ValueTask<MinecraftProcessSession> ExecuteAsync(
         MinecraftLaunchPlan plan,
         string instanceId,
+        Action<string>? stage = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -57,6 +58,7 @@ public sealed class MinecraftLaunchExecutor
             await MinecraftNativesExtractor.ExtractAsync(nativePaths, nativesDirectory, cancellationToken)
                 .ConfigureAwait(false);
             operation?.Stage("start_process");
+            stage?.Invoke("start_process");
             MinecraftProcessSession session = await _processes.StartAsync(plan, instanceId, cancellationToken).ConfigureAwait(false);
             operation?.Complete($"session={session.Snapshot.SessionId} pid={session.Snapshot.ProcessId}");
             return session;

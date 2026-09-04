@@ -38,6 +38,7 @@ public static class FoundationState
         AccountSkinService.DeclareState(builder);
         TelemetryService.DeclareState(builder);
         MinecraftProcessStateComposition.DeclareState(builder);
+        Minecraft.Launch.MinecraftLaunchProgressState.DeclareState(builder);
         return builder;
     }
 }

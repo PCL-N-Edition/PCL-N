@@ -175,6 +175,9 @@ internal static class Program
         using AccountFormController accountForm = new(shell, uiIntents, accounts.Commands,
             runtime.Host.StateStore, launchPage.AccountBody, new NativeAccountUiEffects(platformActions));
         launchPage.Attach();
+        // The launch page projects launch-progress cells into overlay display strings, so the
+        // composition root adds its observer to the shared store fan-out.
+        stateObservation.Add(launchPage.StateObserver);
         host.Logging.Info("Launcher", "Product controllers attached; initial instance scan scheduled.");
         session.Enter(XsrLifecyclePhase.Running);
 

@@ -27,6 +27,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     private readonly Dictionary<XsrUiEntityId, AvaloniaUiSceneNodeControl> _controls = [];
     private readonly List<AvaloniaUiSceneNodeControl> _outgoingControls = [];
     private readonly Dictionary<XsrUiEntityId, double> _capsuleTargets = [];
+    private readonly Dictionary<XsrUiEntityId, double> _progressTargets = [];
     private readonly Dictionary<XsrUiEntityId, long> _pagerRevisions = [];
     private XsrUiScene? _scene;
     private XsrUiEntityId _lastPageRoot;
@@ -316,7 +317,9 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
             _controls.Remove(entity);
             _capsuleTargets.Remove(entity);
             _pagerRevisions.Remove(entity);
+            _progressTargets.Remove(entity);
             AvaloniaUiMotion.Cancel(this, ("capsule", entity));
+            AvaloniaUiMotion.Cancel(this, ("progress", entity));
             AvaloniaUiMotion.Cancel(this, ("pager", entity));
             AvaloniaUiMotion.Cancel(this, ("slide-x", entity));
             AvaloniaUiMotion.Cancel(this, ("slide-y", entity));
@@ -342,6 +345,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
             control.Apply(node);
             DriveCapsuleGeometry(node);
             DrivePagerGeometry(node);
+            DriveProgressGeometry(node);
             int currentIndex = Children.IndexOf(control);
             if (currentIndex != index)
             {
@@ -378,6 +382,26 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
                 ? current.CapsuleExpansionProgress : node.CapsuleExpansionProgress,
             progress => _shell.Renderer.SetCapsulePresentationProgress(node.Entity, progress),
             target, AvaloniaMotionTokens.CapsuleSpringResponseSeconds, () => _shell.Renderer.ReducedMotion);
+    }
+
+    private void DriveProgressGeometry(XsrUiSceneNode node)
+    {
+        if (node.Progress is not { } presented) return;
+        double target = _shell.Renderer.GetProgressTarget(node.Entity);
+        if (_progressTargets.TryGetValue(node.Entity, out double previous) && previous == target) return;
+        _progressTargets[node.Entity] = target;
+        if (_shell.Renderer.ReducedMotion)
+        {
+            _shell.Renderer.SetProgressPresentation(node.Entity, target);
+            return;
+        }
+
+        AvaloniaUiMotion.Animate(this, ("progress", node.Entity),
+            () => _scene is not null && TryGetNode(_scene, node.Entity, out XsrUiSceneNode current)
+                ? current.Progress ?? 0 : presented,
+            value => _shell.Renderer.SetProgressPresentation(node.Entity, value),
+            target, AvaloniaMotionTokens.ProgressFillMilliseconds, AvaloniaUiMotion.EaseOut,
+            reducedMotion: () => _shell.Renderer.ReducedMotion);
     }
 
     private void DrivePagerGeometry(XsrUiSceneNode node)

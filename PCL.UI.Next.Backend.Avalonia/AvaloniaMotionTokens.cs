@@ -61,6 +61,12 @@ internal static class AvaloniaMotionTokens
     public const double ContentSpringResponseSeconds = .32;
     public const double PagerSpringResponseSeconds = .34;
 
+    /// <summary>
+    /// The launch progress fill catches up to its state target with a smooth ease-out per
+    /// target change, mirroring the legacy incremental catch-up cadence.
+    /// </summary>
+    public const int ProgressFillMilliseconds = 240;
+
     /// <summary>The splash and hover fade clocks tick at display cadence.</summary>
     public const int FrameMilliseconds = 16;
 }

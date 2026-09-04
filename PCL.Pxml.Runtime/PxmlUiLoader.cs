@@ -106,6 +106,17 @@ public sealed class PxmlUiLoader
                 tree.SetComponent(entity, new XsrUiPager());
                 tree.SetComponent(entity, new XsrUiInput { Focusable = true });
                 break;
+            case PxmlRuntimeRecipe.Progress:
+                XsrUiProgress progress = new();
+                PxmlIrBinding? valueBinding = node.Bindings.FirstOrDefault(
+                    binding => binding.Property == XsrUiStateProperty.Value);
+                if (valueBinding is not null)
+                {
+                    progress.BoundState = ResolveState(state, valueBinding.State);
+                }
+
+                tree.SetComponent(entity, progress);
+                break;
             case PxmlRuntimeRecipe.StackLayout:
                 tree.SetComponent(entity, new XsrUiStackPanel(node.Orientation)
                 {

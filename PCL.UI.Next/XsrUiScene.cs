@@ -56,7 +56,8 @@ public readonly record struct XsrUiSceneNode(
     double TransitionOffsetY = 0,
     double PresentationOpacity = 1,
     double TransitionPresentedOffsetY = 0,
-    int TransitionEntryOrder = -1)
+    int TransitionEntryOrder = -1,
+    double? Progress = null)
 {
     public bool HasRole => Role != XsrUiSemanticRole.None;
 }

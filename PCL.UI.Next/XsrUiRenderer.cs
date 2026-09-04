@@ -396,6 +396,22 @@ public sealed partial class XsrUiRenderer
         double contentWidth = Math.Max(0, borderW - padding.Horizontal);
         double contentHeight = Math.Max(0, borderH - padding.Vertical);
         _arrangedSlots[entity.Index] = slot;
+
+        if (_tree.GetComponent<XsrUiProgress>(entity) is { } progress)
+        {
+            if (progress.BoundState.IsAssigned)
+            {
+                object? value = _state.ReadAppliedValue(progress.BoundState);
+                progress.Target = Math.Clamp(Convert.ToDouble(value, CultureInfo.InvariantCulture), 0, 1);
+            }
+
+            // The element paints the fill bar: its rect is the presented fraction of the slot
+            // its parent arranged it into, anchored to the leading edge.
+            double fillWidth = Math.Max(0, Math.Min(1, progress.Presented)) * slotW;
+            _paintRects[entity.Index] = new XsrUiRect(slotX, slotY, fillWidth, slotH);
+            return;
+        }
+
         _paintRects[entity.Index] = new XsrUiRect(contentX, contentY, contentWidth, contentHeight);
 
         if (_tree.GetComponent<XsrUiPager>(entity) is { } pager)
@@ -1073,7 +1089,8 @@ public sealed partial class XsrUiRenderer
             _tree.GetComponent<XsrUiTextInput>(entity)?.Snapshot(),
             image?.Raster,
             transitionKey, transition?.OffsetX ?? 0, transition?.PresentedOffsetX ?? 0,
-            transition?.OffsetY ?? 0, opacity, transition?.PresentedOffsetY ?? 0, entryOrder));
+            transition?.OffsetY ?? 0, opacity, transition?.PresentedOffsetY ?? 0, entryOrder,
+            _tree.GetComponent<XsrUiProgress>(entity)?.Presented));
 
         XsrUiPager? pageContainer = _tree.GetComponent<XsrUiPager>(entity);
         XsrUiRect? childClip = transition is { MovesSelf: false, OffsetX: not 0 } or { MovesSelf: false, OffsetY: not 0 }

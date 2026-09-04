@@ -52,6 +52,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
     private static readonly HashSet<string> Recipes = new(StringComparer.Ordinal)
     {
         "Element", "StackLayout", "Text", "CommandInput", "Image", "VerticalPager", "TextInput",
+        "Progress",
     };
 
     private static readonly HashSet<string> Targets = new(StringComparer.Ordinal)
@@ -59,12 +60,12 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
         "Width", "Height", "MinWidth", "MaxWidth", "MinHeight", "MaxHeight", "Weight",
         "HorizontalAlignment", "VerticalAlignment", "Margin", "Padding", "Visibility", "Label",
         "Orientation", "Spacing", "StretchLastChild", "Scrollable", "Content", "Command",
-        "Focusable", "Clickable", "ImageSource", "Key", "Placeholder", "IsPassword", "Enabled", "TransitionKey", "TransitionOffsetX", "TransitionOffsetY",
+        "Focusable", "Clickable", "ImageSource", "Key", "Placeholder", "IsPassword", "Enabled", "TransitionKey", "TransitionOffsetX", "TransitionOffsetY", "Value",
     };
 
     private static readonly HashSet<string> BindingProperties = new(StringComparer.Ordinal)
     {
-        "None", "Text", "Visibility", "Enabled", "SemanticLabel", "TransitionKey",
+        "None", "Text", "Visibility", "Enabled", "SemanticLabel", "TransitionKey", "Value",
     };
 
     private static readonly HashSet<string> DirtyKinds = new(StringComparer.Ordinal)
@@ -322,14 +323,15 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
         }
 
         if ((binding is "Text" or "SemanticLabel" or "TransitionKey") && kind != "String"
-            || binding is "Visibility" or "Enabled" && kind != "Boolean")
+            || binding is "Visibility" or "Enabled" && kind != "Boolean"
+            || binding is "Value" && kind != "Double")
         {
             errors.Add($"line {lineNumber} binding '{binding}' is incompatible with '{kind}'");
             valid = false;
         }
 
         if (binding == "Text" && dirty != "Layout,Paint"
-            || binding is "Visibility" or "Enabled" && dirty != "State"
+            || binding is "Visibility" or "Enabled" or "Value" && dirty != "State"
             || binding is "SemanticLabel" or "TransitionKey" && dirty != "Paint")
         {
             errors.Add($"line {lineNumber} binding '{binding}' uses an incompatible dirty-kind set '{dirty}'");
@@ -673,7 +675,8 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                 return target == "Width" || target == "Height"
                     || target == "MinWidth" || target == "MaxWidth"
                     || target == "MinHeight" || target == "MaxHeight"
-                    || target == "Weight" || target == "Spacing" || target == "TransitionOffsetX" || target == "TransitionOffsetY";
+                    || target == "Weight" || target == "Spacing" || target == "TransitionOffsetX" || target == "TransitionOffsetY"
+                    || target == "Value";
             case "Thickness":
                 return target == "Margin" || target == "Padding";
             case "Boolean":
@@ -721,6 +724,8 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                 return target == "ImageSource";
             case "TextInput":
                 return target == "Placeholder" || target == "IsPassword" || target == "Enabled";
+            case "Progress":
+                return target == "Value";
             default:
                 return false;
         }
