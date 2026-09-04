@@ -1,12 +1,11 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="light dark" />
-  <meta name="description" content="PCL Nexa is the 2.0 alpha generation of PCL N, rebuilt for a faster, safer, more modern Minecraft launcher experience." />
-  <title>PCL Nexa · Launcher Overview</title>
-  <style>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="light dark" name="color-scheme"/>
+<meta content="PCL Nexa is the name used for PCL N 2.0 Alpha. See what is ready now, what is still being built, and how the launcher handles launching, downloads, accounts and updates." name="description"/>
+<title>PCL Nexa · Launcher Overview</title>
+<style>
     :root{color-scheme:light dark;--bg:#f5f5f7;--surface:rgba(255,255,255,.78);--surface-strong:rgba(255,255,255,.92);--surface-soft:rgba(255,255,255,.56);--text:#1d1d1f;--secondary:#6e6e73;--tertiary:#8e8e93;--line:rgba(0,0,0,.08);--blue:#007aff;--blue2:#5e5ce6;--green:#34c759;--orange:#ff9f0a;--shadow:0 10px 35px rgba(0,0,0,.07);--max:1180px}
     @media(prefers-color-scheme:dark){:root{--bg:#000;--surface:rgba(28,28,30,.76);--surface-strong:rgba(28,28,30,.94);--surface-soft:rgba(44,44,46,.62);--text:#f5f5f7;--secondary:#aeaeb2;--tertiary:#8e8e93;--line:rgba(255,255,255,.11);--blue:#0a84ff;--blue2:#6e6af4;--shadow:0 10px 35px rgba(0,0,0,.22)}}
     *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 88% 2%,rgba(90,200,250,.18),transparent 28rem),radial-gradient(circle at 8% 18%,rgba(94,92,230,.10),transparent 30rem),var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Segoe UI","PingFang SC","Microsoft JhengHei","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}a{color:inherit}.shell{width:min(calc(100% - 40px),var(--max));margin:auto}
@@ -19,27 +18,318 @@
   </style>
 </head>
 <body>
-<nav class="nav"><div class="shell navin"><div class="brand"><div class="mark">N</div><span>PCL Nexa</span></div><div class="links"><a href="#experience" data-i18n="nav.experience">体验</a><a href="#status" data-i18n="nav.status">当前状态</a><a href="#migration" data-i18n="nav.migration">迁移</a><a href="#faq" data-i18n="nav.faq">常见问题</a></div><div class="langs" aria-label="Language"><button data-lang="zh-CN">简</button><button data-lang="zh-TW">繁</button><button data-lang="en">EN</button></div></div></nav>
+<nav class="nav"><div class="shell navin"><div class="brand"><div class="mark">N</div><span>PCL Nexa</span></div><div class="links"><a data-i18n="nav.experience" href="#experience">体验</a><a data-i18n="nav.status" href="#status">进度</a><a data-i18n="nav.migration" href="#migration">升级</a><a data-i18n="nav.faq" href="#faq">常见问题</a></div><div aria-label="Language" class="langs"><button data-lang="zh-CN">简</button><button data-lang="zh-TW">繁</button><button data-lang="en">EN</button></div></div></nav>
 <main>
-<header class="shell hero"><div class="eyebrow"><span class="dot"></span><span data-i18n="hero.eyebrow">2.0 Alpha · 全新一代 PCL</span></div><h1>PCL Nexa</h1><p class="lead" data-i18n="hero.lead">为 Minecraft 重新打造的启动体验。</p><p class="copy" data-i18n="hero.copy">PCL Nexa 是 PCL N 2.0 的 Alpha 产品线。它不是一次简单换皮，而是从启动、下载、账号、更新到界面交互的完整重构，目标是让每天都会用到的操作更直接、更可靠。</p><div class="actions"><a class="btn primary" href="https://github.com/PCL-N-Edition/PCL-N/tree/refactor/xsr" target="_blank" rel="noreferrer" data-i18n="hero.source">查看当前 Alpha 分支 ↗</a><a class="btn" href="https://github.com/PCL-N-Edition/PCL-N/issues" target="_blank" rel="noreferrer" data-i18n="hero.issues">反馈问题</a></div><div class="rename"><div class="ico">→</div><div><strong data-i18n="rename.title">名称仍处于过渡期</strong><p data-i18n="rename.body">Alpha 阶段当前使用 “PCL Nexa”。Alpha 结束后，产品将正式更名为 “Nexa Launcher”。仓库、解决方案和部分内部标识会在合适的迁移阶段再逐步调整。</p></div></div></header>
-<section id="experience"><div class="shell"><div class="kicker" data-i18n="experience.kicker">日常体验</div><h2 data-i18n="experience.title">把复杂的启动流程，重新变得简单。</h2><p class="sec-lead" data-i18n="experience.lead">2.0 的重点不是展示更多开关，而是把实例、Java、账号、资源和更新这些幕后工作交给启动器处理，让用户只面对真正需要做的选择。</p><div class="grid">
-<article class="card feature big"><div class="icon">▶</div><h3 data-i18n="feature.launch.title">启动 Minecraft</h3><p data-i18n="feature.launch.body">发现本地实例、解析继承关系、选择合适的 Java、准备资源与原生库，再把启动过程交给统一的进程状态管理。发生异常时，启动器也能保留足够的信息用于后续分析。</p><div class="pills"><span class="pill" data-i18n="feature.launch.p1">实例发现</span><span class="pill" data-i18n="feature.launch.p2">Java 选择</span><span class="pill" data-i18n="feature.launch.p3">资源 / 依赖</span><span class="pill" data-i18n="feature.launch.p4">进程状态</span><span class="pill" data-i18n="feature.launch.p5">崩溃分析</span></div></article>
-<article class="card feature"><div class="icon">⇩</div><h3 data-i18n="feature.download.title">更可靠的下载</h3><p data-i18n="feature.download.body">支持断点续传、分段并行、下载源故障切换和安全的目标路径处理。相同目标的下载会被协调，减少重复工作和损坏文件的机会。</p><div class="pills"><span class="pill" data-i18n="feature.download.p1">断点续传</span><span class="pill" data-i18n="feature.download.p2">分段并行</span><span class="pill" data-i18n="feature.download.p3">来源切换</span></div></article>
-<article class="card feature"><div class="icon">↻</div><h3 data-i18n="feature.update.title">更新更像一次可靠的交付</h3><p data-i18n="feature.update.body">更新流程会先发现版本、判断升级资格、选择完整包或更小的补丁路径，再下载、验证、暂存并安装。2.0 同时保留从 1.4.x 跨代升级的明确通道。</p><div class="flow"><span data-i18n="flow.discover">发现</span><b>→</b><span data-i18n="flow.plan">规划</span><b>→</b><span data-i18n="flow.download">下载</span><b>→</b><span data-i18n="flow.verify">验证</span><b>→</b><span data-i18n="flow.install">安装</span></div></article>
-<article class="card feature"><div class="icon">●</div><h3 data-i18n="feature.account.title">账号与外观</h3><p data-i18n="feature.account.body">新的账号能力覆盖 Microsoft、Yggdrasil 与 LittleSkin 流程，并把登录身份与可公开显示的账号状态分开。皮肤、披风与 LittleSkin 衣柜相关能力也在 2.0 迁移范围内。</p><div class="pills"><span class="pill">Microsoft</span><span class="pill">Yggdrasil</span><span class="pill">LittleSkin</span></div></article>
-<article class="card feature"><div class="icon">◫</div><h3 data-i18n="feature.ui.title">新的界面基础</h3><p data-i18n="feature.ui.body">PCL Nexa 正在用全新的界面基础重建产品页面。当前 Alpha 已经拥有新的窗口外壳、导航、启动页、流畅动效和减少动态效果策略，更多页面仍会随着 Alpha 持续补齐。</p><div class="pills"><span class="pill" data-i18n="feature.ui.p1">新导航</span><span class="pill" data-i18n="feature.ui.p2">流畅动效</span><span class="pill" data-i18n="feature.ui.p3">无障碍语义</span><span class="pill">Liquid Glass</span></div></article>
+<header class="shell hero"><div class="eyebrow"><span class="dot"></span><span data-i18n="hero.eyebrow">2.0 Alpha · PCL N 的下一代版本</span></div><h1>PCL Nexa</h1><p class="lead" data-i18n="hero.lead">一个更省心的 Minecraft 启动器。</p><p class="copy" data-i18n="hero.copy">PCL Nexa 是 PCL N 2.0 Alpha 期间使用的名字。我们正在重做启动、下载、账号、更新和界面。能自动处理的事情会尽量交给启动器，你只需要处理真正需要选择的部分。</p><div class="actions"><a class="btn primary" data-i18n="hero.source" href="https://github.com/PCL-N-Edition/PCL-N/tree/refactor/xsr" rel="noreferrer" target="_blank">查看 2.0 Alpha 分支 ↗</a><a class="btn" data-i18n="hero.issues" href="https://github.com/PCL-N-Edition/PCL-N/issues" rel="noreferrer" target="_blank">反馈问题</a></div><div class="rename"><div class="ico">→</div><div><strong data-i18n="rename.title">名字还会再变一次</strong><p data-i18n="rename.body">Alpha 期间继续使用 PCL Nexa。Alpha 结束后会正式改名为 Nexa Launcher。仓库和内部名称会在后面逐步调整。</p></div></div></header>
+<section id="experience"><div class="shell"><div class="kicker" data-i18n="experience.kicker">日常使用</div><h2 data-i18n="experience.title">日常启动游戏，应该少操点心。</h2><p class="sec-lead" data-i18n="experience.lead">实例、Java、账号、资源和更新这些事情，能自动处理的就交给启动器。你只需要处理真正需要选择的部分。</p><div class="grid">
+<article class="card feature big"><div class="icon">▶</div><h3 data-i18n="feature.launch.title">启动 Minecraft</h3><p data-i18n="feature.launch.body">启动器会找到本地实例，处理版本继承，选择合适的 Java，再准备资源和依赖。游戏启动后，它也会继续记录进程状态，方便排查崩溃。</p><div class="pills"><span class="pill" data-i18n="feature.launch.p1">查找实例</span><span class="pill" data-i18n="feature.launch.p2">选择 Java</span><span class="pill" data-i18n="feature.launch.p3">准备资源</span><span class="pill" data-i18n="feature.launch.p4">记录进程</span><span class="pill" data-i18n="feature.launch.p5">分析崩溃</span></div></article>
+<article class="card feature"><div class="icon">⇩</div><h3 data-i18n="feature.download.title">下载中断了也能继续</h3><p data-i18n="feature.download.body">下载中断后可以继续。大文件会分段下载。某个来源不可用时，启动器会尝试其他来源。</p><div class="pills"><span class="pill" data-i18n="feature.download.p1">断点续传</span><span class="pill" data-i18n="feature.download.p2">分段下载</span><span class="pill" data-i18n="feature.download.p3">自动换源</span></div></article>
+<article class="card feature"><div class="icon">↻</div><h3 data-i18n="feature.update.title">更新少折腾</h3><p data-i18n="feature.update.body">启动器会先检查可用版本，再决定用完整包还是更小的补丁。下载完成后会验证文件，再开始安装。PCL N 1.4.x 也可以直接升级到 2.0。</p><div class="flow"><span data-i18n="flow.discover">检查版本</span><b>→</b><span data-i18n="flow.plan">准备更新</span><b>→</b><span data-i18n="flow.download">下载</span><b>→</b><span data-i18n="flow.verify">验证</span><b>→</b><span data-i18n="flow.install">安装</span></div></article>
+<article class="card feature"><div class="icon">☺</div><h3 data-i18n="feature.account.title">账号和外观</h3><p data-i18n="feature.account.body">支持 Microsoft、Yggdrasil 和 LittleSkin 登录。皮肤、披风和 LittleSkin 衣柜也会继续补齐。登录凭据不会直接放进公开状态。</p></article>
+<article class="card feature"><div class="icon">✦</div><h3 data-i18n="feature.ui.title">新的界面正在补齐</h3><p data-i18n="feature.ui.body">2.0 已经换上新的窗口、导航和启动页。动效和减少动态效果也已经接入。其他页面还在继续迁移。</p><div class="pills"><span class="pill" data-i18n="feature.ui.p1">新导航</span><span class="pill" data-i18n="feature.ui.p2">更顺的动效</span><span class="pill" data-i18n="feature.ui.p3">无障碍支持</span></div></article>
 </div></div></section>
-<section id="status"><div class="shell"><div class="kicker" data-i18n="status.kicker">Alpha 状态</div><h2 data-i18n="status.title">基础已经成形，产品仍在继续完成。</h2><p class="sec-lead" data-i18n="status.lead">这个分支代表正在开发中的 2.0，而不是稳定版下载页。底层启动能力已经跨过主要架构阶段，但完整产品界面、插件生态和最终切换仍然在后续迁移中。</p><div class="statusgrid"><article class="card status"><h3 data-i18n="status.now.title">现在已经完成什么？</h3><p data-i18n="status.now.body">从运行内核、渲染基础、PXML、Sidecar，到设置 / 下载 / 更新 / 账号以及 Minecraft 核心启动链路，都已经形成可验证的 2.0 实现。</p><div class="rows"><div class="row"><span class="sdot"></span><strong data-i18n="status.row1">启动器基础能力</strong><span class="tag" data-i18n="status.complete">已完成主要迁移</span></div><div class="row"><span class="sdot"></span><strong data-i18n="status.row2">Minecraft 核心启动链路</strong><span class="tag" data-i18n="status.complete">已完成主要迁移</span></div><div class="row"><span class="sdot progress"></span><strong data-i18n="status.row3">产品界面与页面</strong><span class="tag" data-i18n="status.progress">进行中</span></div><div class="row"><span class="sdot progress"></span><strong data-i18n="status.row4">插件与完整生态切换</strong><span class="tag" data-i18n="status.later">后续阶段</span></div></div></article><aside class="card status"><h3 data-i18n="status.alpha.title">Alpha 意味着什么？</h3><p data-i18n="status.alpha.body">功能和数据兼容会持续收敛，但交互、页面完整度以及部分生态能力仍可能快速变化。它适合跟进 2.0 的演进和参与测试，不应该被理解为已经取代稳定的 1.4.x。</p><div class="warning" data-i18n="status.alpha.warning">如果你只希望稳定地日常启动游戏，请继续把现有稳定版本作为主力；2.0 Alpha 更适合愿意测试新架构与新界面的用户。</div></aside></div></div></section>
-<section id="migration"><div class="shell"><div class="kicker" data-i18n="migration.kicker">迁移</div><h2 data-i18n="migration.title">从 PCL N 到 Nexa Launcher。</h2><p class="sec-lead" data-i18n="migration.lead">名称、版本和架构会分阶段切换，让现有用户有明确的升级路径，同时避免把尚未完成的 2.0 误认为稳定产品。</p><div class="timeline"><article class="card step"><div class="num">01</div><h3>PCL N 1.4.x</h3><p data-i18n="migration.old">现有稳定产品线。仍然是 Alpha 期间更适合作为日常主力的版本。</p></article><article class="card step current"><div class="num">02 · NOW</div><h3>PCL Nexa</h3><p data-i18n="migration.now">2.0 Alpha 的过渡产品名。新架构和新界面在这里持续完成，并保留从 1.4.x 升级到 2.0 的路径。</p></article><article class="card step"><div class="num">03</div><h3>Nexa Launcher</h3><p data-i18n="migration.future">Alpha 阶段结束后的正式名称。届时产品品牌将从 PCL Nexa 完成到 Nexa Launcher 的切换。</p></article></div></div></section>
-<section><div class="shell"><div class="kicker" data-i18n="why.kicker">为什么 2.0 不一样</div><h2 data-i18n="why.title">技术变化，最终应该体现在使用体验上。</h2><p class="sec-lead" data-i18n="why.lead">2.0 的底层采用全新的 XSR 架构、NativeAOT、UI.Next / PXML 与独立插件进程边界，但这些不是为了堆技术名词，而是服务于三个直接目标。</p><div class="benefits"><article class="card benefit"><strong data-i18n="why.fast.title">更直接</strong><p data-i18n="why.fast.body">减少运行时反射和不必要的层层转发，让启动、状态更新和界面刷新拥有更明确的数据路径。</p></article><article class="card benefit"><strong data-i18n="why.safe.title">更可控</strong><p data-i18n="why.safe.body">下载、更新、状态和插件边界都有更严格的契约，异常更容易被隔离，也更容易复现和验证。</p></article><article class="card benefit"><strong data-i18n="why.future.title">更适合继续扩展</strong><p data-i18n="why.future.body">新页面、插件 SDK 与后续平台能力可以建立在清晰边界上，而不是继续增加旧架构的耦合。</p></article></div></div></section>
-<section id="faq"><div class="shell"><div class="kicker">FAQ</div><h2 data-i18n="faq.title">常见问题。</h2><div class="faq"><details><summary data-i18n="faq.q1">PCL Nexa 现在就是 Nexa Launcher 吗？</summary><p data-i18n="faq.a1">不是。PCL Nexa 是 2.0 Alpha 阶段的过渡名称；Alpha 结束后才正式使用 Nexa Launcher。</p></details><details><summary data-i18n="faq.q2">2.0 会直接替代 PCL N 1.4.x 吗？</summary><p data-i18n="faq.a2">目标是在完成迁移与切换门槛后由 2.0 接棒，但当前 Alpha 仍处于产品完成阶段。1.4.x 继续承担稳定产品线的角色。</p></details><details><summary data-i18n="faq.q3">旧版本能升级到 2.0 吗？</summary><p data-i18n="faq.a3">2.0 的更新策略明确支持 1.4.x → 2.0 的跨代升级。进入 2.0 后，更新系统不会主动提供回到 1.4.x 或更低 2.0 版本的降级。</p></details><details><summary data-i18n="faq.q4">为什么要重写这么多东西？</summary><p data-i18n="faq.a4">因为这次目标不仅是修几个页面，而是把运行时、业务能力、界面、插件边界和更新链路一起整理成长期可维护的基础。这样后续功能才能少依赖历史包袱。</p></details><details><summary data-i18n="faq.q5">我现在适合使用 Alpha 吗？</summary><p data-i18n="faq.a5">如果你愿意测试新功能、接受页面和行为仍在变化，并希望帮助发现问题，可以关注 Alpha；如果你只需要稳定启动游戏，现有稳定版本仍更合适。</p></details></div></div></section>
-<section class="shell"><div class="card final"><div class="kicker" data-i18n="cta.kicker">跟进重构</div><h2 data-i18n="cta.title">2.0 还在生长，但方向已经确定。</h2><p data-i18n="cta.body">查看 refactor/xsr 分支可以直接看到当前实现；如果你遇到问题或有明确的用户体验建议，可以通过 Issues 反馈。</p><div class="actions"><a class="btn primary" href="https://github.com/PCL-N-Edition/PCL-N/tree/refactor/xsr" target="_blank" rel="noreferrer" data-i18n="cta.branch">打开 refactor/xsr ↗</a><a class="btn" href="https://github.com/PCL-N-Edition/PCL-N/issues" target="_blank" rel="noreferrer" data-i18n="cta.issue">前往 Issues</a></div></div></section>
-</main><footer><div class="shell footer"><span>PCL Nexa · PCL-N-Edition</span><span data-i18n="footer">2.0 Alpha · Alpha 结束后：Nexa Launcher</span></div></footer>
+<section id="status"><div class="shell"><div class="kicker" data-i18n="status.kicker">Alpha 进度</div><h2 data-i18n="status.title">能用了，但还没做完。</h2><p class="sec-lead" data-i18n="status.lead">refactor/xsr 是 2.0 的开发分支，不是稳定版下载页。启动、下载、更新和账号这些核心功能已经有了。完整界面和插件还在继续做。</p><div class="statusgrid"><article class="card status"><h3 data-i18n="status.now.title">现在做到哪了</h3><p data-i18n="status.now.body">启动器底层、界面、设置、下载、更新、账号和 Minecraft 启动流程都已经有 2.0 版本。现在主要在补产品页面和后面的插件能力。</p><div class="rows"><div class="row"><i class="sdot"></i><span data-i18n="status.row1">启动器基础功能</span><span class="tag" data-i18n="status.complete">主要部分已完成</span></div><div class="row"><i class="sdot"></i><span data-i18n="status.row2">Minecraft 启动流程</span><span class="tag" data-i18n="status.complete">主要部分已完成</span></div><div class="row"><i class="sdot progress"></i><span data-i18n="status.row3">界面和页面</span><span class="tag" data-i18n="status.progress">正在做</span></div><div class="row"><i class="sdot progress"></i><span data-i18n="status.row4">插件和生态</span><span class="tag" data-i18n="status.later">后面再做</span></div></div></article><article class="card status"><h3 data-i18n="status.alpha.title">Alpha 适合谁</h3><p data-i18n="status.alpha.body">Alpha 里的页面和行为还会改，也可能遇到问题。它更适合想提前体验 2.0，或者愿意帮忙测试的人。</p><div class="warning" data-i18n="status.alpha.warning">如果你只想稳定启动游戏，先继续用 PCL N 1.4.x 稳定版。</div></article></div></div></section>
+<section id="migration"><div class="shell"><div class="kicker" data-i18n="migration.kicker">升级路线</div><h2 data-i18n="migration.title">名字会变，升级路线不会乱。</h2><p class="sec-lead" data-i18n="migration.lead">现在的稳定版还是 PCL N 1.4.x。2.0 Alpha 暂时叫 PCL Nexa。Alpha 结束后会改名为 Nexa Launcher。</p><div class="timeline"><article class="card step"><div class="num">01</div><h3>PCL N</h3><p data-i18n="migration.old">现在的稳定版。Alpha 期间更适合日常使用。</p></article><article class="card step current"><div class="num">02 · ALPHA</div><h3>PCL Nexa</h3><p data-i18n="migration.now">2.0 Alpha 现在使用的名字。PCL N 1.4.x 可以直接升级过来。</p></article><article class="card step"><div class="num">03</div><h3>Nexa Launcher</h3><p data-i18n="migration.future">Alpha 结束后的正式名称。</p></article></div></div></section>
+<section><div class="shell"><div class="kicker" data-i18n="why.kicker">为什么要做 2.0</div><h2 data-i18n="why.title">重做这些东西，是为了少出问题。</h2><p class="sec-lead" data-i18n="why.lead">2.0 底层用了 XSR、NativeAOT、UI.Next 和 PXML。你不需要记这些名字。它们主要用来解决速度、稳定性和后续维护的问题。</p><div class="benefits"><article class="card benefit"><strong data-i18n="why.fast.title">少绕一层</strong><p data-i18n="why.fast.body">启动和界面更新尽量走更直接的路径。少做不必要的中转。</p></article><article class="card benefit"><strong data-i18n="why.safe.title">出问题更好查</strong><p data-i18n="why.safe.body">下载、更新和插件都有更清楚的边界。某一块出错时，更容易找到原因。</p></article><article class="card benefit"><strong data-i18n="why.future.title">以后更好加功能</strong><p data-i18n="why.future.body">新页面和插件能力可以继续往上加，不用一直绕着旧代码改。</p></article></div></div></section>
+<section id="faq"><div class="shell"><h2 data-i18n="faq.title">常见问题</h2><div class="faq"><details><summary data-i18n="faq.q1">PCL Nexa 现在就是 Nexa Launcher 吗？</summary><p data-i18n="faq.a1">不是。PCL Nexa 只是 2.0 Alpha 期间使用的名字。Alpha 结束后才会正式改名为 Nexa Launcher。</p></details><details><summary data-i18n="faq.q2">2.0 现在会取代 PCL N 1.4.x 吗？</summary><p data-i18n="faq.a2">还不会。Alpha 期间，PCL N 1.4.x 仍然是稳定版。等 2.0 做完并通过切换检查后，才会正式接替它。</p></details><details><summary data-i18n="faq.q3">PCL N 1.4.x 能升级到 2.0 吗？</summary><p data-i18n="faq.a3">可以。更新系统支持从 1.4.x 直接升级到 2.0。进入 2.0 后，启动器不会主动提供降级到 1.4.x 或更旧 2.0 版本的选项。</p></details><details><summary data-i18n="faq.q4">为什么这次要重写这么多？</summary><p data-i18n="faq.a4">旧架构已经越来越难继续改。2.0 选择一次把启动、界面、更新和插件这些基础重新整理好，后面做功能会轻松很多。</p></details><details><summary data-i18n="faq.q5">我现在适合用 Alpha 吗？</summary><p data-i18n="faq.a5">如果你想提前体验 2.0，也能接受页面和功能还会变化，可以试 Alpha。如果你只想稳定玩游戏，继续用稳定版更合适。</p></details></div></div></section>
+<section><div class="shell card final"><div class="kicker" data-i18n="cta.kicker">看看开发进度</div><h2 data-i18n="cta.title">看看 2.0 现在做到哪了。</h2><p data-i18n="cta.body">代码都在 refactor/xsr。遇到问题可以到 Issues 里写清楚复现步骤和你看到的现象。</p><div class="actions"><a class="btn primary" data-i18n="cta.branch" href="https://github.com/PCL-N-Edition/PCL-N/tree/refactor/xsr" rel="noreferrer" target="_blank">打开 refactor/xsr ↗</a><a class="btn" data-i18n="cta.issue" href="https://github.com/PCL-N-Edition/PCL-N/issues" rel="noreferrer" target="_blank">前往 Issues</a></div></div></section>
+</main>
+<footer><div class="shell footer"><span>PCL Nexa</span><span data-i18n="footer">2.0 Alpha · Alpha 结束后改名为 Nexa Launcher</span></div></footer>
 <script>
-const L={
-'zh-CN':{'nav.experience':'体验','nav.status':'当前状态','nav.migration':'迁移','nav.faq':'常见问题','hero.eyebrow':'2.0 Alpha · 全新一代 PCL','hero.lead':'为 Minecraft 重新打造的启动体验。','hero.copy':'PCL Nexa 是 PCL N 2.0 的 Alpha 产品线。它不是一次简单换皮，而是从启动、下载、账号、更新到界面交互的完整重构，目标是让每天都会用到的操作更直接、更可靠。','hero.source':'查看当前 Alpha 分支 ↗','hero.issues':'反馈问题','rename.title':'名称仍处于过渡期','rename.body':'Alpha 阶段当前使用 “PCL Nexa”。Alpha 结束后，产品将正式更名为 “Nexa Launcher”。仓库、解决方案和部分内部标识会在合适的迁移阶段再逐步调整。','experience.kicker':'日常体验','experience.title':'把复杂的启动流程，重新变得简单。','experience.lead':'2.0 的重点不是展示更多开关，而是把实例、Java、账号、资源和更新这些幕后工作交给启动器处理，让用户只面对真正需要做的选择。','feature.launch.title':'启动 Minecraft','feature.launch.body':'发现本地实例、解析继承关系、选择合适的 Java、准备资源与原生库，再把启动过程交给统一的进程状态管理。发生异常时，启动器也能保留足够的信息用于后续分析。','feature.launch.p1':'实例发现','feature.launch.p2':'Java 选择','feature.launch.p3':'资源 / 依赖','feature.launch.p4':'进程状态','feature.launch.p5':'崩溃分析','feature.download.title':'更可靠的下载','feature.download.body':'支持断点续传、分段并行、下载源故障切换和安全的目标路径处理。相同目标的下载会被协调，减少重复工作和损坏文件的机会。','feature.download.p1':'断点续传','feature.download.p2':'分段并行','feature.download.p3':'来源切换','feature.update.title':'更新更像一次可靠的交付','feature.update.body':'更新流程会先发现版本、判断升级资格、选择完整包或更小的补丁路径，再下载、验证、暂存并安装。2.0 同时保留从 1.4.x 跨代升级的明确通道。','flow.discover':'发现','flow.plan':'规划','flow.download':'下载','flow.verify':'验证','flow.install':'安装','feature.account.title':'账号与外观','feature.account.body':'新的账号能力覆盖 Microsoft、Yggdrasil 与 LittleSkin 流程，并把登录身份与可公开显示的账号状态分开。皮肤、披风与 LittleSkin 衣柜相关能力也在 2.0 迁移范围内。','feature.ui.title':'新的界面基础','feature.ui.body':'PCL Nexa 正在用全新的界面基础重建产品页面。当前 Alpha 已经拥有新的窗口外壳、导航、启动页、流畅动效和减少动态效果策略，更多页面仍会随着 Alpha 持续补齐。','feature.ui.p1':'新导航','feature.ui.p2':'流畅动效','feature.ui.p3':'无障碍语义','status.kicker':'Alpha 状态','status.title':'基础已经成形，产品仍在继续完成。','status.lead':'这个分支代表正在开发中的 2.0，而不是稳定版下载页。底层启动能力已经跨过主要架构阶段，但完整产品界面、插件生态和最终切换仍然在后续迁移中。','status.now.title':'现在已经完成什么？','status.now.body':'从运行内核、渲染基础、PXML、Sidecar，到设置 / 下载 / 更新 / 账号以及 Minecraft 核心启动链路，都已经形成可验证的 2.0 实现。','status.row1':'启动器基础能力','status.row2':'Minecraft 核心启动链路','status.row3':'产品界面与页面','status.row4':'插件与完整生态切换','status.complete':'已完成主要迁移','status.progress':'进行中','status.later':'后续阶段','status.alpha.title':'Alpha 意味着什么？','status.alpha.body':'功能和数据兼容会持续收敛，但交互、页面完整度以及部分生态能力仍可能快速变化。它适合跟进 2.0 的演进和参与测试，不应该被理解为已经取代稳定的 1.4.x。','status.alpha.warning':'如果你只希望稳定地日常启动游戏，请继续把现有稳定版本作为主力；2.0 Alpha 更适合愿意测试新架构与新界面的用户。','migration.kicker':'迁移','migration.title':'从 PCL N 到 Nexa Launcher。','migration.lead':'名称、版本和架构会分阶段切换，让现有用户有明确的升级路径，同时避免把尚未完成的 2.0 误认为稳定产品。','migration.old':'现有稳定产品线。仍然是 Alpha 期间更适合作为日常主力的版本。','migration.now':'2.0 Alpha 的过渡产品名。新架构和新界面在这里持续完成，并保留从 1.4.x 升级到 2.0 的路径。','migration.future':'Alpha 阶段结束后的正式名称。届时产品品牌将从 PCL Nexa 完成到 Nexa Launcher 的切换。','why.kicker':'为什么 2.0 不一样','why.title':'技术变化，最终应该体现在使用体验上。','why.lead':'2.0 的底层采用全新的 XSR 架构、NativeAOT、UI.Next / PXML 与独立插件进程边界，但这些不是为了堆技术名词，而是服务于三个直接目标。','why.fast.title':'更直接','why.fast.body':'减少运行时反射和不必要的层层转发，让启动、状态更新和界面刷新拥有更明确的数据路径。','why.safe.title':'更可控','why.safe.body':'下载、更新、状态和插件边界都有更严格的契约，异常更容易被隔离，也更容易复现和验证。','why.future.title':'更适合继续扩展','why.future.body':'新页面、插件 SDK 与后续平台能力可以建立在清晰边界上，而不是继续增加旧架构的耦合。','faq.title':'常见问题。','faq.q1':'PCL Nexa 现在就是 Nexa Launcher 吗？','faq.a1':'不是。PCL Nexa 是 2.0 Alpha 阶段的过渡名称；Alpha 结束后才正式使用 Nexa Launcher。','faq.q2':'2.0 会直接替代 PCL N 1.4.x 吗？','faq.a2':'目标是在完成迁移与切换门槛后由 2.0 接棒，但当前 Alpha 仍处于产品完成阶段。1.4.x 继续承担稳定产品线的角色。','faq.q3':'旧版本能升级到 2.0 吗？','faq.a3':'2.0 的更新策略明确支持 1.4.x → 2.0 的跨代升级。进入 2.0 后，更新系统不会主动提供回到 1.4.x 或更低 2.0 版本的降级。','faq.q4':'为什么要重写这么多东西？','faq.a4':'因为这次目标不仅是修几个页面，而是把运行时、业务能力、界面、插件边界和更新链路一起整理成长期可维护的基础。这样后续功能才能少依赖历史包袱。','faq.q5':'我现在适合使用 Alpha 吗？','faq.a5':'如果你愿意测试新功能、接受页面和行为仍在变化，并希望帮助发现问题，可以关注 Alpha；如果你只需要稳定启动游戏，现有稳定版本仍更合适。','cta.kicker':'跟进重构','cta.title':'2.0 还在生长，但方向已经确定。','cta.body':'查看 refactor/xsr 分支可以直接看到当前实现；如果你遇到问题或有明确的用户体验建议，可以通过 Issues 反馈。','cta.branch':'打开 refactor/xsr ↗','cta.issue':'前往 Issues','footer':'2.0 Alpha · Alpha 结束后：Nexa Launcher'},
-'zh-TW':{'nav.experience':'體驗','nav.status':'目前狀態','nav.migration':'遷移','nav.faq':'常見問題','hero.eyebrow':'2.0 Alpha · 全新一代 PCL','hero.lead':'為 Minecraft 重新打造的啟動體驗。','hero.copy':'PCL Nexa 是 PCL N 2.0 的 Alpha 產品線。它不是一次單純換皮，而是從啟動、下載、帳號、更新到介面互動的完整重構，目標是讓每天都會使用的操作更直接、更可靠。','hero.source':'查看目前 Alpha 分支 ↗','hero.issues':'回報問題','rename.title':'名稱仍處於過渡期','rename.body':'Alpha 階段目前使用「PCL Nexa」。Alpha 結束後，產品將正式更名為「Nexa Launcher」。儲存庫、解決方案與部分內部識別會在合適的遷移階段再逐步調整。','experience.kicker':'日常體驗','experience.title':'把複雜的啟動流程，重新變得簡單。','experience.lead':'2.0 的重點不是展示更多開關，而是把實例、Java、帳號、資源與更新這些幕後工作交給啟動器處理，讓使用者只面對真正需要做的選擇。','feature.launch.title':'啟動 Minecraft','feature.launch.body':'發現本機實例、解析繼承關係、選擇合適的 Java、準備資源與原生函式庫，再把啟動過程交給統一的程序狀態管理。發生異常時，啟動器也能保留足夠資訊供後續分析。','feature.launch.p1':'實例發現','feature.launch.p2':'Java 選擇','feature.launch.p3':'資源 / 相依項','feature.launch.p4':'程序狀態','feature.launch.p5':'崩潰分析','feature.download.title':'更可靠的下載','feature.download.body':'支援斷點續傳、分段平行、下載來源故障切換與安全的目標路徑處理。相同目標的下載會被協調，減少重複工作與損壞檔案的機會。','feature.download.p1':'斷點續傳','feature.download.p2':'分段平行','feature.download.p3':'來源切換','feature.update.title':'更新更像一次可靠的交付','feature.update.body':'更新流程會先發現版本、判斷升級資格、選擇完整套件或更小的修補路徑，再下載、驗證、暫存並安裝。2.0 同時保留從 1.4.x 跨代升級的明確通道。','flow.discover':'發現','flow.plan':'規劃','flow.download':'下載','flow.verify':'驗證','flow.install':'安裝','feature.account.title':'帳號與外觀','feature.account.body':'新的帳號能力涵蓋 Microsoft、Yggdrasil 與 LittleSkin 流程，並把登入身分與可公開顯示的帳號狀態分開。皮膚、披風與 LittleSkin 衣櫃相關能力也在 2.0 遷移範圍內。','feature.ui.title':'新的介面基礎','feature.ui.body':'PCL Nexa 正在用全新的介面基礎重建產品頁面。目前 Alpha 已擁有新的視窗外殼、導覽、啟動頁、流暢動效與減少動態效果策略，更多頁面仍會隨 Alpha 持續補齊。','feature.ui.p1':'新導覽','feature.ui.p2':'流暢動效','feature.ui.p3':'無障礙語意','status.kicker':'Alpha 狀態','status.title':'基礎已經成形，產品仍在繼續完成。','status.lead':'這個分支代表正在開發中的 2.0，而不是穩定版下載頁。底層啟動能力已跨過主要架構階段，但完整產品介面、外掛生態與最終切換仍在後續遷移中。','status.now.title':'現在已經完成什麼？','status.now.body':'從執行核心、渲染基礎、PXML、Sidecar，到設定 / 下載 / 更新 / 帳號以及 Minecraft 核心啟動鏈路，都已形成可驗證的 2.0 實作。','status.row1':'啟動器基礎能力','status.row2':'Minecraft 核心啟動鏈路','status.row3':'產品介面與頁面','status.row4':'外掛與完整生態切換','status.complete':'已完成主要遷移','status.progress':'進行中','status.later':'後續階段','status.alpha.title':'Alpha 代表什麼？','status.alpha.body':'功能與資料相容會持續收斂，但互動、頁面完整度以及部分生態能力仍可能快速變化。它適合跟進 2.0 的演進與參與測試，不應被理解為已取代穩定的 1.4.x。','status.alpha.warning':'如果你只希望穩定地日常啟動遊戲，請繼續把現有穩定版本作為主力；2.0 Alpha 更適合願意測試新架構與新介面的使用者。','migration.kicker':'遷移','migration.title':'從 PCL N 到 Nexa Launcher。','migration.lead':'名稱、版本與架構會分階段切換，讓既有使用者有明確的升級路徑，同時避免把尚未完成的 2.0 誤認為穩定產品。','migration.old':'現有穩定產品線。仍然是 Alpha 期間更適合作為日常主力的版本。','migration.now':'2.0 Alpha 的過渡產品名。新架構與新介面在這裡持續完成，並保留從 1.4.x 升級到 2.0 的路徑。','migration.future':'Alpha 階段結束後的正式名稱。屆時產品品牌將從 PCL Nexa 完成到 Nexa Launcher 的切換。','why.kicker':'為什麼 2.0 不一樣','why.title':'技術變化，最終應該體現在使用體驗上。','why.lead':'2.0 的底層採用全新的 XSR 架構、NativeAOT、UI.Next / PXML 與獨立外掛程序邊界，但這些不是為了堆技術名詞，而是服務於三個直接目標。','why.fast.title':'更直接','why.fast.body':'減少執行期反射與不必要的層層轉送，讓啟動、狀態更新與介面重新整理擁有更明確的資料路徑。','why.safe.title':'更可控','why.safe.body':'下載、更新、狀態與外掛邊界都有更嚴格的契約，異常更容易被隔離，也更容易重現與驗證。','why.future.title':'更適合繼續擴充','why.future.body':'新頁面、Plugin SDK 與後續平台能力可以建立在清楚邊界上，而不是繼續增加舊架構的耦合。','faq.title':'常見問題。','faq.q1':'PCL Nexa 現在就是 Nexa Launcher 嗎？','faq.a1':'不是。PCL Nexa 是 2.0 Alpha 階段的過渡名稱；Alpha 結束後才正式使用 Nexa Launcher。','faq.q2':'2.0 會直接取代 PCL N 1.4.x 嗎？','faq.a2':'目標是在完成遷移與切換門檻後由 2.0 接棒，但目前 Alpha 仍處於產品完成階段。1.4.x 繼續承擔穩定產品線的角色。','faq.q3':'舊版本能升級到 2.0 嗎？','faq.a3':'2.0 的更新策略明確支援 1.4.x → 2.0 的跨代升級。進入 2.0 後，更新系統不會主動提供回到 1.4.x 或更低 2.0 版本的降級。','faq.q4':'為什麼要重寫這麼多東西？','faq.a4':'因為這次目標不只是修幾個頁面，而是把執行期、業務能力、介面、外掛邊界與更新鏈路一起整理成長期可維護的基礎。這樣後續功能才能少依賴歷史包袱。','faq.q5':'我現在適合使用 Alpha 嗎？','faq.a5':'如果你願意測試新功能、接受頁面與行為仍在變化，並希望協助發現問題，可以關注 Alpha；如果你只需要穩定啟動遊戲，現有穩定版本仍更合適。','cta.kicker':'跟進重構','cta.title':'2.0 還在成長，但方向已經確定。','cta.body':'查看 refactor/xsr 分支可以直接看到目前實作；如果你遇到問題或有明確的使用體驗建議，可以透過 Issues 回報。','cta.branch':'開啟 refactor/xsr ↗','cta.issue':'前往 Issues','footer':'2.0 Alpha · Alpha 結束後：Nexa Launcher'},
-'en':{'nav.experience':'Experience','nav.status':'Status','nav.migration':'Migration','nav.faq':'FAQ','hero.eyebrow':'2.0 Alpha · the next generation of PCL','hero.lead':'A Minecraft launch experience rebuilt from the ground up.','hero.copy':'PCL Nexa is the Alpha product line for PCL N 2.0. This is more than a visual refresh: launching, downloads, accounts, updates and the interface are being rebuilt together so everyday actions can be more direct and more dependable.','hero.source':'View the current Alpha branch ↗','hero.issues':'Report an issue','rename.title':'The product name is still transitional','rename.body':'During Alpha, the product is called “PCL Nexa”. After Alpha ends, it will be formally renamed to “Nexa Launcher”. Repository, solution and selected internal identifiers will move at the appropriate migration stages.','experience.kicker':'Everyday experience','experience.title':'Make a complex launch pipeline feel simple again.','experience.lead':'2.0 is not about exposing more switches. It moves instance, Java, account, resource and update work behind the launcher so users only need to make choices that actually matter.','feature.launch.title':'Launch Minecraft','feature.launch.body':'Discover local instances, resolve inheritance, select a suitable Java runtime, prepare assets and native libraries, then track the game through one process-state model. When something fails, the launcher keeps the information needed for later analysis.','feature.launch.p1':'Instance discovery','feature.launch.p2':'Java selection','feature.launch.p3':'Assets / libraries','feature.launch.p4':'Process state','feature.launch.p5':'Crash analysis','feature.download.title':'More dependable downloads','feature.download.body':'Resume interrupted transfers, download in parallel segments, fail over between sources, and keep destination handling safe. Work targeting the same destination is coordinated to reduce duplication and damaged files.','feature.download.p1':'Resume','feature.download.p2':'Segmented','feature.download.p3':'Source failover','feature.update.title':'Updates treated like a reliable delivery','feature.update.body':'The updater discovers releases, checks eligibility, chooses a full package or smaller patch path, then downloads, verifies, stages and installs it. 2.0 also keeps an explicit migration path from the 1.4.x line.','flow.discover':'Discover','flow.plan':'Plan','flow.download':'Download','flow.verify':'Verify','flow.install':'Install','feature.account.title':'Accounts and appearance','feature.account.body':'The new account capability covers Microsoft, Yggdrasil and LittleSkin flows while separating login identity from public account state. Skin, cape and LittleSkin closet-related capabilities are also part of the 2.0 migration.','feature.ui.title':'A new interface foundation','feature.ui.body':'PCL Nexa is rebuilding product pages on a new UI foundation. The current Alpha already has the new window shell, navigation, launch page, fluid motion and reduced-motion policy; more pages will continue to arrive throughout Alpha.','feature.ui.p1':'New navigation','feature.ui.p2':'Fluid motion','feature.ui.p3':'Accessibility semantics','status.kicker':'Alpha status','status.title':'The foundation is real. The product is still being finished.','status.lead':'This branch represents 2.0 in active development, not a stable download page. Core launcher capabilities have passed the major architecture stages, while the complete product UI, plugin ecosystem and final cutover remain later migration work.','status.now.title':'What is already in place?','status.now.body':'The runtime kernel, renderer foundation, PXML, Sidecar, settings, downloads, updates, accounts and the Minecraft launch core all have verifiable 2.0 implementations.','status.row1':'Launcher foundation','status.row2':'Minecraft launch core','status.row3':'Product UI and pages','status.row4':'Plugins and full ecosystem cutover','status.complete':'major migration complete','status.progress':'in progress','status.later':'later stage','status.alpha.title':'What does Alpha mean?','status.alpha.body':'Functionality and data compatibility are converging, but interactions, page completeness and ecosystem features can still change quickly. Alpha is suitable for following 2.0 and testing it, not for treating it as the finished replacement for stable 1.4.x.','status.alpha.warning':'If you only want a stable everyday game launcher, keep the current stable line as your primary launcher. 2.0 Alpha is better suited to users who want to test the new architecture and interface.','migration.kicker':'Migration','migration.title':'From PCL N to Nexa Launcher.','migration.lead':'The name, version line and architecture move in stages so existing users retain a clear upgrade path without presenting unfinished 2.0 work as a stable product.','migration.old':'The current stable product line, and still the better everyday choice while 2.0 is in Alpha.','migration.now':'The transitional product name for 2.0 Alpha. The new architecture and interface are completed here while keeping the 1.4.x → 2.0 upgrade path.','migration.future':'The formal product name after Alpha ends. At that point the brand moves from PCL Nexa to Nexa Launcher.','why.kicker':'Why 2.0 feels different','why.title':'Technical change should ultimately show up in the user experience.','why.lead':'Under the surface, 2.0 uses the new XSR architecture, NativeAOT, UI.Next / PXML and an isolated plugin-process boundary. Those choices serve three direct goals rather than existing as technology for its own sake.','why.fast.title':'More direct','why.fast.body':'Reduce runtime reflection and unnecessary forwarding so launch, state updates and UI refreshes follow clearer data paths.','why.safe.title':'More controlled','why.safe.body':'Downloads, updates, state and plugin boundaries have stricter contracts, making failures easier to isolate, reproduce and verify.','why.future.title':'Built to keep evolving','why.future.body':'New pages, the Plugin SDK and future platform capabilities can grow on explicit boundaries instead of adding more legacy coupling.','faq.title':'Frequently asked questions.','faq.q1':'Is PCL Nexa already Nexa Launcher?','faq.a1':'No. PCL Nexa is the transitional name used during 2.0 Alpha. Nexa Launcher becomes the formal name after Alpha ends.','faq.q2':'Does 2.0 immediately replace PCL N 1.4.x?','faq.a2':'The goal is for 2.0 to take over after migration and cutover gates are complete. During Alpha, 1.4.x remains the stable product line.','faq.q3':'Can older versions upgrade to 2.0?','faq.a3':'Yes. The 2.0 update policy explicitly supports a 1.4.x → 2.0 major-version upgrade. Once on 2.0, the updater does not offer downgrades back to 1.4.x or to lower-ranked 2.0 builds.','faq.q4':'Why rewrite so much?','faq.a4':'The goal is not to repair a handful of pages. Runtime behavior, business capabilities, UI, plugin boundaries and updates are being reorganized into a maintainable long-term foundation, reducing dependence on legacy coupling.','faq.q5':'Should I use Alpha now?','faq.a5':'Follow Alpha if you want to test new functionality, accept that pages and behavior are still changing, and want to help surface issues. If you mainly need a stable launcher, the existing stable release is still the better fit.','cta.kicker':'Follow the rebuild','cta.title':'2.0 is still growing, but its direction is set.','cta.body':'The refactor/xsr branch shows the current implementation directly. If you run into a problem or have specific user-experience feedback, open an Issue.','cta.branch':'Open refactor/xsr ↗','cta.issue':'Go to Issues','footer':'2.0 Alpha · After Alpha: Nexa Launcher'}};
-function detect(){let s=localStorage.getItem('pcl-nexa-lang');if(s&&L[s])return s;for(const raw of(navigator.languages||[navigator.language||'en'])){const x=String(raw).toLowerCase();if(x.startsWith('zh-tw')||x.startsWith('zh-hk')||x.startsWith('zh-mo')||x.includes('hant'))return'zh-TW';if(x.startsWith('zh'))return'zh-CN'}return'en'}
-function setLang(lang,save=true){if(!L[lang])lang='en';document.documentElement.lang=lang;document.querySelectorAll('[data-i18n]').forEach(e=>{const v=L[lang][e.dataset.i18n];if(v!==undefined)e.textContent=v});document.querySelectorAll('[data-lang]').forEach(b=>b.classList.toggle('active',b.dataset.lang===lang));if(save)localStorage.setItem('pcl-nexa-lang',lang)}document.querySelectorAll('[data-lang]').forEach(b=>b.onclick=()=>setLang(b.dataset.lang));setLang(detect(),false);
-</script></body></html>
+    const copy = {
+      "zh-CN": {
+            "nav.experience": "体验",
+            "nav.status": "进度",
+            "nav.migration": "升级",
+            "nav.faq": "常见问题",
+            "hero.eyebrow": "2.0 Alpha · PCL N 的下一代版本",
+            "hero.lead": "一个更省心的 Minecraft 启动器。",
+            "hero.copy": "PCL Nexa 是 PCL N 2.0 Alpha 期间使用的名字。我们正在重做启动、下载、账号、更新和界面。能自动处理的事情会尽量交给启动器，你只需要处理真正需要选择的部分。",
+            "hero.source": "查看 2.0 Alpha 分支 ↗",
+            "hero.issues": "反馈问题",
+            "rename.title": "名字还会再变一次",
+            "rename.body": "Alpha 期间继续使用 PCL Nexa。Alpha 结束后会正式改名为 Nexa Launcher。仓库和内部名称会在后面逐步调整。",
+            "experience.kicker": "日常使用",
+            "experience.title": "日常启动游戏，应该少操点心。",
+            "experience.lead": "实例、Java、账号、资源和更新这些事情，能自动处理的就交给启动器。你只需要处理真正需要选择的部分。",
+            "feature.launch.title": "启动 Minecraft",
+            "feature.launch.body": "启动器会找到本地实例，处理版本继承，选择合适的 Java，再准备资源和依赖。游戏启动后，它也会继续记录进程状态，方便排查崩溃。",
+            "feature.launch.p1": "查找实例",
+            "feature.launch.p2": "选择 Java",
+            "feature.launch.p3": "准备资源",
+            "feature.launch.p4": "记录进程",
+            "feature.launch.p5": "分析崩溃",
+            "feature.download.title": "下载中断了也能继续",
+            "feature.download.body": "下载中断后可以继续。大文件会分段下载。某个来源不可用时，启动器会尝试其他来源。",
+            "feature.download.p1": "断点续传",
+            "feature.download.p2": "分段下载",
+            "feature.download.p3": "自动换源",
+            "feature.update.title": "更新少折腾",
+            "feature.update.body": "启动器会先检查可用版本，再决定用完整包还是更小的补丁。下载完成后会验证文件，再开始安装。PCL N 1.4.x 也可以直接升级到 2.0。",
+            "flow.discover": "检查版本",
+            "flow.plan": "准备更新",
+            "flow.download": "下载",
+            "flow.verify": "验证",
+            "flow.install": "安装",
+            "feature.account.title": "账号和外观",
+            "feature.account.body": "支持 Microsoft、Yggdrasil 和 LittleSkin 登录。皮肤、披风和 LittleSkin 衣柜也会继续补齐。登录凭据不会直接放进公开状态。",
+            "feature.ui.title": "新的界面正在补齐",
+            "feature.ui.body": "2.0 已经换上新的窗口、导航和启动页。动效和减少动态效果也已经接入。其他页面还在继续迁移。",
+            "feature.ui.p1": "新导航",
+            "feature.ui.p2": "更顺的动效",
+            "feature.ui.p3": "无障碍支持",
+            "status.kicker": "Alpha 进度",
+            "status.title": "能用了，但还没做完。",
+            "status.lead": "refactor/xsr 是 2.0 的开发分支，不是稳定版下载页。启动、下载、更新和账号这些核心功能已经有了。完整界面和插件还在继续做。",
+            "status.now.title": "现在做到哪了",
+            "status.now.body": "启动器底层、界面、设置、下载、更新、账号和 Minecraft 启动流程都已经有 2.0 版本。现在主要在补产品页面和后面的插件能力。",
+            "status.row1": "启动器基础功能",
+            "status.row2": "Minecraft 启动流程",
+            "status.row3": "界面和页面",
+            "status.row4": "插件和生态",
+            "status.complete": "主要部分已完成",
+            "status.progress": "正在做",
+            "status.later": "后面再做",
+            "status.alpha.title": "Alpha 适合谁",
+            "status.alpha.body": "Alpha 里的页面和行为还会改，也可能遇到问题。它更适合想提前体验 2.0，或者愿意帮忙测试的人。",
+            "status.alpha.warning": "如果你只想稳定启动游戏，先继续用 PCL N 1.4.x 稳定版。",
+            "migration.kicker": "升级路线",
+            "migration.title": "名字会变，升级路线不会乱。",
+            "migration.lead": "现在的稳定版还是 PCL N 1.4.x。2.0 Alpha 暂时叫 PCL Nexa。Alpha 结束后会改名为 Nexa Launcher。",
+            "migration.old": "现在的稳定版。Alpha 期间更适合日常使用。",
+            "migration.now": "2.0 Alpha 现在使用的名字。PCL N 1.4.x 可以直接升级过来。",
+            "migration.future": "Alpha 结束后的正式名称。",
+            "why.kicker": "为什么要做 2.0",
+            "why.title": "重做这些东西，是为了少出问题。",
+            "why.lead": "2.0 底层用了 XSR、NativeAOT、UI.Next 和 PXML。你不需要记这些名字。它们主要用来解决速度、稳定性和后续维护的问题。",
+            "why.fast.title": "少绕一层",
+            "why.fast.body": "启动和界面更新尽量走更直接的路径。少做不必要的中转。",
+            "why.safe.title": "出问题更好查",
+            "why.safe.body": "下载、更新和插件都有更清楚的边界。某一块出错时，更容易找到原因。",
+            "why.future.title": "以后更好加功能",
+            "why.future.body": "新页面和插件能力可以继续往上加，不用一直绕着旧代码改。",
+            "faq.title": "常见问题",
+            "faq.q1": "PCL Nexa 现在就是 Nexa Launcher 吗？",
+            "faq.a1": "不是。PCL Nexa 只是 2.0 Alpha 期间使用的名字。Alpha 结束后才会正式改名为 Nexa Launcher。",
+            "faq.q2": "2.0 现在会取代 PCL N 1.4.x 吗？",
+            "faq.a2": "还不会。Alpha 期间，PCL N 1.4.x 仍然是稳定版。等 2.0 做完并通过切换检查后，才会正式接替它。",
+            "faq.q3": "PCL N 1.4.x 能升级到 2.0 吗？",
+            "faq.a3": "可以。更新系统支持从 1.4.x 直接升级到 2.0。进入 2.0 后，启动器不会主动提供降级到 1.4.x 或更旧 2.0 版本的选项。",
+            "faq.q4": "为什么这次要重写这么多？",
+            "faq.a4": "旧架构已经越来越难继续改。2.0 选择一次把启动、界面、更新和插件这些基础重新整理好，后面做功能会轻松很多。",
+            "faq.q5": "我现在适合用 Alpha 吗？",
+            "faq.a5": "如果你想提前体验 2.0，也能接受页面和功能还会变化，可以试 Alpha。如果你只想稳定玩游戏，继续用稳定版更合适。",
+            "cta.kicker": "看看开发进度",
+            "cta.title": "看看 2.0 现在做到哪了。",
+            "cta.body": "代码都在 refactor/xsr。遇到问题可以到 Issues 里写清楚复现步骤和你看到的现象。",
+            "cta.branch": "打开 refactor/xsr ↗",
+            "cta.issue": "前往 Issues",
+            "footer": "2.0 Alpha · Alpha 结束后改名为 Nexa Launcher"
+      },
+      "zh-TW": {
+            "nav.experience": "體驗",
+            "nav.status": "進度",
+            "nav.migration": "升級",
+            "nav.faq": "常見問題",
+            "hero.eyebrow": "2.0 Alpha · PCL N 的下一代版本",
+            "hero.lead": "一個更省心的 Minecraft 啟動器。",
+            "hero.copy": "PCL Nexa 是 PCL N 2.0 Alpha 期間使用的名字。我們正在重做啟動、下載、帳號、更新和介面。能自動處理的事情會盡量交給啟動器，你只需要處理真正需要選擇的部分。",
+            "hero.source": "查看 2.0 Alpha 分支 ↗",
+            "hero.issues": "回報問題",
+            "rename.title": "名字還會再變一次",
+            "rename.body": "Alpha 期間繼續使用 PCL Nexa。Alpha 結束後會正式改名為 Nexa Launcher。儲存庫和內部名稱會在後面逐步調整。",
+            "experience.kicker": "日常使用",
+            "experience.title": "日常啟動遊戲，應該少操點心。",
+            "experience.lead": "實例、Java、帳號、資源和更新這些事情，能自動處理的就交給啟動器。你只需要處理真正需要選擇的部分。",
+            "feature.launch.title": "啟動 Minecraft",
+            "feature.launch.body": "啟動器會找到本機實例，處理版本繼承，選擇合適的 Java，再準備資源和依賴。遊戲啟動後，它也會繼續記錄程序狀態，方便排查當機。",
+            "feature.launch.p1": "尋找實例",
+            "feature.launch.p2": "選擇 Java",
+            "feature.launch.p3": "準備資源",
+            "feature.launch.p4": "記錄程序",
+            "feature.launch.p5": "分析當機",
+            "feature.download.title": "下載中斷了也能繼續",
+            "feature.download.body": "下載中斷後可以繼續。大檔案會分段下載。某個來源不可用時，啟動器會嘗試其他來源。",
+            "feature.download.p1": "斷點續傳",
+            "feature.download.p2": "分段下載",
+            "feature.download.p3": "自動換源",
+            "feature.update.title": "更新少折騰",
+            "feature.update.body": "啟動器會先檢查可用版本，再決定使用完整套件還是更小的修補檔。下載完成後會驗證檔案，再開始安裝。PCL N 1.4.x 也可以直接升級到 2.0。",
+            "flow.discover": "檢查版本",
+            "flow.plan": "準備更新",
+            "flow.download": "下載",
+            "flow.verify": "驗證",
+            "flow.install": "安裝",
+            "feature.account.title": "帳號和外觀",
+            "feature.account.body": "支援 Microsoft、Yggdrasil 和 LittleSkin 登入。皮膚、披風和 LittleSkin 衣櫃也會繼續補齊。登入憑證不會直接放進公開狀態。",
+            "feature.ui.title": "新的介面正在補齊",
+            "feature.ui.body": "2.0 已經換上新的視窗、導覽和啟動頁。動效和減少動態效果也已經接入。其他頁面還在繼續搬過來。",
+            "feature.ui.p1": "新導覽",
+            "feature.ui.p2": "更順的動效",
+            "feature.ui.p3": "無障礙支援",
+            "status.kicker": "Alpha 進度",
+            "status.title": "能用了，但還沒做完。",
+            "status.lead": "refactor/xsr 是 2.0 的開發分支，不是穩定版下載頁。啟動、下載、更新和帳號這些核心功能已經有了。完整介面和外掛還在繼續做。",
+            "status.now.title": "現在做到哪了",
+            "status.now.body": "啟動器底層、介面、設定、下載、更新、帳號和 Minecraft 啟動流程都已經有 2.0 版本。現在主要在補產品頁面和後面的外掛能力。",
+            "status.row1": "啟動器基礎功能",
+            "status.row2": "Minecraft 啟動流程",
+            "status.row3": "介面和頁面",
+            "status.row4": "外掛和生態",
+            "status.complete": "主要部分已完成",
+            "status.progress": "正在做",
+            "status.later": "後面再做",
+            "status.alpha.title": "Alpha 適合誰",
+            "status.alpha.body": "Alpha 裡的頁面和行為還會改，也可能遇到問題。它更適合想提早體驗 2.0，或願意幫忙測試的人。",
+            "status.alpha.warning": "如果你只想穩定啟動遊戲，先繼續使用 PCL N 1.4.x 穩定版。",
+            "migration.kicker": "升級路線",
+            "migration.title": "名字會變，升級路線不會亂。",
+            "migration.lead": "現在的穩定版還是 PCL N 1.4.x。2.0 Alpha 暫時叫 PCL Nexa。Alpha 結束後會改名為 Nexa Launcher。",
+            "migration.old": "現在的穩定版。Alpha 期間更適合日常使用。",
+            "migration.now": "2.0 Alpha 現在使用的名字。PCL N 1.4.x 可以直接升級過來。",
+            "migration.future": "Alpha 結束後的正式名稱。",
+            "why.kicker": "為什麼要做 2.0",
+            "why.title": "重做這些東西，是為了少出問題。",
+            "why.lead": "2.0 底層用了 XSR、NativeAOT、UI.Next 和 PXML。你不需要記這些名字。它們主要用來解決速度、穩定性和後續維護的問題。",
+            "why.fast.title": "少繞一層",
+            "why.fast.body": "啟動和介面更新盡量走更直接的路徑。少做不必要的轉送。",
+            "why.safe.title": "出問題更好查",
+            "why.safe.body": "下載、更新和外掛都有更清楚的邊界。某一塊出錯時，更容易找到原因。",
+            "why.future.title": "以後更好加功能",
+            "why.future.body": "新頁面和外掛能力可以繼續往上加，不用一直繞著舊程式碼改。",
+            "faq.title": "常見問題",
+            "faq.q1": "PCL Nexa 現在就是 Nexa Launcher 嗎？",
+            "faq.a1": "不是。PCL Nexa 只是 2.0 Alpha 期間使用的名字。Alpha 結束後才會正式改名為 Nexa Launcher。",
+            "faq.q2": "2.0 現在會取代 PCL N 1.4.x 嗎？",
+            "faq.a2": "還不會。Alpha 期間，PCL N 1.4.x 仍然是穩定版。等 2.0 做完並通過切換檢查後，才會正式接替它。",
+            "faq.q3": "PCL N 1.4.x 能升級到 2.0 嗎？",
+            "faq.a3": "可以。更新系統支援從 1.4.x 直接升級到 2.0。進入 2.0 後，啟動器不會主動提供降級到 1.4.x 或更舊 2.0 版本的選項。",
+            "faq.q4": "為什麼這次要重寫這麼多？",
+            "faq.a4": "舊架構已經越來越難繼續改。2.0 選擇一次把啟動、介面、更新和外掛這些基礎重新整理好，後面做功能會輕鬆很多。",
+            "faq.q5": "我現在適合用 Alpha 嗎？",
+            "faq.a5": "如果你想提早體驗 2.0，也能接受頁面和功能還會變化，可以試 Alpha。如果你只想穩定玩遊戲，繼續用穩定版更合適。",
+            "cta.kicker": "看看開發進度",
+            "cta.title": "看看 2.0 現在做到哪了。",
+            "cta.body": "程式碼都在 refactor/xsr。遇到問題可以到 Issues 裡寫清楚重現步驟和你看到的情況。",
+            "cta.branch": "開啟 refactor/xsr ↗",
+            "cta.issue": "前往 Issues",
+            "footer": "2.0 Alpha · Alpha 結束後改名為 Nexa Launcher"
+      },
+      "en": {
+            "nav.experience": "Experience",
+            "nav.status": "Progress",
+            "nav.migration": "Upgrade",
+            "nav.faq": "FAQ",
+            "hero.eyebrow": "2.0 Alpha · the next PCL N",
+            "hero.lead": "A Minecraft launcher that asks less from you.",
+            "hero.copy": "PCL Nexa is the name used during the PCL N 2.0 Alpha. Launching, downloads, accounts, updates and the interface are being rebuilt. The launcher should handle the routine work so you only make the choices that matter.",
+            "hero.source": "View the 2.0 Alpha branch ↗",
+            "hero.issues": "Report a problem",
+            "rename.title": "The name will change once more",
+            "rename.body": "The product will keep the PCL Nexa name during Alpha. After Alpha, it will be renamed to Nexa Launcher. Repository and internal names will be updated later as the work moves forward.",
+            "experience.kicker": "Everyday use",
+            "experience.title": "Launching a game should take less effort.",
+            "experience.lead": "Instances, Java, accounts, assets and updates should be handled by the launcher whenever possible. You should only see the choices that actually need your input.",
+            "feature.launch.title": "Launch Minecraft",
+            "feature.launch.body": "The launcher finds local instances, resolves version inheritance, picks a suitable Java runtime, then prepares assets and libraries. After launch, it keeps track of the game process so crashes are easier to investigate.",
+            "feature.launch.p1": "Find instances",
+            "feature.launch.p2": "Pick Java",
+            "feature.launch.p3": "Prepare assets",
+            "feature.launch.p4": "Track process",
+            "feature.launch.p5": "Check crashes",
+            "feature.download.title": "Downloads can pick up where they stopped",
+            "feature.download.body": "Interrupted downloads can resume. Large files can download in segments. If one source fails, the launcher can try another.",
+            "feature.download.p1": "Resume",
+            "feature.download.p2": "Segmented downloads",
+            "feature.download.p3": "Source fallback",
+            "feature.update.title": "Updates with less fuss",
+            "feature.update.body": "The launcher checks available versions, then chooses a full package or a smaller patch. Files are verified before installation. PCL N 1.4.x can upgrade directly to 2.0.",
+            "flow.discover": "Check",
+            "flow.plan": "Prepare",
+            "flow.download": "Download",
+            "flow.verify": "Verify",
+            "flow.install": "Install",
+            "feature.account.title": "Accounts and appearance",
+            "feature.account.body": "Microsoft, Yggdrasil and LittleSkin sign in are supported. Skins, capes and the LittleSkin closet are also part of the 2.0 work. Sign in credentials are kept separate from public account state.",
+            "feature.ui.title": "The new interface is taking shape",
+            "feature.ui.body": "2.0 already has the new window shell, navigation and launch page. Motion and reduced motion support are in place too. The remaining pages are still being moved over.",
+            "feature.ui.p1": "New navigation",
+            "feature.ui.p2": "Smoother motion",
+            "feature.ui.p3": "Accessibility",
+            "status.kicker": "Alpha progress",
+            "status.title": "It works, but it is not finished.",
+            "status.lead": "refactor/xsr is the active 2.0 development branch. It is not the stable download page. Core launch, download, update and account features are already in place. The full interface and plugins are still being completed.",
+            "status.now.title": "What is ready now",
+            "status.now.body": "The launcher core, interface layer, settings, downloads, updates, accounts and Minecraft launch flow all have 2.0 implementations. Most current work is on product pages and the plugin work that follows.",
+            "status.row1": "Launcher basics",
+            "status.row2": "Minecraft launch flow",
+            "status.row3": "Interface and pages",
+            "status.row4": "Plugins and ecosystem",
+            "status.complete": "main work complete",
+            "status.progress": "in progress",
+            "status.later": "later",
+            "status.alpha.title": "Who Alpha is for",
+            "status.alpha.body": "Pages and behavior can still change, and bugs are expected. Alpha is best for people who want to try 2.0 early or help test it.",
+            "status.alpha.warning": "If you mainly want a stable launcher for everyday play, keep using the PCL N 1.4.x stable release for now.",
+            "migration.kicker": "Upgrade path",
+            "migration.title": "The name will change. The upgrade path stays clear.",
+            "migration.lead": "The current stable release is still PCL N 1.4.x. The 2.0 Alpha is temporarily called PCL Nexa. After Alpha, it will be renamed to Nexa Launcher.",
+            "migration.old": "The current stable release. It is still the better everyday choice during Alpha.",
+            "migration.now": "The name used for 2.0 Alpha. PCL N 1.4.x can upgrade directly to it.",
+            "migration.future": "The final product name after Alpha.",
+            "why.kicker": "Why 2.0 exists",
+            "why.title": "The rebuild is meant to make the launcher easier to trust.",
+            "why.lead": "2.0 uses XSR, NativeAOT, UI.Next and PXML under the hood. You do not need to remember those names. The point is better speed, fewer fragile parts and an easier codebase to maintain.",
+            "why.fast.title": "Less indirection",
+            "why.fast.body": "Launch and interface updates use more direct paths and avoid work that does not need to happen.",
+            "why.safe.title": "Problems are easier to trace",
+            "why.safe.body": "Downloads, updates and plugins have clearer boundaries. When one part fails, the cause is easier to narrow down.",
+            "why.future.title": "Easier to keep building",
+            "why.future.body": "New pages and plugin features can be added without working around the old structure every time.",
+            "faq.title": "Frequently asked questions",
+            "faq.q1": "Is PCL Nexa already Nexa Launcher?",
+            "faq.a1": "No. PCL Nexa is the name used during 2.0 Alpha. The product will be renamed to Nexa Launcher after Alpha ends.",
+            "faq.q2": "Does 2.0 replace PCL N 1.4.x right now?",
+            "faq.a2": "Not yet. PCL N 1.4.x remains the stable release during Alpha. 2.0 will take over after the remaining work and cutover checks are complete.",
+            "faq.q3": "Can PCL N 1.4.x upgrade to 2.0?",
+            "faq.a3": "Yes. The updater supports a direct upgrade from 1.4.x to 2.0. Once you are on 2.0, it will not offer a downgrade back to 1.4.x or an older 2.0 build.",
+            "faq.q4": "Why rewrite so much at once?",
+            "faq.a4": "The old structure has become harder to extend. 2.0 reorganizes launching, the interface, updates and plugins now so future features are easier to build and maintain.",
+            "faq.q5": "Should I use Alpha now?",
+            "faq.a5": "Try Alpha if you want an early look at 2.0 and you are fine with pages and behavior still changing. If you mainly want a stable launcher, the current stable release is the better choice.",
+            "cta.kicker": "Follow the work",
+            "cta.title": "See where 2.0 is today.",
+            "cta.body": "The code is in refactor/xsr. If you find a problem, open an Issue and include the steps that reproduce it and what you saw.",
+            "cta.branch": "Open refactor/xsr ↗",
+            "cta.issue": "Open Issues",
+            "footer": "2.0 Alpha · Renames to Nexa Launcher after Alpha"
+      }
+};
+
+    function detectLanguage() {
+      const saved = localStorage.getItem('pcl-nexa-lang');
+      if (saved && copy[saved]) return saved;
+      const langs = navigator.languages || [navigator.language || 'en'];
+      for (const raw of langs) {
+        const lang = String(raw).toLowerCase();
+        if (lang.startsWith('zh-tw') || lang.startsWith('zh-hk') || lang.startsWith('zh-mo') || lang.includes('hant')) return 'zh-TW';
+        if (lang.startsWith('zh')) return 'zh-CN';
+      }
+      return 'en';
+    }
+
+    function setLanguage(lang, persist = true) {
+      if (!copy[lang]) lang = 'en';
+      document.documentElement.lang = lang;
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const value = copy[lang][el.dataset.i18n];
+        if (value !== undefined) el.textContent = value;
+      });
+      document.querySelectorAll('[data-lang]').forEach(btn => btn.classList.toggle('active', btn.dataset.lang === lang));
+      if (persist) localStorage.setItem('pcl-nexa-lang', lang);
+    }
+
+    document.querySelectorAll('[data-lang]').forEach(btn => btn.addEventListener('click', () => setLanguage(btn.dataset.lang)));
+    setLanguage(detectLanguage(), false);
+  </script>
+</body></html>
