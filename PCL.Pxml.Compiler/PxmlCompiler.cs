@@ -242,6 +242,8 @@ public static class PxmlCompiler
         private string? _placeholder;
         private bool _isPassword;
         private bool _enabled = true;
+        private string? _transitionKey;
+        private double _transitionOffsetX;
 
         public string? Key => _key;
 
@@ -327,6 +329,12 @@ public static class PxmlCompiler
                 case PxmlIrPropertyTarget.Enabled:
                     _enabled = (bool)value;
                     break;
+                case PxmlIrPropertyTarget.TransitionKey:
+                    _transitionKey = (string)value;
+                    break;
+                case PxmlIrPropertyTarget.TransitionOffsetX:
+                    _transitionOffsetX = (double)value;
+                    break;
                 default:
                     throw new InvalidOperationException(
                         $"The generated control catalog uses unsupported IR target '{target}'.");
@@ -368,6 +376,8 @@ public static class PxmlCompiler
                 Placeholder = _placeholder,
                 IsPassword = _isPassword,
                 Enabled = _enabled,
+                TransitionKey = _transitionKey,
+                TransitionOffsetX = _transitionOffsetX,
                 Bindings = bindings,
             };
     }

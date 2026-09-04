@@ -246,10 +246,12 @@ public sealed class AccountService
     /// Removes the profile at the given index and persists the whole list atomically. Later
     /// profiles shift down; published views re-index accordingly.
     /// </summary>
-    public XsrResult RemoveProfile(int index)
+    public XsrResult RemoveProfile(int index, long? expectedRosterRevision = null)
     {
         lock (_gate)
         {
+            if (expectedRosterRevision is { } expected && _store.ReadCollection<LaunchProfileView>(_profilesId).Revision != expected)
+                return XsrResult.Failure(AccountErrors.InvalidProfile("the roster changed; choose the profile again."));
             if (index < 0 || index >= _profiles.Count)
             {
                 return XsrResult.Failure(AccountErrors.ProfileNotFound(index));

@@ -20,6 +20,8 @@ internal static class LaunchPageState
     public static readonly XsrSemanticId AccountHintKey = XsrSemanticId.Parse("launch.account.hint");
     public static readonly XsrSemanticId AccountHintVisibleKey = XsrSemanticId.Parse("launch.account.hint-visible");
     public static readonly XsrSemanticId AccountTitleKey = XsrSemanticId.Parse("launch.account.title");
+    public static readonly XsrSemanticId AccountTransitionKey = XsrSemanticId.Parse("launch.account.transition");
+    public static readonly XsrSemanticId TitleTransitionKey = XsrSemanticId.Parse("launch.navigation.title");
     public static readonly XsrSemanticId AccountBackVisibleKey = XsrSemanticId.Parse("launch.account.back-visible");
     public static readonly XsrSemanticId AccountAddVisibleKey = XsrSemanticId.Parse("launch.account.add-visible");
     public static readonly XsrSemanticId InstanceSummaryKey = XsrSemanticId.Parse("launch.instance.summary");
@@ -31,6 +33,7 @@ internal static class LaunchPageState
     public static readonly XsrSemanticId StatusVisibleKey = XsrSemanticId.Parse("launch.status.visible");
     public static readonly XsrSemanticId WidgetAboutLabelKey = XsrSemanticId.Parse("launch.widget.about-label");
     public static readonly XsrSemanticId WidgetTriviaLabelKey = XsrSemanticId.Parse("launch.widget.trivia-label");
+    public static readonly XsrSemanticId WidgetEchoLabelKey = XsrSemanticId.Parse("launch.widget.echo-label");
     public static readonly XsrSemanticId WidgetHintKey = XsrSemanticId.Parse("launch.widget.hint");
 
     public static void DeclareState(XsrStateStoreBuilder builder)
@@ -46,6 +49,8 @@ internal static class LaunchPageState
         builder.Cell<string>(AccountHintKey, OwnerName);
         builder.Cell<bool>(AccountHintVisibleKey, OwnerName);
         builder.Cell<string>(AccountTitleKey, OwnerName);
+        builder.Cell<string>(AccountTransitionKey, OwnerName);
+        builder.Cell<string>(TitleTransitionKey, OwnerName);
         builder.Cell<bool>(AccountBackVisibleKey, OwnerName);
         builder.Cell<bool>(AccountAddVisibleKey, OwnerName);
         builder.Cell<string>(InstanceSummaryKey, OwnerName);
@@ -57,6 +62,7 @@ internal static class LaunchPageState
         builder.Cell<bool>(StatusVisibleKey, OwnerName);
         builder.Cell<string>(WidgetAboutLabelKey, OwnerName);
         builder.Cell<string>(WidgetTriviaLabelKey, OwnerName);
+        builder.Cell<string>(WidgetEchoLabelKey, OwnerName);
         builder.Cell<string>(WidgetHintKey, OwnerName);
     }
 }

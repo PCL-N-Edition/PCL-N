@@ -26,7 +26,7 @@ internal static partial class Program
         AssertClose(6, triviaIndicator.Rect.Width);
         AssertClose(6, triviaIndicator.Rect.Height);
         AssertClose(aboutIndicator.Rect.Y + aboutIndicator.Rect.Height + 8, triviaIndicator.Rect.Y);
-        AssertClose(30, FindByKey(shell, scene, "WidgetIndicators").Rect.Height);
+        AssertClose(44, FindByKey(shell, scene, "WidgetIndicators").Rect.Height);
         XsrUiRect viewport = FindByKey(shell, scene, "LaunchWidgetPager").Rect;
         AssertTrue(aboutIndicator.Rect.X >= viewport.X + viewport.Width);
         AssertClose(16, FindByKey(shell, scene, "WidgetAboutDot").Rect.Height);
@@ -50,6 +50,14 @@ internal static partial class Program
         AssertTrue(shell.Renderer.PointerScroll(new XsrUiPoint(pager.X + 10, pager.Y + 10), -1));
         scene = shell.Render(size);
         AssertTrue(HasKey(shell, scene, "AboutMessage"));
+        AssertTrue(shell.Renderer.Activate(FindByKey(shell, scene, "WidgetEchoIndicator").Entity));
+        scene = shell.Render(size);
+        AssertEqual("回声洞", FindByKey(shell, scene, "EchoTitle").Text);
+        AssertEqual("请等待本功能上线，到时你可以前往官网上投稿~", FindByKey(shell, scene, "EchoMessage").Text);
+        AssertTrue(FindByKey(shell, scene, "WidgetEchoIndicator").Label!.Contains("当前卡片", StringComparison.Ordinal));
+        AssertClose(16, FindByKey(shell, scene, "WidgetEchoDot").Rect.Height);
+        AssertClose(44, FindByKey(shell, scene, "WidgetIndicators").Rect.Height);
+        AssertTrue(FindByKey(shell, scene, "EchoMessage").VisualStyle.WrapText);
         AssertEqual(0d, scene.Nodes.Single(node => node.Role == XsrUiSemanticRole.TitleBar).VisualStyle.CornerRadius);
         AssertEqual(0d, scene.Nodes.Single(node => node.Role == XsrUiSemanticRole.Navigation).VisualStyle.CornerRadius);
         AssertTrue(scene.Nodes.Single(node => node.Entity == shell.NavigationToggle).VisualStyle.NavigationLayout);

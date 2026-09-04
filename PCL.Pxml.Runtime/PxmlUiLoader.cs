@@ -177,6 +177,15 @@ public sealed class PxmlUiLoader
                 throw new PxmlLoadException($"The runtime recipe '{node.Recipe}' is unsupported.");
         }
 
+        PxmlIrBinding? transitionBinding = node.Bindings.FirstOrDefault(binding => binding.Property == XsrUiStateProperty.TransitionKey);
+        if (node.TransitionKey is not null || transitionBinding is not null)
+            tree.SetComponent(entity, new XsrUiTransition
+            {
+                Key = node.TransitionKey,
+                OffsetX = node.TransitionOffsetX,
+                BoundKey = transitionBinding is null ? default : ResolveState(state, transitionBinding.State),
+            });
+
         PxmlIrBinding? semanticBinding = node.Bindings.FirstOrDefault(
             binding => binding.Property == XsrUiStateProperty.SemanticLabel);
         if (node.Role != XsrUiSemanticRole.None || node.Label is not null || semanticBinding is not null)

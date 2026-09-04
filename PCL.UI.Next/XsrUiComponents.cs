@@ -165,6 +165,7 @@ public sealed class XsrUiImage
     }
 
     public string Source { get; set; }
+    public XsrUiRasterImage? Raster { get; set; }
 }
 
 /// <summary>

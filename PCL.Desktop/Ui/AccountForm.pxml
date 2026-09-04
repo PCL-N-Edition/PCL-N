@@ -5,7 +5,6 @@
     <Button Key="ProviderLittleSkin" Label="LittleSkin 账户" Content="LittleSkin 账户" Height="42" Command="ui.account.littleskin" />
     <Button Key="ProviderThirdParty" Label="第三方账户" Content="第三方账户" Height="42" Command="ui.account.third-party" />
     <Button Key="ProviderOffline" Label="离线档案" Content="离线档案" Height="42" Command="ui.account.offline" />
-    <Button Key="ProviderImport" Label="导入旧档案" Content="导入旧档案…" Height="34" Margin="0,8,0,0" Command="ui.account.import" />
   </StackPanel>
   <StackPanel Key="OfflineForm" Spacing="8" IsVisible="{state account.form.offline}">
     <Text Content="游戏名称" Height="18" />

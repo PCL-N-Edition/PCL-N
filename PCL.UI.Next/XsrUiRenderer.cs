@@ -250,7 +250,7 @@ public sealed partial class XsrUiRenderer
 
         if (_tree.GetComponent<XsrUiText>(entity) is { } text)
         {
-            XsrUiSize textSize = MeasureText(ResolveText(text));
+            XsrUiSize textSize = MeasureText(ResolveText(text), _tree.GetComponent<XsrUiVisualStyle>(entity)?.FontSize ?? 0);
             width = textSize.Width;
             height = textSize.Height;
         }
@@ -604,6 +604,20 @@ public sealed partial class XsrUiRenderer
         double Minimum,
         double Maximum);
 
+    /// <summary>Advances a transition group's scene geometry on the render thread.</summary>
+    public void SetTransitionOffset(XsrUiEntityId entity, double offset)
+    {
+        if (!_tree.IsAlive(entity) || _tree.GetComponent<XsrUiTransition>(entity) is not { } transition) return;
+        if (!double.IsFinite(offset)) throw new ArgumentOutOfRangeException(nameof(offset));
+        double value = ReducedMotion ? 0 : offset;
+        if (transition.PresentedOffsetX == value) return;
+        transition.PresentedOffsetX = value;
+        _tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
+    }
+
+    public double GetTransitionOffset(XsrUiEntityId entity) =>
+        _tree.IsAlive(entity) ? _tree.GetComponent<XsrUiTransition>(entity)?.PresentedOffsetX ?? 0 : 0;
+
     /// <summary>Advances local capsule geometry on the render thread, driven by a presentation clock.</summary>
     public void SetCapsulePresentationProgress(XsrUiEntityId entity, double progress)
     {
@@ -936,7 +950,7 @@ public sealed partial class XsrUiRenderer
     }
 
     private void CollectNode(XsrUiEntityId entity, int depth, List<XsrUiSceneNode> nodes,
-        XsrUiRect? clip = null, bool accessible = true)
+        XsrUiRect? clip = null, bool accessible = true, double offsetX = 0)
     {
         if (!IsVisible(entity))
         {
@@ -953,6 +967,19 @@ public sealed partial class XsrUiRenderer
             : default;
         XsrUiAnimation? animation = _tree.GetComponent<XsrUiAnimation>(entity);
         XsrUiImage? image = _tree.GetComponent<XsrUiImage>(entity);
+        XsrUiTransition? transition = _tree.GetComponent<XsrUiTransition>(entity);
+        string? transitionKey = transition?.BoundKey.IsAssigned == true
+            ? _state.ReadAppliedValue(transition.BoundKey) as string ?? string.Empty : transition?.Key;
+        if (transition is not null)
+        {
+            if (transition.HasPresentedKey && transition.PresentedKey != transitionKey
+                && Math.Abs(transition.PresentedOffsetX) < .01) transition.PresentedOffsetX = transition.OffsetX;
+            transition.HasPresentedKey = true;
+            transition.PresentedKey = transitionKey;
+            if (ReducedMotion) transition.PresentedOffsetX = 0;
+            offsetX += transition.PresentedOffsetX;
+        }
+        rect = rect with { X = rect.X + offsetX };
         XsrUiVisualStyle? visualStyle = _tree.GetComponent<XsrUiVisualStyle>(entity);
         XsrUiSelection? selection = _tree.GetComponent<XsrUiSelection>(entity);
         XsrUiInput? input = _tree.GetComponent<XsrUiInput>(entity);
@@ -992,7 +1019,9 @@ public sealed partial class XsrUiRenderer
             input?.CapsuleExpansionProgress ?? 0,
             _tree.GetComponent<XsrUiPager>(entity)?.Snapshot(),
             accessible,
-            _tree.GetComponent<XsrUiTextInput>(entity)?.Snapshot()));
+            _tree.GetComponent<XsrUiTextInput>(entity)?.Snapshot(),
+            image?.Raster,
+            transitionKey, transition?.OffsetX ?? 0, transition?.PresentedOffsetX ?? 0));
 
         XsrUiPager? pageContainer = _tree.GetComponent<XsrUiPager>(entity);
         XsrUiRect? childClip = pageContainer is not null || _tree.GetComponent<XsrUiScroll>(entity) is not null
@@ -1003,7 +1032,7 @@ public sealed partial class XsrUiRenderer
         foreach (XsrUiEntityId child in _tree.Children(entity).Where(IsVisible))
         {
             CollectNode(child, depth + 1, nodes, childClip,
-                accessible && (pageContainer is null || pageContainer.PageIndex == pageIndex));
+                accessible && (pageContainer is null || pageContainer.PageIndex == pageIndex), offsetX);
             pageIndex++;
         }
     }
@@ -1042,7 +1071,7 @@ public sealed partial class XsrUiRenderer
     // UI.Next uses a deliberately deterministic, backend-neutral text metric. Native backends
     // select their own typeface at commit time, but intrinsic text sizing must be available before
     // any backend exists so PXML layout (including title and command text) has real hit geometry.
-    private static XsrUiSize MeasureText(string text)
+    private static XsrUiSize MeasureText(string text, double fontSize)
     {
         double width = 0;
         foreach (char character in text)
@@ -1057,6 +1086,8 @@ public sealed partial class XsrUiRenderer
             }
         }
 
-        return new XsrUiSize(width, 20);
+        // Keep the default 14px metric stable; larger headings need a taller line box.
+        double scale = fontSize > 0 ? fontSize / 14 : 1;
+        return new XsrUiSize(width * scale, Math.Ceiling(20 * Math.Max(1, scale)));
     }
 }

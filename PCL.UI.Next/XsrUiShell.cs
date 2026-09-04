@@ -865,11 +865,11 @@ public sealed class XsrUiShell
     private void ApplyTitleTextStyles()
     {
         int textIndex = 0;
-        foreach (XsrUiEntityId child in Tree.Children(TitleBar))
+        Tree.Walk(TitleBar, child =>
         {
             if (Tree.GetComponent<XsrUiText>(child) is null)
             {
-                continue;
+                return true;
             }
 
             bool primary = textIndex == 0;
@@ -885,7 +885,8 @@ public sealed class XsrUiShell
             visual.FontWeight = primary ? TitleFontWeight : 400;
             Tree.MarkDirty(child, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
             textIndex++;
-        }
+            return true;
+        });
     }
 
     private void ApplyItemVisual(XsrUiEntityId entity, bool selected)

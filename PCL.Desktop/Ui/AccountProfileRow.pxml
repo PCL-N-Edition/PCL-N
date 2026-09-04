@@ -6,8 +6,7 @@
       <Text Key="ProfileName" Content="" Height="20" />
       <Text Key="ProfileDetail" Content="" Height="16" />
     </StackPanel>
-    <StackPanel Width="16" Height="16" VerticalAlignment="Center">
-      <Image Key="ProfileCheck" Label="当前档案" Source="lucide/check" Width="16" Height="16" />
-    </StackPanel>
+    <Button Key="ProfileDelete" Label="删除档案" Icon="lucide/trash-2" Width="28" Height="28"
+            VerticalAlignment="Center" Command="ui.account.delete" />
   </StackPanel>
 </Button>

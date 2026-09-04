@@ -6,6 +6,25 @@ namespace PCL.Pxml.Tests;
 
 internal static partial class Program
 {
+    private static void TransitionGroupsCarryTheirBoundContentKey()
+    {
+        XsrStateStoreBuilder builder = new();
+        builder.Cell<string>(XsrSemanticId.Parse("content.key"), "test");
+        XsrUiTree tree = new(); XsrUiStateBridge bridge = new(tree);
+        XsrStateStore store = builder.Build(bridge);
+        XsrStateId key = store.Resolve(XsrSemanticId.Parse("content.key"));
+        store.Publish(key, "identity");
+        XsrUiEntityId root = tree.Create("root");
+        XsrUiEntityId group = PxmlUiLoader.Load(Compile("""
+            <StackPanel xmlns="N" TransitionKey="{state content.key}" TransitionOffsetX="32"><Text Content="标题" /></StackPanel>
+            """), tree, store, root);
+        XsrUiRenderer renderer = new(tree, store, stateBridge: bridge); renderer.SetRoot(root);
+        AssertEqual("identity", renderer.Render().Nodes.Single(node => node.Entity == group).TransitionKey);
+        store.Publish(key, "picker");
+        AssertEqual("picker", renderer.Render().Nodes.Single(node => node.Entity == group).TransitionKey);
+        AssertEqual(32d, renderer.Render().Nodes.Single(node => node.Entity == group).TransitionOffsetX);
+    }
+
     private static void TextInputDraftsNeverExposePasswords()
     {
         XsrStateStoreBuilder builder = new();

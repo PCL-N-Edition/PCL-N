@@ -23,8 +23,7 @@ internal static partial class Program
             AssertFalse(HasKey(fixture.Shell, scene, "FormTitle"));
             AssertFalse(HasKey(fixture.Shell, scene, "AccountPickerTitle"));
             AssertFalse(HasKey(fixture.Shell, scene, "AccountAdd"));
-            AssertContains(FindByKey(fixture.Shell, scene, "CardAccount").Rect,
-                FindByKey(fixture.Shell, scene, "ProviderImport").Rect);
+            AssertFalse(scene.Nodes.Any(node => node.Text?.Contains("导入旧档案", StringComparison.Ordinal) == true));
             AccountClick(fixture, "ProviderOffline");
             scene = fixture.Shell.Render(AccountTestSize);
             AssertEqual("离线档案", FindByKey(fixture.Shell, scene, "AccountHeader").Text);
@@ -149,7 +148,7 @@ internal static partial class Program
         AccountClick(fixture, "AccountBack"); AccountClick(fixture, "ProviderLittleSkin");
         fixture.Onboarding.Service.WhenIdle.GetAwaiter().GetResult();
         AssertEqual(AccountLoginPhase.Failed, AccountSnapshot(fixture).Phase);
-        AccountClick(fixture, "AccountBack"); AccountClick(fixture, "ProviderImport");
+        AccountClick(fixture, "AccountBack"); AccountClick(fixture, "AccountBack"); AccountClick(fixture, "AccountImport");
         AccountClick(fixture, "BrowseProfiles");
         AccountClick(fixture, "AccountBack"); AccountClick(fixture, "AccountAdd");
         effects.File.SetResult("stale-path");

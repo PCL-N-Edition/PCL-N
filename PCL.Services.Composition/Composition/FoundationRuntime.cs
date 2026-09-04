@@ -65,6 +65,7 @@ public static class FoundationRuntimeComposer
         commands.Register(
             FoundationRouteIds.AccountSelectProfile,
             FoundationCommands.CreateAccountSelectHandler(host.Accounts));
+        commands.Register(FoundationRouteIds.AccountRemoveProfile, FoundationCommands.CreateAccountRemoveHandler(host.Accounts));
         XsrCommandRouter commandRouter = commands.Build(dispatchObserver, timeProvider);
 
         XsrQueryRouterBuilder queries = new();

@@ -29,16 +29,10 @@ internal static class AvaloniaMotionTokens
     public const int IconBounceMilliseconds = 110;
 
     /// <summary>
-    /// Page enter (segment-play, autonomous completion): the entering page's children fade
-    /// and rise into place with a per-child stagger, mirroring the legacy page enter.
+    /// Page/content enter: a coordinated fade keeps text inside its measured line box.
+    /// Retargeting continues from the presented opacity, without descendant staggering.
     /// </summary>
     public const int PageEnterMilliseconds = 240;
-
-    public const int PageEnterStaggerMilliseconds = 14;
-
-    public const int PageEnterMaxChildren = 36;
-
-    public const double PageEnterOffsetYPixels = 10;
 
     /// <summary>The final stage where the icon shrinks into (or out of) the content.</summary>
     public const int IconCollapseMilliseconds = 190;
@@ -59,6 +53,7 @@ internal static class AvaloniaMotionTokens
     public const int SelectionOutMilliseconds = 120;
 
     public const double RailSpringResponseSeconds = .34;
+    public const double SlideSpringResponseSeconds = .38;
     public const double PagerSpringResponseSeconds = .34;
 
     /// <summary>The splash and hover fade clocks tick at display cadence.</summary>

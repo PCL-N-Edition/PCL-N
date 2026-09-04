@@ -93,14 +93,15 @@ public static class PxmlShellComposer
             navigationEntities.Add(expected.Id, entity);
         }
 
-        foreach (XsrUiEntityId child in tree.Children(titleBar))
+        tree.Walk(titleBar, child =>
         {
             if (tree.Name(child) == "TitleMain" && tree.GetComponent<XsrUiText>(child) is { } titleText)
             {
                 titleText.Content = options.Title;
                 tree.MarkDirty(child, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
             }
-        }
+            return true;
+        });
 
         XsrUiShellTemplate template = new(
             tree,

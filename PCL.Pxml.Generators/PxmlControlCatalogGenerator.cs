@@ -59,12 +59,12 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
         "Width", "Height", "MinWidth", "MaxWidth", "MinHeight", "MaxHeight", "Weight",
         "HorizontalAlignment", "VerticalAlignment", "Margin", "Padding", "Visibility", "Label",
         "Orientation", "Spacing", "StretchLastChild", "Scrollable", "Content", "Command",
-        "Focusable", "Clickable", "ImageSource", "Key", "Placeholder", "IsPassword", "Enabled",
+        "Focusable", "Clickable", "ImageSource", "Key", "Placeholder", "IsPassword", "Enabled", "TransitionKey", "TransitionOffsetX",
     };
 
     private static readonly HashSet<string> BindingProperties = new(StringComparer.Ordinal)
     {
-        "None", "Text", "Visibility", "Enabled", "SemanticLabel",
+        "None", "Text", "Visibility", "Enabled", "SemanticLabel", "TransitionKey",
     };
 
     private static readonly HashSet<string> DirtyKinds = new(StringComparer.Ordinal)
@@ -321,7 +321,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
             valid = false;
         }
 
-        if ((binding is "Text" or "SemanticLabel") && kind != "String"
+        if ((binding is "Text" or "SemanticLabel" or "TransitionKey") && kind != "String"
             || binding is "Visibility" or "Enabled" && kind != "Boolean")
         {
             errors.Add($"line {lineNumber} binding '{binding}' is incompatible with '{kind}'");
@@ -330,7 +330,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
 
         if (binding == "Text" && dirty != "Layout,Paint"
             || binding is "Visibility" or "Enabled" && dirty != "State"
-            || binding == "SemanticLabel" && dirty != "Paint")
+            || binding is "SemanticLabel" or "TransitionKey" && dirty != "Paint")
         {
             errors.Add($"line {lineNumber} binding '{binding}' uses an incompatible dirty-kind set '{dirty}'");
             valid = false;
@@ -673,7 +673,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                 return target == "Width" || target == "Height"
                     || target == "MinWidth" || target == "MaxWidth"
                     || target == "MinHeight" || target == "MaxHeight"
-                    || target == "Weight" || target == "Spacing";
+                    || target == "Weight" || target == "Spacing" || target == "TransitionOffsetX";
             case "Thickness":
                 return target == "Margin" || target == "Padding";
             case "Boolean":
@@ -685,7 +685,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                 return target == "HorizontalAlignment" || target == "VerticalAlignment";
             case "String":
                 return target == "Label" || target == "Content" || target == "ImageSource"
-                    || target == "Key" || target == "Placeholder";
+                    || target == "Key" || target == "Placeholder" || target == "TransitionKey";
             case "SemanticId":
                 return target == "Command";
             default:
@@ -711,7 +711,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
                 return false;
             case "StackLayout":
                 return target == "Orientation" || target == "Spacing" || target == "Scrollable"
-                    || target == "StretchLastChild";
+                    || target == "StretchLastChild" || target == "TransitionKey" || target == "TransitionOffsetX";
             case "Text":
                 return target == "Content";
             case "CommandInput":

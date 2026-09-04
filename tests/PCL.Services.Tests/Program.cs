@@ -4,6 +4,8 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("profile skins resolve explicit and session textures without credentials", ProfileSkinsResolveExplicitAndSessionTextures),
+        ("removed profiles reject late skin responses", RemovedProfilesRejectLateSkinResponses),
         ("profile imports validate deduplicate and persist before publication", Sync(ProfileImportIsValidatedDeduplicatedAndDurable)),
         ("legacy import never repairs or writes source data", LegacyImportNeverRepairsOrWritesSource),
         ("account authorization addresses stay on provider origins", Sync(AccountAuthorizationUrlsStayOnProviderOrigins)),

@@ -20,6 +20,7 @@ internal static class AvaloniaUiIcons
 
     private static readonly FrozenDictionary<string, string[]> Paths = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
+        ["lucide/trash-2"] = ["M10 11v6", "M14 11v6", "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", "M3 6h18", "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"],
         ["lucide/user"] =
         [
             "M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
@@ -28,6 +29,7 @@ internal static class AvaloniaUiIcons
         ["lucide/chevron-right"] = ["m9 6 6 6-6 6"],
         ["lucide/check"] = ["m20 6-11 11-5-5"],
         ["lucide/plus"] = ["M12 5v14", "M5 12h14"],
+        ["lucide/shirt"] = ["M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"],
         ["lucide/arrow-right-left"] = ["M8 3 4 7l4 4", "M4 7h16", "m16 21 4-4-4-4", "M20 17H4"],
         ["lucide/info"] = ["M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", "M12 11v6", "M12 7h.01"],
         ["lucide/chevron-up"] = ["m18 15-6-6-6 6"],

@@ -53,6 +53,10 @@ internal static partial class Program
         ("capsules occupy their presented width and remain beside the version name", CapsulesOccupyPresentedWidth),
         ("launch widgets preserve original content and page through real intents", LaunchWidgetsPreserveOriginalContent),
         ("profile presentation uses Apple hierarchy inside the experimental layout", ProfilePresentationUsesAppleHierarchy),
+        ("account capsules and wardrobe navigation preserve geometry", AccountCapsulesAndWardrobeRoutePreserveGeometry),
+        ("skin route publishes media through host state into the rendered profile", SkinRoutePublishesIntoRenderedProfile),
+        ("delete actions persist only the requested profile and reject stale rows", DeleteActionsPersistAndRejectStaleRows),
+        ("trivia rotates every three seconds without foreign tree writes and stops on disposal", TriviaTimerPublishesOnlyStateAndStops),
         ("operational feedback remains beside the launch action without idle footers", OperationalFeedbackRemainsBesideLaunchAction),
     ];
 
@@ -389,7 +393,9 @@ internal static partial class Program
             IMicrosoftMinecraftAuthService? microsoft = null,
             IAccountUiEffects? accountEffects = null,
             LegacyProfileImport? imports = null,
-            AccountOnboardingOptions? accountOptions = null)
+            AccountOnboardingOptions? accountOptions = null,
+            bool enableSkins = false,
+            TimeProvider? timeProvider = null)
         {
             _temporaryDirectory = Path.Combine(
                 Path.GetTempPath(),
@@ -428,7 +434,7 @@ internal static partial class Program
                 Foundation.Commands,
                 Store,
                 Path.Combine(_temporaryDirectory, "minecraft"),
-                source);
+                source, accountCommands: enableSkins ? Onboarding.Commands : null, timeProvider: timeProvider);
             AccountForm = new AccountFormController(Shell, Intents, Onboarding.Commands, Store, Controller.AccountBody, accountEffects);
             Controller.Attach();
         }

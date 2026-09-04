@@ -17,6 +17,9 @@ public sealed record AccountUpsertProfileCommand(LaunchProfile Profile);
 /// <summary>Selects a credential-free roster entry at the revision displayed by the caller.</summary>
 public sealed record AccountSelectProfileCommand(int Index, long? ExpectedRosterRevision = null);
 
+/// <summary>Removes only the local profile displayed at this roster revision.</summary>
+public sealed record AccountRemoveProfileCommand(int Index, long ExpectedRosterRevision);
+
 /// <summary>
 /// Foundation command handlers, expressed against the XSR handler delegates. PCL.Services
 /// cannot reference the runtime's router (dependency direction), so these handlers are what
@@ -25,6 +28,9 @@ public sealed record AccountSelectProfileCommand(int Index, long? ExpectedRoster
 /// </summary>
 public static class FoundationCommands
 {
+    public static XsrCommandHandler<AccountRemoveProfileCommand> CreateAccountRemoveHandler(AccountService accounts) =>
+        (command, _) => ValueTask.FromResult(accounts.RemoveProfile(command.Index, command.ExpectedRosterRevision));
+
     public static XsrCommandHandler<AccountSelectProfileCommand> CreateAccountSelectHandler(AccountService accounts)
     {
         ArgumentNullException.ThrowIfNull(accounts);

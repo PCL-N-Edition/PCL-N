@@ -49,6 +49,8 @@ internal enum PxmlIrPropertyTarget
     Placeholder = 24,
     IsPassword = 25,
     Enabled = 26,
+    TransitionKey = 27,
+    TransitionOffsetX = 28,
 }
 
 internal sealed class PxmlControlPropertyModel

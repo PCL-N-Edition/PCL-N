@@ -48,7 +48,11 @@ public readonly record struct XsrUiSceneNode(
     double CapsuleExpansionProgress = 0,
     XsrUiPagerSnapshot? Pager = null,
     bool IsAccessible = true,
-    XsrUiTextInputSnapshot? TextInput = null)
+    XsrUiTextInputSnapshot? TextInput = null,
+    XsrUiRasterImage? RasterImage = null,
+    string? TransitionKey = null,
+    double TransitionOffsetX = 0,
+    double TransitionPresentedOffsetX = 0)
 {
     public bool HasRole => Role != XsrUiSemanticRole.None;
 }

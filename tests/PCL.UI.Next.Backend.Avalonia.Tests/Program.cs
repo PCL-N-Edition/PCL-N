@@ -296,7 +296,8 @@ internal static partial class Program
         LifetimeProbeApp.Reset(withSplash: true);
         LifetimeProbeApp.RunRailReducedMotionScenario = true;
         AppBuilder.Configure<LifetimeProbeApp>()
-            .UseHeadless(new AvaloniaHeadlessPlatformOptions())
+            .UseSkia()
+            .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
             .StartWithClassicDesktopLifetime([]);
 
         // Reaching this line at all proves the lifetime terminated on main-window close instead
@@ -333,6 +334,7 @@ internal static partial class Program
             await Task.Delay(30).ConfigureAwait(true);
             VerifyAccessibleContentAndNativeFocus(window, shell, surface);
             VerifyNativeTextEditing(window, shell, surface);
+            await VerifyTransitionGroupsAndMedia(shell, surface);
             VerifyWindowActionFeedback(window, surface);
             await VerifySpringIgnoresStaleSceneReads().ConfigureAwait(true);
             await VerifyCapsuleGeometryClock(shell, surface).ConfigureAwait(true);

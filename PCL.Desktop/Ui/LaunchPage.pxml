@@ -3,30 +3,29 @@
     <StackPanel Orientation="Vertical" Weight="0.92" MinWidth="240" MaxWidth="360" Key="CardAccount">
       <StackPanel Orientation="Vertical" Weight="1" Margin="20,18,20,18" Key="AccountContent">
         <StackPanel Orientation="Horizontal" Spacing="8" Height="32"
-                    Margin="0,0,0,12" Key="AccountHeaderRow">
+                    Margin="0,0,0,12" Key="AccountHeaderRow" TransitionKey="{state launch.account.title}">
           <Button Key="AccountBack" Label="返回账户" Icon="lucide/arrow-left" Width="32" Height="32"
                   Command="ui.account.back" IsVisible="{state launch.account.back-visible}" />
           <Text Key="AccountHeader" Content="{state launch.account.title}" Weight="1" VerticalAlignment="Center" />
           <Button Key="AccountAdd" Label="添加账户" Icon="lucide/plus" Width="28" Height="28" VerticalAlignment="Center"
                   Command="ui.account.add" IsVisible="{state launch.account.add-visible}" />
         </StackPanel>
-        <StackPanel Orientation="Vertical" Weight="1" MinHeight="160" Key="AccountBody">
+        <StackPanel Orientation="Vertical" Weight="1" MinHeight="160" Key="AccountBody" TransitionKey="{state launch.account.transition}">
           <StackPanel Orientation="Vertical" Weight="1" Key="AccountSelected"
                       IsVisible="{state launch.account.selected-visible}">
             <StackPanel Key="AccountIdentity" Orientation="Vertical" Weight="1" VerticalAlignment="Center">
               <StackPanel Key="AccountAvatarSurface" Width="88" Height="88" HorizontalAlignment="Center">
-                <Image Key="AccountAvatar" Label="账户默认头像" Source="pcl/avatar/steve" Width="72" Height="72"
+                <Image Key="AccountAvatar" Label="账户头像" Source="pcl/avatar/steve" Width="72" Height="72"
                        Weight="1" HorizontalAlignment="Center" VerticalAlignment="Center" />
               </StackPanel>
               <Text Key="AccountName" Content="{state launch.profile.name}" Height="30" Margin="0,16,0,0" />
               <Text Key="AccountKind" Content="{state launch.profile.kind}" Height="20" Margin="0,4,0,0" />
-              <Button Key="AccountSwitch" Label="切换档案" Command="ui.account.switch"
-                      Height="36" Width="112" HorizontalAlignment="Center" Margin="0,20,0,0">
-                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
-                  <Image Key="AccountSwitchIcon" Source="lucide/arrow-right-left" Width="16" Height="16" VerticalAlignment="Center" />
-                  <Text Key="AccountSwitchText" Content="切换档案" Width="56" Height="20" />
-                </StackPanel>
-              </Button>
+              <StackPanel Key="AccountActions" Orientation="Horizontal" Spacing="8" HorizontalAlignment="End" Margin="0,20,0,0">
+                <Button Key="AccountSwitch" Label="切换档案" Content="切换档案" Icon="lucide/arrow-right-left"
+                        Command="ui.account.switch" Height="36" Width="110" />
+                <Button Key="AccountWardrobe" Label="更衣橱" Content="更衣橱" Icon="lucide/shirt"
+                        Command="ui.account.wardrobe" Height="36" Width="96" />
+              </StackPanel>
             </StackPanel>
           </StackPanel>
           <StackPanel Orientation="Vertical" Weight="1" Spacing="10" Key="AccountPicker"
@@ -82,6 +81,10 @@
                   <Text Key="TriviaMessage" Content="{state launch.widget.hint}" Height="56" />
                 </StackPanel>
               </Button>
+              <StackPanel Key="EchoPage" Orientation="Vertical" Spacing="8">
+                <Text Key="EchoTitle" Content="回声洞" Height="24" />
+                <Text Key="EchoMessage" Content="请等待本功能上线，到时你可以前往官网上投稿~" Height="56" />
+              </StackPanel>
             </VerticalPager>
           </StackPanel>
           <StackPanel Orientation="Vertical" Key="WidgetIndicators" Width="6" Spacing="8" VerticalAlignment="Center">
@@ -90,6 +93,9 @@
             </Button>
             <Button Key="WidgetTriviaIndicator" Label="{state launch.widget.trivia-label}" Command="ui.launch.widget.trivia" Width="6" Height="6">
               <StackPanel Key="WidgetTriviaDot" Width="6" Height="6" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Button>
+            <Button Key="WidgetEchoIndicator" Label="{state launch.widget.echo-label}" Command="ui.launch.widget.echo" Width="6" Height="6">
+              <StackPanel Key="WidgetEchoDot" Width="6" Height="6" HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Button>
           </StackPanel>
         </StackPanel>

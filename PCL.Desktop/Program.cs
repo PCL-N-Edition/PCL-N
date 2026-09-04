@@ -63,7 +63,7 @@ internal static class Program
             minecraft,
             runtime.Commands,
             runtime.Host.StateStore,
-            minecraftRootDirectory);
+            minecraftRootDirectory, accountCommands: accounts.Commands);
         AvaloniaUiPlatformActions platformActions = new();
         using AccountFormController accountForm = new(shell, uiIntents, accounts.Commands,
             runtime.Host.StateStore, launchPage.AccountBody, new NativeAccountUiEffects(platformActions));

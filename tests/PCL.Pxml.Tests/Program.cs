@@ -24,6 +24,7 @@ internal static partial class Program
         ("generated control catalog is complete and deterministic", GeneratedControlCatalogIsCompleteAndDeterministic),
         ("vertical pager compiles loads and routes keyboard pages", VerticalPagerCompilesLoadsAndRoutesKeyboardPages),
         ("text input drafts never expose passwords", TextInputDraftsNeverExposePasswords),
+        ("transition groups carry bound content keys", TransitionGroupsCarryTheirBoundContentKey),
         ("compile simple page", CompileSimplePage),
         ("compile text state binding", CompileTextStateBinding),
         ("compile visibility binding", CompileVisibilityBinding),

@@ -1,10 +1,20 @@
+using PCL.Core.Media;
 using PCL.Services.Accounts;
+using PCL.UI.Next;
 
 namespace PCL.Desktop.Ui;
 
 /// <summary>Pure, credential-free projection of the original profile card's display contract.</summary>
 internal static class LaunchProfilePresentation
 {
+    public static XsrUiRasterImage Head(PngImage image)
+    {
+        double scale = image.Width / 64d;
+        return new(image, [
+            new(new(8 * scale, 8 * scale, 8 * scale, 8 * scale), new(.125, .125, .75, .75)),
+            new(new(40 * scale, 8 * scale, 8 * scale, 8 * scale), new(.0625, .0625, .875, .875)),
+        ]);
+    }
     public static string Avatar(string uuid)
     {
         if (!Guid.TryParse(uuid, out Guid id)) return "pcl/avatar/steve";

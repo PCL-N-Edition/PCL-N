@@ -93,6 +93,8 @@ public sealed record PxmlIrNode
     public string? Placeholder { get; init; }
     public bool IsPassword { get; init; }
     public bool Enabled { get; init; } = true;
+    public string? TransitionKey { get; init; }
+    public double TransitionOffsetX { get; init; }
 
     public IReadOnlyList<PxmlIrBinding> Bindings { get; init; } = [];
 }
