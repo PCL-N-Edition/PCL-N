@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using PCL.Services.Logging;
 
 namespace PCL.Services.Minecraft.Java;
 
@@ -29,20 +30,22 @@ public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
     private readonly JavaRuntimeDownloadPlanService _planService;
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
+    private readonly LogService? _log;
 
-    public JavaRuntimeInstaller(IJavaRuntimeMetadataProvider metadataProvider)
+    public JavaRuntimeInstaller(IJavaRuntimeMetadataProvider metadataProvider, LogService? log = null)
         : this(
             new JavaRuntimeDownloadPlanService(metadataProvider),
-            new HttpClient { Timeout = TimeSpan.FromMinutes(10) },
-            ownsHttpClient: true)
+            new HttpClient(log is null ? new HttpClientHandler() : new DiagnosticHttpHandler(log, new HttpClientHandler())) { Timeout = TimeSpan.FromMinutes(10) },
+            ownsHttpClient: true, log)
     {
     }
 
-    public JavaRuntimeInstaller(JavaRuntimeDownloadPlanService planService, HttpClient httpClient, bool ownsHttpClient = false)
+    public JavaRuntimeInstaller(JavaRuntimeDownloadPlanService planService, HttpClient httpClient, bool ownsHttpClient = false, LogService? log = null)
     {
         _planService = planService ?? throw new ArgumentNullException(nameof(planService));
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _ownsHttpClient = ownsHttpClient;
+        _log = log;
     }
 
     public async Task<string> InstallAsync(
@@ -54,47 +57,70 @@ public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedComponent);
         ArgumentException.ThrowIfNullOrWhiteSpace(runtimeRootDirectory);
 
-        JavaRuntimeDownloadPlan plan = await _planService.CreatePlanAsync(
-            requestedComponent,
-            DetectPlatform(),
-            runtimeRootDirectory,
-            cancellationToken).ConfigureAwait(false);
-        Directory.CreateDirectory(plan.TargetDirectory);
-
-        int total = Math.Max(plan.Files.Count, 1);
-        int completed = 0;
-        progress?.Report(new JavaRuntimeInstallProgress("prepare", 0.02d, 0, total, plan.VersionName));
-
-        foreach (JavaRuntimeDownloadFile file in plan.Files)
+        using LogOperation? operation = _log?.BeginOperation("Java", "InstallRuntime", $"component={requestedComponent}");
+        string? currentFile = null;
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            string? parent = Path.GetDirectoryName(file.TargetPath);
-            if (parent is null) throw new InvalidOperationException($"Runtime file has no parent directory: {file.RelativePath}");
-            Directory.CreateDirectory(parent);
+            operation?.Stage("resolve_runtime_metadata");
+            JavaRuntimeDownloadPlan plan = await _planService.CreatePlanAsync(
+                requestedComponent,
+                DetectPlatform(),
+                runtimeRootDirectory,
+                cancellationToken).ConfigureAwait(false);
+            Directory.CreateDirectory(plan.TargetDirectory);
 
-            if (File.Exists(file.TargetPath) && await MatchesAsync(file.TargetPath, file, cancellationToken).ConfigureAwait(false))
+            int total = Math.Max(plan.Files.Count, 1);
+            int completed = 0;
+            progress?.Report(new JavaRuntimeInstallProgress("prepare", 0.02d, 0, total, plan.VersionName));
+
+            operation?.Stage("verify_and_download_files", $"count={plan.Files.Count} target={plan.TargetDirectory}");
+            foreach (JavaRuntimeDownloadFile file in plan.Files)
             {
-                ApplyExecutableMode(file);
-            }
-            else
-            {
-                await DownloadFileAsync(file, cancellationToken).ConfigureAwait(false);
+                currentFile = file.RelativePath;
+                _log?.Trace("Java", $"Runtime file verification path={file.RelativePath} expected_bytes={file.Size}");
+                cancellationToken.ThrowIfCancellationRequested();
+                string? parent = Path.GetDirectoryName(file.TargetPath);
+                if (parent is null) throw new InvalidOperationException($"Runtime file has no parent directory: {file.RelativePath}");
+                Directory.CreateDirectory(parent);
+
+                if (File.Exists(file.TargetPath) && await MatchesAsync(file.TargetPath, file, cancellationToken).ConfigureAwait(false))
+                {
+                    _log?.Trace("Java", $"Reusing verified runtime file path={file.RelativePath}");
+                    ApplyExecutableMode(file);
+                }
+                else
+                {
+                    await DownloadFileAsync(file, cancellationToken).ConfigureAwait(false);
+                }
+
+                completed++;
+                progress?.Report(new JavaRuntimeInstallProgress(
+                    "download",
+                    0.05d + 0.9d * completed / total,
+                    completed,
+                    total,
+                    file.RelativePath));
             }
 
-            completed++;
-            progress?.Report(new JavaRuntimeInstallProgress(
-                "download",
-                0.05d + 0.9d * completed / total,
-                completed,
-                total,
-                file.RelativePath));
+            operation?.Stage("locate_installed_executable");
+            string? javaExecutable = FindJavaExecutable(plan.TargetDirectory);
+            if (javaExecutable is null)
+                throw new InvalidOperationException($"Java runtime was installed but no java executable was found in '{plan.TargetDirectory}'.");
+            progress?.Report(new JavaRuntimeInstallProgress("complete", 1d, total, total, javaExecutable));
+            operation?.Complete($"files={completed} executable={javaExecutable}");
+            return javaExecutable;
         }
-
-        string? javaExecutable = FindJavaExecutable(plan.TargetDirectory);
-        if (javaExecutable is null)
-            throw new InvalidOperationException($"Java runtime was installed but no java executable was found in '{plan.TargetDirectory}'.");
-        progress?.Report(new JavaRuntimeInstallProgress("complete", 1d, total, total, javaExecutable));
-        return javaExecutable;
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            operation?.Cancel();
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+        {
+            _log?.Warn("Java", $"Runtime installation failed current_file={currentFile}");
+            operation?.Fail(exception);
+            throw;
+        }
     }
 
     public static JavaRuntimePlatform DetectPlatform()
@@ -137,6 +163,7 @@ public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
 
     private async Task DownloadFileAsync(JavaRuntimeDownloadFile file, CancellationToken cancellationToken)
     {
+        _log?.Debug("Java", $"Downloading runtime file path={file.RelativePath}");
         using HttpResponseMessage response = await _httpClient.GetAsync(
             file.Url,
             HttpCompletionOption.ResponseHeadersRead,
@@ -153,7 +180,10 @@ public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
             }
 
             if (!await MatchesAsync(temporary, file, cancellationToken).ConfigureAwait(false))
+            {
+                _log?.Warn("Java", $"Runtime integrity check failed path={file.RelativePath} expected_bytes={file.Size}");
                 throw new InvalidOperationException($"Java runtime file hash or size mismatch: {file.RelativePath}");
+            }
             File.Move(temporary, file.TargetPath, overwrite: true);
             ApplyExecutableMode(file);
             temporary = string.Empty;

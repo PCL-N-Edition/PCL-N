@@ -108,9 +108,9 @@ public static class MinecraftRuntimeComposer
             ? Path.Combine(Path.GetFullPath(minecraftRootDirectory), "runtime")
             : Path.GetFullPath(javaRuntimeRootDirectory);
 
-        MinecraftVersionDiscovery versionDiscovery = discovery ?? new MinecraftVersionDiscovery();
+        MinecraftVersionDiscovery versionDiscovery = discovery ?? new MinecraftVersionDiscovery(host.Logging);
         MinecraftInstanceDiscovery instanceDiscovery = new(host.Logging, versionDiscovery);
-        MinecraftProcessService processService = processes ?? new MinecraftProcessService(hostStore: host.StateStore);
+        MinecraftProcessService processService = processes ?? new MinecraftProcessService(hostStore: host.StateStore, log: host.Logging);
         if (!ReferenceEquals(host.StateStore, processService.StateStore))
         {
             throw new ArgumentException(
@@ -119,12 +119,12 @@ public static class MinecraftRuntimeComposer
         }
 
         List<IDisposable> owned = [];
-        IJavaRuntimeLocator locator = javaLocator ?? new LocalJavaRuntimeLocator(runtimeRoot);
+        IJavaRuntimeLocator locator = javaLocator ?? new LocalJavaRuntimeLocator(runtimeRoot, host.Logging);
         IJavaRuntimeInstaller installer;
         if (javaInstaller is null)
         {
-            HttpJavaRuntimeMetadataProvider metadata = new();
-            JavaRuntimeInstaller concreteInstaller = new(metadata);
+            HttpJavaRuntimeMetadataProvider metadata = new(host.Logging);
+            JavaRuntimeInstaller concreteInstaller = new(metadata, host.Logging);
             owned.Add(metadata);
             owned.Add(concreteInstaller);
             installer = concreteInstaller;
@@ -134,7 +134,7 @@ public static class MinecraftRuntimeComposer
             installer = javaInstaller;
         }
 
-        MinecraftLaunchExecutor executor = new(processService);
+        MinecraftLaunchExecutor executor = new(processService, host.Logging);
         MinecraftLaunchCoordinator coordinator = new(
             minecraftRootDirectory,
             runtimeRoot,

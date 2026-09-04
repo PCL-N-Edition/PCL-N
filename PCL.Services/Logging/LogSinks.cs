@@ -44,7 +44,7 @@ public sealed class ConsoleLogSink : ILogSink
 /// Appends log entries to one UTF-8 file, opening lazily and disabling itself when the file
 /// cannot be written (locked disk, missing folder); logging must never break the app.
 /// </summary>
-public sealed class FileLogSink(string filePath) : ILogSink
+public sealed class FileLogSink(string filePath) : ILogSink, IDisposable
 {
     private readonly object _gate = new();
     private StreamWriter? _writer;

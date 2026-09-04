@@ -1,3 +1,4 @@
+using System.Globalization;
 using PCL.Services.Logging;
 using PCL.Xsr;
 using PCL.Xsr.Runtime;
@@ -7,7 +8,7 @@ namespace PCL.Services.Composition;
 
 /// <summary>
 /// Operation observers that feed XSR's own dispatch, state, event, scheduler, and lifecycle
-/// telemetry into <see cref="LogService"/> — no service or handler grows logging calls. Tiers
+/// telemetry into <see cref="LogService"/>, alongside explicit service breadcrumbs. Tiers
 /// map onto the log level gate: dispatch failures log at Warn (always visible), user-facing
 /// operations (UI intents, lifecycle transitions) at Info, command/query completions at Debug,
 /// and the high-frequency state and scheduler flows at RealTime, so the verbose trace appears
@@ -16,13 +17,6 @@ namespace PCL.Services.Composition;
 /// </summary>
 public sealed class XsrOperationLog
 {
-    private static readonly string[] QuietDomainPrefixes =
-    [
-        "logging.",
-        "diagnostics.",
-        "telemetry.",
-    ];
-
     private LogService? _log;
 
     public XsrOperationLog()
@@ -44,9 +38,9 @@ public sealed class XsrOperationLog
     /// Records one user-facing operation at Info (the tier users and bug reports read): the
     /// semantic command a renderer intent carried, e.g. ui.launch.primary.
     /// </summary>
-    public void WriteIntent(XsrSemanticId command)
+    public void WriteIntent(XsrSemanticId command, XsrCorrelationId correlationId = default)
     {
-        Write(LogLevel.Info, "UI", command.Value);
+        Write(LogLevel.Info, "UI", $"Intent received command={command.Value} cid={correlationId}");
     }
 
     public IXsrDispatchObserver Dispatch { get; private set; }
@@ -74,6 +68,11 @@ public sealed class XsrOperationLog
 
     private sealed class DispatchObserver(XsrOperationLog owner) : IXsrDispatchObserver
     {
+        public void OnStarted(XsrDispatchStarted observation) => owner.Write(
+            LogLevel.Debug,
+            observation.Kind == XsrDispatchKind.Command ? "Command" : "Query",
+            $"{observation.SemanticId.Value} started cid={observation.CorrelationId}");
+
         public void OnCompleted(XsrDispatchObservation observation)
         {
             string module = observation.Kind == XsrDispatchKind.Command ? "Command" : "Query";
@@ -82,7 +81,7 @@ public sealed class XsrOperationLog
                 owner.Write(
                     LogLevel.Debug,
                     module,
-                    $"{observation.SemanticId.Value} completed in {observation.Duration.TotalMilliseconds:F1} ms "
+                    $"{observation.SemanticId.Value} completed in {Milliseconds(observation.Duration)} ms "
                     + $"cid={observation.CorrelationId}");
                 return;
             }
@@ -91,7 +90,7 @@ public sealed class XsrOperationLog
                 LogLevel.Warn,
                 module,
                 $"{observation.SemanticId.Value} failed code={observation.Error?.Code.Value} "
-                + $"in {observation.Duration.TotalMilliseconds:F1} ms cid={observation.CorrelationId}"
+                + $"in {Milliseconds(observation.Duration)} ms cid={observation.CorrelationId}"
                 + (observation.FaultType is null ? string.Empty : $" fault={observation.FaultType}"));
         }
     }
@@ -128,9 +127,9 @@ public sealed class XsrOperationLog
         public void OnExecuted(XsrScheduledObservation observation)
         {
             owner.Write(
-                LogLevel.RealTime,
+                observation.Outcome == XsrScheduledOutcome.Faulted ? LogLevel.Error : LogLevel.RealTime,
                 "Scheduled",
-                $"{observation.Outcome} in {observation.Duration.TotalMilliseconds:F1} ms"
+                $"{observation.Outcome} in {Milliseconds(observation.Duration)} ms cid={observation.CorrelationId}"
                 + (observation.FaultType is null ? string.Empty : $" fault={observation.FaultType}"));
         }
     }
@@ -147,6 +146,8 @@ public sealed class XsrOperationLog
                 $"{transition.Component}: {transition.From} -> {transition.To}");
         }
     }
+
+    private static string Milliseconds(TimeSpan duration) => duration.TotalMilliseconds.ToString("F1", CultureInfo.InvariantCulture);
 }
 
 /// <summary>

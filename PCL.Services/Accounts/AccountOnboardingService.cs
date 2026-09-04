@@ -1,3 +1,4 @@
+using PCL.Services.Logging;
 using PCL.Services.Minecraft.Launch;
 using PCL.Xsr;
 using PCL.Xsr.State;
@@ -13,6 +14,7 @@ public sealed class AccountOnboardingService : IDisposable
     private readonly YggdrasilAuthService _yggdrasil;
     private readonly AccountOnboardingOptions _options;
     private readonly LegacyProfileImport _imports;
+    private readonly LogService? _log;
     private readonly XsrStateStore _store;
     private readonly object _gate = new();
     private Operation? _active;
@@ -23,7 +25,7 @@ public sealed class AccountOnboardingService : IDisposable
 
     public AccountOnboardingService(AccountService accounts, IMicrosoftMinecraftAuthService microsoft,
         ILittleSkinOAuthService littleSkin, YggdrasilAuthService yggdrasil, AccountOnboardingOptions options,
-        LegacyProfileImport? imports = null)
+        LegacyProfileImport? imports = null, LogService? log = null)
     {
         _accounts = accounts;
         _store = accounts.StateStore;
@@ -32,6 +34,7 @@ public sealed class AccountOnboardingService : IDisposable
         _yggdrasil = yggdrasil;
         _options = options;
         _imports = imports ?? new LegacyProfileImport();
+        _log = log;
         _store.Publish(_store.Resolve(AccountOnboardingState.Login), _snapshot);
     }
 
@@ -43,7 +46,7 @@ public sealed class AccountOnboardingService : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            Operation operation = Begin();
+            Operation operation = Begin("AccountLogin", $"provider={command.Provider}");
             _running = Task.Run(() => RunLogin(operation, command));
             return XsrResult.Success();
         }
@@ -55,7 +58,7 @@ public sealed class AccountOnboardingService : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            Operation operation = Begin();
+            Operation operation = Begin("ImportProfiles");
             _running = Task.Run(() => RunImport(operation, command.Path));
             return XsrResult.Success();
         }
@@ -78,6 +81,7 @@ public sealed class AccountOnboardingService : IDisposable
             if (_active is not { } operation || operation.Generation != generation || !_snapshot.IsBusy)
                 return XsrResult.Failure(AccountErrors.InvalidProfile("The login session is no longer active."));
             operation.Cancellation.Cancel();
+            operation.Trace?.Cancel();
             Publish(new(generation, AccountLoginPhase.Cancelled, "已取消"));
             ReplaceCollection<AccountCharacterChoice>(AccountOnboardingState.Characters, [], choice => choice.Uuid);
             return XsrResult.Success();
@@ -93,6 +97,7 @@ public sealed class AccountOnboardingService : IDisposable
                 || !operation.Characters.Any(character => character.Uuid == uuid))
                 return XsrResult.Failure(AccountErrors.InvalidProfile("The character choice is stale or unknown."));
             operation.Choice.TrySetResult(uuid);
+            _log?.Info("AccountLogin", $"Character choice accepted generation={generation}");
             return XsrResult.Success();
         }
     }
@@ -103,15 +108,17 @@ public sealed class AccountOnboardingService : IDisposable
         {
             if (_disposed) return;
             _disposed = true;
+            _active?.Trace?.Cancel();
             _active?.Cancellation.Cancel();
             _active = null;
         }
     }
 
-    private Operation Begin()
+    private Operation Begin(string name, string? context = null)
     {
         _active?.Cancellation.Cancel();
-        Operation operation = new(++_generation);
+        _active?.Trace?.Cancel();
+        Operation operation = new(++_generation, _log?.BeginOperation("AccountLogin", name, $"generation={_generation} {context}"));
         _active = operation;
         ReplaceCollection<AccountCharacterChoice>(AccountOnboardingState.Characters, [], choice => choice.Uuid);
         Publish(new(operation.Generation, AccountLoginPhase.Starting, "正在准备…"));
@@ -122,22 +129,25 @@ public sealed class AccountOnboardingService : IDisposable
     {
         try
         {
+            operation.Trace?.Stage("authenticate", $"provider={command.Provider}");
             LaunchProfile profile = command.Provider switch
             {
                 AccountLoginProvider.Offline => CreateOffline(command.Username),
                 AccountLoginProvider.Microsoft => await LoginMicrosoft(operation).ConfigureAwait(false),
                 AccountLoginProvider.LittleSkin => await LoginLittleSkin(operation).ConfigureAwait(false),
                 AccountLoginProvider.ThirdParty => await LoginThirdParty(command, operation.Cancellation.Token).ConfigureAwait(false),
-                _ => throw new OnboardingFailure("不支持的账户类型。"),
+                _ => throw new OnboardingFailure("不支持的账户类型。", "accounts.unsupported_provider"),
             };
             lock (_gate)
             {
                 if (!IsCurrent(operation)) return;
+                operation.Trace?.Stage("persist_profile");
                 Publish(new(operation.Generation, AccountLoginPhase.Saving, "正在保存档案…", Progress: .95));
                 XsrResult<int> saved = AccountLoginProfiles.Upsert(_accounts, profile);
-                if (!saved.IsSuccess) throw new OnboardingFailure("档案保存失败，请检查数据目录权限后重试。");
+                if (!saved.IsSuccess) throw new OnboardingFailure("档案保存失败，请检查数据目录权限后重试。", saved.Error!.Code.Value);
                 _accounts.SelectProfile(saved.Value);
                 Publish(new(operation.Generation, AccountLoginPhase.Completed, "档案已添加", Progress: 1));
+                operation.Trace?.Complete($"profile_index={saved.Value}");
             }
         }
         catch (Exception failure) { FinishFailure(operation, failure); }
@@ -148,14 +158,17 @@ public sealed class AccountOnboardingService : IDisposable
     {
         try
         {
+            operation.Trace?.Stage("read_legacy_profiles");
             IReadOnlyList<LaunchProfile> profiles = await LegacyProfileImport.ReadAsync(path, operation.Cancellation.Token).ConfigureAwait(false);
             lock (_gate)
             {
                 if (!IsCurrent(operation)) return;
+                operation.Trace?.Stage("persist_imported_profiles", $"count={profiles.Count}");
                 XsrResult<int> imported = _accounts.ImportProfiles(profiles);
-                if (!imported.IsSuccess) throw new OnboardingFailure("无法导入档案，请检查文件内容与数据目录权限。");
+                if (!imported.IsSuccess) throw new OnboardingFailure("无法导入档案，请检查文件内容与数据目录权限。", imported.Error!.Code.Value);
                 Publish(new(operation.Generation, AccountLoginPhase.Completed,
                     imported.Value > 0 ? $"已导入 {imported.Value} 个档案" : "这些档案已存在，无需重复导入", Progress: 1));
+                operation.Trace?.Complete($"added={imported.Value}");
             }
         }
         catch (Exception failure) { FinishFailure(operation, failure); }
@@ -166,33 +179,38 @@ public sealed class AccountOnboardingService : IDisposable
     {
         string name = username.Trim();
         if (name.Length is < 1 or > 16 || name.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '_'))
-            throw new OnboardingFailure("离线名称需为 1–16 位英文字母、数字或下划线。");
+            throw new OnboardingFailure("离线名称需为 1–16 位英文字母、数字或下划线。", "accounts.invalid_offline_name");
         return new LaunchProfile { Username = name, Kind = LaunchProfileKind.Offline, Uuid = MinecraftOfflineIdentity.UuidFromName(name) };
     }
 
     private async Task<LaunchProfile> LoginMicrosoft(Operation operation)
     {
+        operation.Trace?.Stage("microsoft_device_code");
         if (string.IsNullOrWhiteSpace(_options.MicrosoftClientId))
-            throw new OnboardingFailure("未配置 Microsoft 应用 ID：请设置 PCL_MS_CLIENT_ID 后重新启动。");
+            throw new OnboardingFailure("未配置 Microsoft 应用 ID：请设置 PCL_MS_CLIENT_ID 后重新启动。", "accounts.microsoft_client_id_missing");
         MicrosoftDeviceCodeInfo code = await _microsoft.RequestDeviceCodeAsync(_options.MicrosoftClientId, operation.Cancellation.Token).ConfigureAwait(false);
         ShowDeviceCode(operation, AccountLoginProvider.Microsoft, code.UserCode, code.VerificationUriComplete ?? code.VerificationUri);
+        operation.Trace?.Stage("microsoft_authorization_and_minecraft_session");
         MicrosoftMinecraftLoginResult result = await _microsoft.CompleteDeviceLoginAsync(_options.MicrosoftClientId, code,
             new InlineProgress(value => ReportProgress(operation, value)), operation.Cancellation.Token).ConfigureAwait(false);
-        if (!result.OwnsMinecraft) throw new OnboardingFailure("该 Microsoft 账户未拥有 Minecraft Java 版。");
+        if (!result.OwnsMinecraft) throw new OnboardingFailure("该 Microsoft 账户未拥有 Minecraft Java 版。", "accounts.minecraft_not_owned");
         return AccountLoginProfiles.FromMicrosoft(result);
     }
 
     private async Task<LaunchProfile> LoginLittleSkin(Operation operation)
     {
+        operation.Trace?.Stage("littleskin_device_code");
         LittleSkinOAuthConfiguration configuration = _options.LittleSkin
-            ?? throw new OnboardingFailure("LittleSkin 应用配置缺失或无效：请检查 PCL_LITTLESKIN_CLIENT_ID 后重新启动。");
+            ?? throw new OnboardingFailure("LittleSkin 应用配置缺失或无效：请检查 PCL_LITTLESKIN_CLIENT_ID 后重新启动。", "accounts.littleskin_configuration_missing");
         LittleSkinDeviceCodeInfo code = await _littleSkin.RequestDeviceCodeAsync(configuration, operation.Cancellation.Token).ConfigureAwait(false);
         ShowDeviceCode(operation, AccountLoginProvider.LittleSkin, code.UserCode,
             string.IsNullOrWhiteSpace(code.VerificationUriComplete) ? code.VerificationUri : code.VerificationUriComplete);
+        operation.Trace?.Stage("littleskin_authorization");
         LittleSkinOAuthTokens tokens = await _littleSkin.WaitForDeviceAuthorizationAsync(configuration, code,
             new InlineProgress(value => ReportProgress(operation, value)), operation.Cancellation.Token).ConfigureAwait(false);
+        operation.Trace?.Stage("littleskin_profiles");
         IReadOnlyList<LittleSkinProfile> characters = await _littleSkin.GetProfilesAsync(tokens.AccessToken, operation.Cancellation.Token).ConfigureAwait(false);
-        if (characters.Count is 0 or > 256) throw new OnboardingFailure("LittleSkin 没有可用角色，请先在网站创建角色。");
+        if (characters.Count is 0 or > 256) throw new OnboardingFailure("LittleSkin 没有可用角色，请先在网站创建角色。", "accounts.littleskin_profiles_unavailable");
         string uuid = characters[0].Uuid;
         if (characters.Count > 1)
         {
@@ -205,6 +223,7 @@ public sealed class AccountOnboardingService : IDisposable
             }
             uuid = await operation.Choice.Task.WaitAsync(operation.Cancellation.Token).ConfigureAwait(false);
         }
+        operation.Trace?.Stage("littleskin_minecraft_session");
         LittleSkinMinecraftSession session = await _littleSkin.CreateMinecraftSessionAsync(tokens.AccessToken, uuid, operation.Cancellation.Token).ConfigureAwait(false);
         return new LaunchProfile
         {
@@ -226,9 +245,9 @@ public sealed class AccountOnboardingService : IDisposable
         if (!server.Contains("://", StringComparison.Ordinal)) server = "https://" + server;
         if (!Uri.TryCreate(server, UriKind.Absolute, out Uri? uri) || uri.UserInfo.Length > 0
             || (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)))
-            throw new OnboardingFailure("认证服务器必须使用 HTTPS；仅本机开发服务器允许 HTTP。");
+            throw new OnboardingFailure("认证服务器必须使用 HTTPS；仅本机开发服务器允许 HTTP。", "accounts.unsafe_auth_server");
         if (string.IsNullOrWhiteSpace(command.Username) || string.IsNullOrEmpty(command.Password))
-            throw new OnboardingFailure("请填写登录名和密码。");
+            throw new OnboardingFailure("请填写登录名和密码。", "accounts.credentials_missing");
         YggdrasilAuthLoginResult result = await _yggdrasil.AuthenticateAsync(
             new YggdrasilAuthLoginRequest(uri.AbsoluteUri, command.Username.Trim(), command.Password), cancellationToken).ConfigureAwait(false);
         return AccountLoginProfiles.FromYggdrasil(result);
@@ -249,7 +268,7 @@ public sealed class AccountOnboardingService : IDisposable
     private void ShowDeviceCode(Operation operation, AccountLoginProvider provider, string userCode, string uri)
     {
         if (!IsVerificationUri(provider, uri) || userCode.Length is 0 or > 64)
-            throw new OnboardingFailure("授权服务返回了无效的验证地址或代码。");
+            throw new OnboardingFailure("授权服务返回了无效的验证地址或代码。", "accounts.invalid_verification_challenge");
         lock (_gate)
             if (IsCurrent(operation)) Publish(new(operation.Generation, AccountLoginPhase.AwaitingAuthorization,
                 "在浏览器完成授权，返回后将自动继续。", userCode, uri));
@@ -267,6 +286,9 @@ public sealed class AccountOnboardingService : IDisposable
         {
             if (_disposed || _active != operation) return;
             bool cancelled = operation.Cancellation.IsCancellationRequested || failure is OperationCanceledException;
+            if (cancelled) operation.Trace?.Cancel();
+            else if (failure is OnboardingFailure known) operation.Trace?.Reject(known.Code);
+            else operation.Trace?.Fail(failure);
             string message = cancelled ? "已取消" : failure switch
             {
                 OnboardingFailure safe => safe.Message,
@@ -289,12 +311,15 @@ public sealed class AccountOnboardingService : IDisposable
                 ReplaceCollection<AccountCharacterChoice>(AccountOnboardingState.Characters, [], choice => choice.Uuid);
             }
             operation.Cancellation.Dispose();
+            operation.Trace?.Dispose();
         }
     }
 
     private bool IsCurrent(Operation operation) => !_disposed && _active == operation && !operation.Cancellation.IsCancellationRequested;
     private void Publish(AccountLoginSnapshot snapshot)
     {
+        if (_snapshot.Generation != snapshot.Generation || _snapshot.Phase != snapshot.Phase)
+            _log?.Info("AccountLogin", $"Login phase generation={snapshot.Generation} from={_snapshot.Phase} to={snapshot.Phase}");
         _snapshot = snapshot;
         _store.Publish(_store.Resolve(AccountOnboardingState.Login), snapshot);
     }
@@ -308,13 +333,17 @@ public sealed class AccountOnboardingService : IDisposable
             snapshot.Items.Select(identity).Where(value => !kept.Contains(value)).ToArray()));
     }
 
-    private sealed class Operation(long generation)
+    private sealed class Operation(long generation, LogOperation? trace)
     {
         public long Generation { get; } = generation;
+        public LogOperation? Trace { get; } = trace;
         public CancellationTokenSource Cancellation { get; } = new();
         public TaskCompletionSource<string> Choice { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public IReadOnlyList<LittleSkinProfile> Characters { get; set; } = [];
     }
     private sealed class InlineProgress(Action<double> report) : IProgress<double> { public void Report(double value) => report(value); }
-    private sealed class OnboardingFailure(string message) : Exception(message);
+    private sealed class OnboardingFailure(string message, string code) : Exception(message)
+    {
+        public string Code { get; } = code;
+    }
 }

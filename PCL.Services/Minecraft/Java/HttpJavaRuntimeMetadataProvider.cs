@@ -1,3 +1,5 @@
+using PCL.Services.Logging;
+
 namespace PCL.Services.Minecraft.Java;
 
 /// <summary>HTTP transport for Mojang's Java runtime catalog and per-runtime manifests.</summary>
@@ -9,8 +11,8 @@ public sealed class HttpJavaRuntimeMetadataProvider : IJavaRuntimeMetadataProvid
     private readonly HttpClient _client;
     private readonly bool _ownsClient;
 
-    public HttpJavaRuntimeMetadataProvider()
-        : this(CreateDefaultClient(), ownsClient: true)
+    public HttpJavaRuntimeMetadataProvider(LogService? log = null)
+        : this(CreateDefaultClient(log), ownsClient: true)
     {
     }
 
@@ -40,9 +42,9 @@ public sealed class HttpJavaRuntimeMetadataProvider : IJavaRuntimeMetadataProvid
         if (_ownsClient) _client.Dispose();
     }
 
-    private static HttpClient CreateDefaultClient()
+    private static HttpClient CreateDefaultClient(LogService? log)
     {
-        HttpClient client = new() { Timeout = TimeSpan.FromMinutes(2) };
+        HttpClient client = new(log is null ? new HttpClientHandler() : new DiagnosticHttpHandler(log, new HttpClientHandler())) { Timeout = TimeSpan.FromMinutes(2) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("PCL-N/2.0");
         return client;
     }

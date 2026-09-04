@@ -52,6 +52,7 @@ internal static partial class Program
 
     internal static async ValueTask MicrosoftDeviceLoginRunsTheFullChain()
     {
+        PCL.Services.Logging.LogService log = CreateLogService();
         ScriptedHandler handler = new();
         List<TimeSpan> waits = [];
         MicrosoftMinecraftAuthService service = new(
@@ -60,7 +61,7 @@ internal static partial class Program
             {
                 waits.Add(delay);
                 return Task.CompletedTask;
-            });
+            }, log);
         string deviceUrl = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
         string tokenUrl = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
         handler.Serve(deviceUrl, """
@@ -99,6 +100,11 @@ internal static partial class Program
         AssertEqual(TimeSpan.FromSeconds(10), waits[2]); // slow_down takes effect on the next poll
         AssertTrue(progress.Values.Count > 0);
         AssertTrue(handler.Requests.Any(request => request.Contains("devicecode", StringComparison.Ordinal)));
+        string diagnostic = DiagnosticText(log);
+        foreach (string stage in new[] { "xbox_live", "xsts", "minecraft_authentication", "minecraft_profile", "minecraft_ownership" })
+            AssertTrue(diagnostic.Contains($"stage={stage}", StringComparison.Ordinal));
+        foreach (string secret in new[] { "DEV1", "ABCD-1234", "MS-AT", "MS-RT", "XBL-T", "XSTS-T", "MC-AT" })
+            AssertFalse(diagnostic.Contains(secret, StringComparison.Ordinal));
     }
 
     internal static async ValueTask MicrosoftDeclinedAndExpiredAreDistinctErrors()

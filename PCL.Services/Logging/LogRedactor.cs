@@ -17,7 +17,8 @@ public static partial class LogRedactor
             return string.Empty;
         }
 
-        string result = AuthorizationHeaderPattern().Replace(text, "$1<redacted>");
+        string result = CookieHeaderPattern().Replace(text, "$1<redacted>");
+        result = AuthorizationHeaderPattern().Replace(result, "$1<redacted>");
         result = BearerPattern().Replace(result, "$1<redacted>");
         result = SecretAssignmentPattern().Replace(result, "$1$2<redacted>");
         result = SecretArgumentPattern().Replace(result, "$1$2<redacted>");
@@ -31,12 +32,15 @@ public static partial class LogRedactor
     [GeneratedRegex("(?i)(\\bBearer\\s+)[^\\s,;]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex BearerPattern();
 
-    [GeneratedRegex("(?i)(\\b(?:access[_-]?token|refresh[_-]?token|password|passwd|api[_-]?key|client[_-]?secret|secret|token)\\b)(\\s*(?:=|:)\\s*)[^\\s,;&]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
+    [GeneratedRegex("(?i)(\\b(?:(?:auth[_-]?|provider[_-]?)?access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?token|device[_-]?code|user[_-]?code|authorization[_-]?code|password|passwd|api[_-]?key|client[_-]?secret|secret|token)\\b)([\"']?\\s*(?:=|:)\\s*)(?:\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'|[^\\s,;&]+)", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex SecretAssignmentPattern();
 
-    [GeneratedRegex("(?i)(\\b(?:access[_-]?token|refresh[_-]?token|password|passwd|api[_-]?key|client[_-]?secret|secret)\\b)(\\s+)[^\\s,;&]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
+    [GeneratedRegex("(?i)(\\b(?:(?:auth[_-]?|provider[_-]?)?access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?token|device[_-]?code|user[_-]?code|authorization[_-]?code|password|passwd|api[_-]?key|client[_-]?secret|secret)\\b)(\\s+)(?:\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'|[^\\s,;&]+)", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex SecretArgumentPattern();
 
-    [GeneratedRegex("(?i)([?&](?:code|token|access_token|refresh_token|api_key|signature|sig)=)[^&#\\s]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
+    [GeneratedRegex("(?i)([?&](?:code|token|access_token|refresh_token|id_token|client_token|device_code|user_code|api_key|signature|sig)=)[^&#\\s]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex SensitiveQueryPattern();
+
+    [GeneratedRegex("(?im)(\\b(?:Cookie|Set-Cookie)\\s*:\\s*)[^\\r\\n]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
+    private static partial Regex CookieHeaderPattern();
 }

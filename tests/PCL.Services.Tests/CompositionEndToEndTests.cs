@@ -161,7 +161,7 @@ internal static partial class Program
             AssertTrue(result.Success);
             AssertTrue(host.Logging.GetSnapshot().Any(entry =>
                 entry.Module == DownloadService.LogModuleName
-                && entry.Message.Contains("下载", StringComparison.Ordinal)));
+                && entry.Message.Contains("Download completed", StringComparison.Ordinal)));
             AssertTrue(ReferenceEquals(host.Logging.StateStore, host.Downloads.StateStore));
         }
         finally
@@ -228,8 +228,7 @@ internal static partial class Program
         bridge.DrainAndMark(store);
         tree.DirtyEntities().ToList().ForEach(entity => tree.ClearDirty(entity));
 
-        // Dispatching settings.set dirties only the settings-bound entity: state identity is
-        // exact, not per-store guesswork.
+        // Dispatching settings.set publishes the setting and its diagnostic breadcrumbs.
         XsrCommandId commandId = runtime.Commands.TryResolve(FoundationRouteIds.SettingsSet, out XsrCommandId resolved)
             ? resolved
             : throw new InvalidOperationException("settings.set route missing.");
@@ -239,10 +238,10 @@ internal static partial class Program
         bridge.DrainAndMark(store);
         IReadOnlyList<XsrUiEntityId> dirty = tree.DirtyEntities();
 
-        // Only the settings-bound text child is dirty: state identity is exact, so a settings
-        // publication never touches the account, download, telemetry, or log bindings.
-        AssertEqual(1, dirty.Count);
+        // Only settings and log bindings are dirty; unrelated capability bindings stay clean.
+        AssertEqual(2, dirty.Count);
         XsrUiEntityId settingsChild = tree.Children(loaded)[0];
         AssertTrue(dirty.Contains(settingsChild));
+        AssertTrue(dirty.Contains(tree.Children(loaded)[4]));
     }
 }

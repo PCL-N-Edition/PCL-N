@@ -104,6 +104,7 @@ public sealed class SettingsService
         }
 
         IReadOnlyDictionary<string, string> persisted;
+        _log?.Debug("Settings", "Loading persisted settings.");
         try
         {
             persisted = _port.Load();
@@ -112,7 +113,7 @@ public sealed class SettingsService
         {
             LoadError = SettingsErrors.PersistFailed(failure.Message);
             persisted = new Dictionary<string, string>(StringComparer.Ordinal);
-            _log?.Warn("Settings", $"设置读取失败，全部回退默认：{failure.Message}");
+            _log?.Write(LogLevel.Warn, "Settings", "Settings load failed; using schema defaults. code=settings.persist_failed", ExceptionDiagnostics.Describe(failure));
         }
 
         foreach (SettingDefinition definition in schema.Definitions)
@@ -133,6 +134,7 @@ public sealed class SettingsService
                 else
                 {
                     SkippedEntryCount++;
+                    _log?.Warn("Settings", $"Invalid persisted setting skipped key={definition.Key.Value} type={definition.ValueType}");
                 }
             }
 
@@ -148,14 +150,15 @@ public sealed class SettingsService
             if (!schema.Definitions.Any(definition => definition.Key.Value == unknown))
             {
                 SkippedEntryCount++;
+                _log?.Debug("Settings", $"Undeclared persisted setting skipped key={unknown}");
             }
         }
 
         _log?.Info(
             "Settings",
             LoadError is null
-                ? $"设置已加载：{persisted.Count} 项，跳过 {SkippedEntryCount} 项。"
-                : $"设置加载失败（已回退默认），跳过 {SkippedEntryCount} 项。");
+                ? $"Settings load completed entries={persisted.Count} skipped={SkippedEntryCount}"
+                : $"Settings defaults activated after load failure skipped={SkippedEntryCount}");
     }
 
     public SettingsSchema Schema { get; }
@@ -237,7 +240,7 @@ public sealed class SettingsService
 
             Publish(definition, (object)value);
             StateStore.MarkAvailability(_ids[definition.Key], XsrStateAvailability.Available);
-            _log?.Info("Settings", $"设置 {definition.Key.Value} = {raw}");
+            _log?.Info("Settings", $"Setting persisted and published key={definition.Key.Value} type={definition.ValueType}");
             return XsrResult.Success();
         }
     }
@@ -348,6 +351,7 @@ public sealed class SettingsService
                 StateStore.MarkAvailability(_ids[definition.Key], XsrStateAvailability.Available);
             }
 
+            _log?.Info("Settings", $"Schema defaults persisted and published count={snapshot.Count}");
             return XsrResult.Success();
         }
     }
@@ -388,23 +392,28 @@ public sealed class SettingsService
 
             Publish(definition, typed);
             StateStore.MarkAvailability(_ids[definition.Key], XsrStateAvailability.Available);
+            _log?.Info("Settings", $"Setting persisted and published key={definition.Key.Value} type={definition.ValueType}");
             return XsrResult.Success();
         }
     }
 
     private XsrResult Persist(Dictionary<string, string> snapshot, string pendingKey)
     {
+        using LogOperation? operation = _log?.BeginOperation("Settings", "PersistSettings", $"key={pendingKey} count={snapshot.Count}");
         try
         {
             _port.Save(snapshot);
+            operation?.Complete();
             return XsrResult.Success();
         }
         catch (ArgumentException failure)
         {
+            operation?.Reject(SettingsErrors.InvalidValueCode.Value);
             return XsrResult.Failure(SettingsErrors.InvalidValue(pendingKey, failure.Message));
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or NotSupportedException)
         {
+            operation?.Fail(failure);
             return XsrResult.Failure(SettingsErrors.PersistFailed(failure.Message));
         }
     }

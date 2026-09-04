@@ -129,7 +129,7 @@ internal static partial class Program
 
         // Lifecycle transitions sit at Info: low-volume milestones every bug report needs,
         // visible even under the release-default Info gate (no MaximumLevel raise here).
-        // Scheduler observations stay at RealTime and only appear when the gate is raised.
+        // Scheduler faults must remain visible at the release gate; successes stay RealTime.
         log.Lifecycle.OnPhaseChanged(new XsrLifecycleTransition(
             "SidecarSession", XsrLifecyclePhase.Running, XsrLifecyclePhase.Stopping));
         log.Scheduler.OnExecuted(new XsrScheduledObservation(
@@ -143,7 +143,12 @@ internal static partial class Program
             entry.Level == LogLevel.Info
             && entry.Module == "Lifecycle"
             && entry.Message.Contains("SidecarSession: Running -> Stopping", StringComparison.Ordinal)));
-        AssertTrue(entries.All(entry => entry.Module != "Scheduled"));
+        AssertTrue(entries.Any(entry => entry.Module == "Scheduled" && entry.Level == LogLevel.Error
+            && entry.Message.Contains("cid=", StringComparison.Ordinal)));
+        int before = entries.Count;
+        log.Scheduler.OnExecuted(new XsrScheduledObservation(XsrCorrelationId.Create(),
+            XsrScheduledOutcome.Completed, TimeSpan.FromMilliseconds(4), null));
+        AssertEqual(before, ReadOperationEntries(store).Count);
 
         service.MaximumLevel = LogLevel.RealTime;
         log.Scheduler.OnExecuted(new XsrScheduledObservation(

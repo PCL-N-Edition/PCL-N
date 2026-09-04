@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-
+using PCL.Services.Logging;
 using PCL.Xsr;
 using PCL.Xsr.State;
 
@@ -172,13 +172,15 @@ public sealed class MinecraftProcessService : IAsyncDisposable
     private static readonly TimeSpan StaleSessionAge = TimeSpan.FromHours(12);
 
     private readonly IMinecraftProcessPort _port;
+    private readonly LogService? _log;
     private readonly XsrStateStore? _store;
     private readonly XsrStateId _sessionsId;
     private readonly ConcurrentDictionary<Guid, MinecraftProcessSession> _sessions = new();
 
-    public MinecraftProcessService(IMinecraftProcessPort? port = null, XsrStateStore? hostStore = null)
+    public MinecraftProcessService(IMinecraftProcessPort? port = null, XsrStateStore? hostStore = null, LogService? log = null)
     {
         _port = port ?? new SystemMinecraftProcessPort();
+        _log = log;
         _store = hostStore;
         if (_store is not null)
         {
@@ -193,18 +195,35 @@ public sealed class MinecraftProcessService : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
-        System.Diagnostics.Process process = await _port.StartAsync(plan.ToStartInfo(), cancellationToken).ConfigureAwait(false);
-        Guid sessionId = Guid.NewGuid();
-        MinecraftProcessSession session = new(process, instanceId, sessionId, DateTimeOffset.UtcNow);
-        session.Changed += OnSessionChanged;
-        _sessions[sessionId] = session;
-        // Publish the Created observation even if the child exited between Process.Start and
-        // event subscription; the terminal snapshot follows immediately in that case.
-        Publish(session.CreatedSnapshot);
-        if (session.Snapshot.State != MinecraftProcessState.Created) Publish(session.Snapshot);
-        session.StartLifecycle();
-        PruneSessions();
-        return session;
+        using LogOperation? operation = _log?.BeginOperation("Process", "StartProcess", $"instance={instanceId}");
+        try
+        {
+            ProcessStartInfo startInfo = plan.ToStartInfo();
+            operation?.Stage("os_start", $"executable={startInfo.FileName} working_directory={startInfo.WorkingDirectory} argument_count={startInfo.ArgumentList.Count}");
+            System.Diagnostics.Process process = await _port.StartAsync(startInfo, cancellationToken).ConfigureAwait(false);
+            Guid sessionId = Guid.NewGuid();
+            MinecraftProcessSession session = new(process, instanceId, sessionId, DateTimeOffset.UtcNow);
+            session.Changed += OnSessionChanged;
+            _sessions[sessionId] = session;
+            // Publish the Created observation even if the child exited between Process.Start and
+            // event subscription; the terminal snapshot follows immediately in that case.
+            Publish(session.CreatedSnapshot);
+            if (session.Snapshot.State != MinecraftProcessState.Created) Publish(session.Snapshot);
+            session.StartLifecycle();
+            PruneSessions();
+            operation?.Complete($"session={sessionId} pid={process.Id} state={session.Snapshot.State}");
+            return session;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            operation?.Cancel();
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+        {
+            operation?.Fail(exception);
+            throw;
+        }
     }
 
     public IReadOnlyList<MinecraftProcessSnapshot> ListSessions()
@@ -224,9 +243,18 @@ public sealed class MinecraftProcessService : IAsyncDisposable
     /// <summary>Cancels one session by id; returns false when unknown or already ended.</summary>
     public bool TryCancel(Guid sessionId)
     {
+        _log?.Info("Process", $"Process cancellation requested session={sessionId}");
         PruneSessions();
-        if (!_sessions.TryGetValue(sessionId, out MinecraftProcessSession? session)) return false;
-        if (session.Snapshot.State is not (MinecraftProcessState.Created or MinecraftProcessState.Running)) return false;
+        if (!_sessions.TryGetValue(sessionId, out MinecraftProcessSession? session))
+        {
+            _log?.Warn("Process", $"Process cancellation rejected session={sessionId} reason=unknown_session");
+            return false;
+        }
+        if (session.Snapshot.State is not (MinecraftProcessState.Created or MinecraftProcessState.Running))
+        {
+            _log?.Debug("Process", $"Process cancellation ignored session={sessionId} state={session.Snapshot.State}");
+            return false;
+        }
         session.Cancel();
         return session.Snapshot.State is MinecraftProcessState.Cancelled or MinecraftProcessState.Exited or MinecraftProcessState.Failed;
     }
@@ -240,6 +268,8 @@ public sealed class MinecraftProcessService : IAsyncDisposable
 
     private void Publish(MinecraftProcessSnapshot snapshot)
     {
+        _log?.Write(snapshot.State == MinecraftProcessState.Failed ? LogLevel.Error : LogLevel.Info,
+            "Process", $"Process lifecycle session={snapshot.SessionId} instance={snapshot.InstanceId} pid={snapshot.ProcessId} state={snapshot.State} exit_code={snapshot.ExitCode}");
         if (_store is null) return;
         for (int attempt = 0; attempt < 8; attempt++)
         {
@@ -286,6 +316,7 @@ public sealed class MinecraftProcessService : IAsyncDisposable
             {
                 if (_sessions.TryRemove(snapshot.SessionId, out MinecraftProcessSession? removed))
                 {
+                    _log?.Debug("Process", $"Pruning completed session={snapshot.SessionId} stale={stale} over_retention={overRetention}");
                     removed.Changed -= OnSessionChanged;
                     RemovePublished(snapshot.SessionId);
                     removed.DisposeAsync().AsTask().GetAwaiter().GetResult();

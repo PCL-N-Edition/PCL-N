@@ -101,7 +101,8 @@ public static class FoundationComposer
         int downloadBufferSize = 128 * 1024,
         long minimumSegmentBytes = 8 * 1024 * 1024,
         int telemetryCapacity = 500,
-        Action<XsrStateStoreBuilder>? declareHostState = null)
+        Action<XsrStateStoreBuilder>? declareHostState = null,
+        Action<LogService>? configureLogging = null)
     {
         ArgumentNullException.ThrowIfNull(settingsPort);
         ArgumentNullException.ThrowIfNull(settingsSchema);
@@ -112,6 +113,8 @@ public static class FoundationComposer
         XsrStateStore store = builder.Build(observer);
 
         var logging = new LogService(store, logCapacity, clock);
+        // Sinks and observers must be attached before constructors read persisted data.
+        configureLogging?.Invoke(logging);
         var downloads = new DownloadService(store, downloadBufferSize, logging, minimumSegmentBytes);
         var accounts = new AccountService(store, profilePort, logging);
         var telemetry = new TelemetryService(store, telemetryCapacity);

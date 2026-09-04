@@ -61,6 +61,8 @@ public sealed class XsrQueryRouter
                 entry.SemanticId);
         }
 
+        XsrDispatchNotifier.NotifyStarted(_observer,
+            new XsrDispatchStarted(correlationId, XsrDispatchKind.Query, entry.SemanticId, entry.RuntimeId));
         CancellationTokenSource? timeoutSource = null;
         CancellationTokenSource? linkedSource = null;
         CancellationToken effectiveToken = cancellationToken;

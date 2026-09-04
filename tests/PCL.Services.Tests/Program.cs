@@ -4,6 +4,15 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("operation breadcrumbs retain stage source and one terminal outcome", Sync(OperationBreadcrumbsKeepStageSourceAndOneOutcome)),
+        ("diagnostic redaction covers quoted secrets and device codes", Sync(DiagnosticRedactionCoversQuotedSecretsAndDeviceCodes)),
+        ("foundation startup failures reach configured sinks", Sync(FoundationStartupFailuresReachConfiguredSinks)),
+        ("settings diagnostics hide values and explain durable failure", Sync(SettingsDiagnosticsHideValuesAndExplainDurableFailure)),
+        ("production routes and login workers emit diagnostics", ProductionRoutesAndLoginWorkersEmitDiagnostics),
+        ("download commit failures identify the failed stage", DownloadCommitFailureLogsItsStage),
+        ("native preparation failures log before process start", NativePreparationFailureLogsBeforeProcessStart),
+        ("HTTP diagnostics exclude secrets and preserve responses", HttpDiagnosticsExcludeSecretsAndPreserveResponses),
+        ("dispatch start observers cannot break handlers", DispatchStartObserversCannotBreakHandlers),
         ("profile skins resolve explicit and session textures without credentials", ProfileSkinsResolveExplicitAndSessionTextures),
         ("removed profiles reject late skin responses", RemovedProfilesRejectLateSkinResponses),
         ("profile imports validate deduplicate and persist before publication", Sync(ProfileImportIsValidatedDeduplicatedAndDurable)),

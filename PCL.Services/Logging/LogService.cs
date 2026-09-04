@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using PCL.Xsr;
 using PCL.Xsr.State;
 
@@ -54,7 +55,7 @@ public sealed class LogService
 
     /// <summary>
     /// Adds one mirror sink (console, file). Sinks observe recorded entries after redaction and
-    /// state publication; they can never influence or block the operation being logged.
+    /// state publication; sink failures are isolated from the operation being logged.
     /// </summary>
     public void AddSink(ILogSink sink)
     {
@@ -89,6 +90,10 @@ public sealed class LogService
     /// Hot loops check this once instead of paying string construction per iteration.
     /// </summary>
     public bool VerboseEnabled => IsEnabled(LogLevel.Debug);
+
+    public LogOperation BeginOperation(string module, string name, string? context = null, LogLevel level = LogLevel.Info,
+        [CallerFilePath] string file = "", [CallerLineNumber] int line = 0) =>
+        new(this, module, name, context, $"{Path.GetFileName(file)}:{line}", level);
 
     // Ergonomic manual log points: one call per statement instead of spelling the level enum
     // at every call site. Info marks user-visible operations, Debug marks one-shot internals,

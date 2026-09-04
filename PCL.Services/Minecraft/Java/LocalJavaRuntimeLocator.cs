@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using PCL.Services.Logging;
 
 namespace PCL.Services.Minecraft.Java;
 
@@ -13,9 +14,11 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
 {
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(8);
     private readonly string? _launcherRuntimeRoot;
+    private readonly LogService? _log;
 
-    public LocalJavaRuntimeLocator(string? launcherRuntimeRoot = null)
+    public LocalJavaRuntimeLocator(string? launcherRuntimeRoot = null, LogService? log = null)
     {
+        _log = log;
         _launcherRuntimeRoot = string.IsNullOrWhiteSpace(launcherRuntimeRoot)
             ? null
             : Path.GetFullPath(launcherRuntimeRoot);
@@ -28,6 +31,7 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
         AddLauncherRuntimes(paths);
         AddJavaHome(paths);
         AddPathRuntimes(paths);
+        _log?.Info("Java", $"Runtime discovery started executable_candidates={paths.Count}");
 
         List<JavaRuntimeCandidate> candidates = [];
         foreach (string path in paths.OrderBy(static path => path, GetPathComparer()))
@@ -41,6 +45,7 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
             }
         }
 
+        _log?.Info("Java", $"Runtime discovery completed usable_candidates={candidates.Count}");
         return candidates;
     }
 
@@ -65,6 +70,7 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
 
         if (!File.Exists(executable))
         {
+            _log?.Debug("Java", $"Java probe skipped; executable is absent path={executable}");
             return null;
         }
 
@@ -86,6 +92,7 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
 
         try
         {
+            _log?.Debug("Java", $"Java probe started executable={executable}");
             if (!process.Start())
             {
                 return null;
@@ -98,17 +105,23 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
                 await output.ConfigureAwait(false),
                 Environment.NewLine,
                 await error.ConfigureAwait(false));
-            return TryCreateCandidate(executable, properties, out JavaRuntimeCandidate? candidate)
-                ? candidate
-                : null;
+            if (TryCreateCandidate(executable, properties, out JavaRuntimeCandidate? candidate))
+            {
+                _log?.Debug("Java", $"Java probe completed executable={executable} major={candidate!.Installation.MajorVersion}");
+                return candidate;
+            }
+            _log?.Warn("Java", $"Java probe returned unrecognized version properties executable={executable} exit_code={process.ExitCode}");
+            return null;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             TryKill(process);
+            _log?.Warn("Java", $"Java probe timed out executable={executable} timeout_seconds=8");
             return null;
         }
         catch (Exception exception) when (exception is Win32Exception or IOException or InvalidOperationException)
         {
+            _log?.Write(LogLevel.Warn, "Java", $"Java probe failed executable={executable}", ExceptionDiagnostics.Describe(exception));
             return null;
         }
     }
@@ -132,6 +145,7 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            _log?.Write(LogLevel.Warn, "Java", "Launcher runtime enumeration was incomplete; continuing with environment candidates.", ExceptionDiagnostics.Describe(exception));
             // A partially inaccessible runtime folder must not hide usable PATH/JAVA_HOME entries.
         }
     }

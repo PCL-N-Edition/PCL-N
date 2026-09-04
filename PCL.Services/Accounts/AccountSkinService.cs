@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using PCL.Core.Media;
+using PCL.Services.Logging;
 using PCL.Xsr;
 using PCL.Xsr.State;
 
@@ -11,7 +12,7 @@ public sealed record AccountSkinSnapshot(string ProfileKey, PngImage? Image);
 public sealed record AccountRefreshSkinsCommand;
 
 /// <summary>Credential-free skin resolution, bounded to 64 current profiles and one MiB per image.</summary>
-public sealed class AccountSkinService(AccountService accounts, HttpClient client) : IDisposable
+public sealed class AccountSkinService(AccountService accounts, HttpClient client, LogService? log = null) : IDisposable
 {
     public static readonly XsrSemanticId SkinsKey = XsrSemanticId.Parse("accounts.skins");
     public static readonly XsrSemanticId RefreshRoute = XsrSemanticId.Parse("accounts.skins.refresh");
@@ -47,6 +48,7 @@ public sealed class AccountSkinService(AccountService accounts, HttpClient clien
 
     private async Task ResolveAll(LaunchProfileView[] profiles, CancellationTokenSource operation)
     {
+        using LogOperation? trace = log?.BeginOperation("AccountSkin", "ResolveAvatars", $"profiles={profiles.Length}", LogLevel.Debug);
         try
         {
             XsrStateStore store = accounts.StateStore;
@@ -55,7 +57,7 @@ public sealed class AccountSkinService(AccountService accounts, HttpClient clien
             HashSet<string> keys = profiles.Select(ProfileKey).ToHashSet(StringComparer.Ordinal);
             lock (_gate)
             {
-                if (_disposed || _active != operation) return;
+                if (_disposed || _active != operation) { trace?.Cancel(); return; }
                 var snapshot = store.ReadCollection<AccountSkinSnapshot>(id);
                 store.PublishDelta(id, new XsrCollectionDelta<AccountSkinSnapshot, string>(snapshot.Revision, [], snapshot.Items.Select(item => item.ProfileKey).Where(key => !keys.Contains(key)).ToArray()));
             }
@@ -66,7 +68,11 @@ public sealed class AccountSkinService(AccountService accounts, HttpClient clien
                 PngImage? image = null;
                 try { image = await Resolve(profile, token).ConfigureAwait(false); }
                 catch (Exception failure) when (failure is HttpRequestException or IOException or InvalidDataException or JsonException or FormatException or InvalidOperationException or TaskCanceledException)
-                { /* Offline/invalid media keeps the embedded avatar; no raw response or URL is logged. */ }
+                {
+                    log?.Write(token.IsCancellationRequested ? LogLevel.Debug : LogLevel.Warn,
+                        "AccountSkin", $"Avatar lookup failed; retaining embedded fallback profile_index={profile.Index} kind={profile.Kind}", ExceptionDiagnostics.Describe(failure));
+                }
+                log?.Debug("AccountSkin", $"Avatar resolved profile_index={profile.Index} source={(image is null ? "embedded" : "remote")}");
                 lock (_gate)
                 {
                     if (_disposed || _active != operation || token.IsCancellationRequested) return;
@@ -74,8 +80,14 @@ public sealed class AccountSkinService(AccountService accounts, HttpClient clien
                     store.PublishDelta(id, new XsrCollectionDelta<AccountSkinSnapshot, string>(snapshot.Revision, [new(key, image)], []), cancellationToken: token);
                 }
             }).ConfigureAwait(false);
+            trace?.Complete();
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) { trace?.Cancel(); }
+        catch (Exception failure) when (failure is not OutOfMemoryException and not AccessViolationException)
+        {
+            trace?.Fail(failure);
+            throw;
+        }
         finally
         {
             lock (_gate) { if (_active == operation) _active = null; operation.Dispose(); }

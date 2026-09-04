@@ -97,14 +97,17 @@ public sealed class MinecraftLaunchCoordinator
         int accountIndex,
         CancellationToken cancellationToken = default)
     {
+        using LogOperation? operation = _log?.BeginOperation("Launch", "PrepareLaunch", $"instance={instanceId} account_index={accountIndex}");
         if (string.IsNullOrWhiteSpace(instanceId))
         {
+            operation?.Reject("minecraft.invalid_request");
             return XsrResult.Failure<MinecraftLaunchPreparation>(
                 MinecraftErrors.InvalidRequest("an instance id is required."));
         }
 
         try
         {
+            operation?.Stage("resolve_instance");
             IReadOnlyList<MinecraftInstanceDescriptor> installed = await _instances
                 .DiscoverAsync(_minecraftRootDirectory, cancellationToken)
                 .ConfigureAwait(false);
@@ -112,26 +115,32 @@ public sealed class MinecraftLaunchCoordinator
                 string.Equals(candidate.Id, instanceId, StringComparison.OrdinalIgnoreCase));
             if (instance is null)
             {
+                operation?.Reject("minecraft.instance_not_found");
                 return XsrResult.Failure<MinecraftLaunchPreparation>(
                     MinecraftErrors.InstanceNotFound(instanceId));
             }
 
+            operation?.Stage("resolve_account");
             XsrResult<LaunchProfile> profileResult = _accounts.GetProfile(accountIndex);
             if (!profileResult.IsSuccess)
             {
+                operation?.Reject(profileResult.Error!.Code.Value);
                 return XsrResult.Failure<MinecraftLaunchPreparation>(profileResult.Error!);
             }
 
             XsrResult<MinecraftLaunchIdentity> identityResult = ResolveIdentity(profileResult.Value);
             if (!identityResult.IsSuccess)
             {
+                operation?.Reject(identityResult.Error!.Code.Value);
                 return XsrResult.Failure<MinecraftLaunchPreparation>(identityResult.Error!);
             }
 
+            operation?.Stage("resolve_manifests");
             MinecraftResolvedVersionManifests manifests = await MinecraftVersionJsonReader
                 .ResolveAsync(instance, _minecraftRootDirectory, cancellationToken)
                 .ConfigureAwait(false);
             MinecraftModLoaderDescriptor loader = MinecraftModLoaderDetector.Detect(manifests.Current);
+            _log?.Debug("Launch", $"Effective manifest resolved instance={instanceId} inherited={manifests.Inherited.Count} loader={loader.Kind}");
             MinecraftJavaRequirementRequest javaRequest = CreateJavaRequirement(
                 instance,
                 manifests,
@@ -140,6 +149,7 @@ public sealed class MinecraftLaunchCoordinator
                 && !string.IsNullOrWhiteSpace(instance.Metadata.SelectedJavaPath)
                 ? new ExistingJavaPreference(instance.Metadata.SelectedJavaPath)
                 : new AutoSelectJavaPreference();
+            operation?.Stage("select_java", $"os={_platform.OperatingSystem} os_version={_platform.OperatingSystemVersion} arm64={_platform.IsArm64Architecture} manifest_major={javaRequest.ManifestJavaMajorVersion}");
             JavaSelectionResult java = await _javaSelection
                 .SelectAsync(javaRequest, preference, cancellationToken)
                 .ConfigureAwait(false);
@@ -147,18 +157,21 @@ public sealed class MinecraftLaunchCoordinator
                 java,
                 preference,
                 loader.Kind is MinecraftModLoaderKind.Forge or MinecraftModLoaderKind.NeoForge,
-                cancellationToken).ConfigureAwait(false);
+                operation, cancellationToken).ConfigureAwait(false);
             if (!resolvedJava.IsSuccess)
             {
+                operation?.Reject(resolvedJava.Error!.Code.Value);
                 return XsrResult.Failure<MinecraftLaunchPreparation>(resolvedJava.Error!);
             }
 
+            operation?.Stage("apply_launch_settings", $"java_major={resolvedJava.Value.MajorVersion} java_path={resolvedJava.Value.ExecutablePath}");
             MinecraftLaunchRequest request = CreateRequest(
                 instance,
                 manifests,
                 loader,
                 identityResult.Value,
                 resolvedJava.Value);
+            operation?.Complete($"instance={instance.Id} memory_mb={request.MemoryMegabytes}");
             return XsrResult.Success(new MinecraftLaunchPreparation(
                 instance,
                 request,
@@ -166,6 +179,7 @@ public sealed class MinecraftLaunchCoordinator
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            operation?.Cancel();
             throw;
         }
         catch (Exception exception) when (exception is IOException
@@ -176,8 +190,14 @@ public sealed class MinecraftLaunchCoordinator
             or HttpRequestException
             or PlatformNotSupportedException)
         {
+            operation?.Fail(exception);
             return XsrResult.Failure<MinecraftLaunchPreparation>(
                 MinecraftErrors.LaunchPreparationFailed(exception.Message));
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+        {
+            operation?.Fail(exception);
+            throw;
         }
     }
 
@@ -186,29 +206,29 @@ public sealed class MinecraftLaunchCoordinator
         int accountIndex,
         CancellationToken cancellationToken = default)
     {
-        Info($"开始启动实例 {instanceId}（账户 #{accountIndex}）");
-        XsrResult<MinecraftLaunchPreparation> preparation = await PrepareAsync(
-            instanceId,
-            accountIndex,
-            cancellationToken).ConfigureAwait(false);
-        if (!preparation.IsSuccess)
-        {
-            Warn($"实例 {instanceId} 启动准备失败：{preparation.Error?.Message}");
-            return XsrResult.Failure(preparation.Error!);
-        }
-
-        Info($"已选择 Java {preparation.Value.Request.JavaMajorVersion}（{preparation.Value.Request.JavaExecutablePath}）");
-
+        using LogOperation? operation = _log?.BeginOperation("Launch", "StartMinecraft", $"instance={instanceId} account_index={accountIndex}");
         try
         {
+            operation?.Stage("prepare");
+            XsrResult<MinecraftLaunchPreparation> preparation = await PrepareAsync(
+                instanceId, accountIndex, cancellationToken).ConfigureAwait(false);
+            if (!preparation.IsSuccess)
+            {
+                operation?.Reject(preparation.Error!.Code.Value);
+                return XsrResult.Failure(preparation.Error!);
+            }
+
+            operation?.Stage("create_plan");
             MinecraftLaunchPlan plan = MinecraftLaunchPlanner.CreatePlan(preparation.Value.Request);
-            await _executor.ExecuteAsync(plan, preparation.Value.Instance.Id, cancellationToken)
+            operation?.Stage("execute_plan", $"native_archives={plan.NativeLibraries.Count}");
+            Process.MinecraftProcessSession session = await _executor.ExecuteAsync(plan, preparation.Value.Instance.Id, cancellationToken)
                 .ConfigureAwait(false);
-            Info($"Minecraft 已启动（{instanceId}，pid 见进程列表）");
+            operation?.Complete($"session={session.Snapshot.SessionId} pid={session.Snapshot.ProcessId} state={session.Snapshot.State}");
             return XsrResult.Success();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            operation?.Cancel();
             throw;
         }
         catch (Exception exception) when (exception is IOException
@@ -217,21 +237,24 @@ public sealed class MinecraftLaunchCoordinator
             or InvalidOperationException
             or ArgumentException)
         {
-            Warn($"实例 {instanceId} 启动失败：{exception.Message}");
+            operation?.Fail(exception);
             return XsrResult.Failure(MinecraftErrors.LaunchFailed(exception.Message));
         }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+        {
+            operation?.Fail(exception);
+            throw;
+        }
     }
-
-    private void Info(string message) => _log?.Write(LogLevel.Info, "Launch", message);
-
-    private void Warn(string message) => _log?.Write(LogLevel.Warn, "Launch", message);
 
     private async ValueTask<XsrResult<ResolvedJava>> ResolveJavaAsync(
         JavaSelectionResult selection,
         JavaPreference preference,
         bool hasForge,
+        LogOperation? operation,
         CancellationToken cancellationToken)
     {
+        _log?.Info("Java", $"Java selection completed success={selection.Success} failure={selection.FailureReason} minimum={selection.Requirement.Range.Minimum} maximum={selection.Requirement.Range.Maximum}");
         if (selection.Success && selection.SelectedJava is { } selected)
         {
             string installedExecutable = SelectExecutable(selected.Installation);
@@ -263,6 +286,7 @@ public sealed class MinecraftLaunchCoordinator
                 $"no compatible Java runtime is installed and automatic acquisition is blocked ({acquisition.BlockReason})."));
         }
 
+        operation?.Stage("install_java", $"component={acquisition.DownloadComponent}");
         string acquiredExecutable = await _javaInstaller.InstallAsync(
             acquisition.DownloadComponent,
             _javaRuntimeRootDirectory,

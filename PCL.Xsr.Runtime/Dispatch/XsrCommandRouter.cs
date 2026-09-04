@@ -80,6 +80,8 @@ public sealed class XsrCommandRouter
         where TCommand : notnull
     {
         long startedAt = _timeProvider.GetTimestamp();
+        XsrDispatchNotifier.NotifyStarted(_observer,
+            new XsrDispatchStarted(correlationId, XsrDispatchKind.Command, entry.SemanticId, entry.RuntimeId));
         XsrResult result;
         string? faultType = null;
 

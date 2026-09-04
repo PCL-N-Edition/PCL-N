@@ -542,12 +542,16 @@ internal static partial class Program
             string platformKey = JavaRuntimeInstaller.DetectPlatform().ToMojangKey();
             FakeInstallerMetadataProvider metadata = new(platformKey, relative, sha1);
             using HttpClient client = new(new StaticHttpMessageHandler("hello"));
-            using JavaRuntimeInstaller installer = new(new JavaRuntimeDownloadPlanService(metadata), client);
+            PCL.Services.Logging.LogService log = CreateLogService();
+            using JavaRuntimeInstaller installer = new(new JavaRuntimeDownloadPlanService(metadata), client, log: log);
             List<JavaRuntimeInstallProgress> progress = [];
             var synchronousProgress = new SynchronousProgress<JavaRuntimeInstallProgress>(progress.Add);
             string executable = await installer.InstallAsync("java-runtime-test", root, synchronousProgress);
             AssertTrue(File.Exists(executable));
             AssertTrue(progress.Any(item => item.Progress >= 1d));
+            AssertTrue(DiagnosticText(log).Contains("stage=resolve_runtime_metadata", StringComparison.Ordinal));
+            AssertTrue(DiagnosticText(log).Contains("stage=verify_and_download_files", StringComparison.Ordinal));
+            AssertTrue(DiagnosticText(log).Contains("stage=locate_installed_executable completed", StringComparison.Ordinal));
         }
         finally { Directory.Delete(root, recursive: true); }
     }

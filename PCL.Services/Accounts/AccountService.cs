@@ -70,6 +70,7 @@ public sealed class AccountService
         _profilesId = _store.Resolve(ProfilesKey);
 
         List<LaunchProfile> loaded;
+        _log?.Debug("Account", "Loading persisted launch profiles.");
         try
         {
             loaded = [.. _port.Load().Profiles];
@@ -78,12 +79,12 @@ public sealed class AccountService
         {
             LoadError = AccountErrors.PersistFailed(failure.Message);
             loaded = [];
-            _log?.Warn("Account", $"档案列表读取失败：{failure.Message}");
+            _log?.Write(LogLevel.Warn, "Account", "Profile load failed; publishing an unavailable roster. code=accounts.persist_failed", ExceptionDiagnostics.Describe(failure));
         }
 
         _profiles = loaded;
         _selectedIndex = loaded.Count > 0 ? 0 : -1;
-        _log?.Info("Account", $"已加载 {loaded.Count} 个启动档案。");
+        _log?.Info("Account", $"Profile load completed count={loaded.Count} available={LoadError is null}");
         lock (_gate)
         {
             PublishAll();
@@ -116,18 +117,20 @@ public sealed class AccountService
             if (expectedRosterRevision is { } expected
                 && _store.ReadCollection<LaunchProfileView>(_profilesId).Revision != expected)
             {
+                _log?.Warn("Account", $"Profile selection rejected index={index} reason=stale_roster");
                 return AccountErrors.InvalidProfile("the roster changed; select the profile again.");
             }
 
             if (index < 0 || index >= _profiles.Count)
             {
+                _log?.Warn("Account", $"Profile selection rejected index={index} code=accounts.profile_not_found");
                 return AccountErrors.ProfileNotFound(index);
             }
 
             _selectedIndex = index;
             PublishSelection();
         }
-        _log?.Info("Account", $"切换启动档案到 #{index}。");
+        _log?.Info("Account", $"Active profile selected index={index}");
         return null;
     }
 
@@ -165,7 +168,7 @@ public sealed class AccountService
             }
             PublishAll();
             PublishSelection();
-            _log?.Info("Account", $"新增档案 {profile.Username}（#{_profiles.Count - 1}），共 {_profiles.Count} 个。");
+            _log?.Info("Account", $"Profile added index={_profiles.Count - 1} kind={profile.Kind} count={_profiles.Count}");
             return XsrResult.Success(_profiles.Count - 1);
         }
     }
@@ -213,7 +216,7 @@ public sealed class AccountService
             if (_selectedIndex < 0) _selectedIndex = 0;
             PublishAll();
             PublishSelection();
-            _log?.Info("Account", $"导入 {added} 个档案，共 {_profiles.Count} 个。");
+            _log?.Info("Account", $"Profile import completed added={added} count={_profiles.Count}");
             return XsrResult.Success(added);
         }
     }
@@ -246,6 +249,7 @@ public sealed class AccountService
 
             _profiles = updated;
             PublishAll();
+            _log?.Info("Account", $"Profile replaced index={index} kind={profile.Kind}");
             return XsrResult.Success();
         }
     }
@@ -281,7 +285,7 @@ public sealed class AccountService
                 : Math.Min(_selectedIndex, _profiles.Count - 1);
             PublishAll();
             PublishSelection();
-            _log?.Info("Account", $"移除档案 #{index}，剩余 {_profiles.Count} 个。");
+            _log?.Info("Account", $"Profile removed index={index} remaining={_profiles.Count} selected={_selectedIndex}");
             return XsrResult.Success();
         }
     }
@@ -328,13 +332,16 @@ public sealed class AccountService
 
     private XsrResult Persist(List<LaunchProfile> profiles)
     {
+        using LogOperation? operation = _log?.BeginOperation("Account", "PersistProfiles", $"count={profiles.Count}");
         try
         {
             _port.Save(new LaunchProfileSet { Profiles = profiles });
+            operation?.Complete();
             return XsrResult.Success();
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or NotSupportedException)
         {
+            operation?.Fail(failure);
             return XsrResult.Failure(AccountErrors.PersistFailed(failure.Message));
         }
     }

@@ -38,6 +38,7 @@ public sealed class FileDownloadWriter : IDownloadWriter, IDisposable, IAsyncDis
     public async ValueTask<Stream> CreateStreamAsync(long startOffset, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(startOffset);
+        _log?.Debug(LogModuleName, $"Opening temporary download file path={_tempPath} offset={startOffset}");
         string? directory = Path.GetDirectoryName(_finalPath);
         if (!string.IsNullOrEmpty(directory))
         {
@@ -90,6 +91,7 @@ public sealed class FileDownloadWriter : IDownloadWriter, IDisposable, IAsyncDis
 
     public async ValueTask FinishAsync(CancellationToken cancellationToken = default)
     {
+        _log?.Debug(LogModuleName, $"Committing temporary download file destination={_finalPath}");
         await DisposeStreamAsync().ConfigureAwait(false);
 
         for (int retry = 1; ; retry++)
@@ -98,12 +100,13 @@ public sealed class FileDownloadWriter : IDownloadWriter, IDisposable, IAsyncDis
             try
             {
                 File.Move(_tempPath, _finalPath, overwrite: true);
+                _log?.Debug(LogModuleName, $"Temporary download file committed destination={_finalPath} attempt={retry}");
                 return;
             }
             catch (IOException) when (retry < RetryCount)
             {
                 _log?.Write(LogLevel.RealTime, LogModuleName,
-                    $"临时文件重命名被占用，重试 {retry}/{RetryCount}：{_tempPath}");
+                    $"Temporary file rename failed; retrying attempt={retry}/{RetryCount} path={_tempPath}");
                 await Task.Delay(RetryDelay, cancellationToken).ConfigureAwait(false);
             }
             catch (IOException)

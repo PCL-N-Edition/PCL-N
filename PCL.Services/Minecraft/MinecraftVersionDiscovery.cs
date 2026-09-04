@@ -148,7 +148,7 @@ public static class MinecraftVersionPaths
         Path.GetFullPath(left), Path.GetFullPath(right), OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 }
 
-public sealed class MinecraftVersionDiscovery
+public sealed class MinecraftVersionDiscovery(PCL.Services.Logging.LogService? log = null)
 {
     private readonly string _versionsDirectoryName = "versions";
 
@@ -157,16 +157,28 @@ public sealed class MinecraftVersionDiscovery
         ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
         string root = Path.GetFullPath(minecraftRootDirectory);
         string versionsDirectory = Path.Combine(root, _versionsDirectoryName);
-        if (!Directory.Exists(versionsDirectory)) return [];
+        if (!Directory.Exists(versionsDirectory))
+        {
+            log?.Debug("VersionScan", $"Versions directory is absent path={versionsDirectory}");
+            return [];
+        }
 
         List<MinecraftVersionDescriptor> result = [];
         string[] directories;
         try { directories = Directory.GetDirectories(versionsDirectory).Order(StringComparer.OrdinalIgnoreCase).ToArray(); }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return []; }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            log?.Write(PCL.Services.Logging.LogLevel.Warn, "VersionScan", $"Version enumeration failed directory={versionsDirectory}", PCL.Services.Logging.ExceptionDiagnostics.Describe(exception));
+            return [];
+        }
         foreach (string directory in directories)
         {
             string? jsonPath = MinecraftVersionPaths.FindPrimaryJson(directory);
-            if (jsonPath is null || !MinecraftVersionPaths.TryReadDescriptor(jsonPath, out string? jsonId, out JsonElement json)) continue;
+            if (jsonPath is null || !MinecraftVersionPaths.TryReadDescriptor(jsonPath, out string? jsonId, out JsonElement json))
+            {
+                log?.Warn("VersionScan", $"Version skipped; manifest is missing, ambiguous, unreadable or invalid directory={directory}");
+                continue;
+            }
             string id = string.IsNullOrWhiteSpace(jsonId) ? new DirectoryInfo(directory).Name : jsonId!;
             string type = ReadString(json, "type") ?? "custom";
             DateTimeOffset? release = ReadDate(json, "releaseTime");

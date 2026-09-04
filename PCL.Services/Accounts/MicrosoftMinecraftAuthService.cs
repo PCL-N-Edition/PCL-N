@@ -1,6 +1,8 @@
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using PCL.Services.Logging;
 
 namespace PCL.Services.Accounts;
 
@@ -59,11 +61,13 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
 
     private readonly HttpClient _client;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly LogService? _log;
 
-    public MicrosoftMinecraftAuthService(HttpClient client, Func<TimeSpan, CancellationToken, Task>? delay = null)
+    public MicrosoftMinecraftAuthService(HttpClient client, Func<TimeSpan, CancellationToken, Task>? delay = null, LogService? log = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _delay = delay ?? Task.Delay;
+        _log = log;
     }
 
     /// <summary>
@@ -149,15 +153,20 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
             switch (response.Error)
             {
                 case "authorization_pending":
+                    _log?.Trace("MicrosoftAuth", "Device authorization is pending.");
                     break;
                 case "slow_down":
+                    _log?.Debug("MicrosoftAuth", "Device authorization polling was slowed by the provider.");
                     interval += TimeSpan.FromSeconds(5);
                     break;
                 case "authorization_declined":
+                    _log?.Warn("MicrosoftAuth", "Device authorization was declined.");
                     throw new InvalidOperationException("Microsoft 登录已被拒绝。");
                 case "expired_token":
+                    _log?.Warn("MicrosoftAuth", "Device authorization expired.");
                     throw new TimeoutException("Microsoft 登录代码已过期，请重新开始登录。");
                 default:
+                    _log?.Warn("MicrosoftAuth", "Device authorization failed with an unrecognized provider error.");
                     throw new InvalidOperationException(response.ErrorDescription ?? response.Error ?? "Microsoft 登录失败。");
             }
 
@@ -200,22 +209,42 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
-        XboxLiveToken xboxLive = await AuthenticateXboxLiveAsync(microsoftTokens.AccessToken, cancellationToken).ConfigureAwait(false);
-        progress?.Report(0.58d);
-        XboxLiveToken xsts = await AuthorizeXstsAsync(xboxLive.Token, cancellationToken).ConfigureAwait(false);
-        progress?.Report(0.7d);
-        string minecraftAccessToken = await AuthenticateMinecraftAsync(xsts.UserHash, xsts.Token, cancellationToken).ConfigureAwait(false);
-        progress?.Report(0.82d);
-        (string username, string uuid, string? skinAddress) = await GetMinecraftProfileAsync(minecraftAccessToken, cancellationToken).ConfigureAwait(false);
-        bool ownsMinecraft = await CheckOwnershipAsync(minecraftAccessToken, cancellationToken).ConfigureAwait(false);
-        progress?.Report(1d);
-        return new MicrosoftMinecraftLoginResult(
-            username,
-            uuid,
-            minecraftAccessToken,
-            microsoftTokens.RefreshToken,
-            skinAddress,
-            ownsMinecraft);
+        using LogOperation? operation = _log?.BeginOperation("MicrosoftAuth", "CreateMinecraftSession");
+        try
+        {
+            operation?.Stage("xbox_live");
+            XboxLiveToken xboxLive = await AuthenticateXboxLiveAsync(microsoftTokens.AccessToken, cancellationToken).ConfigureAwait(false);
+            progress?.Report(0.58d);
+            operation?.Stage("xsts");
+            XboxLiveToken xsts = await AuthorizeXstsAsync(xboxLive.Token, cancellationToken).ConfigureAwait(false);
+            progress?.Report(0.7d);
+            operation?.Stage("minecraft_authentication");
+            string minecraftAccessToken = await AuthenticateMinecraftAsync(xsts.UserHash, xsts.Token, cancellationToken).ConfigureAwait(false);
+            progress?.Report(0.82d);
+            operation?.Stage("minecraft_profile");
+            (string username, string uuid, string? skinAddress) = await GetMinecraftProfileAsync(minecraftAccessToken, cancellationToken).ConfigureAwait(false);
+            operation?.Stage("minecraft_ownership");
+            bool ownsMinecraft = await CheckOwnershipAsync(minecraftAccessToken, cancellationToken).ConfigureAwait(false);
+            progress?.Report(1d);
+            operation?.Complete($"owns_minecraft={ownsMinecraft}");
+            return new MicrosoftMinecraftLoginResult(
+                username,
+                uuid,
+                minecraftAccessToken,
+                microsoftTokens.RefreshToken,
+                skinAddress,
+                ownsMinecraft);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            operation?.Cancel();
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+        {
+            operation?.Fail(exception);
+            throw;
+        }
     }
 
     private async Task<OAuthTokenResponse> RequestTokenAsync(
@@ -301,6 +330,7 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
 
             if (IsTransientMinecraftServiceFailure(response.StatusCode) && attempt < MinecraftProfileAttemptCount)
             {
+                _log?.Warn("MicrosoftAuth", $"Minecraft profile request will retry attempt={attempt}/{MinecraftProfileAttemptCount} http_status={(int)response.StatusCode}");
                 await _delay(ResolveRetryDelay(response, attempt), cancellationToken).ConfigureAwait(false);
                 continue;
             }
@@ -423,7 +453,7 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
         return new XboxLiveToken(token, userHash);
     }
 
-    private static Exception CreateXstsException(HttpStatusCode statusCode, string body)
+    private Exception CreateXstsException(HttpStatusCode statusCode, string body)
     {
         try
         {
@@ -431,6 +461,7 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
             long xerr = document.RootElement.TryGetProperty("XErr", out JsonElement value) && value.TryGetInt64(out long result)
                 ? result
                 : 0L;
+            _log?.Warn("MicrosoftAuth", $"XSTS authorization rejected http_status={(int)statusCode} xerr={xerr}");
             return xerr switch
             {
                 2148916233 => new InvalidOperationException("此 Microsoft 账户尚未创建 Xbox 档案。请先登录 Xbox 官网完成设置。"),
@@ -445,13 +476,14 @@ public sealed class MicrosoftMinecraftAuthService : IMicrosoftMinecraftAuthServi
         }
     }
 
-    private static void EnsureSuccess(HttpResponseMessage response, string body, string operation)
+    private void EnsureSuccess(HttpResponseMessage response, string body, string operation, [CallerMemberName] string source = "")
     {
         if (response.IsSuccessStatusCode)
         {
             return;
         }
 
+        _log?.Warn("MicrosoftAuth", $"Authentication request failed stage={source} http_status={(int)response.StatusCode}");
         string detail = string.Empty;
         try
         {

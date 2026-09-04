@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
+using PCL.Services.Logging;
 
 namespace PCL.Services.Accounts;
 
@@ -29,10 +30,12 @@ public sealed record YggdrasilAuthLoginResult(
 public sealed class YggdrasilAuthService
 {
     private readonly HttpClient _httpClient;
+    private readonly LogService? _log;
 
-    public YggdrasilAuthService(HttpClient? httpClient = null)
+    public YggdrasilAuthService(HttpClient? httpClient = null, LogService? log = null)
     {
         _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        _log = log;
     }
 
     /// <summary>
@@ -72,6 +75,7 @@ public sealed class YggdrasilAuthService
             $"{authServer}/authserver/authenticate", payload, cancellationToken).ConfigureAwait(false);
         if (!IsSuccessful(statusCode, json))
         {
+            _log?.Warn("YggdrasilAuth", $"Authentication rejected http_status={(int)statusCode}");
             throw CreateAuthException(statusCode, json, body);
         }
 
@@ -108,6 +112,8 @@ public sealed class YggdrasilAuthService
         }
         catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException)
         {
+            _log?.Write(cancellationToken.IsCancellationRequested ? LogLevel.Debug : LogLevel.Warn,
+                "YggdrasilAuth", "Stored session validation did not complete.", ExceptionDiagnostics.Describe(failure));
             return false;
         }
     }
@@ -142,6 +148,7 @@ public sealed class YggdrasilAuthService
             $"{server}/authserver/refresh", payload, cancellationToken).ConfigureAwait(false);
         if (!IsSuccessful(statusCode, json))
         {
+            _log?.Warn("YggdrasilAuth", $"Session refresh rejected http_status={(int)statusCode}");
             throw CreateAuthException(statusCode, json, body);
         }
 

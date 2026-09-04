@@ -63,3 +63,7 @@ users and bug reports can actually read, with verbose tiers available while chas
   passes `host.Logging`; the host-less overload stays unlogged.
 - Lifecycle transitions moved from Debug to Info between review rounds: they are low-volume
   milestones every bug report needs, and the release-default Info gate must keep them.
+- [XSR-713](XSR-713-diagnostic-breadcrumbs.md) supersedes the original scheduler-fault tier
+  (Error, not RealTime), attaches sinks before persisted data loads, observes all production
+  routers, and adds English, credential-safe operation/stage diagnostics. Earlier evidence above
+  describes the original XSR-711 checkpoint, not the final fault-level policy.

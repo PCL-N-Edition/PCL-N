@@ -5,8 +5,10 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using PCL.Services.Logging;
 
 namespace PCL.Services.Accounts;
 
@@ -204,10 +206,12 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
     private const int MaximumClosetPages = 50;
 
     private readonly HttpClient _client;
+    private readonly LogService? _log;
 
-    public LittleSkinOAuthService(HttpClient client)
+    public LittleSkinOAuthService(HttpClient client, LogService? log = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
+        _log = log;
     }
 
     public static LittleSkinOAuthConfiguration ResolveConfiguration()
@@ -349,12 +353,14 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
             string error = TryReadOAuthError(body);
             if (string.Equals(error, "authorization_pending", StringComparison.Ordinal))
             {
+                _log?.Trace("LittleSkinAuth", "Device authorization is pending.");
                 await Task.Delay(intervalMs, cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
             if (string.Equals(error, "slow_down", StringComparison.Ordinal))
             {
+                _log?.Debug("LittleSkinAuth", "Device authorization polling was slowed by the provider.");
                 intervalMs = Math.Min(intervalMs + 5000, 60_000);
                 await Task.Delay(intervalMs, cancellationToken).ConfigureAwait(false);
                 continue;
@@ -768,26 +774,29 @@ public sealed class LittleSkinOAuthService : ILittleSkinOAuthService
         return body;
     }
 
-    private static void ThrowIfInvalidClient(string body, string? requestId = null)
+    private void ThrowIfInvalidClient(string body, string? requestId = null)
     {
         if (!string.Equals(TryReadOAuthError(body), "invalid_client", StringComparison.Ordinal))
             return;
 
+        _log?.Warn("LittleSkinAuth", "Device authorization rejected code=invalid_client; check the configured application registration.");
         string message = InvalidClientUserMessage;
         if (!string.IsNullOrWhiteSpace(requestId))
             message += " 请求 ID：" + requestId;
         throw new InvalidOperationException(message);
     }
 
-    private static void EnsureSuccess(
+    private void EnsureSuccess(
         HttpResponseMessage response,
         string body,
         string operation,
-        string? requestId = null)
+        string? requestId = null,
+        [CallerMemberName] string source = "")
     {
         if (response.IsSuccessStatusCode)
             return;
 
+        _log?.Warn("LittleSkinAuth", $"Authentication request failed stage={source} http_status={(int)response.StatusCode}");
         ThrowIfInvalidClient(body, requestId);
 
         string detail = string.Empty;

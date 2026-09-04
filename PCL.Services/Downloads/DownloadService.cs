@@ -77,7 +77,7 @@ public sealed class DownloadService
     {
         ValidateRequest(request);
         string destinationPath = Path.GetFullPath(request.DestinationPath);
-        _log?.Write(LogLevel.Info, LogModuleName, $"提交下载任务；目标={destinationPath}；来源数={request.Sources.Count}。");
+        _log?.Info(LogModuleName, $"Download requested destination={destinationPath} sources={request.Sources.Count}");
         Lazy<DownloadOperation> lazyOperation = _active.GetOrAdd(
             destinationPath,
             static (path, state) => new Lazy<DownloadOperation>(
@@ -92,10 +92,14 @@ public sealed class DownloadService
 
     private async Task ExecuteAndCompleteAsync(string destinationPath, DownloadOperation operation)
     {
+        using LogOperation? trace = _log?.BeginOperation(LogModuleName, "Transfer", $"destination={destinationPath}");
+        int lastStage = -1;
         try
         {
             void Report(DownloadProgress progress)
             {
+                if (Interlocked.Exchange(ref lastStage, (int)progress.Stage) != (int)progress.Stage)
+                    trace?.Stage(progress.Stage.ToString(), $"source={DescribeSource(progress.Source)}");
                 operation.Report(progress);
                 UpsertView(new DownloadTransferView(
                     destinationPath,
@@ -106,18 +110,23 @@ public sealed class DownloadService
                     progress.BytesPerSecond));
             }
 
-            operation.SetResult(await DownloadCoreAsync(
+            DownloadTransferResult result = await DownloadCoreAsync(
                 operation.Request,
                 destinationPath,
                 Report,
-                operation.CancellationToken).ConfigureAwait(false));
+                operation.CancellationToken).ConfigureAwait(false);
+            if (result.Success) trace?.Complete($"bytes={result.TotalBytes} failed_sources={result.Errors.Count}");
+            else trace?.Reject("download.sources_exhausted");
+            operation.SetResult(result);
         }
         catch (OperationCanceledException failure)
         {
+            trace?.Cancel();
             operation.SetCanceled(failure.CancellationToken);
         }
         catch (Exception failure)
         {
+            trace?.Fail(failure);
             operation.SetException(failure);
         }
         finally
@@ -154,12 +163,14 @@ public sealed class DownloadService
             IDownloadConnection? connection = null;
             IDownloadWriter? writer = null;
             long requestedOffset = 0;
+            string stage = "connect";
             try
             {
-                _log?.Write(LogLevel.Debug, LogModuleName, $"尝试下载来源；Source={DescribeSource(source)}；Destination={destinationPath}。");
+                _log?.Debug(LogModuleName, $"Source attempt started source={DescribeSource(source)} destination={destinationPath} attempt={errors.Count + 1}");
                 report(new DownloadProgress(DownloadStage.Connecting, source, 0, -1, 0));
                 if (request.MaxParallelSegments > 1)
                 {
+                    stage = "segmented_transfer";
                     DownloadTransferResult? segmented = await TryDownloadSegmentedAsync(
                         request,
                         source,
@@ -174,10 +185,12 @@ public sealed class DownloadService
                     }
                 }
 
+                stage = "open_writer";
                 writer = request.WriterFactory(destinationPath)
                     ?? throw new InvalidOperationException($"No download writer was created for {destinationPath}.");
                 requestedOffset = Math.Max(0, writer.ExistingLength);
-                _log?.Write(LogLevel.Debug, LogModuleName, $"下载续传检查；Destination={destinationPath}；ExistingBytes={requestedOffset}。");
+                _log?.Debug(LogModuleName, $"Resume check destination={destinationPath} existing_bytes={requestedOffset}");
+                stage = "connect";
                 connection = request.ConnectionFactory(source)
                     ?? throw new InvalidOperationException($"No download connection was created for {source}.");
                 DownloadConnectionInfo connectionInfo = await connection
@@ -185,6 +198,8 @@ public sealed class DownloadService
                     .ConfigureAwait(false);
 
                 long startOffset = connectionInfo.BeginOffset == requestedOffset ? requestedOffset : 0;
+                _log?.Debug(LogModuleName, $"Source connected source={DescribeSource(source)} begin_offset={connectionInfo.BeginOffset} length={connectionInfo.Length}");
+                stage = "transfer";
                 Stream writeStream = await writer
                     .CreateStreamAsync(startOffset, cancellationToken)
                     .ConfigureAwait(false);
@@ -224,7 +239,9 @@ public sealed class DownloadService
                             CalculateSpeed(sessionRead, readStartedAt)));
                     }
 
+                    stage = "flush";
                     await writeStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    stage = "commit";
                     report(new DownloadProgress(DownloadStage.Committing, source, totalRead, totalRead, 0));
                     await writer.FinishAsync(cancellationToken).ConfigureAwait(false);
                     report(new DownloadProgress(DownloadStage.Completed, source, totalRead, totalRead, 0));
@@ -236,7 +253,7 @@ public sealed class DownloadService
                         Stopwatch.GetElapsedTime(startedAt),
                         errors.ToArray());
                     _log?.Write(LogLevel.Info, LogModuleName,
-                        $"下载完成；目标={destinationPath}；来源={DescribeSource(source)}；字节={totalRead}；耗时={result.Duration.TotalSeconds:0.###}s；失败来源={errors.Count}。");
+                        $"Download completed destination={destinationPath} source={DescribeSource(source)} bytes={totalRead} failed_sources={errors.Count}");
                     return result;
                 }
                 finally
@@ -246,15 +263,16 @@ public sealed class DownloadService
             }
             catch (OperationCanceledException)
             {
-                _log?.Write(LogLevel.Warn, LogModuleName, $"下载已取消；目标={destinationPath}；来源={DescribeSource(source)}。");
+                _log?.Info(LogModuleName, $"Source attempt cancelled stage={stage} destination={destinationPath} source={DescribeSource(source)}");
                 throw;
             }
             catch (Exception exception)
             {
                 _log?.Write(LogLevel.Warn, LogModuleName,
-                    $"下载来源失败，将尝试下一来源；目标={destinationPath}；来源={DescribeSource(source)}；原因={exception.Message}。");
+                    $"Source attempt failed; checking failover stage={stage} destination={destinationPath} source={DescribeSource(source)} attempt={errors.Count + 1}", ExceptionDiagnostics.Describe(exception));
                 if (ShouldDiscardPartialDownload(exception, requestedOffset))
                 {
+                    _log?.Warn(LogModuleName, $"Discarding invalid resume data destination={destinationPath} requested_offset={requestedOffset}");
                     await ResetPartialDownloadAsync(writer, cancellationToken).ConfigureAwait(false);
                 }
 
@@ -270,7 +288,7 @@ public sealed class DownloadService
 
         report(new DownloadProgress(DownloadStage.Failed, string.Empty, 0, -1, 0));
         _log?.Write(LogLevel.Error, LogModuleName,
-            $"所有下载来源均失败；目标={destinationPath}；来源数={request.Sources.Count}；错误数={errors.Count}。");
+            $"All download sources failed destination={destinationPath} sources={request.Sources.Count} errors={errors.Count}");
         return new DownloadTransferResult(
             false,
             destinationPath,
@@ -349,7 +367,7 @@ public sealed class DownloadService
                 long end = totalLength * (segmentIndex + 1) / segmentCount - 1;
                 string partPath = partPrefix + segmentIndex.ToString(CultureInfo.InvariantCulture);
                 _log?.Write(LogLevel.RealTime, LogModuleName,
-                    $"分段开始 #{segmentIndex}；范围={begin}-{end}；来源={DescribeSource(source)}。");
+                    $"Segment started index={segmentIndex} range={begin}-{end} source={DescribeSource(source)}");
                 transfers[segmentIndex] = DownloadSegmentAsync(
                     request,
                     source,
@@ -369,7 +387,7 @@ public sealed class DownloadService
 
             await Task.WhenAll(transfers).ConfigureAwait(false);
             _log?.Write(LogLevel.RealTime, LogModuleName,
-                $"全部分段就绪；目标={destinationPath}；分段={segmentCount}。");
+                $"Segments ready for merge destination={destinationPath} segments={segmentCount}");
 
             IDownloadWriter writer = request.WriterFactory(destinationPath)
                 ?? throw new InvalidOperationException($"No download writer was created for {destinationPath}.");
@@ -393,7 +411,7 @@ public sealed class DownloadService
 
             report(new DownloadProgress(DownloadStage.Completed, source, totalLength, totalLength, 0));
             _log?.Write(LogLevel.Info, LogModuleName,
-                $"分段下载完成；目标={destinationPath}；来源={DescribeSource(source)}；字节={totalLength}；分段={segmentCount}。");
+                $"Segmented download completed destination={destinationPath} source={DescribeSource(source)} bytes={totalLength} segments={segmentCount}");
             return new DownloadTransferResult(
                 true,
                 destinationPath,
@@ -492,7 +510,7 @@ public sealed class DownloadService
                 }
 
                 _log?.Write(LogLevel.RealTime, LogModuleName,
-                    $"分段完成 #{segmentIndex}；字节={expected}；来源={DescribeSource(source)}。");
+                    $"Segment completed index={segmentIndex} bytes={expected} source={DescribeSource(source)}");
                 await target.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
@@ -678,7 +696,9 @@ public sealed class DownloadService
     {
         if (Uri.TryCreate(source, UriKind.Absolute, out Uri? uri))
         {
-            return uri.GetLeftPart(UriPartial.Path);
+            // Source paths, query strings and userinfo may carry signed credentials. The
+            // destination identifies the artifact; the source only identifies the origin.
+            return uri.IsDefaultPort ? $"{uri.Scheme}://{uri.IdnHost}" : $"{uri.Scheme}://{uri.IdnHost}:{uri.Port}";
         }
 
         return "(non-uri source)";

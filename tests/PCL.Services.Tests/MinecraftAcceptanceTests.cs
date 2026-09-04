@@ -860,9 +860,11 @@ internal static partial class Program
 
             XsrStateStoreBuilder builder = new();
             MinecraftProcessStateComposition.DeclareState(builder);
+            PCL.Services.Logging.LogService.DeclareState(builder);
             XsrStateStore store = builder.Build();
-            processes = new MinecraftProcessService(new ExtractionCheckingProcessPort(Path.Combine(natives, "libnative.so")), store);
-            MinecraftLaunchExecutor executor = new(processes);
+            PCL.Services.Logging.LogService log = new(store);
+            processes = new MinecraftProcessService(new ExtractionCheckingProcessPort(Path.Combine(natives, "libnative.so")), store, log);
+            MinecraftLaunchExecutor executor = new(processes, log);
             XsrCommandHandler<MinecraftLaunchCommand> launch = MinecraftCommands.CreateLaunchHandler(executor);
             XsrResult result = await launch(new MinecraftLaunchCommand(new MinecraftLaunchRequest
             {
@@ -886,6 +888,14 @@ internal static partial class Program
             XsrResult cancelled = await MinecraftCommands.CreateCancelProcessHandler(processes)(
                 new MinecraftCancelProcessCommand(session.SessionId), CancellationToken.None);
             AssertTrue(cancelled.IsSuccess);
+            string diagnostic = DiagnosticText(log);
+            int extractionIndex = diagnostic.IndexOf("stage=extract_natives", StringComparison.Ordinal);
+            int processIndex = diagnostic.IndexOf("stage=os_start", StringComparison.Ordinal);
+            AssertTrue(extractionIndex >= 0 && processIndex > extractionIndex);
+            AssertTrue(diagnostic.Contains("state=Created", StringComparison.Ordinal));
+            AssertTrue(diagnostic.Contains("state=Running", StringComparison.Ordinal));
+            AssertTrue(diagnostic.Contains($"Process cancellation requested session={session.SessionId}", StringComparison.Ordinal));
+            AssertTrue(diagnostic.Contains("state=Cancelled", StringComparison.Ordinal));
         }
         finally
         {
