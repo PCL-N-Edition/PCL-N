@@ -16,4 +16,5 @@ public static class FoundationRouteIds
     public static readonly XsrSemanticId TelemetryConsent = XsrSemanticId.Parse("telemetry.consent");
 
     public static readonly XsrSemanticId AccountUpsertProfile = XsrSemanticId.Parse("accounts.upsert-profile");
+    public static readonly XsrSemanticId AccountSelectProfile = XsrSemanticId.Parse("accounts.select-profile");
 }

@@ -223,6 +223,7 @@ internal static partial class Program
         {
             ThrowingProfilePort port = new();
             AccountService service = CreateAccountService(port);
+            AssertEqual(-1, service.StateStore.Read<int>(service.StateStore.Resolve(AccountService.SelectedKey)).Value);
             AssertTrue(service.AddProfile(SampleProfile("Steve")).TryGetValue(out int index) && index == 0);
 
             port.SaveShouldThrow = true;
@@ -231,10 +232,17 @@ internal static partial class Program
             AssertEqual(AccountErrors.PersistFailedCode, failed.Error!.Code);
             AssertEqual(1, service.GetViews().Count);
             AssertTrue(service.GetViews()[0].Username == "Steve");
+            AssertEqual(0, service.SelectedIndex);
+            AssertEqual(0, service.StateStore.Read<int>(service.StateStore.Resolve(AccountService.SelectedKey)).Value);
+
+            AssertFalse(service.RemoveProfile(0).IsSuccess);
+            AssertEqual(0, service.SelectedIndex);
 
             port.SaveShouldThrow = false;
             AssertTrue(service.RemoveProfile(0).IsSuccess);
             AssertEqual(0, service.GetViews().Count);
+            AssertEqual(-1, service.SelectedIndex);
+            AssertEqual(-1, service.StateStore.Read<int>(service.StateStore.Resolve(AccountService.SelectedKey)).Value);
         }
         finally
         {

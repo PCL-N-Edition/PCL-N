@@ -78,11 +78,24 @@ internal static partial class Program
         FoundationHost host = FoundationComposer.Compose(settingsPort, schema, profilePort, bridge);
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host, observer);
 
-        AssertEqual(3, runtime.Commands.Count);
+        AssertEqual(4, runtime.Commands.Count);
         AssertEqual(1, runtime.Queries.Count);
         AssertTrue(runtime.Commands.TryResolve(FoundationRouteIds.SettingsSet, out XsrCommandId commandId));
         AssertTrue(runtime.Commands.TryResolve(FoundationRouteIds.TelemetryConsent, out _));
         AssertTrue(runtime.Commands.TryResolve(FoundationRouteIds.AccountUpsertProfile, out _));
+        AssertTrue(runtime.Commands.TryResolve(FoundationRouteIds.AccountSelectProfile, out XsrCommandId selectId));
+        AssertTrue(host.Accounts.AddProfile(new LaunchProfile { Username = "First" }).IsSuccess);
+        AssertTrue(host.Accounts.AddProfile(new LaunchProfile { Username = "Second" }).IsSuccess);
+        long rosterRevision = host.StateStore.ReadCollection<LaunchProfileView>(
+            host.StateStore.Resolve(AccountService.ProfilesKey)).Revision;
+        AssertTrue((await runtime.Commands.Dispatch(selectId,
+            new AccountSelectProfileCommand(1, rosterRevision)).Completion).IsSuccess);
+        AssertEqual(1, host.StateStore.Read<int>(host.StateStore.Resolve(AccountService.SelectedKey)).Value);
+        AssertTrue(host.Accounts.RemoveProfile(0).IsSuccess);
+        AssertEqual(0, host.Accounts.SelectedIndex);
+        AssertEqual(0, host.StateStore.Read<int>(host.StateStore.Resolve(AccountService.SelectedKey)).Value);
+        AssertFalse((await runtime.Commands.Dispatch(selectId,
+            new AccountSelectProfileCommand(0, rosterRevision)).Completion).IsSuccess);
         AssertTrue(runtime.Queries.TryResolve(FoundationRouteIds.SettingsGet, out XsrQueryId queryId));
 
         // The page: one PXML text bound to settings.theme renders "light" before the command.

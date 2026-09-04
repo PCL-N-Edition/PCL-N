@@ -14,6 +14,9 @@ public sealed record TelemetryConsentCommand(bool Consent);
 /// <summary>One foundation command: insert or replace one launch profile in the roster.</summary>
 public sealed record AccountUpsertProfileCommand(LaunchProfile Profile);
 
+/// <summary>Selects a credential-free roster entry at the revision displayed by the caller.</summary>
+public sealed record AccountSelectProfileCommand(int Index, long? ExpectedRosterRevision = null);
+
 /// <summary>
 /// Foundation command handlers, expressed against the XSR handler delegates. PCL.Services
 /// cannot reference the runtime's router (dependency direction), so these handlers are what
@@ -22,6 +25,15 @@ public sealed record AccountUpsertProfileCommand(LaunchProfile Profile);
 /// </summary>
 public static class FoundationCommands
 {
+    public static XsrCommandHandler<AccountSelectProfileCommand> CreateAccountSelectHandler(AccountService accounts)
+    {
+        ArgumentNullException.ThrowIfNull(accounts);
+        return (command, _) => ValueTask.FromResult(
+            accounts.SelectProfile(command.Index, command.ExpectedRosterRevision) is { } error
+                ? XsrResult.Failure(error)
+                : XsrResult.Success());
+    }
+
     /// <summary>Sets one setting by semantic key with a raw schema-encoded value.</summary>
     public static XsrCommandHandler<SettingsSetCommand> CreateSettingsSetHandler(SettingsService settings)
     {

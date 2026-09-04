@@ -47,10 +47,6 @@ public sealed class AccountService
     private readonly XsrStateId _profilesId;
     private List<LaunchProfile> _profiles;
 
-    /// <summary>
-    /// Two-phase composition, declaration phase: registers the roster collection into the
-    /// shared host builder.
-    /// </summary>
     /// <summary>The index of the profile the product currently launches with.</summary>
     public static readonly XsrSemanticId SelectedKey = XsrSemanticId.Parse("accounts.selected");
 
@@ -92,10 +88,7 @@ public sealed class AccountService
             }
         }
 
-        if (_selectedIndex >= 0)
-        {
-            _store.Publish(_store.Resolve(SelectedKey), _selectedIndex);
-        }
+        PublishSelection();
     }
 
     private int _selectedIndex = -1;
@@ -105,25 +98,30 @@ public sealed class AccountService
     /// Selection is session state published as <see cref="SelectedKey"/>; the roster file is
     /// untouched by switching.
     /// </summary>
-    public int SelectedIndex => _selectedIndex;
+    public int SelectedIndex { get { lock (_gate) return _selectedIndex; } }
 
     /// <summary>
-    /// Switches the active profile. The selection is durable-first: it is validated against the
-    /// roster and only then published, so state never shows a profile that cannot launch.
+    /// Switches the active profile as session state. An optional roster revision rejects stale
+    /// UI rows after a concurrent roster edit. Switching does not write the profile file.
     /// </summary>
-    public XsrError? SelectProfile(int index)
+    public XsrError? SelectProfile(int index, long? expectedRosterRevision = null)
     {
         lock (_gate)
         {
+            if (expectedRosterRevision is { } expected
+                && _store.ReadCollection<LaunchProfileView>(_profilesId).Revision != expected)
+            {
+                return AccountErrors.InvalidProfile("the roster changed; select the profile again.");
+            }
+
             if (index < 0 || index >= _profiles.Count)
             {
                 return AccountErrors.ProfileNotFound(index);
             }
 
             _selectedIndex = index;
+            PublishSelection();
         }
-
-        _store.Publish(_store.Resolve(SelectedKey), index);
         return null;
     }
 
@@ -155,11 +153,12 @@ public sealed class AccountService
             }
 
             _profiles = updated;
-            PublishAll();
             if (_selectedIndex < 0 && _profiles.Count > 0)
             {
                 _selectedIndex = 0;
             }
+            PublishAll();
+            PublishSelection();
             return XsrResult.Success(_profiles.Count - 1);
         }
     }
@@ -218,7 +217,13 @@ public sealed class AccountService
             }
 
             _profiles = updated;
+            // Preserve the same selected profile when an earlier row shifts down. If the
+            // selected profile was removed, choose its successor (or the final survivor).
+            _selectedIndex = _profiles.Count == 0 ? -1
+                : _selectedIndex > index ? _selectedIndex - 1
+                : Math.Min(_selectedIndex, _profiles.Count - 1);
             PublishAll();
+            PublishSelection();
             return XsrResult.Success();
         }
     }
@@ -275,6 +280,8 @@ public sealed class AccountService
             return XsrResult.Failure(AccountErrors.PersistFailed(failure.Message));
         }
     }
+
+    private void PublishSelection() => _store.Publish(_store.Resolve(SelectedKey), _selectedIndex);
 
     private void PublishAll()
     {
