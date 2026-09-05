@@ -68,7 +68,10 @@ internal static class AvaloniaMotionTokens
     public const double DialogSpringResponseSeconds = .34;
 
     /// <summary>Existing notices retain their presented position while the stack reflows.</summary>
-    public const double NotificationReflowSpringResponseSeconds = .32;
+    public const double NotificationReflowSpringResponseSeconds = .26;
+
+    /// <summary>One wheel unit maps to a continuous logical-pixel delta; fractions are retained.</summary>
+    public const double ContinuousScrollPixelsPerWheelUnit = 40;
 
     /// <summary>
     /// The launch progress fill catches up to its state target with a smooth ease-out per

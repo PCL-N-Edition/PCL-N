@@ -273,8 +273,8 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
         Point position = e.GetPosition(this);
         if (_shell.Renderer.PointerScroll(
                 new XsrUiPoint(position.X, position.Y),
-                -e.Delta.Y,
-                -e.Delta.X))
+                -e.Delta.Y * AvaloniaMotionTokens.ContinuousScrollPixelsPerWheelUnit,
+                -e.Delta.X * AvaloniaMotionTokens.ContinuousScrollPixelsPerWheelUnit))
         {
             CommitScene();
             e.Handled = true;
@@ -1194,6 +1194,7 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
         }
 
         DrawSelectionPill(context, style);
+        DrawScrollIndicator(context, rect);
 
         if (_node.IsFocusVisible)
         {
@@ -1260,6 +1261,10 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
             foreground);
         if (style.WrapText && Bounds.Width > x)
             formatted.MaxTextWidth = Bounds.Width - x;
+        if (_node.TextMaxLines > 0)
+            formatted.MaxLineCount = _node.TextMaxLines;
+        if (_node.TextTrimsOverflow)
+            formatted.Trimming = TextTrimming.WordEllipsis;
         double alignedX = style.TextAlignment switch
         {
             XsrUiTextAlignment.Center => Math.Max(x, (Bounds.Width - formatted.Width) / 2),
@@ -1268,6 +1273,43 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
         };
         double y = Math.Max(0, (Bounds.Height - formatted.Height) / 2);
         context.DrawText(formatted, new Point(alignedX, y));
+    }
+
+    private void DrawScrollIndicator(DrawingContext context, Rect rect)
+    {
+        if (_node.Scroll is not { ShowsVerticalIndicator: true, CanScrollVertically: true } scroll)
+        {
+            return;
+        }
+
+        const double width = 3;
+        const double inset = 6;
+        const double minimumThumbHeight = 28;
+        double trackHeight = Math.Max(0, rect.Height - (inset * 2));
+        if (trackHeight <= 0)
+        {
+            return;
+        }
+
+        double thumbHeight = Math.Clamp(
+            trackHeight * (scroll.ViewportHeight / scroll.ContentHeight),
+            Math.Min(minimumThumbHeight, trackHeight),
+            trackHeight);
+        double travel = Math.Max(0, trackHeight - thumbHeight);
+        double progress = scroll.MaximumOffsetY <= 0
+            ? 0
+            : Math.Clamp(scroll.OffsetY / scroll.MaximumOffsetY, 0, 1);
+        double x = Math.Max(0, rect.Width - width - 4);
+        Rect track = new(x, inset, width, trackHeight);
+        Rect thumb = new(x, inset + (travel * progress), width, thumbHeight);
+        context.DrawRectangle(
+            new SolidColorBrush(Color.FromArgb(28, 91, 105, 122)),
+            null,
+            new RoundedRect(track, new CornerRadius(width / 2)));
+        context.DrawRectangle(
+            new SolidColorBrush(Color.FromArgb(124, 91, 105, 122)),
+            null,
+            new RoundedRect(thumb, new CornerRadius(width / 2)));
     }
 
     /// <summary>
@@ -1388,6 +1430,7 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
         XsrUiSemanticRole.Image => AutomationControlType.Image,
         XsrUiSemanticRole.ProgressBar => AutomationControlType.ProgressBar,
         XsrUiSemanticRole.Dialog => AutomationControlType.Window,
+        XsrUiSemanticRole.Status when clickable => AutomationControlType.Button,
         XsrUiSemanticRole.Status => AutomationControlType.Text,
         XsrUiSemanticRole.Content => AutomationControlType.Pane,
         _ when clickable => AutomationControlType.Button,

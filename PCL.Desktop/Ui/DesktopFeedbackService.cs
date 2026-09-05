@@ -21,7 +21,7 @@ internal sealed record DesktopDialog(
     string Title,
     string Message,
     string AcceptLabel,
-    string CancelLabel,
+    string? CancelLabel,
     Action<bool> Resolve);
 
 /// <summary>Thread-safe point-in-time feedback state consumed at the render boundary.</summary>
@@ -157,6 +157,32 @@ internal sealed class DesktopFeedbackService : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(acceptLabel);
         ArgumentException.ThrowIfNullOrWhiteSpace(cancelLabel);
         ArgumentNullException.ThrowIfNull(resolve);
+
+        return ShowDialogCore(key, title, message, acceptLabel, cancelLabel, resolve);
+    }
+
+    /// <summary>Shows an informational dialog with one explicit acknowledgement action.</summary>
+    public Guid ShowMessageDialog(
+        string key,
+        string title,
+        string message,
+        string acceptLabel = "OK")
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+        ArgumentException.ThrowIfNullOrWhiteSpace(acceptLabel);
+        return ShowDialogCore(key, title, message, acceptLabel, cancelLabel: null, static _ => { });
+    }
+
+    private Guid ShowDialogCore(
+        string key,
+        string title,
+        string message,
+        string acceptLabel,
+        string? cancelLabel,
+        Action<bool> resolve)
+    {
 
         DesktopDialog? replaced = null;
         Guid id;

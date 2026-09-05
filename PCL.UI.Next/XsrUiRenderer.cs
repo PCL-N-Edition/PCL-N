@@ -261,7 +261,15 @@ public sealed partial class XsrUiRenderer
 
         if (_tree.GetComponent<XsrUiText>(entity) is { } text)
         {
-            XsrUiSize textSize = MeasureText(ResolveText(text), _tree.GetComponent<XsrUiVisualStyle>(entity)?.FontSize ?? 0);
+            XsrUiVisualStyle? textStyle = _tree.GetComponent<XsrUiVisualStyle>(entity);
+            double wrapWidth = textStyle?.WrapText == true
+                ? element?.Width ?? Math.Max(0, contentWidth - padding.Horizontal)
+                : double.PositiveInfinity;
+            XsrUiSize textSize = MeasureText(
+                ResolveText(text),
+                textStyle?.FontSize ?? 0,
+                wrapWidth,
+                text.MaxLines);
             width = textSize.Width;
             height = textSize.Height;
         }
@@ -283,7 +291,7 @@ public sealed partial class XsrUiRenderer
             int children = 0;
             foreach (XsrUiEntityId child in _tree.Children(entity))
             {
-                if (!IsVisible(child) || _tree.GetComponent<XsrUiOverlayLayer>(child) is not null)
+                if (!ParticipatesInStackFlow(child))
                 {
                     continue;
                 }
@@ -451,8 +459,14 @@ public sealed partial class XsrUiRenderer
                 : desired;
             double maxOffsetX = Math.Max(0, content.Width - contentWidth);
             double maxOffsetY = Math.Max(0, content.Height - contentHeight);
+            bool wasAtEnd = scroll.StickToEnd
+                && (scroll.OffsetY >= scroll.MaximumOffsetY - .5
+                    || double.IsPositiveInfinity(scroll.OffsetY));
             scroll.OffsetX = Math.Clamp(scroll.OffsetX, 0, maxOffsetX);
-            scroll.OffsetY = Math.Clamp(scroll.OffsetY, 0, maxOffsetY);
+            scroll.OffsetY = wasAtEnd
+                ? maxOffsetY
+                : Math.Clamp(scroll.OffsetY, 0, maxOffsetY);
+            scroll.MaximumOffsetY = maxOffsetY;
         }
 
         double scrollX = scroll?.OffsetX ?? 0;
@@ -462,7 +476,7 @@ public sealed partial class XsrUiRenderer
         double crossOrigin = stack.Direction == XsrUiOrientation.Vertical ? contentX : contentY;
         double crossScroll = stack.Direction == XsrUiOrientation.Vertical ? scrollX : scrollY;
         XsrUiEntityId[] visibleChildren = [.. _tree.Children(entity)
-            .Where(child => IsVisible(child) && _tree.GetComponent<XsrUiOverlayLayer>(child) is null)];
+            .Where(ParticipatesInStackFlow)];
         double availableMain = stack.Direction == XsrUiOrientation.Vertical ? contentHeight : contentWidth;
         Dictionary<int, double> weightedMainSizes = AllocateWeightedMainSizes(
             stack.Direction,
@@ -702,6 +716,23 @@ public sealed partial class XsrUiRenderer
         return element?.IsVisible ?? true;
     }
 
+    private bool ParticipatesInStackFlow(XsrUiEntityId entity)
+    {
+        if (!IsVisible(entity) || _tree.GetComponent<XsrUiOverlayLayer>(entity) is not null)
+        {
+            return false;
+        }
+
+        // A notice leaves the stack at the start of its inverse exit, while its last arranged
+        // rectangle remains available to the backend until the visual track settles. This lets
+        // siblings retarget immediately instead of waiting for the cleanup timer.
+        return _tree.GetComponent<XsrUiOverlayMotion>(entity) is not
+        {
+            Kind: XsrUiOverlayMotionKind.Notification,
+            IsClosing: true,
+        };
+    }
+
     /// <summary>
     /// Resolves the top-most scene entity at one point. Hit testing reads the last produced
     /// scene, so it never triggers layout or state reads.
@@ -901,23 +932,50 @@ public sealed partial class XsrUiRenderer
     /// </summary>
     public bool PointerScroll(XsrUiPoint point, double deltaY, double deltaX = 0)
     {
-        XsrUiEntityId entity = HitTest(point);
-        while (entity.IsAssigned && _tree.IsAlive(entity))
+        if (_scene is null)
         {
-            if (_tree.GetComponent<XsrUiPager>(entity) is not null && deltaY != 0)
+            return false;
+        }
+
+        HashSet<int> visited = [];
+        for (int index = _scene.Count - 1; index >= 0; index--)
+        {
+            XsrUiSceneNode node = _scene[index];
+            if (!node.IsAccessible || !node.Rect.Contains(point)
+                || node.ClipRect is { } clip && !clip.Contains(point))
             {
-                _ = MovePager(entity, Math.Sign(deltaY));
-                return true;
-            }
-            if (_tree.GetComponent<XsrUiScroll>(entity) is { } scroll)
-            {
-                scroll.OffsetX = Math.Max(0, scroll.OffsetX + deltaX);
-                scroll.OffsetY = Math.Max(0, scroll.OffsetY + deltaY);
-                _tree.MarkDirty(entity, XsrUiDirtyKinds.Layout);
-                return true;
+                continue;
             }
 
-            entity = _tree.Parent(entity);
+            XsrUiEntityId entity = node.Entity;
+            while (entity.IsAssigned && _tree.IsAlive(entity))
+            {
+                if (!visited.Add(entity.Index))
+                {
+                    break;
+                }
+
+                if (_tree.GetComponent<XsrUiPager>(entity) is not null && deltaY != 0)
+                {
+                    _ = MovePager(entity, Math.Sign(deltaY));
+                    return true;
+                }
+                if (_tree.GetComponent<XsrUiScroll>(entity) is { } scroll)
+                {
+                    double targetX = Math.Max(0, scroll.OffsetX + deltaX);
+                    double targetY = Math.Clamp(scroll.OffsetY + deltaY, 0, scroll.MaximumOffsetY);
+                    if (Math.Abs(targetX - scroll.OffsetX) > .001
+                        || Math.Abs(targetY - scroll.OffsetY) > .001)
+                    {
+                        scroll.OffsetX = targetX;
+                        scroll.OffsetY = targetY;
+                        _tree.MarkDirty(entity, XsrUiDirtyKinds.Layout);
+                        return true;
+                    }
+                }
+
+                entity = _tree.Parent(entity);
+            }
         }
 
         return false;
@@ -1041,12 +1099,37 @@ public sealed partial class XsrUiRenderer
 
     private XsrUiEntityId InputAt(XsrUiPoint point)
     {
-        XsrUiEntityId entity = HitTest(point);
-        while (entity.IsAssigned && _tree.IsAlive(entity))
+        if (_scene is null)
         {
-            if (_tree.GetComponent<XsrUiInput>(entity) is not null) return entity;
-            entity = _tree.Parent(entity);
+            return default;
         }
+
+        HashSet<int> visited = [];
+        for (int index = _scene.Count - 1; index >= 0; index--)
+        {
+            XsrUiSceneNode node = _scene[index];
+            if (!node.IsAccessible || !node.Rect.Contains(point)
+                || node.ClipRect is { } clip && !clip.Contains(point))
+            {
+                continue;
+            }
+
+            XsrUiEntityId entity = node.Entity;
+            while (entity.IsAssigned && _tree.IsAlive(entity))
+            {
+                if (!visited.Add(entity.Index))
+                {
+                    break;
+                }
+
+                if (_tree.GetComponent<XsrUiInput>(entity) is not null)
+                {
+                    return entity;
+                }
+                entity = _tree.Parent(entity);
+            }
+        }
+
         return default;
     }
 
@@ -1129,6 +1212,22 @@ public sealed partial class XsrUiRenderer
                 transition.StartOffsetY == 0 ? 0 : transition.PresentedOffsetY / transition.StartOffsetY), 0, 1);
             opacity *= 1 - remaining;
         }
+        XsrUiScroll? scrollState = _tree.GetComponent<XsrUiScroll>(entity);
+        XsrUiScrollSnapshot? scrollSnapshot = null;
+        if (scrollState is not null)
+        {
+            XsrUiSize scrollContent = _stackContentSizes.TryGetValue(entity.Index, out XsrUiSize value)
+                ? value
+                : new XsrUiSize(rect.Width, rect.Height);
+            scrollSnapshot = new XsrUiScrollSnapshot(
+                scrollState.OffsetX,
+                scrollState.OffsetY,
+                rect.Width,
+                rect.Height,
+                scrollContent.Width,
+                scrollContent.Height,
+                scrollState.ShowsVerticalIndicator);
+        }
         nodes.Add(new XsrUiSceneNode(
             entity,
             rect,
@@ -1160,7 +1259,10 @@ public sealed partial class XsrUiRenderer
             _tree.GetComponent<XsrUiLiveRegion>(entity)?.Setting ?? XsrUiLiveSetting.Off,
             overlayMotion,
             overlayClosing,
-            overlayAnchor));
+            overlayAnchor,
+            text?.MaxLines ?? 0,
+            text?.TrimOverflow ?? false,
+            scrollSnapshot));
 
         XsrUiPager? pageContainer = _tree.GetComponent<XsrUiPager>(entity);
         XsrUiRect? childClip = transition is { MovesSelf: false, OffsetX: not 0 } or { MovesSelf: false, OffsetY: not 0 }
@@ -1230,23 +1332,64 @@ public sealed partial class XsrUiRenderer
     // UI.Next uses a deliberately deterministic, backend-neutral text metric. Native backends
     // select their own typeface at commit time, but intrinsic text sizing must be available before
     // any backend exists so PXML layout (including title and command text) has real hit geometry.
-    private static XsrUiSize MeasureText(string text, double fontSize)
+    private static XsrUiSize MeasureText(
+        string text,
+        double fontSize,
+        double maximumWidth,
+        int maximumLines)
     {
-        double width = 0;
+        double scale = fontSize > 0 ? fontSize / 14 : 1;
+        double lineHeight = Math.Ceiling(20 * Math.Max(1, scale));
+        double currentWidth = 0;
+        double measuredWidth = 0;
+        int lines = 1;
+        bool wraps = double.IsFinite(maximumWidth) && maximumWidth > 0;
         foreach (char character in text)
         {
+            if (character == '\r')
+            {
+                continue;
+            }
+            if (character == '\n')
+            {
+                measuredWidth = Math.Max(measuredWidth, currentWidth);
+                currentWidth = 0;
+                lines++;
+                continue;
+            }
+
+            double characterWidth = 0;
             if (character == '\t')
             {
-                width += 28;
+                characterWidth = 28 * scale;
             }
             else if (!char.IsControl(character))
             {
-                width += character <= 0x7f ? 7 : 14;
+                characterWidth = (character <= 0x7f ? 7 : 14) * scale;
+            }
+
+            if (wraps && currentWidth > 0 && currentWidth + characterWidth > maximumWidth)
+            {
+                measuredWidth = Math.Max(measuredWidth, currentWidth);
+                currentWidth = characterWidth;
+                lines++;
+            }
+            else
+            {
+                currentWidth += characterWidth;
             }
         }
 
-        // Keep the default 14px metric stable; larger headings need a taller line box.
-        double scale = fontSize > 0 ? fontSize / 14 : 1;
-        return new XsrUiSize(width * scale, Math.Ceiling(20 * Math.Max(1, scale)));
+        measuredWidth = Math.Max(measuredWidth, currentWidth);
+        if (wraps)
+        {
+            measuredWidth = Math.Min(measuredWidth, maximumWidth);
+        }
+        if (maximumLines > 0)
+        {
+            lines = Math.Min(lines, maximumLines);
+        }
+
+        return new XsrUiSize(measuredWidth, Math.Max(1, lines) * lineHeight);
     }
 }

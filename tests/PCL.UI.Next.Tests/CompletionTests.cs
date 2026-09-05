@@ -138,6 +138,35 @@ internal static partial class Program
         AssertFalse(scene.Nodes.Any(node => node.Entity == alpha));
     }
 
+    private static void ContinuousScrollExposesIndicatorFacts()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("continuous-scroll");
+        tree.SetComponent(root, new XsrUiElement { Width = 100, Height = 100 });
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        tree.SetComponent(root, new XsrUiScroll { ShowsVerticalIndicator = true });
+        for (int index = 0; index < 3; index++)
+        {
+            XsrUiEntityId row = tree.Create($"row-{index}");
+            tree.SetComponent(row, new XsrUiElement { Width = 100, Height = 80 });
+            tree.Attach(row, root);
+        }
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        renderer.Viewport = new XsrUiSize(100, 100);
+        XsrUiScene scene = renderer.Render();
+        XsrUiScrollSnapshot initial = scene.Nodes.Single(node => node.Entity == root).Scroll!.Value;
+        AssertTrue(initial.ShowsVerticalIndicator);
+        AssertTrue(initial.CanScrollVertically);
+        AssertEqual(240, initial.ContentHeight);
+
+        AssertTrue(renderer.PointerScroll(new XsrUiPoint(50, 50), 12.5));
+        scene = renderer.Render();
+        AssertClose(12.5, scene.Nodes.Single(node => node.Entity == root).Scroll!.Value.OffsetY);
+    }
+
     private static void ImageSourceCarriesToTheScene()
     {
         XsrUiTree tree = new();

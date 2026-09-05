@@ -51,9 +51,14 @@ internal static partial class Program
         XsrUiSceneNode host = FindByKey(fixture.Shell, scene, "notification-host");
         XsrUiSceneNode[] notifications = [.. scene.Nodes.Where(node => node.Role == XsrUiSemanticRole.Status)];
         AssertEqual(3, notifications.Length);
-        AssertClose(18, host.Rect.X);
+        double expectedX = XsrUiShell.ExpandedRailWidth + 18;
+        AssertClose(expectedX, host.Rect.X);
         AssertClose(size.Height - 18, host.Rect.Y + host.Rect.Height);
-        AssertTrue(notifications.All(node => Math.Abs(node.Rect.X - 18) < .001));
+        AssertTrue(notifications.All(node => Math.Abs(node.Rect.X - expectedX) < .001));
+        XsrUiSceneNode summary = scene.Nodes.First(node =>
+            fixture.Shell.Tree.Name(node.Entity) == "NotificationMessage");
+        AssertEqual(2, summary.TextMaxLines);
+        AssertTrue(summary.TextTrimsOverflow);
 
         AssertNotificationPresentation(
             notifications.Single(node => node.Label!.StartsWith("Info：", StringComparison.Ordinal)),
@@ -83,6 +88,101 @@ internal static partial class Program
 
         AssertEqual(0, fixture.Feedback.Snapshot().Notifications.Count);
         AssertEqual(0, fixture.FeedbackPresenter.PresentedNotificationCount);
+        AssertFalse(HasKey(fixture.Shell, fixture.Shell.Render(size), "notification-host"));
+    }
+
+    private static void NotificationSummaryOpensCompleteScrollableDialog()
+    {
+        using LaunchPageFixture fixture = new(new ImmediateInstanceSource([]));
+        fixture.Shell.Renderer.ReducedMotion = true;
+        XsrUiSize size = new(810, 470);
+        string complete = string.Join('\n', Enumerable.Range(1, 40).Select(index =>
+            $"第 {index} 行：这是一段必须在详情对话框中完整保留的通知内容。"));
+        fixture.Feedback.Error(complete);
+
+        XsrUiScene scene = fixture.Shell.Render(size);
+        XsrUiSceneNode notice = scene.Nodes.Single(node => node.Role == XsrUiSemanticRole.Status);
+        XsrUiSceneNode summary = FindByKey(fixture.Shell, scene, "NotificationMessage");
+        AssertEqual(complete, summary.Text);
+        AssertEqual(2, summary.TextMaxLines);
+        AssertTrue(summary.TextTrimsOverflow);
+        AssertTrue(fixture.Shell.Renderer.Activate(notice.Entity));
+
+        scene = fixture.Shell.Render(size);
+        XsrUiSceneNode message = FindByKey(fixture.Shell, scene, "DialogMessage");
+        XsrUiSceneNode viewport = FindByKey(fixture.Shell, scene, "DialogMessageViewport");
+        XsrUiSceneNode accept = FindByKey(fixture.Shell, scene, "DialogAccept");
+        AssertEqual(complete, message.Text);
+        AssertEqual("OK", accept.Text);
+        AssertFalse(HasKey(fixture.Shell, scene, "DialogCancel"));
+        AssertTrue(viewport.Scroll is { ShowsVerticalIndicator: true, CanScrollVertically: true });
+        AssertTrue(viewport.Scroll!.Value.ContentHeight > viewport.Scroll.Value.ViewportHeight);
+
+        XsrUiPoint overMessage = new(viewport.Rect.X + 20, viewport.Rect.Y + 20);
+        AssertTrue(fixture.Shell.Renderer.PointerScroll(overMessage, 12.5));
+        scene = fixture.Shell.Render(size);
+        viewport = FindByKey(fixture.Shell, scene, "DialogMessageViewport");
+        AssertClose(12.5, viewport.Scroll!.Value.OffsetY);
+
+        AssertTrue(fixture.Shell.Renderer.Activate(FindByKey(fixture.Shell, scene, "DialogAccept").Entity));
+        scene = fixture.Shell.Render(size);
+        AssertFalse(HasKey(fixture.Shell, scene, "DialogCard"));
+    }
+
+    private static void NotificationOverflowRecoversWithoutDisappearing()
+    {
+        using LaunchPageFixture fixture = new(new ImmediateInstanceSource([]));
+        fixture.Shell.Renderer.ReducedMotion = true;
+        XsrUiSize size = new(810, 470);
+        Guid[] ids = [.. Enumerable.Range(1, 7).Select(index => fixture.Feedback.Error($"error-{index}"))];
+
+        XsrUiScene scene = fixture.Shell.Render(size);
+        XsrUiSceneNode host = FindByKey(fixture.Shell, scene, "notification-host");
+        AssertTrue(host.Scroll is { OffsetY: > 0 });
+
+        foreach (Guid id in ids.Take(4))
+        {
+            AssertTrue(fixture.Feedback.DismissNotification(id));
+            scene = fixture.Shell.Render(size);
+        }
+
+        XsrUiSceneNode[] remaining = [.. scene.Nodes.Where(node => node.Role == XsrUiSemanticRole.Status)];
+        AssertEqual(3, remaining.Length);
+        host = FindByKey(fixture.Shell, scene, "notification-host");
+        AssertClose(0, host.Scroll!.Value.OffsetY);
+        AssertTrue(remaining.All(node => node.Rect.Y >= host.Rect.Y
+            && node.Rect.Y + node.Rect.Height <= host.Rect.Y + host.Rect.Height));
+        AssertTrue(remaining.Any(node => node.Label!.Contains("error-7", StringComparison.Ordinal)));
+
+        foreach (Guid id in ids.Skip(4))
+        {
+            AssertTrue(fixture.Feedback.DismissNotification(id));
+        }
+        scene = fixture.Shell.Render(size);
+        AssertFalse(HasKey(fixture.Shell, scene, "notification-host"));
+    }
+
+    private static void ClosingNotificationReflowsImmediately()
+    {
+        using FeedbackClock clock = new();
+        using LaunchPageFixture fixture = new(new ImmediateInstanceSource([]), timeProvider: clock);
+        XsrUiSize size = new(810, 470);
+        _ = fixture.Feedback.Error("first");
+        _ = fixture.Feedback.Error("second");
+        Guid closing = fixture.Feedback.Error("third");
+
+        XsrUiScene before = fixture.Shell.Render(size);
+        double firstY = before.Nodes.Single(node => node.Role == XsrUiSemanticRole.Status
+            && node.Label!.Contains("first", StringComparison.Ordinal)).Rect.Y;
+        AssertTrue(fixture.Feedback.DismissNotification(closing));
+
+        XsrUiScene after = fixture.Shell.Render(size);
+        XsrUiSceneNode first = after.Nodes.Single(node => node.Role == XsrUiSemanticRole.Status
+            && node.Label!.Contains("first", StringComparison.Ordinal));
+        XsrUiSceneNode second = after.Nodes.Single(node => node.Role == XsrUiSemanticRole.Status
+            && node.Label!.Contains("second", StringComparison.Ordinal));
+        AssertTrue(first.Rect.Y > firstY + 80);
+        AssertClose(10, second.Rect.Y - (first.Rect.Y + first.Rect.Height));
     }
 
     private static void DialogStaysInsideWindowAndRestoresFocus()

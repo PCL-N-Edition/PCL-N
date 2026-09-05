@@ -74,6 +74,9 @@ internal static partial class Program
         ("operational feedback uses the shared lower-left notification surface", OperationalFeedbackUsesLowerLeftNotification),
         ("notification levels keep exact lifetimes and permanent errors remain closable", NotificationLevelsKeepExactLifetimes),
         ("notifications share one lower-left surface and every level closes manually", NotificationsShareLowerLeftSurfaceAndCloseManually),
+        ("notification summaries open complete one-action scrollable dialogs", NotificationSummaryOpensCompleteScrollableDialog),
+        ("notification overflow remains bottom-pinned and recovers without disappearing", NotificationOverflowRecoversWithoutDisappearing),
+        ("closing notifications leave stack flow before their exit settles", ClosingNotificationReflowsImmediately),
         ("notification timers request render without mutating the UI tree", NotificationTimersStayOffTheRenderTree),
         ("dialog stays inside the window traps the page and restores focus on escape", DialogStaysInsideWindowAndRestoresFocus),
     ];

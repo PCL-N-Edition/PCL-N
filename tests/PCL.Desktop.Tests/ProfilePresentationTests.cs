@@ -153,7 +153,7 @@ internal static partial class Program
             node.Role == XsrUiSemanticRole.Status
             && node.Label!.Contains("账户档案", StringComparison.Ordinal));
         AssertEqual("Warn", feedback.Label![..4]);
-        AssertClose(18, feedback.Rect.X);
+        AssertClose(XsrUiShell.ExpandedRailWidth + 18, feedback.Rect.X);
         AssertClose(size.Height - 18, feedback.Rect.Y + feedback.Rect.Height);
         AssertFalse(FindByKey(fixture.Shell, scene, "CardVersion").Rect.Contains(
             new XsrUiPoint(feedback.Rect.X, feedback.Rect.Y)));

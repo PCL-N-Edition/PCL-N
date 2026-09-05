@@ -13,9 +13,17 @@ Desktop controllers translate those results into feedback requests at the compos
 
 ## Notification contract
 
-- Every notification is shown in one shared stack anchored 18 logical pixels from the window's
-  lower-left corner. The stack is a non-modal stage overlay, so the rest of the page remains
-  usable. It is bounded and scrollable when many persistent errors are present.
+- Every notification is shown in one shared stack anchored 18 logical pixels to the right of the
+  shell's maximum navigation-rail width and 18 pixels above the window bottom. The stable anchor
+  never covers either collapsed or expanded primary navigation and does not move during the rail
+  spring. The stack is a non-modal stage overlay, so the rest of the page remains usable.
+- A notification presents at most two wrapped message lines with an end ellipsis. The immutable
+  service message and accessible label remain complete. Activating the notice (but not its close
+  button) opens that complete message in the shared dialog with one `OK` action.
+- The bounded stack stays pinned to its bottom edge as content grows and shrinks. A closing notice
+  stops participating in stack flow immediately while its visual exit completes, so remaining
+  notices reflow without an exit-duration gap. Overflow recovery re-clamps the continuous scroll
+  offset on every arrange; an empty host and all host whitespace are pointer-through.
 - The only public levels are exactly `Info`, `Warn`, and `Error`:
   - `Info`: blue, automatically dismissed after 5 seconds.
   - `Warn`: yellow, automatically dismissed after 15 seconds.
@@ -45,6 +53,12 @@ progress remains inline because it describes the current task rather than a one-
   product service directly.
 - The surface materializes with a restrained, critically damped lift/scale and the scrim fades
   with it. Dismissal follows the same path in reverse. Reduced motion removes the spatial move.
+- The message lives in a bounded viewport between the fixed header and actions. Long content has
+  a visible vertical indicator and uses a double-precision continuous pixel offset: wheel and
+  precision-touchpad deltas scroll freely rather than snapping to pages or rows. The complete
+  message remains available to accessibility, and short messages leave the indicator hidden.
+- Decision dialogs retain primary and secondary actions. Notification-detail dialogs intentionally
+  expose one `OK` action; Escape resolves that informational surface through the same close path.
 
 The Java runtime acquisition gate introduced by XSR-712 now uses this dialog. The launch
 coordinator remains paused on its typed decision command; Desktop projects the acquisition
@@ -58,18 +72,24 @@ overlay children and arrange each one against its parent's full content rectangl
 the checked-in PXML shell geometry. Modal overlay accessibility suppresses earlier siblings,
 while a non-modal notification host only occupies and intercepts its lower-left rectangle.
 
-Scene nodes carry backend-neutral live-region and overlay-motion facts. Avalonia maps them to
+Scene nodes carry backend-neutral live-region, text-overflow, scroll-indicator, and overlay-motion
+facts. Avalonia maps them to
 native automation live settings and visual presentation only; layout, hit testing, modality,
 focus routing, and command identity remain canonical UI.Next facts.
+
+Modal overlay accessibility suppresses earlier siblings. Non-modal input lookup searches through
+decorative or empty overlay geometry for the topmost actual input, so notification-host whitespace
+does not intercept the page beneath it.
 
 ## Acceptance
 
 - UI.Next tests lock overlay flow exclusion, modal hit/accessibility isolation, focus traversal,
   Escape routing, and reduced-motion state.
 - PXML tests lock the `Notification` and `Dialog` control catalog entries and runtime semantics.
-- Desktop tests lock the exact 5 s / 15 s / permanent policy, manual close for all levels,
-  lower-left placement, Java acquisition dialog routing, focus restoration, and migration of
-  launch/account one-shot footers.
+- Desktop tests lock the exact 5 s / 15 s / permanent policy, manual close for all levels, the
+  navigation-safe lower-left placement, two-line summary/detail routing, bottom-pinned overflow
+  recovery, immediate close reflow, scrollable one-action details, Java acquisition dialog
+  routing, focus restoration, and migration of launch/account one-shot footers.
 - Avalonia backend tests lock live-region mapping and interruptible notification/dialog motion.
 - Managed suites, architecture/format gates, trimmed Desktop validation, and NativeAOT Desktop
   `--validate-shell` must pass before the unit closes.

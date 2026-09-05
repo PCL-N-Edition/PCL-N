@@ -373,6 +373,62 @@ internal static partial class Program
         AssertEqual<XsrUiRect?>(notice.Rect, copy.OverlayAnchor);
     }
 
+    private static void NonModalOverlayWhitespacePassesPointerInput()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiIntentBuffer intents = new();
+        XsrUiStage stage = new(tree, store, intents);
+        XsrUiEntityId pageButton = tree.Create("page-button");
+        tree.SetComponent(pageButton, new XsrUiElement { Width = 100, Height = 40 });
+        tree.SetComponent(pageButton, new XsrUiSemantic(XsrUiSemanticRole.Button, "Page button"));
+        tree.SetComponent(pageButton, new XsrUiInput { Clickable = true });
+        tree.SetComponent(pageButton, new XsrUiCommandBinding("page.activate".AsXsrId()));
+        stage.Navigation.Push(pageButton);
+        XsrUiEntityId emptyOverlay = tree.Create("empty-overlay");
+        tree.SetComponent(emptyOverlay, new XsrUiElement { Width = 100, Height = 40 });
+        stage.Show(emptyOverlay);
+
+        stage.Renderer.Viewport = new XsrUiSize(200, 100);
+        _ = stage.Renderer.Render();
+        AssertEqual(emptyOverlay, stage.Renderer.HitTest(new XsrUiPoint(20, 20)));
+        AssertTrue(stage.Renderer.PointerPressed(new XsrUiPoint(20, 20)));
+        AssertTrue(stage.Renderer.PointerReleased(new XsrUiPoint(20, 20)));
+        AssertEqual("page.activate", intents.Drain().Single().Command.ToString());
+    }
+
+    private static void ClosingNotificationLeavesStackFlowImmediately()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("notice-stack");
+        tree.SetComponent(root, new XsrUiElement { Width = 100, Height = 200 });
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical) { Spacing = 10 });
+        XsrUiEntityId first = CreateNotice("first");
+        XsrUiEntityId second = CreateNotice("second");
+        tree.Attach(first, root);
+        tree.Attach(second, root);
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        renderer.Viewport = new XsrUiSize(100, 200);
+
+        XsrUiScene before = renderer.Render();
+        AssertEqual(50, before.Nodes.Single(node => node.Entity == second).Rect.Y);
+        tree.GetComponent<XsrUiOverlayMotion>(first)!.IsClosing = true;
+        tree.MarkDirty(first, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
+
+        XsrUiScene after = renderer.Render();
+        AssertEqual(0, after.Nodes.Single(node => node.Entity == second).Rect.Y);
+
+        XsrUiEntityId CreateNotice(string name)
+        {
+            XsrUiEntityId notice = tree.Create(name);
+            tree.SetComponent(notice, new XsrUiElement { Width = 100, Height = 40 });
+            tree.SetComponent(notice, new XsrUiOverlayMotion(XsrUiOverlayMotionKind.Notification));
+            return notice;
+        }
+    }
+
     private static void ModalOverlaysIsolatePageAndRouteEscape()
     {
         XsrUiTree tree = new();

@@ -19,6 +19,8 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
     private static readonly TimeSpan ExitSettle = TimeSpan.FromMilliseconds(360);
     private static readonly XsrSemanticId NotificationDismiss =
         XsrSemanticId.Parse("ui.feedback.notification.dismiss");
+    private static readonly XsrSemanticId NotificationOpen =
+        XsrSemanticId.Parse("ui.feedback.notification.open");
     private static readonly XsrSemanticId DialogAccept =
         XsrSemanticId.Parse("ui.feedback.dialog.accept");
     private static readonly XsrSemanticId DialogCancel =
@@ -100,15 +102,19 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
         {
             Width = 360,
             MaxHeight = 440,
-            Margin = new XsrUiThickness(18, 18, 18, 18),
+            Margin = new XsrUiThickness(XsrUiShell.ExpandedRailWidth + 18, 18, 18, 18),
             HorizontalAlignment = XsrUiAlignment.Start,
             VerticalAlignment = XsrUiAlignment.End,
+            IsVisible = false,
         });
         shell.Tree.SetComponent(_notificationHost, new XsrUiStackPanel(XsrUiOrientation.Vertical)
         {
             Spacing = 10,
         });
-        shell.Tree.SetComponent(_notificationHost, new XsrUiScroll());
+        shell.Tree.SetComponent(_notificationHost, new XsrUiScroll
+        {
+            StickToEnd = true,
+        });
         shell.Stage.Show(_notificationHost);
 
         _service.Changed += OnServiceChanged;
@@ -181,11 +187,13 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
             added = true;
         }
 
+        SetNotificationHostVisible(_notifications.Count > 0);
+
         if (added && _shell.Tree.GetComponent<XsrUiScroll>(_notificationHost) is { } scroll)
         {
             // New notifications belong at the visible bottom edge; users can still wheel back
             // through older permanent errors when the bounded stack overflows.
-            scroll.OffsetY = double.MaxValue;
+            scroll.OffsetY = double.PositiveInfinity;
             _shell.Tree.MarkDirty(_notificationHost, XsrUiDirtyKinds.Layout);
         }
     }
@@ -217,6 +225,8 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
         levelText.Content = level;
         XsrUiText messageText = _shell.Tree.GetComponent<XsrUiText>(entities["NotificationMessage"])!;
         messageText.Content = notification.Message;
+        messageText.MaxLines = 2;
+        messageText.TrimOverflow = true;
         _shell.Tree.GetComponent<XsrUiImage>(entities["NotificationIcon"])!.Source = icon;
         // The status root announces the complete level and message once. Its decorative icon
         // and visible copy stay out of the native accessibility tree to avoid duplicate speech.
@@ -224,7 +234,14 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
         _shell.Tree.SetComponent<XsrUiSemantic>(entities["NotificationLevel"], null);
         _shell.Tree.SetComponent<XsrUiSemantic>(entities["NotificationMessage"], null);
         _shell.Tree.GetComponent<XsrUiSemantic>(entities["NotificationClose"])!.Label = $"关闭 {level} 通知";
-        _shell.Tree.GetComponent<XsrUiSemantic>(root)!.Label = $"{level}：{notification.Message}";
+        _shell.Tree.GetComponent<XsrUiSemantic>(root)!.Label =
+            $"{level}：{notification.Message}。按下可查看完整内容";
+        _shell.Tree.SetComponent(root, new XsrUiInput
+        {
+            Focusable = true,
+            Clickable = true,
+        });
+        _shell.Tree.SetComponent(root, new XsrUiCommandBinding(NotificationOpen));
         _shell.Tree.SetComponent(root, new XsrUiLiveRegion(
             notification.Level == DesktopNotificationLevel.Info
                 ? XsrUiLiveSetting.Polite
@@ -233,7 +250,7 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
         _shell.Tree.SetComponent(root, motion);
 
         SetStyle(root, background, new XsrUiColor(52, 61, 74), border,
-            XsrUiCornerRadii.Surface, borderWidth: 1);
+            XsrUiCornerRadii.Surface, borderWidth: 1, hover: hover);
         SetStyle(entities["NotificationAccent"], accent, accent, XsrUiColor.Transparent,
             XsrUiCornerRadii.Pill(4));
         SetStyle(entities["NotificationIcon"], XsrUiColor.Transparent, accent, XsrUiColor.Transparent, 0);
@@ -250,11 +267,12 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
     {
         notification.IsClosing = true;
         notification.Motion.IsClosing = true;
+        SetEnabled(notification.Root, false);
         if (_shell.Tree.GetComponent<XsrUiInput>(notification.Close) is { } close)
         {
             close.Enabled = false;
         }
-        _shell.Tree.MarkDirty(notification.Root, XsrUiDirtyKinds.Paint);
+        _shell.Tree.MarkDirty(notification.Root, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
         _shell.Tree.MarkDirty(notification.Close, XsrUiDirtyKinds.Paint);
         if (_shell.Renderer.ReducedMotion)
         {
@@ -287,6 +305,7 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
         {
             _shell.Tree.Destroy(notification.Root);
         }
+        SetNotificationHostVisible(_notifications.Count > 0);
     }
 
     private void ReconcileDialog(DesktopDialog? requested)
@@ -344,6 +363,8 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
         _shell.Tree.SetComponent(root, new XsrUiDismissBinding(DialogCancel));
         _shell.Tree.SetComponent(entities["DialogCard"], cardMotion);
         _shell.Tree.SetComponent(entities["DialogCard"], new XsrUiLiveRegion(XsrUiLiveSetting.Assertive));
+        _shell.Tree.GetComponent<XsrUiScroll>(entities["DialogMessageViewport"])!
+            .ShowsVerticalIndicator = true;
 
         SetStyle(root, new XsrUiColor(20, 28, 40, 92), new XsrUiColor(52, 61, 74),
             XsrUiColor.Transparent, 0);
@@ -376,10 +397,15 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
         SetText(entities["DialogTitle"], dialog.Title);
         SetText(entities["DialogMessage"], dialog.Message);
         SetText(presented.Accept, dialog.AcceptLabel);
-        SetText(presented.Cancel, dialog.CancelLabel);
+        bool hasCancel = !string.IsNullOrWhiteSpace(dialog.CancelLabel);
+        if (hasCancel)
+        {
+            SetText(presented.Cancel, dialog.CancelLabel!);
+        }
+        SetVisible(presented.Cancel, hasCancel);
         _shell.Tree.GetComponent<XsrUiSemantic>(presented.Card)!.Label = $"{dialog.Title}。{dialog.Message}";
         _shell.Tree.GetComponent<XsrUiSemantic>(presented.Accept)!.Label = dialog.AcceptLabel;
-        _shell.Tree.GetComponent<XsrUiSemantic>(presented.Cancel)!.Label = dialog.CancelLabel;
+        _shell.Tree.GetComponent<XsrUiSemantic>(presented.Cancel)!.Label = dialog.CancelLabel ?? string.Empty;
         _shell.Tree.MarkDirty(presented.Card, XsrUiDirtyKinds.Paint);
         _shell.Tree.MarkDirty(presented.Accept, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
         _shell.Tree.MarkDirty(presented.Cancel, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
@@ -443,15 +469,23 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
 
         if (e.Intent.Command == NotificationDismiss)
         {
-            XsrUiEntityId current = e.Intent.Source;
-            while (current.IsAssigned && _shell.Tree.IsAlive(current))
+            if (TryResolveNotification(e.Intent.Source, out Guid id))
             {
-                if (_notificationRoots.TryGetValue(current, out Guid id))
-                {
-                    _service.DismissNotification(id);
-                    return;
-                }
-                current = _shell.Tree.Parent(current);
+                _service.DismissNotification(id);
+            }
+            return;
+        }
+
+        if (e.Intent.Command == NotificationOpen)
+        {
+            if (TryResolveNotification(e.Intent.Source, out Guid id)
+                && _notifications.TryGetValue(id, out PresentedNotification? notification))
+            {
+                string level = notification.Value.Level.ToString();
+                _service.ShowMessageDialog(
+                    $"notification.detail.{id:N}",
+                    $"{level} 通知",
+                    notification.Value.Message);
             }
             return;
         }
@@ -496,6 +530,22 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
         return result;
     }
 
+    private bool TryResolveNotification(XsrUiEntityId source, out Guid id)
+    {
+        XsrUiEntityId current = source;
+        while (current.IsAssigned && _shell.Tree.IsAlive(current))
+        {
+            if (_notificationRoots.TryGetValue(current, out id))
+            {
+                return true;
+            }
+            current = _shell.Tree.Parent(current);
+        }
+
+        id = default;
+        return false;
+    }
+
     private void SetText(XsrUiEntityId entity, string content)
     {
         XsrUiText text = _shell.Tree.GetComponent<XsrUiText>(entity)!;
@@ -514,6 +564,22 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
             _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
         }
     }
+
+    private void SetVisible(XsrUiEntityId entity, bool visible)
+    {
+        XsrUiElement element = _shell.Tree.GetComponent<XsrUiElement>(entity)
+            ?? new XsrUiElement();
+        if (element.IsVisible == visible)
+        {
+            return;
+        }
+
+        element.IsVisible = visible;
+        _shell.Tree.SetComponent(entity, element);
+        _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
+    }
+
+    private void SetNotificationHostVisible(bool visible) => SetVisible(_notificationHost, visible);
 
     private void SetStyle(
         XsrUiEntityId entity,

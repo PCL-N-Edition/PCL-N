@@ -11,6 +11,15 @@ public sealed class XsrUiText(string content)
     public string Content { get; set; } = content ?? string.Empty;
 
     public XsrStateId BoundState { get; set; }
+
+    /// <summary>
+    /// Maximum rendered line count. Zero keeps every line. The complete <see cref="Content"/>
+    /// remains the semantic value even when presentation is clamped.
+    /// </summary>
+    public int MaxLines { get; set; }
+
+    /// <summary>Shows an end ellipsis when wrapping or the line limit omits content.</summary>
+    public bool TrimOverflow { get; set; }
 }
 
 /// <summary>
@@ -212,6 +221,32 @@ public sealed class XsrUiScroll
     public double OffsetX { get; set; }
 
     public double OffsetY { get; set; }
+
+    /// <summary>
+    /// Keeps the viewport attached to its lower edge while content changes, unless the user has
+    /// explicitly scrolled away from that edge.
+    /// </summary>
+    public bool StickToEnd { get; set; }
+
+    /// <summary>Requests a backend-neutral vertical position indicator when content overflows.</summary>
+    public bool ShowsVerticalIndicator { get; set; }
+
+    internal double MaximumOffsetY { get; set; }
+}
+
+/// <summary>Immutable continuous-scroll facts projected into a render scene.</summary>
+public readonly record struct XsrUiScrollSnapshot(
+    double OffsetX,
+    double OffsetY,
+    double ViewportWidth,
+    double ViewportHeight,
+    double ContentWidth,
+    double ContentHeight,
+    bool ShowsVerticalIndicator)
+{
+    public double MaximumOffsetY => Math.Max(0, ContentHeight - ViewportHeight);
+
+    public bool CanScrollVertically => MaximumOffsetY > 0;
 }
 
 /// <summary>

@@ -55,6 +55,8 @@ internal static partial class Program
         ("navigator rejects unknown pages", Sync(NavigatorRejectsUnknownPages)),
         ("stage overlays draw above page", Sync(StageOverlaysDrawAbovePage)),
         ("stage overlays stay out of stack flow and carry motion anchors", Sync(StageOverlaysStayOutOfStackFlow)),
+        ("non-modal overlay whitespace passes pointer input to the page", Sync(NonModalOverlayWhitespacePassesPointerInput)),
+        ("closing notifications leave stack flow immediately", Sync(ClosingNotificationLeavesStackFlowImmediately)),
         ("modal overlays isolate page input and escape emits their dismiss route", Sync(ModalOverlaysIsolatePageAndRouteEscape)),
         ("stage dismiss removes top overlay", Sync(StageDismissRemovesTopOverlay)),
         ("stage navigation swaps page content", Sync(StageNavigationSwapsPageContent)),
@@ -68,6 +70,7 @@ internal static partial class Program
         ("animator applies easing and keyframes", Sync(AnimatorAppliesEasingAndKeyframes)),
         ("keyframes hold boundary values", Sync(KeyframesHoldBoundaryValues)),
         ("scroll offsets children and clamps", Sync(ScrollOffsetsChildrenAndClamps)),
+        ("scroll offsets remain continuous and expose indicator facts", Sync(ContinuousScrollExposesIndicatorFacts)),
         ("scroll hit test follows offset", Sync(ScrollHitTestFollowsOffset)),
         ("image source carries to the scene", Sync(ImageSourceCarriesToTheScene)),
         // XSR-701: product shell foundation.
