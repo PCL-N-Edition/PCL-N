@@ -171,8 +171,10 @@ internal static partial class Program
             string[] firstAppearance = progress.Stages.Distinct().ToArray();
             AssertTrue(expectedOrder.SequenceEqual(firstAppearance),
                 "stage order: " + string.Join(",", progress.Stages));
-            AssertTrue(progress.Progress.SequenceEqual(progress.Progress.OrderBy(value => value)));
-            AssertTrue(ReadProgressFlag(host.StateStore, MinecraftLaunchProgressState.LaunchedKey));
+            AssertTrue(progress.Progress.SequenceEqual(progress.Progress.OrderBy(value => value)),
+                "progress not monotonic: " + string.Join(",", progress.Progress));
+            AssertTrue(ReadProgressFlag(host.StateStore, MinecraftLaunchProgressState.LaunchedKey),
+                "launched flag is false; snapshot=" + ReadSnapshotText(host.StateStore));
             AssertEqual(1d, ReadProgressNumber(host.StateStore, MinecraftLaunchProgressState.ProgressKey));
             AssertEqual("end", ReadProgressText(host.StateStore, MinecraftLaunchProgressState.StageKey));
             AssertEqual("offline", ReadProgressText(host.StateStore, MinecraftLaunchProgressState.MethodKey));
@@ -497,6 +499,9 @@ internal static partial class Program
         AssertEqual(("Player", "5d8f8d5b51ba4c74ba6a89c5a21e94e5"),
             MinecraftOfflineIdentity.Resolve("Player", "5d8f8d5b51ba4c74ba6a89c5a21e94e5"));
     }
+
+    private static string ReadSnapshotText(XsrStateStore store) =>
+        store.ReadAppliedValue(store.Resolve(MinecraftLaunchProgressState.SnapshotKey))?.ToString() ?? "empty";
 
     private static bool ReadProgressFlag(XsrStateStore store, XsrSemanticId key) =>
         store.ReadAppliedValue(store.Resolve(key)) is bool flag && flag;
