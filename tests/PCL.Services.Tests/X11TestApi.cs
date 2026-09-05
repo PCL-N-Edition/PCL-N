@@ -11,7 +11,7 @@ internal static partial class X11TestApi
 
     public static nint XOpenDisplay(int displayName) => XOpenDisplayRaw(displayName);
 
-    [DllImport("libX11.so.6")]
+    [DllImport("libX11.so.6", EntryPoint = "XOpenDisplay")]
     private static extern nint XOpenDisplayRaw(nint displayName);
 
     [DllImport("libX11.so.6")]
