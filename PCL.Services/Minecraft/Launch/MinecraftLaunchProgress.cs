@@ -27,11 +27,13 @@ public static class MinecraftLaunchStages
     public const double ExtractNativesWeight = 2d;
     public const double PreLaunchWeight = 1d;
     public const double StartProcessWeight = 2d;
+    public const double WaitWindowWeight = 1d;
     public const double EndWeight = 1d;
 
-    // The legacy table reserves one weight each for custom_command and wait_window, whose
-    // features have not migrated yet. Their weight stays reserved so every migrated stage
-    // reports the same overall pacing as the legacy launch.
+    // The legacy table carries one weight for custom_command, whose feature has not migrated;
+    // it stays reserved so every migrated stage reports the same overall pacing as the legacy
+    // launch. Migrated stages (including wait_window and pre_launch) are consumed for real.
+    public const double CustomCommandWeight = 1d;
     public const double Total = 44d;
 
     public static double ProgressAt(double completedWeight) =>

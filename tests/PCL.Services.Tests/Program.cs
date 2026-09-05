@@ -133,6 +133,7 @@ internal static partial class Program
         ("a second concurrent launch is rejected as already active", SecondConcurrentLaunchIsRejectedAsAlreadyActive),
         ("unsupported account kinds refuse to launch", UnsupportedAccountKindsRefuseToLaunch),
         ("immediate exit after process start resets launch progress", ImmediateExitAfterProcessStartResetsLaunchProgress),
+        ("cancel racing with launch completion never throws", CancelRacingWithLaunchCompletionNeverThrows),
         ("cancelling during the window wait terminates the process", CancelDuringWindowWaitTerminatesTheProcess),
         ("an unsupported probe skips the wait without burning the limit", UnsupportedProbeSkipsTheWaitWithoutBurningTheLimit),
         ("onboarding composition arms refresh capability without explicit microsoft", Sync(OnboardingCompositionArmsRefreshCapabilityWithoutExplicitMicrosoft)),

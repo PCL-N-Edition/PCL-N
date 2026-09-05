@@ -156,7 +156,7 @@ jobs:
             -p:XsrVersionChannel=ci \
             -p:PublishAot=true \
             -p:StripSymbols=true \
-            --output "${{ runner.temp }}/pcl-desktop-aot"
+            -p:PclMicrosoftClientId="${{ secrets.CLIENT_ID || secrets.MS_CLIENT_ID || secrets.PCL_MS_CLIENT_ID }}" \n            --output "${{ runner.temp }}/pcl-desktop-aot"
           "${{ runner.temp }}/pcl-desktop-aot/PCL.Desktop" --validate-shell
 
       - name: Analyze trimmed desktop composition

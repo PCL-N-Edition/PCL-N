@@ -140,21 +140,20 @@ public sealed class MinecraftLaunchCoordinator
     /// </summary>
     public bool CancelActiveLaunch()
     {
-        CancellationTokenSource? launch;
+        // Cancel under the same lock that governs registration and disposal: a racing launch
+        // completion may null the field and dispose the CTS between a split read and Cancel.
         lock (_launchGate)
         {
-            launch = _activeLaunch;
-        }
+            if (_activeLaunch is null)
+            {
+                _log?.Debug("Launch", "Launch cancellation ignored: no pipeline is running.");
+                return false;
+            }
 
-        if (launch is null)
-        {
-            _log?.Debug("Launch", "Launch cancellation ignored: no pipeline is running.");
-            return false;
+            _log?.Info("Launch", "Launch pipeline cancellation requested.");
+            _activeLaunch.Cancel();
+            return true;
         }
-
-        _log?.Info("Launch", "Launch pipeline cancellation requested.");
-        launch.Cancel();
-        return true;
     }
 
     public async ValueTask<XsrResult<MinecraftLaunchPreparation>> PrepareAsync(
@@ -400,6 +399,14 @@ public sealed class MinecraftLaunchCoordinator
                 MinecraftLaunchStages.ExtractNatives,
                 MinecraftLaunchStages.ProgressAt(extractCompleted),
                 Method: method));
+            // The legacy pre-launch stage: the working directory must exist before the game
+            // (or anything the plan references) writes into it — strictly before start_process.
+            _progress?.Report(new MinecraftLaunchStageReport(
+                MinecraftLaunchStages.PreLaunch,
+                MinecraftLaunchStages.ProgressAt(
+                    extractCompleted + MinecraftLaunchStages.ExtractNativesWeight),
+                Method: method));
+            Directory.CreateDirectory(plan.WorkingDirectory);
             Process.MinecraftProcessSession session = startedSession = await _executor.ExecuteAsync(
                 plan,
                 preparation.Value.Instance.Id,
@@ -699,7 +706,10 @@ public sealed class MinecraftLaunchCoordinator
         CancellationToken cancellationToken)
     {
         TaskCompletionSource<bool> decision = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        _acquisitionDecision = decision;
+        lock (_launchGate)
+        {
+            _acquisitionDecision = decision;
+        }
         _progress?.RequestAcquisition(acquisition.DownloadComponent ?? "unknown", majorVersion);
         _log?.Info("Java", $"Runtime acquisition awaiting approval component={acquisition.DownloadComponent}.");
         try
@@ -708,7 +718,14 @@ public sealed class MinecraftLaunchCoordinator
         }
         finally
         {
-            _acquisitionDecision = null;
+            lock (_launchGate)
+            {
+                if (ReferenceEquals(_acquisitionDecision, decision))
+                {
+                    _acquisitionDecision = null;
+                }
+            }
+
             _progress?.ResolveAcquisition();
         }
     }

@@ -74,6 +74,7 @@ internal sealed class LaunchPageController : IDisposable
         ["extract_natives"] = "解压 Natives",
         ["pre_launch"] = "预启动处理",
         ["start_process"] = "启动进程",
+        ["wait_window"] = "等待游戏窗口",
         ["end"] = "完成",
     };
 

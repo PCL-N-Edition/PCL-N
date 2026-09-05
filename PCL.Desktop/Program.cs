@@ -41,6 +41,22 @@ internal static class Program
     /// <summary>The one version truth: informational version, channel, and semantic core.</summary>
     internal sealed record LauncherBuildInfo(string InformationalVersion, string Channel, string SemanticVersion);
 
+    /// <summary>
+    /// Merges the two account-configuration sources: environment/config-file values
+    /// (Microsoft client id AND the LittleSkin OAuth configuration) are the baseline, and a
+    /// publish-time embedded Microsoft client id wins over them. Composing the raw embedded
+    /// value alone silently dropped LittleSkin configuration.
+    /// </summary>
+    private static AccountOnboardingOptions ComposeAccountOnboardingOptions()
+    {
+        AccountOnboardingOptions fromEnvironment = AccountOnboardingOptions.FromEnvironment();
+        string? embedded = ResolveEmbeddedMicrosoftClientId();
+        return fromEnvironment with
+        {
+            MicrosoftClientId = !string.IsNullOrWhiteSpace(embedded) ? embedded : fromEnvironment.MicrosoftClientId,
+        };
+    }
+
     private static string? ResolveEmbeddedMicrosoftClientId() =>
         System.Reflection.Assembly.GetEntryAssembly()?
             .GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>()
@@ -159,7 +175,7 @@ internal static class Program
         // here arms the launch identity resolver's refresh capability.
         using AccountOnboardingRuntime accounts = AccountOnboardingRuntimeComposer.Compose(
             host,
-            options: new AccountOnboardingOptions(ResolveEmbeddedMicrosoftClientId() ?? string.Empty, null),
+            options: ComposeAccountOnboardingOptions(),
             observer: operationLog.Dispatch);
         using MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose(
             host,

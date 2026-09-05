@@ -168,7 +168,7 @@ internal static partial class Program
             string[] expectedOrder =
             {
                 "login", "complete_files", "get_java", "get_arguments",
-                "extract_natives", "start_process", "wait_window", "end",
+                "extract_natives", "pre_launch", "start_process", "wait_window", "end",
             };
             string[] firstAppearance = progress.Stages.Distinct().ToArray();
             AssertTrue(expectedOrder.SequenceEqual(firstAppearance),
@@ -683,6 +683,47 @@ internal static partial class Program
     {
         public ValueTask<MinecraftWindowProbeResult> ProbeAsync(int processId, CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(MinecraftWindowProbeResult.Unsupported);
+    }
+
+    private static async ValueTask CancelRacingWithLaunchCompletionNeverThrows()
+    {
+        // The cancel command is user-triggerable at any instant: a completion that nulls and
+        // disposes the CTS between a split read and Cancel used to throw
+        // ObjectDisposedException. Hammer both sides concurrently.
+        (MinecraftLaunchCoordinator coordinator, FoundationHost host, _, string root) =
+            ComposeAcquisitionCoordinator(new RecordingStubInstaller(), processPort: new ExitedBeforeReturnProcessPort());
+        try
+        {
+            using CancellationTokenSource stop = new();
+            Task cancelHammer = Task.Run(async () =>
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                    try
+                    {
+                        coordinator.CancelActiveLaunch();
+                    }
+                    catch (ObjectDisposedException exception)
+                    {
+                        throw new InvalidOperationException(
+                            "CancelActiveLaunch threw ObjectDisposedException", exception);
+                    }
+
+                    await Task.Yield();
+                }
+            });
+            for (int round = 0; round < 40; round++)
+            {
+                await coordinator.StartAsync("1.20.1", accountIndex: 0);
+            }
+
+            stop.Cancel();
+            await cancelHammer;
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     private static bool ReadProgressFlag(XsrStateStore store, XsrSemanticId key) =>
