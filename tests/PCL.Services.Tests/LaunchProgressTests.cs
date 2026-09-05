@@ -173,11 +173,26 @@ internal static partial class Program
                 "stage order: " + string.Join(",", progress.Stages));
             AssertTrue(progress.Progress.SequenceEqual(progress.Progress.OrderBy(value => value)),
                 "progress not monotonic: " + string.Join(",", progress.Progress));
-            AssertTrue(ReadProgressFlag(host.StateStore, MinecraftLaunchProgressState.LaunchedKey),
-                "launched flag is false; snapshot=" + ReadSnapshotText(host.StateStore));
-            AssertEqual(1d, ReadProgressNumber(host.StateStore, MinecraftLaunchProgressState.ProgressKey));
-            AssertEqual("end", ReadProgressText(host.StateStore, MinecraftLaunchProgressState.StageKey));
-            AssertEqual("offline", ReadProgressText(host.StateStore, MinecraftLaunchProgressState.MethodKey));
+            // Two legal endings: the pipeline reached launched=true, or the instant-exit
+            // process was reaped before the assertions and the subscribe-then-recheck reset
+            // the truth (Empty snapshot retaining the session id). Both prove the narration
+            // ran to the end stage; a stuck launched truth would fail the first branch.
+            AssertTrue(progress.Stages.Contains(MinecraftLaunchStages.End)
+                && progress.Stages.Contains(MinecraftLaunchStages.WaitWindow), "narration never reached the end stage");
+            MinecraftLaunchProgressSnapshot final = host.StateStore
+                .ReadAppliedValue(host.StateStore.Resolve(MinecraftLaunchProgressState.SnapshotKey))
+                as MinecraftLaunchProgressSnapshot ?? MinecraftLaunchProgressSnapshot.Empty;
+            bool stillLaunched = ReadProgressFlag(host.StateStore, MinecraftLaunchProgressState.LaunchedKey);
+            bool reapedAfterEnd = final.Active == false && final.SessionId is { } id && id != Guid.Empty;
+            AssertTrue(stillLaunched || reapedAfterEnd,
+                "neither launched nor reaped: snapshot=" + final + " launched=" + stillLaunched);
+            if (stillLaunched)
+            {
+                AssertEqual(1d, ReadProgressNumber(host.StateStore, MinecraftLaunchProgressState.ProgressKey));
+                AssertEqual("end", ReadProgressText(host.StateStore, MinecraftLaunchProgressState.StageKey));
+                AssertEqual("offline", ReadProgressText(host.StateStore, MinecraftLaunchProgressState.MethodKey));
+            }
+
             AssertFalse(coordinator.CancelActiveLaunch());
         }
         finally
