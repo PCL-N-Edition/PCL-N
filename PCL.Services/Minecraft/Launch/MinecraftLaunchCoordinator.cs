@@ -356,6 +356,10 @@ public sealed class MinecraftLaunchCoordinator
         LogOperation? operation)
     {
         CancellationToken launchToken = launchCancellation.Token;
+        // Set as soon as the game process exists, so a cancellation before the window
+        // confirmation can terminate the process we created (the game must not pop up after
+        // the user has already cancelled the launch).
+        Process.MinecraftProcessSession? startedSession = null;
         try
         {
             _progress?.Start();
@@ -396,7 +400,7 @@ public sealed class MinecraftLaunchCoordinator
                 MinecraftLaunchStages.ExtractNatives,
                 MinecraftLaunchStages.ProgressAt(extractCompleted),
                 Method: method));
-            Process.MinecraftProcessSession session = await _executor.ExecuteAsync(
+            Process.MinecraftProcessSession session = startedSession = await _executor.ExecuteAsync(
                 plan,
                 preparation.Value.Instance.Id,
                 stage: stageToken =>
@@ -435,11 +439,25 @@ public sealed class MinecraftLaunchCoordinator
             session.Changed += OnSessionChanged;
             double waitCompleted =
                 extractCompleted + MinecraftLaunchStages.ExtractNativesWeight + MinecraftLaunchStages.StartProcessWeight;
+            // From here on every report carries the session id, so a Stop(sessionId) reset
+            // can match the narration it belongs to.
             _progress?.Report(new MinecraftLaunchStageReport(
                 MinecraftLaunchStages.WaitWindow,
                 MinecraftLaunchStages.ProgressAt(waitCompleted),
-                Method: method));
-            await WaitForGameWindowAsync(session, launchToken).ConfigureAwait(false);
+                Method: method,
+                SessionId: sessionId));
+            GameWindowWaitResult wait = await WaitForGameWindowAsync(session, launchToken).ConfigureAwait(false);
+            if (wait == GameWindowWaitResult.ProcessExited)
+            {
+                // The JVM died before presenting a window: this is a failed launch, not a
+                // launched one — the failure path closes the launching page and feeds crash
+                // analysis downstream. The narration reset here also covers the exit that
+                // happened before the terminal callback could be observed by readers.
+                _progress?.Stop(sessionId);
+                operation?.Reject(MinecraftErrors.ExitedBeforeWindowCode.Value);
+                return XsrResult.Failure(MinecraftErrors.ExitedBeforeWindow());
+            }
+
             _progress?.Report(new MinecraftLaunchStageReport(
                 MinecraftLaunchStages.End,
                 MinecraftLaunchStages.ProgressAt(MinecraftLaunchStages.Total),
@@ -453,6 +471,15 @@ public sealed class MinecraftLaunchCoordinator
         catch (OperationCanceledException) when (launchToken.IsCancellationRequested)
         {
             operation?.Cancel();
+            // Pre-confirmation cancellation kills the process this pipeline created; once the
+            // game is confirmed running the UI's back action handles it instead.
+            if (startedSession is { } session
+                && session.Snapshot.State is MinecraftProcessState.Created or MinecraftProcessState.Running)
+            {
+                _log?.Info("Launch", $"Cancelling the pre-confirmation game process session={session.Snapshot.SessionId}.");
+                session.Cancel();
+            }
+
             _progress?.Stop();
             return XsrResult.Failure(MinecraftErrors.LaunchFailed("the launch was cancelled."));
         }
@@ -474,6 +501,14 @@ public sealed class MinecraftLaunchCoordinator
         }
     }
 
+    internal enum GameWindowWaitResult
+    {
+        Visible,
+        Unsupported,
+        TimedOut,
+        ProcessExited,
+    }
+
     private static readonly TimeSpan GameWindowPollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan GameWindowWaitLimit = TimeSpan.FromMinutes(2);
 
@@ -482,7 +517,7 @@ public sealed class MinecraftLaunchCoordinator
     /// process presents a visible window (or the limit lapses — a headless or slow-windowing
     /// game still counts as launched rather than blocking the flow forever).
     /// </summary>
-    private async ValueTask WaitForGameWindowAsync(
+    private async ValueTask<GameWindowWaitResult> WaitForGameWindowAsync(
         Process.MinecraftProcessSession session,
         CancellationToken cancellationToken)
     {
@@ -498,19 +533,30 @@ public sealed class MinecraftLaunchCoordinator
                 or MinecraftProcessState.Cancelled)
             {
                 _log?.Info("Launch", $"Game process already ended before its window appeared pid={processId}.");
-                return;
+                return GameWindowWaitResult.ProcessExited;
             }
 
-            if (await _windowProbe.HasVisibleWindowAsync(processId, cancellationToken).ConfigureAwait(false))
+            MinecraftWindowProbeResult probe = await _windowProbe
+                .ProbeAsync(processId, cancellationToken)
+                .ConfigureAwait(false);
+            if (probe == MinecraftWindowProbeResult.Visible)
             {
                 _log?.Info("Launch", $"Game window confirmed pid={processId}.");
-                return;
+                return GameWindowWaitResult.Visible;
+            }
+
+            if (probe == MinecraftWindowProbeResult.Unsupported)
+            {
+                // No window detection on this platform: a wait could only burn its limit, so
+                // the legacy behavior degrades to "process started counts as launched".
+                _log?.Info("Launch", $"Window detection unsupported; skipping the wait pid={processId}.");
+                return GameWindowWaitResult.Unsupported;
             }
 
             if (System.Diagnostics.Stopwatch.GetElapsedTime(startedAt) >= GameWindowWaitLimit)
             {
                 _log?.Warn("Launch", $"No game window appeared within the limit pid={processId}; continuing.");
-                return;
+                return GameWindowWaitResult.TimedOut;
             }
 
             await Task.Delay(GameWindowPollInterval, cancellationToken).ConfigureAwait(false);

@@ -7,6 +7,7 @@ using PCL.Services.Minecraft.Java;
 using PCL.Services.Minecraft.Launch;
 using PCL.Services.Minecraft.Libraries;
 using PCL.Services.Minecraft.Process;
+using PCL.Services.Composition;
 using PCL.Services.Settings;
 using PCL.Xsr;
 using PCL.Xsr.State;
@@ -283,7 +284,7 @@ internal static partial class Program
     /// at the acquisition approval gate.
     /// </summary>
     private static (MinecraftLaunchCoordinator Coordinator, FoundationHost Host, T Installer, string Root)
-        ComposeAcquisitionCoordinator<T>(T installer, IMinecraftProcessPort? processPort = null, IJavaRuntimeLocator? javaLocator = null) where T : IJavaRuntimeInstaller
+        ComposeAcquisitionCoordinator<T>(T installer, IMinecraftProcessPort? processPort = null, IJavaRuntimeLocator? javaLocator = null, IMinecraftWindowProbe? windowProbe = null) where T : IJavaRuntimeInstaller
     {
         string root = CreateTempDirectory();
         string baseDirectory = CreateVersionDirectory(root, "1.20.1", new JsonObject
@@ -330,7 +331,7 @@ internal static partial class Program
                 Is64BitArchitecture: true,
                 IsArm64Architecture: false),
             progress: new MinecraftLaunchProgressPublisher(host.StateStore),
-            windowProbe: new ImmediateWindowProbe());
+            windowProbe: windowProbe ?? new ImmediateWindowProbe());
         return (coordinator, host, installer, root);
     }
 
@@ -419,7 +420,8 @@ internal static partial class Program
                 Kind = LaunchProfileKind.LittleSkin,
             }).IsSuccess);
             AccountLaunchIdentityResolver resolver = new(host.Accounts);
-            LaunchProfile profile = host.Accounts.GetProfile(0).Value;
+            LaunchProfile profile = host.Accounts.GetProfile(0).Value
+                ?? throw new InvalidOperationException("the corpus profile was not persisted.");
             XsrResult<MinecraftLaunchIdentity> identity = await resolver.ResolveAsync(0, profile);
             AssertFalse(identity.IsSuccess);
             AssertEqual(AccountErrors.LaunchNotSupportedCode, identity.Error!.Code);
@@ -488,13 +490,9 @@ internal static partial class Program
         Console.WriteLine($"[immediate] start {DateTime.Now:HH:mm:ss.fff}");
         XsrResult result = await coordinator.StartAsync("1.20.1", accountIndex: 0);
         Console.WriteLine($"[immediate] done success={result.IsSuccess} {DateTime.Now:HH:mm:ss.fff}");
-        if (!result.IsSuccess)
-        {
-            Console.WriteLine("DIAG immediate failed: " + result.Error?.Code.Value + " " + result.Error?.Message);
-        }
-
-        AssertTrue(result.IsSuccess,
-            "immediate-exit launch failed: " + result.Error?.Code.Value + " " + result.Error?.Message);
+        // A JVM that dies before its window appears is a FAILED launch, not a launched one.
+        AssertFalse(result.IsSuccess);
+        AssertEqual(MinecraftErrors.ExitedBeforeWindowCode, result.Error!.Code);
         XsrStateStore store = host.StateStore;
         AssertTrue(SpinWait.SpinUntil(
             () => store.ReadAppliedValue(store.Resolve(MinecraftLaunchProgressState.SnapshotKey))
@@ -517,6 +515,169 @@ internal static partial class Program
 
     private static string ReadSnapshotText(XsrStateStore store) =>
         store.ReadAppliedValue(store.Resolve(MinecraftLaunchProgressState.SnapshotKey))?.ToString() ?? "empty";
+
+    private static async ValueTask CancelDuringWindowWaitTerminatesTheProcess()
+    {
+        // Identical corpus to the narration test; only the probe (never sees a window) and the
+        // long-lived child differ, so the pipeline parks itself inside wait_window.
+        string root = CreateTempDirectory();
+        string baseDirectory = CreateVersionDirectory(root, "1.20.1", new JsonObject
+        {
+            ["id"] = "1.20.1",
+            ["type"] = "release",
+            ["mainClass"] = "net.minecraft.client.main.Main",
+            ["releaseTime"] = "2023-06-12T00:00:00Z",
+            ["javaVersion"] = new JsonObject
+            {
+                ["majorVersion"] = 17,
+                ["component"] = "java-runtime-gamma",
+            },
+        });
+        MinecraftInstanceMetadataStore metadataStore = new();
+        await metadataStore.SaveAsync(baseDirectory, new MinecraftInstanceMetadata());
+        File.WriteAllBytes(Path.Combine(baseDirectory, "1.20.1.jar"), [0xCA, 0xFE]);
+
+        SettingsSchema schema = LauncherDefaults.CreateSchema();
+        FoundationHost host = FoundationComposer.Compose(
+            new InMemorySettingsPort(),
+            schema,
+            new LaunchProfileFilePort(Path.Combine(root, "profiles.json")));
+        AssertTrue(host.Accounts.AddProfile(new LaunchProfile
+        {
+            Username = "Player",
+            Kind = LaunchProfileKind.Offline,
+        }).IsSuccess);
+        Console.WriteLine($"[cancel-diag] corpus ready {DateTime.Now:HH:mm:ss.fff}");
+
+        IJavaRuntimeLocator locator = ComposeWorkingJavaLocator();
+        LongLivedProcessPort port = new();
+        MinecraftProcessService processes = new(port, host.StateStore);
+        MinecraftLaunchCoordinator coordinator = new(
+            root,
+            Path.Combine(root, "runtime"),
+            new MinecraftInstanceDiscovery(
+                versionDiscovery: new MinecraftVersionDiscovery(),
+                metadataStore: metadataStore),
+            host.Accounts,
+            host.Settings,
+            new JavaSelectionService(locator),
+            new NeverJavaInstaller(),
+            new MinecraftLaunchExecutor(processes),
+            new MinecraftLaunchPlatform(
+                MinecraftLibraryOperatingSystem.Linux,
+                "6.12",
+                Is64BitArchitecture: true,
+                IsArm64Architecture: false),
+            progress: new MinecraftLaunchProgressPublisher(host.StateStore),
+            windowProbe: new BlindWindowProbe());
+
+        Task<XsrResult> launch = Task.Run(
+            () => coordinator.StartAsync("1.20.1", accountIndex: 0).AsTask());
+        XsrStateStore store = host.StateStore;
+        bool reachedWait = SpinWait.SpinUntil(
+            () => ReadProgressText(store, MinecraftLaunchProgressState.StageKey)
+                == MinecraftLaunchStages.WaitWindow,
+            TimeSpan.FromSeconds(10));
+        Console.Error.WriteLine($"[cancel-diag] reachedWait={reachedWait} {DateTime.Now:HH:mm:ss.fff}");
+        AssertTrue(reachedWait);
+
+        // Cancelling before the window confirmation must kill the game we created — the
+        // window must never pop up after the user cancelled.
+        AssertTrue(coordinator.CancelActiveLaunch());
+        XsrResult result = await launch;
+        Console.Error.WriteLine($"[cancel-diag] cancelled result={result.IsSuccess} {DateTime.Now:HH:mm:ss.fff}");
+        AssertFalse(result.IsSuccess);
+        AssertTrue(SpinWait.SpinUntil(() => port.LastProcess?.HasExited == true, TimeSpan.FromSeconds(5)));
+        AssertTrue(ReadProgressText(store, MinecraftLaunchProgressState.StageKey) == string.Empty);
+        Directory.Delete(root, recursive: true);
+    }
+
+    private static async ValueTask UnsupportedWindowProbeSkipsTheWait()
+    {
+        LongLivedProcessPort port = new();
+        (MinecraftLaunchCoordinator coordinator, FoundationHost host, _, string root) =
+            ComposeAcquisitionCoordinator(
+                new RecordingStubInstaller(),
+                processPort: port,
+                windowProbe: new UnsupportedWindowProbe());
+        try
+        {
+            long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            XsrResult result = await coordinator.StartAsync("1.20.1", accountIndex: 0);
+            AssertTrue(result.IsSuccess, result.Error?.Message ?? "no error");
+            // Unsupported must not burn the wait limit: the launch completes near-instantly.
+            AssertTrue(System.Diagnostics.Stopwatch.GetElapsedTime(startedAt) < TimeSpan.FromSeconds(20),
+                "the unsupported probe waited for the window limit");
+            AssertTrue(ReadProgressFlag(host.StateStore, MinecraftLaunchProgressState.LaunchedKey));
+        }
+        finally
+        {
+            if (port.LastProcess is { HasExited: false } process)
+            {
+                process.Kill();
+            }
+
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void OnboardingCompositionArmsRefreshCapabilityWithoutExplicitMicrosoft()
+    {
+        // Production never passes an explicit Microsoft service: the composer must create one
+        // instance and share it between onboarding and the launch resolver.
+        string root = Path.Combine(Path.GetTempPath(), "nexa-onboarding-cap", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            using AccountOnboardingRuntime runtime = AccountOnboardingRuntimeComposer.Compose(
+                FoundationComposer.Compose(
+                    new InMemorySettingsPort(),
+                    LauncherDefaults.CreateSchema(),
+                    new LaunchProfileFilePort(Path.Combine(root, "profiles.json"))),
+                options: new AccountOnboardingOptions("client-from-embed", null));
+            AssertTrue(runtime.LaunchIdentityResolver is not null);
+            AssertTrue(runtime.LaunchIdentityResolver
+                is AccountLaunchIdentityResolver { ComposedRefreshCapability: true });
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>A process port returning a long-lived child the test can cancel.</summary>
+    private sealed class LongLivedProcessPort : IMinecraftProcessPort
+    {
+        public System.Diagnostics.Process? LastProcess { get; private set; }
+
+        public ValueTask<System.Diagnostics.Process> StartAsync(
+            System.Diagnostics.ProcessStartInfo startInfo,
+            CancellationToken cancellationToken = default)
+        {
+            // `timeout` refuses redirected stdin; ping -n is the reliable wait primitive.
+            System.Diagnostics.ProcessStartInfo wait = OperatingSystem.IsWindows()
+                ? new System.Diagnostics.ProcessStartInfo("cmd", "/c ping -n 30 127.0.0.1 > nul")
+                : new System.Diagnostics.ProcessStartInfo("/bin/sh", "-c sleep 30");
+            wait.UseShellExecute = false;
+            wait.CreateNoWindow = true;
+            LastProcess = System.Diagnostics.Process.Start(wait)!;
+            return ValueTask.FromResult(LastProcess);
+        }
+    }
+
+    /// <summary>A probe that never sees a window while detection is supported.</summary>
+    private sealed class BlindWindowProbe : IMinecraftWindowProbe
+    {
+        public ValueTask<MinecraftWindowProbeResult> ProbeAsync(int processId, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(MinecraftWindowProbeResult.NotVisible);
+    }
+
+    /// <summary>A probe whose platform has no window detection: the wait must be skipped.</summary>
+    private sealed class UnsupportedWindowProbe : IMinecraftWindowProbe
+    {
+        public ValueTask<MinecraftWindowProbeResult> ProbeAsync(int processId, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(MinecraftWindowProbeResult.Unsupported);
+    }
 
     private static bool ReadProgressFlag(XsrStateStore store, XsrSemanticId key) =>
         store.ReadAppliedValue(store.Resolve(key)) is bool flag && flag;
@@ -571,8 +732,8 @@ internal static partial class Program
     /// <summary>A probe that always reports the game window as present.</summary>
     private sealed class ImmediateWindowProbe : IMinecraftWindowProbe
     {
-        public ValueTask<bool> HasVisibleWindowAsync(int processId, CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(true);
+        public ValueTask<MinecraftWindowProbeResult> ProbeAsync(int processId, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(MinecraftWindowProbeResult.Visible);
     }
 
     private sealed class ExitingProcessPort : IMinecraftProcessPort

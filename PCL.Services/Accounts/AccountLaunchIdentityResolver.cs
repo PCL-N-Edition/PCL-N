@@ -33,6 +33,9 @@ public sealed class AccountLaunchIdentityResolver(
 {
     private readonly AccountService _accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
 
+    /// <summary>Whether Microsoft session refresh is composed (service + client id present).</summary>
+    public bool ComposedRefreshCapability => microsoft is not null && !string.IsNullOrWhiteSpace(microsoftClientId);
+
     public async ValueTask<XsrResult<MinecraftLaunchIdentity>> ResolveAsync(
         int accountIndex,
         LaunchProfile profile,

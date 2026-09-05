@@ -1,29 +1,42 @@
 namespace PCL.Services.Minecraft.Process;
 
+public enum MinecraftWindowProbeResult
+{
+    /// <summary>This platform has no window detection wired; the caller skips waiting.</summary>
+    Unsupported,
+
+    /// <summary>Detection is supported and the process owns no visible window yet.</summary>
+    NotVisible,
+
+    /// <summary>The process owns a visible top-level window.</summary>
+    Visible,
+}
+
 /// <summary>
 /// Detects whether the launched game process owns a visible top-level window. The launch
 /// pipeline uses this as the legacy "wait for window" confirmation: the narration stays honest
-/// until the game has actually presented itself.
+/// until the game has actually presented itself. Unsupported must be distinguishable from
+/// not-visible, or platforms without a probe would stall the launch for the whole wait limit.
 /// </summary>
 public interface IMinecraftWindowProbe
 {
-    ValueTask<bool> HasVisibleWindowAsync(int processId, CancellationToken cancellationToken = default);
+    ValueTask<MinecraftWindowProbeResult> ProbeAsync(int processId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
 /// Default probe. Windows enumerates top-level windows and matches the owner PID with a
-/// non-empty visible title; other platforms report false and the pipeline's wait stage times
-/// out into the launched state instead of blocking the flow forever.
+/// non-empty visible title; other platforms report Unsupported so the launch skips the wait.
+/// X11/Wayland/macOS probes can slot in behind the same contract later.
 /// </summary>
 public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
 {
     private const int WindowTitleProbeDelayMilliseconds = 500;
 
-    public async ValueTask<bool> HasVisibleWindowAsync(int processId, CancellationToken cancellationToken = default)
+    public async ValueTask<MinecraftWindowProbeResult> ProbeAsync(int processId, CancellationToken cancellationToken = default)
     {
-        if (processId <= 0)
+        if (processId <= 0 || !OperatingSystem.IsWindows())
         {
-            return false;
+            return MinecraftWindowProbeResult.Unsupported;
         }
 
         // A first-frame window can take a moment to register a title; probe a few times before
@@ -31,15 +44,15 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
         for (int attempt = 0; attempt < 3; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (OperatingSystem.IsWindows() && HasVisibleWindowWindows(processId))
+            if (HasVisibleWindowWindows(processId))
             {
-                return true;
+                return MinecraftWindowProbeResult.Visible;
             }
 
             await Task.Delay(WindowTitleProbeDelayMilliseconds, cancellationToken).ConfigureAwait(false);
         }
 
-        return false;
+        return MinecraftWindowProbeResult.NotVisible;
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]

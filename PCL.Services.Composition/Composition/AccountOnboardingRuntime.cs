@@ -29,9 +29,14 @@ public static class AccountOnboardingRuntimeComposer
         HttpClient http = client ?? new HttpClient(new DiagnosticHttpHandler(host.Logging,
             new HttpClientHandler { AllowAutoRedirect = false }))
         { Timeout = TimeSpan.FromSeconds(30) };
-        AccountOnboardingService service = new(host.Accounts, microsoft ?? new MicrosoftMinecraftAuthService(http, log: host.Logging),
+        // One instance, two consumers: the onboarding service and the launch resolver MUST
+        // share this capability, or production silently loses Microsoft refresh.
+        IMicrosoftMinecraftAuthService microsoftService =
+            microsoft ?? new MicrosoftMinecraftAuthService(http, log: host.Logging);
+        AccountOnboardingOptions resolvedOptions = options ?? AccountOnboardingOptions.FromEnvironment();
+        AccountOnboardingService service = new(host.Accounts, microsoftService,
             littleSkin ?? new LittleSkinOAuthService(http, host.Logging), new YggdrasilAuthService(http, host.Logging),
-            options ?? AccountOnboardingOptions.FromEnvironment(), imports, host.Logging);
+            resolvedOptions, imports, host.Logging);
         XsrCommandRouterBuilder commands = new();
         AccountSkinService skins = new(host.Accounts, http, host.Logging);
         commands.Register<AccountRefreshSkinsCommand>(AccountSkinService.RefreshRoute, (_, _) => ValueTask.FromResult(skins.Refresh()));
@@ -43,8 +48,8 @@ public static class AccountOnboardingRuntimeComposer
             async (_, cancellation) => await Task.Run(service.DiscoverImports, cancellation).ConfigureAwait(false));
         IAccountLaunchIdentityResolver resolver = new AccountLaunchIdentityResolver(
             host.Accounts,
-            microsoft,
-            (options ?? AccountOnboardingOptions.FromEnvironment()).MicrosoftClientId,
+            microsoftService,
+            resolvedOptions.MicrosoftClientId,
             host.Logging);
         return new(service, commands.Build(observer ?? new Observer()), client is null ? http : null, skins, resolver);
     }
