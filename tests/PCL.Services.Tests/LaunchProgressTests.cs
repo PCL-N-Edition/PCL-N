@@ -170,7 +170,7 @@ internal static partial class Program
             string[] firstAppearance = progress.Stages.Distinct().ToArray();
             if (!expectedOrder.SequenceEqual(firstAppearance))
             {
-                Console.WriteLine("DIAG stages: " + string.Join(",", progress.Stages));
+                Console.Error.WriteLine("DIAG stages: " + string.Join(",", progress.Stages));
             }
 
             AssertTrue(expectedOrder.SequenceEqual(firstAppearance));
