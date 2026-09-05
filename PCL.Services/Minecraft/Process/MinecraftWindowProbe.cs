@@ -240,7 +240,7 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
         return XInternAtomBytes(display, terminated, onlyIfExists);
     }
 
-    [System.Runtime.InteropServices.DllImport("libX11.so.6")]
+    [System.Runtime.InteropServices.DllImport("libX11.so.6", EntryPoint = "XInternAtom")]
     private static extern nuint XInternAtomBytes(nint display, byte[] name, bool onlyIfExists);
 
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
