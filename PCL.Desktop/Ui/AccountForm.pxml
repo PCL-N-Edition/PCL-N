@@ -30,7 +30,6 @@
   </StackPanel>
   <StackPanel Key="CharacterChoices" Spacing="6" IsVisible="{state account.form.characters}" />
   <Text Key="FormStatus" Content="{state account.form.status}" Height="64" IsVisible="{state account.form.status-visible}" />
-  <Text Key="FormFeedback" Content="{state account.form.feedback}" Height="36" IsVisible="{state account.form.feedback-visible}" />
   <Button Key="FormSubmit" Label="{state account.form.submit-label}" Content="{state account.form.submit-label}" Height="38"
           Command="ui.account.submit" IsVisible="{state account.form.submit}" />
   <Button Key="FormCancel" Label="取消登录" Content="取消" Height="34" Command="ui.account.cancel" IsVisible="{state account.form.busy}" />

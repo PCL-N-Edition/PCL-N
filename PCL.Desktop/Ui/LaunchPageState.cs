@@ -29,8 +29,6 @@ internal static class LaunchPageState
     public static readonly XsrSemanticId SelectedInstanceKey = XsrSemanticId.Parse("launch.selected.instance");
     public static readonly XsrSemanticId ActionLabelKey = XsrSemanticId.Parse("launch.action.label");
     public static readonly XsrSemanticId ActionEnabledKey = XsrSemanticId.Parse("launch.action.enabled");
-    public static readonly XsrSemanticId StatusKey = XsrSemanticId.Parse("launch.status");
-    public static readonly XsrSemanticId StatusVisibleKey = XsrSemanticId.Parse("launch.status.visible");
     public static readonly XsrSemanticId WidgetAboutLabelKey = XsrSemanticId.Parse("launch.widget.about-label");
     public static readonly XsrSemanticId WidgetTriviaLabelKey = XsrSemanticId.Parse("launch.widget.trivia-label");
     public static readonly XsrSemanticId WidgetEchoLabelKey = XsrSemanticId.Parse("launch.widget.echo-label");
@@ -47,13 +45,12 @@ internal static class LaunchPageState
     public static readonly XsrSemanticId LaunchingSpeedKey = XsrSemanticId.Parse("launch.launching.speed");
     public static readonly XsrSemanticId LaunchingSpeedVisibleKey = XsrSemanticId.Parse("launch.launching.speed-visible");
     public static readonly XsrSemanticId LaunchingHintKey = XsrSemanticId.Parse("launch.launching.hint");
-    public static readonly XsrSemanticId LaunchingHintVisibleKey = XsrSemanticId.Parse("launch.launching.hint-visible");
-    public static readonly XsrSemanticId LaunchingAcquireMessageKey = XsrSemanticId.Parse("launch.launching.acquire-message");
 
     public static void DeclareState(XsrStateStoreBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
         AccountFormState.DeclareState(builder);
+        DesktopFeedbackState.DeclareState(builder);
         builder.Cell<string>(ProfileNameKey, OwnerName);
         builder.Cell<string>(ProfileKindKey, OwnerName);
         builder.Cell<bool>(AccountPickerKey, OwnerName);
@@ -72,8 +69,6 @@ internal static class LaunchPageState
         builder.Cell<string>(SelectedInstanceKey, OwnerName);
         builder.Cell<string>(ActionLabelKey, OwnerName);
         builder.Cell<bool>(ActionEnabledKey, OwnerName);
-        builder.Cell<string>(StatusKey, OwnerName);
-        builder.Cell<bool>(StatusVisibleKey, OwnerName);
         builder.Cell<string>(WidgetAboutLabelKey, OwnerName);
         builder.Cell<string>(WidgetTriviaLabelKey, OwnerName);
         builder.Cell<string>(WidgetEchoLabelKey, OwnerName);
@@ -87,7 +82,5 @@ internal static class LaunchPageState
         builder.Cell<string>(LaunchingSpeedKey, OwnerName);
         builder.Cell<bool>(LaunchingSpeedVisibleKey, OwnerName);
         builder.Cell<string>(LaunchingHintKey, OwnerName);
-        builder.Cell<bool>(LaunchingHintVisibleKey, OwnerName);
-        builder.Cell<string>(LaunchingAcquireMessageKey, OwnerName);
     }
 }

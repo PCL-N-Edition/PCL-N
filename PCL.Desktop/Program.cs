@@ -161,6 +161,10 @@ internal static class Program
             },
             uiIntents);
 
+        using DesktopFeedbackService feedback = new();
+        using DesktopFeedbackPresenter feedbackPresenter = new(
+            shell, uiIntents, feedback, runtime.Host.StateStore);
+
         // The launch page is the first product vertical slice: it routes navigation intents to
         // pages inside the shell content host and dispatches the real launch command.
         setStage("attach_product_controllers");
@@ -170,10 +174,11 @@ internal static class Program
             minecraft,
             runtime.Commands,
             runtime.Host.StateStore,
-            minecraftRootDirectory, accountCommands: accounts.Commands);
+            minecraftRootDirectory, feedback, accountCommands: accounts.Commands);
         AvaloniaUiPlatformActions platformActions = new();
         using AccountFormController accountForm = new(shell, uiIntents, accounts.Commands,
-            runtime.Host.StateStore, launchPage.AccountBody, new NativeAccountUiEffects(platformActions));
+            runtime.Host.StateStore, launchPage.AccountBody, feedback,
+            new NativeAccountUiEffects(platformActions));
         launchPage.Attach();
         // The launch page projects launch-progress cells into overlay display strings, so the
         // composition root adds its observer to the shared store fan-out.

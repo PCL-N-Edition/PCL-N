@@ -3,8 +3,8 @@
     The launching card, replicated from the legacy launching dialog and presented as its own
     navigation page. The card paints its full bounds (no container padding — the renderer
     paints only the content rect, so spacing lives on child margins), and the vertical budget
-    is trimmed to fit the smallest window. The Java acquisition prompt appears in place of the
-    trivia hint while the pipeline waits for the user's download decision.
+    is trimmed to fit the smallest window. The trivia hint remains part of launch progress;
+    Java acquisition and other modal decisions use the shared in-window dialog.
   -->
   <ContentHost Key="LaunchingHost">
     <StackPanel Orientation="Vertical" Key="LaunchingCard" Width="420"
@@ -37,20 +37,7 @@
           <Text Key="LaunchingSpeedLabel" Content="下载速度" Width="64" Height="16" />
           <Text Key="LaunchingSpeedValue" Content="{state launch.launching.speed}" Height="16" Weight="1" />
         </StackPanel>
-        <ContentHost Key="LaunchingAcquirePrompt" Height="110" Margin="0,12,0,0"
-                     IsVisible="{state minecraft.java.acquire.pending}">
-          <StackPanel Orientation="Vertical" Spacing="8" Margin="12,12,12,12">
-            <Text Key="LaunchingAcquireMessage" Content="{state launch.launching.acquire-message}" Height="32" />
-            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="End">
-              <Button Key="LaunchingAcquireDecline" Label="取消下载" Content="取消下载"
-                      Command="ui.launch.java.decline" Height="34" Width="96" />
-              <Button Key="LaunchingAcquireApprove" Label="自动下载" Content="自动下载"
-                      Command="ui.launch.java.approve" Height="34" Width="96" />
-            </StackPanel>
-          </StackPanel>
-        </ContentHost>
-        <ContentHost Key="LaunchingHintBox" Height="84" Margin="0,12,0,0"
-                     IsVisible="{state launch.launching.hint-visible}">
+        <ContentHost Key="LaunchingHintBox" Height="84" Margin="0,12,0,0">
           <StackPanel Orientation="Vertical" Spacing="4" Margin="12,12,12,12">
             <Text Key="LaunchingHintTitle" Content="启动贴士" Height="16" HorizontalAlignment="Center" />
             <Text Key="LaunchingHintValue" Content="{state launch.launching.hint}" Height="32"

@@ -4,16 +4,16 @@
 
 The first product vertical slice attaches to the shell: the launch page. Renderer navigation
 intents now drive real page routing inside the content host, the page reads its summaries and
-status through `launch.*` host state cells, and the start intent dispatches the real
+action through `launch.*` host state cells, and the start intent dispatches the real
 `minecraft.launch` command through the composed runtime routers with the discovered instance
 and the account identity.
 
 ## Page and routing
 
 - `PCL.Desktop/Ui/LaunchPage.pxml` is an embedded PXML page (account summary, instance
-  summary, launch button, status text) compiled at startup through the same parser/compiler/
+  summary, launch button) compiled at startup through the same parser/compiler/
   loader pipeline as the shell. Its dynamic texts bind to host state cells
-  (`launch.profile.summary`, `launch.instance.summary`, `launch.status`), declared by
+  (`launch.profile.summary`, `launch.instance.summary`, `launch.action.label`), declared by
   `LaunchPageStateComposition` in the Minecraft launch family's state block; empty cells carry
   no implicit default — the controller publishes the initial facts when it attaches.
 - `LaunchPageController` (Desktop composition root, internal, covered through
@@ -65,9 +65,10 @@ into the status cell. The renderer only ever reads these cells through the state
 
 New executable suite `tests/PCL.Desktop.Tests` (registered in the solution, the architecture
 gate's project graph, and CI as "Test desktop composition"): the launch page composes with its
-bound summaries and status, its wide, default, and minimum-window scenes preserve the locked
+bound summaries and action, its wide, default, and minimum-window scenes preserve the locked
 column/card geometry without overlap, navigation intents route between the launch and placeholder
-pages, and a start intent without instances reports the idle status without dispatching. The full
+pages, and a start intent without instances routes to installation without dispatching. XSR-714
+supersedes the temporary page-local status footer with the shared notification surface. The full
 launch dispatch chain (planner → executor → process port) remains covered by the
 `PCL.Services.Tests` corpus tests; a full end-to-end launch with a real version JSON on disk
 is deferred to the launch settings slice, which also owns the Minecraft root setting.

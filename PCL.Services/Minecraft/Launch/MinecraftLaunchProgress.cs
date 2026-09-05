@@ -116,9 +116,11 @@ public class MinecraftLaunchProgressPublisher(XsrStateStore store)
     {
         try
         {
-            _store.Publish(_acquirePendingId, true);
+            // Publish payload before the ready flag so a UI observer never opens a decision
+            // surface with a stale component or Java major from an earlier acquisition.
             _store.Publish(_acquireComponentId, component);
             _store.Publish(_acquireMajorId, majorVersion);
+            _store.Publish(_acquirePendingId, true);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
         {

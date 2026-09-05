@@ -16,7 +16,10 @@ A service:
 - owns its persistence and external integration ports;
 - is constructed through the composition root, not a global service locator.
 
-Services do not manipulate UI enablement or visibility. For example, a launch service publishes `launch.status` and `launch.progress`; derived state may expose `launch.canStart`; UI.Next decides how those facts appear.
+Services do not manipulate UI enablement or visibility. For example, a launch service publishes
+typed launch progress; derived state may expose `launch.canStart`; UI.Next decides how those facts
+appear. Product-only one-shot feedback is translated at the Desktop composition edge rather than
+stored as a service-owned page status string.
 
 ## Command semantics
 

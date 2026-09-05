@@ -29,6 +29,7 @@ internal sealed class AccountFormController : IDisposable
     private readonly DesktopUiIntentSink _intents;
     private readonly XsrCommandRouter _commands;
     private readonly XsrStateStore _store;
+    private readonly DesktopFeedbackService _feedback;
     private readonly IAccountUiEffects? _effects;
     private readonly Dictionary<string, XsrUiEntityId> _entities = [];
     private readonly Dictionary<XsrUiEntityId, string> _importRows = [];
@@ -44,9 +45,12 @@ internal sealed class AccountFormController : IDisposable
     private AccountLoginProvider _provider;
 
     public AccountFormController(XsrUiShell shell, DesktopUiIntentSink intents, XsrCommandRouter commands,
-        XsrStateStore store, XsrUiEntityId accountBody, IAccountUiEffects? effects = null)
+        XsrStateStore store, XsrUiEntityId accountBody, DesktopFeedbackService feedback,
+        IAccountUiEffects? effects = null)
     {
-        _shell = shell; _intents = intents; _commands = commands; _store = store; _effects = effects;
+        _shell = shell; _intents = intents; _commands = commands; _store = store;
+        _feedback = feedback ?? throw new ArgumentNullException(nameof(feedback));
+        _effects = effects;
         XsrUiEntityId fallback = default;
         shell.Tree.Walk(shell.Tree.Parent(accountBody), entity =>
         {
@@ -116,7 +120,7 @@ internal sealed class AccountFormController : IDisposable
             string address = Snapshot.VerificationUri;
             if (!AccountOnboardingService.IsVerificationUri(_provider, address)) return;
             try { RequireEffects().OpenAuthorization(new Uri(address)); }
-            catch (Exception) { Publish("feedback", "无法打开浏览器，请检查系统默认浏览器设置。"); }
+            catch (Exception) { _feedback.Warn("无法打开浏览器，请检查系统默认浏览器设置。"); }
         }
         else if (command == "ui.account.copy-code") _ = CopyCode();
         else if (command == "ui.account.choice")
@@ -132,7 +136,7 @@ internal sealed class AccountFormController : IDisposable
         if (Snapshot.IsBusy) _ = Dispatch(AccountOnboardingRoutes.Cancel, new AccountLoginCancelCommand(Snapshot.Generation));
         Interlocked.Increment(ref _viewEpoch);
         ClearDrafts();
-        Publish("open", true); Publish("mode", mode); Publish("feedback", string.Empty);
+        Publish("open", true); Publish("mode", mode);
         _seenCompletion = Snapshot.Generation;
         _pendingFocus = mode switch { "offline" => "OfflineName", "third-party" => "AuthServer", "import" => "ImportPath", "device" => "AccountBack", _ => "ProviderMicrosoft" };
         if (mode == "import") _ = Dispatch(AccountOnboardingRoutes.DiscoverImports, new AccountDiscoverImportsCommand());
@@ -151,7 +155,6 @@ internal sealed class AccountFormController : IDisposable
     private void Submit()
     {
         if (Snapshot.IsBusy) return;
-        Publish("feedback", string.Empty);
         if (ReadText("mode") == "import")
         {
             _ = Dispatch(AccountOnboardingRoutes.Import, new AccountImportCommand(Draft("ImportPath")));
@@ -198,8 +201,6 @@ internal sealed class AccountFormController : IDisposable
         Publish("characters", open && snapshot.Phase == AccountLoginPhase.ChoosingProfile);
         Publish("submit", open && mode != "providers" && !snapshot.IsBusy);
         Publish("submit-label", mode == "import" ? "确认导入" : mode == "offline" ? "创建档案" : mode == "device" ? "重新登录" : "登录并添加");
-        Publish("feedback-visible", !string.IsNullOrWhiteSpace(ReadText("feedback")));
-
         XsrCollectionSnapshot<AccountImportCandidate> imports = _store.ReadCollection<AccountImportCandidate>(_store.Resolve(AccountOnboardingState.Imports));
         if (imports.Revision != _importsRevision)
         {
@@ -256,15 +257,15 @@ internal sealed class AccountFormController : IDisposable
             FontSize = name == "FormTitle" ? 18 : name == "UserCode" ? 22 : name is "FormStatus" or "ImportHelp" or "OfflineHelp" or "ServerPrivacy" ? 12 : 14,
             FontWeight = button || name is "FormTitle" or "UserCode" ? 600 : 400,
             TextAlignment = button || name == "UserCode" ? XsrUiTextAlignment.Center : XsrUiTextAlignment.Start,
-            WrapText = name is "FormStatus" or "FormFeedback" or "ImportHelp" or "OfflineHelp" or "ServerPrivacy",
+            WrapText = name is "FormStatus" or "ImportHelp" or "OfflineHelp" or "ServerPrivacy",
         });
     }
 
     private async Task Dispatch<T>(XsrSemanticId route, T command) where T : notnull
     {
-        if (!_commands.TryResolve(route, out XsrCommandId id)) { Publish("feedback", "账户操作未注册。"); return; }
+        if (!_commands.TryResolve(route, out XsrCommandId id)) { _feedback.Error("账户操作未注册。"); return; }
         XsrResult result = await _commands.Dispatch(id, command, cancellationToken: _lifetime.Token).Completion.ConfigureAwait(false);
-        if (!_disposed && !result.IsSuccess) Publish("feedback", "操作未完成，当前登录会话可能已结束，请重试。");
+        if (!_disposed && !result.IsSuccess) _feedback.Error("操作未完成，当前登录会话可能已结束，请重试。");
     }
 
     private async Task PickProfiles()
@@ -275,13 +276,13 @@ internal sealed class AccountFormController : IDisposable
             string? path = await RequireEffects().PickProfiles().ConfigureAwait(false);
             if (!_disposed && epoch == Interlocked.Read(ref _viewEpoch) && path is not null) Publish("import-path", path);
         }
-        catch (Exception) { if (!_disposed) Publish("feedback", "无法打开文件选择器，也可以在上方填写文件路径。"); }
+        catch (Exception) { if (!_disposed) _feedback.Warn("无法打开文件选择器，也可以在上方填写文件路径。"); }
     }
 
     private async Task CopyCode()
     {
         try { await RequireEffects().CopyCode(Snapshot.UserCode).ConfigureAwait(false); }
-        catch (Exception) { if (!_disposed) Publish("feedback", "无法复制授权码，请手动输入。"); }
+        catch (Exception) { if (!_disposed) _feedback.Warn("无法复制授权码，请手动输入。"); }
     }
 
     private IAccountUiEffects RequireEffects() => _effects ?? throw new InvalidOperationException("Native actions unavailable.");

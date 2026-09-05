@@ -1,0 +1,19 @@
+<ContentHost xmlns="https://pcln.dev/pxml/2026" Key="DialogLayer" Label="模态遮罩">
+  <Dialog Key="DialogCard" Label="确认" Orientation="Vertical" Width="440" Height="238"
+          HorizontalAlignment="Center" VerticalAlignment="Center">
+    <StackPanel Key="DialogHeader" Orientation="Horizontal" Height="38" Margin="24,22,24,0">
+      <Image Key="DialogIcon" Label="需要确认" Source="lucide/info" Width="24" Height="24"
+             VerticalAlignment="Center" />
+      <Text Key="DialogTitle" Content="需要确认" Height="30" Weight="1" Margin="12,0,0,0"
+            VerticalAlignment="Center" />
+    </StackPanel>
+    <Text Key="DialogMessage" Content="请确认是否继续。" Height="76" Margin="24,14,24,0" />
+    <StackPanel Key="DialogActions" Orientation="Horizontal" Spacing="10"
+                HorizontalAlignment="End" Margin="24,18,24,22">
+      <Button Key="DialogCancel" Label="取消" Content="取消" Command="ui.feedback.dialog.cancel"
+              Width="104" Height="38" />
+      <Button Key="DialogAccept" Label="继续" Content="继续" Command="ui.feedback.dialog.accept"
+              Width="112" Height="38" />
+    </StackPanel>
+  </Dialog>
+</ContentHost>

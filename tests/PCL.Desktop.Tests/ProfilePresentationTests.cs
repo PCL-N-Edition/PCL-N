@@ -140,18 +140,25 @@ internal static partial class Program
         }
     }
 
-    private static void OperationalFeedbackRemainsBesideLaunchAction()
+    private static void OperationalFeedbackUsesLowerLeftNotification()
     {
         using LaunchPageFixture fixture = new(new ImmediateInstanceSource([Instance("available")]));
         XsrUiSize size = new(810, 470);
         AssertFalse(HasKey(fixture.Shell, fixture.Shell.Render(size), "LaunchFeedback"));
-        // A rejected product intent must still produce useful feedback, never an idle widget footer.
+        // A rejected product intent uses the one shared window-internal lower-left surface,
+        // never an ad-hoc status line inside a page card.
         Emit(fixture.Intents, "ui.launch.primary");
         XsrUiScene scene = fixture.Shell.Render(size);
-        XsrUiSceneNode feedback = FindByKey(fixture.Shell, scene, "LaunchFeedback");
-        AssertTrue(feedback.Text!.Contains("账户档案", StringComparison.Ordinal));
-        AssertContains(FindByKey(fixture.Shell, scene, "CardVersion").Rect, feedback.Rect);
+        XsrUiSceneNode feedback = scene.Nodes.Single(node =>
+            node.Role == XsrUiSemanticRole.Status
+            && node.Label!.Contains("账户档案", StringComparison.Ordinal));
+        AssertEqual("Warn", feedback.Label![..4]);
+        AssertClose(18, feedback.Rect.X);
+        AssertClose(size.Height - 18, feedback.Rect.Y + feedback.Rect.Height);
+        AssertFalse(FindByKey(fixture.Shell, scene, "CardVersion").Rect.Contains(
+            new XsrUiPoint(feedback.Rect.X, feedback.Rect.Y)));
         AssertFalse(HasKey(fixture.Shell, scene, "LaunchStatus"));
+        AssertFalse(HasKey(fixture.Shell, scene, "LaunchFeedback"));
         AssertFalse(HasKey(fixture.Shell, scene, "AccountSummary"));
     }
 

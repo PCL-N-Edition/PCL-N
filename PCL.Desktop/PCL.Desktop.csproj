@@ -12,6 +12,8 @@
     <EmbeddedResource Include="Ui/AccountChoiceRow.pxml" />
     <EmbeddedResource Include="Ui/VersionSubpage.pxml" />
     <EmbeddedResource Include="Ui/LaunchingPage.pxml" />
+    <EmbeddedResource Include="Ui/Notification.pxml" />
+    <EmbeddedResource Include="Ui/Dialog.pxml" />
     <EmbeddedResource Include="Assets/icon.png" />
     <EmbeddedResource Include="Assets/icon.ico" />
     <ProjectReference Include="../PCL.Pxml.Runtime/PCL.Pxml.Runtime.csproj" />

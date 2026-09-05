@@ -100,23 +100,27 @@ internal static partial class Program
         using LaunchPageFixture fixture = ComposeLaunchOverlayFixture(recording);
         SelectFirstAccountAndLaunch(fixture, recording);
 
-        // The pipeline pauses at the acquisition gate: the prompt replaces the trivia hint.
+        // The pipeline pauses at the acquisition gate: the decision is presented by the shared
+        // window-internal modal layer rather than embedded into the launching card.
         fixture.Store.Publish(fixture.Store.Resolve(MinecraftLaunchProgressState.AcquireComponentKey), "java-runtime-gamma");
         fixture.Store.Publish(fixture.Store.Resolve(MinecraftLaunchProgressState.AcquireMajorKey), 17);
         fixture.Store.Publish(fixture.Store.Resolve(MinecraftLaunchProgressState.AcquirePendingKey), true);
         XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(850, 500));
-        AssertTrue(HasKey(fixture.Shell, scene, "LaunchingAcquirePrompt"));
-        AssertTrue(FindByKey(fixture.Shell, scene, "LaunchingAcquireMessage").Text!
+        AssertFalse(HasKey(fixture.Shell, scene, "LaunchingAcquirePrompt"));
+        AssertTrue(FindByKey(fixture.Shell, scene, "DialogMessage").Text!
             .Contains("java-runtime-gamma", StringComparison.Ordinal));
-        AssertFalse(HasKey(fixture.Shell, scene, "LaunchingHintBox"));
+        AssertTrue(HasKey(fixture.Shell, scene, "LaunchingHintBox"));
+        AssertEqual(XsrUiSemanticRole.Dialog, FindByKey(fixture.Shell, scene, "DialogCard").Role);
+        AssertRectClose(new XsrUiRect(0, 0, 850, 500), FindByKey(fixture.Shell, scene, "DialogLayer").Rect);
+        AssertFalse(FindByKey(fixture.Shell, scene, "LaunchingCancelButton").IsAccessible);
+        AssertFalse(FindByKey(fixture.Shell, scene, "LaunchingCancelButton").IsClickable);
 
         // Approving forwards the decision to the pipeline command.
-        Console.WriteLine("[diag] launching keys: " + string.Join(",", scene.Nodes
-            .Select(n => fixture.Shell.Tree.Name(n.Entity))
-            .Where(n => n.StartsWith("Launching", StringComparison.Ordinal))));
+        fixture.Shell.Renderer.ReducedMotion = true;
         AssertTrue(fixture.Shell.Renderer.Activate(
-            FindByKey(fixture.Shell, scene, "LaunchingAcquireApprove").Entity));
+            FindByKey(fixture.Shell, scene, "DialogAccept").Entity));
         AssertTrue(SpinWait.SpinUntil(() => recording.LastDecision == true, TimeSpan.FromSeconds(2)));
+        AssertFalse(HasKey(fixture.Shell, fixture.Shell.Render(new XsrUiSize(850, 500)), "DialogCard"));
     }
 
     private static void LaunchOverlayCancelHidesOverlay()

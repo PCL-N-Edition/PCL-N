@@ -71,7 +71,11 @@ internal static partial class Program
         ("skin route publishes media through host state into the rendered profile", SkinRoutePublishesIntoRenderedProfile),
         ("delete actions persist only the requested profile and reject stale rows", DeleteActionsPersistAndRejectStaleRows),
         ("trivia rotates every three seconds without foreign tree writes and stops on disposal", TriviaTimerPublishesOnlyStateAndStops),
-        ("operational feedback remains beside the launch action without idle footers", OperationalFeedbackRemainsBesideLaunchAction),
+        ("operational feedback uses the shared lower-left notification surface", OperationalFeedbackUsesLowerLeftNotification),
+        ("notification levels keep exact lifetimes and permanent errors remain closable", NotificationLevelsKeepExactLifetimes),
+        ("notifications share one lower-left surface and every level closes manually", NotificationsShareLowerLeftSurfaceAndCloseManually),
+        ("notification timers request render without mutating the UI tree", NotificationTimersStayOffTheRenderTree),
+        ("dialog stays inside the window traps the page and restores focus on escape", DialogStaysInsideWindowAndRestoresFocus),
     ];
 
     private static void LaunchPageReplicatesLegacyLayout()
@@ -108,7 +112,6 @@ internal static partial class Program
         AssertEqual("下载游戏", ReadCell(fixture.Store, LaunchPageState.ActionLabelKey));
         AssertTrue(FindByKey(fixture.Shell, scene, "LaunchButton").IsClickable);
         AssertEqual(string.Empty, ReadCell(fixture.Store, LaunchPageState.SelectedInstanceKey));
-        AssertEqual(string.Empty, ReadCell(fixture.Store, LaunchPageState.StatusKey));
         AssertFalse(HasKey(fixture.Shell, scene, "LaunchStatus"));
         AssertFalse(HasKey(fixture.Shell, scene, "LaunchFeedback"));
         AssertFalse(HasKey(fixture.Shell, scene, "AccountSummary"));
@@ -186,7 +189,9 @@ internal static partial class Program
         AssertEqual(XsrSemanticId.Parse("navigation.download"), fixture.Shell.SelectedNavigationId);
         AssertTrue(fixture.Shell.Render(new XsrUiSize(1280, 800)).Nodes.Any(
             node => node.Text == "该分区将在后续单元中迁移。"));
-        AssertEqual("请在安装页选择或下载游戏版本", ReadCell(fixture.Store, LaunchPageState.StatusKey));
+        AssertTrue(fixture.Feedback.Snapshot().Notifications.Any(notification =>
+            notification.Level == DesktopNotificationLevel.Info
+            && notification.Message == "请在安装页选择或下载游戏版本。"));
 
         Emit(fixture.Intents, "ui.navigation.launch");
         fixture.Controller.WaitUntilIdle().GetAwaiter().GetResult();
@@ -258,8 +263,9 @@ internal static partial class Program
         AssertTrue(SpinWait.SpinUntil(() => recording.LastCommand is not null, TimeSpan.FromSeconds(2)));
         AssertEqual("playable", recording.LastCommand!.InstanceId);
         AssertEqual(0, recording.LastCommand.AccountIndex);
-        AssertTrue(SpinWait.SpinUntil(
-            () => ReadCell(fixture.Store, LaunchPageState.StatusKey) == "Minecraft 已启动",
+        AssertTrue(SpinWait.SpinUntil(() => fixture.Feedback.Snapshot().Notifications.Any(notification =>
+                notification.Level == DesktopNotificationLevel.Info
+                && notification.Message == "Minecraft 已启动。"),
             TimeSpan.FromSeconds(2)));
     }
 
@@ -435,6 +441,8 @@ internal static partial class Program
             Store = host.StateStore;
             Intents = new DesktopUiIntentSink();
             Shell = PxmlShellComposer.Compose(Store, uiRuntime, intentSink: Intents);
+            Feedback = new DesktopFeedbackService(timeProvider);
+            FeedbackPresenter = new DesktopFeedbackPresenter(Shell, Intents, Feedback, Store, timeProvider);
             Minecraft = minecraft ?? MinecraftRuntimeComposer.Compose();
             _ownsMinecraftRuntime = minecraft is null || ownsMinecraftRuntime;
             Service = host.Accounts;
@@ -454,8 +462,10 @@ internal static partial class Program
                 Foundation.Commands,
                 Store,
                 Path.Combine(_temporaryDirectory, "minecraft"),
-                source, accountCommands: enableSkins ? Onboarding.Commands : null, timeProvider: timeProvider);
-            AccountForm = new AccountFormController(Shell, Intents, Onboarding.Commands, Store, Controller.AccountBody, accountEffects);
+                Feedback, source, accountCommands: enableSkins ? Onboarding.Commands : null,
+                timeProvider: timeProvider);
+            AccountForm = new AccountFormController(Shell, Intents, Onboarding.Commands, Store,
+                Controller.AccountBody, Feedback, accountEffects);
             storeObservation.Add(Controller.StateObserver);
             Controller.Attach();
         }
@@ -467,6 +477,8 @@ internal static partial class Program
         public XsrStateStore Store { get; }
         public MinecraftRuntime Minecraft { get; }
         public AccountService Service { get; }
+        public DesktopFeedbackService Feedback { get; }
+        public DesktopFeedbackPresenter FeedbackPresenter { get; }
         public LaunchPageController Controller { get; }
         public AccountOnboardingRuntime Onboarding { get; }
         public AccountFormController AccountForm { get; }
@@ -476,6 +488,8 @@ internal static partial class Program
             AccountForm.Dispose();
             Onboarding.Dispose();
             Controller.Dispose();
+            FeedbackPresenter.Dispose();
+            Feedback.Dispose();
             if (_ownsMinecraftRuntime)
             {
                 Minecraft.Dispose();

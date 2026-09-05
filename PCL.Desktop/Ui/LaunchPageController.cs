@@ -17,8 +17,8 @@ namespace PCL.Desktop.Ui;
 /// The product launch page: the first vertical slice attached to the shell's content host,
 /// replicating the legacy experimental launch home's information architecture — an account
 /// card (profile identity / picker), a version card (版本 header, instance picker row,
-/// the big accent launch button and operational feedback), and the community about card. It reads its
-/// facts from host state cells, emits the launch intent through the renderer's normal sink,
+/// the big accent launch button), and the community about card. It reads its facts from host
+/// state cells, routes one-shot outcomes to the shared feedback service, emits the launch intent,
 /// and dispatches the product-level Minecraft start command through the composed runtime routers.
 /// Navigation intents route between this page and placeholders for destinations whose slices
 /// have not landed yet.
@@ -44,8 +44,6 @@ internal sealed class LaunchPageController : IDisposable
     private static readonly XsrSemanticId AccountWardrobeCommand = XsrSemanticId.Parse("ui.account.wardrobe");
     private static readonly XsrSemanticId AccountDismissCommand = XsrSemanticId.Parse("ui.account.dismiss");
     private static readonly XsrSemanticId LaunchCancelCommand = XsrSemanticId.Parse("ui.launch.cancel");
-    private static readonly XsrSemanticId LaunchAcquireApproveCommand = XsrSemanticId.Parse("ui.launch.java.approve");
-    private static readonly XsrSemanticId LaunchAcquireDeclineCommand = XsrSemanticId.Parse("ui.launch.java.decline");
 
     private static readonly XsrSemanticId DownloadNavigationId = XsrSemanticId.Parse("navigation.download");
 
@@ -86,6 +84,7 @@ internal sealed class LaunchPageController : IDisposable
     };
 
     private bool _launchInProgress;
+    private Guid? _javaAcquisitionDialog;
     private bool _launchingViaKeyboard;
     private XsrUiEntityId _launchingPage;
     private Dictionary<string, XsrUiEntityId> _launchingEntities = [];
@@ -105,6 +104,7 @@ internal sealed class LaunchPageController : IDisposable
     private readonly XsrCommandRouter? _accountCommands;
     private long _skinRevision = -1;
     private readonly XsrStateStore _store;
+    private readonly DesktopFeedbackService _feedback;
     private readonly ILaunchPageInstanceSource _instanceSource;
     private readonly XsrUiEntityId _launchPage;
     private readonly XsrUiEntityId _placeholderPage;
@@ -146,6 +146,7 @@ internal sealed class LaunchPageController : IDisposable
         XsrCommandRouter foundationCommands,
         XsrStateStore store,
         string minecraftRootDirectory,
+        DesktopFeedbackService feedback,
         ILaunchPageInstanceSource? instanceSource = null,
         XsrCommandRouter? accountCommands = null,
         TimeProvider? timeProvider = null)
@@ -155,6 +156,7 @@ internal sealed class LaunchPageController : IDisposable
         ArgumentNullException.ThrowIfNull(minecraft);
         ArgumentNullException.ThrowIfNull(foundationCommands);
         ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(feedback);
         if (instanceSource is null)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
@@ -166,6 +168,7 @@ internal sealed class LaunchPageController : IDisposable
         _accountCommands = accountCommands;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _store = store;
+        _feedback = feedback;
         StateObserver = new LaunchingStateObserver(this);
         _instanceSource = instanceSource
             ?? new MinecraftRuntimeLaunchPageInstanceSource(
@@ -199,7 +202,6 @@ internal sealed class LaunchPageController : IDisposable
         _shell.Renderer.FramePreparing += OnFramePreparing;
         _shell.StyleChanged += OnShellStyleChanged;
         ShowLaunch();
-        Publish(LaunchPageState.StatusKey, string.Empty);
         Publish(LaunchPageState.ProfileNameKey, NoAccountName);
         Publish(LaunchPageState.InstanceSummaryKey, ScanningInstances);
         Publish(LaunchPageState.SelectedInstanceKey, string.Empty);
@@ -245,6 +247,7 @@ internal sealed class LaunchPageController : IDisposable
         }
 
         _lifetimeCancellation.Cancel();
+        DismissAcquisitionDialog();
         lock (_refreshGate)
         {
             _refreshCancellation?.Cancel();
@@ -306,9 +309,7 @@ internal sealed class LaunchPageController : IDisposable
                 Publish(LaunchPageState.InstanceSummaryKey, NoInstances);
                 if (!result.IsSuccess)
                 {
-                    Publish(
-                        LaunchPageState.StatusKey,
-                        $"实例扫描失败：{result.Error?.Message}");
+                    _feedback.Error($"实例扫描失败：{result.Error?.Message}");
                 }
             }
 
@@ -376,10 +377,6 @@ internal sealed class LaunchPageController : IDisposable
         else if (command == LaunchCancelCommand)
         {
             _ = CancelLaunchAsync();
-        }
-        else if (command == LaunchAcquireApproveCommand || command == LaunchAcquireDeclineCommand)
-        {
-            _ = DecideAcquisitionAsync(command == LaunchAcquireApproveCommand);
         }
         else if (command == LaunchInstancesCommand)
         {
@@ -467,14 +464,14 @@ internal sealed class LaunchPageController : IDisposable
         if (!_foundationCommands.TryResolve(FoundationRouteIds.AccountRemoveProfile, out XsrCommandId route)) return;
         XsrResult result = await _foundationCommands.Dispatch(route, new AccountRemoveProfileCommand(index, revision),
             cancellationToken: _lifetimeCancellation.Token).Completion.ConfigureAwait(false);
-        if (!_disposed && !result.IsSuccess) Publish(LaunchPageState.StatusKey, $"删除档案失败：{result.Error?.Message}");
+        if (!_disposed && !result.IsSuccess) _feedback.Error($"删除档案失败：{result.Error?.Message}");
     }
 
     private async Task SelectAccountAsync(int index, long revision)
     {
         if (!_foundationCommands.TryResolve(FoundationRouteIds.AccountSelectProfile, out XsrCommandId route))
         {
-            Publish(LaunchPageState.StatusKey, "账户切换命令未注册。");
+            _feedback.Error("账户切换命令未注册。");
             return;
         }
 
@@ -483,7 +480,7 @@ internal sealed class LaunchPageController : IDisposable
             .Completion.ConfigureAwait(false);
         if (_disposed) return;
         if (result.IsSuccess) Publish(LaunchPageState.AccountPickerKey, false);
-        else Publish(LaunchPageState.StatusKey, $"切换档案失败：{result.Error?.Message}");
+        else _feedback.Error($"切换档案失败：{result.Error?.Message}");
     }
 
     private void ShowLaunch()
@@ -628,14 +625,6 @@ internal sealed class LaunchPageController : IDisposable
         ApplyVisual(entities["LaunchProgressTrack"], LaunchProgressTrack, PrimaryText, cornerRadius: 2);
         ApplyVisual(entities["LaunchProgressFill"], LaunchProgressFill, LaunchProgressFill, cornerRadius: 2);
         ApplyVisual(entities["LaunchingHintBox"], PickerBackground, PrimaryText, XsrUiCornerRadii.Inset);
-        ApplyVisual(entities["LaunchingAcquirePrompt"], PickerBackground, PrimaryText, XsrUiCornerRadii.Inset);
-        StyleText(entities, "LaunchingAcquireMessage", PrimaryText, 12);
-        ApplyVisual(entities["LaunchingAcquireApprove"], LaunchButtonBackground, new XsrUiColor(255, 255, 255), XsrUiCornerRadii.Pill(34), hover: LaunchButtonHover);
-        StyleText(entities, "LaunchingAcquireApprove", new XsrUiColor(255, 255, 255), 13, 600);
-        AlignText(entities, "LaunchingAcquireApprove", XsrUiTextAlignment.Center);
-        ApplyVisual(entities["LaunchingAcquireDecline"], PickerBackground, PrimaryText, XsrUiCornerRadii.Pill(34), hover: BadgeBackground);
-        StyleText(entities, "LaunchingAcquireDecline", PrimaryText, 13, 600);
-        AlignText(entities, "LaunchingAcquireDecline", XsrUiTextAlignment.Center);
         ApplyVisual(entities["LaunchingCancelButton"], PickerBackground, PrimaryText,
             XsrUiCornerRadii.Pill(40));
         StyleText(entities, "LaunchingCancelButton", PrimaryText, 14, 600);
@@ -878,7 +867,7 @@ internal sealed class LaunchPageController : IDisposable
     {
         _ = _shell.Select(DownloadNavigationId);
         ShowPlaceholder();
-        Publish(LaunchPageState.StatusKey, "请在安装页选择或下载游戏版本");
+        _feedback.Info("请在安装页选择或下载游戏版本。");
     }
 
     private void PublishProfileFacts()
@@ -903,13 +892,13 @@ internal sealed class LaunchPageController : IDisposable
         int selected = SelectedAccountIndex;
         if (!profiles.Any(profile => profile.Index == selected))
         {
-            Publish(LaunchPageState.StatusKey, AccountNeedLoginSummary);
+            _feedback.Warn(AccountNeedLoginSummary);
             return;
         }
 
         if (!_minecraft.Commands.TryResolve(MinecraftRouteIds.Start, out XsrCommandId commandId))
         {
-            Publish(LaunchPageState.StatusKey, "启动失败：产品启动命令未注册。");
+            _feedback.Error("启动失败：产品启动命令未注册。");
             return;
         }
 
@@ -925,7 +914,6 @@ internal sealed class LaunchPageController : IDisposable
         Publish(LaunchPageState.LaunchingPercentKey, "0%");
         Publish(LaunchPageState.LaunchingSpeedVisibleKey, false);
         Publish(LaunchPageState.LaunchingHintKey, LaunchWidgetHints.BuiltIn[_hintIndex]);
-        Publish(LaunchPageState.LaunchingHintVisibleKey, true);
         RefreshLaunchingDisplay();
 
         XsrCommandDispatch dispatch = _minecraft.Commands.Dispatch(
@@ -941,11 +929,11 @@ internal sealed class LaunchPageController : IDisposable
         if (result.IsSuccess)
         {
             // The pipeline keeps narrating (游戏已启动) until the process session ends.
-            Publish(LaunchPageState.StatusKey, "Minecraft 已启动");
+            _feedback.Info("Minecraft 已启动。");
             return;
         }
 
-        Publish(LaunchPageState.StatusKey, $"启动失败：{result.Error?.Message}");
+        _feedback.Error($"启动失败：{result.Error?.Message}");
         CloseLaunchingPage();
     }
 
@@ -988,16 +976,24 @@ internal sealed class LaunchPageController : IDisposable
         if (!_launchInProgress
             || !_minecraft.Commands.TryResolve(MinecraftRouteIds.AcquireDecide, out XsrCommandId route))
         {
+            _feedback.Error("Java 下载确认命令未注册。");
             return;
         }
 
-        await _minecraft.Commands.Dispatch(route, new MinecraftDecideJavaAcquisitionCommand(approve),
+        XsrResult result = await _minecraft.Commands.Dispatch(
+            route,
+            new MinecraftDecideJavaAcquisitionCommand(approve),
             cancellationToken: _lifetimeCancellation.Token).Completion.ConfigureAwait(false);
+        if (!_disposed && !result.IsSuccess)
+        {
+            _feedback.Error($"Java 下载确认失败：{result.Error?.Message}");
+        }
     }
 
     private void CloseLaunchingPage()
     {
         _launchInProgress = false;
+        DismissAcquisitionDialog();
         if (_shell.Stage.Navigation.Current != _launchingPage)
         {
             return;
@@ -1043,18 +1039,40 @@ internal sealed class LaunchPageController : IDisposable
     }
 
     /// <summary>
-    /// Projects the acquisition cells into the prompt message (Chinese, user-facing) and
-    /// swaps the trivia hint out while the pipeline waits for the download decision.
+    /// Projects the acquisition cells into the shared window-internal dialog. The feedback
+    /// service is thread-safe; its presenter performs all PXML mutations at frame preparation.
     /// </summary>
     private void RefreshAcquisitionPrompt()
     {
         bool pending = _store.ReadAppliedValue(_store.Resolve(MinecraftLaunchProgressState.AcquirePendingKey)) is bool waiting && waiting;
         string component = ReadServiceCell(MinecraftLaunchProgressState.AcquireComponentKey);
         int major = _store.ReadAppliedValue(_store.Resolve(MinecraftLaunchProgressState.AcquireMajorKey)) is int version ? version : 0;
-        Publish(LaunchPageState.LaunchingAcquireMessageKey, pending
-            ? $"未找到兼容的 Java {major} 运行库（{component}），是否自动下载？"
-            : string.Empty);
-        Publish(LaunchPageState.LaunchingHintVisibleKey, !pending);
+        if (_launchInProgress && pending && major > 0 && component.Length > 0)
+        {
+            _javaAcquisitionDialog = _feedback.ShowDialog(
+                "minecraft.java.acquire",
+                $"需要下载 Java {major}",
+                $"未找到兼容的 Java {major} 运行库（{component}）。启动游戏前需要下载，是否继续？",
+                "自动下载",
+                "取消下载",
+                approve => _ = DecideAcquisitionAsync(approve));
+        }
+        else if (!pending && _javaAcquisitionDialog is { } dialog)
+        {
+            _feedback.DismissDialog(dialog);
+            _javaAcquisitionDialog = null;
+        }
+    }
+
+    private void DismissAcquisitionDialog()
+    {
+        if (_javaAcquisitionDialog is not { } dialog)
+        {
+            return;
+        }
+
+        _feedback.DismissDialog(dialog);
+        _javaAcquisitionDialog = null;
     }
 
     private string ReadServiceCell(XsrSemanticId key) =>
@@ -1113,8 +1131,6 @@ internal sealed class LaunchPageController : IDisposable
     {
         XsrStateId id = _store.Resolve(key);
         if (!Equals(_store.ReadAppliedValue(id), value)) _store.Publish(id, value);
-        if (key == LaunchPageState.StatusKey)
-            Publish(LaunchPageState.StatusVisibleKey, value is string text && !string.IsNullOrWhiteSpace(text));
     }
 
     private string ReadCell(XsrSemanticId key) =>
@@ -1172,7 +1188,6 @@ internal sealed class LaunchPageController : IDisposable
             ApplyVisual(entities[key], BadgeText, PrimaryText, cornerRadius: 3);
         StyleText(entities, "AccountKind", ProfileSecondaryText, fontSize: 13);
         StyleText(entities, "AccountHint", ProfileSecondaryText, fontSize: 12);
-        StyleText(entities, "LaunchFeedback", SecondaryText, fontSize: 12);
         _shell.Tree.GetComponent<XsrUiVisualStyle>(entities["AccountHint"])!.WrapText = true;
         ApplyVisual(entities["AccountAvatarSurface"], ProfileSurface, BadgeText, XsrUiCornerRadii.Surface);
         ApplyVisual(entities["AccountBack"], ProfileSurface, ProfileSecondaryText, XsrUiCornerRadii.Pill(32), hover: BadgeBackground);

@@ -63,8 +63,6 @@
           <Button Key="LaunchButton" Label="{state launch.action.label}"
                   Content="{state launch.action.label}" Command="ui.launch.primary" Height="44"
                   Clickable="{state launch.action.enabled}" />
-          <Text Key="LaunchFeedback" Content="{state launch.status}" Height="18"
-                IsVisible="{state launch.status.visible}" />
         </StackPanel>
       </StackPanel>
 

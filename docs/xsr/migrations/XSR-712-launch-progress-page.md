@@ -48,8 +48,8 @@ flow reads better as a dedicated page.
 - Java acquisition approval (legacy parity): before any automatic runtime download the
   pipeline pauses and publishes `minecraft.java.acquire.{pending,component,major}`; a
   `minecraft.java.acquire.decide` command (approve/deny) resolves the wait, denial fails
-  the launch with `minecraft.java_unavailable`, and cancellation aborts the wait. The
-  launching page swaps the trivia hint for the confirmation prompt while pending.
+  the launch with `minecraft.java_unavailable`, and cancellation aborts the wait. XSR-714
+  supersedes the temporary inline prompt with the shared window-internal dialog surface.
 
 ### Progress bar presentation
 

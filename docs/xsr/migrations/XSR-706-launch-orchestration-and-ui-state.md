@@ -58,7 +58,9 @@ The following cells are a Desktop launch-page projection, not Minecraft service 
 - `launch.instance.detail`
 - `launch.selected.instance`
 - `launch.action.label`
-- `launch.status`
+
+One-shot outcome text is no longer a page state cell. XSR-714 routes it through the shared
+Desktop feedback service; ongoing launch progress remains typed Minecraft host state.
 
 Desktop declares them through an explicit host-state declaration callback passed to the
 Foundation composition root before the shared store is built. `PCL.Services` contains no owner,
