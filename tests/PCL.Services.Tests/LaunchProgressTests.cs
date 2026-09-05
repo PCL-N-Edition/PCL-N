@@ -473,6 +473,11 @@ internal static partial class Program
         Console.WriteLine($"[immediate] start {DateTime.Now:HH:mm:ss.fff}");
         XsrResult result = await coordinator.StartAsync("1.20.1", accountIndex: 0);
         Console.WriteLine($"[immediate] done success={result.IsSuccess} {DateTime.Now:HH:mm:ss.fff}");
+        if (!result.IsSuccess)
+        {
+            Console.WriteLine("DIAG immediate failed: " + result.Error?.Code.Value + " " + result.Error?.Message);
+        }
+
         AssertTrue(result.IsSuccess);
         XsrStateStore store = host.StateStore;
         AssertTrue(SpinWait.SpinUntil(
