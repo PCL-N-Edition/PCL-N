@@ -147,7 +147,8 @@ internal static partial class Program
                     "6.12",
                     Is64BitArchitecture: true,
                     IsArm64Architecture: false),
-                progress: progress);
+                progress: progress,
+                windowProbe: new ImmediateWindowProbe());
 
             XsrResult result = await coordinator.StartAsync("1.20.1", accountIndex: 0);
             if (!result.IsSuccess)
@@ -164,7 +165,7 @@ internal static partial class Program
             string[] expectedOrder =
             {
                 "login", "complete_files", "get_java", "get_arguments",
-                "extract_natives", "start_process", "end",
+                "extract_natives", "start_process", "wait_window", "end",
             };
             string[] firstAppearance = progress.Stages.Distinct().ToArray();
             if (!expectedOrder.SequenceEqual(firstAppearance))
@@ -242,12 +243,32 @@ internal static partial class Program
         }
     }
 
+    /// <summary>Builds a locator offering one fake but selectable Java 17 runtime.</summary>
+    private static InMemoryJavaLocator ComposeWorkingJavaLocator()
+    {
+        string javaHome = Path.Combine(
+            Path.GetTempPath(), "nexa-test-java", Guid.NewGuid().ToString("N"));
+        string javaExecutable = Path.Combine(javaHome, "bin",
+            OperatingSystem.IsWindows() ? "java.exe" : "java");
+        Directory.CreateDirectory(Path.GetDirectoryName(javaExecutable)!);
+        File.WriteAllBytes(javaExecutable, [0x00]);
+        return new InMemoryJavaLocator([new JavaRuntimeCandidate(new JavaInstallation(
+            javaHome,
+            javaExecutable,
+            null,
+            new Version(17, 0, 10),
+            JavaBrand.EclipseTemurin,
+            JavaArchitecture.X64,
+            is64Bit: true,
+            isJre: false))]);
+    }
+
     /// <summary>
     /// Composes a launchable corpus with NO compatible Java installed, so the pipeline stops
     /// at the acquisition approval gate.
     /// </summary>
     private static (MinecraftLaunchCoordinator Coordinator, FoundationHost Host, T Installer, string Root)
-        ComposeAcquisitionCoordinator<T>(T installer) where T : IJavaRuntimeInstaller
+        ComposeAcquisitionCoordinator<T>(T installer, IMinecraftProcessPort? processPort = null, IJavaRuntimeLocator? javaLocator = null) where T : IJavaRuntimeInstaller
     {
         string root = CreateTempDirectory();
         string baseDirectory = CreateVersionDirectory(root, "1.20.1", new JsonObject
@@ -276,7 +297,7 @@ internal static partial class Program
             Username = "Player",
             Kind = LaunchProfileKind.Offline,
         }).IsSuccess);
-        MinecraftProcessService processes = new(new ExitingProcessPort(), host.StateStore);
+        MinecraftProcessService processes = new(processPort ?? new ExitingProcessPort(), host.StateStore);
         MinecraftLaunchCoordinator coordinator = new(
             root,
             Path.Combine(root, "runtime"),
@@ -293,7 +314,8 @@ internal static partial class Program
                 "6.12",
                 Is64BitArchitecture: true,
                 IsArm64Architecture: false),
-            progress: new MinecraftLaunchProgressPublisher(host.StateStore));
+            progress: new MinecraftLaunchProgressPublisher(host.StateStore),
+            windowProbe: new ImmediateWindowProbe());
         return (coordinator, host, installer, root);
     }
 
@@ -393,6 +415,85 @@ internal static partial class Program
         }
     }
 
+    private static async ValueTask ImmediateExitAfterProcessStartResetsLaunchProgress()
+    {
+        // Mirrors the standalone repro exactly (Win32 platform, plain publisher, dead-JVM
+        // port): a JVM that dies before StartAsync returns must still reset the narration.
+        string root = CreateTempDirectory();
+        string baseDirectory = CreateVersionDirectory(root, "1.20.1", new JsonObject
+        {
+            ["id"] = "1.20.1",
+            ["type"] = "release",
+            ["mainClass"] = "net.minecraft.client.main.Main",
+            ["releaseTime"] = "2023-06-12T00:00:00Z",
+            ["javaVersion"] = new JsonObject
+            {
+                ["majorVersion"] = 17,
+                ["component"] = "java-runtime-gamma",
+            },
+        });
+        MinecraftInstanceMetadataStore metadataStore = new();
+        await metadataStore.SaveAsync(baseDirectory, new MinecraftInstanceMetadata());
+        File.WriteAllBytes(Path.Combine(baseDirectory, "1.20.1.jar"), [0xCA, 0xFE]);
+
+        SettingsSchema schema = LauncherDefaults.CreateSchema();
+        FoundationHost host = FoundationComposer.Compose(
+            new InMemorySettingsPort(),
+            schema,
+            new LaunchProfileFilePort(Path.Combine(root, "profiles.json")));
+        AssertTrue(host.Accounts.AddProfile(new LaunchProfile
+        {
+            Username = "Player",
+            Kind = LaunchProfileKind.Offline,
+        }).IsSuccess);
+        Console.WriteLine($"[immediate] corpus ready {DateTime.Now:HH:mm:ss.fff}");
+
+        RecordingProgressPublisher progress = new(host.StateStore);
+        IJavaRuntimeLocator locator = ComposeWorkingJavaLocator();
+        MinecraftProcessService processes = new(new ExitedBeforeReturnProcessPort(), host.StateStore);
+        MinecraftLaunchCoordinator coordinator = new(
+            root,
+            Path.Combine(root, "runtime"),
+            new MinecraftInstanceDiscovery(
+                versionDiscovery: new MinecraftVersionDiscovery(),
+                metadataStore: metadataStore),
+            host.Accounts,
+            host.Settings,
+            new JavaSelectionService(locator),
+            new NeverJavaInstaller(),
+            new MinecraftLaunchExecutor(processes),
+            new MinecraftLaunchPlatform(
+                MinecraftLibraryOperatingSystem.Linux,
+                "6.12",
+                Is64BitArchitecture: true,
+                IsArm64Architecture: false),
+            progress: progress,
+            windowProbe: new ImmediateWindowProbe());
+
+        Console.WriteLine($"[immediate] start {DateTime.Now:HH:mm:ss.fff}");
+        XsrResult result = await coordinator.StartAsync("1.20.1", accountIndex: 0);
+        Console.WriteLine($"[immediate] done success={result.IsSuccess} {DateTime.Now:HH:mm:ss.fff}");
+        AssertTrue(result.IsSuccess);
+        XsrStateStore store = host.StateStore;
+        AssertTrue(SpinWait.SpinUntil(
+            () => store.ReadAppliedValue(store.Resolve(MinecraftLaunchProgressState.SnapshotKey))
+                is MinecraftLaunchProgressSnapshot snapshot && !snapshot.Active && snapshot.SessionId is not null,
+            TimeSpan.FromSeconds(5)));
+        AssertFalse(ReadProgressFlag(store, MinecraftLaunchProgressState.LaunchedKey));
+        Directory.Delete(root, recursive: true);
+    }
+
+    private static void OfflineLegacyUuidLaunchesCorrectlyWhenMigrationSaveFails()
+    {
+        // The durable roster rewrite is best-effort; the launch-time resolver must recognize
+        // the alpha's byte-swapped UUID and derive the correct one regardless.
+        string legacy = MinecraftOfflineIdentity.LegacyMismatchedUuid("Player");
+        AssertEqual(MinecraftOfflineIdentity.UuidFromName("Player"),
+            MinecraftOfflineIdentity.Resolve("Player", legacy).Uuid);
+        AssertEqual(("Player", "5d8f8d5b51ba4c74ba6a89c5a21e94e5"),
+            MinecraftOfflineIdentity.Resolve("Player", "5d8f8d5b51ba4c74ba6a89c5a21e94e5"));
+    }
+
     private static bool ReadProgressFlag(XsrStateStore store, XsrSemanticId key) =>
         store.ReadAppliedValue(store.Resolve(key)) is bool flag && flag;
 
@@ -422,6 +523,34 @@ internal static partial class Program
     }
 
     /// <summary>A process port that starts a child which exits immediately with code zero.</summary>
+    /// <summary>
+    /// A process port that returns a session whose process has already exited, so the terminal
+    /// Changed event fires before the coordinator can subscribe.
+    /// </summary>
+    private sealed class ExitedBeforeReturnProcessPort : IMinecraftProcessPort
+    {
+        public ValueTask<System.Diagnostics.Process> StartAsync(
+            System.Diagnostics.ProcessStartInfo startInfo,
+            CancellationToken cancellationToken = default)
+        {
+            System.Diagnostics.ProcessStartInfo exit = OperatingSystem.IsWindows()
+                ? new System.Diagnostics.ProcessStartInfo("cmd", "/c exit 0")
+                : new System.Diagnostics.ProcessStartInfo("/bin/sh", "-c exit 0");
+            exit.UseShellExecute = false;
+            exit.CreateNoWindow = true;
+            System.Diagnostics.Process process = System.Diagnostics.Process.Start(exit)!;
+            process.WaitForExit(5_000);
+            return ValueTask.FromResult(process);
+        }
+    }
+
+    /// <summary>A probe that always reports the game window as present.</summary>
+    private sealed class ImmediateWindowProbe : IMinecraftWindowProbe
+    {
+        public ValueTask<bool> HasVisibleWindowAsync(int processId, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(true);
+    }
+
     private sealed class ExitingProcessPort : IMinecraftProcessPort
     {
         public ValueTask<System.Diagnostics.Process> StartAsync(

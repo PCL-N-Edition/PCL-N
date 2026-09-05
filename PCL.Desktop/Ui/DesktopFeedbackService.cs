@@ -76,6 +76,7 @@ internal sealed class DesktopFeedbackService : IDisposable
 
         Guid id = Guid.NewGuid();
         NotificationEntry entry = new(new DesktopNotification(id, level, message));
+        List<ITimer> evicted = [];
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -92,10 +93,21 @@ internal sealed class DesktopFeedbackService : IDisposable
 
             while (_notifications.Count >= MaxNotifications)
             {
+                NotificationEntry removed = _notifications[0];
                 _notifications.RemoveAt(0);
+                if (removed.Timer is not null)
+                {
+                    evicted.Add(removed.Timer);
+                }
             }
 
             _notifications.Add(entry);
+        }
+
+        // Dispose outside the gate: timer callbacks take the gate themselves.
+        foreach (ITimer timer in evicted)
+        {
+            timer.Dispose();
         }
 
         TimeSpan? duration = DurationFor(level);

@@ -103,7 +103,8 @@ public static class MinecraftRuntimeComposer
         IXsrDispatchObserver? observer = null,
         TimeProvider? timeProvider = null,
         PCL.Services.Accounts.IAccountLaunchIdentityResolver? identityResolver = null,
-        string? launcherVersion = null)
+        string? launcherVersion = null,
+        IMinecraftWindowProbe? windowProbe = null)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
@@ -151,7 +152,8 @@ public static class MinecraftRuntimeComposer
             host.Logging,
             new MinecraftLaunchProgressPublisher(host.StateStore),
             identityResolver,
-            launcherVersion);
+            launcherVersion,
+            windowProbe);
         IXsrDispatchObserver dispatchObserver = observer ?? NullDispatchObserver.Instance;
         XsrCommandRouterBuilder commandBuilder = new();
         commandBuilder.Register(MinecraftRouteIds.Start, MinecraftCommands.CreateStartHandler(coordinator));

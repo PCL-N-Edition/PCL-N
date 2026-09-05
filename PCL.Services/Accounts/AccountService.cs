@@ -262,7 +262,12 @@ public sealed class AccountService
     /// durable-first: the port saves before any state is published. The username never changes,
     /// so the presentation stays stable across refreshes.
     /// </summary>
-    public XsrResult UpdateMicrosoftTokens(int index, string accessToken, string refreshToken)
+    public XsrResult UpdateMicrosoftProfile(
+        int index,
+        string username,
+        string uuid,
+        string accessToken,
+        string refreshToken)
     {
         lock (_gate)
         {
@@ -278,7 +283,13 @@ public sealed class AccountService
             }
 
             List<LaunchProfile> updated = [.. _profiles];
-            updated[index] = profile with { AccessToken = accessToken, RefreshToken = refreshToken };
+            updated[index] = profile with
+            {
+                Username = string.IsNullOrWhiteSpace(username) ? profile.Username : username,
+                Uuid = string.IsNullOrWhiteSpace(uuid) ? profile.Uuid : uuid,
+                AccessToken = accessToken,
+                RefreshToken = refreshToken,
+            };
             XsrResult saved = Persist(updated);
             if (!saved.IsSuccess)
             {

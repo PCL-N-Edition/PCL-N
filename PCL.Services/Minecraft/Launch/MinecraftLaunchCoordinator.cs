@@ -67,6 +67,7 @@ public sealed class MinecraftLaunchCoordinator
     private readonly MinecraftLaunchPlatform _platform;
     private readonly IAccountLaunchIdentityResolver _identityResolver;
     private readonly string _launcherVersion;
+    private readonly IMinecraftWindowProbe _windowProbe;
     private readonly object _launchGate = new();
     private CancellationTokenSource? _activeLaunch;
     private TaskCompletionSource<bool>? _acquisitionDecision;
@@ -84,7 +85,8 @@ public sealed class MinecraftLaunchCoordinator
         LogService? log = null,
         MinecraftLaunchProgressPublisher? progress = null,
         IAccountLaunchIdentityResolver? identityResolver = null,
-        string? launcherVersion = null)
+        string? launcherVersion = null,
+        IMinecraftWindowProbe? windowProbe = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(javaRuntimeRootDirectory);
@@ -94,6 +96,7 @@ public sealed class MinecraftLaunchCoordinator
         _progress = progress;
         _identityResolver = identityResolver ?? new AccountLaunchIdentityResolver(accounts, log: log);
         _launcherVersion = string.IsNullOrWhiteSpace(launcherVersion) ? "2.0.0" : launcherVersion;
+        _windowProbe = windowProbe ?? new MinecraftWindowProbe();
         _instances = instances ?? throw new ArgumentNullException(nameof(instances));
         _accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -410,24 +413,40 @@ public sealed class MinecraftLaunchCoordinator
                 launchToken)
                 .ConfigureAwait(false);
             Guid sessionId = session.Snapshot.SessionId;
+            // The narration truth must not outlive the game. A JVM can die between process
+            // creation and this point, and the terminal Changed event has then already fired —
+            // so this is the classic subscribe-then-recheck: the handler is named so it can
+            // unsubscribe, and the current snapshot is re-run after subscribing to catch a
+            // transition that happened before we listened.
+            void OnSessionChanged(MinecraftProcessSnapshot snapshot)
+            {
+                if (snapshot.SessionId != sessionId
+                    || snapshot.State is not (MinecraftProcessState.Exited
+                        or MinecraftProcessState.Failed
+                        or MinecraftProcessState.Cancelled))
+                {
+                    return;
+                }
+
+                session.Changed -= OnSessionChanged;
+                _progress?.Stop(sessionId);
+            }
+
+            session.Changed += OnSessionChanged;
+            double waitCompleted =
+                extractCompleted + MinecraftLaunchStages.ExtractNativesWeight + MinecraftLaunchStages.StartProcessWeight;
+            _progress?.Report(new MinecraftLaunchStageReport(
+                MinecraftLaunchStages.WaitWindow,
+                MinecraftLaunchStages.ProgressAt(waitCompleted),
+                Method: method));
+            await WaitForGameWindowAsync(session, launchToken).ConfigureAwait(false);
             _progress?.Report(new MinecraftLaunchStageReport(
                 MinecraftLaunchStages.End,
                 MinecraftLaunchStages.ProgressAt(MinecraftLaunchStages.Total),
                 IsLaunched: true,
                 Method: method,
                 SessionId: sessionId));
-            // The narration truth must not outlive the game: when this session reaches a
-            // terminal state the publisher resets, keeping minecraft.launch.* honest.
-            session.Changed += snapshot =>
-            {
-                if (snapshot.SessionId == sessionId
-                    && snapshot.State is MinecraftProcessState.Exited
-                        or MinecraftProcessState.Failed
-                        or MinecraftProcessState.Cancelled)
-                {
-                    _progress?.Stop(sessionId);
-                }
-            };
+            OnSessionChanged(session.Snapshot);
             operation?.Complete($"session={sessionId} pid={session.Snapshot.ProcessId} state={session.Snapshot.State}");
             return XsrResult.Success();
         }
@@ -452,6 +471,49 @@ public sealed class MinecraftLaunchCoordinator
             operation?.Fail(exception);
             _progress?.Stop();
             throw;
+        }
+    }
+
+    private static readonly TimeSpan GameWindowPollInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan GameWindowWaitLimit = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// The legacy wait-for-window stage: the narration stays at the wait stage until the game
+    /// process presents a visible window (or the limit lapses — a headless or slow-windowing
+    /// game still counts as launched rather than blocking the flow forever).
+    /// </summary>
+    private async ValueTask WaitForGameWindowAsync(
+        Process.MinecraftProcessSession session,
+        CancellationToken cancellationToken)
+    {
+        int processId = session.Snapshot.ProcessId;
+        long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            // A JVM that already died will never present a window; the terminal callback below
+            // resets the narration, so waiting would only burn the limit.
+            if (session.Snapshot.State is MinecraftProcessState.Exited
+                or MinecraftProcessState.Failed
+                or MinecraftProcessState.Cancelled)
+            {
+                _log?.Info("Launch", $"Game process already ended before its window appeared pid={processId}.");
+                return;
+            }
+
+            if (await _windowProbe.HasVisibleWindowAsync(processId, cancellationToken).ConfigureAwait(false))
+            {
+                _log?.Info("Launch", $"Game window confirmed pid={processId}.");
+                return;
+            }
+
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(startedAt) >= GameWindowWaitLimit)
+            {
+                _log?.Warn("Launch", $"No game window appeared within the limit pid={processId}; continuing.");
+                return;
+            }
+
+            await Task.Delay(GameWindowPollInterval, cancellationToken).ConfigureAwait(false);
         }
     }
 

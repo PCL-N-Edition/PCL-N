@@ -14,13 +14,21 @@ public static class MinecraftOfflineIdentity
 
     public static (string Name, string Uuid) Resolve(string? profileName, string? profileUuid)
     {
-        if (!string.IsNullOrWhiteSpace(profileName) && !string.IsNullOrWhiteSpace(profileUuid))
+        string name = string.IsNullOrWhiteSpace(profileName) ? FallbackName : profileName;
+        if (string.IsNullOrWhiteSpace(profileUuid))
         {
-            return (profileName, profileUuid);
+            return (name, UuidFromName(name));
         }
 
-        string name = string.IsNullOrWhiteSpace(profileName) ? FallbackName : profileName;
-        return (name, UuidFromName(name));
+        // The persisted migration is best-effort: if the roster file could not be rewritten,
+        // launches must still use the correct identifier. A persisted UUID that matches the
+        // alpha's Guid-constructor bug is derived afresh here, unconditionally.
+        if (string.Equals(profileUuid, LegacyMismatchedUuid(name), StringComparison.OrdinalIgnoreCase))
+        {
+            return (name, UuidFromName(name));
+        }
+
+        return (name, profileUuid);
     }
 
     // CA5351: the vanilla offline identifier is specified as an MD5-based v3 UUID; the hash

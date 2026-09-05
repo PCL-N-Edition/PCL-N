@@ -132,6 +132,50 @@ internal static partial class Program
         AssertFalse(HasKey(fixture.Shell, fixture.Shell.Render(new XsrUiSize(850, 500)), "DialogCard"));
     }
 
+    private static void UnsupportedProfileDoesNotSpinFeedback()
+    {
+        // UpdateLaunchButton is a per-frame projection: an unsupported account disables the
+        // button without emitting feedback, so no frame loop can spin on it.
+        RecordingStartRoute recording = new();
+        using LaunchPageFixture fixture = ComposeLaunchOverlayFixture(recording);
+        AssertTrue(fixture.Service.AddProfile(new LaunchProfile
+        {
+            Username = "Linked",
+            Kind = LaunchProfileKind.LittleSkin,
+        }).IsSuccess);
+        Emit(fixture.Intents, "ui.account.switch");
+        XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(850, 500));
+        AssertTrue(fixture.Shell.Renderer.Activate(FindByKey(fixture.Shell, scene, "account-row:1").Entity));
+        AssertTrue(SpinWait.SpinUntil(() => fixture.Service.SelectedIndex == 1, TimeSpan.FromSeconds(2)));
+
+        int notificationsBefore = fixture.Feedback.Snapshot().Notifications.Count;
+        for (int frame = 0; frame < 5; frame++)
+        {
+            fixture.Shell.Render(new XsrUiSize(850, 500));
+        }
+
+        AssertEqual(notificationsBefore, fixture.Feedback.Snapshot().Notifications.Count);
+    }
+
+    private static void LaunchedCancelButtonBecomesBack()
+    {
+        RecordingStartRoute recording = new();
+        using LaunchPageFixture fixture = ComposeLaunchOverlayFixture(recording);
+        SelectFirstAccountAndLaunch(fixture, recording);
+        fixture.Store.Publish(fixture.Store.Resolve(MinecraftLaunchProgressState.SnapshotKey),
+            new MinecraftLaunchProgressSnapshot(true, "end", 1d, "offline", string.Empty, true, null));
+        XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(850, 500));
+        AssertEqual("返回", FindByKey(fixture.Shell, scene, "LaunchingCancelButton").Text);
+
+        // "Back" leaves the page without dispatching a pipeline cancel (none is running).
+        AssertTrue(fixture.Shell.Renderer.Activate(FindByKey(fixture.Shell, scene, "LaunchingCancelButton").Entity));
+        AssertTrue(SpinWait.SpinUntil(() =>
+        {
+            fixture.Shell.Render(new XsrUiSize(850, 500));
+            return fixture.Shell.Stage.Navigation.Depth == 1;
+        }, TimeSpan.FromSeconds(2)));
+    }
+
     private static void LaunchOverlayCancelHidesOverlay()
     {
         RecordingStartRoute recording = new();

@@ -119,6 +119,33 @@ flow reads better as a dedicated page.
   channel, semantic core) feeds the shell title version and the game command line's
   `${launcher_version}`.
 
+## Review round 4: fast-exit JVMs, frame loops, and the wait-for-window stage
+
+- A JVM that dies between process creation and the coordinator's subscription no longer
+  leaves `minecraft.launch.*` stuck at launched: the terminal callback is a named handler
+  subscribed BEFORE the end report, and the session's current snapshot is re-run after
+  subscribing (subscribe-then-recheck). Regression: a process port returning an
+  already-exited JVM (corpus with a working Java path) must reset the truth.
+- `UpdateLaunchButton` is a pure per-frame projection: an unsupported account disables the
+  button with the label `暂不支持启动` and never emits feedback — the previous inline toast
+  re-raised the feedback Changed event every frame and spun a permanent render loop.
+- The Microsoft refresh capability is actually wired: the account onboarding runtime exposes
+  `LaunchIdentityResolver` (its own Microsoft auth service + the publish-time client id
+  embedded as `PclMicrosoftClientId` assembly metadata), and the Minecraft runtime composes
+  it. Refresh now runs BEFORE the persisted-credential check (a valid refresh token restores
+  an expired or missing access token) and prefers the refreshed username/UUID.
+- The runtime resolver recognizes the alpha's byte-swapped offline UUID regardless of the
+  best-effort roster rewrite, so a read-only profiles.json still launches with the correct
+  identifier.
+- `launched` re-purposes the cancel button to `返回`: with no pipeline left, it pops the page
+  without touching the game process.
+- The legacy wait-for-window stage is real again: `IMinecraftWindowProbe` (Windows EnumWindows
+  PID+visible-title match; other platforms report absence) is polled after process start with
+  a 2-minute limit, the narration holds at `wait_window`, and a process that ends first
+  short-circuits the wait. `WaitWindowWeight` (1) left the reserved pool.
+- `XsrCompositeStateObserver.Add` is gone — `Subscribe` returns the only handle, and the
+  composition root scopes it. Evicted notifications dispose their timers outside the gate.
+
 ## Notes
 
 - Deferred polish (documented, not blocking): card box shadow, animated loader glyph, and

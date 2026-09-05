@@ -190,7 +190,7 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
         }
     }
 
-    private static bool TryCreateCandidate(
+    internal static bool TryCreateCandidate(
         string executable,
         string properties,
         out JavaRuntimeCandidate? candidate)
@@ -212,9 +212,10 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
         string? javaw = OperatingSystem.IsWindows()
             ? Path.Combine(Path.GetDirectoryName(executable)!, "javaw.exe")
             : null;
-        string? runtimeName = ReadProperty(properties, "java.runtime.name");
-        bool isJre = !File.Exists(Path.Combine(home, "bin", OperatingSystem.IsWindows() ? "javac.exe" : "javac"))
-            || runtimeName?.Contains("Runtime", StringComparison.OrdinalIgnoreCase) == true;
+        // A JDK is identified by its compiler: every OpenJDK build's runtime.name is
+        // "OpenJDK Runtime Environment" — even for full JDKs — so the name can never decide
+        // this; javac on disk can.
+        bool isJre = !File.Exists(Path.Combine(home, "bin", OperatingSystem.IsWindows() ? "javac.exe" : "javac"));
         JavaInstallation installation = new(
             home,
             executable,

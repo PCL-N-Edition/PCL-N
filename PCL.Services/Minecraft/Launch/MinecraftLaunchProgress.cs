@@ -17,6 +17,7 @@ public static class MinecraftLaunchStages
     public const string ExtractNatives = "extract_natives";
     public const string PreLaunch = "pre_launch";
     public const string StartProcess = "start_process";
+    public const string WaitWindow = "wait_window";
     public const string End = "end";
 
     public const double GetJavaWeight = 4d;

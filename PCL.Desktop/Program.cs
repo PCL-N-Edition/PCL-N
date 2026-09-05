@@ -41,6 +41,11 @@ internal static class Program
     /// <summary>The one version truth: informational version, channel, and semantic core.</summary>
     internal sealed record LauncherBuildInfo(string InformationalVersion, string Channel, string SemanticVersion);
 
+    private static string? ResolveEmbeddedMicrosoftClientId() =>
+        System.Reflection.Assembly.GetEntryAssembly()?
+            .GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => attribute.Key == "PclMicrosoftClientId")?.Value;
+
     private static LauncherBuildInfo ResolveBuildInfo()
     {
         string informational = ResolveInformationalVersion();
@@ -150,10 +155,18 @@ internal static class Program
         setStage("compose_runtimes");
         uiIntents.IntentEmitted += (_, e) => operationLog.WriteIntent(e.Intent.Command, e.Intent.CorrelationId);
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host, operationLog.Dispatch);
-        using AccountOnboardingRuntime accounts = AccountOnboardingRuntimeComposer.Compose(host, observer: operationLog.Dispatch);
+        // The Microsoft client id is embedded at publish time (assembly metadata); passing it
+        // here arms the launch identity resolver's refresh capability.
+        using AccountOnboardingRuntime accounts = AccountOnboardingRuntimeComposer.Compose(
+            host,
+            options: new AccountOnboardingOptions(ResolveEmbeddedMicrosoftClientId() ?? string.Empty, null),
+            observer: operationLog.Dispatch);
         using MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose(
             host,
-            minecraftRootDirectory, observer: operationLog.Dispatch, launcherVersion: buildInfo.SemanticVersion);
+            minecraftRootDirectory,
+            identityResolver: accounts.LaunchIdentityResolver,
+            observer: operationLog.Dispatch,
+            launcherVersion: buildInfo.SemanticVersion);
         host.Logging.Debug(
             "Launcher",
             $"Runtime composition completed services={runtime.Host.Services.Count} "
@@ -193,7 +206,7 @@ internal static class Program
         launchPage.Attach();
         // The launch page projects launch-progress cells into overlay display strings, so the
         // composition root adds its observer to the shared store fan-out.
-        stateObservation.Add(launchPage.StateObserver);
+        using IDisposable launchStateSubscription = stateObservation.Subscribe(launchPage.StateObserver);
         host.Logging.Info("Launcher", "Product controllers attached; initial instance scan scheduled.");
         session.Enter(XsrLifecyclePhase.Running);
 

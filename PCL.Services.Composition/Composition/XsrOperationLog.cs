@@ -162,12 +162,6 @@ public sealed class XsrCompositeStateObserver(IXsrStateObserver? primary, IXsrSt
     private readonly List<IXsrStateObserver> _late = [];
 
     /// <summary>
-    /// Attaches one more observer after composition (for example a controller that joined the
-    /// store fan-out late). Later observers see every publication from attach time onward.
-    /// </summary>
-    public void Add(IXsrStateObserver observer) => Subscribe(observer);
-
-    /// <summary>
     /// Subscribes one observer and returns the unsubscription handle: disposing it detaches the
     /// observer, so a disposed controller no longer keeps the store alive.
     /// </summary>

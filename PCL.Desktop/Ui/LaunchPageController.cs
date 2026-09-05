@@ -97,6 +97,7 @@ internal sealed class LaunchPageController : IDisposable
     private const string NoSelectedProfileLabel = "未选择档案";
     private const string DownloadLabel = "下载游戏";
     private const string LaunchLabel = "启动游戏";
+    private const string LaunchUnavailableLabel = "暂不支持启动";
 
     private readonly XsrUiShell _shell;
     private readonly DesktopUiIntentSink _intents;
@@ -340,11 +341,12 @@ internal sealed class LaunchPageController : IDisposable
         }
         else if (!SelectedProfileCanLaunch())
         {
-            // The account capability logs these kinds in successfully, so the launch action
-            // must say honestly that they cannot start a game yet (Authlib Injector pending).
-            label = LaunchLabel;
+            // The account capability logs these kinds in successfully, so the action says
+            // honestly that they cannot start a game yet. UpdateLaunchButton is a per-frame
+            // projection: it must stay side-effect free — a toast here would re-raise the
+            // feedback Changed event every frame and spin a render loop forever.
+            label = LaunchUnavailableLabel;
             enabled = false;
-            _feedback.Info("该账户类型暂不支持启动，正在准备第三方登录支持。");
         }
         else
         {
@@ -965,6 +967,16 @@ internal sealed class LaunchPageController : IDisposable
             return;
         }
 
+        // Once the game is running there is no pipeline left to cancel — the button has become
+        // "back" — so just leave the page without touching the process.
+        bool launched = _store.ReadAppliedValue(_store.Resolve(MinecraftLaunchProgressState.SnapshotKey))
+            is MinecraftLaunchProgressSnapshot snapshot && snapshot.IsLaunched;
+        if (launched)
+        {
+            RequestCloseLaunchingPage();
+            return;
+        }
+
         Publish(LaunchPageState.LaunchingStageKey, "已请求取消启动");
         if (_minecraft.Commands.TryResolve(MinecraftRouteIds.LaunchCancel, out XsrCommandId route))
         {
@@ -1067,6 +1079,7 @@ internal sealed class LaunchPageController : IDisposable
 
         bool launched = _store.ReadAppliedValue(_store.Resolve(MinecraftLaunchProgressState.LaunchedKey)) is bool running && running;
         Publish(LaunchPageState.LaunchingTitleKey, launched ? "游戏已启动" : "正在启动");
+        Publish(LaunchPageState.LaunchingCancelLabelKey, launched ? "返回" : "取消");
     }
 
     /// <summary>

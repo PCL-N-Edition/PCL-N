@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <AssemblyMetadata Include="PclMicrosoftClientId" Condition="'$(PclMicrosoftClientId)' != ''" Value="$(PclMicrosoftClientId)" />
     <EmbeddedResource Include="Ui/Shell.pxml" />
     <EmbeddedResource Include="Ui/LaunchPage.pxml" />
     <EmbeddedResource Include="Ui/AccountProfileRow.pxml" />

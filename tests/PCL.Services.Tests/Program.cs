@@ -132,6 +132,11 @@ internal static partial class Program
         ("java acquisition approval downloads and launches", JavaAcquisitionApprovalDownloadsAndLaunches),
         ("a second concurrent launch is rejected as already active", SecondConcurrentLaunchIsRejectedAsAlreadyActive),
         ("unsupported account kinds refuse to launch", UnsupportedAccountKindsRefuseToLaunch),
+        ("immediate exit after process start resets launch progress", ImmediateExitAfterProcessStartResetsLaunchProgress),
+        ("offline legacy uuid launches correctly when the migration save fails", Sync(OfflineLegacyUuidLaunchesCorrectlyWhenMigrationSaveFails)),
+        ("java probe parses modern property output", Sync(JavaProbeParsesModernPropertyOutput)),
+        ("java probe parses the legacy version line", Sync(JavaProbeParsesLegacyVersionLine)),
+        ("java probe rejects unrecognized output", Sync(JavaProbeRejectsUnrecognizedOutput)),
         ("cross capability page has no state id collisions", CrossCapabilityPageHasNoStateIdCollisions),
         // XSR-513: online account flows.
         ("the microsoft device login runs the full chain", MicrosoftDeviceLoginRunsTheFullChain),
@@ -232,10 +237,15 @@ internal static partial class Program
         ("minecraft Java runtime installer verifies and installs", MinecraftJavaRuntimeInstallerVerifiesAndInstalls),
     ];
 
-    private static async Task<int> Main()
+    private static async Task<int> Main(string[] args)
     {
         foreach ((string name, Func<ValueTask> body) in TestCases)
         {
+            if (args is { Length: > 0 } && !args.Any(arg => name.Contains(arg, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
             await body().ConfigureAwait(false);
             Console.WriteLine($"PASS: {name}");
         }

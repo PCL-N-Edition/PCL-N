@@ -60,6 +60,8 @@ internal static partial class Program
         ("launch overlay closes on failure", LaunchOverlayClosesOnFailure),
         ("launch overlay cancel hides overlay", LaunchOverlayCancelHidesOverlay),
         ("launch overlay prompts before the java download", LaunchOverlayPromptsBeforeJavaDownload),
+        ("unsupported profile does not spin feedback", UnsupportedProfileDoesNotSpinFeedback),
+        ("launched cancel button becomes back", LaunchedCancelButtonBecomesBack),
         ("version subpages have independent routes and restore navigation focus", VersionSubpagesHaveIndependentRoutesAndRestoreFocus),
         ("pointer focus does not draw keyboard focus rings", PointerFocusDoesNotDrawKeyboardFocusRings),
         ("capsules occupy their presented width and remain beside the version name", CapsulesOccupyPresentedWidth),

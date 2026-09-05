@@ -5,11 +5,17 @@ using PCL.Xsr.Runtime;
 
 namespace PCL.Services.Composition;
 
-public sealed class AccountOnboardingRuntime(AccountOnboardingService service, XsrCommandRouter commands, HttpClient? ownedClient = null, AccountSkinService? skins = null) : IDisposable
+public sealed class AccountOnboardingRuntime(AccountOnboardingService service, XsrCommandRouter commands, HttpClient? ownedClient = null, AccountSkinService? skins = null, IAccountLaunchIdentityResolver? launchIdentityResolver = null) : IDisposable
 {
     public AccountOnboardingService Service { get; } = service;
     public XsrCommandRouter Commands { get; } = commands;
     public AccountSkinService? Skins { get; } = skins;
+
+    /// <summary>
+    /// The launch identity resolver wired to this runtime's own Microsoft auth capability, so
+    /// the Minecraft runtime can refresh Microsoft sessions without recomposing them.
+    /// </summary>
+    public IAccountLaunchIdentityResolver? LaunchIdentityResolver { get; } = launchIdentityResolver;
     public void Dispose() { Service.Dispose(); Skins?.Dispose(); ownedClient?.Dispose(); }
 }
 
@@ -35,7 +41,12 @@ public static class AccountOnboardingRuntimeComposer
         commands.Register<AccountImportCommand>(AccountOnboardingRoutes.Import, (command, _) => ValueTask.FromResult(service.Import(command)));
         commands.Register<AccountDiscoverImportsCommand>(AccountOnboardingRoutes.DiscoverImports,
             async (_, cancellation) => await Task.Run(service.DiscoverImports, cancellation).ConfigureAwait(false));
-        return new(service, commands.Build(observer ?? new Observer()), client is null ? http : null, skins);
+        IAccountLaunchIdentityResolver resolver = new AccountLaunchIdentityResolver(
+            host.Accounts,
+            microsoft,
+            (options ?? AccountOnboardingOptions.FromEnvironment()).MicrosoftClientId,
+            host.Logging);
+        return new(service, commands.Build(observer ?? new Observer()), client is null ? http : null, skins, resolver);
     }
     private sealed class Observer : IXsrDispatchObserver { public void OnCompleted(XsrDispatchObservation observation) { } }
 }
