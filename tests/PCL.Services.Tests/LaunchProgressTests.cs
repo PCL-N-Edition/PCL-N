@@ -156,7 +156,8 @@ internal static partial class Program
                 Console.WriteLine("DIAG launch failed: " + result.Error?.Code.Value + " " + result.Error?.Message);
             }
 
-            AssertTrue(result.IsSuccess);
+            AssertTrue(result.IsSuccess,
+                "narration launch failed: " + result.Error?.Code.Value + " " + result.Error?.Message);
 
 
             // The narration reaches the launched state through the pipeline stage order; each
@@ -229,7 +230,8 @@ internal static partial class Program
                 Console.WriteLine("DIAG approve launch failed: " + result.Error?.Message);
             }
 
-            AssertTrue(result.IsSuccess);
+            AssertTrue(result.IsSuccess,
+                "approval launch failed: " + result.Error?.Code.Value + " " + result.Error?.Message);
             AssertEqual(1, installer.Calls);
             AssertTrue(ReadProgressFlag(store, MinecraftLaunchProgressState.LaunchedKey));
         }
@@ -474,7 +476,8 @@ internal static partial class Program
             Console.WriteLine("DIAG immediate failed: " + result.Error?.Code.Value + " " + result.Error?.Message);
         }
 
-        AssertTrue(result.IsSuccess);
+        AssertTrue(result.IsSuccess,
+            "immediate-exit launch failed: " + result.Error?.Code.Value + " " + result.Error?.Message);
         XsrStateStore store = host.StateStore;
         AssertTrue(SpinWait.SpinUntil(
             () => store.ReadAppliedValue(store.Resolve(MinecraftLaunchProgressState.SnapshotKey))
