@@ -37,7 +37,7 @@ internal static partial class X11TestApi
     [SuppressMessage("Globalization", "CA2101:Specify marshaling for P/Invoke string arguments",
         Justification = "Fixed ASCII atom name; ANSI charset is the exact wire format.")]
     [DllImport("libX11.so.6", CharSet = CharSet.Ansi)]
-        public static extern nint XInternAtom(nint display, string name, bool onlyIfExists);
+    public static extern nint XInternAtom(nint display, string name, bool onlyIfExists);
 
     [DllImport("libX11.so.6")]
     public static extern int XChangeProperty(
