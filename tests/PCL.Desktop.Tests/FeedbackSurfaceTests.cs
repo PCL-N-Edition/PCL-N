@@ -58,7 +58,8 @@ internal static partial class Program
         XsrUiSceneNode compact = notifications.Single(node => node.Label!.StartsWith("Info：", StringComparison.Ordinal));
         XsrUiSceneNode wrapped = notifications.Single(node => node.Label!.StartsWith("Warn：", StringComparison.Ordinal));
         XsrUiSceneNode compactError = notifications.Single(node => node.Label!.StartsWith("Error：", StringComparison.Ordinal));
-        AssertTrue(wrapped.Rect.Height > compact.Rect.Height);
+        AssertClose(62, compact.Rect.Height);
+        AssertClose(82, wrapped.Rect.Height);
         AssertClose(compact.Rect.Height, compactError.Rect.Height);
         fixture.Shell.SetNavigationExpanded(true);
         scene = fixture.Shell.Render(size);
@@ -189,6 +190,8 @@ internal static partial class Program
         XsrUiScene before = fixture.Shell.Render(size);
         double firstY = before.Nodes.Single(node => node.Role == XsrUiSemanticRole.Status
             && node.Label!.Contains("first", StringComparison.Ordinal)).Rect.Y;
+        double closingHeight = before.Nodes.Single(node => node.Role == XsrUiSemanticRole.Status
+            && node.Label!.Contains("third", StringComparison.Ordinal)).Rect.Height;
         AssertTrue(fixture.Feedback.DismissNotification(closing));
 
         XsrUiScene after = fixture.Shell.Render(size);
@@ -196,7 +199,7 @@ internal static partial class Program
             && node.Label!.Contains("first", StringComparison.Ordinal));
         XsrUiSceneNode second = after.Nodes.Single(node => node.Role == XsrUiSemanticRole.Status
             && node.Label!.Contains("second", StringComparison.Ordinal));
-        AssertTrue(first.Rect.Y > firstY + 80);
+        AssertClose(closingHeight + 10, first.Rect.Y - firstY);
         AssertClose(10, second.Rect.Y - (first.Rect.Y + first.Rect.Height));
     }
 

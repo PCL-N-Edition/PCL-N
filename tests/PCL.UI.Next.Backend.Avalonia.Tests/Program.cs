@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Input.Raw;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -369,6 +370,7 @@ internal static partial class Program
             await Task.Delay(30).ConfigureAwait(true);
             VerifyAccessibleContentAndNativeFocus(window, shell, surface);
             VerifyPointerCursorProjection(window, shell, surface);
+            await VerifyPlatformClipboard(window).ConfigureAwait(true);
             VerifyNativeTextEditing(window, shell, surface);
             await VerifyTransitionGroupsAndMedia(shell, surface);
             VerifyWindowActionFeedback(window, surface);
@@ -549,6 +551,16 @@ internal static partial class Program
         AssertEqual(XsrUiPointerCursor.Default, surface.PresentedPointerCursor);
         AssertTrue(surface.Cursor is null);
         Console.WriteLine("PASS: scene input facts drive one stable native pointer cursor");
+    }
+
+    private static async Task VerifyPlatformClipboard(AvaloniaUiShellWindow window)
+    {
+        AvaloniaUiPlatformActions actions = new();
+        actions.Attach(window);
+        const string code = "ABCD-EFGH";
+        await actions.CopyTextAsync(code).ConfigureAwait(true);
+        AssertEqual(code, await window.Clipboard!.TryGetTextAsync().ConfigureAwait(true));
+        Console.WriteLine("PASS: platform copy marshals to the UI thread and persists text");
     }
 
     private static void VerifyWindowActionFeedback(AvaloniaUiShellWindow window, AvaloniaUiSceneSurface surface)

@@ -67,6 +67,12 @@ internal static partial class Program
         AssertEqual(2, effects.CopyCount);
         AssertEqual("https://www.microsoft.com/link", effects.Opened?.AbsoluteUri);
         AssertEqual("PUBLIC-CODE", effects.Copied);
+        effects.CopyFailure = new InvalidOperationException("clipboard owner is busy");
+        AccountClick(fixture, "CopyUserCode");
+        AssertTrue(fixture.Foundation.Host.Logging.GetSnapshot().Any(entry =>
+            entry.Module == "AccountOnboarding"
+            && entry.Message.Contains("code copy failed", StringComparison.Ordinal)));
+        effects.CopyFailure = null;
         var dirty = fixture.Shell.Tree.DirtyEntities().ToArray();
         microsoft.Completion.SetResult(new("OnlinePlayer", "ms-uuid", "PRIVATE-ACCESS", "PRIVATE-REFRESH", null, true));
         fixture.Onboarding.Service.WhenIdle.GetAwaiter().GetResult();
@@ -239,6 +245,7 @@ internal static partial class Program
         public string? Copied;
         public int OpenCount;
         public int CopyCount;
+        public Exception? CopyFailure;
         public TaskCompletionSource<string?> File = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public volatile bool Returned;
         public Task OpenAuthorization(Uri uri)
@@ -251,7 +258,7 @@ internal static partial class Program
         {
             Copied = code;
             CopyCount++;
-            return Task.CompletedTask;
+            return CopyFailure is null ? Task.CompletedTask : Task.FromException(CopyFailure);
         }
         public async Task<string?> PickProfiles() { string? path = await File.Task; Returned = true; return path; }
     }

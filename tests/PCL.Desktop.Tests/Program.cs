@@ -472,7 +472,7 @@ internal static partial class Program
                 Feedback, source, accountCommands: enableSkins ? Onboarding.Commands : null,
                 timeProvider: timeProvider);
             AccountForm = new AccountFormController(Shell, Intents, Onboarding.Commands, Store,
-                Controller.AccountBody, Feedback, accountEffects);
+                Controller.AccountBody, Feedback, accountEffects, host.Logging);
             _launchObserverSubscription = storeObservation.Subscribe(Controller.StateObserver);
             Controller.Attach();
         }

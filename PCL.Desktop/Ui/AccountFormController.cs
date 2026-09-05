@@ -1,5 +1,6 @@
 using PCL.Pxml;
 using PCL.Services.Accounts;
+using PCL.Services.Logging;
 using PCL.UI.Next;
 using PCL.UI.Next.Backend.Avalonia;
 using PCL.Xsr;
@@ -33,6 +34,7 @@ internal sealed class AccountFormController : IDisposable
     private readonly XsrStateStore _store;
     private readonly DesktopFeedbackService _feedback;
     private readonly IAccountUiEffects? _effects;
+    private readonly LogService? _log;
     private readonly Dictionary<string, XsrUiEntityId> _entities = [];
     private readonly Dictionary<XsrUiEntityId, string> _importRows = [];
     private readonly Dictionary<XsrUiEntityId, string> _characterRows = [];
@@ -49,11 +51,12 @@ internal sealed class AccountFormController : IDisposable
 
     public AccountFormController(XsrUiShell shell, DesktopUiIntentSink intents, XsrCommandRouter commands,
         XsrStateStore store, XsrUiEntityId accountBody, DesktopFeedbackService feedback,
-        IAccountUiEffects? effects = null)
+        IAccountUiEffects? effects = null, LogService? log = null)
     {
         _shell = shell; _intents = intents; _commands = commands; _store = store;
         _feedback = feedback ?? throw new ArgumentNullException(nameof(feedback));
         _effects = effects;
+        _log = log;
         XsrUiEntityId fallback = default;
         shell.Tree.Walk(shell.Tree.Parent(accountBody), entity =>
         {
@@ -311,10 +314,21 @@ internal sealed class AccountFormController : IDisposable
 
         try
         {
+            _log?.Debug("AccountOnboarding",
+                $"Device authorization code copy started provider={_provider} mode={(showSuccess ? "manual" : "automatic")}");
             await RequireEffects().CopyCode(code).ConfigureAwait(false);
+            _log?.Info("AccountOnboarding",
+                $"Device authorization code copied provider={_provider} mode={(showSuccess ? "manual" : "automatic")}");
             if (showSuccess && !_disposed) _feedback.Info("授权码已复制。");
         }
-        catch (Exception) { if (!_disposed) _feedback.Warn("无法复制授权码，请手动输入。"); }
+        catch (Exception error)
+        {
+            _log?.Error(
+                "AccountOnboarding",
+                $"Device authorization code copy failed provider={_provider} mode={(showSuccess ? "manual" : "automatic")}",
+                ExceptionDiagnostics.Describe(error));
+            if (!_disposed) _feedback.Warn("无法复制授权码，请手动输入。");
+        }
     }
 
     private IAccountUiEffects RequireEffects() => _effects ?? throw new InvalidOperationException("Native actions unavailable.");

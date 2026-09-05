@@ -38,15 +38,28 @@ public sealed class AvaloniaUiPlatformActions
             try
             {
                 await clipboard.SetTextAsync(text).ConfigureAwait(true);
-                // Windows otherwise may retain only a delayed provider owned by this process.
-                await clipboard.FlushAsync().ConfigureAwait(true);
+                try
+                {
+                    // Windows otherwise may retain only a delayed provider owned by this process.
+                    // Flush is an enhancement, not the copy itself: some platform implementations
+                    // cannot persist ownership even though SetTextAsync already succeeded.
+                    await clipboard.FlushAsync().ConfigureAwait(true);
+                }
+                catch (Exception)
+                {
+                    // Keep the successfully written clipboard usable for this application session.
+                }
                 return;
             }
-            catch (Exception error) when (attempt < 4)
+            catch (Exception error)
             {
                 // Clipboard ownership is transiently exclusive on Windows. Keep retrying on the
                 // UI dispatcher without blocking input or spawning concurrent writes.
                 failure = error;
+                if (attempt == 4)
+                {
+                    break;
+                }
                 await Task.Delay(40 << attempt).ConfigureAwait(true);
             }
         }

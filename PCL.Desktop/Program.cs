@@ -240,7 +240,7 @@ internal static class Program
         AvaloniaUiPlatformActions platformActions = new();
         using AccountFormController accountForm = new(shell, uiIntents, accounts.Commands,
             runtime.Host.StateStore, launchPage.AccountBody, feedback,
-            new NativeAccountUiEffects(platformActions));
+            new NativeAccountUiEffects(platformActions), runtime.Host.Logging);
         launchPage.Attach();
         // The launch page projects launch-progress cells into overlay display strings, so the
         // composition root adds its observer to the shared store fan-out.

@@ -29,6 +29,11 @@ composition, not a second authentication implementation.
   browser, recopy the code, steal focus, or make the pointer flicker. The UI explains missing
   client configuration instead of pretending a network login can start. Real accounts are
   authorized by the user, never by automated tests.
+- Native clipboard writes are marshalled to the Avalonia UI dispatcher and retry transient
+  ownership failures. Persisting clipboard ownership after process exit is best effort: a
+  successful text write must not be reported as a failed manual copy solely because the
+  platform cannot flush it. Genuine failures emit an English diagnostic without logging the
+  public code, while the in-window warning remains localized for the user.
 - Publishable launcher artifacts embed both providers' public client IDs as assembly metadata;
   no client secret is embedded. Runtime LittleSkin environment configuration overrides that
   fallback when present. The CI artifact workflow must forward its existing
@@ -54,8 +59,9 @@ need no explanatory footer. Keep one discoverable add/import path and an explici
 
 Use fixture HTTP/auth ports for success, denial, timeout, missing configuration, cancellation,
 superseded completion and durable-save failure. Prove automatic challenge presentation is
-one-shot, manual open/copy still work, embedded LittleSkin configuration survives composition,
-and credentials never enter scene/state.
+one-shot, manual open/copy still work, the native clipboard path dispatches and persists when
+supported, clipboard failures leave an actionable diagnostic, embedded LittleSkin configuration
+survives composition, and credentials never enter scene/state.
 Exercise creation/import/login through the production composition and renderer intents.
 Verify text entry, password masking, keyboard/IME/automation, no-profile onboarding, roster
 refresh/focus, both styles/minimum geometry, and that old source files are untouched. Run
