@@ -216,7 +216,7 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
     }
 
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
-    private static extern nint XOpenDisplay(int displayName);
+    private static extern nint XOpenDisplay(nint displayName);
 
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
     private static extern int XCloseDisplay(nint display);

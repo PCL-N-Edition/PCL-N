@@ -12,7 +12,7 @@ internal static partial class X11TestApi
     public static nint XOpenDisplay(int displayName) => XOpenDisplayRaw(displayName);
 
     [DllImport("libX11.so.6")]
-    private static extern nint XOpenDisplayRaw(int displayName);
+    private static extern nint XOpenDisplayRaw(nint displayName);
 
     [DllImport("libX11.so.6")]
     public static extern int XCloseDisplay(nint display);
