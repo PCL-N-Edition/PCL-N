@@ -18,7 +18,7 @@ public sealed record MinecraftInstanceDescriptor(
 public sealed class MinecraftInstanceDiscovery(
     LogService? log = null,
     MinecraftVersionDiscovery? versionDiscovery = null,
-    MinecraftInstanceMetadataStore? metadataStore = null)
+    MinecraftInstanceMetadataStore? metadataStore = null) : IMinecraftInstanceSource
 {
     private const string LogModuleName = "InstanceScan";
 
@@ -36,7 +36,8 @@ public sealed class MinecraftInstanceDiscovery(
         try
         {
             operation?.Stage("discover_versions");
-            IReadOnlyList<MinecraftVersionDescriptor> versions = _versionDiscovery.Discover(minecraftRootDirectory);
+            IReadOnlyList<MinecraftVersionDescriptor> versions = await Task.Run(
+                () => _versionDiscovery.Discover(minecraftRootDirectory), cancellationToken).ConfigureAwait(false);
             _log?.Write(LogLevel.RealTime, LogModuleName,
                 $"Version directories discovered root={minecraftRootDirectory} count={versions.Count}");
             operation?.Stage("read_instance_metadata", $"count={versions.Count}");

@@ -93,6 +93,9 @@ internal static class Program
         return new LauncherBuildInfo(informational, channel, semantic);
     }
 
+    // The Win32 clipboard (Avalonia's OLE implementation) requires an STA thread with COM
+    // initialized; without this, every SetTextAsync fails with CO_E_NOTINITIALIZED.
+    [STAThread]
     private static int Main(string[] args)
     {
         LogService? log = null;
