@@ -33,9 +33,14 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     private XsrUiEntityId _lastPageRoot;
     private XsrSemanticId _lastNavigation;
     private readonly Dictionary<XsrUiEntityId, string> _transitionKeys = [];
+    private readonly Cursor _handCursor = new(StandardCursorType.Hand);
+    private readonly Cursor _textCursor = new(StandardCursorType.Ibeam);
     private bool _commitQueued;
     private bool _disposed;
     private bool _initialFocusAssigned;
+    private bool _pointerInside;
+    private XsrUiPoint _lastPointerPoint;
+    private XsrUiPointerCursor _presentedPointerCursor;
 
     public AvaloniaUiSceneSurface(XsrUiShell shell)
     {
@@ -60,6 +65,8 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
 
     /// <summary>The last immutable scene committed to native drawing controls.</summary>
     public XsrUiScene? Scene => _scene;
+
+    internal XsrUiPointerCursor PresentedPointerCursor => _presentedPointerCursor;
 
     internal bool TryGetPresentedEnterProgress(XsrUiEntityId entity, out double value)
     {
@@ -173,6 +180,9 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
         _outgoingControls.Clear();
         _controls.Clear();
         Children.Clear();
+        Cursor = null;
+        _handCursor.Dispose();
+        _textCursor.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -243,8 +253,11 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     {
         base.OnPointerMoved(e);
         Point position = e.GetPosition(this);
+        _pointerInside = true;
+        _lastPointerPoint = new XsrUiPoint(position.X, position.Y);
+        UpdatePointerCursor(_lastPointerPoint);
         if (ExtendTextSelection(position)) return;
-        if (_shell.Renderer.PointerMoved(new XsrUiPoint(position.X, position.Y)))
+        if (_shell.Renderer.PointerMoved(_lastPointerPoint))
         {
             CommitScene();
         }
@@ -254,6 +267,8 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     {
         base.OnPointerExited(e);
         if (e.Pointer.Captured == this) return;
+        _pointerInside = false;
+        SetPointerCursor(XsrUiPointerCursor.Default);
         if (_shell.Renderer.PointerMoved(new XsrUiPoint(-1, -1)))
         {
             CommitScene();
@@ -358,10 +373,26 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
         ConfigureSelectionRelationships(scene);
         RunPageEnterAnimationsIfNavigated(scene);
         ApplyOutgoingLayers(scene);
+        if (_pointerInside) UpdatePointerCursor(_lastPointerPoint);
 
         InvalidateMeasure();
         InvalidateArrange();
         InvalidateVisual();
+    }
+
+    private void UpdatePointerCursor(XsrUiPoint point) =>
+        SetPointerCursor(_shell.Renderer.PointerCursorAt(point));
+
+    private void SetPointerCursor(XsrUiPointerCursor cursor)
+    {
+        if (_presentedPointerCursor == cursor) return;
+        _presentedPointerCursor = cursor;
+        Cursor = cursor switch
+        {
+            XsrUiPointerCursor.Hand => _handCursor,
+            XsrUiPointerCursor.Text => _textCursor,
+            _ => null,
+        };
     }
 
     private void SynchronizeNativeFocus(XsrUiScene scene)

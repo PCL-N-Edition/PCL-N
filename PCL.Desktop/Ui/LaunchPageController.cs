@@ -1246,7 +1246,10 @@ internal sealed class LaunchPageController : IDisposable
         _shell.Tree.GetComponent<XsrUiVisualStyle>(entities["AccountHint"])!.WrapText = true;
         ApplyVisual(entities["AccountAvatarSurface"], ProfileSurface, BadgeText, XsrUiCornerRadii.Surface);
         ApplyVisual(entities["AccountBack"], ProfileSurface, ProfileSecondaryText, XsrUiCornerRadii.Pill(32), hover: BadgeBackground);
-        ApplyVisual(entities["AccountAdd"], ProfileSurface, BadgeText, XsrUiCornerRadii.Pill(28), hover: BadgeBackground);
+        ApplyVisual(entities["AccountAdd"], ProfileSurface, BadgeText, XsrUiCornerRadii.Pill(32),
+            hover: BadgeBackground, hoverExpand: true);
+        StyleText(entities, "AccountAdd", BadgeText, 13, 600);
+        AlignText(entities, "AccountAdd", XsrUiTextAlignment.Center);
         ApplyVisual(entities["AccountImport"], ProfileSurface, BadgeText, XsrUiCornerRadii.Pill(34), hover: BadgeBackground);
         StyleText(entities, "AccountImport", BadgeText, 13, 600);
         AlignText(entities, "AccountImport", XsrUiTextAlignment.Center);

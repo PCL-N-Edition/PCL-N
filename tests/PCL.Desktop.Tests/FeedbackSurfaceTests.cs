@@ -44,17 +44,32 @@ internal static partial class Program
         fixture.Shell.Renderer.ReducedMotion = true;
         XsrUiSize size = new(810, 470);
         fixture.Feedback.Info("information");
-        fixture.Feedback.Warn("warning");
+        fixture.Feedback.Warn("warning content that wraps onto a second line without forcing every notice to be tall");
         fixture.Feedback.Error("failure");
 
         XsrUiScene scene = fixture.Shell.Render(size);
         XsrUiSceneNode host = FindByKey(fixture.Shell, scene, "notification-host");
         XsrUiSceneNode[] notifications = [.. scene.Nodes.Where(node => node.Role == XsrUiSemanticRole.Status)];
         AssertEqual(3, notifications.Length);
-        double expectedX = XsrUiShell.ExpandedRailWidth + 18;
+        double expectedX = XsrUiShell.CollapsedRailWidth + 18;
         AssertClose(expectedX, host.Rect.X);
         AssertClose(size.Height - 18, host.Rect.Y + host.Rect.Height);
         AssertTrue(notifications.All(node => Math.Abs(node.Rect.X - expectedX) < .001));
+        XsrUiSceneNode compact = notifications.Single(node => node.Label!.StartsWith("Info：", StringComparison.Ordinal));
+        XsrUiSceneNode wrapped = notifications.Single(node => node.Label!.StartsWith("Warn：", StringComparison.Ordinal));
+        XsrUiSceneNode compactError = notifications.Single(node => node.Label!.StartsWith("Error：", StringComparison.Ordinal));
+        AssertTrue(wrapped.Rect.Height > compact.Rect.Height);
+        AssertClose(compact.Rect.Height, compactError.Rect.Height);
+        fixture.Shell.SetNavigationExpanded(true);
+        scene = fixture.Shell.Render(size);
+        host = FindByKey(fixture.Shell, scene, "notification-host");
+        AssertClose(XsrUiShell.ExpandedRailWidth + 18, host.Rect.X);
+        fixture.Shell.SetRailPresentationProgress(.5);
+        scene = fixture.Shell.Render(size);
+        host = FindByKey(fixture.Shell, scene, "notification-host");
+        AssertClose(XsrUiShell.RailWidthFor(.5) + 18, host.Rect.X);
+        fixture.Shell.SetRailPresentationProgress(1);
+        scene = fixture.Shell.Render(size);
         XsrUiSceneNode summary = scene.Nodes.First(node =>
             fixture.Shell.Tree.Name(node.Entity) == "NotificationMessage");
         AssertEqual(2, summary.TextMaxLines);

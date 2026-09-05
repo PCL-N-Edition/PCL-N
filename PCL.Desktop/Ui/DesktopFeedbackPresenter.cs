@@ -16,6 +16,7 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
 {
     private const string NotificationResource = "Ui.Notification.pxml";
     private const string DialogResource = "Ui.Dialog.pxml";
+    private const double NotificationRailGap = 18;
     private static readonly TimeSpan ExitSettle = TimeSpan.FromMilliseconds(360);
     private static readonly XsrSemanticId NotificationDismiss =
         XsrSemanticId.Parse("ui.feedback.notification.dismiss");
@@ -102,7 +103,7 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
         {
             Width = 360,
             MaxHeight = 440,
-            Margin = new XsrUiThickness(XsrUiShell.ExpandedRailWidth + 18, 18, 18, 18),
+            Margin = new XsrUiThickness(XsrUiShell.CollapsedRailWidth + NotificationRailGap, 18, 18, 18),
             HorizontalAlignment = XsrUiAlignment.Start,
             VerticalAlignment = XsrUiAlignment.End,
             IsVisible = false,
@@ -157,9 +158,23 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
         }
 
         DrainCleanup();
+        UpdateNotificationPlacement();
         DesktopFeedbackSnapshot snapshot = _service.Snapshot();
         ReconcileNotifications(snapshot.Notifications);
         ReconcileDialog(snapshot.Dialog);
+    }
+
+    private void UpdateNotificationPlacement()
+    {
+        XsrUiElement host = _shell.Tree.GetComponent<XsrUiElement>(_notificationHost)!;
+        XsrUiThickness margin = new(
+            XsrUiShell.RailWidthFor(_shell.RailPresentationProgress) + NotificationRailGap,
+            18,
+            18,
+            18);
+        if (host.Margin == margin) return;
+        host.Margin = margin;
+        _shell.Tree.MarkDirty(_notificationHost, XsrUiDirtyKinds.Layout);
     }
 
     private void ReconcileNotifications(IReadOnlyList<DesktopNotification> requested)

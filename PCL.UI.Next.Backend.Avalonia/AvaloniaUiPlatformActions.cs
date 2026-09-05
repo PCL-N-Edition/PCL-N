@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 
 namespace PCL.UI.Next.Backend.Avalonia;
 
@@ -19,8 +20,39 @@ public sealed class AvaloniaUiPlatformActions
         Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true })?.Dispose();
     }
 
-    public Task CopyTextAsync(string text) => _owner?.Clipboard?.SetTextAsync(text)
-        ?? throw new InvalidOperationException("The native clipboard is not ready.");
+    public Task CopyTextAsync(string text)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        return Dispatcher.UIThread.CheckAccess()
+            ? CopyTextOnUiThreadAsync(text)
+            : Dispatcher.UIThread.InvokeAsync(() => CopyTextOnUiThreadAsync(text));
+    }
+
+    private async Task CopyTextOnUiThreadAsync(string text)
+    {
+        IClipboard clipboard = _owner?.Clipboard
+            ?? throw new InvalidOperationException("The native clipboard is not ready.");
+        Exception? failure = null;
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                await clipboard.SetTextAsync(text).ConfigureAwait(true);
+                // Windows otherwise may retain only a delayed provider owned by this process.
+                await clipboard.FlushAsync().ConfigureAwait(true);
+                return;
+            }
+            catch (Exception error) when (attempt < 4)
+            {
+                // Clipboard ownership is transiently exclusive on Windows. Keep retrying on the
+                // UI dispatcher without blocking input or spawning concurrent writes.
+                failure = error;
+                await Task.Delay(40 << attempt).ConfigureAwait(true);
+            }
+        }
+
+        throw new InvalidOperationException("The native clipboard rejected the text after retries.", failure);
+    }
 
     public async Task<string?> PickJsonFileAsync()
     {

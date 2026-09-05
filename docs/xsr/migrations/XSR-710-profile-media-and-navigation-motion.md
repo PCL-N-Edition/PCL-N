@@ -24,6 +24,13 @@ product page and title-bar back route; editing/upload UI is a separate vertical 
 - Capsules share renderer-owned geometry and the existing motion clock. At rest their actual
   size is icon-only; hover/keyboard expansion must not reflow the row, push adjacent controls
   out of bounds, or create a separate paint-only hit region.
+- The account header add action uses that same capsule contract: a compact plus icon at rest and
+  the visible caption `添加` when expanded. Its semantic label remains `添加账户` in both states.
+- UI.Next resolves pointer appearance from the same input hit test used for activation. Enabled
+  clickable controls project a hand pointer, editable text projects a text cursor, and disabled
+  or decorative surfaces retain the default pointer. Avalonia caches and retargets the native
+  cursor only when this semantic result changes, including across scene commits and auth-page
+  updates, so a render cannot cause cursor churn.
 
 ## Acceptance
 

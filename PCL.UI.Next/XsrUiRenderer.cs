@@ -256,6 +256,18 @@ public sealed partial class XsrUiRenderer
 
         double contentWidth = Math.Max(0, available.Width - margin.Horizontal);
         double contentHeight = Math.Max(0, available.Height - margin.Vertical);
+        // Descendants must measure against the content box this element will actually present.
+        // Without this constraint an explicitly narrow card is first measured at the viewport
+        // width, so wrapped text grows only during child arrange and the card keeps a stale
+        // one-line intrinsic height.
+        if (PresentedWidth(entity, element) is { } presentedWidth)
+        {
+            contentWidth = Math.Min(contentWidth, presentedWidth + padding.Horizontal);
+        }
+        if (element?.Height is { } constrainedHeight)
+        {
+            contentHeight = Math.Min(contentHeight, constrainedHeight + padding.Vertical);
+        }
         double width = 0;
         double height = 0;
 
@@ -754,6 +766,27 @@ public sealed partial class XsrUiRenderer
         }
 
         return default;
+    }
+
+    /// <summary>
+    /// Resolves native pointer presentation through the same ancestor-aware input hit test used
+    /// by press, release, and hover routing. A backend never needs to inspect live tree state.
+    /// </summary>
+    public XsrUiPointerCursor PointerCursorAt(XsrUiPoint point)
+    {
+        XsrUiEntityId entity = InputAt(point);
+        if (!entity.IsAssigned || _tree.GetComponent<XsrUiInput>(entity) is not { } input
+            || !IsEnabled(input))
+        {
+            return XsrUiPointerCursor.Default;
+        }
+
+        if (_tree.GetComponent<XsrUiTextInput>(entity) is not null)
+        {
+            return XsrUiPointerCursor.Text;
+        }
+
+        return input.Clickable ? XsrUiPointerCursor.Hand : XsrUiPointerCursor.Default;
     }
 
     /// <summary>

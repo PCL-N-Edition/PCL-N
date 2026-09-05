@@ -368,6 +368,7 @@ internal static partial class Program
         {
             await Task.Delay(30).ConfigureAwait(true);
             VerifyAccessibleContentAndNativeFocus(window, shell, surface);
+            VerifyPointerCursorProjection(window, shell, surface);
             VerifyNativeTextEditing(window, shell, surface);
             await VerifyTransitionGroupsAndMedia(shell, surface);
             VerifyWindowActionFeedback(window, surface);
@@ -524,6 +525,30 @@ internal static partial class Program
         navigation.Apply(navigation.Node with { Label = "应用设置" });
         AssertEqual("应用设置", peer.GetName());
         Console.WriteLine("PASS: native accessibility tree, keyboard focus and invoke are connected");
+    }
+
+    private static void VerifyPointerCursorProjection(
+        AvaloniaUiShellWindow window, XsrUiShell shell, AvaloniaUiSceneSurface surface)
+    {
+        surface.CommitScene();
+        window.UpdateLayout();
+        XsrUiSceneNode navigation = surface.Scene!.Nodes.First(node =>
+            node.Role == XsrUiSemanticRole.NavigationItem && node.IsClickable);
+        Point clickable = surface.TranslatePoint(
+            new Point(navigation.Rect.X + navigation.Rect.Width / 2, navigation.Rect.Y + navigation.Rect.Height / 2),
+            window)!.Value;
+        window.MouseMove(clickable, RawInputModifiers.None);
+        AssertEqual(XsrUiPointerCursor.Hand, surface.PresentedPointerCursor);
+        AssertTrue(surface.Cursor is not null);
+
+        XsrUiSceneNode titleBar = Node(surface.Scene, shell.TitleBar);
+        Point decorative = surface.TranslatePoint(
+            new Point(titleBar.Rect.X + titleBar.Rect.Width / 2, titleBar.Rect.Y + titleBar.Rect.Height / 2),
+            window)!.Value;
+        window.MouseMove(decorative, RawInputModifiers.None);
+        AssertEqual(XsrUiPointerCursor.Default, surface.PresentedPointerCursor);
+        AssertTrue(surface.Cursor is null);
+        Console.WriteLine("PASS: scene input facts drive one stable native pointer cursor");
     }
 
     private static void VerifyWindowActionFeedback(AvaloniaUiShellWindow window, AvaloniaUiSceneSurface surface)

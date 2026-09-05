@@ -1,12 +1,12 @@
 <Notification xmlns="https://pcln.dev/pxml/2026" Key="Notification" Label="Info 通知"
-              Orientation="Horizontal" Width="360" Height="82">
-  <StackPanel Key="NotificationAccent" Width="4" Height="58" Margin="0,12,0,12" />
+              Orientation="Horizontal" Width="360">
+  <StackPanel Key="NotificationAccent" Width="4" Margin="0,12,0,12" />
   <Image Key="NotificationIcon" Label="Info" Source="lucide/info" Width="20" Height="20"
          Margin="14,18,0,0" VerticalAlignment="Start" />
   <StackPanel Key="NotificationCopy" Orientation="Vertical" Weight="1" Spacing="2"
               Margin="10,12,8,10">
     <Text Key="NotificationLevel" Content="Info" Height="18" />
-    <Text Key="NotificationMessage" Content="通知内容" Height="38" />
+    <Text Key="NotificationMessage" Content="通知内容" />
   </StackPanel>
   <Button Key="NotificationClose" Label="关闭 Info 通知" Icon="lucide/x"
           Command="ui.feedback.notification.dismiss" Width="30" Height="30"

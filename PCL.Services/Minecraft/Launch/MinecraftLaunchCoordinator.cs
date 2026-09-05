@@ -390,21 +390,25 @@ public sealed class MinecraftLaunchCoordinator
                 launchToken).ConfigureAwait(false);
 
             operation?.Stage("execute_plan", $"native_archives={plan.NativeLibraries.Count}");
-            double extractCompleted =
-                MinecraftLaunchStages.LoginWeight
-                + MinecraftLaunchStages.CompleteFilesWeight
-                + MinecraftLaunchStages.GetJavaWeight
-                + MinecraftLaunchStages.GetArgumentsWeight;
+            // Stage boundaries as named constants: every hand-written +Weight chain eventually
+            // desynced from the weight table, so the math is written exactly once here.
+            const double afterLogin = MinecraftLaunchStages.LoginWeight;
+            const double afterCompleteFiles = afterLogin + MinecraftLaunchStages.CompleteFilesWeight;
+            const double afterJava = afterCompleteFiles + MinecraftLaunchStages.GetJavaWeight;
+            const double afterArguments = afterJava + MinecraftLaunchStages.GetArgumentsWeight;
+            const double afterExtract = afterArguments + MinecraftLaunchStages.ExtractNativesWeight;
+            const double afterPreLaunch = afterExtract + MinecraftLaunchStages.PreLaunchWeight;
+            const double afterCustomCommand = afterPreLaunch + MinecraftLaunchStages.CustomCommandWeight;
+            const double afterStart = afterCustomCommand + MinecraftLaunchStages.StartProcessWeight;
             _progress?.Report(new MinecraftLaunchStageReport(
                 MinecraftLaunchStages.ExtractNatives,
-                MinecraftLaunchStages.ProgressAt(extractCompleted),
+                MinecraftLaunchStages.ProgressAt(afterArguments),
                 Method: method));
             // The legacy pre-launch stage: the working directory must exist before the game
             // (or anything the plan references) writes into it — strictly before start_process.
             _progress?.Report(new MinecraftLaunchStageReport(
                 MinecraftLaunchStages.PreLaunch,
-                MinecraftLaunchStages.ProgressAt(
-                    extractCompleted + MinecraftLaunchStages.ExtractNativesWeight),
+                MinecraftLaunchStages.ProgressAt(afterExtract),
                 Method: method));
             Directory.CreateDirectory(plan.WorkingDirectory);
             Process.MinecraftProcessSession session = startedSession = await _executor.ExecuteAsync(
@@ -414,10 +418,10 @@ public sealed class MinecraftLaunchCoordinator
                 {
                     if (stageToken == MinecraftLaunchStages.StartProcess)
                     {
+                        // custom_command has not migrated; its reserved weight is skipped over.
                         _progress?.Report(new MinecraftLaunchStageReport(
                             MinecraftLaunchStages.StartProcess,
-                            MinecraftLaunchStages.ProgressAt(
-                                extractCompleted + MinecraftLaunchStages.ExtractNativesWeight),
+                            MinecraftLaunchStages.ProgressAt(afterCustomCommand),
                             Method: method));
                     }
                 },
@@ -444,13 +448,13 @@ public sealed class MinecraftLaunchCoordinator
             }
 
             session.Changed += OnSessionChanged;
-            double waitCompleted =
-                extractCompleted + MinecraftLaunchStages.ExtractNativesWeight + MinecraftLaunchStages.StartProcessWeight;
+            // wait_window ENTERS at its legacy boundary (42/44); its completion folds into
+            // the end report (44/44).
             // From here on every report carries the session id, so a Stop(sessionId) reset
             // can match the narration it belongs to.
             _progress?.Report(new MinecraftLaunchStageReport(
                 MinecraftLaunchStages.WaitWindow,
-                MinecraftLaunchStages.ProgressAt(waitCompleted),
+                MinecraftLaunchStages.ProgressAt(afterStart),
                 Method: method,
                 SessionId: sessionId));
             GameWindowWaitResult wait = await WaitForGameWindowAsync(session, launchToken).ConfigureAwait(false);

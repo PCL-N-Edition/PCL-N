@@ -213,6 +213,29 @@ internal static partial class Program
         AssertEqual(new XsrUiRect(0, 32, 800, 10), scene[3].Rect);
     }
 
+    private static void ExplicitWidthConstrainsWrappedIntrinsicHeight()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        XsrUiEntityId card = tree.Create("card");
+        tree.SetComponent(card, new XsrUiElement { Width = 100 });
+        tree.SetComponent(card, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        XsrUiEntityId copy = tree.Create("copy");
+        tree.SetComponent(copy, new XsrUiText(new string('x', 24)) { MaxLines = 2 });
+        tree.SetComponent(copy, new XsrUiVisualStyle { FontSize = 14, WrapText = true });
+        tree.Attach(copy, card);
+        tree.Attach(card, root);
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        XsrUiScene scene = renderer.Render();
+
+        AssertEqual(new XsrUiRect(0, 0, 100, 40), scene.Nodes.Single(node => node.Entity == card).Rect);
+        AssertEqual(new XsrUiRect(0, 0, 100, 40), scene.Nodes.Single(node => node.Entity == copy).Rect);
+    }
+
     private static void InvisibleEntitiesLeaveSceneAndLayout()
     {
         XsrUiTree tree = new();

@@ -6,6 +6,16 @@ namespace PCL.UI.Next;
 public readonly record struct XsrUiPoint(double X, double Y);
 
 /// <summary>
+/// Backend-neutral pointer appearance derived from the renderer's canonical input hit test.
+/// </summary>
+public enum XsrUiPointerCursor
+{
+    Default = 0,
+    Hand = 1,
+    Text = 2,
+}
+
+/// <summary>
 /// One width/height pair in renderer coordinates.
 /// </summary>
 public readonly record struct XsrUiSize(double Width, double Height)

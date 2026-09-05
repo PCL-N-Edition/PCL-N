@@ -28,9 +28,24 @@ internal static partial class Program
         AssertEqual(15d / 44d, MinecraftLaunchStages.ProgressAt(MinecraftLaunchStages.LoginWeight));
         AssertEqual(30d / 44d, MinecraftLaunchStages.ProgressAt(
             MinecraftLaunchStages.LoginWeight + MinecraftLaunchStages.CompleteFilesWeight));
-        AssertEqual(36d / 44d, MinecraftLaunchStages.ProgressAt(36d));
-        AssertTrue(Math.Abs(40d / 44d - MinecraftLaunchStages.ProgressAt(
-            36d + MinecraftLaunchStages.ExtractNativesWeight + MinecraftLaunchStages.StartProcessWeight)) < 1e-9);
+
+        // Every stage boundary of the legacy table, in pipeline order: 36 → 38 → (39 reserved)
+        // → 40 → 42 → 44. The reserved custom_command weight is skipped over by the pipeline
+        // but still consumed by the pacing.
+        const double afterLogin = MinecraftLaunchStages.LoginWeight;
+        const double afterCompleteFiles = afterLogin + MinecraftLaunchStages.CompleteFilesWeight;
+        const double afterJava = afterCompleteFiles + MinecraftLaunchStages.GetJavaWeight;
+        const double afterArguments = afterJava + MinecraftLaunchStages.GetArgumentsWeight;
+        const double afterExtract = afterArguments + MinecraftLaunchStages.ExtractNativesWeight;
+        const double afterPreLaunch = afterExtract + MinecraftLaunchStages.PreLaunchWeight;
+        const double afterCustomCommand = afterPreLaunch + MinecraftLaunchStages.CustomCommandWeight;
+        const double afterStart = afterCustomCommand + MinecraftLaunchStages.StartProcessWeight;
+        const double afterWait = afterStart + MinecraftLaunchStages.WaitWindowWeight;
+        AssertEqual(36d, afterArguments);
+        AssertEqual(39d, afterPreLaunch);
+        AssertEqual(40d, afterCustomCommand);
+        AssertEqual(42d, afterStart);
+        AssertEqual(total, afterWait + MinecraftLaunchStages.EndWeight);
     }
 
     private static void ProgressPublisherWritesCoherentCells()
@@ -175,6 +190,20 @@ internal static partial class Program
                 "stage order: " + string.Join(",", progress.Stages));
             AssertTrue(progress.Progress.SequenceEqual(progress.Progress.OrderBy(value => value)),
                 "progress not monotonic: " + string.Join(",", progress.Progress));
+
+            // Each stage ENTERS exactly at its legacy boundary: 0/15/30/34/36/38, start_process
+            // enters at 40 (pre_launch completed at 39, the reserved custom_command is skipped
+            // over), wait_window at 42, and the final report is 44/44.
+            double FirstProgressOf(string stage) => progress.Progress[progress.Stages.IndexOf(stage)];
+            AssertEqual(MinecraftLaunchStages.ProgressAt(0d), FirstProgressOf("login"));
+            AssertEqual(MinecraftLaunchStages.ProgressAt(15d), FirstProgressOf("complete_files"));
+            AssertEqual(MinecraftLaunchStages.ProgressAt(30d), FirstProgressOf("get_java"));
+            AssertEqual(MinecraftLaunchStages.ProgressAt(34d), FirstProgressOf("get_arguments"));
+            AssertEqual(MinecraftLaunchStages.ProgressAt(36d), FirstProgressOf("extract_natives"));
+            AssertEqual(MinecraftLaunchStages.ProgressAt(38d), FirstProgressOf("pre_launch"));
+            AssertEqual(MinecraftLaunchStages.ProgressAt(40d), FirstProgressOf("start_process"));
+            AssertEqual(MinecraftLaunchStages.ProgressAt(42d), FirstProgressOf("wait_window"));
+            AssertEqual(1d, progress.Progress[^1]);
             // Two legal endings: the pipeline reached launched=true, or the instant-exit
             // process was reaped before the assertions and the subscribe-then-recheck reset
             // the truth (Empty snapshot retaining the session id). Both prove the narration

@@ -174,6 +174,35 @@ internal static partial class Program
         AssertFalse(renderer.Render()[1].IsHovered);
     }
 
+    private static void PointerCursorFollowsInteractiveTargets()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiEntityId root = tree.Create("root");
+        tree.SetComponent(root, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        XsrUiEntityId button = tree.Create("button");
+        XsrUiEntityId textInput = tree.Create("text-input");
+        XsrUiEntityId disabled = tree.Create("disabled");
+        foreach (XsrUiEntityId entity in new[] { button, textInput, disabled })
+        {
+            tree.SetComponent(entity, new XsrUiElement { Width = 120, Height = 40 });
+            tree.Attach(entity, root);
+        }
+        tree.SetComponent(button, new XsrUiInput { Clickable = true });
+        tree.SetComponent(textInput, new XsrUiInput { Focusable = true });
+        tree.SetComponent(textInput, new XsrUiTextInput());
+        tree.SetComponent(disabled, new XsrUiInput { Clickable = true, Enabled = false });
+
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        _ = renderer.Render();
+
+        AssertEqual(XsrUiPointerCursor.Hand, renderer.PointerCursorAt(new XsrUiPoint(50, 20)));
+        AssertEqual(XsrUiPointerCursor.Text, renderer.PointerCursorAt(new XsrUiPoint(50, 60)));
+        AssertEqual(XsrUiPointerCursor.Default, renderer.PointerCursorAt(new XsrUiPoint(50, 100)));
+        AssertEqual(XsrUiPointerCursor.Default, renderer.PointerCursorAt(new XsrUiPoint(500, 500)));
+    }
+
     private static void FocusCyclesThroughFocusableEntities()
     {
         XsrUiTree tree = new();

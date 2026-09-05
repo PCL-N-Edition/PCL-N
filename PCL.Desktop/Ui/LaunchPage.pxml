@@ -8,7 +8,7 @@
                   Command="ui.account.back" IsVisible="{state launch.account.back-visible}" />
           <Text Key="AccountHeader" Content="{state launch.account.title}" Weight="1" VerticalAlignment="Center"
                 TransitionKey="{state launch.account.title}" TransitionOffsetY="6" />
-          <Button Key="AccountAdd" Label="添加账户" Icon="lucide/plus" Width="28" Height="28" VerticalAlignment="Center"
+          <Button Key="AccountAdd" Label="添加账户" Content="添加" Icon="lucide/plus" Width="72" Height="32" VerticalAlignment="Center"
                   Command="ui.account.add" IsVisible="{state launch.account.add-visible}" />
         </StackPanel>
         <StackPanel Orientation="Vertical" Weight="1" MinHeight="160" Key="AccountBody">

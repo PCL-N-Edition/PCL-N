@@ -37,7 +37,17 @@ internal static partial class Program
         }
         scene = fixture.Shell.Render(AccountTestSize);
         AssertTrue(HasKey(fixture.Shell, scene, "AccountHint"));
-        AssertTrue(FindByKey(fixture.Shell, scene, "AccountAdd").IsClickable);
+        XsrUiSceneNode add = FindByKey(fixture.Shell, scene, "AccountAdd");
+        AssertTrue(add.IsClickable);
+        AssertTrue(add.VisualStyle.HoverExpand);
+        AssertEqual("添加", add.Text);
+        AssertClose(32, add.Rect.Width);
+        double right = add.Rect.X + add.Rect.Width;
+        AssertTrue(fixture.Shell.Renderer.PointerMoved(
+            new XsrUiPoint(add.Rect.X + add.Rect.Width / 2, add.Rect.Y + add.Rect.Height / 2)));
+        add = FindByKey(fixture.Shell, fixture.Shell.Render(AccountTestSize), "AccountAdd");
+        AssertClose(72, add.Rect.Width);
+        AssertClose(right, add.Rect.X + add.Rect.Width);
     }
 
     private static void TriviaTimerPublishesOnlyStateAndStops()

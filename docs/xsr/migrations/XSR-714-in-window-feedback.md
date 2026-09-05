@@ -14,12 +14,16 @@ Desktop controllers translate those results into feedback requests at the compos
 ## Notification contract
 
 - Every notification is shown in one shared stack anchored 18 logical pixels to the right of the
-  shell's maximum navigation-rail width and 18 pixels above the window bottom. The stable anchor
-  never covers either collapsed or expanded primary navigation and does not move during the rail
-  spring. The stack is a non-modal stage overlay, so the rest of the page remains usable.
+  navigation rail's currently presented edge and 18 pixels above the window bottom. The anchor
+  follows the same committed rail geometry during its spring, keeping the notice close to the
+  collapsed rail without covering either rail state. The stack is a non-modal stage overlay, so
+  the rest of the page remains usable.
 - A notification presents at most two wrapped message lines with an end ellipsis. The immutable
   service message and accessible label remain complete. Activating the notice (but not its close
   button) opens that complete message in the shared dialog with one `OK` action.
+- Notice height is intrinsic to its clamped copy: one-line messages use the compact one-line
+  surface and two-line messages grow by exactly one line box. Decorative accents stretch to that
+  result; no fixed two-line height leaves empty space beneath short content.
 - The bounded stack stays pinned to its bottom edge as content grows and shrinks. A closing notice
   stops participating in stack flow immediately while its visual exit completes, so remaining
   notices reflow without an exit-duration gap. Overflow recovery re-clamps the continuous scroll
