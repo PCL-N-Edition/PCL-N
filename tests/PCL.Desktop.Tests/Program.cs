@@ -31,6 +31,7 @@ internal static partial class Program
         ("imported profiles remain visible when the picker reopens", ImportedProfilesRemainVisibleWhenPickerReopens),
         ("account forms share one header and create offline profiles", AccountFormsUseOneHeaderAndCreateOfflineProfiles),
         ("Microsoft onboarding reuses services and rejects late cancelled completion", MicrosoftOnboardingUsesServiceAndDiscardsLateCancellation),
+        ("packaged account client ids preserve LittleSkin login in CI artifacts", PackagedAccountClientIdsMergeWithRuntimeConfiguration),
         ("third-party onboarding masks passwords and uses the chosen server", ThirdPartyOnboardingMasksPasswordsAndUsesConfiguredServer),
         ("LittleSkin onboarding selects characters with separate token kinds", LittleSkinOnboardingChoosesCharacterAndKeepsTokenKindsSeparate),
         ("account failures and stale file pickers stay in the current view", AccountFailuresAndLateFilePickerStayInCurrentView),

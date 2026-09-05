@@ -55,7 +55,16 @@ internal static partial class Program
         XsrUiScene scene = fixture.Shell.Render(AccountTestSize);
         AssertEqual("PUBLIC-CODE", FindByKey(fixture.Shell, scene, "UserCode").Text);
         AssertSceneHides(fixture, "PRIVATE-DEVICE");
+        AssertEqual(1, effects.OpenCount);
+        AssertEqual(1, effects.CopyCount);
+        AssertEqual("https://www.microsoft.com/link", effects.Opened?.AbsoluteUri);
+        AssertEqual("PUBLIC-CODE", effects.Copied);
+        _ = fixture.Shell.Render(AccountTestSize);
+        AssertEqual(1, effects.OpenCount);
+        AssertEqual(1, effects.CopyCount);
         AccountClick(fixture, "OpenAuthorization"); AccountClick(fixture, "CopyUserCode");
+        AssertEqual(2, effects.OpenCount);
+        AssertEqual(2, effects.CopyCount);
         AssertEqual("https://www.microsoft.com/link", effects.Opened?.AbsoluteUri);
         AssertEqual("PUBLIC-CODE", effects.Copied);
         var dirty = fixture.Shell.Tree.DirtyEntities().ToArray();
@@ -81,6 +90,29 @@ internal static partial class Program
         AssertEqual(2, fixture.Service.GetViews().Count);
         AssertEqual("NewerPlayer", FindByKey(fixture.Shell, fixture.Shell.Render(AccountTestSize), "AccountName").Text);
         AssertFalse(fixture.Service.GetViews().Any(profile => profile.Username == "LatePlayer"));
+    }
+
+    private static void PackagedAccountClientIdsMergeWithRuntimeConfiguration()
+    {
+        AccountOnboardingOptions packaged = PCL.Desktop.Program.MergeAccountOnboardingOptions(
+            new AccountOnboardingOptions("runtime-ms", null),
+            " packaged-ms ",
+            " packaged-ls ");
+        AssertEqual("packaged-ms", packaged.MicrosoftClientId);
+        AssertEqual("packaged-ls", packaged.LittleSkin!.ClientId);
+        AssertEqual(string.Empty, packaged.LittleSkin.ClientSecret);
+        AssertEqual(LittleSkinOAuthService.DeviceFlowRedirectUri, packaged.LittleSkin.RedirectUri.AbsoluteUri);
+
+        LittleSkinOAuthConfiguration runtimeLittleSkin = new(
+            "runtime-ls",
+            "runtime-secret",
+            new Uri("https://example.test/oauth/callback"));
+        AccountOnboardingOptions overridden = PCL.Desktop.Program.MergeAccountOnboardingOptions(
+            new AccountOnboardingOptions("runtime-ms", runtimeLittleSkin),
+            null,
+            "packaged-ls");
+        AssertTrue(ReferenceEquals(runtimeLittleSkin, overridden.LittleSkin));
+        AssertEqual("runtime-ms", overridden.MicrosoftClientId);
     }
 
     private static void ThirdPartyOnboardingMasksPasswordsAndUsesConfiguredServer()
@@ -205,10 +237,22 @@ internal static partial class Program
     {
         public Uri? Opened;
         public string? Copied;
+        public int OpenCount;
+        public int CopyCount;
         public TaskCompletionSource<string?> File = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public volatile bool Returned;
-        public void OpenAuthorization(Uri uri) => Opened = uri;
-        public Task CopyCode(string code) { Copied = code; return Task.CompletedTask; }
+        public Task OpenAuthorization(Uri uri)
+        {
+            Opened = uri;
+            OpenCount++;
+            return Task.CompletedTask;
+        }
+        public Task CopyCode(string code)
+        {
+            Copied = code;
+            CopyCount++;
+            return Task.CompletedTask;
+        }
         public async Task<string?> PickProfiles() { string? path = await File.Task; Returned = true; return path; }
     }
 

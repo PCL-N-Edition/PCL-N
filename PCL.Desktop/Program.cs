@@ -42,25 +42,47 @@ internal static class Program
     internal sealed record LauncherBuildInfo(string InformationalVersion, string Channel, string SemanticVersion);
 
     /// <summary>
-    /// Merges the two account-configuration sources: environment/config-file values
-    /// (Microsoft client id AND the LittleSkin OAuth configuration) are the baseline, and a
-    /// publish-time embedded Microsoft client id wins over them. Composing the raw embedded
-    /// value alone silently dropped LittleSkin configuration.
+    /// Merges runtime account configuration with the public client IDs embedded by publish.
+    /// Runtime LittleSkin configuration remains authoritative so developers can override the
+    /// packaged device-flow client without rebuilding the launcher.
     /// </summary>
     private static AccountOnboardingOptions ComposeAccountOnboardingOptions()
     {
         AccountOnboardingOptions fromEnvironment = AccountOnboardingOptions.FromEnvironment();
-        string? embedded = ResolveEmbeddedMicrosoftClientId();
-        return fromEnvironment with
+        return MergeAccountOnboardingOptions(
+            fromEnvironment,
+            ResolveEmbeddedClientId("PclMicrosoftClientId"),
+            ResolveEmbeddedClientId("PclLittleSkinClientId"));
+    }
+
+    internal static AccountOnboardingOptions MergeAccountOnboardingOptions(
+        AccountOnboardingOptions runtime,
+        string? embeddedMicrosoftClientId,
+        string? embeddedLittleSkinClientId)
+    {
+        ArgumentNullException.ThrowIfNull(runtime);
+        LittleSkinOAuthConfiguration? littleSkin = runtime.LittleSkin;
+        if (littleSkin is null && !string.IsNullOrWhiteSpace(embeddedLittleSkinClientId))
         {
-            MicrosoftClientId = !string.IsNullOrWhiteSpace(embedded) ? embedded : fromEnvironment.MicrosoftClientId,
+            littleSkin = new LittleSkinOAuthConfiguration(
+                embeddedLittleSkinClientId.Trim(),
+                string.Empty,
+                new Uri(LittleSkinOAuthService.DeviceFlowRedirectUri));
+        }
+
+        return runtime with
+        {
+            MicrosoftClientId = !string.IsNullOrWhiteSpace(embeddedMicrosoftClientId)
+                ? embeddedMicrosoftClientId.Trim()
+                : runtime.MicrosoftClientId,
+            LittleSkin = littleSkin,
         };
     }
 
-    private static string? ResolveEmbeddedMicrosoftClientId() =>
+    private static string? ResolveEmbeddedClientId(string key) =>
         System.Reflection.Assembly.GetEntryAssembly()?
             .GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>()
-            .FirstOrDefault(attribute => attribute.Key == "PclMicrosoftClientId")?.Value;
+            .FirstOrDefault(attribute => attribute.Key == key)?.Value;
 
     private static LauncherBuildInfo ResolveBuildInfo()
     {
@@ -171,8 +193,8 @@ internal static class Program
         setStage("compose_runtimes");
         uiIntents.IntentEmitted += (_, e) => operationLog.WriteIntent(e.Intent.Command, e.Intent.CorrelationId);
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host, operationLog.Dispatch);
-        // The Microsoft client id is embedded at publish time (assembly metadata); passing it
-        // here arms the launch identity resolver's refresh capability.
+        // Public provider client IDs are embedded at publish time. Passing them here arms both
+        // onboarding device flows and the launch identity resolver's refresh capability.
         using AccountOnboardingRuntime accounts = AccountOnboardingRuntimeComposer.Compose(
             host,
             options: ComposeAccountOnboardingOptions(),

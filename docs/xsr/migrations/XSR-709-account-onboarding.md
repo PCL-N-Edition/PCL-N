@@ -21,11 +21,19 @@ composition, not a second authentication implementation.
   Worker completions publish state only; no worker reads or changes the UI.Next tree.
   Cancellation/replacement uses an operation generation so a superseded login cannot persist
   an account or overwrite a newer result. Persistence precedes success/selection publication.
-- Microsoft and LittleSkin use the existing device authorization flow. Browser navigation
-  happens only from an explicit user action, through a narrow host port restricted to the
-  provider's HTTPS verification domain. The UI explains missing client configuration instead
-  of pretending a network login can start. Real accounts are authorized by the user, never
-  by automated tests.
+- Microsoft and LittleSkin use the existing device authorization flow. Each newly published
+  authorization challenge is presented exactly once: Desktop asks the narrow native host port
+  to open the provider's validated HTTPS verification URL and copy the public user code. The
+  visible open/copy actions remain available for recovery and use the same validated port. A
+  challenge generation is the idempotency boundary, so render/layout churn cannot reopen the
+  browser, recopy the code, steal focus, or make the pointer flicker. The UI explains missing
+  client configuration instead of pretending a network login can start. Real accounts are
+  authorized by the user, never by automated tests.
+- Publishable launcher artifacts embed both providers' public client IDs as assembly metadata;
+  no client secret is embedded. Runtime LittleSkin environment configuration overrides that
+  fallback when present. The CI artifact workflow must forward its existing
+  `LITTLESKIN_CLIENT_ID` secret into the public `PclLittleSkinClientId` build property, just as it
+  already does for Microsoft, so a downloaded CI launcher retains device-flow capability.
 - Third-party login sends credentials only after a user supplies the server and submits the
   form. Require HTTPS (loopback development HTTP may be explicitly supported); never echo
   raw server response bodies or credentials into public errors. OAuth provider tokens are
@@ -45,7 +53,9 @@ one card header; remove nested duplicate titles and back controls. Existing popu
 need no explanatory footer. Keep one discoverable add/import path and an explicit way back.
 
 Use fixture HTTP/auth ports for success, denial, timeout, missing configuration, cancellation,
-superseded completion and durable-save failure. Prove credentials never enter scene/state.
+superseded completion and durable-save failure. Prove automatic challenge presentation is
+one-shot, manual open/copy still work, embedded LittleSkin configuration survives composition,
+and credentials never enter scene/state.
 Exercise creation/import/login through the production composition and renderer intents.
 Verify text entry, password masking, keyboard/IME/automation, no-profile onboarding, roster
 refresh/focus, both styles/minimum geometry, and that old source files are untouched. Run

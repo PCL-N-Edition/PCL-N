@@ -10,14 +10,16 @@ namespace PCL.Desktop.Ui;
 
 internal interface IAccountUiEffects
 {
-    void OpenAuthorization(Uri uri);
+    Task OpenAuthorization(Uri uri);
     Task CopyCode(string code);
     Task<string?> PickProfiles();
 }
 
 internal sealed class NativeAccountUiEffects(AvaloniaUiPlatformActions actions) : IAccountUiEffects
 {
-    public void OpenAuthorization(Uri uri) => actions.OpenHttpsUri(uri);
+    // Shell execution can briefly block while Windows resolves the registered browser. Keep that
+    // work off the render thread so an authorization transition cannot stall pointer presentation.
+    public Task OpenAuthorization(Uri uri) => Task.Run(() => actions.OpenHttpsUri(uri));
     public Task CopyCode(string code) => actions.CopyTextAsync(code);
     public Task<string?> PickProfiles() => actions.PickJsonFileAsync();
 }
@@ -37,6 +39,7 @@ internal sealed class AccountFormController : IDisposable
     private readonly PxmlHostIr _rowTemplate = Load("AccountChoiceRow.pxml");
     private readonly CancellationTokenSource _lifetime = new();
     private long _importsRevision = -1, _charactersRevision = -1, _seenCompletion, _viewEpoch;
+    private long _presentedChallengeGeneration = -1;
     private string _appliedPath = string.Empty;
     private string? _pendingFocus;
     private XsrUiEntityId _returnFocus;
@@ -117,12 +120,9 @@ internal sealed class AccountFormController : IDisposable
         else if (command == "ui.account.browse") _ = PickProfiles();
         else if (command == "ui.account.authorize")
         {
-            string address = Snapshot.VerificationUri;
-            if (!AccountOnboardingService.IsVerificationUri(_provider, address)) return;
-            try { RequireEffects().OpenAuthorization(new Uri(address)); }
-            catch (Exception) { _feedback.Warn("无法打开浏览器，请检查系统默认浏览器设置。"); }
+            _ = OpenAuthorization(Snapshot);
         }
-        else if (command == "ui.account.copy-code") _ = CopyCode();
+        else if (command == "ui.account.copy-code") _ = CopyCode(Snapshot.UserCode, showSuccess: true);
         else if (command == "ui.account.choice")
         {
             if (_importRows.TryGetValue(e.Intent.Source, out string? path)) Publish("import-path", path);
@@ -201,6 +201,15 @@ internal sealed class AccountFormController : IDisposable
         Publish("characters", open && snapshot.Phase == AccountLoginPhase.ChoosingProfile);
         Publish("submit", open && mode != "providers" && !snapshot.IsBusy);
         Publish("submit-label", mode == "import" ? "确认导入" : mode == "offline" ? "创建档案" : mode == "device" ? "重新登录" : "登录并添加");
+        if (open && mode == "device" && snapshot.Phase == AccountLoginPhase.AwaitingAuthorization
+            && snapshot.Generation != _presentedChallengeGeneration)
+        {
+            // State can invalidate many frames while polling. Generation is the service-owned
+            // identity of this public challenge, so browser/clipboard effects occur exactly once.
+            _presentedChallengeGeneration = snapshot.Generation;
+            _ = OpenAuthorization(snapshot);
+            _ = CopyCode(snapshot.UserCode, showSuccess: false);
+        }
         XsrCollectionSnapshot<AccountImportCandidate> imports = _store.ReadCollection<AccountImportCandidate>(_store.Resolve(AccountOnboardingState.Imports));
         if (imports.Revision != _importsRevision)
         {
@@ -279,9 +288,32 @@ internal sealed class AccountFormController : IDisposable
         catch (Exception) { if (!_disposed) _feedback.Warn("无法打开文件选择器，也可以在上方填写文件路径。"); }
     }
 
-    private async Task CopyCode()
+    private async Task OpenAuthorization(AccountLoginSnapshot snapshot)
     {
-        try { await RequireEffects().CopyCode(Snapshot.UserCode).ConfigureAwait(false); }
+        string address = snapshot.VerificationUri;
+        if (!AccountOnboardingService.IsVerificationUri(_provider, address))
+        {
+            if (!_disposed) _feedback.Warn("授权地址无效，请重新发起登录。");
+            return;
+        }
+
+        try { await RequireEffects().OpenAuthorization(new Uri(address)).ConfigureAwait(false); }
+        catch (Exception) { if (!_disposed) _feedback.Warn("无法打开浏览器，请检查系统默认浏览器设置。"); }
+    }
+
+    private async Task CopyCode(string code, bool showSuccess)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            if (!_disposed) _feedback.Warn("授权码尚未生成，请稍后重试。");
+            return;
+        }
+
+        try
+        {
+            await RequireEffects().CopyCode(code).ConfigureAwait(false);
+            if (showSuccess && !_disposed) _feedback.Info("授权码已复制。");
+        }
         catch (Exception) { if (!_disposed) _feedback.Warn("无法复制授权码，请手动输入。"); }
     }
 

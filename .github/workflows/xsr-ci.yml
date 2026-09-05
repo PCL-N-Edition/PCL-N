@@ -157,6 +157,7 @@ jobs:
             -p:PublishAot=true \
             -p:StripSymbols=true \
             -p:PclMicrosoftClientId="${{ secrets.CLIENT_ID || secrets.MS_CLIENT_ID || secrets.PCL_MS_CLIENT_ID }}" \
+            -p:PclLittleSkinClientId="${{ secrets.PCL_LITTLESKIN_CLIENT_ID || secrets.LITTLESKIN_CLIENT_ID }}" \
             --output "${{ runner.temp }}/pcl-desktop-aot"
           "${{ runner.temp }}/pcl-desktop-aot/PCL.Desktop" --validate-shell
 
