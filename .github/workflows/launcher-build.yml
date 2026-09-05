@@ -1,0 +1,99 @@
+name: Launcher Build
+
+# The CI channel must produce a usable launcher, not just green checks: every push builds the
+# desktop app per platform (NativeAOT, self-contained), embeds the Microsoft OAuth client id
+# at publish time, smoke-runs the binary headlessly, and uploads the artifacts.
+
+on:
+  push:
+    branches:
+      - refactor/xsr
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  launcher:
+    name: Launcher ${{ matrix.runtime_id }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime_id: win-x64
+            os: windows-latest
+            archive: zip
+          - runtime_id: linux-x64
+            os: ubuntu-latest
+            archive: tar.gz
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Resolve the Microsoft client id secret
+        shell: bash
+        env:
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          PCL_MS_CLIENT_ID: ${{ secrets.PCL_MS_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          value="${PCL_MS_CLIENT_ID:-${MS_CLIENT_ID:-${CLIENT_ID:-}}}"
+          if [[ -z "$value" ]]; then
+            echo "::warning::No Microsoft client id secret (CLIENT_ID / MS_CLIENT_ID / PCL_MS_CLIENT_ID) — the launcher builds without the refresh capability."
+          else
+            echo "::add-mask::$value"
+          fi
+          echo "PCL_MS_CLIENT_ID=$value" >> "$GITHUB_ENV"
+
+      - name: Publish the launcher
+        shell: bash
+        run: |
+          dotnet publish PCL.Desktop/PCL.Desktop.csproj \
+            --configuration Release \
+            -r ${{ matrix.runtime_id }} \
+            --self-contained true \
+            -m:1 \
+            -nodeReuse:false \
+            -p:PublishAot=true \
+            -p:StripSymbols=true \
+            -p:XsrVersionChannel=ci \
+            -p:PclMicrosoftClientId="$PCL_MS_CLIENT_ID" \
+            --output "${{ runner.temp }}/launcher"
+
+      - name: Smoke-run the published launcher
+        shell: bash
+        run: |
+          binary="${{ runner.temp }}/launcher/PCL.Desktop"
+          if [[ "${{ matrix.runtime_id }}" == win-* ]]; then
+            binary="${binary}.exe"
+          fi
+          "$binary" --validate-shell
+
+      - name: Archive the launcher
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          name="PCL-Nexa-${{ matrix.runtime_id }}"
+          if [[ "${{ matrix.archive }}" == zip ]]; then
+            (cd "${{ runner.temp }}/launcher" && 7z a -tzip "../../artifacts/${name}.zip" .) || \
+            powershell -NoProfile -Command "Compress-Archive -Path '${{ runner.temp }}/launcher/*' -DestinationPath 'artifacts/${name}.zip'"
+          else
+            tar -czf "artifacts/${name}.tar.gz" -C "${{ runner.temp }}/launcher" .
+          fi
+          ls -la artifacts
+
+      - name: Upload the launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PCL-Nexa-${{ matrix.runtime_id }}
+          path: artifacts/*
+          if-no-files-found: error
