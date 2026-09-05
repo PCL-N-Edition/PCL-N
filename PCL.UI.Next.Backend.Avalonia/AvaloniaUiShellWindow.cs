@@ -22,15 +22,17 @@ namespace PCL.UI.Next.Backend.Avalonia;
 /// </summary>
 public sealed class AvaloniaUiShellWindow : Window
 {
-    private const double ChromeMargin = 10;
+    // The margin must comfortably exceed the shadow blur: whatever alpha survives to the
+    // window's true edge gets hard-clipped there and exposes the rectangular window bounds.
+    private const double ChromeMargin = 14;
     private const double ChromeCornerRadius = XsrUiCornerRadii.Surface;
     private const double CloseIconSize = 112;
 
     private static readonly BoxShadows WindowShadow = new(new BoxShadow
     {
-        Blur = 6,
+        Blur = 5,
         Spread = 0,
-        Color = Color.FromArgb(0x48, 0, 0, 0),
+        Color = Color.FromArgb(0x40, 0, 0, 0),
     });
 
     private readonly XsrUiShell _shell;

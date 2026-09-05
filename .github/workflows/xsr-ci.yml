@@ -129,8 +129,11 @@ jobs:
       - name: Test Sidecar host session and data plane
         run: dotnet run --project tests/PCL.Xsr.Runtime.Tests/PCL.Xsr.Runtime.Tests.csproj --configuration Release --no-build
 
+      - name: Install Xvfb for the X11 probe smoke
+        run: sudo apt-get install -y xvfb libx11-6
+
       - name: Test foundation services
-        run: dotnet run --project tests/PCL.Services.Tests/PCL.Services.Tests.csproj --configuration Release --no-build
+        run: xvfb-run -a dotnet run --project tests/PCL.Services.Tests/PCL.Services.Tests.csproj --configuration Release --no-build
 
       - name: Test desktop composition
         run: dotnet run --project tests/PCL.Desktop.Tests/PCL.Desktop.Tests.csproj --configuration Release --no-build

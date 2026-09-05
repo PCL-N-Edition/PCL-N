@@ -103,10 +103,6 @@ PXML vertical slices continue over the shared shell.
 
 ## Closed migration unit
 
-XSR-716 fills the version-selection subpage with a persisted multi-directory library, reusing
-instance discovery and settings services and carrying directory-qualified identity into launch.
-See [XSR-716](migrations/XSR-716-version-library.md) for its contract and acceptance evidence.
-
 Every task has an ID and a narrow, testable outcome:
 
 ```text

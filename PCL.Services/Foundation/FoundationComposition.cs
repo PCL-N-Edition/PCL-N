@@ -39,7 +39,6 @@ public static class FoundationState
         TelemetryService.DeclareState(builder);
         MinecraftProcessStateComposition.DeclareState(builder);
         Minecraft.Launch.MinecraftLaunchProgressState.DeclareState(builder);
-        Minecraft.MinecraftLibraryService.DeclareState(builder);
         return builder;
     }
 }

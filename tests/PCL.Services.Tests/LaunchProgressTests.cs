@@ -755,6 +755,53 @@ internal static partial class Program
         }
     }
 
+    private static async ValueTask X11WindowProbeFindsARealWindow()
+    {
+        // ABI smoke under a real X server (xvfb in CI): create a mapped window that owns a
+        // _NET_WM_PID property for this process, then the probe must report it visible. This
+        // is the only check that executes XGetWindowAttributes against a live server — the
+        // native struct write is the hazard, so headless fallbacks cannot prove the ABI.
+        if (!OperatingSystem.IsLinux() || Environment.GetEnvironmentVariable("DISPLAY") is not { Length: > 0 })
+        {
+            return;
+        }
+
+        nint display = X11TestApi.XOpenDisplay(0);
+        AssertTrue(display != 0, "xvfb-run should provide a display for this test");
+        try
+        {
+            nuint root = X11TestApi.XDefaultRootWindow(display);
+            nint black = X11TestApi.XBlackPixel(display, 0);
+            nint white = X11TestApi.XWhitePixel(display, 0);
+            nuint window = X11TestApi.XCreateSimpleWindow(display, root, 0, 0, 64, 64, 0, black, white);
+            nuint pidAtom = X11TestApi.XInternAtom(display, "_NET_WM_PID", false);
+            int[] ownPid = [Environment.ProcessId];
+            _ = X11TestApi.XChangeProperty(
+                display, window, pidAtom, X11TestApi.XaCardinal, 32, X11TestApi.PropModeReplace, ownPid, 1);
+
+            _ = X11TestApi.XMapWindow(display, window);
+            _ = X11TestApi.XFlush(display);
+            System.Threading.Thread.Sleep(200);
+
+            nint probeDisplay = X11TestApi.XOpenDisplay(0);
+            try
+            {
+                nuint probeRoot = X11TestApi.XDefaultRootWindow(probeDisplay);
+                bool visible = MinecraftWindowProbe.OwnedVisibleWindowExists(probeDisplay, probeRoot, (nuint)Environment.ProcessId);
+                AssertTrue(visible, "the probe must see the mapped test window of this process");
+            }
+            finally
+            {
+                _ = X11TestApi.XDestroyWindow(probeDisplay, window);
+                _ = X11TestApi.XCloseDisplay(probeDisplay);
+            }
+        }
+        finally
+        {
+            _ = X11TestApi.XCloseDisplay(display);
+        }
+    }
+
     private static bool ReadProgressFlag(XsrStateStore store, XsrSemanticId key) =>
         store.ReadAppliedValue(store.Resolve(key)) is bool flag && flag;
 

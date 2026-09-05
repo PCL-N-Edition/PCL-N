@@ -25,12 +25,18 @@ public interface IMinecraftWindowProbe
 
 /// <summary>
 /// Default probe. Windows enumerates top-level windows and matches the owner PID with a
-/// non-empty visible title; other platforms report Unsupported so the launch skips the wait.
-/// X11/Wayland/macOS probes can slot in behind the same contract later.
+/// non-empty visible title. Linux drives Xlib over the same three-way contract: the X11 types
+/// (Window, Atom, Colormap) are unsigned long on LP64, so the declarations use nuint and the
+/// XWindowAttributes structure mirrors the native ABI exactly — Xlib writes the full struct,
+/// and a compact or undersized managed buffer is a native stack overwrite. Wayland sessions
+/// and headless environments report Unsupported (no reachable display or no global window
+/// list), so the launch skips the wait instead of burning the limit.
 /// </summary>
 public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
 {
     private const int WindowTitleProbeDelayMilliseconds = 500;
+    private const int MapStateViewable = 2;
+    private const int XaCardinal = 6;
 
     public async ValueTask<MinecraftWindowProbeResult> ProbeAsync(int processId, CancellationToken cancellationToken = default)
     {
@@ -94,8 +100,8 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
 
         try
         {
-            nint root = XDefaultRootWindow(display);
-            return OwnedVisibleWindowExists(display, root, (uint)processId);
+            nuint root = XDefaultRootWindow(display);
+            return OwnedVisibleWindowExists(display, root, (nuint)processId);
         }
         finally
         {
@@ -103,14 +109,14 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
         }
     }
 
-    private static bool OwnedVisibleWindowExists(nint display, nint window, uint pid)
+    internal static bool OwnedVisibleWindowExists(nint display, nuint window, nuint pid)
     {
         if (IsViewableAndOwnedByPid(display, window, pid))
         {
             return true;
         }
 
-        if (XQueryTree(display, window, out nint _, out nint _, out nint children, out uint count) == 0
+        if (XQueryTree(display, window, out nuint _, out nuint _, out nint children, out uint count) == 0
             || children == 0)
         {
             return false;
@@ -121,7 +127,7 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
             for (uint index = 0; index < count; index++)
             {
                 nint child = System.Runtime.InteropServices.Marshal.ReadIntPtr(children, (int)(index * nint.Size));
-                if (OwnedVisibleWindowExists(display, child, pid))
+                if (OwnedVisibleWindowExists(display, (nuint)child, pid))
                 {
                     return true;
                 }
@@ -135,14 +141,15 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
         return false;
     }
 
-    private static bool IsViewableAndOwnedByPid(nint display, nint window, uint pid)
+    private static bool IsViewableAndOwnedByPid(nint display, nuint window, nuint pid)
     {
-        if (!IsWindowViewable(display, window))
+        if (XGetWindowAttributes(display, window, out XWindowAttributes attributes) == 0
+            || attributes.MapState != MapStateViewable)
         {
             return false;
         }
 
-        nint pidAtom = XInternAtom(display, "_NET_WM_PID", false);
+        nuint pidAtom = XInternAtom(display, "_NET_WM_PID", false);
         if (pidAtom == 0)
         {
             return false;
@@ -150,7 +157,7 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
 
         if (XGetWindowProperty(
                 display, window, pidAtom, 0, 64, false, XaCardinal,
-                out nint actualType, out int actualFormat, out nint itemCount, out nint bytesAfter, out nint property) != 0
+                out nuint actualType, out int actualFormat, out nuint itemCount, out nuint bytesAfter, out nint property) != 0
             || property == 0
             || itemCount < 1)
         {
@@ -159,7 +166,7 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
 
         try
         {
-            uint owner = (uint)System.Runtime.InteropServices.Marshal.ReadInt32(property);
+            nuint owner = (nuint)System.Runtime.InteropServices.Marshal.ReadInt64(property);
             return owner == pid;
         }
         finally
@@ -168,21 +175,45 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
         }
     }
 
-    private static bool IsWindowViewable(nint display, nint window)
+    /// <summary>
+    /// The LP64 Xlib ABI of XWindowAttributes, field for field: three pointers (Visual,
+    /// Colormap) and two unsigned-long Windows (root) plus four unsigned longs (backing
+    /// planes/pixel) and three longs (event masks) interleave the ints, so a compact int
+    /// buffer would be a native stack overwrite, not a wrong field read.
+    /// </summary>
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct XWindowAttributes
     {
-        // XWindowAttributes up to map_state: six ints, three pointers, six ints, one int,
-        // one pointer, two ints on a 64-bit process.
-        Span<int> attributes = stackalloc int[16];
-        if (XGetWindowAttributes(display, window, attributes) == 0)
-        {
-            return false;
-        }
+        public int X;
+        public int Y;
+        public int Width;
+        public int Height;
+        public int BorderWidth;
+        public int Depth;
 
-        // map_state: 0 = IsUnviewable, 1 = IsUnmaped, 2 = IsViewable.
-        return attributes[14] == 2;
+        public nint Visual;
+        public nuint Root;
+
+        public int Class;
+        public int BitGravity;
+        public int WinGravity;
+        public int BackingStore;
+
+        public nuint BackingPlanes;
+        public nuint BackingPixel;
+
+        public int SaveUnder;
+        public nuint Colormap;
+        public int MapInstalled;
+        public int MapState;
+
+        public nint AllEventMasks;
+        public nint YourEventMasks;
+        public nint DoNotPropagateMask;
+
+        public int OverrideRedirect;
+        public nint Screen;
     }
-
-    private const int XaCardinal = 6;
 
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
     private static extern nint XOpenDisplay(int displayName);
@@ -191,33 +222,34 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
     private static extern int XCloseDisplay(nint display);
 
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
-    private static extern nint XDefaultRootWindow(nint display);
+    private static extern nuint XDefaultRootWindow(nint display);
 
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
     private static extern int XQueryTree(
-        nint display, nint window, out nint root, out nint parent, out nint children, out uint childCount);
+        nint display, nuint window, out nuint root, out nuint parent, out nint children, out uint childCount);
 
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
     private static extern int XFree(nint data);
 
-    // The analyzer flags the ANSI string even with explicit marshaling; the atom name is a
-    // fixed ASCII literal, so the import is suppressed rather than re-marshaled.
-    [System.Diagnostics.CodeAnalysis.SuppressMessage(
-        "Globalization", "CA2101:Specify marshaling for P/Invoke string arguments",
-        Justification = "Fixed ASCII atom name; LPStr marshaling is already explicit.")]
-    [System.Runtime.InteropServices.DllImport("libX11.so.6", CharSet = System.Runtime.InteropServices.CharSet.Ansi)]
-    private static extern nint XInternAtom(
-        nint display,
-        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPStr)] string name,
-        bool onlyIfExists);
+    private static nuint XInternAtom(nint display, string name, bool onlyIfExists)
+    {
+        // Xlib expects a NUL-terminated C string; passing raw UTF-8 bytes sidesteps every
+        // string-marshaling analyzer rule and matches the wire format exactly.
+        byte[] terminated = new byte[System.Text.Encoding.UTF8.GetByteCount(name) + 1];
+        _ = System.Text.Encoding.UTF8.GetBytes(name, 0, name.Length, terminated, 0);
+        return XInternAtomBytes(display, terminated, onlyIfExists);
+    }
 
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
-    private static extern int XGetWindowAttributes(nint display, nint window, Span<int> attributes);
+    private static extern nuint XInternAtomBytes(nint display, byte[] name, bool onlyIfExists);
+
+    [System.Runtime.InteropServices.DllImport("libX11.so.6")]
+    private static extern int XGetWindowAttributes(nint display, nuint window, out XWindowAttributes attributes);
 
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
     private static extern int XGetWindowProperty(
-        nint display, nint window, nint property, long longOffset, long longLength, bool delete, nint requestedType,
-        out nint actualType, out int actualFormat, out nint itemCount, out nint bytesAfter, out nint data);
+        nint display, nuint window, nuint property, long longOffset, long longLength, bool delete, nuint requestedType,
+        out nuint actualType, out int actualFormat, out nuint itemCount, out nuint bytesAfter, out nint data);
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
