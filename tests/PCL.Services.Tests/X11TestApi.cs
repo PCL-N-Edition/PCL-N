@@ -18,10 +18,10 @@ internal static partial class X11TestApi
     public static extern int XCloseDisplay(nint display);
 
     [DllImport("libX11.so.6")]
-    public static extern nuint XDefaultRootWindow(nint display);
+    public static extern nint XDefaultRootWindow(nint display);
 
     [DllImport("libX11.so.6")]
-    public static extern nuint XCreateSimpleWindow(
+    public static extern nint XCreateSimpleWindow(
         nint display, nuint parent, int x, int y, int width, int height, int borderWidth,
         nint border, nint background);
 
@@ -37,8 +37,7 @@ internal static partial class X11TestApi
     [SuppressMessage("Globalization", "CA2101:Specify marshaling for P/Invoke string arguments",
         Justification = "Fixed ASCII atom name; ANSI charset is the exact wire format.")]
     [DllImport("libX11.so.6", CharSet = CharSet.Ansi)]
-    [return: MarshalAs(UnmanagedType.U8)]
-    public static extern nuint XInternAtom(nint display, string name, bool onlyIfExists);
+        public static extern nint XInternAtom(nint display, string name, bool onlyIfExists);
 
     [DllImport("libX11.so.6")]
     public static extern int XChangeProperty(

@@ -770,11 +770,11 @@ internal static partial class Program
         AssertTrue(display != 0, "xvfb-run should provide a display for this test");
         try
         {
-            nuint root = X11TestApi.XDefaultRootWindow(display);
+            nuint root = (nuint)X11TestApi.XDefaultRootWindow(display);
             nint black = X11TestApi.XBlackPixel(display, 0);
             nint white = X11TestApi.XWhitePixel(display, 0);
-            nuint window = X11TestApi.XCreateSimpleWindow(display, root, 0, 0, 64, 64, 0, black, white);
-            nuint pidAtom = X11TestApi.XInternAtom(display, "_NET_WM_PID", false);
+            nuint window = (nuint)X11TestApi.XCreateSimpleWindow(display, root, 0, 0, 64, 64, 0, black, white);
+            nuint pidAtom = (nuint)X11TestApi.XInternAtom(display, "_NET_WM_PID", false);
             int[] ownPid = [Environment.ProcessId];
             _ = X11TestApi.XChangeProperty(
                 display, window, pidAtom, X11TestApi.XaCardinal, 32, X11TestApi.PropModeReplace, ownPid, 1);
@@ -786,7 +786,7 @@ internal static partial class Program
             nint probeDisplay = X11TestApi.XOpenDisplay(0);
             try
             {
-                nuint probeRoot = X11TestApi.XDefaultRootWindow(probeDisplay);
+                nuint probeRoot = (nuint)X11TestApi.XDefaultRootWindow(probeDisplay);
                 bool visible = MinecraftWindowProbe.OwnedVisibleWindowExists(probeDisplay, probeRoot, (nuint)Environment.ProcessId);
                 AssertTrue(visible, "the probe must see the mapped test window of this process");
             }

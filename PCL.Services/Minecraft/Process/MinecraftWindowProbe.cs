@@ -100,7 +100,7 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
 
         try
         {
-            nuint root = XDefaultRootWindow(display);
+            nuint root = (nuint)XDefaultRootWindow(display);
             return OwnedVisibleWindowExists(display, root, (nuint)processId);
         }
         finally
@@ -149,7 +149,7 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
             return false;
         }
 
-        nuint pidAtom = XInternAtom(display, "_NET_WM_PID", false);
+        nuint pidAtom = (nuint)XInternAtom(display, "_NET_WM_PID", false);
         if (pidAtom == 0)
         {
             return false;
@@ -222,7 +222,7 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
     private static extern int XCloseDisplay(nint display);
 
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
-    private static extern nuint XDefaultRootWindow(nint display);
+    private static extern nint XDefaultRootWindow(nint display);
 
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
     private static extern int XQueryTree(
