@@ -659,10 +659,11 @@ internal static partial class Program
             System.Diagnostics.ProcessStartInfo startInfo,
             CancellationToken cancellationToken = default)
         {
-            // `timeout` refuses redirected stdin; ping -n is the reliable wait primitive.
+            // `timeout` refuses redirected stdin and `sh -c sleep 30` parses "30" as $0 —
+            // the platform primitives are the reliable wait: ping on Windows, /bin/sleep elsewhere.
             System.Diagnostics.ProcessStartInfo wait = OperatingSystem.IsWindows()
                 ? new System.Diagnostics.ProcessStartInfo("cmd", "/c ping -n 30 127.0.0.1 > nul")
-                : new System.Diagnostics.ProcessStartInfo("/bin/sh", "-c sleep 30");
+                : new System.Diagnostics.ProcessStartInfo("/bin/sleep", "30");
             wait.UseShellExecute = false;
             wait.CreateNoWindow = true;
             LastProcess = System.Diagnostics.Process.Start(wait)!;
