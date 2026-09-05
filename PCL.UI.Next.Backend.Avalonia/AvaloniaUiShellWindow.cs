@@ -22,18 +22,14 @@ namespace PCL.UI.Next.Backend.Avalonia;
 /// </summary>
 public sealed class AvaloniaUiShellWindow : Window
 {
-    // The margin must comfortably exceed the shadow blur: whatever alpha survives to the
-    // window's true edge gets hard-clipped there and exposes the rectangular window bounds.
+    // The margin is a fully transparent buffer around the chrome: no self-drawn shadow.
+    // Windows per-pixel transparency is not guaranteed on every machine, and a shadow that
+    // renders over an opaque margin exposes the rectangular window bounds instead of reading
+    // as depth. A real shadow should come from the platform (DWM corner/shadow integration).
     private const double ChromeMargin = 14;
     private const double ChromeCornerRadius = XsrUiCornerRadii.Surface;
     private const double CloseIconSize = 112;
 
-    private static readonly BoxShadows WindowShadow = new(new BoxShadow
-    {
-        Blur = 5,
-        Spread = 0,
-        Color = Color.FromArgb(0x40, 0, 0, 0),
-    });
 
     private readonly XsrUiShell _shell;
     private readonly AvaloniaUiSceneSurface _surface;
@@ -92,7 +88,7 @@ public sealed class AvaloniaUiShellWindow : Window
         {
             Margin = new Thickness(ChromeMargin),
             CornerRadius = new CornerRadius(ChromeCornerRadius),
-            BoxShadow = WindowShadow,
+            BoxShadow = default,
             // A 1/255 hit-test dummy keeps the shadow region inside the transparent window
             // instead of leaving a 1-pixel seam on compositorless setups.
             Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)),
@@ -523,7 +519,7 @@ public sealed class AvaloniaUiShellWindow : Window
         CornerRadius radius = maximized ? new CornerRadius(0) : new CornerRadius(ChromeCornerRadius);
         _shadowSurface.Margin = margin;
         _shadowSurface.CornerRadius = radius;
-        _shadowSurface.BoxShadow = maximized || _closeAnimationStarted ? default : WindowShadow;
+        _shadowSurface.BoxShadow = default;
         _chromeSurface.Margin = margin;
         _chromeSurface.CornerRadius = radius;
     }

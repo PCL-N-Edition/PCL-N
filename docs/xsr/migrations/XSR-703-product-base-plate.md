@@ -66,9 +66,17 @@ so interruptions stay continuous.
   from the legacy checkout, embedded as plain managed resources of `PCL.Desktop` and resolved
   by the backend by stream, not through any asset framework.
 - The shell window is 850×500 (min 810×470), centered, `WindowDecorations.None`, per-pixel
-  transparent. Its surface is a 10 px-outset rounded (8 px) clip hosting the scene, over a
-  matching soft shadow (`0 0 6 #48000000`). Maximized windows drop the margin, rounding, and
-  shadow. Title-bar presses drag through the native move loop (keeping Aero Snap) and
+  transparent. Its surface is a 14 px-outset rounded (8 px) clip hosting the scene. The outset
+  is a fully transparent buffer with **no self-drawn shadow**: per-pixel transparency is not
+  guaranteed on every Windows machine, and a shadow rendered over an opaque margin exposes the
+  rectangular window bounds as a hard-clipped frame. A real shadow should come from the
+  platform (DWM corner/shadow integration), not from painting inside the transparent buffer.
+  Maximized windows drop the margin and rounding.
+- Size semantics must not be conflated: the **native outer window** (850×500, 810×470 min)
+  includes the 14 px transparent outset on every side, so the **visible chrome surface** is
+  28/56 px smaller per axis, and the **UI.Next semantic viewport** is the chrome's content
+  rect (further inset by its padding). Acceptance tests must state which of the three sizes
+  they measure; "810×470 minimum" refers to the native outer window. Title-bar presses drag through the native move loop (keeping Aero Snap) and
   double-click toggles maximize; eight invisible edge/corner grips (4 px edges, 14 px corners)
   hand presses to the native resize loop while Normal.
 - Window actions remain the sole backend overlay: three 28 px circular buttons (minimize,

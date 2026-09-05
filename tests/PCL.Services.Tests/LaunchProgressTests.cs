@@ -775,7 +775,7 @@ internal static partial class Program
             nint white = X11TestApi.XWhitePixel(display, 0);
             nuint window = (nuint)X11TestApi.XCreateSimpleWindow(display, root, 0, 0, 64, 64, 0, black, white);
             nuint pidAtom = (nuint)X11TestApi.XInternAtom(display, "_NET_WM_PID", false);
-            int[] ownPid = [Environment.ProcessId];
+            nint[] ownPid = [Environment.ProcessId];
             _ = X11TestApi.XChangeProperty(
                 display, window, pidAtom, X11TestApi.XaCardinal, 32, X11TestApi.PropModeReplace, ownPid, 1);
 

@@ -155,18 +155,39 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
             return false;
         }
 
-        if (XGetWindowProperty(
-                display, window, pidAtom, 0, 64, false, XaCardinal,
-                out nuint actualType, out int actualFormat, out nuint itemCount, out nuint bytesAfter, out nint property) != 0
-            || property == 0
-            || itemCount < 1)
+        // The property's type and format are client-provided data: only a CARDINAL in
+        // format 32 (host long on LP64) can be read as one 8-byte PID. A malformed or
+        // hostile format-8 property under the same name must not be read wide.
+        int status = XGetWindowProperty(
+            display,
+            window,
+            pidAtom,
+            0,
+            1,
+            false,
+            XaCardinal,
+            out nuint actualType,
+            out int actualFormat,
+            out nuint itemCount,
+            out nint bytesAfter,
+            out nint property);
+        if (status != 0 || property == 0)
         {
             return false;
         }
 
         try
         {
-            nuint owner = (nuint)System.Runtime.InteropServices.Marshal.ReadInt64(property);
+            if (actualType != (nuint)XaCardinal
+                || actualFormat != 32
+                || itemCount < 1)
+            {
+                return false;
+            }
+
+            // Xlib returns format-32 data as host long[]; ReadIntPtr reads exactly one host
+            // word without hard-coding the LP64 element size.
+            nuint owner = unchecked((nuint)System.Runtime.InteropServices.Marshal.ReadIntPtr(property));
             return owner == pid;
         }
         finally
@@ -249,7 +270,7 @@ public sealed class MinecraftWindowProbe : IMinecraftWindowProbe
     [System.Runtime.InteropServices.DllImport("libX11.so.6")]
     private static extern int XGetWindowProperty(
         nint display, nuint window, nuint property, long longOffset, long longLength, bool delete, nuint requestedType,
-        out nuint actualType, out int actualFormat, out nuint itemCount, out nuint bytesAfter, out nint data);
+        out nuint actualType, out int actualFormat, out nuint itemCount, out nint bytesAfter, out nint data);
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]

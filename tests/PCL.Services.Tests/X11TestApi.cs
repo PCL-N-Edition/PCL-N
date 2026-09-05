@@ -42,7 +42,7 @@ internal static partial class X11TestApi
     [DllImport("libX11.so.6")]
     public static extern int XChangeProperty(
         nint display, nuint window, nuint property, nuint type, int format, int mode,
-        int[] data, int elementCount);
+        nint[] data, int elementCount);
 
     [DllImport("libX11.so.6")]
     public static extern nint XBlackPixel(nint display, int screenNumber);
