@@ -131,6 +131,67 @@ public enum XsrUiSemanticRole
     NavigationItem = 11,
     Content = 12,
     TextInput = 13,
+    /// <summary>A non-modal status announcement that remains independently dismissible.</summary>
+    Status = 14,
+}
+
+/// <summary>Backend-neutral live-region urgency for accessibility announcements.</summary>
+public enum XsrUiLiveSetting
+{
+    Off = 0,
+    Polite = 1,
+    Assertive = 2,
+}
+
+/// <summary>
+/// Marks one semantic node as an accessibility live region. Backends map the setting to their
+/// native automation bridge; the renderer does not announce through a platform API itself.
+/// </summary>
+public sealed class XsrUiLiveRegion(XsrUiLiveSetting setting)
+{
+    public XsrUiLiveSetting Setting { get; set; } = setting;
+}
+
+/// <summary>
+/// Marks a child as out-of-flow overlay content. Stack parents ignore marked children while
+/// measuring their normal flow and arrange them against the complete content rectangle.
+/// </summary>
+public sealed class XsrUiOverlayLayer(bool isModal = false)
+{
+    /// <summary>
+    /// Modal layers suppress earlier siblings from input and accessibility traversal while
+    /// their full-window root continues to intercept pointer input.
+    /// </summary>
+    public bool IsModal { get; set; } = isModal;
+}
+
+/// <summary>The physical presentation family used by a window-internal overlay subtree.</summary>
+public enum XsrUiOverlayMotionKind
+{
+    None = 0,
+    Notification = 1,
+    DialogScrim = 2,
+    Dialog = 3,
+}
+
+/// <summary>
+/// Declares an interruptible overlay enter/exit track. The fact propagates to descendants in
+/// the immutable scene so a backend can move the whole visual group around one shared anchor.
+/// </summary>
+public sealed class XsrUiOverlayMotion(XsrUiOverlayMotionKind kind)
+{
+    public XsrUiOverlayMotionKind Kind { get; set; } = kind;
+
+    public bool IsClosing { get; set; }
+}
+
+/// <summary>
+/// Semantic cancel route for the active modal overlay. Escape invokes this through the same
+/// intent sink as a visible secondary button.
+/// </summary>
+public sealed class XsrUiDismissBinding(XsrSemanticId command)
+{
+    public XsrSemanticId Command { get; set; } = command;
 }
 
 /// <summary>
@@ -340,4 +401,5 @@ public enum XsrUiKey
     Back = 4,
     Up = 5,
     Down = 6,
+    Escape = 7,
 }

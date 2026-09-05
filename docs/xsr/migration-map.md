@@ -99,6 +99,7 @@ PXML vertical slices continue over the shared shell.
 | XSR-705 | `0b3bd472` + `9098384c` + `fb700ab3` + `79b2d261` | historical launch-page vertical slice: PXML/state-bound legacy Experimental layout parity and destination navigation; its temporary direct `minecraft.launch` flow is superseded by XSR-706 |
 | XSR-706 | `5a483cf4` + `ec2ba7f3` + `ba9de495` + `56ee0d2a` + `d8bb07d0` | launch acceptance closure: Desktop emits `minecraft.start` with instance/account identity only; Services resolves inheritance, platform, account, Java and settings; Desktop owns generation-safe projection state; PXML `Key` is separated from dynamic accessible `Label`; managed, NativeAOT, trimming, architecture, formatting and benchmark gates pass |
 | XSR-712 | follow-up | defer LiquidGlass: Experimental-only product style, no alternate palette or style-toggle activation; preserve independent motion and capsule controls |
+| XSR-714 | follow-up | in-window feedback: lower-left Info/Warn/Error notifications with fixed lifetimes and manual dismissal; modal PXML dialogs; Java acquisition confirmation migration |
 
 ## Closed migration unit
 

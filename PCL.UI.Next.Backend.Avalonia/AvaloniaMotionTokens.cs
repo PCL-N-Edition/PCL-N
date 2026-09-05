@@ -61,6 +61,15 @@ internal static class AvaloniaMotionTokens
     public const double ContentSpringResponseSeconds = .32;
     public const double PagerSpringResponseSeconds = .34;
 
+    /// <summary>Window-internal notices lift without overshoot and remain interruptible.</summary>
+    public const double NotificationSpringResponseSeconds = .3;
+
+    /// <summary>Modal material settles slightly more deliberately than a small notice.</summary>
+    public const double DialogSpringResponseSeconds = .34;
+
+    /// <summary>Existing notices retain their presented position while the stack reflows.</summary>
+    public const double NotificationReflowSpringResponseSeconds = .32;
+
     /// <summary>
     /// The launch progress fill catches up to its state target with a smooth ease-out per
     /// target change, mirroring the legacy incremental catch-up cadence.

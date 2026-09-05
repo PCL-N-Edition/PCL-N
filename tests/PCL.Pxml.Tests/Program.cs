@@ -22,6 +22,7 @@ internal static partial class Program
         ("document-level comments are accepted", DocumentLevelCommentsAreAccepted),
         // XSR-208: PXML to UI.Next IR compilation.
         ("generated control catalog is complete and deterministic", GeneratedControlCatalogIsCompleteAndDeterministic),
+        ("notification and dialog compile as first-class semantic controls", CompileFeedbackSurfaceControls),
         ("vertical pager compiles loads and routes keyboard pages", VerticalPagerCompilesLoadsAndRoutesKeyboardPages),
         ("text input drafts never expose passwords", TextInputDraftsNeverExposePasswords),
         ("transition groups carry bound content keys", TransitionGroupsCarryTheirBoundContentKey),

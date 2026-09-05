@@ -54,6 +54,8 @@ internal static partial class Program
         ("navigator push pop and replace swap pages", Sync(NavigatorPushPopAndReplaceSwapPages)),
         ("navigator rejects unknown pages", Sync(NavigatorRejectsUnknownPages)),
         ("stage overlays draw above page", Sync(StageOverlaysDrawAbovePage)),
+        ("stage overlays stay out of stack flow and carry motion anchors", Sync(StageOverlaysStayOutOfStackFlow)),
+        ("modal overlays isolate page input and escape emits their dismiss route", Sync(ModalOverlaysIsolatePageAndRouteEscape)),
         ("stage dismiss removes top overlay", Sync(StageDismissRemovesTopOverlay)),
         ("stage navigation swaps page content", Sync(StageNavigationSwapsPageContent)),
         ("reduced motion is a presentation contract flag", Sync(ReducedMotionIsAPresentationContractFlag)),

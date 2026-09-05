@@ -7,7 +7,7 @@ internal static partial class Program
     private static void GeneratedControlCatalogIsCompleteAndDeterministic()
     {
         AssertSequence(
-            ["Page", "StackPanel", "Text", "Button", "Image", "Shell", "TitleBar", "Navigation", "NavigationItem", "ContentHost", "VerticalPager", "TextInput", "Progress"],
+            ["Page", "StackPanel", "Text", "Button", "Image", "Shell", "TitleBar", "Navigation", "NavigationItem", "ContentHost", "VerticalPager", "TextInput", "Progress", "Notification", "Dialog"],
             PxmlControlCatalog.Names.ToArray());
         AssertEqual(1, (int)PxmlIrNodeKind.Page);
         AssertEqual(2, (int)PxmlIrNodeKind.StackPanel);
@@ -22,11 +22,36 @@ internal static partial class Program
         AssertEqual(11, (int)PxmlIrNodeKind.VerticalPager);
         AssertEqual(12, (int)PxmlIrNodeKind.TextInput);
         AssertEqual(13, (int)PxmlIrNodeKind.Progress);
+        AssertEqual(14, (int)PxmlIrNodeKind.Notification);
+        AssertEqual(15, (int)PxmlIrNodeKind.Dialog);
 
         if (PxmlControlCatalog.Names is IList<string> names)
         {
             AssertThrows<NotSupportedException>(() => names[0] = "Mutated");
         }
+    }
+
+    private static void CompileFeedbackSurfaceControls()
+    {
+        PxmlHostIr notification = Compile("""
+            <Notification xmlns="N" Key="notice" Label="Info notification" Orientation="Horizontal">
+              <Text Content="Saved" />
+            </Notification>
+            """);
+        AssertEqual(PxmlIrNodeKind.Notification, notification.Root.Kind);
+        AssertEqual(PxmlRuntimeRecipe.StackLayout, notification.Root.Recipe);
+        AssertEqual(XsrUiSemanticRole.Status, notification.Root.Role);
+        AssertEqual("Info notification", notification.Root.Label);
+
+        PxmlHostIr dialog = Compile("""
+            <Dialog xmlns="N" Key="dialog" Label="Confirm" Orientation="Vertical">
+              <Button Label="Continue" Command="dialog.accept" />
+            </Dialog>
+            """);
+        AssertEqual(PxmlIrNodeKind.Dialog, dialog.Root.Kind);
+        AssertEqual(PxmlRuntimeRecipe.StackLayout, dialog.Root.Recipe);
+        AssertEqual(XsrUiSemanticRole.Dialog, dialog.Root.Role);
+        AssertEqual("Confirm", dialog.Root.Label);
     }
 
     private static void CompileSimplePage()

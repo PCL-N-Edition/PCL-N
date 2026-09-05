@@ -41,7 +41,7 @@ public sealed class PxmlControlCatalogGenerator : IIncrementalGenerator
     private static readonly HashSet<string> Roles = new(StringComparer.Ordinal)
     {
         "None", "Text", "Button", "Page", "List", "ListItem", "Image", "ProgressBar", "Dialog",
-        "TitleBar", "Navigation", "NavigationItem", "Content", "TextInput",
+        "TitleBar", "Navigation", "NavigationItem", "Content", "TextInput", "Status",
     };
 
     private static readonly HashSet<string> ValueKinds = new(StringComparer.Ordinal)

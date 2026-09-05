@@ -57,7 +57,11 @@ public readonly record struct XsrUiSceneNode(
     double PresentationOpacity = 1,
     double TransitionPresentedOffsetY = 0,
     int TransitionEntryOrder = -1,
-    double? Progress = null)
+    double? Progress = null,
+    XsrUiLiveSetting LiveSetting = XsrUiLiveSetting.Off,
+    XsrUiOverlayMotionKind OverlayMotion = XsrUiOverlayMotionKind.None,
+    bool IsOverlayClosing = false,
+    XsrUiRect? OverlayAnchor = null)
 {
     public bool HasRole => Role != XsrUiSemanticRole.None;
 }

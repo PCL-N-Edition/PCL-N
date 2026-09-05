@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Automation.Peers;
 using Avalonia.Automation.Provider;
 using Avalonia.Controls;
@@ -25,6 +26,7 @@ internal static partial class Program
         ("selection and hover facts present under reduced motion", SelectionAndHoverFactsPresentUnderReducedMotion),
         ("capsules respond to focus press and disabled state", CapsulesRespondToFocusPressAndDisabledState),
         ("capsule spring is no bounce and preserves reversal velocity", CapsuleSpringPreservesReversalVelocity),
+        ("feedback overlays expose live semantics and honor reduced motion", FeedbackOverlaysExposeLiveSemanticsAndReducedMotion),
         ("lifetime: splash never owns the process and main window close terminates", LifetimeSplashNeverOwnsProcessAndMainWindowCloseTerminates),
     ];
 
@@ -133,6 +135,39 @@ internal static partial class Program
         selectedItem.Select();
         AssertEqual(1, invokeCount);
         AssertEqual(0, focusCount);
+    }
+
+    private static void FeedbackOverlaysExposeLiveSemanticsAndReducedMotion()
+    {
+        XsrUiTree tree = new();
+        AvaloniaUiSceneNodeControl control = new(_ => { }, _ => { }, reducedMotion: () => true);
+        XsrUiSceneNode info = Node(tree.Create("info"), XsrUiSemanticRole.Status) with
+        {
+            Label = "Info: ready",
+            LiveSetting = XsrUiLiveSetting.Polite,
+            OverlayMotion = XsrUiOverlayMotionKind.Notification,
+            OverlayAnchor = new XsrUiRect(0, 0, 360, 76),
+        };
+
+        control.Apply(info);
+        AssertEqual(AutomationLiveSetting.Polite, AutomationProperties.GetLiveSetting(control));
+        AssertEqual("Info: ready", AutomationProperties.GetItemStatus(control));
+        AssertEqual(1d, control.PresentedOverlayProgress);
+        AssertEqual(0d, control.PresentedOverlayTranslationY);
+
+        control.Apply(info with { IsOverlayClosing = true });
+        AssertEqual(0d, control.PresentedOverlayProgress);
+        AssertTrue(control.PresentedOverlayTranslationY > 0);
+
+        XsrUiSceneNode dialog = Node(tree.Create("dialog"), XsrUiSemanticRole.Dialog) with
+        {
+            LiveSetting = XsrUiLiveSetting.Assertive,
+            OverlayMotion = XsrUiOverlayMotionKind.Dialog,
+            OverlayAnchor = new XsrUiRect(0, 0, 440, 238),
+        };
+        control.Apply(dialog);
+        AssertEqual(AutomationLiveSetting.Assertive, AutomationProperties.GetLiveSetting(control));
+        AssertEqual(1d, control.PresentedOverlayProgress);
     }
 
     private static void CapsuleSpringPreservesReversalVelocity()

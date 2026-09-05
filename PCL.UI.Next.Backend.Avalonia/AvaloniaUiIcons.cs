@@ -32,6 +32,8 @@ internal static class AvaloniaUiIcons
         ["lucide/shirt"] = ["M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"],
         ["lucide/arrow-right-left"] = ["M8 3 4 7l4 4", "M4 7h16", "m16 21 4-4-4-4", "M20 17H4"],
         ["lucide/info"] = ["M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20", "M12 11v6", "M12 7h.01"],
+        ["lucide/triangle-alert"] = ["M21.73 18 13.73 4a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3", "M12 9v4", "M12 17h.01"],
+        ["lucide/circle-x"] = ["M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0", "m15 9-6 6", "m9 9 6 6"],
         ["lucide/chevron-up"] = ["m18 15-6-6-6 6"],
         ["lucide/chevron-down"] = ["m6 9 6 6 6-6"],
         ["lucide/arrow-left"] = ["m12 19-7-7 7-7", "M5 12h14"],

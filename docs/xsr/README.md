@@ -73,6 +73,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-706-launch-orchestration-and-ui-state.md](migrations/XSR-706-launch-orchestration-and-ui-state.md) — product-level launch orchestration, Desktop-owned projection state, generation-safe discovery, and PXML key/accessibility separation
 - [migrations/XSR-712-defer-liquid-glass.md](migrations/XSR-712-defer-liquid-glass.md) — Experimental-only product style; defer the alternate visual redesign while preserving motion and capsule controls
 - [migrations/XSR-713-diagnostic-breadcrumbs.md](migrations/XSR-713-diagnostic-breadcrumbs.md) — English operation/stage logs, early startup capture, complete production router observation and credential-safe diagnostics
+- [migrations/XSR-714-in-window-feedback.md](migrations/XSR-714-in-window-feedback.md) — window-internal lower-left notification service, modal PXML dialogs, accessibility/motion contract, and Java acquisition confirmation migration
 
 ## Decision process
 

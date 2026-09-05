@@ -292,6 +292,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
             Key.Space => XsrUiKey.Space,
             Key.Up => XsrUiKey.Up,
             Key.Down => XsrUiKey.Down,
+            Key.Escape => XsrUiKey.Escape,
             _ => null,
         };
         if (key is { } routed && _shell.Renderer.HandleKey(routed))
@@ -637,11 +638,19 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
             nameof(EnterProgress),
             defaultValue: 1);
 
+    private static readonly StyledProperty<double> OverlayProgressProperty =
+        AvaloniaProperty.Register<AvaloniaUiSceneNodeControl, double>(
+            nameof(OverlayProgress),
+            defaultValue: 1);
+
     private readonly Action<XsrUiEntityId> _focusFromAutomation;
     private readonly Action<XsrUiEntityId> _invokeFromAutomation;
     private readonly Func<bool> _reducedMotion;
     private readonly ScaleTransform _pressScale = new(1, 1);
     private readonly ScaleTransform _enterScale = new(1, 1);
+    private readonly ScaleTransform _overlayScale = new(1, 1);
+    private readonly TranslateTransform _overlayTranslate = new();
+    private readonly TranslateTransform _reflowTranslate = new();
     private readonly List<AvaloniaUiSceneNodeControl> _selectionItems = [];
     private XsrUiSceneNode _node;
     private AvaloniaUiSceneNodeControl? _selectionContainer;
@@ -660,7 +669,10 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
         UseLayoutRounding = false;
         FocusAdorner = null;
         ClipToBounds = true;
-        RenderTransform = new TransformGroup { Children = { _enterScale, _pressScale } };
+        RenderTransform = new TransformGroup
+        {
+            Children = { _overlayScale, _enterScale, _pressScale, _overlayTranslate, _reflowTranslate },
+        };
         RenderTransformOrigin = RelativePoint.Center;
         InitializeTextInput(textInputActions);
     }
@@ -683,9 +695,19 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
         set => SetValue(EnterProgressProperty, value);
     }
 
+    private double OverlayProgress
+    {
+        get => GetValue(OverlayProgressProperty);
+        set => SetValue(OverlayProgressProperty, value);
+    }
+
     internal double PresentedHoverOpacity => HoverOpacity;
 
     internal double PresentedPillScale => PillScale;
+
+    internal double PresentedOverlayProgress => OverlayProgress;
+
+    internal double PresentedOverlayTranslationY => _overlayTranslate.Y;
 
     internal double PresentedEnterProgress => EnterProgress;
 
@@ -717,6 +739,15 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
             $"xsr-{node.Entity.Index}-{node.Entity.Generation}"));
         AutomationProperties.SetControlTypeOverride(this, ControlTypeFor(node.Role, node.IsClickable));
         AutomationProperties.SetHelpText(this, node.IsSelected ? "selected" : node.Role.ToString());
+        AutomationProperties.SetItemStatus(this, node.Role == XsrUiSemanticRole.Status
+            ? node.Label ?? node.Text ?? "Status"
+            : string.Empty);
+        AutomationProperties.SetLiveSetting(this, node.LiveSetting switch
+        {
+            XsrUiLiveSetting.Polite => AutomationLiveSetting.Polite,
+            XsrUiLiveSetting.Assertive => AutomationLiveSetting.Assertive,
+            _ => AutomationLiveSetting.Off,
+        });
         AutomationProperties.SetIsControlElementOverride(this,
             node.IsAccessible && (node.HasRole || node.IsFocusable || node.IsClickable));
         AutomationProperties.SetAccessibilityView(this,
@@ -780,6 +811,8 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
             SetPressScale(scale);
         }
 
+        ApplyOverlayPresentation(previous, node);
+
         _applied = true;
         InvalidateVisual();
     }
@@ -832,6 +865,120 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
     }
 
     /// <summary>
+    /// Materializes one in-window overlay from the currently presented value. Every member of
+    /// the overlay subtree carries the same scene anchor, so the native flat control list still
+    /// moves and scales as one physical group. A retarget preserves the current value/velocity.
+    /// </summary>
+    private void ApplyOverlayPresentation(XsrUiSceneNode previous, XsrUiSceneNode node)
+    {
+        if (node.OverlayMotion == XsrUiOverlayMotionKind.None)
+        {
+            AvaloniaUiMotion.Cancel(this, OverlayProgressProperty);
+            AvaloniaUiMotion.Cancel(this, "notification-reflow");
+            OverlayProgress = 1;
+            _overlayScale.ScaleX = 1;
+            _overlayScale.ScaleY = 1;
+            _overlayTranslate.X = 0;
+            _overlayTranslate.Y = 0;
+            _reflowTranslate.X = 0;
+            _reflowTranslate.Y = 0;
+            return;
+        }
+
+        bool newTrack = !_applied || previous.OverlayMotion != node.OverlayMotion;
+        if (newTrack)
+        {
+            OverlayProgress = node.IsOverlayClosing ? 1 : 0;
+            AnimateOverlayProgress(node.IsOverlayClosing ? 0 : 1, node.OverlayMotion);
+        }
+        else if (previous.IsOverlayClosing != node.IsOverlayClosing)
+        {
+            AnimateOverlayProgress(node.IsOverlayClosing ? 0 : 1, node.OverlayMotion);
+        }
+
+        if (!newTrack
+            && !node.IsOverlayClosing
+            && node.OverlayMotion == XsrUiOverlayMotionKind.Notification
+            && previous.OverlayAnchor is { } previousAnchor
+            && node.OverlayAnchor is { } currentAnchor
+            && Math.Abs(previousAnchor.Y - currentAnchor.Y) > .01)
+        {
+            _reflowTranslate.Y += previousAnchor.Y - currentAnchor.Y;
+            AvaloniaUiMotion.AnimateSpring(
+                this,
+                "notification-reflow",
+                () => _reflowTranslate.Y,
+                value => _reflowTranslate.Y = value,
+                0,
+                AvaloniaMotionTokens.NotificationReflowSpringResponseSeconds,
+                () => _reducedMotion(),
+                readCurrentPosition: true);
+        }
+
+        ApplyOverlayTransform();
+    }
+
+    private void AnimateOverlayProgress(double target, XsrUiOverlayMotionKind kind)
+    {
+        if (kind == XsrUiOverlayMotionKind.DialogScrim)
+        {
+            AnimateFact(
+                OverlayProgressProperty,
+                target,
+                target > OverlayProgress ? 180 : 150,
+                target > OverlayProgress ? AvaloniaUiMotion.EaseOut : AvaloniaUiMotion.EaseIn);
+            return;
+        }
+
+        double response = kind == XsrUiOverlayMotionKind.Dialog
+            ? AvaloniaMotionTokens.DialogSpringResponseSeconds
+            : AvaloniaMotionTokens.NotificationSpringResponseSeconds;
+        AvaloniaUiMotion.AnimateSpring(
+            this,
+            OverlayProgressProperty,
+            () => OverlayProgress,
+            value => OverlayProgress = value,
+            target,
+            response,
+            () => _reducedMotion(),
+            readCurrentPosition: true);
+    }
+
+    private void ApplyOverlayTransform()
+    {
+        double progress = Math.Clamp(OverlayProgress, 0, 1);
+        double startScale = _node.OverlayMotion switch
+        {
+            XsrUiOverlayMotionKind.Notification => .985,
+            XsrUiOverlayMotionKind.Dialog => .97,
+            _ => 1,
+        };
+        double scale = startScale + ((1 - startScale) * progress);
+        _overlayScale.ScaleX = scale;
+        _overlayScale.ScaleY = scale;
+
+        double translateX = 0;
+        double translateY = _node.OverlayMotion switch
+        {
+            XsrUiOverlayMotionKind.Notification => 10 * (1 - progress),
+            XsrUiOverlayMotionKind.Dialog => 8 * (1 - progress),
+            _ => 0,
+        };
+        if (_node.OverlayAnchor is { } anchor && scale != 1)
+        {
+            double anchorCenterX = anchor.X + (anchor.Width / 2);
+            double anchorCenterY = anchor.Y + (anchor.Height / 2);
+            double nodeCenterX = _node.Rect.X + (_node.Rect.Width / 2);
+            double nodeCenterY = _node.Rect.Y + (_node.Rect.Height / 2);
+            translateX += (anchorCenterX - nodeCenterX) * (1 - scale);
+            translateY += (anchorCenterY - nodeCenterY) * (1 - scale);
+        }
+
+        _overlayTranslate.X = translateX;
+        _overlayTranslate.Y = translateY;
+    }
+
+    /// <summary>
     /// Presents one scene-fact value, animating from its currently presented value. Reduced
     /// motion applies the fact immediately.
     /// </summary>
@@ -881,8 +1028,14 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
         base.OnPropertyChanged(e);
         if (e.Property == HoverOpacityProperty
             || e.Property == PillScaleProperty
-            || e.Property == EnterProgressProperty)
+            || e.Property == EnterProgressProperty
+            || e.Property == OverlayProgressProperty)
         {
+            if (e.Property == OverlayProgressProperty)
+            {
+                ApplyOverlayTransform();
+            }
+
             InvalidateVisual();
         }
     }
@@ -918,7 +1071,9 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
         base.Render(context);
         Rect rect = new(Bounds.Size);
         XsrUiVisualStyleSnapshot style = _node.VisualStyle;
-        double enter = EnterProgress;
+        double enter = EnterProgress * (_node.OverlayMotion == XsrUiOverlayMotionKind.None
+            ? 1
+            : Math.Clamp(OverlayProgress, 0, 1));
 
         // Disabled nodes keep their layout and draw dimmed, so position and hit routing stay
         // stable while the state reads as unavailable.
@@ -1233,6 +1388,7 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
         XsrUiSemanticRole.Image => AutomationControlType.Image,
         XsrUiSemanticRole.ProgressBar => AutomationControlType.ProgressBar,
         XsrUiSemanticRole.Dialog => AutomationControlType.Window,
+        XsrUiSemanticRole.Status => AutomationControlType.Text,
         XsrUiSemanticRole.Content => AutomationControlType.Pane,
         _ when clickable => AutomationControlType.Button,
         _ => AutomationControlType.Custom,

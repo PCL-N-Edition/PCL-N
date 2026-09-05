@@ -77,7 +77,7 @@ public sealed class XsrUiStage
     /// <summary>
     /// Shows one overlay above every current overlay and the page.
     /// </summary>
-    public void Show(XsrUiEntityId overlay)
+    public void Show(XsrUiEntityId overlay, bool modal = false)
     {
         if (!_tree.IsAlive(overlay))
         {
@@ -85,6 +85,7 @@ public sealed class XsrUiStage
         }
 
         _tree.Detach(overlay);
+        _tree.SetComponent(overlay, new XsrUiOverlayLayer(modal));
         _tree.Attach(overlay, Root);
         _overlays.Add(overlay);
     }
@@ -97,6 +98,7 @@ public sealed class XsrUiStage
         if (_overlays.Remove(overlay))
         {
             _tree.Detach(overlay);
+            _tree.SetComponent<XsrUiOverlayLayer>(overlay, null);
             return true;
         }
 
@@ -116,6 +118,7 @@ public sealed class XsrUiStage
         XsrUiEntityId top = _overlays[^1];
         _overlays.RemoveAt(_overlays.Count - 1);
         _tree.Detach(top);
+        _tree.SetComponent<XsrUiOverlayLayer>(top, null);
         return true;
     }
 

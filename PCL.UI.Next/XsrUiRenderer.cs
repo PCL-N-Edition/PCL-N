@@ -283,7 +283,7 @@ public sealed partial class XsrUiRenderer
             int children = 0;
             foreach (XsrUiEntityId child in _tree.Children(entity))
             {
-                if (!IsVisible(child))
+                if (!IsVisible(child) || _tree.GetComponent<XsrUiOverlayLayer>(child) is not null)
                 {
                     continue;
                 }
@@ -461,7 +461,8 @@ public sealed partial class XsrUiRenderer
         double crossAvailable = stack.Direction == XsrUiOrientation.Vertical ? contentWidth : contentHeight;
         double crossOrigin = stack.Direction == XsrUiOrientation.Vertical ? contentX : contentY;
         double crossScroll = stack.Direction == XsrUiOrientation.Vertical ? scrollX : scrollY;
-        XsrUiEntityId[] visibleChildren = [.. _tree.Children(entity).Where(IsVisible)];
+        XsrUiEntityId[] visibleChildren = [.. _tree.Children(entity)
+            .Where(child => IsVisible(child) && _tree.GetComponent<XsrUiOverlayLayer>(child) is null)];
         double availableMain = stack.Direction == XsrUiOrientation.Vertical ? contentHeight : contentWidth;
         Dictionary<int, double> weightedMainSizes = AllocateWeightedMainSizes(
             stack.Direction,
@@ -513,6 +514,14 @@ public sealed partial class XsrUiRenderer
             Layout(child, childSlot);
             cursor += childMain + stack.Spacing;
             consumedMain += childMain + stack.Spacing;
+        }
+
+        // Overlay children never participate in stack flow. They receive the parent's complete
+        // content rectangle so their own alignment and margins anchor them inside the window.
+        foreach (XsrUiEntityId overlay in _tree.Children(entity).Where(child =>
+                     IsVisible(child) && _tree.GetComponent<XsrUiOverlayLayer>(child) is not null))
+        {
+            Layout(overlay, new XsrUiRect(contentX, contentY, contentWidth, contentHeight));
         }
     }
 
@@ -927,8 +936,34 @@ public sealed partial class XsrUiRenderer
             XsrUiKey.Enter or XsrUiKey.Space => _focused.IsAssigned && Activate(_focused),
             XsrUiKey.Up => MovePager(FindPager(_focused), -1),
             XsrUiKey.Down => MovePager(FindPager(_focused), 1),
+            XsrUiKey.Escape => DismissActiveOverlay(),
             _ => false,
         };
+    }
+
+    private bool DismissActiveOverlay()
+    {
+        if (_scene is null || _sink is null)
+        {
+            return false;
+        }
+
+        for (int index = _scene.Count - 1; index >= 0; index--)
+        {
+            XsrUiSceneNode node = _scene[index];
+            XsrUiDismissBinding? binding = node.IsAccessible
+                ? _tree.GetComponent<XsrUiDismissBinding>(node.Entity)
+                : null;
+            if (binding is null || !binding.Command.IsAssigned)
+            {
+                continue;
+            }
+
+            _sink.Emit(binding.Command, node.Entity, XsrCorrelationId.Create());
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -973,9 +1008,32 @@ public sealed partial class XsrUiRenderer
             if (!IsVisible(entity)) return false;
             if (entity == _root) return true;
             XsrUiEntityId parent = _tree.Parent(entity);
-            if (parent.IsAssigned && _tree.GetComponent<XsrUiPager>(parent) is { } pager
-                && _tree.Children(parent).Where(IsVisible).ElementAtOrDefault(pager.PageIndex) != entity)
-                return false;
+            if (parent.IsAssigned)
+            {
+                XsrUiEntityId[] visibleSiblings = [.. _tree.Children(parent).Where(IsVisible)];
+                if (_tree.GetComponent<XsrUiPager>(parent) is { } pager
+                    && visibleSiblings.ElementAtOrDefault(pager.PageIndex) != entity)
+                {
+                    return false;
+                }
+
+                // A modal overlay is a structural input barrier as soon as it is staged. This
+                // protects direct activation/focus and automation calls too, including the frame
+                // before the newly attached overlay has entered the immutable scene.
+                int entityIndex = Array.IndexOf(visibleSiblings, entity);
+                int modalIndex = -1;
+                for (int index = 0; index < visibleSiblings.Length; index++)
+                {
+                    if (_tree.GetComponent<XsrUiOverlayLayer>(visibleSiblings[index])?.IsModal == true)
+                    {
+                        modalIndex = index;
+                    }
+                }
+                if (modalIndex >= 0 && entityIndex >= 0 && entityIndex < modalIndex)
+                {
+                    return false;
+                }
+            }
             entity = parent;
         }
         return false;
@@ -1004,7 +1062,9 @@ public sealed partial class XsrUiRenderer
     }
 
     private void CollectNode(XsrUiEntityId entity, int depth, List<XsrUiSceneNode> nodes,
-        XsrUiRect? clip = null, bool accessible = true, double offsetX = 0, double offsetY = 0, double opacity = 1)
+        XsrUiRect? clip = null, bool accessible = true, double offsetX = 0, double offsetY = 0,
+        double opacity = 1, XsrUiOverlayMotionKind overlayMotion = XsrUiOverlayMotionKind.None,
+        bool overlayClosing = false, XsrUiRect? overlayAnchor = null)
     {
         if (!IsVisible(entity))
         {
@@ -1036,6 +1096,12 @@ public sealed partial class XsrUiRenderer
                 rect = rect with { X = rect.X + transition.PresentedOffsetX, Y = rect.Y + transition.PresentedOffsetY };
                 clip = clip is { } outer ? Intersect(bounds, outer) : bounds;
             }
+        }
+        if (_tree.GetComponent<XsrUiOverlayMotion>(entity) is { } localOverlayMotion)
+        {
+            overlayMotion = localOverlayMotion.Kind;
+            overlayClosing = localOverlayMotion.IsClosing;
+            overlayAnchor = rect;
         }
         XsrUiVisualStyle? visualStyle = _tree.GetComponent<XsrUiVisualStyle>(entity);
         XsrUiSelection? selection = _tree.GetComponent<XsrUiSelection>(entity);
@@ -1090,7 +1156,11 @@ public sealed partial class XsrUiRenderer
             image?.Raster,
             transitionKey, transition?.OffsetX ?? 0, transition?.PresentedOffsetX ?? 0,
             transition?.OffsetY ?? 0, opacity, transition?.PresentedOffsetY ?? 0, entryOrder,
-            _tree.GetComponent<XsrUiProgress>(entity)?.Presented));
+            _tree.GetComponent<XsrUiProgress>(entity)?.Presented,
+            _tree.GetComponent<XsrUiLiveRegion>(entity)?.Setting ?? XsrUiLiveSetting.Off,
+            overlayMotion,
+            overlayClosing,
+            overlayAnchor));
 
         XsrUiPager? pageContainer = _tree.GetComponent<XsrUiPager>(entity);
         XsrUiRect? childClip = transition is { MovesSelf: false, OffsetX: not 0 } or { MovesSelf: false, OffsetY: not 0 }
@@ -1103,11 +1173,25 @@ public sealed partial class XsrUiRenderer
             offsetY += transition.PresentedOffsetY;
         }
 
-        int pageIndex = 0;
-        foreach (XsrUiEntityId child in _tree.Children(entity).Where(IsVisible))
+        XsrUiEntityId[] children = [.. _tree.Children(entity).Where(IsVisible)];
+        int modalIndex = -1;
+        for (int index = 0; index < children.Length; index++)
         {
+            if (_tree.GetComponent<XsrUiOverlayLayer>(children[index])?.IsModal == true)
+            {
+                modalIndex = index;
+            }
+        }
+
+        int pageIndex = 0;
+        for (int index = 0; index < children.Length; index++)
+        {
+            XsrUiEntityId child = children[index];
             CollectNode(child, depth + 1, nodes, childClip,
-                accessible && (pageContainer is null || pageContainer.PageIndex == pageIndex), offsetX, offsetY, opacity);
+                accessible
+                && (pageContainer is null || pageContainer.PageIndex == pageIndex)
+                && (modalIndex < 0 || index >= modalIndex),
+                offsetX, offsetY, opacity, overlayMotion, overlayClosing, overlayAnchor);
             pageIndex++;
         }
     }

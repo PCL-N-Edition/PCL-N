@@ -333,6 +333,80 @@ internal static partial class Program
         AssertSequence(new[] { dialog }, stage.Overlays.ToArray());
     }
 
+    private static void StageOverlaysStayOutOfStackFlow()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiStage stage = new(tree, store);
+        tree.SetComponent(stage.Root, new XsrUiStackPanel(XsrUiOrientation.Vertical)
+        {
+            StretchLastChild = true,
+        });
+
+        XsrUiEntityId page = BuildPage(tree, "page");
+        stage.Navigation.Push(page);
+        XsrUiEntityId notification = tree.Create("notification");
+        tree.SetComponent(notification, new XsrUiElement
+        {
+            Width = 100,
+            Height = 30,
+            HorizontalAlignment = XsrUiAlignment.Start,
+            VerticalAlignment = XsrUiAlignment.End,
+        });
+        tree.SetComponent(notification, new XsrUiSemantic(XsrUiSemanticRole.Status, "Info: saved"));
+        tree.SetComponent(notification, new XsrUiLiveRegion(XsrUiLiveSetting.Polite));
+        tree.SetComponent(notification, new XsrUiOverlayMotion(XsrUiOverlayMotionKind.Notification));
+        XsrUiEntityId message = tree.Create("notification-message");
+        tree.SetComponent(message, new XsrUiText("saved"));
+        tree.Attach(message, notification);
+        stage.Show(notification);
+
+        XsrUiScene scene = stage.Renderer.Render();
+        XsrUiSceneNode host = scene.Nodes.Single(node => node.Entity == stage.ContentHost);
+        XsrUiSceneNode notice = scene.Nodes.Single(node => node.Entity == notification);
+        XsrUiSceneNode copy = scene.Nodes.Single(node => node.Entity == message);
+        AssertClose(600, host.Rect.Height);
+        AssertEqual(new XsrUiRect(0, 570, 100, 30), notice.Rect);
+        AssertEqual(XsrUiLiveSetting.Polite, notice.LiveSetting);
+        AssertEqual(XsrUiOverlayMotionKind.Notification, notice.OverlayMotion);
+        AssertEqual(XsrUiOverlayMotionKind.Notification, copy.OverlayMotion);
+        AssertEqual<XsrUiRect?>(notice.Rect, copy.OverlayAnchor);
+    }
+
+    private static void ModalOverlaysIsolatePageAndRouteEscape()
+    {
+        XsrUiTree tree = new();
+        XsrStateStore store = new XsrStateStoreBuilder().Build();
+        XsrUiIntentBuffer intents = new();
+        XsrUiStage stage = new(tree, store, intents);
+        XsrUiEntityId page = tree.Create("page-action");
+        tree.SetComponent(page, new XsrUiElement { Width = 120, Height = 40 });
+        tree.SetComponent(page, new XsrUiSemantic(XsrUiSemanticRole.Button, "Page action"));
+        tree.SetComponent(page, new XsrUiInput { Clickable = true, Focusable = true });
+        tree.SetComponent(page, new XsrUiCommandBinding("page.activate".AsXsrId()));
+        stage.Navigation.Push(page);
+        _ = stage.Renderer.Render();
+        AssertTrue(stage.Renderer.Focus(page, showIndicator: true));
+
+        XsrUiEntityId dialog = tree.Create("dialog-layer");
+        tree.SetComponent(dialog, new XsrUiSemantic(XsrUiSemanticRole.Dialog, "Confirm"));
+        tree.SetComponent(dialog, new XsrUiDismissBinding("dialog.cancel".AsXsrId()));
+        stage.Show(dialog, modal: true);
+
+        XsrUiScene scene = stage.Renderer.Render();
+        XsrUiSceneNode pageNode = scene.Nodes.Single(node => node.Entity == page);
+        XsrUiSceneNode dialogNode = scene.Nodes.Single(node => node.Entity == dialog);
+        AssertFalse(pageNode.IsAccessible);
+        AssertFalse(pageNode.IsClickable);
+        AssertTrue(dialogNode.IsAccessible);
+        AssertFalse(stage.Renderer.Activate(page));
+        AssertTrue(stage.Renderer.HandleKey(XsrUiKey.Escape));
+        AssertEqual(1, intents.Count);
+        var intent = intents.Drain().Single();
+        AssertEqual("dialog.cancel", intent.Command.ToString());
+        AssertEqual(dialog, intent.Source);
+    }
+
     private static void StageDismissRemovesTopOverlay()
     {
         XsrUiTree tree = new();
