@@ -12,6 +12,13 @@ public enum MinecraftLaunchIdentityMode
     ThirdParty,
 }
 
+/// <summary>The resolved identity a launch pipeline runs the game with.</summary>
+public sealed record MinecraftLaunchIdentity(
+    string PlayerName,
+    string PlayerUuid,
+    string AccessToken,
+    MinecraftLaunchIdentityMode Mode);
+
 public sealed record MinecraftLaunchRequest
 {
     public required JsonObject VersionJson { get; init; }

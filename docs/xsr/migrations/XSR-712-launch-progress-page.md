@@ -80,6 +80,45 @@ flow reads better as a dedicated page.
 - Log messages are English-only (review rule): services log facts in English, the desktop
   controller owns the Chinese display strings.
 
+## Review round 3 (W7 review): render-thread boundary and pipeline integrity
+
+- P0 render-thread containment: the launching page closes through the frame boundary. Any
+  thread (process-exit state publication, dispatch continuations after
+  `ConfigureAwait(false)`) may only raise the pending-close flag; `OnFramePreparing` — the
+  render-thread hook — drains it and performs the navigation-pop/tree/focus mutations, the
+  same edge the feedback presenter uses. Tests pump frames (`Render` raises
+  `FramePreparing`) to drive the drain.
+- Offline UUIDs follow the RFC byte order (`Convert.ToHexString` of the version/variant
+  nibbles), matching Java `nameUUIDFromBytes`; golden values Player/Steve/Alex lock it.
+  Persisted offline profiles written by the buggy alpha (Guid-constructor byte swap) are
+  recognized via `LegacyMismatchedUuid` and repaired durably at roster load.
+- The coordinator is single-flight: a `_launchGate` lock registers the active pipeline, a
+  second concurrent `minecraft.start` is rejected with `minecraft.launch_already_active`,
+  and the `finally` clears only its own registration. Cancel and acquisition decisions read
+  the same gate.
+- Progress truth is one coherent snapshot cell (`minecraft.launch.snapshot`, carrying the
+  launched `SessionId`); the stage/progress/method/speed/launched cells are derived
+  projections. The `end` report carries the session id, and that session's terminal state
+  resets the truth via `Stop(sessionId)` — `minecraft.launch.*` never outlives the game.
+- The desktop observer closes the launching page only when THAT session id is terminal; other
+  running games keep the flow alive.
+- `IAccountLaunchIdentityResolver` (accounts side) owns provider specifics: offline
+  derivation, Microsoft refresh (composed capability refreshes before launch and persists the
+  rotated tokens; without the capability the persisted token is used and the gap logged), and
+  an honest refusal for LittleSkin/third-party/NCloud (`accounts.launch_not_supported`) until
+  Authlib Injector preparation migrates. The launch button is disabled for those kinds
+  instead of failing after the fact.
+- `DefaultMinecraftRootProvider` resolves the platform vanilla root (Windows
+  `%APPDATA%\.minecraft`, Linux `~/.minecraft`, macOS `~/Library/Application Support/
+  minecraft`); the composition root no longer guesses paths.
+- `XsrCompositeStateObserver.Subscribe` returns an unsubscription handle so disposed
+  controllers detach from the store fan-out.
+- The notification stack is bounded for real: same level+message refreshes instead of
+  stacking, and beyond 200 entries the oldest is evicted.
+- One version truth: the composition root's `LauncherBuildInfo` (informational version,
+  channel, semantic core) feeds the shell title version and the game command line's
+  `${launcher_version}`.
+
 ## Notes
 
 - Deferred polish (documented, not blocking): card box shadow, animated loader glyph, and

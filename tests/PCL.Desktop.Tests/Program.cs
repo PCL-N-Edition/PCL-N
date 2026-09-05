@@ -410,6 +410,7 @@ internal static partial class Program
     private sealed class LaunchPageFixture : IDisposable
     {
         private readonly string _temporaryDirectory;
+        private IDisposable? _launchObserverSubscription;
         private readonly bool _ownsMinecraftRuntime;
 
         public LaunchPageFixture(
@@ -469,7 +470,7 @@ internal static partial class Program
                 timeProvider: timeProvider);
             AccountForm = new AccountFormController(Shell, Intents, Onboarding.Commands, Store,
                 Controller.AccountBody, Feedback, accountEffects);
-            storeObservation.Add(Controller.StateObserver);
+            _launchObserverSubscription = storeObservation.Subscribe(Controller.StateObserver);
             Controller.Attach();
         }
 
@@ -490,6 +491,7 @@ internal static partial class Program
         {
             AccountForm.Dispose();
             Onboarding.Dispose();
+            _launchObserverSubscription?.Dispose();
             Controller.Dispose();
             FeedbackPresenter.Dispose();
             Feedback.Dispose();
@@ -579,16 +581,27 @@ internal static partial class Program
             LastCommand = command;
             if (ProgressStore is not null && !string.IsNullOrWhiteSpace(Stage))
             {
-                ProgressStore.Publish(ProgressStore.Resolve(MinecraftLaunchProgressState.StageKey), Stage, cancellationToken);
-                if (StageProgress >= 0)
+                try
                 {
-                    ProgressStore.Publish(ProgressStore.Resolve(MinecraftLaunchProgressState.ProgressKey), StageProgress, cancellationToken);
+                    // The derived cells are read-only projections: the test publishes the
+                    // coherent snapshot truth, exactly like the real pipeline publisher.
+                    ProgressStore.Publish(
+                        ProgressStore.Resolve(MinecraftLaunchProgressState.SnapshotKey),
+                        new MinecraftLaunchProgressSnapshot(
+                            Active: true,
+                            Stage: Stage,
+                            Progress: StageProgress < 0 ? 0d : StageProgress,
+                            Method: Method ?? string.Empty,
+                            DownloadSpeed: string.Empty,
+                            IsLaunched: false,
+                            SessionId: null),
+                        cancellationToken);
                 }
-
-                ProgressStore.Publish(
-                    ProgressStore.Resolve(MinecraftLaunchProgressState.MethodKey),
-                    Method ?? string.Empty,
-                    cancellationToken);
+                catch (Exception exception)
+                {
+                    Console.WriteLine("[diag] recording handler threw: " + exception);
+                    throw;
+                }
             }
 
             return ValueTask.FromResult(Outcome);

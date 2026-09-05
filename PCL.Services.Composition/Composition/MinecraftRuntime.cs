@@ -62,7 +62,8 @@ public static class MinecraftRuntimeComposer
         MinecraftProcessService? processes = null,
         IXsrDispatchObserver? observer = null,
         TimeProvider? timeProvider = null,
-        XsrStateStore? hostStore = null)
+        XsrStateStore? hostStore = null,
+        PCL.Services.Accounts.IAccountLaunchIdentityResolver? identityResolver = null)
     {
         MinecraftVersionDiscovery versionDiscovery = discovery ?? new MinecraftVersionDiscovery();
         MinecraftInstanceDiscovery instanceDiscovery = new(versionDiscovery: versionDiscovery);
@@ -100,7 +101,9 @@ public static class MinecraftRuntimeComposer
         IJavaRuntimeInstaller? javaInstaller = null,
         MinecraftLaunchPlatform? platform = null,
         IXsrDispatchObserver? observer = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        PCL.Services.Accounts.IAccountLaunchIdentityResolver? identityResolver = null,
+        string? launcherVersion = null)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
@@ -146,7 +149,9 @@ public static class MinecraftRuntimeComposer
             executor,
             platform,
             host.Logging,
-            new MinecraftLaunchProgressPublisher(host.StateStore));
+            new MinecraftLaunchProgressPublisher(host.StateStore),
+            identityResolver,
+            launcherVersion);
         IXsrDispatchObserver dispatchObserver = observer ?? NullDispatchObserver.Instance;
         XsrCommandRouterBuilder commandBuilder = new();
         commandBuilder.Register(MinecraftRouteIds.Start, MinecraftCommands.CreateStartHandler(coordinator));

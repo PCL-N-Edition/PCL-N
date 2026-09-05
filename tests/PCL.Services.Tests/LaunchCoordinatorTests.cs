@@ -27,6 +27,51 @@ internal static partial class Program
         AssertEqual(("Player", uuid), MinecraftOfflineIdentity.Resolve(null, null));
     }
 
+    private static void OfflineUuidsMatchVanillaGoldenValues()
+    {
+        // Java UUID.nameUUIDFromBytes uses the RFC byte order; a Guid constructor here would
+        // little-endian-swap the first fields and produce UUIDs vanilla servers reject.
+        AssertEqual("a01e3843e5213998958af459800e4d11", MinecraftOfflineIdentity.UuidFromName("Player"));
+        AssertEqual("5627dd98e6be3c21b8a8e92344183641", MinecraftOfflineIdentity.UuidFromName("Steve"));
+        AssertEqual("36532b5ec4423dbba24cc7e55d0f979a", MinecraftOfflineIdentity.UuidFromName("Alex"));
+    }
+
+    private static void OfflineProfileUuidMigrationRepairsLegacyRoster()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "nexa-uuid-migration", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string profilesPath = Path.Combine(root, "profiles.json");
+            LaunchProfileFilePort port = new(profilesPath);
+            LaunchProfile legacy = new()
+            {
+                Username = "Player",
+                Kind = LaunchProfileKind.Offline,
+                Uuid = MinecraftOfflineIdentity.LegacyMismatchedUuid("Player"),
+            };
+            port.Save(new LaunchProfileSet { Profiles = [legacy] });
+
+            FoundationHost host = FoundationComposer.Compose(
+                new InMemorySettingsPort(),
+                LauncherDefaults.CreateSchema(),
+                new LaunchProfileFilePort(profilesPath));
+            LaunchProfileView view = host.Accounts.GetViews().Single();
+            AssertEqual(MinecraftOfflineIdentity.UuidFromName("Player"), view.Uuid);
+
+            // The repair is durable: a fresh service reads the corrected roster.
+            FoundationHost second = FoundationComposer.Compose(
+                new InMemorySettingsPort(),
+                LauncherDefaults.CreateSchema(),
+                new LaunchProfileFilePort(profilesPath));
+            AssertEqual(MinecraftOfflineIdentity.UuidFromName("Player"), second.Accounts.GetViews().Single().Uuid);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static async Task LaunchCoordinatorBuildsCompleteLowLevelRequest()
     {
         string root = CreateTempDirectory();

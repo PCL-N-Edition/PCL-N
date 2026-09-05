@@ -6,6 +6,7 @@ using PCL.Services.Logging;
 using PCL.Services.Minecraft.Java;
 using PCL.Services.Minecraft.Libraries;
 using PCL.Services.Minecraft.ModLoaders;
+using PCL.Services.Minecraft.Process;
 using PCL.Services.Settings;
 using PCL.Xsr;
 
@@ -64,6 +65,9 @@ public sealed class MinecraftLaunchCoordinator
     private readonly IJavaRuntimeInstaller _javaInstaller;
     private readonly MinecraftLaunchExecutor _executor;
     private readonly MinecraftLaunchPlatform _platform;
+    private readonly IAccountLaunchIdentityResolver _identityResolver;
+    private readonly string _launcherVersion;
+    private readonly object _launchGate = new();
     private CancellationTokenSource? _activeLaunch;
     private TaskCompletionSource<bool>? _acquisitionDecision;
 
@@ -78,7 +82,9 @@ public sealed class MinecraftLaunchCoordinator
         MinecraftLaunchExecutor executor,
         MinecraftLaunchPlatform? platform = null,
         LogService? log = null,
-        MinecraftLaunchProgressPublisher? progress = null)
+        MinecraftLaunchProgressPublisher? progress = null,
+        IAccountLaunchIdentityResolver? identityResolver = null,
+        string? launcherVersion = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(javaRuntimeRootDirectory);
@@ -86,6 +92,8 @@ public sealed class MinecraftLaunchCoordinator
         _javaRuntimeRootDirectory = Path.GetFullPath(javaRuntimeRootDirectory);
         _log = log;
         _progress = progress;
+        _identityResolver = identityResolver ?? new AccountLaunchIdentityResolver(accounts, log: log);
+        _launcherVersion = string.IsNullOrWhiteSpace(launcherVersion) ? "2.0.0" : launcherVersion;
         _instances = instances ?? throw new ArgumentNullException(nameof(instances));
         _accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -107,7 +115,12 @@ public sealed class MinecraftLaunchCoordinator
     /// </summary>
     public bool DecideJavaAcquisition(bool approve)
     {
-        TaskCompletionSource<bool>? decision = _acquisitionDecision;
+        TaskCompletionSource<bool>? decision;
+        lock (_launchGate)
+        {
+            decision = _acquisitionDecision;
+        }
+
         if (decision is null)
         {
             _log?.Debug("Java", "Acquisition decision ignored: nothing is pending.");
@@ -124,7 +137,12 @@ public sealed class MinecraftLaunchCoordinator
     /// </summary>
     public bool CancelActiveLaunch()
     {
-        CancellationTokenSource? launch = _activeLaunch;
+        CancellationTokenSource? launch;
+        lock (_launchGate)
+        {
+            launch = _activeLaunch;
+        }
+
         if (launch is null)
         {
             _log?.Debug("Launch", "Launch cancellation ignored: no pipeline is running.");
@@ -183,7 +201,9 @@ public sealed class MinecraftLaunchCoordinator
                         return;
                     }
 
-                    identityResult = ResolveIdentity(profileResult.Value);
+                    identityResult = await _identityResolver
+                        .ResolveAsync(accountIndex, profileResult.Value, token)
+                        .ConfigureAwait(false);
                 },
                 cancellationToken).ConfigureAwait(false);
             if (!profileResult.IsSuccess)
@@ -294,8 +314,44 @@ public sealed class MinecraftLaunchCoordinator
         CancellationToken cancellationToken = default)
     {
         using LogOperation? operation = _log?.BeginOperation("Launch", "StartMinecraft", $"instance={instanceId} account_index={accountIndex}");
-        using CancellationTokenSource launchCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _activeLaunch = launchCancellation;
+        CancellationTokenSource launchCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lock (_launchGate)
+        {
+            if (_activeLaunch is not null)
+            {
+                operation?.Reject(MinecraftErrors.LaunchAlreadyActiveCode.Value);
+                launchCancellation.Dispose();
+                return XsrResult.Failure(MinecraftErrors.LaunchAlreadyActive());
+            }
+
+            _activeLaunch = launchCancellation;
+        }
+
+        try
+        {
+            return await StartLockedAsync(instanceId, accountIndex, launchCancellation, operation).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Only this pipeline's registration may be cleared: a newer launch keeps its own.
+            lock (_launchGate)
+            {
+                if (ReferenceEquals(_activeLaunch, launchCancellation))
+                {
+                    _activeLaunch = null;
+                }
+            }
+
+            launchCancellation.Dispose();
+        }
+    }
+
+    private async ValueTask<XsrResult> StartLockedAsync(
+        string instanceId,
+        int accountIndex,
+        CancellationTokenSource launchCancellation,
+        LogOperation? operation)
+    {
         CancellationToken launchToken = launchCancellation.Token;
         try
         {
@@ -353,12 +409,26 @@ public sealed class MinecraftLaunchCoordinator
                 },
                 launchToken)
                 .ConfigureAwait(false);
+            Guid sessionId = session.Snapshot.SessionId;
             _progress?.Report(new MinecraftLaunchStageReport(
                 MinecraftLaunchStages.End,
                 MinecraftLaunchStages.ProgressAt(MinecraftLaunchStages.Total),
                 IsLaunched: true,
-                Method: method));
-            operation?.Complete($"session={session.Snapshot.SessionId} pid={session.Snapshot.ProcessId} state={session.Snapshot.State}");
+                Method: method,
+                SessionId: sessionId));
+            // The narration truth must not outlive the game: when this session reaches a
+            // terminal state the publisher resets, keeping minecraft.launch.* honest.
+            session.Changed += snapshot =>
+            {
+                if (snapshot.SessionId == sessionId
+                    && snapshot.State is MinecraftProcessState.Exited
+                        or MinecraftProcessState.Failed
+                        or MinecraftProcessState.Cancelled)
+                {
+                    _progress?.Stop(sessionId);
+                }
+            };
+            operation?.Complete($"session={sessionId} pid={session.Snapshot.ProcessId} state={session.Snapshot.State}");
             return XsrResult.Success();
         }
         catch (OperationCanceledException) when (launchToken.IsCancellationRequested)
@@ -382,10 +452,6 @@ public sealed class MinecraftLaunchCoordinator
             operation?.Fail(exception);
             _progress?.Stop();
             throw;
-        }
-        finally
-        {
-            _activeLaunch = null;
         }
     }
 
@@ -578,7 +644,7 @@ public sealed class MinecraftLaunchCoordinator
             Server = string.IsNullOrWhiteSpace(metadata.ServerToEnter) ? null : metadata.ServerToEnter,
             ReleaseTime = releaseTime,
             LauncherName = "PCL-N",
-            LauncherVersion = "2.0.0",
+            LauncherVersion = _launcherVersion,
             VersionType = versionType,
             UseSystemGlfw = metadata.UseSystemGlfw || GetSetting("LaunchUseSystemGlfw", false),
             HasCleanroom = loader.Kind == MinecraftModLoaderKind.Cleanroom,
@@ -617,41 +683,6 @@ public sealed class MinecraftLaunchCoordinator
             HasLiteLoader = loader.Kind == MinecraftModLoaderKind.LiteLoader,
             HasLabyMod = loader.Kind == MinecraftModLoaderKind.LabyMod,
         };
-    }
-
-    private static XsrResult<MinecraftLaunchIdentity> ResolveIdentity(LaunchProfile profile)
-    {
-        if (profile.Kind == LaunchProfileKind.Offline)
-        {
-            (string name, string uuid) = MinecraftOfflineIdentity.Resolve(
-                profile.Username,
-                profile.Uuid);
-            return XsrResult.Success(new MinecraftLaunchIdentity(
-                name,
-                uuid,
-                "0",
-                MinecraftLaunchIdentityMode.Offline));
-        }
-
-        if (profile.Kind == LaunchProfileKind.Microsoft)
-        {
-            if (string.IsNullOrWhiteSpace(profile.Uuid)
-                || string.IsNullOrWhiteSpace(profile.AccessToken))
-            {
-                return XsrResult.Failure<MinecraftLaunchIdentity>(
-                    MinecraftErrors.UnsupportedAccount(
-                        "the Microsoft profile has no launch UUID or access token; sign in again."));
-            }
-
-            return XsrResult.Success(new MinecraftLaunchIdentity(
-                profile.Username,
-                profile.Uuid,
-                profile.AccessToken,
-                MinecraftLaunchIdentityMode.Microsoft));
-        }
-
-        return XsrResult.Failure<MinecraftLaunchIdentity>(MinecraftErrors.UnsupportedAccount(
-            $"the {profile.Kind} profile requires Authlib Injector preparation which is not yet available."));
     }
 
     private static (int? Major, string? Component) ReadManifestJava(
@@ -825,12 +856,6 @@ public sealed class MinecraftLaunchCoordinator
         values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
 
     private static int JavaMajor(Version version) => version.Major == 1 ? version.Minor : version.Major;
-
-    private sealed record MinecraftLaunchIdentity(
-        string PlayerName,
-        string PlayerUuid,
-        string AccessToken,
-        MinecraftLaunchIdentityMode Mode);
 
     private sealed record ResolvedJava(string ExecutablePath, int MajorVersion);
 }

@@ -39,8 +39,6 @@ internal static partial class Program
         RecordingStartRoute recording = new();
         using LaunchPageFixture fixture = ComposeLaunchOverlayFixture(recording);
         SelectFirstAccountAndLaunch(fixture, recording);
-        AssertTrue(SpinWait.SpinUntil(
-            () => fixture.Shell.Stage.Navigation.Depth == 2, TimeSpan.FromSeconds(2)));
         XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(850, 500));
         AssertEqual("正在启动", FindByKey(fixture.Shell, scene, "LaunchingTitle").Text);
         AssertEqual("初始化", FindByKey(fixture.Shell, scene, "LaunchingStageValue").Text);
@@ -63,6 +61,9 @@ internal static partial class Program
         recording.Method = "offline";
         SelectFirstAccountAndLaunch(fixture, recording);
         XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(850, 500));
+        Console.WriteLine("[diag] depth=" + fixture.Shell.Stage.Navigation.Depth + " keys=" + string.Join(",", scene.Nodes
+            .Select(n => fixture.Shell.Tree.Name(n.Entity))
+            .Where(n => n.Length > 0)));
         AssertEqual("登录", FindByKey(fixture.Shell, scene, "LaunchingStageValue").Text);
         AssertEqual("25%", FindByKey(fixture.Shell, scene, "LaunchingPercentValue").Text);
         AssertEqual("离线模式", FindByKey(fixture.Shell, scene, "LaunchingMethodValue").Text);
@@ -77,7 +78,12 @@ internal static partial class Program
         AssertClose(track.Rect.Width * 0.25d, fill.Rect.Width);
 
         // The launched report switches the title to the legacy launched wording.
-        fixture.Store.Publish(fixture.Store.Resolve(MinecraftLaunchProgressState.LaunchedKey), true);
+        MinecraftLaunchProgressSnapshot current = fixture.Store
+            .ReadAppliedValue(fixture.Store.Resolve(MinecraftLaunchProgressState.SnapshotKey))
+            is MinecraftLaunchProgressSnapshot snapshot ? snapshot : new MinecraftLaunchProgressSnapshot(true, "login", 0.25d, "offline", string.Empty, false, null);
+        fixture.Store.Publish(
+            fixture.Store.Resolve(MinecraftLaunchProgressState.SnapshotKey),
+            current with { IsLaunched = true, Progress = 1d });
         scene = fixture.Shell.Render(new XsrUiSize(850, 500));
         AssertEqual("游戏已启动", FindByKey(fixture.Shell, scene, "LaunchingTitle").Text);
     }
@@ -90,8 +96,11 @@ internal static partial class Program
         };
         using LaunchPageFixture fixture = ComposeLaunchOverlayFixture(recording);
         SelectFirstAccountAndLaunch(fixture, recording);
-        AssertTrue(SpinWait.SpinUntil(
-            () => fixture.Shell.Stage.Navigation.Depth == 1, TimeSpan.FromSeconds(2)));
+        AssertTrue(SpinWait.SpinUntil(() =>
+        {
+            fixture.Shell.Render(new XsrUiSize(850, 500));
+            return fixture.Shell.Stage.Navigation.Depth == 1;
+        }, TimeSpan.FromSeconds(2)));
     }
 
     private static void LaunchOverlayPromptsBeforeJavaDownload()
@@ -130,7 +139,10 @@ internal static partial class Program
         SelectFirstAccountAndLaunch(fixture, recording);
         XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(850, 500));
         AssertTrue(fixture.Shell.Renderer.Activate(FindByKey(fixture.Shell, scene, "LaunchingCancelButton").Entity));
-        AssertTrue(SpinWait.SpinUntil(
-            () => fixture.Shell.Stage.Navigation.Depth == 1, TimeSpan.FromSeconds(2)));
+        AssertTrue(SpinWait.SpinUntil(() =>
+        {
+            fixture.Shell.Render(new XsrUiSize(850, 500));
+            return fixture.Shell.Stage.Navigation.Depth == 1;
+        }, TimeSpan.FromSeconds(2)));
     }
 }

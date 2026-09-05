@@ -112,6 +112,8 @@ internal static partial class Program
         ("unsafe paths are refused everywhere", Sync(UnsafePathsAreRefusedEverywhere)),
         // XSR-706: product launch orchestration inputs.
         ("offline identity falls back to the vanilla uuid", Sync(OfflineIdentityFallsBackToVanillaUuid)),
+        ("offline uuids match vanilla golden values", Sync(OfflineUuidsMatchVanillaGoldenValues)),
+        ("offline profile uuid migration repairs the legacy roster", Sync(OfflineProfileUuidMigrationRepairsLegacyRoster)),
         ("launch coordinator builds a complete low level request", Async(LaunchCoordinatorBuildsCompleteLowLevelRequest)),
         ("launch coordinator rejects incomplete inheritance", Async(LaunchCoordinatorRejectsIncompleteInheritance)),
         ("production minecraft runtime registers product start", Sync(ProductionMinecraftRuntimeRegistersStartRoute)),
@@ -128,6 +130,8 @@ internal static partial class Program
         ("launch pipeline narrates stages and reaches launched", LaunchPipelineNarratesStagesAndReachesLaunchedAsync),
         ("java acquisition waits for a decision and denial fails the launch", JavaAcquisitionWaitsForDecisionAndDenialFailsLaunch),
         ("java acquisition approval downloads and launches", JavaAcquisitionApprovalDownloadsAndLaunches),
+        ("a second concurrent launch is rejected as already active", SecondConcurrentLaunchIsRejectedAsAlreadyActive),
+        ("unsupported account kinds refuse to launch", UnsupportedAccountKindsRefuseToLaunch),
         ("cross capability page has no state id collisions", CrossCapabilityPageHasNoStateIdCollisions),
         // XSR-513: online account flows.
         ("the microsoft device login runs the full chain", MicrosoftDeviceLoginRunsTheFullChain),

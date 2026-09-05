@@ -47,7 +47,25 @@ public readonly record struct MinecraftLaunchStageReport(
     double Progress,
     bool IsLaunched = false,
     string? Method = null,
-    string? DownloadSpeed = null);
+    string? DownloadSpeed = null,
+    Guid? SessionId = null);
+
+/// <summary>
+/// One atomic launch-progress truth. Scalar state keys are derived compatibility projections of
+/// this value, so observers can never combine fields from different reports.
+/// </summary>
+public sealed record MinecraftLaunchProgressSnapshot(
+    bool Active,
+    string Stage,
+    double Progress,
+    string Method,
+    string DownloadSpeed,
+    bool IsLaunched,
+    Guid? SessionId)
+{
+    public static MinecraftLaunchProgressSnapshot Empty { get; } =
+        new(false, string.Empty, 0d, string.Empty, string.Empty, false, null);
+}
 
 /// <summary>
 /// The launch progress state cells. The coordinator publishes one report as one coherent set
@@ -57,6 +75,7 @@ public static class MinecraftLaunchProgressState
 {
     public const string OwnerName = "PCL.Services.Minecraft.Launch";
 
+    public static readonly XsrSemanticId SnapshotKey = XsrSemanticId.Parse("minecraft.launch.snapshot");
     public static readonly XsrSemanticId ActiveKey = XsrSemanticId.Parse("minecraft.launch.active");
     public static readonly XsrSemanticId StageKey = XsrSemanticId.Parse("minecraft.launch.stage");
     public static readonly XsrSemanticId ProgressKey = XsrSemanticId.Parse("minecraft.launch.progress");
@@ -73,15 +92,32 @@ public static class MinecraftLaunchProgressState
     public static void DeclareState(XsrStateStoreBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        builder.Cell<bool>(ActiveKey, OwnerName);
-        builder.Cell<string>(StageKey, OwnerName);
-        builder.Cell<double>(ProgressKey, OwnerName);
-        builder.Cell<string>(MethodKey, OwnerName);
-        builder.Cell<string>(SpeedKey, OwnerName);
-        builder.Cell<bool>(LaunchedKey, OwnerName);
+        builder.Cell<MinecraftLaunchProgressSnapshot>(SnapshotKey, OwnerName);
+        builder.Derived(ActiveKey, OwnerName, [SnapshotKey],
+            static (reader, cancellationToken) => ReadSnapshot(reader, cancellationToken).Active);
+        builder.Derived(StageKey, OwnerName, [SnapshotKey],
+            static (reader, cancellationToken) => ReadSnapshot(reader, cancellationToken).Stage);
+        builder.Derived(ProgressKey, OwnerName, [SnapshotKey],
+            static (reader, cancellationToken) => ReadSnapshot(reader, cancellationToken).Progress);
+        builder.Derived(MethodKey, OwnerName, [SnapshotKey],
+            static (reader, cancellationToken) => ReadSnapshot(reader, cancellationToken).Method);
+        builder.Derived(SpeedKey, OwnerName, [SnapshotKey],
+            static (reader, cancellationToken) => ReadSnapshot(reader, cancellationToken).DownloadSpeed);
+        builder.Derived(LaunchedKey, OwnerName, [SnapshotKey],
+            static (reader, cancellationToken) => ReadSnapshot(reader, cancellationToken).IsLaunched);
         builder.Cell<bool>(AcquirePendingKey, OwnerName);
         builder.Cell<string>(AcquireComponentKey, OwnerName);
         builder.Cell<int>(AcquireMajorKey, OwnerName);
+    }
+
+    private static MinecraftLaunchProgressSnapshot ReadSnapshot(
+        XsrStateReader reader,
+        CancellationToken cancellationToken)
+    {
+        XsrStateValue<MinecraftLaunchProgressSnapshot> value = reader.Read<MinecraftLaunchProgressSnapshot>(
+            reader.Resolve(SnapshotKey),
+            cancellationToken);
+        return value.HasValue ? value.Value : MinecraftLaunchProgressSnapshot.Empty;
     }
 }
 
@@ -93,15 +129,12 @@ public static class MinecraftLaunchProgressState
 public class MinecraftLaunchProgressPublisher(XsrStateStore store)
 {
     private readonly XsrStateStore _store = store ?? throw new ArgumentNullException(nameof(store));
-    private readonly XsrStateId _activeId = store.Resolve(MinecraftLaunchProgressState.ActiveKey);
-    private readonly XsrStateId _stageId = store.Resolve(MinecraftLaunchProgressState.StageKey);
-    private readonly XsrStateId _progressId = store.Resolve(MinecraftLaunchProgressState.ProgressKey);
-    private readonly XsrStateId _methodId = store.Resolve(MinecraftLaunchProgressState.MethodKey);
-    private readonly XsrStateId _speedId = store.Resolve(MinecraftLaunchProgressState.SpeedKey);
-    private readonly XsrStateId _launchedId = store.Resolve(MinecraftLaunchProgressState.LaunchedKey);
+    private readonly object _gate = new();
+    private readonly XsrStateId _snapshotId = store.Resolve(MinecraftLaunchProgressState.SnapshotKey);
     private readonly XsrStateId _acquirePendingId = store.Resolve(MinecraftLaunchProgressState.AcquirePendingKey);
     private readonly XsrStateId _acquireComponentId = store.Resolve(MinecraftLaunchProgressState.AcquireComponentKey);
     private readonly XsrStateId _acquireMajorId = store.Resolve(MinecraftLaunchProgressState.AcquireMajorKey);
+    private MinecraftLaunchProgressSnapshot _current = MinecraftLaunchProgressSnapshot.Empty;
 
     public void Start() => Publish(new MinecraftLaunchStageReport(
         MinecraftLaunchStages.GetJava, 0d, IsLaunched: false, Method: null, DownloadSpeed: null));
@@ -142,18 +175,30 @@ public class MinecraftLaunchProgressPublisher(XsrStateStore store)
 
     public void Stop()
     {
-        try
+        PublishSnapshot(MinecraftLaunchProgressSnapshot.Empty);
+    }
+
+    /// <summary>
+    /// Resets progress only when <paramref name="sessionId"/> is still the session represented by
+    /// the current launch. Retaining the terminal ID lets Desktop correlate the process roster
+    /// without leaving active/stage/launched facts stale.
+    /// </summary>
+    public bool Stop(Guid sessionId)
+    {
+        if (sessionId == Guid.Empty)
         {
-            _store.Publish(_activeId, false);
-            _store.Publish(_stageId, string.Empty);
-            _store.Publish(_progressId, 0d);
-            _store.Publish(_methodId, string.Empty);
-            _store.Publish(_speedId, string.Empty);
-            _store.Publish(_launchedId, false);
+            return false;
         }
-        catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+
+        lock (_gate)
         {
-            // Progress publication must never break the launch pipeline.
+            if (_current.SessionId != sessionId)
+            {
+                return false;
+            }
+
+            PublishSnapshotLocked(MinecraftLaunchProgressSnapshot.Empty with { SessionId = sessionId });
+            return true;
         }
     }
 
@@ -164,18 +209,35 @@ public class MinecraftLaunchProgressPublisher(XsrStateStore store)
             return;
         }
 
+        PublishSnapshot(new MinecraftLaunchProgressSnapshot(
+            true,
+            report.Stage,
+            Math.Clamp(report.Progress, 0d, 1d),
+            report.Method ?? string.Empty,
+            report.DownloadSpeed ?? string.Empty,
+            report.IsLaunched,
+            report.SessionId));
+    }
+
+    private void PublishSnapshot(MinecraftLaunchProgressSnapshot snapshot)
+    {
+        lock (_gate)
+        {
+            PublishSnapshotLocked(snapshot);
+        }
+    }
+
+    private void PublishSnapshotLocked(MinecraftLaunchProgressSnapshot snapshot)
+    {
         try
         {
-            _store.Publish(_activeId, true);
-            _store.Publish(_stageId, report.Stage);
-            _store.Publish(_progressId, Math.Clamp(report.Progress, 0d, 1d));
-            _store.Publish(_methodId, report.Method ?? string.Empty);
-            _store.Publish(_speedId, report.DownloadSpeed ?? string.Empty);
-            _store.Publish(_launchedId, report.IsLaunched);
+            _store.Publish(_snapshotId, snapshot);
+            _current = snapshot;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
         {
-            // Progress publication must never break the launch pipeline.
+            // Progress publication must never break the launch pipeline. Keep the in-memory
+            // value aligned with the last successfully published snapshot.
         }
     }
 }

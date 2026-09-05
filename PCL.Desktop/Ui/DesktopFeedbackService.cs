@@ -37,6 +37,7 @@ internal sealed class DesktopFeedbackService : IDisposable
 {
     internal static readonly TimeSpan InfoDuration = TimeSpan.FromSeconds(5);
     internal static readonly TimeSpan WarnDuration = TimeSpan.FromSeconds(15);
+    internal const int MaxNotifications = 200;
 
     private sealed class NotificationEntry(DesktopNotification notification)
     {
@@ -78,6 +79,22 @@ internal sealed class DesktopFeedbackService : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            // The stack is bounded (XSR-714 contract): the same level+message refreshes the
+            // existing entry instead of stacking a duplicate, and beyond the cap the oldest
+            // entry is evicted — display scroll limits visibility, never memory.
+            NotificationEntry? duplicate = _notifications.FirstOrDefault(candidate =>
+                candidate.Notification.Level == level && candidate.Notification.Message == message);
+            if (duplicate is not null)
+            {
+                duplicate.Timer?.Dispose();
+                _notifications.Remove(duplicate);
+            }
+
+            while (_notifications.Count >= MaxNotifications)
+            {
+                _notifications.RemoveAt(0);
+            }
+
             _notifications.Add(entry);
         }
 

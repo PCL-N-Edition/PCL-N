@@ -13,6 +13,7 @@ public static class AccountErrors
     public static readonly XsrSemanticId InvalidProfileCode = XsrSemanticId.Parse("accounts.invalid_profile");
     public static readonly XsrSemanticId ProfileNotFoundCode = XsrSemanticId.Parse("accounts.profile_not_found");
     public static readonly XsrSemanticId PersistFailedCode = XsrSemanticId.Parse("accounts.persist_failed");
+    public static readonly XsrSemanticId LaunchNotSupportedCode = XsrSemanticId.Parse("accounts.launch_not_supported");
 
     public static XsrError InvalidProfile(string reason) =>
         new(XsrErrorKind.Rejected, InvalidProfileCode, $"The launch profile was rejected: {reason}");
@@ -22,6 +23,8 @@ public static class AccountErrors
 
     public static XsrError PersistFailed(string reason) =>
         new(XsrErrorKind.Unavailable, PersistFailedCode, $"The launch profile store could not be written: {reason}");
+    public static XsrError LaunchNotSupported(LaunchProfileKind kind, string reason) =>
+        new(XsrErrorKind.Rejected, LaunchNotSupportedCode, $"The {kind} account cannot launch yet: {reason}");
 }
 
 /// <summary>
@@ -82,9 +85,9 @@ public sealed class AccountService
             _log?.Write(LogLevel.Warn, "Account", "Profile load failed; publishing an unavailable roster. code=accounts.persist_failed", ExceptionDiagnostics.Describe(failure));
         }
 
-        _profiles = loaded;
-        _selectedIndex = loaded.Count > 0 ? 0 : -1;
-        _log?.Info("Account", $"Profile load completed count={loaded.Count} available={LoadError is null}");
+        _profiles = RepairLegacyOfflineUuids(loaded);
+        _selectedIndex = _profiles.Count > 0 ? 0 : -1;
+        _log?.Info("Account", $"Profile load completed count={_profiles.Count} available={LoadError is null}");
         lock (_gate)
         {
             PublishAll();
@@ -255,6 +258,40 @@ public sealed class AccountService
     }
 
     /// <summary>
+    /// Persists refreshed Microsoft credentials for the profile at the given index,
+    /// durable-first: the port saves before any state is published. The username never changes,
+    /// so the presentation stays stable across refreshes.
+    /// </summary>
+    public XsrResult UpdateMicrosoftTokens(int index, string accessToken, string refreshToken)
+    {
+        lock (_gate)
+        {
+            if (index < 0 || index >= _profiles.Count)
+            {
+                return XsrResult.Failure(AccountErrors.ProfileNotFound(index));
+            }
+
+            LaunchProfile profile = _profiles[index];
+            if (profile.Kind != LaunchProfileKind.Microsoft)
+            {
+                return XsrResult.Failure(AccountErrors.InvalidProfile("only Microsoft profiles carry refreshable tokens."));
+            }
+
+            List<LaunchProfile> updated = [.. _profiles];
+            updated[index] = profile with { AccessToken = accessToken, RefreshToken = refreshToken };
+            XsrResult saved = Persist(updated);
+            if (!saved.IsSuccess)
+            {
+                return saved;
+            }
+
+            _profiles = updated;
+            PublishAll();
+            return XsrResult.Success();
+        }
+    }
+
+    /// <summary>
     /// Removes the profile at the given index and persists the whole list atomically. Later
     /// profiles shift down; published views re-index accordingly.
     /// </summary>
@@ -328,6 +365,43 @@ public sealed class AccountService
         }
 
         return XsrResult.Success();
+    }
+
+    /// <summary>
+    /// Repairs offline profiles persisted by the XSR alpha whose UUID was derived through the
+    /// Guid constructor (little-endian field order) instead of the RFC byte order vanilla
+    /// servers expect. Recognized profiles are rewritten with the correct identifier in one
+    /// durable write; anything else is untouched.
+    /// </summary>
+    private List<LaunchProfile> RepairLegacyOfflineUuids(List<LaunchProfile> profiles)
+    {
+        List<LaunchProfile>? repaired = null;
+        for (int index = 0; index < profiles.Count; index++)
+        {
+            LaunchProfile profile = profiles[index];
+            if (profile.Kind != LaunchProfileKind.Offline
+                || string.IsNullOrWhiteSpace(profile.Username)
+                || string.IsNullOrWhiteSpace(profile.Uuid)
+                || !string.Equals(profile.Uuid, Minecraft.Launch.MinecraftOfflineIdentity.LegacyMismatchedUuid(profile.Username), StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            repaired ??= [.. profiles];
+            repaired[index] = profile with
+            {
+                Uuid = Minecraft.Launch.MinecraftOfflineIdentity.UuidFromName(profile.Username),
+            };
+            _log?.Info("Account", $"Repaired offline profile UUID for '{profile.Username}'.");
+        }
+
+        if (repaired is null)
+        {
+            return profiles;
+        }
+
+        XsrResult saved = Persist(repaired);
+        return saved.IsSuccess ? repaired : profiles;
     }
 
     private XsrResult Persist(List<LaunchProfile> profiles)

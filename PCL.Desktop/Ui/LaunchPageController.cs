@@ -83,7 +83,8 @@ internal sealed class LaunchPageController : IDisposable
         ["microsoft"] = "微软登录",
     };
 
-    private bool _launchInProgress;
+    private int _launchInProgress;
+    private int _pendingCloseLaunching;
     private Guid? _javaAcquisitionDialog;
     private bool _launchingViaKeyboard;
     private XsrUiEntityId _launchingPage;
@@ -337,6 +338,14 @@ internal sealed class LaunchPageController : IDisposable
             label = NoSelectedProfileLabel;
             enabled = false;
         }
+        else if (!SelectedProfileCanLaunch())
+        {
+            // The account capability logs these kinds in successfully, so the launch action
+            // must say honestly that they cannot start a game yet (Authlib Injector pending).
+            label = LaunchLabel;
+            enabled = false;
+            _feedback.Info("该账户类型暂不支持启动，正在准备第三方登录支持。");
+        }
         else
         {
             label = LaunchLabel;
@@ -346,6 +355,13 @@ internal sealed class LaunchPageController : IDisposable
         Publish(LaunchPageState.ActionLabelKey, label);
         Publish(LaunchPageState.ActionEnabledKey, enabled);
         Publish(LaunchPageState.InstanceAvailableKey, hasInstance);
+    }
+
+    private bool SelectedProfileCanLaunch()
+    {
+        LaunchProfileView? profile = ReadProfiles().FirstOrDefault(candidate => candidate.Index == SelectedAccountIndex);
+        return profile is not { } selected
+            || selected.Kind is LaunchProfileKind.Offline or LaunchProfileKind.Microsoft;
     }
 
     private void OnIntentEmitted(object? sender, DesktopUiIntentEventArgs e)
@@ -396,7 +412,7 @@ internal sealed class LaunchPageController : IDisposable
         }
         else if (command == PageBackCommand)
         {
-            if (_launchInProgress)
+            if (_launchInProgress != 0)
             {
                 return;
             }
@@ -634,6 +650,11 @@ internal sealed class LaunchPageController : IDisposable
 
     private void OnFramePreparing(object? sender, EventArgs e)
     {
+        if (Interlocked.Exchange(ref _pendingCloseLaunching, 0) == 1)
+        {
+            CloseLaunchingPage();
+        }
+
         RefreshAccountPresentation();
         RefreshWidgetPresentation();
     }
@@ -906,7 +927,7 @@ internal sealed class LaunchPageController : IDisposable
 
         // The launching page replicates the legacy launching card: reset facts, narrate the
         // pipeline through the launch progress cells, and return on failure or cancellation.
-        _launchInProgress = true;
+        _launchInProgress = 1;
         Publish(LaunchPageState.LaunchingTitleKey, "正在启动");
         Publish(LaunchPageState.LaunchingNameKey, ReadCell(LaunchPageState.InstanceSummaryKey));
         Publish(LaunchPageState.LaunchingStageKey, "初始化");
@@ -934,12 +955,12 @@ internal sealed class LaunchPageController : IDisposable
         }
 
         _feedback.Error($"启动失败：{result.Error?.Message}");
-        CloseLaunchingPage();
+        RequestCloseLaunchingPage();
     }
 
     private async Task CancelLaunchAsync()
     {
-        if (!_launchInProgress)
+        if (_launchInProgress == 0)
         {
             return;
         }
@@ -953,8 +974,18 @@ internal sealed class LaunchPageController : IDisposable
 
         if (!_disposed)
         {
-            CloseLaunchingPage();
+            RequestCloseLaunchingPage();
         }
+    }
+
+    /// <summary>
+    /// Requests the launching page to close from any thread. The close itself mutates the
+    /// navigation stack, tree components, and focus — all render-thread state — so it is
+    /// drained on the next frame preparation instead of running here.
+    /// </summary>
+    private void RequestCloseLaunchingPage()
+    {
+        Interlocked.Exchange(ref _pendingCloseLaunching, 1);
     }
 
     /// <summary>
@@ -973,7 +1004,7 @@ internal sealed class LaunchPageController : IDisposable
 
     private async Task DecideAcquisitionAsync(bool approve)
     {
-        if (!_launchInProgress
+        if (_launchInProgress == 0
             || !_minecraft.Commands.TryResolve(MinecraftRouteIds.AcquireDecide, out XsrCommandId route))
         {
             _feedback.Error("Java 下载确认命令未注册。");
@@ -992,7 +1023,7 @@ internal sealed class LaunchPageController : IDisposable
 
     private void CloseLaunchingPage()
     {
-        _launchInProgress = false;
+        Interlocked.Exchange(ref _launchInProgress, 0);
         DismissAcquisitionDialog();
         if (_shell.Stage.Navigation.Current != _launchingPage)
         {
@@ -1047,7 +1078,7 @@ internal sealed class LaunchPageController : IDisposable
         bool pending = _store.ReadAppliedValue(_store.Resolve(MinecraftLaunchProgressState.AcquirePendingKey)) is bool waiting && waiting;
         string component = ReadServiceCell(MinecraftLaunchProgressState.AcquireComponentKey);
         int major = _store.ReadAppliedValue(_store.Resolve(MinecraftLaunchProgressState.AcquireMajorKey)) is int version ? version : 0;
-        if (_launchInProgress && pending && major > 0 && component.Length > 0)
+        if (_launchInProgress != 0 && pending && major > 0 && component.Length > 0)
         {
             _javaAcquisitionDialog = _feedback.ShowDialog(
                 "minecraft.java.acquire",
@@ -1105,21 +1136,31 @@ internal sealed class LaunchPageController : IDisposable
                 return;
             }
 
-            if (owner._launchInProgress
+            // The narration belongs to one session: only THAT game's terminal state closes the
+            // page. Other running games must keep the flow alive.
+            if (owner._launchInProgress != 0
                 && change.SemanticId.Equals(MinecraftProcessStateComposition.SessionsKey)
-                && owner._store.ReadAppliedValue(owner._store.Resolve(MinecraftLaunchProgressState.LaunchedKey)) is bool launched
-                && launched
-                && owner.AllSessionsTerminal())
+                && owner.LaunchedSessionId() is { } sessionId
+                && sessionId != Guid.Empty
+                && owner.IsSessionTerminal(sessionId))
             {
-                owner.CloseLaunchingPage();
+                owner.RequestCloseLaunchingPage();
             }
         }
     }
 
-    private bool AllSessionsTerminal() =>
+    /// <summary>The session this narration launched, from the coherent snapshot truth.</summary>
+    private Guid? LaunchedSessionId() =>
+        _store.ReadAppliedValue(_store.Resolve(MinecraftLaunchProgressState.SnapshotKey)) is MinecraftLaunchProgressSnapshot snapshot
+            ? snapshot.SessionId
+            : null;
+
+    private bool IsSessionTerminal(Guid sessionId) =>
         _store.ReadCollection<MinecraftProcessSnapshot>(_store.Resolve(MinecraftProcessStateComposition.SessionsKey))
-            .Items.All(snapshot => snapshot.State
-                is MinecraftProcessState.Exited or MinecraftProcessState.Failed or MinecraftProcessState.Cancelled);
+            .Items.Any(snapshot => snapshot.SessionId == sessionId
+                && snapshot.State is MinecraftProcessState.Exited
+                    or MinecraftProcessState.Failed
+                    or MinecraftProcessState.Cancelled);
 
 
     private int SelectedAccountIndex => _store.ReadAppliedValue(_store.Resolve(AccountService.SelectedKey)) is int index ? index : -1;

@@ -38,6 +38,18 @@ internal static class Program
     private static string ResolveInformationalVersion() => Assembly.GetEntryAssembly()?
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
 
+    /// <summary>The one version truth: informational version, channel, and semantic core.</summary>
+    internal sealed record LauncherBuildInfo(string InformationalVersion, string Channel, string SemanticVersion);
+
+    private static LauncherBuildInfo ResolveBuildInfo()
+    {
+        string informational = ResolveInformationalVersion();
+        string channel = ResolveVersionChannel() ?? "release";
+        string[] segments = informational.Split('.');
+        string semantic = segments.Length >= 3 ? string.Join('.', segments[..3]) : informational;
+        return new LauncherBuildInfo(informational, channel, semantic);
+    }
+
     private static int Main(string[] args)
     {
         LogService? log = null;
@@ -95,9 +107,7 @@ internal static class Program
         string settingsFolder = folders.EnsureFolder(FolderNames.Settings);
         setStage("ensure_profiles_folder");
         string profilesFolder = folders.EnsureFolder(FolderNames.Profiles);
-        string minecraftRootDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            ".minecraft");
+        string minecraftRootDirectory = new DefaultMinecraftRootProvider().ResolveRoot();
 
         setStage("declare_host_state");
         SettingsSchema settingsSchema = LauncherDefaults.CreateSchema();
@@ -111,7 +121,8 @@ internal static class Program
         // one composition-root wiring, with the logging domain excluded to prevent recursion.
         XsrOperationLog operationLog = new();
         XsrCompositeStateObserver stateObservation = new(uiRuntime.StateBridge, operationLog.State);
-        string channel = ResolveVersionChannel() ?? "release";
+        LauncherBuildInfo buildInfo = ResolveBuildInfo();
+        string channel = buildInfo.Channel;
         bool consoleAttached = Console.IsOutputRedirected
             || (OperatingSystem.IsWindows() && GetConsoleWindow() != IntPtr.Zero);
         setStage("compose_foundation");
@@ -142,7 +153,7 @@ internal static class Program
         using AccountOnboardingRuntime accounts = AccountOnboardingRuntimeComposer.Compose(host, observer: operationLog.Dispatch);
         using MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose(
             host,
-            minecraftRootDirectory, observer: operationLog.Dispatch);
+            minecraftRootDirectory, observer: operationLog.Dispatch, launcherVersion: buildInfo.SemanticVersion);
         host.Logging.Debug(
             "Launcher",
             $"Runtime composition completed services={runtime.Host.Services.Count} "
@@ -157,7 +168,7 @@ internal static class Program
             new XsrUiShellOptions
             {
                 Title = "Nexa Launcher",
-                Version = "2.0.0.alpha.1",
+                Version = buildInfo.SemanticVersion,
             },
             uiIntents);
 

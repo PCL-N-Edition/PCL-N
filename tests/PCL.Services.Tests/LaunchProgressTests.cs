@@ -332,6 +332,67 @@ internal static partial class Program
         }
     }
 
+    private static async ValueTask SecondConcurrentLaunchIsRejectedAsAlreadyActive()
+    {
+        (MinecraftLaunchCoordinator coordinator, FoundationHost host, RecordingStubInstaller installer, string root) =
+            ComposeAcquisitionCoordinator(installer: new RecordingStubInstaller());
+        try
+        {
+            // Park the first pipeline at the acquisition gate, then start a second one.
+            Task<XsrResult> first = Task.Run(
+                () => coordinator.StartAsync("1.20.1", accountIndex: 0).AsTask());
+            XsrStateStore store = host.StateStore;
+            AssertTrue(SpinWait.SpinUntil(
+                () => store.ReadAppliedValue(store.Resolve(MinecraftLaunchProgressState.AcquirePendingKey)) is bool waiting && waiting,
+                TimeSpan.FromSeconds(5)));
+
+            XsrResult second = await coordinator.StartAsync("1.20.1", accountIndex: 0);
+            AssertFalse(second.IsSuccess);
+            AssertEqual(MinecraftErrors.LaunchAlreadyActiveCode, second.Error!.Code);
+
+            // The first pipeline keeps its registration: cancellation is single-flight too.
+            AssertTrue(coordinator.DecideJavaAcquisition(approve: true));
+            XsrResult firstResult = await first;
+            if (!firstResult.IsSuccess)
+            {
+                Console.WriteLine("DIAG first launch failed: " + firstResult.Error?.Message);
+            }
+
+            AssertTrue(firstResult.IsSuccess);
+            AssertEqual(1, installer.Calls);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async ValueTask UnsupportedAccountKindsRefuseToLaunch()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            FoundationHost host = FoundationComposer.Compose(
+                new InMemorySettingsPort(),
+                LauncherDefaults.CreateSchema(),
+                new LaunchProfileFilePort(Path.Combine(root, "profiles.json")));
+            AssertTrue(host.Accounts.AddProfile(new LaunchProfile
+            {
+                Username = "Player",
+                Kind = LaunchProfileKind.LittleSkin,
+            }).IsSuccess);
+            AccountLaunchIdentityResolver resolver = new(host.Accounts);
+            LaunchProfile profile = host.Accounts.GetProfile(0).Value;
+            XsrResult<MinecraftLaunchIdentity> identity = await resolver.ResolveAsync(0, profile);
+            AssertFalse(identity.IsSuccess);
+            AssertEqual(AccountErrors.LaunchNotSupportedCode, identity.Error!.Code);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static bool ReadProgressFlag(XsrStateStore store, XsrSemanticId key) =>
         store.ReadAppliedValue(store.Resolve(key)) is bool flag && flag;
 
