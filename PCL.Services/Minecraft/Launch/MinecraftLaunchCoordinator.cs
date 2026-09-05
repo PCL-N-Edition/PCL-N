@@ -65,6 +65,7 @@ public sealed class MinecraftLaunchCoordinator
     private readonly MinecraftLaunchExecutor _executor;
     private readonly MinecraftLaunchPlatform _platform;
     private CancellationTokenSource? _activeLaunch;
+    private TaskCompletionSource<bool>? _acquisitionDecision;
 
     public MinecraftLaunchCoordinator(
         string minecraftRootDirectory,
@@ -98,6 +99,23 @@ public sealed class MinecraftLaunchCoordinator
                 "The launch platform must identify a concrete Mojang operating system.",
                 nameof(platform));
         }
+    }
+
+    /// <summary>
+    /// Resolves a pending Java acquisition approval: true downloads the runtime, false declines
+    /// it. Returns false when no acquisition is awaiting a decision.
+    /// </summary>
+    public bool DecideJavaAcquisition(bool approve)
+    {
+        TaskCompletionSource<bool>? decision = _acquisitionDecision;
+        if (decision is null)
+        {
+            _log?.Debug("Java", "Acquisition decision ignored: nothing is pending.");
+            return false;
+        }
+
+        _log?.Info("Java", $"Runtime acquisition decision approve={approve}.");
+        return decision.TrySetResult(approve);
     }
 
     /// <summary>
@@ -462,6 +480,16 @@ public sealed class MinecraftLaunchCoordinator
                 $"no compatible Java runtime is installed and automatic acquisition is blocked ({acquisition.BlockReason})."));
         }
 
+        if (!await RequestAcquisitionApprovalAsync(
+                acquisition,
+                JavaMajor(selection.Requirement.Range.Minimum),
+                operation,
+                cancellationToken).ConfigureAwait(false))
+        {
+            return XsrResult.Failure<ResolvedJava>(MinecraftErrors.JavaUnavailable(
+                "the Java runtime acquisition was declined."));
+        }
+
         operation?.Stage("install_java", $"component={acquisition.DownloadComponent}");
         string acquiredExecutable = await _javaInstaller.InstallAsync(
             acquisition.DownloadComponent,
@@ -476,6 +504,32 @@ public sealed class MinecraftLaunchCoordinator
 
         int major = JavaMajor(selection.Requirement.Range.Minimum);
         return XsrResult.Success(new ResolvedJava(SelectWindowedSibling(acquiredExecutable), major));
+    }
+
+    /// <summary>
+    /// Asks the user before auto-downloading a Java runtime (legacy behavior): the pipeline
+    /// pauses with the acquisition cells published until a decision command or cancellation
+    /// resolves it.
+    /// </summary>
+    private async ValueTask<bool> RequestAcquisitionApprovalAsync(
+        JavaRuntimeAcquisitionDecision acquisition,
+        int majorVersion,
+        LogOperation? operation,
+        CancellationToken cancellationToken)
+    {
+        TaskCompletionSource<bool> decision = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        _acquisitionDecision = decision;
+        _progress?.RequestAcquisition(acquisition.DownloadComponent ?? "unknown", majorVersion);
+        _log?.Info("Java", $"Runtime acquisition awaiting approval component={acquisition.DownloadComponent}.");
+        try
+        {
+            return await decision.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _acquisitionDecision = null;
+            _progress?.ResolveAcquisition();
+        }
     }
 
     private MinecraftLaunchRequest CreateRequest(

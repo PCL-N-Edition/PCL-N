@@ -64,6 +64,12 @@ public static class MinecraftLaunchProgressState
     public static readonly XsrSemanticId SpeedKey = XsrSemanticId.Parse("minecraft.launch.speed");
     public static readonly XsrSemanticId LaunchedKey = XsrSemanticId.Parse("minecraft.launch.launched");
 
+    // Java runtime acquisition approval: the pipeline pauses before any download until the
+    // user decides (the legacy launcher asks before auto-downloading a runtime).
+    public static readonly XsrSemanticId AcquirePendingKey = XsrSemanticId.Parse("minecraft.java.acquire.pending");
+    public static readonly XsrSemanticId AcquireComponentKey = XsrSemanticId.Parse("minecraft.java.acquire.component");
+    public static readonly XsrSemanticId AcquireMajorKey = XsrSemanticId.Parse("minecraft.java.acquire.major");
+
     public static void DeclareState(XsrStateStoreBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -73,6 +79,9 @@ public static class MinecraftLaunchProgressState
         builder.Cell<string>(MethodKey, OwnerName);
         builder.Cell<string>(SpeedKey, OwnerName);
         builder.Cell<bool>(LaunchedKey, OwnerName);
+        builder.Cell<bool>(AcquirePendingKey, OwnerName);
+        builder.Cell<string>(AcquireComponentKey, OwnerName);
+        builder.Cell<int>(AcquireMajorKey, OwnerName);
     }
 }
 
@@ -90,6 +99,9 @@ public class MinecraftLaunchProgressPublisher(XsrStateStore store)
     private readonly XsrStateId _methodId = store.Resolve(MinecraftLaunchProgressState.MethodKey);
     private readonly XsrStateId _speedId = store.Resolve(MinecraftLaunchProgressState.SpeedKey);
     private readonly XsrStateId _launchedId = store.Resolve(MinecraftLaunchProgressState.LaunchedKey);
+    private readonly XsrStateId _acquirePendingId = store.Resolve(MinecraftLaunchProgressState.AcquirePendingKey);
+    private readonly XsrStateId _acquireComponentId = store.Resolve(MinecraftLaunchProgressState.AcquireComponentKey);
+    private readonly XsrStateId _acquireMajorId = store.Resolve(MinecraftLaunchProgressState.AcquireMajorKey);
 
     public void Start() => Publish(new MinecraftLaunchStageReport(
         MinecraftLaunchStages.GetJava, 0d, IsLaunched: false, Method: null, DownloadSpeed: null));
@@ -97,6 +109,33 @@ public class MinecraftLaunchProgressPublisher(XsrStateStore store)
     public virtual void Report(MinecraftLaunchStageReport report)
     {
         Publish(report);
+    }
+
+    /// <summary>Marks a Java runtime acquisition as awaiting the user's decision.</summary>
+    public void RequestAcquisition(string component, int majorVersion)
+    {
+        try
+        {
+            _store.Publish(_acquirePendingId, true);
+            _store.Publish(_acquireComponentId, component);
+            _store.Publish(_acquireMajorId, majorVersion);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+        {
+            // Progress publication must never break the launch pipeline.
+        }
+    }
+
+    /// <summary>Clears the acquisition prompt after a decision (or cancellation).</summary>
+    public void ResolveAcquisition()
+    {
+        try
+        {
+            _store.Publish(_acquirePendingId, false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+        {
+        }
     }
 
     public void Stop()

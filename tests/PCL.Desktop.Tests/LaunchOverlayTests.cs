@@ -94,6 +94,31 @@ internal static partial class Program
             () => fixture.Shell.Stage.Navigation.Depth == 1, TimeSpan.FromSeconds(2)));
     }
 
+    private static void LaunchOverlayPromptsBeforeJavaDownload()
+    {
+        RecordingStartRoute recording = new();
+        using LaunchPageFixture fixture = ComposeLaunchOverlayFixture(recording);
+        SelectFirstAccountAndLaunch(fixture, recording);
+
+        // The pipeline pauses at the acquisition gate: the prompt replaces the trivia hint.
+        fixture.Store.Publish(fixture.Store.Resolve(MinecraftLaunchProgressState.AcquireComponentKey), "java-runtime-gamma");
+        fixture.Store.Publish(fixture.Store.Resolve(MinecraftLaunchProgressState.AcquireMajorKey), 17);
+        fixture.Store.Publish(fixture.Store.Resolve(MinecraftLaunchProgressState.AcquirePendingKey), true);
+        XsrUiScene scene = fixture.Shell.Render(new XsrUiSize(850, 500));
+        AssertTrue(HasKey(fixture.Shell, scene, "LaunchingAcquirePrompt"));
+        AssertTrue(FindByKey(fixture.Shell, scene, "LaunchingAcquireMessage").Text!
+            .Contains("java-runtime-gamma", StringComparison.Ordinal));
+        AssertFalse(HasKey(fixture.Shell, scene, "LaunchingHintBox"));
+
+        // Approving forwards the decision to the pipeline command.
+        Console.WriteLine("[diag] launching keys: " + string.Join(",", scene.Nodes
+            .Select(n => fixture.Shell.Tree.Name(n.Entity))
+            .Where(n => n.StartsWith("Launching", StringComparison.Ordinal))));
+        AssertTrue(fixture.Shell.Renderer.Activate(
+            FindByKey(fixture.Shell, scene, "LaunchingAcquireApprove").Entity));
+        AssertTrue(SpinWait.SpinUntil(() => recording.LastDecision == true, TimeSpan.FromSeconds(2)));
+    }
+
     private static void LaunchOverlayCancelHidesOverlay()
     {
         RecordingStartRoute recording = new();

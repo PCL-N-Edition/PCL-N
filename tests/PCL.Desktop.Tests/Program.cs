@@ -59,6 +59,7 @@ internal static partial class Program
         ("launch overlay narrates progress cells", LaunchOverlayNarratesProgressCells),
         ("launch overlay closes on failure", LaunchOverlayClosesOnFailure),
         ("launch overlay cancel hides overlay", LaunchOverlayCancelHidesOverlay),
+        ("launch overlay prompts before the java download", LaunchOverlayPromptsBeforeJavaDownload),
         ("version subpages have independent routes and restore navigation focus", VersionSubpagesHaveIndependentRoutesAndRestoreFocus),
         ("pointer focus does not draw keyboard focus rings", PointerFocusDoesNotDrawKeyboardFocusRings),
         ("capsules occupy their presented width and remain beside the version name", CapsulesOccupyPresentedWidth),
@@ -328,6 +329,11 @@ internal static partial class Program
         NoopDispatchObserver observer = new();
         XsrCommandRouterBuilder commands = new();
         commands.Register<MinecraftStartCommand>(MinecraftRouteIds.Start, recording.Handle);
+        commands.Register<MinecraftDecideJavaAcquisitionCommand>(MinecraftRouteIds.AcquireDecide, (command, _) =>
+        {
+            recording.LastDecision = command.Approve;
+            return ValueTask.FromResult(XsrResult.Success());
+        });
         XsrQueryRouterBuilder queries = new();
         return new MinecraftRuntime(
             new MinecraftVersionDiscovery(),
@@ -538,6 +544,8 @@ internal static partial class Program
         public MinecraftStartCommand? LastCommand { get; private set; }
 
         public XsrResult Outcome { get; set; } = XsrResult.Success();
+
+        public bool? LastDecision { get; set; }
 
         public XsrStateStore? ProgressStore { get; set; }
 

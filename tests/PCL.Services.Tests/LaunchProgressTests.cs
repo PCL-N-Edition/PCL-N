@@ -186,6 +186,152 @@ internal static partial class Program
         }
     }
 
+    private static async ValueTask JavaAcquisitionWaitsForDecisionAndDenialFailsLaunch()
+    {
+        (MinecraftLaunchCoordinator coordinator, FoundationHost host, RecordingNeverInstaller installer, string root) =
+            ComposeAcquisitionCoordinator(new RecordingNeverInstaller());
+        try
+        {
+            Task<XsrResult> launchTask = Task.Run(
+                () => coordinator.StartAsync("1.20.1", accountIndex: 0).AsTask());
+            XsrStateStore store = host.StateStore;
+            AssertTrue(SpinWait.SpinUntil(
+                () => store.ReadAppliedValue(store.Resolve(MinecraftLaunchProgressState.AcquirePendingKey)) is bool waiting && waiting,
+                TimeSpan.FromSeconds(5)));
+            AssertTrue(coordinator.DecideJavaAcquisition(approve: false));
+            XsrResult result = await launchTask;
+            AssertFalse(result.IsSuccess);
+            AssertEqual(MinecraftErrors.JavaUnavailableCode, result.Error!.Code);
+            AssertEqual(0, installer.Calls);
+            AssertFalse(ReadProgressFlag(store, MinecraftLaunchProgressState.AcquirePendingKey));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async ValueTask JavaAcquisitionApprovalDownloadsAndLaunches()
+    {
+        RecordingStubInstaller installer = new();
+        (MinecraftLaunchCoordinator coordinator, FoundationHost host, _, string root) =
+            ComposeAcquisitionCoordinator(installer);
+        try
+        {
+            Task<XsrResult> launchTask = Task.Run(
+                () => coordinator.StartAsync("1.20.1", accountIndex: 0).AsTask());
+            XsrStateStore store = host.StateStore;
+            AssertTrue(SpinWait.SpinUntil(
+                () => store.ReadAppliedValue(store.Resolve(MinecraftLaunchProgressState.AcquirePendingKey)) is bool waiting && waiting,
+                TimeSpan.FromSeconds(5)));
+            AssertEqual("java-runtime-gamma", store.ReadAppliedValue(store.Resolve(MinecraftLaunchProgressState.AcquireComponentKey)));
+            AssertTrue(coordinator.DecideJavaAcquisition(approve: true));
+            XsrResult result = await launchTask;
+            if (!result.IsSuccess)
+            {
+                Console.WriteLine("DIAG approve launch failed: " + result.Error?.Message);
+            }
+
+            AssertTrue(result.IsSuccess);
+            AssertEqual(1, installer.Calls);
+            AssertTrue(ReadProgressFlag(store, MinecraftLaunchProgressState.LaunchedKey));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Composes a launchable corpus with NO compatible Java installed, so the pipeline stops
+    /// at the acquisition approval gate.
+    /// </summary>
+    private static (MinecraftLaunchCoordinator Coordinator, FoundationHost Host, T Installer, string Root)
+        ComposeAcquisitionCoordinator<T>(T installer) where T : IJavaRuntimeInstaller
+    {
+        string root = CreateTempDirectory();
+        string baseDirectory = CreateVersionDirectory(root, "1.20.1", new JsonObject
+        {
+            ["id"] = "1.20.1",
+            ["type"] = "release",
+            ["mainClass"] = "net.minecraft.client.main.Main",
+            ["releaseTime"] = "2023-06-12T00:00:00Z",
+            ["javaVersion"] = new JsonObject
+            {
+                ["majorVersion"] = 17,
+                ["component"] = "java-runtime-gamma",
+            },
+        });
+        MinecraftInstanceMetadataStore metadataStore = new();
+        metadataStore.SaveAsync(baseDirectory, new MinecraftInstanceMetadata()).GetAwaiter().GetResult();
+        File.WriteAllBytes(Path.Combine(baseDirectory, "1.20.1.jar"), [0xCA, 0xFE]);
+
+        SettingsSchema schema = LauncherDefaults.CreateSchema();
+        FoundationHost host = FoundationComposer.Compose(
+            new InMemorySettingsPort(),
+            schema,
+            new LaunchProfileFilePort(Path.Combine(root, "profiles.json")));
+        AssertTrue(host.Accounts.AddProfile(new LaunchProfile
+        {
+            Username = "Player",
+            Kind = LaunchProfileKind.Offline,
+        }).IsSuccess);
+        MinecraftProcessService processes = new(new ExitingProcessPort(), host.StateStore);
+        MinecraftLaunchCoordinator coordinator = new(
+            root,
+            Path.Combine(root, "runtime"),
+            new MinecraftInstanceDiscovery(
+                versionDiscovery: new MinecraftVersionDiscovery(),
+                metadataStore: metadataStore),
+            host.Accounts,
+            host.Settings,
+            new JavaSelectionService(new InMemoryJavaLocator([])),
+            installer,
+            new MinecraftLaunchExecutor(processes),
+            new MinecraftLaunchPlatform(
+                MinecraftLibraryOperatingSystem.Linux,
+                "6.12",
+                Is64BitArchitecture: true,
+                IsArm64Architecture: false),
+            progress: new MinecraftLaunchProgressPublisher(host.StateStore));
+        return (coordinator, host, installer, root);
+    }
+
+    private sealed class RecordingNeverInstaller : IJavaRuntimeInstaller
+    {
+        public int Calls { get; private set; }
+
+        public Task<string> InstallAsync(
+            string requestedComponent,
+            string runtimeRootDirectory,
+            IProgress<JavaRuntimeInstallProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            throw new InvalidOperationException("The declined acquisition must not download.");
+        }
+    }
+
+    /// <summary>Fakes a runtime installation by creating an executable and returning its path.</summary>
+    private sealed class RecordingStubInstaller : IJavaRuntimeInstaller
+    {
+        public int Calls { get; private set; }
+
+        public Task<string> InstallAsync(
+            string requestedComponent,
+            string runtimeRootDirectory,
+            IProgress<JavaRuntimeInstallProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            string executable = Path.Combine(runtimeRootDirectory, requestedComponent,
+                OperatingSystem.IsWindows() ? "java.exe" : "java");
+            Directory.CreateDirectory(Path.GetDirectoryName(executable)!);
+            File.WriteAllBytes(executable, [0x00]);
+            return Task.FromResult(executable);
+        }
+    }
+
     private static bool ReadProgressFlag(XsrStateStore store, XsrSemanticId key) =>
         store.ReadAppliedValue(store.Resolve(key)) is bool flag && flag;
 

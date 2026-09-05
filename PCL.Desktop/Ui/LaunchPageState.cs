@@ -48,6 +48,7 @@ internal static class LaunchPageState
     public static readonly XsrSemanticId LaunchingSpeedVisibleKey = XsrSemanticId.Parse("launch.launching.speed-visible");
     public static readonly XsrSemanticId LaunchingHintKey = XsrSemanticId.Parse("launch.launching.hint");
     public static readonly XsrSemanticId LaunchingHintVisibleKey = XsrSemanticId.Parse("launch.launching.hint-visible");
+    public static readonly XsrSemanticId LaunchingAcquireMessageKey = XsrSemanticId.Parse("launch.launching.acquire-message");
 
     public static void DeclareState(XsrStateStoreBuilder builder)
     {
@@ -87,5 +88,6 @@ internal static class LaunchPageState
         builder.Cell<bool>(LaunchingSpeedVisibleKey, OwnerName);
         builder.Cell<string>(LaunchingHintKey, OwnerName);
         builder.Cell<bool>(LaunchingHintVisibleKey, OwnerName);
+        builder.Cell<string>(LaunchingAcquireMessageKey, OwnerName);
     }
 }

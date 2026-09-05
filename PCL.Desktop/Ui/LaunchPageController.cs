@@ -44,6 +44,8 @@ internal sealed class LaunchPageController : IDisposable
     private static readonly XsrSemanticId AccountWardrobeCommand = XsrSemanticId.Parse("ui.account.wardrobe");
     private static readonly XsrSemanticId AccountDismissCommand = XsrSemanticId.Parse("ui.account.dismiss");
     private static readonly XsrSemanticId LaunchCancelCommand = XsrSemanticId.Parse("ui.launch.cancel");
+    private static readonly XsrSemanticId LaunchAcquireApproveCommand = XsrSemanticId.Parse("ui.launch.java.approve");
+    private static readonly XsrSemanticId LaunchAcquireDeclineCommand = XsrSemanticId.Parse("ui.launch.java.decline");
 
     private static readonly XsrSemanticId DownloadNavigationId = XsrSemanticId.Parse("navigation.download");
 
@@ -375,6 +377,10 @@ internal sealed class LaunchPageController : IDisposable
         {
             _ = CancelLaunchAsync();
         }
+        else if (command == LaunchAcquireApproveCommand || command == LaunchAcquireDeclineCommand)
+        {
+            _ = DecideAcquisitionAsync(command == LaunchAcquireApproveCommand);
+        }
         else if (command == LaunchInstancesCommand)
         {
             OpenSubpage(_versionListPage, e.Intent.Source);
@@ -622,6 +628,14 @@ internal sealed class LaunchPageController : IDisposable
         ApplyVisual(entities["LaunchProgressTrack"], LaunchProgressTrack, PrimaryText, cornerRadius: 2);
         ApplyVisual(entities["LaunchProgressFill"], LaunchProgressFill, LaunchProgressFill, cornerRadius: 2);
         ApplyVisual(entities["LaunchingHintBox"], PickerBackground, PrimaryText, XsrUiCornerRadii.Inset);
+        ApplyVisual(entities["LaunchingAcquirePrompt"], PickerBackground, PrimaryText, XsrUiCornerRadii.Inset);
+        StyleText(entities, "LaunchingAcquireMessage", PrimaryText, 12);
+        ApplyVisual(entities["LaunchingAcquireApprove"], LaunchButtonBackground, new XsrUiColor(255, 255, 255), XsrUiCornerRadii.Pill(34), hover: LaunchButtonHover);
+        StyleText(entities, "LaunchingAcquireApprove", new XsrUiColor(255, 255, 255), 13, 600);
+        AlignText(entities, "LaunchingAcquireApprove", XsrUiTextAlignment.Center);
+        ApplyVisual(entities["LaunchingAcquireDecline"], PickerBackground, PrimaryText, XsrUiCornerRadii.Pill(34), hover: BadgeBackground);
+        StyleText(entities, "LaunchingAcquireDecline", PrimaryText, 13, 600);
+        AlignText(entities, "LaunchingAcquireDecline", XsrUiTextAlignment.Center);
         ApplyVisual(entities["LaunchingCancelButton"], PickerBackground, PrimaryText,
             XsrUiCornerRadii.Pill(40));
         StyleText(entities, "LaunchingCancelButton", PrimaryText, 14, 600);
@@ -969,6 +983,18 @@ internal sealed class LaunchPageController : IDisposable
         _shell.Renderer.Focus(_launchingEntities.GetValueOrDefault("LaunchingCancelButton"), _launchingViaKeyboard);
     }
 
+    private async Task DecideAcquisitionAsync(bool approve)
+    {
+        if (!_launchInProgress
+            || !_minecraft.Commands.TryResolve(MinecraftRouteIds.AcquireDecide, out XsrCommandId route))
+        {
+            return;
+        }
+
+        await _minecraft.Commands.Dispatch(route, new MinecraftDecideJavaAcquisitionCommand(approve),
+            cancellationToken: _lifetimeCancellation.Token).Completion.ConfigureAwait(false);
+    }
+
     private void CloseLaunchingPage()
     {
         _launchInProgress = false;
@@ -1016,6 +1042,21 @@ internal sealed class LaunchPageController : IDisposable
         Publish(LaunchPageState.LaunchingTitleKey, launched ? "游戏已启动" : "正在启动");
     }
 
+    /// <summary>
+    /// Projects the acquisition cells into the prompt message (Chinese, user-facing) and
+    /// swaps the trivia hint out while the pipeline waits for the download decision.
+    /// </summary>
+    private void RefreshAcquisitionPrompt()
+    {
+        bool pending = _store.ReadAppliedValue(_store.Resolve(MinecraftLaunchProgressState.AcquirePendingKey)) is bool waiting && waiting;
+        string component = ReadServiceCell(MinecraftLaunchProgressState.AcquireComponentKey);
+        int major = _store.ReadAppliedValue(_store.Resolve(MinecraftLaunchProgressState.AcquireMajorKey)) is int version ? version : 0;
+        Publish(LaunchPageState.LaunchingAcquireMessageKey, pending
+            ? $"未找到兼容的 Java {major} 运行库（{component}），是否自动下载？"
+            : string.Empty);
+        Publish(LaunchPageState.LaunchingHintVisibleKey, !pending);
+    }
+
     private string ReadServiceCell(XsrSemanticId key) =>
         Convert.ToString(_store.ReadAppliedValue(_store.Resolve(key)), CultureInfo.InvariantCulture) ?? string.Empty;
 
@@ -1035,6 +1076,14 @@ internal sealed class LaunchPageController : IDisposable
                 || change.SemanticId.Equals(MinecraftLaunchProgressState.LaunchedKey))
             {
                 owner.RefreshLaunchingDisplay();
+                return;
+            }
+
+            if (change.SemanticId.Equals(MinecraftLaunchProgressState.AcquirePendingKey)
+                || change.SemanticId.Equals(MinecraftLaunchProgressState.AcquireComponentKey)
+                || change.SemanticId.Equals(MinecraftLaunchProgressState.AcquireMajorKey))
+            {
+                owner.RefreshAcquisitionPrompt();
                 return;
             }
 

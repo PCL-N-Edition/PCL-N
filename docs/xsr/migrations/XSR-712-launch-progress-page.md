@@ -14,6 +14,11 @@ flow reads better as a dedicated page.
   a 4 px progress bar (corner radius 2, track surface, accent fill), four key/value rows —
   当前步骤 (stage), 登录方式 (method), 启动进度 (percent, `P0`), 下载速度 (visible only
   while a speed is reported) — the trivia hint box, and a full-width cancel button.
+  Spacing lives on child margins, never on the card's padding: the renderer paints only the
+  content rect (XSR-703 gotcha), so container padding would leave the card's border and
+  background inset from its layout bounds. The vertical budget is trimmed so the card fits
+  the minimum window, and the prompt/hint boxes carry explicit heights because the measure
+  pass does not aggregate plain-element children.
 - Cancel asks the pipeline to stop, shows `已请求取消启动`, and pops back to the launch
   page. The title-bar back action is refused while a launch pipeline is running.
 - Key/value rows use a fixed-width label column (64px) so the value column aligns, matching
@@ -40,6 +45,11 @@ flow reads better as a dedicated page.
   those features migrate (progress jumps across their weights; documented divergence).
 - Cancellation: the coordinator keeps the active launch's cancellation source; a
   `minecraft.launch.cancel` command stops the pipeline between stages.
+- Java acquisition approval (legacy parity): before any automatic runtime download the
+  pipeline pauses and publishes `minecraft.java.acquire.{pending,component,major}`; a
+  `minecraft.java.acquire.decide` command (approve/deny) resolves the wait, denial fails
+  the launch with `minecraft.java_unavailable`, and cancellation aborts the wait. The
+  launching page swaps the trivia hint for the confirmation prompt while pending.
 
 ### Progress bar presentation
 

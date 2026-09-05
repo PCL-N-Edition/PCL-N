@@ -126,6 +126,8 @@ internal static partial class Program
         ("progress publisher writes coherent cells", Sync(ProgressPublisherWritesCoherentCells)),
         ("cancel active launch without launch returns false", Sync(CancelActiveLaunchWithoutLaunchReturnsFalse)),
         ("launch pipeline narrates stages and reaches launched", LaunchPipelineNarratesStagesAndReachesLaunchedAsync),
+        ("java acquisition waits for a decision and denial fails the launch", JavaAcquisitionWaitsForDecisionAndDenialFailsLaunch),
+        ("java acquisition approval downloads and launches", JavaAcquisitionApprovalDownloadsAndLaunches),
         ("cross capability page has no state id collisions", CrossCapabilityPageHasNoStateIdCollisions),
         // XSR-513: online account flows.
         ("the microsoft device login runs the full chain", MicrosoftDeviceLoginRunsTheFullChain),
