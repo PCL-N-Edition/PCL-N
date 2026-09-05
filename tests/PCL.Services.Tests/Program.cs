@@ -134,7 +134,7 @@ internal static partial class Program
         ("unsupported account kinds refuse to launch", UnsupportedAccountKindsRefuseToLaunch),
         ("immediate exit after process start resets launch progress", ImmediateExitAfterProcessStartResetsLaunchProgress),
         ("cancelling during the window wait terminates the process", CancelDuringWindowWaitTerminatesTheProcess),
-        ("an unsupported window probe skips the wait", UnsupportedWindowProbeSkipsTheWait),
+        ("an unsupported probe skips the wait without burning the limit", UnsupportedProbeSkipsTheWaitWithoutBurningTheLimit),
         ("onboarding composition arms refresh capability without explicit microsoft", Sync(OnboardingCompositionArmsRefreshCapabilityWithoutExplicitMicrosoft)),
         ("offline legacy uuid launches correctly when the migration save fails", Sync(OfflineLegacyUuidLaunchesCorrectlyWhenMigrationSaveFails)),
         ("java probe parses modern property output", Sync(JavaProbeParsesModernPropertyOutput)),

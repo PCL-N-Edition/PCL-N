@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using PCL.Services.Accounts;
+using PCL.Services.Composition;
 using PCL.Services.Foundation;
 using PCL.Services.Logging;
 using PCL.Services.Minecraft;
@@ -7,7 +8,6 @@ using PCL.Services.Minecraft.Java;
 using PCL.Services.Minecraft.Launch;
 using PCL.Services.Minecraft.Libraries;
 using PCL.Services.Minecraft.Process;
-using PCL.Services.Composition;
 using PCL.Services.Settings;
 using PCL.Xsr;
 using PCL.Xsr.State;
@@ -87,6 +87,7 @@ internal static partial class Program
     private static async ValueTask LaunchPipelineNarratesStagesAndReachesLaunchedAsync()
     {
         string root = CreateTempDirectory();
+        LongLivedProcessPort port = new();
         try
         {
             string baseDirectory = CreateVersionDirectory(root, "1.20.1", new JsonObject
@@ -131,7 +132,7 @@ internal static partial class Program
                 JavaArchitecture.X64,
                 is64Bit: true,
                 isJre: false));
-            MinecraftProcessService processes = new(new ExitingProcessPort(), host.StateStore);
+            MinecraftProcessService processes = new(port, host.StateStore);
             MinecraftLaunchCoordinator coordinator = new(
                 root,
                 Path.Combine(root, "runtime"),
@@ -198,6 +199,11 @@ internal static partial class Program
         }
         finally
         {
+            if (port.LastProcess is { HasExited: false } process)
+            {
+                process.Kill();
+            }
+
             Directory.Delete(root, recursive: true);
         }
     }
@@ -592,23 +598,24 @@ internal static partial class Program
         Directory.Delete(root, recursive: true);
     }
 
-    private static async ValueTask UnsupportedWindowProbeSkipsTheWait()
+    private static async ValueTask UnsupportedProbeSkipsTheWaitWithoutBurningTheLimit()
     {
+        // White-box: an Unsupported probe must return immediately even for a LIVE process —
+        // the pre-fix behavior burned the whole two-minute wait limit on such platforms.
         LongLivedProcessPort port = new();
-        (MinecraftLaunchCoordinator coordinator, FoundationHost host, _, string root) =
-            ComposeAcquisitionCoordinator(
-                new RecordingStubInstaller(),
-                processPort: port,
-                windowProbe: new UnsupportedWindowProbe());
+        MinecraftProcessSession session = new(
+            await port.StartAsync(new System.Diagnostics.ProcessStartInfo()),
+            "instance",
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow);
         try
         {
             long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-            XsrResult result = await coordinator.StartAsync("1.20.1", accountIndex: 0);
-            AssertTrue(result.IsSuccess, result.Error?.Message ?? "no error");
-            // Unsupported must not burn the wait limit: the launch completes near-instantly.
-            AssertTrue(System.Diagnostics.Stopwatch.GetElapsedTime(startedAt) < TimeSpan.FromSeconds(20),
+            MinecraftLaunchCoordinator.GameWindowWaitResult wait = await MinecraftLaunchCoordinator.WaitForGameWindowAsync(
+                new UnsupportedWindowProbe(), null, session, CancellationToken.None);
+            AssertEqual(MinecraftLaunchCoordinator.GameWindowWaitResult.Unsupported, wait);
+            AssertTrue(System.Diagnostics.Stopwatch.GetElapsedTime(startedAt) < TimeSpan.FromSeconds(5),
                 "the unsupported probe waited for the window limit");
-            AssertTrue(ReadProgressFlag(host.StateStore, MinecraftLaunchProgressState.LaunchedKey));
         }
         finally
         {
@@ -616,8 +623,6 @@ internal static partial class Program
             {
                 process.Kill();
             }
-
-            Directory.Delete(root, recursive: true);
         }
     }
 

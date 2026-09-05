@@ -517,7 +517,14 @@ public sealed class MinecraftLaunchCoordinator
     /// process presents a visible window (or the limit lapses — a headless or slow-windowing
     /// game still counts as launched rather than blocking the flow forever).
     /// </summary>
-    private async ValueTask<GameWindowWaitResult> WaitForGameWindowAsync(
+    private ValueTask<GameWindowWaitResult> WaitForGameWindowAsync(
+        Process.MinecraftProcessSession session,
+        CancellationToken cancellationToken) =>
+        WaitForGameWindowAsync(_windowProbe, _log, session, cancellationToken);
+
+    internal static async ValueTask<GameWindowWaitResult> WaitForGameWindowAsync(
+        IMinecraftWindowProbe windowProbe,
+        LogService? log,
         Process.MinecraftProcessSession session,
         CancellationToken cancellationToken)
     {
@@ -532,16 +539,16 @@ public sealed class MinecraftLaunchCoordinator
                 or MinecraftProcessState.Failed
                 or MinecraftProcessState.Cancelled)
             {
-                _log?.Info("Launch", $"Game process already ended before its window appeared pid={processId}.");
+                log?.Info("Launch", $"Game process already ended before its window appeared pid={processId}.");
                 return GameWindowWaitResult.ProcessExited;
             }
 
-            MinecraftWindowProbeResult probe = await _windowProbe
+            MinecraftWindowProbeResult probe = await windowProbe
                 .ProbeAsync(processId, cancellationToken)
                 .ConfigureAwait(false);
             if (probe == MinecraftWindowProbeResult.Visible)
             {
-                _log?.Info("Launch", $"Game window confirmed pid={processId}.");
+                log?.Info("Launch", $"Game window confirmed pid={processId}.");
                 return GameWindowWaitResult.Visible;
             }
 
@@ -549,13 +556,13 @@ public sealed class MinecraftLaunchCoordinator
             {
                 // No window detection on this platform: a wait could only burn its limit, so
                 // the legacy behavior degrades to "process started counts as launched".
-                _log?.Info("Launch", $"Window detection unsupported; skipping the wait pid={processId}.");
+                log?.Info("Launch", $"Window detection unsupported; skipping the wait pid={processId}.");
                 return GameWindowWaitResult.Unsupported;
             }
 
             if (System.Diagnostics.Stopwatch.GetElapsedTime(startedAt) >= GameWindowWaitLimit)
             {
-                _log?.Warn("Launch", $"No game window appeared within the limit pid={processId}; continuing.");
+                log?.Warn("Launch", $"No game window appeared within the limit pid={processId}; continuing.");
                 return GameWindowWaitResult.TimedOut;
             }
 
