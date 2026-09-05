@@ -265,6 +265,16 @@ internal static partial class Program
         await action().ConfigureAwait(false);
     };
 
+    internal static void AssertTrue(bool value, string message)
+    {
+        if (!value)
+        {
+            throw new InvalidOperationException(message);
+        }
+
+        AssertTrue(value);
+    }
+
     internal static void AssertTrue(bool value)
     {
         if (!value)

@@ -168,12 +168,8 @@ internal static partial class Program
                 "extract_natives", "start_process", "wait_window", "end",
             };
             string[] firstAppearance = progress.Stages.Distinct().ToArray();
-            if (!expectedOrder.SequenceEqual(firstAppearance))
-            {
-                Console.Error.WriteLine("DIAG stages: " + string.Join(",", progress.Stages));
-            }
-
-            AssertTrue(expectedOrder.SequenceEqual(firstAppearance));
+            AssertTrue(expectedOrder.SequenceEqual(firstAppearance),
+                "stage order: " + string.Join(",", progress.Stages));
             AssertTrue(progress.Progress.SequenceEqual(progress.Progress.OrderBy(value => value)));
             AssertTrue(ReadProgressFlag(host.StateStore, MinecraftLaunchProgressState.LaunchedKey));
             AssertEqual(1d, ReadProgressNumber(host.StateStore, MinecraftLaunchProgressState.ProgressKey));
