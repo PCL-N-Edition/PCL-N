@@ -1237,14 +1237,17 @@ public sealed partial class XsrUiRenderer
     }
 
     private readonly List<XsrUiOutgoingLayer> _outgoingLayers = [];
+    private readonly List<XsrUiSceneNode> _collectedNodes = [];
     private readonly Dictionary<string, int> _entryOrders = [];
     private XsrUiSceneNode[] CollectNodes(XsrUiEntityId root, int depth)
     {
         _outgoingLayers.Clear();
         _entryOrders.Clear();
-        List<XsrUiSceneNode> nodes = [];
-        CollectNode(root, depth, nodes);
-        return [.. nodes];
+        _collectedNodes.Clear();
+        CollectNode(root, depth, _collectedNodes);
+        var snapshot = _collectedNodes.ToArray();
+        _collectedNodes.Clear(); // Release node references; retain only reusable capacity.
+        return snapshot;
     }
 
     private void CollectNode(XsrUiEntityId entity, int depth, List<XsrUiSceneNode> nodes,
