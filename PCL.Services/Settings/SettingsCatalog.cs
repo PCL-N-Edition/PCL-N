@@ -22,9 +22,9 @@ public sealed record SettingsCatalogQuery(bool DeveloperOptions = false);
 /// <summary>Final IA positions, independent of implementation availability and persisted values.</summary>
 public static class SettingsCatalog
 {
-    public static IReadOnlyList<SettingsCatalogPage> GlobalPages { get; } = Pages("general:通用|appearance:外观|game:游戏|java:Java|network:下载与网络|storage:存储与迁移|cloud:N Cloud|privacy:隐私与诊断|advanced:更新与高级");
+    public static IReadOnlyList<SettingsCatalogPage> GlobalPages { get; } = Pages("general:通用|appearance:外观|game:游戏|java:Java|network:下载与网络|storage:存储与迁移|privacy:隐私与诊断|advanced:更新与高级");
     public static IReadOnlyList<SettingsCatalogPage> InstancePages { get; } = Pages("overview:概览|content:内容|worlds:世界|servers:服务器|files:文件|screenshots:截图|recovery:变化与恢复|diagnostics:诊断|settings:设置");
-    public static IReadOnlyList<SettingsCatalogPage> InstanceSettingsSections { get; } = Pages("basic:基本|java:Java|resources:资源与性能|window:窗口与启动|hooks:JVM 与 Hooks|profiles:启动配置|servers:服务器|security:更新与安全|sync:同步与备份|advanced:高级");
+    public static IReadOnlyList<SettingsCatalogPage> InstanceSettingsSections { get; } = Pages("basic:基本|java:Java|resources:资源与性能|window:窗口与启动|hooks:JVM 与 Hooks|profiles:启动配置|servers:服务器|security:更新与安全|backup:本地备份|advanced:高级");
     public static IReadOnlyList<SettingsCatalogEntry> Entries { get; } = Load();
     public static SettingsCatalogSnapshot Read(SettingsCatalogQuery query) => new(GlobalPages, InstancePages, InstanceSettingsSections,
         query.DeveloperOptions ? Entries : Array.AsReadOnly(Entries.Where(item => !item.DeveloperOnly).ToArray()));

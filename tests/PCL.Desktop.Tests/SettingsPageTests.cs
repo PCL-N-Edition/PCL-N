@@ -10,16 +10,23 @@ internal static partial class Program
     {
         using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));
         using var settings = new SettingsPageController(fixture.Shell, fixture.Intents, fixture.Foundation.Queries, fixture.Foundation.Commands, fixture.Store, fixture.Feedback);
+        fixture.Shell.Renderer.ReducedMotion = true;
         fixture.Controller.SettingsPage = settings.Page;
         Emit(fixture.Intents, "ui.navigation.settings");
         var scene = fixture.Shell.Render(new(1000, 650));
         AssertEqual(settings.Page, fixture.Shell.Stage.Navigation.Current);
-        AssertEqual(9, scene.Nodes.Count(item => fixture.Shell.Tree.Name(item.Entity).StartsWith("SettingsNav.", StringComparison.Ordinal)));
+        AssertEqual(8, scene.Nodes.Count(item => fixture.Shell.Tree.Name(item.Entity).StartsWith("SettingsNav.", StringComparison.Ordinal)));
         var nav = FindByKey(fixture.Shell, scene, "SettingsNavigation");
         var body = FindByKey(fixture.Shell, scene, "SettingsSections");
-        AssertEqual(152d, nav.Rect.Width);
+        AssertEqual(44d, nav.Rect.Height);
+        AssertTrue(fixture.Shell.Tree.GetComponent<XsrUiSegmentedTrack>(nav.Entity) is not null);
+        var pager = FindByKey(fixture.Shell, scene, "SettingsPager");
+        AssertEqual(8, fixture.Shell.Tree.GetComponent<XsrUiPager>(pager.Entity)!.PageCount);
+        fixture.Shell.Renderer.SelectPagerPage(pager.Entity, 1);
+        scene = fixture.Shell.Render(new(1000, 650));
+        AssertEqual("appearance", settings.SelectedSection);
         AssertTrue(body.Rect.Width > 650);
-        AssertTrue(body.Rect.Y < 90);
+        AssertTrue(body.Rect.Y > nav.Rect.Y);
         AssertFalse(scene.Nodes.Any(item => item.Text?.Contains("尚未迁移", StringComparison.Ordinal) == true));
         foreach (var page in SettingsCatalog.GlobalPages)
         {
@@ -38,6 +45,7 @@ internal static partial class Program
     {
         using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));
         using var settings = new SettingsPageController(fixture.Shell, fixture.Intents, fixture.Foundation.Queries, fixture.Foundation.Commands, fixture.Store, fixture.Feedback);
+        fixture.Shell.Renderer.ReducedMotion = true;
         fixture.Controller.SettingsPage = settings.Page;
         Emit(fixture.Intents, "ui.navigation.settings");
         var scene = fixture.Shell.Render(new(1000, 650));
@@ -61,6 +69,7 @@ internal static partial class Program
     {
         using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));
         using var settings = new SettingsPageController(fixture.Shell, fixture.Intents, fixture.Foundation.Queries, fixture.Foundation.Commands, fixture.Store, fixture.Feedback);
+        fixture.Shell.Renderer.ReducedMotion = true;
         fixture.Controller.SettingsPage = settings.Page;
         Emit(fixture.Intents, "ui.navigation.settings");
         var scene = fixture.Shell.Render(new(1000, 650));
@@ -89,6 +98,7 @@ internal static partial class Program
     {
         using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));
         using var settings = new SettingsPageController(fixture.Shell, fixture.Intents, fixture.Foundation.Queries, fixture.Foundation.Commands, fixture.Store, fixture.Feedback);
+        fixture.Shell.Renderer.ReducedMotion = true;
         fixture.Controller.SettingsPage = settings.Page;
         Emit(fixture.Intents, "ui.navigation.settings");
         var scene = fixture.Shell.Render(new(1000, 650));

@@ -27,7 +27,10 @@ internal sealed class SettingsPageController : IDisposable
     private readonly Dictionary<XsrUiEntityId, (Editor Editor, string Value)> _choices = [];
     private XsrUiEntityId _choiceOverlay, _choiceOrigin;
     private readonly Dictionary<string, double> _scrollPositions = [];
-    private readonly XsrUiEntityId _navigationRoot, _sections;
+    private readonly XsrUiEntityId _navigationRoot, _pager;
+    private XsrUiEntityId _sections;
+    private readonly Dictionary<string, XsrUiEntityId> _pages = [];
+    private Task<XsrResult<SettingsCatalogSnapshot>>? _catalogReading;
     private readonly XsrStateId _revisionId;
     private SettingsCatalogSnapshot? _catalog;
     private SettingsEffectiveSnapshot? _values;
@@ -53,12 +56,12 @@ internal sealed class SettingsPageController : IDisposable
         shell.Tree.Detach(Page); shell.Tree.Destroy(host);
         var names = new Dictionary<string, XsrUiEntityId>();
         shell.Tree.Walk(Page, entity => { names[shell.Tree.Name(entity)] = entity; return true; });
-        _navigationRoot = names["SettingsNavigation"]; _sections = names["SettingsSections"];
-        shell.Tree.SetComponent(_sections, new XsrUiScrollGesture());
-        shell.Tree.GetComponent<XsrUiScroll>(_sections)!.ShowsVerticalIndicator = true;
+        _navigationRoot = names["SettingsNavigation"]; _pager = names["SettingsPager"];
         shell.Tree.SetComponent(_navigationRoot, new XsrUiScrollGesture());
-        Style(_navigationRoot, new(241, 245, 250), Ink, 12);
-        shell.Tree.SetComponent(_sections, new XsrUiTransition { Key = _selected, MovesSelf = true });
+        Style(_navigationRoot, new(241, 245, 250), Ink, 10);
+        shell.Tree.SetComponent(_navigationRoot, new XsrUiSegmentedTrack(names["SettingsThumb"]));
+        shell.Tree.SetComponent(names["SettingsThumb"], new XsrUiTransition());
+        Style(names["SettingsThumb"], White, Ink, 8);
         _intents.IntentEmitted += OnIntent;
         _shell.Renderer.FramePreparing += OnFrame;
     }
@@ -86,9 +89,10 @@ internal sealed class SettingsPageController : IDisposable
         if (_catalog is null)
         {
             if (!_queries.TryResolve(SettingsPolicyContract.CatalogQuery, out var route)) return;
-            var query = _queries.QueryAsync<SettingsCatalogQuery, SettingsCatalogSnapshot>(route, new(true));
-            if (!query.IsCompletedSuccessfully) return;
-            var result = query.Result;
+            _catalogReading ??= _queries.QueryAsync<SettingsCatalogQuery, SettingsCatalogSnapshot>(route, new(true)).AsTask();
+            if (!_catalogReading.IsCompleted) return;
+            var result = _catalogReading.GetAwaiter().GetResult();
+            _catalogReading = null;
             if (!result.IsSuccess) return;
             _catalog = result.Value!;
             BuildNavigation(); BuildSections();
@@ -113,8 +117,8 @@ internal sealed class SettingsPageController : IDisposable
         {
             if (intent.Command == Select && _navigation.TryGetValue(intent.Source, out string? page) && page != _selected)
             {
-                _scrollPositions[_selected] = _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY;
-                _selected = page; BuildSections(navigating: true); UpdateNavigation(); UpdateEditors();
+                SwitchPage(page);
+                _shell.Renderer.SelectPagerPage(_pager, _catalog.GlobalPages.ToList().FindIndex(item => item.Id == page));
             }
             else if (intent.Command == Edit && _editors.TryGetValue(intent.Source, out var editor) && _writing is null)
             {
@@ -127,13 +131,37 @@ internal sealed class SettingsPageController : IDisposable
                 CloseChoices(); Save(choice.Editor, choice.Value);
             }
         }
+        int index = _shell.Tree.GetComponent<XsrUiPager>(_pager)!.PageIndex;
+        if (index >= 0 && index < _catalog.GlobalPages.Count && _catalog.GlobalPages[index].Id != _selected)
+            SwitchPage(_catalog.GlobalPages[index].Id);
+        var pager = _shell.Tree.GetComponent<XsrUiPager>(_pager)!;
+        if (!pager.IsDragging && Math.Abs(pager.Position - pager.PageIndex) < 0.001)
+            foreach (var page in _pages.Values)
+                if (page != _sections)
+                    foreach (var child in _shell.Tree.Children(page).ToArray()) _shell.Tree.Destroy(child);
+    }
+
+    private void SwitchPage(string page)
+    {
+        _scrollPositions[_selected] = _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY;
+        CloseChoices();
+        _selected = page; _sections = _pages[page];
+        BuildSections(navigating: true); UpdateNavigation(); UpdateEditors();
     }
 
     private void BuildNavigation()
     {
         foreach (var page in _catalog!.GlobalPages)
         {
-            var button = Element(_navigationRoot, "SettingsNav." + page.Id, XsrUiSemanticRole.Button, page.Label, height: 38);
+            var body = Stack(_pager, "SettingsSections", XsrUiOrientation.Vertical, 14);
+            var layout = _shell.Tree.GetComponent<XsrUiElement>(body)!;
+            layout.VerticalAlignment = XsrUiAlignment.Stretch; layout.Padding = new(0, 4, 0, 12);
+            _shell.Tree.SetComponent(body, new XsrUiScroll { ShowsVerticalIndicator = true });
+            _shell.Tree.SetComponent(body, new XsrUiScrollGesture());
+            _shell.Tree.SetComponent(body, new XsrUiTransition { Key = page.Id, MovesSelf = true });
+            _pages[page.Id] = body;
+            if (page.Id == _selected) _sections = body;
+            var button = Element(_navigationRoot, "SettingsNav." + page.Id, XsrUiSemanticRole.Button, page.Label, width: Math.Max(64, page.Label.Length * 14 + 24), height: 36);
             _shell.Tree.SetComponent(button, new XsrUiText(page.Label));
             _shell.Tree.SetComponent(button, new XsrUiInput { Focusable = true, Clickable = true });
             _shell.Tree.SetComponent(button, new XsrUiCommandBinding(Select));
@@ -148,7 +176,9 @@ internal sealed class SettingsPageController : IDisposable
         foreach (var pair in _navigation)
         {
             bool selected = pair.Value == _selected;
-            Style(pair.Key, selected ? White : XsrUiColor.Transparent, selected ? Blue : Ink, 8, 13, selected ? 600 : 450);
+            Style(pair.Key, XsrUiColor.Transparent, selected ? Blue : Ink, 8, 13, selected ? 600 : 450);
+            _shell.Tree.GetComponent<XsrUiVisualStyle>(pair.Key)!.TextAlignment = XsrUiTextAlignment.Center;
+            if (selected) _shell.Tree.GetComponent<XsrUiSegmentedTrack>(_navigationRoot)!.Selected = pair.Key;
             _shell.Tree.GetComponent<XsrUiSelection>(pair.Key)!.IsSelected = selected;
         }
     }

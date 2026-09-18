@@ -1,8 +1,8 @@
 <Page xmlns="https://pcln.dev/pxml/2026" Key="SettingsPage" Label="设置">
-  <StackPanel Key="SettingsLayout" Orientation="Horizontal" Weight="1" Spacing="20" Padding="16,14,16,14">
-    <StackPanel Key="SettingsNavigation" Label="设置分类" Orientation="Vertical" Width="152" Spacing="4" Scroll="true" Padding="4" />
-    <StackPanel Key="SettingsBody" Orientation="Vertical" Weight="1" Spacing="0">
-      <StackPanel Key="SettingsSections" Orientation="Vertical" Weight="1" Spacing="14" Scroll="true" Padding="0,0,0,12" />
+  <StackPanel Key="SettingsLayout" Orientation="Vertical" Weight="1" Spacing="8" Padding="24,20,24,24">
+    <StackPanel Key="SettingsNavigation" Label="设置分类" Orientation="Horizontal" Height="44" Spacing="2" Scroll="true" Padding="4,0,4,0">
+      <ContentHost Key="SettingsThumb" IsVisible="false" />
     </StackPanel>
+    <HorizontalPager Key="SettingsPager" Label="设置子页面，可拖动或使用左右方向键切换" Weight="1" MinHeight="180" />
   </StackPanel>
 </Page>
