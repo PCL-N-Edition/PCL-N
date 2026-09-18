@@ -2,11 +2,11 @@
 
 ## Outcome
 
-Wave 2 starts the renderer kernel: the entity-component tree of `PCL.UI.Next` with deterministic hierarchy, an open closed-type component set, dirty tracking, and the state bridge that turns applied state changes into entity dirt.
+Wave 2 starts the renderer kernel: the entity-component tree of `Nexa.UI.Next` with deterministic hierarchy, an open closed-type component set, dirty tracking, and the state bridge that turns applied state changes into entity dirt.
 
 ## Narrow boundary decision
 
-The renderer model left the state and intent contracts to freeze after the X kernel proved them. Wave 1 did: the renderer consumes `XsrStateStore` reads as its state source (the dependency graph already allows `PCL.UI.Next -> PCL.Xsr.State`) and emits commands through `IXsrUiIntentSink`, an interface owned by UI.Next that the composition root bridges into the command router. UI.Next references no runtime, services, backend, or Avalonia assembly.
+The renderer model left the state and intent contracts to freeze after the X kernel proved them. Wave 1 did: the renderer consumes `XsrStateStore` reads as its state source (the dependency graph already allows `Nexa.UI.Next -> Nexa.Xsr.State`) and emits commands through `IXsrUiIntentSink`, an interface owned by UI.Next that the composition root bridges into the command router. UI.Next references no runtime, services, backend, or Avalonia assembly.
 
 ## Locked contract
 
@@ -23,4 +23,4 @@ This unit does not introduce layout, scene production, hit testing, navigation, 
 
 ## Verification
 
-`PCL.UI.Next.Tests` (new executable test project) covers handle recycling, deterministic child order, cycle rejection, subtree destruction, component set/get/remove, structure-dirty marking, dirty bubbling and precise clearing, deterministic dirty enumeration, state-bridge scoping, dependency table updates on destroy, and depth-first walks. The project graph, AOT compatibility of `PCL.UI.Next`, the architecture gate, and the CI wiring follow in XSR-204's gate update.
+`Nexa.UI.Next.Tests` (new executable test project) covers handle recycling, deterministic child order, cycle rejection, subtree destruction, component set/get/remove, structure-dirty marking, dirty bubbling and precise clearing, deterministic dirty enumeration, state-bridge scoping, dependency table updates on destroy, and depth-first walks. The project graph, AOT compatibility of `Nexa.UI.Next`, the architecture gate, and the CI wiring follow in XSR-204's gate update.

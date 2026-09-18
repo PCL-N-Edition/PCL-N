@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Framework-independent Nexa domain rules and invariants.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Nexa.Core/Nexa.Core.csproj" />
+  </ItemGroup>
+</Project>

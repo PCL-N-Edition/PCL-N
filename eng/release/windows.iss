@@ -3,18 +3,18 @@
 #endif
 [Setup]
 AppId={{50AE2197-7C7B-43DA-BE98-1CDEBE86B273}
-AppName=PCL Nexa
+AppName=Nexa
 AppVersion={#ProductVersion}
 VersionInfoVersion={#NumericVersion}.0
-DefaultDirName={localappdata}\Programs\PCL Nexa
-DefaultGroupName=PCL Nexa
+DefaultDirName={localappdata}\Programs\Nexa
+DefaultGroupName=Nexa
 PrivilegesRequired=lowest
 ArchitecturesAllowed={#InstallArch}
 ArchitecturesInstallIn64BitMode={#InstallArch}
 OutputDir={#OutputDir}
 OutputBaseFilename={#OutputName}
 SetupIconFile={#IconPath}
-UninstallDisplayIcon={app}\PCL.Desktop.exe
+UninstallDisplayIcon={app}\Nexa.Desktop.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -25,5 +25,5 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 [Files]
 Source: "{#Payload}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
-Name: "{group}\PCL Nexa"; Filename: "{app}\PCL.Desktop.exe"; WorkingDir: "{app}"
-Name: "{userdesktop}\PCL Nexa"; Filename: "{app}\PCL.Desktop.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\Nexa"; Filename: "{app}\Nexa.Desktop.exe"; WorkingDir: "{app}"
+Name: "{userdesktop}\Nexa"; Filename: "{app}\Nexa.Desktop.exe"; WorkingDir: "{app}"; Tasks: desktopicon

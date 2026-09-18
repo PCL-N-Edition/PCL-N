@@ -38,7 +38,7 @@ tests.
   cases, and `has_custom_resolution: false`, through the same evaluator for launch arguments
   and libraries.
 - Process state: `minecraft.process.sessions` is an ordered collection in the shared host
-  state store (owner `PCL.Services.Minecraft.Process`), declared by
+  state store (owner `Nexa.Services.Minecraft.Process`), declared by
   `MinecraftProcessStateComposition` in the same `FoundationState` builder as every other
   capability. Launch publishes Created → Running and then Exited/Failed; cancellation through
   the `minecraft.process.cancel` command publishes Cancelled. The lifecycle checks `HasExited`
@@ -61,7 +61,7 @@ of unresolved tokens.
 
 ## Verification
 
-`tests/PCL.Services.Tests` contains 165 executable tests: disjoint Java ranges rejected with
+`tests/Nexa.Services.Tests` contains 165 executable tests: disjoint Java ranges rejected with
 `ConflictingRequirements` (including Cleanroom 25 vs legacy Java 8), overlapping ranges
 narrowing, full token resolution including `${natives_directory}`, `${launcher_version}`,
 `${classpath_separator}`, and `${library_directory}`, unresolved JVM/game-token plan failure

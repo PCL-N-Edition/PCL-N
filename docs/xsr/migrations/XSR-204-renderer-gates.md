@@ -6,9 +6,9 @@ Wave 2 closes with its exit gates wired into CI: the UI.Next test suite runs in 
 
 ## Locked contract
 
-- `PCL.UI.Next.Benchmarks` is an executable gate, not a reporting tool. It enforces machine-independent invariants: a clean re-render of the full tree allocates zero managed bytes and reuses the cached scene; a paint-only change triggers zero layout visits; a structural leaf change relayouts strictly fewer entities than the whole tree; and the produced scene carries exactly the entity tree in deterministic depth-first order. Timing throughput is reported informationally and never gated, so the gate is deterministic across machines.
+- `Nexa.UI.Next.Benchmarks` is an executable gate, not a reporting tool. It enforces machine-independent invariants: a clean re-render of the full tree allocates zero managed bytes and reuses the cached scene; a paint-only change triggers zero layout visits; a structural leaf change relayouts strictly fewer entities than the whole tree; and the produced scene carries exactly the entity tree in deterministic depth-first order. Timing throughput is reported informationally and never gated, so the gate is deterministic across machines.
 - CI runs, in order: full solution build, XSR runtime kernel tests, NativeAOT runtime tests, UI.Next renderer kernel tests, NativeAOT renderer tests, UI.Next benchmark gates, the architecture boundary scan, and the trimmed Desktop publish.
-- `PCL.UI.Next` is AOT-compatible; the renderer kernel is exercised by the same NativeAOT and trim gates as the X kernel.
+- `Nexa.UI.Next` is AOT-compatible; the renderer kernel is exercised by the same NativeAOT and trim gates as the X kernel.
 
 ## Non-goals
 

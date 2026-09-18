@@ -26,7 +26,7 @@ spawning anything.
   releases the handle immediately — the replacement outlives the updater by design).
   `ScheduleInstallOnExit` is the same hand-off with the restart flag cleared.
 - Staged-path helper: `UpdateStaging.BuildStagedPath` places the hidden update file next to
-  the running executable (`.PCL-N-Edition.exe.<version>.update`) with version characters
+  the running executable (`.NexaCL.exe.<version>.update`) with version characters
   sanitized to underscores.
 
 ## Deliberate scope
@@ -38,7 +38,7 @@ its launcher-side integration is composition wiring. Process-start failure surfa
 
 ## Verification
 
-`tests/PCL.Services.Tests` (123 executable tests, 3 new) covers: the exact argument
+`tests/Nexa.Services.Tests` (123 executable tests, 3 new) covers: the exact argument
 contract for both tree-update and plain modes (order, values, PID formatting, restart flag)
 with start-info flags and working directory; the scheduler launching through the port,
 creating the work directory, refusing a missing staged executable with the staged path

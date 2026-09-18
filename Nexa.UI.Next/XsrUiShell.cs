@@ -1,0 +1,972 @@
+using Nexa.Xsr;
+using Nexa.Xsr.State;
+
+namespace Nexa.UI.Next;
+
+/// <summary>
+/// Selects the supported product shell presentation. Additional styles are deferred.
+/// </summary>
+public enum XsrUiShellStyle
+{
+    Experimental = 0,
+}
+
+/// <summary>
+/// One stable destination in the product's primary navigation.
+/// </summary>
+public sealed class XsrUiShellNavigationItem
+{
+    public XsrUiShellNavigationItem(string id, string label, string icon)
+        : this(XsrSemanticId.Parse(id), label, icon)
+    {
+    }
+
+    public XsrUiShellNavigationItem(
+        XsrSemanticId id,
+        string label,
+        string icon,
+        XsrSemanticId? command = null)
+    {
+        if (!id.IsAssigned)
+        {
+            throw new ArgumentException("A navigation item requires an assigned semantic ID.", nameof(id));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(label);
+        ArgumentException.ThrowIfNullOrWhiteSpace(icon);
+        if (command is { IsAssigned: false })
+        {
+            throw new ArgumentException("A navigation command must be assigned.", nameof(command));
+        }
+
+        Id = id;
+        Label = label;
+        Icon = icon;
+        Command = command ?? XsrSemanticId.Parse($"ui.{id.Value}");
+    }
+
+    public XsrSemanticId Id { get; }
+
+    public string Label { get; }
+
+    public string Icon { get; }
+
+    public XsrSemanticId Command { get; }
+}
+
+/// <summary>
+/// Options for the framework-neutral shell composition.
+/// </summary>
+public sealed class XsrUiShellOptions
+{
+    public XsrUiShellStyle Style { get; init; } = XsrUiShellStyle.Experimental;
+
+    public string Title { get; init; } = "NexaCL";
+
+    public string Version { get; init; } = "2.0.0.alpha.1";
+
+    public IReadOnlyList<XsrUiShellNavigationItem>? NavigationItems { get; init; }
+
+    public XsrSemanticId? InitialNavigationId { get; init; }
+}
+
+/// <summary>
+/// Backend-neutral material tokens for the product shell.
+/// </summary>
+public readonly record struct XsrUiShellPalette(
+    XsrUiColor WindowBackground,
+    XsrUiColor TitleBarBackground,
+    XsrUiColor TitleBarText,
+    XsrUiColor NavigationBackground,
+    XsrUiColor ContentBackground,
+    XsrUiColor SurfaceBorder,
+    XsrUiColor PrimaryText,
+    XsrUiColor SecondaryText,
+    XsrUiColor Accent,
+    XsrUiColor NavigationHover,
+    XsrUiColor SelectedNavigationText,
+    XsrUiColor NavigationIcon,
+    XsrUiSurfaceKind TitleBarSurface,
+    XsrUiSurfaceKind NavigationSurface,
+    XsrUiSurfaceKind ContentSurface,
+    double CornerRadius,
+    double BlurRadius,
+    double BorderWidth)
+{
+    public static XsrUiShellPalette For(XsrUiShellStyle style) => style switch
+    {
+        // The Experimental style mirrors the legacy experimental base plate: a solid accent title
+        // bar with white text over a light window, an icon rail, and a soft accent hover tint.
+        XsrUiShellStyle.Experimental => new(
+            WindowBackground: new XsrUiColor(251, 251, 251),
+            TitleBarBackground: new XsrUiColor(19, 112, 243),
+            TitleBarText: new XsrUiColor(255, 255, 255),
+            NavigationBackground: new XsrUiColor(243, 247, 252),
+            ContentBackground: new XsrUiColor(251, 251, 251),
+            SurfaceBorder: new XsrUiColor(224, 234, 253),
+            PrimaryText: new XsrUiColor(52, 61, 74),
+            SecondaryText: new XsrUiColor(122, 138, 153),
+            Accent: new XsrUiColor(19, 112, 243),
+            NavigationHover: new XsrUiColor(213, 230, 253),
+            SelectedNavigationText: new XsrUiColor(11, 91, 203),
+            NavigationIcon: new XsrUiColor(52, 61, 74),
+            TitleBarSurface: XsrUiSurfaceKind.Solid,
+            NavigationSurface: XsrUiSurfaceKind.Solid,
+            ContentSurface: XsrUiSurfaceKind.Solid,
+            CornerRadius: XsrUiCornerRadii.Surface,
+            BlurRadius: 0,
+            BorderWidth: 1),
+        _ => throw new ArgumentOutOfRangeException(nameof(style), style, "Unknown shell style."),
+    };
+}
+
+/// <summary>
+/// Stable semantic IDs used by the shell itself.
+/// </summary>
+public static class XsrUiShellIds
+{
+    public static readonly XsrSemanticId NavigationSelect = XsrSemanticId.Parse("ui.navigation.select");
+
+    public static readonly XsrSemanticId NavigationExpand = XsrSemanticId.Parse("ui.navigation.expand");
+
+    public static readonly XsrSemanticId WindowMinimize = XsrSemanticId.Parse("ui.window.minimize");
+
+    public static readonly XsrSemanticId WindowMaximize = XsrSemanticId.Parse("ui.window.maximize");
+
+    public static readonly XsrSemanticId WindowClose = XsrSemanticId.Parse("ui.window.close");
+}
+
+/// <summary>
+/// Event data for a primary-navigation selection change.
+/// </summary>
+public sealed class XsrUiShellNavigationChangedEventArgs(
+    XsrSemanticId previous,
+    XsrSemanticId current) : EventArgs
+{
+    public XsrSemanticId Previous { get; } = previous;
+
+    public XsrSemanticId Current { get; } = current;
+}
+
+/// <summary>
+/// Handles returned by a PXML shell template. The template describes structure; XsrUiShell adds
+/// selection, palette, and intent behavior without coupling UI.Next to the PXML compiler.
+/// </summary>
+public sealed class XsrUiShellTemplate
+{
+    public XsrUiShellTemplate(
+        XsrUiTree tree,
+        XsrUiEntityId root,
+        XsrUiEntityId titleBar,
+        XsrUiEntityId body,
+        XsrUiEntityId navigation,
+        XsrUiEntityId content,
+        IReadOnlyList<XsrUiShellNavigationItem> navigationItems,
+        IReadOnlyDictionary<XsrSemanticId, XsrUiEntityId> navigationEntities)
+    {
+        ArgumentNullException.ThrowIfNull(tree);
+        ArgumentNullException.ThrowIfNull(navigationItems);
+        ArgumentNullException.ThrowIfNull(navigationEntities);
+        if (!tree.IsAlive(root)
+            || !tree.IsAlive(titleBar)
+            || !tree.IsAlive(body)
+            || !tree.IsAlive(navigation)
+            || !tree.IsAlive(content))
+        {
+            throw new ArgumentException("A shell template can contain only live entities.", nameof(tree));
+        }
+
+        if (!tree.Parent(titleBar).Equals(root)
+            || !tree.Parent(body).Equals(root)
+            || !tree.Parent(navigation).Equals(body)
+            || !tree.Parent(content).Equals(body))
+        {
+            throw new ArgumentException("A shell template has an invalid chrome hierarchy.", nameof(tree));
+        }
+
+        if (navigationItems.Count == 0 || navigationItems.Count != navigationEntities.Count)
+        {
+            throw new ArgumentException("A shell template requires one entity for every navigation item.", nameof(navigationItems));
+        }
+
+        Tree = tree;
+        Root = root;
+        TitleBar = titleBar;
+        Body = body;
+        Navigation = navigation;
+        Content = content;
+        NavigationItems = [.. navigationItems];
+        NavigationEntities = new Dictionary<XsrSemanticId, XsrUiEntityId>(navigationEntities);
+        foreach (XsrUiShellNavigationItem item in NavigationItems)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+            if (!NavigationEntities.TryGetValue(item.Id, out XsrUiEntityId entity)
+                || !tree.IsAlive(entity)
+                || !tree.Parent(entity).Equals(navigation))
+            {
+                throw new ArgumentException(
+                    $"Navigation item '{item.Id}' is not attached to the template navigation rail.",
+                    nameof(navigationEntities));
+            }
+        }
+    }
+
+    public XsrUiTree Tree { get; }
+
+    public XsrUiEntityId Root { get; }
+
+    public XsrUiEntityId TitleBar { get; }
+
+    public XsrUiEntityId Body { get; }
+
+    public XsrUiEntityId Navigation { get; }
+
+    public XsrUiEntityId Content { get; }
+
+    public IReadOnlyList<XsrUiShellNavigationItem> NavigationItems { get; }
+
+    public IReadOnlyDictionary<XsrSemanticId, XsrUiEntityId> NavigationEntities { get; }
+}
+
+/// <summary>
+/// Shared product chrome: title bar, primary navigation, and content host. The shell is a
+/// framework-neutral UI.Next tree so tests and non-Avalonia hosts see the same semantics and
+/// layout. Avalonia is only a presentation edge over this contract.
+/// </summary>
+public sealed class XsrUiShell
+{
+    /// <summary>The canonical title bar height in logical pixels.</summary>
+    public const double TitleBarHeight = 52;
+
+    /// <summary>The collapsed icon-rail width in logical pixels.</summary>
+    public const double CollapsedRailWidth = 48;
+
+    /// <summary>The expanded rail width in logical pixels.</summary>
+    public const double ExpandedRailWidth = 120;
+
+    /// <summary>The canonical navigation item height in logical pixels.</summary>
+    public const double NavigationItemHeight = 42;
+
+    private static readonly XsrUiShellNavigationItem[] BuiltInNavigationItems =
+    [
+        new("navigation.launch", "启动", "lucide/play"),
+        new("navigation.download", "安装", "lucide/package-plus"),
+        new("navigation.community", "资源", "lucide/blocks"),
+        new("navigation.settings", "设置", "lucide/settings"),
+    ];
+
+    public static IReadOnlyList<XsrUiShellNavigationItem> DefaultNavigationItems =>
+        [.. BuiltInNavigationItems];
+
+    private readonly Dictionary<XsrSemanticId, XsrUiEntityId> _navigationEntities = [];
+    private readonly Dictionary<XsrUiEntityId, XsrSemanticId> _navigationIds = [];
+    private readonly IXsrUiIntentSink? _externalIntentSink;
+    private XsrUiEntityId _navigationToggle;
+
+    public XsrUiShell(
+        XsrStateStore state,
+        XsrUiShellOptions? options = null,
+        IXsrUiIntentSink? intentSink = null,
+        XsrUiStateBridge? stateBridge = null)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        options ??= new XsrUiShellOptions();
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.Title);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.Version);
+
+        XsrUiShellNavigationItem[] navigationItems =
+            options.NavigationItems is null ? [.. BuiltInNavigationItems] : [.. options.NavigationItems];
+        if (navigationItems.Length == 0)
+        {
+            throw new ArgumentException("The shell requires at least one navigation item.", nameof(options));
+        }
+
+        foreach (XsrUiShellNavigationItem item in navigationItems)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+            if (!_navigationEntities.TryAdd(item.Id, default))
+            {
+                throw new ArgumentException($"Duplicate navigation ID '{item.Id}'.", nameof(options));
+            }
+        }
+
+        _externalIntentSink = intentSink;
+        NavigationItems = navigationItems;
+        Title = options.Title;
+        Version = options.Version;
+        Style = options.Style;
+        Palette = XsrUiShellPalette.For(Style);
+
+        Tree = stateBridge?.Tree ?? new XsrUiTree();
+        StateBridge = stateBridge;
+        Stage = new XsrUiStage(Tree, state, new ShellIntentSink(this), stateBridge);
+        Root = Stage.Root;
+        Content = Stage.ContentHost;
+
+        Tree.SetComponent(Root, new XsrUiElement());
+        Tree.SetComponent(Root, new XsrUiStackPanel(XsrUiOrientation.Vertical) { StretchLastChild = true });
+        Tree.SetComponent(Root, new XsrUiSemantic(XsrUiSemanticRole.Page, options.Title));
+        Tree.SetComponent(Root, new XsrUiVisualStyle());
+
+        TitleBar = Tree.Create("title-bar");
+        Tree.SetComponent(TitleBar, new XsrUiElement
+        {
+            Height = TitleBarHeight,
+        });
+        Tree.SetComponent(TitleBar, new XsrUiStackPanel(XsrUiOrientation.Horizontal));
+        Tree.SetComponent(TitleBar, new XsrUiSemantic(XsrUiSemanticRole.TitleBar, "标题栏"));
+        Tree.SetComponent(TitleBar, new XsrUiVisualStyle());
+
+        XsrUiEntityId title = Tree.Create("title");
+        Tree.SetComponent(title, new XsrUiElement
+        {
+            // The deterministic text metric under-reserves width for proportional fonts; the
+            // title owns generous space so the real glyph run is never clipped.
+            Margin = new XsrUiThickness(20, 0, 0, 0),
+            Width = 240,
+            VerticalAlignment = XsrUiAlignment.Center,
+        });
+        Tree.SetComponent(title, new XsrUiText(options.Title));
+        Tree.SetComponent(title, new XsrUiSemantic(XsrUiSemanticRole.Text, options.Title));
+        Tree.Attach(title, TitleBar);
+
+        XsrUiEntityId version = Tree.Create("version");
+        Tree.SetComponent(version, new XsrUiElement
+        {
+            Margin = new XsrUiThickness(12, 0, 0, 0),
+            VerticalAlignment = XsrUiAlignment.Center,
+        });
+        Tree.SetComponent(version, new XsrUiText($"{options.Version}"));
+        Tree.SetComponent(version, new XsrUiSemantic(XsrUiSemanticRole.Text, "版本"));
+        Tree.Attach(version, TitleBar);
+
+        Body = Tree.Create("body");
+        Tree.SetComponent(Body, new XsrUiElement());
+        Tree.SetComponent(Body, new XsrUiStackPanel(XsrUiOrientation.Horizontal) { StretchLastChild = true });
+        Tree.Attach(TitleBar, Root);
+        Tree.Attach(Body, Root);
+
+        Navigation = Tree.Create("main-navigation");
+        Tree.SetComponent(Navigation, new XsrUiElement
+        {
+            Width = CollapsedRailWidth,
+        });
+        Tree.SetComponent(Navigation, new XsrUiStackPanel(XsrUiOrientation.Vertical)
+        {
+            Spacing = 6,
+            StretchLastChild = true,
+        });
+        Tree.SetComponent(Navigation, new XsrUiSemantic(XsrUiSemanticRole.Navigation, "主导航"));
+        Tree.SetComponent(Navigation, new XsrUiVisualStyle());
+        Tree.Attach(Navigation, Body);
+
+        Tree.Detach(Content);
+        Tree.SetComponent(Content, new XsrUiElement());
+        Tree.SetComponent(Content, new XsrUiSemantic(XsrUiSemanticRole.Content, "内容区域"));
+        Tree.SetComponent(Content, new XsrUiVisualStyle());
+        Tree.Attach(Content, Body);
+
+        XsrSemanticId initial = options.InitialNavigationId ?? navigationItems[0].Id;
+        if (!_navigationEntities.ContainsKey(initial))
+        {
+            throw new ArgumentException($"Initial navigation ID '{initial}' is not registered.", nameof(options));
+        }
+
+        for (int index = 0; index < navigationItems.Length; index++)
+        {
+            XsrUiShellNavigationItem item = navigationItems[index];
+            XsrUiEntityId entity = Tree.Create($"navigation-item:{item.Id.Value}");
+            Tree.SetComponent(entity, new XsrUiElement
+            {
+                Height = NavigationItemHeight,
+                HorizontalAlignment = XsrUiAlignment.Stretch,
+                VerticalAlignment = XsrUiAlignment.Center,
+            });
+            Tree.SetComponent(entity, new XsrUiImage(item.Icon));
+            Tree.SetComponent(entity, new XsrUiText(item.Label));
+            Tree.SetComponent(entity, new XsrUiSemantic(XsrUiSemanticRole.NavigationItem, item.Label));
+            Tree.SetComponent(entity, new XsrUiInput { Focusable = true, Clickable = true });
+            Tree.SetComponent(entity, new XsrUiCommandBinding(item.Command));
+            Tree.SetComponent(entity, new XsrUiSelection { IsSelected = item.Id == initial });
+            Tree.SetComponent(entity, new XsrUiVisualStyle());
+            Tree.Attach(entity, Navigation);
+            _navigationEntities[item.Id] = entity;
+            _navigationIds[entity] = item.Id;
+        }
+
+        SelectedNavigationId = initial;
+        FinishComposition();
+    }
+
+    /// <summary>
+    /// Creates a shell over a structure produced by PXML. UI.Next receives only the compiled
+    /// entity handles, so the PXML compiler remains an outer composition concern.
+    /// </summary>
+    public XsrUiShell(
+        XsrStateStore state,
+        XsrUiShellTemplate template,
+        XsrUiShellOptions? options = null,
+        IXsrUiIntentSink? intentSink = null,
+        XsrUiStateBridge? stateBridge = null)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(template);
+        options ??= new XsrUiShellOptions();
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.Title);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.Version);
+        if (options.NavigationItems is not null
+            && !options.NavigationItems.Select(item => item.Id).SequenceEqual(
+                template.NavigationItems.Select(item => item.Id)))
+        {
+            throw new ArgumentException(
+                "PXML shell navigation IDs must match the supplied shell options in order.",
+                nameof(options));
+        }
+
+        XsrUiShellNavigationItem[] navigationItems = [.. template.NavigationItems];
+        XsrSemanticId initial = options.InitialNavigationId ?? navigationItems[0].Id;
+        if (!template.NavigationEntities.ContainsKey(initial))
+        {
+            throw new ArgumentException($"Initial navigation ID '{initial}' is not registered.", nameof(options));
+        }
+
+        _externalIntentSink = intentSink;
+        NavigationItems = navigationItems;
+        Title = options.Title;
+        Version = options.Version;
+        Style = options.Style;
+        Palette = XsrUiShellPalette.For(Style);
+        Tree = template.Tree;
+        if (stateBridge is not null && !ReferenceEquals(stateBridge.Tree, Tree))
+        {
+            throw new ArgumentException(
+                "The state bridge must observe the PXML template tree.",
+                nameof(stateBridge));
+        }
+        StateBridge = stateBridge;
+        Root = template.Root;
+        TitleBar = template.TitleBar;
+        Body = template.Body;
+        Navigation = template.Navigation;
+        Content = template.Content;
+        foreach ((XsrSemanticId id, XsrUiEntityId entity) in template.NavigationEntities)
+        {
+            _navigationEntities.Add(id, entity);
+            _navigationIds.Add(entity, id);
+            XsrUiSelection? selection = Tree.GetComponent<XsrUiSelection>(entity);
+            if (selection is null)
+            {
+                selection = new XsrUiSelection();
+                Tree.SetComponent(entity, selection);
+            }
+
+            selection.IsSelected = id == initial;
+
+            if (Tree.GetComponent<XsrUiVisualStyle>(entity) is null)
+            {
+                Tree.SetComponent(entity, new XsrUiVisualStyle());
+            }
+        }
+
+        SelectedNavigationId = initial;
+        Stage = new XsrUiStage(Tree, state, Root, Content, new ShellIntentSink(this), stateBridge);
+        FinishComposition();
+    }
+
+    public event EventHandler<XsrUiShellNavigationChangedEventArgs>? NavigationChanged;
+
+    public event EventHandler? NavigationExpandedChanged;
+
+    public event EventHandler? StyleChanged;
+
+    public XsrUiTree Tree { get; }
+
+    /// <summary>
+    /// The optional host-store observer bound to this shell's render tree. A native backend uses
+    /// its render request signal only to schedule a frame; the renderer remains the sole drain
+    /// point.
+    /// </summary>
+    public XsrUiStateBridge? StateBridge { get; }
+
+    public XsrUiStage Stage { get; }
+
+    public XsrUiRenderer Renderer => Stage.Renderer;
+
+    public XsrUiEntityId Root { get; }
+
+    public XsrUiEntityId TitleBar { get; }
+
+    public XsrUiEntityId Body { get; }
+
+    public XsrUiEntityId Navigation { get; }
+
+    public XsrUiEntityId Content { get; }
+
+    /// <summary>The shell-owned rail expand/collapse affordance.</summary>
+    public XsrUiEntityId NavigationToggle => _navigationToggle;
+
+    public IReadOnlyList<XsrUiShellNavigationItem> NavigationItems { get; }
+
+    public string Title { get; }
+
+    public string Version { get; }
+
+    public IReadOnlyDictionary<XsrSemanticId, XsrUiEntityId> NavigationEntities => _navigationEntities;
+
+    public XsrSemanticId SelectedNavigationId { get; private set; }
+
+    public XsrUiShellStyle Style { get; private set; }
+
+    public XsrUiShellPalette Palette { get; private set; }
+
+    /// <summary>Whether the navigation rail currently shows item labels beside the icons.</summary>
+    public bool IsNavigationExpanded { get; private set; }
+
+    /// <summary>
+    /// Changes the presentation palette while preserving the semantic tree and current route.
+    /// </summary>
+    public void SetStyle(XsrUiShellStyle style)
+    {
+        if (Style == style)
+        {
+            return;
+        }
+
+        XsrUiShellPalette palette = XsrUiShellPalette.For(style);
+        Style = style;
+        Palette = palette;
+        ApplyPalette();
+        StyleChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Selects one primary navigation destination. Returns false for an unknown ID.
+    /// </summary>
+    public bool Select(XsrSemanticId id)
+    {
+        if (!_navigationEntities.TryGetValue(id, out XsrUiEntityId entity))
+        {
+            return false;
+        }
+
+        XsrSemanticId previous = SelectedNavigationId;
+        if (previous == id)
+        {
+            return true;
+        }
+
+        if (_navigationEntities.TryGetValue(previous, out XsrUiEntityId previousEntity))
+        {
+            SetSelection(previousEntity, selected: false);
+        }
+
+        SetSelection(entity, selected: true);
+        SelectedNavigationId = id;
+        NavigationChanged?.Invoke(
+            this,
+            new XsrUiShellNavigationChangedEventArgs(previous, id));
+        return true;
+    }
+
+    /// <summary>
+    /// Selects a navigation destination by its renderer entity handle.
+    /// </summary>
+    public bool Select(XsrUiEntityId entity) =>
+        _navigationIds.TryGetValue(entity, out XsrSemanticId id) && Select(id);
+
+    /// <summary>
+    /// Expands or collapses the navigation rail. Expansion is ephemeral presentation mechanics
+    /// owned by the shell; it never becomes product state.
+    /// </summary>
+    public void SetNavigationExpanded(bool expanded)
+    {
+        if (IsNavigationExpanded == expanded)
+        {
+            return;
+        }
+
+        IsNavigationExpanded = expanded;
+        if (Renderer.ReducedMotion)
+        {
+            // Reduced motion is a presentation contract: skip the geometry interpolation and
+            // commit the final rail width immediately.
+            SetRailPresentationProgress(expanded ? 1 : 0);
+        }
+
+        ApplyNavigationExpansion();
+        NavigationExpandedChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Flips the navigation rail between its icon rail and expanded forms.</summary>
+    public void ToggleNavigationExpanded() => SetNavigationExpanded(!IsNavigationExpanded);
+
+    /// <summary>
+    /// The ephemeral presentation progress of the rail: 0 is fully collapsed, 1 fully expanded.
+    /// This is renderer-local presentation state, not product truth — the semantic target is
+    /// <see cref="IsNavigationExpanded"/>. The committed rail geometry derives from it, so the
+    /// scene, the hit test, and the drawn frame always share one geometry while it plays.
+    /// </summary>
+    public double RailPresentationProgress { get; private set; }
+
+    /// <summary>
+    /// Sets the rail presentation progress and re-commits the rail geometry. Presentation
+    /// drivers (the backend motion clock) call this once per frame; it is a no-op at rest.
+    /// </summary>
+    public void SetRailPresentationProgress(double value)
+    {
+        double clamped = Math.Clamp(value, 0, 1);
+        if (RailPresentationProgress == clamped)
+        {
+            return;
+        }
+
+        RailPresentationProgress = clamped;
+        ApplyRailPresentation();
+    }
+
+    /// <summary>
+    /// Maps presented spring progress linearly to committed geometry. Easing belongs to the
+    /// presentation clock, so applying another curve here would distort velocity on reversal.
+    /// </summary>
+    public static double RailWidthFor(double progress)
+    {
+        double clamped = Math.Clamp(progress, 0, 1);
+        return CollapsedRailWidth + ((ExpandedRailWidth - CollapsedRailWidth) * clamped);
+    }
+
+    /// <summary>
+    /// Runs the deterministic UI.Next layout pass for one viewport.
+    /// </summary>
+    private XsrUiEntityId _motionPage;
+    private XsrSemanticId _motionDestination;
+    private int _motionDepth;
+    private long _motionRevision;
+    public XsrUiScene Render(XsrUiSize viewport)
+    {
+        if (Tree.GetComponent<XsrUiTransition>(Content) is { BoundKey.IsAssigned: false }
+            && (_motionPage != Stage.Navigation.Current || _motionDestination != SelectedNavigationId))
+        {
+            _motionPage = Stage.Navigation.Current;
+            _motionDestination = SelectedNavigationId;
+            XsrUiTransition.ConfigureIndependent(Tree, _motionPage, $"navigation:{++_motionRevision}",
+                Stage.Navigation.Depth < _motionDepth ? -6 : 6);
+            _motionDepth = Stage.Navigation.Depth;
+        }
+        Renderer.Viewport = viewport;
+        return Renderer.Render();
+    }
+
+    /// <summary>
+    /// Shared composition tail for both construction paths: the shell-owned rail toggle, the
+    /// palette, the canonical item margins, and the collapsed rail presentation.
+    /// </summary>
+    private void FinishComposition()
+    {
+        _navigationToggle = CreateNavigationToggle();
+        ApplyNavigationItemMargins();
+        ApplyPalette();
+        ApplyNavigationExpansion();
+        ApplyRailPresentation();
+    }
+
+    /// <summary>
+    /// Commits the canonical static item margins once: full rail width in both states, with the
+    /// first item inset from the title bar. Expansion animates the rail width, never margins.
+    /// </summary>
+    private void ApplyNavigationItemMargins()
+    {
+        for (int index = 0; index < NavigationItems.Count; index++)
+        {
+            XsrUiEntityId entity = _navigationEntities[NavigationItems[index].Id];
+            XsrUiElement? element = Tree.GetComponent<XsrUiElement>(entity);
+            XsrUiThickness margin = ItemMargin(index);
+            if (element is not null && element.Margin != margin)
+            {
+                element.Margin = margin;
+                Tree.MarkDirty(entity, XsrUiDirtyKinds.Layout);
+            }
+        }
+    }
+
+    private XsrUiEntityId CreateNavigationToggle()
+    {
+        XsrUiEntityId toggle = Tree.Create("navigation-toggle");
+        Tree.SetComponent(toggle, new XsrUiElement
+        {
+            Height = NavigationItemHeight,
+
+            // The rail stretches its last child over the leftover height; end alignment pins the
+            // toggle to the bottom of the rail like the legacy hamburger.
+            VerticalAlignment = XsrUiAlignment.End,
+            Margin = new XsrUiThickness(0, 6, 0, RailBottomInset),
+            HorizontalAlignment = XsrUiAlignment.Stretch,
+        });
+        Tree.SetComponent(toggle, new XsrUiImage("lucide/menu"));
+        Tree.SetComponent(toggle, new XsrUiText(string.Empty));
+        Tree.SetComponent(toggle, new XsrUiSemantic(XsrUiSemanticRole.Button, "导航开关"));
+        Tree.SetComponent(toggle, new XsrUiInput { Focusable = true, Clickable = true });
+        Tree.SetComponent(toggle, new XsrUiCommandBinding(XsrUiShellIds.NavigationExpand));
+        Tree.SetComponent(toggle, new XsrUiVisualStyle());
+        Tree.Attach(toggle, Navigation);
+        return toggle;
+    }
+
+    /// <summary>Insets the first rail item from the title bar, mirroring the legacy rail.</summary>
+    public const double RailTopInset = 10;
+
+    /// <summary>Insets the rail toggle from the bottom edge.</summary>
+    public const double RailBottomInset = 12;
+
+    /// <summary>The collapse label shown beside the rail toggle while expanded.</summary>
+    public const string NavigationToggleCollapseLabel = "收起";
+
+    /// <summary>The title-bar product-title text size in logical pixels.</summary>
+    public const double TitleFontSize = 17;
+
+    /// <summary>Secondary title-bar text size (for example a version label).</summary>
+    public const double TitleSecondaryFontSize = 12;
+
+    /// <summary>The title-bar product-title weight on the 100..900 scale.</summary>
+    public const double TitleFontWeight = 600;
+
+    private static XsrUiThickness ItemMargin(int index)
+    {
+        // Rail items always span the full rail width: the selection pill stays pinned to the
+        // rail's left edge and the icon/label offsets come from the backend presentation, so
+        // expansion never shifts the chrome sideways.
+        double top = index == 0 ? RailTopInset : 0;
+        return new XsrUiThickness(0, top, 0, 0);
+    }
+
+    /// <summary>
+    /// Re-commits the rail geometry from the ephemeral presentation progress. Width is the only
+    /// animated fact: item labels and the collapse label are target-time decisions committed by
+    /// <see cref="ApplyNavigationExpansion"/>.
+    /// </summary>
+    private void ApplyRailPresentation()
+    {
+        XsrUiElement? rail = Tree.GetComponent<XsrUiElement>(Navigation);
+        if (rail is null)
+        {
+            return;
+        }
+
+        double width = RailWidthFor(RailPresentationProgress);
+        if (rail.Width != width)
+        {
+            rail.Width = width;
+            Tree.MarkDirty(Navigation, XsrUiDirtyKinds.Layout);
+        }
+    }
+
+    /// <summary>
+    /// Commits the target-time presentation facts of the rail state: the toggle carries the
+    /// collapse label ("收起") while expanded and collapses to icon-only. Item labels are always
+    /// the destination text; whether the backend draws them beside the icon follows the
+    /// committed item width, which passes the label-reveal threshold as the rail animates.
+    /// </summary>
+    private void ApplyNavigationExpansion()
+    {
+        if (_navigationToggle != default
+            && Tree.GetComponent<XsrUiText>(_navigationToggle) is { } toggleText)
+        {
+            // Like destination labels, this is revealed by committed row width, not target time.
+            string content = NavigationToggleCollapseLabel;
+            if (!string.Equals(toggleText.Content, content, StringComparison.Ordinal))
+            {
+                toggleText.Content = content;
+                Tree.MarkDirty(_navigationToggle, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
+            }
+        }
+    }
+
+    private void ApplyPalette()
+    {
+        ApplyVisual(
+            Root,
+            Palette.WindowBackground,
+            Palette.PrimaryText,
+            XsrUiColor.Transparent,
+            XsrUiColor.Transparent,
+            XsrUiSurfaceKind.Solid,
+            cornerRadius: 0,
+            blurRadius: 0,
+            borderWidth: 0);
+        ApplyVisual(
+            TitleBar,
+            Palette.TitleBarBackground,
+            Palette.TitleBarText,
+            Palette.SurfaceBorder,
+            XsrUiColor.Transparent,
+            Palette.TitleBarSurface,
+            0,
+            Palette.BlurRadius,
+            Palette.BorderWidth);
+        ApplyVisual(
+            Navigation,
+            Palette.NavigationBackground,
+            Palette.PrimaryText,
+            Palette.SurfaceBorder,
+            XsrUiColor.Transparent,
+            Palette.NavigationSurface,
+            0,
+            Palette.BlurRadius,
+            Palette.BorderWidth);
+        ApplyVisual(
+            Content,
+            Palette.ContentBackground,
+            Palette.PrimaryText,
+            XsrUiColor.Transparent,
+            XsrUiColor.Transparent,
+            Palette.ContentSurface,
+            0,
+            0,
+            0);
+
+        foreach (XsrUiShellNavigationItem item in NavigationItems)
+        {
+            ApplyItemVisual(_navigationEntities[item.Id], item.Id == SelectedNavigationId);
+        }
+
+        if (_navigationToggle != default)
+        {
+            ApplyVisual(
+                _navigationToggle,
+                XsrUiColor.Transparent,
+                Palette.PrimaryText,
+                XsrUiColor.Transparent,
+                Palette.NavigationHover,
+                XsrUiSurfaceKind.None,
+                cornerRadius: XsrUiCornerRadii.Inset,
+                blurRadius: 0,
+                borderWidth: 0);
+            XsrUiVisualStyle toggleStyle = Tree.GetComponent<XsrUiVisualStyle>(_navigationToggle)!;
+            toggleStyle.NavigationLayout = true;
+            toggleStyle.FontSize = 12;
+        }
+
+        ApplyTitleTextStyles();
+    }
+
+    /// <summary>
+    /// Applies the title-bar typography: the product title is the legacy 17 px semibold white
+    /// title, and any further text (for example a version label) drops to the 12 px secondary
+    /// size. Both keep the title-bar text color from the palette.
+    /// </summary>
+    private void ApplyTitleTextStyles()
+    {
+        int textIndex = 0;
+        Tree.Walk(TitleBar, child =>
+        {
+            if (Tree.GetComponent<XsrUiText>(child) is null)
+            {
+                return true;
+            }
+
+            bool primary = textIndex == 0;
+            XsrUiVisualStyle? visual = Tree.GetComponent<XsrUiVisualStyle>(child);
+            if (visual is null)
+            {
+                visual = new XsrUiVisualStyle();
+                Tree.SetComponent(child, visual);
+            }
+
+            visual.Foreground = Palette.TitleBarText;
+            visual.FontSize = primary ? TitleFontSize : TitleSecondaryFontSize;
+            visual.FontWeight = primary ? TitleFontWeight : 400;
+            Tree.MarkDirty(child, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
+            textIndex++;
+            return true;
+        });
+    }
+
+    private void ApplyItemVisual(XsrUiEntityId entity, bool selected)
+    {
+        ApplyVisual(
+            entity,
+            XsrUiColor.Transparent,
+            selected ? Palette.SelectedNavigationText : Palette.PrimaryText,
+            selected ? Palette.Accent : XsrUiColor.Transparent,
+            Palette.NavigationHover,
+            XsrUiSurfaceKind.None,
+            cornerRadius: XsrUiCornerRadii.Inset,
+            blurRadius: 0,
+            borderWidth: 0);
+        Tree.GetComponent<XsrUiVisualStyle>(entity)!.NavigationLayout = true;
+    }
+
+    private void SetSelection(XsrUiEntityId entity, bool selected)
+    {
+        XsrUiSelection selection = Tree.GetComponent<XsrUiSelection>(entity)
+            ?? throw new InvalidOperationException("A shell navigation entity lost its selection component.");
+        selection.IsSelected = selected;
+        Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
+        ApplyItemVisual(entity, selected);
+    }
+
+    private void ApplyVisual(
+        XsrUiEntityId entity,
+        XsrUiColor background,
+        XsrUiColor foreground,
+        XsrUiColor border,
+        XsrUiColor hover,
+        XsrUiSurfaceKind surface,
+        double cornerRadius,
+        double blurRadius,
+        double borderWidth)
+    {
+        XsrUiVisualStyle? visual = Tree.GetComponent<XsrUiVisualStyle>(entity);
+        if (visual is null)
+        {
+            visual = new XsrUiVisualStyle();
+            Tree.SetComponent(entity, visual);
+        }
+        visual.Background = background;
+        visual.Foreground = foreground;
+        visual.Border = border;
+        visual.Hover = hover;
+        visual.Surface = surface;
+        // Background alpha expresses translucency; the element itself remains opaque so a
+        // transparent navigation highlight does not make its label disappear.
+        visual.Opacity = 1;
+        visual.CornerRadius = cornerRadius;
+        visual.BlurRadius = blurRadius;
+        visual.BorderWidth = borderWidth;
+        Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
+    }
+
+    private sealed class ShellIntentSink(XsrUiShell owner) : IXsrUiIntentSink
+    {
+        public void Emit(XsrSemanticId command, XsrUiEntityId source, XsrCorrelationId correlationId)
+        {
+            _ = owner.Select(source);
+            if (command == XsrUiShellIds.NavigationExpand)
+            {
+                owner.ToggleNavigationExpanded();
+            }
+
+            owner._externalIntentSink?.Emit(command, source, correlationId);
+        }
+    }
+}
+
+/// <summary>
+/// Convenience entry point for composition roots that want the default shell contract.
+/// </summary>
+public static class XsrUiShellComposer
+{
+    public static XsrUiShell Compose(
+        XsrStateStore state,
+        XsrUiShellOptions? options = null,
+        IXsrUiIntentSink? intentSink = null,
+        XsrUiStateBridge? stateBridge = null) =>
+        new(state, options, intentSink, stateBridge);
+
+    public static XsrUiShell Compose(
+        XsrStateStore state,
+        XsrUiShellTemplate template,
+        XsrUiShellOptions? options = null,
+        IXsrUiIntentSink? intentSink = null,
+        XsrUiStateBridge? stateBridge = null) =>
+        new(state, template, options, intentSink, stateBridge);
+}

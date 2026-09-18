@@ -2,7 +2,7 @@
 
 ## Outcome
 
-Wave 2 adds the layout engine and the render-scene boundary of `PCL.UI.Next`: a deterministic measure/arrange pass that touches only dirty subtrees, and an immutable ordered scene that is the single input to any backend commit.
+Wave 2 adds the layout engine and the render-scene boundary of `Nexa.UI.Next`: a deterministic measure/arrange pass that touches only dirty subtrees, and an immutable ordered scene that is the single input to any backend commit.
 
 ## Locked contract
 
@@ -19,4 +19,4 @@ This unit does not introduce text shaping, images, clipping, transforms, animati
 
 ## Verification
 
-`PCL.UI.Next.Tests` covers exact fixed rects, vertical and horizontal stack flow with spacing, weighted star distribution with min/max redistribution, padding and margin composition (including nested desired sizes), alignment and maximum-size constraints, invisible exclusion from scene and layout, clean-render scene reuse, dirty-subtree-only relayout observed through `LastLayoutVisits`, state-bound text reflecting applied values across renders, deterministic depth-first scene order with roles and labels, missing-root rejection, and viewport-change relayout. The architecture gate enforces the UI.Next dependency boundary.
+`Nexa.UI.Next.Tests` covers exact fixed rects, vertical and horizontal stack flow with spacing, weighted star distribution with min/max redistribution, padding and margin composition (including nested desired sizes), alignment and maximum-size constraints, invisible exclusion from scene and layout, clean-render scene reuse, dirty-subtree-only relayout observed through `LastLayoutVisits`, state-bound text reflecting applied values across renders, deterministic depth-first scene order with roles and labels, missing-root rejection, and viewport-change relayout. The architecture gate enforces the UI.Next dependency boundary.

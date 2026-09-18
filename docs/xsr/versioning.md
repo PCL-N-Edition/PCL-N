@@ -44,7 +44,7 @@ The product version does not version every XSR contract. These axes remain indep
 
 - Plugin SDK version;
 - Plugin API version;
-- private PCL.Plugin runtime version;
+- private Nexa.Plugin runtime version;
 - Sidecar Protocol version;
 - Manifest Schema version;
 - Package Format version;
@@ -52,11 +52,11 @@ The product version does not version every XSR contract. These axes remain indep
 - PXML Language version;
 - individual capability versions.
 
-For example, XSR product `2.0.0.beta.1` may validate Plugin SDK `1.0.0-rc.1`, private PCL.Plugin runtime `1.0.0`, and Sidecar Protocol v1. A product release never implies a bump to any of those independent versions.
+For example, XSR product `2.0.0.beta.1` may validate Plugin SDK `1.0.0-rc.1`, private Nexa.Plugin runtime `1.0.0`, and Sidecar Protocol v1. A product release never implies a bump to any of those independent versions.
 
 ## Upgrade path (one-way)
 
-The update flow is one-way, and `UpdateEligibility` in `PCL.Services` is its single decision
+The update flow is one-way, and `UpdateEligibility` in `Nexa.Services` is its single decision
 point:
 
 - The legacy `1.4.x` line may upgrade to any `2.0.0` build — alpha, beta, or stable. The

@@ -33,7 +33,7 @@
 ## Reading a report
 
 - Desktop appends UTF-8 entries to `<AppFolders.Root>/logs/launcher.log`. On Windows the default
-  is `%LOCALAPPDATA%/PCL Nexa/logs/launcher.log`; `PCL_NEXA_DATA_DIR` overrides the data root.
+  is `%LOCALAPPDATA%/Nexa/logs/launcher.log`; `Nexa_NEXA_DATA_DIR` overrides the data root.
   Folder/schema failures before host composition use that same file when the logs directory is
   writable, otherwise stderr is the last-resort diagnostic channel.
 - Search for `failed`, `rejected` or `[Error]`, then follow `op=<id>` for service stages or

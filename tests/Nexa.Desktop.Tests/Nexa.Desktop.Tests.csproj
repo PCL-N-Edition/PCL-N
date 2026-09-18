@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Executable tests for the Desktop composition root: launch page routing, state binding, and intent dispatch.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../Nexa.Desktop/Nexa.Desktop.csproj" />
+    <ProjectReference Include="../../Nexa.Services/Nexa.Services.csproj" />
+    <ProjectReference Include="../../Nexa.Services.Composition/Nexa.Services.Composition.csproj" />
+    <ProjectReference Include="../../Nexa.UI.Next/Nexa.UI.Next.csproj" />
+    <ProjectReference Include="../../Nexa.Xsr.State/Nexa.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>

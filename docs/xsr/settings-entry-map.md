@@ -188,7 +188,7 @@ This checked-in map reserves final positions. `reserved` means no value contract
 | global.storage.ec641c618a41 | global / storage / Snapshot | 最大占用 | State | — | False |
 | global.storage.fd0f2da3d270 | global / storage / Snapshot | 自动清理策略 | Setting | reserved | False |
 | global.storage.5cd2a8424fa9 | global / storage / 迁移 | 迁移 | Group | — | False |
-| global.storage.829f943b8c35 | global / storage / 迁移 | PCL | Setting | reserved | False |
+| global.storage.829f943b8c35 | global / storage / 迁移 | Nexa | Setting | reserved | False |
 | global.storage.0b8d3a443c57 | global / storage / 迁移 | Prism | Setting | reserved | False |
 | global.storage.b189310f58a5 | global / storage / 迁移 | Modrinth | Setting | reserved | False |
 | global.storage.055353100619 | global / storage / 迁移 | CurseForge | Setting | reserved | False |

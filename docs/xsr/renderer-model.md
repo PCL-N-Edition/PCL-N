@@ -1,6 +1,6 @@
 # XSR renderer model
 
-`PCL.UI.Next` is the canonical semantic renderer of XSR. Avalonia is a backend, not the application architecture.
+`Nexa.UI.Next` is the canonical semantic renderer of XSR. Avalonia is a backend, not the application architecture.
 
 ## Pipeline
 

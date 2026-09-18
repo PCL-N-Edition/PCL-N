@@ -39,7 +39,7 @@ the system-GLFW contract, with the latter exercising Linux ARM64 before native r
 
 ## Verification
 
-`tests/PCL.Services.Tests` passes the complete executable suite (173 tests after this unit) under
+`tests/Nexa.Services.Tests` passes the complete executable suite (173 tests after this unit) under
 both CoreCLR and Foundation NativeAOT, including the standard artifact/native pair and ARM64
 classpath regressions plus system-GLFW filtering. The solution Release build is warning-free. The
 architecture gate, UI.Next benchmark gate, exact source-format gate, and trimmed Desktop publish

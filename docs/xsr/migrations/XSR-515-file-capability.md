@@ -18,9 +18,9 @@ atomic writes, traversal refusal, and a size cap. Settings, profiles, logs, the 
   that escapes the root — with case-insensitive comparison on Windows and ordinal
   comparison elsewhere. The boundary is the root: reaching a sibling canonical folder is
   allowed, leaving the tree never is. `EnsureFolder` creates on first use.
-- Default root resolution is a composition decision with one rule: the `PCL_NEXA_DATA_DIR`
+- Default root resolution is a composition decision with one rule: the `Nexa_NEXA_DATA_DIR`
   environment variable wins, otherwise the per-user local application data directory under
-  `PCL Nexa` (the branch product name; the folder name follows the official rename when it
+  `Nexa` (the branch product name; the folder name follows the official rename when it
   happens).
 - `SafeFilePort`: UTF-8 text and binary reads with missing-files-as-null; writes are
   atomic — content lands in a unique temporary file and then replaces the destination with
@@ -37,7 +37,7 @@ port is a future decision. The Network and Telemetry families are their own unit
 
 ## Verification
 
-`tests/PCL.Services.Tests` (110 executable tests, 4 new) covers: canonical folder
+`tests/Nexa.Services.Tests` (110 executable tests, 4 new) covers: canonical folder
 resolution and creation; traversal refusal on write and read for genuinely escaping paths
 while in-tree cross-folder reach stays legal; UTF-8 text (including non-ASCII) and binary
 round trips, overwrite, absence-as-null, atomic-write cleanliness (no temporary debris), and

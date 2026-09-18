@@ -13,7 +13,7 @@ failure as "untrusted" and falls back to the full signed package.
   `InvalidDataException` on every failure shape — invalid detached signature, key not in the
   supplied keyring, fingerprint mismatch, or a signature that does not verify. The armored
   public key is supplied by the composition root (no embedded resource, no magic lookup);
-  the expected fingerprint defaults to the pinned PCL N release key
+  the expected fingerprint defaults to the pinned Nexa release key
   (`5701218D…A273AEE`), so only that key can authorize an update even when a foreign
   signature is well-formed. The small signature stream is buffered (armored decoding probes
   and rewinds); the content is verified streaming through a 128 KiB buffer.
@@ -38,7 +38,7 @@ model are frozen here. BouncyCastle.Cryptography stays at the legacy version 2.6
 
 ## Verification
 
-`tests/PCL.Services.Tests` (88 executable tests, 4 new) covers: a hand-built VCDIFF window
+`tests/Nexa.Services.Tests` (88 executable tests, 4 new) covers: a hand-built VCDIFF window
 exercising ADD, COPY from source (SELF addressing), and RUN with byte-exact output; an
 empty-source window with an overlapping HERE-mode COPY; and rejection of short headers,
 secondary compression, custom code tables, truncated varints, and section overflows. GPG

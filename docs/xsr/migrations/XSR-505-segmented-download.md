@@ -22,7 +22,7 @@ single-stream engine from XSR-504.
 - Per-segment execution: each segment gets its own connection from the request's connection
   factory, verifies the server echoed the exact requested range (a mismatch is an
   `IOException`), streams into its own part file
-  (`<destination>.PCLSegment.<guid><index>`), and requires the exact expected byte count — a
+  (`<destination>.NexaSegment.<guid><index>`), and requires the exact expected byte count — a
   short stream is an `EndOfStreamException`. Part files are deleted on every exit path,
   never masking the transfer outcome.
 - Aggregated progress: downloaded bytes are summed across segments under a lock and reported
@@ -41,7 +41,7 @@ single-stream engine from XSR-504.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (49 executable tests, 6 new replacing the eager-rejection probe)
+`tests/Nexa.Services.Tests` (49 executable tests, 6 new replacing the eager-rejection probe)
 covers: parallel assembly byte-for-byte with part-file cleanup (small floor makes 100 bytes
 split into four-plus segments); fallback when the connection is not segmented; fallback when
 the file is below the configured floor; a server that reports a wrong range on real segment

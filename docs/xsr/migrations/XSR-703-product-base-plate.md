@@ -29,7 +29,7 @@ so interruptions stay continuous.
   drawn beside the icon is a backend presentation decision derived from the committed item
   width. Expansion is ephemeral presentation mechanics owned by the shell and never becomes
   product state.
-- The title bar displays the product title "Nexa Launcher" with the legacy typography tokens:
+- The title bar displays the product title "NexaCL" with the legacy typography tokens:
   17 px semibold in the palette's title text color (`TitleFontSize`/`TitleFontWeight` on the
   visual style), with secondary title text at 12 px. `XsrUiVisualStyle` gained `FontSize` (0 =
   role default) and `FontWeight` (400 = normal) as backend-neutral text facts.
@@ -45,7 +45,7 @@ so interruptions stay continuous.
 - Scene nodes carry icons as `ImageSource` names (`NavigationItem.Icon` PXML property /
   `XsrUiImage` component); the loader attaches `XsrUiImage` for command inputs, and
   `PxmlIrNode.ImageSource` is a supported target of the `CommandInput` recipe.
-- `PCL.UI.Next.Backend.Avalonia` embeds the frozen path table (`AvaloniaUiIcons`): the lucide
+- `Nexa.UI.Next.Backend.Avalonia` embeds the frozen path table (`AvaloniaUiIcons`): the lucide
   icons used by the base plate (`play`, `package-plus`, `blocks`, `settings`, `menu`, `minus`,
   `square`, `x`) plus the product `pcl/window-restore`, transcribed from the legacy icon packs
   (lucide-static v1.17.0, ISC). Names keep the legacy `pack/key` spelling. There is no runtime
@@ -63,7 +63,7 @@ so interruptions stay continuous.
   window's own icon copy — identical pixels at the identical screen position — takes over and
   the splash closes instantly, so the icon never leaves the screen. Missing brand assets skip
   the splash — decoration is never a startup dependency. The icon assets are brand migration
-  from the legacy checkout, embedded as plain managed resources of `PCL.Desktop` and resolved
+  from the legacy checkout, embedded as plain managed resources of `Nexa.Desktop` and resolved
   by the backend by stream, not through any asset framework.
 - The shell window is 850×500 (min 810×470), centered, `WindowDecorations.None`, per-pixel
   transparent. Its surface is a 14 px-outset rounded (8 px) clip hosting the scene. The outset
@@ -115,8 +115,8 @@ clock keeps every rule testable and allocation-bounded:
 
 ## Boundary compliance
 
-`PCL.UI.Next` stays backend-free: it declares geometry constants, the toggle entity, palette
-tokens, and `ImageSource` scene facts. `PCL.UI.Next.Backend.Avalonia` remains a pure function
+`Nexa.UI.Next` stays backend-free: it declares geometry constants, the toggle entity, palette
+tokens, and `ImageSource` scene facts. `Nexa.UI.Next.Backend.Avalonia` remains a pure function
 of committed scenes — motion animates between scene facts from presented values, never reads
 tree components or shell state. The splash, window chrome, grips, and window-action overlay
 are native-window concerns at the backend edge, and the window-action overlay is still the
@@ -135,8 +135,8 @@ only non-scene control.
 
 ## Verification
 
-`PCL.UI.Next.Tests` cover the new geometry, pill/hover presentation tokens, rail toggle
-behavior and its renderer intent path (60 tests). `PCL.Pxml.Tests` compile the Icon property
+`Nexa.UI.Next.Tests` cover the new geometry, pill/hover presentation tokens, rail toggle
+behavior and its renderer intent path (60 tests). `Nexa.Pxml.Tests` compile the Icon property
 and load icon-carrying command inputs into the shell template (28 tests). The backend tests
 prove automation peers unchanged and that selection/hover facts present synchronously under
 reduced motion (3 tests). `--validate-shell` compiles the new PXML base plate and renders 11

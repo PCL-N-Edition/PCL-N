@@ -34,7 +34,7 @@ the multi-tag index walk are orchestration concerns that will feed this planner.
 - Full-package fallback: `PlanFromIndex` returns null when no index or no variant matches, so
   the caller composes `PlanFull` — the only plan allowed for single-file layouts and for
   installations before the 1.4.3 block-update baseline.
-- Asset composition: `PCL_N_` prefix (planner option), channel to configuration, win-* zips
+- Asset composition: `Nexa_N_` prefix (planner option), channel to configuration, win-* zips
   versus tar.gz, win single-file Portable executables whose binary signature equals the
   package signature, `.asc` signatures, and block map names by the legacy stem rule (final
   extension only). The v1 block map fallback exists only for Cloudflare distribution and
@@ -46,12 +46,12 @@ the multi-tag index walk are orchestration concerns that will feed this planner.
 Index fetching and multi-tag walking, HEAD size probes, GitHub channel releases, GPG
 signature verification, the vcdiff delta codec, installers, and the service orchestration
 around `UpdateEligibility` land as the next update units. Asset naming keeps the legacy
-`PCL_N_` prefix as a planner option until the release pipeline defines the 2.0.0 asset
+`Nexa_N_` prefix as a planner option until the release pipeline defines the 2.0.0 asset
 identity.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (77 executable tests, 9 new) covers: legacy patch-index JSON
+`tests/Nexa.Services.Tests` (77 executable tests, 9 new) covers: legacy patch-index JSON
 deserialization including strategy and patch fields; identity normalization; full-package
 composition across layouts, channels, runtimes, and both distribution origins; direct patch
 planning with URL fallback; scatter-vs-legacy byte comparison and the two

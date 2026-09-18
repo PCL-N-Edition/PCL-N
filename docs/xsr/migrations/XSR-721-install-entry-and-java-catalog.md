@@ -31,7 +31,7 @@ progress state, or claim that the old implementation is active.  The normal titl
 is sufficient wayfinding back to the installation choices.
 
 This unit is deliberately an installation *entry and catalog* slice, not a new installer
-boundary.  `PCL.Desktop` owns the PXML documents, page navigation, transient text input,
+boundary.  `Nexa.Desktop` owns the PXML documents, page navigation, transient text input,
 presentation selection, and the truthful feedback shown when an unavailable action is requested.
 It does not add a Service installer route, call an Avalonia control directly, or make a Service
 depend on Desktop, UI.Next, PXML, or renderer types.  Existing Minecraft library/runtime services

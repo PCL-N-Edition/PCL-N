@@ -47,8 +47,8 @@ to `XsrUiShell.Stage.ContentHost` is therefore the same page that the user sees.
 
 ## Verification
 
-`PCL.UI.Next.Tests` proves a context-created bridge observes a host store, requests a frame, and
-refreshes a shell-bound scene without manual dirty marking. `PCL.UI.Next.Backend.Avalonia.Tests`
+`Nexa.UI.Next.Tests` proves a context-created bridge observes a host store, requests a frame, and
+refreshes a shell-bound scene without manual dirty marking. `Nexa.UI.Next.Backend.Avalonia.Tests`
 calls the real native automation peers and proves focus, invoke, and navigation selection return to
 the renderer rather than a shell shortcut. A NativeAOT Desktop `--validate-shell` smoke path
 composes the Foundation host, embedded PXML, UI.Next shell, state bridge, and scene renderer without

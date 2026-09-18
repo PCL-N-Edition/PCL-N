@@ -2,7 +2,7 @@
 
 ## Outcome
 
-The download capability migrates the legacy failover download engine into `PCL.Services`:
+The download capability migrates the legacy failover download engine into `Nexa.Services`:
 ordered source failover with resume, one shared transfer per destination, bounded-buffer
 streaming, and the full progress-stage contract — now published as an ordered state
 collection so surfaces read active transfers locally instead of subscribing to engine
@@ -30,7 +30,7 @@ callbacks.
   leaves without completion, the shared transfer is cancelled. Progress handlers cannot
   terminate a transfer — handler exceptions are swallowed.
 - Published state: `download.transfers` is an ordered collection of
-  `DownloadTransferView` keyed by destination path (owner `PCL.Services.Downloads`). Every
+  `DownloadTransferView` keyed by destination path (owner `Nexa.Services.Downloads`). Every
   progress report upserts the view; terminal reports are visible briefly, then the entry is
   removed — the collection is exactly the set of active transfers. Renderer reads are local
   state reads, never engine callbacks.
@@ -51,7 +51,7 @@ otherwise.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (44 executable tests, 10 new) covers failover with error
+`tests/Nexa.Services.Tests` (44 executable tests, 10 new) covers failover with error
 attribution, total failure, resume across service instances through the temp file, one
 shared transfer for concurrent callers (the second caller's connection factory must never
 run), stage ordering, hostile progress handlers, cancellation, eager segmented rejection,

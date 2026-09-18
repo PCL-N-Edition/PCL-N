@@ -7,8 +7,8 @@
 Use `git worktree list` to locate the current `dev` checkout. A local example is:
 
 ```text
-D:\PCL-F\PCL-F       dev reference
-D:\PCL-F\PCL-F-XSR   refactor/xsr implementation
+D:\PCL-F\Nexa-F       dev reference
+D:\PCL-F\Nexa-F-XSR   refactor/xsr implementation
 ```
 
 Paths are workstation-specific and must not be embedded in product code, project files, tests, or CI.

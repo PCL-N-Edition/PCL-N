@@ -4,7 +4,7 @@
 
 The launcher update flow gains its one-way policy gate: the legacy `1.4.x` line can cross
 into the `2.0.0` line — alpha builds included — and no launcher is ever offered a downgrade.
-`UpdateEligibility` in `PCL.Services` is the single decision point; discovery and future
+`UpdateEligibility` in `Nexa.Services` is the single decision point; discovery and future
 orchestration never compare versions themselves.
 
 ## Locked contract
@@ -41,7 +41,7 @@ code that could violate it exists.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (68 executable tests, 6 new) covers: the headline cross-major
+`tests/Nexa.Services.Tests` (68 executable tests, 6 new) covers: the headline cross-major
 rule in both directions across tag/display variants; monotonic alpha/beta/stable ordering
 including cross-version cases; same-version no-ops across grammars; CI hop semantics
 including the same-commit no-op and the below-prerelease ranking; refusal of null, garbage,

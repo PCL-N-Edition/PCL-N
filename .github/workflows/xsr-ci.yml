@@ -26,36 +26,36 @@ jobs:
           global-json-file: global.json
 
       - name: Restore
-        run: dotnet restore PCL-N.slnx
+        run: dotnet restore NexaCL.slnx
 
       - name: Build
-        run: dotnet build PCL-N.slnx --configuration Release --no-restore -p:XsrVersionChannel=ci
+        run: dotnet build NexaCL.slnx --configuration Release --no-restore -p:XsrVersionChannel=ci
 
       - name: Validate generated PXML control catalogs
         shell: bash
         run: |
-          generated_catalog="$(find PCL.Pxml.Compiler/obj/Release -name PxmlControlCatalog.g.cs -print -quit)"
+          generated_catalog="$(find Nexa.Pxml.Compiler/obj/Release -name PxmlControlCatalog.g.cs -print -quit)"
           if [[ -z "${generated_catalog}" ]] || ! grep -q "PxmlIrNodeKind.Page" "${generated_catalog}"; then
             echo "The default PXML control catalog was not materialized." >&2
             exit 1
           fi
 
-          dotnet build PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj \
+          dotnet build Nexa.Pxml.Compiler/Nexa.Pxml.Compiler.csproj \
             --configuration Release \
             --no-restore \
             -p:XsrVersionChannel=ci \
-            -p:PxmlControlCatalogDirectory="${GITHUB_WORKSPACE}/tests/PCL.Pxml.Tests/Fixtures/AlternateCatalog"
+            -p:PxmlControlCatalogDirectory="${GITHUB_WORKSPACE}/tests/Nexa.Pxml.Tests/Fixtures/AlternateCatalog"
           if ! grep -q "PxmlIrNodeKind.Card" "${generated_catalog}"; then
             echo "The alternate PXML control catalog was not expanded." >&2
             exit 1
           fi
 
           invalid_log="${RUNNER_TEMP}/pxml-invalid-catalog.log"
-          if dotnet build PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj \
+          if dotnet build Nexa.Pxml.Compiler/Nexa.Pxml.Compiler.csproj \
             --configuration Release \
             --no-restore \
             -p:XsrVersionChannel=ci \
-            -p:PxmlControlCatalogDirectory="${GITHUB_WORKSPACE}/tests/PCL.Pxml.Tests/Fixtures/InvalidCatalog" \
+            -p:PxmlControlCatalogDirectory="${GITHUB_WORKSPACE}/tests/Nexa.Pxml.Tests/Fixtures/InvalidCatalog" \
             2>&1 | tee "${invalid_log}"; then
             echo "The invalid PXML control catalog unexpectedly compiled." >&2
             exit 1
@@ -67,7 +67,7 @@ jobs:
             echo "The missing-catalog fixture path unexpectedly exists." >&2
             exit 1
           fi
-          if dotnet msbuild PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj \
+          if dotnet msbuild Nexa.Pxml.Compiler/Nexa.Pxml.Compiler.csproj \
             -target:ValidatePxmlControlCatalog \
             -nologo \
             -p:PxmlControlCatalogDirectory="${missing_catalog}"; then
@@ -75,98 +75,98 @@ jobs:
             exit 1
           fi
 
-          dotnet build PCL.Pxml.Compiler/PCL.Pxml.Compiler.csproj \
+          dotnet build Nexa.Pxml.Compiler/Nexa.Pxml.Compiler.csproj \
             --configuration Release \
             --no-restore \
             -p:XsrVersionChannel=ci
           grep -q "PxmlIrNodeKind.Page" "${generated_catalog}"
 
       - name: Test XSR runtime kernel
-        run: dotnet run --project tests/PCL.Xsr.Runtime.Tests/PCL.Xsr.Runtime.Tests.csproj --configuration Release --no-build
+        run: dotnet run --project tests/Nexa.Xsr.Runtime.Tests/Nexa.Xsr.Runtime.Tests.csproj --configuration Release --no-build
 
       - name: Publish and run NativeAOT runtime tests
         run: |
-          dotnet publish tests/PCL.Xsr.Runtime.Tests/PCL.Xsr.Runtime.Tests.csproj \
+          dotnet publish tests/Nexa.Xsr.Runtime.Tests/Nexa.Xsr.Runtime.Tests.csproj \
             --configuration Release \
             -p:XsrVersionChannel=ci \
             -p:PublishAot=true \
             -p:StripSymbols=true \
             --output "${{ runner.temp }}/xsr-runtime-aot"
-          "${{ runner.temp }}/xsr-runtime-aot/PCL.Xsr.Runtime.Tests"
+          "${{ runner.temp }}/xsr-runtime-aot/Nexa.Xsr.Runtime.Tests"
 
       - name: Test UI.Next renderer kernel
-        run: dotnet run --project tests/PCL.UI.Next.Tests/PCL.UI.Next.Tests.csproj --configuration Release --no-build
+        run: dotnet run --project tests/Nexa.UI.Next.Tests/Nexa.UI.Next.Tests.csproj --configuration Release --no-build
 
       - name: Test Avalonia scene backend
-        run: dotnet run --project tests/PCL.UI.Next.Backend.Avalonia.Tests/PCL.UI.Next.Backend.Avalonia.Tests.csproj --configuration Release --no-build
+        run: dotnet run --project tests/Nexa.UI.Next.Backend.Avalonia.Tests/Nexa.UI.Next.Backend.Avalonia.Tests.csproj --configuration Release --no-build
 
       - name: Publish and run NativeAOT renderer tests
         run: |
-          dotnet publish tests/PCL.UI.Next.Tests/PCL.UI.Next.Tests.csproj \
+          dotnet publish tests/Nexa.UI.Next.Tests/Nexa.UI.Next.Tests.csproj \
             --configuration Release \
             -p:XsrVersionChannel=ci \
             -p:PublishAot=true \
             -p:StripSymbols=true \
             --output "${{ runner.temp }}/uinext-aot"
-          "${{ runner.temp }}/uinext-aot/PCL.UI.Next.Tests"
+          "${{ runner.temp }}/uinext-aot/Nexa.UI.Next.Tests"
 
       - name: Test PXML compiler pipeline
-        run: dotnet run --project tests/PCL.Pxml.Tests/PCL.Pxml.Tests.csproj --configuration Release --no-build
+        run: dotnet run --project tests/Nexa.Pxml.Tests/Nexa.Pxml.Tests.csproj --configuration Release --no-build
 
       - name: Publish and run NativeAOT PXML tests
         run: |
-          dotnet publish tests/PCL.Pxml.Tests/PCL.Pxml.Tests.csproj \
+          dotnet publish tests/Nexa.Pxml.Tests/Nexa.Pxml.Tests.csproj \
             --configuration Release \
             -p:XsrVersionChannel=ci \
             -p:PublishAot=true \
             -p:StripSymbols=true \
             --output "${{ runner.temp }}/pxml-aot"
-          "${{ runner.temp }}/pxml-aot/PCL.Pxml.Tests"
+          "${{ runner.temp }}/pxml-aot/Nexa.Pxml.Tests"
 
       - name: Test Sidecar protocol and transport
-        run: dotnet run --project tests/PCL.Sidecar.Tests/PCL.Sidecar.Tests.csproj --configuration Release --no-build
+        run: dotnet run --project tests/Nexa.Sidecar.Tests/Nexa.Sidecar.Tests.csproj --configuration Release --no-build
 
       - name: Test Sidecar host session and data plane
-        run: dotnet run --project tests/PCL.Xsr.Runtime.Tests/PCL.Xsr.Runtime.Tests.csproj --configuration Release --no-build
+        run: dotnet run --project tests/Nexa.Xsr.Runtime.Tests/Nexa.Xsr.Runtime.Tests.csproj --configuration Release --no-build
 
       - name: Install Xvfb for the X11 probe smoke
         run: sudo apt-get install -y xvfb libx11-6
 
       - name: Test foundation services
-        run: xvfb-run -a dotnet run --project tests/PCL.Services.Tests/PCL.Services.Tests.csproj --configuration Release --no-build
+        run: xvfb-run -a dotnet run --project tests/Nexa.Services.Tests/Nexa.Services.Tests.csproj --configuration Release --no-build
 
       - name: Test desktop composition
-        run: dotnet run --project tests/PCL.Desktop.Tests/PCL.Desktop.Tests.csproj --configuration Release --no-build
+        run: dotnet run --project tests/Nexa.Desktop.Tests/Nexa.Desktop.Tests.csproj --configuration Release --no-build
 
       - name: Publish and run NativeAOT foundation tests
         run: |
-          dotnet publish tests/PCL.Services.Tests/PCL.Services.Tests.csproj             --configuration Release             -p:XsrVersionChannel=ci             -p:PublishAot=true             -p:StripSymbols=true             --output "${{ runner.temp }}/foundation-aot"
-          xvfb-run -a "${{ runner.temp }}/foundation-aot/PCL.Services.Tests"
+          dotnet publish tests/Nexa.Services.Tests/Nexa.Services.Tests.csproj             --configuration Release             -p:XsrVersionChannel=ci             -p:PublishAot=true             -p:StripSymbols=true             --output "${{ runner.temp }}/foundation-aot"
+          xvfb-run -a "${{ runner.temp }}/foundation-aot/Nexa.Services.Tests"
 
       - name: Enforce UI.Next benchmark gates
-        run: dotnet run --project PCL.UI.Next.Benchmarks/PCL.UI.Next.Benchmarks.csproj --configuration Release --no-build
+        run: dotnet run --project Nexa.UI.Next.Benchmarks/Nexa.UI.Next.Benchmarks.csproj --configuration Release --no-build
 
       - name: Enforce architecture boundaries
-        run: dotnet run --project tests/PCL.Xsr.ArchitectureTests/PCL.Xsr.ArchitectureTests.csproj --configuration Release --no-build -- --repo-root .
+        run: dotnet run --project tests/Nexa.Xsr.ArchitectureTests/Nexa.Xsr.ArchitectureTests.csproj --configuration Release --no-build -- --repo-root .
 
       - name: Verify source formatting
-        run: dotnet format PCL-N.slnx --no-restore --verify-no-changes --diagnostics IDE0055 IMPORTS
+        run: dotnet format NexaCL.slnx --no-restore --verify-no-changes --diagnostics IDE0055 IMPORTS
 
       - name: Publish and run NativeAOT Desktop shell smoke
         run: |
-          dotnet publish PCL.Desktop/PCL.Desktop.csproj \
+          dotnet publish Nexa.Desktop/Nexa.Desktop.csproj \
             --configuration Release \
             -p:XsrVersionChannel=ci \
             -p:PublishAot=true \
             -p:StripSymbols=true \
-            -p:PclMicrosoftClientId="${{ secrets.CLIENT_ID || secrets.MS_CLIENT_ID || secrets.PCL_MS_CLIENT_ID }}" \
-            -p:PclLittleSkinClientId="${{ secrets.PCL_LITTLESKIN_CLIENT_ID || secrets.LITTLESKIN_CLIENT_ID }}" \
+            -p:NexaMicrosoftClientId="${{ secrets.CLIENT_ID || secrets.MS_CLIENT_ID || secrets.NEXA_MS_CLIENT_ID || secrets.PCL_MS_CLIENT_ID }}" \
+            -p:NexaLittleSkinClientId="${{ secrets.NEXA_LITTLESKIN_CLIENT_ID || secrets.PCL_LITTLESKIN_CLIENT_ID || secrets.LITTLESKIN_CLIENT_ID }}" \
             --output "${{ runner.temp }}/pcl-desktop-aot"
-          "${{ runner.temp }}/pcl-desktop-aot/PCL.Desktop" --validate-shell
+          "${{ runner.temp }}/pcl-desktop-aot/Nexa.Desktop" --validate-shell
 
       - name: Analyze trimmed desktop composition
         run: >-
-          dotnet publish PCL.Desktop/PCL.Desktop.csproj
+          dotnet publish Nexa.Desktop/Nexa.Desktop.csproj
           --configuration Release
           -p:XsrVersionChannel=ci
           -p:PublishTrimmed=true
@@ -174,4 +174,4 @@ jobs:
           --output "${{ runner.temp }}/pcl-desktop-trimmed"
 
       - name: Run trimmed Desktop shell smoke
-        run: '"${{ runner.temp }}/pcl-desktop-trimmed/PCL.Desktop" --validate-shell'
+        run: '"${{ runner.temp }}/pcl-desktop-trimmed/Nexa.Desktop" --validate-shell'

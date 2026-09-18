@@ -2,7 +2,7 @@
 
 The legacy task manager returns as three coordinated pieces on the shared host store:
 
-- **`PCL.Services.Tasks.TaskCenterService`** — a foundation service (one writer of its cells)
+- **`Nexa.Services.Tasks.TaskCenterService`** — a foundation service (one writer of its cells)
   that tracks user-visible background tasks. Entries are the legacy task-manager cards
   (title, stage, detail, progress, file counts, speed, state, cancel-ability, step plan);
   terminal entries stay visible until dismissed, abandoned handles surface as failed, and a

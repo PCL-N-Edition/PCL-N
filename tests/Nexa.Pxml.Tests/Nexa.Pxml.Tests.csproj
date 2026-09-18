@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Focused executable tests for the PXML compiler pipeline.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../Nexa.Pxml.Compiler/Nexa.Pxml.Compiler.csproj" />
+    <ProjectReference Include="../../Nexa.UI.Next/Nexa.UI.Next.csproj" />
+    <ProjectReference Include="../../Nexa.Pxml.Runtime/Nexa.Pxml.Runtime.csproj" />
+    <ProjectReference Include="../../Nexa.Xsr.Abstractions/Nexa.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../../Nexa.Xsr.State/Nexa.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>

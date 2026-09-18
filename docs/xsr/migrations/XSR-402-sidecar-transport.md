@@ -2,7 +2,7 @@
 
 ## Outcome
 
-Wave 4 adds the frame transport and the connection lifecycle in `PCL.Sidecar.Transport`: framed reading and writing over any duplex stream, an explicit connection state machine, and an in-memory loopback pair for tests and in-process hosts.
+Wave 4 adds the frame transport and the connection lifecycle in `Nexa.Sidecar.Transport`: framed reading and writing over any duplex stream, an explicit connection state machine, and an in-memory loopback pair for tests and in-process hosts.
 
 ## Locked contract
 
@@ -17,4 +17,4 @@ Named pipes, Unix-domain sockets, request/response correlation, backpressure acc
 
 ## Verification
 
-`PCL.Sidecar.Tests` covers loopback frame round trips with correlation and traits, eight concurrent senders producing zero interleaved frames and a complete event set, garbage-header failure transitioning the connection to Failed with a reason, peer close delivering EOF after buffered frames, idempotent close rejecting further use, and pre-write send cancellation leaving the connection usable. The transport project is AOT-compatible and covered by the architecture gate.
+`Nexa.Sidecar.Tests` covers loopback frame round trips with correlation and traits, eight concurrent senders producing zero interleaved frames and a complete event set, garbage-header failure transitioning the connection to Failed with a reason, peer close delivering EOF after buffered frames, idempotent close rejecting further use, and pre-write send cancellation leaving the connection usable. The transport project is AOT-compatible and covered by the architecture gate.

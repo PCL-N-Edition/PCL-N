@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Focused executable tests for the Sidecar protocol and transport.</Description>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../Nexa.Sidecar.Protocol/Nexa.Sidecar.Protocol.csproj" />
+    <ProjectReference Include="../../Nexa.Sidecar.Transport/Nexa.Sidecar.Transport.csproj" />
+  </ItemGroup>
+</Project>

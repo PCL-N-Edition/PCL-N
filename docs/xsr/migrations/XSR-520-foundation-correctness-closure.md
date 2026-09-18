@@ -18,13 +18,13 @@ reach the host's single logging state collection.
 - Stable type coverage: Bool, I32, I64, F64, and Text all share the same raw API. A malformed
   raw value returns `settings.invalid_value`; an undeclared key remains
   `settings.unknown_key`.
-- Route ownership: `PCL.Services.Foundation` owns `FoundationRouteIds` and the typed handler
+- Route ownership: `Nexa.Services.Foundation` owns `FoundationRouteIds` and the typed handler
   factories, but still references only XSR abstractions/state. The new
-  `PCL.Services.Composition` edge project is the only Foundation layer that references
-  `PCL.Xsr.Runtime`; `FoundationRuntimeComposer.Compose` binds all Foundation routes into sealed
+  `Nexa.Services.Composition` edge project is the only Foundation layer that references
+  `Nexa.Xsr.Runtime`; `FoundationRuntimeComposer.Compose` binds all Foundation routes into sealed
   `XsrCommandRouter` and `XsrQueryRouter` instances and returns them with the composed host in
   `FoundationRuntime`.
-- Production composition: `PCL.Desktop` creates the Foundation host and immediately creates its
+- Production composition: `Nexa.Desktop` creates the Foundation host and immediately creates its
   `FoundationRuntime`. Tests use that same public composition API, not ad-hoc router
   registration, so a service call cannot silently bypass the routed product path.
 - Unified logging: `FoundationComposer` creates one `LogService` and injects that exact instance
@@ -34,10 +34,10 @@ reach the host's single logging state collection.
 
 ## Verification
 
-`tests/PCL.Services.Tests` has 130 executable tests. The raw-settings parameter matrix covers
+`tests/Nexa.Services.Tests` has 130 executable tests. The raw-settings parameter matrix covers
 Bool/I32/I64/F64/Text through set, typed state, encoded query, persistence, and restart. The
 Foundation acceptance tests construct `FoundationRuntime`, resolve all formal routes, dispatch
 the raw Text and I32 settings commands/query routes, and prove a composed download writes to the
 host logging service.
-The architecture graph registers `PCL.Services.Composition` as an AOT-compatible edge project;
+The architecture graph registers `Nexa.Services.Composition` as an AOT-compatible edge project;
 the existing NativeAOT Foundation-test and trimmed Desktop composition gates exercise it in CI.

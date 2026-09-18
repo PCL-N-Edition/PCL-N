@@ -53,7 +53,7 @@ carried forward.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (34 executable tests, 9 new/updated) covers: schema parity with
+`tests/Nexa.Services.Tests` (34 executable tests, 9 new/updated) covers: schema parity with
 the legacy defaults (counts plus exact spot values including the JVM argument string); the
 legacy JSON round trip with fixed fields; fresh-save fixed-field defaults; unsupported-schema
 quarantine with the service-level load error and unavailable defaults; invalid-item recovery

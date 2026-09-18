@@ -15,7 +15,7 @@ Java, download artifacts, or depend on a ViewModel.
   file-name characters, and references longer than 180 characters are rejected.
 - Discovered directories and candidate files are ordered with ordinal-ignore-case comparison so
   the same installation produces the same catalog on every platform.
-- `PCL/InstanceMetadata.json` is schema 1 and preserves the legacy field names/defaults. Missing,
+- `Nexa/InstanceMetadata.json` is schema 1 and preserves the legacy field names/defaults. Missing,
   unreadable, malformed, or newer documents return a default metadata value.
 - Metadata writes use a per-path lock and temporary-file replacement. A reader therefore sees
   either the previous complete document or the next complete document, never a partially written
@@ -23,7 +23,7 @@ Java, download artifacts, or depend on a ViewModel.
 
 ## Verification
 
-`tests/PCL.Services.Tests` covers catalog aliases, April-Fools normalization, path traversal
+`tests/Nexa.Services.Tests` covers catalog aliases, April-Fools normalization, path traversal
 rejection, deterministic discovery, metadata round trips, atomic file existence, and concurrent
 read-modify-write updates. The service project remains the single business boundary and has no
 reference to the legacy worktree, UI, or Runtime router.

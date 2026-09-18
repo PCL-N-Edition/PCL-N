@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Composition boundary for Nexa business capability services.</Description>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Settings/SettingsCatalog.json" />
+    <InternalsVisibleTo Include="Nexa.Services.Tests" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Nexa.Contracts/Nexa.Contracts.csproj" />
+    <ProjectReference Include="../Nexa.Core/Nexa.Core.csproj" />
+    <ProjectReference Include="../Nexa.Domain/Nexa.Domain.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.Abstractions/Nexa.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.State/Nexa.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>

@@ -131,7 +131,7 @@ flow reads better as a dedicated page.
   re-raised the feedback Changed event every frame and spun a permanent render loop.
 - The Microsoft refresh capability is actually wired: the account onboarding runtime exposes
   `LaunchIdentityResolver` (its own Microsoft auth service + the publish-time client id
-  embedded as `PclMicrosoftClientId` assembly metadata), and the Minecraft runtime composes
+  embedded as `NexaMicrosoftClientId` assembly metadata), and the Minecraft runtime composes
   it. Refresh now runs BEFORE the persisted-credential check (a valid refresh token restores
   an expired or missing access token) and prefers the refreshed username/UUID.
 - The runtime resolver recognizes the alpha's byte-swapped offline UUID regardless of the

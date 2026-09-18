@@ -43,7 +43,7 @@ eligibility wiring.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (84 executable tests, 7 new) covers: fetch preference
+`tests/Nexa.Services.Tests` (84 executable tests, 7 new) covers: fetch preference
 (patch-index before index.json, alias accepted alone), refusal of malformed JSON,
 out-of-range format versions, and empty variant lists; the GitHub fallback URL tried only
 when the origin is not Cloudflare-only; the eligibility gate refusing downgrades, no-ops,

@@ -66,7 +66,7 @@ One-shot outcome text is no longer a page state cell. XSR-714 routes it through 
 Desktop feedback service; ongoing launch progress remains typed Minecraft host state.
 
 Desktop declares them through an explicit host-state declaration callback passed to the
-Foundation composition root before the shared store is built. `PCL.Services` contains no owner,
+Foundation composition root before the shared store is built. `Nexa.Services` contains no owner,
 type, or state block named after a Desktop page.
 
 Instance discovery is generation-based and cancellable. Starting a refresh cancels the previous
@@ -136,5 +136,5 @@ The implementation is split into the boundary document (`5a483cf4`), Services co
 - UI.Next benchmark: allocation, incremental-layout, scene-integrity, and throughput gates passed.
 - Desktop NativeAOT and link-trimmed executables both ran `--validate-shell` successfully and
   rendered the composed PXML shell as 42 semantic scene nodes without starting a GUI.
-- `dotnet format PCL-N.slnx --no-restore --verify-no-changes --diagnostics IDE0055 IMPORTS`
+- `dotnet format NexaCL.slnx --no-restore --verify-no-changes --diagnostics IDE0055 IMPORTS`
   completed with no changes.

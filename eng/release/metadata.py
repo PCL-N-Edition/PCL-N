@@ -91,7 +91,7 @@ def downloads_section(version):
             for extension in ("setup.exe", "msi", "portable.zip") if platform == "win" else \
                              ("deb", "rpm", "AppImage", "portable.tar.gz") if platform == "linux" else \
                              ("dmg", "portable.tar.gz"):
-                name = f"PCL-Nexa-{version}-{platform}-{arch}.{extension}"
+                name = f"Nexa-{version}-{platform}-{arch}.{extension}"
                 purpose = ASSET_GUIDE.get((platform, extension), extension)
                 lines.append(f"- `{name}` — {purpose}")
         lines.append("")
@@ -105,7 +105,7 @@ def release_body(data, changelog_text, previous):
     # changelog() carries its own "# 更新内容" H1 for standalone use; the release body
     # already supplies the section header, so drop it here to avoid a doubled heading.
     changelog_bullets = re.sub(r"^# 更新内容\s*", "", changelog_text)
-    lines = [f"# PCL Nexa {version} {channel_label}", "", *downloads_section(version),
+    lines = [f"# Nexa {version} {channel_label}", "", *downloads_section(version),
              "## 更新内容", "", changelog_bullets.rstrip(), ""]
     if previous:
         lines += [f"**完整变更**：`{previous}` → `{version}`", ""]

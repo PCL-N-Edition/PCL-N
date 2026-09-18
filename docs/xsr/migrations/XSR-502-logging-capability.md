@@ -2,7 +2,7 @@
 
 ## Outcome
 
-The second foundation service: the logging capability in `PCL.Services`, migrated from the
+The second foundation service: the logging capability in `Nexa.Services`, migrated from the
 legacy portable logging bridge (`PortableLog` + `PortableLauncherLogSource`). The legacy
 behavior contract — level gating, bounded FIFO ring, credential redaction, and "a diagnostic
 sink must never break the operation being diagnosed" — is preserved, while the delivery
@@ -27,7 +27,7 @@ locally.
   state collection itself stays bounded. `Sequence` is monotonic per service and keys the
   ordered collection, so ordering is total and survives concurrent writers.
 - State, not a shared mutable list: entries live in one ordered collection state
-  (`logging.entries`, owner `PCL.Services.Logging`) with availability and revisions like any
+  (`logging.entries`, owner `Nexa.Services.Logging`) with availability and revisions like any
   other state fact. `GetSnapshot` and the store's `ReadCollection` return the same coherent
   items. `Clear` empties the collection through a delta, not a side channel.
 - No static global: the legacy `PortableLog.Written` static event is replaced by receiving
@@ -45,7 +45,7 @@ the same service later in the wave.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (25 executable tests, 11 new) covers the level gate and stable
+`tests/Nexa.Services.Tests` (25 executable tests, 11 new) covers the level gate and stable
 fallback, module normalization, message and exception redaction before storage, ring
 eviction, state-collection parity with snapshots, clear semantics, the full legacy redaction
 pattern set, observer visibility plus hostile-observer isolation, injected clock, exact

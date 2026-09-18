@@ -20,4 +20,4 @@ This unit does not introduce state, event delivery, scopes, scheduling, service 
 
 ## Verification
 
-`PCL.Xsr.Runtime.Tests` covers deterministic route IDs, asynchronous command completion, detached failure observation, stable runtime errors, caller cancellation, explicit query timeout, contract mismatch, handler exception isolation, and concurrent dispatch. The existing NativeAOT, trim, and architecture gates exercise the new routers without Avalonia, Minecraft, plugin, reflection-dispatch, or synchronous-wait dependencies.
+`Nexa.Xsr.Runtime.Tests` covers deterministic route IDs, asynchronous command completion, detached failure observation, stable runtime errors, caller cancellation, explicit query timeout, contract mismatch, handler exception isolation, and concurrent dispatch. The existing NativeAOT, trim, and architecture gates exercise the new routers without Avalonia, Minecraft, plugin, reflection-dispatch, or synchronous-wait dependencies.

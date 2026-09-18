@@ -15,4 +15,4 @@ The compiler review also found that state bindings on literal-only properties co
 
 ## Verification
 
-`PCL.Pxml.Tests` adds DTD rejection, qualified-property rejection, document-level comment acceptance, and tree-count/parent-child invariants after an unknown-state load failure. Existing parser, compiler, scene parity, and live-binding tests remain green.
+`Nexa.Pxml.Tests` adds DTD rejection, qualified-property rejection, document-level comment acceptance, and tree-count/parent-child invariants after an unknown-state load failure. Existing parser, compiler, scene parity, and live-binding tests remain green.

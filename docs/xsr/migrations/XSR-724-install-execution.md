@@ -1,6 +1,6 @@
 # XSR-724 Real install execution
 
-`MinecraftInstallService` (PCL.Services/Minecraft/Install) turns the install selection into a
+`MinecraftInstallService` (Nexa.Services/Minecraft/Install) turns the install selection into a
 real version-library install and reports the entire run as one task-center task. The route is
 `minecraft.install.run` (`MinecraftInstallCommand`: root, game version, primary loader +
 build, addon list); the runtime composer builds the router over the foundation host.

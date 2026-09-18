@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Focused executable tests for the UI.Next Avalonia scene and accessibility bridge.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Headless is a test-only platform: it runs the real desktop lifetime for regression
+         tests without a display and must never leak into product projects. -->
+    <PackageReference Include="Avalonia.Headless" Version="12.1.0" />
+    <ProjectReference Include="../../Nexa.UI.Next.Backend.Avalonia/Nexa.UI.Next.Backend.Avalonia.csproj" />
+    <ProjectReference Include="../../Nexa.Xsr.Abstractions/Nexa.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../../Nexa.Xsr.State/Nexa.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>

@@ -25,7 +25,7 @@ in the persistence layer and service results; they never enter published state.
   Writes are atomic: a write-through temporary file replaced with bounded retries (6
   attempts, linear backoff), serialized per path in-process.
 - Published state: `accounts.profiles` is an ordered collection of `LaunchProfileView` keyed
-  by list index (owner `PCL.Services.Accounts`). The view carries everything descriptive —
+  by list index (owner `Nexa.Services.Accounts`). The view carries everything descriptive —
   username, info, kind, uuid, logo, svg icon, skin address, auth server — and none of the
   credentials. This split is the unit's security boundary: observing state or capturing a
   snapshot cannot leak tokens.
@@ -47,7 +47,7 @@ provider identity type those flows will consume.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (54 executable tests, 5 new) covers: the legacy JSON round trip
+`tests/Nexa.Services.Tests` (54 executable tests, 5 new) covers: the legacy JSON round trip
 (camelCase keys, string enum kind, token and timestamp fields, default svg icon) with
 record equality after reload; quarantine of an unsupported-schema file with the
 service-level load error, unavailable empty roster, and healing on first write; persistence

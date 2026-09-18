@@ -6,7 +6,7 @@ Wave 7 owns one Desktop feedback service and one PXML/UI.Next presenter for tran
 notifications and modal decisions. Feedback is always rendered inside the launcher scene; it
 must not open a native child window, system message box, or backend-owned popup.
 
-The feedback service belongs to `PCL.Desktop`, not `PCL.Services`. Notifications and dialogs are
+The feedback service belongs to `Nexa.Desktop`, not `Nexa.Services`. Notifications and dialogs are
 product presentation state. Foundation, account, and Minecraft services continue to publish
 typed results/state without acquiring a dependency on Desktop, Avalonia, or renderer types.
 Desktop controllers translate those results into feedback requests at the composition edge.

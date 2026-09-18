@@ -9,7 +9,7 @@ FORMATS = {"win": ("setup.exe", "msi", "portable.zip"),
 
 
 def expected_names(version):
-    return {f"PCL-Nexa-{version}-{platform}-{arch}.{extension}"
+    return {f"Nexa-{version}-{platform}-{arch}.{extension}"
             for platform, extensions in FORMATS.items() for arch in ("x64", "arm64") for extension in extensions}
 
 

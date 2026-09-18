@@ -2,7 +2,7 @@
 
 ## Outcome
 
-Wave 5 opens with the first foundation service: the settings capability in `PCL.Services`.
+Wave 5 opens with the first foundation service: the settings capability in `Nexa.Services`.
 It establishes the Wave 5 service pattern — a frozen schema, typed local state cells, a
 persistence port owned by the service, and stable semantic error codes — against the
 data-compatibility requirement of the legacy `key = value` settings files.
@@ -14,7 +14,7 @@ data-compatibility requirement of the legacy `key = value` settings files.
   schema is the data contract; the service never invents keys, and undeclared persisted keys
   are skipped, never imported.
 - Typed state, zero plumbing for the renderer: construction builds one `XsrStateStore` cell
-  per setting (owner `PCL.Services.Settings`), so renderers and observers read settings as
+  per setting (owner `Nexa.Services.Settings`), so renderers and observers read settings as
   local typed state with revisions and availability — the same contract as every other state
   fact.
 - Durable-first writes: `SetValue`/`ResetValue`/`ResetAll` encode the value, save the whole
@@ -48,7 +48,7 @@ while Wave 5 families are still being declared.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (14 executable tests) covers schema defaults with availability,
+`tests/Nexa.Services.Tests` (14 executable tests) covers schema defaults with availability,
 typed round trips, stable rejection of unknown keys/type mismatches/invalid values, durable
 persistence across service restart, corrupt and unknown persisted entries skipped, failed
 save mutating nothing, failed load degrading to unavailable defaults, reset value/all,

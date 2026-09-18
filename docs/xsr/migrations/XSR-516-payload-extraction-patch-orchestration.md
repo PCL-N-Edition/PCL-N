@@ -45,7 +45,7 @@ onto download progress trackers is likewise composition-level.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (115 executable tests, 5 new) covers: zip extraction with nested
+`tests/Nexa.Services.Tests` (115 executable tests, 5 new) covers: zip extraction with nested
 directories, Unix mode restoration, wrapper-root flattening, traversal refusal (outside
 file untouched), and per-file inventory hashes; tar extraction with modes and content;
 HDiffPatch argument order through the port with nonzero-exit refusal; a two-hop binary

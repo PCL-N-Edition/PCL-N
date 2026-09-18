@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Portable command, query, state, event, and module abstractions for XSR.</Description>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Nexa.Contracts/Nexa.Contracts.csproj" />
+    <ProjectReference Include="../Nexa.Core/Nexa.Core.csproj" />
+  </ItemGroup>
+</Project>

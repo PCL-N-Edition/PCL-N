@@ -37,7 +37,7 @@ composition, not a second authentication implementation.
 - Publishable launcher artifacts embed both providers' public client IDs as assembly metadata;
   no client secret is embedded. Runtime LittleSkin environment configuration overrides that
   fallback when present. The CI artifact workflow must forward its existing
-  `LITTLESKIN_CLIENT_ID` secret into the public `PclLittleSkinClientId` build property, just as it
+  `LITTLESKIN_CLIENT_ID` secret into the public `NexaLittleSkinClientId` build property, just as it
   already does for Microsoft, so a downloaded CI launcher retains device-flow capability.
 - Third-party login sends credentials only after a user supplies the server and submits the
   form. Require HTTPS (loopback development HTTP may be explicitly supported); never echo

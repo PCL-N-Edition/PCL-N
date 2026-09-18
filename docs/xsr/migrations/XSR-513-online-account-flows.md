@@ -3,7 +3,7 @@
 ## Outcome
 
 The account capability comes online: the Microsoft device-code login chain and the Yggdrasil
-third-party authenticate/validate/refresh service migrate into `PCL.Services` as
+third-party authenticate/validate/refresh service migrate into `Nexa.Services` as
 fixture-testable services over a caller-owned `HttpClient`, and a small bridge maps login
 outcomes onto the persisted roster (XSR-506) while keeping its published views
 credential-free. The LittleSkin OAuth client (device flow, auth code, closet, texture
@@ -44,7 +44,7 @@ expectations.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (100 executable tests, 7 new) covers: the full Microsoft device
+`tests/Nexa.Services.Tests` (100 executable tests, 7 new) covers: the full Microsoft device
 chain (device code, pending → slow-down → authorized polling with observable delays,
 Xbox/XSTS/Minecraft/profile/entitlements, active skin, progress milestones); declined and
 expired device codes as distinct errors; refresh without a device code; Yggdrasil

@@ -36,7 +36,7 @@ that metadata is absent.
 
 ## Regression corpus
 
-`tests/PCL.Services.Tests` now asserts the matrix at 1.16.5, 1.17.1, 1.18.2, 1.20.1, 1.20.4,
+`tests/Nexa.Services.Tests` now asserts the matrix at 1.16.5, 1.17.1, 1.18.2, 1.20.1, 1.20.4,
 1.20.5, 1.21.1, and calendar 26.1/26.2. The canonical manifest fixtures correct the previous
 `1.7` goldens for 1.16.5, Fabric 1.20.1, Quilt 1.20.1, and ARM64 LWJGL to Java 8/17 as
 appropriate, and include vanilla 1.17/1.18/1.20.1 plus calendar 26.1. Dedicated tests cover:

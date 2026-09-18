@@ -2,29 +2,29 @@
 
 ## Outcome
 
-The PXML compiler no longer owns a hand-written list of UI controls. The build explicitly supplies `PxmlControlCatalogDirectory`; that directory contains every PXML-visible control model, and `PCL.Pxml.Generators` expands the complete catalog into a compiler-generated C# file during the earliest C# compilation stage.
+The PXML compiler no longer owns a hand-written list of UI controls. The build explicitly supplies `PxmlControlCatalogDirectory`; that directory contains every PXML-visible control model, and `Nexa.Pxml.Generators` expands the complete catalog into a compiler-generated C# file during the earliest C# compilation stage.
 
 This unit supersedes XSR-208's hand-written element switch and static property sets. The generated result remains closed and AOT-safe for each build, while control ownership moves out of the compiler and back to UI.Next.
 
 ## Ownership and build flow
 
 ```text
-PCL.UI.Next/PxmlControls/*.pxml-control
+Nexa.UI.Next/PxmlControls/*.pxml-control
                   |
                   | PxmlControlCatalogDirectory (required MSBuild input)
                   v
-         PCL.Pxml.Generators
+         Nexa.Pxml.Generators
                   |
                   | PxmlControlCatalog.g.cs (obj, compile-time only)
                   v
-          PCL.Pxml.Compiler
+          Nexa.Pxml.Compiler
                   |
                   v
              typed PXML IR
 ```
 
 - UI.Next owns the catalog directory because it owns the renderer component recipes and semantic roles.
-- `Directory.Build.props` selects the repository catalog location. `PCL.Pxml.Compiler` contains no fallback path; another build must explicitly provide its own directory.
+- `Directory.Build.props` selects the repository catalog location. `Nexa.Pxml.Compiler` contains no fallback path; another build must explicitly provide its own directory.
 - MSBuild enumerates `*.pxml-control` files as `AdditionalFiles`. Missing configuration, a missing directory, or an empty catalog fails before `CoreCompile`.
 - The selected directory and descriptor file set participate in the compiler dependency fingerprint, so changing catalogs invalidates an incremental build even when the replacement files have older timestamps.
 - The incremental source generator validates every file, sorts controls by their explicit numeric ID, and emits the node-kind enum plus the immutable expanded lookup table. Generated files are materialized under `obj` for inspection and never committed.

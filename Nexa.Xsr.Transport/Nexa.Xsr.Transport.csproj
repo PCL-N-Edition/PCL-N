@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Transport-neutral asynchronous exchange primitives used by the XSR runtime.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Nexa.Core/Nexa.Core.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.Abstractions/Nexa.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.Diagnostics/Nexa.Xsr.Diagnostics.csproj" />
+  </ItemGroup>
+</Project>

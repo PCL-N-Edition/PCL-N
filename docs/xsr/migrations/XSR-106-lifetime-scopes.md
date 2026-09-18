@@ -20,4 +20,4 @@ This unit does not introduce async disposal, scope-relative service resolution, 
 
 ## Verification
 
-`PCL.Xsr.Runtime.Tests` covers register/unregister with reverse-order release, depth-first nested disposal with parent usability after child disposal, idempotent and exactly-once cleanup, disposal after registration rejection, and a plugin-style bulk cleanup where one scope dispose cancels owned scheduled work and releases every owned resource and child scope exactly once. The scope types live in `PCL.Xsr.Runtime` and are covered by the existing NativeAOT, trim, and architecture gates.
+`Nexa.Xsr.Runtime.Tests` covers register/unregister with reverse-order release, depth-first nested disposal with parent usability after child disposal, idempotent and exactly-once cleanup, disposal after registration rejection, and a plugin-style bulk cleanup where one scope dispose cancels owned scheduled work and releases every owned resource and child scope exactly once. The scope types live in `Nexa.Xsr.Runtime` and are covered by the existing NativeAOT, trim, and architecture gates.

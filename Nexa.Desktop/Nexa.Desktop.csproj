@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon>Assets/icon.ico</ApplicationIcon>
+    <Description>Thin Nexa process bootstrap and XSR composition root.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="NexaMicrosoftClientId" Condition="'$(NexaMicrosoftClientId)' != ''" Value="$(NexaMicrosoftClientId)" />
+    <AssemblyMetadata Include="NexaLittleSkinClientId" Condition="'$(NexaLittleSkinClientId)' != ''" Value="$(NexaLittleSkinClientId)" />
+    <EmbeddedResource Include="Ui/Shell.pxml" />
+    <EmbeddedResource Include="Ui/SettingsPage.pxml" />
+    <EmbeddedResource Include="Ui/LaunchPage.pxml" />
+    <EmbeddedResource Include="Ui/JavaChoicePage.pxml" />
+    <EmbeddedResource Include="Ui/InstallPage.pxml" />
+    <EmbeddedResource Include="Ui/JavaInstallPage.pxml" />
+    <EmbeddedResource Include="Ui/BedrockInstallPage.pxml" />
+    <EmbeddedResource Include="Ui/AccountProfileRow.pxml" />
+    <EmbeddedResource Include="Ui/AccountForm.pxml" />
+    <EmbeddedResource Include="Ui/AccountChoiceRow.pxml" />
+    <EmbeddedResource Include="Ui/VersionSubpage.pxml" />
+    <EmbeddedResource Include="Ui/VersionSelectionPage.pxml" />
+    <EmbeddedResource Include="Ui/VersionSelectionRow.pxml" />
+    <EmbeddedResource Include="Ui/VersionDirectoryDropdown.pxml" />
+    <EmbeddedResource Include="Ui/VersionDirectoryRow.pxml" />
+    <EmbeddedResource Include="Ui/LaunchingPage.pxml" />
+    <EmbeddedResource Include="Ui/TaskCenterPage.pxml" />
+    <EmbeddedResource Include="Ui/TaskCard.pxml" />
+    <EmbeddedResource Include="Ui/Notification.pxml" />
+    <EmbeddedResource Include="Ui/Dialog.pxml" />
+    <EmbeddedResource Include="Assets/icon.png" />
+    <EmbeddedResource Include="Assets/icon.ico" />
+    <ProjectReference Include="../Nexa.Pxml.Runtime/Nexa.Pxml.Runtime.csproj" />
+    <ProjectReference Include="../Nexa.Services/Nexa.Services.csproj" />
+    <ProjectReference Include="../Nexa.Services.Composition/Nexa.Services.Composition.csproj" />
+    <ProjectReference Include="../Nexa.Sidecar.Protocol/Nexa.Sidecar.Protocol.csproj" />
+    <ProjectReference Include="../Nexa.Sidecar.Transport/Nexa.Sidecar.Transport.csproj" />
+    <ProjectReference Include="../Nexa.UI.Next/Nexa.UI.Next.csproj" />
+    <ProjectReference Include="../Nexa.UI.Next.Backend.Avalonia/Nexa.UI.Next.Backend.Avalonia.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.Runtime/Nexa.Xsr.Runtime.csproj" />
+  </ItemGroup>
+</Project>

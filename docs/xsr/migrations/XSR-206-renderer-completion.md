@@ -17,4 +17,4 @@ Easing splines beyond the quad family, spring physics, page transitions (composi
 
 ## Verification
 
-`PCL.UI.Next.Tests` covers deterministic easing values, eased keyframe evaluation, boundary holds, scroll offsets with clamping to content extent, scroll hit testing following offsets, wheel routing, and image sources on the scene. The full suite passes locally; the benchmark and architecture gates are unchanged.
+`Nexa.UI.Next.Tests` covers deterministic easing values, eased keyframe evaluation, boundary holds, scroll offsets with clamping to content extent, scroll hit testing following offsets, wheel routing, and image sources on the scene. The full suite passes locally; the benchmark and architecture gates are unchanged.

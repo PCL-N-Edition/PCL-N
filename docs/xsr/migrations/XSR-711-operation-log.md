@@ -44,10 +44,10 @@ users and bug reports can actually read, with verbose tiers available while chas
 
 ## Evidence
 
-- `tests/PCL.Desktop.Tests/OperationLogTests.cs`: dispatch Debug/Warn tiers, state RealTime
+- `tests/Nexa.Desktop.Tests/OperationLogTests.cs`: dispatch Debug/Warn tiers, state RealTime
   + quiet-domain silence, composite fan-out, lifecycle Info (visible under the default gate)
   and scheduler RealTime (only above the gate).
-- `tests/PCL.Services.Tests/LogSinkTests.cs`: file sink append/dispose semantics, console
+- `tests/Nexa.Services.Tests/LogSinkTests.cs`: file sink append/dispose semantics, console
   sink self-disable, and the level-gate policy across tiers (`VerboseEnabled`, Info records
   by default, Trace only when raised).
 - Live console session: lifecycle narration, composition facts (Debug), instance-scan lines

@@ -55,10 +55,10 @@ and hover/press/fact animations apply their end state immediately under the flag
 
 ## Verification
 
-`PCL.UI.Next.Tests` add the motion regressions requested for this unit:
+`Nexa.UI.Next.Tests` add the motion regressions requested for this unit:
 `shell rail toggle expands and collapses` (start at the collapsed rect, intermediate geometry
 is the scene truth, end at the expanded rect, re-target from the presented rect with no jump),
 `rail presentation matches hit test during motion`, and `reduced motion skips rail
-presentation motion` (62 tests total). `PCL.UI.Next.Backend.Avalonia.Tests` run the headless
+presentation motion` (62 tests total). `Nexa.UI.Next.Backend.Avalonia.Tests` run the headless
 lifetime regression (4 tests). Full gates, NativeAOT, and trimmed Desktop publishes remain
 required; `--validate-shell` renders 11 semantic nodes.

@@ -17,7 +17,7 @@ Wave 1 adds the revisioned state store behind the locked state model: typed cell
 
 ## Registry placement
 
-The deterministic sealed registry (`XsrRegistry`, `XsrRegistrySnapshot`, `XsrRegistryEntry`) moved from `PCL.Xsr.Runtime` to `PCL.Xsr.Abstractions` with namespace `PCL.Xsr`. Registration identity is shared kernel: routing, state, events, transport, and generated code must resolve the identical deterministic mapping, and `PCL.Xsr.State` cannot depend on `PCL.Xsr.Runtime`. The sealing rule is unchanged.
+The deterministic sealed registry (`XsrRegistry`, `XsrRegistrySnapshot`, `XsrRegistryEntry`) moved from `Nexa.Xsr.Runtime` to `Nexa.Xsr.Abstractions` with namespace `Nexa.Xsr`. Registration identity is shared kernel: routing, state, events, transport, and generated code must resolve the identical deterministic mapping, and `Nexa.Xsr.State` cannot depend on `Nexa.Xsr.Runtime`. The sealing rule is unchanged.
 
 ## Non-goals
 
@@ -25,4 +25,4 @@ This unit does not introduce remote mirroring, reconnect snapshots, transport se
 
 ## Verification
 
-`PCL.Xsr.Runtime.Tests` covers deterministic identifiers and ownership, unavailable-until-published transitions, revision monotonicity, snapshot coherence and immutability, coalescing with replace counting, delta application and stale-base rejection, derived recompute-on-revision-change, chain propagation, cycle and undeclared-dependency rejection, availability transitions, observer ordering and isolation, contract-mismatch rejection, builder reuse and duplicate rejection, and concurrent publication. `PCL.Xsr.State` is AOT-compatible and exercised by the NativeAOT runtime-test gate, the trimmed Desktop publish, and the architecture gate.
+`Nexa.Xsr.Runtime.Tests` covers deterministic identifiers and ownership, unavailable-until-published transitions, revision monotonicity, snapshot coherence and immutability, coalescing with replace counting, delta application and stale-base rejection, derived recompute-on-revision-change, chain propagation, cycle and undeclared-dependency rejection, availability transitions, observer ordering and isolation, contract-mismatch rejection, builder reuse and duplicate rejection, and concurrent publication. `Nexa.Xsr.State` is AOT-compatible and exercised by the NativeAOT runtime-test gate, the trimmed Desktop publish, and the architecture gate.

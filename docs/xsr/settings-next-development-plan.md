@@ -4,7 +4,7 @@
 
 交付入口：[目录与继承契约](migrations/settings-catalog-and-inheritance.md)、[完整 IA 条目表](settings-entry-map.md)、[基础值契约表](settings-value-contracts.md)。566 个 IA 节点已保留最终位置；29 个基础值契约已声明。未来能力的设置仍显式保留为 reserved / NotImplemented，不伪造默认值或开启控件。当前阶段未实现设置页面，也未宣称新设置已接通所有运行消费者。
 
-依据：用户提供的《PCL Nexa 2.x 设置系统最终 IA.md》。本文将附件作为产品设计输入，整理实现顺序，不把附件中的未来能力视为已经存在，也不替代已锁定的 XSR 架构契约。
+依据：用户提供的《Nexa 2.x 设置系统最终 IA.md》。本文将附件作为产品设计输入，整理实现顺序，不把附件中的未来能力视为已经存在，也不替代已锁定的 XSR 架构契约。
 
 ## 1. 本轮目标
 

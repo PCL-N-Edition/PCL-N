@@ -22,4 +22,4 @@ This unit does not define command/query payloads, handlers, state revisions, eve
 
 ## Verification
 
-`PCL.Xsr.Runtime.Tests` covers invalid/default identifiers, duplicate registration, concurrent unique registration, registration-order independence, contiguous numeric allocation, sealing, two-way lookup, missing IDs, concurrent numeric reads, and zero-allocation numeric lookup. `PCL.Xsr.Abstractions` and `PCL.Xsr.Runtime` are marked AOT compatible. CI runs the tests both through CoreCLR and as a published NativeAOT executable, then runs the repository architecture gate and trimmed Desktop publish.
+`Nexa.Xsr.Runtime.Tests` covers invalid/default identifiers, duplicate registration, concurrent unique registration, registration-order independence, contiguous numeric allocation, sealing, two-way lookup, missing IDs, concurrent numeric reads, and zero-allocation numeric lookup. `Nexa.Xsr.Abstractions` and `Nexa.Xsr.Runtime` are marked AOT compatible. CI runs the tests both through CoreCLR and as a published NativeAOT executable, then runs the repository architecture gate and trimmed Desktop publish.

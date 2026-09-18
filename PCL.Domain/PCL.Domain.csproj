@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <Description>Framework-independent PCL Nexa domain rules and invariants.</Description>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="../PCL.Core/PCL.Core.csproj" />
-  </ItemGroup>
-</Project>

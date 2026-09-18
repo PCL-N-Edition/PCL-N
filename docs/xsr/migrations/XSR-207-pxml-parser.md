@@ -19,4 +19,4 @@ Element/attribute semantics, unknown-element rejection, binding resolution again
 
 ## Verification
 
-`PCL.Pxml.Tests` (new executable test project) covers structural parsing with literals, state-binding recognition, document-order children, comment and whitespace handling, duplicate-property rejection, malformed-binding rejection (empty path, multi-word path, unclosed, unknown directive), text-content rejection, missing and multiple roots, and foreign namespaces. The compiler project is AOT-compatible and covered by the architecture gate.
+`Nexa.Pxml.Tests` (new executable test project) covers structural parsing with literals, state-binding recognition, document-order children, comment and whitespace handling, duplicate-property rejection, malformed-binding rejection (empty path, multi-word path, unclosed, unknown directive), text-content rejection, missing and multiple roots, and foreign namespaces. The compiler project is AOT-compatible and covered by the architecture gate.

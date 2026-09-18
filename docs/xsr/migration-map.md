@@ -32,7 +32,7 @@ There is no periodic `dev -> refactor/xsr` merge. A legacy fix is forward-ported
 ## Wave 5 status (complete)
 
 Foundation services are composed over one shared host state store with formal command/query
-routers sealed in `PCL.Services.Composition`, and the update loop runs end to end
+routers sealed in `Nexa.Services.Composition`, and the update loop runs end to end
 (discovery → eligibility → plan → download → verify → stage → install → restart):
 
 | Unit | Commit | Outcome |
@@ -57,7 +57,7 @@ routers sealed in `PCL.Services.Composition`, and the update loop runs end to en
 | XSR-519 | `98e78477` | unified host state composition, foundation handler contracts, cross-capability PXML integration test, NativeAOT CI evidence |
 | XSR-520 | `a33184f1` + this commit | raw typed settings, formal Foundation Runtime composition, and unified download logging |
 
-Exit evidence: `tests/PCL.Services.Tests` (130 executable tests) green under CoreCLR and
+Exit evidence: `tests/Nexa.Services.Tests` (130 executable tests) green under CoreCLR and
 NativeAOT in CI; architecture gate green including the Desktop trim gate over the composed
 Foundation Runtime (the trimmed binary composes five services, three command routes, and one
 query route over one host state store and runs).
@@ -78,7 +78,7 @@ legacy ViewModel or UI dependency is carried into the branch:
 | XSR-608 | `1dba7f82` | Java policy closure: Legacy/Calendar version schemes, manifest-first Java selection, the 1.16.5/1.17/1.18/1.20.5/26.1 matrix, corrected corpus goldens, and Java 7/8 selection regressions |
 | XSR-609 | `4ce6eb69` + `220a5e74` | preserve Mojang ordinary library artifacts alongside native classifiers; keep classpath JARs and native extraction tokens independent, including system-GLFW filtering |
 
-Exit evidence: `tests/PCL.Services.Tests` passes 173 executable tests under CoreCLR and
+Exit evidence: `tests/Nexa.Services.Tests` passes 173 executable tests under CoreCLR and
 NativeAOT; Runtime, UI.Next, PXML, and Sidecar CoreCLR/AOT gates pass; the UI.Next benchmark
 gate and 27-project architecture gate pass; Desktop trim publish succeeds; and `dotnet format`
 reports no changes.

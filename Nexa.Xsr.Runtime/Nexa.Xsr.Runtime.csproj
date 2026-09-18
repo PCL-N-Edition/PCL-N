@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>XSR coordination runtime for registration, routing, scopes, scheduling, and lifecycle.</Description>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Nexa.Contracts/Nexa.Contracts.csproj" />
+    <ProjectReference Include="../Nexa.Core/Nexa.Core.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.Abstractions/Nexa.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.Diagnostics/Nexa.Xsr.Diagnostics.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.State/Nexa.Xsr.State.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.Transport/Nexa.Xsr.Transport.csproj" />
+    <ProjectReference Include="../Nexa.Sidecar.Protocol/Nexa.Sidecar.Protocol.csproj" />
+    <ProjectReference Include="../Nexa.Sidecar.Transport/Nexa.Sidecar.Transport.csproj" />
+  </ItemGroup>
+</Project>

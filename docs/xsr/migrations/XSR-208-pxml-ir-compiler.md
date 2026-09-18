@@ -19,4 +19,4 @@ Style resources, inline expressions, converters, loops/templates, and nested-pag
 
 ## Verification
 
-`PCL.Pxml.Tests` covers simple-page compilation with orientation and spacing, text state bindings, visibility bindings with scroll flags, button defaults and command capture, thickness and size parsing, unknown-element and unknown-property rejection, invalid-property placement rejection, and malformed number/enum/command/value rejection. The compiler project is AOT-compatible and covered by the architecture gate.
+`Nexa.Pxml.Tests` covers simple-page compilation with orientation and spacing, text state bindings, visibility bindings with scroll flags, button defaults and command capture, thickness and size parsing, unknown-element and unknown-property rejection, invalid-property placement rejection, and malformed number/enum/command/value rejection. The compiler project is AOT-compatible and covered by the architecture gate.

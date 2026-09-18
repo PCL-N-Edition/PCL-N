@@ -2,7 +2,7 @@
 
 ## Direction
 
-XSR is the long-term architecture of PCL Nexa:
+XSR is the long-term architecture of Nexa:
 
 ```text
 X = execution and exchange runtime
@@ -23,17 +23,17 @@ The first project in each family is created only when a closed migration unit ne
 ## Runtime shape
 
 ```text
-PCL.Desktop (composition root)
-  ├─> PCL.Services.Composition ──> PCL.Services.*
-  │                  └───────────> PCL.Xsr.Runtime
-  ├─> PCL.UI.Next
+Nexa.Desktop (composition root)
+  ├─> Nexa.Services.Composition ──> Nexa.Services.*
+  │                  └───────────> Nexa.Xsr.Runtime
+  ├─> Nexa.UI.Next
   └─> platform backends
 
-PCL.Services.* + PCL.Xsr.Runtime + PCL.UI.Next
-  └─> PCL.Xsr.State / abstractions ──> Domain / Contracts / Core
+Nexa.Services.* + Nexa.Xsr.Runtime + Nexa.UI.Next
+  └─> Nexa.Xsr.State / abstractions ──> Domain / Contracts / Core
 
         Host process                    Plugin process
-  PCL.Xsr.Runtime + UI.Next  <------>  Sidecar Fabric v2
+  Nexa.Xsr.Runtime + UI.Next  <------>  Sidecar Fabric v2
 ```
 
 X coordinates service registration, command/query routing, state, events, scopes, scheduling, capabilities, Sidecar sessions, and diagnostics. It does not own business rules or presentation truth. Two distinct scope abstractions exist by design: event ordering scopes bound and order event delivery inside the router, while runtime lifetime scopes (`IXsrScope`) form a disposal tree so a plugin, window, Sidecar session, or service group can be torn down atomically.
@@ -42,20 +42,20 @@ X coordinates service registration, command/query routing, state, events, scopes
 
 | Family | Responsibility |
 |---|---|
-| `PCL.Core`, `PCL.Domain`, `PCL.Contracts` | portable primitives, domain rules, and stable cross-module contracts |
-| `PCL.Xsr.*` | runtime abstractions, routing, state, transport, diagnostics, and generated code |
-| `PCL.Services.*` | business capabilities grouped by change ownership; `PCL.Services.Composition` is the explicit edge that binds those capabilities to Runtime routers |
-| `PCL.UI.Next` | canonical semantic renderer |
-| `PCL.UI.Next.Backend.*` | platform rendering, windows, native input, IME, clipboard, and accessibility bridges |
-| `PCL.Pxml.*` | authoring language, compiler, IR, generators, and runtime loading |
-| `PCL.Sidecar.*`, `PCL.Plugin.Sidecar` | protocol, transport, and dynamic plugin execution |
-| `PCL.Desktop` | process bootstrap and composition root |
+| `Nexa.Core`, `Nexa.Domain`, `Nexa.Contracts` | portable primitives, domain rules, and stable cross-module contracts |
+| `Nexa.Xsr.*` | runtime abstractions, routing, state, transport, diagnostics, and generated code |
+| `Nexa.Services.*` | business capabilities grouped by change ownership; `Nexa.Services.Composition` is the explicit edge that binds those capabilities to Runtime routers |
+| `Nexa.UI.Next` | canonical semantic renderer |
+| `Nexa.UI.Next.Backend.*` | platform rendering, windows, native input, IME, clipboard, and accessibility bridges |
+| `Nexa.Pxml.*` | authoring language, compiler, IR, generators, and runtime loading |
+| `Nexa.Sidecar.*`, `Nexa.Plugin.Sidecar` | protocol, transport, and dynamic plugin execution |
+| `Nexa.Desktop` | process bootstrap and composition root |
 
-`PCL.Sidecar.Protocol` and `PCL.Sidecar.Transport` live in this Host repository. The `PCL.Plugin.Sidecar` executable lives in the independent PCL.Plugin XSR repository and consumes released protocol surfaces; neither repository uses a workstation-relative source reference to the other.
+`Nexa.Sidecar.Protocol` and `Nexa.Sidecar.Transport` live in this Host repository. The `Nexa.Plugin.Sidecar` executable lives in the independent Nexa.Plugin XSR repository and consumes released protocol surfaces; neither repository uses a workstation-relative source reference to the other.
 
 The target list is not a requirement to create an empty project for every name. A project is introduced only when it has a clear owner and a dependency boundary worth enforcing.
 
-PXML-visible control models are owned by UI.Next in an explicitly configured catalog directory, not by `PCL.Pxml.Compiler`. `PCL.Pxml.Generators` consumes that directory as build-time `AdditionalFiles` and expands the complete, validated catalog into compiler-generated source before semantic compilation. The compiler consumes only the generated table and generic typed-value rules; runtime never reads catalog files or performs reflection binding.
+PXML-visible control models are owned by UI.Next in an explicitly configured catalog directory, not by `Nexa.Pxml.Compiler`. `Nexa.Pxml.Generators` consumes that directory as build-time `AdditionalFiles` and expands the complete, validated catalog into compiler-generated source before semantic compilation. The compiler consumes only the generated table and generic typed-value rules; runtime never reads catalog files or performs reflection binding.
 
 ## Communication model
 
@@ -79,9 +79,9 @@ The sealed registry is part of the XSR abstractions kernel: routing, state, even
 ## Ownership and composition
 
 - Services own business behavior and publish state/events.
-- `PCL.Services.Foundation` owns Foundation route IDs and typed handler factories; the separate
-  `PCL.Services.Composition` project owns Runtime-router registration so service assemblies do
-  not reference `PCL.Xsr.Runtime`.
+- `Nexa.Services.Foundation` owns Foundation route IDs and typed handler factories; the separate
+  `Nexa.Services.Composition` project owns Runtime-router registration so service assemblies do
+  not reference `Nexa.Xsr.Runtime`.
 - The state store owns observable system facts and their revisions.
 - Renderers project state and emit intent without becoming a second source of truth.
 - Platform projects own OS-specific implementations behind portable contracts.

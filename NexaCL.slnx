@@ -1,0 +1,52 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <Platform Name="AnyCPU" />
+  </Configurations>
+  <Folder Name="/Foundation/">
+    <Project Path="Nexa.Core/Nexa.Core.csproj" />
+    <Project Path="Nexa.Domain/Nexa.Domain.csproj" />
+    <Project Path="Nexa.Contracts/Nexa.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/XSR/">
+    <Project Path="Nexa.Xsr.Abstractions/Nexa.Xsr.Abstractions.csproj" />
+    <Project Path="Nexa.Xsr.Runtime/Nexa.Xsr.Runtime.csproj" />
+    <Project Path="Nexa.Xsr.State/Nexa.Xsr.State.csproj" />
+    <Project Path="Nexa.Xsr.Transport/Nexa.Xsr.Transport.csproj" />
+    <Project Path="Nexa.Xsr.Diagnostics/Nexa.Xsr.Diagnostics.csproj" />
+    <Project Path="Nexa.Xsr.Generators/Nexa.Xsr.Generators.csproj" />
+  </Folder>
+  <Folder Name="/Services/">
+    <Project Path="Nexa.Services/Nexa.Services.csproj" />
+    <Project Path="Nexa.Services.Composition/Nexa.Services.Composition.csproj" />
+  </Folder>
+  <Folder Name="/Renderer/">
+    <Project Path="Nexa.UI.Next/Nexa.UI.Next.csproj" />
+    <Project Path="Nexa.UI.Next.Backend.Avalonia/Nexa.UI.Next.Backend.Avalonia.csproj" />
+    <Project Path="Nexa.UI.Next.DevTools/Nexa.UI.Next.DevTools.csproj" />
+    <Project Path="Nexa.UI.Next.Benchmarks/Nexa.UI.Next.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/PXML/">
+    <Project Path="Nexa.Pxml.Compiler/Nexa.Pxml.Compiler.csproj" />
+    <Project Path="Nexa.Pxml.Runtime/Nexa.Pxml.Runtime.csproj" />
+    <Project Path="Nexa.Pxml.Generators/Nexa.Pxml.Generators.csproj" />
+  </Folder>
+  <Folder Name="/Sidecar/">
+    <Project Path="Nexa.Sidecar.Protocol/Nexa.Sidecar.Protocol.csproj" />
+    <Project Path="Nexa.Sidecar.Transport/Nexa.Sidecar.Transport.csproj" />
+  </Folder>
+  <Folder Name="/Host/">
+    <Project Path="Nexa.Desktop/Nexa.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="tests/Nexa.Xsr.ArchitectureTests/Nexa.Xsr.ArchitectureTests.csproj" />
+    <Project Path="tests/Nexa.Xsr.Runtime.Tests/Nexa.Xsr.Runtime.Tests.csproj" />
+    <Project Path="tests/Nexa.UI.Next.Tests/Nexa.UI.Next.Tests.csproj" />
+    <Project Path="tests/Nexa.UI.Next.Backend.Avalonia.Tests/Nexa.UI.Next.Backend.Avalonia.Tests.csproj" />
+    <Project Path="tests/Nexa.Pxml.Tests/Nexa.Pxml.Tests.csproj" />
+    <Project Path="tests/Nexa.Sidecar.Tests/Nexa.Sidecar.Tests.csproj" />
+    <Project Path="tests/Nexa.Services.Tests/Nexa.Services.Tests.csproj" />
+    <Project Path="tests/Nexa.Desktop.Tests/Nexa.Desktop.Tests.csproj" />
+  </Folder>
+</Solution>

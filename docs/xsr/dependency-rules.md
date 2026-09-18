@@ -24,27 +24,27 @@ References not shown are denied by default for new XSR projects.
 
 | Source | Must not depend on |
 |---|---|
-| `PCL.Domain` | Desktop, Application, renderer, Avalonia, concrete platform implementations |
-| `PCL.Xsr.*` core projects | Desktop, legacy Application, Avalonia, concrete services, renderer implementation/backend |
-| `PCL.Services.*` | Desktop, legacy Application, ViewModels, Avalonia, UI.Next, renderer backends |
-| `PCL.UI.Next` | Desktop, legacy Application, concrete services, Sidecar implementation, Avalonia |
-| `PCL.N.Plugin.*` public SDK | Host internals, Desktop, Application, concrete Platform, UI.Next internals, Avalonia, Sidecar implementation |
+| `Nexa.Domain` | Desktop, Application, renderer, Avalonia, concrete platform implementations |
+| `Nexa.Xsr.*` core projects | Desktop, legacy Application, Avalonia, concrete services, renderer implementation/backend |
+| `Nexa.Services.*` | Desktop, legacy Application, ViewModels, Avalonia, UI.Next, renderer backends |
+| `Nexa.UI.Next` | Desktop, legacy Application, concrete services, Sidecar implementation, Avalonia |
+| `Nexa.N.Plugin.*` public SDK | Host internals, Desktop, Application, concrete Platform, UI.Next internals, Avalonia, Sidecar implementation |
 | Sidecar protocol/transport | plugin business assemblies and Host UI types |
 
-`PCL.Sidecar.Protocol` has no dependency on product Core, Contracts, or XSR assemblies. `PCL.Sidecar.Transport` depends only on Protocol. Both sides of the process boundary consume these independently versioned surfaces without exchanging Host CLR objects.
+`Nexa.Sidecar.Protocol` has no dependency on product Core, Contracts, or XSR assemblies. `Nexa.Sidecar.Transport` depends only on Protocol. Both sides of the process boundary consume these independently versioned surfaces without exchanging Host CLR objects.
 
-`PCL.Services.Foundation` must not reference `PCL.Xsr.Runtime`. Its route IDs and handler
-factories remain portable service contracts. `PCL.Services.Composition` is the narrow approved
+`Nexa.Services.Foundation` must not reference `Nexa.Xsr.Runtime`. Its route IDs and handler
+factories remain portable service contracts. `Nexa.Services.Composition` is the narrow approved
 edge that takes a `FoundationHost`, registers those factories in the Runtime builders, and
 returns the sealed command/query routers to Desktop.
 
-`PCL.UI.Next.Backend.Avalonia` is the only new-architecture project family allowed to expose Avalonia implementation types, and those types must not leak through UI.Next public contracts.
+`Nexa.UI.Next.Backend.Avalonia` is the only new-architecture project family allowed to expose Avalonia implementation types, and those types must not leak through UI.Next public contracts.
 
-`PCL.Pxml.Generators` is a build-only Roslyn component with no product-project reference. `PCL.Pxml.Compiler` consumes it as an analyzer and receives UI.Next-owned control descriptors only through the configured `AdditionalFiles` catalog; generated code may use the compiler's existing UI.Next contract reference but the generator assembly must not reference UI.Next or Compiler.
+`Nexa.Pxml.Generators` is a build-only Roslyn component with no product-project reference. `Nexa.Pxml.Compiler` consumes it as an analyzer and receives UI.Next-owned control descriptors only through the configured `AdditionalFiles` catalog; generated code may use the compiler's existing UI.Next contract reference but the generator assembly must not reference UI.Next or Compiler.
 
 ## Enforcement
 
-The initial project graph is defined in [migrations/XSR-002-project-graph.md](migrations/XSR-002-project-graph.md). `PCL.Xsr.ArchitectureTests` scans every project, rejects unregistered or external project references, enforces the locked direct-reference graph, verifies generator and executable roles, and prevents Avalonia packages outside the backend.
+The initial project graph is defined in [migrations/XSR-002-project-graph.md](migrations/XSR-002-project-graph.md). `Nexa.Xsr.ArchitectureTests` scans every project, rejects unregistered or external project references, enforces the locked direct-reference graph, verifies generator and executable roles, and prevents Avalonia packages outside the backend.
 
 The migration-branch CI builds the full solution, runs the architecture executable, validates the selected XSR product version during build, publishes and executes the NativeAOT Desktop `--validate-shell` smoke path, and publishes a trimmed Desktop composition. Source analyzers follow as compilable APIs are introduced.
 

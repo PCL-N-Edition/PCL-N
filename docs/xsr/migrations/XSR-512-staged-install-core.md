@@ -43,7 +43,7 @@ contract those units must produce is locked here, including the plan file shape.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (93 executable tests, 5 new) covers: staged-tree verification
+`tests/Nexa.Services.Tests` (93 executable tests, 5 new) covers: staged-tree verification
 rejecting missing files, hash mismatches, and size mismatches with path-bearing errors;
 wrapper-root flattening including mixed-content stop and untouched direct roots; plan
 building that inventories managed leftovers (excluding `UpdateState/`), round-trips the plan

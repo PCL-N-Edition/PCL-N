@@ -2,7 +2,7 @@
 
 ## Outcome
 
-Wave 4 starts the Sidecar Fabric: the versioned, extensible binary protocol surface in `PCL.Sidecar.Protocol` — frame framing, message-number table, and the tag-length-value payload codec with unknown-field skipping. The project has zero project references; neither Host nor plugin code exchanges CLR objects through it.
+Wave 4 starts the Sidecar Fabric: the versioned, extensible binary protocol surface in `Nexa.Sidecar.Protocol` — frame framing, message-number table, and the tag-length-value payload codec with unknown-field skipping. The project has zero project references; neither Host nor plugin code exchanges CLR objects through it.
 
 ## Locked contract
 
@@ -18,4 +18,4 @@ The handshake and version negotiation messages, the named-pipe/Unix-socket trans
 
 ## Verification
 
-`PCL.Sidecar.Tests` (new executable test project) covers frame round trips, per-type payload round trips including multi-byte UTF-8, unknown-field skipping, magic and version enforcement, truncated/hostile-length rejection, unknown message types, frozen numbering, ascending-ID enforcement, tag-mismatch rejection, deterministic malformed-payload failures, zero-allocation decode, and correlation identity. The protocol project is AOT-compatible and covered by the architecture gate.
+`Nexa.Sidecar.Tests` (new executable test project) covers frame round trips, per-type payload round trips including multi-byte UTF-8, unknown-field skipping, magic and version enforcement, truncated/hostile-length rejection, unknown message types, frozen numbering, ascending-ID enforcement, tag-mismatch rejection, deterministic malformed-payload failures, zero-allocation decode, and correlation identity. The protocol project is AOT-compatible and covered by the architecture gate.

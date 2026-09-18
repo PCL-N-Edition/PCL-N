@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Composition-layer wiring between the foundation services and the XSR runtime routers.</Description>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Nexa.Services/Nexa.Services.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.Runtime/Nexa.Xsr.Runtime.csproj" />
+  </ItemGroup>
+</Project>

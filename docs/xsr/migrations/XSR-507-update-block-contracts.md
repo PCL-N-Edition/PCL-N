@@ -47,7 +47,7 @@ legacy version so zstd frames remain bit-compatible.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (62 executable tests, 8 new) covers: profile bounds/masks and
+`tests/Nexa.Services.Tests` (62 executable tests, 8 new) covers: profile bounds/masks and
 layout identifier parity; deterministic chunking over a 6 MiB payload with full coverage,
 min/max bounds, per-slice hash correctness, small-file single-chunk behavior, and v1/v2
 boundary divergence; codec normalization/aliasing/magic detection; gzip and zstd round trips

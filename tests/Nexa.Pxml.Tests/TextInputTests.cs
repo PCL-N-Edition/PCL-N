@@ -1,0 +1,68 @@
+using Nexa.UI.Next;
+using Nexa.Xsr;
+using Nexa.Xsr.State;
+
+namespace Nexa.Pxml.Tests;
+
+internal static partial class Program
+{
+    private static void TransitionGroupsCarryTheirBoundContentKey()
+    {
+        XsrStateStoreBuilder builder = new();
+        builder.Cell<string>(XsrSemanticId.Parse("content.key"), "test");
+        XsrUiTree tree = new(); XsrUiStateBridge bridge = new(tree);
+        XsrStateStore store = builder.Build(bridge);
+        XsrStateId key = store.Resolve(XsrSemanticId.Parse("content.key"));
+        store.Publish(key, "identity");
+        XsrUiEntityId root = tree.Create("root");
+        XsrUiEntityId group = PxmlUiLoader.Load(Compile("""
+            <StackPanel xmlns="N" TransitionKey="{state content.key}" TransitionOffsetX="32"><Text Content="标题" /></StackPanel>
+            """), tree, store, root);
+        XsrUiRenderer renderer = new(tree, store, stateBridge: bridge); renderer.SetRoot(root);
+        AssertEqual("identity", renderer.Render().Nodes.Single(node => node.Entity == group).TransitionKey);
+        store.Publish(key, "picker");
+        AssertEqual("picker", renderer.Render().Nodes.Single(node => node.Entity == group).TransitionKey);
+        AssertEqual(32d, renderer.Render().Nodes.Single(node => node.Entity == group).TransitionOffsetX);
+
+        XsrUiEntityId label = PxmlUiLoader.Load(Compile("""
+            <Text xmlns="N" Content="{state content.key}" TransitionKey="{state content.key}" TransitionOffsetY="6" />
+            """), tree, store, root);
+        AssertTrue(tree.GetComponent<XsrUiTransition>(label)!.MovesSelf);
+        AssertEqual(6d, renderer.Render().Nodes.Single(node => node.Entity == label).TransitionOffsetY);
+    }
+
+    private static void TextInputDraftsNeverExposePasswords()
+    {
+        XsrStateStoreBuilder builder = new();
+        builder.Cell<bool>(XsrSemanticId.Parse("form.enabled"), "test");
+        XsrStateStore store = builder.Build();
+        XsrStateId enabled = store.Resolve(XsrSemanticId.Parse("form.enabled"));
+        store.Publish(enabled, true);
+        XsrUiTree tree = new();
+        XsrUiEntityId root = tree.Create("root");
+        XsrUiEntityId field = PxmlUiLoader.Load(Compile("""
+            <TextInput xmlns="N" Label="密码" IsPassword="true" Placeholder="密码" Enabled="{state form.enabled}" />
+            """), tree, store, root);
+        XsrUiRenderer renderer = new(tree, store);
+        renderer.SetRoot(root);
+        _ = renderer.Render();
+        AssertTrue(renderer.Focus(field));
+        AssertTrue(renderer.InsertText("secret123"));
+        XsrUiTextInputSnapshot snapshot = renderer.Render().Nodes.Single(node => node.Entity == field).TextInput!.Value;
+        AssertEqual("•••••••••", snapshot.DisplayText);
+        AssertTrue(renderer.SetTextPreedit(field, "秘密"));
+        AssertFalse(renderer.Render().Nodes.Any(node => node.ToString().Contains("secret123", StringComparison.Ordinal)
+            || node.ToString().Contains("秘密", StringComparison.Ordinal)));
+        AssertTrue(renderer.EditText(XsrUiTextEdit.SelectAll));
+        AssertTrue(renderer.CopySelectedText() is null);
+        AssertTrue(renderer.InsertText("e\u0301😀"));
+        AssertTrue(renderer.EditText(XsrUiTextEdit.Backspace));
+        AssertEqual("e\u0301", tree.GetComponent<XsrUiTextInput>(field)!.ReadDraft());
+        AssertTrue(renderer.EditText(XsrUiTextEdit.Backspace));
+        AssertEqual(string.Empty, tree.GetComponent<XsrUiTextInput>(field)!.ReadDraft());
+        store.Publish(enabled, false);
+        AssertFalse(renderer.InsertText("blocked"));
+        AssertFalse(renderer.Focus(field));
+        AssertThrows<PxmlCompileException>(() => Compile("<TextInput xmlns=\"N\" Label=\"密码\" Content=\"must-not-be-a-template-secret\" />"));
+    }
+}

@@ -1,4 +1,4 @@
-# Agent instructions (PCL-N)
+# Agent instructions (NexaCL)
 
 ## Git workflow defaults
 
@@ -16,7 +16,7 @@
 - Treat `docs/xsr/` as the architecture lock. Update the relevant document before changing a boundary or compatibility promise.
 - Migrate behavior and data contracts, not legacy type or assembly shapes. Do not modify a legacy implementation merely to make an XSR migration diff smaller.
 - New services must not reference Avalonia, Desktop, renderer internals, ViewModels, or service locators. They receive commands/queries and publish state/events.
-- `PCL.UI.Next` is the canonical renderer. It reads state and emits intent; it must not resolve concrete services or call a Sidecar directly.
+- `Nexa.UI.Next` is the canonical renderer. It reads state and emits intent; it must not resolve concrete services or call a Sidecar directly.
 - Sidecar hot paths use generated numeric dispatch and an extensible binary protocol. Do not add synchronous IPC, JSON data-plane messages, reflection dispatch, or CLR object exchange across the process boundary.
 - Every migration task is a closed unit with a migration note, parity or contract tests, architecture tests, and AOT/trim validation where applicable.
 - Updating an API baseline does not make a breaking change acceptable.

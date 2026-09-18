@@ -16,4 +16,4 @@ BLAKE3 (SHA-256 is used until a hash dependency is justified), field-level DTO c
 
 ## Verification
 
-`PCL.Xsr.Runtime.Tests` adds twelve regressions: duplicate/missing/unknown snapshot states and codec-malformed values rejected without mirror mutation, the full-snapshot atomic commit with READY ordering, Bool/Int32 typed delta round trips, generated-DTO blob preservation, UI module cached at registration, zero-IPC page open (probe), resource hash deduplication, and missing-resource rejection. `PCL.Sidecar.Tests` covers the wire format for all of it. Everything passes under CoreCLR and NativeAOT with formatting clean.
+`Nexa.Xsr.Runtime.Tests` adds twelve regressions: duplicate/missing/unknown snapshot states and codec-malformed values rejected without mirror mutation, the full-snapshot atomic commit with READY ordering, Bool/Int32 typed delta round trips, generated-DTO blob preservation, UI module cached at registration, zero-IPC page open (probe), resource hash deduplication, and missing-resource rejection. `Nexa.Sidecar.Tests` covers the wire format for all of it. Everything passes under CoreCLR and NativeAOT with formatting clean.

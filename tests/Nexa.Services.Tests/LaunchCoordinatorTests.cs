@@ -1,0 +1,319 @@
+using System.Text.Json.Nodes;
+using Nexa.Services.Accounts;
+using Nexa.Services.Composition;
+using Nexa.Services.Foundation;
+using Nexa.Services.Minecraft;
+using Nexa.Services.Minecraft.Java;
+using Nexa.Services.Minecraft.Launch;
+using Nexa.Services.Minecraft.Libraries;
+using Nexa.Services.Minecraft.Process;
+using Nexa.Services.Settings;
+using Nexa.Xsr;
+
+namespace Nexa.Services.Tests;
+
+internal static partial class Program
+{
+    private static void OfflineIdentityFallsBackToVanillaUuid()
+    {
+        AssertEqual(
+            ("Alice", "uuid-alice"),
+            MinecraftOfflineIdentity.Resolve("Alice", "uuid-alice"));
+
+        string uuid = MinecraftOfflineIdentity.UuidFromName("Player");
+        AssertEqual(32, uuid.Length);
+        AssertFalse(uuid.Contains('-'));
+        AssertEqual(uuid, MinecraftOfflineIdentity.UuidFromName("Player"));
+        AssertEqual(("Player", uuid), MinecraftOfflineIdentity.Resolve(null, null));
+    }
+
+    private static void OfflineUuidsMatchVanillaGoldenValues()
+    {
+        // Java UUID.nameUUIDFromBytes uses the RFC byte order; a Guid constructor here would
+        // little-endian-swap the first fields and produce UUIDs vanilla servers reject.
+        AssertEqual("a01e3843e5213998958af459800e4d11", MinecraftOfflineIdentity.UuidFromName("Player"));
+        AssertEqual("5627dd98e6be3c21b8a8e92344183641", MinecraftOfflineIdentity.UuidFromName("Steve"));
+        AssertEqual("36532b5ec4423dbba24cc7e55d0f979a", MinecraftOfflineIdentity.UuidFromName("Alex"));
+    }
+
+    private static void OfflineProfileUuidMigrationRepairsLegacyRoster()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "nexa-uuid-migration", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string profilesPath = Path.Combine(root, "profiles.json");
+            LaunchProfileFilePort port = new(profilesPath);
+            LaunchProfile legacy = new()
+            {
+                Username = "Player",
+                Kind = LaunchProfileKind.Offline,
+                Uuid = MinecraftOfflineIdentity.LegacyMismatchedUuid("Player"),
+            };
+            port.Save(new LaunchProfileSet { Profiles = [legacy] });
+
+            FoundationHost host = FoundationComposer.Compose(
+                new InMemorySettingsPort(),
+                LauncherDefaults.CreateSchema(),
+                new LaunchProfileFilePort(profilesPath));
+            LaunchProfileView view = host.Accounts.GetViews().Single();
+            AssertEqual(MinecraftOfflineIdentity.UuidFromName("Player"), view.Uuid);
+
+            // The repair is durable: a fresh service reads the corrected roster.
+            FoundationHost second = FoundationComposer.Compose(
+                new InMemorySettingsPort(),
+                LauncherDefaults.CreateSchema(),
+                new LaunchProfileFilePort(profilesPath));
+            AssertEqual(MinecraftOfflineIdentity.UuidFromName("Player"), second.Accounts.GetViews().Single().Uuid);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task LaunchCoordinatorBuildsCompleteLowLevelRequest()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string baseDirectory = CreateVersionDirectory(root, "1.20.1", new JsonObject
+            {
+                ["id"] = "1.20.1",
+                ["type"] = "release",
+                ["mainClass"] = "net.minecraft.client.main.Main",
+                ["releaseTime"] = "2023-06-12T00:00:00Z",
+                ["javaVersion"] = new JsonObject
+                {
+                    ["majorVersion"] = 17,
+                    ["component"] = "java-runtime-gamma",
+                },
+            });
+            _ = baseDirectory;
+            string loaderDirectory = CreateVersionDirectory(root, "fabric-loader", new JsonObject
+            {
+                ["id"] = "fabric-loader-0.15.11-1.20.1",
+                ["inheritsFrom"] = "1.20.1",
+                ["mainClass"] = "net.fabricmc.loader.impl.launch.knot.KnotClient",
+                ["libraries"] = new JsonArray(),
+            });
+            MinecraftInstanceMetadataStore metadataStore = new();
+            string javaHome = Path.Combine(root, "test-java");
+            string javaExecutable = Path.Combine(javaHome, "bin", OperatingSystem.IsWindows() ? "java.exe" : "java");
+            Directory.CreateDirectory(Path.GetDirectoryName(javaExecutable)!);
+            await File.WriteAllBytesAsync(javaExecutable, [0x00]);
+            await metadataStore.SaveAsync(loaderDirectory, new MinecraftInstanceMetadata
+            {
+                JavaSelectionMode = 2,
+                SelectedJavaPath = javaExecutable,
+                InstanceIsolation = true,
+                UseSystemGlfw = true,
+                JvmArguments = "-Dinstance=true",
+                GameArguments = "--demo-flag",
+                ClasspathHead = "first.jar;second.jar",
+                ServerToEnter = "example.invalid:25565",
+            });
+
+            SettingsSchema schema = LauncherDefaults.CreateSchema();
+            FoundationHost host = FoundationComposer.Compose(
+                new InMemorySettingsPort(),
+                schema,
+                new LaunchProfileFilePort(Path.Combine(root, "profiles.json")));
+            AssertTrue(host.Accounts.AddProfile(new LaunchProfile
+            {
+                Username = "Player",
+                Uuid = "player-uuid",
+                Kind = LaunchProfileKind.Offline,
+            }).IsSuccess);
+            AssertTrue(host.Settings.SetValue("LaunchArgumentWindowWidth", 1280).IsSuccess);
+            AssertTrue(host.Settings.SetValue("LaunchArgumentWindowHeight", 720).IsSuccess);
+
+            JavaRuntimeCandidate candidate = new(new JavaInstallation(
+                javaHome,
+                javaExecutable,
+                null,
+                new Version(17, 0, 10),
+                JavaBrand.EclipseTemurin,
+                JavaArchitecture.X64,
+                is64Bit: true,
+                isJre: false));
+            InMemoryJavaLocator locator = new([candidate]);
+            NeverJavaInstaller installer = new();
+            MinecraftInstanceDiscovery instances = new(
+                versionDiscovery: new MinecraftVersionDiscovery(),
+                metadataStore: metadataStore);
+            MinecraftProcessService processes = new(hostStore: host.StateStore);
+            MinecraftLaunchCoordinator coordinator = new(
+                root,
+                Path.Combine(root, "runtime"),
+                instances,
+                host.Accounts,
+                host.Settings,
+                new JavaSelectionService(locator),
+                installer,
+                new MinecraftLaunchExecutor(processes),
+                new MinecraftLaunchPlatform(
+                    MinecraftLibraryOperatingSystem.Win32,
+                    "10.0.26100",
+                    Is64BitArchitecture: true,
+                    IsArm64Architecture: false));
+
+            XsrResult<MinecraftLaunchPreparation> result = await coordinator.PrepareAsync(
+                "fabric-loader",
+                accountIndex: 0);
+            AssertTrue(result.IsSuccess);
+            MinecraftLaunchRequest request = result.Value.Request;
+            AssertEqual("fabric-loader-0.15.11-1.20.1", request.VersionId);
+            AssertEqual(1, request.InheritedVersionJsons.Count);
+            AssertEqual("1.20.1", request.InheritedVersionJsons[0]["id"]!.ToString());
+            AssertEqual(MinecraftLibraryOperatingSystem.Win32, request.OperatingSystem);
+            AssertEqual("10.0.26100", request.OperatingSystemVersion);
+            AssertTrue(request.Is64BitArchitecture);
+            AssertFalse(request.IsArm64Architecture);
+            AssertEqual(javaExecutable, request.JavaExecutablePath);
+            AssertEqual(17, request.JavaMajorVersion);
+            AssertEqual(new Version(17, 0), result.Value.JavaRequirement.Range.Minimum);
+            AssertEqual(1280, request.Width);
+            AssertEqual(720, request.Height);
+            AssertTrue(request.IsolatedGameDirectory);
+            AssertTrue(request.UseSystemGlfw);
+            AssertEqual("-Dinstance=true", request.CustomJvmArguments);
+            AssertEqual("--demo-flag", request.CustomGameArguments);
+            AssertEqual(2, request.ClasspathHeadEntries.Count);
+            AssertEqual("example.invalid:25565", request.Server);
+            AssertEqual("Player", request.PlayerName);
+            AssertEqual("player-uuid", request.PlayerUuid);
+            AssertEqual(MinecraftLaunchIdentityMode.Offline, request.IdentityMode);
+            AssertEqual(0, installer.Calls);
+            string anotherRoot = Path.Combine(root, "another-root");
+            string anotherInstance = CreateVersionDirectory(anotherRoot, "fabric-loader", new JsonObject
+            {
+                ["id"] = "different-game",
+                ["type"] = "release",
+                ["mainClass"] = "example.OtherMain",
+                ["javaVersion"] = new JsonObject { ["majorVersion"] = 17 },
+            });
+            XsrResult<MinecraftLaunchPreparation> another = await coordinator.PrepareAsync("fabric-loader", 0, anotherRoot);
+            AssertTrue(another.IsSuccess);
+            AssertEqual(anotherRoot, another.Value.Request.MinecraftRootDirectory);
+            AssertEqual(anotherInstance, another.Value.Request.InstanceDirectory);
+            AssertEqual("different-game", another.Value.Request.VersionId);
+            AssertEqual(0, another.Value.Request.InheritedVersionJsons.Count);
+            AssertEqual(root, request.MinecraftRootDirectory);
+            AssertFalse((await coordinator.PrepareAsync("fabric-loader", 0, "relative-root")).IsSuccess);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task LaunchCoordinatorRejectsIncompleteInheritance()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string loaderDirectory = CreateVersionDirectory(root, "broken-loader", new JsonObject
+            {
+                ["id"] = "broken-loader",
+                ["inheritsFrom"] = "missing-base",
+                ["mainClass"] = "example.Main",
+            });
+            MinecraftInstanceMetadataStore metadataStore = new();
+            await metadataStore.SaveAsync(loaderDirectory, new MinecraftInstanceMetadata());
+            SettingsSchema schema = LauncherDefaults.CreateSchema();
+            FoundationHost host = FoundationComposer.Compose(
+                new InMemorySettingsPort(),
+                schema,
+                new LaunchProfileFilePort(Path.Combine(root, "profiles.json")));
+            AssertTrue(host.Accounts.AddProfile(new LaunchProfile
+            {
+                Username = "Player",
+                Kind = LaunchProfileKind.Offline,
+            }).IsSuccess);
+            MinecraftProcessService processes = new(hostStore: host.StateStore);
+            MinecraftLaunchCoordinator coordinator = new(
+                root,
+                Path.Combine(root, "runtime"),
+                new MinecraftInstanceDiscovery(versionDiscovery: new MinecraftVersionDiscovery(), metadataStore: metadataStore),
+                host.Accounts,
+                host.Settings,
+                new JavaSelectionService(new InMemoryJavaLocator([])),
+                new NeverJavaInstaller(),
+                new MinecraftLaunchExecutor(processes),
+                new MinecraftLaunchPlatform(
+                    MinecraftLibraryOperatingSystem.Linux,
+                    "6.12",
+                    Is64BitArchitecture: true,
+                    IsArm64Architecture: false));
+
+            XsrResult<MinecraftLaunchPreparation> result = await coordinator.PrepareAsync(
+                "broken-loader",
+                accountIndex: 0);
+            AssertFalse(result.IsSuccess);
+            AssertEqual(MinecraftErrors.LaunchPreparationFailedCode, result.Error!.Code);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void ProductionMinecraftRuntimeRegistersStartRoute()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            SettingsSchema schema = LauncherDefaults.CreateSchema();
+            FoundationHost host = FoundationComposer.Compose(
+                new InMemorySettingsPort(),
+                schema,
+                new LaunchProfileFilePort(Path.Combine(root, "profiles.json")));
+            using MinecraftRuntime runtime = MinecraftRuntimeComposer.Compose(
+                host,
+                root,
+                javaLocator: new InMemoryJavaLocator([]),
+                javaInstaller: new NeverJavaInstaller(),
+                platform: new MinecraftLaunchPlatform(
+                    MinecraftLibraryOperatingSystem.Linux,
+                    "6.12",
+                    Is64BitArchitecture: true,
+                    IsArm64Architecture: false));
+            AssertTrue(runtime.LaunchCoordinator is not null);
+            AssertTrue(runtime.Commands.TryResolve(MinecraftRouteIds.Start, out _));
+            AssertTrue(runtime.Commands.TryResolve(MinecraftRouteIds.Launch, out _));
+            AssertTrue(runtime.Commands.TryResolve(MinecraftRouteIds.LaunchCancel, out _));
+            AssertTrue(runtime.Commands.TryResolve(MinecraftRouteIds.AcquireDecide, out _));
+            AssertTrue(runtime.Commands.TryResolve(MinecraftRouteIds.JavaSelect, out _));
+            AssertTrue(runtime.Commands.TryResolve(MinecraftRouteIds.JavaVersionSelect, out _));
+            AssertEqual(7, runtime.Commands.Count);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string CreateVersionDirectory(string root, string directoryName, JsonObject manifest)
+    {
+        string directory = Path.Combine(root, "versions", directoryName);
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, directoryName + ".json"), manifest.ToJsonString());
+        return directory;
+    }
+
+    private sealed class NeverJavaInstaller : IJavaRuntimeInstaller
+    {
+        public int Calls { get; private set; }
+
+        public Task<string> InstallAsync(
+            string requestedComponent,
+            string runtimeRootDirectory,
+            IProgress<JavaRuntimeInstallProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            throw new InvalidOperationException("The test does not expect Java acquisition.");
+        }
+    }
+}

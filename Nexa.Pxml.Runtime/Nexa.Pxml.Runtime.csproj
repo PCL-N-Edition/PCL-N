@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Runtime loader and binder for precompiled PXML UI.Next artifacts.</Description>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Nexa.Core/Nexa.Core.csproj" />
+    <ProjectReference Include="../Nexa.UI.Next/Nexa.UI.Next.csproj" />
+    <ProjectReference Include="../Nexa.Pxml.Compiler/Nexa.Pxml.Compiler.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.Abstractions/Nexa.Xsr.Abstractions.csproj" />
+    <ProjectReference Include="../Nexa.Xsr.State/Nexa.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>

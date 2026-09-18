@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="2460" viewBox="0 0 1200 2460" role="img" aria-labelledby="title desc">
-  <title id="title">PCL Nexa Minecraft launcher</title>
-  <desc id="desc">PCL Nexa 2.0 Alpha overview for Minecraft players.</desc>
+  <title id="title">Nexa Minecraft launcher</title>
+  <desc id="desc">Nexa 2.0 Alpha overview for Minecraft players.</desc>
   <defs>
     <linearGradient id="heroGlow" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#5AC8FA" stop-opacity="0.30"/>
@@ -69,7 +69,7 @@
       </switch>
     </g>
 
-    <text x="0" y="142" class="title text">PCL Nexa</text>
+    <text x="0" y="142" class="title text">Nexa</text>
     <switch>
       <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="2" y="202" class="h2 secondary">一個更省心的 Minecraft 啟動器。</text>
       <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="2" y="202" class="h2 secondary">一个更省心的 Minecraft 启动器。</text>
@@ -93,14 +93,14 @@
         <text x="146" y="62" class="micro tertiary">ONE MORE NAME CHANGE</text>
       </switch>
       <switch>
-        <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="146" y="105" class="h3 text">Alpha 結束後，產品會正式改名為 Nexa Launcher。</text>
-        <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="146" y="105" class="h3 text">Alpha 结束后，产品会正式改名为 Nexa Launcher。</text>
-        <text x="146" y="105" class="h3 text">After Alpha, the product will be called Nexa Launcher.</text>
+        <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="146" y="105" class="h3 text">Alpha 結束後，產品會正式改名為 NexaCL。</text>
+        <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="146" y="105" class="h3 text">Alpha 结束后，产品会正式改名为 NexaCL。</text>
+        <text x="146" y="105" class="h3 text">After Alpha, the product will be called NexaCL.</text>
       </switch>
       <switch>
-        <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="146" y="145" class="small secondary">Alpha 期間繼續使用 PCL Nexa。倉庫和內部名稱會在後面慢慢調整。</text>
-        <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="146" y="145" class="small secondary">Alpha 期间继续使用 PCL Nexa。仓库和内部名称会在后面慢慢调整。</text>
-        <text x="146" y="145" class="small secondary">PCL Nexa stays for Alpha. Repository and internal names will change later.</text>
+        <text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="146" y="145" class="small secondary">Alpha 期間繼續使用 Nexa。倉庫和內部名稱會在後面慢慢調整。</text>
+        <text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="146" y="145" class="small secondary">Alpha 期间继续使用 Nexa。仓库和内部名称会在后面慢慢调整。</text>
+        <text x="146" y="145" class="small secondary">Nexa stays for Alpha. Repository and internal names will change later.</text>
       </switch>
     </g>
   </g>
@@ -167,15 +167,15 @@
   </g>
 
   <g transform="translate(72 1538)">
-    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="0" class="h2 text">從 PCL N 升到 2.0。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="0" class="h2 text">从 PCL N 升到 2.0。</text><text x="0" y="0" class="h2 text">Moving from PCL N to 2.0.</text></switch>
-    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="40" class="body secondary">PCL Nexa 就是 PCL N 2.0 Alpha 期間使用的名字。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="40" class="body secondary">PCL Nexa 就是 PCL N 2.0 Alpha 期间使用的名字。</text><text x="0" y="40" class="body secondary">PCL Nexa is the name used for PCL N during the 2.0 Alpha period.</text></switch>
+    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="0" class="h2 text">從 Nexa 升到 2.0。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="0" class="h2 text">从 Nexa 升到 2.0。</text><text x="0" y="0" class="h2 text">Moving from Nexa to 2.0.</text></switch>
+    <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="0" y="40" class="body secondary">Nexa 就是 Nexa 2.0 Alpha 期間使用的名字。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="0" y="40" class="body secondary">Nexa 就是 Nexa 2.0 Alpha 期间使用的名字。</text><text x="0" y="40" class="body secondary">Nexa is the name used for Nexa during the 2.0 Alpha period.</text></switch>
 
     <g transform="translate(0 90)">
       <rect width="1056" height="306" rx="34" class="surface" filter="url(#shadow)"/>
       <g transform="translate(34 32)">
         <rect width="988" height="74" rx="24" class="surface3"/>
         <circle cx="30" cy="37" r="9" class="success"/>
-        <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="56" y="45" class="bodyStrong text">PCL N 1.4.x 可以直接升到 2.0。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="56" y="45" class="bodyStrong text">PCL N 1.4.x 可以直接升到 2.0。</text><text x="56" y="45" class="bodyStrong text">PCL N 1.4.x can upgrade directly to 2.0.</text></switch>
+        <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="56" y="45" class="bodyStrong text">Nexa 1.4.x 可以直接升到 2.0。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="56" y="45" class="bodyStrong text">Nexa 1.4.x 可以直接升到 2.0。</text><text x="56" y="45" class="bodyStrong text">Nexa 1.4.x can upgrade directly to 2.0.</text></switch>
       </g>
       <g transform="translate(34 124)">
         <rect width="988" height="74" rx="24" class="surface3"/>
@@ -196,6 +196,6 @@
     <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="38" y="154" class="body secondary">啟動、下載、帳號和更新已經有主要功能。介面和其他頁面還在繼續補。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="38" y="154" class="body secondary">启动、下载、账号和更新已经有主要功能。界面和其他页面还在继续补。</text><text x="38" y="154" class="body secondary">Launch, downloads, accounts and updates are mostly there. More interface work is still in progress.</text></switch>
     <switch><text systemLanguage="zh-TW,zh-HK,zh-MO,zh-Hant" x="38" y="198" class="small secondary">只想穩定玩遊戲的話，先用正式版。想提前看看 2.0，可以試這個 Alpha 分支。</text><text systemLanguage="zh-CN,zh-SG,zh-Hans,zh" x="38" y="198" class="small secondary">只想稳定玩游戏的话，先用正式版。想提前看看 2.0，可以试这个 Alpha 分支。</text><text x="38" y="198" class="small secondary">For stable daily play, use a released build. Try this Alpha branch if you want an early look at 2.0.</text></switch>
     <line x1="38" y1="232" x2="1018" y2="232" class="rule"/>
-    <text x="38" y="267" class="caption secondary">PCL Nexa · PCL N 2.0 Alpha · refactor/xsr</text>
+    <text x="38" y="267" class="caption secondary">Nexa · Nexa 2.0 Alpha · refactor/xsr</text>
   </g>
 </svg>

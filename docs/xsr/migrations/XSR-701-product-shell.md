@@ -13,7 +13,7 @@
 
 Wave 7 starts with the product chrome that every vertical slice shares: a top title bar, a
 primary left navigation rail, and a content host. The chrome is authored in the checked-in
-`PCL.Desktop/Ui/Shell.pxml`, compiled through the control catalog into UI.Next entities, and can be
+`Nexa.Desktop/Ui/Shell.pxml`, compiled through the control catalog into UI.Next entities, and can be
 presented in the current Experimental style.
 
 XSR-702 tightens the initial shell into the renderer-model boundary: the backend commits the
@@ -38,10 +38,10 @@ immutable UI.Next scene and no longer recreates a parallel application visual tr
   keyboard activation select the same destination and emit the item's semantic command through the
   normal UI intent sink. There is no product style-toggle command; minimize/maximize/close remain
   native window actions.
-- `PCL.UI.Next` remains backend-free. `PCL.UI.Next.Backend.Avalonia` is the only project that
+- `Nexa.UI.Next` remains backend-free. `Nexa.UI.Next.Backend.Avalonia` is the only project that
   references `Avalonia.Desktop`. Its `AvaloniaUiSceneSurface` consumes the immutable scene only and
   owns final drawing, native input translation, and accessibility mapping. The small native window
-  action overlay owns only minimize/maximize/close. `PCL.Desktop` creates the UI runtime context
+  action overlay owns only minimize/maximize/close. `Nexa.Desktop` creates the UI runtime context
   before Foundation, passes its state bridge as the one host-store observer, compiles the PXML shell
   into that same tree, and starts the backend host.
 - ~~The title bar is 58 logical pixels and the navigation rail is 236 logical pixels in the
@@ -73,7 +73,7 @@ to the existing `Content` entity through PXML/UI.Next in subsequent Wave 7 units
 
 ## Verification
 
-`PCL.UI.Next.Tests` covers the Experimental palette, canonical title/navigation/content geometry,
+`Nexa.UI.Next.Tests` covers the Experimental palette, canonical title/navigation/content geometry,
 removed-style rejection without state mutation, pointer activation, intent emission, unknown-route
 rejection, and the production-ready state-bridge context. The Avalonia backend and Desktop
 composition build against `Avalonia.Desktop` 12.1.0; the architecture gate continues to allow that

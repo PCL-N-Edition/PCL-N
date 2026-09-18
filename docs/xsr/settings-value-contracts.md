@@ -2,7 +2,7 @@
 
 `SettingsCatalog.json` and `settings-entry-map.md` enumerate all 566 final IA nodes. Groups, choices, actions and facts do not own persisted values. Reserved settings keep their final position and `NotImplemented`; a future capability must declare its real value contract before enabling them. Their default/range is intentionally not fabricated from the label.
 
-The following foundation contracts are declared in `SettingsPolicySchema`. Owner: `PCL.Services.Settings`. Scope `G/I` permits global and instance overrides; `G` is global only. `Auto` is a payload-free mode; reset means remove the override. Enum strings are stable encodings, not localized labels.
+The following foundation contracts are declared in `SettingsPolicySchema`. Owner: `Nexa.Services.Settings`. Scope `G/I` permits global and instance overrides; `G` is global only. `Auto` is a payload-free mode; reset means remove the override. Enum strings are stable encodings, not localized labels.
 
 | Key | Type / domain | Builtin | Scope | Legacy source | Applies | Export |
 |---|---|---|---|---|---|---|

@@ -10,7 +10,7 @@ and the account identity.
 
 ## Page and routing
 
-- `PCL.Desktop/Ui/LaunchPage.pxml` is an embedded PXML page (account summary, instance
+- `Nexa.Desktop/Ui/LaunchPage.pxml` is an embedded PXML page (account summary, instance
   summary, launch button) compiled at startup through the same parser/compiler/
   loader pipeline as the shell. Its dynamic texts bind to host state cells
   (`launch.profile.summary`, `launch.instance.summary`, `launch.action.label`), declared by
@@ -27,7 +27,7 @@ and the account identity.
 
 ## Layout parity
 
-The legacy checkout's `PCL.Desktop/Features/Launching/Views/PageLaunchHomeExperimental.axaml`
+The legacy checkout's `Nexa.Desktop/Features/Launching/Views/PageLaunchHomeExperimental.axaml`
 is the normative layout reference for the Experimental launch page. The migrated page keeps its
 exact idle-page structure instead of flattening the three cards into one horizontal row:
 
@@ -63,14 +63,14 @@ into the status cell. The renderer only ever reads these cells through the state
 
 ## Verification and tests
 
-New executable suite `tests/PCL.Desktop.Tests` (registered in the solution, the architecture
+New executable suite `tests/Nexa.Desktop.Tests` (registered in the solution, the architecture
 gate's project graph, and CI as "Test desktop composition"): the launch page composes with its
 bound summaries and action, its wide, default, and minimum-window scenes preserve the locked
 column/card geometry without overlap, navigation intents route between the launch and placeholder
 pages, and a start intent without instances routes to installation without dispatching. XSR-714
 supersedes the temporary page-local status footer with the shared notification surface. The full
 launch dispatch chain (planner → executor → process port) remains covered by the
-`PCL.Services.Tests` corpus tests; a full end-to-end launch with a real version JSON on disk
+`Nexa.Services.Tests` corpus tests; a full end-to-end launch with a real version JSON on disk
 is deferred to the launch settings slice, which also owns the Minecraft root setting.
 
 ## Deliberate scope

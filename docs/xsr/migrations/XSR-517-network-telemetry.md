@@ -19,7 +19,7 @@ over a caller-owned `HttpClient` / transport port so tests are stub-handler fixt
   uploads nothing — the legacy `TelemetryExperienceProgram = false` default is a rule, not a
   starting value. Events carry a semantic name, a UTC timestamp, and free-form properties.
 - Buffering is bounded: at capacity the oldest event drops. The pending depth publishes as
-  one integer state cell (`telemetry.pending`, owner `PCL.Services.Telemetry`) — the queue
+  one integer state cell (`telemetry.pending`, owner `Nexa.Services.Telemetry`) — the queue
   depth, not the lifetime total — so surfaces read it like any other state fact.
 - Flush: the whole buffer goes through `ITelemetryTransport.SendAsync` as one batch; success
   clears exactly the events that were sent (records racing the flush stay), rejection or an
@@ -36,7 +36,7 @@ transport boundary when the upload endpoint lands.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (120 executable tests, 5 new) covers: probe outcomes for a
+`tests/Nexa.Services.Tests` (120 executable tests, 5 new) covers: probe outcomes for a
 reachable endpoint (status, non-negative latency, no error), an HTTP-level failure that is
 still "reachable", and a connection failure that is unreachable with error text; telemetry
 recording nothing without consent; bounded buffering with oldest-eviction and a state cell

@@ -91,47 +91,47 @@ jobs:
         env:
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
-          PCL_MS_CLIENT_ID: ${{ secrets.PCL_MS_CLIENT_ID }}
+          NEXA_MS_CLIENT_ID: ${{ secrets.PCL_MS_CLIENT_ID }}
           LITTLESKIN_CLIENT_ID: ${{ secrets.LITTLESKIN_CLIENT_ID }}
-          PCL_LITTLESKIN_CLIENT_ID: ${{ secrets.PCL_LITTLESKIN_CLIENT_ID }}
+          NEXA_LITTLESKIN_CLIENT_ID: ${{ secrets.PCL_LITTLESKIN_CLIENT_ID }}
         run: |
           set -euo pipefail
-          microsoft="${PCL_MS_CLIENT_ID:-${MS_CLIENT_ID:-${CLIENT_ID:-}}}"
-          little_skin="${PCL_LITTLESKIN_CLIENT_ID:-${LITTLESKIN_CLIENT_ID:-}}"
+          microsoft="${NEXA_MS_CLIENT_ID:-${MS_CLIENT_ID:-${CLIENT_ID:-}}}"
+          little_skin="${NEXA_LITTLESKIN_CLIENT_ID:-${LITTLESKIN_CLIENT_ID:-}}"
           if [[ -n "$microsoft" ]]; then echo "::add-mask::$microsoft"; fi
           if [[ -n "$little_skin" ]]; then echo "::add-mask::$little_skin"; fi
-          echo "PCL_MS_CLIENT_ID=$microsoft" >> "$GITHUB_ENV"
-          echo "PCL_LITTLESKIN_CLIENT_ID=$little_skin" >> "$GITHUB_ENV"
+          echo "NEXA_MS_CLIENT_ID=$microsoft" >> "$GITHUB_ENV"
+          echo "NEXA_LITTLESKIN_CLIENT_ID=$little_skin" >> "$GITHUB_ENV"
       - name: Publish NativeAOT launcher
         shell: bash
         run: |
-          dotnet publish PCL.Desktop/PCL.Desktop.csproj --configuration Release \
+          dotnet publish Nexa.Desktop/Nexa.Desktop.csproj --configuration Release \
             -r '${{ matrix.rid }}' --self-contained true -m:1 -nodeReuse:false \
             -p:PublishAot=true -p:StripSymbols=true \
             -p:XsrVersionPrefix="$VERSION_PREFIX" -p:XsrVersionChannel="$VERSION_CHANNEL" \
             -p:XsrVersionSequence="$VERSION_SEQUENCE" -p:XsrCommitShort="$COMMIT_SHORT" \
-            -p:PclMicrosoftClientId="$PCL_MS_CLIENT_ID" -p:PclLittleSkinClientId="$PCL_LITTLESKIN_CLIENT_ID" \
+            -p:NexaMicrosoftClientId="$NEXA_MS_CLIENT_ID" -p:NexaLittleSkinClientId="$NEXA_LITTLESKIN_CLIENT_ID" \
             --output "$RUNNER_TEMP/launcher"
       - name: Smoke-run published executable
         shell: bash
         run: |
-          binary="$RUNNER_TEMP/launcher/PCL.Desktop"
+          binary="$RUNNER_TEMP/launcher/Nexa.Desktop"
           if [[ '${{ matrix.rid }}' == win-* ]]; then binary="${binary}.exe"; fi
           "$binary" --validate-shell
       - name: Verify Windows game window integration under NativeAOT
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          dotnet publish tests/PCL.Desktop.Tests/PCL.Desktop.Tests.csproj -c Release \
+          dotnet publish tests/Nexa.Desktop.Tests/Nexa.Desktop.Tests.csproj -c Release \
             -r '${{ matrix.rid }}' --self-contained true -m:1 -nodeReuse:false \
             -p:PublishAot=true -p:StripSymbols=true --output "$RUNNER_TEMP/window-integration"
-          "$RUNNER_TEMP/window-integration/PCL.Desktop.Tests.exe" --window-integration-smoke
+          "$RUNNER_TEMP/window-integration/Nexa.Desktop.Tests.exe" --window-integration-smoke
       - name: Build native installers and portable archive
         shell: bash
         run: python eng/release/package.py --payload "$RUNNER_TEMP/launcher" --output artifacts --rid '${{ matrix.rid }}' --version "$PRODUCT_VERSION"
       - uses: actions/upload-artifact@v4
         with:
-          name: PCL-Nexa-${{ matrix.rid }}
+          name: Nexa-${{ matrix.rid }}
           path: artifacts/*
           if-no-files-found: error
   distribution:
@@ -146,7 +146,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: PCL-Nexa-*
+          pattern: Nexa-*
           path: artifacts
           merge-multiple: true
       - uses: actions/download-artifact@v4
@@ -157,7 +157,7 @@ jobs:
         run: python3 eng/release/verify.py artifacts "$PRODUCT_VERSION"
       - uses: actions/upload-artifact@v4
         with:
-          name: PCL-Nexa-complete-distribution
+          name: Nexa-complete-distribution
           path: |
             artifacts/*
             release-metadata/CHANGELOG.md
@@ -173,10 +173,10 @@ jobs:
           # Re-runs on an existing tag update the description and re-attach assets instead of
           # failing; the notes carry the download guide plus the changelog.
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --title "PCL Nexa $PRODUCT_VERSION" \
+            gh release edit "$GITHUB_REF_NAME" --title "Nexa $PRODUCT_VERSION" \
               --notes-file release-metadata/RELEASE.md "${flags[@]}"
             gh release upload "$GITHUB_REF_NAME" artifacts/* --clobber
           else
             gh release create "$GITHUB_REF_NAME" artifacts/* --verify-tag \
-              --title "PCL Nexa $PRODUCT_VERSION" --notes-file release-metadata/RELEASE.md "${flags[@]}"
+              --title "Nexa $PRODUCT_VERSION" --notes-file release-metadata/RELEASE.md "${flags[@]}"
           fi

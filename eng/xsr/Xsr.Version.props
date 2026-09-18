@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <XsrProductName Condition="'$(XsrProductName)' == ''">PCL Nexa</XsrProductName>
+    <XsrProductName Condition="'$(XsrProductName)' == ''">Nexa</XsrProductName>
     <XsrVersionPrefix Condition="'$(XsrVersionPrefix)' == ''">2.0.0</XsrVersionPrefix>
     <XsrVersionChannel Condition="'$(XsrVersionChannel)' == ''">alpha</XsrVersionChannel>
     <XsrVersionSequence Condition="'$(XsrVersionSequence)' == ''">1</XsrVersionSequence>

@@ -57,7 +57,7 @@ re-selecting a loader/addon build removes that choice and its dependent selectio
 
 Fabric API and QSL merge Modrinth version files with CurseForge paginated files (50/page,
 10,000-file limit), game and loader filtered. CurseForge uses the legacy official API with
-PCL_CURSEFORGE_API_KEY / CURSEFORGE_API_KEY, falling back to MCIM without forwarding that key.
+Nexa_CURSEFORGE_API_KEY / CURSEFORGE_API_KEY, falling back to MCIM without forwarding that key.
 Project identities: [Fabric API](https://www.curseforge.com/minecraft/mc-mods/fabric-api) 306612,
 [QSL](https://www.curseforge.com/minecraft/mc-mods/qsl) 634179. SHA-1, or filename when a hash is
 missing, merges identical files while preserving both download URLs, source, size and integrity
@@ -80,7 +80,7 @@ changes, while visible row realization remains bounded independently of total ca
   and proves prefetch provider invocation uses a background thread while the UI remains interactive.
 - Opt-in live provider smoke: Mojang and all nine base-loader endpoints return catalogs. Fabric API
   and QSL each return merged Modrinth/CurseForge download sources without partial-source warnings.
-  Reproduce with `dotnet run --project tests/PCL.Services.Tests -- --live-install-catalog`.
+  Reproduce with `dotnet run --project tests/Nexa.Services.Tests -- --live-install-catalog`.
 
 ## Return-to-selection follow-up
 

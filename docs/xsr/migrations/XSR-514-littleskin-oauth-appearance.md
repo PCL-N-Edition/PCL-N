@@ -5,7 +5,7 @@
 The LittleSkin capability comes online: the OAuth 2 client (device authorization grant,
 authorization-code exchange, token refresh, profile list, Minecraft session creation, player
 list, closet management, texture upload) and the Microsoft skin/cape appearance services
-migrate into `PCL.Services`, all over a caller-owned `HttpClient` with stub-handler tests.
+migrate into `Nexa.Services`, all over a caller-owned `HttpClient` with stub-handler tests.
 
 ## Locked contract
 
@@ -43,7 +43,7 @@ root attaches the Wave 5 logging capability where it wants observability.
 
 ## Verification
 
-`tests/PCL.Services.Tests` (106 executable tests, 6 new) covers: the device flow from
+`tests/Nexa.Services.Tests` (106 executable tests, 6 new) covers: the device flow from
 request through a pending poll to tokens; refresh on the open endpoint; `invalid_client`
 rejection with the dedicated message; the client-secret requirement of the code exchange;
 profiles, Minecraft session (UUID normalization), players, closet pagination with hash

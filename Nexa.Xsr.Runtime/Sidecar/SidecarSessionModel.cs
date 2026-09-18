@@ -1,0 +1,168 @@
+using Nexa.Sidecar.Protocol;
+using Nexa.Xsr.State;
+
+namespace Nexa.Xsr.Runtime;
+
+/// <summary>
+/// The host-side session lifecycle. Handshaking, registering (declarations accepted), ready
+/// (state snapshot committed), active (runtime behavior), closed, failed. Deactivation returns
+/// from active to ready without re-registration.
+/// </summary>
+public enum SidecarSessionState
+{
+    Handshaking = 1,
+    Registering = 2,
+    Ready = 3,
+    Active = 4,
+    Closed = 5,
+    Failed = 6,
+}
+
+/// <summary>
+/// One accepted registration declaration, carrying its session-local contract ID. Contract IDs
+/// are per-kind ordinals starting at 1 in declaration order; both sides derive the identical
+/// table from the registration stream, so the data plane never carries semantic strings.
+/// </summary>
+public sealed record SidecarRegistrationEntry(
+    SidecarRegistrationKind Kind,
+    XsrSemanticId SemanticId,
+    uint ContractId,
+    uint Flags,
+    uint CodecId);
+
+/// <summary>
+/// The accepted registration of one session with the session-local contract table.
+/// </summary>
+public sealed class SidecarRegistrationSet
+{
+    private readonly Dictionary<(SidecarRegistrationKind Kind, XsrSemanticId Semantic), SidecarRegistrationEntry> _byContract;
+
+    public SidecarRegistrationSet(IReadOnlyList<SidecarRegistrationEntry> entries)
+    {
+        Entries = entries;
+        _byContract = [];
+        foreach (SidecarRegistrationEntry entry in entries)
+        {
+            _byContract[(entry.Kind, entry.SemanticId)] = entry;
+        }
+    }
+
+    public IReadOnlyList<SidecarRegistrationEntry> Entries { get; }
+
+    public IEnumerable<XsrSemanticId> Commands => OfKind(SidecarRegistrationKind.Command);
+
+    public IEnumerable<XsrSemanticId> Queries => OfKind(SidecarRegistrationKind.Query);
+
+    public IEnumerable<XsrSemanticId> States => OfKind(SidecarRegistrationKind.State);
+
+    public IEnumerable<XsrSemanticId> Events => OfKind(SidecarRegistrationKind.Event);
+
+    public IEnumerable<XsrSemanticId> UiModules => OfKind(SidecarRegistrationKind.UiModule);
+
+    public IEnumerable<XsrSemanticId> Resources => OfKind(SidecarRegistrationKind.Resource);
+
+    /// <summary>
+    /// Resolves one declared contract to its session-local entry, or null when the semantic was
+    /// not registered under that kind — the capability boundary for the data plane.
+    /// </summary>
+    public SidecarRegistrationEntry? TryResolve(SidecarRegistrationKind kind, XsrSemanticId semantic) =>
+        _byContract.TryGetValue((kind, semantic), out SidecarRegistrationEntry? entry) ? entry : null;
+
+    private IEnumerable<XsrSemanticId> OfKind(SidecarRegistrationKind kind) =>
+        Entries.Where(entry => entry.Kind == kind).Select(entry => entry.SemanticId);
+}
+
+/// <summary>
+/// The per-session state mirror: one revisioned store whose cells correspond to the states the
+/// sidecar registered, typed by the declared codec (codec 0 = UTF-8 string). Cells start
+/// unavailable; the pre-activation state snapshot fills them, and the mirror is coherent only
+/// after that snapshot commits — before READY, before activation. The store is the renderer's
+/// only view of sidecar state.
+/// </summary>
+public sealed class SidecarStateMirror
+{
+    public SidecarStateMirror(string pluginName, XsrStateStore store)
+    {
+        PluginName = pluginName;
+        Store = store;
+    }
+
+    public string PluginName { get; }
+
+    public XsrStateStore Store { get; }
+
+    public XsrStateId? TryResolve(XsrSemanticId semantic) =>
+        Store.TryResolve(semantic, out XsrStateId stateId) ? stateId : null;
+
+    /// <summary>
+    /// Creates the mirror for one session's declared states, with each cell typed by its
+    /// declared codec.
+    /// </summary>
+    public static SidecarStateMirror Create(
+        string pluginName,
+        IReadOnlyList<SidecarRegistrationEntry> stateEntries)
+    {
+        XsrStateStoreBuilder builder = new();
+        foreach (SidecarRegistrationEntry entry in stateEntries)
+        {
+            switch (entry.CodecId)
+            {
+                case SidecarValueCodecs.Utf8String:
+                    builder.Cell<string>(entry.SemanticId, pluginName);
+                    break;
+                case SidecarValueCodecs.Bool:
+                    builder.Cell<bool>(entry.SemanticId, pluginName);
+                    break;
+                case SidecarValueCodecs.I32:
+                    builder.Cell<int>(entry.SemanticId, pluginName);
+                    break;
+                case SidecarValueCodecs.I64:
+                    builder.Cell<long>(entry.SemanticId, pluginName);
+                    break;
+                case SidecarValueCodecs.F64:
+                    builder.Cell<double>(entry.SemanticId, pluginName);
+                    break;
+                case SidecarValueCodecs.Bytes:
+                case SidecarValueCodecs.GeneratedDto:
+                    builder.Cell<byte[]>(entry.SemanticId, pluginName);
+                    break;
+                default:
+                    throw new SidecarProtocolException(
+                        $"The state '{entry.SemanticId}' declares unknown codec {entry.CodecId}.");
+            }
+        }
+
+        return new SidecarStateMirror(pluginName, builder.Build());
+    }
+
+    /// <summary>
+    /// Publishes one raw codec-encoded wire value into the declared typed cell.
+    /// </summary>
+    public long PublishFromWire(SidecarRegistrationEntry entry, byte[] encodedValue)
+    {
+        XsrStateId stateId = TryResolve(entry.SemanticId)
+            ?? throw new SidecarProtocolException(
+                $"The state '{entry.SemanticId}' is not part of this mirror.");
+        object value = SidecarValueCodecs.Decode(entry.CodecId, encodedValue);
+        return entry.CodecId switch
+        {
+            SidecarValueCodecs.Utf8String => Store.Publish(stateId, (string)value),
+            SidecarValueCodecs.Bool => Store.Publish(stateId, (bool)value),
+            SidecarValueCodecs.I32 => Store.Publish(stateId, (int)value),
+            SidecarValueCodecs.I64 => Store.Publish(stateId, (long)value),
+            SidecarValueCodecs.F64 => Store.Publish(stateId, (double)value),
+            SidecarValueCodecs.Bytes or SidecarValueCodecs.GeneratedDto => Store.Publish(stateId, (byte[])value),
+            _ => throw new SidecarProtocolException(
+                $"The state '{entry.SemanticId}' declares unknown codec {entry.CodecId}."),
+        };
+    }
+}
+
+/// <summary>
+/// Reports session lifecycle transitions and failures. Observer failures never change the
+/// session.
+/// </summary>
+public interface ISidecarSessionObserver
+{
+    void OnStateChanged(SidecarSessionState state);
+}

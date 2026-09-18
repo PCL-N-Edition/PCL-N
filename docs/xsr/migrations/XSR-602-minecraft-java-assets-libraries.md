@@ -25,5 +25,5 @@ classpath ordering is a separate deterministic policy.
 
 The services executable tests cover modern and legacy Java requirements, candidate filtering,
 asset object/resource/virtual layouts, hash URLs, OS rules, native classifiers, manifest paths,
-coordinate safety, and classpath filtering. Everything stays inside `PCL.Services`; the Runtime
+coordinate safety, and classpath filtering. Everything stays inside `Nexa.Services`; the Runtime
 router and UI are not dependencies of this unit.
