@@ -57,6 +57,7 @@ internal static class LaunchPageState
         AccountFormState.DeclareState(builder);
         DesktopFeedbackState.DeclareState(builder);
         TaskBubbleState.DeclareState(builder);
+        Nexa.UI.Next.XsrUiShellWindowState.Declare(builder);
         builder.Cell<string>(ProfileNameKey, OwnerName);
         builder.Cell<string>(ProfileKindKey, OwnerName);
         builder.Cell<bool>(AccountPickerKey, OwnerName);

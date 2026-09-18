@@ -200,33 +200,6 @@ This checked-in map reserves final positions. `reserved` means no value contract
 | global.storage.705f42b2b46f | global / storage / Portable | Portable Mode | Setting | reserved | False |
 | global.storage.9c7477008a7a | global / storage / Portable | 搬家检查 | Setting | reserved | False |
 | global.storage.b215d366b6b7 | global / storage / Portable | 路径依赖检查 | Setting | reserved | False |
-| global.cloud.bd3923660d6a | global / cloud / 状态 | 状态 | Group | — | False |
-| global.cloud.0438406e5812 | global / cloud / 状态 | Cloud Account | Setting | reserved | False |
-| global.cloud.32b81e11efbe | global / cloud / 状态 | Plan | Setting | reserved | False |
-| global.cloud.455f368c0759 | global / cloud / 状态 | 已用空间 | State | — | False |
-| global.cloud.150ee96899a4 | global / cloud / 状态 | 可用空间 | State | — | False |
-| global.cloud.bb12f0670058 | global / cloud / 同步 | 同步 | Group | — | False |
-| global.cloud.cbebdcd61fc4 | global / cloud / 同步 | Minecraft Options | Setting | reserved | False |
-| global.cloud.177035a5c168 | global / cloud / 同步 | Server List | State | — | False |
-| global.cloud.16934694fe92 | global / cloud / 同步 | Resource Packs | Setting | reserved | False |
-| global.cloud.5ac257ca4f94 | global / cloud / 同步 | Command History | State | — | False |
-| global.cloud.01e78fe075bd | global / cloud / 同步 | Creative Hotbars | Setting | reserved | False |
-| global.cloud.372bc62fb1ab | global / cloud / 同步 | Screenshots | Setting | reserved | False |
-| global.cloud.be3d9d807ce7 | global / cloud / 同步 | Instance Metadata | State | — | False |
-| global.cloud.ae94fe88e32c | global / cloud / 备份 | 备份 | Group | — | False |
-| global.cloud.e60099dd27c9 | global / cloud / 备份 | 自动备份 | Setting | reserved | False |
-| global.cloud.1f804e65c602 | global / cloud / 备份 | Worlds | Setting | reserved | False |
-| global.cloud.887fa2440a8f | global / cloud / 备份 | Config | Setting | reserved | False |
-| global.cloud.42ec5bd8a297 | global / cloud / 备份 | Instance Metadata | State | — | False |
-| global.cloud.d9a3a36d4d5a | global / cloud / 备份 | Thin Backup | Setting | reserved | False |
-| global.cloud.1bafddec543c | global / cloud / 同步冲突 | 同步冲突 | Group | — | False |
-| global.cloud.097b210b540e | global / cloud / 同步冲突 | 自动解决 | Setting | reserved | False |
-| global.cloud.b6b7f3b6994b | global / cloud / 同步冲突 | 使用较新版本 | Choice | — | False |
-| global.cloud.2c1b292b9c5f | global / cloud / 同步冲突 | 每次询问 | Choice | — | False |
-| global.cloud.e66411df5c6e | global / cloud / 设备 | 设备 | Group | — | False |
-| global.cloud.53f9400bfe99 | global / cloud / 设备 | 当前设备 | Setting | reserved | False |
-| global.cloud.9404081186db | global / cloud / 设备 | 已连接设备 | Setting | reserved | False |
-| global.cloud.1b4b393aab43 | global / cloud / 设备 | 设备同步状态 | State | — | False |
 | global.privacy.38d57b46395a | global / privacy / 数据与隐私 | 数据与隐私 | Group | — | False |
 | global.privacy.6da846c36100 | global / privacy / 数据与隐私 | 使用体验计划 | Setting | diagnostics.telemetry | False |
 | global.privacy.09cef506324c | global / privacy / 数据与隐私 | Crash Report | Setting | reserved | False |
@@ -530,31 +503,24 @@ This checked-in map reserves final positions. `reserved` means no value contract
 | instance-settings.security.ae662ab0ef1f | instance-settings / security / Content Provenance | SHA-256 | State | — | False |
 | instance-settings.security.42f5355c7bce | instance-settings / security / Content Provenance | Modified Status | State | — | False |
 | instance-settings.security.b585c2e079b2 | instance-settings / security / Content Provenance | Unknown Content Policy | Setting | reserved | False |
-| instance-settings.sync.73a7664048c2 | instance-settings / sync / N Cloud Sync | N Cloud Sync | Group | — | False |
-| instance-settings.sync.26f7c871bf54 | instance-settings / sync / N Cloud Sync | Game Options | Setting | reserved | False |
-| instance-settings.sync.21f32f34ffee | instance-settings / sync / N Cloud Sync | Servers | Setting | reserved | False |
-| instance-settings.sync.71e5f147cb94 | instance-settings / sync / N Cloud Sync | Resource Packs | Setting | reserved | False |
-| instance-settings.sync.f44ee3460522 | instance-settings / sync / N Cloud Sync | Command History | State | — | False |
-| instance-settings.sync.b92bd074ee45 | instance-settings / sync / N Cloud Sync | Hotbars | Setting | reserved | False |
-| instance-settings.sync.2a658c26f785 | instance-settings / sync / N Cloud Sync | Metadata | State | — | False |
-| instance-settings.sync.b86078ade8ac | instance-settings / sync / Backup | Backup | Group | — | False |
-| instance-settings.sync.15876104b29b | instance-settings / sync / Backup | Worlds | Setting | reserved | False |
-| instance-settings.sync.336c2dcf7947 | instance-settings / sync / Backup | Config | Setting | reserved | False |
-| instance-settings.sync.bbf555e9930a | instance-settings / sync / Backup | Metadata | State | — | False |
-| instance-settings.sync.ccf26ac2deb3 | instance-settings / sync / Backup | Screenshots | Setting | reserved | False |
-| instance-settings.sync.2759a030c0b7 | instance-settings / sync / Thin Backup | Thin Backup | Group | — | False |
-| instance-settings.sync.bfdfe9808880 | instance-settings / sync / Thin Backup | Manifest | State | — | False |
-| instance-settings.sync.c8f63f87f291 | instance-settings / sync / Thin Backup | Lockfile | State | — | False |
-| instance-settings.sync.914c3ea7cbf1 | instance-settings / sync / Thin Backup | Non-reproducible Data | Setting | reserved | False |
-| instance-settings.sync.18c748d31124 | instance-settings / sync / Offline Readiness | Offline Readiness | Group | — | False |
-| instance-settings.sync.b85acee235c1 | instance-settings / sync / Offline Readiness | Account | Setting | reserved | False |
-| instance-settings.sync.cee29c346407 | instance-settings / sync / Offline Readiness | Java | Setting | reserved | False |
-| instance-settings.sync.129a08c3a04a | instance-settings / sync / Offline Readiness | Minecraft Client | Setting | reserved | False |
-| instance-settings.sync.b9a4c8bd47bf | instance-settings / sync / Offline Readiness | Libraries | Setting | reserved | False |
-| instance-settings.sync.4ba5c5689c79 | instance-settings / sync / Offline Readiness | Assets | Setting | reserved | False |
-| instance-settings.sync.3134ce164b15 | instance-settings / sync / Offline Readiness | Loader | Setting | reserved | False |
-| instance-settings.sync.cafc197c813b | instance-settings / sync / Offline Readiness | Mods | Setting | reserved | False |
-| instance-settings.sync.bd57ef32387c | instance-settings / sync / Offline Readiness | Prepare Offline | Action | — | False |
+| instance-settings.sync.b86078ade8ac | instance-settings / backup / Backup | Backup | Group | — | False |
+| instance-settings.sync.15876104b29b | instance-settings / backup / Backup | Worlds | Setting | reserved | False |
+| instance-settings.sync.336c2dcf7947 | instance-settings / backup / Backup | Config | Setting | reserved | False |
+| instance-settings.sync.bbf555e9930a | instance-settings / backup / Backup | Metadata | State | — | False |
+| instance-settings.sync.ccf26ac2deb3 | instance-settings / backup / Backup | Screenshots | Setting | reserved | False |
+| instance-settings.sync.2759a030c0b7 | instance-settings / backup / Thin Backup | Thin Backup | Group | — | False |
+| instance-settings.sync.bfdfe9808880 | instance-settings / backup / Thin Backup | Manifest | State | — | False |
+| instance-settings.sync.c8f63f87f291 | instance-settings / backup / Thin Backup | Lockfile | State | — | False |
+| instance-settings.sync.914c3ea7cbf1 | instance-settings / backup / Thin Backup | Non-reproducible Data | Setting | reserved | False |
+| instance-settings.sync.18c748d31124 | instance-settings / backup / Offline Readiness | Offline Readiness | Group | — | False |
+| instance-settings.sync.b85acee235c1 | instance-settings / backup / Offline Readiness | Account | Setting | reserved | False |
+| instance-settings.sync.cee29c346407 | instance-settings / backup / Offline Readiness | Java | Setting | reserved | False |
+| instance-settings.sync.129a08c3a04a | instance-settings / backup / Offline Readiness | Minecraft Client | Setting | reserved | False |
+| instance-settings.sync.b9a4c8bd47bf | instance-settings / backup / Offline Readiness | Libraries | Setting | reserved | False |
+| instance-settings.sync.4ba5c5689c79 | instance-settings / backup / Offline Readiness | Assets | Setting | reserved | False |
+| instance-settings.sync.3134ce164b15 | instance-settings / backup / Offline Readiness | Loader | Setting | reserved | False |
+| instance-settings.sync.cafc197c813b | instance-settings / backup / Offline Readiness | Mods | Setting | reserved | False |
+| instance-settings.sync.bd57ef32387c | instance-settings / backup / Offline Readiness | Prepare Offline | Action | — | False |
 | instance-settings.advanced.5f06019abe3e | instance-settings / advanced / Ignore Compatibility | Ignore Compatibility | Setting | reserved | False |
 | instance-settings.advanced.787b274645ff | instance-settings / advanced / Disable Asset Verification | Disable Asset Verification | Setting | reserved | False |
 | instance-settings.advanced.e8914ed0d7e2 | instance-settings / advanced / Other Compatibility Overrides | Other Compatibility Overrides | Setting | reserved | False |

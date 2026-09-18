@@ -15,3 +15,12 @@ The main window must be opaque. Windows retains native resize and DWM capabiliti
 - Renderer scratch lists and backend reconciliation sets are reused without exposing mutable scene storage. In a warmed 501-node, 100-paint-frame comparison, managed allocation fell from 1,269,454 to 637,080 bytes/frame. This is allocation traffic, not process working-set measurement. Clean render remains zero allocation.
 - Windows uses an opaque background equal to the shell palette. UI.Next owns the 8 DIP inset; the Skia/Avalonia presentation clip follows its 12 DIP inner radius. This repository has no dedicated SDF shader backend.
 - macOS uses native title-bar hit testing, excludes interactive scene nodes, measures all three standard buttons, and publishes safe-area/fullscreen facts. x64 Objective-C struct returns use objc_msgSend_stret; arm64 uses objc_msgSend. Native macOS interaction still requires on-device validation.
+
+## First-layout regression
+
+The real PXML shell omits default-only XsrUiElement components, unlike the programmatic test shell. FinishComposition now establishes root/title-bar layout components before any host metric callback. The product PXML regression exercises Windows inset, macOS safe area, fullscreen and restoration. A Windows GUI run opened a responsive NexaCL window and closed with exit 0 using an isolated data directory.
+
+
+## Edge-to-edge correction
+
+After the user reported a white outer rim, the visible content inset was removed. The 8 DIP resize hit zones remain overlaid on edge-to-edge content. An opaque two-region background matches title-bar and body colors behind the rounded clip, preventing white corner bleed without a transparent/layered window. The generic inset state remains supported and regression-tested but the product host publishes zero. This supersedes the earlier visible-inset presentation requirement.

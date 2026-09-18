@@ -6,6 +6,24 @@ namespace Nexa.Desktop.Tests;
 
 internal static partial class Program
 {
+    private static void ProductPxmlShellAcceptsNativeWindowMetrics()
+    {
+        using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));
+        var shell = fixture.Shell;
+        shell.PublishWindowMetrics(0, false, 8);
+        var scene = shell.Render(new(1000, 650));
+        AssertEqual(8d, shell.Tree.GetComponent<XsrUiElement>(shell.Root)!.Padding.Left);
+        AssertEqual(8d, scene.Nodes.Single(node => node.Entity == shell.TitleBar).Rect.X);
+        shell.PublishWindowMetrics(84, false, 0);
+        AssertEqual(84d, shell.Tree.GetComponent<XsrUiElement>(shell.TitleBar)!.Padding.Left);
+        shell.PublishWindowMetrics(84, true, 8);
+        AssertEqual(0d, shell.Tree.GetComponent<XsrUiElement>(shell.Root)!.Padding.Left);
+        AssertEqual(0d, shell.Tree.GetComponent<XsrUiElement>(shell.TitleBar)!.Padding.Left);
+        shell.Render(new(1200, 800));
+        shell.PublishWindowMetrics(0, false, 8);
+        shell.Render(new(850, 500));
+    }
+
     private static void SettingsPageUsesFinalNavigationAndCompactLayout()
     {
         using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));

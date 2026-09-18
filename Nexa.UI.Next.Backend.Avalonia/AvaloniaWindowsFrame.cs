@@ -15,6 +15,8 @@ internal static partial class AvaloniaWindowsFrame
             || window.TryGetPlatformHandle() is not { HandleDescriptor: "HWND" } handle
             || handle.Handle == 0) return false;
 
+        uint corner = 2; // DWMWCP_ROUND; DWM removes rounding in maximized/fullscreen states.
+        _ = DwmSetWindowAttribute(handle.Handle, 33, ref corner, sizeof(uint));
         uint color = NoBorderColor;
         return DwmSetWindowAttribute(handle.Handle, BorderColorAttribute, ref color, sizeof(uint)) >= 0;
     }

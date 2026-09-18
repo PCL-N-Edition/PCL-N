@@ -29,6 +29,7 @@ internal static partial class Program
         ("fixed leaf produces exact rect", Sync(FixedLeafProducesExactRect)),
         ("vertical stack flows top down", Sync(VerticalStackFlowsTopDown)),
         ("horizontal stack flows left right", Sync(HorizontalStackFlowsLeftRight)),
+        ("native window safe area is state backed", Sync(NativeWindowSafeAreaIsStateBacked)),
         ("padding insets and margin offsets", Sync(PaddingInsetsAndMarginOffsets)),
         ("cross alignment positions children", Sync(CrossAxisAlignmentPositionsChildren)),
         ("weighted stack distributes star slots and honors limits", Sync(WeightedStackDistributesStarSlotsAndHonorsLimits)),

@@ -270,6 +270,7 @@ public sealed class XsrUiShell
         XsrUiStateBridge? stateBridge = null)
     {
         ArgumentNullException.ThrowIfNull(state);
+        _windowStateStore = state;
         options ??= new XsrUiShellOptions();
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Title);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Version);
@@ -410,6 +411,7 @@ public sealed class XsrUiShell
         XsrUiStateBridge? stateBridge = null)
     {
         ArgumentNullException.ThrowIfNull(state);
+        _windowStateStore = state;
         ArgumentNullException.ThrowIfNull(template);
         options ??= new XsrUiShellOptions();
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Title);
@@ -471,6 +473,34 @@ public sealed class XsrUiShell
         SelectedNavigationId = initial;
         Stage = new XsrUiStage(Tree, state, Root, Content, new ShellIntentSink(this), stateBridge);
         FinishComposition();
+    }
+
+    private readonly XsrStateStore _windowStateStore;
+    private double _trafficLightPadding, _windowContentInset;
+    public void PublishWindowMetrics(double trafficLightPadding, bool fullscreen, double contentInset = 0)
+    {
+        double padding = fullscreen ? 0 : Math.Clamp(trafficLightPadding, 0, 300);
+        if (_windowStateStore.TryResolve(XsrUiShellWindowState.TrafficLightPadding, out var safeArea)
+            && _windowStateStore.Read<double>(safeArea).Value != padding)
+            _windowStateStore.Publish(safeArea, padding);
+        if (_windowStateStore.TryResolve(XsrUiShellWindowState.Fullscreen, out var full)
+            && _windowStateStore.Read<bool>(full).Value != fullscreen)
+            _windowStateStore.Publish(full, fullscreen);
+        double inset = fullscreen ? 0 : Math.Clamp(contentInset, 0, 32);
+        if (_windowStateStore.TryResolve(XsrUiShellWindowState.ContentInset, out var insetState)
+            && _windowStateStore.Read<double>(insetState).Value != inset)
+            _windowStateStore.Publish(insetState, inset);
+        if (_windowContentInset != inset)
+        {
+            _windowContentInset = inset;
+            Tree.GetComponent<XsrUiElement>(Root)!.Padding = XsrUiThickness.Uniform(inset);
+            Tree.MarkDirty(Root, XsrUiDirtyKinds.Layout);
+        }
+        if (_trafficLightPadding == padding) return;
+        _trafficLightPadding = padding;
+        var layout = Tree.GetComponent<XsrUiElement>(TitleBar)!;
+        layout.Padding = new(padding, layout.Padding.Top, layout.Padding.Right, layout.Padding.Bottom);
+        Tree.MarkDirty(TitleBar, XsrUiDirtyKinds.Layout);
     }
 
     public event EventHandler<XsrUiShellNavigationChangedEventArgs>? NavigationChanged;
@@ -662,6 +692,10 @@ public sealed class XsrUiShell
     /// </summary>
     private void FinishComposition()
     {
+        // PXML omits default-only layout components. Native window metrics need these
+        // layouts in both the compiled-template and programmatic construction paths.
+        if (Tree.GetComponent<XsrUiElement>(Root) is null) Tree.SetComponent(Root, new XsrUiElement());
+        if (Tree.GetComponent<XsrUiElement>(TitleBar) is null) Tree.SetComponent(TitleBar, new XsrUiElement());
         _navigationToggle = CreateNavigationToggle();
         ApplyNavigationItemMargins();
         ApplyPalette();

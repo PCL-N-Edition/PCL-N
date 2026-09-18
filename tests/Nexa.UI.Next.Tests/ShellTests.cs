@@ -5,6 +5,24 @@ namespace Nexa.UI.Next.Tests;
 
 internal static partial class Program
 {
+    private static void NativeWindowSafeAreaIsStateBacked()
+    {
+        var builder = new Nexa.Xsr.State.XsrStateStoreBuilder();
+        XsrUiShellWindowState.Declare(builder);
+        var store = builder.Build();
+        var shell = new XsrUiShell(store);
+        shell.PublishWindowMetrics(86, false, 8);
+        AssertEqual(8d, shell.Tree.GetComponent<XsrUiElement>(shell.Root)!.Padding.Left);
+        AssertEqual(86d, store.Read<double>(store.Resolve(XsrUiShellWindowState.TrafficLightPadding)).Value);
+        AssertEqual(86d, shell.Tree.GetComponent<XsrUiElement>(shell.TitleBar)!.Padding.Left);
+        shell.PublishWindowMetrics(86, true, 8);
+        AssertEqual(0d, shell.Tree.GetComponent<XsrUiElement>(shell.Root)!.Padding.Left);
+        AssertEqual(0d, shell.Tree.GetComponent<XsrUiElement>(shell.TitleBar)!.Padding.Left);
+        AssertTrue(store.Read<bool>(store.Resolve(XsrUiShellWindowState.Fullscreen)).Value);
+        shell.PublishWindowMetrics(0, false);
+        AssertFalse(store.Read<bool>(store.Resolve(XsrUiShellWindowState.Fullscreen)).Value);
+    }
+
     private static void ExperimentalShellPreservesSemanticChrome()
     {
         XsrStateStore store = new XsrStateStoreBuilder().Build();

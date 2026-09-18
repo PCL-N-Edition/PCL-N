@@ -26,6 +26,8 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     private readonly object _commitGate = new();
     private readonly Dictionary<XsrUiEntityId, AvaloniaUiSceneNodeControl> _controls = [];
     private readonly List<AvaloniaUiSceneNodeControl> _outgoingControls = [];
+    private readonly HashSet<XsrUiEntityId> _currentEntities = [];
+    private readonly List<XsrUiEntityId> _retiredEntities = [];
     private readonly Dictionary<XsrUiEntityId, double> _capsuleTargets = [];
     private readonly Dictionary<XsrUiEntityId, double> _progressTargets = [];
     private readonly Dictionary<XsrUiEntityId, long> _pagerRevisions = [];
@@ -326,14 +328,14 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     private void ApplyScene(XsrUiScene scene)
     {
         foreach (AvaloniaUiSceneNodeControl control in _outgoingControls) Children.Remove(control);
-        HashSet<XsrUiEntityId> current = scene.Nodes.Select(node => node.Entity).ToHashSet();
-        foreach ((XsrUiEntityId entity, AvaloniaUiSceneNodeControl control) in _controls.ToArray())
+        _currentEntities.Clear();
+        foreach (var node in scene.Nodes) _currentEntities.Add(node.Entity);
+        _retiredEntities.Clear();
+        foreach (var entity in _controls.Keys)
+            if (!_currentEntities.Contains(entity)) _retiredEntities.Add(entity);
+        foreach (var entity in _retiredEntities)
         {
-            if (current.Contains(entity))
-            {
-                continue;
-            }
-
+            var control = _controls[entity];
             Children.Remove(control);
             control.ReleasePresentation();
             _controls.Remove(entity);
@@ -654,6 +656,9 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
 
         CommitScene();
     }
+
+    internal bool IsNativeTitleBarPoint(XsrUiPoint point) => IsTitleBarPoint(point)
+        && !_scene!.Nodes.Any(node => node.Rect.Contains(point) && node.Role is XsrUiSemanticRole.Button or XsrUiSemanticRole.TextInput);
 
     private bool IsTitleBarPoint(XsrUiPoint point) => _scene is not null
         && _scene.Nodes.Any(node => node.Role == XsrUiSemanticRole.TitleBar && node.Rect.Contains(point));
