@@ -79,20 +79,28 @@ public sealed class FoundationHost
         // The full environment registry: machine facts plus the display/storage/filesystem/
         // power and java/minecraft.files namespaces. Instance-scoped providers bind to the
         // active Minecraft root so storage and file-integrity facts answer for THAT path.
-        CapabilityRegistry capabilityRegistry = MachineHardwareCatalog.MergeInto(
-            MachineInstanceCatalog.MergeInto(
-                MachineEnvironmentCatalog.MergeInto(MachineCapabilityCatalog.CreateRegistry())));
+        CapabilityRegistry capabilityRegistry = new CapabilityRegistry(
+        [
+            .. MachineDerivedRules.Definitions(),
+            .. MachineHardwareCatalog.MergeInto(
+                MachineInstanceCatalog.MergeInto(
+                    MachineEnvironmentCatalog.MergeInto(MachineCapabilityCatalog.CreateRegistry()))).Definitions,
+        ]);
         List<IMachineCapabilityProvider> capabilityProviders = [.. MachineCapabilityCatalog.CreateProviders(),
             new DisplayCapabilityProvider(),
             new StorageCapabilityProvider(minecraftRootDirectory),
             new FilesystemCapabilityProvider(minecraftRootDirectory),
-            new JavaEnvironmentCapabilityProvider(),
+            new JavaEnvironmentCapabilityProvider(javaLocator: null, minecraftRootDirectory),
             new GpuCapabilityProvider(),
             new ThermalCapabilityProvider(),
             new HardwarePowerCapabilityProvider(),
-            new MinecraftEnvironmentCapabilityProvider(minecraftRootDirectory)];
+            new MinecraftEnvironmentCapabilityProvider(minecraftRootDirectory),
+            new LoaderCapabilityProvider(minecraftRootDirectory),
+            new AccountCapabilityProvider(accounts)];
 
-        MachineCapabilities = new MachineCapabilityBroker(capabilityRegistry, capabilityProviders, StateStore);
+        MachineCapabilities = new MachineCapabilityBroker(
+            capabilityRegistry, capabilityProviders, StateStore,
+            derivations: MachineDerivedRules.Defaults());
         Tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _services = Array.AsReadOnly<object>([Logging, Downloads, Accounts, Telemetry, Settings, SettingsPolicy, Tasks, MachineCapabilities]);
     }

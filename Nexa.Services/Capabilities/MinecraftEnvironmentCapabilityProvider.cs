@@ -11,14 +11,24 @@ namespace Nexa.Services.Capabilities;
 /// resolved plan report the facts as unavailable instead of inventing a count.
 /// </summary>
 /// <summary>java.* facts from the production locator (ownership: nexa.java).</summary>
-public sealed class JavaEnvironmentCapabilityProvider(IJavaRuntimeLocator? javaLocator = null) : IMachineCapabilityProvider
+public sealed class JavaEnvironmentCapabilityProvider(
+    IJavaRuntimeLocator? javaLocator = null,
+    string? minecraftRootDirectory = null) : IMachineCapabilityProvider
 {
     private readonly IJavaRuntimeLocator _javaLocator = javaLocator ?? new LocalJavaRuntimeLocator();
+    private readonly string? _minecraftRootDirectory = minecraftRootDirectory;
 
     public string Id => MachineInstanceCatalog.JavaProviderId;
 
-    public ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, CancellationToken cancellationToken) =>
-        MachineInstanceCatalog.CollectJavaAsync(_javaLocator, timestamp, cancellationToken);
+    public async ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        List<ICapability> facts = [.. await MachineInstanceCatalog.CollectJavaAsync(
+            _javaLocator, timestamp, cancellationToken).ConfigureAwait(false)];
+        facts.AddRange(await JavaCompatibilityProjection.CollectAsync(
+            _javaLocator, _minecraftRootDirectory, timestamp, cancellationToken).ConfigureAwait(false));
+        return Array.AsReadOnly<ICapability>([.. facts]);
+    }
 }
 
 /// <summary>minecraft.files.* facts from the shared verifier (ownership: nexa.minecraft).</summary>
@@ -31,6 +41,8 @@ public sealed class MinecraftEnvironmentCapabilityProvider(
     string? minecraftRootDirectory = null,
     Func<IReadOnlyList<MinecraftExpectedFile>>? expectedFiles = null) : IMachineCapabilityProvider
 {
+    private readonly string? _minecraftRootDirectory = minecraftRootDirectory;
+
     private readonly Func<IReadOnlyList<MinecraftExpectedFile>> _expectedFiles = expectedFiles ?? CreateDefaultPlan(minecraftRootDirectory);
 
     public string Id => MachineInstanceCatalog.MinecraftProviderId;
@@ -38,20 +50,60 @@ public sealed class MinecraftEnvironmentCapabilityProvider(
     public async ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        List<ICapability> facts = [];
         IReadOnlyList<MinecraftExpectedFile> expected = _expectedFiles();
         if (expected.Count > 0)
         {
-            return await MachineInstanceCatalog.CollectMinecraftFilesAsync(
-                expected, timestamp, cancellationToken).ConfigureAwait(false);
+            facts.AddRange(await MachineInstanceCatalog.CollectMinecraftFilesAsync(
+                expected, timestamp, cancellationToken).ConfigureAwait(false));
+        }
+        else
+        {
+            facts.Add(MachineInstanceCatalog.MinecraftFilesRequired.Unavailable(
+                CapabilityAvailability.TemporarilyUnavailable, timestamp, "尚未解析实例文件计划"));
+            facts.Add(MachineInstanceCatalog.MinecraftFilesMissing.Unavailable(
+                CapabilityAvailability.TemporarilyUnavailable, timestamp, "尚未解析实例文件计划"));
         }
 
-        return Array.AsReadOnly(new ICapability[]
+        facts.AddRange(await CollectSettingsAsync(timestamp, cancellationToken).ConfigureAwait(false));
+        return Array.AsReadOnly<ICapability>([.. facts]);
+    }
+
+    private async ValueTask<IReadOnlyList<ICapability>> CollectSettingsAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
+    {
+        const string source = "options.txt";
+        if (string.IsNullOrWhiteSpace(_minecraftRootDirectory)
+            || await MinecraftPrimaryInstanceScope.ResolveAsync(_minecraftRootDirectory, cancellationToken).ConfigureAwait(false) is not { } primary
+            || primary.Options is not { Readable: true } options)
         {
-            MachineInstanceCatalog.MinecraftFilesRequired.Unavailable(
-                CapabilityAvailability.TemporarilyUnavailable, timestamp, "尚未解析实例文件计划"),
-            MachineInstanceCatalog.MinecraftFilesMissing.Unavailable(
-                CapabilityAvailability.TemporarilyUnavailable, timestamp, "尚未解析实例文件计划"),
-        });
+            return
+            [
+                MachineInstanceCatalog.MinecraftSettingsReadable.Observe(false, timestamp, source),
+                MachineInstanceCatalog.MinecraftSettingsRenderDistance.Unavailable(
+                    CapabilityAvailability.DependencyMissing, timestamp, "options.txt 不存在或不可读"),
+                MachineInstanceCatalog.MinecraftSettingsSimulationDistance.Unavailable(
+                    CapabilityAvailability.DependencyMissing, timestamp, "options.txt 不存在或不可读"),
+                MachineInstanceCatalog.MinecraftSettingsMipmapLevels.Unavailable(
+                    CapabilityAvailability.DependencyMissing, timestamp, "options.txt 不存在或不可读"),
+                MachineInstanceCatalog.MinecraftSettingsGraphicsMode.Unavailable(
+                    CapabilityAvailability.DependencyMissing, timestamp, "options.txt 不存在或不可读"),
+                MachineInstanceCatalog.MinecraftSettingsFullscreen.Unavailable(
+                    CapabilityAvailability.DependencyMissing, timestamp, "options.txt 不存在或不可读"),
+                MachineInstanceCatalog.MinecraftSettingsResourcePacks.Unavailable(
+                    CapabilityAvailability.DependencyMissing, timestamp, "options.txt 不存在或不可读"),
+            ];
+        }
+
+        return
+        [
+            MachineInstanceCatalog.MinecraftSettingsReadable.Observe(true, timestamp, source),
+            MachineInstanceCatalog.MinecraftSettingsRenderDistance.Observe(options.RenderDistance, timestamp, source),
+            MachineInstanceCatalog.MinecraftSettingsSimulationDistance.Observe(options.SimulationDistance, timestamp, source),
+            MachineInstanceCatalog.MinecraftSettingsMipmapLevels.Observe(options.MipmapLevels, timestamp, source),
+            MachineInstanceCatalog.MinecraftSettingsGraphicsMode.Observe(options.GraphicsMode, timestamp, source),
+            MachineInstanceCatalog.MinecraftSettingsFullscreen.Observe(options.Fullscreen, timestamp, source),
+            MachineInstanceCatalog.MinecraftSettingsResourcePacks.Observe(options.ResourcePacks, timestamp, source),
+        ];
     }
 
     internal static Func<IReadOnlyList<MinecraftExpectedFile>> CreateDefaultPlan(string? minecraftRootDirectory)

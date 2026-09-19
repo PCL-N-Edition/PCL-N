@@ -33,6 +33,66 @@ public static class MachineInstanceCatalog
     public static readonly CapabilityDefinition<int> JavaRuntimeMajor = new("java.runtime.major", "首选 Java 主版本", "Java", JavaProviderId,
         CapabilityKind.Metric, CapabilityStability.Session);
 
+    // loader.* (§20) — projected from the primary instance manifest chain.
+    public const string LoaderProviderId = "nexa.loader";
+    public static readonly CapabilityDefinition<bool> LoaderPresent = new("loader.present", "存在模组加载器", "加载器", LoaderProviderId);
+    public static readonly CapabilityDefinition<string> LoaderType = new("loader.type", "加载器类型", "加载器", LoaderProviderId);
+    public static readonly CapabilityDefinition<string> LoaderVersion = new("loader.version", "加载器版本", "加载器", LoaderProviderId);
+    public static readonly CapabilityDefinition<bool> LoaderComplete = new("loader.complete", "继承链完整", "加载器", LoaderProviderId);
+    public static readonly CapabilityDefinition<bool> LoaderMinecraftCompatible = new("loader.minecraft.compatible", "与 Minecraft 兼容", "加载器", LoaderProviderId);
+    public static readonly CapabilityDefinition<bool> LoaderMetadataValid = new("loader.metadata.valid", "版本清单有效", "加载器", LoaderProviderId);
+    public static readonly CapabilityDefinition<bool> LoaderDerivedMissing = new("loader.derived.missing", "缺少加载器", "加载器", LoaderProviderId, CapabilityKind.Derived);
+    public static readonly CapabilityDefinition<bool> LoaderDerivedIncompatible = new("loader.derived.incompatible", "加载器不兼容", "加载器", LoaderProviderId, CapabilityKind.Derived);
+
+    // account.* (§29) — launch capability facts from the roster.
+    public const string AccountProviderId = "nexa.account";
+    public static readonly CapabilityDefinition<bool> AccountAvailable = new("account.available", "存在账户档案", "账户", AccountProviderId);
+    public static readonly CapabilityDefinition<string> AccountSelected = new("account.selected", "已选账户", "账户", AccountProviderId);
+    public static readonly CapabilityDefinition<string> AccountAuthenticationProvider = new("account.authentication.provider", "认证提供方", "账户", AccountProviderId);
+    public static readonly CapabilityDefinition<bool> AccountAuthenticationRequired = new("account.authentication.required", "需要在线认证", "账户", AccountProviderId);
+    public static readonly CapabilityDefinition<bool> AccountAuthenticationValid = new("account.authentication.valid", "认证有效", "账户", AccountProviderId, CapabilityKind.Fact, CapabilityStability.Dynamic);
+    public static readonly CapabilityDefinition<bool> AccountAuthenticationRefreshable = new("account.authentication.refreshable", "可刷新令牌", "账户", AccountProviderId);
+
+    // java compatibility (§19) — instance-scoped requirement facts.
+    public static readonly CapabilityDefinition<string> JavaRequirementMinimum = new("java.requirement.minimum", "Java 版本下限", "Java", JavaProviderId,
+        CapabilityKind.Constraint, CapabilityStability.Session);
+    public static readonly CapabilityDefinition<string> JavaRequirementRecommended = new("java.requirement.recommended", "推荐 Java 组件", "Java", JavaProviderId,
+        CapabilityKind.Constraint, CapabilityStability.Session);
+    public static readonly CapabilityDefinition<bool> JavaCompatibilityMinecraft = new("java.compatibility.minecraft", "运行时满足当前实例", "Java", JavaProviderId,
+        CapabilityKind.Fact, CapabilityStability.Session);
+    public static readonly CapabilityDefinition<bool> JavaCompatibilityHard = new("java.compatibility.hard", "满足硬性要求", "Java", JavaProviderId,
+        CapabilityKind.Fact, CapabilityStability.Session);
+
+    // minecraft.settings.* (§24) — options.txt facts for the primary instance.
+    public static readonly CapabilityDefinition<bool> MinecraftSettingsReadable = new("minecraft.settings.readable", "设置可读", "游戏设置", MinecraftProviderId);
+    public static readonly CapabilityDefinition<int> MinecraftSettingsRenderDistance = new("minecraft.settings.render_distance", "渲染距离", "游戏设置", MinecraftProviderId,
+        CapabilityKind.Metric, CapabilityStability.Dynamic);
+    public static readonly CapabilityDefinition<int> MinecraftSettingsSimulationDistance = new("minecraft.settings.simulation_distance", "模拟距离", "游戏设置", MinecraftProviderId,
+        CapabilityKind.Metric, CapabilityStability.Dynamic);
+    public static readonly CapabilityDefinition<int> MinecraftSettingsMipmapLevels = new("minecraft.settings.mipmap_levels", "多级纹理", "游戏设置", MinecraftProviderId,
+        CapabilityKind.Metric, CapabilityStability.Dynamic);
+    public static readonly CapabilityDefinition<string> MinecraftSettingsGraphicsMode = new("minecraft.settings.graphics_mode", "图像模式", "游戏设置", MinecraftProviderId);
+    public static readonly CapabilityDefinition<bool> MinecraftSettingsFullscreen = new("minecraft.settings.fullscreen", "全屏", "游戏设置", MinecraftProviderId);
+    public static readonly CapabilityDefinition<string> MinecraftSettingsResourcePacks = new("minecraft.settings.resource_packs", "资源包列表", "游戏设置", MinecraftProviderId);
+
+    public static readonly string[] LoaderScope =
+    [
+        LoaderPresent.Id, LoaderType.Id, LoaderVersion.Id, LoaderComplete.Id,
+        LoaderMinecraftCompatible.Id, LoaderMetadataValid.Id, LoaderDerivedMissing.Id, LoaderDerivedIncompatible.Id,
+    ];
+
+    public static readonly Dictionary<string, ICapabilityDefinition> LoaderDefinitions = new(StringComparer.Ordinal)
+    {
+        [LoaderPresent.Id] = LoaderPresent,
+        [LoaderType.Id] = LoaderType,
+        [LoaderVersion.Id] = LoaderVersion,
+        [LoaderComplete.Id] = LoaderComplete,
+        [LoaderMinecraftCompatible.Id] = LoaderMinecraftCompatible,
+        [LoaderMetadataValid.Id] = LoaderMetadataValid,
+        [LoaderDerivedMissing.Id] = LoaderDerivedMissing,
+        [LoaderDerivedIncompatible.Id] = LoaderDerivedIncompatible,
+    };
+
     // minecraft.files.*
     public static readonly CapabilityDefinition<int> MinecraftFilesRequired = new("minecraft.files.required", "实例必需文件数", "游戏文件", MinecraftProviderId,
         CapabilityKind.Metric, CapabilityStability.Dynamic);
@@ -42,6 +102,14 @@ public static class MachineInstanceCatalog
     public static CapabilityRegistry MergeInto(CapabilityRegistry registry) => new(
         [.. registry.Definitions,
             JavaInstalled, JavaRuntimeCount, JavaRuntimePath, JavaRuntimeVersion, JavaRuntimeMajor,
+            JavaRequirementMinimum, JavaRequirementRecommended, JavaCompatibilityMinecraft, JavaCompatibilityHard,
+            LoaderPresent, LoaderType, LoaderVersion, LoaderComplete, LoaderMinecraftCompatible, LoaderMetadataValid,
+            LoaderDerivedMissing, LoaderDerivedIncompatible,
+            AccountAvailable, AccountSelected, AccountAuthenticationProvider, AccountAuthenticationRequired,
+            AccountAuthenticationValid, AccountAuthenticationRefreshable,
+            MinecraftSettingsReadable, MinecraftSettingsRenderDistance, MinecraftSettingsSimulationDistance,
+            MinecraftSettingsMipmapLevels, MinecraftSettingsGraphicsMode, MinecraftSettingsFullscreen,
+            MinecraftSettingsResourcePacks,
             MinecraftFilesRequired, MinecraftFilesMissing]);
 
     /// <summary>Scope facts for one instance path (storage volume + writability).</summary>

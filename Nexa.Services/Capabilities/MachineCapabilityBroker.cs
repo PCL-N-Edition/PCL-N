@@ -30,10 +30,13 @@ public sealed class MachineCapabilityBroker
     private readonly TimeSpan _timeout;
     private Task<MachineCapabilitySnapshot>? _pending;
     private MachineCapabilitySnapshot? _snapshot;
+    private readonly System.Collections.ObjectModel.ReadOnlyCollection<ICapabilityDerivation> _derivations;
+
     public MachineCapabilityBroker(CapabilityRegistry registry, IEnumerable<IMachineCapabilityProvider> providers, XsrStateStore store,
-        TimeProvider? clock = null, TimeSpan? timeout = null)
+        TimeProvider? clock = null, TimeSpan? timeout = null, IEnumerable<ICapabilityDerivation>? derivations = null)
     {
         _registry = registry; _providers = Array.AsReadOnly(providers.ToArray()); _store = store;
+        _derivations = Array.AsReadOnly((derivations ?? []).ToArray());
         if (_providers.Select(provider => provider.Id).Distinct(StringComparer.Ordinal).Count() != _providers.Count)
             throw new ArgumentException("Duplicate machine provider.", nameof(providers));
         _revisionId = store.Resolve(MachineCapabilityStateContract.RevisionKey); _clock = clock ?? TimeProvider.System;
@@ -58,6 +61,23 @@ public sealed class MachineCapabilityBroker
         var values = _registry.Definitions.ToDictionary(definition => definition.Id,
             definition => definition.Unavailable(CapabilityAvailability.NotImplemented, timestamp, "尚未接入检测提供方"), StringComparer.Ordinal);
         foreach (var batch in batches) foreach (var value in batch) values[value.Id] = value;
+        // Derivation pass: cross-provider Derived capabilities compute AFTER collection, in
+        // registry dependency order, so a rule may read facts from any provider.
+        Dictionary<string, ICapabilityDerivation> rules = [];
+        foreach (ICapabilityDerivation derivation in _derivations)
+        {
+            if (!rules.TryAdd(derivation.Id, derivation))
+                throw new InvalidOperationException("Duplicate capability derivation: " + derivation.Id);
+        }
+
+        foreach (var definition in _registry.DependencyOrder)
+        {
+            if (rules.TryGetValue(definition.Id, out ICapabilityDerivation? derivation))
+            {
+                values[definition.Id] = derivation.Evaluate(values, timestamp);
+            }
+        }
+
         foreach (var definition in _registry.DependencyOrder)
             if (values[definition.Id].Availability == CapabilityAvailability.Available && definition.Requirements.Any(id => values[id].Availability != CapabilityAvailability.Available))
                 values[definition.Id] = definition.Unavailable(CapabilityAvailability.DependencyMissing, timestamp, "所需能力尚不可用");
