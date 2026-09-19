@@ -79,6 +79,7 @@ The user-requested constraints take precedence:
 - [migrations/XSR-723-task-center.md](migrations/XSR-723-task-center.md) — foundation task tracking with stage-monotonic plans, the bottom-right rising-fill bubble, and the task center page over typed cancel/dismiss routes
 - [migrations/XSR-724-install-execution.md](migrations/XSR-724-install-execution.md) — real installs: version documents first, shared download planners with bmclapi failover, file-accurate task progress, Fabric-family support and explicit processor-loader deferral
 - [migrations/XSR-725-capability-planning.md](migrations/XSR-725-capability-planning.md) — explicit instance-scoped capabilities, estimator provenance, and preflight/remediation layers
+- [migrations/XSR-726-jvm-host-observations.md](migrations/XSR-726-jvm-host-observations.md) — typed JVM host boundary, per-launch capabilities, and bounded runtime observations
 
 ## Decision process
 

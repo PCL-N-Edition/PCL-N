@@ -10,12 +10,17 @@ namespace Nexa.Services.Minecraft.Launch;
 /// </summary>
 public sealed class MinecraftLaunchExecutor
 {
-    private readonly MinecraftProcessService _processes;
+    private readonly IJvmHost _jvmHost;
     private readonly LogService? _log;
 
     public MinecraftLaunchExecutor(MinecraftProcessService processes, LogService? log = null)
+        : this(new JvmHostService(processes), log)
     {
-        _processes = processes ?? throw new ArgumentNullException(nameof(processes));
+    }
+
+    public MinecraftLaunchExecutor(IJvmHost jvmHost, LogService? log = null)
+    {
+        _jvmHost = jvmHost ?? throw new ArgumentNullException(nameof(jvmHost));
         _log = log;
     }
 
@@ -59,7 +64,7 @@ public sealed class MinecraftLaunchExecutor
                 .ConfigureAwait(false);
             operation?.Stage("start_process");
             stage?.Invoke("start_process");
-            MinecraftProcessSession session = await _processes.StartAsync(plan, instanceId, cancellationToken).ConfigureAwait(false);
+            MinecraftProcessSession session = await _jvmHost.StartAsync(plan, instanceId, cancellationToken).ConfigureAwait(false);
             operation?.Complete($"session={session.Snapshot.SessionId} pid={session.Snapshot.ProcessId}");
             return session;
         }

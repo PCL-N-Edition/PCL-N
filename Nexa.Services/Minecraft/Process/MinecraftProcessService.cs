@@ -24,5 +24,6 @@ public static class MinecraftProcessStateComposition
             SessionsKey,
             "Nexa.Services.Minecraft.Process",
             static snapshot => snapshot.SessionId);
+        JvmHostStateContract.DeclareState(builder);
     }
 }
