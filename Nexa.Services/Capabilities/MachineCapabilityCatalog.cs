@@ -30,8 +30,6 @@ public static class MachineCapabilityCatalog
     public static CapabilityRegistry CreateRegistry() => new([
         Os, OsVersion, NativeArch, ProcessArch, Runtime, DynamicCode, LogicalProcessors, Sse2, Avx2, Neon,
         PhysicalUsable, PhysicalAvailable, CommitTotal, CommitLimit, CommitAvailable,
-        new CapabilityDefinition<long>("gpu.memory.dedicated.available_budget", "显存可用预算", "待接入能力", "nexa.gpu", CapabilityKind.Metric, unit: "bytes"),
-        new CapabilityDefinition<double>("thermal.cpu.temperature", "CPU 温度", "待接入能力", "nexa.thermal", CapabilityKind.Metric, unit: "°C"),
     ]);
     public static IReadOnlyList<IMachineCapabilityProvider> CreateProviders() => Array.AsReadOnly<IMachineCapabilityProvider>([new RuntimeCapabilityProvider(), new MemoryCapabilityProvider()]);
 }

@@ -20,3 +20,31 @@ Machine facts, platform actions, environment facts, derived capabilities, estima
 Contract tests cover registry sealing/type/ownership/dependency invariants, immutable snapshots, cached/coalesced queries, failure isolation, cancellation, separate memory budgets and preflight certainty. Desktop tests cover Platform Features navigation and sealed-query rendering. Architecture tests forbid direct broker/provider references in Desktop; NativeAOT shell and trim smoke remain required.
 
 Windows memory evidence uses the documented [PERFORMANCE_INFORMATION](https://learn.microsoft.com/en-us/windows/win32/api/psapi/ns-psapi-performance_information) page counters and PageSize; the commit limit is not treated as a hard launch blocker. The built-in Linux provider reads named `/proc/meminfo` counters. macOS memory and device-specific providers explicitly remain NotImplemented; shared runtime facts work across all three platforms.
+
+## Probe wiring complete (2026-09-19)
+
+Every namespace the first slice deferred now answers through a real probe, split exactly on
+provider ownership (the broker rejects any fact whose definition belongs to another provider):
+
+- **display**: EnumDisplayMonitors + GetMonitorInfo + VREFRESH (Windows), CoreGraphics (macOS),
+  sysfs framebuffer (Linux). Internal-panel detection stays explicitly unavailable — QueryDisplayConfig is a later slice.
+- **storage/filesystem**: instance-path existence, writability, and volume free space scope to
+  the active Minecraft root; case sensitivity and symlink support come from platform semantics;
+  reflink/clone stays unavailable until per-filesystem interop exists (a wrong "yes" silently
+  duplicates data).
+- **power**: AC/battery through GetSystemPowerStatus (Windows) and /sys/class/power_supply
+  (Linux); the active scheme through PowerGetActiveScheme / cpufreq governor; macOS IOPS
+  remains NotImplemented.
+- **thermal**: CallNtPowerInformation(ThermalInformation) on Windows and hwmon on Linux.
+  Sentinel/absent values publish Unknown — never a fabricated temperature.
+- **gpu**: DXGI factory → EnumAdapters → IDXGIAdapter3::QueryVideoMemoryInfo with
+  available = budget − currentUsage. Machines whose display driver predates Adapter3 (VMs,
+  basic display) answer Unknown with the HRESULT — the contract forbids substituting static
+  marketing VRAM.
+- **java** / **minecraft.files**: the production LocalJavaRuntimeLocator and the shared
+  MinecraftFileVerifier are the probes; without a resolved file plan the facts report
+  unavailable instead of invented counts.
+
+`tools/CapabilityProbe` (registered diagnostic project) composes the real foundation, forces a
+refresh, and prints every fact with its availability and reason — the fast path for verifying
+probe regressions on real hardware.

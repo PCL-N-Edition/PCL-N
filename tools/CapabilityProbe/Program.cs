@@ -36,7 +36,7 @@ public static class Program
             {
                 Console.WriteLine(
                     $"  {capability.Id,-44} {capability.Availability,-22} {capability.DisplayValue}"
-                    + (capability.Availability == CapabilityAvailability.TemporarilyUnavailable ? $"  [{capability.Reason}]" : ""));
+                    + (capability.Reason.Length > 0 ? $"  [{capability.Reason}]" : ""));
             }
 
             Console.WriteLine($"snapshot revision={snapshot.Revision} count={snapshot.Values.Count}");
