@@ -20,7 +20,9 @@ public sealed class AvaloniaUiShellWindow : Window
 {
     // Reserved native resize gutter, expressed in logical pixels (DIPs).
     private const double ChromeMargin = 0; // Resize hit zones overlay the content; no visible gutter.
-    private const double ChromeCornerRadius = XsrUiCornerRadii.Surface;
+    // The shell uses a larger outer radius than cards. DWM remains opaque/native; both the
+    // host region and the inner clip use this exact value so no square corner can leak through.
+    private const double ChromeCornerRadius = 24;
     private const double CloseIconSize = 112;
 
 
@@ -572,8 +574,11 @@ public sealed class AvaloniaUiShellWindow : Window
 
     }
 
-    private void ApplyNativeShape() => AvaloniaWindowsFrame.ApplyCornerRadius(this, ChromeCornerRadius,
-        _revealMask is { } mask ? Math.Max(CloseIconSize * .72, mask.RadiusX) : null);
+    private void ApplyNativeShape() => AvaloniaWindowsFrame.ApplyCornerRadius(
+        this,
+        ChromeCornerRadius,
+        _revealMask?.RadiusX,
+        _revealMask is null ? null : CloseIconSize * .56);
 
     private void OnMaximizeRequested(object? sender, EventArgs e) => ToggleMaximized();
 

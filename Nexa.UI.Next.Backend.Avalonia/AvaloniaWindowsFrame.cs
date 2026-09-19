@@ -22,12 +22,16 @@ internal static partial class AvaloniaWindowsFrame
         return DwmSetWindowAttribute(handle.Handle, BorderColorAttribute, ref color, sizeof(uint)) >= 0;
     }
 
-    private sealed class ShapeState { public (int, int, int, int, int, int) Shape; public bool Applied; public bool Updating; }
+    private sealed class ShapeState { public (int, int, int, int, int, int, int) Shape; public bool Applied; public bool Updating; }
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Window, ShapeState> Shapes = new();
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect { public int Left, Top, Right, Bottom; }
 
-    internal static void ApplyCornerRadius(Window window, double radius, double? revealRadius = null)
+    internal static void ApplyCornerRadius(
+        Window window,
+        double radius,
+        double? revealRadius = null,
+        double? iconKeepAliveRadius = null)
     {
         if (!OperatingSystem.IsWindows() || window.TryGetPlatformHandle() is not { HandleDescriptor: "HWND" } handle) return;
         var state = Shapes.GetOrCreateValue(window);
@@ -50,16 +54,37 @@ internal static partial class AvaloniaWindowsFrame
             int bottom = top + (int)Math.Round(content.Bounds.Height * window.RenderScaling);
             int diameter = (int)Math.Round(radius * window.RenderScaling * 2);
             int reveal = revealRadius is { } r ? (int)Math.Ceiling(r * window.RenderScaling) : -1;
-            var shape = (left, top, right, bottom, diameter, reveal);
+            int keepAlive = iconKeepAliveRadius is { } i ? (int)Math.Ceiling(i * window.RenderScaling) : -1;
+            var shape = (left, top, right, bottom, diameter, reveal, keepAlive);
             if (state.Applied && state.Shape == shape) return;
-            nint region = CreateRoundRectRgn(left, top, right + 1, bottom + 1, diameter, diameter);
-            if (region == 0) return;
+            nint region;
             if (reveal >= 0)
             {
+                // During reveal/collapse the native window follows the same circular mask as
+                // the scene. Keep only a small disk behind the product icon when the content
+                // radius reaches zero; the icon remains visible while the window body is gone.
                 int cx = (left + right) / 2, cy = (top + bottom) / 2;
-                nint circle = CreateEllipticRgn(cx - reveal, cy - reveal, cx + reveal + 1, cy + reveal + 1);
-                if (circle != 0) { _ = CombineRgn(region, region, circle, 1); _ = DeleteObject(circle); }
+                int visibleRadius = Math.Max(1, reveal);
+                region = CreateEllipticRgn(
+                    cx - visibleRadius,
+                    cy - visibleRadius,
+                    cx + visibleRadius + 1,
+                    cy + visibleRadius + 1);
+                if (region != 0 && keepAlive > visibleRadius)
+                {
+                    nint icon = CreateEllipticRgn(
+                        cx - keepAlive,
+                        cy - keepAlive,
+                        cx + keepAlive + 1,
+                        cy + keepAlive + 1);
+                    if (icon != 0) { _ = CombineRgn(region, region, icon, 2); _ = DeleteObject(icon); }
+                }
             }
+            else
+            {
+                region = CreateRoundRectRgn(left, top, right + 1, bottom + 1, diameter, diameter);
+            }
+            if (region == 0) return;
             if (SetWindowRgn(handle.Handle, region, 1) == 0) { _ = DeleteObject(region); return; }
             // Windows owns the region after a successful SetWindowRgn.
             state.Shape = shape; state.Applied = true;
