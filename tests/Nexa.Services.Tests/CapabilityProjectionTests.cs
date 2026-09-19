@@ -40,15 +40,16 @@ internal static partial class Program
             """);
         await File.WriteAllTextAsync(Path.Combine(versions, "options.txt"), "renderDistance:8\ngraphicsMode:fast\n");
 
-        LoaderCapabilityProvider loader = new(root);
-        MachineCapabilityQuery scope = new(InstanceDirectory: versions, InstanceId: "fabric-test");
+        LoaderCapabilityProvider loader = new(null);
+        MachineCapabilityQuery scope = new(InstanceDirectory: versions, InstanceId: "fabric-test",
+            MinecraftRootDirectory: root);
         IReadOnlyList<ICapability> loaderFacts = await loader.CollectAsync(DateTimeOffset.UtcNow, scope, CancellationToken.None);
         AssertEqual("Fabric", loaderFacts.Single(fact => fact.Id == "loader.type").DisplayValue);
         AssertEqual("是", loaderFacts.Single(fact => fact.Id == "loader.present").DisplayValue);
         AssertEqual("否", loaderFacts.Single(fact => fact.Id == "loader.derived.missing").DisplayValue);
 
         // Settings read from the isolated instance's options.txt (isolation defaults on).
-        MinecraftEnvironmentCapabilityProvider minecraft = new(root);
+        MinecraftEnvironmentCapabilityProvider minecraft = new(null);
         IReadOnlyList<ICapability> minecraftFacts = await minecraft.CollectAsync(DateTimeOffset.UtcNow, scope, CancellationToken.None);
         AssertEqual("是", minecraftFacts.Single(fact => fact.Id == "minecraft.settings.readable").DisplayValue);
         AssertEqual("8", minecraftFacts.Single(fact => fact.Id == "minecraft.settings.render_distance").DisplayValue);
@@ -56,7 +57,7 @@ internal static partial class Program
 
         // Java requirement from the manifest chain: the parent pins Java 17+.
         IReadOnlyList<ICapability> javaFacts = await JavaCompatibilityProjection.CollectAsync(
-            new NoJavaLocator(), root, scope, DateTimeOffset.UtcNow, CancellationToken.None);
+            [], null, scope, DateTimeOffset.UtcNow, CancellationToken.None);
         AssertEqual("17.0", javaFacts.Single(fact => fact.Id == "java.requirement.minimum").DisplayValue);
 
         Directory.Delete(root, recursive: true);

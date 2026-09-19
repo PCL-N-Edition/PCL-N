@@ -839,10 +839,13 @@ internal static partial class Program
             XsrUiRuntimeContext uiRuntime = new();
             XsrCompositeStateObserver storeObservation = new(uiRuntime.StateBridge, null);
             SettingsSchema schema = LauncherDefaults.CreateSchema();
+            string minecraftRoot = Path.Combine(_temporaryDirectory, "minecraft");
+            Directory.CreateDirectory(minecraftRoot);
             FoundationHost host = FoundationComposer.Compose(
                 new LauncherSettingsJsonPort(Path.Combine(_temporaryDirectory, "settings.json"), schema),
                 schema, new LaunchProfileFilePort(Path.Combine(_temporaryDirectory, "profiles.json")),
-                observer: storeObservation, declareHostState: LaunchPageState.DeclareState);
+                observer: storeObservation, declareHostState: LaunchPageState.DeclareState,
+                minecraftRootDirectory: minecraftRoot);
             Foundation = FoundationRuntimeComposer.Compose(host);
             Onboarding = AccountOnboardingRuntimeComposer.Compose(host, accountHttp,
                 accountOptions ?? new AccountOnboardingOptions("fixture-client", null),
@@ -864,8 +867,6 @@ internal static partial class Program
                 }).IsSuccess);
             }
 
-            string minecraftRoot = Path.Combine(_temporaryDirectory, "minecraft");
-            Directory.CreateDirectory(minecraftRoot);
             Library = MinecraftLibraryRuntimeComposer.Compose(host, minecraftRoot, source);
             InstallCatalog = InstallCatalogRuntimeComposer.Compose(host, installSource ?? new FixtureInstallSource());
             Controller = new LaunchPageController(

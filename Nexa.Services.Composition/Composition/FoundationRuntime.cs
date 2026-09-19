@@ -110,7 +110,8 @@ public static class FoundationRuntimeComposer
             async (query, token) =>
             {
                 MachineCapabilitySnapshot snapshot = await host.MachineCapabilities.ReadAsync(
-                    new MachineCapabilityQuery(query.InstanceDirectory, query.InstanceId), refresh: true, cancellationToken: token).ConfigureAwait(false);
+                    new MachineCapabilityQuery(query.InstanceDirectory, query.InstanceId, query.MinecraftRootDirectory),
+                    refresh: true, cancellationToken: token).ConfigureAwait(false);
                 return Nexa.Xsr.XsrResult.Success(CapabilityPreflightEngine.Evaluate(snapshot));
             });
         XsrQueryRouter queryRouter = queries.Build(dispatchObserver, timeProvider);

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
 using Nexa.Services.Accounts;
 using Nexa.Services.Minecraft;
+using Nexa.Services.Minecraft.Install;
 using Nexa.Services.Minecraft.Java;
 using Nexa.Services.Minecraft.Launch;
 using Nexa.Services.Minecraft.ModLoaders;
@@ -23,12 +24,15 @@ public static class MinecraftPrimaryInstanceScope
     private static readonly ConcurrentDictionary<string, (DateTimeOffset At, PrimaryInstance? Value)> Cache = new(StringComparer.Ordinal);
     private static readonly TimeSpan CacheWindow = TimeSpan.FromSeconds(10);
 
-    public static async ValueTask<PrimaryInstance?> ResolveAsync(string minecraftRootDirectory,
+    public static async ValueTask<PrimaryInstance?> ResolveAsync(string? minecraftRootDirectory,
         MachineCapabilityQuery query, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
         if (!query.HasInstanceScope) return null;
-        string root = Path.GetFullPath(minecraftRootDirectory);
+        string? requestedRoot = string.IsNullOrWhiteSpace(query.MinecraftRootDirectory)
+            ? minecraftRootDirectory
+            : query.MinecraftRootDirectory;
+        if (string.IsNullOrWhiteSpace(requestedRoot)) return null;
+        string root = Path.GetFullPath(requestedRoot);
         string key = root + "\n" + query.InstanceId + "\n" + query.InstanceDirectory;
         DateTimeOffset now = DateTimeOffset.UtcNow;
         if (Cache.TryGetValue(key, out var cached) && now - cached.At < CacheWindow)
@@ -70,6 +74,132 @@ public static class MinecraftPrimaryInstanceScope
     }
 }
 
+/// <summary>
+/// Loader version fallback: Fabric-profile manifests carry no version string, but the loader
+/// jar in mods/ names it exactly — the edit page reads the same fact from there.
+/// </summary>
+public static class LoaderVersionProjections
+{
+    public static string? ReadLoaderVersionFromMods(string gameDirectory)
+    {
+        try
+        {
+            string mods = Path.Combine(gameDirectory, "mods");
+            if (!Directory.Exists(mods))
+            {
+                return null;
+            }
+
+            string[] prefixes = ["fabric-loader-", "forge-", "neoforge-", "quilt-loader-", "cleanroom-", "labymod-"];
+            foreach (string jar in Directory.EnumerateFiles(mods, "*.jar").Order(StringComparer.OrdinalIgnoreCase))
+            {
+                string name = Path.GetFileName(jar);
+                foreach (string prefix in prefixes)
+                {
+                    if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string tail = name[prefix.Length..];
+                    int end = tail.IndexOf('-', StringComparison.OrdinalIgnoreCase);
+                    if (Version.TryParse(end < 0 ? Path.GetFileNameWithoutExtension(tail) : tail[..end], out Version? parsed))
+                    {
+                        return parsed.ToString();
+                    }
+                }
+            }
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    /// <summary>options.txt resourcePacks is a raw JSON array; users see names, not brackets.</summary>
+    public static string DescribeResourcePacks(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return "默认";
+        }
+
+        try
+        {
+            if (System.Text.Json.Nodes.JsonNode.Parse(raw) is not System.Text.Json.Nodes.JsonArray packs)
+            {
+                return raw;
+            }
+
+            List<string> names = [];
+            foreach (System.Text.Json.Nodes.JsonNode? node in packs)
+            {
+                string? value = node?.GetValue<string>();
+                if (value is { Length: > 0 } && value != "vanilla")
+                {
+                    names.Add(value);
+                }
+            }
+
+            return names.Count == 0 ? "默认" : $"{names.Count} 个：{string.Join("、", names.Take(4))}{(names.Count > 4 ? " 等" : "")}";
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return raw;
+        }
+    }
+}
+
+internal static class InstalledLoaderProjection
+{
+    public static async ValueTask<MinecraftModLoaderDescriptor> ReadAsync(
+        MinecraftPrimaryInstanceScope.PrimaryInstance primary,
+        string? configuredRoot,
+        MachineCapabilityQuery query,
+        CancellationToken cancellationToken)
+    {
+        string? root = string.IsNullOrWhiteSpace(query.MinecraftRootDirectory)
+            ? configuredRoot
+            : query.MinecraftRootDirectory;
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            try
+            {
+                MinecraftInstallEditSnapshot edit = await MinecraftInstallEditService.ReadAsync(
+                    new(Path.GetFullPath(root), primary.Instance.Id), cancellationToken).ConfigureAwait(false);
+                InstallBuildSelection? selected = edit.Selection.FirstOrDefault(item => !InstallCompatibility.IsAddon(item.Loader));
+                if (selected is not null)
+                {
+                    MinecraftModLoaderKind kind = selected.Loader switch
+                    {
+                        InstallLoader.Forge => MinecraftModLoaderKind.Forge,
+                        InstallLoader.NeoForge => MinecraftModLoaderKind.NeoForge,
+                        InstallLoader.Fabric or InstallLoader.LegacyFabric => MinecraftModLoaderKind.Fabric,
+                        InstallLoader.Quilt => MinecraftModLoaderKind.Quilt,
+                        InstallLoader.Cleanroom => MinecraftModLoaderKind.Cleanroom,
+                        InstallLoader.OptiFine => MinecraftModLoaderKind.OptiFine,
+                        InstallLoader.LiteLoader => MinecraftModLoaderKind.LiteLoader,
+                        InstallLoader.LabyMod => MinecraftModLoaderKind.LabyMod,
+                        _ => MinecraftModLoaderKind.Unknown,
+                    };
+                    return new(kind, selected.Version, primary.Manifests.Current["mainClass"]?.ToString(),
+                        ["MinecraftInstallEditService"]);
+                }
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException
+                or InvalidDataException or System.Text.Json.JsonException or InvalidOperationException)
+            {
+                // A manually assembled or partially installed version can lack the edit receipt.
+                // Fall through to the manifest detector instead of losing all loader facts.
+            }
+        }
+
+        return MinecraftModLoaderDetector.Detect(primary.Manifests.Current);
+    }
+}
+
 /// <summary>loader.* facts projected from the primary instance's resolved manifest chain.</summary>
 public sealed class LoaderCapabilityProvider(string? minecraftRootDirectory) : IMachineCapabilityProvider
 {
@@ -82,14 +212,15 @@ public sealed class LoaderCapabilityProvider(string? minecraftRootDirectory) : I
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(minecraftRootDirectory)
-            || await MinecraftPrimaryInstanceScope.ResolveAsync(minecraftRootDirectory, query, cancellationToken).ConfigureAwait(false) is not { } primary)
+        if (await MinecraftPrimaryInstanceScope.ResolveAsync(minecraftRootDirectory, query, cancellationToken)
+            .ConfigureAwait(false) is not { } primary)
         {
             return AllUnavailable(timestamp, "尚未发现 Minecraft 实例");
         }
 
-        const string source = "MinecraftModLoaderDetector + MinecraftVersionJsonReader";
-        MinecraftModLoaderDescriptor loader = MinecraftModLoaderDetector.Detect(primary.Manifests.Current);
+        const string source = "MinecraftInstallEditService + MinecraftVersionJsonReader";
+        MinecraftModLoaderDescriptor loader = await InstalledLoaderProjection.ReadAsync(
+            primary, minecraftRootDirectory, query, cancellationToken).ConfigureAwait(false);
         bool vanilla = loader.Kind is MinecraftModLoaderKind.Vanilla;
         bool chainComplete = primary.Manifests.Inherited.Count > 0
             || vanilla; // vanilla has no parent to lose
@@ -97,7 +228,9 @@ public sealed class LoaderCapabilityProvider(string? minecraftRootDirectory) : I
         {
             MachineInstanceCatalog.LoaderPresent.Observe(!vanilla, timestamp, source),
             MachineInstanceCatalog.LoaderType.Observe(loader.Kind.ToString(), timestamp, source),
-            loader.Version is { Length: > 0 } version
+            (loader.Version is { Length: > 0 } manifestVersion
+                ? manifestVersion
+                : LoaderVersionProjections.ReadLoaderVersionFromMods(primary.GameDirectory)) is { Length: > 0 } version
                 ? MachineInstanceCatalog.LoaderVersion.Observe(version, timestamp, source)
                 : MachineInstanceCatalog.LoaderVersion.Unavailable(CapabilityAvailability.DependencyMissing, timestamp, "加载器版本未知"),
             MachineInstanceCatalog.LoaderComplete.Observe(chainComplete, timestamp, source),
@@ -157,14 +290,14 @@ public sealed class AccountCapabilityProvider(AccountService accounts) : IMachin
 public static class JavaCompatibilityProjection
 {
     public static async ValueTask<IReadOnlyList<ICapability>> CollectAsync(
-        IJavaRuntimeLocator locator,
+        IReadOnlyList<JavaRuntimeCandidate> runtimes,
         string? minecraftRootDirectory,
         MachineCapabilityQuery query,
         DateTimeOffset timestamp,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(minecraftRootDirectory)
-            || await MinecraftPrimaryInstanceScope.ResolveAsync(minecraftRootDirectory, query, cancellationToken).ConfigureAwait(false) is not { } primary)
+        if (await MinecraftPrimaryInstanceScope.ResolveAsync(minecraftRootDirectory, query, cancellationToken)
+            .ConfigureAwait(false) is not { } primary)
         {
             return
             [
@@ -176,7 +309,8 @@ public static class JavaCompatibilityProjection
         }
 
         const string source = "MinecraftJavaRequirementResolver + JavaSelectionService";
-        MinecraftModLoaderDescriptor loader = MinecraftModLoaderDetector.Detect(primary.Manifests.Current);
+        MinecraftModLoaderDescriptor loader = await InstalledLoaderProjection.ReadAsync(
+            primary, minecraftRootDirectory, query, cancellationToken).ConfigureAwait(false);
         JsonObject manifest = primary.Manifests.Current;
         // javaVersion lives on the base (vanilla) manifest; walk the chain like the launch
         // coordinator does so a loader-only manifest still resolves the parent's requirement.
@@ -197,8 +331,15 @@ public static class JavaCompatibilityProjection
             HasLabyMod = loader.Kind is MinecraftModLoaderKind.LabyMod,
         };
         JavaRequirementResolution requirement = MinecraftJavaRequirementResolver.Resolve(request);
-        JavaSelectionResult selection = await new JavaSelectionService(locator)
-            .SelectAsync(request, new AutoSelectJavaPreference(), cancellationToken).ConfigureAwait(false);
+        JavaRuntimeCandidate? selected = requirement.Success
+            ? runtimes.Where(candidate => candidate.IsEnabled && candidate.IsAvailable
+                    && requirement.Range.Contains(candidate.Installation.Version))
+                .OrderBy(candidate => candidate.Installation.MajorVersion)
+                .ThenBy(candidate => candidate.Installation.IsJre ? 1 : 0)
+                .ThenBy(candidate => candidate.Installation.Version)
+                .ThenBy(candidate => candidate.Installation.JavaHome, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault()
+            : null;
 
         return
         [
@@ -211,11 +352,11 @@ public static class JavaCompatibilityProjection
                 ? MachineInstanceCatalog.JavaRequirementRecommended.Observe(recommended, timestamp, source)
                 : MachineInstanceCatalog.JavaRequirementRecommended.Unavailable(
                     CapabilityAvailability.DependencyMissing, timestamp, "无推荐组件"),
-            selection.Success
+            selected is not null
                 ? MachineInstanceCatalog.JavaCompatibilityMinecraft.Observe(true, timestamp, source)
-                : MachineInstanceCatalog.JavaCompatibilityMinecraft.Observe(false, timestamp, source + $"（{selection.FailureReason}）"),
+                : MachineInstanceCatalog.JavaCompatibilityMinecraft.Observe(false, timestamp, source + "（没有匹配的本地运行时）"),
             requirement.Success
-                ? MachineInstanceCatalog.JavaCompatibilityHard.Observe(selection.Success, timestamp, source)
+                ? MachineInstanceCatalog.JavaCompatibilityHard.Observe(selected is not null, timestamp, source)
                 : MachineInstanceCatalog.JavaCompatibilityHard.Observe(false, timestamp, source + $"（{requirement.FailureReason}: {requirement.Detail}）"),
         ];
     }

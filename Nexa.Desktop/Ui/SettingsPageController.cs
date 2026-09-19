@@ -71,6 +71,7 @@ internal sealed partial class SettingsPageController : IDisposable
     private void OnIntent(object? sender, DesktopUiIntentEventArgs args)
     {
         if (args.Intent.Command == Select || args.Intent.Command == Edit || args.Intent.Command == Choice || args.Intent.Command == ArgumentAdd || args.Intent.Command == ArgumentRemove || args.Intent.Command == RefreshPlatform) _pending.Enqueue(args.Intent);
+        else if (args.Intent.Command == RemediationExecuted) OnPlatformRemediation(sender, args);
     }
     private void OnFrame(object? sender, EventArgs args)
     {

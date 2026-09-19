@@ -15,8 +15,10 @@ public sealed class JavaEnvironmentCapabilityProvider(
     IJavaRuntimeLocator? javaLocator = null,
     string? minecraftRootDirectory = null) : IMachineCapabilityProvider
 {
+    private readonly object _cacheGate = new();
     private readonly IJavaRuntimeLocator _javaLocator = javaLocator ?? new LocalJavaRuntimeLocator();
     private readonly string? _minecraftRootDirectory = minecraftRootDirectory;
+    private (DateTimeOffset Timestamp, IReadOnlyList<JavaRuntimeCandidate> Runtimes)? _runtimeCache;
 
     public string Id => MachineInstanceCatalog.JavaProviderId;
 
@@ -27,11 +29,33 @@ public sealed class JavaEnvironmentCapabilityProvider(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        List<ICapability> facts = [.. await MachineInstanceCatalog.CollectJavaAsync(
-            _javaLocator, timestamp, cancellationToken).ConfigureAwait(false)];
+        IReadOnlyList<JavaRuntimeCandidate> runtimes = await FindRuntimesAsync(timestamp, cancellationToken)
+            .ConfigureAwait(false);
+        List<ICapability> facts = [.. MachineInstanceCatalog.CollectJava(runtimes, timestamp)];
         facts.AddRange(await JavaCompatibilityProjection.CollectAsync(
-            _javaLocator, _minecraftRootDirectory, query, timestamp, cancellationToken).ConfigureAwait(false));
+            runtimes, _minecraftRootDirectory, query, timestamp, cancellationToken).ConfigureAwait(false));
         return Array.AsReadOnly<ICapability>([.. facts]);
+    }
+
+    private async ValueTask<IReadOnlyList<JavaRuntimeCandidate>> FindRuntimesAsync(
+        DateTimeOffset timestamp, CancellationToken cancellationToken)
+    {
+        lock (_cacheGate)
+        {
+            if (_runtimeCache is { } cached && timestamp - cached.Timestamp < TimeSpan.FromSeconds(30))
+            {
+                return cached.Runtimes;
+            }
+        }
+
+        IReadOnlyList<JavaRuntimeCandidate> runtimes = await _javaLocator.FindAllAsync(cancellationToken)
+            .ConfigureAwait(false);
+        lock (_cacheGate)
+        {
+            _runtimeCache = (timestamp, runtimes);
+        }
+
+        return runtimes;
     }
 }
 
@@ -81,8 +105,8 @@ public sealed class MinecraftEnvironmentCapabilityProvider(
         MachineCapabilityQuery query, CancellationToken cancellationToken)
     {
         const string source = "options.txt";
-        if (string.IsNullOrWhiteSpace(_minecraftRootDirectory)
-            || await MinecraftPrimaryInstanceScope.ResolveAsync(_minecraftRootDirectory, query, cancellationToken).ConfigureAwait(false) is not { } primary
+        if (await MinecraftPrimaryInstanceScope.ResolveAsync(_minecraftRootDirectory, query, cancellationToken)
+            .ConfigureAwait(false) is not { } primary
             || primary.Options is not { Readable: true } options)
         {
             return
@@ -111,7 +135,8 @@ public sealed class MinecraftEnvironmentCapabilityProvider(
             MachineInstanceCatalog.MinecraftSettingsMipmapLevels.Observe(options.MipmapLevels, timestamp, source),
             MachineInstanceCatalog.MinecraftSettingsGraphicsMode.Observe(options.GraphicsMode, timestamp, source),
             MachineInstanceCatalog.MinecraftSettingsFullscreen.Observe(options.Fullscreen, timestamp, source),
-            MachineInstanceCatalog.MinecraftSettingsResourcePacks.Observe(options.ResourcePacks, timestamp, source),
+            MachineInstanceCatalog.MinecraftSettingsResourcePacks.Observe(
+                LoaderVersionProjections.DescribeResourcePacks(options.ResourcePacks), timestamp, source),
         ];
     }
 

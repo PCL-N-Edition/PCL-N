@@ -12,12 +12,18 @@ public static class MachineCapabilityStateContract
     public static readonly XsrSemanticId RemediationCommand = XsrSemanticId.Parse("machine.capabilities.remediation.execute");
     public static void DeclareState(XsrStateStoreBuilder builder) => builder.Cell<long>(RevisionKey, "Nexa.Services.Capabilities");
 }
-public sealed record MachineCapabilityQuery(string? InstanceDirectory = null, string? InstanceId = null)
+public sealed record MachineCapabilityQuery(
+    string? InstanceDirectory = null,
+    string? InstanceId = null,
+    string? MinecraftRootDirectory = null)
 {
     public bool HasInstanceScope => !string.IsNullOrWhiteSpace(InstanceDirectory) || !string.IsNullOrWhiteSpace(InstanceId);
 }
 public sealed record MachineCapabilityRefresh;
-public sealed record LaunchPreflightQuery(string? InstanceDirectory = null, string? InstanceId = null);
+public sealed record LaunchPreflightQuery(
+    string? InstanceDirectory = null,
+    string? InstanceId = null,
+    string? MinecraftRootDirectory = null);
 public interface IMachineCapabilityProvider
 {
     string Id { get; }
@@ -131,11 +137,14 @@ public sealed class MachineCapabilityBroker
         MachineCapabilityQuery query, DateTimeOffset timestamp)
     {
         var owned = _registry.Definitions.Where(definition => definition.Provider == provider.Id).ToArray();
-        using var timeout = new CancellationTokenSource(_timeout);
+        TimeSpan providerTimeout = string.Equals(provider.Id, MachineInstanceCatalog.JavaProviderId, StringComparison.Ordinal)
+            ? TimeSpan.FromSeconds(Math.Max(12, _timeout.TotalSeconds))
+            : _timeout;
+        using var timeout = new CancellationTokenSource(providerTimeout);
         try
         {
             var values = await Task.Run(async () => await provider.CollectAsync(timestamp, query, timeout.Token).ConfigureAwait(false), CancellationToken.None)
-                .WaitAsync(_timeout).ConfigureAwait(false);
+                .WaitAsync(providerTimeout).ConfigureAwait(false);
             HashSet<string> seen = new(StringComparer.Ordinal);
             foreach (var value in values)
                 if (!seen.Add(value.Id) || !_registry.ById.TryGetValue(value.Id, out var definition) || definition.Provider != provider.Id || !definition.Accepts(value))

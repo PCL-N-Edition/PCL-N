@@ -84,6 +84,7 @@ public sealed class FoundationHost
         // active Minecraft root so storage and file-integrity facts answer for THAT path.
         CapabilityRegistry capabilityRegistry = new CapabilityRegistry(
         [
+            .. ModCatalog.Definitions(),
             .. FormFactorCatalog.Definitions.Values,
             .. InputCatalog.Definitions(),
             .. ResourceEstimateCatalog.Definitions(),
@@ -105,12 +106,18 @@ public sealed class FoundationHost
             new HardwarePowerCapabilityProvider(),
             new MinecraftEnvironmentCapabilityProvider(minecraftRootDirectory),
             new LoaderCapabilityProvider(minecraftRootDirectory),
+            new ModCapabilityProvider(minecraftRootDirectory),
             new AccountCapabilityProvider(accounts),
             new FormFactorCapabilityProvider(),
             new InputCapabilityProvider(InputUsage)];
 
+        // The Java provider probes each runtime with one `java -version` process; the
+        // registry default window (3s) times the whole java namespace out on machines with
+        // several runtimes. 45s keeps the first refresh honest; the locator's process-wide
+        // cache makes every later refresh instant.
         MachineCapabilities = new MachineCapabilityBroker(
             capabilityRegistry, capabilityProviders, StateStore,
+            timeout: TimeSpan.FromSeconds(45),
             derivations: MachineDerivedRules.Defaults(),
             projections: [new ResourceEstimatorProjection(history: ObservationHistory), new LaunchPolicyProjection(), new PreflightProjection()]);
         ResourceEstimator = new ResourceEstimator(history: ObservationHistory);

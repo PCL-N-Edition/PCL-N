@@ -24,7 +24,36 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
             : Path.GetFullPath(launcherRuntimeRoot);
     }
 
+    // Each candidate costs one `java -version` process (~0.3-1s); a full disk scan runs
+    // 5-15 of them and would blow the capability broker's window on every refresh. Runtime
+    // sets are effectively static per session, so a process-wide cache is safe.
+    private static readonly object CacheGate = new();
+    private static IReadOnlyList<JavaRuntimeCandidate>? Cached;
+    private static DateTimeOffset CachedAt;
+    private static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(10);
+
     public async ValueTask<IReadOnlyList<JavaRuntimeCandidate>> FindAllAsync(
+        CancellationToken cancellationToken = default)
+    {
+        lock (CacheGate)
+        {
+            if (Cached is { } hit && DateTimeOffset.UtcNow - CachedAt < CacheLifetime)
+            {
+                return hit;
+            }
+        }
+
+        IReadOnlyList<JavaRuntimeCandidate> scanned = await FindAllCoreAsync(cancellationToken).ConfigureAwait(false);
+        lock (CacheGate)
+        {
+            Cached = scanned;
+            CachedAt = DateTimeOffset.UtcNow;
+        }
+
+        return scanned;
+    }
+
+    private async ValueTask<IReadOnlyList<JavaRuntimeCandidate>> FindAllCoreAsync(
         CancellationToken cancellationToken = default)
     {
         // Executables, not homes: a resolved root may be a real Java home (bin/java) OR a
@@ -55,17 +84,23 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
         ordered.Sort(GetPathComparer());
         _log?.Info("Java", $"Runtime discovery started executables={ordered.Count}");
 
-        List<JavaRuntimeCandidate> candidates = [];
-        foreach (string path in ordered)
+        // Candidate processes are independent. Probing them serially made a perfectly healthy
+        // machine with several JDKs exceed the capability broker's deadline. Keep a small bound
+        // so discovery is fast without creating an unbounded process burst.
+        using SemaphoreSlim concurrency = new(4);
+        JavaRuntimeCandidate?[] inspected = await Task.WhenAll(ordered.Select(async path =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            JavaRuntimeCandidate? candidate = await InspectAsync(path, cancellationToken)
-                .ConfigureAwait(false);
-            if (candidate is not null)
+            await concurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                candidates.Add(candidate);
+                return await InspectAsync(path, cancellationToken).ConfigureAwait(false);
             }
-        }
+            finally
+            {
+                concurrency.Release();
+            }
+        })).ConfigureAwait(false);
+        List<JavaRuntimeCandidate> candidates = [.. inspected.OfType<JavaRuntimeCandidate>()];
 
         _log?.Info("Java", $"Runtime discovery completed usable_candidates={candidates.Count}");
         return candidates;

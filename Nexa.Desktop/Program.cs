@@ -179,6 +179,7 @@ internal static class Program
             new LaunchProfileFilePort(System.IO.Path.Combine(profilesFolder, "profiles.json")),
             observer: stateObservation,
             declareHostState: LaunchPageState.DeclareState,
+            minecraftRootDirectory: minecraftRootDirectory,
             configureLogging: logging =>
             {
                 if (consoleAttached || channel != "release") logging.MaximumLevel = LogLevel.RealTime;

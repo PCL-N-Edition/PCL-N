@@ -182,6 +182,13 @@ public static class MachineInstanceCatalog
             });
         }
 
+        return CollectJava(runtimes, timestamp);
+    }
+
+    public static IReadOnlyList<ICapability> CollectJava(
+        IReadOnlyList<JavaRuntimeCandidate> runtimes, DateTimeOffset timestamp)
+    {
+        ArgumentNullException.ThrowIfNull(runtimes);
         const string source = "LocalJavaRuntimeLocator";
         JavaRuntimeCandidate? preferred = runtimes.FirstOrDefault(static candidate => candidate.IsAvailable && candidate.IsEnabled);
         return Array.AsReadOnly(new ICapability[]
@@ -375,4 +382,3 @@ internal sealed class StorageCapabilityProvider(string? instanceDirectory) : IMa
     }
 
 }
-
