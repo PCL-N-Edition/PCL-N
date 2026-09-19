@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Avalonia;
 using Avalonia.Controls;
 
 namespace Nexa.UI.Next.Backend.Avalonia;
@@ -40,11 +41,13 @@ internal static partial class AvaloniaWindowsFrame
                 return;
             }
             if (GetWindowRect(handle.Handle, out var outer) == 0) return;
-            NativeRect visible = outer;
-            _ = DwmGetWindowAttribute(handle.Handle, 9, out visible, Marshal.SizeOf<NativeRect>());
-            if (visible.Right <= visible.Left || visible.Bottom <= visible.Top) visible = outer;
-            int left = visible.Left - outer.Left, top = visible.Top - outer.Top;
-            int right = visible.Right - outer.Left, bottom = visible.Bottom - outer.Top;
+            // DWM frame bounds include native resize/decorations margins. The rounded
+            // region must follow the actual rendered client surface, not that outer frame.
+            if (window.Content is not Control content || content.Bounds.Width <= 0 || content.Bounds.Height <= 0) return;
+            var origin = content.PointToScreen(default);
+            int left = origin.X - outer.Left, top = origin.Y - outer.Top;
+            int right = left + (int)Math.Round(content.Bounds.Width * window.RenderScaling);
+            int bottom = top + (int)Math.Round(content.Bounds.Height * window.RenderScaling);
             int diameter = (int)Math.Round(radius * window.RenderScaling * 2);
             int reveal = revealRadius is { } r ? (int)Math.Ceiling(r * window.RenderScaling) : -1;
             var shape = (left, top, right, bottom, diameter, reveal);
@@ -66,8 +69,6 @@ internal static partial class AvaloniaWindowsFrame
 
     [LibraryImport("user32.dll")]
     private static partial int GetWindowRect(nint window, out NativeRect rectangle);
-    [LibraryImport("dwmapi.dll")]
-    private static partial int DwmGetWindowAttribute(nint window, int attribute, out NativeRect value, int size);
     [LibraryImport("gdi32.dll")]
     private static partial nint CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
     [LibraryImport("gdi32.dll")]

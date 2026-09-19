@@ -128,6 +128,7 @@ public sealed class AvaloniaUiShellWindow : Window
         _root.Children.Add(_maskedContent);
 
         Content = _root;
+        _root.SizeChanged += (_, _) => ApplyNativeShape();
         PropertyChanged += OnWindowPropertyChanged;
     }
 
@@ -512,6 +513,10 @@ public sealed class AvaloniaUiShellWindow : Window
 
     private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
+        // Avalonia 12 has no public Visual.RenderScalingProperty; the scaling fact lives on
+        // TopLevel as a plain property, so subscribe to the TypedVisualTreeMutation/Bounds
+        // signals that accompany a DPI change instead — Bounds covers the common reflow, and
+        // UpdateChromeForState re-reads RenderScaling at call time anyway.
         if (e.Property == BoundsProperty || e.Property == Window.WindowStateProperty)
             UpdateChromeForState(WindowState is WindowState.Maximized or WindowState.FullScreen);
         if (e.Property == Window.WindowStateProperty)
