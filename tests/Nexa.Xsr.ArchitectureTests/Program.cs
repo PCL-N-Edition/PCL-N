@@ -70,6 +70,7 @@ internal static class Program
 
     private static readonly HashSet<string> ExecutableProjects =
         [
+            "CapabilityProbe",
             "Nexa.Desktop",
             "Nexa.UI.Next.Benchmarks",
             "Nexa.Xsr.ArchitectureTests",

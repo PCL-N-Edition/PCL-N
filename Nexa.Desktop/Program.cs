@@ -1,8 +1,8 @@
 using System.Reflection;
 using Nexa.Desktop.Ui;
 using Nexa.Services.Accounts;
-using Nexa.Services.Composition;
 using Nexa.Services.Capabilities;
+using Nexa.Services.Composition;
 using Nexa.Services.Files;
 using Nexa.Services.Foundation;
 using Nexa.Services.Logging;
