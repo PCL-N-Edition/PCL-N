@@ -109,7 +109,17 @@ internal sealed partial class SettingsPageController
         if (_machine is not null)
         {
             BuildPreflightCard();
-            var orderedGroups = _machine.Values.Select(value => value.Definition.Group).Distinct()
+            // Real facts only: definitions with no wired provider are registry placeholders
+            // (they rendered as endless 尚未接入检测提供方 rows), and remediation-style
+            // Action definitions are operations, not observations.
+            var visible = _machine.Values
+                .Where(value => value.Definition.Kind != CapabilityKind.Action && value.Definition.Kind != CapabilityKind.Policy)
+                .Where(value => value.Availability != CapabilityAvailability.NotImplemented
+                    || value.Reason != "尚未接入检测提供方")
+                .GroupBy(value => value.Id, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .ToList();
+            var orderedGroups = visible.Select(value => value.Definition.Group).Distinct()
                 .OrderBy(group => Array.IndexOf(PlatformGroups, group)).ThenBy(group => group, StringComparer.CurrentCulture)
                 .ToList();
             foreach (var group in orderedGroups)
@@ -118,7 +128,7 @@ internal sealed partial class SettingsPageController
                 var card = Stack(_sections, "PlatformCard." + group, XsrUiOrientation.Vertical, 0);
                 Style(card, White, Ink, 12);
                 _shell.Tree.GetComponent<XsrUiElement>(card)!.Padding = new(16, 6, 16, 6);
-                foreach (var value in _machine.Values.Where(value => value.Definition.Group == group))
+                foreach (var value in visible.Where(value => value.Definition.Group == group))
                     BuildCapabilityRow(card, value);
             }
         }
@@ -198,10 +208,11 @@ internal sealed partial class SettingsPageController
         badgeElement.HorizontalAlignment = XsrUiAlignment.End;
         _shell.Tree.GetComponent<XsrUiVisualStyle>(badge)!.TextAlignment = XsrUiTextAlignment.Center;
 
+        // Users see the data source (or the reason), never capability ids or provider names.
         string evidence = value.Availability == CapabilityAvailability.Available
             ? value.Source
-            : value.Id + (value.Reason.Length > 0 ? " · " + value.Reason : string.Empty);
-        Text(row, evidence + " · " + value.Definition.Provider, 11, Muted, 22);
+            : value.Reason;
+        Text(row, evidence, 11, Muted, 22);
         BuildDetailRows(row, value);
     }
 
@@ -314,13 +325,57 @@ internal sealed partial class SettingsPageController
         "JAVA_EMULATED" => "Java 运行在架构模拟下",
         "LOADER_MISSING" => "实例缺少模组加载器",
         "LOADER_INCOMPATIBLE" => "加载器与 Minecraft 不兼容",
+        "MOD_REQUIRED_DEPENDENCY_MISSING" => "模组缺少必需依赖",
+        "MOD_HARD_CONFLICT" => "模组存在硬性冲突",
+        "MOD_LOADER_INCOMPATIBLE" => "模组与加载器不兼容",
+        "MOD_MC_VERSION_INCOMPATIBLE" => "模组与 Minecraft 版本不兼容",
+        "MOD_COMPAT_WARNING" => "模组兼容性警告",
+        "MOD_COMPAT_CRITICAL" => "模组兼容性严重",
+        "MEM_HEAP_LAUNCH_LOW" => "启动堆内存不足",
+        "MEM_HEAP_RUNTIME_LOW" => "运行堆内存不足",
+        "MEM_HEAP_ABOVE_PHYSICAL_AVAILABLE" => "堆内存超过可用物理内存",
+        "MEM_HEAP_BELOW_HARD_MINIMUM" => "堆内存低于硬性下限",
         "MEM_PHYSICAL_LAUNCH_LOW" => "可用物理内存低于预计启动需求",
+        "MEM_PHYSICAL_RUNTIME_LOW" => "可用物理内存偏低",
+        "MEM_PHYSICAL_SEVERE" => "物理内存严重不足",
         "MEM_COMMIT_LAUNCH_LOW" => "提交预算低于预计启动需求",
+        "MEM_COMMIT_RUNTIME_LOW" => "提交预算偏低",
+        "MEM_COMMIT_GROWTH_REQUIRED" => "需要扩大提交预算",
+        "MEM_COMMIT_NEAR_LIMIT" => "提交预算接近上限",
+        "MEM_COMMIT_HARD_LIMIT" => "提交预算达到上限",
         "MEM_PAGEFILE_DISK_LOW" => "页面文件所在磁盘空间不足",
-        "DISK_SPACE_LOW" => "磁盘空间不足",
+        "MEM_PAGEFILE_FIXED_MAX" => "页面文件已固定上限",
+        "MEM_ESTIMATE_PENDING" => "资源估算尚未完成",
+        "MEM_ESTIMATE_FAILED" => "资源估算失败",
+        "MEM_ESTIMATE_LOW_CONFIDENCE" => "资源估算置信度低",
+        "ESTIMATE_MODIFIED_CORE" => "核心文件被修改，估算置信度低",
+        "ESTIMATE_SETTINGS_UNREADABLE" => "游戏设置不可读，估算置信度低",
+        "ESTIMATE_UNKNOWN_MOD_PROFILE" => "存在未知模组画像",
+        "GPU_LOW_PERFORMANCE_ADAPTER" => "当前使用低性能显卡",
+        "GPU_VRAM_RUNTIME_LOW" => "显存运行余量不足",
+        "GPU_VRAM_LAUNCH_CRITICAL" => "显存低于启动需求",
+        "GPU_TEMPERATURE_HIGH" => "显卡温度偏高",
+        "GPU_TEMPERATURE_NEAR_LIMIT" => "显卡温度接近上限",
+        "CPU_TEMPERATURE_HIGH" => "处理器温度偏高",
+        "CPU_TEMPERATURE_NEAR_LIMIT" => "处理器温度接近上限",
+        "INPUT_TOUCH_SUPPORT_MISSING" => "当前以触屏为主但游戏缺少触屏支持",
+        "INPUT_CONTROLLER_SUPPORT_MISSING" => "当前以手柄为主但游戏缺少手柄支持",
         "GAME_FILES_MISSING" => "游戏文件缺失",
         "GAME_FILES_CORRUPTED" => "游戏文件损坏",
+        "GAME_REPAIR_FAILED" => "游戏文件修复失败",
+        "GAME_METADATA_INVALID" => "版本元数据无效",
+        "GAME_MAIN_CLASS_MISSING" => "主类缺失",
+        "GAME_CLASSPATH_UNRESOLVED" => "类路径无法解析",
+        "GAME_NATIVE_INCOMPATIBLE" => "本地库与平台不兼容",
+        "STORAGE_SPACE_LOW" => "磁盘空间不足",
+        "STORAGE_SPACE_CRITICAL" => "磁盘空间严重不足",
+        "INSTANCE_PATH_UNAVAILABLE" => "实例路径不可用",
+        "INSTANCE_PATH_NOT_WRITABLE" => "实例路径不可写",
         "ACCOUNT_REQUIRED" => "启动需要账户",
-        _ => code,
+        "ACCOUNT_AUTH_FAILED" => "账户认证失败",
+        "HOOK_REQUIRED_FAILED" => "必需的启动前钩子失败",
+        "OS_UNSUPPORTED" => "操作系统不受支持",
+        "UX_DATA_COLLECTION" => "诊断数据收集说明",
+        _ => "检测到待处理事项",
     };
 }

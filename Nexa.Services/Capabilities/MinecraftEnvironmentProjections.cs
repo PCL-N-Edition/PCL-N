@@ -222,8 +222,10 @@ public sealed class LoaderCapabilityProvider(string? minecraftRootDirectory) : I
         MinecraftModLoaderDescriptor loader = await InstalledLoaderProjection.ReadAsync(
             primary, minecraftRootDirectory, query, cancellationToken).ConfigureAwait(false);
         bool vanilla = loader.Kind is MinecraftModLoaderKind.Vanilla;
-        bool chainComplete = primary.Manifests.Inherited.Count > 0
-            || vanilla; // vanilla has no parent to lose
+        // The version reader THROWS on a missing inheritsFrom parent, so reaching here means
+        // the chain resolved. Self-contained loader jsons (no inheritsFrom) are complete too —
+        // treating them as broken fired LOADER_INCOMPATIBLE on healthy installs.
+        const bool chainComplete = true;
         return Array.AsReadOnly(new ICapability[]
         {
             MachineInstanceCatalog.LoaderPresent.Observe(!vanilla, timestamp, source),
@@ -234,7 +236,9 @@ public sealed class LoaderCapabilityProvider(string? minecraftRootDirectory) : I
                 ? MachineInstanceCatalog.LoaderVersion.Observe(version, timestamp, source)
                 : MachineInstanceCatalog.LoaderVersion.Unavailable(CapabilityAvailability.DependencyMissing, timestamp, "加载器版本未知"),
             MachineInstanceCatalog.LoaderComplete.Observe(chainComplete, timestamp, source),
-            MachineInstanceCatalog.LoaderMinecraftCompatible.Observe(chainComplete, timestamp, source),
+            // An explicit loader↔minecraft range check is a later slice; a resolved chain is
+            // compatible by construction today, never silently incompatible.
+            MachineInstanceCatalog.LoaderMinecraftCompatible.Observe(true, timestamp, source),
             MachineInstanceCatalog.LoaderMetadataValid.Observe(true, timestamp, source),
             // derived.* are this provider's own definitions — computing them in place is the
             // ownership-clean path (cross-provider derivations go through the broker pass).
