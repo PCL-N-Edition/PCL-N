@@ -8,6 +8,8 @@ public static class MachineCapabilityStateContract
     public static readonly XsrSemanticId RevisionKey = XsrSemanticId.Parse("machine.capabilities.revision");
     public static readonly XsrSemanticId SnapshotQuery = XsrSemanticId.Parse("machine.capabilities.query");
     public static readonly XsrSemanticId RefreshCommand = XsrSemanticId.Parse("machine.capabilities.refresh");
+    public static readonly XsrSemanticId PreflightQuery = XsrSemanticId.Parse("machine.capabilities.preflight.query");
+    public static readonly XsrSemanticId RemediationCommand = XsrSemanticId.Parse("machine.capabilities.remediation.execute");
     public static void DeclareState(XsrStateStoreBuilder builder) => builder.Cell<long>(RevisionKey, "Nexa.Services.Capabilities");
 }
 public sealed record MachineCapabilityQuery(string? InstanceDirectory = null, string? InstanceId = null)
@@ -15,6 +17,7 @@ public sealed record MachineCapabilityQuery(string? InstanceDirectory = null, st
     public bool HasInstanceScope => !string.IsNullOrWhiteSpace(InstanceDirectory) || !string.IsNullOrWhiteSpace(InstanceId);
 }
 public sealed record MachineCapabilityRefresh;
+public sealed record LaunchPreflightQuery(string? InstanceDirectory = null, string? InstanceId = null);
 public interface IMachineCapabilityProvider
 {
     string Id { get; }

@@ -78,6 +78,16 @@ public static class FoundationRuntimeComposer
             await host.MachineCapabilities.ReadAsync(refresh: true, cancellationToken: token).ConfigureAwait(false);
             return Nexa.Xsr.XsrResult.Success();
         });
+        commands.Register<RemediationRequest>(MachineCapabilityStateContract.RemediationCommand, async (request, token) =>
+        {
+            RemediationResult result = await host.Remediations.ExecuteAsync(request, token).ConfigureAwait(false);
+            return result.Succeeded
+                ? Nexa.Xsr.XsrResult.Success()
+                : Nexa.Xsr.XsrResult.Failure(new Nexa.Xsr.XsrError(
+                    Nexa.Xsr.XsrErrorKind.Rejected,
+                    Nexa.Xsr.XsrSemanticId.Parse("machine.capabilities.remediation.rejected"),
+                    result.Message));
+        });
         XsrCommandRouter commandRouter = commands.Build(dispatchObserver, timeProvider);
 
         XsrQueryRouterBuilder queries = new();
@@ -96,6 +106,13 @@ public static class FoundationRuntimeComposer
             (query, token) => ValueTask.FromResult(Nexa.Xsr.XsrResult.Success(host.SettingsPolicy.PreviewImport(query))));
         queries.Register<MachineCapabilityQuery, MachineCapabilitySnapshot>(MachineCapabilityStateContract.SnapshotQuery,
             async (query, token) => Nexa.Xsr.XsrResult.Success(await host.MachineCapabilities.ReadAsync(query, cancellationToken: token).ConfigureAwait(false)));
+        queries.Register<LaunchPreflightQuery, CapabilityPreflightReport>(MachineCapabilityStateContract.PreflightQuery,
+            async (query, token) =>
+            {
+                MachineCapabilitySnapshot snapshot = await host.MachineCapabilities.ReadAsync(
+                    new MachineCapabilityQuery(query.InstanceDirectory, query.InstanceId), refresh: true, cancellationToken: token).ConfigureAwait(false);
+                return Nexa.Xsr.XsrResult.Success(CapabilityPreflightEngine.Evaluate(snapshot));
+            });
         XsrQueryRouter queryRouter = queries.Build(dispatchObserver, timeProvider);
 
         return new FoundationRuntime(host, commandRouter, queryRouter);

@@ -13,6 +13,7 @@ internal static partial class Program
         ("form factor heuristic classifies the device", FormFactorHeuristicClassifiesTheDevice),
         ("input usage is session local and explicit", Sync(InputUsageIsSessionLocalAndExplicit)),
         ("estimator preflight and remediation remain layered", Sync(EstimatorPreflightAndRemediationRemainLayered)),
+        ("remediation actions require exact handlers", RemediationActionsRequireExactHandlers),
         ("JVM host describes the process boundary", Sync(JvmHostDescribesTheProcessBoundary)),
         ("settings catalog locks final IA and developer visibility", Sync(SettingsCatalogLocksFinalIa)),
         ("settings policy uses sealed foundation routes", SettingsPolicyUsesSealedFoundationRoutes),

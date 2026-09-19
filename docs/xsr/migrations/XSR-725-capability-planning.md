@@ -15,11 +15,11 @@ The planning pipeline keeps the six Registry layers separate:
 
 1. providers collect machine and explicitly scoped instance facts;
 2. derivations calculate one typed fact;
-3. the estimator projection publishes a coherent low-confidence baseline with immutable
-   provenance and a versioned profile;
+3. the estimator projection publishes the complete heap/native/resource/graphics/physical/
+   commit model with immutable provenance, historical calibration and a versioned profile;
 4. preflight rules create issues, then normalize, deduplicate, collapse their causal graph and
    calculate overall severity;
-5. remediation IDs resolve one-to-one to typed actions;
+5. remediation IDs resolve one-to-one to typed handlers through a sealed XSR command;
 
 Estimated evidence cannot create `Blocked`. Only a verified hard constraint may block launch.
 
@@ -40,3 +40,7 @@ same path through `ReportControllerInput`, so the capability layer never install
 - input usage is session-local and requires explicit host events;
 - baseline estimates retain model/profile/input/margin/reason provenance;
 - estimated memory pressure is Critical, while verified missing Java can be Blocked;
+- all §37-49 rule IDs are projected, including inactive rules as `false`;
+- unavailable Boolean facts do not trigger negative preflight rules;
+- zero/unavailable observations do not enter historical P95 calibration;
+- remediation dispatch rejects missing, unconfirmed and mismatched handlers;

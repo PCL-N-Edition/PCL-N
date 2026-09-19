@@ -67,7 +67,8 @@ public sealed class FoundationHost
         TelemetryService telemetry,
         SettingsService settings,
         TaskCenterService tasks,
-        string? minecraftRootDirectory = null)
+        string? minecraftRootDirectory = null,
+        IEnumerable<IRemediationHandler>? remediationHandlers = null)
     {
         StateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
         Logging = logging ?? throw new ArgumentNullException(nameof(logging));
@@ -77,6 +78,7 @@ public sealed class FoundationHost
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
         SettingsPolicy = new SettingsPolicyService(Settings);
         InputUsage = new InputUsageTracker();
+        ObservationHistory = new ResourceObservationHistory();
         // The full environment registry: machine facts plus the display/storage/filesystem/
         // power and java/minecraft.files namespaces. Instance-scoped providers bind to the
         // active Minecraft root so storage and file-integrity facts answer for THAT path.
@@ -85,6 +87,8 @@ public sealed class FoundationHost
             .. FormFactorCatalog.Definitions.Values,
             .. InputCatalog.Definitions(),
             .. ResourceEstimateCatalog.Definitions(),
+            .. PreflightCatalog.Definitions(),
+            .. LaunchPolicyCatalog.Definitions(),
             .. RemediationCatalog.Definitions(),
             .. MachineDerivedRules.Definitions(),
             .. MachineHardwareCatalog.MergeInto(
@@ -108,12 +112,13 @@ public sealed class FoundationHost
         MachineCapabilities = new MachineCapabilityBroker(
             capabilityRegistry, capabilityProviders, StateStore,
             derivations: MachineDerivedRules.Defaults(),
-            projections: [new ResourceEstimatorProjection()]);
-        ResourceEstimator = new ResourceEstimator();
+            projections: [new ResourceEstimatorProjection(history: ObservationHistory), new LaunchPolicyProjection(), new PreflightProjection()]);
+        ResourceEstimator = new ResourceEstimator(history: ObservationHistory);
         Preflight = new CapabilityPreflightEngine();
+        Remediations = new RemediationService(remediationHandlers);
         Tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _services = Array.AsReadOnly<object>([Logging, Downloads, Accounts, Telemetry, Settings, SettingsPolicy, Tasks,
-            InputUsage, MachineCapabilities, ResourceEstimator, Preflight]);
+            InputUsage, ObservationHistory, MachineCapabilities, ResourceEstimator, Preflight, Remediations]);
     }
 
     public XsrStateStore StateStore { get; }
@@ -134,6 +139,8 @@ public sealed class FoundationHost
     public InputUsageTracker InputUsage { get; }
     public ResourceEstimator ResourceEstimator { get; }
     public CapabilityPreflightEngine Preflight { get; }
+    public ResourceObservationHistory ObservationHistory { get; }
+    public RemediationService Remediations { get; }
 
     /// <summary>Registered services in activation order (for composition diagnostics).</summary>
     public IReadOnlyList<object> Services => _services;
@@ -158,7 +165,8 @@ public static class FoundationComposer
         int telemetryCapacity = 500,
         Action<XsrStateStoreBuilder>? declareHostState = null,
         Action<LogService>? configureLogging = null,
-        string? minecraftRootDirectory = null)
+        string? minecraftRootDirectory = null,
+        IEnumerable<IRemediationHandler>? remediationHandlers = null)
     {
         ArgumentNullException.ThrowIfNull(settingsPort);
         ArgumentNullException.ThrowIfNull(settingsSchema);
@@ -177,6 +185,7 @@ public static class FoundationComposer
         var settings = new SettingsService(store, settingsSchema, settingsPort, logging);
         var tasks = new TaskCenterService(store);
 
-        return new FoundationHost(store, logging, downloads, accounts, telemetry, settings, tasks, minecraftRootDirectory);
+        return new FoundationHost(store, logging, downloads, accounts, telemetry, settings, tasks,
+            minecraftRootDirectory, remediationHandlers);
     }
 }

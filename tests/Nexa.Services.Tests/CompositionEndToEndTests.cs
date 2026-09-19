@@ -1,6 +1,7 @@
 using System.Text;
 using Nexa.Pxml;
 using Nexa.Services.Accounts;
+using Nexa.Services.Capabilities;
 using Nexa.Services.Composition;
 using Nexa.Services.Downloads;
 using Nexa.Services.Files;
@@ -75,11 +76,19 @@ internal static partial class Program
         LaunchProfileFilePort profilePort = new(System.IO.Path.Combine(
             System.IO.Path.GetTempPath(), "pcl-services-tests", Guid.NewGuid().ToString("N"), "profiles.json"));
         RecordingDispatchObserver observer = new();
-        FoundationHost host = FoundationComposer.Compose(settingsPort, schema, profilePort, bridge);
+        RecordingRemediationHandler remediationHandler = new("remediation.instance.recheck_permissions");
+        FoundationHost host = FoundationComposer.Compose(settingsPort, schema, profilePort, bridge,
+            remediationHandlers: [remediationHandler]);
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host, observer);
 
-        AssertEqual(9, runtime.Commands.Count);
-        AssertEqual(7, runtime.Queries.Count);
+        AssertEqual(10, runtime.Commands.Count);
+        AssertEqual(8, runtime.Queries.Count);
+        AssertTrue(runtime.Queries.TryResolve(MachineCapabilityStateContract.PreflightQuery, out _));
+        AssertTrue(runtime.Commands.TryResolve(MachineCapabilityStateContract.RemediationCommand,
+            out XsrCommandId remediationCommand));
+        AssertTrue((await runtime.Commands.Dispatch(remediationCommand,
+            new RemediationRequest(remediationHandler.Id)).Completion).IsSuccess);
+        AssertEqual(1, remediationHandler.Calls);
         AssertTrue(runtime.Commands.TryResolve(FoundationRouteIds.SettingsSet, out XsrCommandId commandId));
         AssertTrue(runtime.Commands.TryResolve(FoundationRouteIds.TelemetryConsent, out _));
         AssertTrue(runtime.Commands.TryResolve(FoundationRouteIds.AccountUpsertProfile, out _));
