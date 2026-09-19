@@ -286,7 +286,10 @@ internal static partial class Program
             AssertTrue(result.IsSuccess,
                 "approval launch failed: " + result.Error?.Code.Value + " " + result.Error?.Message);
             AssertEqual(1, installer.Calls);
-            AssertTrue(ReadProgressFlag(store, MinecraftLaunchProgressState.LaunchedKey));
+            // ExitingProcessPort may publish its terminal event before this continuation runs.
+            // A terminal session intentionally clears IsLaunched, so the durable contract here
+            // is the successful result plus one installer call, not a timing-dependent state.
+            AssertFalse(ReadProgressFlag(store, MinecraftLaunchProgressState.AcquirePendingKey));
         }
         finally
         {
