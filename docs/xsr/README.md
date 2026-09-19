@@ -93,3 +93,4 @@ Public API baselines describe the accepted surface; changing a baseline never tu
 - [migrations/XSR-606-minecraft-launch-hardening.md](migrations/XSR-606-minecraft-launch-hardening.md) — Minecraft launch hardening: Java conflicts, token coverage, natives extraction, process state
 - [migrations/XSR-608-minecraft-java-policy.md](migrations/XSR-608-minecraft-java-policy.md) — Minecraft Java policy closure: version schemes, manifest-first selection, and the historical compatibility matrix
 - [migrations/XSR-609-minecraft-library-artifact-native-pair.md](migrations/XSR-609-minecraft-library-artifact-native-pair.md) — Minecraft library artifact/native pairing: preserve ordinary classpath JARs beside native classifiers
+- [capability-registry-gap.md](capability-registry-gap.md) — Registry 1.1 与当前实现的全量差距矩阵（逐 namespace 探测缺口 + 六层架构缺口 + 依赖驱动的切片顺序）
