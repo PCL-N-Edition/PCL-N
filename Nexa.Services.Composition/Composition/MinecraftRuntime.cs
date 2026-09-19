@@ -143,7 +143,7 @@ public static class MinecraftRuntimeComposer
         AuthlibInjectorProvider authlib = new(authlibHttp, host.Downloads);
         owned.Add(authlibHttp);
         owned.Add(authlib);
-        MinecraftLaunchExecutor executor = new(processService, host.Logging);
+        MinecraftLaunchExecutor executor = new(new JvmHostService(processService, host.ObservationHistory), host.Logging);
         // The legacy 补全文件 step: the launch pipeline repairs missing files before the JVM
         // starts, sharing the foundation download engine with installs.
         MinecraftLaunchFileCompletion fileCompletion = new(host.Downloads, host.Logging);

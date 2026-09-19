@@ -108,6 +108,12 @@ public sealed class MinecraftProcessSession : IAsyncDisposable
         lock (_gate) return [.. _evidence, .. _errorEvidence];
     }
 
+    internal async Task<(string[] Stdout, string[] Stderr)> ReadSeparatedEvidenceAsync()
+    {
+        await Task.WhenAny(Task.WhenAll(_outputDrain, _errorDrain), Task.Delay(2000)).ConfigureAwait(false);
+        lock (_gate) return (_evidence.ToArray(), _errorEvidence.ToArray());
+    }
+
     /// <summary>
     /// Completes the Created phase without a Created-to-Running race. The process is checked both
     /// before and immediately after the Running transition; an already dead JVM is published as
