@@ -83,8 +83,11 @@ public sealed class FoundationHost
             MachineEnvironmentCatalog.MergeInto(MachineCapabilityCatalog.CreateRegistry()));
         List<IMachineCapabilityProvider> capabilityProviders = [.. MachineCapabilityCatalog.CreateProviders(),
             new DisplayCapabilityProvider(),
-            new StorageFilesystemPowerCapabilityProvider(minecraftRootDirectory)];
-        capabilityProviders.Add(new MinecraftEnvironmentCapabilityProvider());
+            new StorageCapabilityProvider(minecraftRootDirectory),
+            new FilesystemCapabilityProvider(),
+            new PowerCapabilityProvider(),
+            new JavaEnvironmentCapabilityProvider(),
+            new MinecraftEnvironmentCapabilityProvider(minecraftRootDirectory)];
 
         MachineCapabilities = new MachineCapabilityBroker(capabilityRegistry, capabilityProviders, StateStore);
         Tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
@@ -149,6 +152,6 @@ public static class FoundationComposer
         var settings = new SettingsService(store, settingsSchema, settingsPort, logging);
         var tasks = new TaskCenterService(store);
 
-        return new FoundationHost(store, logging, downloads, accounts, telemetry, settings, tasks);
+        return new FoundationHost(store, logging, downloads, accounts, telemetry, settings, tasks, minecraftRootDirectory);
     }
 }

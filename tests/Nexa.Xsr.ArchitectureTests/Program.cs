@@ -35,6 +35,7 @@ internal static class Program
                 "Nexa.Xsr.State",
             ],
             ["Nexa.Services.Composition"] = ["Nexa.Services", "Nexa.Xsr.Runtime"],
+            ["CapabilityProbe"] = ["Nexa.Services"],
             ["Nexa.UI.Next"] = ["Nexa.Core", "Nexa.Xsr.Abstractions", "Nexa.Xsr.State"],
             ["Nexa.UI.Next.Backend.Avalonia"] = ["Nexa.UI.Next"],
             ["Nexa.UI.Next.DevTools"] = ["Nexa.UI.Next", "Nexa.Xsr.Diagnostics"],

@@ -28,9 +28,11 @@ public static class MachineEnvironmentCatalog
         CapabilityKind.Metric, CapabilityStability.Dynamic, unit: "bytes");
 
     // filesystem.*
-    public static readonly CapabilityDefinition<bool> InstancePathExists = new("filesystem.path.exists", "实例路径存在", "文件系统", FilesystemProviderId,
+    // Path/volume facts belong to the storage provider (nexa.storage) — that is the
+    // provider whose CollectAsync produces them, and the broker enforces ownership.
+    public static readonly CapabilityDefinition<bool> InstancePathExists = new("filesystem.path.exists", "实例路径存在", "文件系统", StorageProviderId,
         CapabilityKind.Fact, CapabilityStability.Dynamic);
-    public static readonly CapabilityDefinition<bool> InstancePathWritable = new("filesystem.path.writable", "实例路径可写", "文件系统", FilesystemProviderId,
+    public static readonly CapabilityDefinition<bool> InstancePathWritable = new("filesystem.path.writable", "实例路径可写", "文件系统", StorageProviderId,
         CapabilityKind.Fact, CapabilityStability.Dynamic);
     public static readonly CapabilityDefinition<bool> FilesystemCaseSensitive = new("filesystem.case_sensitive", "文件系统大小写敏感", "文件系统", FilesystemProviderId,
         CapabilityKind.Fact, CapabilityStability.Static);

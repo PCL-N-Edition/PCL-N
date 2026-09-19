@@ -155,31 +155,67 @@ public static class MachineInstanceCatalog
     }
 }
 
-/// <summary>Storage-volume, filesystem-shape and power facts for the paths the launcher owns.</summary>
-internal sealed partial class StorageFilesystemPowerCapabilityProvider(string? instanceDirectory) : IMachineCapabilityProvider
+/// <summary>Filesystem-shape facts from platform semantics.</summary>
+internal sealed class FilesystemCapabilityProvider : IMachineCapabilityProvider
 {
-    public string Id => instanceDirectory is null
-        ? MachineEnvironmentCatalog.FilesystemProviderId
-        : MachineEnvironmentCatalog.StorageProviderId;
+    public string Id => MachineEnvironmentCatalog.FilesystemProviderId;
 
-    public async ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
+    public ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        List<ICapability> facts = [];
-        if (instanceDirectory is { } directory)
+        ICapability[] facts =
+        [
+            MachineEnvironmentCatalog.FilesystemCaseSensitive.Observe(
+                !OperatingSystem.IsWindows(), timestamp, ".NET platform semantics"),
+            MachineEnvironmentCatalog.FilesystemSymlink.Observe(SupportsSymlinks, timestamp, ".NET FileSystem/OS semantics"),
+            // Reflink/clone (APFS clonefile, Btrfs, ReFS) needs per-filesystem interop; a
+            // wrong "yes" would silently duplicate data, so the action stays unavailable.
+            MachineEnvironmentCatalog.FilesystemReflink.Unavailable(
+                CapabilityAvailability.NotImplemented, timestamp, "文件克隆检测尚未接入"),
+        ];
+        return ValueTask.FromResult<IReadOnlyList<ICapability>>(facts);
+    }
+
+    private static readonly bool SupportsSymlinks = OperatingSystem.IsWindows()
+        ? Environment.OSVersion.Version.Build >= 14972
+        : true;
+}
+
+/// <summary>Instance-path scope: existence, writability, and the volume's free space.</summary>
+internal sealed class StorageCapabilityProvider(string? instanceDirectory) : IMachineCapabilityProvider
+{
+    public string Id => MachineEnvironmentCatalog.StorageProviderId;
+
+    public ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(instanceDirectory))
         {
-            facts.AddRange(MachineInstanceCatalog.CollectPathScope(directory, timestamp));
+            return ValueTask.FromResult<IReadOnlyList<ICapability>>(
+            [
+                MachineEnvironmentCatalog.InstancePathExists.Unavailable(
+                    CapabilityAvailability.TemporarilyUnavailable, timestamp, "尚未确定 Minecraft 目录"),
+                MachineEnvironmentCatalog.InstancePathWritable.Unavailable(
+                    CapabilityAvailability.TemporarilyUnavailable, timestamp, "尚未确定 Minecraft 目录"),
+                MachineEnvironmentCatalog.InstanceVolumeFreeBytes.Unavailable(
+                    CapabilityAvailability.TemporarilyUnavailable, timestamp, "尚未确定 Minecraft 目录"),
+            ]);
         }
 
-        facts.Add(MachineEnvironmentCatalog.FilesystemCaseSensitive.Observe(
-            !OperatingSystem.IsWindows(), timestamp, ".NET platform semantics"));
-        facts.Add(MachineEnvironmentCatalog.FilesystemSymlink.Observe(supportsSymlinks, timestamp, ".NET FileSystem/OS semantics"));
-        // Reflink/clone (APFS clonefile, Btrfs, ReFS) needs per-filesystem interop; a wrong
-        // "yes" would silently duplicate data, so the action stays unavailable until wired.
-        facts.Add(MachineEnvironmentCatalog.FilesystemReflink.Unavailable(
-            CapabilityAvailability.NotImplemented, timestamp, "文件克隆检测尚未接入"));
-        facts.AddRange(await CollectPowerAsync(timestamp).ConfigureAwait(false));
-        return Array.AsReadOnly<ICapability>([.. facts]);
+        return ValueTask.FromResult(MachineInstanceCatalog.CollectPathScope(instanceDirectory, timestamp));
+    }
+
+}
+
+/// <summary>Power-source and battery facts per platform; unknown facts stay unknown.</summary>
+internal sealed partial class PowerCapabilityProvider : IMachineCapabilityProvider
+{
+    public string Id => MachineEnvironmentCatalog.PowerProviderId;
+
+    public ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return CollectPowerAsync(timestamp);
     }
 
     private static async ValueTask<IReadOnlyList<ICapability>> CollectPowerAsync(DateTimeOffset timestamp)
