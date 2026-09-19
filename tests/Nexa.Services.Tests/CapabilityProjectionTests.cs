@@ -33,24 +33,30 @@ internal static partial class Program
         await File.WriteAllTextAsync(Path.Combine(root, "versions", "1.20.1", "1.20.1.json"), """
             { "id": "1.20.1", "javaVersion": { "component": "java-runtime-gamma", "majorVersion": 17 } }
             """);
+        string newer = Path.Combine(root, "versions", "newer-vanilla");
+        Directory.CreateDirectory(newer);
+        await File.WriteAllTextAsync(Path.Combine(newer, "newer-vanilla.json"), """
+            { "id": "newer-vanilla", "releaseTime": "2027-01-01T00:00:00Z", "mainClass": "net.minecraft.client.main.Main" }
+            """);
         await File.WriteAllTextAsync(Path.Combine(versions, "options.txt"), "renderDistance:8\ngraphicsMode:fast\n");
 
         LoaderCapabilityProvider loader = new(root);
-        IReadOnlyList<ICapability> loaderFacts = await loader.CollectAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+        MachineCapabilityQuery scope = new(InstanceDirectory: versions, InstanceId: "fabric-test");
+        IReadOnlyList<ICapability> loaderFacts = await loader.CollectAsync(DateTimeOffset.UtcNow, scope, CancellationToken.None);
         AssertEqual("Fabric", loaderFacts.Single(fact => fact.Id == "loader.type").DisplayValue);
         AssertEqual("是", loaderFacts.Single(fact => fact.Id == "loader.present").DisplayValue);
         AssertEqual("否", loaderFacts.Single(fact => fact.Id == "loader.derived.missing").DisplayValue);
 
         // Settings read from the isolated instance's options.txt (isolation defaults on).
         MinecraftEnvironmentCapabilityProvider minecraft = new(root);
-        IReadOnlyList<ICapability> minecraftFacts = await minecraft.CollectAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+        IReadOnlyList<ICapability> minecraftFacts = await minecraft.CollectAsync(DateTimeOffset.UtcNow, scope, CancellationToken.None);
         AssertEqual("是", minecraftFacts.Single(fact => fact.Id == "minecraft.settings.readable").DisplayValue);
         AssertEqual("8", minecraftFacts.Single(fact => fact.Id == "minecraft.settings.render_distance").DisplayValue);
         AssertEqual("fast", minecraftFacts.Single(fact => fact.Id == "minecraft.settings.graphics_mode").DisplayValue);
 
         // Java requirement from the manifest chain: the parent pins Java 17+.
         IReadOnlyList<ICapability> javaFacts = await JavaCompatibilityProjection.CollectAsync(
-            new NoJavaLocator(), root, DateTimeOffset.UtcNow, CancellationToken.None);
+            new NoJavaLocator(), root, scope, DateTimeOffset.UtcNow, CancellationToken.None);
         AssertEqual("17.0", javaFacts.Single(fact => fact.Id == "java.requirement.minimum").DisplayValue);
 
         Directory.Delete(root, recursive: true);
@@ -104,7 +110,10 @@ internal static partial class Program
             processArch.Observe("X64", timestamp, "fixture"),
         ]));
         var memory = new ProbeProvider("memory", (timestamp, _) => ValueTask.FromResult<IReadOnlyList<ICapability>>(
-            [usable.Observe(2L * 1024 * 1024 * 1024, timestamp, "fixture")]));
+        [
+            usable.Observe(2L * 1024 * 1024 * 1024, timestamp, "fixture"),
+            commitAvailable.Unavailable(CapabilityAvailability.PlatformUnsupported, timestamp, "fixture platform"),
+        ]));
         var java = new ProbeProvider("java", (timestamp, _) => ValueTask.FromResult<IReadOnlyList<ICapability>>(
         [
             installed.Observe(true, timestamp, "fixture"),
@@ -122,6 +131,7 @@ internal static partial class Program
         AssertTrue(snapshot.Get<bool>("machine.memory.low")!.Value);
         AssertFalse(snapshot.Get<bool>("machine.memory.constrained")!.Value);
         AssertFalse(snapshot.Get<bool>("machine.memory.abundant")!.Value);
+        AssertEqual(CapabilityAvailability.DependencyMissing, snapshot.Get<bool>("memory.derived.commit_low")!.Availability);
         AssertFalse(snapshot.Get<bool>("java.derived.missing")!.Value);
         AssertTrue(snapshot.Get<bool>("java.derived.hard_incompatible")!.Value);
 
@@ -133,5 +143,28 @@ internal static partial class Program
         snapshot = await broker.ReadAsync(refresh: true);
         AssertEqual(CapabilityAvailability.DependencyMissing, snapshot.Get<bool>("machine.memory.low")!.Availability);
         AssertTrue(snapshot.Get<bool>("java.derived.hard_incompatible")!.Value);
+    }
+
+    private static async ValueTask FormFactorHeuristicClassifiesTheDevice()
+    {
+        // Laptop: battery + internal panel, no touch-first.
+        FormFactorCapabilityProvider laptop = new(batteryPresent: () => true, internalDisplay: () => true,
+            touchAvailable: () => false, keyboardAvailable: () => true, controllerAvailable: () => false);
+        IReadOnlyList<ICapability> facts = await laptop.CollectAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+        AssertEqual("Laptop", facts.Single(fact => fact.Id == "formfactor.type").DisplayValue);
+        AssertEqual("否", facts.Single(fact => fact.Id == "formfactor.handheld").DisplayValue);
+
+        // Handheld: battery + touch + controller-first (no internal keyboard assumption).
+        FormFactorCapabilityProvider handheld = new(batteryPresent: () => true, internalDisplay: () => true,
+            touchAvailable: () => true, keyboardAvailable: () => false, controllerAvailable: () => true);
+        facts = await handheld.CollectAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+        AssertEqual("Handheld", facts.Single(fact => fact.Id == "formfactor.type").DisplayValue);
+
+        // Desktop: no battery.
+        FormFactorCapabilityProvider desktop = new(batteryPresent: () => false, internalDisplay: () => false,
+            touchAvailable: () => false, keyboardAvailable: () => true, controllerAvailable: () => false);
+        facts = await desktop.CollectAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+        AssertEqual("Desktop", facts.Single(fact => fact.Id == "formfactor.type").DisplayValue);
+        AssertEqual("否", facts.Single(fact => fact.Id == "formfactor.portable").DisplayValue);
     }
 }

@@ -76,11 +76,16 @@ public sealed class FoundationHost
         Telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
         SettingsPolicy = new SettingsPolicyService(Settings);
+        InputUsage = new InputUsageTracker();
         // The full environment registry: machine facts plus the display/storage/filesystem/
         // power and java/minecraft.files namespaces. Instance-scoped providers bind to the
         // active Minecraft root so storage and file-integrity facts answer for THAT path.
         CapabilityRegistry capabilityRegistry = new CapabilityRegistry(
         [
+            .. FormFactorCatalog.Definitions.Values,
+            .. InputCatalog.Definitions(),
+            .. ResourceEstimateCatalog.Definitions(),
+            .. RemediationCatalog.Definitions(),
             .. MachineDerivedRules.Definitions(),
             .. MachineHardwareCatalog.MergeInto(
                 MachineInstanceCatalog.MergeInto(
@@ -96,13 +101,19 @@ public sealed class FoundationHost
             new HardwarePowerCapabilityProvider(),
             new MinecraftEnvironmentCapabilityProvider(minecraftRootDirectory),
             new LoaderCapabilityProvider(minecraftRootDirectory),
-            new AccountCapabilityProvider(accounts)];
+            new AccountCapabilityProvider(accounts),
+            new FormFactorCapabilityProvider(),
+            new InputCapabilityProvider(InputUsage)];
 
         MachineCapabilities = new MachineCapabilityBroker(
             capabilityRegistry, capabilityProviders, StateStore,
-            derivations: MachineDerivedRules.Defaults());
+            derivations: MachineDerivedRules.Defaults(),
+            projections: [new ResourceEstimatorProjection()]);
+        ResourceEstimator = new ResourceEstimator();
+        Preflight = new CapabilityPreflightEngine();
         Tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
-        _services = Array.AsReadOnly<object>([Logging, Downloads, Accounts, Telemetry, Settings, SettingsPolicy, Tasks, MachineCapabilities]);
+        _services = Array.AsReadOnly<object>([Logging, Downloads, Accounts, Telemetry, Settings, SettingsPolicy, Tasks,
+            InputUsage, MachineCapabilities, ResourceEstimator, Preflight]);
     }
 
     public XsrStateStore StateStore { get; }
@@ -120,6 +131,9 @@ public sealed class FoundationHost
 
     public TaskCenterService Tasks { get; }
     public MachineCapabilityBroker MachineCapabilities { get; }
+    public InputUsageTracker InputUsage { get; }
+    public ResourceEstimator ResourceEstimator { get; }
+    public CapabilityPreflightEngine Preflight { get; }
 
     /// <summary>Registered services in activation order (for composition diagnostics).</summary>
     public IReadOnlyList<object> Services => _services;

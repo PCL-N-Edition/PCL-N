@@ -58,6 +58,13 @@ public static class MachineEnvironmentCatalog
 }
 
 /// <summary>Observes display geometry through the platform's own APIs; nothing is estimated.</summary>
+public static class DisplayCapabilityProbe
+{
+    /// <summary>True when the primary monitor is a built-in panel (laptop/handheld); the
+    /// display provider does the actual DisplayConfig work.</summary>
+    public static bool IsPrimaryInternalProbe() => DisplayCapabilityProvider.ProbePrimaryInternal();
+}
+
 public sealed partial class DisplayCapabilityProvider : IMachineCapabilityProvider
 {
     public string Id => MachineEnvironmentCatalog.DisplayProviderId;
@@ -192,6 +199,14 @@ public sealed partial class DisplayCapabilityProvider : IMachineCapabilityProvid
     /// GDI device name maps to its path, and the target's outputTechnology INTERNAL flag is
     /// the authoritative built-in signal (laptop panels, handhelds).
     /// </summary>
+    internal static bool ProbePrimaryInternal()
+    {
+        const uint monitorDefaultToNearest = 2;
+        nint handle = MonitorFromPoint(new Point { X = 0, Y = 0 }, monitorDefaultToNearest);
+        MONITORINFOEX info = new() { Size = System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFOEX>() };
+        return GetMonitorInfo(handle, ref info) && IsPrimaryInternal(info.DeviceName);
+    }
+
     private static bool IsPrimaryInternal(string primaryGdiDeviceName)
     {
         const uint QDC_ONLY_ACTIVE_PATHS = 2;

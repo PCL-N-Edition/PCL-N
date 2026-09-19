@@ -9,9 +9,8 @@ using Nexa.Services.Minecraft.ModLoaders;
 namespace Nexa.Services.Capabilities;
 
 /// <summary>
-/// The primary instance scope shared by the environment projections: discovery picks the
-/// newest instance under the root once per collection window, then loader / java / settings
-/// facts all answer for THAT instance — exactly the instance the user is about to launch.
+/// Explicit instance scope shared by environment projections. A caller must identify the
+/// selected instance; an unscoped machine query never guesses from release time.
 /// </summary>
 public static class MinecraftPrimaryInstanceScope
 {
@@ -24,12 +23,15 @@ public static class MinecraftPrimaryInstanceScope
     private static readonly ConcurrentDictionary<string, (DateTimeOffset At, PrimaryInstance? Value)> Cache = new(StringComparer.Ordinal);
     private static readonly TimeSpan CacheWindow = TimeSpan.FromSeconds(10);
 
-    public static async ValueTask<PrimaryInstance?> ResolveAsync(string minecraftRootDirectory, CancellationToken cancellationToken)
+    public static async ValueTask<PrimaryInstance?> ResolveAsync(string minecraftRootDirectory,
+        MachineCapabilityQuery query, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
+        if (!query.HasInstanceScope) return null;
         string root = Path.GetFullPath(minecraftRootDirectory);
+        string key = root + "\n" + query.InstanceId + "\n" + query.InstanceDirectory;
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        if (Cache.TryGetValue(root, out var cached) && now - cached.At < CacheWindow)
+        if (Cache.TryGetValue(key, out var cached) && now - cached.At < CacheWindow)
         {
             return cached.Value;
         }
@@ -40,11 +42,13 @@ public static class MinecraftPrimaryInstanceScope
             MinecraftInstanceDiscovery discovery = new();
             IReadOnlyList<MinecraftInstanceDescriptor> instances = await discovery
                 .DiscoverAsync(root, cancellationToken).ConfigureAwait(false);
-            MinecraftInstanceDescriptor? newest = instances
-                .OrderByDescending(static instance => instance.Version.ReleaseTime ?? DateTimeOffset.MinValue)
-                .ThenBy(static instance => instance.Id, StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault();
-            if (newest is { } instance)
+            string? selectedDirectory = string.IsNullOrWhiteSpace(query.InstanceDirectory)
+                ? null : Path.GetFullPath(query.InstanceDirectory);
+            MinecraftInstanceDescriptor? selected = instances.FirstOrDefault(instance =>
+                selectedDirectory is not null
+                    ? string.Equals(Path.GetFullPath(instance.DirectoryPath), selectedDirectory, StringComparison.OrdinalIgnoreCase)
+                    : string.Equals(instance.Id, query.InstanceId, StringComparison.Ordinal));
+            if (selected is { } instance)
             {
                 MinecraftResolvedVersionManifests manifests = await MinecraftVersionJsonReader
                     .ResolveAsync(instance, root, cancellationToken).ConfigureAwait(false);
@@ -61,7 +65,7 @@ public static class MinecraftPrimaryInstanceScope
             resolved = null;
         }
 
-        Cache[root] = (now, resolved);
+        Cache[key] = (now, resolved);
         return resolved;
     }
 }
@@ -72,10 +76,14 @@ public sealed class LoaderCapabilityProvider(string? minecraftRootDirectory) : I
     public string Id => MachineInstanceCatalog.LoaderProviderId;
 
     public async ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
+        => await CollectAsync(timestamp, new MachineCapabilityQuery(), cancellationToken).ConfigureAwait(false);
+
+    public async ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, MachineCapabilityQuery query,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(minecraftRootDirectory)
-            || await MinecraftPrimaryInstanceScope.ResolveAsync(minecraftRootDirectory, cancellationToken).ConfigureAwait(false) is not { } primary)
+            || await MinecraftPrimaryInstanceScope.ResolveAsync(minecraftRootDirectory, query, cancellationToken).ConfigureAwait(false) is not { } primary)
         {
             return AllUnavailable(timestamp, "尚未发现 Minecraft 实例");
         }
@@ -151,11 +159,12 @@ public static class JavaCompatibilityProjection
     public static async ValueTask<IReadOnlyList<ICapability>> CollectAsync(
         IJavaRuntimeLocator locator,
         string? minecraftRootDirectory,
+        MachineCapabilityQuery query,
         DateTimeOffset timestamp,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(minecraftRootDirectory)
-            || await MinecraftPrimaryInstanceScope.ResolveAsync(minecraftRootDirectory, cancellationToken).ConfigureAwait(false) is not { } primary)
+            || await MinecraftPrimaryInstanceScope.ResolveAsync(minecraftRootDirectory, query, cancellationToken).ConfigureAwait(false) is not { } primary)
         {
             return
             [

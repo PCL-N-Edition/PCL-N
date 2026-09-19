@@ -37,7 +37,7 @@ public abstract class CapabilityDerivation<T> : ICapabilityDerivation
         foreach (string input in _inputs)
         {
             if (!values.TryGetValue(input, out ICapability? fact)
-                || fact.Availability is not (CapabilityAvailability.Available or CapabilityAvailability.PlatformUnsupported))
+                || fact.Availability != CapabilityAvailability.Available)
             {
                 return _definition.Unavailable(CapabilityAvailability.DependencyMissing, timestamp, $"所需能力尚不可用：{input}");
             }

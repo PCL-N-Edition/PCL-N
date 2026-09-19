@@ -46,7 +46,7 @@ java 5 / memory 5 / minecraft 2 / platform 4 / power 5 / runtime 2 / storage 1 /
 | §28 历史 | history.available/p95×5/launch_time、similarity×5、weight、calibrated.* | ❌ |
 | §27 estimate.status/confidence | NotStarted/Pending/Completed/Failed + Low/Medium/High + reason.unknown_mods 等 | ❌（仅 preflight 不变量知道 certainty 枚举） |
 | §33 Policy Engine | policy.minecraft.memory/java/cpu/gpu/priority/display/large_pages/prewarm/… + policy.nexa.* | ❌ |
-| §34-49 Preflight | 规则引擎 + aggregator（§50 管线）+ issue 模型 | 🟡 `CapabilityPreflightIssue` 33 行：只有 Severity/Certainty 构造 + Blocked⇒Verified 不变量。**无规则、无 Evidence[]/Causes[]/Remediations[]/CanBypass/Suppressible、无 aggregator** |
+| §34-49 Preflight | 规则引擎 + aggregator（§50 管线）+ issue 模型 | 🟡 Issue contract 已有 Severity/Certainty/HardConstraint/Evidence/Causes/Remediations/CanBypass/Suppressible 与 Blocked⇒Verified 不变量；缺口是规则覆盖、完整 policy 输入和更多因果边 |
 | §50 Aggregator | Collect→Estimate→Resolve→Rules→Normalize→Dedupe→**因果图**→Collapse→Severity→Render Once | ❌（尤其因果图折叠未开工） |
 | §52 Severity | Information 不参与 OverallSeverity | ❌ 无聚合即无该规则 |
 | §54-55 Remediation | remediation.* 15 个动作 + 与 Issue code 绑定 | ❌ |

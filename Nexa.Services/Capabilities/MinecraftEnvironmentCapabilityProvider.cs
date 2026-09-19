@@ -21,12 +21,16 @@ public sealed class JavaEnvironmentCapabilityProvider(
     public string Id => MachineInstanceCatalog.JavaProviderId;
 
     public async ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
+        => await CollectAsync(timestamp, new MachineCapabilityQuery(), cancellationToken).ConfigureAwait(false);
+
+    public async ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, MachineCapabilityQuery query,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         List<ICapability> facts = [.. await MachineInstanceCatalog.CollectJavaAsync(
             _javaLocator, timestamp, cancellationToken).ConfigureAwait(false)];
         facts.AddRange(await JavaCompatibilityProjection.CollectAsync(
-            _javaLocator, _minecraftRootDirectory, timestamp, cancellationToken).ConfigureAwait(false));
+            _javaLocator, _minecraftRootDirectory, query, timestamp, cancellationToken).ConfigureAwait(false));
         return Array.AsReadOnly<ICapability>([.. facts]);
     }
 }
@@ -48,6 +52,10 @@ public sealed class MinecraftEnvironmentCapabilityProvider(
     public string Id => MachineInstanceCatalog.MinecraftProviderId;
 
     public async ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
+        => await CollectAsync(timestamp, new MachineCapabilityQuery(), cancellationToken).ConfigureAwait(false);
+
+    public async ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, MachineCapabilityQuery query,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         List<ICapability> facts = [];
@@ -65,15 +73,16 @@ public sealed class MinecraftEnvironmentCapabilityProvider(
                 CapabilityAvailability.TemporarilyUnavailable, timestamp, "尚未解析实例文件计划"));
         }
 
-        facts.AddRange(await CollectSettingsAsync(timestamp, cancellationToken).ConfigureAwait(false));
+        facts.AddRange(await CollectSettingsAsync(timestamp, query, cancellationToken).ConfigureAwait(false));
         return Array.AsReadOnly<ICapability>([.. facts]);
     }
 
-    private async ValueTask<IReadOnlyList<ICapability>> CollectSettingsAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
+    private async ValueTask<IReadOnlyList<ICapability>> CollectSettingsAsync(DateTimeOffset timestamp,
+        MachineCapabilityQuery query, CancellationToken cancellationToken)
     {
         const string source = "options.txt";
         if (string.IsNullOrWhiteSpace(_minecraftRootDirectory)
-            || await MinecraftPrimaryInstanceScope.ResolveAsync(_minecraftRootDirectory, cancellationToken).ConfigureAwait(false) is not { } primary
+            || await MinecraftPrimaryInstanceScope.ResolveAsync(_minecraftRootDirectory, query, cancellationToken).ConfigureAwait(false) is not { } primary
             || primary.Options is not { Readable: true } options)
         {
             return

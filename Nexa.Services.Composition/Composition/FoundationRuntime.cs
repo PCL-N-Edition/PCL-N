@@ -95,7 +95,7 @@ public static class FoundationRuntimeComposer
         queries.Register<SettingsImportQuery, SettingsImportPreview>(SettingsPolicyContract.ImportPreviewQuery,
             (query, token) => ValueTask.FromResult(Nexa.Xsr.XsrResult.Success(host.SettingsPolicy.PreviewImport(query))));
         queries.Register<MachineCapabilityQuery, MachineCapabilitySnapshot>(MachineCapabilityStateContract.SnapshotQuery,
-            async (query, token) => Nexa.Xsr.XsrResult.Success(await host.MachineCapabilities.ReadAsync(cancellationToken: token).ConfigureAwait(false)));
+            async (query, token) => Nexa.Xsr.XsrResult.Success(await host.MachineCapabilities.ReadAsync(query, cancellationToken: token).ConfigureAwait(false)));
         XsrQueryRouter queryRouter = queries.Build(dispatchObserver, timeProvider);
 
         return new FoundationRuntime(host, commandRouter, queryRouter);
