@@ -66,7 +66,8 @@ public sealed class FoundationHost
         AccountService accounts,
         TelemetryService telemetry,
         SettingsService settings,
-        TaskCenterService tasks)
+        TaskCenterService tasks,
+        string? minecraftRootDirectory = null)
     {
         StateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
         Logging = logging ?? throw new ArgumentNullException(nameof(logging));
@@ -75,7 +76,17 @@ public sealed class FoundationHost
         Telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
         SettingsPolicy = new SettingsPolicyService(Settings);
-        MachineCapabilities = new MachineCapabilityBroker(MachineCapabilityCatalog.CreateRegistry(), MachineCapabilityCatalog.CreateProviders(), StateStore);
+        // The full environment registry: machine facts plus the display/storage/filesystem/
+        // power and java/minecraft.files namespaces. Instance-scoped providers bind to the
+        // active Minecraft root so storage and file-integrity facts answer for THAT path.
+        CapabilityRegistry capabilityRegistry = MachineInstanceCatalog.MergeInto(
+            MachineEnvironmentCatalog.MergeInto(MachineCapabilityCatalog.CreateRegistry()));
+        List<IMachineCapabilityProvider> capabilityProviders = [.. MachineCapabilityCatalog.CreateProviders(),
+            new DisplayCapabilityProvider(),
+            new StorageFilesystemPowerCapabilityProvider(minecraftRootDirectory)];
+        capabilityProviders.Add(new MinecraftEnvironmentCapabilityProvider());
+
+        MachineCapabilities = new MachineCapabilityBroker(capabilityRegistry, capabilityProviders, StateStore);
         Tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _services = Array.AsReadOnly<object>([Logging, Downloads, Accounts, Telemetry, Settings, SettingsPolicy, Tasks, MachineCapabilities]);
     }
@@ -118,7 +129,8 @@ public static class FoundationComposer
         long minimumSegmentBytes = 8 * 1024 * 1024,
         int telemetryCapacity = 500,
         Action<XsrStateStoreBuilder>? declareHostState = null,
-        Action<LogService>? configureLogging = null)
+        Action<LogService>? configureLogging = null,
+        string? minecraftRootDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(settingsPort);
         ArgumentNullException.ThrowIfNull(settingsSchema);

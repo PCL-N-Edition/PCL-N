@@ -32,8 +32,6 @@ public static class MachineCapabilityCatalog
         PhysicalUsable, PhysicalAvailable, CommitTotal, CommitLimit, CommitAvailable,
         new CapabilityDefinition<long>("gpu.memory.dedicated.available_budget", "显存可用预算", "待接入能力", "nexa.gpu", CapabilityKind.Metric, unit: "bytes"),
         new CapabilityDefinition<double>("thermal.cpu.temperature", "CPU 温度", "待接入能力", "nexa.thermal", CapabilityKind.Metric, unit: "°C"),
-        new CapabilityDefinition<string>("power.profile.current", "电源模式", "待接入能力", "nexa.power"),
-        new CapabilityDefinition<bool>("filesystem.reflink", "文件克隆", "待接入能力", "nexa.filesystem", CapabilityKind.Action),
     ]);
     public static IReadOnlyList<IMachineCapabilityProvider> CreateProviders() => Array.AsReadOnly<IMachineCapabilityProvider>([new RuntimeCapabilityProvider(), new MemoryCapabilityProvider()]);
 }
