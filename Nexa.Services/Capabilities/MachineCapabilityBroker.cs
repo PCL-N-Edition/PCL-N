@@ -20,10 +20,10 @@ public sealed record MachineCapabilityQuery(
     public bool HasInstanceScope => !string.IsNullOrWhiteSpace(InstanceDirectory) || !string.IsNullOrWhiteSpace(InstanceId);
 }
 public sealed record MachineCapabilityRefresh;
-public sealed record LaunchPreflightQuery(
-    string? InstanceDirectory = null,
-    string? InstanceId = null,
-    string? MinecraftRootDirectory = null);
+/// <summary>Evaluates a snapshot already collected for the caller's exact scope. Carrying the
+/// immutable snapshot makes the query pure: preflight cannot silently start another hardware or
+/// Java probe and cannot advance any capability revision.</summary>
+public sealed record LaunchPreflightQuery(MachineCapabilitySnapshot Snapshot);
 public interface IMachineCapabilityProvider
 {
     string Id { get; }
@@ -130,7 +130,15 @@ public sealed class MachineCapabilityBroker
             snapshot = new(++_revision, timestamp, values.Values);
             if (cacheResult) _snapshot = snapshot;
         }
-        _store.Publish(_revisionId, snapshot.Revision);
+
+        // Only machine-scope collections advance the global revision: an instance-scoped
+        // read is transient (it does not replace _snapshot), and publishing its revision
+        // made every watcher re-query, re-collect, re-publish — the self-refresh loop.
+        if (cacheResult)
+        {
+            _store.Publish(_revisionId, snapshot.Revision);
+        }
+
         return snapshot;
     }
     private async Task<IReadOnlyList<ICapability>> CollectProviderAsync(IMachineCapabilityProvider provider,

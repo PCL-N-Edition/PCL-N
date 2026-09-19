@@ -170,6 +170,10 @@ public sealed record MinecraftLaunchPlan(
     /// <summary>The resolved client/version JAR that was inserted at the classpath head.</summary>
     public string ClientJarPath { get; init; } = string.Empty;
 
+    /// <summary>Major version from the selected runtime metadata. Observation code consumes
+    /// this value directly and never guesses a version from the executable path.</summary>
+    public int JavaMajorVersion { get; init; }
+
     /// <summary>True when the classpath head came from an inheritsFrom/base version.</summary>
     public bool IsInheritedClientJar { get; init; }
 
@@ -322,6 +326,7 @@ public static class MinecraftLaunchPlanner
         {
             NativesDirectory = nativesDirectory,
             ClientJarPath = clientJar,
+            JavaMajorVersion = request.JavaMajorVersion,
             IsInheritedClientJar = clientJarResolution.IsInherited,
         };
     }

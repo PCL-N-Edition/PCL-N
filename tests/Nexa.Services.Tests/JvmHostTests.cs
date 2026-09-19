@@ -10,7 +10,7 @@ internal static partial class Program
     {
         MinecraftLaunchPlan plan = new("java", "root", ["-Xmx2g", "-cp", "a;b", "example.Main", "--demo"],
             ["a", "b"], [], new MinecraftModLoaderDescriptor(MinecraftModLoaderKind.Vanilla, null, "example.Main", []))
-        { NativesDirectory = "native" };
+        { NativesDirectory = "native", JavaMajorVersion = 21 };
         JvmHostService host = new(new MinecraftProcessService());
         JvmHostEnvironment environment = host.Describe(plan);
         AssertEqual("example.Main", plan.Arguments[3]);
@@ -28,15 +28,19 @@ internal static partial class Program
             capabilities.Single(static item => item.Id == "jvmhost.metric.gpu").Availability);
         AssertEqual(Nexa.Services.Capabilities.CapabilityAvailability.DependencyMissing,
             capabilities.Single(static item => item.Id == "jvmhost.process.cpu_sets").Availability);
+        AssertEqual(Nexa.Services.Capabilities.CapabilityAvailability.DependencyMissing,
+            capabilities.Single(static item => item.Id == "jvmhost.metric.commit").Availability);
 
         JvmHostObservation unavailableMetrics = new(Guid.NewGuid(), "fixture", DateTimeOffset.UtcNow,
-            DateTimeOffset.UtcNow, 1, 1024, 512, 1, 1, 0, 512, 512, 0, 0, 0, 0, null, null, 0, [], []);
+            DateTimeOffset.UtcNow, 1, 1024, 512, 1, 1, 0, 0, 0, 0, 0, 0, 0, null, null, 0, [], []);
         IReadOnlyList<Nexa.Services.Capabilities.ICapability> observations =
             ObservationCapabilityCatalog.Project(unavailableMetrics, DateTimeOffset.UtcNow);
         AssertEqual(Nexa.Services.Capabilities.CapabilityAvailability.DependencyMissing,
             observations.Single(static item => item.Id == "observation.launch.heap_peak").Availability);
         AssertEqual(Nexa.Services.Capabilities.CapabilityAvailability.DependencyMissing,
             observations.Single(static item => item.Id == "observation.runtime.gpu_p95").Availability);
+        AssertEqual(Nexa.Services.Capabilities.CapabilityAvailability.DependencyMissing,
+            observations.Single(static item => item.Id == "observation.launch.commit_peak").Availability);
 
         JvmHostObservation sampledMetrics = unavailableMetrics with
         {

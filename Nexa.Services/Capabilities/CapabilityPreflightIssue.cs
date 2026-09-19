@@ -13,12 +13,16 @@ public sealed class CapabilityPreflightIssue
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
         if (severity == PreflightSeverity.Blocked && (certainty != PreflightCertainty.Verified || !hardConstraint || canBypass || suppressible))
             throw new ArgumentException("Only verified hard constraints can block and cannot be bypassed or suppressed.", nameof(severity));
+        Definition = CapabilityPresentationCatalog.Preflight(code);
         Code = code; Severity = severity; Category = category; Certainty = certainty; HardConstraint = hardConstraint;
         Evidence = Array.AsReadOnly(evidence.ToArray()); Causes = Array.AsReadOnly((causes ?? []).ToArray());
         Remediations = Array.AsReadOnly((remediations ?? []).ToArray()); CanBypass = canBypass; Suppressible = suppressible;
         if (severity == PreflightSeverity.Blocked && Evidence.Count == 0) throw new ArgumentException("Blocked issues require evidence.", nameof(evidence));
     }
     public string Code { get; }
+    public PreflightIssueDefinition Definition { get; }
+    public string Title => Definition.Title;
+    public string Description => Definition.Description;
     public PreflightSeverity Severity { get; }
     public string Category { get; }
     public PreflightCertainty Certainty { get; }

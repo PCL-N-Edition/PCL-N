@@ -154,7 +154,6 @@ public sealed class JvmHostService : IJvmHost
     {
         long peakWorking = 0, peakPrivate = 0, peakThreads = 0, cpuMs = 0, ioRead = 0, ioWrite = 0;
         Queue<long> workingSamples = new();
-        Queue<long> commitSamples = new();
         Queue<long> cpuSamples = new();
         TimeSpan previousCpu = TimeSpan.Zero;
         long previousSampleTick = Environment.TickCount64;
@@ -173,7 +172,6 @@ public sealed class JvmHostService : IJvmHost
                     cpuMs = Math.Max(cpuMs, (long)currentCpu.TotalMilliseconds);
                     long currentSampleTick = Environment.TickCount64;
                     AddSample(workingSamples, session.Process.WorkingSet64);
-                    AddSample(commitSamples, session.Process.PrivateMemorySize64);
                     if (hasCpuBaseline)
                     {
                         long elapsed = Math.Max(1, currentSampleTick - previousSampleTick);
@@ -206,21 +204,24 @@ public sealed class JvmHostService : IJvmHost
 
         MinecraftProcessSnapshot snapshot = session.Snapshot;
         (string[] stdout, string[] stderr) = await session.ReadSeparatedEvidenceAsync().ConfigureAwait(false);
-        string? hsErr = FindNewestFile(plan.WorkingDirectory, "hs_err_pid*.log");
-        string? crashReport = FindNewestFile(Path.Combine(plan.WorkingDirectory, "crash-reports"), "*.txt");
+        DateTimeOffset evidenceFloor = snapshot.StartedAt - TimeSpan.FromSeconds(2);
+        string? hsErr = FindNewestFile(plan.WorkingDirectory,
+            $"hs_err_pid{session.Process.Id}.log", evidenceFloor);
+        string? crashReport = FindNewestFile(Path.Combine(plan.WorkingDirectory, "crash-reports"),
+            "*.txt", evidenceFloor);
         JvmHostObservation observation = new(snapshot.SessionId, snapshot.InstanceId, snapshot.StartedAt,
             snapshot.EndedAt, launchDuration, peakWorking, peakPrivate, peakThreads, cpuMs,
-            0, peakPrivate, peakPrivate, 0, 0, ioRead, ioWrite, crashReport, hsErr, snapshot.ExitCode,
+            0, 0, 0, 0, 0, ioRead, ioWrite, crashReport, hsErr, snapshot.ExitCode,
             stdout.TakeLast(40).ToArray(), stderr.TakeLast(40).ToArray())
         {
             CpuPeakPercent = cpuSamples.Count == 0 ? 0 : cpuSamples.Max(),
             RuntimePhysicalP95Bytes = Percentile(workingSamples.Count == 0 ? [peakWorking] : workingSamples),
-            RuntimeCommitP95Bytes = Percentile(commitSamples.Count == 0 ? [peakPrivate] : commitSamples),
+            RuntimeCommitP95Bytes = 0,
             RuntimeCpuP95Percent = Percentile(cpuSamples),
         };
         Publish(observation);
         _history?.Record(new ResourceObservationSample(snapshot.InstanceId, plan.ModLoader.Kind.ToString(),
-            ParseJavaMajor(plan.JavaExecutablePath), 0, 0, 0, BytesToMiB(peakPrivate),
+            plan.JavaMajorVersion, 0, 0, 0, 0,
             BytesToMiB(observation.RuntimePhysicalP95Bytes), BytesToMiB(observation.RuntimeCommitP95Bytes),
             0, launchDuration, snapshot.EndedAt ?? DateTimeOffset.UtcNow));
     }
@@ -258,19 +259,12 @@ public sealed class JvmHostService : IJvmHost
         long[] values = source.Where(static value => value > 0).Order().ToArray();
         return values.Length == 0 ? 0 : values[(int)Math.Ceiling(values.Length * 0.95) - 1];
     }
-    private static int ParseJavaMajor(string path)
-    {
-        string text = path;
-        for (int major = 25; major >= 8; major--)
-            if (text.Contains(major.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)) return major;
-        return 0;
-    }
-
-    private static string? FindNewestFile(string directory, string pattern)
+    private static string? FindNewestFile(string directory, string pattern, DateTimeOffset notBefore)
     {
         try
         {
             return Directory.Exists(directory) ? Directory.EnumerateFiles(directory, pattern)
+                .Where(path => File.GetLastWriteTimeUtc(path) >= notBefore.UtcDateTime)
                 .OrderByDescending(File.GetLastWriteTimeUtc).FirstOrDefault() : null;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return null; }

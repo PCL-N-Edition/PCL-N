@@ -30,6 +30,12 @@ internal static partial class Program
             .Single(static definition => definition.Id == "estimate.history.sample_count");
         AssertEqual("ms", launchTime.Unit);
         AssertEqual("count", sampleCount.Unit);
+        AssertFalse(ResourceEstimateCatalog.Definitions().Any(static definition => definition.Label == definition.Id));
+        AssertFalse(PreflightCatalog.Definitions().Any(static definition => definition.Label == definition.Id));
+        AssertTrue(InputCatalog.Definitions().Any(static definition => definition.Id == "input.gyroscope.devices"));
+        AssertTrue(InputCatalog.Definitions().Any(static definition => definition.Id == "input.haptics.devices"));
+        AssertEqual("file/First.zip", LoaderVersionProjections.DescribeResourcePacks(
+            "[\"vanilla\",\"file/First.zip\",\"file/Second.zip\"]")[0]);
 
         ResourceEstimatorProjection constrainedProjection = new();
         Dictionary<string, ICapability> constrained = new(StringComparer.Ordinal)
@@ -58,6 +64,8 @@ internal static partial class Program
         AssertTrue(report.Issues.Any(static issue => issue.Code == "MEM_HEAP_LAUNCH_LOW"
             && issue.Severity == PreflightSeverity.Critical && issue.Certainty == PreflightCertainty.Estimated));
         CapabilityPreflightIssue java = report.Issues.Single(static issue => issue.Code == "JAVA_MISSING");
+        AssertEqual("缺少可用 Java", java.Title);
+        AssertFalse(string.IsNullOrWhiteSpace(java.Description));
         AssertEqual("remediation.java.download", RemediationCatalog.For(java)[0].Id);
         AssertEqual(17, RemediationCatalog.All.Count);
 

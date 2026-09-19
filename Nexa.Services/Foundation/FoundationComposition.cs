@@ -79,6 +79,12 @@ public sealed class FoundationHost
         SettingsPolicy = new SettingsPolicyService(Settings);
         InputUsage = new InputUsageTracker();
         ObservationHistory = new ResourceObservationHistory();
+        IRemediationHandler[] configuredRemediations = [.. remediationHandlers ?? []];
+        HashSet<string> configuredRemediationIds = configuredRemediations
+            .Select(static handler => handler.Id).ToHashSet(StringComparer.Ordinal);
+        Remediations = new RemediationService(CoreRemediationHandlers.Create(SettingsPolicy)
+            .Where(handler => !configuredRemediationIds.Contains(handler.Id))
+            .Concat(configuredRemediations));
         // The full environment registry: machine facts plus the display/storage/filesystem/
         // power and java/minecraft.files namespaces. Instance-scoped providers bind to the
         // active Minecraft root so storage and file-integrity facts answer for THAT path.
@@ -109,7 +115,8 @@ public sealed class FoundationHost
             new ModCapabilityProvider(minecraftRootDirectory),
             new AccountCapabilityProvider(accounts),
             new FormFactorCapabilityProvider(),
-            new InputCapabilityProvider(InputUsage)];
+            new InputCapabilityProvider(InputUsage),
+            new RemediationCapabilityProvider(Remediations)];
 
         // The Java provider probes each runtime with one `java -version` process; the
         // registry default window (3s) times the whole java namespace out on machines with
@@ -122,7 +129,6 @@ public sealed class FoundationHost
             projections: [new ResourceEstimatorProjection(history: ObservationHistory), new LaunchPolicyProjection(), new PreflightProjection()]);
         ResourceEstimator = new ResourceEstimator(history: ObservationHistory);
         Preflight = new CapabilityPreflightEngine();
-        Remediations = new RemediationService(remediationHandlers);
         Tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _services = Array.AsReadOnly<object>([Logging, Downloads, Accounts, Telemetry, Settings, SettingsPolicy, Tasks,
             InputUsage, ObservationHistory, MachineCapabilities, ResourceEstimator, Preflight, Remediations]);

@@ -12,7 +12,7 @@
 |---|---|---|---|
 | platform.* (§4) | 🟡 | os/version/arch.native/arch.process | os.build、os.kernel、desktop_environment、session_type、emulation.*、windows/macos/linux 便捷布尔、compatibility.* 派生 |
 | runtime.* | ✅ | framework、dynamic_code | —（文档无更多字段） |
-| **jvmhost.\*** (§5) | 🟡 | §5 的 37 个 ID 已齐；IJvmHost/JvmHostService 已执行 spawn/wait/kill-tree/suspend/resume/priority/affinity；stdout/stderr ring、CPU/内存/commit/线程、Windows I/O、crash-report/hs_err 已采集 | cpu_sets、qos、GPU/process-tree metric 与 system correlation 仍由 catalog 明确报告 `DependencyMissing`/`PlatformUnsupported`，不得发布假值 |
+| **jvmhost.\*** (§5) | 🟡 | §5 的 37 个 ID 已齐；IJvmHost/JvmHostService 已执行 spawn/wait/kill-tree/suspend/resume/priority/affinity；stdout/stderr ring、CPU/工作集/专用内存/线程、Windows I/O、当前会话 crash-report/hs_err 已采集 | JVM heap/native 与进程 commit 尚无可靠 collector，保持 `DependencyMissing`；cpu_sets、qos、GPU/process-tree metric 与 system correlation 仍待平台 adapter |
 | **process.\*** (§6) | ❌ | 无 | 治理全集：priority/affinity/cpu_sets/qos(.performance/.efficiency)/limit.*/suspend/resume/metric.*（page_faults） |
 | cpu.* (§7) | 🟡 | isa.sse2/avx2/neon、topology.logical_processors | vendor/family/model/microarchitecture/marketing_name；topology.packages/**numa_nodes**/physical_cores/smt/groups/**heterogeneous**/performance_classes/cache.l1-l3/ccd；isa 全表（avx512/avx10/aes/sha/amx/**arm.sve/sve2**）；metric.frequency/utilization/temperature/power；thermal.limit；**derived.***（hybrid/high_parallelism/numa_sensitive/performance_affinity） |
 | memory.* (§8) | 🟡 | physical.usable/available、commit.total/limit/available（Win/Linux 完整，macOS=平台不支持） | physical.installed/hardware_reserved；**swap.\***（available/total/used）；**pagefile.\***（present/system_managed/current/maximum/growth_possible/safe_growth/volume/volume_free）；pressure.observable/level；numa/model(Dedicated/Unified/Hybrid)/uma；**derived.***（low_physical/commit_low/commit_near_limit/pagefile_*/system_reserve/**safe_heap_max**/unified_budget） |
@@ -23,12 +23,12 @@
 | power.* (§13) | 🟡 | source、battery.present/level/charging、profile.current（Win+Linux） | profile.available/performance/balanced/efficiency/hold；tdp.observable+controllable；cpu_limit/gpu_limit.controllable；macOS IOKit 通道未接 |
 | thermal.* (§14) | 🟡 | cpu.temperature（Linux hwmon；Win/macOS 无免驱动通道=诚实 Unknown/未接） | pressure.observable/level(Nominal/Fair/Serious/Critical)、cpu.limit、gpu.temperature/limit、soc/storage.temperature、fan.observable/controllable/rpm；derived.cpu_high/cpu_near_limit/gpu_*/throttling/performance_degraded/pause_background/disable_prewarm |
 | **formfactor.\*** (§15) | 🟡 | type/portable/battery_powered/handheld，使用电池、内建屏、触摸、键盘与手柄事实判定 | MiniPC/Workstation；derived.performance_first/battery_aware/controller_first |
-| **input.\*** (§16) | 🟡 | keyboard/mouse/touch/pen/controller.available+count、gyroscope/haptics 可用性；usage.primary/recent.keyboard/mouse/touch/controller 会话事件 | trackpad、controller feature；derived.pointer_first/touch_first/controller_first；macOS IOKit HID 探测 |
+| **input.\*** (§16) | 🟡 | keyboard/mouse/touch/pen/controller.available+count；Windows XInput 逐设备名称、振动能力与陀螺仪不可用事实；usage.primary/recent.keyboard/mouse/touch/controller 会话事件 | trackpad、完整 controller feature；Linux evdev force-feedback 与 macOS IOKit HID 探测 |
 | **network.\*** (§17) | ❌ | 无 | interfaces/ethernet/wifi/active_interface、metered/vpn/proxy、ipv4/ipv6、internet.available、captive_portal、dns/doh、metric.latency/bandwidth/packet_loss、lan.discovery/multicast/peer_transfer |
 | shell.* / security.* (§18) | ❌ | 无 | credential_vault/secure_storage、code_signature/publisher_identity、gpg.verify、hash.sha256/512、content_provenance、secret/log.redaction、vault.windows/keychain/secret_service |
 | ai.* / cloud.* | ❌ | 无 | （文档仅列名，无字段定义——冻结时补） |
 | java.* (§19) | 🟡 | installed、runtime.count/path/version/major | compatibility.minecraft/loader/native/hard/recommended；requirement.minimum/maximum/recommended/architecture；**derived.***（missing/non_recommended/hard_incompatible/arch_incompatible/emulated）——XSR-608 的 JavaRequirement 已有数据，缺投影 |
-| **loader.\*** (§20) | ❌ | 无 | type/version/present/complete、minecraft.compatible、metadata.valid；requirement.minecraft_range/java_range；derived.missing/incompatible |
+| **loader.\*** (§20) | 🟡 | type/version/present/complete/chain.resolved/metadata.valid；与修改页共用 receipt、版本元数据、libraries 与启动参数识别 | minecraft.compatible 在显式范围解析器接入前保持未知；requirement.minecraft_range/java_range 待接 |
 | minecraft.* (§21,§24) | 🟡 | files.required/missing（客户端 jar 验证） | version/family、metadata.present+valid、main_class.valid、classpath.resolvable+entries、native.compatible、core.modified；files.integrity/corrupted/repairable/repair_status；**settings.\***（readable/render_distance/simulation_distance/mipmap/graphics_mode/fullscreen/resolution/shader/resource_packs/particles/entity_*）；settings.impact.memory/gpu/cpu+recommended |
 | **mod.\*** (§22) | ❌ | 无 | count/entries/enabled/disabled；每 mod 的 file.size/data.entry_count/class.count/worldgen.entry_count/json.size/native.*；profile.content/tech/worldgen/entity/integration；runtime_profile.known+confidence；dependency.required/optional/missing、conflict.hard/soft、compatibility.loader/minecraft/java；derived 九项 |
 | **resource.\*** (§23) | ❌ | 无 | effective_set/override_graph/resolution.complete；texture.*/atlas.*/model/blockstate/lang/sound.*/shader.*；derived.texture_gpu_memory/model_heap/load_peak/steady_memory |
@@ -49,7 +49,7 @@
 | §34-49 Preflight | 规则引擎 + aggregator（§50 管线）+ issue 模型 | ✅ §37-49 全部规则 ID、规则生产者、Issue contract、Estimated 不得 Block invariant 与显式实例 query 已接 |
 | §50 Aggregator | Collect→Estimate→Resolve→Rules→Normalize→Dedupe→**因果图**→Collapse→Severity→Render Once | ✅ broker 固定 estimator→policy→preflight，随后 Normalize/Dedupe/因果折叠/Severity 并一次发布 |
 | §52 Severity | Information 不参与 OverallSeverity | ✅ |
-| §54-55 Remediation | remediation.* 17 个动作 + 与 Issue code 绑定 | ✅ 17 个动作精确绑定；typed handler dispatcher 强制确认和 ID 对齐，并通过 sealed XSR command 执行；产品 composition 按业务服务注入 handler |
+| §54-55 Remediation | remediation.* 17 个动作 + 与 Issue code 绑定 | 🟡 17 个动作精确绑定；typed handler dispatcher 强制确认和 ID 对齐，并通过 sealed XSR command 执行；内存调整、NexaCL 后台内存释放、commit 重检与实例权限重检已有 handler，其余动作等待对应安装/平台服务接入 |
 | §56 Provenance | EstimateResult 携带 Value/Confidence/ModelVersion/ProfileVersion/Inputs[]/HistoricalWeight/SafetyMargin/Reasons[] | ✅ |
 | §57 Profile | ResourceEstimatorProfile 可版本化参数 | ✅ profile 1.1.0 包含 baseline、coefficients、margins、quantile 与 hardware correction |
 | §58 Observation | observation.launch/runtime 峰值记录（Jvm.Host 侧） | ✅ §58 全部 ID、500ms 有界采样、runtime P95、历史闭环；Heap/GPU 等未连接指标保持 `DependencyMissing` |

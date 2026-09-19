@@ -50,6 +50,16 @@ Remediation definitions represent executable actions rather than placeholder fac
 publish whether an exact handler is registered, and Desktop dispatches available actions only
 through the sealed `machine.capabilities.remediation.execute` route.
 
+Preflight evaluates an existing `MachineCapabilitySnapshot`; rendering must never synchronously
+dispatch a query or trigger collection. Instance-scoped transient snapshots do not publish the
+global machine revision. Issue titles and descriptions belong to the Service-side preflight
+definition catalog, so Desktop never translates internal rule codes.
+
+Jvm.Host publishes only measurements it actually collected. Process private bytes remain a
+separate metric and are not relabeled as JVM native memory or system commit. Crash evidence is
+limited to files written during the current session, `hs_err` is matched to the current process
+id, and observation history receives the Java major from resolved runtime metadata.
+
 ## Validation
 
 - provider failures and `PlatformUnsupported` inputs both degrade derived facts to

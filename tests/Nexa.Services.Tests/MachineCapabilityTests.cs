@@ -70,6 +70,17 @@ internal static partial class Program
         var slow = new ProbeProvider("bad", async (_, token) => { await Task.Delay(10000, token); return Array.Empty<ICapability>(); });
         result = await CapabilityBroker(new([failed]), slow).ReadAsync();
         AssertEqual(CapabilityAvailability.TemporarilyUnavailable, result.Get<int>(failed.Id)!.Availability);
+
+        var scopedBuilder = new XsrStateStoreBuilder();
+        MachineCapabilityStateContract.DeclareState(scopedBuilder);
+        XsrStateStore scopedStore = scopedBuilder.Build();
+        var scopedBroker = new MachineCapabilityBroker(new([fact]), [new ProbeProvider("good", (time, _) =>
+            ValueTask.FromResult<IReadOnlyList<ICapability>>([fact.Observe(1, time, "fixture")]))], scopedStore);
+        await scopedBroker.ReadAsync(refresh: true);
+        var revisionId = scopedStore.Resolve(MachineCapabilityStateContract.RevisionKey);
+        long globalRevision = scopedStore.Read<long>(revisionId).Value;
+        await scopedBroker.ReadAsync(new MachineCapabilityQuery("instance", "fixture", "root"));
+        AssertEqual(globalRevision, scopedStore.Read<long>(revisionId).Value);
     }
     private static void MachineMemoryAndPreflightKeepIndependentSemantics()
     {

@@ -83,7 +83,16 @@ internal static partial class Program
 
         AssertEqual(10, runtime.Commands.Count);
         AssertEqual(8, runtime.Queries.Count);
-        AssertTrue(runtime.Queries.TryResolve(MachineCapabilityStateContract.PreflightQuery, out _));
+        AssertTrue(runtime.Queries.TryResolve(MachineCapabilityStateContract.PreflightQuery,
+            out XsrQueryId preflightQuery));
+        long preflightRevision = host.StateStore.Read<long>(host.StateStore.Resolve(
+            MachineCapabilityStateContract.RevisionKey)).Value;
+        XsrResult<CapabilityPreflightReport> preflight = await runtime.Queries.QueryAsync<
+            LaunchPreflightQuery, CapabilityPreflightReport>(preflightQuery,
+                new(new MachineCapabilitySnapshot(42, DateTimeOffset.UtcNow, [])));
+        AssertTrue(preflight.IsSuccess);
+        AssertEqual(preflightRevision, host.StateStore.Read<long>(host.StateStore.Resolve(
+            MachineCapabilityStateContract.RevisionKey)).Value);
         AssertTrue(runtime.Commands.TryResolve(MachineCapabilityStateContract.RemediationCommand,
             out XsrCommandId remediationCommand));
         AssertTrue((await runtime.Commands.Dispatch(remediationCommand,

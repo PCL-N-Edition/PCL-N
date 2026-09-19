@@ -1,0 +1,143 @@
+using System.Collections.Frozen;
+
+namespace Nexa.Services.Capabilities;
+
+/// <summary>User-facing names owned by the capability contract. Presentation layers consume
+/// these names and never translate internal ids or preflight codes themselves.</summary>
+public static class CapabilityPresentationCatalog
+{
+    private static readonly FrozenDictionary<string, string> EstimateLabels = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["estimate.heap.base"] = "基础堆内存",
+        ["estimate.heap.mods"] = "模组堆内存",
+        ["estimate.heap.resources"] = "资源包堆内存",
+        ["estimate.heap.hard_minimum"] = "堆内存硬性下限",
+        ["estimate.heap.estimated_minimum"] = "堆内存估算下限",
+        ["estimate.heap.recommended"] = "建议堆内存",
+        ["estimate.heap.useful_maximum"] = "有效堆内存上限",
+        ["estimate.heap.safe_maximum"] = "安全堆内存上限",
+        ["estimate.native.metaspace"] = "元空间",
+        ["estimate.native.code_cache"] = "代码缓存",
+        ["estimate.native.thread"] = "线程本机内存",
+        ["estimate.native.direct"] = "直接缓冲区",
+        ["estimate.native.gc"] = "垃圾回收器本机内存",
+        ["estimate.native.mods"] = "模组本机内存",
+        ["estimate.resource.heap"] = "资源加载堆内存",
+        ["estimate.resource.load_peak"] = "资源加载峰值",
+        ["estimate.resource.runtime"] = "资源运行内存",
+        ["estimate.resource.sound"] = "声音资源内存",
+        ["estimate.resource.models"] = "模型资源内存",
+        ["estimate.graphics.texture"] = "纹理显存",
+        ["estimate.graphics.models"] = "模型显存",
+        ["estimate.graphics.shader"] = "光影显存",
+        ["estimate.graphics.renderer"] = "渲染器显存",
+        ["estimate.graphics.margin"] = "显存安全余量",
+        ["estimate.graphics.total"] = "预计总显存",
+        ["estimate.graphics.shared_system"] = "共享系统内存",
+        ["estimate.graphics.vram_spill"] = "显存溢出到系统内存",
+        ["estimate.physical.system_reserve"] = "系统保留内存",
+        ["estimate.physical.launch_margin"] = "启动物理内存余量",
+        ["estimate.physical.runtime_margin"] = "运行物理内存余量",
+        ["estimate.commit.heap.launch"] = "启动堆提交量",
+        ["estimate.commit.heap.runtime"] = "运行堆提交量",
+        ["estimate.commit.nonheap.launch"] = "启动非堆提交量",
+        ["estimate.commit.nonheap.runtime"] = "运行非堆提交量",
+        ["estimate.commit.reserve"] = "提交量保留",
+        ["estimate.commit.launch_margin"] = "启动提交量余量",
+        ["estimate.commit.runtime_margin"] = "运行提交量余量",
+        ["estimate.history.heap.p95"] = "历史堆内存 P95",
+        ["estimate.history.native.p95"] = "历史本机内存 P95",
+        ["estimate.history.physical.p95"] = "历史物理内存 P95",
+        ["estimate.history.gpu.p95"] = "历史显存 P95",
+        ["estimate.calibrated.heap"] = "校准后堆内存",
+        ["estimate.calibrated.native"] = "校准后本机内存",
+        ["estimate.calibrated.graphics"] = "校准后显存",
+        ["estimate.calibrated.physical"] = "校准后物理内存",
+        ["estimate.calibrated.commit"] = "校准后提交量",
+        ["estimate.confidence.reason.unknown_mods"] = "存在未知模组",
+        ["estimate.confidence.reason.modified_core"] = "核心文件已修改",
+        ["estimate.confidence.reason.unreadable_settings"] = "游戏设置不可读",
+        ["estimate.confidence.reason.missing_hardware_metric"] = "硬件指标缺失",
+        ["estimate.confidence.reason.insufficient_history"] = "历史样本不足",
+        ["estimate.history.available"] = "历史校准可用",
+        ["estimate.history.similarity.total"] = "历史样本总体相似度",
+        ["estimate.history.similarity.mods"] = "模组相似度",
+        ["estimate.history.similarity.resources"] = "资源相似度",
+        ["estimate.history.similarity.loader"] = "加载器相似度",
+        ["estimate.history.similarity.java"] = "Java 相似度",
+        ["estimate.history.weight"] = "历史校准权重",
+    }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    private static readonly FrozenDictionary<string, PreflightIssueDefinition> PreflightDefinitions =
+        new Dictionary<string, PreflightIssueDefinition>(StringComparer.Ordinal)
+        {
+            ["JAVA_MISSING"] = new("JAVA_MISSING", "缺少可用 Java", "当前实例没有可用的 Java 运行时。"),
+            ["JAVA_HARD_INCOMPATIBLE"] = new("JAVA_HARD_INCOMPATIBLE", "Java 与当前实例不兼容", "当前 Java 不满足实例的硬性要求。"),
+            ["JAVA_NON_RECOMMENDED"] = new("JAVA_NON_RECOMMENDED", "Java 不是推荐版本", "当前 Java 可以运行，但不是建议版本。"),
+            ["JAVA_ARCH_INCOMPATIBLE"] = new("JAVA_ARCH_INCOMPATIBLE", "Java 架构不匹配", "Java 与当前系统架构不一致。"),
+            ["JAVA_EMULATED"] = new("JAVA_EMULATED", "Java 正在通过架构转译运行", "使用原生架构的 Java 可获得更稳定的性能。"),
+            ["LOADER_MISSING"] = new("LOADER_MISSING", "实例缺少加载器", "当前实例需要模组加载器。"),
+            ["LOADER_INCOMPATIBLE"] = new("LOADER_INCOMPATIBLE", "加载器与 Minecraft 不兼容", "当前加载器版本不能用于此 Minecraft 版本。"),
+            ["MOD_REQUIRED_DEPENDENCY_MISSING"] = new("MOD_REQUIRED_DEPENDENCY_MISSING", "模组缺少必需依赖", "至少一个模组的必需依赖尚未安装。"),
+            ["MOD_HARD_CONFLICT"] = new("MOD_HARD_CONFLICT", "模组存在硬性冲突", "存在不能同时加载的模组。"),
+            ["MOD_LOADER_INCOMPATIBLE"] = new("MOD_LOADER_INCOMPATIBLE", "模组与加载器不兼容", "至少一个模组不支持当前加载器。"),
+            ["MOD_MC_VERSION_INCOMPATIBLE"] = new("MOD_MC_VERSION_INCOMPATIBLE", "模组与 Minecraft 版本不兼容", "至少一个模组不支持当前游戏版本。"),
+            ["MOD_COMPAT_WARNING"] = new("MOD_COMPAT_WARNING", "模组兼容性警告", "发现可能影响运行的模组组合。"),
+            ["MOD_COMPAT_CRITICAL"] = new("MOD_COMPAT_CRITICAL", "模组兼容性严重问题", "发现很可能导致启动失败的模组组合。"),
+            ["MEM_HEAP_LAUNCH_LOW"] = new("MEM_HEAP_LAUNCH_LOW", "启动堆内存不足", "分配的堆内存低于预计启动需求。"),
+            ["MEM_HEAP_RUNTIME_LOW"] = new("MEM_HEAP_RUNTIME_LOW", "运行堆内存不足", "分配的堆内存低于预计运行需求。"),
+            ["MEM_HEAP_ABOVE_PHYSICAL_AVAILABLE"] = new("MEM_HEAP_ABOVE_PHYSICAL_AVAILABLE", "堆内存超过可用物理内存", "当前内存分配可能造成频繁换页。"),
+            ["MEM_HEAP_BELOW_HARD_MINIMUM"] = new("MEM_HEAP_BELOW_HARD_MINIMUM", "堆内存低于硬性下限", "当前分配无法满足实例的最低要求。"),
+            ["MEM_PHYSICAL_LAUNCH_LOW"] = new("MEM_PHYSICAL_LAUNCH_LOW", "启动可用内存不足", "可用物理内存低于预计启动需求。"),
+            ["MEM_PHYSICAL_RUNTIME_LOW"] = new("MEM_PHYSICAL_RUNTIME_LOW", "运行可用内存偏低", "可用物理内存低于预计运行需求。"),
+            ["MEM_PHYSICAL_SEVERE"] = new("MEM_PHYSICAL_SEVERE", "物理内存严重不足", "启动和运行需求都超过当前可用内存。"),
+            ["MEM_COMMIT_LAUNCH_LOW"] = new("MEM_COMMIT_LAUNCH_LOW", "启动提交预算不足", "系统提交预算低于预计启动需求。"),
+            ["MEM_COMMIT_RUNTIME_LOW"] = new("MEM_COMMIT_RUNTIME_LOW", "运行提交预算偏低", "系统提交预算低于预计运行需求。"),
+            ["MEM_COMMIT_GROWTH_REQUIRED"] = new("MEM_COMMIT_GROWTH_REQUIRED", "需要扩大提交预算", "系统需要增加页面文件以满足启动需求。"),
+            ["MEM_COMMIT_NEAR_LIMIT"] = new("MEM_COMMIT_NEAR_LIMIT", "提交预算接近上限", "系统可用提交量已经较低。"),
+            ["MEM_COMMIT_HARD_LIMIT"] = new("MEM_COMMIT_HARD_LIMIT", "提交预算达到上限", "当前提交预算无法继续增长。"),
+            ["MEM_PAGEFILE_DISK_LOW"] = new("MEM_PAGEFILE_DISK_LOW", "页面文件磁盘空间不足", "页面文件所在磁盘的剩余空间偏低。"),
+            ["MEM_PAGEFILE_FIXED_MAX"] = new("MEM_PAGEFILE_FIXED_MAX", "页面文件已固定上限", "固定上限可能阻止系统按需增加提交预算。"),
+            ["MEM_ESTIMATE_PENDING"] = new("MEM_ESTIMATE_PENDING", "资源估算尚未完成", "完整资源建议仍在计算。"),
+            ["MEM_ESTIMATE_FAILED"] = new("MEM_ESTIMATE_FAILED", "资源估算失败", "无法生成当前实例的资源建议。"),
+            ["MEM_ESTIMATE_LOW_CONFIDENCE"] = new("MEM_ESTIMATE_LOW_CONFIDENCE", "资源估算置信度低", "当前数据不足以生成高置信度建议。"),
+            ["ESTIMATE_MODIFIED_CORE"] = new("ESTIMATE_MODIFIED_CORE", "核心文件已修改", "修改后的核心文件降低了估算置信度。"),
+            ["ESTIMATE_UNKNOWN_MOD_PROFILE"] = new("ESTIMATE_UNKNOWN_MOD_PROFILE", "存在未知模组画像", "部分模组没有可用的资源画像。"),
+            ["ESTIMATE_SETTINGS_UNREADABLE"] = new("ESTIMATE_SETTINGS_UNREADABLE", "游戏设置不可读", "无法把当前图像设置计入估算。"),
+            ["GPU_LOW_PERFORMANCE_ADAPTER"] = new("GPU_LOW_PERFORMANCE_ADAPTER", "当前使用低性能显卡", "系统存在性能更高的图形适配器。"),
+            ["GPU_VRAM_RUNTIME_LOW"] = new("GPU_VRAM_RUNTIME_LOW", "运行显存余量不足", "预计运行显存接近当前预算。"),
+            ["GPU_VRAM_LAUNCH_CRITICAL"] = new("GPU_VRAM_LAUNCH_CRITICAL", "显存低于启动需求", "预计启动显存超过当前预算。"),
+            ["GPU_TEMPERATURE_HIGH"] = new("GPU_TEMPERATURE_HIGH", "显卡温度偏高", "当前显卡温度可能影响持续性能。"),
+            ["GPU_TEMPERATURE_NEAR_LIMIT"] = new("GPU_TEMPERATURE_NEAR_LIMIT", "显卡温度接近上限", "显卡可能即将降频。"),
+            ["CPU_TEMPERATURE_HIGH"] = new("CPU_TEMPERATURE_HIGH", "处理器温度偏高", "当前处理器温度可能影响持续性能。"),
+            ["CPU_TEMPERATURE_NEAR_LIMIT"] = new("CPU_TEMPERATURE_NEAR_LIMIT", "处理器温度接近上限", "处理器可能即将降频。"),
+            ["INPUT_TOUCH_SUPPORT_MISSING"] = new("INPUT_TOUCH_SUPPORT_MISSING", "游戏缺少触屏支持", "当前主要使用触屏，但实例没有触屏支持。"),
+            ["INPUT_CONTROLLER_SUPPORT_MISSING"] = new("INPUT_CONTROLLER_SUPPORT_MISSING", "游戏缺少手柄支持", "当前主要使用手柄，但实例没有手柄支持。"),
+            ["GAME_FILES_MISSING"] = new("GAME_FILES_MISSING", "游戏文件缺失", "实例缺少启动所需文件。"),
+            ["GAME_FILES_CORRUPTED"] = new("GAME_FILES_CORRUPTED", "游戏文件损坏", "实例包含校验失败的文件。"),
+            ["GAME_REPAIR_FAILED"] = new("GAME_REPAIR_FAILED", "游戏文件修复失败", "上一次文件修复没有完成。"),
+            ["GAME_METADATA_INVALID"] = new("GAME_METADATA_INVALID", "版本元数据无效", "版本清单无法用于启动。"),
+            ["GAME_MAIN_CLASS_MISSING"] = new("GAME_MAIN_CLASS_MISSING", "主类缺失", "版本清单没有提供可启动的主类。"),
+            ["GAME_CLASSPATH_UNRESOLVED"] = new("GAME_CLASSPATH_UNRESOLVED", "类路径无法解析", "部分启动库无法加入类路径。"),
+            ["GAME_NATIVE_INCOMPATIBLE"] = new("GAME_NATIVE_INCOMPATIBLE", "本机库与平台不兼容", "实例缺少当前平台可用的本机库。"),
+            ["OS_UNSUPPORTED"] = new("OS_UNSUPPORTED", "操作系统不受支持", "此实例无法在当前操作系统上运行。"),
+            ["STORAGE_SPACE_LOW"] = new("STORAGE_SPACE_LOW", "磁盘空间不足", "实例所在磁盘的剩余空间偏低。"),
+            ["STORAGE_SPACE_CRITICAL"] = new("STORAGE_SPACE_CRITICAL", "磁盘空间严重不足", "剩余空间可能无法完成启动。"),
+            ["INSTANCE_PATH_UNAVAILABLE"] = new("INSTANCE_PATH_UNAVAILABLE", "实例路径不可用", "所选实例目录不存在或无法访问。"),
+            ["INSTANCE_PATH_NOT_WRITABLE"] = new("INSTANCE_PATH_NOT_WRITABLE", "实例路径不可写", "NexaCL 无法写入所选实例目录。"),
+            ["ACCOUNT_REQUIRED"] = new("ACCOUNT_REQUIRED", "启动需要账户", "当前实例需要先选择一个账户。"),
+            ["ACCOUNT_AUTH_FAILED"] = new("ACCOUNT_AUTH_FAILED", "账户认证失败", "当前账户凭据无法通过验证。"),
+            ["HOOK_REQUIRED_FAILED"] = new("HOOK_REQUIRED_FAILED", "启动前命令失败", "必需的启动前命令没有成功完成。"),
+            ["UX_DATA_COLLECTION"] = new("UX_DATA_COLLECTION", "运行诊断数据收集", "本次启动会收集本地运行指标用于诊断。"),
+        }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    public static string EstimateLabel(string id) => EstimateLabels.TryGetValue(id, out string? label)
+        ? label : throw new KeyNotFoundException("Missing estimate presentation: " + id);
+
+    public static PreflightIssueDefinition Preflight(string code) =>
+        PreflightDefinitions.TryGetValue(code, out PreflightIssueDefinition? definition)
+            ? definition
+            : new(code, "检测到待处理事项", "发现一项需要处理的启动条件。");
+}
+
+public sealed record PreflightIssueDefinition(string Code, string Title, string Description);

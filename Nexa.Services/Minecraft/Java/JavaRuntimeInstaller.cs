@@ -108,6 +108,7 @@ public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
                 throw new InvalidOperationException($"Java runtime was installed but no java executable was found in '{plan.TargetDirectory}'.");
             progress?.Report(new JavaRuntimeInstallProgress("complete", 1d, total, total, javaExecutable));
             operation?.Complete($"files={completed} executable={javaExecutable}");
+            LocalJavaRuntimeLocator.Invalidate();
             return javaExecutable;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

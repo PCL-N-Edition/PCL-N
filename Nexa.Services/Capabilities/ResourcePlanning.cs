@@ -118,7 +118,7 @@ public static class ResourceEstimateCatalog
         "estimate.history.similarity.java", "estimate.history.weight",
     ];
     internal static readonly FrozenDictionary<string, CapabilityDefinition<long>> LongDefinitions = MiBIds
-        .ToDictionary(static id => id, static id => Estimate<long>(id, id, "mib"), StringComparer.Ordinal)
+        .ToDictionary(static id => id, static id => Estimate<long>(id, CapabilityPresentationCatalog.EstimateLabel(id), "mib"), StringComparer.Ordinal)
         .Append(new KeyValuePair<string, CapabilityDefinition<long>>(
             "estimate.heap.mod_count", Estimate<long>("estimate.heap.mod_count", "模组数量", "count")))
         .Append(new KeyValuePair<string, CapabilityDefinition<long>>(
@@ -127,9 +127,9 @@ public static class ResourceEstimateCatalog
             "estimate.history.launch_time.p95", Estimate<long>("estimate.history.launch_time.p95", "历史启动时间 P95", "ms")))
         .ToFrozenDictionary(StringComparer.Ordinal);
     internal static readonly FrozenDictionary<string, CapabilityDefinition<bool>> BooleanDefinitions = BooleanIds
-        .ToFrozenDictionary(static id => id, static id => Estimate<bool>(id, id), StringComparer.Ordinal);
+        .ToFrozenDictionary(static id => id, static id => Estimate<bool>(id, CapabilityPresentationCatalog.EstimateLabel(id)), StringComparer.Ordinal);
     internal static readonly FrozenDictionary<string, CapabilityDefinition<double>> ScoreDefinitions = ScoreIds
-        .ToFrozenDictionary(static id => id, static id => Estimate<double>(id, id), StringComparer.Ordinal);
+        .ToFrozenDictionary(static id => id, static id => Estimate<double>(id, CapabilityPresentationCatalog.EstimateLabel(id)), StringComparer.Ordinal);
 
     public static IReadOnlyList<ICapabilityDefinition> Definitions() =>
     [Status, Confidence, ConfidenceScore, HeapLaunch, HeapRuntime, NativeLaunch, NativeRuntime,
@@ -506,7 +506,8 @@ public static class PreflightCatalog
         ["preflight.telemetry.runtime_collection"] = "UX_DATA_COLLECTION",
     }.ToFrozenDictionary(StringComparer.Ordinal);
     internal static readonly FrozenDictionary<string, CapabilityDefinition<bool>> RuleDefinitions = RuleCodes.Keys
-        .ToFrozenDictionary(static id => id, static id => Definition<bool>(id, id), StringComparer.Ordinal);
+        .ToFrozenDictionary(static id => id, static id => Definition<bool>(
+            id, CapabilityPresentationCatalog.Preflight(RuleCodes[id]).Title), StringComparer.Ordinal);
 
     public static IReadOnlyList<ICapabilityDefinition> Definitions() =>
         [Available, Running, Completed, IssueCount, WarningCount, CriticalCount, BlockedCount, OverallSeverity,

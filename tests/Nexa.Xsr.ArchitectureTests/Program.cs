@@ -112,6 +112,7 @@ internal static class Program
         ValidateServicesDoNotNameDesktop(repositoryRoot, failures);
         ValidateDesktopInstallBoundary(repositoryRoot, failures);
         ValidateDesktopSettingsBoundary(repositoryRoot, failures);
+        ValidatePlatformPresentationBoundary(repositoryRoot, failures);
         ValidateNativeHostInterop(repositoryRoot, failures);
         ValidatePxmlControlCatalog(repositoryRoot, projectPaths, failures);
         ValidateWave3Ci(repositoryRoot, failures);
@@ -142,6 +143,15 @@ internal static class Program
                 if (source.Contains(forbidden, StringComparison.Ordinal))
                     failures.Add($"Settings UI must use sealed state/query/command contracts, not {forbidden}: {Path.GetRelativePath(repositoryRoot, path)}");
         }
+    }
+
+    private static void ValidatePlatformPresentationBoundary(string repositoryRoot, List<string> failures)
+    {
+        string path = Path.Combine(repositoryRoot, "Nexa.Desktop", "Ui", "SettingsPageController.Platform.cs");
+        string source = File.ReadAllText(path);
+        foreach (string forbidden in new[] { ".GetAwaiter().GetResult()", "IssueLabel(" })
+            if (source.Contains(forbidden, StringComparison.Ordinal))
+                failures.Add($"Platform presentation must consume an existing snapshot and service-owned issue text, not {forbidden}.");
     }
 
     private static void ValidateDesktopInstallBoundary(string repositoryRoot, List<string> failures)

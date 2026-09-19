@@ -32,6 +32,16 @@ public sealed class LocalJavaRuntimeLocator : IJavaRuntimeLocator
     private static DateTimeOffset CachedAt;
     private static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(10);
 
+    /// <summary>Invalidates discovery after a managed install/remove or custom-runtime change.</summary>
+    public static void Invalidate()
+    {
+        lock (CacheGate)
+        {
+            Cached = null;
+            CachedAt = default;
+        }
+    }
+
     public async ValueTask<IReadOnlyList<JavaRuntimeCandidate>> FindAllAsync(
         CancellationToken cancellationToken = default)
     {

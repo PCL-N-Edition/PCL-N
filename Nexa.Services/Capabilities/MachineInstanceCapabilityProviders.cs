@@ -41,6 +41,7 @@ public static class MachineInstanceCatalog
     public static readonly CapabilityDefinition<bool> LoaderComplete = new("loader.complete", "继承链完整", "加载器", LoaderProviderId);
     public static readonly CapabilityDefinition<bool> LoaderMinecraftCompatible = new("loader.minecraft.compatible", "与 Minecraft 兼容", "加载器", LoaderProviderId);
     public static readonly CapabilityDefinition<bool> LoaderMetadataValid = new("loader.metadata.valid", "版本清单有效", "加载器", LoaderProviderId);
+    public static readonly CapabilityDefinition<bool> LoaderChainResolved = new("loader.chain.resolved", "版本继承链可解析", "加载器", LoaderProviderId);
     public static readonly CapabilityDefinition<bool> LoaderDerivedMissing = new("loader.derived.missing", "缺少加载器", "加载器", LoaderProviderId, CapabilityKind.Derived);
     public static readonly CapabilityDefinition<bool> LoaderDerivedIncompatible = new("loader.derived.incompatible", "加载器不兼容", "加载器", LoaderProviderId, CapabilityKind.Derived);
 
@@ -73,12 +74,13 @@ public static class MachineInstanceCatalog
         CapabilityKind.Metric, CapabilityStability.Dynamic);
     public static readonly CapabilityDefinition<string> MinecraftSettingsGraphicsMode = new("minecraft.settings.graphics_mode", "图像模式", "游戏设置", MinecraftProviderId);
     public static readonly CapabilityDefinition<bool> MinecraftSettingsFullscreen = new("minecraft.settings.fullscreen", "全屏", "游戏设置", MinecraftProviderId);
-    public static readonly CapabilityDefinition<string> MinecraftSettingsResourcePacks = new("minecraft.settings.resource_packs", "资源包列表", "游戏设置", MinecraftProviderId);
+    public static readonly CapabilityDefinition<IReadOnlyList<string>> MinecraftSettingsResourcePacks = new("minecraft.settings.resource_packs", "资源包", "游戏设置", MinecraftProviderId);
 
     public static readonly string[] LoaderScope =
     [
         LoaderPresent.Id, LoaderType.Id, LoaderVersion.Id, LoaderComplete.Id,
-        LoaderMinecraftCompatible.Id, LoaderMetadataValid.Id, LoaderDerivedMissing.Id, LoaderDerivedIncompatible.Id,
+        LoaderMinecraftCompatible.Id, LoaderMetadataValid.Id, LoaderChainResolved.Id,
+        LoaderDerivedMissing.Id, LoaderDerivedIncompatible.Id,
     ];
 
     public static readonly Dictionary<string, ICapabilityDefinition> LoaderDefinitions = new(StringComparer.Ordinal)
@@ -89,6 +91,7 @@ public static class MachineInstanceCatalog
         [LoaderComplete.Id] = LoaderComplete,
         [LoaderMinecraftCompatible.Id] = LoaderMinecraftCompatible,
         [LoaderMetadataValid.Id] = LoaderMetadataValid,
+        [LoaderChainResolved.Id] = LoaderChainResolved,
         [LoaderDerivedMissing.Id] = LoaderDerivedMissing,
         [LoaderDerivedIncompatible.Id] = LoaderDerivedIncompatible,
     };
@@ -104,7 +107,7 @@ public static class MachineInstanceCatalog
             JavaInstalled, JavaRuntimeCount, JavaRuntimePath, JavaRuntimeVersion, JavaRuntimeMajor,
             JavaRequirementMinimum, JavaRequirementRecommended, JavaCompatibilityMinecraft, JavaCompatibilityHard,
             LoaderPresent, LoaderType, LoaderVersion, LoaderComplete, LoaderMinecraftCompatible, LoaderMetadataValid,
-            LoaderDerivedMissing, LoaderDerivedIncompatible,
+            LoaderChainResolved, LoaderDerivedMissing, LoaderDerivedIncompatible,
             AccountAvailable, AccountSelected, AccountAuthenticationProvider, AccountAuthenticationRequired,
             AccountAuthenticationValid, AccountAuthenticationRefreshable,
             MinecraftSettingsReadable, MinecraftSettingsRenderDistance, MinecraftSettingsSimulationDistance,

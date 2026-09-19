@@ -119,18 +119,18 @@ public static class LoaderVersionProjections
     }
 
     /// <summary>options.txt resourcePacks is a raw JSON array; users see names, not brackets.</summary>
-    public static string DescribeResourcePacks(string raw)
+    public static IReadOnlyList<string> DescribeResourcePacks(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
-            return "默认";
+            return [];
         }
 
         try
         {
             if (System.Text.Json.Nodes.JsonNode.Parse(raw) is not System.Text.Json.Nodes.JsonArray packs)
             {
-                return raw;
+                return [raw];
             }
 
             List<string> names = [];
@@ -143,11 +143,11 @@ public static class LoaderVersionProjections
                 }
             }
 
-            return names.Count == 0 ? "默认" : $"{names.Count} 个：{string.Join("、", names.Take(4))}{(names.Count > 4 ? " 等" : "")}";
+            return names.AsReadOnly();
         }
         catch (System.Text.Json.JsonException)
         {
-            return raw;
+            return [raw];
         }
     }
 }
@@ -221,6 +221,10 @@ public sealed class LoaderCapabilityProvider(string? minecraftRootDirectory) : I
         const string source = "MinecraftInstallEditService + MinecraftVersionJsonReader";
         MinecraftModLoaderDescriptor loader = await InstalledLoaderProjection.ReadAsync(
             primary, minecraftRootDirectory, query, cancellationToken).ConfigureAwait(false);
+        string? heuristicVersion = loader.Version is null
+            ? LoaderVersionProjections.ReadLoaderVersionFromMods(primary.GameDirectory)
+            : null;
+        string? loaderVersion = loader.Version ?? heuristicVersion;
         bool vanilla = loader.Kind is MinecraftModLoaderKind.Vanilla;
         // The version reader THROWS on a missing inheritsFrom parent, so reaching here means
         // the chain resolved. Self-contained loader jsons (no inheritsFrom) are complete too —
@@ -230,15 +234,19 @@ public sealed class LoaderCapabilityProvider(string? minecraftRootDirectory) : I
         {
             MachineInstanceCatalog.LoaderPresent.Observe(!vanilla, timestamp, source),
             MachineInstanceCatalog.LoaderType.Observe(loader.Kind.ToString(), timestamp, source),
-            (loader.Version is { Length: > 0 } manifestVersion
-                ? manifestVersion
-                : LoaderVersionProjections.ReadLoaderVersionFromMods(primary.GameDirectory)) is { Length: > 0 } version
-                ? MachineInstanceCatalog.LoaderVersion.Observe(version, timestamp, source)
+            loaderVersion is { Length: > 0 } version
+                ? MachineInstanceCatalog.LoaderVersion.Observe(version, timestamp,
+                    heuristicVersion is null ? source : "mods 文件名启发式（仅作兜底）",
+                    heuristicVersion is null ? CapabilityConfidence.High : CapabilityConfidence.Low)
                 : MachineInstanceCatalog.LoaderVersion.Unavailable(CapabilityAvailability.DependencyMissing, timestamp, "加载器版本未知"),
             MachineInstanceCatalog.LoaderComplete.Observe(chainComplete, timestamp, source),
-            // An explicit loader↔minecraft range check is a later slice; a resolved chain is
-            // compatible by construction today, never silently incompatible.
-            MachineInstanceCatalog.LoaderMinecraftCompatible.Observe(true, timestamp, source),
+            // A resolvable chain proves the manifest GRAPH is intact — it says nothing about
+            // whether this loader version supports this Minecraft version. The explicit
+            // range check is the Compatibility Resolver's job; until it exists the fact is
+            // Unknown, never a silent true (Unknown ≠ true is a frozen Registry principle).
+            MachineInstanceCatalog.LoaderMinecraftCompatible.Unavailable(
+                CapabilityAvailability.DependencyMissing, timestamp, "尚未执行加载器↔Minecraft 显式兼容范围检查"),
+            MachineInstanceCatalog.LoaderChainResolved.Observe(true, timestamp, source),
             MachineInstanceCatalog.LoaderMetadataValid.Observe(true, timestamp, source),
             // derived.* are this provider's own definitions — computing them in place is the
             // ownership-clean path (cross-provider derivations go through the broker pass).

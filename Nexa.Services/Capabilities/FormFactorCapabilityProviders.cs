@@ -53,6 +53,10 @@ public static class InputCatalog
         "input.gyroscope.available", "陀螺仪可用", "输入", ProviderId);
     public static readonly CapabilityDefinition<bool> InputHapticsAvailable = new(
         "input.haptics.available", "振动反馈可用", "输入", ProviderId);
+    public static readonly CapabilityDefinition<IReadOnlyList<InputDeviceFeature>> InputGyroscopeDevices = new(
+        "input.gyroscope.devices", "陀螺仪", "输入", ProviderId);
+    public static readonly CapabilityDefinition<IReadOnlyList<InputDeviceFeature>> InputHapticsDevices = new(
+        "input.haptics.devices", "振动反馈", "输入", ProviderId);
     public static readonly CapabilityDefinition<string> InputUsagePrimary = new(
         "input.usage.primary", "主要输入方式", "输入", ProviderId, CapabilityKind.Metric,
         CapabilityStability.Dynamic);
@@ -73,10 +77,13 @@ public static class InputCatalog
     [
         InputKeyboardAvailable, InputMouseAvailable, InputTouchAvailable, InputPenAvailable,
         InputControllerCount, InputControllerAvailable, InputGyroscopeAvailable, InputHapticsAvailable,
+        InputGyroscopeDevices, InputHapticsDevices,
         InputUsagePrimary, InputUsageRecentKeyboard, InputUsageRecentMouse, InputUsageRecentTouch,
         InputUsageRecentController,
     ];
 }
+
+public sealed record InputDeviceFeature(string DeviceName, bool Available);
 
 public enum InputUsageKind { Unknown, Keyboard, Mouse, Touch, Controller }
 
@@ -270,19 +277,23 @@ public sealed class InputCapabilityProvider(InputUsageTracker? usage = null) : I
         const int NidiIntegratedTouch = 0x8;
         const int NidiIntegratedPen = 0x4;
         int digitizer = GetSystemMetrics(SmDigitizer);
-        int controllers = CountXInputControllers();
+        List<(string Name, bool Haptics)> controllers = ReadXInputControllers();
+        IReadOnlyList<InputDeviceFeature> gyroscopes = Array.AsReadOnly(controllers
+            .Select(static controller => new InputDeviceFeature(controller.Name, false)).ToArray());
+        IReadOnlyList<InputDeviceFeature> haptics = Array.AsReadOnly(controllers
+            .Select(static controller => new InputDeviceFeature(controller.Name, controller.Haptics)).ToArray());
         return Array.AsReadOnly(new ICapability[]
         {
             InputCatalog.InputKeyboardAvailable.Observe(true, timestamp, source + "（Windows 会话提供键盘输入）"),
             InputCatalog.InputMouseAvailable.Observe(GetSystemMetrics(SmMousePresent) != 0, timestamp, source),
             InputCatalog.InputTouchAvailable.Observe((digitizer & NidiReady) != 0 && (digitizer & (NidiIntegratedTouch | NidiMultiInput)) != 0, timestamp, source),
             InputCatalog.InputPenAvailable.Observe((digitizer & NidiReady) != 0 && (digitizer & NidiIntegratedPen) != 0, timestamp, source),
-            InputCatalog.InputControllerCount.Observe(controllers, timestamp, source),
-            InputCatalog.InputControllerAvailable.Observe(controllers > 0, timestamp, source),
-            // Gyro/haptics ride the controller's capability bits, not the OS: Windows has no
-            // driverless probe; honest unavailable until a per-device channel exists.
-            InputCatalog.InputGyroscopeAvailable.Unavailable(CapabilityAvailability.Unknown, timestamp, "陀螺仪需要逐设备通道，尚未接入"),
-            InputCatalog.InputHapticsAvailable.Unavailable(CapabilityAvailability.Unknown, timestamp, "振动需要逐设备通道，尚未接入"),
+            InputCatalog.InputControllerCount.Observe(controllers.Count, timestamp, source),
+            InputCatalog.InputControllerAvailable.Observe(controllers.Count > 0, timestamp, source),
+            InputCatalog.InputGyroscopeAvailable.Observe(false, timestamp, source + "（XInput 不公开陀螺仪通道）"),
+            InputCatalog.InputHapticsAvailable.Observe(controllers.Any(static controller => controller.Haptics), timestamp, source),
+            InputCatalog.InputGyroscopeDevices.Observe(gyroscopes, timestamp, source),
+            InputCatalog.InputHapticsDevices.Observe(haptics, timestamp, source),
         });
     }
 
@@ -303,6 +314,10 @@ public sealed class InputCapabilityProvider(InputUsageTracker? usage = null) : I
             InputCatalog.InputControllerAvailable.Observe(controllers > 0, timestamp, source),
             InputCatalog.InputGyroscopeAvailable.Unavailable(CapabilityAvailability.Unknown, timestamp, "陀螺仪需要逐设备通道，尚未接入"),
             InputCatalog.InputHapticsAvailable.Unavailable(CapabilityAvailability.Unknown, timestamp, "振动需要逐设备通道，尚未接入"),
+            InputCatalog.InputGyroscopeDevices.Observe(Array.AsReadOnly(Enumerable.Range(1, controllers)
+                .Select(index => new InputDeviceFeature($"Linux 手柄 {index}", false)).ToArray()), timestamp, source),
+            InputCatalog.InputHapticsDevices.Unavailable(CapabilityAvailability.Unknown, timestamp,
+                "Linux 振动能力需要 evdev force-feedback 权限"),
         });
 
         static bool InternalKeyboardLikely() => Environment.GetEnvironmentVariable("DISPLAY") is not null
@@ -329,6 +344,35 @@ public sealed class InputCapabilityProvider(InputUsageTracker? usage = null) : I
         return connected;
     }
 
+    private static List<(string Name, bool Haptics)> ReadXInputControllers()
+    {
+        List<(string Name, bool Haptics)> devices = [];
+        for (uint user = 0; user < 4; user++)
+        {
+            if (XInputGetCapabilities(user, 0, out XInputCapabilities capabilities) != 0)
+            {
+                continue;
+            }
+
+            string kind = capabilities.SubType switch
+            {
+                0x02 => "方向盘",
+                0x03 => "街机摇杆",
+                0x04 => "飞行摇杆",
+                0x05 => "舞蹈垫",
+                0x06 => "吉他控制器",
+                0x08 => "鼓控制器",
+                _ => "游戏手柄",
+            };
+            bool haptics = (capabilities.Flags & 0x0001) != 0
+                || capabilities.Vibration.LeftMotorSpeed != 0
+                || capabilities.Vibration.RightMotorSpeed != 0;
+            devices.Add(($"XInput {kind} {user + 1}", haptics));
+        }
+
+        return devices;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct XInputState
     {
@@ -338,8 +382,36 @@ public sealed class InputCapabilityProvider(InputUsageTracker? usage = null) : I
         public short ThumbLX, ThumbLY, ThumbRX, ThumbRY;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct XInputCapabilities
+    {
+        public byte Type;
+        public byte SubType;
+        public ushort Flags;
+        public XInputGamepad Gamepad;
+        public XInputVibration Vibration;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct XInputGamepad
+    {
+        public ushort Buttons;
+        public byte LeftTrigger, RightTrigger;
+        public short ThumbLX, ThumbLY, ThumbRX, ThumbRY;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct XInputVibration
+    {
+        public ushort LeftMotorSpeed;
+        public ushort RightMotorSpeed;
+    }
+
     [DllImport("xinput1_4.dll", SetLastError = false)]
     private static extern int XInputGetState(uint userIndex, out XInputState state);
+
+    [DllImport("xinput1_4.dll", SetLastError = false)]
+    private static extern int XInputGetCapabilities(uint userIndex, uint flags, out XInputCapabilities capabilities);
 
     [DllImport("user32.dll", SetLastError = false)]
     private static extern int GetSystemMetrics(int index);

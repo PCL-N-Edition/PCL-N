@@ -81,6 +81,11 @@ public static class FoundationRuntimeComposer
         commands.Register<RemediationRequest>(MachineCapabilityStateContract.RemediationCommand, async (request, token) =>
         {
             RemediationResult result = await host.Remediations.ExecuteAsync(request, token).ConfigureAwait(false);
+            if (result.Succeeded)
+            {
+                await host.MachineCapabilities.ReadAsync(refresh: true, cancellationToken: token)
+                    .ConfigureAwait(false);
+            }
             return result.Succeeded
                 ? Nexa.Xsr.XsrResult.Success()
                 : Nexa.Xsr.XsrResult.Failure(new Nexa.Xsr.XsrError(
@@ -107,12 +112,12 @@ public static class FoundationRuntimeComposer
         queries.Register<MachineCapabilityQuery, MachineCapabilitySnapshot>(MachineCapabilityStateContract.SnapshotQuery,
             async (query, token) => Nexa.Xsr.XsrResult.Success(await host.MachineCapabilities.ReadAsync(query, cancellationToken: token).ConfigureAwait(false)));
         queries.Register<LaunchPreflightQuery, CapabilityPreflightReport>(MachineCapabilityStateContract.PreflightQuery,
-            async (query, token) =>
+            (query, token) =>
             {
-                MachineCapabilitySnapshot snapshot = await host.MachineCapabilities.ReadAsync(
-                    new MachineCapabilityQuery(query.InstanceDirectory, query.InstanceId, query.MinecraftRootDirectory),
-                    refresh: true, cancellationToken: token).ConfigureAwait(false);
-                return Nexa.Xsr.XsrResult.Success(CapabilityPreflightEngine.Evaluate(snapshot));
+                token.ThrowIfCancellationRequested();
+                ArgumentNullException.ThrowIfNull(query.Snapshot);
+                return ValueTask.FromResult(Nexa.Xsr.XsrResult.Success(
+                    CapabilityPreflightEngine.Evaluate(query.Snapshot)));
             });
         XsrQueryRouter queryRouter = queries.Build(dispatchObserver, timeProvider);
 
