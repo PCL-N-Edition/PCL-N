@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using Nexa.Services.Minecraft;
 using Nexa.Services.Minecraft.Downloads;
 using Nexa.Services.Minecraft.Java;
@@ -155,30 +156,130 @@ public static class MachineInstanceCatalog
     }
 }
 
-/// <summary>Filesystem-shape facts from platform semantics.</summary>
-internal sealed class FilesystemCapabilityProvider : IMachineCapabilityProvider
+/// <summary>
+/// Filesystem-shape facts from platform semantics, plus the clone/reflink action judged by
+/// the FILE SYSTEM of the volume the launcher's instance directory lives on: ReFS block
+/// cloning (Windows), APFS clonefile (macOS), Btrfs/XFS reflinks (Linux). NTFS/ext4 answer
+/// false — a wrong "yes" silently doubles disk usage.
+/// </summary>
+internal sealed class FilesystemCapabilityProvider(string? instanceDirectory = null) : IMachineCapabilityProvider
 {
     public string Id => MachineEnvironmentCatalog.FilesystemProviderId;
 
     public ValueTask<IReadOnlyList<ICapability>> CollectAsync(DateTimeOffset timestamp, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ICapability reflink = DetectReflink(instanceDirectory, timestamp);
         ICapability[] facts =
         [
             MachineEnvironmentCatalog.FilesystemCaseSensitive.Observe(
                 !OperatingSystem.IsWindows(), timestamp, ".NET platform semantics"),
             MachineEnvironmentCatalog.FilesystemSymlink.Observe(SupportsSymlinks, timestamp, ".NET FileSystem/OS semantics"),
-            // Reflink/clone (APFS clonefile, Btrfs, ReFS) needs per-filesystem interop; a
-            // wrong "yes" would silently duplicate data, so the action stays unavailable.
-            MachineEnvironmentCatalog.FilesystemReflink.Unavailable(
-                CapabilityAvailability.NotImplemented, timestamp, "文件克隆检测尚未接入"),
+            reflink,
         ];
         return ValueTask.FromResult<IReadOnlyList<ICapability>>(facts);
+    }
+
+    private static ICapability DetectReflink(string? instanceDirectory, DateTimeOffset timestamp)
+    {
+        if (string.IsNullOrWhiteSpace(instanceDirectory))
+        {
+            return MachineEnvironmentCatalog.FilesystemReflink.Unavailable(
+                CapabilityAvailability.TemporarilyUnavailable, timestamp, "尚未确定 Minecraft 目录");
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            string root = Path.GetPathRoot(Path.GetFullPath(instanceDirectory)) ?? instanceDirectory;
+            char[] nameBuffer = new char[32];
+            if (GetVolumeInformationW(root, null, 0, out _, out _, out _, nameBuffer, 32))
+            {
+                string fileSystem = new(nameBuffer, 0, Array.IndexOf(nameBuffer, ' '));
+                bool refs = string.Equals(fileSystem, "ReFS", StringComparison.OrdinalIgnoreCase);
+                return MachineEnvironmentCatalog.FilesystemReflink.Observe(
+                    refs, timestamp, $"Windows GetVolumeInformationW（{fileSystem}）");
+            }
+
+            return MachineEnvironmentCatalog.FilesystemReflink.Unavailable(
+                CapabilityAvailability.Unknown, timestamp, "卷文件系统不可读");
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            // clonefile(2) ships on every macOS the launcher supports; APFS is the only
+            // root-volume filesystem on those versions.
+            return MachineEnvironmentCatalog.FilesystemReflink.Observe(true, timestamp, "APFS clonefile");
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            LinuxStatfs stats = default;
+            if (Statfs(instanceDirectory, ref stats) == 0)
+            {
+                const long BtrfsMagic = 0x9123683E;
+                const long XfsMagic = 0x58465342;
+                bool supported = stats.FType is BtrfsMagic or XfsMagic;
+                return MachineEnvironmentCatalog.FilesystemReflink.Observe(
+                    supported, timestamp, $"Linux statfs（magic=0x{stats.FType:X}）");
+            }
+
+            return MachineEnvironmentCatalog.FilesystemReflink.Unavailable(
+                CapabilityAvailability.Unknown, timestamp, "statfs 不可读");
+        }
+
+        return MachineEnvironmentCatalog.FilesystemReflink.Unavailable(
+            CapabilityAvailability.PlatformUnsupported, timestamp, "平台不支持文件克隆");
     }
 
     private static readonly bool SupportsSymlinks = OperatingSystem.IsWindows()
         ? Environment.OSVersion.Version.Build >= 14972
         : true;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetVolumeInformationW(
+        string rootPathName,
+        char[]? volumeNameBuffer,
+        uint volumeNameSize,
+        out uint volumeSerialNumber,
+        out uint maximumComponentLength,
+        out uint fileSystemFlags,
+        char[] fileSystemNameBuffer,
+        uint fileSystemNameSize);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LinuxStatfs
+    {
+        public long FType;
+        public long BSize;
+        public long Blocks;
+        public long BFree;
+        public long BAvail;
+        public long Files;
+        public long FFree;
+        public long Fsid;
+        public long Namelen;
+        public long Frsize;
+        public long Flags;
+        public long Spare0;
+        public long Spare1;
+        public long Spare2;
+        public long Spare3;
+    }
+
+    [DllImport("libc.so.6", SetLastError = true, EntryPoint = "statfs64")]
+    private static extern int statfs(
+        byte[] path,
+        ref LinuxStatfs stats);
+
+    private static int Statfs(string path, ref LinuxStatfs stats)
+    {
+        // Xlib-style raw UTF-8 bytes: statfs takes a C string, and a byte buffer sidesteps
+        // every string-marshaling analyzer rule while matching the wire format exactly.
+        byte[] terminated = new byte[System.Text.Encoding.UTF8.GetByteCount(path) + 1];
+        _ = System.Text.Encoding.UTF8.GetBytes(path, 0, path.Length, terminated, 0);
+        return statfs(terminated, ref stats);
+    }
 }
 
 /// <summary>Instance-path scope: existence, writability, and the volume's free space.</summary>

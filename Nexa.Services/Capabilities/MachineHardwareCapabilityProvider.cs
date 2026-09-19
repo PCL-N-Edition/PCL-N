@@ -89,9 +89,9 @@ internal sealed class HardwarePowerCapabilityProvider : IMachineCapabilityProvid
 }
 
 /// <summary>GPU adapter memory through DXGI (available budget = budget - current usage).</summary>
-internal static class GpuProbes
+public static class GpuProbes
 {
-    internal static List<ICapability> CollectGpu(DateTimeOffset timestamp)
+    public static List<ICapability> CollectGpu(DateTimeOffset timestamp)
     {
         const string source = "DXGI IDXGIAdapter3 QueryVideoMemoryInfo";
         try
@@ -128,7 +128,7 @@ internal static class GpuProbes
                         return GpuUnavailable(timestamp, $"没有可枚举的显卡适配器 (hr=0x{enumerated:X8})");
                     }
 
-                    Guid iid = new(0x645967A2, 0x3E82, 0x444F, 0x85, 0xB3, 0x9D, 0x0A, 0x95, 0x2E, 0xA5, 0x31); // IID_IDXGIAdapter3
+                    Guid iid = new(0x645967A4, 0x1392, 0x4310, 0xA7, 0x98, 0x80, 0x53, 0xCE, 0x3E, 0x93, 0xFD); // IID_IDXGIAdapter3 (dxgi1_4.h)
                     int queried = QI(adapter, ref iid, out adapter3);
                     if (queried != 0 || adapter3 == 0)
                     {
@@ -187,20 +187,15 @@ internal static class GpuProbes
 
     internal static List<ICapability> CollectThermalWindows(DateTimeOffset timestamp)
     {
-        const string thermalSource = "Windows CallNtPowerInformation";
-        List<ICapability> facts = [];
-
-        // NtPowerInformationProcessorPowerPolicy is not the temperature channel; the real
-        // one is NtPowerInformation(ProcessorInformation) → COORDINATOR report, but the
-        // widely-available channel is CallNtPowerInformation with a CM_RESOURCE struct.
-        // Value is 10ths of a Kelvin; 0xFFFFFFFF means unknown.
-        uint kelvinTenths = CallNtPowerInformationTemperature();
-        facts.Add(kelvinTenths is > 0 and < 0xFFFFFFFF
-            ? MachineHardwareCatalog.ThermalCpuTemperature.Observe(kelvinTenths / 10.0 - 273.15, timestamp, thermalSource)
-            : MachineHardwareCatalog.ThermalCpuTemperature.Unavailable(
-                CapabilityAvailability.Unknown, timestamp, "系统未暴露 CPU 温度（需驱动/管理员）"));
-
-        return facts;
+        // Windows has NO driverless CPU-temperature API: MSAcpi_ThermalZoneTemperature needs
+        // admin and often does not exist, and CallNtPowerInformation carries no temperature
+        // at all (treating its policy bytes as kelvin produced -273°C). The honest fact is
+        // Unknown until a real channel (kernel driver / WMI with elevation) is wired.
+        return
+        [
+            MachineHardwareCatalog.ThermalCpuTemperature.Unavailable(
+                CapabilityAvailability.Unknown, timestamp, "Windows 未提供免驱动的 CPU 温度通道"),
+        ];
     }
 
     internal static List<ICapability> CollectPowerWindows(DateTimeOffset timestamp)
@@ -403,15 +398,18 @@ internal static class GpuProbes
 
     private delegate int EnumAdaptersDelegate(nint self, uint index, out nint adapter);
 
-    // IDXGIAdapter3::QueryVideoMemoryInfo is vtable slot 21 of the adapter3 interface.
+    // IDXGIAdapter3 vtable (dxgi1_4.idl): IUnknown 0..2, IDXGIObject 3..6, IDXGIAdapter
+    // 7..9, Adapter1 10, Adapter2 11; Adapter3's own slots are Register/UnregisterHardware
+    // ContentProtection (12, 13) then QueryVideoMemoryInfo (14).
     private static int QueryVideoMemoryInfo(nint adapter3, uint generation, uint segment, ref DXGI_QUERY_VIDEO_MEMORY_INFO info)
     {
         nint vtbl = Marshal.ReadIntPtr(adapter3);
-        nint slotPtr = Marshal.ReadIntPtr(vtbl, 21 * nint.Size);
+        nint slotPtr = Marshal.ReadIntPtr(vtbl, 14 * nint.Size);
         return Marshal.GetDelegateForFunctionPointer<QueryMemoryDelegate>(slotPtr)(adapter3, generation, segment, ref info);
     }
 
     private delegate int QueryMemoryDelegate(nint self, uint generation, uint segment, ref DXGI_QUERY_VIDEO_MEMORY_INFO info);
+
 
     private const uint DXGI_MEMORY_SEGMENT_GROUP_LOCAL = 0;
 
@@ -422,24 +420,6 @@ internal static class GpuProbes
         public ulong CurrentUsage;
         public ulong AvailableForReservation;
         public ulong CurrentReservation;
-    }
-
-    // CallNtPowerInformation(ThermalInformation=16) returns PROCESSOR_POWER_INFORMATION array
-    // whose temperature fields are reserved on most machines; treat a zero/invalid result as
-    // unknown rather than inventing a number.
-    [DllImport("powrprof.dll", SetLastError = false)]
-    private static extern int CallNtPowerInformation(int level, nint inputBuffer, nint inputLength, out ulong outputBuffer, nint outputLength);
-
-    internal static uint CallNtPowerInformationTemperature()
-    {
-        if (CallNtPowerInformation(16, 0, 0, out ulong raw, (nint)sizeof(ulong)) != 0)
-        {
-            return 0xFFFFFFFF;
-        }
-
-        // Raw holds the first 8 bytes; the temperature (if exposed) is in the low 32 bits as
-        // tenths of a Kelvin. Machines without ACPI thermal zones return all-ones.
-        return (uint)raw;
     }
 
     [DllImport("powrprof.dll", SetLastError = false)]

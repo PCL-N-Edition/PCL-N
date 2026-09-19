@@ -85,7 +85,7 @@ public sealed class FoundationHost
         List<IMachineCapabilityProvider> capabilityProviders = [.. MachineCapabilityCatalog.CreateProviders(),
             new DisplayCapabilityProvider(),
             new StorageCapabilityProvider(minecraftRootDirectory),
-            new FilesystemCapabilityProvider(),
+            new FilesystemCapabilityProvider(minecraftRootDirectory),
             new JavaEnvironmentCapabilityProvider(),
             new GpuCapabilityProvider(),
             new ThermalCapabilityProvider(),

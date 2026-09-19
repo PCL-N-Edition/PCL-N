@@ -10,8 +10,74 @@ namespace Nexa.Tools.CapabilityProbe;
 
 public static class Program
 {
-    public static async Task<int> Main()
+    public static async Task<int> Main(string[] args)
     {
+        if (args.Contains("--display"))
+        {
+            for (int round = 0; round < 20; round++)
+            {
+                Console.WriteLine($"round {round}...");
+                var provider = new DisplayCapabilityProvider();
+                foreach (ICapability fact in await provider.CollectAsync(DateTimeOffset.UtcNow, CancellationToken.None))
+                {
+                    Console.WriteLine($"  {fact.Id} {fact.Availability} {fact.DisplayValue} [{fact.Reason}]");
+                }
+            }
+
+            return 0;
+        }
+
+        if (args.Contains("--parallel"))
+        {
+            // Reproduce the broker's fan-out: GPU + Java + Display concurrently, 20 times.
+            for (int round = 0; round < 20; round++)
+            {
+                Console.WriteLine($"round {round}...");
+                var displayTask = new DisplayCapabilityProvider().CollectAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+                var gpuTask = Task.Run(() => GpuProbes.CollectGpu(DateTimeOffset.UtcNow));
+                var javaTask = Task.Run(async () => await MachineInstanceCatalog.CollectJavaAsync(
+                    new Nexa.Services.Minecraft.Java.LocalJavaRuntimeLocator(), DateTimeOffset.UtcNow, CancellationToken.None));
+                await Task.WhenAll(
+                    displayTask.AsTask(),
+                    gpuTask,
+                    javaTask);
+                Console.WriteLine("  all providers survived");
+            }
+
+            return 0;
+        }
+
+        if (args.Contains("--gpu"))
+        {
+            // Isolate the hand-rolled COM path: run the GPU probe repeatedly to expose
+            // nondeterministic native crashes.
+            for (int round = 0; round < 20; round++)
+            {
+                Console.WriteLine($"round {round}...");
+                foreach (ICapability fact in GpuProbes.CollectGpu(DateTimeOffset.UtcNow))
+                {
+                    Console.WriteLine($"  {fact.Id} {fact.Availability} {fact.DisplayValue} [{fact.Reason}]");
+                }
+            }
+
+            return 0;
+        }
+
+        if (args.Contains("--java"))
+        {
+            for (int round = 0; round < 10; round++)
+            {
+                Console.WriteLine($"round {round}...");
+                foreach (ICapability fact in await MachineInstanceCatalog.CollectJavaAsync(
+                    new Nexa.Services.Minecraft.Java.LocalJavaRuntimeLocator(), DateTimeOffset.UtcNow, CancellationToken.None))
+                {
+                    Console.WriteLine($"  {fact.Id} {fact.Availability} {fact.DisplayValue}");
+                }
+            }
+
+            return 0;
+        }
+
         string root = Path.Combine(Path.GetTempPath(), "nexa-cap-probe");
         Directory.CreateDirectory(root);
         string settingsFolder = Path.Combine(root, "settings");
