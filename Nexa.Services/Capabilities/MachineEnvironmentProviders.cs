@@ -78,7 +78,7 @@ public sealed partial class DisplayCapabilityProvider : IMachineCapabilityProvid
             return CollectLinux(timestamp);
         }
 
-        return Unavailable(timestamp);
+        return Unavailable(timestamp, "此平台的显示检测尚未接入");
     }
 
     private ValueTask<IReadOnlyList<ICapability>> CollectWindows(DateTimeOffset timestamp)
@@ -94,7 +94,7 @@ public sealed partial class DisplayCapabilityProvider : IMachineCapabilityProvid
         EnumDisplayMonitors(nint.Zero, nint.Zero, Callback, nint.Zero);
         if (monitors.Count == 0)
         {
-            return Unavailable(timestamp);
+            return Unavailable(timestamp, "此平台的显示检测尚未接入");
         }
 
         nint primaryHandle = MonitorFromPoint(new Point { X = 0, Y = 0 }, monitorDefaultToNearest);
@@ -127,22 +127,35 @@ public sealed partial class DisplayCapabilityProvider : IMachineCapabilityProvid
         nint mainId = CGMainDisplayID();
         if (mainId == nint.Zero)
         {
-            return Unavailable(timestamp);
+            return Unavailable(timestamp, "此平台的显示检测尚未接入");
         }
+
+        // CGGetActiveDisplayList counts the active displays; CGDisplayIsBuiltin is the
+        // authoritative built-in-panel answer (Apple silicon laptops, MacBooks).
+        uint displayCount = 0;
+        _ = CGGetActiveDisplayList(0, [], ref displayCount);
+        nint[] displays = new nint[Math.Max(1, displayCount)];
+        uint fetched = 0;
+        int listResult = CGGetActiveDisplayList((uint)displays.Length, displays, ref fetched);
 
         uint width = CGDisplayPixelsWide(mainId);
         uint height = CGDisplayPixelsHigh(mainId);
         var mode = CGDisplayCopyDisplayMode(mainId);
         double refresh = mode != nint.Zero ? CGDisplayModeGetRefreshRate(mode) : 0;
         return ValueTask.FromResult<IReadOnlyList<ICapability>>(Array.AsReadOnly<ICapability>([
-            MachineEnvironmentCatalog.DisplayCount.Unavailable(CapabilityAvailability.NotImplemented, timestamp, "多显示器枚举尚未接入"),
-            MachineEnvironmentCatalog.DisplayPrimaryInternal.Unavailable(CapabilityAvailability.NotImplemented, timestamp, "内建屏判定尚未接入"),
+            listResult == 0 && fetched > 0
+                ? MachineEnvironmentCatalog.DisplayCount.Observe((int)fetched, timestamp, "CoreGraphics CGGetActiveDisplayList")
+                : MachineEnvironmentCatalog.DisplayCount.Unavailable(CapabilityAvailability.Unknown, timestamp, "显示器枚举不可读"),
+            CGDisplayIsBuiltin(mainId)
+                ? MachineEnvironmentCatalog.DisplayPrimaryInternal.Observe(true, timestamp, "CoreGraphics CGDisplayIsBuiltin")
+                : MachineEnvironmentCatalog.DisplayPrimaryInternal.Observe(false, timestamp, "CoreGraphics CGDisplayIsBuiltin"),
             MachineEnvironmentCatalog.DisplayPrimaryResolution.Observe($"{width}×{height}", timestamp, "CoreGraphics CGMainDisplayID"),
             refresh > 0
                 ? MachineEnvironmentCatalog.DisplayPrimaryRefreshHz.Observe(refresh, timestamp, "CoreGraphics CGDisplayCopyDisplayMode")
                 : MachineEnvironmentCatalog.DisplayPrimaryRefreshHz.Unavailable(CapabilityAvailability.Unknown, timestamp, "刷新率不可读"),
         ]));
     }
+
 
     private static ValueTask<IReadOnlyList<ICapability>> CollectLinux(DateTimeOffset timestamp)
     {
@@ -162,13 +175,17 @@ public sealed partial class DisplayCapabilityProvider : IMachineCapabilityProvid
             }
         }
 
-        return Unavailable(timestamp);
+        return Unavailable(timestamp, OperatingSystem.IsLinux() ? "平台不支持：Wayland/无图形会话下无可移植的显示探测" : "此平台的显示检测尚未接入");
     }
 
-    private static ValueTask<IReadOnlyList<ICapability>> Unavailable(DateTimeOffset timestamp) =>
+    private static ValueTask<IReadOnlyList<ICapability>> Unavailable(DateTimeOffset timestamp, string reason) =>
         ValueTask.FromResult<IReadOnlyList<ICapability>>(Array.AsReadOnly(
             MachineCapabilityCatalog.CreateRegistry().Definitions.Where(item => item.Provider == MachineEnvironmentCatalog.DisplayProviderId)
-                .Select(item => item.Unavailable(CapabilityAvailability.NotImplemented, timestamp, "此平台的显示检测尚未接入")).ToArray()));
+                .Select(item => item.Unavailable(
+                    reason.StartsWith("平台不支持", StringComparison.Ordinal)
+                        ? CapabilityAvailability.PlatformUnsupported
+                        : CapabilityAvailability.NotImplemented,
+                    timestamp, reason)).ToArray()));
 
     /// <summary>
     /// Internal-panel detection through the display configuration API: the primary monitor's
@@ -367,4 +384,11 @@ public sealed partial class DisplayCapabilityProvider : IMachineCapabilityProvid
 
     [DllImport("CoreGraphics")]
     private static extern double CGDisplayModeGetRefreshRate(nint mode);
+
+    [DllImport("CoreGraphics")]
+    private static extern int CGGetActiveDisplayList(uint maxDisplays, nint[] activeDisplays, ref uint displayCount);
+
+    [DllImport("CoreGraphics")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CGDisplayIsBuiltin(nint display);
 }

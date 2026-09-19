@@ -69,7 +69,10 @@ internal sealed class ThermalCapabilityProvider : IMachineCapabilityProvider
         cancellationToken.ThrowIfCancellationRequested();
         List<ICapability> thermal = OperatingSystem.IsWindows()
             ? GpuProbes.CollectThermalWindows(timestamp)
-            : GpuProbes.CollectThermalUnix(timestamp);
+            : OperatingSystem.IsLinux()
+                ? GpuProbes.CollectThermalUnix(timestamp)
+                : [MachineHardwareCatalog.ThermalCpuTemperature.Unavailable(
+                    CapabilityAvailability.NotImplemented, timestamp, "macOS 需要 AppleSMC 通道，尚未接入")];
         return ValueTask.FromResult<IReadOnlyList<ICapability>>(thermal);
     }
 }
@@ -83,7 +86,18 @@ internal sealed class HardwarePowerCapabilityProvider : IMachineCapabilityProvid
         cancellationToken.ThrowIfCancellationRequested();
         List<ICapability> power = OperatingSystem.IsWindows()
             ? GpuProbes.CollectPowerWindows(timestamp)
-            : GpuProbes.CollectPowerUnix(timestamp);
+            : OperatingSystem.IsLinux()
+                ? GpuProbes.CollectPowerUnix(timestamp)
+                : [MachineEnvironmentCatalog.PowerSource.Unavailable(
+                        CapabilityAvailability.NotImplemented, timestamp, "macOS 需要 IOKit 电源通道，尚未接入"),
+                    MachineEnvironmentCatalog.PowerBatteryPresent.Unavailable(
+                        CapabilityAvailability.NotImplemented, timestamp, "macOS 需要 IOKit 电源通道，尚未接入"),
+                    MachineEnvironmentCatalog.PowerBatteryLevelPercent.Unavailable(
+                        CapabilityAvailability.NotImplemented, timestamp, "macOS 需要 IOKit 电源通道，尚未接入"),
+                    MachineEnvironmentCatalog.PowerBatteryCharging.Unavailable(
+                        CapabilityAvailability.NotImplemented, timestamp, "macOS 需要 IOKit 电源通道，尚未接入"),
+                    MachineEnvironmentCatalog.PowerProfileCurrent.Unavailable(
+                        CapabilityAvailability.NotImplemented, timestamp, "macOS 需要 IOKit 电源通道，尚未接入")];
         return ValueTask.FromResult<IReadOnlyList<ICapability>>(power);
     }
 }
@@ -101,9 +115,13 @@ public static class GpuProbes
                 return
                 [
                     MachineHardwareCatalog.GpuDedicatedBudget.Unavailable(
-                        CapabilityAvailability.NotImplemented, timestamp, "非 Windows 平台的显存查询尚未接入"),
+                        CapabilityAvailability.NotImplemented, timestamp, OperatingSystem.IsLinux()
+                    ? "Linux 显存查询需要 NVML/AMD sysfs，尚未接入"
+                    : "macOS 显存查询需要 Metal，尚未接入"),
                     MachineHardwareCatalog.GpuDedicatedCurrentUsage.Unavailable(
-                        CapabilityAvailability.NotImplemented, timestamp, "非 Windows 平台的显存查询尚未接入"),
+                        CapabilityAvailability.NotImplemented, timestamp, OperatingSystem.IsLinux()
+                    ? "Linux 显存查询需要 NVML/AMD sysfs，尚未接入"
+                    : "macOS 显存查询需要 Metal，尚未接入"),
                 ];
             }
 
