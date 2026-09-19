@@ -1,4 +1,5 @@
 using Nexa.Services.Accounts;
+using Nexa.Services.Capabilities;
 using Nexa.Services.Downloads;
 using Nexa.Services.Files;
 using Nexa.Services.Logging;
@@ -34,6 +35,7 @@ public static class FoundationState
 
         LogService.DeclareState(builder);
         SettingsPolicyContract.DeclareState(builder);
+        MachineCapabilityStateContract.DeclareState(builder);
         DownloadService.DeclareState(builder);
         TaskCenterStateContract.DeclareState(builder);
         AccountService.DeclareState(builder);
@@ -73,8 +75,9 @@ public sealed class FoundationHost
         Telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
         SettingsPolicy = new SettingsPolicyService(Settings);
+        MachineCapabilities = new MachineCapabilityBroker(MachineCapabilityCatalog.CreateRegistry(), MachineCapabilityCatalog.CreateProviders(), StateStore);
         Tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
-        _services = Array.AsReadOnly<object>([Logging, Downloads, Accounts, Telemetry, Settings, SettingsPolicy, Tasks]);
+        _services = Array.AsReadOnly<object>([Logging, Downloads, Accounts, Telemetry, Settings, SettingsPolicy, Tasks, MachineCapabilities]);
     }
 
     public XsrStateStore StateStore { get; }
@@ -91,6 +94,7 @@ public sealed class FoundationHost
     public SettingsPolicyService SettingsPolicy { get; }
 
     public TaskCenterService Tasks { get; }
+    public MachineCapabilityBroker MachineCapabilities { get; }
 
     /// <summary>Registered services in activation order (for composition diagnostics).</summary>
     public IReadOnlyList<object> Services => _services;

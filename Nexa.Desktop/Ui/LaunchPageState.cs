@@ -52,6 +52,7 @@ internal static class LaunchPageState
     public static void DeclareState(XsrStateStoreBuilder builder)
     {
         VersionSelectionState.DeclareState(builder);
+        SettingsPresentationState.DeclareState(builder);
         builder.Cell<string>(InstanceDirectoryKey, OwnerName);
         ArgumentNullException.ThrowIfNull(builder);
         AccountFormState.DeclareState(builder);

@@ -57,6 +57,7 @@ internal sealed partial class SettingsPageController : IDisposable
         _navigationRoot = names["SettingsNavigation"]; _pager = names["SettingsPager"];
         shell.Tree.SetComponent(_navigationRoot, new XsrUiScrollGesture());
         Style(_navigationRoot, new(241, 245, 250), Ink, 10);
+        shell.Tree.GetComponent<XsrUiElement>(_navigationRoot)!.HorizontalAlignment = XsrUiAlignment.Start;
         shell.Tree.SetComponent(_navigationRoot, new XsrUiSegmentedTrack(names["SettingsThumb"]));
         shell.Tree.SetComponent(names["SettingsThumb"], new XsrUiTransition());
         Style(names["SettingsThumb"], White, Ink, 8);
@@ -69,7 +70,7 @@ internal sealed partial class SettingsPageController : IDisposable
 
     private void OnIntent(object? sender, DesktopUiIntentEventArgs args)
     {
-        if (args.Intent.Command == Select || args.Intent.Command == Edit || args.Intent.Command == Choice || args.Intent.Command == ArgumentAdd || args.Intent.Command == ArgumentRemove) _pending.Enqueue(args.Intent);
+        if (args.Intent.Command == Select || args.Intent.Command == Edit || args.Intent.Command == Choice || args.Intent.Command == ArgumentAdd || args.Intent.Command == ArgumentRemove || args.Intent.Command == RefreshPlatform) _pending.Enqueue(args.Intent);
     }
     private void OnFrame(object? sender, EventArgs args)
     {
@@ -84,6 +85,7 @@ internal sealed partial class SettingsPageController : IDisposable
             _shell.Tree.MarkDirty(_shell.Content, XsrUiDirtyKinds.Layout);
         }
         if (!visible) return;
+        UpdatePlatformCapabilities();
         if (_catalog is null)
         {
             if (!_queries.TryResolve(SettingsPolicyContract.CatalogQuery, out var route)) return;
@@ -113,6 +115,7 @@ internal sealed partial class SettingsPageController : IDisposable
         }
         while (_pending.TryDequeue(out var intent))
         {
+            if (intent.Command == RefreshPlatform) { RefreshPlatformCapabilities(); continue; }
             if (intent.Command == Select && _navigation.TryGetValue(intent.Source, out string? page) && page != _selected)
             {
                 SwitchPage(page);
@@ -192,6 +195,7 @@ internal sealed partial class SettingsPageController : IDisposable
         if (!navigating) _scrollPositions[_selected] = _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY;
         foreach (var child in _shell.Tree.Children(_sections).ToArray()) _shell.Tree.Destroy(child);
         _editors.Clear(); _selectors.Clear(); _argumentEditors.Clear(); _argumentActions.Clear(); _choices.Clear();
+        if (_selected == "platform") { BuildPlatformCapabilities(); return; }
         var entries = _catalog!.Entries.Where(item => item.Scope == "global" && item.Page == _selected && !item.IsRuntimeDetail && (_developer || !item.DeveloperOnly)).ToArray();
         foreach (var section in entries.GroupBy(item => (Section: item.DeveloperOnly ? "开发者" : item.Section, item.DeveloperOnly)))
         {

@@ -4,6 +4,9 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("machine registry seals typed dependency graph", Sync(MachineRegistrySealsTypedDependencyGraph)),
+        ("machine broker coalesces isolates and caches", MachineBrokerCoalescesIsolatesAndCaches),
+        ("machine memory and preflight keep independent semantics", Sync(MachineMemoryAndPreflightKeepIndependentSemantics)),
         ("settings catalog locks final IA and developer visibility", Sync(SettingsCatalogLocksFinalIa)),
         ("settings policy uses sealed foundation routes", SettingsPolicyUsesSealedFoundationRoutes),
         ("settings legacy strategies preserve units and choices", Sync(SettingsLegacyStrategiesKeepTheirMeaning)),

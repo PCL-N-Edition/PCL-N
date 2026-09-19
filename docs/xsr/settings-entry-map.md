@@ -536,3 +536,7 @@ This checked-in map reserves final positions. `reserved` means no value contract
 | instance-settings.advanced.25c2ac9fa4ed | instance-settings / advanced / Launch Trace | Launch Trace | State | — | True |
 | instance-settings.advanced.8c5e81a76a9d | instance-settings / advanced / XSR State | XSR State | Setting | reserved | True |
 | instance-settings.advanced.8b445a04eee7 | instance-settings / advanced / Operation History | Operation History | State | — | True |
+
+## Platform Features extension
+
+The ninth global category `platform` (平台功能) presents the Machine Capability Registry snapshot through `machine.capabilities.query`, with explicit refresh through `machine.capabilities.refresh`. Its read-only rows are generated from capability definitions (system, CPU, memory, runtime and not-yet-connected providers), rather than durable settings. No cloud controls are introduced.

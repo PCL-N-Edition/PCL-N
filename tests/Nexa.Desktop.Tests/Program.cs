@@ -41,6 +41,7 @@ internal static partial class Program
         ("Settings page saves through Services without losing draft focus", SettingsPageSavesThroughServicesAndPreservesDraftFocus),
         ("Settings developer toggle preserves scroll position and focus", SettingsDeveloperToggleKeepsPositionAndFocus),
         ("Settings argument rows support add remove and apply", SettingsArgumentRowsSupportAddRemoveAndApply),
+        ("Settings platform reads and refreshes Service snapshots", SettingsPlatformReadsAndRefreshesServiceSnapshot),
         ("Settings inline choices commit in both directions", SettingsInlineSelectorCommitsBothDirections),
         ("version row actions keep selection distinct", VersionRowActionsKeepSelectionDistinct),
         ("Java choice page routes selected major and launch action tracks progress", JavaChoiceAndLaunchProgressStayInteractive),

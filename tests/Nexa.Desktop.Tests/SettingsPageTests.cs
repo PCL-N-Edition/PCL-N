@@ -33,13 +33,13 @@ internal static partial class Program
         Emit(fixture.Intents, "ui.navigation.settings");
         var scene = fixture.Shell.Render(new(1000, 650));
         AssertEqual(settings.Page, fixture.Shell.Stage.Navigation.Current);
-        AssertEqual(8, scene.Nodes.Count(item => fixture.Shell.Tree.Name(item.Entity).StartsWith("SettingsNav.", StringComparison.Ordinal)));
+        AssertEqual(9, scene.Nodes.Count(item => fixture.Shell.Tree.Name(item.Entity).StartsWith("SettingsNav.", StringComparison.Ordinal)));
         var nav = FindByKey(fixture.Shell, scene, "SettingsNavigation");
         var body = FindByKey(fixture.Shell, scene, "SettingsSections");
         AssertEqual(44d, nav.Rect.Height);
         AssertTrue(fixture.Shell.Tree.GetComponent<XsrUiSegmentedTrack>(nav.Entity) is not null);
         var pager = FindByKey(fixture.Shell, scene, "SettingsPager");
-        AssertEqual(8, fixture.Shell.Tree.GetComponent<XsrUiPager>(pager.Entity)!.PageCount);
+        AssertEqual(9, fixture.Shell.Tree.GetComponent<XsrUiPager>(pager.Entity)!.PageCount);
         fixture.Shell.Renderer.SelectPagerPage(pager.Entity, 1);
         scene = fixture.Shell.Render(new(1000, 650));
         AssertEqual("appearance", settings.SelectedSection);
@@ -52,7 +52,7 @@ internal static partial class Program
             Emit(fixture.Intents, "ui.settings.section", button.Entity);
             scene = fixture.Shell.Render(new(1000, 650));
             AssertEqual(page.Id, settings.SelectedSection);
-            AssertTrue(scene.Nodes.Any(item => item.Text == "尚未可用"));
+            if (page.Id != "platform") AssertTrue(scene.Nodes.Any(item => item.Text == "尚未可用"));
             AssertTrue(scene.Nodes.Where(item => fixture.Shell.Tree.Name(item.Entity).StartsWith("SettingsRow.", StringComparison.Ordinal)).All(item => item.Rect.Width > 0));
         }
         scene = fixture.Shell.Render(new(760, 500));
@@ -141,6 +141,30 @@ internal static partial class Program
         AssertTrue(SpinWait.SpinUntil(() => fixture.Foundation.Host.Settings.GetValue<string>("LaunchAdvanceGame").Value == "--fullscreen", TimeSpan.FromSeconds(5)));
     }
 
+    private static void SettingsPlatformReadsAndRefreshesServiceSnapshot()
+    {
+        using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));
+        using var settings = new SettingsPageController(fixture.Shell, fixture.Intents, fixture.Foundation.Queries, fixture.Foundation.Commands, fixture.Store, fixture.Feedback);
+        fixture.Shell.Renderer.ReducedMotion = true;
+        fixture.Controller.SettingsPage = settings.Page;
+        Emit(fixture.Intents, "ui.navigation.settings");
+        var scene = fixture.Shell.Render(new(1000, 650));
+        Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.platform").Entity);
+        bool Ready()
+        {
+            scene = fixture.Shell.Render(new(1000, 650));
+            bool found = false;
+            fixture.Shell.Tree.Walk(settings.Page, entity => { found |= fixture.Shell.Tree.Name(entity) == "PlatformCapability.platform.os"; return true; });
+            return found;
+        }
+        AssertTrue(SpinWait.SpinUntil(Ready, TimeSpan.FromSeconds(5)));
+        var id = fixture.Store.Resolve(Nexa.Services.Capabilities.MachineCapabilityStateContract.RevisionKey);
+        long before = fixture.Store.Read<long>(id).Value;
+        Emit(fixture.Intents, "ui.settings.platform.refresh", FindByKey(fixture.Shell, scene, "PlatformRefresh").Entity);
+        AssertTrue(SpinWait.SpinUntil(() => { Ready(); return fixture.Store.Read<long>(id).Value > before; }, TimeSpan.FromSeconds(5)));
+        AssertTrue(SpinWait.SpinUntil(Ready, TimeSpan.FromSeconds(5)));
+    }
+
     private static void SettingsInlineSelectorCommitsBothDirections()
     {
         using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));
@@ -152,7 +176,16 @@ internal static partial class Program
         Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.game").Entity);
         scene = fixture.Shell.Render(new(1000, 650));
         var next = FindByKey(fixture.Shell, scene, "SettingsOption.game.window-mode.fullscreen");
-        Emit(fixture.Intents, "ui.settings.choice", next.Entity);
+        var selector = FindByKey(fixture.Shell, scene, "SettingsSelector.game.window-mode");
+        AssertTrue(selector.Rect.Width < 150);
+        AssertTrue(fixture.Shell.Tree.GetComponent<XsrUiSegmentedTrack>(selector.Entity) is not null);
+
+        var thumb = FindByKey(fixture.Shell, scene, "SettingsSelectorThumb.game.window-mode");
+        var start = new XsrUiPoint(thumb.Rect.X + thumb.Rect.Width / 2, thumb.Rect.Y + thumb.Rect.Height / 2);
+        var end = new XsrUiPoint(next.Rect.X + next.Rect.Width / 2, next.Rect.Y + next.Rect.Height / 2);
+        fixture.Shell.Renderer.PointerPressed(start);
+        fixture.Shell.Renderer.PointerMoved(end);
+        fixture.Shell.Renderer.PointerReleased(end);
         fixture.Shell.Render(new(1000, 650));
         AssertTrue(SpinWait.SpinUntil(() => fixture.Foundation.Host.Settings.GetValue<int>("LaunchArgumentWindowType").Value == 0, TimeSpan.FromSeconds(5)));
         scene = fixture.Shell.Render(new(1000, 650));

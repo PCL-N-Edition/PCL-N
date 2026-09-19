@@ -1,4 +1,5 @@
 using Nexa.Services.Accounts;
+using Nexa.Services.Capabilities;
 using Nexa.Services.Foundation;
 using Nexa.Services.Settings;
 using Nexa.Services.Telemetry;
@@ -72,6 +73,11 @@ public static class FoundationRuntimeComposer
             (command, token) => new(Task.Run(() => host.SettingsPolicy.SetBatch(command), token)));
         commands.Register<SettingsImportCommand>(SettingsPolicyContract.ImportCommand,
             (command, token) => new(Task.Run(() => host.SettingsPolicy.ApplyImport(command), token)));
+        commands.Register<MachineCapabilityRefresh>(MachineCapabilityStateContract.RefreshCommand, async (command, token) =>
+        {
+            await host.MachineCapabilities.ReadAsync(refresh: true, cancellationToken: token).ConfigureAwait(false);
+            return Nexa.Xsr.XsrResult.Success();
+        });
         XsrCommandRouter commandRouter = commands.Build(dispatchObserver, timeProvider);
 
         XsrQueryRouterBuilder queries = new();
@@ -88,6 +94,8 @@ public static class FoundationRuntimeComposer
             (query, token) => ValueTask.FromResult(host.SettingsPolicy.Export(query)));
         queries.Register<SettingsImportQuery, SettingsImportPreview>(SettingsPolicyContract.ImportPreviewQuery,
             (query, token) => ValueTask.FromResult(Nexa.Xsr.XsrResult.Success(host.SettingsPolicy.PreviewImport(query))));
+        queries.Register<MachineCapabilityQuery, MachineCapabilitySnapshot>(MachineCapabilityStateContract.SnapshotQuery,
+            async (query, token) => Nexa.Xsr.XsrResult.Success(await host.MachineCapabilities.ReadAsync(cancellationToken: token).ConfigureAwait(false)));
         XsrQueryRouter queryRouter = queries.Build(dispatchObserver, timeProvider);
 
         return new FoundationRuntime(host, commandRouter, queryRouter);
