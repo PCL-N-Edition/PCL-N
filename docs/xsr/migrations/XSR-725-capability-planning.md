@@ -28,6 +28,10 @@ Estimated evidence cannot create `Blocked`. Only a verified hard constraint may 
 Existing unscoped capability queries continue returning machine facts; their instance facts are
 unavailable until the caller supplies the selected instance.
 
+The Avalonia host reports keyboard, pointer and touch events through a platform-neutral event;
+Desktop maps that event into the session-local input tracker. Native controller bridges use the
+same path through `ReportControllerInput`, so the capability layer never installs global hooks.
+
 ## Validation
 
 - provider failures and `PlatformUnsupported` inputs both degrade derived facts to

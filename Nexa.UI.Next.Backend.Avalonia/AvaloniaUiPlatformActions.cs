@@ -1,16 +1,37 @@
 using System.Diagnostics;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 
 namespace Nexa.UI.Next.Backend.Avalonia;
 
+public enum AvaloniaUiInputKind { Keyboard, Mouse, Touch, Controller }
+
 /// <summary>Explicit user-triggered OS effects. Does not know accounts or product layout.</summary>
 public sealed class AvaloniaUiPlatformActions
 {
     private TopLevel? _owner;
-    internal void Attach(TopLevel owner) => _owner = owner;
+    internal void Attach(TopLevel owner)
+    {
+        _owner = owner;
+        owner.AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        owner.AddHandler(InputElement.KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+    }
+
+    public event Action<AvaloniaUiInputKind>? InputObserved;
+
+    /// <summary>Called by a platform gamepad bridge after it has translated native input.</summary>
+    public void ReportControllerInput() => InputObserved?.Invoke(AvaloniaUiInputKind.Controller);
+
+    private void OnPointerPressed(object? sender, PointerPressedEventArgs args) => InputObserved?.Invoke(
+        args.Pointer.Type is PointerType.Touch or PointerType.Pen
+            ? AvaloniaUiInputKind.Touch
+            : AvaloniaUiInputKind.Mouse);
+
+    private void OnKeyDown(object? sender, KeyEventArgs args) => InputObserved?.Invoke(AvaloniaUiInputKind.Keyboard);
 
     public void OpenHttpsUri(Uri uri)
     {

@@ -12,7 +12,7 @@ java 5 / memory 5 / minecraft 2 / platform 4 / power 5 / runtime 2 / storage 1 /
 |---|---|---|---|
 | platform.* (§4) | 🟡 | os/version/arch.native/arch.process | os.build、os.kernel、desktop_environment、session_type、emulation.*、windows/macos/linux 便捷布尔、compatibility.* 派生 |
 | runtime.* | ✅ | framework、dynamic_code | —（文档无更多字段） |
-| **jvmhost.\*** (§5) | ❌ | 无 | **整个 namespace**：environment(jvm_args/classpath/native_path/wrapper)、process(spawn/kill_tree/suspend/priority/affinity/qos)、io(stdout ring/encoding)、metric(cpu/memory/io/threads/gpu)、crash(exit_code/crash_report/hs_err/stderr_tail/system_correlation)。依赖 Jvm.Host 迁移（dev 侧 Jvm.NET host 未迁移） |
+| **jvmhost.\*** (§5) | 🟡 | IJvmHost/JvmHostService；environment(jvm_args/classpath/native_path/wrapper)、process 能力、stdout/stderr ring、cpu/memory/threads、exit_code/crash_report/stderr_tail | suspend、I/O/GPU metric、hs_err 与 system correlation 目前诚实报告不支持；priority/affinity/qos 尚未执行化 |
 | **process.\*** (§6) | ❌ | 无 | 治理全集：priority/affinity/cpu_sets/qos(.performance/.efficiency)/limit.*/suspend/resume/metric.*（page_faults） |
 | cpu.* (§7) | 🟡 | isa.sse2/avx2/neon、topology.logical_processors | vendor/family/model/microarchitecture/marketing_name；topology.packages/**numa_nodes**/physical_cores/smt/groups/**heterogeneous**/performance_classes/cache.l1-l3/ccd；isa 全表（avx512/avx10/aes/sha/amx/**arm.sve/sve2**）；metric.frequency/utilization/temperature/power；thermal.limit；**derived.***（hybrid/high_parallelism/numa_sensitive/performance_affinity） |
 | memory.* (§8) | 🟡 | physical.usable/available、commit.total/limit/available（Win/Linux 完整，macOS=平台不支持） | physical.installed/hardware_reserved；**swap.\***（available/total/used）；**pagefile.\***（present/system_managed/current/maximum/growth_possible/safe_growth/volume/volume_free）；pressure.observable/level；numa/model(Dedicated/Unified/Hybrid)/uma；**derived.***（low_physical/commit_low/commit_near_limit/pagefile_*/system_reserve/**safe_heap_max**/unified_budget） |
@@ -22,8 +22,8 @@ java 5 / memory 5 / minecraft 2 / platform 4 / power 5 / runtime 2 / storage 1 /
 | display.* (§12) | 🟡 | count/internal/refresh.current/resolution | refresh.max、**dpi/scale**、hdr.supported+enabled、**vrr.supported+enabled**、color.space/depth、internal/external 枚举；derived.high_dpi/high_refresh/4k/hdr_ready/graphics_memory_factor；Linux X11(XRandR)/Wayland 通道未接 |
 | power.* (§13) | 🟡 | source、battery.present/level/charging、profile.current（Win+Linux） | profile.available/performance/balanced/efficiency/hold；tdp.observable+controllable；cpu_limit/gpu_limit.controllable；macOS IOKit 通道未接 |
 | thermal.* (§14) | 🟡 | cpu.temperature（Linux hwmon；Win/macOS 无免驱动通道=诚实 Unknown/未接） | pressure.observable/level(Nominal/Fair/Serious/Critical)、cpu.limit、gpu.temperature/limit、soc/storage.temperature、fan.observable/controllable/rpm；derived.cpu_high/cpu_near_limit/gpu_*/throttling/performance_degraded/pause_background/disable_prewarm |
-| **formfactor.\*** (§15) | ❌ | 无 | type(Desktop/Laptop/Handheld/MiniPC/Workstation)、portable、battery_powered、handheld；derived.performance_first/battery_aware/controller_first |
-| **input.\*** (§16) | ❌ | 无 | keyboard/mouse/touch/trackpad/pen/controller.available+count、gyroscope/haptics；**usage.primary/recent.\***（触屏/手柄 preflight 的前置事实）；controller feature；derived.pointer_first/touch_first/controller_first |
+| **formfactor.\*** (§15) | 🟡 | type/portable/battery_powered/handheld，使用电池、内建屏、触摸、键盘与手柄事实判定 | MiniPC/Workstation；derived.performance_first/battery_aware/controller_first |
+| **input.\*** (§16) | 🟡 | keyboard/mouse/touch/pen/controller.available+count、gyroscope/haptics 可用性；usage.primary/recent.keyboard/mouse/touch/controller 会话事件 | trackpad、controller feature；derived.pointer_first/touch_first/controller_first；macOS IOKit HID 探测 |
 | **network.\*** (§17) | ❌ | 无 | interfaces/ethernet/wifi/active_interface、metered/vpn/proxy、ipv4/ipv6、internet.available、captive_portal、dns/doh、metric.latency/bandwidth/packet_loss、lan.discovery/multicast/peer_transfer |
 | shell.* / security.* (§18) | ❌ | 无 | credential_vault/secure_storage、code_signature/publisher_identity、gpg.verify、hash.sha256/512、content_provenance、secret/log.redaction、vault.windows/keychain/secret_service |
 | ai.* / cloud.* | ❌ | 无 | （文档仅列名，无字段定义——冻结时补） |
@@ -42,17 +42,17 @@ java 5 / memory 5 / minecraft 2 / platform 4 / power 5 / runtime 2 / storage 1 /
 
 | 文档小节 | 要求 | 状态 |
 |---|---|---|
-| §26-28 Estimator | estimate.heap/native/resource/graphics/physical/commit 全模型 + status/confidence + reason | ❌ 无任何 estimate.* 能力；Estimator 不存在 |
+| §26-28 Estimator | estimate.heap/native/resource/graphics/physical/commit 全模型 + status/confidence + reason | 🟡 已有 versioned baseline、status/confidence、heap/native/physical/commit 与完整 provenance；resource/graphics 和历史校准待补 |
 | §28 历史 | history.available/p95×5/launch_time、similarity×5、weight、calibrated.* | ❌ |
 | §27 estimate.status/confidence | NotStarted/Pending/Completed/Failed + Low/Medium/High + reason.unknown_mods 等 | ❌（仅 preflight 不变量知道 certainty 枚举） |
 | §33 Policy Engine | policy.minecraft.memory/java/cpu/gpu/priority/display/large_pages/prewarm/… + policy.nexa.* | ❌ |
 | §34-49 Preflight | 规则引擎 + aggregator（§50 管线）+ issue 模型 | 🟡 Issue contract 已有 Severity/Certainty/HardConstraint/Evidence/Causes/Remediations/CanBypass/Suppressible 与 Blocked⇒Verified 不变量；缺口是规则覆盖、完整 policy 输入和更多因果边 |
-| §50 Aggregator | Collect→Estimate→Resolve→Rules→Normalize→Dedupe→**因果图**→Collapse→Severity→Render Once | ❌（尤其因果图折叠未开工） |
-| §52 Severity | Information 不参与 OverallSeverity | ❌ 无聚合即无该规则 |
-| §54-55 Remediation | remediation.* 15 个动作 + 与 Issue code 绑定 | ❌ |
-| §56 Provenance | EstimateResult 携带 Value/Confidence/ModelVersion/ProfileVersion/Inputs[]/HistoricalWeight/SafetyMargin/Reasons[] | ❌ |
-| §57 Profile | ResourceEstimatorProfile 可版本化参数 | ❌ |
-| §58 Observation | observation.launch/runtime 峰值记录（Jvm.Host 侧） | ❌ 依赖 jvmhost.* |
+| §50 Aggregator | Collect→Estimate→Resolve→Rules→Normalize→Dedupe→**因果图**→Collapse→Severity→Render Once | 🟡 已接 Normalize/Dedupe/因果折叠/Severity；规则覆盖仍需扩展 |
+| §52 Severity | Information 不参与 OverallSeverity | ✅ |
+| §54-55 Remediation | remediation.* 15 个动作 + 与 Issue code 绑定 | 🟡 15 个动作与首批 issue 精确绑定；各业务 handler 继续按服务接入 |
+| §56 Provenance | EstimateResult 携带 Value/Confidence/ModelVersion/ProfileVersion/Inputs[]/HistoricalWeight/SafetyMargin/Reasons[] | ✅ |
+| §57 Profile | ResourceEstimatorProfile 可版本化参数 | ✅ 基线 profile 1.0.0 |
+| §58 Observation | observation.launch/runtime 峰值记录（Jvm.Host 侧） | ✅ 启动耗时、working/private memory、threads、CPU、exit/stderr tail |
 | §60 Namespace Registry | 冻结 allowlist | ✅ `CapabilityRegistry.Roots` 已按 §60 冻结 |
 | §61 六层边界 | Fact≠Estimate≠Derived≠Policy≠Issue≠Remediation | 🟡 Kind 枚举齐备、broker 强制 ownership；Estimate/Policy/Issue 层无生产者 |
 

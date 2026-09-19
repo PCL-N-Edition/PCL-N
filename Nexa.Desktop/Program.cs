@@ -2,6 +2,7 @@ using System.Reflection;
 using Nexa.Desktop.Ui;
 using Nexa.Services.Accounts;
 using Nexa.Services.Composition;
+using Nexa.Services.Capabilities;
 using Nexa.Services.Files;
 using Nexa.Services.Foundation;
 using Nexa.Services.Logging;
@@ -242,6 +243,14 @@ internal static class Program
         // pages inside the shell content host and dispatches the real launch command.
         setStage("attach_product_controllers");
         AvaloniaUiPlatformActions platformActions = new();
+        platformActions.InputObserved += kind => host.InputUsage.Record(kind switch
+        {
+            AvaloniaUiInputKind.Keyboard => InputUsageKind.Keyboard,
+            AvaloniaUiInputKind.Mouse => InputUsageKind.Mouse,
+            AvaloniaUiInputKind.Touch => InputUsageKind.Touch,
+            AvaloniaUiInputKind.Controller => InputUsageKind.Controller,
+            _ => InputUsageKind.Unknown,
+        });
         using MinecraftLibraryRuntime library = MinecraftLibraryRuntimeComposer.Compose(host, minecraftRootDirectory, minecraft.Instances, operationLog.Dispatch);
         using InstallCatalogRuntime installCatalog = InstallCatalogRuntimeComposer.Compose(host, observer: operationLog.Dispatch);
         using MinecraftInstallRuntime installRun = MinecraftInstallRuntimeComposer.Compose(host, observer: operationLog.Dispatch);
