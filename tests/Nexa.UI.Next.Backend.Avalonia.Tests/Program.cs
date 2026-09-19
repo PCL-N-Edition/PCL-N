@@ -31,8 +31,9 @@ internal static partial class Program
         ("lifetime: splash never owns the process and main window close terminates", LifetimeSplashNeverOwnsProcessAndMainWindowCloseTerminates),
     ];
 
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if (args.Contains("--native-corner-smoke")) return RunNativeCornerSmoke();
         foreach ((string name, Action body) in TestCases)
         {
             body();

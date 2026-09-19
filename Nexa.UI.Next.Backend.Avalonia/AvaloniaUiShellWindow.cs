@@ -128,7 +128,8 @@ public sealed class AvaloniaUiShellWindow : Window
         _root.Children.Add(_maskedContent);
 
         Content = _root;
-        _root.SizeChanged += (_, _) => ApplyNativeShape();
+        _root.SizeChanged += (_, _) => UpdateChromeForState(WindowState is WindowState.Maximized or WindowState.FullScreen);
+        ScalingChanged += (_, _) => UpdateChromeForState(WindowState is WindowState.Maximized or WindowState.FullScreen);
         PropertyChanged += OnWindowPropertyChanged;
     }
 
@@ -238,8 +239,8 @@ public sealed class AvaloniaUiShellWindow : Window
     /// </summary>
     private void RunStartupReveal()
     {
-        double width = Bounds.Width;
-        double height = Bounds.Height;
+        double width = _root.Bounds.Width;
+        double height = _root.Bounds.Height;
         if (width <= 0 || height <= 0)
         {
             OnStartupRevealCompleted();
@@ -351,8 +352,8 @@ public sealed class AvaloniaUiShellWindow : Window
         TransparencyLevelHint = [WindowTransparencyLevel.None];
         _shadowSurface.IsVisible = false;
         _shadowSurface.BoxShadow = default;
-        double width = Bounds.Width;
-        double height = Bounds.Height;
+        double width = _root.Bounds.Width;
+        double height = _root.Bounds.Height;
         if (width <= 0 || height <= 0)
         {
             Close();
@@ -562,7 +563,7 @@ public sealed class AvaloniaUiShellWindow : Window
         _chromeSurface.CornerRadius = radius;
         _chromeSurface.Clip = new RectangleGeometry
         {
-            Rect = new Rect(inset, inset, Math.Max(0, Bounds.Width - inset * 2), Math.Max(0, Bounds.Height - inset * 2)),
+            Rect = new Rect(inset, inset, Math.Max(0, _root.Bounds.Width - inset * 2), Math.Max(0, _root.Bounds.Height - inset * 2)),
             RadiusX = maximized ? 0 : ChromeCornerRadius,
             RadiusY = maximized ? 0 : ChromeCornerRadius,
         };
