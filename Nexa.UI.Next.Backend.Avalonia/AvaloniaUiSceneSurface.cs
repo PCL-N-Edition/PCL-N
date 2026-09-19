@@ -42,6 +42,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     private readonly Cursor _handCursor = new(StandardCursorType.Hand);
     private readonly Cursor _textCursor = new(StandardCursorType.Ibeam);
     private bool _commitQueued;
+    private bool _applyingScene;
     private bool _disposed;
     private bool _initialFocusAssigned;
     private bool _pointerInside;
@@ -117,6 +118,16 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     /// native visual/accessibility bridge.
     /// </summary>
     public void CommitScene()
+    {
+        // Native focus loss during removal can synchronously commit text and reenter us.
+        // Keep the current scene transaction intact; consume the new draft next frame.
+        if (_applyingScene) { RequestCommit(); return; }
+        _applyingScene = true;
+        try { CommitSceneCore(); }
+        finally { _applyingScene = false; }
+    }
+
+    private void CommitSceneCore()
     {
         lock (_commitGate)
         {

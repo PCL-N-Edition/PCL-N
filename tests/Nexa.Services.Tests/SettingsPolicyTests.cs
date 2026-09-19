@@ -25,6 +25,20 @@ internal static partial class Program
         return result.Value!.Values.Single(item => item.Key == key);
     }
 
+    private static void SettingsArgumentRowsPreserveQuotedValues()
+    {
+        var (_, service) = PolicyFixture();
+        const string arguments = "-XX:+UseG1GC \"-Dpath=C:/Games/My Game\"\n-XX:-UseAdaptiveSizePolicy";
+        AssertTrue(service.Set(new("game.jvm", SettingsLayer.Global, new(SettingsOverrideMode.Custom, arguments))).IsSuccess);
+        var rows = Effective(service, "game.jvm").ArgumentRows;
+        AssertEqual(3, rows.Count);
+        AssertEqual("\"-Dpath=C:/Games/My Game\"", rows[1]);
+        AssertTrue(service.Set(new("game.jvm", SettingsLayer.Global, new(SettingsOverrideMode.Custom, string.Join("\n", rows)))).IsSuccess);
+        AssertEqual(string.Join("|", rows), string.Join("|", Effective(service, "game.jvm").ArgumentRows));
+        AssertEqual(0, Effective(service, "game.arguments").ArgumentRows.Count);
+        AssertEqual(0, Effective(service, "game.width").ArgumentRows.Count);
+    }
+
     private static void SettingsCatalogLocksFinalIa()
     {
         var catalog = SettingsCatalog.Read(new(true));

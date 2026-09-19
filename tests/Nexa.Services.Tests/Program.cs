@@ -7,6 +7,7 @@ internal static partial class Program
         ("settings catalog locks final IA and developer visibility", Sync(SettingsCatalogLocksFinalIa)),
         ("settings policy uses sealed foundation routes", SettingsPolicyUsesSealedFoundationRoutes),
         ("settings legacy strategies preserve units and choices", Sync(SettingsLegacyStrategiesKeepTheirMeaning)),
+        ("settings argument rows preserve quoted values", Sync(SettingsArgumentRowsPreserveQuotedValues)),
         ("settings inheritance distinguishes Auto and isolates instances", Sync(SettingsInheritanceIsExplicitAndIsolated)),
         ("settings overlays resolve in order without enabling mutation", Sync(SettingsOverlayPrecedenceIsPreviewOnly)),
         ("settings batch failures publish nothing and cross validate", Sync(SettingsBatchFailurePublishesNothing)),

@@ -376,6 +376,7 @@ internal static partial class Program
             await VerifyOverlayReorderAndReentry(shell, surface);
             await VerifyPlatformClipboard(window).ConfigureAwait(true);
             VerifyNativeTextEditing(window, shell, surface);
+            VerifyReentrantRemovalCommit(shell, surface);
             await VerifyTransitionGroupsAndMedia(shell, surface);
             VerifyWindowActionFeedback(window, surface);
             await VerifySpringIgnoresStaleSceneReads().ConfigureAwait(true);
@@ -477,6 +478,38 @@ internal static partial class Program
         }
         finally { AvaloniaUiMotion.CancelAll(owner); }
         Console.WriteLine("PASS: spring integration and retargeting tolerate delayed scene commits");
+    }
+
+    private static void VerifyReentrantRemovalCommit(XsrUiShell shell, AvaloniaUiSceneSurface surface)
+    {
+        var first = shell.Tree.Create("reentrant-first");
+        var second = shell.Tree.Create("reentrant-second");
+        foreach (var entity in new[] { first, second })
+        {
+            shell.Tree.SetComponent(entity, new XsrUiElement { Height = 30 });
+            shell.Tree.SetComponent(entity, new XsrUiText("transient input"));
+            shell.Tree.Attach(entity, shell.Root);
+        }
+        surface.CommitScene();
+        bool reentered = false;
+        void OnRemoved(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
+        {
+            if (reentered || args.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Remove) return;
+            reentered = true;
+            shell.Tree.Destroy(second);
+            surface.CommitScene();
+        }
+        surface.Children.CollectionChanged += OnRemoved;
+        try
+        {
+            shell.Tree.Destroy(first);
+            surface.CommitScene();
+            surface.CommitScene();
+            AssertTrue(reentered);
+            AssertTrue(surface.Scene!.Nodes.All(node => node.Entity != first && node.Entity != second));
+        }
+        finally { surface.Children.CollectionChanged -= OnRemoved; }
+        Console.WriteLine("PASS: native removal callbacks defer reentrant scene commits");
     }
 
     private static void VerifyCloseDoesNotRestoreShadows(

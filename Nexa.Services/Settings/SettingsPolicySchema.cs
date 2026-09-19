@@ -72,7 +72,30 @@ public static class SettingsPolicySchema
 }
 
 public sealed record SettingsOverride(SettingsOverrideMode Mode, string? Value = null);
-public sealed record SettingsEffectiveValue(string Key, SettingsOverride Value, SettingsLayer Source, SettingsApplyTiming Timing, string? ValidationError);
+public sealed record SettingsEffectiveValue(string Key, SettingsOverride Value, SettingsLayer Source, SettingsApplyTiming Timing, string? ValidationError)
+{
+    public IReadOnlyList<string> ArgumentRows
+    {
+        get
+        {
+            if (Key is not ("game.jvm" or "game.arguments")) return [];
+            List<string> rows = [];
+            var token = new System.Text.StringBuilder();
+            bool quoted = false;
+            foreach (char character in Value.Value ?? "")
+            {
+                if (character == '"') quoted = !quoted;
+                if (char.IsWhiteSpace(character) && !quoted)
+                {
+                    if (token.Length > 0) { rows.Add(token.ToString()); token.Clear(); }
+                }
+                else token.Append(character);
+            }
+            if (token.Length > 0) rows.Add(token.ToString());
+            return rows.AsReadOnly();
+        }
+    }
+}
 public sealed record SettingsEffectiveSnapshot(long Revision, IReadOnlyList<SettingsEffectiveValue> Values);
 public sealed record SettingsMutation(string Key, SettingsLayer Layer, SettingsOverride Value, string? InstanceId = null);
 public sealed record SettingsEffectiveQuery(string? InstanceId = null);

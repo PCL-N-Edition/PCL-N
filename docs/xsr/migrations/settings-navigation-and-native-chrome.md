@@ -24,3 +24,15 @@ The real PXML shell omits default-only XsrUiElement components, unlike the progr
 ## Edge-to-edge correction
 
 After the user reported a white outer rim, the visible content inset was removed. The 8 DIP resize hit zones remain overlaid on edge-to-edge content. An opaque two-region background matches title-bar and body colors behind the rounded clip, preventing white corner bleed without a transparent/layered window. The generic inset state remains supported and regression-tested but the product host publishes zero. This supersedes the earlier visible-inset presentation requirement.
+
+## Explicit corners and setting editors
+
+The host now uses a 12 DIP native window region on Windows, scaled to physical pixels and cleared for maximized/fullscreen states. The opaque window retains its native capability styles and DWM composition; system-provided corner/shadow behavior is replaced by the explicit region. Caption actions retain a separate 12 DIP right margin.
+
+Setting choices and booleans use previous/next controls with a sliding value label, replacing dropdowns and switches. JVM/game arguments use editable rows with remove/add actions and one Apply action. Service effective-value projection tokenizes rows while preserving quoted arguments; UI submits edits through the existing sealed mutation route.
+
+### Follow-up: segmented settings and native reveal
+
+Settings choices now reuse `XsrUiSegmentedTrack` including captured dragging, keyboard selection and the existing thumb motion. Track width is the sum of its content-sized choices and padding. Argument rows preserve quoted values in the Service projection and apply through the existing sealed command.
+
+The shell restores the original 16 DIP surface radius. Windows applies the rounded region to the opaque native window; during startup/close it intersects that region with the circular reveal, so the opaque background cannot obscure the animation. Maximized/fullscreen windows clear the resting region. Native focus/removal callbacks defer nested scene commits, preserving reusable collection ownership for the complete commit transaction. A backend regression changes the tree and recursively commits from a child-removal notification.

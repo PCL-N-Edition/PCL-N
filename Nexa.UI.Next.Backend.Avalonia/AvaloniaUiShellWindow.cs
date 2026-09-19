@@ -20,7 +20,7 @@ public sealed class AvaloniaUiShellWindow : Window
 {
     // Reserved native resize gutter, expressed in logical pixels (DIPs).
     private const double ChromeMargin = 0; // Resize hit zones overlay the content; no visible gutter.
-    private const double ChromeCornerRadius = 12;
+    private const double ChromeCornerRadius = XsrUiCornerRadii.Surface;
     private const double CloseIconSize = 112;
 
 
@@ -255,6 +255,7 @@ public sealed class AvaloniaUiShellWindow : Window
         };
         _revealMask = mask;
         _maskedContent.Clip = mask;
+        ApplyNativeShape();
         if (_closeIcon is not null)
         {
             // The icon the window inherits from the splash: identical pixels at the identical
@@ -282,6 +283,7 @@ public sealed class AvaloniaUiShellWindow : Window
             {
                 mask.RadiusX = value;
                 mask.RadiusY = value;
+                ApplyNativeShape();
 
                 // Mutating the clip geometry alone does not invalidate the visual tree; the
                 // mask would otherwise apply only for the first frame and never redraw.
@@ -303,6 +305,7 @@ public sealed class AvaloniaUiShellWindow : Window
 
         _maskedContent.Clip = null;
         _revealMask = null;
+        ApplyNativeShape();
         StartupRevealCompleted?.Invoke(this, EventArgs.Empty);
         if (_startupIcon is not null && _startupIconScale is not null)
         {
@@ -368,6 +371,7 @@ public sealed class AvaloniaUiShellWindow : Window
         };
         _revealMask = mask;
         _maskedContent.Clip = mask;
+        ApplyNativeShape();
 
         int piecesRemaining = _closeIcon is null ? 1 : 2;
         void OnCollapsePieceCompleted()
@@ -410,6 +414,7 @@ public sealed class AvaloniaUiShellWindow : Window
             {
                 mask.RadiusX = value;
                 mask.RadiusY = value;
+                ApplyNativeShape();
                 _maskedContent.InvalidateVisual();
             },
             0,
@@ -556,9 +561,13 @@ public sealed class AvaloniaUiShellWindow : Window
             RadiusX = maximized ? 0 : ChromeCornerRadius,
             RadiusY = maximized ? 0 : ChromeCornerRadius,
         };
-        _windowActions.Margin = new Thickness(inset);
+        _windowActions.Margin = new Thickness(inset, inset, inset + 12, 0);
+        ApplyNativeShape();
 
     }
+
+    private void ApplyNativeShape() => AvaloniaWindowsFrame.ApplyCornerRadius(this, ChromeCornerRadius,
+        _revealMask is { } mask ? Math.Max(CloseIconSize * .72, mask.RadiusX) : null);
 
     private void OnMaximizeRequested(object? sender, EventArgs e) => ToggleMaximized();
 

@@ -9,12 +9,11 @@ using Nexa.Xsr.State;
 namespace Nexa.Desktop.Ui;
 
 /// <summary>Settings presentation only. Value validation, availability and writes use sealed Service routes.</summary>
-internal sealed class SettingsPageController : IDisposable
+internal sealed partial class SettingsPageController : IDisposable
 {
     private static readonly XsrSemanticId Select = XsrSemanticId.Parse("ui.settings.section");
     private static readonly XsrSemanticId Edit = XsrSemanticId.Parse("ui.settings.edit");
     private static readonly XsrSemanticId Choice = XsrSemanticId.Parse("ui.settings.choice");
-    private static readonly XsrSemanticId Dismiss = XsrSemanticId.Parse("ui.settings.dismiss");
     private readonly XsrUiShell _shell;
     private readonly DesktopUiIntentSink _intents;
     private readonly XsrQueryRouter _queries;
@@ -25,7 +24,6 @@ internal sealed class SettingsPageController : IDisposable
     private readonly Dictionary<XsrUiEntityId, string> _navigation = [];
     private readonly Dictionary<XsrUiEntityId, Editor> _editors = [];
     private readonly Dictionary<XsrUiEntityId, (Editor Editor, string Value)> _choices = [];
-    private XsrUiEntityId _choiceOverlay, _choiceOrigin;
     private readonly Dictionary<string, double> _scrollPositions = [];
     private readonly XsrUiEntityId _navigationRoot, _pager;
     private XsrUiEntityId _sections;
@@ -71,7 +69,7 @@ internal sealed class SettingsPageController : IDisposable
 
     private void OnIntent(object? sender, DesktopUiIntentEventArgs args)
     {
-        if (args.Intent.Command == Select || args.Intent.Command == Edit || args.Intent.Command == Choice || args.Intent.Command == Dismiss) _pending.Enqueue(args.Intent);
+        if (args.Intent.Command == Select || args.Intent.Command == Edit || args.Intent.Command == Choice || args.Intent.Command == ArgumentAdd || args.Intent.Command == ArgumentRemove) _pending.Enqueue(args.Intent);
     }
     private void OnFrame(object? sender, EventArgs args)
     {
@@ -81,7 +79,7 @@ internal sealed class SettingsPageController : IDisposable
         {
             var content = _shell.Tree.GetComponent<XsrUiElement>(_shell.Content)!;
             if (visible) { _previousContentPadding = content.Padding; content.Padding = default; }
-            else { content.Padding = _previousContentPadding; CloseChoices(); }
+            else { content.Padding = _previousContentPadding; }
             _visible = visible;
             _shell.Tree.MarkDirty(_shell.Content, XsrUiDirtyKinds.Layout);
         }
@@ -122,13 +120,15 @@ internal sealed class SettingsPageController : IDisposable
             }
             else if (intent.Command == Edit && _editors.TryGetValue(intent.Source, out var editor) && _writing is null)
             {
-                if (editor.Entry.Definition!.Kind == SettingsValueKind.Enum) ShowChoices(editor);
-                else Save(editor);
+                Save(editor);
             }
-            else if (intent.Command == Dismiss) CloseChoices();
+            else if (intent.Command == ArgumentAdd || intent.Command == ArgumentRemove) HandleArgumentIntent(intent);
             else if (intent.Command == Choice && _choices.TryGetValue(intent.Source, out var choice))
             {
-                CloseChoices(); Save(choice.Editor, choice.Value);
+                if (_writing is null)
+                {
+                    Save(choice.Editor, choice.Value);
+                }
             }
         }
         int index = _shell.Tree.GetComponent<XsrUiPager>(_pager)!.PageIndex;
@@ -144,7 +144,7 @@ internal sealed class SettingsPageController : IDisposable
     private void SwitchPage(string page)
     {
         _scrollPositions[_selected] = _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY;
-        CloseChoices();
+
         _selected = page; _sections = _pages[page];
         BuildSections(navigating: true); UpdateNavigation(); UpdateEditors();
     }
@@ -185,13 +185,13 @@ internal sealed class SettingsPageController : IDisposable
 
     private void BuildSections(bool navigating = false)
     {
-        CloseChoices();
+
         string? focus = !navigating && _shell.Tree.IsAlive(_shell.Renderer.Focused) ? _shell.Tree.Name(_shell.Renderer.Focused) : null;
         var drafts = !navigating ? _editors.Values.Where(item => item.Input.IsAssigned).ToDictionary(item => item.Entry.Id,
             item => _shell.Tree.GetComponent<XsrUiTextInput>(item.Input)!.ReadDraft()) : [];
         if (!navigating) _scrollPositions[_selected] = _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY;
         foreach (var child in _shell.Tree.Children(_sections).ToArray()) _shell.Tree.Destroy(child);
-        _editors.Clear();
+        _editors.Clear(); _selectors.Clear(); _argumentEditors.Clear(); _argumentActions.Clear(); _choices.Clear();
         var entries = _catalog!.Entries.Where(item => item.Scope == "global" && item.Page == _selected && !item.IsRuntimeDetail && (_developer || !item.DeveloperOnly)).ToArray();
         foreach (var section in entries.GroupBy(item => (Section: item.DeveloperOnly ? "开发者" : item.Section, item.DeveloperOnly)))
         {
@@ -225,6 +225,8 @@ internal sealed class SettingsPageController : IDisposable
             var target = editor.Input.IsAssigned && _shell.Tree.Name(editor.Input) == focus ? editor.Input : _shell.Tree.Name(editor.Button) == focus ? editor.Button : default;
             if (target.IsAssigned) _shell.Renderer.Focus(target);
         }
+        if (focus is not null)
+            _shell.Tree.Walk(_sections, entity => { if (_shell.Tree.Name(entity) == focus) _shell.Renderer.Focus(entity); return true; });
     }
 
     private void BuildRow(XsrUiEntityId parent, SettingsCatalogEntry entry)
@@ -245,6 +247,15 @@ internal sealed class SettingsPageController : IDisposable
             return;
         }
         var definition = entry.Definition!;
+        if (entry.SettingKey is "game.jvm" or "game.arguments")
+        {
+            _shell.Tree.GetComponent<XsrUiElement>(label)!.VerticalAlignment = XsrUiAlignment.Start;
+            BuildArgumentEditor(row, entry); return;
+        }
+        if (definition.Kind is SettingsValueKind.Enum or SettingsValueKind.Boolean)
+        {
+            BuildShiftSelector(row, entry); return;
+        }
         XsrUiEntityId input = default;
         if (definition.Kind is SettingsValueKind.Number or SettingsValueKind.Text or SettingsValueKind.Path)
         {
@@ -254,23 +265,8 @@ internal sealed class SettingsPageController : IDisposable
             Style(input, new(244, 247, 251), Ink, 7, 12);
             _shell.Tree.GetComponent<XsrUiElement>(input)!.Padding = new(8, 0, 8, 0);
         }
-        bool toggle = definition.Kind == SettingsValueKind.Boolean;
-        var button = Element(row, "SettingsEdit." + entry.SettingKey, XsrUiSemanticRole.Button, entry.Label, width: input.IsAssigned || toggle ? 44 : 90, height: toggle ? 26 : 30);
-        _shell.Tree.SetComponent(button, new XsrUiText(input.IsAssigned ? "应用" : ""));
-        _shell.Tree.SetComponent(button, new XsrUiInput { Focusable = true, Clickable = true });
-        _shell.Tree.SetComponent(button, new XsrUiCommandBinding(Edit));
-        Style(button, DesktopUiPalette.CapsuleBackground, Blue, definition.Kind == SettingsValueKind.Boolean ? 15 : 7, 12, 500);
-        _shell.Tree.GetComponent<XsrUiVisualStyle>(button)!.TextAlignment = XsrUiTextAlignment.Center;
-        XsrUiEntityId thumb = default;
-        if (toggle)
-        {
-            thumb = Element(button, "SettingsSwitchThumb." + entry.SettingKey, XsrUiSemanticRole.None, null, width: 20, height: 20);
-            _shell.Tree.GetComponent<XsrUiElement>(thumb)!.HorizontalAlignment = XsrUiAlignment.Start;
-            Style(thumb, White, Ink, 10);
-            _shell.Tree.SetComponent(thumb, new XsrUiTransition { Key = "false", MovesSelf = true });
-            _shell.Tree.SetComponent(button, new XsrUiSelection());
-        }
-        _editors[button] = new(entry, input, button, thumb);
+        var button = ActionButton(row, "SettingsEdit." + entry.SettingKey, "应用", Edit, 44);
+        _editors[button] = new(entry, input, button, default);
     }
 
     private void UpdateEditors()
@@ -280,77 +276,25 @@ internal sealed class SettingsPageController : IDisposable
             var value = _values?.Values.FirstOrDefault(item => item.Key == editor.Entry.SettingKey);
             if (value is null) continue;
             string raw = value.Value.Value ?? "";
-            if (editor.Input.IsAssigned)
-            {
-                if (!_shell.Renderer.Focused.Equals(editor.Input)) _shell.Renderer.SetTextInputValue(editor.Input, raw);
-            }
-            else
-            {
-                string text = editor.Entry.Definition!.Kind == SettingsValueKind.Boolean ? (raw == "true" ? "已开启" : "已关闭") : (raw == "fullscreen" ? "全屏" : "窗口");
-                _shell.Tree.GetComponent<XsrUiText>(editor.Button)!.Content = editor.Thumb.IsAssigned ? "" : text;
-                if (editor.Thumb.IsAssigned)
-                {
-                    bool selected = raw == "true";
-                    _shell.Tree.GetComponent<XsrUiVisualStyle>(editor.Button)!.Background = selected ? _shell.Palette.Accent : new(202, 209, 219);
-                    _shell.Tree.GetComponent<XsrUiSelection>(editor.Button)!.IsSelected = selected;
-                    _shell.Tree.GetComponent<XsrUiElement>(editor.Thumb)!.Margin = new(selected ? 21 : 3, 0, 0, 0);
-                    var motion = _shell.Tree.GetComponent<XsrUiTransition>(editor.Thumb)!;
-                    motion.Key = raw; motion.OffsetX = selected ? -18 : 18;
-                    _shell.Tree.MarkDirty(editor.Thumb, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
-                }
-                _shell.Tree.GetComponent<XsrUiSemantic>(editor.Button)!.Label = editor.Entry.Label + "，" + text;
-                _shell.Tree.MarkDirty(editor.Button, XsrUiDirtyKinds.Paint);
-            }
+            if (editor.Input.IsAssigned && !_shell.Renderer.Focused.Equals(editor.Input))
+                _shell.Renderer.SetTextInputValue(editor.Input, raw);
         }
+        UpdateShiftSelectors(); UpdateArgumentEditors();
     }
 
     private void Save(Editor editor, string? selectedValue = null)
     {
         if (!_commands.TryResolve(SettingsPolicyContract.SetCommand, out var route) || _values is null) return;
+        if (_argumentEditors.TryGetValue(editor.Button, out var arguments))
+        {
+            _writing = SaveAsync(route, new(editor.Entry.SettingKey!, SettingsLayer.Global,
+                new(SettingsOverrideMode.Custom, string.Join("\n", ReadArgumentDrafts(arguments).Where(value => !string.IsNullOrWhiteSpace(value))))));
+            return;
+        }
         var current = _values.Values.First(item => item.Key == editor.Entry.SettingKey).Value.Value;
         string raw = selectedValue ?? (editor.Input.IsAssigned ? _shell.Tree.GetComponent<XsrUiTextInput>(editor.Input)!.ReadDraft()
             : editor.Entry.Definition!.Kind == SettingsValueKind.Boolean ? (current == "true" ? "false" : "true") : (current == "fullscreen" ? "windowed" : "fullscreen"));
         _writing = SaveAsync(route, new(editor.Entry.SettingKey!, SettingsLayer.Global, new(SettingsOverrideMode.Custom, raw)));
-    }
-    private void ShowChoices(Editor editor)
-    {
-        CloseChoices(); _choiceOrigin = editor.Button;
-        _choiceOverlay = Element(Page, "SettingsChoiceOverlay", XsrUiSemanticRole.Content, "选择" + editor.Entry.Label);
-        _shell.Tree.GetComponent<XsrUiElement>(_choiceOverlay)!.VerticalAlignment = XsrUiAlignment.Stretch;
-        _shell.Tree.SetComponent(_choiceOverlay, new XsrUiOverlayLayer(isModal: true));
-        _shell.Tree.SetComponent(_choiceOverlay, new XsrUiDismissBinding(Dismiss));
-        var dismiss = Element(_choiceOverlay, "SettingsChoiceDismiss", XsrUiSemanticRole.Button, "关闭选项菜单");
-        _shell.Tree.GetComponent<XsrUiElement>(dismiss)!.VerticalAlignment = XsrUiAlignment.Stretch;
-        _shell.Tree.SetComponent(dismiss, new XsrUiInput { Clickable = true });
-        _shell.Tree.SetComponent(dismiss, new XsrUiCommandBinding(Dismiss));
-        Style(dismiss, XsrUiColor.Transparent, XsrUiColor.Transparent, 0);
-        _shell.Tree.GetComponent<XsrUiVisualStyle>(dismiss)!.Hover = XsrUiColor.Transparent;
-        var menu = Stack(_choiceOverlay, "SettingsChoiceMenu", XsrUiOrientation.Vertical, 2);
-        var layout = _shell.Tree.GetComponent<XsrUiElement>(menu)!; layout.Width = 140; layout.VerticalAlignment = XsrUiAlignment.Start;
-        _shell.Tree.SetComponent(menu, new XsrUiAnchoredOverlay(editor.Button)); Style(menu, White, Ink, 10);
-        var style = _shell.Tree.GetComponent<XsrUiVisualStyle>(menu)!; style.Border = Line; style.BorderWidth = 1;
-        _shell.Tree.SetComponent(menu, new XsrUiTransition { Key = editor.Entry.Id, MovesSelf = true });
-        var content = Stack(menu, "SettingsChoiceContent", XsrUiOrientation.Vertical, 2);
-        _shell.Tree.GetComponent<XsrUiElement>(content)!.Padding = XsrUiThickness.Uniform(5);
-        string? current = _values?.Values.First(item => item.Key == editor.Entry.SettingKey).Value.Value;
-        foreach (string value in editor.Entry.Definition!.Choices.Split('|'))
-        {
-            string label = value == "fullscreen" ? "全屏" : value == "windowed" ? "窗口" : value;
-            var button = Element(content, "SettingsChoice." + value, XsrUiSemanticRole.Button, label, height: 32);
-            _shell.Tree.SetComponent(button, new XsrUiText((value == current ? "✓  " : "    ") + label));
-            _shell.Tree.SetComponent(button, new XsrUiInput { Focusable = true, Clickable = true });
-            _shell.Tree.SetComponent(button, new XsrUiCommandBinding(Choice));
-            Style(button, value == current ? DesktopUiPalette.CapsuleBackground : XsrUiColor.Transparent, value == current ? Blue : Ink, 6);
-            _choices[button] = (editor, value);
-        }
-        _shell.Renderer.Focus(_choices.Keys.First());
-    }
-    private void CloseChoices()
-    {
-        if (_choiceOverlay.IsAssigned && _shell.Tree.IsAlive(_choiceOverlay)) _shell.Tree.Destroy(_choiceOverlay);
-        _choiceOverlay = default; _choices.Clear();
-        if (_choiceOrigin.IsAssigned && _shell.Tree.IsAlive(_choiceOrigin)) _shell.Renderer.Focus(_choiceOrigin);
-        _choiceOrigin = default;
     }
     private async Task<XsrResult> SaveAsync(XsrCommandId route, SettingsMutation mutation)
     {
