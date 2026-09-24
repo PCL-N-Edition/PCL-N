@@ -11,9 +11,10 @@ public sealed record MinecraftFolderImportRuntime(XsrCommandRouter Commands, Xsr
 
 public static class MinecraftFolderImportRuntimeComposer
 {
-    public static MinecraftFolderImportRuntime Compose(FoundationHost host, MinecraftLibraryService library, IXsrDispatchObserver observer)
+    public static MinecraftFolderImportRuntime Compose(FoundationHost host, MinecraftLibraryService library, MinecraftInstallService installer, IXsrDispatchObserver observer)
     {
         var service = new MinecraftFolderImportService(host.Tasks);
+        var jars = new MinecraftLocalJarService(host.Tasks, host.StateStore, installer);
         XsrCommandRouterBuilder commands = new();
         commands.Register<MinecraftFolderImportCommand>(MinecraftFolderImportContract.Import, async (command, token) =>
         {
@@ -22,6 +23,12 @@ public static class MinecraftFolderImportRuntimeComposer
             return result;
         });
         XsrQueryRouterBuilder queries = new();
+        commands.Register<MinecraftLocalJarCommand>(MinecraftLocalJarContract.Import, async (command, token) =>
+        {
+            var result = await jars.ImportAsync(command, token).ConfigureAwait(false);
+            if (result.IsSuccess) await library.RefreshAsync(CancellationToken.None).ConfigureAwait(false);
+            return result;
+        });
         queries.Register<MinecraftFolderInspectQuery, MinecraftFolderInspection>(MinecraftFolderImportContract.Inspect, async (query, token) =>
         {
             try { return XsrResult.Success(await MinecraftFolderImportService.InspectAsync(query.Path, token).ConfigureAwait(false)); }

@@ -4,9 +4,12 @@ using Nexa.Xsr;
 
 namespace Nexa.Services.Minecraft.Install;
 
-public enum MinecraftFolderKind { Unsupported, GameRoot, Version }
+public enum MinecraftFolderKind { Unsupported, GameRoot, Version, Jar }
 public sealed record MinecraftFolderInspectQuery(string Path);
-public sealed record MinecraftFolderInspection(MinecraftFolderKind Kind, string Path, string Name);
+public sealed record MinecraftFolderInspection(MinecraftFolderKind Kind, string Path, string Name)
+{
+    public LocalJarArtifact? Jar { get; init; }
+}
 public sealed record MinecraftFolderImportCommand(string Source, string TargetRoot);
 public static class MinecraftFolderImportContract
 {
@@ -18,7 +21,15 @@ public static class MinecraftFolderImportContract
 public sealed class MinecraftFolderImportService(TaskCenterService tasks)
 {
     public static Task<MinecraftFolderInspection> InspectAsync(string path, CancellationToken cancellationToken = default) =>
-        Task.Run(() => Inspect(path), cancellationToken);
+        Task.Run(async () =>
+        {
+            if (File.Exists(path) && Path.GetExtension(path).Equals(".jar", StringComparison.OrdinalIgnoreCase))
+            {
+                var jar = await MinecraftLocalJarService.InspectAsync(path, cancellationToken).ConfigureAwait(false);
+                return new MinecraftFolderInspection(MinecraftFolderKind.Jar, jar.Path, Path.GetFileName(jar.Path)) { Jar = jar };
+            }
+            return Inspect(path);
+        }, cancellationToken);
 
     private static MinecraftFolderInspection Inspect(string path)
     {

@@ -253,10 +253,10 @@ internal static class Program
             _ => InputUsageKind.Unknown,
         });
         using MinecraftLibraryRuntime library = MinecraftLibraryRuntimeComposer.Compose(host, minecraftRootDirectory, minecraft.Instances, operationLog.Dispatch);
-        var folderImports = MinecraftFolderImportRuntimeComposer.Compose(host, library.Service, operationLog.Dispatch);
-        using MinecraftDropController dropController = new(platformActions, folderImports, library.Commands, host.StateStore, feedback);
         using InstallCatalogRuntime installCatalog = InstallCatalogRuntimeComposer.Compose(host, observer: operationLog.Dispatch);
         using MinecraftInstallRuntime installRun = MinecraftInstallRuntimeComposer.Compose(host, observer: operationLog.Dispatch);
+        var folderImports = MinecraftFolderImportRuntimeComposer.Compose(host, library.Service, installRun.Service, operationLog.Dispatch);
+        using MinecraftDropController dropController = new(platformActions, folderImports, library.Commands, host.StateStore, feedback);
         // A committed install grows the version library immediately: rescan the active root.
         installRun.Service.Installed += root => _ = library.Service.RefreshAsync();
         using LaunchPageController launchPage = new(

@@ -12,11 +12,13 @@ internal static partial class Program
     private sealed class FixtureLoaderInstaller : IMinecraftLoaderInstaller
     {
         public InstallLoader? CalledLoader;
+        public LocalJarArtifact? LocalArtifact;
         public Task<JsonObject> InstallAsync(MinecraftLoaderInstallRequest request, IProgress<string>? progress, CancellationToken token)
         {
             AssertTrue(File.Exists(Path.Combine(request.Root, "versions", request.Game, request.Game + ".jar")));
             AssertFalse(File.Exists(Path.Combine(request.Root, "versions", request.InstanceId, request.InstanceId + ".json")));
             CalledLoader = request.Loader;
+            LocalArtifact = request.LocalInstaller;
             return Task.FromResult(new JsonObject { ["mainClass"] = "bootstrap.Main", ["inheritsFrom"] = request.Game });
         }
     }

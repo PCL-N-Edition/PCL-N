@@ -24,6 +24,7 @@ public sealed record MinecraftInstallCommand(
     string? EditFingerprint = null)
 {
     internal string? ReuseRoot { get; init; }
+    public LocalJarArtifact? LocalInstaller { get; init; }
     internal bool PreparingEdit { get; init; }
     internal string? ModsRelativeDirectory { get; init; }
 }
@@ -416,7 +417,7 @@ public sealed partial class MinecraftInstallService : IDisposable
         {
             task.Report(StagePlan[2], "正在准备加载器安装器", 0.99, totalFiles, totalFiles, 0);
             loaderJson = await _loaderInstaller.InstallAsync(
-                new(root, game, instanceId, command.Loader!.Value, command.LoaderBuild!, vanillaJson),
+                new(root, game, instanceId, command.Loader!.Value, command.LoaderBuild!, vanillaJson) { LocalInstaller = command.LocalInstaller },
                 new InstallerProgress(message => task.Report(StagePlan[2], message, 0.99, totalFiles, totalFiles, 0)), token).ConfigureAwait(false);
             loaderJson["id"] = instanceId;
             SetLoaderParent(loaderJson, game);

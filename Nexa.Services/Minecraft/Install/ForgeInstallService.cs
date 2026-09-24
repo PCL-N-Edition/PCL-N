@@ -10,7 +10,10 @@ using Nexa.Services.Minecraft.Libraries;
 namespace Nexa.Services.Minecraft.Install;
 
 public sealed record MinecraftLoaderInstallRequest(string Root, string Game, string InstanceId,
-    InstallLoader Loader, string Build, JsonObject VanillaJson);
+    InstallLoader Loader, string Build, JsonObject VanillaJson)
+{
+    public LocalJarArtifact? LocalInstaller { get; init; }
+}
 
 public interface IMinecraftLoaderInstaller
 {
@@ -52,15 +55,25 @@ public sealed partial class ForgeInstallService(DownloadService downloads, HttpC
             string installer = Path.Combine(stage, "installer.jar");
             string? sha = null;
             string? sha256 = null;
-            if (request.Loader == InstallLoader.Cleanroom)
-                sha256 = await CleanroomDigestAsync(request.Build, token).ConfigureAwait(false);
-            else if (request.Loader != InstallLoader.OptiFine)
+            if (request.LocalInstaller is { } local)
             {
-                sha = (await http.GetStringAsync(url + ".sha1", token).ConfigureAwait(false)).Trim().Split(' ', '\t', '\r', '\n')[0];
-                if (sha.Length != 40 || !sha.All(char.IsAsciiHexDigit)) throw new InvalidDataException("安装器校验信息无效。");
+                if (local.Loader != request.Loader || local.Game != request.Game || local.Build != request.Build)
+                    throw new InvalidDataException("本地安装器与请求的版本不一致。");
+                progress?.Report("正在读取本地安装器");
+                await MinecraftLocalJarService.CopyVerifiedAsync(local, installer, token).ConfigureAwait(false);
             }
-            progress?.Report("正在下载安装器");
-            await TransferAsync(url, installer, sha, 0, token).ConfigureAwait(false);
+            else
+            {
+                if (request.Loader == InstallLoader.Cleanroom)
+                    sha256 = await CleanroomDigestAsync(request.Build, token).ConfigureAwait(false);
+                else if (request.Loader != InstallLoader.OptiFine)
+                {
+                    sha = (await http.GetStringAsync(url + ".sha1", token).ConfigureAwait(false)).Trim().Split(' ', '\t', '\r', '\n')[0];
+                    if (sha.Length != 40 || !sha.All(char.IsAsciiHexDigit)) throw new InvalidDataException("安装器校验信息无效。");
+                }
+                progress?.Report("正在下载安装器");
+                await TransferAsync(url, installer, sha, 0, token).ConfigureAwait(false);
+            }
             if (sha256 is not null)
             {
                 await using var input = File.OpenRead(installer);

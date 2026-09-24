@@ -61,7 +61,7 @@ public sealed class MinecraftLaunchFileCompletion : IDisposable
                 InstanceDirectory = Path.Combine(root, "versions", baseId),
                 VersionName = baseId,
             });
-        if (clientPlan.File is { } client)
+        if (clientPlan.File is { } client && !await HasVerifiedCorePatchAsync(instance, client.LocalPath, cancellationToken).ConfigureAwait(false))
         {
             AddIfMissing(missing,
                 MinecraftDownloadSourcePlanner.GetLauncherOrMetaSources(client.Url, true),
@@ -206,6 +206,17 @@ public sealed class MinecraftLaunchFileCompletion : IDisposable
         }
 
         ReportProgress(progress, method, missing.Count, missing.Count, null);
+    }
+
+    internal static async Task<bool> HasVerifiedCorePatchAsync(MinecraftInstanceDescriptor instance, string clientPath, CancellationToken token)
+    {
+        string expected = instance.Metadata.CorePatchSha256;
+        string ownJar = Path.Combine(instance.DirectoryPath, instance.Id + ".jar");
+        if (expected.Length != 64 || !MinecraftLibraryService.PathComparer.Equals(Path.GetFullPath(clientPath), Path.GetFullPath(ownJar))
+            || !File.Exists(clientPath)) return false;
+        await using var stream = File.OpenRead(clientPath);
+        string actual = Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(stream, token).ConfigureAwait(false));
+        return actual.Equals(expected, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
