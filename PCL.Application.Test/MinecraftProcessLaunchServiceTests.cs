@@ -127,6 +127,46 @@ public sealed class MinecraftProcessLaunchServiceTests
     }
 
     [TestMethod]
+    public async Task CreatePlanAsync_ReplacesLegacyUserPropertiesWithJsonObject()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "pcl-launch-user-properties-" + Guid.NewGuid().ToString("N"));
+        string instanceDirectory = Path.Combine(root, "versions", "1.8.9");
+        string versionJsonPath = Path.Combine(instanceDirectory, "1.8.9.json");
+
+        try
+        {
+            Directory.CreateDirectory(instanceDirectory);
+            await File.WriteAllTextAsync(versionJsonPath,
+                """
+                {
+                  "mainClass": "net.minecraft.client.main.Main",
+                  "minecraftArguments": "--username ${auth_player_name} --userProperties ${user_properties}"
+                }
+                """);
+            await File.WriteAllTextAsync(Path.Combine(instanceDirectory, "1.8.9.jar"), string.Empty);
+
+            MinecraftProcessLaunchPlan plan = await MinecraftProcessLaunchService.CreatePlanAsync(
+                new MinecraftProcessLaunchRequest
+                {
+                    VersionId = "1.8.9",
+                    VersionJsonPath = versionJsonPath,
+                    InstanceDirectory = instanceDirectory,
+                    MinecraftRootDirectory = root,
+                    PlayerName = "Steve",
+                    PlayerUuid = "00000000000000000000000000000000"
+                });
+
+            StringAssert.Contains(plan.StartInfo.Arguments, "--userProperties {}");
+            Assert.IsFalse(plan.StartInfo.Arguments.Contains("${user_properties}", StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task CreatePlanAsync_ProducesStructuredJvmHostRequest()
     {
         string root = Path.Combine(Path.GetTempPath(), "pcl-jvm-host-plan-" + Guid.NewGuid().ToString("N"));

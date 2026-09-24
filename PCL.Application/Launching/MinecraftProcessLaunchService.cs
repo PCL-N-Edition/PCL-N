@@ -285,6 +285,9 @@ public static class MinecraftProcessLaunchService
             ["${assets_index_name}"] = assetIndexName,
             ["${auth_uuid}"] = request.PlayerUuid.Replace("-", string.Empty, StringComparison.Ordinal),
             ["${auth_access_token}"] = request.AccessToken,
+            // Legacy versions (including 1.8.9) parse this as a JSON object before
+            // initializing the game logger. An unresolved placeholder crashes there.
+            ["${user_properties}"] = "{}",
             ["${clientid}"] = Guid.NewGuid().ToString("N"),
             ["${auth_xuid}"] = "0",
             // Microsoft → msa; third-party Yggdrasil → mojang; offline → legacy.
