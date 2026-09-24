@@ -1249,7 +1249,7 @@ public partial class MainWindow
             _launchRight?.AppendLog($"Microsoft 登录成功，已选中档案 {profile.Username}。");
             ShowTextDialog("登录成功", $"已添加并选中正版档案 {profile.Username}。", "知道了");
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             _launchRight?.AppendLog("Microsoft 登录已取消。");
         }
@@ -1257,8 +1257,12 @@ public partial class MainWindow
         {
             if (dialog?.Parent is not null)
                 dialog.CloseLikeWpf();
-            _launchRight?.AppendLog("Microsoft 登录失败：" + ex.Message);
-            ShowTextDialog("Microsoft 登录失败", ex.Message, "知道了");
+            string message = ex is OperationCanceledException
+                ? "登录网络请求超时，请检查网络和代理设置后重试。"
+                : ex.Message;
+            _launchRight?.AppendLog("Microsoft 登录失败：" + message);
+            DesktopFileLog.Error("MicrosoftAuth", "Microsoft 登录失败。", ex);
+            ShowTextDialog("Microsoft 登录失败", message, "知道了");
         }
         finally
         {
@@ -1675,7 +1679,7 @@ public partial class MainWindow
                 "现在可以在外观页直接使用 LittleSkin 衣柜中的皮肤与披风。",
                 "知道了");
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             _launchRight?.AppendLog("LittleSkin OAuth 登录已取消。");
         }
@@ -1683,7 +1687,10 @@ public partial class MainWindow
         {
             if (dialog?.Parent is not null)
                 dialog.CloseLikeWpf();
-            string message = exception.Message;
+            string message = exception is OperationCanceledException
+                ? "登录网络请求超时，请检查网络和代理设置后重试。"
+                : exception.Message;
+            DesktopFileLog.Error("LittleSkinAuth", "LittleSkin OAuth 登录失败。", exception);
             bool invalidClient =
                 message.Contains("invalid_client", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains(
