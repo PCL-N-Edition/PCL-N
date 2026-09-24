@@ -83,7 +83,6 @@ public partial class MainWindow
             OpenUrl = OpenExternalUrl,
             StartMicrosoftLoginAsync = StartMicrosoftLoginAsync,
             StartLittleSkinLoginAsync = StartLittleSkinLoginAsync,
-            StartNCloudLoginAsync = StartNCloudLoginAsync,
             OpenAuthAccountPage = OpenAuthAccountPage,
             StartThirdPartyLoginAsync = StartThirdPartyAuthLoginAsync,
             CreateOfflineProfile = CreateOfflineLoginProfile
@@ -1545,16 +1544,6 @@ public partial class MainWindow
             Task predecessor = _profileSaveQueue;
             _profileSaveQueue = SaveProfilesAfterAsync(predecessor, snapshot, action);
         }
-    }
-
-    private Task StartNCloudLoginAsync(
-        PageLoginNCloud page,
-        ILaunchHomeSurface launchPage)
-    {
-        _ = launchPage;
-        page.FinishLogin();
-        ShowTextDialog("N Cloud 已停用", "N Cloud 游戏档案服务已停止，请使用 Microsoft、LittleSkin、第三方或离线档案。", "知道了");
-        return Task.CompletedTask;
     }
 
     private async Task StartLittleSkinLoginAsync(

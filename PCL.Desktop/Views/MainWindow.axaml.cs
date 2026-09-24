@@ -6441,7 +6441,6 @@ public partial class MainWindow : Window, IDisposable
         (_launchHomeExperimental?.IsLaunchInProgress ?? false),
         (_launchLoginSurface.MsPage?.IsLoggingIn ?? false) ||
         (_launchLoginSurface.LittleSkinPage?.IsLoggingIn ?? false) ||
-        (_launchLoginSurface.NCloudPage?.IsLoggingIn ?? false) ||
         (_launchLoginSurface.AuthPage?.IsLoggingIn ?? false));
 
     private bool CanEnterUltraLowPower() =>
