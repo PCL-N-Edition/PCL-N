@@ -28,7 +28,9 @@ public sealed partial class MinecraftInstallService
             MinecraftModpackArchive.CheckPath(command.Pack.Path);
             if (new FileInfo(command.Pack.Path).Length > MinecraftModpackArchive.MaxArchive) throw new InvalidDataException("整合包过大。");
             await using (var input = File.OpenRead(command.Pack.Path))
-            await using (var output = File.Create(archivePath)) await input.CopyToAsync(output, token).ConfigureAwait(false);
+            await using (var output = File.Create(archivePath))
+                await ArchiveReadBudget.CopyAsync(input, output, input.Length, MinecraftModpackArchive.MaxArchive,
+                    new ArchiveReadBudget(MinecraftModpackArchive.MaxArchive), token).ConfigureAwait(false);
             var plan = await MinecraftModpackArchive.ReadAsync(archivePath, token).ConfigureAwait(false);
             if (plan.Preview != command.Pack with { Path = archivePath }) throw new InvalidDataException("整合包已变化，请重新拖入。");
             var pack = plan.Preview;
@@ -48,6 +50,7 @@ public sealed partial class MinecraftInstallService
             { PreparingEdit = true, ReuseRoot = root, ModsRelativeDirectory = "versions/" + pack.InstanceId + "/mods" }, task, token).ConfigureAwait(false);
             using var packHttp = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(5) };
             int completed = 0;
+            var expandedBudget = new ArchiveReadBudget(MinecraftModpackArchive.MaxExpanded);
             foreach (var file in files)
             {
                 token.ThrowIfCancellationRequested();
@@ -67,6 +70,7 @@ public sealed partial class MinecraftInstallService
                     if (transfer.Success && await VerifyPackFileAsync(target, file, token).ConfigureAwait(false)) { verified = true; break; }
                 }
                 if (!verified) throw new IOException("整合包文件下载或校验失败：" + file.Path);
+                expandedBudget.Consume(new FileInfo(target).Length);
                 completed++;
                 task.Report("附加组件", file.Path, (double)completed / Math.Max(1, files.Count), completed, files.Count, 0);
             }
@@ -81,7 +85,8 @@ public sealed partial class MinecraftInstallService
                         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                         await using var input = entry.Open();
                         await using var output = File.Create(target);
-                        await input.CopyToAsync(output, token).ConfigureAwait(false);
+                        await ArchiveReadBudget.CopyAsync(input, output, entry.Length, MinecraftModpackArchive.MaxFile,
+                            expandedBudget, token).ConfigureAwait(false);
                     }
             await new MinecraftInstanceMetadataStore().SaveAsync(installed.InstanceDirectory, new()
             { InstanceIsolation = true, Description = pack.Name, ModpackVersion = pack.Version }, token).ConfigureAwait(false);

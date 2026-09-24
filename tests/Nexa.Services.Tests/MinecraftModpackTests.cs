@@ -11,6 +11,79 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask ArchiveActualByteLimits()
+    {
+        static async Task Reject(byte[] bytes, long declared, long limit, ArchiveReadBudget budget)
+        {
+            using var input = new MemoryStream(bytes);
+            using var output = new MemoryStream();
+            bool rejected = false;
+            try { await ArchiveReadBudget.CopyAsync(input, output, declared, limit, budget, default); }
+            catch (InvalidDataException) { rejected = true; }
+            AssertTrue(rejected, "Invalid actual size must be rejected");
+            AssertTrue(output.Length <= declared && output.Length <= limit);
+        }
+        await Reject(new byte[9], 8, 8, new(32));
+        await Reject(new byte[7], 8, 8, new(32));
+        await Reject(new byte[9], 9, 8, new(32));
+        var transaction = new ArchiveReadBudget(12);
+        using (var input = new MemoryStream(new byte[8]))
+        using (var output = new MemoryStream())
+            await ArchiveReadBudget.CopyAsync(input, output, 8, 8, transaction, default);
+        AssertEqual(4L, transaction.Remaining);
+        await Reject(new byte[8], 8, 8, transaction);
+
+        string temporary = Path.Combine(Path.GetTempPath(), "nexa-stored-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporary);
+        try
+        {
+            foreach (bool manifestMismatch in new[] { true, false })
+            {
+                string path = Path.Combine(temporary, manifestMismatch ? "manifest.mrpack" : "override.mrpack");
+                using (var archive = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create))
+                {
+                    foreach (var (name, content) in new[] { ("modrinth.index.json", MrpackIndex().ToJsonString()), ("overrides/config/test.txt", "abcdefghi") })
+                    {
+                        var entry = archive.CreateEntry(name, System.IO.Compression.CompressionLevel.NoCompression);
+                        using var writer = new StreamWriter(entry.Open());
+                        writer.Write(content);
+                    }
+                }
+                byte[] data = await File.ReadAllBytesAsync(path);
+                string tampered = manifestMismatch ? "modrinth.index.json" : "overrides/config/test.txt";
+                for (int index = 0; index <= data.Length - 46; index++)
+                {
+                    if (BitConverter.ToUInt32(data, index) != 0x02014b50) continue;
+                    int nameLength = BitConverter.ToUInt16(data, index + 28);
+                    if (Encoding.UTF8.GetString(data, index + 46, nameLength) != tampered) continue;
+                    // Stored compressed size remains intact: the readable stream is larger than Length.
+                    BitConverter.GetBytes(1u).CopyTo(data, index + 24);
+                    break;
+                }
+                await File.WriteAllBytesAsync(path, data);
+                if (manifestMismatch)
+                {
+                    bool rejected = false;
+                    try { await MinecraftModpackArchive.InspectAsync(path); }
+                    catch (InvalidDataException) { rejected = true; }
+                    AssertTrue(rejected, "Stored manifest must not trust its declared size");
+                }
+                else
+                {
+                    var preview = await MinecraftModpackArchive.InspectAsync(path);
+                    string root = Path.Combine(temporary, "game"); Directory.CreateDirectory(root);
+                    using var fixture = new InstallFixture(PackMetadata());
+                    var result = await fixture.Install.InstallModpackAsync(new(preview, root));
+                    AssertFalse(result.IsSuccess);
+                    AssertFalse(Directory.Exists(Path.Combine(root, "versions", preview.InstanceId)));
+                    AssertEqual(0, fixture.InstalledRoots.Count);
+                    AssertEqual(0, Directory.GetDirectories(root, ".nexa-pack-*").Length);
+                }
+            }
+        }
+        finally { Directory.Delete(temporary, true); }
+    }
+
     private static JsonObject MrpackIndex(string? wrongHash = null) => new()
     {
         ["formatVersion"] = 1,

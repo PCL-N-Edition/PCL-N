@@ -40,7 +40,11 @@ public static class MinecraftModpackArchive
         var entry = archive.GetEntry(mr ? "modrinth.index.json" : "manifest.json") ?? throw new InvalidDataException("未找到 Modrinth 或 CurseForge 整合包清单。");
         if (entry.Length > 16 * 1024 * 1024) throw new InvalidDataException("整合包清单过大。");
         await using var manifestStream = entry.Open();
-        var manifest = await JsonNode.ParseAsync(manifestStream, cancellationToken: token).ConfigureAwait(false) as JsonObject ?? throw new InvalidDataException("整合包清单无效。");
+        using var manifestBuffer = new MemoryStream();
+        await ArchiveReadBudget.CopyAsync(manifestStream, manifestBuffer, entry.Length, 16 * 1024 * 1024,
+            new ArchiveReadBudget(16 * 1024 * 1024), token).ConfigureAwait(false);
+        manifestBuffer.Position = 0;
+        var manifest = await JsonNode.ParseAsync(manifestBuffer, cancellationToken: token).ConfigureAwait(false) as JsonObject ?? throw new InvalidDataException("整合包清单无效。");
         string name = Text(manifest, "name"), version = Text(manifest, mr ? "versionId" : "version"), game;
         InstallLoader? loader = null;
         string? build = null;

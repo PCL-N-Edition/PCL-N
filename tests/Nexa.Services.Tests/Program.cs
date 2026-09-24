@@ -37,6 +37,7 @@ internal static partial class Program
         ("local installer does not download replacement", LocalInstallerDoesNotDownloadReplacement),
         ("mrpack installs client files and overrides atomically", MrpackInstallsClientFilesAndOverridesAtomically),
         ("modpack failures never publish instance", ModpackFailuresNeverPublishInstance),
+        ("archive actual byte limits and stored length mismatch", ArchiveActualByteLimits),
         ("modpack cancellation and conflicts preserve existing data", ModpackCancellationAndConflictsPreserveExistingData),
         ("CurseForge packs honor file identity and download restrictions", CursePackResolvesFilesAndHonorsDownloadRestrictions),
         ("library deletion is contained and recoverable", LibraryDeleteIsContainedAndRecoverable),
