@@ -48,9 +48,12 @@ public sealed class FirstRunService(string defaultDirectory, string locatorPath,
                     if (!root.Equals(current, comparison) && Directory.EnumerateFileSystemEntries(root).Any())
                         throw new IOException("请选择空文件夹，已有数据不会被覆盖或迁移。");
                     string settings = Path.Combine(root, FolderNames.Settings, "settings.json");
-                    if (File.Exists(settings) || Directory.Exists(Path.Combine(root, FolderNames.Profiles)))
+                    string profilesFolder = Path.Combine(root, FolderNames.Profiles);
+                    if (File.Exists(settings) || (Directory.Exists(profilesFolder) && Directory.EnumerateFileSystemEntries(profilesFolder).Any()))
                         throw new IOException("目标目录包含已有配置，未覆盖任何文件。");
                     string settingsFolder = Path.GetDirectoryName(settings)!;
+                    if (Directory.Exists(settingsFolder) && (File.GetAttributes(settingsFolder) & FileAttributes.ReparsePoint) != 0)
+                        throw new IOException("设置目录不能是符号链接。");
                     if (!Directory.Exists(settingsFolder)) createdSettingsFolder = settingsFolder;
                     Directory.CreateDirectory(settingsFolder);
                     // Reserve the path without overwriting a concurrently created installation.

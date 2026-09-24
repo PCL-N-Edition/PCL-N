@@ -26,6 +26,8 @@ internal static partial class Program
             AssertFalse(new FirstRunService(chosen, locator).Read().Required);
 
             string locked = Path.Combine(temp, "locked");
+            Directory.CreateDirectory(Path.Combine(locked, "profiles"));
+            Directory.CreateDirectory(Path.Combine(locked, "settings"));
             var overridden = new FirstRunService(locked, locator, locationLocked: true);
             AssertFalse((await overridden.CompleteAsync(new(Path.Combine(temp, "other"), true))).IsSuccess);
             AssertTrue((await overridden.CompleteAsync(new(locked, true))).IsSuccess);
