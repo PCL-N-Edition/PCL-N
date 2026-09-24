@@ -6526,6 +6526,8 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
+    private ScrollPositionSnapshot? _lowPowerScrollPositions;
+
     private void BeginUltraLowPowerTransition(bool enterLowPower)
     {
         if (_isDisposed || _isClosing || _isOobeHandoff)
@@ -6547,6 +6549,8 @@ public partial class MainWindow : Window, IDisposable
         if (overlay is null)
             return;
 
+        if (enterLowPower && _lowPowerScrollPositions is null)
+            _lowPowerScrollPositions = ScrollPositionSnapshot.Capture(this);
         CancelUltraLowPowerTransition();
         CancellationTokenSource cancellation = new();
         _ultraLowPowerTransitionCancellation = cancellation;
@@ -6577,6 +6581,8 @@ public partial class MainWindow : Window, IDisposable
             await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Render);
             owner.Token.ThrowIfCancellationRequested();
             await overlay.RevealAsync(owner.Token).ConfigureAwait(true);
+            _lowPowerScrollPositions?.Restore(this);
+            _lowPowerScrollPositions = null;
             DesktopFileLog.Debug("Power", "主窗口已恢复超低功耗模式释放的界面资源。");
         }
         catch (OperationCanceledException) when (owner.IsCancellationRequested)

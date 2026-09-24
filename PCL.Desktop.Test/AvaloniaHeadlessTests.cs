@@ -739,6 +739,32 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void LowPowerScrollSnapshot_RestoresPositionOnlyForTheSamePage()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        session.Dispatch(() =>
+        {
+            ScrollViewer scroll = new() { Content = new Border { Height = 1500 } };
+            Window window = new() { Width = 400, Height = 300, Content = scroll };
+            try
+            {
+                window.Show();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                scroll.Offset = new Vector(0, 300);
+                ScrollPositionSnapshot snapshot = ScrollPositionSnapshot.Capture(window);
+                scroll.Offset = default;
+                snapshot.Restore(window);
+                Assert.AreEqual(300d, scroll.Offset.Y);
+                window.Content = new Border();
+                scroll.Offset = new Vector(0, 100);
+                snapshot.Restore(window);
+                Assert.AreEqual(100d, scroll.Offset.Y);
+            }
+            finally { window.Close(); }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
     public void MainWindow_UltraLowPowerSuspendsAndRestoresPresentationResources()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
