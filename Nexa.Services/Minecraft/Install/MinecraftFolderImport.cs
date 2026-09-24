@@ -73,6 +73,25 @@ public sealed class MinecraftFolderImportService(TaskCenterService tasks)
     private static bool HasText(JsonElement element, string name) => element.TryGetProperty(name, out var value)
         && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString());
 
+    private static void ValidateInheritance(string manifest, string target, CancellationToken token)
+    {
+        var visited = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            if (!visited.Add(Path.GetFullPath(manifest)) || visited.Count > 100)
+                throw new InvalidDataException("版本继承链存在循环或过深，导入未提交。");
+            if (!IsVersionManifest(manifest)) throw new InvalidDataException("父版本描述无效，导入未提交。");
+            using var stream = File.OpenRead(manifest);
+            using var document = JsonDocument.Parse(stream);
+            if (!HasText(document.RootElement, "inheritsFrom")) return;
+            string parent = document.RootElement.GetProperty("inheritsFrom").GetString()!;
+            if (!MinecraftVersionPaths.IsSafeReference(parent)) throw new InvalidDataException("父版本名称无效。");
+            manifest = MinecraftVersionPaths.ResolveJsonPath(target, Path.GetDirectoryName(manifest), parent)
+                ?? throw new InvalidDataException($"缺少父版本 {parent}，尚未导入。请先将父版本导入目标游戏目录。");
+        }
+    }
+
     public Task<XsrResult> ImportAsync(MinecraftFolderImportCommand command, CancellationToken cancellationToken = default) =>
         Task.Run(() => CopyAsync(command, cancellationToken), cancellationToken);
 
@@ -96,6 +115,7 @@ public sealed class MinecraftFolderImportService(TaskCenterService tasks)
             RejectLinks(versions);
             string destination = Path.Combine(versions, source.Name);
             if (Path.Exists(destination)) throw new IOException("目标目录中已存在同名版本，未覆盖任何文件。");
+            ValidateInheritance(Path.Combine(source.Path, source.Name + ".json"), target, token);
             // Collect without following links, including links higher in either root path.
             var files = new List<(string Path, string Relative)>();
             var directories = new List<string>();
@@ -137,6 +157,7 @@ public sealed class MinecraftFolderImportService(TaskCenterService tasks)
             token.ThrowIfCancellationRequested();
             if (!IsVersionManifest(Path.Combine(staging, source.Name + ".json")))
                 throw new InvalidDataException("复制期间版本描述发生变化，导入未提交。");
+            ValidateInheritance(Path.Combine(staging, source.Name + ".json"), target, token);
             // Recheck the destination immediately before committing; Move never overwrites.
             RejectLinks(target);
             RejectLinks(versions);

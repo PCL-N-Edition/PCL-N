@@ -97,6 +97,7 @@ internal static partial class Program
             XsrStateStoreBuilder builder = new();
             TaskCenterStateContract.DeclareState(builder);
             DownloadService.DeclareState(builder);
+            Nexa.Services.Minecraft.Process.MinecraftProcessStateComposition.DeclareState(builder);
             Store = builder.Build();
             Tasks = new TaskCenterService(Store);
             DownloadService downloads = new(Store);

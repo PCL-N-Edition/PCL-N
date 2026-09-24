@@ -639,7 +639,8 @@ internal static partial class Program
             await port.StartAsync(new System.Diagnostics.ProcessStartInfo()),
             "instance",
             Guid.NewGuid(),
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            Path.Combine(Path.GetTempPath(), "versions", "instance"));
         try
         {
             long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();

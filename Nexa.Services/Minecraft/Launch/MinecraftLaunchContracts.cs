@@ -164,6 +164,8 @@ public sealed record MinecraftLaunchPlan(
     IReadOnlyList<MinecraftLibraryToken> Libraries,
     MinecraftModLoaderDescriptor ModLoader)
 {
+    /// <summary>Root-qualified instance identity, independent of the JVM working directory.</summary>
+    public string InstanceDirectory { get; init; } = WorkingDirectory;
     /// <summary>The directory where native libraries must be extracted before launch.</summary>
     public string NativesDirectory { get; init; } = string.Empty;
 
@@ -325,6 +327,7 @@ public static class MinecraftLaunchPlanner
         return new MinecraftLaunchPlan(request.JavaExecutablePath, instance, args, classpath.Entries, libraries, loader)
         {
             NativesDirectory = nativesDirectory,
+            InstanceDirectory = instance,
             ClientJarPath = clientJar,
             JavaMajorVersion = request.JavaMajorVersion,
             IsInheritedClientJar = clientJarResolution.IsInherited,

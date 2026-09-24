@@ -24,7 +24,20 @@ internal static partial class Program
             using var fixture = new InstallFixture(new FakeMetadata());
             var service = new MinecraftLocalJarService(fixture.Tasks, fixture.Store, fixture.Install);
             var artifact = await MinecraftLocalJarService.InspectAsync(source);
+            var sessions = fixture.Store.Resolve(Nexa.Services.Minecraft.Process.MinecraftProcessStateComposition.SessionsKey);
+            var running = new Nexa.Services.Minecraft.Process.MinecraftProcessSnapshot(Guid.NewGuid(), "test", 123,
+                Nexa.Services.Minecraft.Process.MinecraftProcessState.Running, null, DateTimeOffset.UtcNow, null)
+            { InstanceDirectory = Path.Combine(temporary, "other", "versions", "test") };
+            fixture.Store.PublishDelta(sessions, new Nexa.Xsr.State.XsrCollectionDelta<Nexa.Services.Minecraft.Process.MinecraftProcessSnapshot, Guid>(0, [running], []));
             AssertTrue((await service.ImportAsync(new(artifact, root, "test", LocalJarAction.Mod))).IsSuccess);
+            long revision = fixture.Store.ReadCollection<Nexa.Services.Minecraft.Process.MinecraftProcessSnapshot>(sessions).Revision;
+            fixture.Store.PublishDelta(sessions, new Nexa.Xsr.State.XsrCollectionDelta<Nexa.Services.Minecraft.Process.MinecraftProcessSnapshot, Guid>(revision,
+                [running with { InstanceDirectory = instance }], []));
+            var blocked = await service.ImportAsync(new(artifact, root, "test", LocalJarAction.CorePatch));
+            AssertFalse(blocked.IsSuccess);
+            AssertTrue(blocked.Error!.Message.Contains("游戏进程", StringComparison.Ordinal));
+            revision = fixture.Store.ReadCollection<Nexa.Services.Minecraft.Process.MinecraftProcessSnapshot>(sessions).Revision;
+            fixture.Store.PublishDelta(sessions, new Nexa.Xsr.State.XsrCollectionDelta<Nexa.Services.Minecraft.Process.MinecraftProcessSnapshot, Guid>(revision, [], [running.SessionId]));
             AssertTrue(File.Exists(Path.Combine(instance, "mods", "mod.jar")), "default isolation directory");
             AssertTrue(!File.Exists(Path.Combine(root, "mods", "mod.jar")), "shared directory untouched");
             AssertFalse((await service.ImportAsync(new(artifact, root, "test", LocalJarAction.Mod))).IsSuccess);

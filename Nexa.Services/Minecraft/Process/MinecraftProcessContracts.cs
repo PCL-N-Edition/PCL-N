@@ -24,7 +24,10 @@ public sealed record MinecraftProcessSnapshot(
     MinecraftProcessState State,
     int? ExitCode,
     DateTimeOffset StartedAt,
-    DateTimeOffset? EndedAt);
+    DateTimeOffset? EndedAt)
+{
+    public string InstanceDirectory { get; init; } = string.Empty;
+}
 
 public interface IMinecraftProcessPort
 {
@@ -56,12 +59,13 @@ public sealed class MinecraftProcessSession : IAsyncDisposable
     private readonly Task _errorDrain;
     private int _disposed;
 
-    internal MinecraftProcessSession(System.Diagnostics.Process process, string instanceId, Guid sessionId, DateTimeOffset startedAt)
+    internal MinecraftProcessSession(System.Diagnostics.Process process, string instanceId, Guid sessionId, DateTimeOffset startedAt, string instanceDirectory)
     {
         ArgumentNullException.ThrowIfNull(process);
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         _process = process;
-        _snapshot = new MinecraftProcessSnapshot(sessionId, instanceId, process.Id, MinecraftProcessState.Created, null, startedAt, null);
+        _snapshot = new MinecraftProcessSnapshot(sessionId, instanceId, process.Id, MinecraftProcessState.Created, null, startedAt, null)
+        { InstanceDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(instanceDirectory)) };
         _createdSnapshot = _snapshot;
         _outputDrain = process.StartInfo.RedirectStandardOutput ? Task.Run(() => DrainAsync(process.StandardOutput, _evidence)) : Task.CompletedTask;
         _errorDrain = process.StartInfo.RedirectStandardError ? Task.Run(() => DrainAsync(process.StandardError, _errorEvidence)) : Task.CompletedTask;
@@ -264,7 +268,7 @@ public sealed class MinecraftProcessService : IAsyncDisposable
             operation?.Stage("os_start", $"executable={startInfo.FileName} working_directory={startInfo.WorkingDirectory} argument_count={startInfo.ArgumentList.Count}");
             System.Diagnostics.Process process = await _port.StartAsync(startInfo, cancellationToken).ConfigureAwait(false);
             Guid sessionId = Guid.NewGuid();
-            MinecraftProcessSession session = new(process, instanceId, sessionId, DateTimeOffset.UtcNow);
+            MinecraftProcessSession session = new(process, instanceId, sessionId, DateTimeOffset.UtcNow, plan.InstanceDirectory);
             session.Changed += OnSessionChanged;
             _sessions[sessionId] = session;
             // Publish the Created observation even if the child exited between Process.Start and

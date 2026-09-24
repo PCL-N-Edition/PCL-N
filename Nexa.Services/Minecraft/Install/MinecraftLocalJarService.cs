@@ -90,11 +90,12 @@ public sealed class MinecraftLocalJarService(TaskCenterService tasks, XsrStateSt
                 task.Complete(); return XsrResult.Success();
             }
             if (!MinecraftVersionPaths.IsSafeReference(command.InstanceId)) throw new InvalidDataException("请先选择要修改的版本。");
+            string instance = ForgeInstallService.Contained(root, "versions/" + command.InstanceId);
             if (store.TryResolve(MinecraftProcessStateComposition.SessionsKey, out var sessions)
-                && store.ReadCollection<MinecraftProcessSnapshot>(sessions, cancellationToken: token).Items.Any(item => item.InstanceId == command.InstanceId
+                && store.ReadCollection<MinecraftProcessSnapshot>(sessions, cancellationToken: token).Items.Any(item =>
+                    string.Equals(item.InstanceDirectory, instance, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
                     && item.State is MinecraftProcessState.Created or MinecraftProcessState.Running))
                 throw new InvalidDataException("请先结束该版本的游戏进程。");
-            string instance = ForgeInstallService.Contained(root, "versions/" + command.InstanceId);
             CheckPath(instance);
             string manifestPath = ForgeInstallService.Contained(instance, command.InstanceId + ".json");
             CheckPath(manifestPath);

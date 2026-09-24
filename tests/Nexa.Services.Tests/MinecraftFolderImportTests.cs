@@ -5,6 +5,31 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask FolderImportRequiresResolvableParents()
+    {
+        string temporary = Path.Combine(Path.GetTempPath(), "nexa-parent-" + Guid.NewGuid().ToString("N"));
+        string source = Path.Combine(temporary, "leaf"), target = Path.Combine(temporary, "target");
+        Directory.CreateDirectory(source); Directory.CreateDirectory(target);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(source, "leaf.json"), "{\"id\":\"leaf\",\"inheritsFrom\":\"1.20.1\"}");
+            var service = new MinecraftFolderImportService(NewTaskCenter(out _));
+            var missing = await service.ImportAsync(new(source, target));
+            AssertFalse(missing.IsSuccess);
+            AssertTrue(missing.Error!.Message.Contains("缺少父版本 1.20.1", StringComparison.Ordinal));
+            AssertFalse(Directory.Exists(Path.Combine(target, "versions", "leaf")));
+            string parent = Path.Combine(target, "versions", "1.20.1"); Directory.CreateDirectory(parent);
+            string manifest = "{\"id\":\"1.20.1\",\"mainClass\":\"main\"}";
+            await File.WriteAllTextAsync(Path.Combine(parent, "1.20.1.json"), manifest);
+            AssertTrue((await service.ImportAsync(new(source, target))).IsSuccess);
+            AssertEqual(manifest, await File.ReadAllTextAsync(Path.Combine(parent, "1.20.1.json")));
+            var instance = (await new Nexa.Services.Minecraft.MinecraftInstanceDiscovery().DiscoverAsync(target)).Single(item => item.Id == "leaf");
+            var resolved = await Nexa.Services.Minecraft.Launch.MinecraftVersionJsonReader.ResolveAsync(instance, target);
+            AssertEqual(1, resolved.Inherited.Count);
+        }
+        finally { Directory.Delete(temporary, true); }
+    }
+
     private static async ValueTask FolderImportPreservesSourceAndRejectsConflicts()
     {
         string temporary = Path.Combine(Path.GetTempPath(), "nexa-import-test-" + Guid.NewGuid().ToString("N"));

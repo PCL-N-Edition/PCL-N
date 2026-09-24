@@ -47,6 +47,7 @@ internal static partial class Program
         ("install rejects processor loaders before touching disk", InstallRejectsProcessorLoadersBeforeTouchingDisk),
         ("install cancel marks the task canceled", InstallCancelMarksTheTaskCanceled),
         ("task center tracks lifecycle and summary", TaskCenterTracksLifecycleAndSummary),
+        ("folder import requires resolvable parents", FolderImportRequiresResolvableParents),
         ("task center serializes terminal reuse and dismiss races", TaskCenterSerializesRaces),
         ("task center cancel routes to owner token", TaskCenterCancelRoutesToOwnerToken),
         ("task center rejects cancel of protected tasks", TaskCenterRejectsCancelOfProtectedTasks),
