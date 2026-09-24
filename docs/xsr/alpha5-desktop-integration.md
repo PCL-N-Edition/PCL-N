@@ -46,3 +46,19 @@ Windows `SM_DIGITIZER` 的 READY 为 0x80，集成/外接触摸分别为
 页面仅显示支持实例覆盖的定义；恢复继承删除覆盖，不能写全局值。启动协调器由组合层
 注入 SettingsPolicy，读取该实例快照并应用已接通的窗口尺寸、全屏和 JVM/游戏参数。
 目录切换需丢弃旧异步读取与编辑草稿。
+
+## 遥测协议
+
+`POST /v1/launcher/telemetry` 经现有 Cloudflare API Shield mTLS 验证。
+只接受 app.started/app.failure/game.started/game.exited，字段限 version/os/arch/result
+及事件时间；单批 50 条、16 KiB。Worker 严格拒绝额外字段，仅存每日聚合计数。
+不保存设备 ID、IP、账户、路径或原始日志。传输失败保留队列，语义为至少一次，
+不能用这些计数宣称精确独立用户数。撤回同意清空待发队列并取消当前会话发送。
+构建使用现有 PCLN_API_CLIENT_PFX_BASE64 secret，仅将证书恢复为忽略文件；不得记录证书内容。
+首批客户端接入 app.started；游戏结果及异常事件仍需各自产生者接入。
+
+## Patch 注册边界（待实现）
+
+用户确认：编译前生成插桩，供 Sidecar 注册。注册/卸载走控制通道，执行留在宿主；
+无同步热路径 IPC、无跨进程 CLR 委托。需先定义支持的数据与操作协议、版本化 ID、
+调用期间不可变补丁快照，以及重入/异常/async/迭代器/ref 语义，再接编译改写器。

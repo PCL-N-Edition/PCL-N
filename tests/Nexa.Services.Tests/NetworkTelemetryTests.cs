@@ -82,6 +82,27 @@ internal static partial class Program
         await Task.CompletedTask;
     }
 
+    internal static async ValueTask TelemetryRevocationClearsAndTransportRejectsPrivateFields()
+    {
+        var service = CreateTelemetryService();
+        service.Consent = true;
+        service.Record("app.started");
+        service.Consent = false;
+        AssertEqual(0, service.PendingCount);
+        service.Consent = true;
+        var transport = new RecordingTransport();
+        AssertEqual(0, await service.FlushAsync(transport));
+        AssertEqual(0, transport.Batches.Count);
+        var properties = new Dictionary<string, string>
+        { ["version"] = "2.0.0.alpha.4", ["os"] = "windows", ["arch"] = "x64", ["result"] = "ok" };
+        var fact = new TelemetryEvent("app.started", DateTimeOffset.UtcNow, properties);
+        AssertTrue(CloudflareTelemetryTransport.IsAllowed(fact));
+        properties["token"] = "must-never-leave-the-device";
+        AssertFalse(CloudflareTelemetryTransport.IsAllowed(fact));
+        properties.Remove("token");
+        AssertFalse(CloudflareTelemetryTransport.IsAllowed(fact with { Name = "raw.exception" }));
+    }
+
     internal static void TelemetryWithoutConsentRecordsNothing()
     {
         TelemetryService service = CreateTelemetryService();

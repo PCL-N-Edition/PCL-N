@@ -298,6 +298,9 @@ internal static class Program
             return 0;
         }
 
+        using CloudflareApiClient? cloudflare = OpenCloudflareClient(host.Logging);
+        using var telemetrySession = cloudflare is null ? null : new Nexa.Services.Telemetry.LauncherTelemetrySession(
+            host.Telemetry, host.Settings, new Nexa.Services.Telemetry.CloudflareTelemetryTransport(cloudflare.Client), host.Logging, ResolveInformationalVersion());
         setStage("gui_lifetime");
         host.Logging.Info("Launcher", "Entering Avalonia GUI lifetime.");
         int exitCode = AvaloniaUiShellHost.Run(shell, args, platformActions);
@@ -308,4 +311,13 @@ internal static class Program
         return exitCode;
     }
 
+    private static CloudflareApiClient? OpenCloudflareClient(LogService log)
+    {
+        try { return CloudflareApiClient.TryCreate(); }
+        catch (Exception error) when (error is IOException or System.Security.Cryptography.CryptographicException or InvalidOperationException)
+        {
+            log.Warn("Cloudflare", "API 客户端身份不可用，联网服务暂不可用。");
+            return null;
+        }
+    }
 }

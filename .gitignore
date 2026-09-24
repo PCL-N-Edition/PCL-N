@@ -39,3 +39,6 @@ Thumbs.db
 
 # Release tooling is source, not a build output directory.
 !/eng/release/
+
+# CI-restored API Shield client identity
+**/api-client.pfx

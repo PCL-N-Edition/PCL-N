@@ -17,6 +17,7 @@ public sealed record TelemetryEvent(
 /// </summary>
 public interface ITelemetryTransport
 {
+    int MaximumBatchSize => int.MaxValue;
     Task<bool> SendAsync(IReadOnlyList<TelemetryEvent> batch, CancellationToken cancellationToken = default);
 }
 
@@ -39,6 +40,7 @@ public sealed class TelemetryService
     private readonly XsrStateStore _store;
     private readonly XsrStateId _pendingId;
     private int _consentField;
+    private int _flushing;
 
     /// <summary>
     /// Two-phase composition, declaration phase: registers the pending-count cell into the
@@ -66,7 +68,18 @@ public sealed class TelemetryService
     public bool Consent
     {
         get => Volatile.Read(ref _consentField) != 0;
-        set => Volatile.Write(ref _consentField, value ? 1 : 0);
+        set
+        {
+            lock (_gate)
+            {
+                Volatile.Write(ref _consentField, value ? 1 : 0);
+                if (!value)
+                {
+                    _events.Clear();
+                    _store.Publish(_pendingId, 0, CancellationToken.None);
+                }
+            }
+        }
     }
 
     /// <summary>How many events are buffered locally right now.</summary>
@@ -95,6 +108,7 @@ public sealed class TelemetryService
 
         lock (_gate)
         {
+            if (!Consent) return;
             if (_events.Count >= _capacity)
             {
                 _events.Dequeue();
@@ -103,7 +117,8 @@ public sealed class TelemetryService
             _events.Enqueue(new TelemetryEvent(
                 name,
                 DateTimeOffset.UtcNow,
-                properties ?? new Dictionary<string, string>(StringComparer.Ordinal)));
+                new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(
+                    properties is null ? new(StringComparer.Ordinal) : new Dictionary<string, string>(properties, StringComparer.Ordinal))));
             _store.Publish(_pendingId, _events.Count, CancellationToken.None);
         }
     }
@@ -116,6 +131,13 @@ public sealed class TelemetryService
     public async Task<int> FlushAsync(ITelemetryTransport transport, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(transport);
+        if (Interlocked.Exchange(ref _flushing, 1) != 0) return 0;
+        try { return await FlushCoreAsync(transport, cancellationToken).ConfigureAwait(false); }
+        finally { Volatile.Write(ref _flushing, 0); }
+    }
+
+    private async Task<int> FlushCoreAsync(ITelemetryTransport transport, CancellationToken cancellationToken)
+    {
         List<TelemetryEvent> batch;
         lock (_gate)
         {
@@ -124,7 +146,7 @@ public sealed class TelemetryService
                 return 0;
             }
 
-            batch = [.. _events];
+            batch = [.. _events.Take(Math.Max(1, transport.MaximumBatchSize))];
         }
 
         if (!await transport.SendAsync(batch, cancellationToken).ConfigureAwait(false))

@@ -102,6 +102,19 @@ jobs:
           if [[ -n "$little_skin" ]]; then echo "::add-mask::$little_skin"; fi
           echo "NEXA_MS_CLIENT_ID=$microsoft" >> "$GITHUB_ENV"
           echo "NEXA_LITTLESKIN_CLIENT_ID=$little_skin" >> "$GITHUB_ENV"
+      - name: Restore Cloudflare API identity
+        shell: bash
+        env:
+          API_CLIENT_PFX: ${{ secrets.PCLN_API_CLIENT_PFX_BASE64 }}
+        run: |
+          python - <<'PY'
+          import base64, os, pathlib
+          encoded = os.environ.get("API_CLIENT_PFX", "")
+          if encoded:
+              pathlib.Path("Nexa.Desktop/Assets/api-client.pfx").write_bytes(base64.b64decode(encoded, validate=True))
+          elif os.environ.get("GITHUB_REF", "").startswith("refs/tags/"):
+              raise SystemExit("Cloudflare API identity is required for release builds")
+          PY
       - name: Publish NativeAOT launcher
         shell: bash
         run: |

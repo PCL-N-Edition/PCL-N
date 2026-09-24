@@ -216,6 +216,7 @@ internal static partial class Program
         ("microsoft cape service lists and activates", MicrosoftCapeServiceListsAndActivates),
         // XSR-517: Network and Telemetry families.
         ("network probes report reachability and latency", NetworkProbesReportReachabilityAndLatency),
+        ("telemetry revocation clears and private fields are rejected", TelemetryRevocationClearsAndTransportRejectsPrivateFields),
         ("telemetry without consent records nothing", Sync(TelemetryWithoutConsentRecordsNothing)),
         ("telemetry buffers with bounded eviction", Sync(TelemetryBuffersWithBoundedEviction)),
         ("telemetry flush uploads and clears or retains", TelemetryFlushUploadsAndClearsOrRetains),
