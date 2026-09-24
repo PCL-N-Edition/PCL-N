@@ -18,11 +18,17 @@ public sealed class TaskCenterService
     private readonly object _stateGate = new();
     private readonly object _gate = new();
     private readonly Dictionary<string, Registration> _registrations = new(StringComparer.Ordinal);
+    private readonly Queue<Publication> _publications = new();
+    private bool _publishing;
+    private long _generation;
+    private sealed record Publication(long Generation, long Revision, string TaskId, TaskCenterEntry? Entry);
     private readonly XsrStateId _entriesId;
     private readonly XsrStateId _summaryId;
 
-    internal sealed class Registration(TaskCenterEntry entry)
+    internal sealed class Registration(TaskCenterEntry entry, long generation)
     {
+        public long Generation { get; } = generation;
+        public long Revision { get; set; }
         public TaskCenterEntry Entry { get; set; } = entry;
         public CancellationTokenSource Cancellation { get; } = new();
         public bool Released { get; set; }
@@ -63,11 +69,12 @@ public sealed class TaskCenterService
                 throw new InvalidOperationException($"Task '{start.TaskId}' is already registered.");
             }
 
-            registration = new Registration(entry);
+            registration = new Registration(entry, ++_generation);
             _registrations[start.TaskId] = registration;
+            Enqueue(registration);
         }
 
-        ApplyEntry(entry);
+        DrainPublications();
         return new TaskHandle(this, registration);
     }
 
@@ -79,6 +86,7 @@ public sealed class TaskCenterService
     public TaskCenterCancelResult RequestCancel(string taskId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(taskId);
+        CancellationTokenSource cancellation;
         lock (_gate)
         {
             if (!_registrations.TryGetValue(taskId, out Registration? registration)
@@ -92,9 +100,12 @@ public sealed class TaskCenterService
                 return TaskCenterCancelResult.NotCancelable;
             }
 
-            registration.Cancellation.Cancel();
-            return TaskCenterCancelResult.Canceled;
+            cancellation = registration.Cancellation;
         }
+        // Cancellation callbacks may report or finish this task; never invoke them under _gate.
+        try { cancellation.Cancel(); }
+        catch (ObjectDisposedException) { return TaskCenterCancelResult.NotFound; }
+        return TaskCenterCancelResult.Canceled;
     }
 
     /// <summary>Removes a terminal entry from the visible list.</summary>
@@ -110,9 +121,10 @@ public sealed class TaskCenterService
             }
 
             _registrations.Remove(taskId);
+            Enqueue(registration, remove: true);
         }
 
-        RemoveEntry(taskId);
+        DrainPublications();
         return true;
     }
 
@@ -132,14 +144,12 @@ public sealed class TaskCenterService
 
             foreach (string taskId in removed)
             {
+                Enqueue(_registrations[taskId], remove: true);
                 _registrations.Remove(taskId);
             }
         }
 
-        foreach (string taskId in removed)
-        {
-            RemoveEntry(taskId);
-        }
+        DrainPublications();
 
         return removed.Count;
     }
@@ -170,9 +180,10 @@ public sealed class TaskCenterService
                     : null,
             };
             registration.Entry = updated;
+            Enqueue(registration);
         }
 
-        ApplyEntry(updated);
+        DrainPublications();
     }
 
     internal void Complete(Registration registration, string detail)
@@ -188,9 +199,10 @@ public sealed class TaskCenterService
             updated = Terminal(registration.Entry, TaskCenterEntryState.Finished, detail, null);
             registration.Entry = updated;
             registration.Released = true;
+            Enqueue(registration);
         }
 
-        CommitTerminal(registration, updated);
+        CommitTerminal(registration);
     }
 
     internal void Fail(Registration registration, string message)
@@ -207,9 +219,10 @@ public sealed class TaskCenterService
             updated = Terminal(registration.Entry, TaskCenterEntryState.Failed, "失败", message);
             registration.Entry = updated;
             registration.Released = true;
+            Enqueue(registration);
         }
 
-        CommitTerminal(registration, updated);
+        CommitTerminal(registration);
     }
 
     internal void MarkCanceled(Registration registration)
@@ -225,9 +238,10 @@ public sealed class TaskCenterService
             updated = Terminal(registration.Entry, TaskCenterEntryState.Canceled, "已取消", null);
             registration.Entry = updated;
             registration.Released = true;
+            Enqueue(registration);
         }
 
-        CommitTerminal(registration, updated);
+        CommitTerminal(registration);
     }
 
     /// <summary>A released handle whose task never reached a terminal state must not read as running forever.</summary>
@@ -244,9 +258,10 @@ public sealed class TaskCenterService
             updated = Terminal(registration.Entry, TaskCenterEntryState.Failed, "失败", "任务意外结束。");
             registration.Entry = updated;
             registration.Released = true;
+            Enqueue(registration);
         }
 
-        CommitTerminal(registration, updated);
+        CommitTerminal(registration);
     }
 
     private static TaskCenterEntry Terminal(
@@ -267,16 +282,16 @@ public sealed class TaskCenterService
     /// entry, then bound the terminal history. The retention cap is a capability contract
     /// (≤30 terminal entries), not a UI nicety, so Failed/Canceled/Abandoned are bounded too.
     /// </summary>
-    private void CommitTerminal(Registration registration, TaskCenterEntry updated)
+    private void CommitTerminal(Registration registration)
     {
         registration.Cancellation.Dispose();
-        ApplyEntry(updated);
         EvictOldTerminalEntries();
+        DrainPublications();
     }
 
     private void EvictOldTerminalEntries()
     {
-        List<string> evicted = [];
+
         lock (_gate)
         {
             List<string> terminal = [.. _registrations
@@ -289,14 +304,49 @@ public sealed class TaskCenterService
 
             foreach (string taskId in terminal.Take(terminal.Count - RetainedTerminalEntries))
             {
+                Enqueue(_registrations[taskId], remove: true);
                 _registrations.Remove(taskId, out _);
-                evicted.Add(taskId);
+
             }
         }
 
-        foreach (string taskId in evicted)
+    }
+
+    // Caller holds _gate. Capturing and queuing the mutation is one indivisible operation.
+    private void Enqueue(Registration registration, bool remove = false) =>
+        _publications.Enqueue(new(registration.Generation, ++registration.Revision,
+            registration.Entry.TaskId, remove ? null : registration.Entry));
+
+    private void DrainPublications()
+    {
+        lock (_gate)
         {
-            RemoveEntry(taskId);
+            if (_publishing) return;
+            _publishing = true;
+        }
+        try
+        {
+            while (true)
+            {
+                Publication publication;
+                lock (_gate)
+                {
+                    if (!_publications.TryDequeue(out publication!))
+                    {
+                        _publishing = false;
+                        return;
+                    }
+                }
+                // One publisher owns both collection and summary, including observer reentry.
+                // FIFO covers generations and revisions as well as removal tombstones.
+                if (publication.Entry is { } entry) ApplyEntry(entry);
+                else RemoveEntry(publication.TaskId);
+            }
+        }
+        catch
+        {
+            lock (_gate) _publishing = false;
+            throw;
         }
     }
 

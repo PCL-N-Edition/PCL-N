@@ -9,6 +9,66 @@ namespace Nexa.Services.Tests;
 // on one built store so the collection/summary cells behave exactly as the renderer sees them.
 internal static partial class Program
 {
+    private sealed class TaskPublicationObserver : IXsrStateObserver
+    {
+        internal Action? Callback;
+        public void OnChanged(XsrStateChange change) => Interlocked.Exchange(ref Callback, null)?.Invoke();
+    }
+
+    private static async ValueTask TaskCenterSerializesRaces()
+    {
+        foreach (string scenario in new[] { "complete", "reuse", "dismiss" })
+        {
+            var observer = new TaskPublicationObserver();
+            var builder = new XsrStateStoreBuilder();
+            TaskCenterStateContract.DeclareState(builder);
+            var store = builder.Build(observer);
+            var service = new TaskCenterService(store);
+            using var original = service.Begin(new("same", "Original", ["Work"]));
+            if (scenario == "dismiss") original.Complete();
+            using var entered = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            observer.Callback = () => { entered.Set(); release.Wait(TimeSpan.FromSeconds(15)); };
+            var publisher = Task.Run(() =>
+            {
+                if (scenario == "dismiss") service.Dismiss("same");
+                else original.Report("Work", "Old report", .5, 1, 2, 0);
+            });
+            ITaskCenterTask? replacement = null;
+            try
+            {
+                AssertTrue(entered.Wait(TimeSpan.FromSeconds(10)), "Publication reached barrier");
+                await Task.Run(() =>
+                {
+                    if (scenario != "dismiss") original.Complete();
+                    if (scenario != "complete") replacement = service.Begin(new("same", "Replacement", ["Work"]));
+                }).WaitAsync(TimeSpan.FromSeconds(10));
+            }
+            finally { release.Set(); }
+            await publisher.WaitAsync(TimeSpan.FromSeconds(10));
+            var entry = store.ReadCollection<TaskCenterEntry>(store.Resolve(TaskCenterStateContract.EntriesKey)).Items.Single();
+            var summary = (TaskCenterSummary)store.ReadAppliedValue(store.Resolve(TaskCenterStateContract.SummaryKey))!;
+            AssertEqual(scenario == "complete" ? TaskCenterEntryState.Finished : TaskCenterEntryState.Running, entry.State);
+            AssertEqual(scenario == "complete" ? 0 : 1, summary.ActiveCount);
+            if (replacement is not null)
+            {
+                original.Report("Work", "Late old report", .9, 2, 2, 0);
+                AssertEqual("Replacement", entry.Title);
+                replacement.Dispose();
+            }
+        }
+        // An observer may call back into the service synchronously without recursive publication.
+        var reentrant = new TaskPublicationObserver();
+        var declaration = new XsrStateStoreBuilder();
+        TaskCenterStateContract.DeclareState(declaration);
+        var reentrantStore = declaration.Build(reentrant);
+        var center = new TaskCenterService(reentrantStore);
+        using var task = center.Begin(new("reentry", "Reentry", ["Work"]));
+        reentrant.Callback = () => task.Complete();
+        task.Report("Work", "Progress", .5, 1, 2, 0);
+        AssertEqual(0, ((TaskCenterSummary)reentrantStore.ReadAppliedValue(reentrantStore.Resolve(TaskCenterStateContract.SummaryKey))!).ActiveCount);
+    }
+
     private static TaskCenterService NewTaskCenter(out XsrStateStore store)
     {
         XsrStateStoreBuilder builder = new();
