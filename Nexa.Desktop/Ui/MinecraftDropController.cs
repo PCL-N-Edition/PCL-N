@@ -47,6 +47,26 @@ internal sealed class MinecraftDropController : IDisposable
             if (_disposed) return;
             if (!result.IsSuccess) { _feedback.Error(result.Error?.Message ?? "无法读取拖入的文件夹。"); return; }
             var item = result.Value!;
+            if (item.Kind is MinecraftFolderKind.Modpack or MinecraftFolderKind.Jar && target is null)
+            { _feedback.Error("请先选择游戏目录，再拖入文件。"); return; }
+            if (item.Modpack is { } pack && target is not null)
+            {
+                _jarDialog = _feedback.ShowDialog("modpack.install", "安装 " + pack.Name,
+                    $"{pack.Format} · {pack.Version}\nMinecraft {pack.Game}" + (pack.Loader is null ? "" : $" · {pack.Loader} {pack.Build}")
+                    + $"\n安装到：{target}\n独立版本：{pack.InstanceId}\n必选文件 {pack.RequiredFiles} 个，可选文件 {pack.OptionalFiles} 个。默认仅安装必选客户端文件。",
+                    "开始安装", "取消", accepted =>
+                    {
+                        if (accepted) _ = ExecuteModpackAsync(pack, target, false);
+                        else Interlocked.Exchange(ref _busy, 0);
+                    }, pack.OptionalFiles > 0 ? "包含可选文件" : null, pack.OptionalFiles > 0 ? () =>
+                    {
+                        _feedback.DismissDialog(_jarDialog);
+                        _ = ExecuteModpackAsync(pack, target, true);
+                    }
+                : null);
+                awaitingChoice = true;
+                return;
+            }
             if (item.Jar is { } jar && target is not null)
             {
                 _jarDialog = _feedback.ShowDialog("jar.use", "如何使用 " + item.Name,
@@ -60,7 +80,7 @@ internal sealed class MinecraftDropController : IDisposable
                 return;
             }
             if (item.Kind == MinecraftFolderKind.Unsupported)
-            { _feedback.Error("未找到游戏目录或版本描述文件。当前拖入入口支持游戏文件夹和版本文件夹。"); return; }
+            { _feedback.Error("未识别到游戏目录、版本目录、JAR 或受支持的整合包。"); return; }
             if (item.Kind == MinecraftFolderKind.Version && target is null) return;
             bool root = item.Kind == MinecraftFolderKind.GameRoot;
             _feedback.ShowDialog("folder.import", root ? "添加游戏目录" : "导入 " + item.Name,
@@ -76,6 +96,21 @@ internal sealed class MinecraftDropController : IDisposable
         catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
         { if (!_disposed) _feedback.Error("无法识别拖入内容：" + error.Message); }
         finally { if (!awaitingChoice) Interlocked.Exchange(ref _busy, 0); }
+    }
+
+    private async Task ExecuteModpackAsync(MinecraftModpackPreview pack, string root, bool includeOptional)
+    {
+        try
+        {
+            if (_disposed || !_imports.Commands.TryResolve(MinecraftModpackContract.Install, out var route)) return;
+            var result = await _imports.Commands.Dispatch(route, new MinecraftModpackCommand(pack, root, includeOptional), cancellationToken: _lifetime.Token).Completion.ConfigureAwait(false);
+            if (!_disposed && !result.IsSuccess && result.Error?.Code != XsrRuntimeErrors.Cancelled().Code)
+                _feedback.Error(result.Error?.Message ?? "整合包安装未完成。");
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
+        { if (!_disposed) _feedback.Error("整合包安装未完成：" + error.Message); }
+        finally { Interlocked.Exchange(ref _busy, 0); }
     }
 
     private void ShowOtherJarUses(LocalJarArtifact jar, string root, string instanceId)

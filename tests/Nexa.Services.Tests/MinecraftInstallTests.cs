@@ -91,7 +91,8 @@ internal static partial class Program
         public MinecraftInstallService Install;
         public List<string> InstalledRoots = [];
 
-        public InstallFixture(FakeMetadata metadata, IInstallCatalogSource? catalog = null, IMinecraftLoaderInstaller? loaderInstaller = null)
+        public InstallFixture(FakeMetadata metadata, IInstallCatalogSource? catalog = null, IMinecraftLoaderInstaller? loaderInstaller = null, HttpClient? http = null,
+            Func<string, IDownloadConnection>? connectionFactory = null)
         {
             XsrStateStoreBuilder builder = new();
             TaskCenterStateContract.DeclareState(builder);
@@ -100,8 +101,8 @@ internal static partial class Program
             Tasks = new TaskCenterService(Store);
             DownloadService downloads = new(Store);
             Install = new MinecraftInstallService(
-                Tasks, downloads, catalog, metadata: metadata,
-                connectionFactory: source => new ServingConnection(PayloadFor(source)), loaderInstaller: loaderInstaller);
+                Tasks, downloads, catalog, http: http, metadata: metadata,
+                connectionFactory: connectionFactory ?? (source => new ServingConnection(PayloadFor(source))), loaderInstaller: loaderInstaller);
             Install.Installed += root => InstalledRoots.Add(root);
         }
 

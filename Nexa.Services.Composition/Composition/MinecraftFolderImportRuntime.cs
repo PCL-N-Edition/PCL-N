@@ -23,6 +23,12 @@ public static class MinecraftFolderImportRuntimeComposer
             return result;
         });
         XsrQueryRouterBuilder queries = new();
+        commands.Register<MinecraftModpackCommand>(MinecraftModpackContract.Install, async (command, token) =>
+        {
+            var result = await installer.InstallModpackAsync(command, token).ConfigureAwait(false);
+            if (result.IsSuccess) await library.RefreshAsync(CancellationToken.None).ConfigureAwait(false);
+            return result.IsSuccess ? XsrResult.Success() : XsrResult.Failure(result.Error!);
+        });
         commands.Register<MinecraftLocalJarCommand>(MinecraftLocalJarContract.Import, async (command, token) =>
         {
             var result = await jars.ImportAsync(command, token).ConfigureAwait(false);
@@ -32,7 +38,7 @@ public static class MinecraftFolderImportRuntimeComposer
         queries.Register<MinecraftFolderInspectQuery, MinecraftFolderInspection>(MinecraftFolderImportContract.Inspect, async (query, token) =>
         {
             try { return XsrResult.Success(await MinecraftFolderImportService.InspectAsync(query.Path, token).ConfigureAwait(false)); }
-            catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or JsonException)
+            catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or JsonException or InvalidOperationException or FormatException or OverflowException)
             { return XsrResult.Failure<MinecraftFolderInspection>(MinecraftErrors.InvalidRequest(error.Message)); }
         });
         return new(commands.Build(observer), queries.Build(observer));

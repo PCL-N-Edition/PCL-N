@@ -4,11 +4,12 @@ using Nexa.Xsr;
 
 namespace Nexa.Services.Minecraft.Install;
 
-public enum MinecraftFolderKind { Unsupported, GameRoot, Version, Jar }
+public enum MinecraftFolderKind { Unsupported, GameRoot, Version, Jar, Modpack }
 public sealed record MinecraftFolderInspectQuery(string Path);
 public sealed record MinecraftFolderInspection(MinecraftFolderKind Kind, string Path, string Name)
 {
     public LocalJarArtifact? Jar { get; init; }
+    public MinecraftModpackPreview? Modpack { get; init; }
 }
 public sealed record MinecraftFolderImportCommand(string Source, string TargetRoot);
 public static class MinecraftFolderImportContract
@@ -23,6 +24,11 @@ public sealed class MinecraftFolderImportService(TaskCenterService tasks)
     public static Task<MinecraftFolderInspection> InspectAsync(string path, CancellationToken cancellationToken = default) =>
         Task.Run(async () =>
         {
+            if (File.Exists(path) && new[] { ".mrpack", ".zip" }.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+            {
+                var pack = await MinecraftModpackArchive.InspectAsync(path, cancellationToken).ConfigureAwait(false);
+                return new MinecraftFolderInspection(MinecraftFolderKind.Modpack, pack.Path, pack.Name) { Modpack = pack };
+            }
             if (File.Exists(path) && Path.GetExtension(path).Equals(".jar", StringComparison.OrdinalIgnoreCase))
             {
                 var jar = await MinecraftLocalJarService.InspectAsync(path, cancellationToken).ConfigureAwait(false);
