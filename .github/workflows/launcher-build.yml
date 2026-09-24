@@ -131,6 +131,7 @@ jobs:
           binary="$RUNNER_TEMP/launcher/Nexa.Desktop"
           if [[ '${{ matrix.rid }}' == win-* ]]; then binary="${binary}.exe"; fi
           "$binary" --validate-shell
+          "$binary" --validate-setup
       - name: Verify Windows game window integration under NativeAOT
         if: runner.os == 'Windows'
         shell: bash

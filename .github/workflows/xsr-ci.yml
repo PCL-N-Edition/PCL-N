@@ -164,6 +164,9 @@ jobs:
             --output "${{ runner.temp }}/pcl-desktop-aot"
           "${{ runner.temp }}/pcl-desktop-aot/Nexa.Desktop" --validate-shell
 
+      - name: Run NativeAOT first-run shell smoke
+        run: '"${{ runner.temp }}/pcl-desktop-aot/Nexa.Desktop" --validate-setup'
+
       - name: Analyze trimmed desktop composition
         run: >-
           dotnet publish Nexa.Desktop/Nexa.Desktop.csproj
@@ -175,3 +178,6 @@ jobs:
 
       - name: Run trimmed Desktop shell smoke
         run: '"${{ runner.temp }}/pcl-desktop-trimmed/Nexa.Desktop" --validate-shell'
+
+      - name: Run trimmed first-run shell smoke
+        run: '"${{ runner.temp }}/pcl-desktop-trimmed/Nexa.Desktop" --validate-setup'

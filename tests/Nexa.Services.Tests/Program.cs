@@ -4,6 +4,8 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("first run persists storage and consent without overwriting", FirstRunPersistsChoiceAndPreservesExistingData),
+        ("first run failed commit rolls back and can retry", FirstRunFailedCommitCanRetryWithoutOverwriting),
         ("instance settings reach the launch request", Sync(InstanceSettingsReachTheLaunchRequest)),
         ("Windows digitizer flags distinguish touch and pen", Sync(WindowsDigitizerFlagsDistinguishTouchAndPen)),
         ("machine registry seals typed dependency graph", Sync(MachineRegistrySealsTypedDependencyGraph)),

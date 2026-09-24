@@ -27,6 +27,12 @@ public sealed class AvaloniaUiPlatformActions
     public event Action<AvaloniaUiInputKind>? InputObserved;
     public event Action<IReadOnlyList<string>>? FilesDropped;
 
+    /// <summary>Closes through the normal native window lifecycle and its exit animation.</summary>
+    public void RequestClose()
+    {
+        if (_owner is Window window) Dispatcher.UIThread.Post(window.Close);
+    }
+
     private void OnDragOver(object? sender, DragEventArgs args)
     {
         // This import path supports copy only. Never advertise Move and let the source delete data.

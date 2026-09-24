@@ -8,9 +8,11 @@ using Nexa.Services.Foundation;
 using Nexa.Services.Logging;
 using Nexa.Services.Minecraft;
 using Nexa.Services.Settings;
+using Nexa.Services.Setup;
 using Nexa.UI.Next;
 using Nexa.UI.Next.Backend.Avalonia;
 using Nexa.Xsr.Runtime;
+using Nexa.Xsr.State;
 
 namespace Nexa.Desktop;
 
@@ -147,6 +149,15 @@ internal static class Program
         // and constructs the services over it. Trim analysis therefore sees the real
         // foundation call graph, not an empty shell.
         AppFolders folders = AppFolders.ResolveDefault();
+        bool locationLocked = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("NEXA_DATA_DIR")
+            ?? Environment.GetEnvironmentVariable("PCL_NEXA_DATA_DIR"));
+        var setup = new FirstRunService(folders.Root, LauncherStorageLocation.LocatorPath, locationLocked);
+        bool validateSetup = args.Contains("--validate-setup", StringComparer.OrdinalIgnoreCase);
+        if (validateSetup || (!args.Contains("--validate-shell", StringComparer.OrdinalIgnoreCase) && setup.Read().Required))
+        {
+            setStage("first_run");
+            return RunFirstRun(args, setup, validateSetup);
+        }
         string logFilePath = Path.Combine(folders.EnsureFolder(FolderNames.Logs), "launcher.log");
         FileLogSink sink = new(logFilePath);
         onSinkReady(sink);
@@ -321,5 +332,43 @@ internal static class Program
             log.Warn("Cloudflare", "API 客户端身份不可用，联网服务暂不可用。");
             return null;
         }
+    }
+
+    private static int RunFirstRun(string[] args, FirstRunService service, bool validate)
+    {
+        XsrUiRuntimeContext context = new();
+        XsrStateStoreBuilder builder = new();
+        LaunchPageState.DeclareState(builder);
+        var store = builder.Build(context.StateBridge);
+        DesktopUiIntentSink intents = new();
+        var shell = PxmlShellComposer.Compose(store, context, new XsrUiShellOptions { Title = "NexaCL" }, intents);
+        var runtime = FirstRunRuntimeComposer.Compose(service);
+        runtime.Queries.TryResolve(FirstRunContract.Status, out var read);
+        var status = runtime.Queries.QueryAsync<FirstRunQuery, FirstRunStatus>(read, new()).AsTask().GetAwaiter().GetResult();
+        if (!status.IsSuccess) throw new IOException(status.Error?.Message ?? "无法读取初始设置。");
+        AvaloniaUiPlatformActions platform = new();
+        using var controller = new FirstRunController(shell, intents, store, runtime, status.Value!, platform.PickDirectoryAsync, platform.RequestClose);
+        if (validate)
+        {
+            for (int step = 0; step < 4; step++)
+            {
+                shell.Render(new XsrUiSize(1024, 600));
+                if (step < 3) intents.Emit(Nexa.Xsr.XsrSemanticId.Parse("ui.setup.next"), default, Nexa.Xsr.XsrCorrelationId.Create());
+            }
+            return 0;
+        }
+        int result = AvaloniaUiShellHost.Run(shell, args, platform);
+        if (controller.Completed)
+        {
+            // Avalonia has one application lifetime per process. Reopen after saving the
+            // bootstrap locator so every service starts with the selected data root.
+            var start = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath ?? throw new IOException("无法定位启动器程序。"))
+            { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = AppContext.BaseDirectory };
+            if (Path.GetFileNameWithoutExtension(start.FileName).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+                start.ArgumentList.Add(Environment.GetCommandLineArgs()[0]);
+            foreach (string argument in args) start.ArgumentList.Add(argument);
+            System.Diagnostics.Process.Start(start)?.Dispose();
+        }
+        return result;
     }
 }

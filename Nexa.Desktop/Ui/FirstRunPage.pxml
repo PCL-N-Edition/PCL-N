@@ -1,0 +1,25 @@
+<Page xmlns="https://pcln.dev/pxml/2026" Key="FirstRunPage" Label="设置 NexaCL">
+  <StackPanel Orientation="Vertical" Weight="1" Padding="32,20,32,24" Spacing="16">
+    <Text Key="SetupStep" Content="1 / 4 · 欢迎" Height="26" />
+    <StackPanel Orientation="Vertical" Weight="1" Spacing="14" Scroll="true">
+      <ContentHost Height="12" />
+      <Text Key="SetupTitle" Content="欢迎使用 NexaCL" Height="52" />
+      <Text Key="SetupDescription" Content="先完成几项设置，然后开始你的 Minecraft。" Height="76" />
+      <StackPanel Key="SetupDirectory" Orientation="Vertical" Spacing="12" IsVisible="false">
+        <Text Key="SetupPath" Content="" Height="64" />
+        <Button Key="SetupBrowse" Label="选择文件夹" Content="选择文件夹" Icon="lucide/folder-open" Command="ui.setup.browse" Width="160" Height="42" />
+      </StackPanel>
+      <StackPanel Key="SetupConsent" Orientation="Vertical" Spacing="10" IsVisible="false">
+        <Button Key="SetupPrivate" Label="不共享使用数据" Content="不共享使用数据" Command="ui.setup.private" Height="48" />
+        <Button Key="SetupShare" Label="共享基本使用数据" Content="共享基本使用数据" Command="ui.setup.share" Height="48" />
+      </StackPanel>
+      <Text Key="SetupSummary" Content="" Height="112" IsVisible="false" />
+      <Text Key="SetupError" Content="" Height="64" IsVisible="false" />
+    </StackPanel>
+    <StackPanel Orientation="Horizontal" Height="44" Spacing="12">
+      <Button Key="SetupBack" Label="上一步" Content="上一步" Command="ui.setup.back" Width="104" Height="44" IsVisible="false" />
+      <ContentHost Weight="1" />
+      <Button Key="SetupNext" Label="继续" Content="继续" Icon="lucide/arrow-right" Command="ui.setup.next" Width="164" Height="44" />
+    </StackPanel>
+  </StackPanel>
+</Page>

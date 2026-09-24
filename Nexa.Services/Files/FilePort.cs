@@ -42,7 +42,7 @@ public sealed class AppFolders
 
     /// <summary>
     /// Default root resolution for the desktop composition: the `NEXA_DATA_DIR`
-    /// environment variable when set, otherwise the per-user application data directory.
+    /// environment variable when set, then the saved setup location, otherwise per-user data.
     /// </summary>
     public static AppFolders ResolveDefault()
     {
@@ -51,6 +51,9 @@ public sealed class AppFolders
         {
             return new AppFolders(fromEnvironment);
         }
+
+        if (LauncherStorageLocation.Read(LauncherStorageLocation.LocatorPath) is { } selected)
+            return new AppFolders(selected);
 
         string baseDirectory = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string current = Path.Combine(baseDirectory, "Nexa");

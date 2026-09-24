@@ -36,6 +36,7 @@ internal static partial class Program
 
     private static readonly (string Name, Action Body)[] TestCases =
     [
+        ("first run keeps drafts and commits only at finish", FirstRunKeepsDraftsAndCommitsOnlyAtFinish),
         ("product PXML shell accepts native window metrics", ProductPxmlShellAcceptsNativeWindowMetrics),
         ("Version settings isolate overrides and restore inheritance", VersionSettingsAreScopedAndRestoreInheritance),
         ("Settings page keeps the final navigation and compact layout", SettingsPageUsesFinalNavigationAndCompactLayout),
