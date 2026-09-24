@@ -28,6 +28,8 @@ internal static partial class Program
         ("settings layers survive restart and preserve unknown data", Sync(SettingsLayersSurviveRestartAndPreserveUnknowns)),
         ("Java major choices select installed runtimes or acquire missing ones", JavaMajorChoiceUsesInstalledOrDownloads),
         ("process output drains and abnormal exit is analyzed", ProcessOutputDrainsAndAbnormalExitIsAnalyzed),
+        ("folder import preserves source and rejects conflicts", FolderImportPreservesSourceAndRejectsConflicts),
+        ("folder import rejects malformed manifests", FolderImportRejectsMalformedManifests),
         ("library deletion is contained and recoverable", LibraryDeleteIsContainedAndRecoverable),
         ("launch completion repairs missing files before start", LaunchCompletionRepairsMissingFilesBeforeStart),
         ("install preserves game identity and selected addon artifact", InstallKeepsGameIdentityAndSelectedAddonArtifact),

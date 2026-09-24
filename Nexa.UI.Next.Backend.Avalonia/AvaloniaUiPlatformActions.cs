@@ -19,9 +19,32 @@ public sealed class AvaloniaUiPlatformActions
         _owner = owner;
         owner.AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
         owner.AddHandler(InputElement.KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+        DragDrop.SetAllowDrop(owner, true);
+        DragDrop.AddDragOverHandler(owner, OnDragOver);
+        DragDrop.AddDropHandler(owner, OnDrop);
     }
 
     public event Action<AvaloniaUiInputKind>? InputObserved;
+    public event Action<IReadOnlyList<string>>? FilesDropped;
+
+    private void OnDragOver(object? sender, DragEventArgs args)
+    {
+        // This import path supports copy only. Never advertise Move and let the source delete data.
+        args.DragEffects = FilesDropped is not null && args.DataTransfer.Contains(DataFormat.File)
+            && (args.KeyModifiers & (KeyModifiers.Shift | KeyModifiers.Alt)) == 0
+            ? args.DragEffects & DragDropEffects.Copy : DragDropEffects.None;
+        args.Handled = true;
+    }
+
+    private void OnDrop(object? sender, DragEventArgs args)
+    {
+        OnDragOver(sender, args);
+        if (args.DragEffects == DragDropEffects.None) return;
+        var files = args.DataTransfer.TryGetFiles();
+        if (files is null) return;
+        string[] paths = files.Select(file => file.TryGetLocalPath()).OfType<string>().Take(33).ToArray();
+        if (paths.Length > 0) FilesDropped?.Invoke(paths);
+    }
 
     public static TimeSpan DoubleClickInterval => TimeSpan.FromMilliseconds(OperatingSystem.IsWindows() ? GetDoubleClickTime() : 500);
 
