@@ -698,16 +698,18 @@ internal static partial class Program
         AssertFalse(fixture.Shell.Render(new XsrUiSize(1280, 800)).Nodes.Any(node => node.Entity == bubble.FillEntity));
         var dock = FindByKey(fixture.Shell, fixture.Shell.Render(new(1280, 800)), "task-bubble");
         fixture.Shell.Renderer.PointerMoved(new(dock.Rect.X + 24, dock.Rect.Y + 24));
+        fixture.Shell.Renderer.SetCapsulePresentationProgress(dock.Entity, 1);
         AssertTrue(fixture.Shell.Render(new XsrUiSize(1280, 800)).Nodes.Any(node => node.Entity == bubble.FillEntity));
         fixture.Shell.Renderer.SetProgressPresentation(bubble.FillEntity, 0.5);
         var presented = fixture.Shell.Render(new XsrUiSize(1280, 800)).Nodes.Single(node => node.Entity == bubble.FillEntity);
-        AssertEqual(16d, presented.Rect.Width);
+        AssertEqual(68d, presented.Rect.Width);
         AssertEqual(3d, presented.Rect.Height);
         // The expanded caption and the bottom icon share one continuous input owner.
         var expanded = FindByKey(fixture.Shell, fixture.Shell.Render(new(1280, 800)), "task-bubble");
         var top = new XsrUiPoint(expanded.Rect.X + 24, expanded.Rect.Y + 12);
         fixture.Shell.Renderer.PointerMoved(top);
-        AssertEqual(116d, FindByKey(fixture.Shell, fixture.Shell.Render(new(1280, 800)), "task-bubble").Rect.Height);
+        AssertEqual(48d, FindByKey(fixture.Shell, fixture.Shell.Render(new(1280, 800)), "task-bubble").Rect.Height);
+        AssertEqual(208d, FindByKey(fixture.Shell, fixture.Shell.Render(new(1280, 800)), "task-bubble").Rect.Width);
         string? emitted = null;
         fixture.Intents.IntentEmitted += (_, e) => emitted = e.Intent.Command.Value;
         AssertTrue(fixture.Shell.Renderer.PointerPressed(top));

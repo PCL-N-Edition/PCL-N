@@ -21,6 +21,8 @@ internal static class DesktopBubbleLayout
         Foreground = DesktopUiPalette.CapsuleForeground,
         Hover = DesktopUiPalette.CapsuleHover,
         CornerRadius = 24,
+        HoverExpand = true,
+        FontSize = 13,
     };
 
     public static void Register(XsrUiShell shell, XsrUiEntityId entity, int order)

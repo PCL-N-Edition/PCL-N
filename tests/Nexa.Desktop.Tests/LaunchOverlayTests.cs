@@ -67,7 +67,7 @@ internal static partial class Program
         var restoredBubble = FindByKey(fixture.Shell, scene, "launch-bubble");
         AssertFalse(restoredBubble.IsOverlayClosing);
         AssertTrue(restoredBubble.IsClickable);
-        AssertTrue(HasKey(fixture.Shell, scene, "launch-bubble-icon"));
+        AssertEqual("lucide/play", restoredBubble.ImageSource);
         AssertEqual(new XsrUiColor(11, 91, 203), FindByKey(fixture.Shell, scene, "LaunchButtonProgress").VisualStyle.Background);
         AssertTrue(fixture.Shell.Renderer.Activate(restoredBubble.Entity));
         scene = fixture.Shell.Render(new(850, 500));

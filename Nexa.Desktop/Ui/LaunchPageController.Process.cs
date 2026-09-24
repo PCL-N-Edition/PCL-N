@@ -113,7 +113,7 @@ internal sealed partial class LaunchPageController
         var entity = _shell.Tree.Create("process-" + action + "-" + session.SessionId);
         _shell.Tree.SetComponent(entity, new XsrUiElement
         {
-            Width = 48,
+            Width = 280,
             Height = 48,
             HorizontalAlignment = XsrUiAlignment.End,
             VerticalAlignment = XsrUiAlignment.End,
@@ -124,11 +124,8 @@ internal sealed partial class LaunchPageController
         _shell.Tree.SetComponent(entity, new XsrUiCommandBinding(XsrSemanticId.Parse("ui.process." + action + "." + session.SessionId.ToString("N"))));
         _shell.Tree.SetComponent(entity, DesktopBubbleLayout.Style());
         DesktopBubbleLayout.Register(_shell, entity, 2);
-        var image = _shell.Tree.Create("process-icon");
-        _shell.Tree.Attach(image, entity);
-        _shell.Tree.SetComponent(image, new XsrUiElement { Width = 20, Height = 20, HorizontalAlignment = XsrUiAlignment.Center, VerticalAlignment = XsrUiAlignment.Center });
-        _shell.Tree.SetComponent(image, new XsrUiImage("lucide/" + icon));
-        _shell.Tree.SetComponent(image, new XsrUiVisualStyle { Foreground = DesktopUiPalette.CapsuleForeground });
+        _shell.Tree.SetComponent(entity, new XsrUiImage("lucide/" + icon));
+        _shell.Tree.SetComponent(entity, new XsrUiText(session.InstanceId + " · " + label));
         _shell.Stage.Show(entity);
         return entity;
     }

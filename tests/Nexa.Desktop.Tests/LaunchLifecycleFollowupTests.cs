@@ -115,8 +115,11 @@ internal static partial class Program
         var style = fixture.Shell.Tree.GetComponent<XsrUiVisualStyle>(power.Entity)!;
         AssertEqual(XsrUiSurfaceKind.Solid, style.Surface);
         AssertEqual(DesktopUiPalette.CapsuleBackground, style.Background);
-        var image = fixture.Shell.Tree.Children(power.Entity).Single();
-        AssertEqual(DesktopUiPalette.CapsuleForeground, fixture.Shell.Tree.GetComponent<XsrUiVisualStyle>(image)!.Foreground);
+        AssertEqual(DesktopUiPalette.CapsuleForeground, style.Foreground);
+        AssertEqual("lucide/power", power.ImageSource);
+        AssertTrue(power.Text!.Contains("playable", StringComparison.Ordinal));
+        AssertTrue(logs.Text!.Contains("日志", StringComparison.Ordinal));
+        AssertTrue(style.HoverExpand);
         using var task = fixture.Foundation.Host.Tasks.Begin(new Nexa.Services.Tasks.TaskCenterStart("dock-test", "下载", ["文件"]));
         scene = fixture.Shell.Render(new(850, 500));
         var root = FindByKey(fixture.Shell, scene, "task-bubble");
