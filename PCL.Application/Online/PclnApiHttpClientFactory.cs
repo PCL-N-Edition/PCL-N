@@ -70,5 +70,5 @@ public static class PclnApiHttpClientFactory
     private static X509KeyStorageFlags GetStorageFlags() =>
         OperatingSystem.IsWindows()
             ? X509KeyStorageFlags.UserKeySet
-            : X509KeyStorageFlags.EphemeralKeySet;
+            : X509KeyStorageFlags.DefaultKeySet;
 }
