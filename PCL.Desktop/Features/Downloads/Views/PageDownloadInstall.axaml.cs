@@ -1151,6 +1151,7 @@ public partial class PageDownloadInstall : MyPageRight
         string versionId = _selectedVersion.Id;
         int vanillaDrop = MinecraftVersionRuleHelper.VersionToDrop(versionId, allowSnapshot: true);
         bool formatFit = MinecraftVersionRuleHelper.IsFormatFit(versionId);
+        bool aprilFools = IsAprilFoolsVersion(versionId);
         string canAdd = CanAddText();
         string? incompatibleLoader = _selectedLoaderKind is null
             ? null
@@ -1169,10 +1170,11 @@ public partial class PageDownloadInstall : MyPageRight
         SetLoaderInfo("Cleanroom", string.Equals(versionId, "1.12.2", StringComparison.OrdinalIgnoreCase)
             ? CreateLoaderState(MinecraftLoaderKind.Cleanroom, canAdd, incompatibleLoader)
             : LoaderSupportState.Hidden());
-        SetLoaderInfo("NeoForge", vanillaDrop is > 0 and < 200
+        SetLoaderInfo("NeoForge", vanillaDrop is > 0 and < 200 &&
+            !string.Equals(versionId, "25w14craftmine", StringComparison.OrdinalIgnoreCase)
             ? LoaderSupportState.Hidden()
             : CreateLoaderState(MinecraftLoaderKind.NeoForge, canAdd, incompatibleLoader));
-        SetLoaderInfo("Fabric", vanillaDrop > 130
+        SetLoaderInfo("Fabric", vanillaDrop > 130 || aprilFools
             ? CreateLoaderState(MinecraftLoaderKind.Fabric, canAdd, incompatibleLoader)
             : LoaderSupportState.Hidden());
         SetLoaderInfo("LegacyFabric", vanillaDrop > 130
