@@ -23,6 +23,23 @@ public sealed class AvaloniaUiPlatformActions
 
     public event Action<AvaloniaUiInputKind>? InputObserved;
 
+    public static TimeSpan DoubleClickInterval => TimeSpan.FromMilliseconds(OperatingSystem.IsWindows() ? GetDoubleClickTime() : 500);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetDoubleClickTime();
+
+    public void OpenDirectory(string directory)
+    {
+        if (_owner is null) throw new InvalidOperationException("The native window is not ready.");
+        string fullPath = Path.GetFullPath(directory);
+        if (!Directory.Exists(fullPath)) throw new DirectoryNotFoundException(fullPath);
+        var start = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo(fullPath) { UseShellExecute = true }
+            : new ProcessStartInfo(OperatingSystem.IsMacOS() ? "/usr/bin/open" : "xdg-open") { UseShellExecute = false };
+        if (!OperatingSystem.IsWindows()) start.ArgumentList.Add(fullPath);
+        Process.Start(start)?.Dispose();
+    }
+
     /// <summary>Called by a platform gamepad bridge after it has translated native input.</summary>
     public void ReportControllerInput() => InputObserved?.Invoke(AvaloniaUiInputKind.Controller);
 
