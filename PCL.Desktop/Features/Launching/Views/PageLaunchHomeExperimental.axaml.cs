@@ -261,7 +261,11 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
 
         // Soft refresh: keep previous selection visible when we already have versions.
         if (!hadInstances)
-            await RunOnUiThreadAsync(SetLoadingState).ConfigureAwait(false);
+            await RunOnUiThreadAsync(() =>
+            {
+                if (refreshGeneration == Volatile.Read(ref _refreshGeneration))
+                    SetLoadingState();
+            }).ConfigureAwait(false);
         else
             await RunOnUiThreadAsync(() => StatusMessage?.Invoke(this, "正在刷新游戏版本列表…")).ConfigureAwait(false);
 
@@ -273,7 +277,11 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
                     return;
                 // Only overwrite the version label on first load (soft refresh keeps the name).
                 if (!hadInstances)
-                    _ = RunOnUiThreadAsync(() => UpdateInstanceDiscoveryProgress(value));
+                    _ = RunOnUiThreadAsync(() =>
+                    {
+                        if (refreshGeneration == Volatile.Read(ref _refreshGeneration))
+                            UpdateInstanceDiscoveryProgress(value);
+                    });
             });
             IReadOnlyList<string> roots = !string.IsNullOrWhiteSpace(_minecraftRootDirectory)
                 ? [_minecraftRootDirectory]
@@ -281,7 +289,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             IReadOnlyList<LaunchInstanceInfo> instances = await LaunchInstanceDiscovery.DiscoverAsync(
                     roots,
                     progress,
-                    cancellationToken)
+                    cancellationToken).WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
 
             if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
@@ -289,6 +297,8 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
 
             await RunOnUiThreadAsync(() =>
             {
+                if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
+                    return;
                 Instances = instances;
                 SelectedInstance = FindInstanceByDirectory(Instances, selectedDirectory)
                                    ?? previousSelected
@@ -313,6 +323,8 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
                 return;
             await RunOnUiThreadAsync(() =>
             {
+                if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
+                    return;
                 Instances = previousInstances;
                 SelectedInstance = previousSelected;
                 _isInstanceLoadFinished = true;
@@ -327,6 +339,8 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
                 return;
             await RunOnUiThreadAsync(() =>
             {
+                if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
+                    return;
                 if (hadInstances)
                 {
                     Instances = previousInstances;
@@ -351,7 +365,7 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
             {
                 await RunOnUiThreadAsync(() =>
                 {
-                    if (_isInstanceLoadFinished)
+                    if (refreshGeneration != Volatile.Read(ref _refreshGeneration) || _isInstanceLoadFinished)
                         return;
                     Instances = previousInstances;
                     SelectedInstance = previousSelected ?? SelectedInstance;
@@ -364,6 +378,9 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
 
     public void SetInstances(IReadOnlyList<LaunchInstanceInfo> instances, LaunchInstanceInfo? selectedInstance = null)
     {
+        Interlocked.Increment(ref _refreshGeneration);
+        _refreshCancellation?.Cancel();
+        _refreshInstancesTask = null;
         string? selectedDirectory = NormalizeInstanceDirectory(selectedInstance?.InstanceDirectory)
                                     ?? NormalizeInstanceDirectory(SelectedInstance?.InstanceDirectory)
                                     ?? _preferredInstanceDirectory;
@@ -406,6 +423,9 @@ public partial class PageLaunchHomeExperimental : MyPageRight, ILaunchHomeSurfac
         if (string.Equals(_minecraftRootDirectory, normalized, StringComparison.OrdinalIgnoreCase))
             return;
         _minecraftRootDirectory = normalized;
+        Interlocked.Increment(ref _refreshGeneration);
+        _refreshCancellation?.Cancel();
+        _refreshInstancesTask = null;
         // Invalidate cache only — caller must RefreshInstancesAsync. Do not flip the UI to
         // perpetual loading here; RefreshInstancesAsync owns the loading chrome.
         _isInstanceLoadFinished = false;

@@ -150,7 +150,11 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
 
         // Only hard-disable the launch button on first load; re-scan keeps previous UI.
         if (!hadInstances)
-            await RunOnUiThreadAsync(SetLoadingState).ConfigureAwait(false);
+            await RunOnUiThreadAsync(() =>
+            {
+                if (refreshGeneration == Volatile.Read(ref _refreshGeneration))
+                    SetLoadingState();
+            }).ConfigureAwait(false);
         else
             await RunOnUiThreadAsync(() => StatusMessage?.Invoke(this, "正在刷新游戏版本列表…")).ConfigureAwait(false);
 
@@ -158,8 +162,11 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
         {
             Progress<LaunchInstanceDiscoveryProgress> progress = new(value =>
             {
-                if (refreshGeneration == Volatile.Read(ref _refreshGeneration))
-                    UpdateInstanceDiscoveryProgress(value);
+                _ = RunOnUiThreadAsync(() =>
+                {
+                    if (refreshGeneration == Volatile.Read(ref _refreshGeneration))
+                        UpdateInstanceDiscoveryProgress(value);
+                });
             });
             // Prefer the selected Minecraft root to avoid multi-folder full scans.
             IReadOnlyList<string> roots = !string.IsNullOrWhiteSpace(_minecraftRootDirectory)
@@ -168,7 +175,7 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
             IReadOnlyList<LaunchInstanceInfo> instances = await LaunchInstanceDiscovery.DiscoverAsync(
                     roots,
                     progress,
-                    cancellationToken)
+                    cancellationToken).WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
 
             if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
@@ -178,6 +185,8 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
             {
                 await RunOnUiThreadAsync(() =>
                 {
+                    if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
+                        return;
                     _isInstanceLoadFinished = true;
                     RefreshButtonsUI();
                 }).ConfigureAwait(false);
@@ -186,6 +195,8 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
 
             await RunOnUiThreadAsync(() =>
             {
+                if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
+                    return;
                 Instances = instances;
                 SelectedInstance = FindInstanceByDirectory(Instances, selectedDirectory)
                                    ?? (Instances.Count > 0 ? Instances[0] : null);
@@ -203,6 +214,8 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
             // Never leave the button stuck on “正在检查游戏版本”.
             await RunOnUiThreadAsync(() =>
             {
+                if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
+                    return;
                 if (!_isInstanceLoadFinished)
                 {
                     Instances = previousInstances;
@@ -222,6 +235,8 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
 
             await RunOnUiThreadAsync(() =>
             {
+                if (refreshGeneration != Volatile.Read(ref _refreshGeneration))
+                    return;
                 if (hadInstances)
                 {
                     Instances = previousInstances;
@@ -243,6 +258,9 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
 
     public void SetInstances(IReadOnlyList<LaunchInstanceInfo> instances, LaunchInstanceInfo? selectedInstance = null)
     {
+        Interlocked.Increment(ref _refreshGeneration);
+        _refreshCancellation?.Cancel();
+        _refreshInstancesTask = null;
         string? selectedDirectory = NormalizeInstanceDirectory(selectedInstance?.InstanceDirectory)
                                     ?? NormalizeInstanceDirectory(SelectedInstance?.InstanceDirectory)
                                     ?? _preferredInstanceDirectory;
@@ -286,6 +304,9 @@ public partial class PageLaunchLeft : MyPageLeft, ILaunchHomeSurface, IDisposabl
             return;
 
         _minecraftRootDirectory = normalized;
+        Interlocked.Increment(ref _refreshGeneration);
+        _refreshCancellation?.Cancel();
+        _refreshInstancesTask = null;
         // Root changed: the caller or the next attached-page load starts one scoped scan.
         _isInstanceLoadFinished = false;
     }

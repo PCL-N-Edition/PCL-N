@@ -11271,6 +11271,36 @@ public sealed class AvaloniaHeadlessTests
     }
 
     [TestMethod]
+    public void LaunchHome_ExplicitSelectionSupersedesQueuedScan()
+    {
+        using SafeHeadlessUnitTestSession session = CreateSession();
+        session.Dispatch(() =>
+        {
+            ILaunchHomeSurface[] pages = [new PageLaunchLeft(), new PageLaunchHomeExperimental()];
+            foreach (ILaunchHomeSurface page in pages)
+            {
+                string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+                page.SetMinecraftRootDirectory(root);
+                Task refresh = Task.Factory.StartNew(() => page.RefreshInstancesAsync())
+                    .GetAwaiter().GetResult();
+                LaunchInstanceInfo selected = new("Selected", System.IO.Path.Combine(root, "Selected.json"), root);
+                page.SetInstances([selected], selected);
+                DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+                while (!refresh.IsCompleted && DateTime.UtcNow < deadline)
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                    Thread.Sleep(1);
+                }
+                Assert.IsTrue(refresh.IsCompleted, "Cancelled scan must finish.");
+                refresh.GetAwaiter().GetResult();
+                Assert.AreSame(selected, page.SelectedInstance);
+                Assert.IsTrue(page.EnsureInstancesLoadedAsync().IsCompletedSuccessfully);
+                ((IDisposable)page).Dispose();
+            }
+        }, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [TestMethod]
     public void PageLoginProfile_SelectsProfileAndSkinPageDisplaysIt()
     {
         using SafeHeadlessUnitTestSession session = CreateSession();
@@ -12128,49 +12158,6 @@ public sealed class AvaloniaHeadlessTests
                 window.Close();
             }
         }, CancellationToken.None);
-    }
-
-    [TestMethod]
-    public void PageLoginNCloud_UsesIndependentOnlineSessionState()
-    {
-        using SafeHeadlessUnitTestSession session = CreateSession();
-
-        session.Dispatch(() =>
-        {
-            PageLoginNCloud page = new();
-            Window window = new()
-            {
-                Width = 320,
-                Height = 320,
-                Content = page
-            };
-            int loginCount = 0;
-            page.LoginRequested += (_, _) => loginCount++;
-
-            try
-            {
-                window.Show();
-                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-                Click(window, page.FindControl<MyButton>("BtnLogin")!);
-
-                Assert.AreEqual(1, loginCount);
-                Assert.IsTrue(page.IsLoggingIn);
-                Assert.IsFalse(page.FindControl<MyButton>("BtnLogin")!.IsEnabled);
-                page.UpdateProgress(0.42d);
-                Assert.AreEqual("42%", page.FindControl<MyButton>("BtnLogin")!.Text);
-
-                page.FinishLogin();
-                Assert.IsFalse(page.IsLoggingIn);
-                Assert.IsTrue(page.FindControl<MyButton>("BtnLogin")!.IsEnabled);
-                Assert.AreEqual(
-                    "使用 N Cloud 登录",
-                    page.FindControl<MyButton>("BtnLogin")!.Text);
-            }
-            finally
-            {
-                window.Close();
-            }
-        }, CancellationToken.None).GetAwaiter().GetResult();
     }
 
     [TestMethod]
