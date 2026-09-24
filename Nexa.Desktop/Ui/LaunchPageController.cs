@@ -180,7 +180,7 @@ internal sealed partial class LaunchPageController : IDisposable
     private readonly XsrUiEntityId _launchPage;
     private readonly XsrUiEntityId _placeholderPage;
     private readonly XsrUiEntityId _versionListPage;
-    private readonly XsrUiEntityId _versionSettingsPage;
+    private XsrUiEntityId _versionSettingsPage;
     private readonly XsrUiEntityId _wardrobePage;
     private readonly XsrUiEntityId _installPage;
     private readonly XsrUiEntityId _javaInstallPage;
@@ -1589,6 +1589,10 @@ internal sealed partial class LaunchPageController : IDisposable
         }
     }
 
+    internal XsrUiEntityId VersionSettingsPage
+    {
+        set { _shell.Tree.Destroy(_versionSettingsPage); _versionSettingsPage = value; }
+    }
     internal XsrUiEntityId SettingsPage { get; set; }
 
     private void ShowPlaceholder(bool settings = false)

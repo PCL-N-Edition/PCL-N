@@ -59,6 +59,31 @@ internal static partial class Program
         AssertTrue(FindByKey(fixture.Shell, scene, "SettingsSections").Rect.Width > 480);
     }
 
+    private static void VersionSettingsAreScopedAndRestoreInheritance()
+    {
+        using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));
+        string instance = Path.GetFullPath("test-instance-settings");
+        using var global = new SettingsPageController(fixture.Shell, fixture.Intents, fixture.Foundation.Queries, fixture.Foundation.Commands, fixture.Store, fixture.Feedback);
+        using var settings = new SettingsPageController(fixture.Shell, fixture.Intents, fixture.Foundation.Queries, fixture.Foundation.Commands, fixture.Store, fixture.Feedback, () => instance);
+        fixture.Shell.Stage.Navigation.Replace(settings.Page);
+        var scene = fixture.Shell.Render(new(1000, 650));
+        var input = FindByKey(fixture.Shell, scene, "SettingsInput.game.width");
+        fixture.Shell.Renderer.SetTextInputValue(input.Entity, "1440");
+        Emit(fixture.Intents, "ui.settings.edit", FindByKey(fixture.Shell, scene, "SettingsEdit.game.width").Entity);
+        fixture.Shell.Render(new(1000, 650));
+        string? ReadWidth(string? scope) => fixture.Foundation.Host.SettingsPolicy.Read(new(scope)).Value!.Values.Single(item => item.Key == "game.width").Value.Value;
+        AssertTrue(SpinWait.SpinUntil(() => ReadWidth(instance) == "1440", TimeSpan.FromSeconds(5)));
+        AssertTrue(ReadWidth(null) != "1440");
+        fixture.Shell.Render(new(1000, 650));
+        Emit(fixture.Intents, "ui.settings.inherit", FindByKey(fixture.Shell, scene, "SettingsInherit.game.width").Entity);
+        fixture.Shell.Render(new(1000, 650));
+        AssertTrue(SpinWait.SpinUntil(() => ReadWidth(instance) == ReadWidth(null), TimeSpan.FromSeconds(5)));
+        instance = Path.GetFullPath("other-root/test-instance-settings");
+        scene = fixture.Shell.Render(new(1000, 650));
+        input = FindByKey(fixture.Shell, scene, "SettingsInput.game.width");
+        AssertEqual(ReadWidth(null), fixture.Shell.Tree.GetComponent<XsrUiTextInput>(input.Entity)!.ReadDraft());
+    }
+
     private static void SettingsPageSavesThroughServicesAndPreservesDraftFocus()
     {
         using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));

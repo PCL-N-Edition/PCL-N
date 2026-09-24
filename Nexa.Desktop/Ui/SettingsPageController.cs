@@ -14,6 +14,11 @@ internal sealed partial class SettingsPageController : IDisposable
     private static readonly XsrSemanticId Select = XsrSemanticId.Parse("ui.settings.section");
     private static readonly XsrSemanticId Edit = XsrSemanticId.Parse("ui.settings.edit");
     private static readonly XsrSemanticId Choice = XsrSemanticId.Parse("ui.settings.choice");
+    private static readonly XsrSemanticId Inherit = XsrSemanticId.Parse("ui.settings.inherit");
+    private readonly Func<string?>? _instanceDirectory;
+    private string? _instance;
+    private readonly Dictionary<XsrUiEntityId, string> _inheritButtons = [];
+    private IReadOnlyList<SettingsCatalogPage> Pages => _instanceDirectory is null ? _catalog!.GlobalPages : _catalog!.GlobalPages.Where(page => page.Id is "game" or "java").ToArray();
     private readonly XsrUiShell _shell;
     private readonly DesktopUiIntentSink _intents;
     private readonly XsrQueryRouter _queries;
@@ -43,14 +48,18 @@ internal sealed partial class SettingsPageController : IDisposable
     private static readonly XsrUiColor Ink = new(43, 51, 64), Muted = new(113, 124, 140), Blue = new(11, 91, 203), White = new(255, 255, 255), Line = new(232, 236, 242);
 
     public SettingsPageController(XsrUiShell shell, DesktopUiIntentSink intents, XsrQueryRouter queries, XsrCommandRouter commands,
-        XsrStateStore store, DesktopFeedbackService feedback)
+        XsrStateStore store, DesktopFeedbackService feedback, Func<string?>? instanceDirectory = null)
     {
         _shell = shell; _intents = intents; _queries = queries; _commands = commands; _store = store; _feedback = feedback;
+        _instanceDirectory = instanceDirectory;
+        if (instanceDirectory is not null) _selected = "game";
         _revisionId = store.Resolve(SettingsPolicyContract.RevisionKey);
         using var stream = typeof(SettingsPageController).Assembly.GetManifestResourceStream("Nexa.Desktop.Ui.SettingsPage.pxml")!;
         using var reader = new StreamReader(stream);
         var host = shell.Tree.Create("settings-loader");
-        Page = PxmlUiLoader.Load(PxmlCompiler.Compile(PxmlParser.Parse(reader.ReadToEnd())), shell.Tree, store, host);
+        string markup = reader.ReadToEnd();
+        if (instanceDirectory is not null) markup = markup.Replace("Key=\"SettingsPage\" Label=\"设置\"", "Key=\"VersionSettingsPage\" Label=\"版本设置\"", StringComparison.Ordinal);
+        Page = PxmlUiLoader.Load(PxmlCompiler.Compile(PxmlParser.Parse(markup)), shell.Tree, store, host);
         shell.Tree.Detach(Page); shell.Tree.Destroy(host);
         var names = new Dictionary<string, XsrUiEntityId>();
         shell.Tree.Walk(Page, entity => { names[shell.Tree.Name(entity)] = entity; return true; });
@@ -70,7 +79,8 @@ internal sealed partial class SettingsPageController : IDisposable
 
     private void OnIntent(object? sender, DesktopUiIntentEventArgs args)
     {
-        if (args.Intent.Command == Select || args.Intent.Command == Edit || args.Intent.Command == Choice || args.Intent.Command == ArgumentAdd || args.Intent.Command == ArgumentRemove || args.Intent.Command == RefreshPlatform) _pending.Enqueue(args.Intent);
+        if (_shell.Stage.Navigation.Current != Page) return;
+        if (args.Intent.Command == Inherit || args.Intent.Command == Select || args.Intent.Command == Edit || args.Intent.Command == Choice || args.Intent.Command == ArgumentAdd || args.Intent.Command == ArgumentRemove || args.Intent.Command == RefreshPlatform) _pending.Enqueue(args.Intent);
         else if (args.Intent.Command == RemediationExecuted) OnPlatformRemediation(sender, args);
     }
     private void OnFrame(object? sender, EventArgs args)
@@ -86,7 +96,14 @@ internal sealed partial class SettingsPageController : IDisposable
             _shell.Tree.MarkDirty(_shell.Content, XsrUiDirtyKinds.Layout);
         }
         if (!visible) return;
-        UpdatePlatformCapabilities();
+        string? instance = _instanceDirectory?.Invoke();
+        if (_instanceDirectory is not null && string.IsNullOrWhiteSpace(instance)) return;
+        if (instance != _instance)
+        {
+            _instance = instance; _reading = null; _values = null; _revision = -1;
+            if (_catalog is not null) BuildSections(navigating: true);
+        }
+        if (_instanceDirectory is null) UpdatePlatformCapabilities();
         if (_catalog is null)
         {
             if (!_queries.TryResolve(SettingsPolicyContract.CatalogQuery, out var route)) return;
@@ -101,7 +118,7 @@ internal sealed partial class SettingsPageController : IDisposable
         if (_writing is { IsCompleted: true }) _writing = null;
         long revision = _store.Read<long>(_revisionId).Value;
         if (_reading is null && _revision != revision && _queries.TryResolve(SettingsPolicyContract.EffectiveQuery, out var read))
-            _reading = _queries.QueryAsync<SettingsEffectiveQuery, SettingsEffectiveSnapshot>(read, new()).AsTask();
+            _reading = _queries.QueryAsync<SettingsEffectiveQuery, SettingsEffectiveSnapshot>(read, new(_instance)).AsTask();
         if (_reading is { IsCompleted: true } reading)
         {
             _reading = null;
@@ -116,11 +133,17 @@ internal sealed partial class SettingsPageController : IDisposable
         }
         while (_pending.TryDequeue(out var intent))
         {
+            if (intent.Command == Inherit && _inheritButtons.TryGetValue(intent.Source, out var inheritKey)
+                && _writing is null && _commands.TryResolve(SettingsPolicyContract.SetCommand, out var inheritRoute))
+            {
+                _writing = SaveAsync(inheritRoute, new(inheritKey, SettingsLayer.Instance, new(SettingsOverrideMode.Inherit), _instance));
+                continue;
+            }
             if (intent.Command == RefreshPlatform) { RefreshPlatformCapabilities(); continue; }
             if (intent.Command == Select && _navigation.TryGetValue(intent.Source, out string? page) && page != _selected)
             {
                 SwitchPage(page);
-                _shell.Renderer.SelectPagerPage(_pager, _catalog.GlobalPages.ToList().FindIndex(item => item.Id == page));
+                _shell.Renderer.SelectPagerPage(_pager, Pages.ToList().FindIndex(item => item.Id == page));
             }
             else if (intent.Command == Edit && _editors.TryGetValue(intent.Source, out var editor) && _writing is null)
             {
@@ -136,8 +159,8 @@ internal sealed partial class SettingsPageController : IDisposable
             }
         }
         int index = _shell.Tree.GetComponent<XsrUiPager>(_pager)!.PageIndex;
-        if (index >= 0 && index < _catalog.GlobalPages.Count && _catalog.GlobalPages[index].Id != _selected)
-            SwitchPage(_catalog.GlobalPages[index].Id);
+        if (index >= 0 && index < Pages.Count && Pages[index].Id != _selected)
+            SwitchPage(Pages[index].Id);
         var pager = _shell.Tree.GetComponent<XsrUiPager>(_pager)!;
         if (!pager.IsDragging && Math.Abs(pager.Position - pager.PageIndex) < 0.001)
             foreach (var page in _pages.Values)
@@ -155,7 +178,7 @@ internal sealed partial class SettingsPageController : IDisposable
 
     private void BuildNavigation()
     {
-        foreach (var page in _catalog!.GlobalPages)
+        foreach (var page in Pages)
         {
             var body = Stack(_pager, "SettingsSections", XsrUiOrientation.Vertical, 14);
             var layout = _shell.Tree.GetComponent<XsrUiElement>(body)!;
@@ -195,17 +218,17 @@ internal sealed partial class SettingsPageController : IDisposable
             item => _shell.Tree.GetComponent<XsrUiTextInput>(item.Input)!.ReadDraft()) : [];
         if (!navigating) _scrollPositions[_selected] = _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY;
         foreach (var child in _shell.Tree.Children(_sections).ToArray()) _shell.Tree.Destroy(child);
-        _editors.Clear(); _selectors.Clear(); _argumentEditors.Clear(); _argumentActions.Clear(); _choices.Clear();
+        _editors.Clear(); _inheritButtons.Clear(); _selectors.Clear(); _argumentEditors.Clear(); _argumentActions.Clear(); _choices.Clear();
         if (_selected == "platform") { BuildPlatformCapabilities(); return; }
-        var entries = _catalog!.Entries.Where(item => item.Scope == "global" && item.Page == _selected && !item.IsRuntimeDetail && (_developer || !item.DeveloperOnly)).ToArray();
+        var entries = _catalog!.Entries.Where(item => item.Scope == "global" && item.Page == _selected && (_instanceDirectory is null || item.Definition?.InstanceOverride == true) && !item.IsRuntimeDetail && (_developer || !item.DeveloperOnly)).ToArray();
         foreach (var section in entries.GroupBy(item => (Section: item.DeveloperOnly ? "开发者" : item.Section, item.DeveloperOnly)))
         {
             var group = Stack(_sections, "SettingsGroup." + section.First().Id, XsrUiOrientation.Vertical, 5);
             Text(group, DisplayLabel(section.Key.Section), 12, Muted, height: 24, weight: 600);
             var card = Stack(group, "SettingsCard." + section.First().Id, XsrUiOrientation.Vertical, 0);
-            Style(card, White, Ink, 12);
+            Style(card, White, Ink, 16);
             var cardContent = Stack(card, "SettingsCardContent", XsrUiOrientation.Vertical, 0);
-            _shell.Tree.GetComponent<XsrUiElement>(cardContent)!.Padding = new(12, 3, 12, 3);
+            _shell.Tree.GetComponent<XsrUiElement>(cardContent)!.Padding = new(16, 4, 16, 4);
             var rows = section.Where(item => item.Kind is SettingsCatalogEntryKind.Setting or SettingsCatalogEntryKind.Action or SettingsCatalogEntryKind.State).ToArray();
             if (_selected == "java" && section.Key.Section == "已安装 Java") rows = [section.First(item => item.Label == "Runtime List")];
             // A reserved group still has a concrete final-location row, not a placeholder page.
@@ -237,8 +260,9 @@ internal sealed partial class SettingsPageController : IDisposable
     private void BuildRow(XsrUiEntityId parent, SettingsCatalogEntry entry)
     {
         var row = Stack(parent, "SettingsRow." + entry.Id, XsrUiOrientation.Horizontal, 10);
-        _shell.Tree.GetComponent<XsrUiElement>(row)!.MinHeight = 44;
-        var label = Text(row, DisplayLabel(entry.Label), 14, Ink, height: 40);
+        _shell.Tree.GetComponent<XsrUiElement>(row)!.MinHeight = 56;
+        _shell.Tree.GetComponent<XsrUiElement>(row)!.Padding = new(0, 8, 0, 8);
+        var label = Text(row, DisplayLabel(entry.Label), 14, Ink, height: 40, weight: 500);
         _shell.Tree.GetComponent<XsrUiElement>(label)!.Weight = 1;
         bool enabled = entry.Availability == SettingsCapabilityAvailability.Available && entry.Definition is not null;
         if (!enabled)
@@ -250,6 +274,11 @@ internal sealed partial class SettingsPageController : IDisposable
             _shell.Tree.GetComponent<XsrUiVisualStyle>(unavailable)!.TextAlignment = XsrUiTextAlignment.Center;
             _shell.Tree.GetComponent<XsrUiSemantic>(unavailable)!.Label = entry.Label + "，尚未可用";
             return;
+        }
+        if (_instanceDirectory is not null)
+        {
+            var inherit = ActionButton(row, "SettingsInherit." + entry.SettingKey, "继承", Inherit, 64);
+            _inheritButtons[inherit] = entry.SettingKey!;
         }
         var definition = entry.Definition!;
         if (entry.SettingKey is "game.jvm" or "game.arguments")
@@ -284,6 +313,13 @@ internal sealed partial class SettingsPageController : IDisposable
             if (editor.Input.IsAssigned && !_shell.Renderer.Focused.Equals(editor.Input))
                 _shell.Renderer.SetTextInputValue(editor.Input, raw);
         }
+        foreach (var (button, key) in _inheritButtons)
+        {
+            var value = _values?.Values.FirstOrDefault(item => item.Key == key);
+            var text = _shell.Tree.GetComponent<XsrUiText>(button)!;
+            string label = value?.Source == SettingsLayer.Instance ? "恢复继承" : "继承中";
+            if (text.Content != label) { text.Content = label; _shell.Tree.MarkDirty(button, XsrUiDirtyKinds.Paint); }
+        }
         UpdateShiftSelectors(); UpdateArgumentEditors();
     }
 
@@ -292,14 +328,14 @@ internal sealed partial class SettingsPageController : IDisposable
         if (!_commands.TryResolve(SettingsPolicyContract.SetCommand, out var route) || _values is null) return;
         if (_argumentEditors.TryGetValue(editor.Button, out var arguments))
         {
-            _writing = SaveAsync(route, new(editor.Entry.SettingKey!, SettingsLayer.Global,
-                new(SettingsOverrideMode.Custom, string.Join("\n", ReadArgumentDrafts(arguments).Where(value => !string.IsNullOrWhiteSpace(value))))));
+            _writing = SaveAsync(route, new(editor.Entry.SettingKey!, (_instanceDirectory is null ? SettingsLayer.Global : SettingsLayer.Instance),
+                new(SettingsOverrideMode.Custom, string.Join("\n", ReadArgumentDrafts(arguments).Where(value => !string.IsNullOrWhiteSpace(value)))), _instance));
             return;
         }
         var current = _values.Values.First(item => item.Key == editor.Entry.SettingKey).Value.Value;
         string raw = selectedValue ?? (editor.Input.IsAssigned ? _shell.Tree.GetComponent<XsrUiTextInput>(editor.Input)!.ReadDraft()
             : editor.Entry.Definition!.Kind == SettingsValueKind.Boolean ? (current == "true" ? "false" : "true") : (current == "fullscreen" ? "windowed" : "fullscreen"));
-        _writing = SaveAsync(route, new(editor.Entry.SettingKey!, SettingsLayer.Global, new(SettingsOverrideMode.Custom, raw)));
+        _writing = SaveAsync(route, new(editor.Entry.SettingKey!, (_instanceDirectory is null ? SettingsLayer.Global : SettingsLayer.Instance), new(SettingsOverrideMode.Custom, raw), _instance));
     }
     private async Task<XsrResult> SaveAsync(XsrCommandId route, SettingsMutation mutation)
     {

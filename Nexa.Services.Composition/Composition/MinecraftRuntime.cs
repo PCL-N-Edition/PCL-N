@@ -162,7 +162,7 @@ public static class MinecraftRuntimeComposer
             new MinecraftLaunchProgressPublisher(host.StateStore),
             identityResolver,
             launcherVersion,
-            windowProbe, authlib, gameWindowAppeared, fileCompletion);
+            windowProbe, authlib, gameWindowAppeared, fileCompletion, host.SettingsPolicy);
         IXsrDispatchObserver dispatchObserver = observer ?? NullDispatchObserver.Instance;
         XsrCommandRouterBuilder commandBuilder = new();
         commandBuilder.Register(MinecraftRouteIds.Start, MinecraftCommands.CreateStartHandler(coordinator));

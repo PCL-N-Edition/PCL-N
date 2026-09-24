@@ -4,6 +4,7 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("instance settings reach the launch request", Sync(InstanceSettingsReachTheLaunchRequest)),
         ("Windows digitizer flags distinguish touch and pen", Sync(WindowsDigitizerFlagsDistinguishTouchAndPen)),
         ("machine registry seals typed dependency graph", Sync(MachineRegistrySealsTypedDependencyGraph)),
         ("machine broker coalesces isolates and caches", MachineBrokerCoalescesIsolatesAndCaches),

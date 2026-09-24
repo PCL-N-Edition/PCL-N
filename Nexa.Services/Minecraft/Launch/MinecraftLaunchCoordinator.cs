@@ -62,6 +62,7 @@ public sealed class MinecraftLaunchCoordinator
     private readonly MinecraftInstanceDiscovery _instances;
     private readonly AccountService _accounts;
     private readonly SettingsService _settings;
+    private readonly SettingsPolicyService? _settingsPolicy;
     private readonly JavaSelectionService _javaSelection;
     private readonly IJavaRuntimeInstaller _javaInstaller;
     private readonly MinecraftLaunchExecutor _executor;
@@ -95,7 +96,8 @@ public sealed class MinecraftLaunchCoordinator
         IMinecraftWindowProbe? windowProbe = null,
         IAuthlibInjectorProvider? authlib = null,
         Action<int>? gameWindowAppeared = null,
-        MinecraftLaunchFileCompletion? fileCompletion = null)
+        MinecraftLaunchFileCompletion? fileCompletion = null,
+        SettingsPolicyService? settingsPolicy = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(javaRuntimeRootDirectory);
@@ -115,6 +117,7 @@ public sealed class MinecraftLaunchCoordinator
         _javaInstaller = javaInstaller ?? throw new ArgumentNullException(nameof(javaInstaller));
         _executor = executor ?? throw new ArgumentNullException(nameof(executor));
         _fileCompletion = fileCompletion;
+        _settingsPolicy = settingsPolicy;
         _platform = platform ?? MinecraftLaunchPlatform.Detect();
         if (_platform.OperatingSystem == MinecraftLibraryOperatingSystem.Unknown)
         {
@@ -884,7 +887,7 @@ public sealed class MinecraftLaunchCoordinator
             "NexaCL");
         DateTimeOffset? releaseTime = ReadReleaseTime(manifests) ?? instance.Version.ReleaseTime;
 
-        return new MinecraftLaunchRequest
+        var request = new MinecraftLaunchRequest
         {
             VersionJson = manifests.Current,
             InheritedVersionJsons = manifests.Inherited,
@@ -922,6 +925,30 @@ public sealed class MinecraftLaunchCoordinator
                 ["is_demo_user"] = false,
             },
         };
+        if (_settingsPolicy is null) return request;
+        var effective = _settingsPolicy.Read(new(instance.DirectoryPath));
+        if (!effective.IsSuccess) throw new InvalidOperationException("无法读取版本设置：" + effective.Error?.Message);
+        return ApplySettings(request, effective.Value!);
+    }
+
+    internal static MinecraftLaunchRequest ApplySettings(MinecraftLaunchRequest request, SettingsEffectiveSnapshot snapshot)
+    {
+        foreach (var setting in snapshot.Values)
+        {
+            if (setting.Value.Mode != SettingsOverrideMode.Custom
+                || (setting.Source != SettingsLayer.Instance && !(setting.Key == "game.window-mode" && setting.Source == SettingsLayer.Global))) continue;
+            string value = setting.Value.Value ?? "";
+            request = setting.Key switch
+            {
+                "game.width" => request with { Width = int.Parse(value, System.Globalization.CultureInfo.InvariantCulture) },
+                "game.height" => request with { Height = int.Parse(value, System.Globalization.CultureInfo.InvariantCulture) },
+                "game.window-mode" => request with { Fullscreen = value == "fullscreen" },
+                "game.jvm" => request with { CustomJvmArguments = value },
+                "game.arguments" => request with { CustomGameArguments = value },
+                _ => request,
+            };
+        }
+        return request;
     }
 
     private static MinecraftJavaRequirementRequest CreateJavaRequirement(

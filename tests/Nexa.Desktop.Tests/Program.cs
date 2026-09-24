@@ -37,6 +37,7 @@ internal static partial class Program
     private static readonly (string Name, Action Body)[] TestCases =
     [
         ("product PXML shell accepts native window metrics", ProductPxmlShellAcceptsNativeWindowMetrics),
+        ("Version settings isolate overrides and restore inheritance", VersionSettingsAreScopedAndRestoreInheritance),
         ("Settings page keeps the final navigation and compact layout", SettingsPageUsesFinalNavigationAndCompactLayout),
         ("Settings page saves through Services without losing draft focus", SettingsPageSavesThroughServicesAndPreservesDraftFocus),
         ("Settings developer toggle preserves scroll position and focus", SettingsDeveloperToggleKeepsPositionAndFocus),

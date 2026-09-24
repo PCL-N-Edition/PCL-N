@@ -14,6 +14,33 @@ namespace Nexa.Services.Tests;
 // cross-provider facts with honest DependencyMissing when inputs are gone.
 internal static partial class Program
 {
+    private static void InstanceSettingsReachTheLaunchRequest()
+    {
+        var request = new Nexa.Services.Minecraft.Launch.MinecraftLaunchRequest
+        {
+            VersionJson = new(),
+            VersionId = "test",
+            InstanceDirectory = "instance",
+            MinecraftRootDirectory = "root",
+            PlayerName = "player",
+            PlayerUuid = "uuid",
+            Width = 854,
+            CustomJvmArguments = "-Dlegacy=true",
+        };
+        SettingsEffectiveValue Setting(string key, string value, SettingsLayer layer = SettingsLayer.Instance) =>
+            new(key, new(SettingsOverrideMode.Custom, value), layer, SettingsApplyTiming.NextLaunch, null);
+        var result = Nexa.Services.Minecraft.Launch.MinecraftLaunchCoordinator.ApplySettings(request,
+            new(1, [Setting("game.width", "1440"), Setting("game.height", "900"),
+                Setting("game.window-mode", "fullscreen"), Setting("game.arguments", "--demo"),
+                Setting("game.jvm", "-Dglobal=true", SettingsLayer.Global)]));
+        AssertEqual(1440, result.Width);
+        AssertEqual(900, result.Height);
+        AssertTrue(result.Fullscreen, "Instance fullscreen override must reach launch.");
+        AssertEqual("--demo", result.CustomGameArguments);
+        AssertEqual("-Dlegacy=true", result.CustomJvmArguments);
+        AssertEqual(854, request.Width);
+    }
+
     private static void WindowsDigitizerFlagsDistinguishTouchAndPen()
     {
         AssertTrue(WindowsInputProbe.HasTouch(0x81), "Integrated touch must be detected.");
