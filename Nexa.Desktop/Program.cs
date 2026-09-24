@@ -151,7 +151,7 @@ internal static class Program
         AppFolders folders = AppFolders.ResolveDefault();
         bool locationLocked = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("NEXA_DATA_DIR")
             ?? Environment.GetEnvironmentVariable("PCL_NEXA_DATA_DIR"));
-        var setup = new FirstRunService(folders.Root, LauncherStorageLocation.LocatorPath, locationLocked);
+        var setup = new FirstRunService(folders.Root, LauncherStorageLocation.LocatorPath, locationLocked, ResolveInformationalVersion());
         bool validateSetup = args.Contains("--validate-setup", StringComparer.OrdinalIgnoreCase);
         if (validateSetup || (!args.Contains("--validate-shell", StringComparer.OrdinalIgnoreCase) && setup.Read().Required))
         {
@@ -283,6 +283,13 @@ internal static class Program
             new NativeAccountUiEffects(platformActions), runtime.Host.Logging);
         launchPage.Attach();
         using SettingsPageController settingsPage = new(shell, uiIntents, runtime.Queries, runtime.Commands, host.StateStore, feedback);
+        settingsPage.TelemetryRequired = Nexa.Services.Telemetry.LauncherTelemetryPolicy.IsRequired(buildInfo.SemanticVersion);
+        using var updateHttp = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) };
+        var updateQueries = NexaUpdateRuntimeComposer.Compose(new Nexa.Services.Updates.NexaUpdateService(updateHttp));
+        string updateRid = (OperatingSystem.IsWindows() ? "win" : OperatingSystem.IsMacOS() ? "osx" : "linux") + "-" + System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
+        string updateChannel = buildInfo.SemanticVersion.Contains(".alpha.", StringComparison.Ordinal) || buildInfo.SemanticVersion.Contains(".ci.", StringComparison.Ordinal) ? "alpha"
+            : buildInfo.SemanticVersion.Contains(".beta.", StringComparison.Ordinal) ? "beta" : "stable";
+        settingsPage.ConfigureUpdates(updateQueries, new(buildInfo.SemanticVersion, updateRid, updateChannel), platformActions.OpenHttpsUri);
         launchPage.SettingsPage = settingsPage.Page;
         using SettingsPageController versionSettings = new(shell, uiIntents, runtime.Queries, runtime.Commands, host.StateStore, feedback,
             () => ((MinecraftLibrarySnapshot?)host.StateStore.ReadAppliedValue(host.StateStore.Resolve(MinecraftLibraryService.StateKey)))?.SelectedInstance?.DirectoryPath);

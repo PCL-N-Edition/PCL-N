@@ -12,6 +12,15 @@ internal static partial class Program
         Directory.CreateDirectory(temp);
         try
         {
+            foreach (string version in new[] { "2.0.0.alpha.4", "2.0.0.beta.2", "2.0.0.ci.abcdef" })
+            {
+                string testing = Path.Combine(temp, version);
+                var testingService = new FirstRunService(testing, Path.Combine(temp, version + ".locator"), productVersion: version);
+                AssertTrue(testingService.Read().TelemetryRequired);
+                AssertTrue((await testingService.CompleteAsync(new(testing, false))).IsSuccess);
+                AssertEqual("true", new LauncherSettingsJsonPort(Path.Combine(testing, "settings", "settings.json"), LauncherDefaults.CreateSchema()).Load()["TelemetryExperienceProgram"]);
+            }
+            AssertFalse(Nexa.Services.Telemetry.LauncherTelemetryPolicy.IsRequired("2.0.0"));
             string initial = Path.Combine(temp, "default"), chosen = Path.Combine(temp, "chosen"), locator = Path.Combine(temp, "bootstrap", "storage.json");
             var service = new FirstRunService(initial, locator);
             AssertTrue(service.Read().Required);

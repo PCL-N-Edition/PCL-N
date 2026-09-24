@@ -4,7 +4,10 @@ using Nexa.Xsr;
 
 namespace Nexa.Services.Setup;
 
-public sealed record FirstRunStatus(bool Required, string DataDirectory, bool LocationLocked);
+public sealed record FirstRunStatus(bool Required, string DataDirectory, bool LocationLocked)
+{
+    public bool TelemetryRequired { get; init; }
+}
 public sealed record FirstRunQuery;
 public sealed record FirstRunCompleteCommand(string DataDirectory, bool Telemetry);
 public static class FirstRunContract
@@ -13,7 +16,7 @@ public static class FirstRunContract
     public static readonly XsrSemanticId Complete = XsrSemanticId.Parse("setup.complete");
 }
 
-public sealed class FirstRunService(string defaultDirectory, string locatorPath, bool locationLocked = false)
+public sealed class FirstRunService(string defaultDirectory, string locatorPath, bool locationLocked = false, string? productVersion = null)
 {
     private readonly Lock _gate = new();
     private bool _completed;
@@ -22,7 +25,8 @@ public sealed class FirstRunService(string defaultDirectory, string locatorPath,
         string root = Path.GetFullPath(defaultDirectory);
         bool existing = File.Exists(Path.Combine(root, FolderNames.Settings, "settings.json"))
             || File.Exists(Path.Combine(root, FolderNames.Profiles, "profiles.json"));
-        return new(!existing && !Volatile.Read(ref _completed), root, locationLocked);
+        return new(!existing && !Volatile.Read(ref _completed), root, locationLocked)
+        { TelemetryRequired = Telemetry.LauncherTelemetryPolicy.IsRequired(productVersion) };
     }
 
     public Task<XsrResult> CompleteAsync(FirstRunCompleteCommand command, CancellationToken token = default) =>
@@ -60,7 +64,7 @@ public sealed class FirstRunService(string defaultDirectory, string locatorPath,
                     using (new FileStream(settings, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
                     createdSettings = settings;
                     new LauncherSettingsJsonPort(settings, LauncherDefaults.CreateSchema()).Save(
-                        new Dictionary<string, string>(StringComparer.Ordinal) { ["TelemetryExperienceProgram"] = command.Telemetry ? "true" : "false" });
+                        new Dictionary<string, string>(StringComparer.Ordinal) { ["TelemetryExperienceProgram"] = command.Telemetry || Read().TelemetryRequired ? "true" : "false" });
                     token.ThrowIfCancellationRequested();
                     if (!locationLocked) LauncherStorageLocation.Save(locatorPath, root);
                     createdSettings = null;

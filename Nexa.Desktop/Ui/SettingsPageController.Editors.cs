@@ -22,11 +22,11 @@ internal sealed partial class SettingsPageController
 
     private XsrUiEntityId ActionButton(XsrUiEntityId parent, string name, string text, XsrSemanticId command, double width)
     {
-        var button = Element(parent, name, XsrUiSemanticRole.Button, text, width, 30);
+        var button = Element(parent, name, XsrUiSemanticRole.Button, text, width, 34);
         _shell.Tree.SetComponent(button, new XsrUiText(text));
         _shell.Tree.SetComponent(button, new XsrUiInput { Focusable = true, Clickable = true });
         _shell.Tree.SetComponent(button, new XsrUiCommandBinding(command));
-        Style(button, DesktopUiPalette.CapsuleBackground, Blue, 7, 12, 500);
+        Style(button, new(242, 245, 249), Blue, 9, 12, 500);
         _shell.Tree.GetComponent<XsrUiVisualStyle>(button)!.TextAlignment = XsrUiTextAlignment.Center;
         return button;
     }

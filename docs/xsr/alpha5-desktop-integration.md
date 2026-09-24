@@ -10,7 +10,7 @@
 4. 文件交互：版本行双击打开目录；系统拖放保留 Ctrl/Shift/Alt 语义；导入先识别再确认，不能将未知文件直接执行。目录识别 Minecraft 根目录/实例，JAR 提供模组/核心/加载器选择，MRPACK/ZIP 交由整合包服务。
 5. 任务泡泡：每个泡泡均有横向展开信息，隐藏项不占位置，动作和导航一致。
 6. JVM：核对现有 IJvmHost 与独立 Jvm.Host 的职责；验证实际 Minecraft 启动、日志、退出、崩溃、取消与多实例隔离。
-7. 首次运行：欢迎 → 数据存储位置 → 用户体验计划与遥测 → 结束。遥测默认关闭，可撤回；异常记录必须脱敏。
+7. 首次运行：欢迎 → 数据存储位置 → 用户体验计划与遥测 → 结束。正式版遥测默认关闭、可撤回；CI/Alpha/Beta 明示并强制启用基本数据收集；异常记录必须脱敏。
 8. Cloudflare：在现有上级 Server Worker 中接入遥测 API，并连接已有更新流；完整验证签名、通道、平台与失败回退。
 9. Patch：先确认 Java/C# 目标；冻结 HEAD/ARGS/TAIL/RETURN/REPLACE 的顺序、异常和返回语义，再实施生成器。不得把只能生成新代码的 source generator 宣称为任意现有方法重写器，不得使用 NativeAOT 不支持的运行时动态代码。
 
@@ -49,11 +49,18 @@ Windows `SM_DIGITIZER` 的 READY 为 0x80，集成/外接触摸分别为
 
 ## 遥测协议
 
+Nexa 2 更新发现与下载使用独立 `/v2/updates/`，旧版 `/v1/updates/` 保持原合同。
+Cloudflare 从官方 GitHub 发布目录读取严格的 2.x dotted tag，区分 stable/beta/alpha 与六个 RID；
+CI 默认跟随 Alpha 发布。安装包和便携包都存在时才提供更新。客户端经 sealed query 异步检查，
+显式下载通过系统浏览器获取平台安装包，可直接打开 GitHub 发布说明。此阶段不自动执行安装包，
+不宣称已有静默替换、增量升级或原子回滚；这些仍由后续签名安装事务接入。
+
 `POST /v1/launcher/telemetry` 经现有 Cloudflare API Shield mTLS 验证。
 只接受 app.started/app.failure/game.started/game.exited，字段限 version/os/arch/result
 及事件时间；单批 50 条、16 KiB。Worker 严格拒绝额外字段，仅存每日聚合计数。
 不保存设备 ID、IP、账户、路径或原始日志。传输失败保留队列，语义为至少一次，
-不能用这些计数宣称精确独立用户数。撤回同意清空待发队列并取消当前会话发送。
+不能用这些计数宣称精确独立用户数。正式版撤回同意清空待发队列并取消当前会话发送。
+测试通道由 Services 的版本策略强制启用，OOBE 与设置均明确标示，不提供无效的关闭选项。
 构建使用现有 PCLN_API_CLIENT_PFX_BASE64 secret，仅将证书恢复为忽略文件；不得记录证书内容。
 首批客户端接入 app.started；游戏结果及异常事件仍需各自产生者接入。
 
@@ -66,7 +73,7 @@ Windows `SM_DIGITIZER` 的 READY 为 0x80，集成/外接触摸分别为
 ## 首次运行引导
 
 在 Foundation、账户、游戏扫描与联网会话初始化之前运行独立的轻量引导 shell。
-欢迎 → 数据位置 → 用户体验计划 → 完成；关闭不提交，返回保留本次草稿，遥测初始为关闭。
+欢迎 → 数据位置 → 用户体验计划 → 完成；关闭不提交，返回保留本次草稿。正式版遥测初始为关闭，测试版显示必需收集说明。
 设置与账户已存在的安装直接沿用原目录。环境变量指定目录时保留最高优先级，并锁定目录选择。
 Services 通过 sealed query/command 验证和保存；Desktop 仅维护页面草稿与调用系统选目录。
 最终提交先写目标目录设置，再原子保存 LocalApplicationData/NexaCL/storage.json 位置记录；

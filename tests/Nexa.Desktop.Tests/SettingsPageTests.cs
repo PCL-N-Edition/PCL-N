@@ -94,6 +94,10 @@ internal static partial class Program
         var scene = fixture.Shell.Render(new(1000, 650));
         Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.game").Entity);
         scene = fixture.Shell.Render(new(1000, 650));
+        var scroll = FindByKey(fixture.Shell, scene, "SettingsSections").Entity;
+        fixture.Shell.Tree.GetComponent<XsrUiScroll>(scroll)!.OffsetY = 300;
+        fixture.Shell.Tree.MarkDirty(scroll, XsrUiDirtyKinds.Layout);
+        scene = fixture.Shell.Render(new(1000, 650));
         var input = FindByKey(fixture.Shell, scene, "SettingsInput.game.width");
         fixture.Shell.Renderer.SetTextInputValue(input.Entity, "1280");
         fixture.Shell.Renderer.Focus(input.Entity);
@@ -199,6 +203,10 @@ internal static partial class Program
         Emit(fixture.Intents, "ui.navigation.settings");
         var scene = fixture.Shell.Render(new(1000, 650));
         Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.game").Entity);
+        scene = fixture.Shell.Render(new(1000, 650));
+        var list = FindByKey(fixture.Shell, scene, "SettingsSections").Entity;
+        fixture.Shell.Tree.GetComponent<XsrUiScroll>(list)!.OffsetY = 300;
+        fixture.Shell.Tree.MarkDirty(list, XsrUiDirtyKinds.Layout);
         scene = fixture.Shell.Render(new(1000, 650));
         var next = FindByKey(fixture.Shell, scene, "SettingsOption.game.window-mode.fullscreen");
         var selector = FindByKey(fixture.Shell, scene, "SettingsSelector.game.window-mode");

@@ -20,7 +20,7 @@ public sealed class LauncherTelemetrySession : IDisposable
     public LauncherTelemetrySession(TelemetryService telemetry, SettingsService settings,
         ITelemetryTransport transport, LogService log, string version)
     {
-        _telemetry = telemetry; _settings = settings; _transport = transport; _log = log; _version = version;
+        _telemetry = telemetry; _settings = settings; _transport = transport; _log = log; _version = version.Split('+')[0];
         settings.Changed += OnSettingsChanged;
         OnSettingsChanged(0);
         _ = UploadAsync();
@@ -31,7 +31,7 @@ public sealed class LauncherTelemetrySession : IDisposable
         lock (_gate)
         {
             if (_disposed) return;
-            bool consent = _settings.GetValue<bool>("TelemetryExperienceProgram").Value;
+            bool consent = LauncherTelemetryPolicy.IsRequired(_version) || _settings.GetValue<bool>("TelemetryExperienceProgram").Value;
             bool previous = _telemetry.Consent;
             _telemetry.Consent = consent;
             if (!consent) _consent.Cancel();

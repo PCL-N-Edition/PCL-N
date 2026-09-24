@@ -43,6 +43,7 @@ internal static partial class Program
                 scene = shell.Render(new(760, 500));
                 AssertTrue(FindByKey(shell, scene, "SetupSummary").Text!.Contains("共享基本使用数据", StringComparison.Ordinal));
                 var next = FindByKey(shell, scene, "SetupNext");
+                AssertEqual(XsrUiTextAlignment.Center, shell.Tree.GetComponent<XsrUiVisualStyle>(next.Entity)!.TextAlignment);
                 AssertTrue(next.Rect.Y + next.Rect.Height <= 500);
                 AssertFalse(File.Exists(locator));
                 if (finish)

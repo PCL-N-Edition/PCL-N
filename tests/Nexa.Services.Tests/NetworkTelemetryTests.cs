@@ -10,6 +10,24 @@ namespace Nexa.Services.Tests;
 // consent-gated buffering with bounded eviction, and flush semantics through a transport port.
 internal static partial class Program
 {
+    private static ValueTask PrereleaseTelemetryCannotBeDisabled()
+    {
+        foreach (string version in new[] { "2.0.0.alpha.4+abc", "2.0.0.beta.1", "2.0.0.ci.abcdef", "2.0.0" })
+        {
+            var schema = Nexa.Services.Settings.LauncherDefaults.CreateSchema();
+            var builder = new XsrStateStoreBuilder();
+            Nexa.Services.Settings.SettingsService.DeclareState(builder, schema);
+            var settings = new Nexa.Services.Settings.SettingsService(builder.Build(), schema, new Nexa.Services.Settings.InMemorySettingsPort());
+            var telemetry = CreateTelemetryService();
+            using var session = new LauncherTelemetrySession(telemetry, settings, new RecordingTransport(), CreateLogService(), version);
+            AssertEqual(version != "2.0.0", telemetry.Consent);
+            settings.SetValue("TelemetryExperienceProgram", true);
+            settings.SetValue("TelemetryExperienceProgram", false);
+            AssertEqual(version != "2.0.0", telemetry.Consent);
+        }
+        return ValueTask.CompletedTask;
+    }
+
     private sealed class DictionaryHandler : HttpMessageHandler
     {
         private readonly Dictionary<string, HttpStatusCode> _codes = new(StringComparer.Ordinal);

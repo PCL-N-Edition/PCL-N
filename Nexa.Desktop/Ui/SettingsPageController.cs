@@ -76,11 +76,12 @@ internal sealed partial class SettingsPageController : IDisposable
 
     internal XsrUiEntityId Page { get; }
     internal string SelectedSection => _selected;
+    internal bool TelemetryRequired { get; set; }
 
     private void OnIntent(object? sender, DesktopUiIntentEventArgs args)
     {
         if (_shell.Stage.Navigation.Current != Page) return;
-        if (args.Intent.Command == Inherit || args.Intent.Command == Select || args.Intent.Command == Edit || args.Intent.Command == Choice || args.Intent.Command == ArgumentAdd || args.Intent.Command == ArgumentRemove || args.Intent.Command == RefreshPlatform) _pending.Enqueue(args.Intent);
+        if (IsUpdateIntent(args.Intent.Command) || args.Intent.Command == Inherit || args.Intent.Command == Select || args.Intent.Command == Edit || args.Intent.Command == Choice || args.Intent.Command == ArgumentAdd || args.Intent.Command == ArgumentRemove || args.Intent.Command == RefreshPlatform) _pending.Enqueue(args.Intent);
         else if (args.Intent.Command == RemediationExecuted) OnPlatformRemediation(sender, args);
     }
     private void OnFrame(object? sender, EventArgs args)
@@ -96,6 +97,7 @@ internal sealed partial class SettingsPageController : IDisposable
             _shell.Tree.MarkDirty(_shell.Content, XsrUiDirtyKinds.Layout);
         }
         if (!visible) return;
+        UpdateReleaseCheck();
         string? instance = _instanceDirectory?.Invoke();
         if (_instanceDirectory is not null && string.IsNullOrWhiteSpace(instance)) return;
         if (instance != _instance)
@@ -133,6 +135,7 @@ internal sealed partial class SettingsPageController : IDisposable
         }
         while (_pending.TryDequeue(out var intent))
         {
+            if (IsUpdateIntent(intent.Command)) { HandleUpdateIntent(intent.Command); continue; }
             if (intent.Command == Inherit && _inheritButtons.TryGetValue(intent.Source, out var inheritKey)
                 && _writing is null && _commands.TryResolve(SettingsPolicyContract.SetCommand, out var inheritRoute))
             {
@@ -180,9 +183,9 @@ internal sealed partial class SettingsPageController : IDisposable
     {
         foreach (var page in Pages)
         {
-            var body = Stack(_pager, "SettingsSections", XsrUiOrientation.Vertical, 14);
+            var body = Stack(_pager, "SettingsSections", XsrUiOrientation.Vertical, 22);
             var layout = _shell.Tree.GetComponent<XsrUiElement>(body)!;
-            layout.VerticalAlignment = XsrUiAlignment.Stretch; layout.Padding = new(0, 4, 0, 12);
+            layout.VerticalAlignment = XsrUiAlignment.Stretch; layout.Padding = new(0, 12, 0, 24);
             _shell.Tree.SetComponent(body, new XsrUiScroll { ShowsVerticalIndicator = true });
             _shell.Tree.SetComponent(body, new XsrUiScrollGesture());
             _shell.Tree.SetComponent(body, new XsrUiTransition { Key = page.Id, MovesSelf = true });
@@ -220,15 +223,17 @@ internal sealed partial class SettingsPageController : IDisposable
         foreach (var child in _shell.Tree.Children(_sections).ToArray()) _shell.Tree.Destroy(child);
         _editors.Clear(); _inheritButtons.Clear(); _selectors.Clear(); _argumentEditors.Clear(); _argumentActions.Clear(); _choices.Clear();
         if (_selected == "platform") { BuildPlatformCapabilities(); return; }
+        if (_selected == "advanced") BuildUpdateCard();
         var entries = _catalog!.Entries.Where(item => item.Scope == "global" && item.Page == _selected && (_instanceDirectory is null || item.Definition?.InstanceOverride == true) && !item.IsRuntimeDetail && (_developer || !item.DeveloperOnly)).ToArray();
         foreach (var section in entries.GroupBy(item => (Section: item.DeveloperOnly ? "开发者" : item.Section, item.DeveloperOnly)))
         {
-            var group = Stack(_sections, "SettingsGroup." + section.First().Id, XsrUiOrientation.Vertical, 5);
-            Text(group, DisplayLabel(section.Key.Section), 12, Muted, height: 24, weight: 600);
+            var group = Stack(_sections, "SettingsGroup." + section.First().Id, XsrUiOrientation.Vertical, 8);
+            var heading = Text(group, DisplayLabel(section.Key.Section), 14, Ink, height: 28, weight: 600);
+            _shell.Tree.GetComponent<XsrUiElement>(heading)!.Padding = new(20, 0, 20, 0);
             var card = Stack(group, "SettingsCard." + section.First().Id, XsrUiOrientation.Vertical, 0);
-            Style(card, White, Ink, 16);
+            Style(card, White, Ink, 18);
             var cardContent = Stack(card, "SettingsCardContent", XsrUiOrientation.Vertical, 0);
-            _shell.Tree.GetComponent<XsrUiElement>(cardContent)!.Padding = new(16, 4, 16, 4);
+            _shell.Tree.GetComponent<XsrUiElement>(cardContent)!.Padding = new(20, 4, 20, 4);
             var rows = section.Where(item => item.Kind is SettingsCatalogEntryKind.Setting or SettingsCatalogEntryKind.Action or SettingsCatalogEntryKind.State).ToArray();
             if (_selected == "java" && section.Key.Section == "已安装 Java") rows = [section.First(item => item.Label == "Runtime List")];
             // A reserved group still has a concrete final-location row, not a placeholder page.
@@ -259,18 +264,29 @@ internal sealed partial class SettingsPageController : IDisposable
 
     private void BuildRow(XsrUiEntityId parent, SettingsCatalogEntry entry)
     {
-        var row = Stack(parent, "SettingsRow." + entry.Id, XsrUiOrientation.Horizontal, 10);
-        _shell.Tree.GetComponent<XsrUiElement>(row)!.MinHeight = 56;
-        _shell.Tree.GetComponent<XsrUiElement>(row)!.Padding = new(0, 8, 0, 8);
-        var label = Text(row, DisplayLabel(entry.Label), 14, Ink, height: 40, weight: 500);
+        var row = Stack(parent, "SettingsRow." + entry.Id, XsrUiOrientation.Horizontal, 16);
+        _shell.Tree.GetComponent<XsrUiElement>(row)!.MinHeight = 64;
+        _shell.Tree.GetComponent<XsrUiElement>(row)!.Padding = new(0, 14, 0, 14);
+        var label = Stack(row, "SettingsLabel." + entry.Id, XsrUiOrientation.Vertical, 3);
         _shell.Tree.GetComponent<XsrUiElement>(label)!.Weight = 1;
+        Text(label, DisplayLabel(entry.Label), 14, Ink, height: 22, weight: 500);
+        if (SettingHint(entry.SettingKey) is { } hint)
+        {
+            var description = Text(label, hint, 11, Muted, height: 18);
+            _shell.Tree.GetComponent<XsrUiSemantic>(description)!.Label = hint;
+        }
         bool enabled = entry.Availability == SettingsCapabilityAvailability.Available && entry.Definition is not null;
+        if (entry.SettingKey == "diagnostics.telemetry" && TelemetryRequired)
+        {
+            Text(row, "测试版本必须启用", 12, Muted, height: 34);
+            return;
+        }
         if (!enabled)
         {
             var unavailable = Text(row, "尚未可用", 11, Muted, height: 28);
             var layout = _shell.Tree.GetComponent<XsrUiElement>(unavailable)!;
             layout.Width = 76; layout.VerticalAlignment = XsrUiAlignment.Center;
-            Style(unavailable, new(245, 247, 250), Muted, 6, 11);
+            Style(unavailable, new(245, 246, 248), Muted, 8, 11);
             _shell.Tree.GetComponent<XsrUiVisualStyle>(unavailable)!.TextAlignment = XsrUiTextAlignment.Center;
             _shell.Tree.GetComponent<XsrUiSemantic>(unavailable)!.Label = entry.Label + "，尚未可用";
             return;
@@ -293,15 +309,23 @@ internal sealed partial class SettingsPageController : IDisposable
         XsrUiEntityId input = default;
         if (definition.Kind is SettingsValueKind.Number or SettingsValueKind.Text or SettingsValueKind.Path)
         {
-            input = Element(row, "SettingsInput." + entry.SettingKey, XsrUiSemanticRole.TextInput, entry.Label, width: 176, height: 30);
+            input = Element(row, "SettingsInput." + entry.SettingKey, XsrUiSemanticRole.TextInput, entry.Label, width: 184, height: 34);
             _shell.Tree.SetComponent(input, new XsrUiTextInput { Placeholder = entry.Label });
             _shell.Tree.SetComponent(input, new XsrUiInput { Focusable = true, Clickable = true });
-            Style(input, new(244, 247, 251), Ink, 7, 12);
-            _shell.Tree.GetComponent<XsrUiElement>(input)!.Padding = new(8, 0, 8, 0);
+            Style(input, new(245, 246, 248), Ink, 9, 13);
+            _shell.Tree.GetComponent<XsrUiElement>(input)!.Padding = new(10, 0, 10, 0);
         }
         var button = ActionButton(row, "SettingsEdit." + entry.SettingKey, "应用", Edit, 44);
         _editors[button] = new(entry, input, button, default);
     }
+
+    private static string? SettingHint(string? key) => key switch
+    {
+        "game.jvm" => "每行一个参数，应用后用于下次启动。",
+        "game.arguments" => "传递给 Minecraft 的额外启动参数。",
+        "appearance.animations-disabled" => "减少界面切换和展开时的动态效果。",
+        _ => null,
+    };
 
     private void UpdateEditors()
     {
@@ -417,6 +441,6 @@ internal sealed partial class SettingsPageController : IDisposable
     };
     public void Dispose()
     {
-        _disposed = true; _intents.IntentEmitted -= OnIntent; _shell.Renderer.FramePreparing -= OnFrame;
+        _disposed = true; _updateStop.Cancel(); _intents.IntentEmitted -= OnIntent; _shell.Renderer.FramePreparing -= OnFrame;
     }
 }
