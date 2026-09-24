@@ -322,6 +322,7 @@ public sealed class AvaloniaUiShellWindow : Window
                 {
                     scale.ScaleX = value;
                     scale.ScaleY = value;
+                    ApplyNativeShape();
                 },
                 1.12,
                 AvaloniaMotionTokens.IconBounceMilliseconds,
@@ -331,6 +332,7 @@ public sealed class AvaloniaUiShellWindow : Window
                     {
                         scale.ScaleX = value;
                         scale.ScaleY = value;
+                        ApplyNativeShape();
                     },
                     0,
                     AvaloniaMotionTokens.IconCollapseMilliseconds,
@@ -350,7 +352,17 @@ public sealed class AvaloniaUiShellWindow : Window
     {
         // The circular reveal clips scene content, not the system's outside shadow.
         _awaitingFirstSceneCommit = false;
+        double? presentedRadius = _revealMask?.RadiusX;
+        double presentedIconScale = _startupIcon is not null ? _startupIconScale?.ScaleX ?? 0 : 0;
         AvaloniaUiMotion.Cancel(this, "startup-reveal");
+        AvaloniaUiMotion.Cancel(this, ("startup-icon", "up"));
+        AvaloniaUiMotion.Cancel(this, ("startup-icon", "down"));
+        if (_startupIcon is not null)
+        {
+            _root.Children.Remove(_startupIcon);
+            _startupIcon = null;
+        }
+        _closeIconScale = new ScaleTransform(presentedIconScale, presentedIconScale);
         TransparencyLevelHint = [WindowTransparencyLevel.None];
         _shadowSurface.IsVisible = false;
         _shadowSurface.BoxShadow = default;
@@ -370,8 +382,8 @@ public sealed class AvaloniaUiShellWindow : Window
         EllipseGeometry mask = new()
         {
             Center = center,
-            RadiusX = fullRadius,
-            RadiusY = fullRadius,
+            RadiusX = presentedRadius ?? fullRadius,
+            RadiusY = presentedRadius ?? fullRadius,
         };
         _revealMask = mask;
         _maskedContent.Clip = mask;
@@ -396,6 +408,7 @@ public sealed class AvaloniaUiShellWindow : Window
                     {
                         _closeIconScale.ScaleX = value;
                         _closeIconScale.ScaleY = value;
+                        ApplyNativeShape();
                     }
                 },
                 0,
@@ -403,8 +416,8 @@ public sealed class AvaloniaUiShellWindow : Window
                 AvaloniaUiMotion.EaseIn,
                 completed: () =>
                 {
-                    _maskedContent.Clip = null;
-                    _revealMask = null;
+                    // Keep the zero-radius mask until native destruction; restoring the
+                    // full region here flashes the window for one final compositor frame.
                     Close();
                 },
                 reducedMotion: () => _shell.Renderer.ReducedMotion);
@@ -429,7 +442,6 @@ public sealed class AvaloniaUiShellWindow : Window
 
         if (_closeIcon is not null)
         {
-            _closeIconScale = new ScaleTransform(0, 0);
             Image iconOverlay = new()
             {
                 Source = _closeIcon,
@@ -448,6 +460,7 @@ public sealed class AvaloniaUiShellWindow : Window
                 {
                     scale.ScaleX = value;
                     scale.ScaleY = value;
+                    ApplyNativeShape();
                 },
                 1.12,
                 AvaloniaMotionTokens.CloseCollapseMilliseconds / 2,
@@ -457,6 +470,7 @@ public sealed class AvaloniaUiShellWindow : Window
                     {
                         scale.ScaleX = value;
                         scale.ScaleY = value;
+                        ApplyNativeShape();
                     },
                     1,
                     AvaloniaMotionTokens.CloseCollapseMilliseconds / 2,
@@ -578,7 +592,8 @@ public sealed class AvaloniaUiShellWindow : Window
         this,
         ChromeCornerRadius,
         _revealMask?.RadiusX,
-        _revealMask is null ? null : CloseIconSize * .56);
+        _revealMask is null ? null : _closeIcon is null ? 0 : CloseIconSize * .56
+            * (_closeAnimationStarted ? _closeIconScale?.ScaleX ?? 0 : _startupIconScale?.ScaleX ?? 1));
 
     private void OnMaximizeRequested(object? sender, EventArgs e) => ToggleMaximized();
 

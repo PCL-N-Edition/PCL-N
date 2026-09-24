@@ -41,6 +41,11 @@ internal static partial class Program
                         window.WindowState = WindowState.Normal;
                         await Task.Delay(200);
                         VerifyClientCorners(window);
+                        AvaloniaWindowsFrame.ApplyCornerRadius(window, 24, 0, 0);
+                        nint empty = CreateRectRgn(0, 0, 0, 0);
+                        try { int kind = GetWindowRgn(window.TryGetPlatformHandle()!.Handle, empty); Console.WriteLine($"zero region kind={kind}"); AssertTrue(kind == 1); }
+                        finally { _ = DeleteObject(empty); }
+                        Console.WriteLine("PASS: zero reveal and icon leave an empty native window region");
                         Console.WriteLine("PASS: all four client corners, edge centers, resize and maximize/restore");
                         desktop.Shutdown(0);
                     }

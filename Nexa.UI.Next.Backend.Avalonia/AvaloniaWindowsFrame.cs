@@ -64,12 +64,12 @@ internal static partial class AvaloniaWindowsFrame
                 // the scene. Keep only a small disk behind the product icon when the content
                 // radius reaches zero; the icon remains visible while the window body is gone.
                 int cx = (left + right) / 2, cy = (top + bottom) / 2;
-                int visibleRadius = Math.Max(1, reveal);
-                region = CreateEllipticRgn(
+                int visibleRadius = Math.Max(0, reveal);
+                region = visibleRadius == 0 ? CreateRectRgn(0, 0, 0, 0) : CreateEllipticRgn(
                     cx - visibleRadius,
                     cy - visibleRadius,
-                    cx + visibleRadius + 1,
-                    cy + visibleRadius + 1);
+                    cx + visibleRadius,
+                    cy + visibleRadius);
                 if (region != 0 && keepAlive > visibleRadius)
                 {
                     nint icon = CreateEllipticRgn(
@@ -94,6 +94,8 @@ internal static partial class AvaloniaWindowsFrame
 
     [LibraryImport("user32.dll")]
     private static partial int GetWindowRect(nint window, out NativeRect rectangle);
+    [LibraryImport("gdi32.dll")]
+    private static partial nint CreateRectRgn(int left, int top, int right, int bottom);
     [LibraryImport("gdi32.dll")]
     private static partial nint CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
     [LibraryImport("gdi32.dll")]
