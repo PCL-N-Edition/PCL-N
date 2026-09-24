@@ -160,6 +160,28 @@ public sealed class CommunityFavoritesStore
         });
     }
 
+    public int AddRange(
+        IEnumerable<CommunityResourceEntry> entries,
+        CommunityResourceCategory category,
+        string folderId)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        CommunityResourceEntry[] snapshot = entries.ToArray();
+        return ApplyMutation(document =>
+        {
+            CommunityFavoriteFolderData folder = ResolveFolder(document, folderId);
+            int added = 0;
+            foreach (CommunityResourceEntry entry in snapshot)
+            {
+                if (folder.Items.Any(item => IsSameProject(item.Entry, entry)))
+                    continue;
+                folder.Items.Add(new CommunityFavoriteEntry(entry, category, DateTimeOffset.UtcNow));
+                added++;
+            }
+            return new MutationResult<int>(added > 0, added);
+        });
+    }
+
     public bool SelectFolder(string folderId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(folderId);

@@ -400,6 +400,7 @@ public partial class PageInstanceResourceRight : MyPageRight
         WireButton("BtnHintInstall", () => _ = InstallFromFilesAsync());
         WireButton("BtnManageSelectAll", ToggleAllSelected);
         WireIconTextButton("BtnSelectUpdate", () => _ = UpdateSelectedAsync());
+        WireIconTextButton("BtnSelectFavorite", AddSelectedToFavorites);
         WireIconTextButton("BtnSelectEnable", () => _ = SetSelectedEnabledAsync(enable: true));
         WireIconTextButton("BtnSelectDisable", () => _ = SetSelectedEnabledAsync(enable: false));
         WireIconTextButton("BtnSelectDelete", () => _ = DeleteSelectedAsync());
@@ -1642,6 +1643,42 @@ public partial class PageInstanceResourceRight : MyPageRight
     {
         int showingCount = GetShowingEntries().Count;
         ChangeAllSelected(_selectedPaths.Count < showingCount);
+    }
+
+    private void AddSelectedToFavorites()
+    {
+        CommunityResourceEntry[] projects = _selectedPaths
+            .Where(path => _catalogByPath.ContainsKey(path))
+            .Select(path => _catalogByPath[path].Project).ToArray();
+        if (projects.Length == 0 || this.FindControl<MyIconTextButton>("BtnSelectFavorite") is not { } button)
+        {
+            StatusMessage?.Invoke(this, "所选文件尚未识别到资源站项目，请等待识别完成后再收藏。");
+            return;
+        }
+        int skipped = _selectedPaths.Count - projects.Length;
+        CommunityResourceCategory category = CommunityCategoryForKind(_kind);
+        CommunityFavoritesStore store = new();
+        ContextMenu menu = new();
+        foreach (CommunityFavoriteFolder folder in store.Folders)
+        {
+            MenuItem item = new() { Header = $"添加到“{folder.Name}”" };
+            item.Click += (_, _) =>
+            {
+                try
+                {
+                    int added = store.AddRange(projects, category, folder.Id);
+                    StatusMessage?.Invoke(this, $"已收藏 {added} 个项目，已有收藏保持不变。" +
+                        (skipped > 0 ? $"另有 {skipped} 个文件尚未识别，已跳过。" : ""));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    StatusMessage?.Invoke(this, "保存收藏失败：" + ex.Message);
+                }
+            };
+            menu.Items.Add(item);
+        }
+        button.ContextMenu = menu;
+        menu.Open(button);
     }
 
     private void UpdateSelectionBar()
