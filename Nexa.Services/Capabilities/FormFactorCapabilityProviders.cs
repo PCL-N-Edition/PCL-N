@@ -181,12 +181,13 @@ public sealed class FormFactorCapabilityProvider(Func<bool>? batteryPresent = nu
 
     private static bool DefaultTouchProbe() =>
         OperatingSystem.IsWindows()
-            ? GetSystemMetrics(SmDigitizer) != 0
+            ? WindowsInputProbe.HasTouch(GetSystemMetrics(SmDigitizer))
             : OperatingSystem.IsLinux() && File.Exists("/proc/bus/input/devices")
                 && File.ReadAllText("/proc/bus/input/devices").Contains("Touchscreen", StringComparison.OrdinalIgnoreCase);
 
     private static bool DefaultKeyboardProbe() => OperatingSystem.IsWindows()
-        || OperatingSystem.IsLinux() && (Environment.GetEnvironmentVariable("DISPLAY") is not null
+        ? WindowsInputProbe.KeyboardPresent() != false
+        : OperatingSystem.IsLinux() && (Environment.GetEnvironmentVariable("DISPLAY") is not null
             || Environment.GetEnvironmentVariable("WAYLAND_DISPLAY") is not null);
 
     private static bool DefaultControllerProbe()
@@ -272,11 +273,8 @@ public sealed class InputCapabilityProvider(InputUsageTracker? usage = null) : I
         const string source = "Windows GetSystemMetrics / XInput";
         const int SmDigitizer = 0x2004;
         const int SmMousePresent = 0x13;
-        const int NidiReady = 0x1;
-        const int NidiMultiInput = 0x40;
-        const int NidiIntegratedTouch = 0x8;
-        const int NidiIntegratedPen = 0x4;
         int digitizer = GetSystemMetrics(SmDigitizer);
+        bool? keyboard = WindowsInputProbe.KeyboardPresent();
         List<(string Name, bool Haptics)> controllers = ReadXInputControllers();
         IReadOnlyList<InputDeviceFeature> gyroscopes = Array.AsReadOnly(controllers
             .Select(static controller => new InputDeviceFeature(controller.Name, false)).ToArray());
@@ -284,10 +282,12 @@ public sealed class InputCapabilityProvider(InputUsageTracker? usage = null) : I
             .Select(static controller => new InputDeviceFeature(controller.Name, controller.Haptics)).ToArray());
         return Array.AsReadOnly(new ICapability[]
         {
-            InputCatalog.InputKeyboardAvailable.Observe(true, timestamp, source + "（Windows 会话提供键盘输入）"),
+            keyboard is { } present
+                ? InputCatalog.InputKeyboardAvailable.Observe(present, timestamp, "Windows Raw Input 设备列表")
+                : InputCatalog.InputKeyboardAvailable.Unavailable(CapabilityAvailability.TemporarilyUnavailable, timestamp, "无法读取 Windows 键盘设备列表"),
             InputCatalog.InputMouseAvailable.Observe(GetSystemMetrics(SmMousePresent) != 0, timestamp, source),
-            InputCatalog.InputTouchAvailable.Observe((digitizer & NidiReady) != 0 && (digitizer & (NidiIntegratedTouch | NidiMultiInput)) != 0, timestamp, source),
-            InputCatalog.InputPenAvailable.Observe((digitizer & NidiReady) != 0 && (digitizer & NidiIntegratedPen) != 0, timestamp, source),
+            InputCatalog.InputTouchAvailable.Observe(WindowsInputProbe.HasTouch(digitizer), timestamp, source),
+            InputCatalog.InputPenAvailable.Observe(WindowsInputProbe.HasPen(digitizer), timestamp, source),
             InputCatalog.InputControllerCount.Observe(controllers.Count, timestamp, source),
             InputCatalog.InputControllerAvailable.Observe(controllers.Count > 0, timestamp, source),
             InputCatalog.InputGyroscopeAvailable.Observe(false, timestamp, source + "（XInput 不公开陀螺仪通道）"),

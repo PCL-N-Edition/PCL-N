@@ -14,6 +14,18 @@ namespace Nexa.Services.Tests;
 // cross-provider facts with honest DependencyMissing when inputs are gone.
 internal static partial class Program
 {
+    private static void WindowsDigitizerFlagsDistinguishTouchAndPen()
+    {
+        AssertTrue(WindowsInputProbe.HasTouch(0x81), "Integrated touch must be detected.");
+        AssertTrue(WindowsInputProbe.HasTouch(0x82), "External touch must be detected.");
+        AssertTrue(!WindowsInputProbe.HasTouch(0xc0), "Multi-input alone is not touch.");
+        AssertTrue(!WindowsInputProbe.HasTouch(0x01), "Unready digitizer is not available.");
+        AssertTrue(!WindowsInputProbe.HasTouch(0x88), "External pen is not touch.");
+        AssertTrue(WindowsInputProbe.HasPen(0x84), "Integrated pen must be detected.");
+        AssertTrue(WindowsInputProbe.HasPen(0x88), "External pen must be detected.");
+        AssertTrue(!WindowsInputProbe.HasPen(0x81), "Touch is not pen.");
+    }
+
     private static async ValueTask EnvironmentProjectionsAnswerForThePrimaryInstance()
     {
         string root = Path.Combine(Path.GetTempPath(), "nexa-cap-proj", Guid.NewGuid().ToString("N"));
