@@ -106,10 +106,7 @@ public sealed class LaunchLoginSurface
                 break;
 
             case PageLaunchLeft.LaunchLoginPageType.NCloud:
-                launchPage.SetLoginPage(
-                    EnsureNCloudLoginPage(launchPage),
-                    animate: true,
-                    PageLaunchLeft.LaunchLoginPageType.NCloud);
+                launchPage.RefreshPage(anim: true, PageLaunchLeft.LaunchLoginPageType.Profile);
                 break;
 
             case PageLaunchLeft.LaunchLoginPageType.Auth:

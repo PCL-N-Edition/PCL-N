@@ -33,6 +33,9 @@ namespace PCL.Desktop.Views;
 
 public partial class MainWindow
 {
+    // Retired game identities stay in the profile file for export/rollback, but
+    // must not be offered as playable accounts or lost on the next profile save.
+    private readonly List<LaunchProfile> _retiredNCloudProfiles = [];
     private readonly object _profileSaveQueueLock = new();
     private Task _profileSaveQueue = Task.CompletedTask;
     private bool _profileSaveDrainRequested;
@@ -808,14 +811,6 @@ public partial class MainWindow
 
     private void ShowProfileTypeSelector(ILaunchHomeSurface launchPage)
     {
-        // Offline is always available. N Cloud is single-account: hide when a
-        // profile already exists; only offer when online service is signed in.
-        bool hasNCloudProfile = _loginProfiles.Any(
-            static profile => profile.Kind == LaunchLoginProfileKind.NCloud);
-        bool offerNCloud =
-            !hasNCloudProfile &&
-            HostOnlineMinecraftAccountProvider.Current?.IsAuthenticated == true;
-
         List<MyListItem> items =
         [
             CreateProfileTypeItem(
@@ -842,15 +837,6 @@ public partial class MainWindow
             PageLaunchLeft.LaunchLoginPageType.Auth,
             PageLaunchLeft.LaunchLoginPageType.Offline
         ];
-
-        if (offerNCloud)
-        {
-            items.Add(CreateProfileTypeItem(
-                "N Cloud 在线账户",
-                "使用已登录的在线服务账户；每个启动器仅支持一个 N Cloud 档案。",
-                "lucide/cloud"));
-            targets.Add(PageLaunchLeft.LaunchLoginPageType.NCloud);
-        }
 
         MyMsgSelect dialog = new();
         dialog.Configure("选择账户类型", items);
@@ -1408,8 +1394,16 @@ public partial class MainWindow
             using LaunchProfileStore store = new(sourcePath);
             LaunchProfileLoadResult result = await store.LoadAsync().ConfigureAwait(true);
             List<LoginProfileInfo> imported = result.Profiles.Profiles
+                .Where(static profile => profile.Kind != LaunchProfileKind.NCloud)
                 .Select(ToLoginProfileInfo)
                 .ToList();
+            foreach (LaunchProfile retired in result.Profiles.Profiles.Where(
+                         static profile => profile.Kind == LaunchProfileKind.NCloud))
+            {
+                if (_retiredNCloudProfiles.All(existing => !string.Equals(
+                        existing.Uuid, retired.Uuid, StringComparison.OrdinalIgnoreCase)))
+                    _retiredNCloudProfiles.Add(retired);
+            }
             int added = 0;
             int updated = 0;
             foreach (LoginProfileInfo profile in imported)
@@ -1457,7 +1451,9 @@ public partial class MainWindow
             await store.SaveAsync(
                     new LaunchProfileSet
                     {
-                        Profiles = _loginProfiles.Select(ToLaunchProfile).ToArray()
+                        Profiles = _loginProfiles.Select(ToLaunchProfile)
+                            .Concat(_retiredNCloudProfiles)
+                            .ToArray()
                     })
                 .ConfigureAwait(true);
             string folder = Path.GetDirectoryName(Path.GetFullPath(targetPath))
@@ -1482,24 +1478,12 @@ public partial class MainWindow
             using LaunchProfileStore store = CreateLaunchProfileStore();
             LaunchProfileLoadResult result = await store.LoadAsync().ConfigureAwait(false);
             List<LoginProfileInfo> profiles = result.Profiles.Profiles
+                .Where(static profile => profile.Kind != LaunchProfileKind.NCloud)
                 .Select(ToLoginProfileInfo)
                 .ToList();
-            bool migratedNCloudEndpoint = result.Profiles.Profiles
-                .Zip(profiles)
-                .Any(pair =>
-                    pair.First.Kind == LaunchProfileKind.NCloud &&
-                    !string.Equals(
-                        pair.First.AuthServer,
-                        pair.Second.AuthServer,
-                        StringComparison.OrdinalIgnoreCase));
-            if (migratedNCloudEndpoint)
-            {
-                await store.SaveAsync(new LaunchProfileSet
-                    {
-                        Profiles = profiles.Select(ToLaunchProfile).ToArray()
-                    })
-                    .ConfigureAwait(false);
-            }
+            _retiredNCloudProfiles.Clear();
+            _retiredNCloudProfiles.AddRange(result.Profiles.Profiles.Where(
+                static profile => profile.Kind == LaunchProfileKind.NCloud));
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 _loginProfiles.Clear();
@@ -1508,8 +1492,8 @@ public partial class MainWindow
                 _launchLeft?.SetSelectedProfilePresent(_loginProfiles.Count > 0);
                 if (result.WasRecovered)
                     _launchRight?.AppendLog($"账户档案配置已重置，损坏文件已备份到：{result.BackupPath}");
-                if (migratedNCloudEndpoint)
-                    _launchRight?.AppendLog("已自动迁移旧版 N Cloud 认证服务器地址。");
+                if (_retiredNCloudProfiles.Count > 0)
+                    _launchRight?.AppendLog("N Cloud 游戏档案已停用，原始数据仍保留在账户档案文件中。");
             });
 
             LoginProfileInfo? microsoftProfile = profiles.FirstOrDefault(static profile =>
@@ -1551,7 +1535,9 @@ public partial class MainWindow
     {
         LaunchProfileSet snapshot = new()
         {
-            Profiles = _loginProfiles.Select(ToLaunchProfile).ToArray()
+            Profiles = _loginProfiles.Select(ToLaunchProfile)
+                .Concat(_retiredNCloudProfiles)
+                .ToArray()
         };
 
         lock (_profileSaveQueueLock)
@@ -1561,90 +1547,14 @@ public partial class MainWindow
         }
     }
 
-    private async Task StartNCloudLoginAsync(
+    private Task StartNCloudLoginAsync(
         PageLoginNCloud page,
         ILaunchHomeSurface launchPage)
     {
-        try
-        {
-            if (_loginProfiles.Any(static existing => existing.Kind == LaunchLoginProfileKind.NCloud))
-            {
-                throw new InvalidOperationException(
-                    "已存在 N Cloud 账户档案。每个启动器仅允许一个 N Cloud 账户；请先删除现有档案后再登录。");
-            }
-
-            await DesktopHost.EnsureOptionalRuntimeReadyAsync().ConfigureAwait(true);
-            IHostOnlineMinecraftAccountProvider? provider =
-                HostOnlineMinecraftAccountProvider.Current;
-            if (provider is null)
-            {
-                throw new InvalidOperationException(
-                    "插件侧车未就绪，无法创建 N Cloud 会话。请稍后重试或重启启动器。");
-            }
-
-            if (!provider.IsAuthenticated)
-            {
-                throw new InvalidOperationException(
-                    "当前没有已登录的 PCL N 在线服务账户，请先在「设置 → 在线 → 账户」中连接。");
-            }
-
-            _launchRight?.AppendLog("正在创建 N Cloud 在线会话。");
-            page.UpdateProgress(0.2d);
-            HostOnlineMinecraftSession session = await provider
-                .CreateSessionAsync()
-                .ConfigureAwait(true);
-            page.UpdateProgress(0.55d);
-
-            string authServer = MinecraftLaunchPlanFactory.ResolveNCloudAuthServer(session.AuthServer);
-            string? skinAddress = string.IsNullOrWhiteSpace(session.SkinAddress)
-                ? null
-                : session.SkinAddress.Trim();
-            LoginProfileInfo profile = new(
-                session.Username,
-                "N Cloud 在线账户",
-                LaunchLoginProfileKind.NCloud,
-                session.Uuid,
-                SvgIcon: "lucide/cloud",
-                SkinAddress: skinAddress,
-                AuthServer: authServer,
-                AccessToken: session.AccessToken,
-                ClientToken: session.ClientToken);
-
-            // Resolve skin/cape texture URLs from the Yggdrasil session profile.
-            MinecraftProfileTextures textures = await MinecraftProfileTextureResolver
-                .ResolveAsync(profile)
-                .ConfigureAwait(true);
-            if (!string.IsNullOrWhiteSpace(textures.SkinAddress) &&
-                !textures.SkinAddress.Contains(
-                    "/session/minecraft/profile/",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                profile = profile with { SkinAddress = textures.SkinAddress };
-            }
-
-            page.UpdateProgress(0.85d);
-            AddOrUpdateLoginProfile(profile);
-            _launchLoginSurface.ProfilePage?.SetProfiles(_loginProfiles, profile);
-            _launchLoginSurface.ProfileSkinPage?.SetProfile(profile);
-            launchPage.SetSelectedProfilePresent(true);
-            launchPage.RefreshPage(anim: true);
-            SaveProfilesInBackground("保存 N Cloud 在线档案");
-            page.UpdateProgress(1d);
-            _launchRight?.AppendLog($"N Cloud 登录成功，已选中档案 {profile.Username}。");
-            ShowTextDialog(
-                "登录成功",
-                $"已添加并选中 N Cloud 在线档案 {profile.Username}。",
-                "知道了");
-        }
-        catch (Exception exception)
-        {
-            _launchRight?.AppendLog("N Cloud 登录失败：" + exception.Message);
-            ShowTextDialog("N Cloud 登录失败", exception.Message, "知道了");
-        }
-        finally
-        {
-            page.FinishLogin();
-        }
+        _ = launchPage;
+        page.FinishLogin();
+        ShowTextDialog("N Cloud 已停用", "N Cloud 游戏档案服务已停止，请使用 Microsoft、LittleSkin、第三方或离线档案。", "知道了");
+        return Task.CompletedTask;
     }
 
     private async Task StartLittleSkinLoginAsync(

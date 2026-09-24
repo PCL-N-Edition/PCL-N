@@ -37,6 +37,9 @@ internal static class MinecraftLaunchPlanFactory
         InstanceMetadata? metadataOverride = null,
         string? serverAddress = null)
     {
+        if (profile.Kind == LaunchLoginProfileKind.NCloud)
+            throw new InvalidOperationException("N Cloud 游戏档案服务已停止，请选择其他登录方式。");
+
         InstanceMetadata metadata = metadataOverride ??
             await InstanceMetadataStore.LoadAsync(instance.InstanceDirectory, cancellationToken).ConfigureAwait(false);
         // Never hit settings store synchronously on the launch path (disk IO hitch).
