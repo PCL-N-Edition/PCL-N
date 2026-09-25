@@ -344,6 +344,10 @@ internal static class Program
         }
         rollouts.Start();
         using var onlineResourceModels = new Nexa.Services.Capabilities.OnlineWorkingSetModelSession(updateHttp, host.OnlineResourceModels);
+        var recoveryRoots = host.StateStore.Read<MinecraftLibrarySnapshot>(host.StateStore.Resolve(MinecraftLibraryService.StateKey)).Value?.Directories
+            .Select(directory => directory.Path).ToArray() ?? [minecraftRootDirectory];
+        using var installRecovery = new DesktopInstallRecoverySession(installRun.Commands, recoveryRoots,
+            message => host.Logging.Warn("Install", message));
         setStage("gui_lifetime");
         host.Logging.Info("Launcher", "Entering Avalonia GUI lifetime.");
         int exitCode;
@@ -353,6 +357,7 @@ internal static class Program
             telemetrySession?.Record("app.failure", "failed");
             throw;
         }
+        finally { installRecovery.Dispose(); }
         setStage("shutdown");
         host.Logging.Info("Launcher", $"GUI lifetime completed exit_code={exitCode}; releasing session resources.");
         session.Enter(XsrLifecyclePhase.Stopping);

@@ -10,6 +10,7 @@ internal static partial class Program
         ("persistent install metadata serializes publication and honors cancellation", PersistentInstallMetadataSerializesPublicationAndHonorsCancellation),
         ("install task terminal states do not resurrect", InstallTaskTerminalStatesDoNotResurrect),
         ("install task journal preserves choices and rejects invalid records", InstallTaskJournalPreservesChoicesAndRejectsInvalidRecords),
+        ("install recovery discovery isolates invalid tasks and honors disposition", InstallRecoveryDiscoveryIsolatesInvalidTasksAndHonorsDisposition),
         ("install recovery repairs committed terminal before rejecting rollback", InstallRecoveryRepairsCommittedTerminalBeforeRejectingRollback),
         ("install recovery continues preparation and rejects concurrent execution", InstallRecoveryContinuesPreparationAndRejectsConcurrentExecution),
         ("install publication survives process termination", InstallPublicationSurvivesProcessTermination),

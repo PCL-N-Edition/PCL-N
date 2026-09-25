@@ -22,7 +22,9 @@ public sealed partial class MinecraftInstallService
         var status = await InstallTaskJournal.ReadStatusAsync(stage, saved, token).ConfigureAwait(false);
         if (status is InstallTaskStatus.RollbackRequested or InstallTaskStatus.RolledBack)
             throw new InvalidOperationException("此任务已选择回滚，不能继续安装。");
-        using var task = _tasks.Begin(new("install-recovery:" + taskId.ToString("N"), "继续修改 " + saved.Command.InstanceName, StagePlan));
+        // Generic cancel would leave a resumable task and silently restart it next time.
+        // Expose user controls only through the forthcoming explicit pause/rollback flow.
+        using var task = _tasks.Begin(new("install-recovery:" + taskId.ToString("N"), "继续修改 " + saved.Command.InstanceName, StagePlan, CanCancel: false));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, task.CancellationToken);
         try
         {

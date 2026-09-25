@@ -39,6 +39,7 @@ public sealed record MinecraftInstallResult(string InstanceId, string InstanceDi
 public static class MinecraftInstallRoutes
 {
     public static readonly XsrSemanticId Run = XsrSemanticId.Parse("minecraft.install.run");
+    public static readonly XsrSemanticId Recover = XsrSemanticId.Parse("minecraft.install.recovery");
 }
 
 /// <summary>Resolves the remote version documents an install needs; tests inject in-memory fakes.</summary>
