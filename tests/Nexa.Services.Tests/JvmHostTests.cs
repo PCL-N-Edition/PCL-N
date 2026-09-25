@@ -6,6 +6,67 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask JvmBootstrapPreservesBoundaryAndRejectsMalformedFrames()
+    {
+        MinecraftLaunchPlan plan = new("java", "游戏目录", ["-cp", "earlier", "-Dtest=yes", "-cp", "final", "example.Main", "", "用户名", "--token", "fixture"],
+            ["final"], [], new MinecraftModLoaderDescriptor(MinecraftModLoaderKind.Vanilla, null, "example.Main", []))
+        { MainClassIndex = 5 };
+        JvmHostEnvironment environment = new JvmHostService(new MinecraftProcessService()).Describe(plan);
+        AssertEqual("example.Main", environment.MainClass!);
+        AssertEqual(5, environment.JvmArguments.Count);
+        using MemoryStream stream = new();
+        await JvmHostBootstrap.WriteAsync(stream, plan);
+        byte[] valid = stream.ToArray();
+        stream.Position = 0;
+        JvmHostBootstrapRequest request = await JvmHostBootstrap.ReadAsync(stream);
+        AssertEqual("游戏目录", request.WorkingDirectory);
+        AssertEqual("example.Main", request.MainClass);
+        AssertTrue(request.JvmArguments.SequenceEqual(plan.Arguments.Take(5)));
+        AssertTrue(request.GameArguments.SequenceEqual(plan.Arguments.Skip(6)));
+
+        for (int length = 0; length < valid.Length; length++)
+            await Reject(valid[..length]);
+        byte[] oversized = (byte[])valid.Clone();
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(oversized, int.MaxValue);
+        await Reject(oversized);
+        byte[] wrongVersion = (byte[])valid.Clone();
+        wrongVersion[8] = 99;
+        await Reject(wrongVersion);
+        byte[] invalidString = (byte[])valid.Clone();
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(invalidString.AsSpan(12), int.MaxValue);
+        await Reject(invalidString);
+        byte[] invalidUtf8 = (byte[])valid.Clone();
+        invalidUtf8[16] = 0xFF;
+        await Reject(invalidUtf8);
+        byte[] trailing = [.. valid, 42];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(trailing, trailing.Length - 4);
+        await Reject(trailing);
+        await RejectPlan(plan with { MainClassIndex = null });
+        await RejectPlan(plan with { Arguments = [new string('x', 1024 * 1024 + 1)], MainClassIndex = 0 });
+        await RejectPlan(plan with { Arguments = ["bad\0main"], MainClassIndex = 0 });
+        using CancellationTokenSource cancelled = new();
+        cancelled.Cancel();
+        try { await JvmHostBootstrap.ReadAsync(new MemoryStream(valid), cancelled.Token); throw new InvalidOperationException("Cancellation ignored."); }
+        catch (OperationCanceledException) { }
+
+        static async ValueTask Reject(byte[] bytes)
+        {
+            using MemoryStream input = new(bytes);
+            try { await JvmHostBootstrap.ReadAsync(input); }
+            catch (Exception exception) when (exception is InvalidDataException or EndOfStreamException or System.Text.DecoderFallbackException) { return; }
+            throw new InvalidOperationException("Malformed bootstrap accepted.");
+        }
+
+        static async ValueTask RejectPlan(MinecraftLaunchPlan invalid)
+        {
+            using MemoryStream output = new();
+            try { await JvmHostBootstrap.WriteAsync(output, invalid); }
+            catch (Exception exception) when (exception is InvalidDataException or ArgumentException)
+            { AssertEqual(0L, output.Length); return; }
+            throw new InvalidOperationException("Invalid plan accepted.");
+        }
+    }
+
     private static void JvmHostDescribesTheProcessBoundary()
     {
         MinecraftLaunchPlan plan = new("java", "root", ["-Xmx2g", "-cp", "a;b", "example.Main", "--demo"],

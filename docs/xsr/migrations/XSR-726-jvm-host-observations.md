@@ -21,6 +21,18 @@ process-tree termination and crash analysis.
 
 ## Compatibility
 
+The planner records an explicit main-class index in the final argument vector. Host requests
+must use this boundary rather than infer it from a classpath option (which can occur earlier
+in manifest/custom JVM arguments). Legacy hand-built plans remain valid for subprocess launch,
+but cannot be exported to an isolated host without this explicit boundary.
+
+The isolated-host bootstrap contract is a versioned, length-prefixed binary frame over a private
+stdin pipe, never a JSON request file or command-line credential payload. Strict UTF-8, a 4 MiB
+frame budget, a 1 MiB string budget and 16,384 arguments per vector apply before allocation.
+Truncated, oversized, unknown-version and trailing data are rejected. This is a one-time child
+bootstrap, not synchronous Sidecar dispatch. The codec alone does not enable JNI execution;
+the existing subprocess executor remains active until the native host is validated.
+
 `MinecraftLaunchExecutor(MinecraftProcessService, ...)` remains available and wraps the process
 service in `JvmHostService`. A second constructor accepts `IJvmHost` for contract tests and future
 platform hosts. Process state composition declares observation state alongside the existing

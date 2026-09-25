@@ -14,7 +14,10 @@ public sealed record JvmHostEnvironment(
     IReadOnlyList<string> GameArguments,
     IReadOnlyList<string> Classpath,
     string NativePath,
-    string? Wrapper);
+    string? Wrapper)
+{
+    public string? MainClass { get; init; }
+}
 
 public sealed record JvmHostObservation(
     Guid SessionId,
@@ -95,11 +98,15 @@ public sealed class JvmHostService : IJvmHost
     public JvmHostEnvironment Describe(MinecraftLaunchPlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        int mainClass = FindMainClass(plan.Arguments);
+        int mainClass = plan.MainClassIndex ?? FindMainClass(plan.Arguments);
+        if (mainClass < 0 || mainClass > plan.Arguments.Count
+            || (plan.MainClassIndex.HasValue && mainClass == plan.Arguments.Count))
+            throw new ArgumentException("Invalid main-class boundary.", nameof(plan));
         string[] jvm = plan.Arguments.Take(mainClass).ToArray();
         string[] game = mainClass < plan.Arguments.Count ? plan.Arguments.Skip(mainClass + 1).ToArray() : [];
         return new(plan.JavaExecutablePath, plan.WorkingDirectory, jvm, game, plan.ClasspathEntries,
-            plan.NativesDirectory, null);
+            plan.NativesDirectory, null)
+        { MainClass = mainClass < plan.Arguments.Count ? plan.Arguments[mainClass] : null };
     }
 
     public static IReadOnlyList<Capabilities.ICapability> DescribeCapabilities(MinecraftLaunchPlan plan,

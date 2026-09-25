@@ -24,6 +24,7 @@ internal static partial class Program
         ("estimator preflight and remediation remain layered", Sync(EstimatorPreflightAndRemediationRemainLayered)),
         ("remediation actions require exact handlers", RemediationActionsRequireExactHandlers),
         ("JVM host describes the process boundary", Sync(JvmHostDescribesTheProcessBoundary)),
+        ("JVM bootstrap preserves explicit boundaries and rejects malformed frames", JvmBootstrapPreservesBoundaryAndRejectsMalformedFrames),
         ("settings catalog locks final IA and developer visibility", Sync(SettingsCatalogLocksFinalIa)),
         ("settings policy uses sealed foundation routes", SettingsPolicyUsesSealedFoundationRoutes),
         ("settings legacy strategies preserve units and choices", Sync(SettingsLegacyStrategiesKeepTheirMeaning)),

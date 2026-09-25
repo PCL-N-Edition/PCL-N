@@ -164,6 +164,9 @@ public sealed record MinecraftLaunchPlan(
     IReadOnlyList<MinecraftLibraryToken> Libraries,
     MinecraftModLoaderDescriptor ModLoader)
 {
+    /// <summary>Planner-confirmed boundary; null for legacy hand-built subprocess plans.</summary>
+    public int? MainClassIndex { get; init; }
+
     /// <summary>Root-qualified instance identity, independent of the JVM working directory.</summary>
     public string InstanceDirectory { get; init; } = WorkingDirectory;
     public string GameDirectory { get; init; } = WorkingDirectory;
@@ -331,6 +334,7 @@ public static class MinecraftLaunchPlanner
         EnsureNoUnresolvedTokens(args);
         return new MinecraftLaunchPlan(request.JavaExecutablePath, instance, args, classpath.Entries, libraries, loader)
         {
+            MainClassIndex = gameArgumentStart - 1,
             NativesDirectory = nativesDirectory,
             InstanceDirectory = instance,
             GameDirectory = gameDirectory,

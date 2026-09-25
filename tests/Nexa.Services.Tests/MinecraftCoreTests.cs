@@ -349,6 +349,8 @@ internal static partial class Program
             OperatingSystem = MinecraftLibraryOperatingSystem.Linux,
         });
         AssertEqual("net.fabricmc.loader.impl.launch.knot.KnotClient", plan.Arguments.First(argument => argument.Contains("KnotClient", StringComparison.Ordinal)));
+        AssertTrue(plan.MainClassIndex.HasValue);
+        AssertEqual("net.fabricmc.loader.impl.launch.knot.KnotClient", plan.Arguments[plan.MainClassIndex!.Value]);
         AssertTrue(plan.Arguments.Contains("Steve"));
         AssertTrue(plan.Arguments.Contains("-Xmx4096m"));
         AssertTrue(plan.Arguments.Contains("-Dfile.encoding=COMPAT"));
