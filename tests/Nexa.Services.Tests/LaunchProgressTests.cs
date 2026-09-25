@@ -645,7 +645,7 @@ internal static partial class Program
             "instance",
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
-            Path.Combine(Path.GetTempPath(), "versions", "instance"));
+            Path.Combine(Path.GetTempPath(), "versions", "instance"), Path.GetTempPath());
         try
         {
             long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();

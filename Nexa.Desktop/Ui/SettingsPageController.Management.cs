@@ -14,6 +14,9 @@ internal sealed partial class SettingsPageController
     private bool _managementLoaded;
     private string? _managementError;
     private readonly Dictionary<XsrUiEntityId, Action> _managementActions = [];
+    private readonly List<XsrUiEntityId> _contentActions = [];
+    private Task<XsrResult>? _managementWrite;
+    private string? _managementWriteInstance;
     private XsrUiEntityId _contentList;
     private InstanceContentSnapshot? _contentSnapshot;
     private int _contentWindowStart = -1, _contentWindowCount;
@@ -39,6 +42,16 @@ internal sealed partial class SettingsPageController
     private void UpdateManagement()
     {
         if (_instanceDirectory is null || _instance is null) return;
+        if (_managementWrite is { IsCompleted: true } writing)
+        {
+            _managementWrite = null;
+            if (_managementWriteInstance == _instance)
+            {
+                if (!writing.IsCompletedSuccessfully || !writing.Result.IsSuccess)
+                    _feedback.Error(writing.IsCompletedSuccessfully ? writing.Result.Error?.Message ?? "模组状态未保存。" : "模组状态未保存。");
+                CancelManagementRead();
+            }
+        }
         if (!_managementLoaded && _managementRead is null && _queries.TryResolve(InstanceManagementContract.Query, out var route))
         {
             _managementStop = new();
@@ -68,8 +81,7 @@ internal sealed partial class SettingsPageController
         _navigation.Clear();
         _shell.Tree.SetComponent(_pager, new XsrUiPager(XsrUiOrientation.Horizontal));
         BuildNavigation();
-        _shell.Renderer.SelectPagerPage(_pager, Pages.ToList().FindIndex(page => page.Id == _selected));
-        _shell.Renderer.SetPagerPresentationPosition(_pager, Pages.ToList().FindIndex(page => page.Id == _selected));
+        _shell.Renderer.RebasePagerPage(_pager, Pages.ToList().FindIndex(page => page.Id == _selected));
     }
 
     private void ManagementButton(XsrUiEntityId parent, string label, Action action, double width = 84)
@@ -83,6 +95,15 @@ internal sealed partial class SettingsPageController
         try { OpenManagementDirectory?.Invoke(directory); }
         catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
         { _feedback.Error("无法打开目录，请检查目录是否存在。"); }
+    }
+
+    private void ToggleMod(InstanceContentEntry entry)
+    {
+        if (_managementWrite is not null || _managementRead is not null || !_managementLoaded || _management is null || entry.Enabled is not { } enabled || entry.Size is not { } size
+            || !_commands.TryResolve(InstanceManagementContract.SetModEnabled, out var route)) return;
+        _managementWriteInstance = _management.InstanceDirectory;
+        _managementWrite = _commands.Dispatch(route, new InstanceModEnabledCommand(_managementWriteInstance, entry.Name, !enabled, size, entry.ModifiedUtcTicks)).Completion;
+        WakeOnPlatformCompletion(_managementWrite);
     }
 
     private void BuildManagementSection()
@@ -155,6 +176,8 @@ internal sealed partial class SettingsPageController
         int count = Math.Min(snapshot.Entries.Count - start, (int)Math.Ceiling(_shell.Renderer.Viewport.Height / rowHeight) + 10);
         if (_contentWindowStart == start && _contentWindowCount == count) return;
         _contentWindowStart = start; _contentWindowCount = count;
+        foreach (var action in _contentActions) _managementActions.Remove(action);
+        _contentActions.Clear();
         foreach (var child in _shell.Tree.Children(_contentList).ToArray()) _shell.Tree.Destroy(child);
         Element(_contentList, "ManagementContentBefore", XsrUiSemanticRole.None, null, height: start * rowHeight);
         foreach (var item in snapshot.Entries.Skip(start).Take(count))
@@ -166,6 +189,12 @@ internal sealed partial class SettingsPageController
             var size = Text(row, item.IsDirectory ? "文件夹" : item.Size is { } bytes ? $"{bytes / 1024d:N1} KB" : "", 12, Muted, 30);
             _shell.Tree.GetComponent<XsrUiElement>(size)!.Width = 100;
             _shell.Tree.GetComponent<XsrUiVisualStyle>(size)!.TextAlignment = XsrUiTextAlignment.End;
+            if (item.Enabled is { } enabled)
+            {
+                var button = ActionButton(row, "ManagementModToggle." + item.Name, enabled ? "停用" : "启用", ManagementAction, 64);
+                _managementActions[button] = () => ToggleMod(item);
+                _contentActions.Add(button);
+            }
         }
         Element(_contentList, "ManagementContentAfter", XsrUiSemanticRole.None, null, height: (snapshot.Entries.Count - start - count) * rowHeight);
         _shell.Tree.MarkDirty(_contentList, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);

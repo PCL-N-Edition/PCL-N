@@ -6,7 +6,11 @@ namespace Nexa.Services.Minecraft.Management;
 
 public sealed record InstanceManagementQuery(string InstanceDirectory);
 public sealed record InstanceManagementPage(string Id, string Label, string? Directory = null);
-public sealed record InstanceContentEntry(string Name, bool IsDirectory, long? Size);
+public sealed record InstanceContentEntry(string Name, bool IsDirectory, long? Size)
+{
+    public bool? Enabled { get; init; }
+    public long ModifiedUtcTicks { get; init; }
+}
 public sealed record InstanceContentSnapshot(string PageId, IReadOnlyList<InstanceContentEntry> Entries, bool Complete, string? Error);
 public sealed record InstanceManagementSnapshot(string InstanceDirectory, string GameDirectory, string GameVersion,
     IReadOnlyList<InstallBuildSelection> Components, IReadOnlyList<InstanceManagementPage> Pages,
@@ -19,6 +23,7 @@ public sealed record InstanceManagementSnapshot(string InstanceDirectory, string
 public static class InstanceManagementContract
 {
     public static readonly XsrSemanticId Query = XsrSemanticId.Parse("minecraft.instance.management.query");
+    public static readonly XsrSemanticId SetModEnabled = XsrSemanticId.Parse("minecraft.instance.mod.set-enabled");
 }
 
 public static class InstanceManagementService
@@ -66,7 +71,11 @@ public static class InstanceManagementService
                 token.ThrowIfCancellationRequested();
                 if ((item.Attributes & FileAttributes.ReparsePoint) != 0) continue;
                 if (entries.Count == limit) { complete = false; break; }
-                entries.Add(new(item.Name, item is DirectoryInfo, item is FileInfo file ? file.Length : null));
+                entries.Add(new(item.Name, item is DirectoryInfo, item is FileInfo file ? file.Length : null)
+                {
+                    ModifiedUtcTicks = item.LastWriteTimeUtc.Ticks,
+                    Enabled = page.Id == "mods" && item is FileInfo ? InstanceContentService.ModEnabled(item.Name) : null,
+                });
             }
             return new(page.Id, Array.AsReadOnly(entries.OrderByDescending(item => item.IsDirectory)
                 .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToArray()), complete, null);

@@ -55,6 +55,8 @@ public static class FoundationRuntimeComposer
         IXsrDispatchObserver dispatchObserver = observer ?? NullDispatchObserver.Instance;
 
         XsrCommandRouterBuilder commands = new();
+        commands.Register<InstanceModEnabledCommand>(InstanceManagementContract.SetModEnabled,
+            async (command, token) => await InstanceContentService.SetModEnabledAsync(command, host.StateStore, token).ConfigureAwait(false));
         commands.Register(
             FoundationRouteIds.SettingsSet,
             FoundationCommands.CreateSettingsSetHandler(host.Settings));

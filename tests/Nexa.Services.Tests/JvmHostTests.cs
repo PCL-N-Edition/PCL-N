@@ -62,6 +62,7 @@ internal static partial class Program
         AssertEqual(0, await session.WaitForExitAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15)));
         AssertEqual("--jvm-host", session.Process.StartInfo.ArgumentList.Single());
         AssertEqual(Path.TrimEndingDirectorySeparator(Path.GetFullPath(plan.InstanceDirectory)), session.Snapshot.InstanceDirectory);
+        AssertEqual(Path.TrimEndingDirectorySeparator(Path.GetFullPath(plan.GameDirectory)), session.Snapshot.GameDirectory);
 
         using CancellationTokenSource cancellation = new();
         var port = new CancellingHostPort(cancellation);

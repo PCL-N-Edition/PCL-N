@@ -11,6 +11,9 @@ internal static partial class Program
         string instance = Path.Combine(root, "versions", "fabric");
         Directory.CreateDirectory(instance);
         File.WriteAllText(Path.Combine(instance, "fabric.json"), """{"id":"fabric","_minecraftVersion":"1.20.1","libraries":[{"name":"net.fabricmc:fabric-loader:0.16.0"}]}""");
+        string mods = Path.Combine(instance, "mods");
+        Directory.CreateDirectory(mods);
+        File.WriteAllText(Path.Combine(mods, "example.jar"), "fixture");
         string resourcepacks = Path.Combine(instance, "resourcepacks");
         Directory.CreateDirectory(resourcepacks);
         for (int i = 0; i < 220; i++) File.WriteAllText(Path.Combine(resourcepacks, $"pack-{i:D3}.zip"), "fixture");
@@ -33,6 +36,17 @@ internal static partial class Program
             }, TimeSpan.FromSeconds(10)));
             AssertEqual("overview", settings.SelectedSection);
             AssertFalse(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "SettingsNav.shaderpacks"));
+            Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.mods").Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
+            Emit(fixture.Intents, "ui.settings.management.action", FindByKey(fixture.Shell, scene, "ManagementModToggle.example.jar").Entity);
+            bool toggled = SpinWait.SpinUntil(() =>
+            {
+                scene = fixture.Shell.Render(new(1000, 650));
+                return scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "ManagementModToggle.example.jar.disabled");
+            }, TimeSpan.FromSeconds(10));
+            if (!toggled) throw new InvalidOperationException($"Toggle did not refresh: file={File.Exists(Path.Combine(mods, "example.jar.disabled"))}; page={settings.SelectedSection}; errors={string.Join(";", fixture.Feedback.Snapshot().Notifications.Select(item => item.Message))}");
+            AssertTrue(File.Exists(Path.Combine(mods, "example.jar.disabled")));
+            AssertFalse(File.Exists(Path.Combine(mods, "example.jar")));
             Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.resourcepacks").Entity);
             scene = fixture.Shell.Render(new(1000, 650));
             scene = fixture.Shell.Render(new(1000, 650));
