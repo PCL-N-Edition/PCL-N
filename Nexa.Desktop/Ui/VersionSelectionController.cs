@@ -62,6 +62,8 @@ internal sealed class VersionSelectionController : IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private long _revision = -1;
     private long _processRevision = -1;
+    private readonly HashSet<string> _transferSelection = new(StringComparer.Ordinal);
+    private string? _transferAnchor;
     private string _filter = "", _root = "";
     private bool _chooseDirectories, _disposed, _wasVisible, _picking, _manualAdd, _keyboardDropdown;
     private string? _editingRoot;
@@ -103,6 +105,28 @@ internal sealed class VersionSelectionController : IDisposable
     {
         if (_disposed || _shell.Stage.Navigation.Current != Page) return;
         string command = e.Intent.Command.Value;
+
+        if (command is "ui.versions.toggle-transfer" or "ui.versions.extend-transfer" or "ui.versions.add-range"
+            && _versions.TryGetValue(e.Intent.Source, out var transferVersion))
+        {
+            string[] order = [.. _versions.Values.Select(item => item.Id)];
+            if (command == "ui.versions.toggle-transfer")
+            {
+                if (!_transferSelection.Add(transferVersion.Id)) _transferSelection.Remove(transferVersion.Id);
+                _transferAnchor = transferVersion.Id;
+            }
+            else
+            {
+                int start = Array.IndexOf(order, _transferAnchor ?? Snapshot.SelectedInstanceId);
+                int end = Array.IndexOf(order, transferVersion.Id);
+                if (start < 0) start = end;
+                _transferAnchor ??= order[start];
+                if (command == "ui.versions.extend-transfer") _transferSelection.Clear();
+                foreach (string id in order.Skip(Math.Min(start, end)).Take(Math.Abs(start - end) + 1)) _transferSelection.Add(id);
+            }
+            _revision = -1;
+            return;
+        }
 
         if (command is "ui.versions.modify" or "ui.versions.settings" or "ui.versions.delete"
             && _actions.TryGetValue(e.Intent.Source, out var target))
@@ -217,7 +241,7 @@ internal sealed class VersionSelectionController : IDisposable
     private void OnFrame(object? sender, EventArgs e)
     {
         bool visible = _shell.Stage.Navigation.Current == Page;
-        if (_wasVisible && !visible) { Interlocked.Increment(ref _viewEpoch); }
+        if (_wasVisible && !visible) { Interlocked.Increment(ref _viewEpoch); ClearTransferSelection(); }
         _wasVisible = visible;
         if (!visible) { CloseDropdown(false); Interlocked.Exchange(ref _pendingCloseChooser, 0); return; }
         int pending = Interlocked.Exchange(ref _pendingCloseChooser, 0);
@@ -247,6 +271,7 @@ internal sealed class VersionSelectionController : IDisposable
         }
         if (_root != snapshot.RootDirectory)
         {
+            ClearTransferSelection();
             _root = snapshot.RootDirectory;
             _shell.Renderer.SetTextInputValue(_entities["LibrarySearch"], "");
             _shell.Tree.GetComponent<XsrUiScroll>(_entities["LibraryVersionRows"])!.OffsetY = 0;
@@ -261,7 +286,10 @@ internal sealed class VersionSelectionController : IDisposable
         Publish("directory.name", current.DisplayName); Publish("directory.path", current.Path); Publish("directory.named", current.HasName);
         IReadOnlyList<MinecraftInstanceDescriptor> shown = [.. snapshot.Instances.Where(instance =>
             instance.Id.Contains(filter, StringComparison.OrdinalIgnoreCase) || instance.VersionId.Contains(filter, StringComparison.OrdinalIgnoreCase))];
-        Publish("list.count", snapshot.IsLoading ? "正在刷新…" : $"{shown.Count} 个版本");
+        _transferSelection.IntersectWith(shown.Select(item => item.Id));
+        if (_transferAnchor is not null && !shown.Any(item => item.Id == _transferAnchor)) _transferAnchor = null;
+        Publish("list.count", snapshot.IsLoading ? "正在刷新…" : _transferSelection.Count > 0
+            ? $"{shown.Count} 个版本 · 已选 {_transferSelection.Count} 项" : $"{shown.Count} 个版本");
         Publish("list.empty", shown.Count == 0);
         Publish("list.status", snapshot.IsLoading ? "正在读取目录中的版本…" : snapshot.Error is not null
             ? "无法读取此目录" : snapshot.Instances.Count == 0
@@ -280,6 +308,13 @@ internal sealed class VersionSelectionController : IDisposable
         _chooseDirectories = true; _revision = -1;
         if (manualAdd) _shell.Renderer.Focus(_entities["LibraryDirectoryInput"], keyboard);
         else FocusDirectory();
+    }
+
+    private void ClearTransferSelection()
+    {
+        _transferSelection.Clear();
+        _transferAnchor = null;
+        _revision = -1;
     }
 
     private void CloseDropdown(bool restoreFocus = true)
@@ -315,6 +350,8 @@ internal sealed class VersionSelectionController : IDisposable
                     VersionKindLabel(instance.Version.Kind) + (instance.Version.InheritsFrom is { Length: > 0 } parent ? " · " + parent : " · " + instance.VersionId),
                     false, VersionIcon(instance.Version.Kind));
                 _versions.Add(row, (snapshot.RootDirectory, instance.Id));
+                _shell.Tree.SetComponent(row, new XsrUiModifiedClick(XsrSemanticId.Parse("ui.versions.toggle-transfer"),
+                    XsrSemanticId.Parse("ui.versions.extend-transfer"), XsrSemanticId.Parse("ui.versions.add-range")));
                 _shell.Tree.Walk(row, entity =>
                 {
                     string key = _shell.Tree.Name(entity).Split(':')[0];
@@ -324,16 +361,23 @@ internal sealed class VersionSelectionController : IDisposable
                 if (instance.Id == selectedFocus) _shell.Renderer.Focus(row, keyboard);
             }
         }
+        HashSet<string> runningDirectories = _store.TryResolve(MinecraftProcessStateComposition.SessionsKey, out var sessions)
+            ? new(_store.ReadCollection<MinecraftProcessSnapshot>(sessions).Items
+                .Where(item => item.State is MinecraftProcessState.Created or MinecraftProcessState.Running)
+                .Select(item => item.InstanceDirectory), MinecraftLibraryService.PathComparer) : new(MinecraftLibraryService.PathComparer);
+        XsrUiFileDrag CreateTransfer(IEnumerable<string> directories)
+        {
+            string[] paths = directories.ToArray();
+            return new(paths, XsrUiFileDragEffects.Copy | XsrUiFileDragEffects.Link
+                | (paths.Any(runningDirectories.Contains) ? XsrUiFileDragEffects.None : XsrUiFileDragEffects.Move),
+                XsrSemanticId.Parse("ui.versions.refresh"));
+        }
+        XsrUiFileDrag selectedTransfer = CreateTransfer(shown.Where(item => _transferSelection.Contains(item.Id)).Select(item => item.DirectoryPath));
+        var byId = shown.ToDictionary(item => item.Id, StringComparer.Ordinal);
         foreach (var (row, value) in _versions)
         {
-            MinecraftInstanceDescriptor instance = shown.First(item => item.Id == value.Id);
-            bool running = _store.TryResolve(MinecraftProcessStateComposition.SessionsKey, out var sessions)
-                && _store.ReadCollection<MinecraftProcessSnapshot>(sessions).Items.Any(item =>
-                    MinecraftLibraryService.PathComparer.Equals(item.InstanceDirectory, instance.DirectoryPath)
-                    && item.State is MinecraftProcessState.Created or MinecraftProcessState.Running);
-            _shell.Tree.SetComponent(row, new XsrUiFileDrag([instance.DirectoryPath],
-                XsrUiFileDragEffects.Copy | XsrUiFileDragEffects.Link | (running ? XsrUiFileDragEffects.None : XsrUiFileDragEffects.Move),
-                XsrSemanticId.Parse("ui.versions.refresh")));
+            MinecraftInstanceDescriptor instance = byId[value.Id];
+            _shell.Tree.SetComponent(row, _transferSelection.Contains(value.Id) ? selectedTransfer : CreateTransfer([instance.DirectoryPath]));
             _shell.Tree.Walk(row, entity =>
             {
                 string key = _shell.Tree.Name(entity);
@@ -345,6 +389,15 @@ internal sealed class VersionSelectionController : IDisposable
                 return true;
             });
             MarkSelected(row, value.Id == snapshot.SelectedInstanceId, "当前版本", value.Id);
+            if (_transferSelection.Count > 0)
+            {
+                bool selected = _transferSelection.Contains(value.Id);
+                _shell.Tree.GetComponent<XsrUiSelection>(row)!.IsSelected = selected;
+                var style = _shell.Tree.GetComponent<XsrUiVisualStyle>(row)!;
+                style.Background = selected ? Tint : Surface;
+                style.Border = selected ? new(149, 186, 239) : new(227, 233, 242);
+                if (selected) _shell.Tree.GetComponent<XsrUiSemantic>(row)!.Label += "，已加入拖放选择";
+            }
         }
         // Directory rows stay attached while their selected marker changes.
         if (!_directories.Values.SequenceEqual(snapshot.Directories.Select(item => item.Path)))

@@ -261,7 +261,10 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
         _fileDragPress = null;
         if (_fileDragActive) { _fileDragReleased = true; e.Handled = true; return; }
         Point position = e.GetPosition(this);
-        bool handled = _shell.Renderer.PointerReleased(new XsrUiPoint(position.X, position.Y));
+        XsrUiClickModifiers modifiers = XsrUiClickModifiers.None;
+        if (e.KeyModifiers.HasFlag(OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control)) modifiers |= XsrUiClickModifiers.Toggle;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) modifiers |= XsrUiClickModifiers.Extend;
+        bool handled = _shell.Renderer.PointerReleased(new XsrUiPoint(position.X, position.Y), modifiers);
         handled |= _textSelecting.IsAssigned;
         _textSelecting = default;
         e.Pointer.Capture(null);

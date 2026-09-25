@@ -11,5 +11,11 @@ The source never deletes paths after a reported Move: file-system targets perfor
 deleting by the old path could delete newly recreated data. Completion emits a refresh intent.
 Escape/cancellation must not activate the original row. A running instance offers Copy/Link only.
 
-This slice wires directory drag out. Multi-selection and complete cross-platform native target
-acceptance remain separate work; ordinary incoming imports still advertise Copy only.
+Modifier clicks use renderer intents: Ctrl (Command on macOS) toggles a transfer selection,
+Shift replaces it with the visible range from the anchor, Ctrl+Shift adds that range. They never
+change the current launch version or navigate. Highlight indicates transfer selection; the check
+still indicates the current launch version. Dragging a highlighted row transfers the selected set
+in visible order; an unselected row transfers only itself. A running member disables Move for the
+whole transfer. Filtering prunes hidden selections; changing root or leaving the page clears them.
+Ordinary clicks still select the launch version and immediately return home. Complete cross-platform
+native target acceptance remains pending; incoming imports still advertise Copy only.

@@ -866,7 +866,9 @@ public sealed partial class XsrUiRenderer
     /// Routes a pointer release. Releasing over the pressed entity activates its command binding
     /// and emits one intent with a renderer-produced correlation ID.
     /// </summary>
-    public bool PointerReleased(XsrUiPoint point)
+    public bool PointerReleased(XsrUiPoint point) => PointerReleased(point, XsrUiClickModifiers.None);
+
+    public bool PointerReleased(XsrUiPoint point, XsrUiClickModifiers modifiers)
     {
         if (EndSegmentDrag()) return true;
         if (EndScrollGesture(cancelled: false)) return true;
@@ -885,7 +887,17 @@ public sealed partial class XsrUiRenderer
         }
         _pressed = default;
         _tree.MarkDirty(pressed, XsrUiDirtyKinds.Paint);
-        return InputAt(point).Equals(pressed) && Activate(pressed);
+        if (!InputAt(point).Equals(pressed)) return false;
+        if (modifiers != XsrUiClickModifiers.None && _tree.GetComponent<XsrUiModifiedClick>(pressed) is { } modified
+            && IsEnabled(input) && IsInVisibleTree(pressed))
+        {
+            XsrSemanticId command = modifiers.HasFlag(XsrUiClickModifiers.Extend)
+                ? modifiers.HasFlag(XsrUiClickModifiers.Toggle) ? modified.AddRange : modified.Extend : modified.Toggle;
+            if (_sink is null || !command.IsAssigned) return false;
+            _sink.Emit(command, pressed, XsrCorrelationId.Create());
+            return true;
+        }
+        return Activate(pressed);
     }
 
     // Both hover and cursor use the same target while capsule geometry moves underneath

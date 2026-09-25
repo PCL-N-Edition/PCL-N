@@ -24,6 +24,18 @@ internal static partial class Program
         var renderer = new XsrUiRenderer(tree, store, intents);
         renderer.SetRoot(root);
         renderer.Render();
+        tree.SetComponent(row, new XsrUiModifiedClick(XsrSemanticId.Parse("test.toggle"),
+            XsrSemanticId.Parse("test.extend"), XsrSemanticId.Parse("test.range")));
+        foreach (var (modifiers, expected) in new[]
+        {
+            (XsrUiClickModifiers.Toggle, "test.toggle"), (XsrUiClickModifiers.Extend, "test.extend"),
+            (XsrUiClickModifiers.Toggle | XsrUiClickModifiers.Extend, "test.range"), (XsrUiClickModifiers.None, "test.select")
+        })
+        {
+            renderer.PointerPressed(new(20, 20));
+            renderer.PointerReleased(new(20, 20), modifiers);
+            AssertEqual(expected, intents.Drain().Single().Command.Value);
+        }
         AssertEqual(row, renderer.FileDragTarget(new(20, 20)));
         renderer.PointerPressed(new(20, 20));
         AssertTrue(ReferenceEquals(transfer, renderer.BeginFileDrag(row)));

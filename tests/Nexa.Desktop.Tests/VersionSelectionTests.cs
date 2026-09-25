@@ -9,6 +9,54 @@ namespace Nexa.Desktop.Tests;
 
 internal static partial class Program
 {
+    private static void VersionTransferSelectionSupportsRanges()
+    {
+        using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([Instance("a"), Instance("b"), Instance("c"), Instance("d")]));
+        fixture.Controller.WaitUntilIdle().GetAwaiter().GetResult();
+        var shell = fixture.Shell;
+        var scene = shell.Render(new(850, 500));
+        shell.Renderer.Activate(FindByKey(shell, scene, "InstanceListButton").Entity);
+        scene = shell.Render(new(850, 500));
+        string launchVersion = ReadCell(fixture.Store, LaunchPageState.SelectedInstanceKey);
+        void Select(string id, string intent)
+        {
+            Emit(fixture.Intents, intent, FindByKey(shell, scene, "LibraryRow:version:" + id).Entity);
+            scene = shell.Render(new(850, 500));
+            AssertEqual(fixture.Controller.Versions.Page, shell.Stage.Navigation.Current);
+            AssertEqual(launchVersion, ReadCell(fixture.Store, LaunchPageState.SelectedInstanceKey));
+        }
+        string[] Paths(string id) => shell.Tree.GetComponent<XsrUiFileDrag>(FindByKey(shell, scene, "LibraryRow:version:" + id).Entity)!
+            .Paths.Select(path => Path.GetFileName(Path.TrimEndingDirectorySeparator(path))).ToArray();
+        Select("b", "ui.versions.toggle-transfer");
+        Select("d", "ui.versions.extend-transfer");
+        AssertEqual("b,c,d", string.Join(',', Paths("c")));
+        AssertEqual("a", string.Join(',', Paths("a")));
+        var sessions = fixture.Store.Resolve(MinecraftProcessStateComposition.SessionsKey);
+        var rowB = FindByKey(shell, scene, "LibraryRow:version:b").Entity;
+        var running = new MinecraftProcessSnapshot(Guid.NewGuid(), "b", 123, MinecraftProcessState.Running, null,
+            DateTimeOffset.UtcNow, null)
+        { InstanceDirectory = shell.Tree.GetComponent<XsrUiFileDrag>(rowB)!.Paths[0] };
+        fixture.Store.PublishDelta(sessions, new XsrCollectionDelta<MinecraftProcessSnapshot, Guid>(0, [running], []));
+        scene = shell.Render(new(850, 500));
+        AssertFalse(shell.Tree.GetComponent<XsrUiFileDrag>(FindByKey(shell, scene, "LibraryRow:version:d").Entity)!.Effects.HasFlag(XsrUiFileDragEffects.Move));
+        AssertTrue(shell.Tree.GetComponent<XsrUiFileDrag>(FindByKey(shell, scene, "LibraryRow:version:a").Entity)!.Effects.HasFlag(XsrUiFileDragEffects.Move));
+        Select("c", "ui.versions.toggle-transfer");
+        AssertEqual("b,d", string.Join(',', Paths("b")));
+        Select("a", "ui.versions.add-range");
+        AssertEqual("a,b,c,d", string.Join(',', Paths("d")));
+        shell.Renderer.SetTextInputValue(FindByKey(shell, scene, "LibrarySearch").Entity, "b");
+        scene = shell.Render(new(850, 500));
+        AssertEqual("b", string.Join(',', Paths("b")));
+        shell.Renderer.SetTextInputValue(FindByKey(shell, scene, "LibrarySearch").Entity, "");
+        scene = shell.Render(new(850, 500));
+        AssertEqual("a", string.Join(',', Paths("a"))); // Hidden entries do not silently rejoin.
+        Emit(fixture.Intents, "ui.page.back");
+        scene = shell.Render(new(850, 500));
+        shell.Renderer.Activate(FindByKey(shell, scene, "InstanceListButton").Entity);
+        scene = shell.Render(new(850, 500));
+        AssertEqual("d", string.Join(',', Paths("d")));
+    }
+
     private static void VersionSelectionUsesDirectoryQualifiedLaunch()
     {
         RecordingStartRoute recording = new();

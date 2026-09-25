@@ -53,6 +53,7 @@ internal static partial class Program
         ("install catalog virtualizes and prefetches off UI thread", InstallCatalogVirtualizesAndPrefetchesOffUiThread),
         ("Windows property store roundtrips the game AUMID", WindowPropertyStoreRoundTripsAppId),
         ("version click returns immediately and double click opens directory", VersionClickReturnsImmediatelyAndDoubleClickOpensDirectory),
+        ("version transfer selection supports toggle range and filter cleanup", VersionTransferSelectionSupportsRanges),
         ("version selection uses the captured directory for launch and restores each selection", VersionSelectionUsesDirectoryQualifiedLaunch),
         ("version list remains compact searchable and scrollable with distinct icons", VersionListKeepsCompactGeometryAndIcons),
         ("directory pickers cannot publish after leaving the version page", VersionDirectoryPickerDiscardsLateResult),
