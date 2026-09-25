@@ -7,6 +7,30 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static void InstanceContentIsBoundedAndCancellable()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "folder"));
+            File.WriteAllText(Path.Combine(root, "b.zip"), "abc");
+            File.WriteAllText(Path.Combine(root, "a.zip"), "de");
+            var page = new InstanceManagementPage("resourcepacks", "资源包", root);
+            var result = InstanceManagementService.ReadContent(page, CancellationToken.None);
+            AssertEqual(3, result.Entries.Count);
+            AssertTrue(result.Complete);
+            AssertTrue(result.Entries[0].IsDirectory);
+            AssertEqual("a.zip", result.Entries[1].Name);
+            AssertEqual(2L, result.Entries[1].Size!.Value);
+            var bounded = InstanceManagementService.ReadContent(page, CancellationToken.None, 2);
+            AssertFalse(bounded.Complete); AssertEqual(2, bounded.Entries.Count);
+            using var stop = new CancellationTokenSource(); stop.Cancel();
+            try { InstanceManagementService.ReadContent(page, stop.Token); throw new InvalidOperationException("Cancellation ignored."); }
+            catch (OperationCanceledException) { }
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static void InstanceManagementPagesFollowEnabledCapabilities()
     {
         string directory = Path.Combine(Path.GetTempPath(), "nexa-instance-pages");

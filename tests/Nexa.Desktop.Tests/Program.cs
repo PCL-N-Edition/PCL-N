@@ -39,6 +39,7 @@ internal static partial class Program
         ("first run keeps drafts and commits only at finish", FirstRunKeepsDraftsAndCommitsOnlyAtFinish),
         ("product PXML shell accepts native window metrics", ProductPxmlShellAcceptsNativeWindowMetrics),
         ("Version settings isolate overrides and restore inheritance", VersionSettingsAreScopedAndRestoreInheritance),
+        ("Instance management projects content with bounded realized rows", InstanceManagementShowsContentAndBoundsRealizedRows),
         ("Settings page keeps the final navigation and compact layout", SettingsPageUsesFinalNavigationAndCompactLayout),
         ("Settings page saves through Services without losing draft focus", SettingsPageSavesThroughServicesAndPreservesDraftFocus),
         ("Settings developer toggle preserves scroll position and focus", SettingsDeveloperToggleKeepsPositionAndFocus),

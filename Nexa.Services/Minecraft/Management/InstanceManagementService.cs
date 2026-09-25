@@ -6,9 +6,15 @@ namespace Nexa.Services.Minecraft.Management;
 
 public sealed record InstanceManagementQuery(string InstanceDirectory);
 public sealed record InstanceManagementPage(string Id, string Label, string? Directory = null);
+public sealed record InstanceContentEntry(string Name, bool IsDirectory, long? Size);
+public sealed record InstanceContentSnapshot(string PageId, IReadOnlyList<InstanceContentEntry> Entries, bool Complete, string? Error);
 public sealed record InstanceManagementSnapshot(string InstanceDirectory, string GameDirectory, string GameVersion,
     IReadOnlyList<InstallBuildSelection> Components, IReadOnlyList<InstanceManagementPage> Pages,
-    bool ModInventoryComplete, string ModpackVersion);
+    bool ModInventoryComplete, string ModpackVersion)
+{
+    public IReadOnlyList<InstanceContentSnapshot> Contents { get; init; } = [];
+    public string Description { get; init; } = "";
+}
 
 public static class InstanceManagementContract
 {
@@ -33,9 +39,41 @@ public static class InstanceManagementService
             string gameDirectory = metadata.InstanceIsolation ? instance : versions.Parent.FullName;
             var edit = await MinecraftInstallEditService.ReadAsync(new(versions.Parent.FullName, Path.GetFileName(instance)), token).ConfigureAwait(false);
             var inventory = await LaunchModInventoryReader.ReadAsync(gameDirectory, token).ConfigureAwait(false);
+            var pages = Pages(gameDirectory, edit.Selection, inventory);
             return new InstanceManagementSnapshot(instance, gameDirectory, edit.GameVersion, edit.Selection,
-                Pages(gameDirectory, edit.Selection, inventory), inventory.Complete, metadata.ModpackVersion);
+                pages, inventory.Complete, metadata.ModpackVersion)
+            {
+                Description = metadata.Description,
+                Contents = Array.AsReadOnly(pages.Where(page => page.Directory is not null)
+                    .Select(page => ReadContent(page, token)).ToArray()),
+            };
         }, token);
+
+    internal static InstanceContentSnapshot ReadContent(InstanceManagementPage page, CancellationToken token, int limit = 10000)
+    {
+        if (limit is < 1 or > 10000) throw new ArgumentOutOfRangeException(nameof(limit));
+        List<InstanceContentEntry> entries = [];
+        bool complete = true;
+        try
+        {
+            string directory = page.Directory!;
+            if (!Directory.Exists(directory)) return new(page.Id, [], true, null);
+            for (string? current = directory; current is not null; current = Path.GetDirectoryName(current))
+                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("不能读取链接目录。");
+            foreach (var item in new DirectoryInfo(directory).EnumerateFileSystemInfos())
+            {
+                token.ThrowIfCancellationRequested();
+                if ((item.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+                if (entries.Count == limit) { complete = false; break; }
+                entries.Add(new(item.Name, item is DirectoryInfo, item is FileInfo file ? file.Length : null));
+            }
+            return new(page.Id, Array.AsReadOnly(entries.OrderByDescending(item => item.IsDirectory)
+                .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToArray()), complete, null);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { return new(page.Id, [], false, "无法读取此目录，请检查访问权限后重试。"); }
+    }
 
     internal static IReadOnlyList<InstanceManagementPage> Pages(string gameDirectory,
         IReadOnlyList<InstallBuildSelection> components, LaunchModInventory inventory)

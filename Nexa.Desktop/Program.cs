@@ -300,6 +300,7 @@ internal static class Program
         using SettingsPageController versionSettings = new(shell, uiIntents, runtime.Queries, runtime.Commands, host.StateStore, feedback,
             () => ((MinecraftLibrarySnapshot?)host.StateStore.ReadAppliedValue(host.StateStore.Resolve(MinecraftLibraryService.StateKey)))?.SelectedInstance?.DirectoryPath);
         launchPage.VersionSettingsPage = versionSettings.Page;
+        versionSettings.OpenManagementDirectory = platformActions.OpenDirectory;
         // The launch page projects launch-progress cells into overlay display strings, so the
         // composition root adds its observer to the shared store fan-out.
         using IDisposable launchStateSubscription = stateObservation.Subscribe(launchPage.StateObserver);

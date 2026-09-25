@@ -18,7 +18,7 @@ internal sealed partial class SettingsPageController : IDisposable
     private readonly Func<string?>? _instanceDirectory;
     private string? _instance;
     private readonly Dictionary<XsrUiEntityId, string> _inheritButtons = [];
-    private IReadOnlyList<SettingsCatalogPage> Pages => _instanceDirectory is null ? _catalog!.GlobalPages : _catalog!.GlobalPages.Where(page => page.Id is "game" or "java").ToArray();
+    private IReadOnlyList<SettingsCatalogPage> Pages => _instanceDirectory is null ? _catalog!.GlobalPages : ManagementPages;
     private readonly XsrUiShell _shell;
     private readonly DesktopUiIntentSink _intents;
     private readonly XsrQueryRouter _queries;
@@ -52,7 +52,7 @@ internal sealed partial class SettingsPageController : IDisposable
     {
         _shell = shell; _intents = intents; _queries = queries; _commands = commands; _store = store; _feedback = feedback;
         _instanceDirectory = instanceDirectory;
-        if (instanceDirectory is not null) _selected = "game";
+        if (instanceDirectory is not null) _selected = "overview";
         _revisionId = store.Resolve(SettingsPolicyContract.RevisionKey);
         using var stream = typeof(SettingsPageController).Assembly.GetManifestResourceStream("Nexa.Desktop.Ui.SettingsPage.pxml")!;
         using var reader = new StreamReader(stream);
@@ -81,7 +81,7 @@ internal sealed partial class SettingsPageController : IDisposable
     private void OnIntent(object? sender, DesktopUiIntentEventArgs args)
     {
         if (_shell.Stage.Navigation.Current != Page) return;
-        if (IsUpdateIntent(args.Intent.Command) || args.Intent.Command == Inherit || args.Intent.Command == Select || args.Intent.Command == Edit || args.Intent.Command == Choice || args.Intent.Command == ArgumentAdd || args.Intent.Command == ArgumentRemove || args.Intent.Command == RefreshPlatform) _pending.Enqueue(args.Intent);
+        if (IsUpdateIntent(args.Intent.Command) || args.Intent.Command == ManagementAction || args.Intent.Command == Inherit || args.Intent.Command == Select || args.Intent.Command == Edit || args.Intent.Command == Choice || args.Intent.Command == ArgumentAdd || args.Intent.Command == ArgumentRemove || args.Intent.Command == RefreshPlatform) _pending.Enqueue(args.Intent);
         else if (args.Intent.Command == RemediationExecuted) OnPlatformRemediation(sender, args);
     }
     private void OnFrame(object? sender, EventArgs args)
@@ -92,7 +92,7 @@ internal sealed partial class SettingsPageController : IDisposable
         {
             var content = _shell.Tree.GetComponent<XsrUiElement>(_shell.Content)!;
             if (visible) { _previousContentPadding = content.Padding; content.Padding = default; }
-            else { content.Padding = _previousContentPadding; }
+            else { content.Padding = _previousContentPadding; CancelManagementRead(); }
             _visible = visible;
             _shell.Tree.MarkDirty(_shell.Content, XsrUiDirtyKinds.Layout);
         }
@@ -103,6 +103,7 @@ internal sealed partial class SettingsPageController : IDisposable
         if (instance != _instance)
         {
             _instance = instance; _reading = null; _values = null; _revision = -1;
+            ResetManagement();
             if (_catalog is not null) BuildSections(navigating: true);
         }
         if (_instanceDirectory is null) UpdatePlatformCapabilities();
@@ -135,6 +136,7 @@ internal sealed partial class SettingsPageController : IDisposable
         }
         while (_pending.TryDequeue(out var intent))
         {
+            if (intent.Command == ManagementAction && _managementActions.TryGetValue(intent.Source, out var action)) { action(); continue; }
             if (IsUpdateIntent(intent.Command)) { HandleUpdateIntent(intent.Command); continue; }
             if (intent.Command == Inherit && _inheritButtons.TryGetValue(intent.Source, out var inheritKey)
                 && _writing is null && _commands.TryResolve(SettingsPolicyContract.SetCommand, out var inheritRoute))
@@ -161,9 +163,11 @@ internal sealed partial class SettingsPageController : IDisposable
                 }
             }
         }
+        UpdateManagement();
         int index = _shell.Tree.GetComponent<XsrUiPager>(_pager)!.PageIndex;
         if (index >= 0 && index < Pages.Count && Pages[index].Id != _selected)
             SwitchPage(Pages[index].Id);
+        UpdateContentWindow();
         var pager = _shell.Tree.GetComponent<XsrUiPager>(_pager)!;
         if (!pager.IsDragging && Math.Abs(pager.Position - pager.PageIndex) < 0.001)
             foreach (var page in _pages.Values)
@@ -183,13 +187,17 @@ internal sealed partial class SettingsPageController : IDisposable
     {
         foreach (var page in Pages)
         {
-            var body = Stack(_pager, "SettingsSections", XsrUiOrientation.Vertical, 28);
-            var layout = _shell.Tree.GetComponent<XsrUiElement>(body)!;
-            layout.VerticalAlignment = XsrUiAlignment.Stretch; layout.Padding = new(12, 18, 12, 24);
-            _shell.Tree.SetComponent(body, new XsrUiScroll { ShowsVerticalIndicator = true });
-            _shell.Tree.SetComponent(body, new XsrUiScrollGesture());
-            _shell.Tree.SetComponent(body, new XsrUiTransition { Key = page.Id, MovesSelf = true });
-            _pages[page.Id] = body;
+            if (!_pages.TryGetValue(page.Id, out var body))
+            {
+                body = Stack(_pager, "SettingsSections", XsrUiOrientation.Vertical, 28);
+                var layout = _shell.Tree.GetComponent<XsrUiElement>(body)!;
+                layout.VerticalAlignment = XsrUiAlignment.Stretch; layout.Padding = new(12, 18, 12, 24);
+                _shell.Tree.SetComponent(body, new XsrUiScroll { ShowsVerticalIndicator = true });
+                _shell.Tree.SetComponent(body, new XsrUiScrollGesture());
+                _shell.Tree.SetComponent(body, new XsrUiTransition { Key = page.Id, MovesSelf = true });
+                _pages[page.Id] = body;
+            }
+            _shell.Tree.Detach(body); _shell.Tree.Attach(body, _pager);
             if (page.Id == _selected) _sections = body;
             var button = Element(_navigationRoot, "SettingsNav." + page.Id, XsrUiSemanticRole.Button, page.Label, width: Math.Max(64, page.Label.Length * 14 + 24), height: 36);
             _shell.Tree.SetComponent(button, new XsrUiText(page.Label));
@@ -222,6 +230,8 @@ internal sealed partial class SettingsPageController : IDisposable
         if (!navigating) _scrollPositions[_selected] = _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY;
         foreach (var child in _shell.Tree.Children(_sections).ToArray()) _shell.Tree.Destroy(child);
         _editors.Clear(); _inheritButtons.Clear(); _selectors.Clear(); _argumentEditors.Clear(); _argumentActions.Clear(); _choices.Clear();
+        _managementActions.Clear(); _contentList = default; _contentWindowStart = -1;
+        if (_instanceDirectory is not null && _selected is not ("game" or "java")) { BuildManagementSection(); return; }
         if (_selected == "platform") { BuildPlatformCapabilities(); return; }
         if (_selected == "advanced") BuildUpdateCard();
         if (_selected == "privacy")
@@ -449,6 +459,6 @@ internal sealed partial class SettingsPageController : IDisposable
     };
     public void Dispose()
     {
-        _disposed = true; _updateStop.Cancel(); _intents.IntentEmitted -= OnIntent; _shell.Renderer.FramePreparing -= OnFrame;
+        _disposed = true; CancelManagementRead(); _updateStop.Cancel(); _intents.IntentEmitted -= OnIntent; _shell.Renderer.FramePreparing -= OnFrame;
     }
 }
