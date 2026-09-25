@@ -18,6 +18,9 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]
         java: ['8', '17', '21', '25']
+        include:
+          - {os: macos-15, java: '21'}
+          - {os: macos-15-intel, java: '21'}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:

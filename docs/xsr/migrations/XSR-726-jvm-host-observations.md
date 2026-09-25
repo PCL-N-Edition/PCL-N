@@ -36,8 +36,13 @@ The dedicated `Nexa.Jvm.Host` executable references Services for the bootstrap p
 without Desktop or renderer references. It reads exactly one bootstrap frame from stdin and
 invokes JNI on a dedicated thread. JVM exceptions
 are described to stderr and produce a nonzero exit; DestroyJavaVM waits for non-daemon threads.
-The JVM library remains loaded until process exit. macOS first-thread/run-loop integration is
-not yet available and this mode rejects macOS explicitly. On Windows/Linux Desktop selects a sibling
+The JVM library remains loaded until process exit. macOS Host executes JNI synchronously on the
+primordial thread, verifies `pthread_main_np`, and owns a Cocoa autorelease pool. It consumes
+launcher-only `-XstartOnFirstThread`/dock flags instead of forwarding them to JNI; the first-thread
+and dock environment markers mirror OpenJDK's macOS launcher behavior. These markers are JDK
+implementation details, so native macOS CI verifies them along with creation of an AppKit window
+from Java. macOS production routing remains disabled until those checks pass.
+On Windows/Linux Desktop selects a sibling
 `Nexa.Jvm.Host` executable when present; unpackaged development builds and macOS retain the
 Java executable path. MinecraftProcessService accepts the configured absolute Host path,
 validates/encodes the request before spawning, starts output drains before writing stdin and

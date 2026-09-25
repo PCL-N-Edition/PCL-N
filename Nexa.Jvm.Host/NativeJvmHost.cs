@@ -8,27 +8,31 @@ internal static unsafe class NativeJvmHost
 {
     public static int Run()
     {
+        if (OperatingSystem.IsMacOS()) return RunCore();
         int result = 1;
-        Thread worker = new(() =>
-        {
-            try
-            {
-                if (OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("macOS JVM host requires first-thread integration.");
-                using Stream input = Console.OpenStandardInput();
-                using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(30));
-                JvmHostBootstrapRequest request = JvmHostBootstrap.ReadAsync(input, timeout.Token).AsTask().GetAwaiter().GetResult();
-                Console.Error.WriteLine("Nexa JVM Host: bootstrap received");
-                result = Execute(request);
-            }
-            catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
-            {
-                // Never print request arguments, which may include account credentials.
-                Console.Error.WriteLine($"Nexa JVM Host failed: {exception.GetType().Name}");
-            }
-        }, 4 * 1024 * 1024);
+        Thread worker = new(() => result = RunCore(), 4 * 1024 * 1024);
         worker.Start();
         worker.Join();
         return result;
+    }
+
+    private static int RunCore()
+    {
+        try
+        {
+            using Stream input = Console.OpenStandardInput();
+            using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(30));
+            JvmHostBootstrapRequest request = JvmHostBootstrap.ReadAsync(input, timeout.Token).AsTask().GetAwaiter().GetResult();
+            Console.Error.WriteLine("Nexa JVM Host: bootstrap received");
+            if (!OperatingSystem.IsMacOS()) return Execute(request);
+            using MacJvmMainThread scope = new();
+            return Execute(request);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
+        {
+            Console.Error.WriteLine($"Nexa JVM Host failed: {exception.GetType().Name}");
+            return 1;
+        }
     }
 
     private static int Execute(JvmHostBootstrapRequest request)
@@ -40,6 +44,8 @@ internal static unsafe class NativeJvmHost
         string home = Path.GetDirectoryName(bin)!;
         string[] candidates = OperatingSystem.IsWindows()
             ? [Path.Combine(bin, "server", "jvm.dll"), Path.Combine(home, "jre", "bin", "server", "jvm.dll")]
+            : OperatingSystem.IsMacOS()
+            ? [Path.Combine(home, "lib", "server", "libjvm.dylib"), Path.Combine(home, "jre", "lib", "server", "libjvm.dylib")]
             : [Path.Combine(home, "lib", "server", "libjvm.so"), Path.Combine(home, "lib", "amd64", "server", "libjvm.so"), Path.Combine(home, "jre", "lib", "amd64", "server", "libjvm.so")];
         string library = candidates.FirstOrDefault(File.Exists) ?? throw new FileNotFoundException("JVM library missing.");
         // Java 8 Windows may ship its runtime dependencies alongside java.exe.
@@ -58,6 +64,7 @@ internal static unsafe class NativeJvmHost
         for (int index = 0; index < request.JvmArguments.Count; index++)
         {
             string option = request.JvmArguments[index];
+            if (OperatingSystem.IsMacOS() && MacJvmMainThread.ConsumeLauncherOption(option)) continue;
             if (option is "-cp" or "-classpath" or "--class-path")
             {
                 if (++index == request.JvmArguments.Count) throw new InvalidDataException("Missing classpath.");

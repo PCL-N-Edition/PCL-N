@@ -15,6 +15,11 @@ $scratch = Join-Path ([IO.Path]::GetTempPath()) ("nexa-jni-smoke-" + [Guid]::New
 try {
     & $javacPath -encoding UTF-8 -d $scratch (Join-Path $PSScriptRoot 'fixtures/JvmHostSmoke.java')
     if ($LASTEXITCODE -ne 0) { throw 'javac failed' }
+    $cocoaProbe = Join-Path $scratch 'libnexa-cocoa-probe.dylib'
+    if ($IsMacOS) {
+        & clang -dynamiclib -framework Cocoa -I (Join-Path $JavaHome 'include') -I (Join-Path $JavaHome 'include/darwin') -o $cocoaProbe (Join-Path $PSScriptRoot 'fixtures/JvmHostCocoaSmoke.m')
+        if ($LASTEXITCODE -ne 0) { throw 'Cocoa probe compilation failed' }
+    }
     function Write-Field($writer, [string]$value) {
         $bytes = [Text.Encoding]::UTF8.GetBytes($value)
         $writer.Write([int]$bytes.Length)
@@ -30,6 +35,7 @@ try {
         Write-Field $writer 'JvmHostSmoke'
         $jvm = @('-Xmx64m', '-Xcheck:jni', '-Dfile.encoding=UTF-8', '-Dnexa.fixture=test value')
         if ($javaMajor -ge 9) { $jvm += @('--add-opens', 'java.base/java.lang=ALL-UNNAMED') }
+        if ($IsMacOS) { $jvm += @('-XstartOnFirstThread', '-Xdock:name=Nexa JNI Smoke', "-Dnexa.cocoa.probe=$cocoaProbe") }
         $jvm += @('-cp', $scratch)
         $writer.Write([int]$jvm.Length)
         foreach ($value in $jvm) { Write-Field $writer $value }
@@ -67,6 +73,7 @@ try {
                 throw "JVM $mode exit=$($child.ExitCode): $errorOutput"
             }
             if ($mode -eq 'normal' -and ($output -notmatch 'NEXA_JNI_MAIN_RETURNED' -or $output -notmatch 'NEXA_JNI_BACKGROUND_FINISHED' -or $errorOutput -notmatch 'NEXA_JNI_STDERR')) { throw "Missing output: $output $errorOutput" }
+            if ($IsMacOS -and $output -notmatch 'NEXA_JNI_COCOA_MAIN_THREAD') { throw "Missing Cocoa first-thread evidence: $errorOutput" }
             if ($mode -eq 'throw' -and $errorOutput -notmatch 'NEXA_JNI_EXCEPTION') { throw "Missing exception: $errorOutput" }
             if ($mode -eq 'wait' -and $output -notmatch 'NEXA_JNI_WAITING') { throw "JVM never started: $errorOutput" }
             Write-Output "PASS: JNI host $mode"

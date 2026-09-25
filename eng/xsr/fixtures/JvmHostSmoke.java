@@ -1,5 +1,15 @@
 public final class JvmHostSmoke {
+    private static native int checkCocoaThread();
     public static void main(String[] args) throws Exception {
+        String cocoaProbe = System.getProperty("nexa.cocoa.probe");
+        if (cocoaProbe != null) {
+            System.load(cocoaProbe);
+            int pid = checkCocoaThread();
+            if (pid <= 0 || !"1".equals(System.getenv("JAVA_STARTED_ON_FIRST_THREAD_" + pid))
+                || !"Nexa JNI Smoke".equals(System.getenv("APP_NAME_" + pid)))
+                throw new AssertionError("Cocoa first-thread contract failed");
+            System.out.println("NEXA_JNI_COCOA_MAIN_THREAD");
+        }
         switch (args[0]) {
             case "throw": throw new IllegalStateException("NEXA_JNI_EXCEPTION");
             case "exit": System.exit(7); break;
