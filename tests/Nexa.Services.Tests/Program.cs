@@ -4,6 +4,7 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("host history rejects unsuitable runs and preserves peak semantics", Sync(HostHistoryAdmissionPreservesPeakSemantics)),
         ("empty online model retires cached parameters", EmptyOnlineModelRetiresCachedParameters),
         ("resource history isolated by full instance directory", Sync(ResourceHistoryIsolatedByInstanceDirectory)),
         ("resource estimate excludes disabled mods", Sync(ResourceEstimateExcludesDisabledMods)),

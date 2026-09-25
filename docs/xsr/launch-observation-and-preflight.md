@@ -14,6 +14,12 @@ looks similar. Different roots with the same instance name remain different scop
 necessary boundary, not proof of configuration equivalence: mod/settings fingerprints and workload
 matching remain required for a reliable learned model.
 
+Host history admission requires a normal exit (code zero), at least 60 seconds and 30 successful
+observations, uninterrupted sampling, no observed settings changes (including the final read), and
+no session crash evidence. Rejected runs remain diagnostic observations but do not calibrate the
+local estimator. Store the measured working-set peak as PhysicalPeakMiB, never its temporal P95.
+This gate does not establish world readiness or matching mod/configuration fingerprints.
+
 ## Observation contract
 
 Services own per-launch resource observation. Random session identity links samples only

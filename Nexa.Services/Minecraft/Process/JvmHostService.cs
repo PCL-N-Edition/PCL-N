@@ -172,6 +172,8 @@ public sealed class JvmHostService : IJvmHost
         JvmRunWindow window = new();
         long sequence = 0, runStart = Environment.TickCount64, windowStart = runStart;
         int epoch = 0;
+        long successfulSamples = 0;
+        bool samplingComplete = true;
         JvmRunSettings settings = JvmRunSettings.Read(plan.GameDirectory);
         void Emit(bool ended)
         {
@@ -212,6 +214,7 @@ public sealed class JvmHostService : IJvmHost
                     previousSampleTick = currentSampleTick;
                     hasCpuBaseline = true;
                     window.Add(session.Process.WorkingSet64, session.Process.PrivateMemorySize64, sampleCpu, session.Process.Threads.Count);
+                    successfulSamples++;
                     if (OperatingSystem.IsWindows() && GetProcessIoCounters(session.Process.Handle, out IoCounters counters))
                     {
                         ioRead = Math.Max(ioRead, checked((long)Math.Min(counters.ReadTransferCount, long.MaxValue)));
@@ -221,6 +224,7 @@ public sealed class JvmHostService : IJvmHost
                 catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
                 {
                     hasCpuBaseline = false;
+                    samplingComplete = false;
                 }
                 if (Environment.TickCount64 - windowStart >= 30000)
                 {
@@ -235,9 +239,11 @@ public sealed class JvmHostService : IJvmHost
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
         {
             // Observation is best effort and cannot change launch truth.
+            samplingComplete = false;
         }
 
         MinecraftProcessSnapshot snapshot = session.Snapshot;
+        long observedMilliseconds = Environment.TickCount64 - runStart;
         Emit(snapshot.State is not (MinecraftProcessState.Created or MinecraftProcessState.Running));
         (string[] stdout, string[] stderr) = await session.ReadSeparatedEvidenceAsync().ConfigureAwait(false);
         DateTimeOffset evidenceFloor = snapshot.StartedAt - TimeSpan.FromSeconds(2);
@@ -256,10 +262,24 @@ public sealed class JvmHostService : IJvmHost
             RuntimeCpuP95Percent = CpuPercentile(cpuSamples),
         };
         Publish(observation);
-        _history?.Record(new ResourceObservationSample(plan.InstanceDirectory, plan.ModLoader.Kind.ToString(),
-            plan.JavaMajorVersion, -1, -1, 0, 0,
-            BytesToMiB(observation.RuntimePhysicalP95Bytes), BytesToMiB(observation.RuntimeCommitP95Bytes),
-            0, launchDuration, snapshot.EndedAt ?? DateTimeOffset.UtcNow));
+        ResourceObservationSample? historySample = CreateHistorySample(plan, snapshot, observation,
+            observedMilliseconds, successfulSamples, samplingComplete,
+            epoch == 0 && JvmRunSettings.Read(plan.GameDirectory) == settings);
+        if (historySample is not null) _history?.Record(historySample);
+    }
+
+    internal static ResourceObservationSample? CreateHistorySample(MinecraftLaunchPlan plan,
+        MinecraftProcessSnapshot snapshot, JvmHostObservation observation, long elapsedMilliseconds,
+        long successfulSamples, bool samplingComplete, bool settingsStable)
+    {
+        if (snapshot.State != MinecraftProcessState.Exited || snapshot.ExitCode != 0
+            || observation.ExitCode != 0 || snapshot.EndedAt is null || elapsedMilliseconds < 60000
+            || successfulSamples < 30 || !samplingComplete || !settingsStable
+            || observation.CrashReportPath is not null || observation.HsErrPath is not null
+            || observation.PeakWorkingSetBytes <= 0) return null;
+        return new(plan.InstanceDirectory, plan.ModLoader.Kind.ToString(), plan.JavaMajorVersion,
+            -1, -1, 0, 0, BytesToMiB(observation.PeakWorkingSetBytes), 0, 0,
+            observation.LaunchDurationMilliseconds, snapshot.EndedAt.Value);
     }
 
     private void PublishSample(JvmRunSample sample)

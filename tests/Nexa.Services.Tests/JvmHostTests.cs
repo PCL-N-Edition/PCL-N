@@ -6,6 +6,39 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static void HostHistoryAdmissionPreservesPeakSemantics()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        MinecraftLaunchPlan plan = new("java", "root", [], [], [],
+            new MinecraftModLoaderDescriptor(MinecraftModLoaderKind.Vanilla, null, "example.Main", []))
+        { JavaMajorVersion = 21 };
+        MinecraftProcessSnapshot snapshot = new(Guid.NewGuid(), "fixture", 1, MinecraftProcessState.Exited,
+            0, now.AddMinutes(-2), now);
+        JvmHostObservation observation = new(snapshot.SessionId, "fixture", snapshot.StartedAt, now,
+            100, 2048L * 1024 * 1024, 3000L * 1024 * 1024, 1, 1,
+            0, 0, 0, 0, 0, 0, 0, null, null, 0, [], [])
+        { RuntimePhysicalP95Bytes = 1024L * 1024 * 1024 };
+        var accepted = JvmHostService.CreateHistorySample(plan, snapshot, observation, 120000, 240, true, true);
+        AssertTrue(accepted is not null);
+        AssertEqual(2048L, accepted!.PhysicalPeakMiB);
+        AssertEqual(0L, accepted.NativePeakMiB);
+        AssertEqual(0L, accepted.HeapPeakMiB);
+        AssertEqual(0L, accepted.CommitPeakMiB);
+        foreach (MinecraftProcessState state in new[] { MinecraftProcessState.Created, MinecraftProcessState.Running,
+            MinecraftProcessState.Failed, MinecraftProcessState.Cancelled })
+            AssertTrue(JvmHostService.CreateHistorySample(plan, snapshot with { State = state }, observation,
+                120000, 240, true, true) is null);
+        foreach (var invalid in new[] { snapshot with { ExitCode = 1 }, snapshot with { ExitCode = null }, snapshot with { EndedAt = null } })
+            AssertTrue(JvmHostService.CreateHistorySample(plan, invalid, observation, 120000, 240, true, true) is null);
+        foreach (var invalid in new[] { observation with { ExitCode = 1 }, observation with { PeakWorkingSetBytes = 0 },
+            observation with { CrashReportPath = "crash.txt" }, observation with { HsErrPath = "hs_err.log" } })
+            AssertTrue(JvmHostService.CreateHistorySample(plan, snapshot, invalid, 120000, 240, true, true) is null);
+        AssertTrue(JvmHostService.CreateHistorySample(plan, snapshot, observation, 59999, 240, true, true) is null);
+        AssertTrue(JvmHostService.CreateHistorySample(plan, snapshot, observation, 120000, 29, true, true) is null);
+        AssertTrue(JvmHostService.CreateHistorySample(plan, snapshot, observation, 120000, 240, false, true) is null);
+        AssertTrue(JvmHostService.CreateHistorySample(plan, snapshot, observation, 120000, 240, true, false) is null);
+    }
+
     private static async Task<int> ReceiveJvmHostFixture()
     {
         try
