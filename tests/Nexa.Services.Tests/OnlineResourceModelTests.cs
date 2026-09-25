@@ -143,4 +143,23 @@ internal static partial class Program
         AssertTrue(client.Current is null);
         feed.Body = ModelBytes(ModelDocument()); AssertFalse(await client.RefreshAsync());
     }
+
+    private static async ValueTask EmptyOnlineModelRetiresCachedParameters()
+    {
+        var feed = new ModelFeed(); using var http = new HttpClient(feed);
+        using var client = new OnlineWorkingSetModelClient(http, new ModelClock());
+        AssertTrue(await client.RefreshAsync());
+        AssertTrue(client.Current!.TryPredict("windows", "Fabric", 4096, 256, 16, ModelNow, out _));
+        var retired = ModelDocument();
+        retired["generatedAt"] = ModelNow.AddSeconds(1).ToString("O");
+        retired["models"] = new JsonArray();
+        feed.Body = ModelBytes(retired);
+        AssertTrue(await client.RefreshAsync());
+        var empty = client.Current;
+        AssertTrue(empty is not null);
+        AssertFalse(empty!.TryPredict("windows", "Fabric", 4096, 256, 16, ModelNow, out _));
+        feed.Status = HttpStatusCode.ServiceUnavailable;
+        AssertFalse(await client.RefreshAsync());
+        AssertTrue(ReferenceEquals(empty, client.Current));
+    }
 }

@@ -4,6 +4,7 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("empty online model retires cached parameters", EmptyOnlineModelRetiresCachedParameters),
         ("resource history isolated by full instance directory", Sync(ResourceHistoryIsolatedByInstanceDirectory)),
         ("resource estimate excludes disabled mods", Sync(ResourceEstimateExcludesDisabledMods)),
         ("nested Fabric inventory reads declared candidates", NestedFabricInventoryReadsDeclaredCandidates),

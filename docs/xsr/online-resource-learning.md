@@ -4,7 +4,14 @@ This is an estimate, not compatibility evidence or a verified memory requirement
 create hard launch blockers. JVM heap, JVM native, private bytes and system commit are distinct
 metrics; the first online learner predicts process working-set peak in MiB only.
 
-The Worker trains at most once per UTC day, outside request handling. It selects at most 128
+Production v1 publication is retired as well as client projection. The endpoint returns a fresh,
+valid empty schema-1 document with `Cache-Control: no-store`, without reading obsolete R2 data.
+This replaces older clients' cached parameters; returning 503 would preserve them until expiry.
+The scheduled refresh replaces the stored document with an empty one and never queries training
+rows. Raw telemetry collection continues. The prototype below remains for experimental comparison
+only; it is not called by production publication.
+
+The retired prototype trained at most once per UTC day, outside request handling. It selected at most 128
 completed sessions from 30 days, joins at most sequence 0..2048 for each, and requires contiguous
 windows, normal exit, at least 60 seconds and 30 observations, and no settings epoch changes.
 One session contributes one peak, not one weight per sample or duration. Unknown/invalid features
