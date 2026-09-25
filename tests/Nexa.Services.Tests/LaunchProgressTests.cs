@@ -265,8 +265,9 @@ internal static partial class Program
     private static async ValueTask JavaAcquisitionApprovalDownloadsAndLaunches()
     {
         RecordingStubInstaller installer = new();
+        LongLivedProcessPort processPort = new();
         (MinecraftLaunchCoordinator coordinator, FoundationHost host, _, string root) =
-            ComposeAcquisitionCoordinator(installer);
+            ComposeAcquisitionCoordinator(installer, processPort: processPort);
         try
         {
             Task<XsrResult> launchTask = Task.Run(
@@ -286,13 +287,17 @@ internal static partial class Program
             AssertTrue(result.IsSuccess,
                 "approval launch failed: " + result.Error?.Code.Value + " " + result.Error?.Message);
             AssertEqual(1, installer.Calls);
-            // ExitingProcessPort may publish its terminal event before this continuation runs.
-            // A terminal session intentionally clears IsLaunched, so the durable contract here
-            // is the successful result plus one installer call, not a timing-dependent state.
+            // The child remains alive through window detection. An immediately exiting fixture
+            // races the production exited-before-window check, especially in Linux NativeAOT.
             AssertFalse(ReadProgressFlag(store, MinecraftLaunchProgressState.AcquirePendingKey));
         }
         finally
         {
+            if (processPort.LastProcess is { } child)
+            {
+                if (!child.HasExited) child.Kill(entireProcessTree: true);
+                await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
             Directory.Delete(root, recursive: true);
         }
     }
