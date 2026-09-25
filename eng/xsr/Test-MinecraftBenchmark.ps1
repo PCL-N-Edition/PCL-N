@@ -1,5 +1,7 @@
 param([Parameter(Mandatory = $true)][string]$Executable)
 $ErrorActionPreference = 'Stop'
+# Rejection cases intentionally return 1; assertions below decide success, not the native-command preference.
+$PSNativeCommandUseErrorActionPreference = $false
 $binary = (Resolve-Path -LiteralPath $Executable).Path
 & $binary --help
 if ($LASTEXITCODE -ne 0) { throw 'Benchmark help failed.' }
@@ -27,3 +29,4 @@ foreach ($limits in @(@('0','60'), @('2048','0'), @('2048','1801'), @('12289','6
     if ($LASTEXITCODE -ne 1 -or (Test-Path -LiteralPath $output)) { throw 'Invalid limits must not create or launch a game.' }
 }
 Write-Host 'Benchmark input boundary checks passed. No real Minecraft run was performed.'
+exit 0
