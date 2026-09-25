@@ -39,6 +39,7 @@ public sealed record MinecraftInstallResult(string InstanceId, string InstanceDi
 public static class MinecraftInstallRoutes
 {
     public static readonly XsrSemanticId Run = XsrSemanticId.Parse("minecraft.install.run");
+    public static readonly XsrSemanticId Stop = XsrSemanticId.Parse("minecraft.install.stop");
     public static readonly XsrSemanticId Recover = XsrSemanticId.Parse("minecraft.install.recovery");
 }
 
@@ -118,9 +119,11 @@ public sealed partial class MinecraftInstallService : IDisposable
             : $"安装 Minecraft {command.GameVersion} · {loaderName}";
         if (command.EditFingerprint is not null) title = "修改版本 " + command.InstanceName;
         string taskId = "install:" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+        InstallExecution execution;
+        try { execution = RegisterExecution(command); } catch (OperationCanceledException) { return XsrResult.Failure<MinecraftInstallResult>(XsrRuntimeErrors.Cancelled()); }
         using ITaskCenterTask task = _tasks.Begin(new TaskCenterStart(taskId, title, StagePlan));
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken, task.CancellationToken);
+            cancellationToken, task.CancellationToken, execution.Token);
         try
         {
             using var recoveryOperation = await InstanceRecoveryOperationGate.EnterOperationAsync(
@@ -135,8 +138,8 @@ public sealed partial class MinecraftInstallService : IDisposable
             if (command.EditFingerprint is not null && _hostStore is not null)
                 MinecraftInstanceRenamer.EnsureIdle(command.RootDirectory, _hostStore, linked.Token);
             MinecraftInstallResult result = command.EditFingerprint is null
-                ? await InstallNewAsync(command, task, linked.Token).ConfigureAwait(false)
-                : await ReinstallAsync(command, task, linked.Token).ConfigureAwait(false);
+                ? await InstallNewAsync(command, task, linked.Token, execution: execution).ConfigureAwait(false)
+                : await ReinstallAsync(command, task, linked.Token, execution: execution).ConfigureAwait(false);
             if (renaming)
             {
                 var current = await MinecraftInstallEditService.ReadAsync(new(command.RootDirectory, result.InstanceId), linked.Token).ConfigureAwait(false);
@@ -148,13 +151,14 @@ public sealed partial class MinecraftInstallService : IDisposable
                 Renamed?.Invoke(command.RootDirectory, old, result.InstanceId);
                 Installed?.Invoke(command.RootDirectory);
             }
+            execution.Completed = true;
             return XsrResult.Success(result);
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested)
         {
             // Either the task card or the dispatching caller stopped the run; both leave a
             // canceled task card and a cancelled result — never a raw escape to the caller.
-            task.Canceled();
+            if (_pauseForExit) task.Paused(); else task.Canceled();
             return XsrResult.Failure<MinecraftInstallResult>(XsrRuntimeErrors.Cancelled());
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
@@ -162,6 +166,7 @@ public sealed partial class MinecraftInstallService : IDisposable
             task.Fail(exception.Message);
             return XsrResult.Failure<MinecraftInstallResult>(XsrRuntimeErrors.HandlerFaulted());
         }
+        finally { FinishExecution(execution); }
     }
 
     private async Task<MinecraftInstallResult> RunAsync(

@@ -32,6 +32,7 @@ public sealed partial class MinecraftInstallService
                     foreach (string stage in Directory.EnumerateDirectories(directory))
                     {
                         token.ThrowIfCancellationRequested();
+                        lock (_executionGate) if (_stopping) return XsrResult.Failure(XsrRuntimeErrors.Cancelled());
                         if (++visited > 256)
                         {
                             Fail("待检查的安装目录过多，已保留剩余任务。");

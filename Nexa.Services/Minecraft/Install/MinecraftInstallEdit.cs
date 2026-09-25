@@ -152,7 +152,7 @@ public static class MinecraftInstallEditService
 
 public sealed partial class MinecraftInstallService
 {
-    private async Task<MinecraftInstallResult> ReinstallAsync(MinecraftInstallCommand command, ITaskCenterTask task, CancellationToken token, string? resumeStage = null)
+    private async Task<MinecraftInstallResult> ReinstallAsync(MinecraftInstallCommand command, ITaskCenterTask task, CancellationToken token, string? resumeStage = null, InstallExecution? execution = null)
     {
         string instance = command.InstanceName ?? throw new InvalidDataException("未指定要修改的版本。");
         var original = await MinecraftInstallEditService.ReadAsync(new(command.RootDirectory, instance), token).ConfigureAwait(false);
@@ -181,6 +181,7 @@ public sealed partial class MinecraftInstallService
                 executionLease = new FileStream(executionPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
                 _ = await InstallTaskJournal.CreateAsync(stage, command with { RootDirectory = original.RootDirectory }, token).ConfigureAwait(false);
             }
+            ReadyExecution(execution, stage);
             if (editPlan.Kind == MinecraftInstallEditKind.ComponentsOnly)
                 await PrepareComponentEditAsync(command, original, editPlan, stage, task, token).ConfigureAwait(false);
             else
@@ -211,7 +212,7 @@ public sealed partial class MinecraftInstallService
             try { await publication.ApplyAsync(token).ConfigureAwait(false); }
             catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
             {
-                if (resumeStage is not null) throw; // Recovery keeps its progress for the next attempt or explicit rollback.
+                if (resumeStage is not null || _pauseForExit) throw; // Recovery keeps its progress for the next attempt or explicit rollback.
                 // Cancellation compensates too. A failed compensation retains the durable stage.
                 try { await publication.RollbackAsync(CancellationToken.None).ConfigureAwait(false); }
                 catch (Exception rollbackError) when (rollbackError is not OutOfMemoryException and not AccessViolationException)
@@ -231,7 +232,7 @@ public sealed partial class MinecraftInstallService
         {
             executionLease?.Dispose();
             // An interrupted/failed publication owns the only durable originals. Keep it until resolved.
-            if (resumeStage is null && (safeToRemove || !File.Exists(Path.Combine(stage, ".publication", "progress.json"))))
+            if (resumeStage is null && (safeToRemove || !_pauseForExit && !File.Exists(Path.Combine(stage, ".publication", "progress.json"))))
             {
                 Management.RecoveryBlobStore.CheckLinks(stage);
                 try { Directory.Delete(stage, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }

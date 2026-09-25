@@ -19,7 +19,7 @@ public sealed partial class MinecraftInstallService
             ? SafeName($"{command.GameVersion}-{loader.ToString().ToLowerInvariant()}{build}") : SafeName(command.GameVersion);
 
     private async Task<MinecraftInstallResult> InstallNewAsync(MinecraftInstallCommand command, ITaskCenterTask task,
-        CancellationToken token, string? resumeStage = null)
+        CancellationToken token, string? resumeStage = null, InstallExecution? execution = null)
     {
         _ = ValidatePrimaryLoader(command);
         string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(command.RootDirectory));
@@ -44,6 +44,7 @@ public sealed partial class MinecraftInstallService
                 lease = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
                 await InstallTaskJournal.CreateAsync(stage, command, token).ConfigureAwait(false);
             }
+            ReadyExecution(execution, stage);
             await RunAsync(command with { RootDirectory = stage, ReuseRoot = root }, task, token,
                 new PersistentInstallMetadataSource(stage, _metadata), deferCompletion: true).ConfigureAwait(false);
             RecoveryBlobStore.CheckLinks(destination);
@@ -58,7 +59,7 @@ public sealed partial class MinecraftInstallService
             try { await journal.ApplyAsync(token).ConfigureAwait(false); }
             catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
             {
-                if (resumeStage is not null) throw;
+                if (resumeStage is not null || _pauseForExit) throw;
                 try { await journal.RollbackAsync(CancellationToken.None).ConfigureAwait(false); }
                 catch (Exception rollbackError) when (rollbackError is not OutOfMemoryException and not AccessViolationException)
                 { throw new AggregateException("安装发布及撤回未完成，已保留事务记录。", error, rollbackError); }
@@ -76,7 +77,7 @@ public sealed partial class MinecraftInstallService
         finally
         {
             lease?.Dispose();
-            if (resumeStage is null && (safeToRemove || !File.Exists(Path.Combine(stage, ".publication", "progress.json"))))
+            if (resumeStage is null && (safeToRemove || !_pauseForExit && !File.Exists(Path.Combine(stage, ".publication", "progress.json"))))
             {
                 RecoveryBlobStore.CheckLinks(stage);
                 try { Directory.Delete(stage, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }

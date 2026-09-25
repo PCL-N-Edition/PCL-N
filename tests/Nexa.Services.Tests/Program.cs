@@ -117,6 +117,7 @@ internal static partial class Program
         ("install runs the real pipeline into the version library", InstallRunsTheRealPipelineIntoTheVersionLibrary),
         ("install rejects processor loaders before touching disk", InstallRejectsProcessorLoadersBeforeTouchingDisk),
         ("install cancel marks the task canceled", InstallCancelMarksTheTaskCanceled),
+        ("install exit pause retains plan and cancel removes stage", InstallExitPauseRetainsPlanAndCancelRemovesStage),
         ("task center tracks lifecycle and summary", TaskCenterTracksLifecycleAndSummary),
         ("task center pause preserves checkpoint without completing steps", TaskCenterPausePreservesCheckpointWithoutCompletingSteps),
         ("prerelease telemetry cannot be disabled", PrereleaseTelemetryCannotBeDisabled),

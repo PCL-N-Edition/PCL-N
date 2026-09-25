@@ -44,6 +44,8 @@ public static class MinecraftInstallRuntimeComposer
                 .FirstOrDefault(value => value.Key == "install.inherit-vanilla")?.Value.Value == "true",
             settingsPolicy: host.SettingsPolicy, hostStore: host.StateStore);
         XsrCommandRouterBuilder commands = new();
+        commands.Register<MinecraftInstallStopCommand>(MinecraftInstallRoutes.Stop,
+            async (command, token) => await service.StopAsync(command, token).ConfigureAwait(false));
         commands.Register<MinecraftInstallRecoveryCommand>(MinecraftInstallRoutes.Recover,
             async (command, token) => await service.RecoverPendingAsync(command, token).ConfigureAwait(false));
         commands.Register<MinecraftInstallCommand>(MinecraftInstallRoutes.Run,
