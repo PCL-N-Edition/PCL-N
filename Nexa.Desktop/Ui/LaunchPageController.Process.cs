@@ -102,8 +102,7 @@ internal sealed partial class LaunchPageController
             var failures = _store.ReadCollection<MinecraftProcessFailure>(failuresId).Items;
             _shownFailures.IntersectWith(failures.Select(failure => failure.SessionId));
             foreach (var failure in failures)
-                if (!_shownFailures.Contains(failure.SessionId) && _feedback.TryShowMessageDialog("minecraft.crash." + failure.SessionId,
-                    failure.InstanceId + " · 游戏异常退出", CrashSummary(failure.Report) + "\n\n" + failure.Report.Message, "知道了"))
+                if (!_shownFailures.Contains(failure.SessionId) && TryShowCrashDialog(failure))
                 { _shownFailures.Add(failure.SessionId); break; }
         }
     }

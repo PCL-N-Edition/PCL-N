@@ -57,13 +57,15 @@ internal static partial class Program
         using LibraryFixture fixture = new();
         await using var service = new MinecraftProcessService(new NoisyExitPort(), fixture.Host.StateStore);
         var plan = new MinecraftLaunchPlan("ignored", Path.GetTempPath(), [], [], [],
-            new MinecraftModLoaderDescriptor(MinecraftModLoaderKind.Vanilla, null, null, []));
+            new MinecraftModLoaderDescriptor(MinecraftModLoaderKind.Vanilla, null, null, []))
+        { InstanceDirectory = Path.Combine(Path.GetTempPath(), "recovery-root", "versions", "noisy-game") };
         var session = await service.StartAsync(plan, "noisy-game");
         AssertEqual(7, await session.WaitForExitAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15)));
         var key = fixture.Host.StateStore.Resolve(MinecraftProcessStateComposition.FailuresKey);
         AssertTrue(SpinWait.SpinUntil(() => fixture.Host.StateStore.ReadCollection<MinecraftProcessFailure>(key).Items.Count == 1, TimeSpan.FromSeconds(5)));
         var failure = fixture.Host.StateStore.ReadCollection<MinecraftProcessFailure>(key).Items[0];
         AssertEqual(session.Snapshot.SessionId, failure.SessionId);
+        AssertEqual(plan.InstanceDirectory, failure.InstanceDirectory);
         AssertEqual(MinecraftLaunchFaultCode.OutOfMemory, failure.Report.Code);
         AssertTrue(failure.Report.Evidence.Count <= 200);
         AssertTrue(failure.Report.Evidence.All(line => line.Length <= 2048));

@@ -401,7 +401,7 @@ public sealed class MinecraftProcessService : IAsyncDisposable
                 var current = _store.ReadCollection<MinecraftProcessFailure>(id);
                 Guid[] removals = current.Items.Take(Math.Max(0, current.Items.Count - RetainedExitedSessions + 1)).Select(item => item.SessionId).ToArray();
                 if (_store.PublishDelta(id, new XsrCollectionDelta<MinecraftProcessFailure, Guid>(current.Revision,
-                    [new(snapshot.SessionId, snapshot.InstanceId, report)], removals)).IsApplied) break;
+                    [new(snapshot.SessionId, snapshot.InstanceId, report) { InstanceDirectory = snapshot.InstanceDirectory }], removals)).IsApplied) break;
             }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not AccessViolationException)

@@ -210,11 +210,29 @@ internal sealed class DesktopFeedbackService : IDisposable
 
     /// <summary>Queues analysis at the next idle modal slot without cancelling another decision.</summary>
     public bool TryShowMessageDialog(string key, string title, string message, string acceptLabel)
+        => TryShowMessageDialog(key, title, message, acceptLabel, out _);
+
+    public bool TryShowMessageDialog(string key, string title, string message, string acceptLabel,
+        out Guid dialogId)
     {
+        dialogId = default;
         lock (_gate)
         {
             if (_disposed || _dialog is not null) return false;
-            _dialog = new DesktopDialog(Guid.NewGuid(), key, title, message, acceptLabel, null, static _ => { });
+            dialogId = Guid.NewGuid();
+            _dialog = new DesktopDialog(dialogId, key, title, message, acceptLabel, null, static _ => { });
+        }
+        RaiseChanged();
+        return true;
+    }
+
+    // Async results are bound to a particular modal lifetime, never just a reusable key.
+    public bool TryUpdateMessageDialog(Guid dialogId, string message, string? alternateLabel = null, Action? alternate = null)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _dialog?.Id != dialogId) return false;
+            _dialog = _dialog with { Message = message, AlternateLabel = alternateLabel, Alternate = alternate };
         }
         RaiseChanged();
         return true;

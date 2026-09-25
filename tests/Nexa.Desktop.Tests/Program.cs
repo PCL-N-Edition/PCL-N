@@ -93,6 +93,8 @@ internal static partial class Program
         ("launch overlay cancel hides overlay", LaunchOverlayCancelHidesOverlay),
         ("launch overlay prompts before the java download", LaunchOverlayPromptsBeforeJavaDownload),
         ("unsupported profile does not spin feedback", UnsupportedProfileDoesNotSpinFeedback),
+        ("crash changes pages stay bounded and reject late updates", CrashChangesPagesRemainBoundedAndLateUpdatesCannotReopenDialog),
+        ("crash changes query uses the failed process instance", CrashChangesQueryUsesFailedProcessInstance),
         ("launched cancel button becomes back", LaunchedCancelButtonBecomesBack),
         ("version subpages have independent routes and restore navigation focus", VersionSubpagesHaveIndependentRoutesAndRestoreFocus),
         ("Install editor locks base version and resets on exit", InstallEditorLocksBaseVersionAndResetsOnExit),
@@ -883,7 +885,7 @@ internal static partial class Program
                 Store,
                 Library,
                 Feedback, accountCommands: enableSkins ? Onboarding.Commands : null,
-                timeProvider: timeProvider, directoryEffects: directoryEffects, installCatalogCommands: InstallCatalog.Commands, installCatalogQueries: InstallCatalog.Queries);
+                timeProvider: timeProvider, directoryEffects: directoryEffects, installCatalogCommands: InstallCatalog.Commands, installCatalogQueries: InstallCatalog.Queries, recoveryQueries: Foundation.Queries);
             AccountForm = new AccountFormController(Shell, Intents, Onboarding.Commands, Store,
                 Controller.AccountBody, Feedback, accountEffects, host.Logging);
             _launchObserverSubscription = storeObservation.Subscribe(Controller.StateObserver);

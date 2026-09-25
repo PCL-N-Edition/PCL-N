@@ -412,6 +412,12 @@ internal sealed class DesktopFeedbackPresenter : IDisposable
     {
         Dictionary<string, XsrUiEntityId> entities = Index(presented.Root);
         SetText(entities["DialogTitle"], dialog.Title);
+        if (_shell.Tree.GetComponent<XsrUiText>(entities["DialogMessage"])?.Content != dialog.Message
+            && _shell.Tree.GetComponent<XsrUiScroll>(entities["DialogMessageViewport"]) is { } messageScroll)
+        {
+            messageScroll.OffsetY = 0;
+            _shell.Tree.MarkDirty(entities["DialogMessageViewport"], XsrUiDirtyKinds.Layout);
+        }
         SetText(entities["DialogMessage"], dialog.Message);
         SetText(presented.Accept, dialog.AcceptLabel);
         bool alternate = dialog.Alternate is not null && !string.IsNullOrWhiteSpace(dialog.AlternateLabel);

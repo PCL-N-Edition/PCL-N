@@ -231,7 +231,7 @@ internal sealed partial class LaunchPageController : IDisposable
         TimeProvider? timeProvider = null,
         IVersionDirectoryEffects? directoryEffects = null,
         XsrCommandRouter? installCatalogCommands = null, XsrQueryRouter? installCatalogQueries = null,
-        XsrCommandRouter? installRunCommands = null)
+        XsrCommandRouter? installRunCommands = null, XsrQueryRouter? recoveryQueries = null)
     {
         ArgumentNullException.ThrowIfNull(shell);
         ArgumentNullException.ThrowIfNull(intents);
@@ -248,6 +248,7 @@ internal sealed partial class LaunchPageController : IDisposable
         _installCatalogCommands = installCatalogCommands;
         _installCatalogQueries = installCatalogQueries;
         _installRunCommands = installRunCommands;
+        _recoveryQueries = recoveryQueries;
         _store = store;
         _feedback = feedback;
         StateObserver = new LaunchingStateObserver(this);
