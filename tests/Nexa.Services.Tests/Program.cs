@@ -39,6 +39,7 @@ internal static partial class Program
         ("folder import rejects malformed manifests", FolderImportRejectsMalformedManifests),
         ("local jar imports preserve instance and core", LocalJarImportsPreserveInstanceAndCore),
         ("local jar rejects stored length mismatch", LocalJarRejectsStoredLengthMismatch),
+        ("legacy metadata without core patch can be checked", LegacyMetadataWithoutCorePatchCanBeChecked),
         ("local jar installer uses content identity", LocalJarInstallerUsesContentIdentity),
         ("local installer does not download replacement", LocalInstallerDoesNotDownloadReplacement),
         ("mrpack installs client files and overrides atomically", MrpackInstallsClientFilesAndOverridesAtomically),

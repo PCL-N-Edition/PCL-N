@@ -212,7 +212,7 @@ public sealed class MinecraftLaunchFileCompletion : IDisposable
     {
         string expected = instance.Metadata.CorePatchSha256;
         string ownJar = Path.Combine(instance.DirectoryPath, instance.Id + ".jar");
-        if (expected.Length != 64 || !MinecraftLibraryService.PathComparer.Equals(Path.GetFullPath(clientPath), Path.GetFullPath(ownJar))
+        if (expected is not { Length: 64 } || !MinecraftLibraryService.PathComparer.Equals(Path.GetFullPath(clientPath), Path.GetFullPath(ownJar))
             || !File.Exists(clientPath)) return false;
         await using var stream = File.OpenRead(clientPath);
         string actual = Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(stream, token).ConfigureAwait(false));

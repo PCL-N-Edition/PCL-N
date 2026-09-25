@@ -21,7 +21,8 @@ public sealed record MinecraftInstanceMetadata
     public string LogoPath { get; init; } = string.Empty;
     public int CardType { get; init; }
     public bool DisableAssetVerification { get; init; }
-    public string CorePatchSha256 { get; init; } = string.Empty;
+    private readonly string _corePatchSha256 = string.Empty;
+    public string CorePatchSha256 { get => _corePatchSha256; init => _corePatchSha256 = value ?? string.Empty; }
     public bool InstanceIsolation { get; init; } = true;
     public string WindowTitle { get; init; } = string.Empty;
     public bool UseGlobalWindowTitle { get; init; } = true;

@@ -7,6 +7,30 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask LegacyMetadataWithoutCorePatchCanBeChecked()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string directory = CreateVersionDirectory(root, "test", new System.Text.Json.Nodes.JsonObject
+            { ["id"] = "test", ["mainClass"] = "main", ["type"] = "release" });
+            MinecraftInstanceMetadataStore store = new();
+            string metadataPath = store.GetMetadataPath(directory);
+            Directory.CreateDirectory(Path.GetDirectoryName(metadataPath)!);
+            string core = Path.Combine(directory, "test.jar");
+            WriteLocalJar(core, ("example.class", "original"));
+            foreach (string json in new[] { "{}", "{\"corePatchSha256\":null}", "{\"corePatchSha256\":\"\"}", "{\"corePatchSha256\":\"invalid\"}" })
+            {
+                await File.WriteAllTextAsync(metadataPath, json);
+                var metadata = await store.LoadAsync(directory);
+                AssertTrue(metadata.CorePatchSha256 is not null);
+                var instance = (await new MinecraftInstanceDiscovery().DiscoverAsync(root)).Single();
+                AssertFalse(await MinecraftLaunchFileCompletion.HasVerifiedCorePatchAsync(instance, core, CancellationToken.None));
+            }
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static async ValueTask LocalJarRejectsStoredLengthMismatch()
     {
         string temporary = CreateTempDirectory();
