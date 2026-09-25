@@ -7,6 +7,7 @@ namespace Nexa.Services.Minecraft.Management;
 public sealed record InstanceManagementQuery(string InstanceDirectory)
 {
     public bool IncludeRecoveryStorage { get; init; }
+    public bool IncludeTrash { get; init; }
 }
 public sealed record InstanceManagementPage(string Id, string Label, string? Directory = null);
 public sealed record InstanceContentEntry(string Name, bool IsDirectory, long? Size)
@@ -23,12 +24,15 @@ public sealed record InstanceManagementSnapshot(string InstanceDirectory, string
     public string Description { get; init; } = "";
     public InstanceRecoveryStorage? RecoveryStorage { get; init; }
     public InstanceRecoveryReport? RecoveryComparison { get; init; }
+    public IReadOnlyList<InstanceTrashedContent> Trash { get; init; } = [];
 }
 
 public static class InstanceManagementContract
 {
     public static readonly XsrSemanticId Query = XsrSemanticId.Parse("minecraft.instance.management.query");
     public static readonly XsrSemanticId SetModEnabled = XsrSemanticId.Parse("minecraft.instance.mod.set-enabled");
+    public static readonly XsrSemanticId RemoveContent = XsrSemanticId.Parse("minecraft.instance.content.remove");
+    public static readonly XsrSemanticId RestoreContent = XsrSemanticId.Parse("minecraft.instance.content.restore");
 }
 
 public static class InstanceManagementService
@@ -54,6 +58,7 @@ public static class InstanceManagementService
                 pages, inventory.Complete, metadata.ModpackVersion)
             {
                 Description = metadata.Description,
+                Trash = query.IncludeTrash ? InstanceContentTrash.Read(instance, gameDirectory) : [],
                 RecoveryStorage = query.IncludeRecoveryStorage ? await InstanceRecoveryStorageReader.ReadAsync(instance, gameDirectory, token).ConfigureAwait(false) : null,
                 Contents = Array.AsReadOnly(pages.Where(page => page.Directory is not null)
                     .Select(page => ReadContent(page, token)).ToArray()),
@@ -106,7 +111,7 @@ public static class InstanceManagementService
         if (schematics) pages.Add(new("schematics", "蓝图", Path.Combine(gameDirectory, "schematics")));
         pages.AddRange([new("saves", "存档", Path.Combine(gameDirectory, "saves")),
             new("screenshots", "截图", Path.Combine(gameDirectory, "screenshots")),
-            new("servers", "服务器"), new("modpack", "整合包与导出")]);
+            new("servers", "服务器"), new("modpack", "整合包与导出"), new("trash", "已移除内容")]);
         return pages.AsReadOnly();
     }
 }

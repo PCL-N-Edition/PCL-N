@@ -62,6 +62,10 @@ public static class FoundationRuntimeComposer
             async (command, token) => await recovery.RecoverAsync(command, token).ConfigureAwait(false));
         commands.Register<InstanceModEnabledCommand>(InstanceManagementContract.SetModEnabled,
             async (command, token) => await InstanceContentService.SetModEnabledAsync(command, host.StateStore, token).ConfigureAwait(false));
+        commands.Register<InstanceContentRemoveCommand>(InstanceManagementContract.RemoveContent,
+            async (command, token) => await InstanceContentTrash.RemoveAsync(command, host.StateStore, token).ConfigureAwait(false));
+        commands.Register<InstanceContentRestoreCommand>(InstanceManagementContract.RestoreContent,
+            async (command, token) => await InstanceContentTrash.RestoreAsync(command, host.StateStore, token).ConfigureAwait(false));
         commands.Register(
             FoundationRouteIds.SettingsSet,
             FoundationCommands.CreateSettingsSetHandler(host.Settings));

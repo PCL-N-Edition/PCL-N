@@ -20,6 +20,9 @@ internal sealed partial class SettingsPageController
     private XsrUiEntityId _contentList;
     private InstanceContentSnapshot? _contentSnapshot;
     private int _contentWindowStart = -1, _contentWindowCount;
+    private int _trashPage;
+    private XsrUiEntityId _contentSearch;
+    private string _contentFilter = "";
     internal Action<string>? OpenManagementDirectory { get; set; }
     internal Action? ManagementChanged { get; set; }
     private IReadOnlyList<SettingsCatalogPage> ManagementPages => _management is { } snapshot
@@ -43,6 +46,15 @@ internal sealed partial class SettingsPageController
     private void UpdateManagement()
     {
         if (_instanceDirectory is null || _instance is null) return;
+        if (_contentSearch.IsAssigned && _shell.Tree.IsAlive(_contentSearch)
+            && _shell.Tree.GetComponent<XsrUiTextInput>(_contentSearch) is { } search
+            && search.ReadDraft() != _contentFilter)
+        {
+            _contentFilter = search.ReadDraft();
+            ApplyContentFilter();
+            _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY = 0;
+            UpdateContentWindow();
+        }
         if (_managementWrite is { IsCompleted: true } writing)
         {
             _managementWrite = null;
@@ -58,7 +70,7 @@ internal sealed partial class SettingsPageController
         {
             _managementStop = new();
             _managementRead = _queries.QueryAsync<InstanceManagementQuery, InstanceManagementSnapshot>(route,
-                new(_instance) { IncludeRecoveryStorage = _selected == "recovery" }, cancellationToken: _managementStop.Token).AsTask();
+                new(_instance) { IncludeRecoveryStorage = _selected == "recovery", IncludeTrash = _selected == "trash" }, cancellationToken: _managementStop.Token).AsTask();
             WakeOnPlatformCompletion(_managementRead);
         }
         if (_managementRead is not { IsCompleted: true } reading) return;
@@ -131,7 +143,12 @@ internal sealed partial class SettingsPageController
             else
             {
                 Text(_sections, _contentSnapshot.Complete ? $"{_contentSnapshot.Entries.Count} 项" : $"显示前 {_contentSnapshot.Entries.Count} 项，请在文件夹中查看其余内容。", 12, Muted, 22);
+                _contentSearch = Element(_sections, "ManagementContentSearch", XsrUiSemanticRole.TextInput, "搜索内容", height: 34);
+                _shell.Tree.SetComponent(_contentSearch, new XsrUiTextInput { Placeholder = "搜索名称" });
+                _shell.Tree.SetComponent(_contentSearch, new XsrUiInput { Focusable = true, Clickable = true });
+                _shell.Renderer.SetTextInputValue(_contentSearch, _contentFilter);
                 _contentList = Stack(_sections, "ManagementContentList", XsrUiOrientation.Vertical, 0);
+                ApplyContentFilter();
                 UpdateContentWindow();
             }
         }
@@ -144,6 +161,7 @@ internal sealed partial class SettingsPageController
             if (OpenManagementDirectory is not null) ManagementButton(_sections, "打开版本文件夹", () => OpenContentDirectory(snapshot.InstanceDirectory), 128);
         }
         else if (_selected == "recovery") BuildRecoveryStorage(snapshot);
+        else if (_selected == "trash") BuildContentTrash(snapshot);
         else if (_selected == "modpack")
         {
             ManagementFact("整合包版本", string.IsNullOrEmpty(snapshot.ModpackVersion) ? "未记录" : snapshot.ModpackVersion);
@@ -191,8 +209,55 @@ internal sealed partial class SettingsPageController
                 _managementActions[button] = () => ToggleMod(item);
                 _contentActions.Add(button);
             }
+            var remove = ActionButton(row, "ManagementContentRemove." + item.Name, "移除", ManagementAction, 64);
+            _managementActions[remove] = () => RemoveContent(item);
+            _contentActions.Add(remove);
         }
         Element(_contentList, "ManagementContentAfter", XsrUiSemanticRole.None, null, height: (snapshot.Entries.Count - start - count) * rowHeight);
         _shell.Tree.MarkDirty(_contentList, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
+    }
+
+    private void ApplyContentFilter()
+    {
+        if (_management?.Contents.FirstOrDefault(item => item.PageId == _selected) is not { } source) return;
+        _contentSnapshot = source with { Entries = source.Entries.Where(item => item.Name.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase)).ToArray() };
+        _contentWindowStart = -1;
+    }
+
+    private void RemoveContent(InstanceContentEntry item)
+    {
+        if (_managementWrite is not null || _management is not { } snapshot
+            || !_commands.TryResolve(InstanceManagementContract.RemoveContent, out var route)) return;
+        string page = _selected;
+        _feedback.ShowDialog("content.remove", "移除内容", $"将“{item.Name}”移至已移除内容，可随时还原。", "移除", "取消", accepted =>
+        {
+            if (!accepted || _managementWrite is not null || _instance != snapshot.InstanceDirectory) return;
+            _managementWriteInstance = snapshot.InstanceDirectory;
+            _managementWrite = _commands.Dispatch(route, new InstanceContentRemoveCommand(snapshot.InstanceDirectory, page, item.Name, item.IsDirectory, item.Size, item.ModifiedUtcTicks)).Completion;
+            WakeOnPlatformCompletion(_managementWrite);
+        });
+    }
+
+    private void BuildContentTrash(InstanceManagementSnapshot snapshot)
+    {
+        Text(_sections, "移除的内容仍保存在游戏目录中。还原不会覆盖同名文件。", 13, Muted, 30);
+        int pages = Math.Max(1, (snapshot.Trash.Count + 9) / 10);
+        _trashPage = Math.Clamp(_trashPage, 0, pages - 1);
+        if (snapshot.Trash.Count == 0) Text(_sections, "没有已移除的内容。", 13, Muted, 28);
+        foreach (var item in snapshot.Trash.Skip(_trashPage * 10).Take(10))
+        {
+            var row = Stack(_sections, "ContentTrashRow", XsrUiOrientation.Horizontal, 12);
+            var name = Text(row, item.Name, 14, Ink, 38);
+            _shell.Tree.GetComponent<XsrUiElement>(name)!.Weight = 1;
+            ManagementButton(row, "还原", () =>
+            {
+                if (_managementWrite is not null || _instance != snapshot.InstanceDirectory || !_commands.TryResolve(InstanceManagementContract.RestoreContent, out var route)) return;
+                _managementWriteInstance = snapshot.InstanceDirectory;
+                _managementWrite = _commands.Dispatch(route, new InstanceContentRestoreCommand(snapshot.InstanceDirectory, item.Id)).Completion;
+                WakeOnPlatformCompletion(_managementWrite);
+            }, 64);
+        }
+        if (pages > 1) ManagementButton(_sections, $"{_trashPage + 1}/{pages} · 下一页", () =>
+        { _trashPage = (_trashPage + 1) % pages; BuildSections(true); }, 140);
     }
 }
