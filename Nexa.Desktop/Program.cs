@@ -286,10 +286,13 @@ internal static class Program
         using SettingsPageController settingsPage = new(shell, uiIntents, runtime.Queries, runtime.Commands, host.StateStore, feedback);
         settingsPage.TelemetryRequired = Nexa.Services.Telemetry.LauncherTelemetryPolicy.IsRequired(buildInfo.SemanticVersion);
         using var updateHttp = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) };
-        var updateQueries = NexaUpdateRuntimeComposer.Compose(new Nexa.Services.Updates.NexaUpdateService(updateHttp));
         string updateRid = (OperatingSystem.IsWindows() ? "win" : OperatingSystem.IsMacOS() ? "osx" : "linux") + "-" + System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
         string updateChannel = buildInfo.SemanticVersion.Contains(".alpha.", StringComparison.Ordinal) || buildInfo.SemanticVersion.Contains(".ci.", StringComparison.Ordinal) ? "alpha"
             : buildInfo.SemanticVersion.Contains(".beta.", StringComparison.Ordinal) ? "beta" : "stable";
+        using var rollouts = new Nexa.Services.Rollouts.RolloutService(updateHttp, host.StateStore,
+            Path.Combine(settingsFolder, "rollout-seed"), buildInfo.SemanticVersion.Contains(".ci.", StringComparison.Ordinal) ? "ci" : updateChannel, updateRid);
+        var updateService = new Nexa.Services.Updates.NexaUpdateService(updateHttp, rollouts);
+        var updateQueries = NexaUpdateRuntimeComposer.Compose(updateService);
         settingsPage.ConfigureUpdates(updateQueries, new(buildInfo.SemanticVersion, updateRid, updateChannel), platformActions.OpenHttpsUri);
         launchPage.SettingsPage = settingsPage.Page;
         using SettingsPageController versionSettings = new(shell, uiIntents, runtime.Queries, runtime.Commands, host.StateStore, feedback,
@@ -321,9 +324,15 @@ internal static class Program
 
         using CloudflareApiClient? cloudflare = OpenCloudflareClient(host.Logging);
         using var telemetrySession = cloudflare is null ? null : new Nexa.Services.Telemetry.LauncherTelemetrySession(
-            host.Telemetry, host.Settings, new Nexa.Services.Telemetry.CloudflareTelemetryTransport(cloudflare.Client), host.Logging, ResolveInformationalVersion());
+            host.Telemetry, host.Settings, new Nexa.Services.Telemetry.CloudflareTelemetryTransport(cloudflare.Client, () => rollouts.CompactTelemetryBatches), host.Logging, ResolveInformationalVersion());
         using IDisposable? telemetrySubscription = telemetrySession is null ? null : stateObservation.Subscribe(telemetrySession);
-        if (telemetrySession is not null) host.Logging.AddSink(telemetrySession);
+        if (telemetrySession is not null)
+        {
+            host.Logging.AddSink(telemetrySession);
+            rollouts.Record = telemetrySession.Record;
+            updateService.Record = telemetrySession.Record;
+        }
+        rollouts.Start();
         setStage("gui_lifetime");
         host.Logging.Info("Launcher", "Entering Avalonia GUI lifetime.");
         int exitCode;

@@ -158,7 +158,8 @@ public sealed class TelemetryService : IDisposable
                 name,
                 DateTimeOffset.UtcNow,
                 new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(
-                    properties is null ? new(StringComparer.Ordinal) : new Dictionary<string, string>(properties, StringComparer.Ordinal))) { Level = level });
+                    properties is null ? new(StringComparer.Ordinal) : new Dictionary<string, string>(properties, StringComparer.Ordinal)))
+            { Level = level });
             _store.Publish(_pendingId, _events.Count + _necessary.Count, CancellationToken.None);
         }
     }

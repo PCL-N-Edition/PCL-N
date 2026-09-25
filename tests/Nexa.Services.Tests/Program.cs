@@ -55,6 +55,7 @@ internal static partial class Program
         ("prerelease telemetry cannot be disabled", PrereleaseTelemetryCannotBeDisabled),
         ("telemetry lifecycle records only bounded facts", TelemetryLifecycleRecordsOnlyBoundedFacts),
         ("diagnostic revocation preserves necessary facts", DiagnosticRevocationPreservesNecessaryFacts),
+        ("rollouts keep cohorts and fail closed", RolloutsKeepCohortsAndFailClosed),
         ("Nexa updates reject legacy and wrong platform", NexaUpdatesRejectLegacyAndWrongPlatform),
         ("folder import requires resolvable parents", FolderImportRequiresResolvableParents),
         ("task center serializes terminal reuse and dismiss races", TaskCenterSerializesRaces),

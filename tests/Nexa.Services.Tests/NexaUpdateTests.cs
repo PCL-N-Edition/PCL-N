@@ -47,6 +47,23 @@ internal static partial class Program
             var malformed = root.DeepClone(); malformed[key] = value; handler.Body = malformed.ToJsonString();
             AssertFalse((await service.CheckAsync(new("2.0.0.alpha.4", rid, "alpha"))).IsSuccess);
         }
+        root["rollout"] = GrayRule(0);
+        handler.Body = root.ToJsonString();
+        AssertTrue((await service.CheckAsync(new("2.0.0.alpha.4", rid, "alpha"))).Value!.Offer is null);
+        string temp = Path.Combine(Path.GetTempPath(), "nexa-update-gray-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var builder = new Nexa.Xsr.State.XsrStateStoreBuilder();
+            Nexa.Services.Rollouts.RolloutStateContract.DeclareState(builder);
+            using var rollout = new Nexa.Services.Rollouts.RolloutService(http, builder.Build(), Path.Combine(temp, "seed"), "alpha", rid);
+            var grayService = new NexaUpdateService(http, rollout);
+            AssertTrue((await grayService.CheckAsync(new("2.0.0.alpha.4", rid, "alpha"))).Value!.Offer is null);
+            root["rollout"] = GrayRule(10000); handler.Body = root.ToJsonString();
+            AssertEqual(version, (await grayService.CheckAsync(new("2.0.0.alpha.4", rid, "alpha"))).Value!.Offer!.Version);
+            root.Remove("rollout"); handler.Body = root.ToJsonString();
+            AssertFalse((await grayService.CheckAsync(new("2.0.0.alpha.4", rid, "alpha"))).IsSuccess);
+        }
+        finally { if (Directory.Exists(temp)) Directory.Delete(temp, true); }
         handler.Body = new string(' ', 128 * 1024 + 1);
         AssertFalse((await service.CheckAsync(new("2.0.0.alpha.4", rid, "alpha"))).IsSuccess);
     }

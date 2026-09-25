@@ -5,13 +5,13 @@ using System.Text.RegularExpressions;
 namespace Nexa.Services.Telemetry;
 
 /// <summary>Bounded, anonymous facts only. The caller owns the authenticated HTTP client.</summary>
-public sealed partial class CloudflareTelemetryTransport(HttpClient client) : ITelemetryTransport
+public sealed partial class CloudflareTelemetryTransport(HttpClient client, Func<bool>? compactBatches = null) : ITelemetryTransport
 {
-    public int MaximumBatchSize => 50;
+    public int MaximumBatchSize => compactBatches?.Invoke() == true ? 20 : 50;
 
     public async Task<bool> SendAsync(IReadOnlyList<TelemetryEvent> batch, CancellationToken cancellationToken = default)
     {
-        if (batch.Count > MaximumBatchSize || batch.Any(item => !IsAllowed(item))) return false;
+        if (batch.Count > 50 || batch.Any(item => !IsAllowed(item))) return false;
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.pcln.top/v2/launcher/telemetry");
         request.Content = new StringContent(TelemetryService.SerializeBatch(batch), Encoding.UTF8);
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");

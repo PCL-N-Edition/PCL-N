@@ -30,3 +30,27 @@ The administrator API uses the existing authenticated administrator boundary. Ru
 are versioned and bounded; a replacement changes eligibility without rewriting local user
 preferences. Gray assignment is not authorization and cannot weaken security, signature
 verification, diagnostic consent, accessibility or installation protection.
+
+## Implemented protocol and lifecycle
+
+- `/v2/launcher/telemetry` enforces event-to-tier assignment; v1 remains opt-in legacy.
+- Task Center and game process state changes supply diagnostic lifecycle events. Error logs
+  supply only a necessary failure category, never their message. Update and rollout checks
+  record bounded success/failure results. CI/Alpha/Beta policy is enforced inside the queue
+  service, including direct consent commands; the stable preference can revoke diagnostics.
+- `/v2/launcher/rollouts` supplies at most 32 rules in 32 KiB. An existing administrator can
+  GET/PUT `/v1/admin/launcher/rollouts`; writes compare the policy revision atomically.
+- Each rule names a stable cohort ID, one released version or compiled feature, channels,
+  RIDs, a UTC expiry, an enabled flag and 0..10000 basis points. A target has one rule.
+- The first compiled feature is `telemetry.compact-batches` (20 instead of 50 events).
+  It changes batching only. Public state is `launcher.rollout.snapshot`; the transport
+  consumes the service decision. Refresh occurs off the UI thread every five minutes;
+  failed refresh and expiry restore the default batch size. Exposure is diagnostic.
+- Update discovery uses `rollout=1`; clients require the rollout field and evaluate locally.
+  Older clients receive only fully released versions. A disabled, expired, mismatched or
+  zero-percent update rule holds the release back. Removing its rule deliberately releases
+  it to everyone. GitHub downloads remain independent. Discovery does not bypass signatures
+  or resolve the separately open SEC-07 privileged updater boundary.
+- The administrator page edits rules and distinguishes necessary, diagnostic and historical
+  aggregate data. Saving a stale revision returns 409 and never overwrites newer rules.
+- No active experiment is enabled by deployment; the initial rule set is empty.

@@ -42,6 +42,7 @@ public static class FoundationState
         AccountOnboardingState.DeclareState(builder);
         AccountSkinService.DeclareState(builder);
         TelemetryService.DeclareState(builder);
+        Rollouts.RolloutStateContract.DeclareState(builder);
         MinecraftProcessStateComposition.DeclareState(builder);
         Minecraft.Launch.MinecraftLaunchProgressState.DeclareState(builder);
         Minecraft.MinecraftLibraryService.DeclareState(builder);
