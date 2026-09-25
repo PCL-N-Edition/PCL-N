@@ -10,6 +10,8 @@ public sealed partial class LauncherTelemetrySession
 {
     private readonly HashSet<string> _features = new(StringComparer.Ordinal);
     private readonly HashSet<Guid> _observedJvm = [];
+    private readonly HashSet<string> _observedSamples = new(StringComparer.Ordinal);
+    private readonly HashSet<Guid> _observedContexts = [];
     private readonly Dictionary<InstallLoader, long> _catalogRevisions = [];
     private long _gameCatalogRevision = -1;
     private long _resourceTimestamp;
@@ -85,7 +87,30 @@ public sealed partial class LauncherTelemetrySession
     }
     private void ObserveDiagnostics(XsrStateChange change)
     {
-        if (_disposed || !_telemetry.Consent) return;
+        if (_disposed) return;
+        if (change.SemanticId == JvmHostStateContract.SamplesKey)
+        {
+            var samples = _telemetry.StateStore.ReadCollection<JvmRunSample>(change.Id);
+            lock (_gate)
+            {
+                _observedSamples.RemoveWhere(key => !samples.Items.Any(item => item.Key == key));
+                foreach (var sample in samples.Items)
+                    if (_observedSamples.Add(sample.Key) && _telemetry.Consent)
+                        RecordDetails("diagnostic.run", sample.Ended && sample.ExitCode is not (null or 0) ? "failed" : "ok", RunDiagnosticTelemetry.Sample(sample));
+            }
+        }
+        if (change.SemanticId == JvmHostStateContract.ContextsKey)
+        {
+            var contexts = _telemetry.StateStore.ReadCollection<JvmRunContext>(change.Id);
+            lock (_gate)
+            {
+                _observedContexts.RemoveWhere(key => !contexts.Items.Any(item => item.SessionId == key));
+                foreach (var context in contexts.Items)
+                    if (_observedContexts.Add(context.SessionId) && _telemetry.Consent)
+                        foreach (var page in RunDiagnosticTelemetry.Inventory(context)) RecordDetails("diagnostic.mods", "ok", page);
+            }
+        }
+        if (!_telemetry.Consent) return;
         if (change.SemanticId == JvmHostStateContract.ObservationsKey)
         {
             var snapshot = _telemetry.StateStore.ReadCollection<JvmHostObservation>(change.Id);

@@ -83,3 +83,11 @@ and displays stale sync status. Telemetry is untrusted input and never creates e
 code, arbitrary URLs, commands, SQL or GitHub content.
 
 HTTP operation timing is emitted through an optional typed logging sink, without parsing log text or forwarding request metadata. Catalog snapshots carry cache-hit and normalization measurements. Sampling is bounded to two observations per metric and sixteen distinct error signatures per 30-second window; feature coverage is recorded once per consent session, while operation counts are limited. The collector drains at most ten batches each interval and never waits on the UI thread.
+
+## Per-run diagnostic extension
+
+`diagnostic.run` and `diagnostic.mods` are diagnostic-only, ephemeral per-launch correlated records.
+The allowlisted schema, retention, partial metadata semantics and launch gate are defined in
+`launch-observation-and-preflight.md`. This extends the previous daily-only storage model: admins
+can now inspect bounded per-run windows and metadata pages, while necessary telemetry remains
+aggregate-only. No stable device, account or instance identity is introduced.

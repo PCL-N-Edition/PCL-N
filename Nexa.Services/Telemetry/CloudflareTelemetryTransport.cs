@@ -8,7 +8,7 @@ namespace Nexa.Services.Telemetry;
 public sealed partial class CloudflareTelemetryTransport(HttpClient client, Func<bool>? compactBatches = null) : ITelemetryTransport
 {
     private static readonly string[] CommonKeys = ["version", "os", "arch", "result"];
-    public int MaximumBatchSize => compactBatches?.Invoke() == true ? 5 : 10;
+    public int MaximumBatchSize => compactBatches?.Invoke() == true ? 2 : 4;
 
     public async Task<bool> SendAsync(IReadOnlyList<TelemetryEvent> batch, CancellationToken cancellationToken = default)
     {

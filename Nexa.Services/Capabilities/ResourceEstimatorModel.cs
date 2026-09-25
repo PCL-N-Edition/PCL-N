@@ -244,7 +244,7 @@ internal static class ResourceEstimateModel
     private static string? ReadString(Dictionary<string, ICapability> values, string id) =>
         values.TryGetValue(id, out ICapability? value) && value is Capability<string> { Availability: CapabilityAvailability.Available } text ? text.Value : null;
     private static long BytesToMiB(long bytes) => Math.Max(0, bytes / (1024 * 1024));
-    private static double Similarity(long left, long right) => left == right ? 1 : 1 - Math.Min(1, Math.Abs(left - right) / (double)Math.Max(1, Math.Max(left, right)));
+    private static double Similarity(long left, long right) => left < 0 || right < 0 ? 0 : left == right ? 1 : 1 - Math.Min(1, Math.Abs(left - right) / (double)Math.Max(1, Math.Max(left, right)));
     private static long Blend(long model, long history, double weight) => history <= 0 ? model : (long)Math.Ceiling(model * (1 - weight) + history * weight);
     private static long Percentile(IEnumerable<long> source, double quantile)
     {

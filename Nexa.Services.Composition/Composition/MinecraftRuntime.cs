@@ -1,3 +1,4 @@
+using Nexa.Services.Capabilities;
 using Nexa.Services.Foundation;
 using Nexa.Services.Minecraft;
 using Nexa.Services.Minecraft.Java;
@@ -148,6 +149,16 @@ public static class MinecraftRuntimeComposer
         // starts, sharing the foundation download engine with installs.
         MinecraftLaunchFileCompletion fileCompletion = new(host.Downloads, host.Logging);
         owned.Add(fileCompletion);
+        LaunchPreflightGate preflight = new(host.StateStore, async (root, instance, plan, token) =>
+        {
+            var snapshot = await host.MachineCapabilities.ReadAsync(new MachineCapabilityQuery(plan.InstanceDirectory, instance, root)
+            { JavaExecutablePath = plan.JavaExecutablePath }, cancellationToken: token).ConfigureAwait(false);
+            var values = snapshot.Values.Where(value => value.Id != LaunchPolicyCatalog.MinecraftMemory.Id).ToList();
+            values.Add(plan.HeapLimitMiB > 0
+                ? LaunchPolicyCatalog.MinecraftMemory.Observe(plan.HeapLimitMiB, snapshot.Timestamp, "本次启动的堆内存配置")
+                : LaunchPolicyCatalog.MinecraftMemory.Unavailable(CapabilityAvailability.Unknown, snapshot.Timestamp, "自定义参数覆盖了堆内存配置"));
+            return CapabilityPreflightEngine.Evaluate(new MachineCapabilitySnapshot(snapshot.Revision, snapshot.Timestamp, values));
+        });
         MinecraftLaunchCoordinator coordinator = new(
             minecraftRootDirectory,
             runtimeRoot,
@@ -162,9 +173,12 @@ public static class MinecraftRuntimeComposer
             new MinecraftLaunchProgressPublisher(host.StateStore),
             identityResolver,
             launcherVersion,
-            windowProbe, authlib, gameWindowAppeared, fileCompletion, host.SettingsPolicy);
+            windowProbe, authlib, gameWindowAppeared, fileCompletion, host.SettingsPolicy, preflight);
         IXsrDispatchObserver dispatchObserver = observer ?? NullDispatchObserver.Instance;
         XsrCommandRouterBuilder commandBuilder = new();
+        commandBuilder.Register<LaunchPreflightDecision>(LaunchPreflightGate.DecisionCommand,
+            (decision, _) => ValueTask.FromResult(preflight.Decide(decision) ? Nexa.Xsr.XsrResult.Success()
+                : Nexa.Xsr.XsrResult.Failure(MinecraftErrors.InvalidRequest("预检决定已失效或不可绕过。"))));
         commandBuilder.Register(MinecraftRouteIds.Start, MinecraftCommands.CreateStartHandler(coordinator));
         commandBuilder.Register(MinecraftRouteIds.Launch, MinecraftCommands.CreateLaunchHandler(executor));
         commandBuilder.Register(MinecraftRouteIds.LaunchCancel, MinecraftCommands.CreateCancelLaunchHandler(coordinator));

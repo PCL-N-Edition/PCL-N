@@ -29,8 +29,21 @@ public sealed class JavaEnvironmentCapabilityProvider(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        IReadOnlyList<JavaRuntimeCandidate> runtimes = await FindRuntimesAsync(timestamp, cancellationToken)
-            .ConfigureAwait(false);
+        IReadOnlyList<JavaRuntimeCandidate> runtimes;
+        if (query.HasInstanceScope && query.JavaExecutablePath is { } selectedPath)
+        {
+            if (OperatingSystem.IsWindows() && Path.GetFileName(selectedPath).Equals("javaw.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                string console = Path.Combine(Path.GetDirectoryName(selectedPath)!, "java.exe");
+                if (File.Exists(console)) selectedPath = console;
+            }
+            var selected = await _javaLocator.InspectAsync(selectedPath, cancellationToken).ConfigureAwait(false);
+            if (selected is null)
+                return [MachineInstanceCatalog.JavaInstalled.Unavailable(CapabilityAvailability.TemporarilyUnavailable, timestamp, "本次 Java 的版本探测未完成"),
+                    MachineInstanceCatalog.JavaCompatibilityHard.Unavailable(CapabilityAvailability.DependencyMissing, timestamp, "本次 Java 的版本信息不可用")];
+            runtimes = [selected];
+        }
+        else runtimes = await FindRuntimesAsync(timestamp, cancellationToken).ConfigureAwait(false);
         List<ICapability> facts = [.. MachineInstanceCatalog.CollectJava(runtimes, timestamp)];
         facts.AddRange(await JavaCompatibilityProjection.CollectAsync(
             runtimes, _minecraftRootDirectory, query, timestamp, cancellationToken).ConfigureAwait(false));

@@ -138,6 +138,7 @@ internal sealed partial class LaunchPageController : IDisposable
         ["get_arguments"] = "获取启动参数",
         ["extract_natives"] = "解压 Natives",
         ["pre_launch"] = "预启动处理",
+        ["preflight"] = "检查启动条件",
         ["start_process"] = "启动进程",
         ["wait_window"] = "等待游戏窗口",
         ["end"] = "完成",
@@ -153,6 +154,8 @@ internal sealed partial class LaunchPageController : IDisposable
     private string? _launchingInstanceId, _launchingRoot;
     private int _pendingCloseLaunching;
     private Guid? _javaAcquisitionDialog;
+    private Guid? _preflightDialog;
+    private Guid? _preflightAttempt;
     private int _pickingJava;
     private bool _launchingViaKeyboard;
     private XsrUiEntityId _launchingPage;
@@ -1842,6 +1845,30 @@ internal sealed partial class LaunchPageController : IDisposable
         }
     }
 
+    private void RefreshPreflightPrompt()
+    {
+        var prompt = _store.ReadAppliedValue(_store.Resolve(LaunchPreflightGate.StateKey)) as LaunchPreflightPrompt;
+        if (prompt is null)
+        {
+            if (_preflightDialog is { } old) _feedback.DismissDialog(old);
+            _preflightDialog = _preflightAttempt = null;
+            return;
+        }
+        if (_preflightAttempt == prompt.Attempt) return;
+        _preflightAttempt = prompt.Attempt;
+        bool blocked = prompt.Report.Issues.Any(static issue => issue.Severity == Nexa.Services.Capabilities.PreflightSeverity.Blocked);
+        string message = string.Join("\n\n", prompt.Report.CollapsedIssues.Select(issue => $"{issue.Title}\n{issue.Description}"));
+        _preflightDialog = _feedback.ShowDialog("minecraft.preflight", blocked ? "需要先处理启动问题" : "启动前请确认",
+            message, blocked ? "返回" : "仍然启动", "取消", approve => _ = DecidePreflightAsync(prompt.Attempt, approve && !blocked));
+    }
+
+    private async Task DecidePreflightAsync(Guid attempt, bool proceed)
+    {
+        if (!_minecraft.Commands.TryResolve(LaunchPreflightGate.DecisionCommand, out XsrCommandId route)) return;
+        await _minecraft.Commands.Dispatch(route, new LaunchPreflightDecision(attempt, proceed),
+            cancellationToken: _lifetimeCancellation.Token).Completion.ConfigureAwait(false);
+    }
+
     private void DismissAcquisitionDialog()
     {
         if (_javaAcquisitionDialog is not { } dialog)
@@ -1865,6 +1892,7 @@ internal sealed partial class LaunchPageController : IDisposable
     {
         public void OnChanged(XsrStateChange change)
         {
+            if (change.SemanticId == LaunchPreflightGate.StateKey) { owner.RefreshPreflightPrompt(); return; }
             if (change.SemanticId == MinecraftLibraryService.StateKey) { owner.ProjectLibrary(); return; }
             if (change.SemanticId.Equals(MinecraftLaunchProgressState.StageKey)
                 || change.SemanticId.Equals(MinecraftLaunchProgressState.ProgressKey)

@@ -78,6 +78,7 @@ public sealed class MinecraftLaunchCoordinator
     private TaskCompletionSource<JavaChoice>? _acquisitionDecision;
     private JavaRequirementResolution? _pendingJavaRequirement;
     private readonly IAuthlibInjectorProvider? _authlib;
+    private readonly LaunchPreflightGate? _preflight;
 
     public MinecraftLaunchCoordinator(
         string minecraftRootDirectory,
@@ -97,7 +98,8 @@ public sealed class MinecraftLaunchCoordinator
         IAuthlibInjectorProvider? authlib = null,
         Action<int>? gameWindowAppeared = null,
         MinecraftLaunchFileCompletion? fileCompletion = null,
-        SettingsPolicyService? settingsPolicy = null)
+        SettingsPolicyService? settingsPolicy = null,
+        LaunchPreflightGate? preflight = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(javaRuntimeRootDirectory);
@@ -118,6 +120,7 @@ public sealed class MinecraftLaunchCoordinator
         _executor = executor ?? throw new ArgumentNullException(nameof(executor));
         _fileCompletion = fileCompletion;
         _settingsPolicy = settingsPolicy;
+        _preflight = preflight;
         _platform = platform ?? MinecraftLaunchPlatform.Detect();
         if (_platform.OperatingSystem == MinecraftLibraryOperatingSystem.Unknown)
         {
@@ -493,6 +496,16 @@ public sealed class MinecraftLaunchCoordinator
                 },
                 launchToken).ConfigureAwait(false);
 
+            if (_preflight is not null)
+            {
+                operation?.Stage("preflight");
+                _progress?.Report(new MinecraftLaunchStageReport("preflight", MinecraftLaunchStages.ProgressAt(36), Method: method));
+                if (!await _preflight.CheckAsync(minecraftRootDirectory, instanceId, plan, launchToken).ConfigureAwait(false))
+                {
+                    operation?.Reject("preflight_declined"); _progress?.Stop();
+                    return XsrResult.Failure(MinecraftErrors.LaunchPreparationFailed("启动预检未通过或已取消。"));
+                }
+            }
             operation?.Stage("execute_plan", $"native_archives={plan.NativeLibraries.Count}");
             // Stage boundaries as named constants: every hand-written +Weight chain eventually
             // desynced from the weight table, so the math is written exactly once here.

@@ -250,7 +250,7 @@ public sealed class LoaderCapabilityProvider(string? minecraftRootDirectory) : I
             MachineInstanceCatalog.LoaderMetadataValid.Observe(true, timestamp, source),
             // derived.* are this provider's own definitions — computing them in place is the
             // ownership-clean path (cross-provider derivations go through the broker pass).
-            MachineInstanceCatalog.LoaderDerivedMissing.Observe(vanilla, timestamp, source),
+            MachineInstanceCatalog.LoaderDerivedMissing.Observe(false, timestamp, source + "（原版无需加载器；已解析实例未发现缺失要求）"),
             MachineInstanceCatalog.LoaderDerivedIncompatible.Observe(!vanilla && !chainComplete, timestamp, source),
         });
     }

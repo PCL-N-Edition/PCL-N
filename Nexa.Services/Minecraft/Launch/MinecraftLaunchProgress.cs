@@ -96,6 +96,7 @@ public static class MinecraftLaunchProgressState
     public static void DeclareState(XsrStateStoreBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
+        LaunchPreflightGate.DeclareState(builder);
         builder.Cell<MinecraftLaunchProgressSnapshot>(SnapshotKey, OwnerName);
         builder.Derived(ActiveKey, OwnerName, [SnapshotKey],
             static (reader, cancellationToken) => ReadSnapshot(reader, cancellationToken).Active);

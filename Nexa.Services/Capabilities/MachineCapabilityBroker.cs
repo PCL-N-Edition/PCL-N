@@ -17,6 +17,7 @@ public sealed record MachineCapabilityQuery(
     string? InstanceId = null,
     string? MinecraftRootDirectory = null)
 {
+    public string? JavaExecutablePath { get; init; }
     public bool HasInstanceScope => !string.IsNullOrWhiteSpace(InstanceDirectory) || !string.IsNullOrWhiteSpace(InstanceId);
 }
 public sealed record MachineCapabilityRefresh;

@@ -48,9 +48,15 @@ public sealed record JvmHostObservation(
 public static class JvmHostStateContract
 {
     public static readonly XsrSemanticId ObservationsKey = XsrSemanticId.Parse("observation.jvm.sessions");
-    public static void DeclareState(XsrStateStoreBuilder builder) =>
+    public static readonly XsrSemanticId SamplesKey = XsrSemanticId.Parse("observation.jvm.samples");
+    public static readonly XsrSemanticId ContextsKey = XsrSemanticId.Parse("observation.jvm.contexts");
+    public static void DeclareState(XsrStateStoreBuilder builder)
+    {
         builder.Collection<JvmHostObservation, Guid>(ObservationsKey, "Nexa.Services.Minecraft.Process.JvmHost",
             static observation => observation.SessionId);
+        builder.Collection<JvmRunSample, string>(SamplesKey, "Nexa.Services.Minecraft.Process.JvmHost", static sample => sample.Key);
+        builder.Collection<JvmRunContext, Guid>(ContextsKey, "Nexa.Services.Minecraft.Process.JvmHost", static context => context.SessionId);
+    }
 }
 
 public interface IJvmHost
@@ -107,6 +113,7 @@ public sealed class JvmHostService : IJvmHost
         MinecraftProcessSession session = await _processes.StartAsync(plan, instanceId, cancellationToken).ConfigureAwait(false);
         long launchDuration = Math.Max(0, Environment.TickCount64 - started);
         _ = ObserveAsync(session, plan, launchDuration);
+        _ = CollectContextAsync(session, plan);
         return session;
     }
 
@@ -153,8 +160,20 @@ public sealed class JvmHostService : IJvmHost
     private async Task ObserveAsync(MinecraftProcessSession session, MinecraftLaunchPlan plan, long launchDuration)
     {
         long peakWorking = 0, peakPrivate = 0, peakThreads = 0, cpuMs = 0, ioRead = 0, ioWrite = 0;
-        Queue<long> workingSamples = new();
-        Queue<long> cpuSamples = new();
+        RunResourceHistogram workingSamples = new();
+        long[] cpuSamples = new long[101];
+        JvmRunWindow window = new();
+        long sequence = 0, runStart = Environment.TickCount64, windowStart = runStart;
+        int epoch = 0;
+        JvmRunSettings settings = JvmRunSettings.Read(plan.GameDirectory);
+        void Emit(bool ended)
+        {
+            long now = Environment.TickCount64;
+            PublishSample(window.Finish(session.Snapshot.SessionId, sequence++, now - runStart, now - windowStart,
+                epoch, settings, plan.JavaMajorVersion, plan.ModLoader.Kind.ToString(), plan.ClasspathEntries.Count,
+                plan.HeapLimitMiB, ended, ended ? session.Snapshot.ExitCode : null));
+            windowStart = now;
+        }
         TimeSpan previousCpu = TimeSpan.Zero;
         long previousSampleTick = Environment.TickCount64;
         bool hasCpuBaseline = false;
@@ -171,27 +190,36 @@ public sealed class JvmHostService : IJvmHost
                     TimeSpan currentCpu = session.Process.TotalProcessorTime;
                     cpuMs = Math.Max(cpuMs, (long)currentCpu.TotalMilliseconds);
                     long currentSampleTick = Environment.TickCount64;
-                    AddSample(workingSamples, session.Process.WorkingSet64);
+                    workingSamples.Add(session.Process.WorkingSet64);
+                    double? sampleCpu = null;
                     if (hasCpuBaseline)
                     {
                         long elapsed = Math.Max(1, currentSampleTick - previousSampleTick);
                         long cpuPercent = (long)Math.Clamp(
                             (currentCpu - previousCpu).TotalMilliseconds / elapsed / Environment.ProcessorCount * 100,
                             0, 100);
-                        AddSample(cpuSamples, cpuPercent);
+                        cpuSamples[cpuPercent]++;
+                        sampleCpu = cpuPercent;
                     }
                     previousCpu = currentCpu;
                     previousSampleTick = currentSampleTick;
                     hasCpuBaseline = true;
+                    window.Add(session.Process.WorkingSet64, session.Process.PrivateMemorySize64, sampleCpu, session.Process.Threads.Count);
                     if (OperatingSystem.IsWindows() && GetProcessIoCounters(session.Process.Handle, out IoCounters counters))
                     {
                         ioRead = Math.Max(ioRead, checked((long)Math.Min(counters.ReadTransferCount, long.MaxValue)));
                         ioWrite = Math.Max(ioWrite, checked((long)Math.Min(counters.WriteTransferCount, long.MaxValue)));
                     }
                 }
-                catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException)
+                catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
                 {
-                    break;
+                    hasCpuBaseline = false;
+                }
+                if (Environment.TickCount64 - windowStart >= 30000)
+                {
+                    Emit(false);
+                    JvmRunSettings currentSettings = JvmRunSettings.Read(plan.GameDirectory);
+                    if (currentSettings != settings) { settings = currentSettings; epoch++; }
                 }
                 await Task.Delay(500).ConfigureAwait(false);
             }
@@ -203,6 +231,7 @@ public sealed class JvmHostService : IJvmHost
         }
 
         MinecraftProcessSnapshot snapshot = session.Snapshot;
+        Emit(snapshot.State is not (MinecraftProcessState.Created or MinecraftProcessState.Running));
         (string[] stdout, string[] stderr) = await session.ReadSeparatedEvidenceAsync().ConfigureAwait(false);
         DateTimeOffset evidenceFloor = snapshot.StartedAt - TimeSpan.FromSeconds(2);
         string? hsErr = FindNewestFile(plan.WorkingDirectory,
@@ -214,16 +243,61 @@ public sealed class JvmHostService : IJvmHost
             0, 0, 0, 0, 0, ioRead, ioWrite, crashReport, hsErr, snapshot.ExitCode,
             stdout.TakeLast(40).ToArray(), stderr.TakeLast(40).ToArray())
         {
-            CpuPeakPercent = cpuSamples.Count == 0 ? 0 : cpuSamples.Max(),
-            RuntimePhysicalP95Bytes = Percentile(workingSamples.Count == 0 ? [peakWorking] : workingSamples),
+            CpuPeakPercent = Array.FindLastIndex(cpuSamples, static count => count > 0) is int cpuPeak && cpuPeak >= 0 ? cpuPeak : 0,
+            RuntimePhysicalP95Bytes = workingSamples.P95(),
             RuntimeCommitP95Bytes = 0,
-            RuntimeCpuP95Percent = Percentile(cpuSamples),
+            RuntimeCpuP95Percent = CpuPercentile(cpuSamples),
         };
         Publish(observation);
-        _history?.Record(new ResourceObservationSample(snapshot.InstanceId, plan.ModLoader.Kind.ToString(),
-            plan.JavaMajorVersion, 0, 0, 0, 0,
+        _history?.Record(new ResourceObservationSample(plan.InstanceDirectory, plan.ModLoader.Kind.ToString(),
+            plan.JavaMajorVersion, -1, -1, 0, 0,
             BytesToMiB(observation.RuntimePhysicalP95Bytes), BytesToMiB(observation.RuntimeCommitP95Bytes),
             0, launchDuration, snapshot.EndedAt ?? DateTimeOffset.UtcNow));
+    }
+
+    private void PublishSample(JvmRunSample sample)
+    {
+        if (_store is null) return;
+        XsrStateId id = _store.Resolve(JvmHostStateContract.SamplesKey);
+        for (int attempt = 0; attempt < 8; attempt++)
+        {
+            var current = _store.ReadCollection<JvmRunSample>(id);
+            string[] removals = current.Items.Take(Math.Max(0, current.Items.Count - 63)).Select(static item => item.Key).ToArray();
+            if (_store.PublishDelta(id, new XsrCollectionDelta<JvmRunSample, string>(current.Revision, [sample], removals)).IsApplied) return;
+        }
+    }
+
+    private async Task CollectContextAsync(MinecraftProcessSession session, MinecraftLaunchPlan plan)
+    {
+        if (_store is null) return;
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var inventory = await Task.Run(() => LaunchModInventoryReader.ReadAsync(plan.GameDirectory, timeout.Token), timeout.Token).ConfigureAwait(false);
+            string game = "unknown"; var components = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (plan.MinecraftRootDirectory is { } root)
+            {
+                try
+                {
+                    var edit = await Install.MinecraftInstallEditService.ReadAsync(new(root, session.Snapshot.InstanceId), timeout.Token).ConfigureAwait(false);
+                    game = LaunchModInventoryReader.SafeGameVersion(edit.GameVersion) ? edit.GameVersion : "unknown";
+                    foreach (var component in edit.Selection)
+                        if (LaunchModInventoryReader.SafeVersion(component.Version)) components[component.Loader.ToString()] = component.Version;
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException) { }
+            }
+            var context = new JvmRunContext(session.Snapshot.SessionId, plan.ModLoader.Kind.ToString(),
+                components.GetValueOrDefault(plan.ModLoader.Kind.ToString()) ?? "unknown", inventory)
+            { GameVersion = game, Components = components };
+            var id = _store.Resolve(JvmHostStateContract.ContextsKey);
+            for (int attempt = 0; attempt < 8; attempt++)
+            {
+                var current = _store.ReadCollection<JvmRunContext>(id);
+                var removals = current.Items.Take(Math.Max(0, current.Items.Count - 7)).Select(static item => item.SessionId).ToArray();
+                if (_store.PublishDelta(id, new XsrCollectionDelta<JvmRunContext, Guid>(current.Revision, [context], removals)).IsApplied) return;
+            }
+        }
+        catch (Exception e) when (e is not OutOfMemoryException and not AccessViolationException) { }
     }
 
     private void Publish(JvmHostObservation observation)
@@ -247,17 +321,11 @@ public sealed class JvmHostService : IJvmHost
     }
 
     private static long BytesToMiB(long bytes) => Math.Max(0, bytes / (1024 * 1024));
-    private static void AddSample(Queue<long> samples, long value)
+    private static long CpuPercentile(long[] bins)
     {
-        const int capacity = 4096;
-        if (samples.Count == capacity) samples.Dequeue();
-        samples.Enqueue(Math.Max(0, value));
-    }
-
-    private static long Percentile(IEnumerable<long> source)
-    {
-        long[] values = source.Where(static value => value > 0).Order().ToArray();
-        return values.Length == 0 ? 0 : values[(int)Math.Ceiling(values.Length * 0.95) - 1];
+        long target = (long)Math.Ceiling(bins.Sum() * .95), count = 0;
+        for (int i = 0; i < bins.Length; i++) { count += bins[i]; if (count >= target) return i; }
+        return 0;
     }
     private static string? FindNewestFile(string directory, string pattern, DateTimeOffset notBefore)
     {

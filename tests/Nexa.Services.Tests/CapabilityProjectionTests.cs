@@ -86,6 +86,12 @@ internal static partial class Program
         AssertEqual("Fabric", loaderFacts.Single(fact => fact.Id == "loader.type").DisplayValue);
         AssertEqual("是", loaderFacts.Single(fact => fact.Id == "loader.present").DisplayValue);
         AssertEqual("否", loaderFacts.Single(fact => fact.Id == "loader.derived.missing").DisplayValue);
+        var vanillaFacts = await loader.CollectAsync(DateTimeOffset.UtcNow,
+            new MachineCapabilityQuery(newer, "newer-vanilla", root), CancellationToken.None);
+        AssertEqual("否", vanillaFacts.Single(fact => fact.Id == "loader.derived.missing").DisplayValue);
+        var selectedJava = await new JavaEnvironmentCapabilityProvider(new NoJavaLocator()).CollectAsync(DateTimeOffset.UtcNow,
+            scope with { JavaExecutablePath = "unavailable-runtime" }, CancellationToken.None);
+        AssertEqual(CapabilityAvailability.TemporarilyUnavailable, selectedJava.Single(fact => fact.Id == "java.installed").Availability);
 
         // Settings read from the isolated instance's options.txt (isolation defaults on).
         MinecraftEnvironmentCapabilityProvider minecraft = new(null);
@@ -108,7 +114,7 @@ internal static partial class Program
             ValueTask.FromResult<IReadOnlyList<JavaRuntimeCandidate>>([]);
 
         public ValueTask<JavaRuntimeCandidate?> InspectAsync(string javaPath, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException("fixture");
+            ValueTask.FromResult<JavaRuntimeCandidate?>(null);
     }
 
     private static async ValueTask AccountProjectionReadsTheRoster()

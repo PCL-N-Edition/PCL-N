@@ -166,6 +166,8 @@ public sealed record MinecraftLaunchPlan(
 {
     /// <summary>Root-qualified instance identity, independent of the JVM working directory.</summary>
     public string InstanceDirectory { get; init; } = WorkingDirectory;
+    public string GameDirectory { get; init; } = WorkingDirectory;
+    public string? MinecraftRootDirectory { get; init; }
     /// <summary>The directory where native libraries must be extracted before launch.</summary>
     public string NativesDirectory { get; init; } = string.Empty;
 
@@ -175,6 +177,9 @@ public sealed record MinecraftLaunchPlan(
     /// <summary>Major version from the selected runtime metadata. Observation code consumes
     /// this value directly and never guesses a version from the executable path.</summary>
     public int JavaMajorVersion { get; init; }
+
+    /// <summary>Configured heap request; -1 when custom arguments override the planner's value.</summary>
+    public int HeapLimitMiB { get; init; } = -1;
 
     /// <summary>True when the classpath head came from an inheritsFrom/base version.</summary>
     public bool IsInheritedClientJar { get; init; }
@@ -328,8 +333,12 @@ public static class MinecraftLaunchPlanner
         {
             NativesDirectory = nativesDirectory,
             InstanceDirectory = instance,
+            GameDirectory = gameDirectory,
+            MinecraftRootDirectory = root,
             ClientJarPath = clientJar,
             JavaMajorVersion = request.JavaMajorVersion,
+            HeapLimitMiB = args.Count(static arg => arg.StartsWith("-Xmx", StringComparison.Ordinal)) == 1
+                ? Math.Max(256, request.MemoryMegabytes) : -1,
             IsInheritedClientJar = clientJarResolution.IsInherited,
         };
     }

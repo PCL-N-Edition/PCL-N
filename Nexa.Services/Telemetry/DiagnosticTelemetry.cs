@@ -24,6 +24,7 @@ public static partial class DiagnosticTelemetry
         var p = item.Properties;
         return item.Name switch
         {
+            "diagnostic.run" or "diagnostic.mods" => RunDiagnosticTelemetry.Valid(item.Name, p),
             "diagnostic.metric" => p.Count == 6 && p.TryGetValue("metric", out string? metric) && IsMetric(metric)
                 && p.TryGetValue("value", out string? value) && double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double n) && double.IsFinite(n) && n >= 0 && n <= 1e12,
             "feature.used" or "feature.invoked" => p.Count == 5 && p.TryGetValue("feature", out string? feature) && Features.Contains(feature),
