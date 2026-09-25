@@ -16,6 +16,14 @@ masks remain compositor geometry all the way to radius zero, with the icon outsi
 Native regions are used only for opaque fallback. System animation, mixed-DPI behavior and visual
 quality still require native acceptance; headless layout tests cannot prove those properties.
 
+The DWM non-client rendering policy is disabled to remove the native rectangular shadow around
+the expanded HWND. Composition stays enabled, caption/resize/minimize/maximize styles are retained,
+and the transitions-disabled attribute is not set. Reapply after platform state changes because
+Avalonia restores its frame policy during maximize/restore. Windows may report a rectangular native
+region in this mode; it must contain all client corners, leaving rounded clipping to the compositor.
+Native regression checks non-client rendering disabled and native capability styles retained through
+resize/maximize/minimize/restore. Perceived system animation still requires visual acceptance.
+
 Validation: backend console tests and the 31-project architecture regression pass. Windows native
 `--native-corner-smoke` passes at 125% scale: actual transparency is Transparent, WS_EX_LAYERED
 is absent, no native clipping region, scene size preserved within one physical pixel, input origin

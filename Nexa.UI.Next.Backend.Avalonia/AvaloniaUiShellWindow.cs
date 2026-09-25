@@ -7,6 +7,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Nexa.UI.Next;
 
 namespace Nexa.UI.Next.Backend.Avalonia;
@@ -41,6 +42,7 @@ public sealed class AvaloniaUiShellWindow : Window
     private bool _closeAnimationStarted;
     private bool _disposed;
     private bool _updatingChrome;
+    private bool _nativeFrameUpdateQueued;
     private double _restoredFrameInset;
     internal bool UsesCompositedEdges => ActualTransparencyLevel == WindowTransparencyLevel.Transparent
         && !AvaloniaWindowsFrame.IsLayered(this);
@@ -607,7 +609,21 @@ public sealed class AvaloniaUiShellWindow : Window
                 RadiusY = maximized ? 0 : ChromeCornerRadius,
             };
             _windowActions.Margin = new Thickness(0, 0, 12, 0);
+            _ = AvaloniaWindowsFrame.SuppressBorder(this);
             ApplyNativeShape();
+            // Avalonia reapplies its native frame after WindowState notifications return.
+            // Restore our decoration policy after that platform transition has completed.
+            if (!_nativeFrameUpdateQueued)
+            {
+                _nativeFrameUpdateQueued = true;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _nativeFrameUpdateQueued = false;
+                    if (_disposed) return;
+                    _ = AvaloniaWindowsFrame.SuppressBorder(this);
+                    ApplyNativeShape();
+                }, DispatcherPriority.Render);
+            }
         }
         finally { _updatingChrome = false; }
     }

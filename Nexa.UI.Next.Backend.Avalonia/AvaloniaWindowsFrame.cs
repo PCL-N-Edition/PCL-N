@@ -4,7 +4,7 @@ using Avalonia.Controls;
 
 namespace Nexa.UI.Next.Backend.Avalonia;
 
-/// <summary>Suppresses the Windows 11 DWM hairline without disabling native window animations.</summary>
+/// <summary>Suppresses DWM non-client decoration without disabling composition or window transitions.</summary>
 internal static partial class AvaloniaWindowsFrame
 {
     internal static bool IsLayered(Window window) => OperatingSystem.IsWindows()
@@ -14,11 +14,10 @@ internal static partial class AvaloniaWindowsFrame
     internal static void ClearShape(Window window)
     {
         if (!OperatingSystem.IsWindows() || window.TryGetPlatformHandle() is not { HandleDescriptor: "HWND" } handle) return;
-        if (Shapes.TryGetValue(window, out ShapeState? state) && state.Applied)
-        {
-            _ = SetWindowRgn(handle.Handle, 0, 1);
-            state.Applied = false;
-        }
+        // WM_DWMNCRENDERINGCHANGED may install a platform region too; clearing only
+        // regions recorded by our opaque fallback leaves that integer clip behind.
+        _ = SetWindowRgn(handle.Handle, 0, 1);
+        if (Shapes.TryGetValue(window, out ShapeState? state)) state.Applied = false;
     }
 
     [LibraryImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
@@ -29,14 +28,21 @@ internal static partial class AvaloniaWindowsFrame
 
     internal static bool SuppressBorder(Window window)
     {
-        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)
+        if (!OperatingSystem.IsWindows()
             || window.TryGetPlatformHandle() is not { HandleDescriptor: "HWND" } handle
             || handle.Handle == 0) return false;
 
+        // Border color alone hides only the hairline: DWM still casts a rectangular shadow
+        // around the expanded HWND. Disable non-client painting, not the compositor. Keep
+        // WS_CAPTION/WS_THICKFRAME and leave DWMWA_TRANSITIONS_FORCEDISABLED untouched.
+        uint policy = 1; // DWMNCRP_DISABLED
+        bool suppressed = DwmSetWindowAttribute(handle.Handle, 2, ref policy, sizeof(uint)) >= 0;
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return suppressed;
         uint corner = 1; // Explicit host geometry owns the radius, not the Win11 preset.
         _ = DwmSetWindowAttribute(handle.Handle, 33, ref corner, sizeof(uint));
         uint color = NoBorderColor;
-        return DwmSetWindowAttribute(handle.Handle, BorderColorAttribute, ref color, sizeof(uint)) >= 0;
+        _ = DwmSetWindowAttribute(handle.Handle, BorderColorAttribute, ref color, sizeof(uint));
+        return suppressed;
     }
 
     private sealed class ShapeState { public (int, int, int, int, int, int, int) Shape; public bool Applied; public bool Updating; }
