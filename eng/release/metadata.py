@@ -84,6 +84,7 @@ def downloads_section(version):
     """One bullet per released package, grouped by platform, mirroring verify.py's set."""
     lines = ["## 下载", "",
              "每个平台选择**一个**包即可；`portable` 为免安装便携版。",
+             "安装包为所有用户安装，需要管理员授权；macOS 请打开 DMG 内的 NexaCL.pkg。",
              "所有文件的 SHA256 校验值见附件 `SHA256SUMS`。", ""]
     for platform in ("win", "linux", "osx"):
         lines += [f"### {PLATFORM_NAMES[platform]}", ""]

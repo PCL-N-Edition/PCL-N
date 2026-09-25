@@ -21,6 +21,12 @@ while artifact names and executable informational versions retain the exact chan
 macOS bundles are ad-hoc signed; Developer ID signing and notarization require release-owner
 credentials and are not claimed by this pipeline. Portable archives require no installation.
 
+All installers now use machine scope as defined in [system installation](../system-installation.md).
+DMG retains its distribution format but contains a system-domain PKG rather than a
+drag-to-Applications copy. Disposable native CI runners install EXE/MSI, DEB or the
+DMG's PKG and smoke-run the installed executable; RPM file ownership is inspected.
+Publisher signing of the full distribution is defined in [release signatures](../release-signatures.md).
+
 Validation: Python contracts cover tag parsing, rejected malformed/mismatched tags, commit
 message preservation without execution, and refusal to release missing or empty packages.
 Every runner executes the published launcher with `--validate-shell` before packaging.

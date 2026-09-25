@@ -3,12 +3,14 @@
 #endif
 [Setup]
 AppId={{50AE2197-7C7B-43DA-BE98-1CDEBE86B273}
-AppName=Nexa
+AppName=NexaCL
 AppVersion={#ProductVersion}
 VersionInfoVersion={#NumericVersion}.0
-DefaultDirName={localappdata}\Programs\Nexa
-DefaultGroupName=Nexa
-PrivilegesRequired=lowest
+DefaultDirName={autopf}\NexaCL
+DefaultGroupName=NexaCL
+UsePreviousAppDir=no
+PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=
 ArchitecturesAllowed={#InstallArch}
 ArchitecturesInstallIn64BitMode={#InstallArch}
 OutputDir={#OutputDir}
@@ -25,5 +27,5 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 [Files]
 Source: "{#Payload}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
-Name: "{group}\Nexa"; Filename: "{app}\Nexa.Desktop.exe"; WorkingDir: "{app}"
-Name: "{userdesktop}\Nexa"; Filename: "{app}\Nexa.Desktop.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{commonprograms}\NexaCL"; Filename: "{app}\Nexa.Desktop.exe"; WorkingDir: "{app}"
+Name: "{commondesktop}\NexaCL"; Filename: "{app}\Nexa.Desktop.exe"; WorkingDir: "{app}"; Tasks: desktopicon

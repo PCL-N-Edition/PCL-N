@@ -73,8 +73,19 @@ def macos(payload, output, work, base, version, prefix, arch):
     run(contents / "MacOS/Nexa.Desktop", "--validate-shell")
     dmg_source = work / "dmg"
     dmg_source.mkdir()
-    shutil.copytree(app, dmg_source / app.name)
-    (dmg_source / "Applications").symlink_to("/Applications", target_is_directory=True)
+    package_root = work / "macos-root"
+    package_root.mkdir()
+    shutil.copytree(app, package_root / app.name)
+    component_plist = work / "components.plist"
+    with component_plist.open("wb") as stream:
+        plistlib.dump([dict(RootRelativeBundlePath=app.name, BundleIsRelocatable=False,
+                           BundleIsVersionChecked=False, BundleHasStrictIdentifier=True,
+                           BundleOverwriteAction="upgrade")], stream)
+    run("pkgbuild", "--root", package_root, "--component-plist", component_plist,
+        "--identifier", "org.nexacl.launcher", "--version", prefix,
+        "--install-location", "/Applications", "--ownership", "recommended", work / "Nexa-component.pkg")
+    run("productbuild", "--distribution", ROOT / "eng/release/macos-distribution.xml",
+        "--package-path", work, dmg_source / "NexaCL.pkg")
     run("hdiutil", "create", "-volname", "NexaCL", "-srcfolder", dmg_source, "-format", "UDZO", output / f"{base}.dmg")
     run("hdiutil", "verify", output / f"{base}.dmg")
     archive(app, output / f"{base}.portable.tar.gz", app.name)
@@ -105,6 +116,7 @@ def linux(payload, output, work, base, version, prefix, arch):
         native_version = version.replace(".alpha.", "~alpha.").replace(".beta.", "~beta.").replace(".ci.", "~ci.")
         dependencies = ("libc6", "libgcc-s1", "libstdc++6", "zlib1g", "libfontconfig1", "libx11-6", "libice6", "libsm6") if package_type == "deb" else ("glibc", "libgcc", "libstdc++", "zlib", "fontconfig", "libX11", "libICE", "libSM")
         options = [item for dependency in dependencies for item in ("--depends", dependency)]
+        options += [f"--{package_type}-user", "root", f"--{package_type}-group", "root"]
         run("fpm", "-s", "dir", "-t", package_type, "-n", "nexacl", "-v", native_version, "--iteration", "1",
             "-a", package_arch, "--maintainer", "Nexa", "--description", "Nexa Minecraft Launcher",
             "--url", "https://github.com/PCL-N-Edition/PCL-N", "--license", "Apache-2.0", *options,
