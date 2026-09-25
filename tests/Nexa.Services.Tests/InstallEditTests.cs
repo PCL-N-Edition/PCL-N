@@ -87,6 +87,10 @@ internal static partial class Program
             AssertFalse(File.Exists(Path.Combine(root, "mods", "FabricApi.jar")));
             AssertEqual(reads, metadata.VanillaReads);
             AssertEqual(MinecraftInstallEditKind.Reinstall, MinecraftInstallEditPlanner.Evaluate(new(original, [new(InstallLoader.Fabric, "0.17.0")])).Kind);
+            current = await MinecraftInstallEditService.ReadAsync(new(root, "custom"));
+            AssertTrue((await fixture.Install.InstallAsync(new(root, "1.20.1", InstallLoader.Fabric, "0.16.9", [], "custom", current.Fingerprint)
+            { ForceReinstall = true })).IsSuccess);
+            AssertTrue(metadata.VanillaReads > reads);
         }
         finally { Directory.Delete(root, true); }
     }

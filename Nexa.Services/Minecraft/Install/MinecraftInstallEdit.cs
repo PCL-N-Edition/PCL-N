@@ -162,6 +162,8 @@ public sealed partial class MinecraftInstallService
         if (command.Loader is { } primary) selected.Add(new(primary, command.LoaderBuild!));
         selected.AddRange((command.Addons ?? []).Select(addon => new InstallBuildSelection(addon.Kind, addon.Version)));
         var editPlan = MinecraftInstallEditPlanner.Evaluate(new(original, selected));
+        if (command.ForceReinstall) editPlan = new(MinecraftInstallEditKind.Reinstall,
+            selected.Select(item => item.Loader).ToArray(), "修复版本");
         bool renaming = command.NewInstanceName is not null && command.NewInstanceName != instance;
         if (editPlan.Kind == MinecraftInstallEditKind.Unchanged && !renaming)
         {

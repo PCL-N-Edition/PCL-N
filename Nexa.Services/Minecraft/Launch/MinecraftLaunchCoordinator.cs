@@ -980,7 +980,7 @@ public sealed class MinecraftLaunchCoordinator
         return request;
     }
 
-    private static MinecraftJavaRequirementRequest CreateJavaRequirement(
+    internal static MinecraftJavaRequirementRequest CreateJavaRequirement(
         MinecraftInstanceDescriptor instance,
         MinecraftResolvedVersionManifests manifests,
         MinecraftModLoaderDescriptor loader)

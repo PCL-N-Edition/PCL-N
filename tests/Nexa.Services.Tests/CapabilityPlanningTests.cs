@@ -124,6 +124,16 @@ internal static partial class Program
         RemediationResult completed = await service.ExecuteAsync(new(handler.Id, Confirmed: true));
         AssertTrue(completed.Succeeded);
         AssertEqual(1, handler.Calls);
+        var (_, settings) = PolicyFixture();
+        var scoped = new RemediationService(CoreRemediationHandlers.Create(settings));
+        AssertFalse((await scoped.ExecuteAsync(new("remediation.memory.adjust_heap",
+            new Dictionary<string, string> { ["memoryMiB"] = "4096" }, true))).Succeeded);
+        string instance = Path.Combine(Path.GetTempPath(), "nexa-remediation", "versions", "test");
+        string? previousGlobal = Effective(settings, "game.memory").Value.Value;
+        AssertTrue((await scoped.ExecuteAsync(new("remediation.memory.adjust_heap",
+            new Dictionary<string, string> { ["memoryMiB"] = "4096", ["instanceDirectory"] = instance }, true))).Succeeded);
+        AssertEqual(previousGlobal, Effective(settings, "game.memory").Value.Value);
+        AssertEqual("4096", Effective(settings, "game.memory", instance).Value.Value);
     }
 
     private sealed class RecordingRemediationHandler(string id) : IRemediationHandler

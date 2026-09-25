@@ -152,6 +152,7 @@ public static class MinecraftRuntimeComposer
         // starts, sharing the foundation download engine with installs.
         MinecraftLaunchFileCompletion fileCompletion = new(host.Downloads, host.Logging);
         owned.Add(fileCompletion);
+        host.MinecraftRemediations.BindJava(locator, installer, runtimeRoot, fileCompletion);
         LaunchPreflightGate preflight = new(host.StateStore, async (root, instance, plan, token) =>
         {
             var persistedSettings = await Task.Run(() => JvmRunSettings.Read(plan.GameDirectory), token).ConfigureAwait(false);

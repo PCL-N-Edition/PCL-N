@@ -81,10 +81,11 @@ public sealed class FoundationHost
         InputUsage = new InputUsageTracker();
         ObservationHistory = new ResourceObservationHistory();
         OnlineResourceModels = new OnlineWorkingSetModelStore();
+        MinecraftRemediations = new(SettingsPolicy, StateStore);
         IRemediationHandler[] configuredRemediations = [.. remediationHandlers ?? []];
         HashSet<string> configuredRemediationIds = configuredRemediations
             .Select(static handler => handler.Id).ToHashSet(StringComparer.Ordinal);
-        Remediations = new RemediationService(CoreRemediationHandlers.Create(SettingsPolicy)
+        Remediations = new RemediationService(CoreRemediationHandlers.Create(SettingsPolicy).Concat(MinecraftRemediations.CreateHandlers())
             .Where(handler => !configuredRemediationIds.Contains(handler.Id))
             .Concat(configuredRemediations));
         // The full environment registry: machine facts plus the display/storage/filesystem/
@@ -157,6 +158,7 @@ public sealed class FoundationHost
     public ResourceObservationHistory ObservationHistory { get; }
     public OnlineWorkingSetModelStore OnlineResourceModels { get; }
     public RemediationService Remediations { get; }
+    public MinecraftRemediationBindings MinecraftRemediations { get; }
 
     /// <summary>Registered services in activation order (for composition diagnostics).</summary>
     public IReadOnlyList<object> Services => _services;

@@ -308,6 +308,8 @@ internal static class Program
             () => ((MinecraftLibrarySnapshot?)host.StateStore.ReadAppliedValue(host.StateStore.Resolve(MinecraftLibraryService.StateKey)))?.SelectedInstance?.DirectoryPath);
         launchPage.VersionSettingsPage = versionSettings.Page;
         versionSettings.OpenManagementDirectory = platformActions.OpenDirectory;
+        versionSettings.PickRemediationJava = platformActions.PickJavaFileAsync;
+        settingsPage.PickRemediationJava = platformActions.PickJavaFileAsync;
         versionSettings.ManagementChanged = () =>
         {
             if (library.Commands.TryResolve(MinecraftLibraryRoutes.Refresh, out var refresh))

@@ -595,6 +595,11 @@ public interface IRemediationHandler
     ValueTask<RemediationResult> ExecuteAsync(RemediationRequest request, CancellationToken cancellationToken);
 }
 
+public interface IRemediationAvailability
+{
+    bool Available { get; }
+}
+
 /// <summary>Typed action dispatcher. Product composition registers handlers owned by the
 /// corresponding service; unknown and unconfirmed actions never fall through to a generic fix.</summary>
 public sealed class RemediationService(IEnumerable<IRemediationHandler>? handlers = null)
@@ -602,7 +607,8 @@ public sealed class RemediationService(IEnumerable<IRemediationHandler>? handler
     private readonly FrozenDictionary<string, IRemediationHandler> _handlers = (handlers ?? [])
         .ToFrozenDictionary(static handler => handler.Id, StringComparer.Ordinal);
 
-    public bool CanExecute(string id) => _handlers.ContainsKey(id);
+    public bool CanExecute(string id) => _handlers.TryGetValue(id, out var handler)
+        && (handler is not IRemediationAvailability availability || availability.Available);
 
     public async ValueTask<RemediationResult> ExecuteAsync(RemediationRequest request,
         CancellationToken cancellationToken = default)
@@ -611,7 +617,7 @@ public sealed class RemediationService(IEnumerable<IRemediationHandler>? handler
         RemediationDefinition definition = RemediationCatalog.Get(request.Id);
         if (definition.RequiresConfirmation && !request.Confirmed)
             return new(request.Id, false, "confirmation_required", "此操作需要确认。");
-        if (!_handlers.TryGetValue(request.Id, out IRemediationHandler? handler))
+        if (!_handlers.TryGetValue(request.Id, out IRemediationHandler? handler) || !CanExecute(request.Id))
             return new(request.Id, false, "handler_unavailable", "当前环境没有可执行此操作的服务。");
         RemediationResult result = await handler.ExecuteAsync(request, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(result.Id, request.Id, StringComparison.Ordinal))

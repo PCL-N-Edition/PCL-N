@@ -27,8 +27,11 @@ internal static class CoreRemediationHandlers
                     "缺少有效的建议内存值。"));
             }
 
-            var result = settings.Set(new SettingsMutation("game.memory", SettingsLayer.Global,
-                new(SettingsOverrideMode.Custom, memory.ToString(System.Globalization.CultureInfo.InvariantCulture))));
+            string? instance = request.Arguments?.GetValueOrDefault("instanceDirectory");
+            if (string.IsNullOrWhiteSpace(instance) || !Path.IsPathFullyQualified(instance))
+                return ValueTask.FromResult(new RemediationResult(Id, false, "missing_scope", "请先选择需要调整的实例。"));
+            var result = settings.Set(new SettingsMutation("game.memory", SettingsLayer.Instance,
+                new(SettingsOverrideMode.Custom, memory.ToString(System.Globalization.CultureInfo.InvariantCulture)), instance));
             return ValueTask.FromResult(result.IsSuccess
                 ? new RemediationResult(Id, true, "ok", $"已将 Minecraft 内存调整为 {memory} MiB。")
                 : new RemediationResult(Id, false, "settings_rejected", result.Error?.Message ?? "设置未保存。"));

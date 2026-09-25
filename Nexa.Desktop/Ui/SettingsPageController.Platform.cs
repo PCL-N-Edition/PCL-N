@@ -294,6 +294,7 @@ internal sealed partial class SettingsPageController
 
     private static readonly XsrSemanticId RemediationExecuted = XsrSemanticId.Parse("ui.settings.platform.remediation");
     private static readonly XsrSemanticId RefreshPlatformField = RefreshPlatform;
+    internal Func<Task<string?>>? PickRemediationJava { get; set; }
 
     /// <summary>Remediation button activation → typed execute route; the result surfaces as
     /// an in-window notification (definitions requiring confirmation dispatch confirmed).</summary>
@@ -309,13 +310,33 @@ internal sealed partial class SettingsPageController
             arguments["memoryMiB"] = memory.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (!string.IsNullOrWhiteSpace(_machineScope.InstanceDirectory))
             arguments["instanceDirectory"] = _machineScope.InstanceDirectory;
-        _ = _commands.Dispatch(route, new RemediationRequest(id, arguments, Confirmed: true)).Completion.ContinueWith(task =>
+        void Execute()
         {
-            string message = task.IsCompletedSuccessfully && task.Result.IsSuccess
-                ? "修复操作已执行。"
-                : "修复操作未能执行：" + (task.IsCompletedSuccessfully ? task.Result.Error?.Message : "调度失败");
-            _feedback?.Info(message);
-        }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            _ = ExecuteRemediationAsync(id, arguments, route);
+        }
+        if (RemediationCatalog.Get(id).RequiresConfirmation)
+            _feedback.ShowDialog("preflight.confirm." + id, RemediationCatalog.Get(id).Label, "将对当前选中的实例执行此操作。", "继续", "取消", accepted => { if (accepted) Execute(); });
+        else Execute();
+    }
+
+    private async Task ExecuteRemediationAsync(string id, Dictionary<string, string> arguments, XsrCommandId route)
+    {
+        try
+        {
+            if (id == "remediation.java.select")
+            {
+                if (PickRemediationJava is null) return;
+                string? executable = await PickRemediationJava().ConfigureAwait(false);
+                if (executable is null || _disposed) return;
+                arguments["executable"] = executable;
+            }
+            var result = await _commands.Dispatch(route, new RemediationRequest(id, arguments, Confirmed: true)).Completion.ConfigureAwait(false);
+            if (_disposed) return;
+            if (result.IsSuccess) _feedback.Info("修复操作已完成。");
+            else _feedback.Error(result.Error?.Message ?? "修复操作未完成。");
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
+        { if (!_disposed) _feedback.Error("修复操作未完成，请查看任务详情。"); }
     }
 
     private static string SeverityLabel(PreflightSeverity severity) => severity switch

@@ -43,6 +43,7 @@ public static class MinecraftInstallRuntimeComposer
             inheritVanilla: () => host.SettingsPolicy.Read(new()).Value?.Values
                 .FirstOrDefault(value => value.Key == "install.inherit-vanilla")?.Value.Value == "true",
             settingsPolicy: host.SettingsPolicy, hostStore: host.StateStore);
+        host.MinecraftRemediations.BindInstall(service);
         XsrCommandRouterBuilder commands = new();
         commands.Register<MinecraftInstallStopCommand>(MinecraftInstallRoutes.Stop,
             async (command, token) => await service.StopAsync(command, token).ConfigureAwait(false));

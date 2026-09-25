@@ -32,6 +32,7 @@ public sealed record MinecraftInstallCommand(
     internal string? ModsRelativeDirectory { get; init; }
     public bool? InheritVanilla { get; init; }
     public string? NewInstanceName { get; init; }
+    public bool ForceReinstall { get; init; }
 }
 
 public sealed record MinecraftInstallResult(string InstanceId, string InstanceDirectory);
