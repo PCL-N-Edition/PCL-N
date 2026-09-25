@@ -6,9 +6,47 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 import package
+import smoke_install
 
 
 class InstallScopeTests(unittest.TestCase):
+    def test_windows_smoke_rejects_leftovers_between_installers(self):
+        for leftover in ("desktop", "menu", "host", "executable", None):
+            for failed_uninstall in ("exe", "msi"):
+                with self.subTest(leftover=leftover, failed_uninstall=failed_uninstall), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    files = {
+                        "executable": root / "programs/NexaCL/Nexa.Desktop.exe",
+                        "host": root / "programs/NexaCL/Nexa.Jvm.Host.exe",
+                        "desktop": root / "public/Desktop/NexaCL.lnk",
+                        "menu": root / "data/Microsoft/Windows/Start Menu/Programs/NexaCL.lnk",
+                    }
+                    installed = []
+                    def run(*args):
+                        command = str(args[0])
+                        install = command.endswith(".setup.exe") or command == "msiexec.exe" and args[1] == "/i"
+                        uninstall = command.endswith("unins000.exe") or command == "msiexec.exe" and args[1] == "/x"
+                        if install:
+                            installed.append("msi" if command == "msiexec.exe" else "exe")
+                            for path in files.values():
+                                path.parent.mkdir(parents=True, exist_ok=True)
+                                path.touch()
+                        if uninstall:
+                            kind = "msi" if command == "msiexec.exe" else "exe"
+                            for name, path in files.items():
+                                if kind != failed_uninstall or name != leftover:
+                                    path.unlink(missing_ok=True)
+                    environment = {"ProgramW6432": str(root / "programs"), "ProgramFiles": str(root / "programs"),
+                                   "PUBLIC": str(root / "public"), "ProgramData": str(root / "data")}
+                    with patch.dict(smoke_install.os.environ, environment), patch.object(smoke_install, "run", side_effect=run), \
+                            patch.object(smoke_install, "check_jvm_host"):
+                        if leftover is None:
+                            smoke_install.windows(root, "fixture")
+                        else:
+                            with self.assertRaisesRegex(RuntimeError, "uninstall left"):
+                                smoke_install.windows(root, "fixture")
+                    self.assertEqual(["exe"] if leftover and failed_uninstall == "exe" else ["exe", "msi"], installed)
+
     def test_payload_requires_nonempty_host_on_every_platform(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

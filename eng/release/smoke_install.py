@@ -27,24 +27,29 @@ def windows(root, base):
     executable = Path(os.environ.get("ProgramW6432", os.environ["ProgramFiles"])) / "NexaCL/Nexa.Desktop.exe"
     desktop = Path(os.environ["PUBLIC"]) / "Desktop/NexaCL.lnk"
     menu = Path(os.environ["ProgramData"]) / "Microsoft/Windows/Start Menu/Programs/NexaCL.lnk"
+    host = executable.parent / "Nexa.Jvm.Host.exe"
+    def check_removed():
+        for path in (executable, host, desktop, menu):
+            if path.exists() or path.is_symlink():
+                raise RuntimeError(f"Windows uninstall left an installed artifact: {path}")
     def check():
         for path in (executable, desktop, menu):
             require(path)
-        check_jvm_host(executable.parent / "Nexa.Jvm.Host.exe")
+        check_jvm_host(host)
         run(executable, "--validate-shell")
     run(root / (base + ".setup.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/TASKS=desktopicon")
-    check()
-    run(executable.parent / "unins000.exe", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
-    if executable.exists():
-        raise RuntimeError("EXE uninstall left the installed executable")
-    if (executable.parent / "Nexa.Jvm.Host.exe").exists():
-        raise RuntimeError("EXE uninstall left the JVM host")
+    try:
+        check()
+    finally:
+        run(executable.parent / "unins000.exe", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
+    check_removed()
     msi = root / (base + ".msi")
     run("msiexec.exe", "/i", msi, "/qn", "/norestart")
     try:
         check()
     finally:
         run("msiexec.exe", "/x", msi, "/qn", "/norestart")
+    check_removed()
 
 
 def macos(root, base):
