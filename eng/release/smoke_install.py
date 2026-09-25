@@ -15,6 +15,14 @@ def require(path):
         raise RuntimeError(f"System installation is missing {path}")
 
 
+def check_jvm_host(path):
+    require(path)
+    # No request must fail before loading a JVM or initializing application services.
+    result = subprocess.run([str(path)], timeout=15, check=False)
+    if result.returncode != 2:
+        raise RuntimeError(f"Installed JVM host cannot execute: {result.returncode}")
+
+
 def windows(root, base):
     executable = Path(os.environ.get("ProgramW6432", os.environ["ProgramFiles"])) / "NexaCL/Nexa.Desktop.exe"
     desktop = Path(os.environ["PUBLIC"]) / "Desktop/NexaCL.lnk"
@@ -22,12 +30,15 @@ def windows(root, base):
     def check():
         for path in (executable, desktop, menu):
             require(path)
+        check_jvm_host(executable.parent / "Nexa.Jvm.Host.exe")
         run(executable, "--validate-shell")
     run(root / (base + ".setup.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/TASKS=desktopicon")
     check()
     run(executable.parent / "unins000.exe", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
     if executable.exists():
         raise RuntimeError("EXE uninstall left the installed executable")
+    if (executable.parent / "Nexa.Jvm.Host.exe").exists():
+        raise RuntimeError("EXE uninstall left the JVM host")
     msi = root / (base + ".msi")
     run("msiexec.exe", "/i", msi, "/qn", "/norestart")
     try:
@@ -60,6 +71,10 @@ def linux(root, base):
         require(Path("/usr/share/applications/nexacl.desktop"))
         if executable.stat().st_uid != 0 or executable.stat().st_mode & 0o022:
             raise RuntimeError("Linux system payload must be root owned and not user writable")
+        host = executable.parent / "Nexa.Jvm.Host"
+        check_jvm_host(host)
+        if host.stat().st_uid != 0 or host.stat().st_mode & 0o022 or not os.access(host, os.X_OK):
+            raise RuntimeError("Installed JVM host has invalid ownership or permissions")
         run(executable, "--validate-shell")
         # Validate RPM ownership too; installing an RPM over a DEB on Ubuntu is invalid.
         owners = subprocess.check_output(["rpm", "-qp", "--queryformat",

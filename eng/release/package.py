@@ -129,6 +129,17 @@ def linux(payload, output, work, base, version, prefix, arch):
     run("rpm", "-qip", output / f"{base}.rpm")
 
 
+def validate_payload(payload, platform):
+    suffix = ".exe" if platform == "win" else ""
+    required = ["Nexa.Desktop" + suffix]
+    if platform != "osx":
+        required.append("Nexa.Jvm.Host" + suffix)
+    for name in required:
+        path = payload / name
+        if not path.is_file() or path.stat().st_size == 0:
+            raise ValueError(f"Release payload is missing {name}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--payload", type=Path, required=True)
@@ -141,6 +152,7 @@ def main():
     platform, arch = args.rid.split("-")
     if platform not in ("win", "linux", "osx") or arch not in ("x64", "arm64"):
         raise ValueError("Unsupported RID")
+    validate_payload(args.payload, platform)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     work = output.parent / f"package-{args.rid}"

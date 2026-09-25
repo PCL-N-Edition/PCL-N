@@ -9,6 +9,21 @@ import package
 
 
 class InstallScopeTests(unittest.TestCase):
+    def test_payload_requires_nonempty_host_on_windows_and_linux(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for platform, suffix in (("win", ".exe"), ("linux", "")):
+                (root / ("Nexa.Desktop" + suffix)).write_bytes(b"desktop")
+                host = root / ("Nexa.Jvm.Host" + suffix)
+                with self.assertRaises(ValueError):
+                    package.validate_payload(root, platform)
+                host.touch()
+                with self.assertRaises(ValueError):
+                    package.validate_payload(root, platform)
+                host.write_bytes(b"host")
+                package.validate_payload(root, platform)
+            package.validate_payload(root, "osx")
+
     def test_windows_installers_require_machine_scope(self):
         root = Path(__file__).parent
         setup = (root / "windows.iss").read_text()

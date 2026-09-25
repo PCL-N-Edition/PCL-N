@@ -7,6 +7,9 @@ $hostPath = (Resolve-Path -LiteralPath $HostExecutable).Path
 $suffix = if ($IsWindows) { '.exe' } else { '' }
 $javaPath = (Resolve-Path -LiteralPath (Join-Path $JavaHome "bin/java$suffix")).Path
 $javacPath = Join-Path $JavaHome "bin/javac$suffix"
+$release = Get-Content -LiteralPath (Join-Path $JavaHome 'release') -Raw
+if ($release -notmatch '(?m)^JAVA_VERSION="(?:1\.)?(\d+)') { throw 'Cannot identify fixture Java major' }
+$javaMajor = [int]$Matches[1]
 $scratch = Join-Path ([IO.Path]::GetTempPath()) ("nexa-jni-smoke-" + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($scratch) | Out-Null
 try {
@@ -25,7 +28,9 @@ try {
         Write-Field $writer $javaPath
         Write-Field $writer $scratch
         Write-Field $writer 'JvmHostSmoke'
-        $jvm = @('-Xmx64m', '-Xcheck:jni', '-Dfile.encoding=UTF-8', '-Dnexa.fixture=test value', '--add-opens', 'java.base/java.lang=ALL-UNNAMED', '-cp', $scratch)
+        $jvm = @('-Xmx64m', '-Xcheck:jni', '-Dfile.encoding=UTF-8', '-Dnexa.fixture=test value')
+        if ($javaMajor -ge 9) { $jvm += @('--add-opens', 'java.base/java.lang=ALL-UNNAMED') }
+        $jvm += @('-cp', $scratch)
         $writer.Write([int]$jvm.Length)
         foreach ($value in $jvm) { Write-Field $writer $value }
         $game = @($mode, '', '中文😀')
