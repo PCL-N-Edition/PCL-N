@@ -8,7 +8,7 @@ internal static partial class Program
         ("nested Fabric inventory rejects incomplete and deep archives", NestedFabricInventoryRejectsIncompleteAndDeepArchives),
         ("online resource model admission and prediction stay bounded", Sync(OnlineModelAdmissionAndPredictionStayBounded)),
         ("online resource download keeps only admitted unexpired data", OnlineModelDownloadKeepsOnlyAdmittedUnexpiredData),
-        ("online projection preserves resource semantics", Sync(OnlineProjectionPreservesResourceSemantics)),
+        ("schema-1 classpath model cannot override local resource estimates", Sync(OnlineProjectionPreservesResourceSemantics)),
         ("online model session cancels pending refresh", OnlineModelSessionCancelsPendingRefresh),
         ("protected profiles migrate without plaintext copies", ProtectedProfilesMigrateWithoutPlaintextCopies),
         ("protected profile failures preserve original", ProtectedProfileFailuresPreserveOriginal),

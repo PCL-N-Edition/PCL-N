@@ -74,25 +74,11 @@ internal static partial class Program
         facts[MachineCapabilityCatalog.PhysicalAvailable.Id] = MachineCapabilityCatalog.PhysicalAvailable.Observe(64L * 1024 * 1024, ModelNow, "test");
         var query = new MachineCapabilityQuery("D:/game/versions/test", "test", "D:/game")
         { PlannedHeapMiB = 4096, PlannedClasspathCount = 256, PlannedLoader = "Fabric", PlannedRenderDistance = 16 };
-        var projected = projection.Project(facts, ModelNow, query);
-        AssertEqual(4, projected.Count);
-        foreach (var value in projected)
-        {
-            AssertTrue(value.Id.StartsWith("estimate.physical.", StringComparison.Ordinal));
-            AssertEqual(CapabilityKind.Estimate, value.Definition.Kind);
-            AssertEqual(CapabilityConfidence.Low, value.Confidence);
-        }
-        long reserve = ((Capability<long>)facts["estimate.physical.system_reserve"]).Value;
-        long graphics = ((Capability<long>)facts["estimate.graphics.shared_system"]).Value;
-        long original = ((Capability<long>)facts["estimate.physical.runtime"]).Value;
-        long expected = (long)Math.Ceiling((original - reserve - graphics) * .75
-            + Math.Clamp(2816d, (original - reserve - graphics) * .5, (original - reserve - graphics) * 1.5) * .25 + reserve + graphics);
-        AssertEqual(expected, ((Capability<long>)projected.Single(v => v.Id == "estimate.physical.runtime")).Value);
-        AssertEqual(0L, ((Capability<long>)projected.Single(v => v.Id == "estimate.physical.runtime_margin")).Value);
-        foreach (var fact in projected) facts[fact.Id] = fact;
-        var report = CapabilityPreflightEngine.Evaluate(new MachineCapabilitySnapshot(1, ModelNow, facts.Values));
-        AssertTrue(report.Issues.Any(issue => issue.Code == "MEM_PHYSICAL_RUNTIME_LOW"));
-        AssertFalse(report.Issues.Any(issue => issue.Severity == PreflightSeverity.Blocked));
+        var original = facts.ToDictionary(pair => pair.Key, pair => pair.Value);
+        foreach (int count in new[] { 64, 256, 512 })
+            AssertEqual(0, projection.Project(facts, ModelNow, query with { PlannedClasspathCount = count }).Count);
+        AssertTrue(facts.All(pair => ReferenceEquals(original[pair.Key], pair.Value)));
+        AssertEqual(0, projection.Project(facts, ModelNow).Count);
         AssertEqual(0, projection.Project(facts, ModelNow, query with { PlannedClasspathCount = null }).Count);
         AssertEqual(0, projection.Project(facts, ModelNow, query with { PlannedRenderDistance = -1 }).Count);
         AssertEqual(0, projection.Project(facts, ModelNow, query with { PlannedLoader = "Unknown" }).Count);

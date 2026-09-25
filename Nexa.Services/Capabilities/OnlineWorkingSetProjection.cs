@@ -1,38 +1,20 @@
 namespace Nexa.Services.Capabilities;
 
 /// <summary>Pure cache projection; cannot issue requests or probe the game during rendering.</summary>
-public sealed class OnlineWorkingSetProjection(OnlineWorkingSetModelStore store, string? operatingSystem = null) : ICapabilityProjection
+public sealed class OnlineWorkingSetProjection : ICapabilityProjection
 {
-    private readonly string _os = operatingSystem ?? (OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux");
+    public OnlineWorkingSetProjection(OnlineWorkingSetModelStore store, string? operatingSystem = null)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+    }
+
     public IReadOnlyList<ICapability> Project(IReadOnlyDictionary<string, ICapability> values, DateTimeOffset timestamp) => [];
 
+    // Schema 1 cannot distinguish optimization mods from terrain generators or workload phases.
+    // Aggregate validation and clamping cannot make that prediction applicable to a given pack.
+    // Preserve the local estimate until a mod/workload-aware contract passes admission tests.
     public IReadOnlyList<ICapability> Project(IReadOnlyDictionary<string, ICapability> values, DateTimeOffset timestamp,
-        MachineCapabilityQuery query)
-    {
-        if (!query.HasInstanceScope || query.PlannedHeapMiB is not { } heap || query.PlannedClasspathCount is not { } count
-            || query.PlannedRenderDistance is not { } render || query.PlannedLoader is not { } loader
-            || store.Read(timestamp) is not { } model
-            || !model.TryPredict(_os, loader, heap, count, render, timestamp, out long prediction)) return [];
-        long? Read(string key) => values.TryGetValue(key, out var value)
-            && value is Capability<long> { Availability: CapabilityAvailability.Available } fact ? fact.Value : null;
-        if (Read("estimate.physical.system_reserve") is not { } reserve || reserve < 0
-            || Read("estimate.graphics.shared_system") is not { } graphics || graphics < 0) return [];
-        List<ICapability> result = [];
-        string source = $"在线工作集估算校准 · {model.GeneratedAt:yyyy-MM-dd} · 权重 25%";
-        foreach (var definition in new[] { ResourceEstimateCatalog.PhysicalLaunch, ResourceEstimateCatalog.PhysicalRuntime })
-        {
-            if (Read(definition.Id) is not { } local || local <= reserve + graphics) continue;
-            double process = local - reserve - graphics;
-            long adjusted = (long)Math.Ceiling(process * .75 + Math.Clamp(prediction, process * .5, process * 1.5) * .25 + reserve + graphics);
-            result.Add(definition.Observe(adjusted, timestamp, source, CapabilityConfidence.Low));
-            if (Read("memory.physical.available") is { } available)
-            {
-                var margin = ResourceEstimateCatalog.LongDefinitions[definition.Id + "_margin"];
-                result.Add(margin.Observe(Math.Max(0, available / (1024 * 1024) - adjusted), timestamp, source, CapabilityConfidence.Low));
-            }
-        }
-        return result.AsReadOnly();
-    }
+        MachineCapabilityQuery query) => [];
 }
 
 /// <summary>Owns a background refresh loop. Disposal cancels it; resources are released only after

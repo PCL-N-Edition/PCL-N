@@ -1,4 +1,4 @@
-# Online resource learning — working-set model v1
+# Online resource learning — working-set model v1 (experimental only)
 
 This is an estimate, not compatibility evidence or a verified memory requirement. It must not
 create hard launch blockers. JVM heap, JVM native, private bytes and system commit are distinct
@@ -28,15 +28,21 @@ estimator. Do not extrapolate or alter heap/native/commit estimates using workin
 Remote influence must be bounded and its provenance shown as an estimate. Telemetry is self-reported;
 these gates do not prevent coordinated poisoning, and coefficients are not trusted executable code.
 
-Production integration refreshes once at startup and hourly on a background task. Launch queries
-carry the captured plan's heap, classpath count and loader, and the actual game directory's persisted
-render distance (the same reader used by telemetry). Missing inputs disable online calibration.
-The projection adjusts only physical launch/runtime totals and their margins: remove the local
-system reserve and shared graphics estimate, blend process working set at 25% weight with the
-remote prediction clamped to 0.5..1.5 times that local process estimate, then restore both reserves.
-Thus remote influence is at most 12.5% of the process portion. Heap/native/commit and local historical
-calibration remain unchanged. Modified capabilities retain Estimate kind and Low confidence, with
-Chinese provenance identifying online calibration. No remote value creates a verified hard blocker.
+Production prediction is suspended: schema 1 has no mod identity, workload phase or interaction
+features. Classpath count is not mod cost, and a non-negative coefficient cannot represent an
+optimization mod reducing memory. Passing its aggregate holdout does not establish accuracy for
+an individual pack. Keep downloading and validating experimental documents, but the capability
+projection MUST produce no overrides for schema 1, including nonzero or zero classpath coefficients.
+The local estimator remains an estimate, not newly verified by disabling this model.
+
+A successor needs mod IDs and versions, loader/Minecraft versions, actual loaded-set completeness,
+settings and workload phases (menu, idle world, new terrain, existing chunks). Category labels are
+weak priors only: terrain generation and optimization cannot be assigned fixed costs. Learn bounded
+signed residual effects with regularization and minimum support; model relevant combinations rather
+than assuming additive per-mod cost. Split validation by pack family and machine, report uncertainty
+and coverage, and abstain for unknown combinations or unsupported phases. Separate working set,
+heap and transient peaks. Re-enable production only after versioned admission and held-out checks
+show a benefit over the local baseline on supported pack/workload cohorts.
 
 The client admission component uses a 64 KiB actual-read limit and a three-second refresh timeout.
 It rejects duplicate properties/cohorts, unsupported metrics, malformed feature vectors, weak
@@ -47,9 +53,8 @@ A failed refresh retains a previously admitted session-cache document only until
 there is no disk cache or extension of validity on network failure. Cancellation propagates.
 
 Current slice: server trainer, scheduled aggregation, aggregate download route, client admission,
-production background refresh, scoped physical-budget projection, and deterministic regression/SQL/privacy
-tests are implemented. Scope-less settings snapshots retain the local estimate: only a captured launch
-plan supplies the features needed for online calibration. Administrator model-quality summaries are
+production background refresh, suspended schema-1 physical-budget projection, and deterministic regression/SQL/privacy
+tests are implemented. All settings and launch snapshots retain the local estimate while schema 1 is suspended. Administrator model-quality summaries are
 implemented in the web console. On 2026-09-25 the deployed endpoint returned HTTP 200 with an empty
 model list and generatedAt=2026-09-25T06:17:26.531Z, confirming scheduled publication but not a trained
 cohort. Server training rejects mixed OS/architecture/launcher/loader/classpath identities and
