@@ -114,7 +114,7 @@ def linux(payload, output, work, base, version, prefix, arch):
     run("desktop-file-validate", appdir / "nexacl.desktop")
     for package_type, package_arch in (("deb", "arm64" if arch == "arm64" else "amd64"), ("rpm", "aarch64" if arch == "arm64" else "x86_64")):
         native_version = version.replace(".alpha.", "~alpha.").replace(".beta.", "~beta.").replace(".ci.", "~ci.")
-        dependencies = ("libc6", "libgcc-s1", "libstdc++6", "zlib1g", "libfontconfig1", "libx11-6", "libice6", "libsm6") if package_type == "deb" else ("glibc", "libgcc", "libstdc++", "zlib", "fontconfig", "libX11", "libICE", "libSM")
+        dependencies = ("libc6", "libgcc-s1", "libstdc++6", "zlib1g", "libfontconfig1", "libx11-6", "libice6", "libsm6", "libsecret-tools") if package_type == "deb" else ("glibc", "libgcc", "libstdc++", "zlib", "fontconfig", "libX11", "libICE", "libSM", "/usr/bin/secret-tool")
         options = [item for dependency in dependencies for item in ("--depends", dependency)]
         options += [f"--{package_type}-user", "root", f"--{package_type}-group", "root"]
         run("fpm", "-s", "dir", "-t", package_type, "-n", "nexacl", "-v", native_version, "--iteration", "1",

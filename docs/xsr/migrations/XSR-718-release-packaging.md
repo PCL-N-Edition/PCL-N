@@ -30,3 +30,6 @@ Publisher signing of the full distribution is defined in [release signatures](..
 Validation: Python contracts cover tag parsing, rejected malformed/mismatched tags, commit
 message preservation without execution, and refusal to release missing or empty packages.
 Every runner executes the published launcher with `--validate-shell` before packaging.
+
+Linux package metadata now requires the Secret Service client: DEB libsecret-tools and RPM /usr/bin/secret-tool. Portable builds explain how to install the missing client and unlock a desktop keyring; account storage never falls back to plaintext. Package construction regression checks both generated dependency argument sets; the native-account CI job exercises the real Linux keyring.
+

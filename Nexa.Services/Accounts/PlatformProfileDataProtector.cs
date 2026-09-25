@@ -92,7 +92,7 @@ internal sealed partial class PlatformProfileDataProtector : IProfileDataProtect
 
     private static string RunSecretTool(Guid id, string? secret)
     {
-        if (!File.Exists("/usr/bin/secret-tool")) throw new IOException("请安装 libsecret-tools 并解锁系统密钥库。");
+        if (!File.Exists("/usr/bin/secret-tool")) throw new IOException("请安装系统的 secret-tool（Debian/Ubuntu：libsecret-tools；Fedora：libsecret），并解锁系统密钥库。");
         var start = new ProcessStartInfo("/usr/bin/secret-tool")
         { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
         start.ArgumentList.Add(secret is null ? "lookup" : "store");

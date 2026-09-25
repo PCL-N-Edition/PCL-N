@@ -75,8 +75,10 @@ def macos(root, base):
 
 
 def linux(root, base):
-    run("sudo", "dpkg", "-i", root / (base + ".deb"))
+    # Exercise dependency resolution, rather than relying on the runner's preinstalled tools.
+    run("sudo", "apt-get", "install", "-y", root / (base + ".deb"))
     try:
+        require(Path("/usr/bin/secret-tool"))
         executable = Path("/usr/lib/nexacl/Nexa.Desktop")
         require(executable)
         require(Path("/usr/share/applications/nexacl.desktop"))
@@ -92,6 +94,9 @@ def linux(root, base):
                                           "[%{FILEUSERNAME}:%{FILEGROUPNAME}\\n]", str(root / (base + ".rpm"))], text=True)
         if not owners.splitlines() or any(owner != "root:root" for owner in owners.splitlines()):
             raise RuntimeError("RPM contains non-system file ownership")
+        requirements = subprocess.check_output(["rpm", "-qp", "--requires", str(root / (base + ".rpm"))], text=True)
+        if "/usr/bin/secret-tool" not in requirements.splitlines():
+            raise RuntimeError("RPM does not require the Secret Service client")
     finally:
         run("sudo", "dpkg", "-r", "nexacl")
 

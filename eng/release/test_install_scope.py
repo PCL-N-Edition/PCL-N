@@ -10,6 +10,22 @@ import smoke_install
 
 
 class InstallScopeTests(unittest.TestCase):
+    def test_linux_packages_require_secret_service_client(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload, work, output = [root / name for name in ("payload", "work", "output")]
+            for folder in (payload, work, output):
+                folder.mkdir()
+            (payload / "Nexa.Desktop").write_bytes(b"runtime")
+            with patch.object(package, "run") as run, patch.object(package, "archive"), \
+                    patch.object(package, "required_tool", return_value="tool"):
+                package.linux(payload, output, work, "Nexa-test", "2.0.0.alpha.5", "2.0.0", "x64")
+            commands = [list(call.args) for call in run.call_args_list if call.args[0] == "fpm"]
+            for kind, dependency in (("deb", "libsecret-tools"), ("rpm", "/usr/bin/secret-tool")):
+                command = next(args for args in commands if args[args.index("-t") + 1] == kind)
+                dependencies = [command[i + 1] for i, value in enumerate(command) if value == "--depends"]
+                self.assertIn(dependency, dependencies)
+
     def test_windows_smoke_rejects_leftovers_between_installers(self):
         for leftover in ("desktop", "menu", "host", "executable", None):
             for failed_uninstall in ("exe", "msi"):
