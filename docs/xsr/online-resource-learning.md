@@ -49,6 +49,10 @@ there is no disk cache or extension of validity on network failure. Cancellation
 Current slice: server trainer, scheduled aggregation, aggregate download route, client admission,
 production background refresh, scoped physical-budget projection, and deterministic regression/SQL/privacy
 tests are implemented. Scope-less settings snapshots retain the local estimate: only a captured launch
-plan supplies the features needed for online calibration. Mod-specific learned profiles,
-administrator model-quality presentation and live deployment remain pending. Alpha 5 is
+plan supplies the features needed for online calibration. Administrator model-quality summaries are
+implemented in the web console. On 2026-09-25 the deployed endpoint returned HTTP 200 with an empty
+model list and generatedAt=2026-09-25T06:17:26.531Z, confirming scheduled publication but not a trained
+cohort. Server training rejects mixed OS/architecture/launcher/loader/classpath identities and
+nonterminal or repeated ending windows. Mod-specific learned profiles and controlled benchmark
+seeding (`benchmark-resource-seeding.md`) remain pending. Alpha 5 is
 not complete from this slice alone.

@@ -50,5 +50,6 @@
     <Project Path="tests/Nexa.Services.Tests/Nexa.Services.Tests.csproj" />
     <Project Path="tests/Nexa.Desktop.Tests/Nexa.Desktop.Tests.csproj" />
     <Project Path="tools/CapabilityProbe/CapabilityProbe.csproj" />
+    <Project Path="tools/Nexa.Minecraft.Benchmarks/Nexa.Minecraft.Benchmarks.csproj" />
   </Folder>
 </Solution>

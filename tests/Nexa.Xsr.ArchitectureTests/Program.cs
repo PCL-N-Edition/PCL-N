@@ -36,6 +36,7 @@ internal static class Program
             ],
             ["Nexa.Services.Composition"] = ["Nexa.Services", "Nexa.Xsr.Runtime"],
             ["CapabilityProbe"] = ["Nexa.Services"],
+            ["Nexa.Minecraft.Benchmarks"] = ["Nexa.Services", "Nexa.Xsr.State"],
             ["Nexa.Jvm.Host"] = ["Nexa.Services"],
             ["Nexa.UI.Next"] = ["Nexa.Core", "Nexa.Xsr.Abstractions", "Nexa.Xsr.State"],
             ["Nexa.UI.Next.Backend.Avalonia"] = ["Nexa.UI.Next"],
@@ -72,6 +73,7 @@ internal static class Program
     private static readonly HashSet<string> ExecutableProjects =
         [
             "CapabilityProbe",
+            "Nexa.Minecraft.Benchmarks",
             "Nexa.Jvm.Host",
             "Nexa.Desktop",
             "Nexa.UI.Next.Benchmarks",

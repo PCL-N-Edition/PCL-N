@@ -1,9 +1,23 @@
 # Alpha 5 — controlled modpack benchmarks for model seeding
 
-Status: design accepted for implementation; no benchmark workflow or collected seed dataset exists yet.
+Status: the initial console harness is implemented; no benchmark workflow or collected seed dataset exists yet.
 This extends `online-resource-learning.md`; existing user-session telemetry must not be relabeled or
 silently mixed with benchmark runs. GitHub Actions orchestrates runs, but a hosted VM is not a
 representative physical gaming PC.
+
+Architecture: `tools/Nexa.Minecraft.Benchmarks` is an intentional console host referencing only
+Services and XSR State. It composes existing installation and launch services; it neither depends on
+Desktop/UI nor introduces a second installer or JVM launcher. Its local artifacts are not telemetry
+and cannot be admitted to training until scenario/provenance validation is implemented.
+
+Run `dotnet build tools/Nexa.Minecraft.Benchmarks -c Release`, then pass archive, SHA-256, Java
+executable, published Nexa.Jvm.Host executable, a nonexistent output directory, heap MiB and duration
+seconds (60..1800) to the generated apphost. The harness verifies the pack before inspecting Java,
+uses isolated game storage, drains Jvm.Host sample windows, and records terminal/continuity/forced-stop
+status in `run.json` alongside `samples.csv`. It deliberately sets `trainingEligible=false`: phase
+adapters, full hardware provenance, mod-inventory artifacts, and real-pack validation are still pending.
+The created `game` directory is local scratch data and must not be uploaded as a CI artifact.
+`eng/xsr/Test-MinecraftBenchmark.ps1` checks argument/hash/storage boundaries without downloading games.
 
 ## Dataset and runner selection
 

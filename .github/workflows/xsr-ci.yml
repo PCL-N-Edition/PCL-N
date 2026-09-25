@@ -210,6 +210,13 @@ jobs:
       - name: Enforce UI.Next benchmark gates
         run: dotnet run --project Nexa.UI.Next.Benchmarks/Nexa.UI.Next.Benchmarks.csproj --configuration Release --no-build
 
+      - name: Publish NativeAOT Minecraft benchmark harness
+        run: dotnet publish tools/Nexa.Minecraft.Benchmarks -c Release -p:PublishAot=true -o "${{ runner.temp }}/minecraft-benchmark-aot"
+
+      - name: Check benchmark input boundaries
+        shell: pwsh
+        run: ./eng/xsr/Test-MinecraftBenchmark.ps1 -Executable '${{ runner.temp }}/minecraft-benchmark-aot/Nexa.Minecraft.Benchmarks'
+
       - name: Enforce architecture boundaries
         run: dotnet run --project tests/Nexa.Xsr.ArchitectureTests/Nexa.Xsr.ArchitectureTests.csproj --configuration Release --no-build -- --repo-root .
 

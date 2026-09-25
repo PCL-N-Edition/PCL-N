@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Nexa.Services/Nexa.Services.csproj" />
+    <ProjectReference Include="../../Nexa.Xsr.State/Nexa.Xsr.State.csproj" />
+  </ItemGroup>
+</Project>
