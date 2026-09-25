@@ -54,6 +54,7 @@ internal static partial class Program
         ("settings policy uses sealed foundation routes", SettingsPolicyUsesSealedFoundationRoutes),
         ("settings legacy strategies preserve units and choices", Sync(SettingsLegacyStrategiesKeepTheirMeaning)),
         ("settings argument rows preserve quoted values", Sync(SettingsArgumentRowsPreserveQuotedValues)),
+        ("settings Java preference reaches launch selection", Sync(SettingsJavaPreferenceReachesLaunchSelection)),
         ("recovery settings preserve private arguments and inheritance", Sync(RecoverySettingsPreservePrivateArgumentsAndInheritance)),
         ("recovery settings reject wrong scope and incomplete baseline", Sync(RecoverySettingsRejectWrongScopeAndIncompleteBaseline)),
         ("settings inheritance distinguishes Auto and isolates instances", Sync(SettingsInheritanceIsExplicitAndIsolated)),

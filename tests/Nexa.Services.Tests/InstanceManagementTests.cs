@@ -41,7 +41,9 @@ internal static partial class Program
         AssertFalse(vanilla.Contains("mods"));
         AssertFalse(vanilla.Contains("shaderpacks"));
         AssertFalse(vanilla.Contains("schematics"));
-        foreach (string id in new[] { "overview", "game", "java", "components", "resourcepacks", "saves", "screenshots", "servers", "modpack" })
+        AssertFalse(Pages([]).Contains("java"));
+        AssertFalse(Pages([]).Contains("components"));
+        foreach (string id in new[] { "overview", "game", "resourcepacks", "saves", "screenshots", "servers", "modpack" })
             AssertTrue(vanilla.Contains(id));
         InstallBuildSelection[] fabric = [new(InstallLoader.Fabric, "0.16.0")];
         AssertTrue(Pages(fabric).Contains("mods"));

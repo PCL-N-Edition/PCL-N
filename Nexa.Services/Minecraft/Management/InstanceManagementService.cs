@@ -93,7 +93,7 @@ public static class InstanceManagementService
         bool shaders = components.Any(item => item.Loader == InstallLoader.OptiFine)
             || modLoader && enabled.Overlaps(["iris", "oculus", "optifine", "angelica"]);
         bool schematics = modLoader && enabled.Overlaps(["litematica", "schematica", "worldedit", "axiom", "syncmatica", "baritone"]);
-        List<InstanceManagementPage> pages = [new("overview", "总览"), new("game", "游戏设置"), new("java", "Java"), new("components", "组件")];
+        List<InstanceManagementPage> pages = [new("overview", "总览"), new("game", "游戏设置")];
         if (modLoader) pages.Add(new("mods", "模组", Path.Combine(gameDirectory, "mods")));
         pages.Add(new("resourcepacks", "资源包", Path.Combine(gameDirectory, "resourcepacks")));
         if (shaders) pages.Add(new("shaderpacks", "光影包", Path.Combine(gameDirectory, "shaderpacks")));

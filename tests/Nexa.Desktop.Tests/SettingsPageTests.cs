@@ -71,6 +71,14 @@ internal static partial class Program
         Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.game").Entity);
         scene = fixture.Shell.Render(new(1000, 650));
         var input = FindByKey(fixture.Shell, scene, "SettingsInput.game.width");
+        bool javaRuntimePresent = false;
+        fixture.Shell.Tree.Walk(settings.Page, entity =>
+        {
+            if (fixture.Shell.Tree.Name(entity) == "SettingsInput.java.runtime") javaRuntimePresent = true;
+            return true;
+        });
+        AssertTrue(javaRuntimePresent);
+        AssertFalse(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) is "SettingsNav.java" or "SettingsNav.components"));
         fixture.Shell.Renderer.SetTextInputValue(input.Entity, "1440");
         Emit(fixture.Intents, "ui.settings.edit", FindByKey(fixture.Shell, scene, "SettingsEdit.game.width").Entity);
         fixture.Shell.Render(new(1000, 650));

@@ -40,7 +40,7 @@ public static class SettingsCatalog
             row.GetProperty("page").GetString()!, row.GetProperty("section").GetString()!, row.GetProperty("label").GetString()!,
             Enum.Parse<SettingsCatalogEntryKind>(row.GetProperty("kind").GetString()!), row.GetProperty("key").GetString(),
             row.GetProperty("developer").GetBoolean(), row.GetProperty("key").GetString() is
-                "diagnostics.telemetry" or "game.width" or "game.height" or "game.window-mode" or "game.jvm" or "game.arguments" or "developer.enabled" or "install.inherit-vanilla"
+                "diagnostics.telemetry" or "game.width" or "game.height" or "game.window-mode" or "game.jvm" or "game.arguments" or "java.runtime" or "developer.enabled" or "install.inherit-vanilla"
                     ? SettingsCapabilityAvailability.Available : SettingsCapabilityAvailability.NotImplemented)).ToArray();
         if (result.Select(item => item.Id).Distinct(StringComparer.Ordinal).Count() != result.Length)
             throw new InvalidOperationException("Settings catalog identifiers must be unique.");

@@ -35,6 +35,7 @@ internal static partial class Program
                 return scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "SettingsNav.mods");
             }, TimeSpan.FromSeconds(10)));
             AssertEqual("overview", settings.SelectedSection);
+            AssertFalse(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) is "SettingsNav.java" or "SettingsNav.components"));
             AssertFalse(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "SettingsNav.shaderpacks"));
             Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.mods").Entity);
             scene = fixture.Shell.Render(new(1000, 650));
@@ -67,7 +68,7 @@ internal static partial class Program
             AssertTrue(SpinWait.SpinUntil(() =>
             {
                 scene = fixture.Shell.Render(new(1000, 650));
-                return scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "SettingsNav.components")
+                return scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "SettingsNav.game")
                     && !scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "SettingsNav.mods");
             }, TimeSpan.FromSeconds(10)));
             AssertEqual("overview", settings.SelectedSection);

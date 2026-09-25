@@ -10,6 +10,25 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static void SettingsJavaPreferenceReachesLaunchSelection()
+    {
+        var (_, service) = PolicyFixture();
+        string instance = Path.GetFullPath("java-policy-instance");
+        var fallback = new Nexa.Services.Minecraft.Java.ExistingJavaPreference(Path.GetFullPath("legacy-java"));
+        Nexa.Services.Minecraft.Java.JavaPreference Read() => Nexa.Services.Minecraft.Launch.MinecraftLaunchCoordinator.ApplyJavaPreference(fallback, service.Read(new(instance)).Value!);
+        AssertEqual(fallback, Read());
+        string global = Path.GetFullPath("global-java");
+        AssertTrue(service.Set(new("java.runtime", SettingsLayer.Global, new(SettingsOverrideMode.Custom, global))).IsSuccess);
+        AssertEqual(global, ((Nexa.Services.Minecraft.Java.ExistingJavaPreference)Read()).JavaExecutablePath);
+        AssertTrue(service.Set(new("java.runtime", SettingsLayer.Instance, new(SettingsOverrideMode.Auto), instance)).IsSuccess);
+        AssertTrue(Read() is Nexa.Services.Minecraft.Java.AutoSelectJavaPreference);
+        string local = Path.GetFullPath("instance-java");
+        AssertTrue(service.Set(new("java.runtime", SettingsLayer.Instance, new(SettingsOverrideMode.Custom, local), instance)).IsSuccess);
+        AssertEqual(local, ((Nexa.Services.Minecraft.Java.ExistingJavaPreference)Read()).JavaExecutablePath);
+        AssertTrue(service.Set(new("java.runtime", SettingsLayer.Instance, new(SettingsOverrideMode.Inherit), instance)).IsSuccess);
+        AssertEqual(global, ((Nexa.Services.Minecraft.Java.ExistingJavaPreference)Read()).JavaExecutablePath);
+    }
+
     private static (SettingsService Store, SettingsPolicyService Policy) PolicyFixture(ISettingsPort? port = null)
     {
         var schema = LauncherDefaults.CreateSchema();

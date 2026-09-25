@@ -334,6 +334,12 @@ public sealed class MinecraftLaunchCoordinator
                 && !string.IsNullOrWhiteSpace(instance.Metadata.SelectedJavaPath)
                 ? new ExistingJavaPreference(instance.Metadata.SelectedJavaPath)
                 : new AutoSelectJavaPreference();
+            if (_settingsPolicy is not null)
+            {
+                var policy = _settingsPolicy.Read(new(instance.DirectoryPath));
+                if (!policy.IsSuccess) throw new InvalidOperationException("无法读取版本 Java 设置。");
+                preference = ApplyJavaPreference(preference, policy.Value!);
+            }
             operation?.Stage("select_java", $"os={_platform.OperatingSystem} os_version={_platform.OperatingSystemVersion} arm64={_platform.IsArm64Architecture} manifest_major={javaRequest.ManifestJavaMajorVersion}");
             JavaSelectionResult java = default!;
             XsrResult<ResolvedJava> resolvedJava = XsrResult.Failure<ResolvedJava>(MinecraftErrors.JavaUnavailable("java was not resolved."));
@@ -943,6 +949,15 @@ public sealed class MinecraftLaunchCoordinator
         var effective = _settingsPolicy.Read(new(instance.DirectoryPath));
         if (!effective.IsSuccess) throw new InvalidOperationException("无法读取版本设置：" + effective.Error?.Message);
         return ApplySettings(request, effective.Value!);
+    }
+
+    internal static JavaPreference ApplyJavaPreference(JavaPreference fallback, SettingsEffectiveSnapshot snapshot)
+    {
+        var setting = snapshot.Values.Single(value => value.Key == "java.runtime");
+        if (setting.ValidationError is not null) throw new InvalidDataException("首选 Java 设置无效。");
+        if (setting.Source == SettingsLayer.Builtin) return fallback;
+        return setting.Value.Mode == SettingsOverrideMode.Auto ? new AutoSelectJavaPreference()
+            : new ExistingJavaPreference(setting.Value.Value!);
     }
 
     internal static MinecraftLaunchRequest ApplySettings(MinecraftLaunchRequest request, SettingsEffectiveSnapshot snapshot)

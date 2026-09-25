@@ -23,7 +23,7 @@ internal sealed partial class SettingsPageController
     internal Action<string>? OpenManagementDirectory { get; set; }
     private IReadOnlyList<SettingsCatalogPage> ManagementPages => _management is { } snapshot
         ? snapshot.Pages.Select(page => new SettingsCatalogPage(page.Id, page.Label)).ToArray()
-        : [new("overview", "总览"), new("game", "游戏设置"), new("java", "Java")];
+        : [new("overview", "总览"), new("game", "游戏设置")];
 
     private void CancelManagementRead()
     {
@@ -70,7 +70,7 @@ internal sealed partial class SettingsPageController
             RebuildManagementNavigation();
         }
         else _managementError = "无法读取版本内容，请检查目录后重试。";
-        BuildSections(navigating: _selected is not ("game" or "java")); UpdateEditors();
+        BuildSections(navigating: _selected != "game"); UpdateEditors();
     }
 
     private void RebuildManagementNavigation()
@@ -140,13 +140,6 @@ internal sealed partial class SettingsPageController
             ManagementFact("游戏目录", snapshot.GameDirectory);
             if (snapshot.Description.Length > 0) ManagementFact("描述", snapshot.Description);
             if (OpenManagementDirectory is not null) ManagementButton(_sections, "打开版本文件夹", () => OpenContentDirectory(snapshot.InstanceDirectory), 128);
-        }
-        else if (_selected == "components")
-        {
-            ManagementFact("Minecraft", snapshot.GameVersion);
-            foreach (var component in snapshot.Components) ManagementFact(component.Loader.ToString(), component.Version);
-            if (snapshot.Components.Count == 0) Text(_sections, "此版本未安装加载器。", 13, Muted, 28);
-            ManagementButton(_sections, "修改组件", () => _intents.Emit(XsrSemanticId.Parse("ui.launch.modify"), _sections, XsrCorrelationId.Create()), 100);
         }
         else if (_selected == "modpack")
         {

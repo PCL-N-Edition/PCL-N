@@ -231,7 +231,7 @@ internal sealed partial class SettingsPageController : IDisposable
         foreach (var child in _shell.Tree.Children(_sections).ToArray()) _shell.Tree.Destroy(child);
         _editors.Clear(); _inheritButtons.Clear(); _selectors.Clear(); _argumentEditors.Clear(); _argumentActions.Clear(); _choices.Clear();
         _managementActions.Clear(); _contentList = default; _contentWindowStart = -1;
-        if (_instanceDirectory is not null && _selected is not ("game" or "java")) { BuildManagementSection(); return; }
+        if (_instanceDirectory is not null && _selected != "game") { BuildManagementSection(); return; }
         if (_selected == "platform") { BuildPlatformCapabilities(); return; }
         if (_selected == "advanced") BuildUpdateCard();
         if (_selected == "privacy")
@@ -239,7 +239,9 @@ internal sealed partial class SettingsPageController : IDisposable
             var notice = Text(_sections, "必要遥测始终启用，仅包含版本、系统、架构及分类运行结果。诊断信息包括脱敏错误堆栈、耗时、资源占用、算法指标、功能使用情况、模组清单、加载器版本和游戏设置变化；正式版可关闭，测试版必须启用。不上传账户、路径或日志正文。", 12, Muted, height: 72);
             _shell.Tree.GetComponent<XsrUiVisualStyle>(notice)!.WrapText = true;
         }
-        var entries = _catalog!.Entries.Where(item => item.Scope == "global" && item.Page == _selected && (_instanceDirectory is null || item.Definition?.InstanceOverride == true) && !item.IsRuntimeDetail && (_developer || !item.DeveloperOnly)).ToArray();
+        var entries = _catalog!.Entries.Where(item => item.Scope == "global"
+            && (item.Page == _selected || _instanceDirectory is not null && _selected == "game" && item.Page == "java")
+            && (_instanceDirectory is null || item.Definition?.InstanceOverride == true) && !item.IsRuntimeDetail && (_developer || !item.DeveloperOnly)).ToArray();
         var available = entries.Where(item => item.Kind == SettingsCatalogEntryKind.Setting
             && item.Availability == SettingsCapabilityAvailability.Available && item.Definition is not null).ToArray();
         if (available.Length == 0 && _selected != "advanced")
@@ -327,7 +329,7 @@ internal sealed partial class SettingsPageController : IDisposable
         {
             input = Element(row, "SettingsInput." + entry.SettingKey, XsrUiSemanticRole.TextInput, entry.Label, height: 34);
             _shell.Tree.GetComponent<XsrUiElement>(input)!.Weight = 1;
-            _shell.Tree.SetComponent(input, new XsrUiTextInput { Placeholder = entry.Label });
+            _shell.Tree.SetComponent(input, new XsrUiTextInput { Placeholder = entry.SettingKey == "java.runtime" ? "自动选择，或输入 Java 可执行文件路径" : entry.Label });
             _shell.Tree.SetComponent(input, new XsrUiInput { Focusable = true, Clickable = true });
             Style(input, new(245, 246, 248), Ink, 9, 13);
             _shell.Tree.GetComponent<XsrUiElement>(input)!.Padding = new(10, 0, 10, 0);
@@ -377,7 +379,9 @@ internal sealed partial class SettingsPageController : IDisposable
         var current = _values.Values.First(item => item.Key == editor.Entry.SettingKey).Value.Value;
         string raw = selectedValue ?? (editor.Input.IsAssigned ? _shell.Tree.GetComponent<XsrUiTextInput>(editor.Input)!.ReadDraft()
             : editor.Entry.Definition!.Kind == SettingsValueKind.Boolean ? (current == "true" ? "false" : "true") : (current == "fullscreen" ? "windowed" : "fullscreen"));
-        _writing = SaveAsync(route, new(editor.Entry.SettingKey!, (_instanceDirectory is null ? SettingsLayer.Global : SettingsLayer.Instance), new(SettingsOverrideMode.Custom, raw), _instance));
+        var value = editor.Entry.SettingKey == "java.runtime" && string.IsNullOrWhiteSpace(raw)
+            ? new SettingsOverride(SettingsOverrideMode.Auto) : new(SettingsOverrideMode.Custom, raw);
+        _writing = SaveAsync(route, new(editor.Entry.SettingKey!, (_instanceDirectory is null ? SettingsLayer.Global : SettingsLayer.Instance), value, _instance));
     }
     private async Task<XsrResult> SaveAsync(XsrCommandId route, SettingsMutation mutation)
     {
