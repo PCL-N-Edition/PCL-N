@@ -61,6 +61,7 @@ internal static partial class Program
         ("empty online model retires cached parameters", EmptyOnlineModelRetiresCachedParameters),
         ("resource history isolated by full instance directory", Sync(ResourceHistoryIsolatedByInstanceDirectory)),
         ("resource estimate excludes disabled mods", Sync(ResourceEstimateExcludesDisabledMods)),
+        ("resource estimates remain advisory and count heap once", Sync(ResourceEstimatesRemainAdvisoryAndCountHeapOnce)),
         ("nested Fabric inventory reads declared candidates", NestedFabricInventoryReadsDeclaredCandidates),
         ("nested Fabric inventory rejects incomplete and deep archives", NestedFabricInventoryRejectsIncompleteAndDeepArchives),
         ("online resource model admission and prediction stay bounded", Sync(OnlineModelAdmissionAndPredictionStayBounded)),

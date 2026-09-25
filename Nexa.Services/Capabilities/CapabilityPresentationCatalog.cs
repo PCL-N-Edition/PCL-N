@@ -87,7 +87,7 @@ public static class CapabilityPresentationCatalog
             ["MEM_HEAP_LAUNCH_LOW"] = new("MEM_HEAP_LAUNCH_LOW", "启动堆内存不足", "分配的堆内存低于预计启动需求。"),
             ["MEM_HEAP_RUNTIME_LOW"] = new("MEM_HEAP_RUNTIME_LOW", "运行堆内存不足", "分配的堆内存低于预计运行需求。"),
             ["MEM_HEAP_ABOVE_PHYSICAL_AVAILABLE"] = new("MEM_HEAP_ABOVE_PHYSICAL_AVAILABLE", "堆内存超过可用物理内存", "当前内存分配可能造成频繁换页。"),
-            ["MEM_HEAP_BELOW_HARD_MINIMUM"] = new("MEM_HEAP_BELOW_HARD_MINIMUM", "堆内存低于硬性下限", "当前分配无法满足实例的最低要求。"),
+            ["MEM_HEAP_BELOW_HARD_MINIMUM"] = new("MEM_HEAP_BELOW_HARD_MINIMUM", "堆内存低于估算下限", "按当前估算，建议增加分配的内存。此结果不是硬性启动要求。"),
             ["MEM_PHYSICAL_LAUNCH_LOW"] = new("MEM_PHYSICAL_LAUNCH_LOW", "启动可用内存不足", "可用物理内存低于预计启动需求。"),
             ["MEM_PHYSICAL_RUNTIME_LOW"] = new("MEM_PHYSICAL_RUNTIME_LOW", "运行可用内存偏低", "可用物理内存低于预计运行需求。"),
             ["MEM_PHYSICAL_SEVERE"] = new("MEM_PHYSICAL_SEVERE", "物理内存严重不足", "启动和运行需求都超过当前可用内存。"),

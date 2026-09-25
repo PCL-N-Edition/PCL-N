@@ -4,6 +4,38 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static void ResourceEstimatesRemainAdvisoryAndCountHeapOnce()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var floor = new CapabilityDefinition<long>("estimate.heap.hard_minimum", "floor", "fixture", "fixture");
+        var report = CapabilityPreflightEngine.Evaluate(new(1, now,
+            [floor.Observe(2048, now, "fixture", CapabilityConfidence.High),
+             LaunchPolicyCatalog.MinecraftMemory.Observe(512, now, "fixture")]));
+        var issue = report.Issues.Single(item => item.Code == "MEM_HEAP_BELOW_HARD_MINIMUM");
+        AssertEqual(PreflightCertainty.Estimated, issue.Certainty);
+        AssertFalse(issue.HardConstraint);
+        AssertTrue(issue.CanBypass);
+        AssertTrue(issue.Severity < PreflightSeverity.Blocked);
+
+        var resource = new CapabilityDefinition<long>("resource.derived.steady_memory", "resource", "fixture", "fixture");
+        var projection = new ResourceEstimatorProjection();
+        Dictionary<string, long> Estimate(long bytes) => projection.Project(new Dictionary<string, ICapability>
+        { [resource.Id] = resource.Observe(bytes, now, "fixture") }, now)
+            .OfType<Capability<long>>().ToDictionary(item => item.Id, item => item.Value);
+        var before = Estimate(0);
+        var after = Estimate(1024L * 1024 * 1024);
+        foreach (var values in new[] { before, after })
+        {
+            AssertEqual(values["estimate.heap.runtime"] + values["estimate.native.runtime"]
+                + values["estimate.graphics.shared_system"] + values["estimate.physical.system_reserve"],
+                values["estimate.physical.runtime"]);
+            AssertEqual(values["estimate.native.runtime"], values["estimate.commit.nonheap.runtime"]);
+        }
+        AssertEqual(after["estimate.heap.runtime"] - before["estimate.heap.runtime"]
+            + after["estimate.native.runtime"] - before["estimate.native.runtime"],
+            after["estimate.commit.runtime"] - before["estimate.commit.runtime"]);
+    }
+
     private static void ResourceEstimateExcludesDisabledMods()
     {
         var now = DateTimeOffset.UtcNow;

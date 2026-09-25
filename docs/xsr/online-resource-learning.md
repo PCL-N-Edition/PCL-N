@@ -68,3 +68,7 @@ cohort. Server training rejects mixed OS/architecture/launcher/loader/classpath 
 nonterminal or repeated ending windows. Mod-specific learned profiles and controlled benchmark
 seeding (`benchmark-resource-seeding.md`) remain pending. Alpha 5 is
 not complete from this slice alone.
+
+### Audit correction: estimate semantics
+The legacy estimate.heap.hard_minimum key is an empirical advisory floor, never a verified hard constraint. Its preflight issue remains bypassable and Estimated regardless of confidence. Resource steady heap belongs to heapRuntime exactly once; physical and commit aggregates do not add it again, and nonheap excludes it.
+

@@ -336,10 +336,9 @@ public sealed class CapabilityPreflightEngine
             ["policy.minecraft.memory", "estimate.heap.launch"], "remediation.memory.adjust_heap");
         AddEstimatedLimit(target, available > 0 && heap > available, "MEM_HEAP_ABOVE_PHYSICAL_AVAILABLE",
             ["policy.minecraft.memory", "memory.physical.available"], "remediation.memory.adjust_heap");
-        if (heap > 0 && heapMinimum > 0 && heap < heapMinimum)
-            target.Add(new("MEM_HEAP_BELOW_HARD_MINIMUM", PreflightSeverity.Blocked, "memory",
-                PreflightCertainty.Verified, true, ["policy.minecraft.memory", "estimate.heap.hard_minimum"],
-                remediations: ["remediation.memory.adjust_heap"]));
+        // The legacy key names an empirical floor, not a verified JVM requirement.
+        AddEstimatedLimit(target, heap > 0 && heapMinimum > heap, "MEM_HEAP_BELOW_HARD_MINIMUM",
+            ["policy.minecraft.memory", "estimate.heap.hard_minimum"], "remediation.memory.adjust_heap");
         AddEstimatedLimit(target, available > 0 && physicalLaunch > available, "MEM_PHYSICAL_LAUNCH_LOW",
             ["estimate.physical.launch", "memory.physical.available"], "remediation.memory.release_background");
         AddEstimatedLimit(target, available > 0 && physicalRuntime > available, "MEM_PHYSICAL_RUNTIME_LOW",

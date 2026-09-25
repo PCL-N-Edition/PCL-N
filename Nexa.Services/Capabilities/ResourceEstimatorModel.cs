@@ -120,10 +120,10 @@ internal static class ResourceEstimateModel
 
         long systemReserve = Math.Max(profile.SafetyMarginsMiB.GetValueOrDefault("system", 1024), profile.SafetyMarginMiB);
         long physicalLaunch = heapLaunch + nativeLaunch + resourcePeak + sharedGraphics + systemReserve;
-        long physicalRuntime = heapRuntime + nativeRuntime + resourceHeap + sharedGraphics + systemReserve;
+        long physicalRuntime = heapRuntime + nativeRuntime + sharedGraphics + systemReserve;
         long commitReserve = Math.Max(profile.SafetyMarginsMiB.GetValueOrDefault("commit", 512), profile.SafetyMarginMiB);
         long commitLaunch = heapLaunch + nativeLaunch + resourcePeak + commitReserve;
-        long commitRuntime = heapRuntime + nativeRuntime + resourceHeap + commitReserve;
+        long commitRuntime = heapRuntime + nativeRuntime + commitReserve;
 
         string? scope = NormalizeInstance(instanceDirectory);
         string? fingerprint = ReadString(values, "mod.metadata.fingerprint");
@@ -213,7 +213,7 @@ internal static class ResourceEstimateModel
             ["estimate.commit.heap.launch"] = heapLaunch,
             ["estimate.commit.heap.runtime"] = heapRuntime,
             ["estimate.commit.nonheap.launch"] = nativeLaunch + resourcePeak,
-            ["estimate.commit.nonheap.runtime"] = nativeRuntime + resourceHeap,
+            ["estimate.commit.nonheap.runtime"] = nativeRuntime,
             ["estimate.commit.launch"] = commitLaunch,
             ["estimate.commit.runtime"] = commitRuntime,
             ["estimate.commit.reserve"] = commitReserve,
