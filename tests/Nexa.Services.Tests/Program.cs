@@ -8,6 +8,7 @@ internal static partial class Program
         ("protected profile failures preserve original", ProtectedProfileFailuresPreserveOriginal),
         ("native profile protection uses current user", NativeProfileProtectionUsesCurrentUser),
         ("Microsoft refresh cannot restore removed accounts", MicrosoftRefreshCannotRestoreRemovedAccounts),
+        ("LittleSkin refresh rejects stale generations at every stage", LittleSkinRefreshRejectsStaleGenerations),
         ("first run persists storage and consent without overwriting", FirstRunPersistsChoiceAndPreservesExistingData),
         ("first run failed commit rolls back and can retry", FirstRunFailedCommitCanRetryWithoutOverwriting),
         ("instance settings reach the launch request", Sync(InstanceSettingsReachTheLaunchRequest)),

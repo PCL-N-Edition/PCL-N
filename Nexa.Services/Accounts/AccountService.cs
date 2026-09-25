@@ -238,7 +238,31 @@ public sealed class AccountService
     /// Replaces the profile at the given index and persists the whole list atomically.
     /// </summary>
     public XsrResult ReplaceProfile(int index, LaunchProfile profile, LaunchProfile? expected = null)
+        => ReplaceProfileCore(index, profile, expected, null, out _);
+
+    internal XsrResult<long> ReplaceRefreshedProfile(int index, LaunchProfile profile, LaunchProfile expected, long expectedGeneration)
     {
+        XsrResult result = ReplaceProfileCore(index, profile, expected, expectedGeneration, out long generation);
+        return result.IsSuccess ? XsrResult.Success(generation) : XsrResult.Failure<long>(result.Error!);
+    }
+
+    internal XsrResult<int> UpsertLoginProfile(LaunchProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        lock (_gate)
+        {
+            int index = _profiles.FindIndex(existing => existing.Kind == profile.Kind
+                && !string.IsNullOrEmpty(existing.Uuid)
+                && string.Equals(existing.Uuid, profile.Uuid, StringComparison.OrdinalIgnoreCase));
+            if (index < 0) return AddProfile(profile);
+            XsrResult replaced = ReplaceProfile(index, profile);
+            return replaced.IsSuccess ? XsrResult.Success(index) : XsrResult.Failure<int>(replaced.Error!);
+        }
+    }
+
+    private XsrResult ReplaceProfileCore(int index, LaunchProfile profile, LaunchProfile? expected, long? expectedGeneration, out long generation)
+    {
+        generation = 0;
         XsrResult validated = Validate(profile);
         if (!validated.IsSuccess)
         {
@@ -252,7 +276,8 @@ public sealed class AccountService
                 return XsrResult.Failure(AccountErrors.ProfileNotFound(index));
             }
 
-            if (expected is not null && _profiles[index] != expected)
+            if ((expected is not null && _profiles[index] != expected)
+                || (expectedGeneration is { } captured && captured != _credentialGeneration))
                 return XsrResult.Failure(AccountErrors.InvalidProfile("the account changed while refreshing its session."));
             List<LaunchProfile> updated = [.. _profiles];
             updated[index] = profile;
@@ -263,6 +288,8 @@ public sealed class AccountService
             }
 
             _profiles = updated;
+            // Capture before observer callbacks can re-enter and change the roster again.
+            generation = _credentialGeneration;
             PublishAll();
             _log?.Info("Account", $"Profile replaced index={index} kind={profile.Kind}");
             return XsrResult.Success();

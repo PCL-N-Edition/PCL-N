@@ -25,6 +25,13 @@ contract. Stale results cannot persist or produce a successful launch identity. 
 storage failure preserves the existing session-only launch behavior. Cancellation is
 checked after provider completion before any write.
 
+LittleSkin applies the same guard at validation, OAuth rotation and Minecraft session
+completion. The OAuth write returns its committed generation before state observers run,
+so the next stage can continue its own write but cannot accept a concurrent roster edit.
+LittleSkin persistence failure continues to reject launch. Login upsert resolves identity
+and adds/replaces under one account-service lock; a view index captured before a concurrent
+removal is never used as write authority.
+
 - Data contract: `LaunchProfile` carries the legacy field set and defaults verbatim —
   `Username` (required), `Info`, string-named `Kind` (`Microsoft`, `ThirdParty`, `Offline`,
   `LittleSkin`, `NCloud`), `Uuid`, `Logo`, `SvgIcon` (default `lucide/user`), `SkinAddress`,

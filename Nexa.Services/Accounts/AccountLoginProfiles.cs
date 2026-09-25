@@ -40,20 +40,7 @@ public static class AccountLoginProfiles
     public static XsrResult<int> Upsert(AccountService accounts, LaunchProfile profile)
     {
         ArgumentNullException.ThrowIfNull(accounts);
-        foreach (LaunchProfileView view in accounts.GetViews())
-        {
-            if (view.Kind == profile.Kind
-                && string.Equals(view.Uuid, profile.Uuid, StringComparison.OrdinalIgnoreCase)
-                && view.Uuid.Length > 0)
-            {
-                XsrResult replaced = accounts.ReplaceProfile(view.Index, profile);
-                return replaced.IsSuccess
-                    ? XsrResult.Success(view.Index)
-                    : XsrResult.Failure<int>(replaced.Error!);
-            }
-        }
-
-        return accounts.AddProfile(profile);
+        return accounts.UpsertLoginProfile(profile);
     }
 
     /// <summary>Whether a Yggdrasil server is the LittleSkin host.</summary>
