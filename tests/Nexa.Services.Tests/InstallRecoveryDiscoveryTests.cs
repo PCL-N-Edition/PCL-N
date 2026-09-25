@@ -19,9 +19,6 @@ internal static partial class Program
             await InstallTaskJournal.WriteStatusAsync(rollback, rollbackPlan, InstallTaskStatus.RollbackRequested, default);
             string corrupt = Path.Combine(root, ".nexa-modify", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(corrupt);
             string unknown = Path.Combine(root, ".nexa-modify", "keep-unknown"); Directory.CreateDirectory(unknown);
-            string processor = Path.Combine(root, ".nexa-modify", Guid.NewGuid().ToString("N"));
-            await InstallTaskJournal.CreateAsync(processor, new(root, "1.21.1", InstallLoader.NeoForge, "21.1.1", InstanceName: "test", EditFingerprint: new('A', 64))
-            { InheritVanilla = false }, default);
             var metadata = new FakeMetadata(); using var fixture = new InstallFixture(metadata);
             AssertFalse((await fixture.Install.RecoverPendingAsync(new([root, root]))).IsSuccess);
             AssertEqual("restored", File.ReadAllText(Path.Combine(root, "versions", "test", "test.json")));
@@ -29,8 +26,6 @@ internal static partial class Program
             AssertEqual(InstallTaskStatus.RolledBack, await InstallTaskJournal.ReadStatusAsync(rollback, rollbackPlan, default));
             AssertTrue(Directory.Exists(corrupt)); AssertTrue(Directory.Exists(unknown));
             AssertEqual(0, metadata.VanillaReads);
-            AssertTrue(fixture.Store.ReadCollection<TaskCenterEntry>(fixture.Store.Resolve(TaskCenterStateContract.EntriesKey)).Items
-                .Any(item => item.ErrorMessage?.Contains("准备阶段暂不支持自动恢复", StringComparison.Ordinal) == true));
             // An already completed task is not re-executed, even if its original scratch artifacts are gone.
             File.Delete(Path.Combine(ready, "versions", "test", "test.json"));
             AssertFalse((await fixture.Install.RecoverPendingAsync(new([root]))).IsSuccess);

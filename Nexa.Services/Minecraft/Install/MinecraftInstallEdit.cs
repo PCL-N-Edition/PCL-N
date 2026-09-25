@@ -199,7 +199,8 @@ public sealed partial class MinecraftInstallService
             if (current.Fingerprint != original.Fingerprint) throw new InvalidDataException("安装期间原版本已更改，请重试。");
             string[] generatedFiles = Directory.GetFiles(stage, "*", SearchOption.AllDirectories)
                 .Select(file => Path.GetRelativePath(stage, file).Replace('\\', '/'))
-                .Where(relative => !relative.StartsWith(InstallTaskJournal.DirectoryName + "/", StringComparison.Ordinal))
+                .Where(relative => !relative.StartsWith(InstallTaskJournal.DirectoryName + "/", StringComparison.Ordinal)
+                    && !relative.StartsWith(".nexa-install/", StringComparison.Ordinal))
                 .Where(relative => relative == relativeManifest || !(relative.StartsWith("versions/", StringComparison.Ordinal)
                     && relative.EndsWith(".json", StringComparison.Ordinal) && File.Exists(ForgeInstallService.Contained(original.RootDirectory, relative))))
                 .ToArray();

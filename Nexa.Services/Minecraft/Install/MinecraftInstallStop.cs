@@ -47,8 +47,7 @@ public sealed partial class MinecraftInstallService
             _recoveryRoots.Add(Path.TrimEndingDirectorySeparator(Path.GetFullPath(command.RootDirectory)));
             var execution = new InstallExecution
             {
-                CanPause = command.Loader is not (InstallLoader.Forge or InstallLoader.NeoForge or InstallLoader.Cleanroom or InstallLoader.OptiFine)
-                    && (command.NewInstanceName is null || command.NewInstanceName == command.InstanceName)
+                CanPause = command.NewInstanceName is null || command.NewInstanceName == command.InstanceName
             };
             _executions.Add(execution);
             return execution;
@@ -81,7 +80,7 @@ public sealed partial class MinecraftInstallService
             executions = _executions.ToArray();
             roots = _recoveryRoots.ToArray();
             if (command.Pause && executions.Any(item => !item.CanPause))
-                return XsrResult.Failure(MinecraftErrors.InvalidRequest("当前加载器或改名任务暂不支持暂停，请等待完成或取消安装。"));
+                return XsrResult.Failure(MinecraftErrors.InvalidRequest("当前改名任务暂不支持暂停，请等待完成或取消安装。"));
             _stopping = true;
             _stopInProgress = true;
             _pauseForExit = command.Pause;

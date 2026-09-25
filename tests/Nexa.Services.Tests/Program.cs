@@ -120,6 +120,8 @@ internal static partial class Program
         ("install exit rejects corrupt queue and allows rollback retry", InstallExitRejectsCorruptQueueAndAllowsRollbackRetry),
         ("install exit applies to queued roots before they start", InstallExitAppliesToQueuedRootsBeforeTheyStart),
         ("install exit pause retains plan and cancel removes stage", InstallExitPauseRetainsPlanAndCancelRemovesStage),
+        ("loader installer cache pins identity and rejects changes", LoaderInstallerCachePinsIdentityAndRejectsChanges),
+        ("owned installer dies after owner is killed", OwnedInstallerDiesAfterOwnerIsKilled),
         ("task center tracks lifecycle and summary", TaskCenterTracksLifecycleAndSummary),
         ("task center pause preserves checkpoint without completing steps", TaskCenterPausePreservesCheckpointWithoutCompletingSteps),
         ("prerelease telemetry cannot be disabled", PrereleaseTelemetryCannotBeDisabled),
@@ -412,6 +414,9 @@ internal static partial class Program
 
     private static async Task<int> Main(string[] args)
     {
+        if (args is ["--owned-installer-child"]) return await RunOwnedInstallerChild();
+        if (args is ["--owned-installer-owner"]) return await RunOwnedInstallerOwner();
+        if (args is [Nexa.Services.Processes.OwnedInstallerProcess.WorkerArgument]) return await Nexa.Services.Processes.OwnedInstallerProcess.RunWorkerAsync();
         if (args is ["--interrupted-new-install", var installRoot]) return await RunInterruptedNewInstallChild(installRoot);
         if (args is ["--install-publication-child", var root, var stage]) return await RunInstallPublicationChild(root, stage);
         if (args is ["--jvm-host"]) return await ReceiveJvmHostFixture();

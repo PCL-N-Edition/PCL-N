@@ -101,6 +101,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is [Nexa.Services.Processes.OwnedInstallerProcess.WorkerArgument])
+            return Nexa.Services.Processes.OwnedInstallerProcess.RunWorkerAsync().GetAwaiter().GetResult();
         LogService? log = null;
         FileLogSink? fileSink = null;
         string stage = "resolve_folders";

@@ -53,32 +53,38 @@ public sealed partial class ForgeInstallService(DownloadService downloads, HttpC
         try
         {
             string installer = Path.Combine(stage, "installer.jar");
-            string? sha = null;
-            string? sha256 = null;
-            if (request.LocalInstaller is { } local)
+            using var installerCache = File.Exists(Path.Combine(root, InstallTaskJournal.DirectoryName, "plan.json"))
+                ? new LoaderInstallerCache(root, request) : null;
+            if (installerCache is null || !await installerCache.RestoreAsync(installer, token).ConfigureAwait(false))
             {
-                if (local.Loader != request.Loader || local.Game != request.Game || local.Build != request.Build)
-                    throw new InvalidDataException("本地安装器与请求的版本不一致。");
-                progress?.Report("正在读取本地安装器");
-                await MinecraftLocalJarService.CopyVerifiedAsync(local, installer, token).ConfigureAwait(false);
-            }
-            else
-            {
-                if (request.Loader == InstallLoader.Cleanroom)
-                    sha256 = await CleanroomDigestAsync(request.Build, token).ConfigureAwait(false);
-                else if (request.Loader != InstallLoader.OptiFine)
+                string? sha = null;
+                string? sha256 = null;
+                if (request.LocalInstaller is { } local)
                 {
-                    sha = (await http.GetStringAsync(url + ".sha1", token).ConfigureAwait(false)).Trim().Split(' ', '\t', '\r', '\n')[0];
-                    if (sha.Length != 40 || !sha.All(char.IsAsciiHexDigit)) throw new InvalidDataException("安装器校验信息无效。");
+                    if (local.Loader != request.Loader || local.Game != request.Game || local.Build != request.Build)
+                        throw new InvalidDataException("本地安装器与请求的版本不一致。");
+                    progress?.Report("正在读取本地安装器");
+                    await MinecraftLocalJarService.CopyVerifiedAsync(local, installer, token).ConfigureAwait(false);
                 }
-                progress?.Report("正在下载安装器");
-                await TransferAsync(url, installer, sha, 0, token).ConfigureAwait(false);
-            }
-            if (sha256 is not null)
-            {
-                await using var input = File.OpenRead(installer);
-                string actual = Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(input, token).ConfigureAwait(false));
-                if (!actual.Equals(sha256, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Cleanroom 安装器校验失败。");
+                else
+                {
+                    if (request.Loader == InstallLoader.Cleanroom)
+                        sha256 = await CleanroomDigestAsync(request.Build, token).ConfigureAwait(false);
+                    else if (request.Loader != InstallLoader.OptiFine)
+                    {
+                        sha = (await http.GetStringAsync(url + ".sha1", token).ConfigureAwait(false)).Trim().Split(' ', '\t', '\r', '\n')[0];
+                        if (sha.Length != 40 || !sha.All(char.IsAsciiHexDigit)) throw new InvalidDataException("安装器校验信息无效。");
+                    }
+                    progress?.Report("正在下载安装器");
+                    await TransferAsync(url, installer, sha, 0, token).ConfigureAwait(false);
+                }
+                if (sha256 is not null)
+                {
+                    await using var input = File.OpenRead(installer);
+                    string actual = Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(input, token).ConfigureAwait(false));
+                    if (!actual.Equals(sha256, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Cleanroom 安装器校验失败。");
+                }
+                if (installerCache is not null) await installerCache.SaveAsync(installer, token).ConfigureAwait(false);
             }
             string gameDir = Contained(stage, "versions/" + request.Game);
             Directory.CreateDirectory(gameDir);
@@ -244,8 +250,10 @@ public sealed partial class ForgeInstallService(DownloadService downloads, HttpC
 
     private static async Task RunAsync(ProcessStartInfo start, CancellationToken token)
     {
-        using var process = new System.Diagnostics.Process { StartInfo = start };
+        using var process = new System.Diagnostics.Process { StartInfo = Nexa.Services.Processes.OwnedInstallerProcess.WorkerStartInfo() };
         if (!process.Start()) throw new IOException("无法启动加载器安装器。");
+        try { await Nexa.Services.Processes.OwnedInstallerProcess.WriteRequestAsync(process.StandardInput.BaseStream, start, token).ConfigureAwait(false); }
+        catch { process.StandardInput.Close(); await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false); throw; }
         using var reading = CancellationTokenSource.CreateLinkedTokenSource(token);
         var output = new Queue<string>();
         async Task Drain(StreamReader reader)

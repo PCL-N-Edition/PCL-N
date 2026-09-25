@@ -82,9 +82,6 @@ public sealed partial class MinecraftInstallService
                             var saved = await InstallTaskJournal.ReadAsync(root, stage, token).ConfigureAwait(false);
                             var status = await InstallTaskJournal.ReadStatusAsync(stage, saved, token).ConfigureAwait(false);
                             if (status is InstallTaskStatus.Completed or InstallTaskStatus.RolledBack) continue;
-                            if (saved.Command.Loader is InstallLoader.Forge or InstallLoader.NeoForge or InstallLoader.Cleanroom or InstallLoader.OptiFine
-                                && !Directory.Exists(Path.Combine(stage, ".publication")))
-                                throw new InvalidOperationException("此加载器的准备阶段暂不支持自动恢复，已保留任务。");
                             if (status == InstallTaskStatus.RollbackRequested)
                                 await RollbackInstallationAsync(root, id, newInstallation, token).ConfigureAwait(false);
                             else
