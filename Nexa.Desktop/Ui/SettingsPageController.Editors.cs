@@ -78,7 +78,7 @@ internal sealed partial class SettingsPageController
     private void BuildArgumentEditor(XsrUiEntityId parent, SettingsCatalogEntry entry)
     {
         var panel = Stack(parent, "SettingsArguments." + entry.SettingKey, XsrUiOrientation.Horizontal, 8);
-        _shell.Tree.GetComponent<XsrUiElement>(panel)!.Width = 380;
+        _shell.Tree.GetComponent<XsrUiElement>(panel)!.Weight = 1;
         _shell.Tree.GetComponent<XsrUiElement>(panel)!.Padding = new(0, 6, 0, 6);
         var rows = Stack(panel, "SettingsArgumentRows." + entry.SettingKey, XsrUiOrientation.Vertical, 6);
         _shell.Tree.GetComponent<XsrUiElement>(rows)!.Weight = 1;

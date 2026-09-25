@@ -52,7 +52,7 @@ internal static partial class Program
             Emit(fixture.Intents, "ui.settings.section", button.Entity);
             scene = fixture.Shell.Render(new(1000, 650));
             AssertEqual(page.Id, settings.SelectedSection);
-            if (page.Id != "platform") AssertTrue(scene.Nodes.Any(item => item.Text == "尚未可用"));
+            if (page.Id != "platform") AssertFalse(scene.Nodes.Any(item => item.Text == "尚未可用"));
             AssertTrue(scene.Nodes.Where(item => fixture.Shell.Tree.Name(item.Entity).StartsWith("SettingsRow.", StringComparison.Ordinal)).All(item => item.Rect.Width > 0));
         }
         scene = fixture.Shell.Render(new(760, 500));
@@ -95,7 +95,8 @@ internal static partial class Program
         Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.game").Entity);
         scene = fixture.Shell.Render(new(1000, 650));
         var scroll = FindByKey(fixture.Shell, scene, "SettingsSections").Entity;
-        fixture.Shell.Tree.GetComponent<XsrUiScroll>(scroll)!.OffsetY = 300;
+        // Editable window settings are now visible without scrolling past reserved rows.
+        fixture.Shell.Tree.GetComponent<XsrUiScroll>(scroll)!.OffsetY = 0;
         fixture.Shell.Tree.MarkDirty(scroll, XsrUiDirtyKinds.Layout);
         scene = fixture.Shell.Render(new(1000, 650));
         var input = FindByKey(fixture.Shell, scene, "SettingsInput.game.width");
@@ -137,7 +138,7 @@ internal static partial class Program
         AssertTrue(fixture.Shell.Tree.GetComponent<XsrUiScroll>(list)!.OffsetY >= offset);
         bool hasInspector = false;
         fixture.Shell.Tree.Walk(settings.Page, entity => { hasInspector |= fixture.Shell.Tree.GetComponent<XsrUiText>(entity)?.Content == "XSR State Inspector"; return true; });
-        AssertTrue(hasInspector);
+        AssertFalse(hasInspector); // An unimplemented inspector is not an editable setting.
         AssertFalse(scene.Nodes.Any(item => item.Label?.EndsWith("，尚未可用", StringComparison.Ordinal) == true && item.IsClickable));
     }
 
@@ -205,7 +206,7 @@ internal static partial class Program
         Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.game").Entity);
         scene = fixture.Shell.Render(new(1000, 650));
         var list = FindByKey(fixture.Shell, scene, "SettingsSections").Entity;
-        fixture.Shell.Tree.GetComponent<XsrUiScroll>(list)!.OffsetY = 300;
+        fixture.Shell.Tree.GetComponent<XsrUiScroll>(list)!.OffsetY = 0;
         fixture.Shell.Tree.MarkDirty(list, XsrUiDirtyKinds.Layout);
         scene = fixture.Shell.Render(new(1000, 650));
         var next = FindByKey(fixture.Shell, scene, "SettingsOption.game.window-mode.fullscreen");

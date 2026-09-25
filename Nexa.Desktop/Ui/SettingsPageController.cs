@@ -183,9 +183,9 @@ internal sealed partial class SettingsPageController : IDisposable
     {
         foreach (var page in Pages)
         {
-            var body = Stack(_pager, "SettingsSections", XsrUiOrientation.Vertical, 22);
+            var body = Stack(_pager, "SettingsSections", XsrUiOrientation.Vertical, 28);
             var layout = _shell.Tree.GetComponent<XsrUiElement>(body)!;
-            layout.VerticalAlignment = XsrUiAlignment.Stretch; layout.Padding = new(0, 12, 0, 24);
+            layout.VerticalAlignment = XsrUiAlignment.Stretch; layout.Padding = new(12, 18, 12, 24);
             _shell.Tree.SetComponent(body, new XsrUiScroll { ShowsVerticalIndicator = true });
             _shell.Tree.SetComponent(body, new XsrUiScrollGesture());
             _shell.Tree.SetComponent(body, new XsrUiTransition { Key = page.Id, MovesSelf = true });
@@ -230,26 +230,23 @@ internal sealed partial class SettingsPageController : IDisposable
             _shell.Tree.GetComponent<XsrUiVisualStyle>(notice)!.WrapText = true;
         }
         var entries = _catalog!.Entries.Where(item => item.Scope == "global" && item.Page == _selected && (_instanceDirectory is null || item.Definition?.InstanceOverride == true) && !item.IsRuntimeDetail && (_developer || !item.DeveloperOnly)).ToArray();
-        foreach (var section in entries.GroupBy(item => (Section: item.DeveloperOnly ? "开发者" : item.Section, item.DeveloperOnly)))
+        var available = entries.Where(item => item.Kind == SettingsCatalogEntryKind.Setting
+            && item.Availability == SettingsCapabilityAvailability.Available && item.Definition is not null).ToArray();
+        if (available.Length == 0 && _selected != "advanced")
         {
-            var group = Stack(_sections, "SettingsGroup." + section.First().Id, XsrUiOrientation.Vertical, 8);
-            var heading = Text(group, DisplayLabel(section.Key.Section), 14, Ink, height: 28, weight: 600);
-            _shell.Tree.GetComponent<XsrUiElement>(heading)!.Padding = new(20, 0, 20, 0);
-            var card = Stack(group, "SettingsCard." + section.First().Id, XsrUiOrientation.Vertical, 0);
-            Style(card, White, Ink, 18);
-            var cardContent = Stack(card, "SettingsCardContent", XsrUiOrientation.Vertical, 0);
-            _shell.Tree.GetComponent<XsrUiElement>(cardContent)!.Padding = new(20, 4, 20, 4);
-            var rows = section.Where(item => item.Kind is SettingsCatalogEntryKind.Setting or SettingsCatalogEntryKind.Action or SettingsCatalogEntryKind.State).ToArray();
-            if (_selected == "java" && section.Key.Section == "已安装 Java") rows = [section.First(item => item.Label == "Runtime List")];
-            // A reserved group still has a concrete final-location row, not a placeholder page.
-            if (rows.Length == 0) rows = [section.First()];
+            Text(_sections, Pages.First(page => page.Id == _selected).Label, 20, Ink, height: 30, weight: 600);
+            Text(_sections, "此分类的设置正在准备中。", 13, Muted, height: 24);
+        }
+        foreach (var section in available.GroupBy(item => (Section: item.DeveloperOnly ? "开发者" : item.Section, item.DeveloperOnly)))
+        {
+            var group = Stack(_sections, "SettingsGroup." + section.First().Id, XsrUiOrientation.Vertical, 10);
+            Text(group, DisplayLabel(section.Key.Section), 18, Ink, height: 28, weight: 600);
+            var separator = Element(group, "SettingsGroupDivider", XsrUiSemanticRole.None, null, height: 1);
+            Style(separator, Line, Muted, 0);
+            var cardContent = Stack(group, "SettingsForm", XsrUiOrientation.Vertical, 4);
+            var rows = section.ToArray();
             for (int i = 0; i < rows.Length; i++)
             {
-                if (i > 0)
-                {
-                    var separator = Element(cardContent, "SettingsDivider", XsrUiSemanticRole.None, null, height: 1);
-                    Style(separator, Line, Muted, 0);
-                }
                 BuildRow(cardContent, rows[i]);
             }
         }
@@ -270,14 +267,16 @@ internal sealed partial class SettingsPageController : IDisposable
     private void BuildRow(XsrUiEntityId parent, SettingsCatalogEntry entry)
     {
         var row = Stack(parent, "SettingsRow." + entry.Id, XsrUiOrientation.Horizontal, 16);
-        _shell.Tree.GetComponent<XsrUiElement>(row)!.MinHeight = 64;
-        _shell.Tree.GetComponent<XsrUiElement>(row)!.Padding = new(0, 14, 0, 14);
+        _shell.Tree.GetComponent<XsrUiElement>(row)!.MinHeight = 48;
+        _shell.Tree.GetComponent<XsrUiElement>(row)!.Padding = new(0, 6, 0, 6);
         var label = Stack(row, "SettingsLabel." + entry.Id, XsrUiOrientation.Vertical, 3);
-        _shell.Tree.GetComponent<XsrUiElement>(label)!.Weight = 1;
+        _shell.Tree.GetComponent<XsrUiElement>(label)!.Width = entry.SettingKey == "diagnostics.telemetry" ? 240 : 176;
         Text(label, entry.SettingKey == "diagnostics.telemetry" ? "诊断信息 · 用户体验改进计划" : DisplayLabel(entry.Label), 14, Ink, height: 22, weight: 500);
         if (SettingHint(entry.SettingKey) is { } hint)
         {
-            var description = Text(label, hint, 11, Muted, height: 18);
+            var description = Text(label, hint, 11, Muted, height: 32);
+            _shell.Tree.GetComponent<XsrUiText>(description)!.MaxLines = 2;
+            _shell.Tree.GetComponent<XsrUiVisualStyle>(description)!.WrapText = true;
             _shell.Tree.GetComponent<XsrUiSemantic>(description)!.Label = hint;
         }
         bool enabled = entry.Availability == SettingsCapabilityAvailability.Available && entry.Definition is not null;
@@ -309,12 +308,15 @@ internal sealed partial class SettingsPageController : IDisposable
         }
         if (definition.Kind is SettingsValueKind.Enum or SettingsValueKind.Boolean)
         {
+            var spacer = Element(row, "SettingsControlSpace", XsrUiSemanticRole.None, null);
+            _shell.Tree.GetComponent<XsrUiElement>(spacer)!.Weight = 1;
             BuildShiftSelector(row, entry); return;
         }
         XsrUiEntityId input = default;
         if (definition.Kind is SettingsValueKind.Number or SettingsValueKind.Text or SettingsValueKind.Path)
         {
-            input = Element(row, "SettingsInput." + entry.SettingKey, XsrUiSemanticRole.TextInput, entry.Label, width: 184, height: 34);
+            input = Element(row, "SettingsInput." + entry.SettingKey, XsrUiSemanticRole.TextInput, entry.Label, height: 34);
+            _shell.Tree.GetComponent<XsrUiElement>(input)!.Weight = 1;
             _shell.Tree.SetComponent(input, new XsrUiTextInput { Placeholder = entry.Label });
             _shell.Tree.SetComponent(input, new XsrUiInput { Focusable = true, Clickable = true });
             Style(input, new(245, 246, 248), Ink, 9, 13);
